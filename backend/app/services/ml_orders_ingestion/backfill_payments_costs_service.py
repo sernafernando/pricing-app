@@ -48,15 +48,12 @@ shipment on a partial `get_shipment_costs` payload (design decision,
 `sweep_service.py`), so a shipment ML never fully settles would sit at
 the head of `shipment_id DESC` forever, spending one real HTTP fetch on
 it every single run while blocking every shipment behind it. Attempts
-are counted in `ml_ops_divergence` (`kind='unknown'`,
-`field='cost_sync:<shipment_id>'`, `order_id=0` sentinel); once
-`MAX_COST_SYNC_ATTEMPTS` is reached, that shipment is excluded from future
-candidate queries and never spends budget again. Nothing reads that
-counter any more (the divergences screen is gone), so the give-up itself
-is logged once, at ERROR, with the shipment id and the attempt count --
-the log is the only place it surfaces. The counter is working state, not
-an alarm; D2 of remove-ml-divergences moves it off `ml_ops_divergence`
-into a column on `ml_shipments_ops`.
+are counted on the shipment itself (`ml_shipments_ops.cost_sync_attempts`);
+once `MAX_COST_SYNC_ATTEMPTS` is reached, that shipment is excluded from
+future candidate queries and never spends budget again. The give-up is
+logged once, at ERROR, with the shipment id and the attempt count -- the
+log is the only place it surfaces. The counter is working state, not an
+alarm.
 
 Ordering: NEWEST candidates first (`date_created DESC` /
 `shipment_id DESC`, the closest available proxy for shipment recency).
@@ -115,14 +112,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.config import settings
 from app.core.database import get_background_db
-from app.models.ml_orders_ops import (
-    COST_SYNC_FIELD_PREFIX,
-    COST_SYNC_KIND,
-    COST_SYNC_SENTINEL_ORDER_ID,
-    MlOpsDivergence,
-    MlOrdersOps,
-    MlShipmentOps,
-)
+from app.models.ml_orders_ops import MlOrdersOps, MlShipmentOps
 from app.services.ml_orders_ingestion.sweep_service import (
     CURSOR_NAME as SWEEP_CURSOR_NAME,
     MAX_COST_FETCHES_PER_PASS,
@@ -171,12 +161,6 @@ FLAG_OFF_REASON = "ML_ORDERS_OPS_ENABLED is False"
 # excluded from future candidate queries -- see module docstring.
 MAX_COST_SYNC_ATTEMPTS = 5
 
-_COST_SYNC_DIVERGENCE_KIND = COST_SYNC_KIND
-_COST_SYNC_FIELD_PREFIX = COST_SYNC_FIELD_PREFIX
-# Sentinel `order_id`: there is no single ML order this counter is
-# "about", it is about a shipment.
-_COST_SYNC_SENTINEL_ORDER_ID = COST_SYNC_SENTINEL_ORDER_ID
-
 
 @dataclass
 class BackfillPaymentsCostsResult:
@@ -193,97 +177,38 @@ class BackfillPaymentsCostsResult:
     error: Optional[str] = None
 
 
-def _cost_sync_field(shipment_id: int) -> str:
-    return f"{_COST_SYNC_FIELD_PREFIX}{shipment_id}"
-
-
-def _gave_up_shipment_ids(db) -> set:
-    """Shipment ids whose cost sync has already been attempted
-    `MAX_COST_SYNC_ATTEMPTS` times without resolving -- excluded from
-    future candidate queries (module docstring).
-
-    The give-up test lives in the
-    WHERE clause, not in Python. `_record_cost_sync_attempt` clamps the
-    counter at `MAX_COST_SYNC_ATTEMPTS`, so "gave up" is one exact
-    stored value and this reads only the rows it actually needs --
-    previously it pulled every `cost_sync:%` row, in-progress ones
-    included, and filtered them in the process.
-
-    # ponytail: the returned set still has no ceiling of its own, and it
-    # goes on to feed a `NOT IN (...)`. Bounded by the number of
-    # shipments ML never settles, which we expect to stay small; if it
-    # ever does not, this belongs in a column on `ml_shipments_ops`
-    # rather than in the divergence table.
-    """
-    rows = (
-        db.query(MlOpsDivergence.field)
-        .filter(
-            MlOpsDivergence.order_id == _COST_SYNC_SENTINEL_ORDER_ID,
-            MlOpsDivergence.kind == _COST_SYNC_DIVERGENCE_KIND,
-            MlOpsDivergence.field.like(f"{_COST_SYNC_FIELD_PREFIX}%"),
-            MlOpsDivergence.ml_value == str(MAX_COST_SYNC_ATTEMPTS),
-        )
-        .all()
-    )
-    given_up = set()
-    for (field,) in rows:
-        try:
-            given_up.add(int(field[len(_COST_SYNC_FIELD_PREFIX) :]))
-        except ValueError:
-            continue
-    return given_up
-
-
 def _clear_cost_sync_attempts(db, shipment_ids) -> None:
-    """Drops the give-up counters of shipments that resolved. The counter
+    """Resets the give-up counters of shipments that resolved. The counter
     stands for a streak of runs that ended without a cost, so a single
     success ends the streak -- keeping it would spend a later stall's
     attempts before that stall ever began."""
     if not shipment_ids:
         return
-    fields = [_cost_sync_field(shipment_id) for shipment_id in shipment_ids]
-    db.query(MlOpsDivergence).filter(
-        MlOpsDivergence.order_id == _COST_SYNC_SENTINEL_ORDER_ID,
-        MlOpsDivergence.kind == _COST_SYNC_DIVERGENCE_KIND,
-        MlOpsDivergence.field.in_(fields),
-    ).delete(synchronize_session=False)
+    db.query(MlShipmentOps).filter(
+        MlShipmentOps.shipment_id.in_(list(shipment_ids)),
+        MlShipmentOps.cost_sync_attempts != 0,
+    ).update({MlShipmentOps.cost_sync_attempts: 0}, synchronize_session=False)
 
 
 def _record_cost_sync_attempt(db, shipment_id: int) -> int:
-    """Increments (creating if needed) the attempt counter for a shipment
-    whose cost sync did not fully resolve this run. Returns the new
-    count, CLAMPED at `MAX_COST_SYNC_ATTEMPTS` so that "gave up" is a
-    single exact stored value `_gave_up_shipment_ids` can filter on in
-    SQL. Dedup via the `(order_id, kind, field)` unique constraint."""
-    field = _cost_sync_field(shipment_id)
-    existing = (
-        db.query(MlOpsDivergence)
-        .filter(
-            MlOpsDivergence.order_id == _COST_SYNC_SENTINEL_ORDER_ID,
-            MlOpsDivergence.kind == _COST_SYNC_DIVERGENCE_KIND,
-            MlOpsDivergence.field == field,
-        )
-        .first()
+    """Increments the attempt counter of a shipment whose cost sync did not
+    fully resolve this run and returns the new count, CLAMPED at
+    `MAX_COST_SYNC_ATTEMPTS` so "gave up" is one exact stored value. Only
+    this backfill writes it, and its run lock serializes the runs."""
+    shipment = db.query(MlShipmentOps).filter(MlShipmentOps.shipment_id == shipment_id).first()
+    if shipment is None:
+        return 0
+    shipment.cost_sync_attempts = min((shipment.cost_sync_attempts or 0) + 1, MAX_COST_SYNC_ATTEMPTS)
+    return shipment.cost_sync_attempts
+
+
+def _shipment_cost_candidates(db):
+    """Shipments whose costs are still missing and that have not given up --
+    defined once for the real query and its `--dry-run` count."""
+    return db.query(MlShipmentOps.shipment_id).filter(
+        MlShipmentOps.costs_synced_at.is_(None),
+        MlShipmentOps.cost_sync_attempts < MAX_COST_SYNC_ATTEMPTS,
     )
-    now = datetime.now(timezone.utc)
-    if existing is not None:
-        try:
-            attempts = min(int(existing.ml_value or "0") + 1, MAX_COST_SYNC_ATTEMPTS)
-        except ValueError:
-            attempts = 1
-        existing.ml_value = str(attempts)
-        existing.detected_at = now
-        return attempts
-    db.add(
-        MlOpsDivergence(
-            order_id=_COST_SYNC_SENTINEL_ORDER_ID,
-            kind=_COST_SYNC_DIVERGENCE_KIND,
-            field=field,
-            ml_value="1",
-            detected_at=now,
-        )
-    )
-    return 1
 
 
 def _orders_newest_first():
@@ -338,22 +263,14 @@ def _shipments_needing_costs(limit: int) -> List[int]:
     excluding any shipment that already gave up (module docstring), for
     the same reason as `_orders_needing_payments`."""
     with get_background_db() as db:
-        given_up = _gave_up_shipment_ids(db)
-        query = db.query(MlShipmentOps.shipment_id).filter(MlShipmentOps.costs_synced_at.is_(None))
-        if given_up:
-            query = query.filter(~MlShipmentOps.shipment_id.in_(given_up))
-        rows = query.order_by(MlShipmentOps.shipment_id.desc()).limit(limit).all()
+        rows = _shipment_cost_candidates(db).order_by(MlShipmentOps.shipment_id.desc()).limit(limit).all()
         return [shipment_id for (shipment_id,) in rows]
 
 
 def _count_shipments_needing_costs(limit: int) -> int:
     """The `--dry-run` counterpart of `_shipments_needing_costs`."""
     with get_background_db() as db:
-        given_up = _gave_up_shipment_ids(db)
-        query = db.query(MlShipmentOps.shipment_id).filter(MlShipmentOps.costs_synced_at.is_(None))
-        if given_up:
-            query = query.filter(~MlShipmentOps.shipment_id.in_(given_up))
-        return query.order_by(MlShipmentOps.shipment_id.desc()).limit(limit).count()
+        return _shipment_cost_candidates(db).order_by(MlShipmentOps.shipment_id.desc()).limit(limit).count()
 
 
 def _resolve_ambiguous_orders(
@@ -550,7 +467,7 @@ def run_backfill(limit: int = DEFAULT_LIMIT, dry_run: bool = False) -> BackfillP
                     )
                 } & attempted_shipment_ids
                 # A shipment that RESOLVED this run must not carry its
-                # old attempt count forward: leaving `cost_sync:<id>` at
+                # old attempt count forward: leaving its counter at
                 # 3 means a future stall gives up after 2 attempts
                 # instead of `MAX_COST_SYNC_ATTEMPTS`. The counter
                 # describes an unresolved streak, so success ends it.
