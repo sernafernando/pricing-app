@@ -24,7 +24,6 @@ function estadoPar(key, checked, baseline) {
  * exactly what a save would change. A marca checkbox applies to the pairs
  * of that marca that are currently VISIBLE (search and toggle applied), so
  * a filtered view never touches rows the user cannot see.
-
  */
 export default function MarcasAcordeon({ pares, checked, baseline, onToggle, onMarcarPares, disabled }) {
   const [busqueda, setBusqueda] = useState('');
