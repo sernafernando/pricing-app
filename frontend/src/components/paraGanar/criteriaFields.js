@@ -1,10 +1,25 @@
 /** Criteria field defs for the PARA GANAR Criterios panel (MLA override). */
+
+/** Keep in sync with backend CRITERIOS_DEFAULT_* in para_ganar.py */
+export const SYSTEM_CRITERIA_DEFAULTS = {
+  markup_min: 5,
+  markup_max: 15,
+  top_sellers: 5,
+  precio_min: null,
+  precio_max: null,
+  ganar_catalogo: false,
+  ignorar_internacionales: false,
+  descartar_stock_residual: false,
+  descartar_reputacion_baja: false,
+  techo_monopolio: false,
+};
+
 export const CRITERIA_NUMBER_FIELDS = [
-  { key: 'markup_min', label: 'Markup mínimo %', placeholder: 'ej. 8' },
-  { key: 'markup_max', label: 'Markup máximo %', placeholder: 'ej. 25' },
+  { key: 'markup_min', label: 'Markup mínimo %', placeholder: 'ej. 5' },
+  { key: 'markup_max', label: 'Markup máximo %', placeholder: 'ej. 15' },
   { key: 'top_sellers', label: 'TOP sellers por tipo', placeholder: 'ej. 5', integer: true },
-  { key: 'precio_min', label: 'Precio mínimo', placeholder: 'ARS' },
-  { key: 'precio_max', label: 'Precio máximo', placeholder: 'ARS' },
+  { key: 'precio_min', label: 'Precio mínimo', placeholder: 'sin tope' },
+  { key: 'precio_max', label: 'Precio máximo', placeholder: 'sin tope' },
 ];
 
 export const CRITERIA_FLAG_FIELDS = [
@@ -16,12 +31,12 @@ export const CRITERIA_FLAG_FIELDS = [
 ];
 
 export const EMPTY_CRITERIA_FORM = {
-  markup_min: '',
-  markup_max: '',
-  top_sellers: '',
+  markup_min: String(SYSTEM_CRITERIA_DEFAULTS.markup_min),
+  markup_max: String(SYSTEM_CRITERIA_DEFAULTS.markup_max),
+  top_sellers: String(SYSTEM_CRITERIA_DEFAULTS.top_sellers),
   precio_min: '',
   precio_max: '',
-  ganar_catalogo: true,
+  ganar_catalogo: false,
   ignorar_internacionales: false,
   descartar_stock_residual: false,
   descartar_reputacion_baja: false,
@@ -35,7 +50,7 @@ export function criteriaToForm(data) {
     top_sellers: data?.top_sellers != null ? String(data.top_sellers) : '',
     precio_min: data?.precio_min != null ? String(data.precio_min) : '',
     precio_max: data?.precio_max != null ? String(data.precio_max) : '',
-    ganar_catalogo: data?.ganar_catalogo !== false,
+    ganar_catalogo: Boolean(data?.ganar_catalogo),
     ignorar_internacionales: Boolean(data?.ignorar_internacionales),
     descartar_stock_residual: Boolean(data?.descartar_stock_residual),
     descartar_reputacion_baja: Boolean(data?.descartar_reputacion_baja),

@@ -108,7 +108,8 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 - Nav: Sidebar → Productos → PARA GANAR (badge WIP)
 - Catalog: `frontend/src/registry/screenCatalog.js`
 - Criterios: override por MLA (`GET/PUT /api/para-ganar/criterios/{mla}`, tabla `para_ganar_criterios_mla`); botón masivo aún deshabilitado; herencia producto/PM TBD
+- System defaults (source=`default`): markup 5–15%, top sellers 5, precio min/max unset, all flags off
 
 ## Suggested next step
 
-Product/PM default layers for criteria inheritance, then suggestion engine / apply-via-promotions.
+Seller roster per catalog (members + ignore / hide / exclude-from-TOP); then product/PM default layers; then suggestion engine / apply-via-promotions.

@@ -31,7 +31,7 @@ def upgrade() -> None:
         sa.Column("top_sellers", sa.Integer(), nullable=True),
         sa.Column("precio_min", sa.Numeric(14, 2), nullable=True),
         sa.Column("precio_max", sa.Numeric(14, 2), nullable=True),
-        sa.Column("ganar_catalogo", sa.Boolean(), nullable=False, server_default=sa.text("true")),
+        sa.Column("ganar_catalogo", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("ignorar_internacionales", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("descartar_stock_residual", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("descartar_reputacion_baja", sa.Boolean(), nullable=False, server_default=sa.text("false")),

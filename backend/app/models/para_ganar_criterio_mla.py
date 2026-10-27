@@ -17,7 +17,7 @@ class ParaGanarCriterioMla(Base):
     top_sellers = Column(Integer, nullable=True)
     precio_min = Column(Numeric(14, 2), nullable=True)
     precio_max = Column(Numeric(14, 2), nullable=True)
-    ganar_catalogo = Column(Boolean, nullable=False, server_default="true")
+    ganar_catalogo = Column(Boolean, nullable=False, server_default="false")
     ignorar_internacionales = Column(Boolean, nullable=False, server_default="false")
     descartar_stock_residual = Column(Boolean, nullable=False, server_default="false")
     descartar_reputacion_baja = Column(Boolean, nullable=False, server_default="false")

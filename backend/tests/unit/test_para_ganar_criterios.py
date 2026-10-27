@@ -24,9 +24,16 @@ def test_criterios_get_defaults_when_missing(client: TestClient, rma_superadmin_
     body = response.json()
     assert body["mla"] == "MLA999999"
     assert body["source"] == "default"
-    assert body["markup_min"] is None
-    assert body["ganar_catalogo"] is True
+    assert body["markup_min"] == 5.0
+    assert body["markup_max"] == 15.0
+    assert body["top_sellers"] == 5
+    assert body["precio_min"] is None
+    assert body["precio_max"] is None
+    assert body["ganar_catalogo"] is False
     assert body["ignorar_internacionales"] is False
+    assert body["descartar_stock_residual"] is False
+    assert body["descartar_reputacion_baja"] is False
+    assert body["techo_monopolio"] is False
 
 
 def test_criterios_put_unknown_mla_404(client: TestClient, rma_superadmin_user) -> None:

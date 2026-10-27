@@ -366,6 +366,12 @@ def listar_cola(
     )
 
 
+# System defaults when no MLA / product / PM override exists yet.
+CRITERIOS_DEFAULT_MARKUP_MIN = 5.0
+CRITERIOS_DEFAULT_MARKUP_MAX = 15.0
+CRITERIOS_DEFAULT_TOP_SELLERS = 5
+
+
 class ParaGanarCriteriosMla(BaseModel):
     mla: str
     source: str = Field(description="mla when a row exists, otherwise default")
@@ -374,7 +380,7 @@ class ParaGanarCriteriosMla(BaseModel):
     top_sellers: Optional[int] = Field(default=None, ge=1, le=50)
     precio_min: Optional[float] = None
     precio_max: Optional[float] = None
-    ganar_catalogo: bool = True
+    ganar_catalogo: bool = False
     ignorar_internacionales: bool = False
     descartar_stock_residual: bool = False
     descartar_reputacion_baja: bool = False
@@ -390,7 +396,7 @@ class ParaGanarCriteriosMlaUpsert(BaseModel):
     top_sellers: Optional[int] = Field(default=None, ge=1, le=50)
     precio_min: Optional[float] = None
     precio_max: Optional[float] = None
-    ganar_catalogo: bool = True
+    ganar_catalogo: bool = False
     ignorar_internacionales: bool = False
     descartar_stock_residual: bool = False
     descartar_reputacion_baja: bool = False
@@ -413,7 +419,21 @@ class ParaGanarCriteriosMlaUpsert(BaseModel):
 
 
 def _criterios_defaults(mla: str) -> ParaGanarCriteriosMla:
-    return ParaGanarCriteriosMla(mla=mla, source="default")
+    """Effective criteria before any MLA override (precio min/max stay unset)."""
+    return ParaGanarCriteriosMla(
+        mla=mla,
+        source="default",
+        markup_min=CRITERIOS_DEFAULT_MARKUP_MIN,
+        markup_max=CRITERIOS_DEFAULT_MARKUP_MAX,
+        top_sellers=CRITERIOS_DEFAULT_TOP_SELLERS,
+        precio_min=None,
+        precio_max=None,
+        ganar_catalogo=False,
+        ignorar_internacionales=False,
+        descartar_stock_residual=False,
+        descartar_reputacion_baja=False,
+        techo_monopolio=False,
+    )
 
 
 def _criterios_from_row(row: ParaGanarCriterioMla) -> ParaGanarCriteriosMla:
