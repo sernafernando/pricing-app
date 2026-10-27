@@ -142,10 +142,6 @@ _PARKED_SQL = text(
 
 def queue_lanes(db: Session) -> List[Dict[str, Any]]:
     """Waiting, claimed and parked entries and the oldest wait of each lane (the report's `queue.lanes`)."""
-    return _queue(db)["lanes"]
-
-
-def _queue(db: Session) -> Dict[str, Any]:
     found = {row["lane"]: row for row in db.execute(_LANES_SQL).mappings()}
     lanes = []
     for lane in sorted({*LANES, *found}):
@@ -159,6 +155,11 @@ def _queue(db: Session) -> Dict[str, Any]:
                 "oldest_waiting_age_seconds": row["oldest"] if row else None,
             }
         )
+    return lanes
+
+
+def _queue(db: Session) -> Dict[str, Any]:
+    lanes = queue_lanes(db)
     parked = [dict(row) for row in db.execute(_PARKED_SQL, {"limit": PARKED_LIMIT}).mappings()]
     return {"lanes": lanes, "parked": parked, "parked_total": sum(lane["parked"] for lane in lanes)}
 
@@ -446,10 +447,6 @@ def freshness_metrics(db: Session, bundle_resources: List[str]) -> Dict[str, Any
 
 def bounded_read_only(db: Session) -> None:
     """Make the open transaction of `db` read-only and bound each statement by `STATEMENT_TIMEOUT`."""
-    _bounded_read_only(db)
-
-
-def _bounded_read_only(db: Session) -> None:
     db.execute(text("SET TRANSACTION READ ONLY"))
     db.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
 
@@ -463,7 +460,7 @@ def build_list_status(db: Session) -> Dict[str, Any]:
     minute paid. This one reads settings and `ml_items` (a few milliseconds), under the same read-only and timeout
     guarantees, and has the same shape for the keys it fills. A section that fails is named in `sections_failed`.
     """
-    _bounded_read_only(db)
+    bounded_read_only(db)
     failed: List[str] = []
     config = settings_store.get_settings([f"{flag}.enabled" for flag in FLAGS] + ["bundle_resources"])
     bundle_resources = config["bundle_resources"].value
@@ -481,7 +478,7 @@ def build_list_status(db: Session) -> Dict[str, Any]:
 
 def build_status(db: Session) -> Dict[str, Any]:
     """The whole report. Read only; see the module docstring."""
-    _bounded_read_only(db)
+    bounded_read_only(db)
     failed: List[str] = []
     config = settings_store.get_settings([f"{flag}.enabled" for flag in FLAGS] + ["bundle_resources"])
     flags = {flag: config[f"{flag}.enabled"].value is True for flag in FLAGS}
