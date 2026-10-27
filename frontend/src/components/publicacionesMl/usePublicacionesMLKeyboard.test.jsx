@@ -18,13 +18,15 @@ const ROWS = Array.from({ length: 15 }, (_, index) => ({
 }));
 const COLUMNS = [{ key: 'titulo', label: 'Título', render: (row) => row.titulo }];
 
-function Harness({ onOpen = () => {}, onExport, showToast = () => {}, rows = ROWS }) {
+function Harness({ onOpen = () => {}, onExport, onPaintRow, onCycleLayer, showToast = () => {}, rows = ROWS }) {
   const searchRef = useRef(null);
   const [help, setHelp] = useState(false);
   usePublicacionesMLKeyboard({
     searchRef,
     findRow: (key) => rows.find((row) => row.item_id === key),
     onExport,
+    onPaintRow,
+    onCycleLayer,
     onToggleHelp: () => setHelp((open) => !open),
     showToast,
   });
@@ -202,5 +204,56 @@ describe('usePublicacionesMLKeyboard', () => {
     await user.keyboard('{ArrowDown}{ArrowDown}{Control>}{F1}{/Control}');
     expect(showToast).toHaveBeenLastCalledWith('La publicación no tiene producto vinculado', 'error');
     expect(await copied()).toBe('');
+  });
+});
+
+describe('colors (S8): 0-7 paint the focused row, F6/F7 change the layer, as in Productos', () => {
+  it("0-7 paint the focused row's product with Productos' colors in Productos' order (0 = no color)", async () => {
+    const onPaintRow = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onPaintRow={onPaintRow} />);
+    await user.keyboard('{ArrowDown}{ArrowDown}1');
+    expect(onPaintRow).toHaveBeenLastCalledWith('MLA2', 'rojo');
+    await user.keyboard('7');
+    expect(onPaintRow).toHaveBeenLastCalledWith('MLA2', 'gris');
+    await user.keyboard('0');
+    expect(onPaintRow).toHaveBeenLastCalledWith('MLA2', null);
+    await user.keyboard('8');
+    expect(onPaintRow).toHaveBeenCalledTimes(3);
+  });
+
+  it('says where to stand without a focused row, and never paints while typing or with a modifier', async () => {
+    const onPaintRow = vi.fn();
+    const showToast = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onPaintRow={onPaintRow} showToast={showToast} />);
+    await user.keyboard('3');
+    expect(showToast).toHaveBeenCalledWith('Posicionate sobre una publicación (flecha abajo) para usar este atajo', 'error');
+    await user.click(screen.getByRole('textbox', { name: 'Buscar' }));
+    await user.keyboard('3');
+    screen.getByRole('textbox', { name: 'Buscar' }).blur();
+    await user.keyboard('{ArrowDown}{Alt>}3{/Alt}');
+    expect(onPaintRow).not.toHaveBeenCalled();
+  });
+
+  it('leaves the digits alone where painting is not offered', async () => {
+    const showToast = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness showToast={showToast} />);
+    await user.keyboard('{ArrowDown}3');
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('F6 / F7 step to the previous / next layer, from anywhere but a field', async () => {
+    const onCycleLayer = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onCycleLayer={onCycleLayer} />);
+    expect(fireEvent.keyDown(document.body, { key: 'F7', code: 'F7' })).toBe(false);
+    expect(onCycleLayer).toHaveBeenLastCalledWith(1);
+    await user.keyboard('{F6}');
+    expect(onCycleLayer).toHaveBeenLastCalledWith(-1);
+    await user.click(screen.getByRole('textbox', { name: 'Buscar' }));
+    await user.keyboard('{F7}');
+    expect(onCycleLayer).toHaveBeenCalledTimes(2);
   });
 });

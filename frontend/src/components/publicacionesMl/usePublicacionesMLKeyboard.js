@@ -17,6 +17,10 @@ const COPIES = {
   },
 };
 
+// Productos' quick colors (`useProductosKeyboard`): the digit is the index, 0 clears the color.
+const PAINT_COLORS = [null, 'rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
+const NO_ROW = 'Posicionate sobre una publicación (flecha abajo) para usar este atajo';
+
 function copyAction(event) {
   if (!event.ctrlKey) return null;
   if (!event.shiftKey && /^F[123]$/.test(event.key)) return Number(event.key[1]);
@@ -69,16 +73,27 @@ function moveFocus(event) {
  * - Ctrl+F focuses the search, Ctrl+E exports (only where the view can: `onExport` absent leaves it to the browser),
  *   `?` toggles the help.
  * - Ctrl+F1/F2/F3 (or Ctrl+Shift+1/2/3) copy the focused publication's product code and its two ML links.
+ * - 0-7 paint the focused row's product (`onPaintRow(key, color)`, 0 = no color) and F6/F7 step to the previous /
+ *   next color layer (`onCycleLayer(-1 | 1)`), as in Productos; each only where the page offers it.
  *
  * While the operator types in a field only Ctrl+F and the copy shortcuts run (as in Productos, which copies while
  * editing too); nothing runs while a dialog is open (the help only takes `?`, to close it). `findRow(key)` maps a focused row's key to
  * its row (a publication with `link.codigo`), so copying works wherever the rows are publications.
  */
-export default function usePublicacionesMLKeyboard({ searchRef, findRow, onExport, onToggleHelp, showToast, disabled }) {
+export default function usePublicacionesMLKeyboard({
+  searchRef,
+  findRow,
+  onExport,
+  onPaintRow,
+  onCycleLayer,
+  onToggleHelp,
+  showToast,
+  disabled,
+}) {
   // The latest props, so the one listener never reads stale ones (updated after each render, never during it).
   const props = useRef({});
   useLayoutEffect(() => {
-    props.current = { searchRef, findRow, onExport, onToggleHelp, showToast };
+    props.current = { searchRef, findRow, onExport, onPaintRow, onCycleLayer, onToggleHelp, showToast };
   });
 
   useEffect(() => {
@@ -87,7 +102,7 @@ export default function usePublicacionesMLKeyboard({ searchRef, findRow, onExpor
       const { findRow: find, showToast: toast } = props.current;
       const key = focusedRow()?.dataset.rowKey;
       if (key === undefined) {
-        toast?.('Posicionate sobre una publicación (flecha abajo) para usar este atajo', 'error');
+        toast?.(NO_ROW, 'error');
         return;
       }
       const row = find?.(key);
@@ -108,7 +123,8 @@ export default function usePublicacionesMLKeyboard({ searchRef, findRow, onExpor
     };
 
     const handleKeyDown = (event) => {
-      const { searchRef: search, onExport: exportView, onToggleHelp: toggleHelp } = props.current;
+      const { searchRef: search, onExport: exportView, onToggleHelp: toggleHelp, onPaintRow: paintRow, onCycleLayer: cycleLayer, showToast: toast } =
+        props.current;
       // Another dialog (a bulk action, a confirmation) owns the keyboard, as in Productos; the help only lets `?` close it.
       const dialog = document.querySelector('.modal-overlay-tesla');
       if (dialog) {
@@ -137,6 +153,18 @@ export default function usePublicacionesMLKeyboard({ searchRef, findRow, onExpor
         return;
       }
       if (event.ctrlKey || event.altKey || event.metaKey) return;
+      if ((event.key === 'F6' || event.key === 'F7') && !event.shiftKey && cycleLayer) {
+        event.preventDefault();
+        cycleLayer(event.key === 'F7' ? 1 : -1);
+        return;
+      }
+      if (/^[0-7]$/.test(event.key) && paintRow) {
+        event.preventDefault();
+        const key = focusedRow()?.dataset.rowKey;
+        if (key === undefined) toast?.(NO_ROW, 'error');
+        else paintRow(key, PAINT_COLORS[Number(event.key)]);
+        return;
+      }
       if (event.key === '?' && toggleHelp) {
         event.preventDefault();
         toggleHelp();
