@@ -41,7 +41,9 @@ export default function VistaPorMarca({ pares, grantsScope }) {
 
   const termino = busqueda.trim().toLowerCase();
   const marcasVisibles = termino ? marcas.filter((m) => m.nombre.toLowerCase().includes(termino)) : marcas;
-  const actual = marcas.find((m) => m.nombre === marca) || marcasVisibles[0] || null;
+  // The detail follows the search: a picked marca that the search hides
+  // gives way to the first one still listed.
+  const actual = marcasVisibles.find((m) => m.nombre === marca) || marcasVisibles[0] || null;
 
   return (
     <div className={styles.layout}>

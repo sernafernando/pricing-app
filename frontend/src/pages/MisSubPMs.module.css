@@ -187,11 +187,6 @@
   cursor: pointer;
 }
 
-.tab:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 .tabActiva {
   composes: tab;
   border-bottom-color: var(--cf-accent-blue);

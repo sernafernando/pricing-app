@@ -46,6 +46,15 @@ describe('VistaPorMarca', () => {
     expect(within(filaDe('Monitores')).getByText('—')).toBeInTheDocument();
   });
 
+  it('moves the detail to a listed marca when the search hides the picked one', async () => {
+    const user = userEvent.setup();
+    renderVista();
+    await user.click(screen.getByRole('button', { name: 'LG (1)' }));
+    await user.type(screen.getByRole('searchbox', { name: 'Buscar marca' }), 'sam');
+    expect(screen.getByRole('heading', { name: 'Samsung' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'LG' })).not.toBeInTheDocument();
+  });
+
   it('filters marcas by the search term', async () => {
     const user = userEvent.setup();
     renderVista();
