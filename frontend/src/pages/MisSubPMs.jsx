@@ -514,7 +514,7 @@ export default function MisSubPMs() {
 
       {vista === 'marca' && hayParesEnScope && <VistaPorMarca pares={pares} grantsScope={grantsScope} />}
 
-      <div className={styles.layout} hidden={vista === 'marca'}>
+      <div className={styles.layout} hidden={vista === 'marca' && hayParesEnScope}>
         <UsuariosLista
           usuarios={hayParesEnScope ? usuariosDisponibles : []}
           conteos={conteos}
@@ -593,7 +593,7 @@ export default function MisSubPMs() {
         </section>
       </div>
 
-      <footer className={styles.actionBar} hidden={vista === 'marca'}>
+      <footer className={styles.actionBar} hidden={vista === 'marca' && hayParesEnScope}>
         {confirmando ? (
           <div className={styles.actionConfirm} data-testid="confirmarGuardarBox">
             <span>
