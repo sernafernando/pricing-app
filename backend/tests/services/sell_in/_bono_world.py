@@ -32,7 +32,10 @@ STUBS = [
     "CREATE TABLE proveedores (id INTEGER PRIMARY KEY, nombre TEXT)",
     "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, numero TEXT NOT NULL, proveedor_id INTEGER NOT NULL, "
     "moneda VARCHAR(3) NOT NULL, estado VARCHAR(24) NOT NULL DEFAULT 'aprobado', tipo_cambio NUMERIC(18, 6), "
-    "fecha_factura DATE, observaciones TEXT)",
+    "fecha_factura DATE, observaciones TEXT, numero_factura TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    # What was received, for the bonus panel's pending / no-brand-line groups (`bonos_alcance`).
+    "CREATE TABLE pedido_compra_ingresos (id BIGSERIAL PRIMARY KEY, pedido_id BIGINT NOT NULL, item_id INTEGER NOT NULL, "
+    "cantidad_recibida NUMERIC(18, 6) NOT NULL)",
     "INSERT INTO usuarios VALUES (7), (8)",
     "INSERT INTO proveedores VALUES (31, 'TP-Link Argentina'), (32, 'Otro proveedor')",
 ]
@@ -82,7 +85,13 @@ def clean(engine: Engine) -> None:
     """Empties what the tests write; the queues go LAST, since deletes fire their triggers."""
     w.clean(engine)
     with engine.begin() as conn:
-        for table in ("sell_in_compras", "sell_in_bonos_marca", "pedido_compra_lineas_facturadas", "pedidos_compra"):
+        for table in (
+            "sell_in_compras",
+            "sell_in_bonos_marca",
+            "pedido_compra_lineas_facturadas",
+            "pedido_compra_ingresos",
+            "pedidos_compra",
+        ):
             conn.execute(text(f"DELETE FROM {table}"))
         conn.execute(text("DELETE FROM tipo_cambio"))
         # Products a test brought into the catalog (only the world's own ones stay).
