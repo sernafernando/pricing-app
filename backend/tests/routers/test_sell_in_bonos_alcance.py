@@ -415,3 +415,26 @@ def test_a_category_bonus_names_the_category_when_the_invoice_has_none(client, l
     data = _alcance(client, lector, mundo["bono"].id)
 
     assert _sin_aplicar(data) == [(p.id, 0, "Sin líneas de la categoría en la factura", None)]
+
+
+def test_a_bonus_error_wins_over_an_operation_key_queued_without_error(client, lector, mundo, db):
+    p = mundo["pedido"](fecha_factura=date(2026, 10, 12))
+    mundo["facturado"](p, TP, 4)
+    _encolar(db, "pedido", p.id)
+    _encolar(db, "bono", mundo["bono"].id, attempts=3, last_error="bonus failed")
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert _sin_aplicar(data) == [(p.id, 4, "bonus failed", 3)]
+    assert data["sin_aplicar"]["items"][0]["es_error"] is True
+
+
+def test_a_cancelled_bonus_has_nothing_left_to_apply(client, lector, mundo, db):
+    p = mundo["pedido"](fecha_factura=date(2026, 10, 12))
+    mundo["facturado"](p, TP, 4)
+    mundo["bono"].estado = "anulada"
+    db.commit()
+
+    data = _alcance(client, lector, mundo["bono"].id)
+
+    assert data["sin_aplicar"] == {"total": 0, "items": []}

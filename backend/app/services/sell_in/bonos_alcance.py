@@ -102,13 +102,13 @@ MOTIVO_SIN_LINEAS = {
     "modelos": "Sin líneas de los modelos en la factura",
     "factura": "La factura no tiene líneas facturadas",
 }
-MOTIVO_MAX = 200  # chars of a queued error shown in the panel
+MOTIVO_ERROR_MAX = 200  # chars of a queued error shown in the panel
 
 
 def _error_legible(error: str) -> str:
     """One line, collapsed whitespace, capped: a driver error can carry a multi-line DETAIL and the SQL."""
     texto = " ".join(error.split())
-    return texto if len(texto) <= MOTIVO_MAX else texto[: MOTIVO_MAX - 1] + "…"
+    return texto if len(texto) <= MOTIVO_ERROR_MAX else texto[: MOTIVO_ERROR_MAX - 1] + "…"
 
 
 def _sin_aplicar(db: Session, bono: SellInBonoMarca, facturadas, recibidas, limite: int) -> dict:
@@ -116,6 +116,9 @@ def _sin_aplicar(db: Session, bono: SellInBonoMarca, facturadas, recibidas, limi
 
     The scope is the union of the snapshot (`facturadas`) and what was received (`recibidas`), so an invoice
     whose snapshot holds no line of the scope still shows (with 0 units) instead of falling in no group."""
+    if bono.estado != "activa":
+        # A cancelled bonus voided its purchases on purpose: nothing is left to apply.
+        return {"total": 0, "items": []}
     del_alcance = union_all(
         select(facturadas.c.pedido_id, facturadas.c.unidades),
         select(recibidas.c.pedido_id, literal(0).label("unidades")),
@@ -157,8 +160,10 @@ def _sin_aplicar(db: Session, bono: SellInBonoMarca, facturadas, recibidas, limi
 
     def fila(row) -> dict:
         item = _pedido(row)
-        # The operation's own key first: it is the more specific failure.
-        clave = en_cola.get(("pedido", row.id)) or del_bono
+        # The operation's own error first: it is the more specific failure; else the bonus's
+        # error; else whichever key is queued, for its attempts.
+        del_pedido = en_cola.get(("pedido", row.id))
+        clave = del_pedido if del_pedido is not None and del_pedido.last_error else (del_bono or del_pedido)
         es_error = clave is not None and bool(clave.last_error)
         if es_error:
             motivo = _error_legible(clave.last_error)
