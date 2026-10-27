@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { AlertTriangle, Ban, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, FileWarning } from 'lucide-react';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { formatEntero, formatMonto } from './sellInFormat';
 import panel from './SellInPanel.module.css';
@@ -30,15 +30,29 @@ function Pedido({ pedido, detalle }) {
   return <li className={styles.pedido}>{partes.join(' · ')}</li>;
 }
 
+const SIN_GRUPO = { total: 0, items: [] };
+
+/**
+ * Why an in-range invoice produced no purchase. The worker's key carries
+ * attempts only after it failed (re-queueing resets attempts and error
+ * together), so attempts mean the reason is that error.
+ */
+function motivo({ motivo: texto, intentos }) {
+  if (intentos > 0) return `Error al aplicar: ${texto} (${formatEntero(intentos)} ${intentos === 1 ? 'intento' : 'intentos'})`;
+  return texto;
+}
+
 /**
  * What a brand bonus reaches (Stitch `03`), from `GET /sell-in/bonos/{id}/alcance`:
- * the purchases it generated, the brand's operations still waiting for their
- * invoice, and the ones invoiced outside the range. Each group is capped by
- * the backend and shows its full count. A reached purchase opens with
- * `onVerCompra` when given; without it its number is plain text.
+ * the purchases it generated, the brand's operations invoiced inside the range
+ * that it did not apply (and why), the ones still waiting for their invoice,
+ * and the ones invoiced outside the range. Each group is capped by the backend
+ * and shows its full count. A reached purchase opens with `onVerCompra` when
+ * given; without it its number is plain text.
  */
 export default function SellInBonoAlcance({ alcance, onVerCompra }) {
-  const { alcanzadas, pendientes, fuera_de_rango: fuera } = alcance;
+  // `sin_aplicar` is newer than the panel: an older backend omits it.
+  const { alcanzadas, pendientes, fuera_de_rango: fuera, sin_aplicar: sinAplicar = SIN_GRUPO } = alcance;
   return (
     <>
       <Grupo titulo="Compras alcanzadas" total={alcanzadas.total} mostrados={alcanzadas.items.length} icono={<CheckCircle2 size={16} aria-hidden />}>
@@ -79,6 +93,22 @@ export default function SellInBonoAlcance({ alcance, onVerCompra }) {
               </tbody>
             </table>
           </div>
+        )}
+      </Grupo>
+
+      <Grupo titulo="Con factura, sin aplicar" total={sinAplicar.total} mostrados={sinAplicar.items.length} icono={<FileWarning size={16} aria-hidden />} tono="warning">
+        <p className={panel.hint}>Operaciones con productos del bono facturadas dentro de su rango que todavía no generaron una compra. Las unidades son las facturadas.</p>
+        {sinAplicar.items.length === 0 ? (
+          <p className={panel.hint}>Todas las operaciones facturadas dentro del rango están aplicadas.</p>
+        ) : (
+          <ul className={styles.lista}>
+            {sinAplicar.items.map((p) => (
+              <li key={p.pedido_id} className={styles.pedido}>
+                {[p.numero, p.proveedor_nombre, `factura ${fecha(p.fecha_factura)}`, `${formatEntero(p.unidades)} u`].filter(Boolean).join(' · ')}
+                <span className={styles.motivo}>{motivo(p)}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </Grupo>
 

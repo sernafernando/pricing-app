@@ -212,7 +212,7 @@ describe('SellInBonoPanel — scope and kind (T3e)', () => {
 });
 
 describe('SellInBonoPanel — existing bonus', () => {
-  it('loads the bonus and what it reaches, with the three groups and their counts', async () => {
+  it('loads the bonus and what it reaches, with its groups and their counts', async () => {
     renderPanel();
     expect(await screen.findByRole('heading', { name: 'Bono TP-Link USD 3/u' })).toBeInTheDocument();
     expect(sellInBonosAPI.detalle).toHaveBeenCalledWith(3);
@@ -234,11 +234,32 @@ describe('SellInBonoPanel — existing bonus', () => {
     expect(within(fuera).getByText(/OC-2026-01650/)).toHaveTextContent('OC-2026-01650 · TP-Link Argentina · factura 28/08/2026 · 15 u');
   });
 
+  it('shows the in-range invoices the bonus did not apply, with why', async () => {
+    renderPanel();
+    const grupo = await screen.findByRole('region', { name: 'Con factura, sin aplicar (2)' });
+    const items = within(grupo).getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('OC-2026-00278 · TP-Link Argentina · factura 22/10/2026 · 21 u');
+    expect(items[0]).toHaveTextContent('Error al aplicar: value too long for type character varying(20) (5 intentos)');
+    expect(items[1]).toHaveTextContent('OC-2026-01901 · Global Tech · factura 15/10/2026 · 0 u');
+    expect(items[1]).toHaveTextContent('Sin líneas de la marca en la factura');
+    expect(items[1]).not.toHaveTextContent('intentos');
+  });
+
+  it('a response without the not-applied group (older backend) still renders', async () => {
+    const { sin_aplicar: _omitido, ...viejo } = ALCANCE;
+    sellInBonosAPI.alcance.mockResolvedValue({ data: viejo });
+    renderPanel();
+    expect(await screen.findByRole('region', { name: 'Con factura, sin aplicar (0)' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Compras alcanzadas (18)' })).toBeInTheDocument();
+  });
+
   it('says so when a group is empty', async () => {
     sellInBonosAPI.alcance.mockResolvedValue({ data: ALCANCE_VACIO });
     renderPanel();
     const alcanzadas = await screen.findByRole('region', { name: 'Compras alcanzadas (0)' });
     expect(within(alcanzadas).getByText('Todavía no alcanzó ninguna compra.')).toBeInTheDocument();
+    const sinAplicar = screen.getByRole('region', { name: 'Con factura, sin aplicar (0)' });
+    expect(within(sinAplicar).getByText('Todas las operaciones facturadas dentro del rango están aplicadas.')).toBeInTheDocument();
   });
 
   it('opens a reached purchase', async () => {
