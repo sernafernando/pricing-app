@@ -770,3 +770,25 @@ describe('MisSubPMs — pair source split', () => {
     expect(marcasPmAPI.misTitularidades).not.toHaveBeenCalled();
   });
 });
+
+describe('MisSubPMs — "Por marca / par" tab', () => {
+  it('shows who manages each category and keeps the user view when coming back', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.listarGrantsScope.mockResolvedValue({
+      data: { grants: [{ id: 70, marca: 'Samsung', categoria: 'Celulares', usuario_id: 6, usuario_nombre: 'Beto' }] },
+    });
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Ana');
+    await user.click(screen.getByLabelText('Seleccionar Samsung / Celulares'));
+
+    await user.click(screen.getByRole('button', { name: 'Por marca / par' }));
+    expect(screen.getByRole('button', { name: 'Por marca / par' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('heading', { name: 'Ana' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Samsung (1)' }));
+    expect(within(screen.getByRole('cell', { name: 'Celulares' }).closest('tr')).getByText('Beto')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Por usuario' }));
+    expect(screen.getByRole('heading', { name: 'Ana' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).toBeChecked();
+  });
+});

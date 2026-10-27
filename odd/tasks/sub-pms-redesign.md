@@ -17,11 +17,13 @@ Branches: `feat/sub-pms-scope-grants` (T1, PR #1759) → `feat/sub-pms-por-usuar
 
 ## Tasks
 
-- [x] T1 — S8 — inline — backend `GET /marcas-pm/sub-pms/scope` + tests + `marcasPmAPI.listarGrantsScope`
-- [x] T2a — S1, S2 (user list), S7 — inline — searchable user list (92805adc5)
-- [x] T2b — S2 (grouped by marca), S6, S7 — inline — accordion per marca, ParesTable removed (ad5a23437)
-- [x] T2c — S2 (other sub-PMs), S3, S4, S9 — inline — chips per marca, sticky bar, Descartar, visual test, novedad
-- [ ] T3 — S5, S9 — inline — "Por marca / par" tab
+- [x] T1 — S8 — inline — backend `GET /marcas-pm/sub-pms/scope` + tests + `marcasPmAPI.listarGrantsScope` (PR #1759, merged)
+- [x] T2a — S1, S2 (user list), S7 — inline — searchable user list (PR #1762, branch feat/sub-pms-lista-usuarios)
+- [x] T2b — S2 (grouped by marca), S6, S7 — inline — accordion per marca, ParesTable removed (PR #1764, merged)
+- [x] T2c — S2 (other sub-PMs), S3, S4, S9 — inline — chips per marca, sticky bar, Descartar, visual test, novedad (PR #1765)
+- [x] T3a — S5 (see), S9 — inline — tab + read-only `VistaPorMarca` (marcas, titular, sub-PMs), novedad (branch feat/sub-pms-vista-marca)
+- [ ] T3b — S5 (add), S9 — inline — add one user to several categories via the bulk PUT, tab blocked while dirty
+- [ ] T3c — S5 (remove), S9 — inline — × with inline confirmation via DELETE
 
 ## Log
 
@@ -30,3 +32,6 @@ Branches: `feat/sub-pms-scope-grants` (T1, PR #1759) → `feat/sub-pms-por-usuar
 - L3 Gap: only per-pair `GET /marcas-pm/sub-pms` exists → T1 adds a scope-wide read reusing `_resolve_writable_pairs`.
 - L4 T3 adds users through the existing atomic bulk PUT (current grants of that user ∪ selected), removal through `DELETE /marcas-pm/sub-pms/{id}`.
 - L5 T2 first landed as one commit of ~1,370 added lines; split into T2a/T2b/T2c (399 / 545 / 550 added) per the owner's PR-size rule. Novedad ships with T2c, the slice that completes the visible flow.
+- L6 (describes the full T3 kept on `backup/sub-pms-t3-final`; the select only lands in T3b) #1762 CI: css-guard flagged STALE allowlist entries (MisSubPMs control-box after the `<select>` went away; ParesTable after B removed it). Fixed per branch; `VistaPorMarca` select composes `forms-tesla.css` instead of hand-rolling its box.
+- L7 (full T3, before the L8 split) T3 verified: 8 component tests + 2 integration tests (tab blocked while dirty, refresh after adding), visual test at 1366/1920 shows marca list beside the table with no overflow. Rebase order: A → B → C → T3, each onto main after the previous merges.
+- L8 T3 measured 745 added lines even after reusing `UsuariosLista.module.css` + `table-tesla` and replacing the wrapper with `hidden` (no re-indent); split into T3a/T3b/T3c by capability, each with its own novedad. Final version kept on `backup/sub-pms-t3-final`.
