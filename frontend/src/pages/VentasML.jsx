@@ -79,6 +79,7 @@ import {
 } from './ventasMlTableHelpers';
 import { useVentasMLFilters } from '../hooks/useVentasMLFilters';
 import VariosVentaPctModal from '../components/VariosVentaPctModal';
+import ImpuestosVentaModal from '../components/ImpuestosVentaModal';
 import DateRangeFilter from '../components/DateRangeFilter';
 import { buildVentasMLFilterParams } from '../utils/ventasMlParams';
 import { buildStoreChips } from '../constants/tiendasOficiales';
@@ -261,6 +262,8 @@ export default function VentasML() {
   // read-only vs. read+write once open, per product decision (see
   // VariosVentaPctModal for the actual `ml_ops.varios_editar` gating).
   const [variosPctModalOpen, setVariosPctModalOpen] = useState(false);
+  // Same visibility rule: ImpuestosVentaModal gates its own edits.
+  const [impuestosModalOpen, setImpuestosModalOpen] = useState(false);
 
   const openDrawer = useCallback(
     (orderId) => {
@@ -664,6 +667,13 @@ export default function VentasML() {
           <button
             type="button"
             className="btn-tesla outline sm"
+            onClick={() => setImpuestosModalOpen(true)}
+          >
+            Impuestos
+          </button>
+          <button
+            type="button"
+            className="btn-tesla outline sm"
             onClick={handleExport}
             disabled={exporting}
           >
@@ -1058,6 +1068,7 @@ export default function VentasML() {
       </VentasMLLayout>
 
       <VariosVentaPctModal isOpen={variosPctModalOpen} onClose={() => setVariosPctModalOpen(false)} />
+      <ImpuestosVentaModal isOpen={impuestosModalOpen} onClose={() => setImpuestosModalOpen(false)} />
     </div>
   );
 }
