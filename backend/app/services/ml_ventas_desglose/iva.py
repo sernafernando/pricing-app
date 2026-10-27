@@ -108,7 +108,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     CONCEPTO_ENVIO_COMPRADOR,
     RELEVANT_PAYMENT_STATUSES,
     debitos_creditos_total,
-    is_recoverable_withholding,
+    informational_rule,
     is_seller_charge,
     is_seller_coupon_fee,
     net_amount,
@@ -116,6 +116,7 @@ from app.services.ml_ventas_desglose.breakdown_service import (
     shipping_label,
     tax_label,
 )
+from app.services.ml_ventas_desglose.tax_treatment import TaxTreatment
 from app.services.ml_ventas_desglose.envio_comprador import (
     EnvioCompradorOrden,
     envio_comprador_de_pago,
@@ -300,6 +301,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
 
     bonificacion_by_order = resolve_bonificacion_flex_by_order_ids(db, order_ids, IVA_ML_DIVISOR)
     envio_flex_by_order = resolve_envio_comprador_flex_by_order_ids(db, order_ids, IVA_ML_DIVISOR)
+    treatment = TaxTreatment.load(db, order_ids)
 
     for order_id in order_ids:
         order_relevant = [p for p in payments_by_order.get(order_id, []) if p.status in RELEVANT_PAYMENT_STATUSES]
@@ -321,13 +323,16 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
             continue
 
         neto = Decimal("0")
+        is_informational = informational_rule(treatment, order_id)
         seller_charges: List[MlPaymentCharge] = []
         coupon_fees: List[MlPaymentCharge] = []
         for payment in order_relevant:
             payment_charges = charges_by_payment.get(payment.payment_id, [])
             order_seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
             order_coupon_fees = [c for c in payment_charges if is_seller_coupon_fee(c.type, c.name)]
-            neto += payment_effective_net(payment, order_seller_charges, coupon_fees=order_coupon_fees)
+            neto += payment_effective_net(
+                payment, order_seller_charges, coupon_fees=order_coupon_fees, is_informational=is_informational
+            )
             seller_charges.extend(order_seller_charges)
             coupon_fees.extend(order_coupon_fees)
 
@@ -468,10 +473,12 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
                         bruto=bruto,
                         base=base,
                         iva=iva,
-                        # R1: SIRTAC is displayed but excluded from
-                        # `suma_bruto`/`neto_sin_iva` below -- it was already
-                        # added back into `neto` by `payment_effective_net`.
-                        informativo=is_recoverable_withholding(charge.type, charge.name),
+                        # R1: an informational withholding (SIRTAC, or what a
+                        # configured period says) is displayed but excluded
+                        # from `suma_bruto`/`neto_sin_iva` below -- it was
+                        # already added back into `neto` by
+                        # `payment_effective_net`.
+                        informativo=is_informational(charge),
                     )
                 )
             else:
@@ -511,7 +518,7 @@ def descomponer_neto(db: Session, order_ids: Sequence[int]) -> Dict[int, Descomp
         # whether SIRTAC is present. Computed ONCE, here, the only producer
         # (D3) -- `compute_breakdown` never sees this, so displayed `neto`
         # never moves for it.
-        extra_debitos_creditos = debitos_creditos_total(seller_charges)
+        extra_debitos_creditos = debitos_creditos_total(seller_charges, is_informational=is_informational)
         if extra_debitos_creditos != 0:
             bruto = -extra_debitos_creditos
             componentes.append(

@@ -49,3 +49,22 @@ The system MUST compute the displayed Neto for an ML order as the seller's effec
 - GIVEN any order with a mix of SIRTAC, sobretasa, débitos/créditos, and Retención charges (with and without refunds)
 - WHEN Neto is computed via `compute_breakdown` and independently via `compute_neto_by_order_ids`
 - THEN both paths return the same Neto value for that order
+
+### Requirement: Configured tax treatment by period
+
+Source: odd/tasks/ventas-ml-impuestos-informativos.md (S1, S2).
+
+The rule above is the DEFAULT. A version in `ml_venta_impuesto_tratamiento` overrides it for one exact charge name (`ml_payment_charges.name`, so per province) over `[fecha_desde, fecha_hasta]` (open-ended when `fecha_hasta` is NULL): `informativo = true` treats the charge like SIRTAC (shown as informational, its non-refunded amount added back into Neto, out of `neto_sin_iva`); `informativo = false` subtracts it. The version that applies is the one in force at the order's `ml_orders_ops.date_created`; when two cover the same day, the latest `fecha_desde` wins. An informational débitos y créditos charge also drops its doubled withdrawal copy. Every Neto path (`compute_breakdown`, `compute_neto_by_order_ids`, `compute_neto_desglose_by_order_ids`, `iva.descomponer_neto`) MUST apply it through `breakdown_service.informational_rule`, and any change to a version MUST re-queue the stored metrics of the orders in the old or new period that carry the charge.
+
+#### Scenario: A surcharge marked informational for a period
+
+- GIVEN a version `tax_withholding_sirtac_sobretasa-jujuy`, informativo, from 2026-09-01
+- WHEN Neto is computed for a sale of 2026-09-10 with that charge
+- THEN the charge is added back into Neto and shown as informational
+- AND a sale of 2026-08-31, or one with the same surcharge in another province, keeps subtracting it
+
+#### Scenario: SIRTAC marked deducted
+
+- GIVEN a version `tax_withholding_sirtac-caba`, not informativo, from 2026-09-01
+- WHEN Neto is computed for a sale inside the period
+- THEN the SIRTAC withholding is subtracted and is not added back
