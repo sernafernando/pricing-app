@@ -70,3 +70,20 @@ def test_es_masivo_is_stored_as_a_boolean(Session, given, stored):
         db.commit()
     with Session() as db:
         assert db.execute(text("SELECT es_masivo FROM auditoria")).scalar_one() is stored
+
+
+def test_several_rows_in_one_flush_store_the_action_as_text(Session):
+    # Production's `tipo_accion` is VARCHAR: no `tipoaccion` type exists there. A flush of several rows is
+    # one multi-row INSERT that cast each value to the enum type, so every caller writing a batch of audit
+    # rows (the brand bonus worker, one row per generated purchase) failed with UndefinedObject.
+    with Session() as db:
+        db.add_all(
+            [
+                Auditoria(usuario_id=7, tipo_accion=TipoAccion.SELL_IN_COMPRA_BONO_ACTUALIZADA, valores_nuevos={}),
+                Auditoria(usuario_id=7, tipo_accion=TipoAccion.SELL_IN_COMPRA_CREADA, valores_nuevos={}),
+            ]
+        )
+        db.commit()
+    with Session() as db:
+        stored = db.execute(text("SELECT tipo_accion FROM auditoria ORDER BY id")).scalars().all()
+    assert stored == ["SELL_IN_COMPRA_BONO_ACTUALIZADA", "SELL_IN_COMPRA_CREADA"]
