@@ -1611,3 +1611,25 @@ describe('Exportar a Sheets', () => {
     expect(screen.queryByText('Exportación cancelada')).not.toBeInTheDocument();
   });
 });
+
+describe('keyboard shortcuts', () => {
+  it('the header button and ? open the help; Ctrl+F goes to the search; ↓ then Enter opens a publication', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.click(screen.getByRole('button', { name: 'Atajos de teclado' }));
+    expect(screen.getByRole('heading', { name: 'Atajos de teclado' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Atajos de teclado' })).not.toBeInTheDocument());
+    await user.keyboard('?');
+    expect(screen.getByRole('heading', { name: 'Atajos de teclado' })).toBeInTheDocument();
+    await user.keyboard('?');
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Atajos de teclado' })).not.toBeInTheDocument());
+
+    await user.keyboard('{Control>}f{/Control}');
+    expect(screen.getByPlaceholderText(/Buscar por título/)).toHaveFocus();
+
+    screen.getByPlaceholderText(/Buscar por título/).blur();
+    await user.keyboard('{ArrowDown}{Enter}');
+    await waitFor(() => expect(publicacionesMlAPI.detail).toHaveBeenCalledWith(ITEMS[0].item_id));
+  });
+});

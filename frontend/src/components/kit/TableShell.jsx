@@ -213,6 +213,7 @@ export default function TableShell({
                     aria-current={selected || undefined}
                     data-selected={selected ? '' : undefined}
                     data-clickable={onRowClick ? '' : undefined}
+                    data-row-key={key}
                     tabIndex={onRowClick ? 0 : undefined}
                     onClick={onRowClick ? (e) => activateOnClick(e, row, onRowClick) : undefined}
                     onKeyDown={onRowClick ? (e) => activateOnKey(e, row, onRowClick) : undefined}
