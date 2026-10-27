@@ -75,13 +75,15 @@ export function useProductosSeleccion({ productos, setProductos, cargarStats, sh
     }
   };
 
+  // The single-product PATCH reads the layer from the query string; in the body it was ignored (painted the global layer).
+  const layerParams = equipoActivoId ? { equipo_id: equipoActivoId } : {};
+
   const cambiarColorProducto = async (itemId, color) => {
     try {
       await api.patch(
         `/productos/${itemId}/color`,
         { color },
-        // The PATCH reads the layer from the query string; in the body it was ignored (painted the global layer).
-        { params: equipoActivoId ? { equipo_id: equipoActivoId } : {} }
+        { params: layerParams }
       );
 
       // Actualizar estado local en lugar de recargar
@@ -105,8 +107,7 @@ export function useProductosSeleccion({ productos, setProductos, cargarStats, sh
       await api.patch(
         `/productos/${itemId}/color`,
         { color },
-        // The PATCH reads the layer from the query string; in the body it was ignored (painted the global layer).
-        { params: equipoActivoId ? { equipo_id: equipoActivoId } : {} }
+        { params: layerParams }
       );
 
       // Actualizar estado local en lugar de recargar
