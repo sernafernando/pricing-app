@@ -15,7 +15,7 @@ TIMEOUT_SECONDS = 8.0
 
 def send_to_owner(message: str) -> str:
     """Send `message` to the owner. Returns "sent", "not_configured" or "failed: <reason>"."""
-    if not settings.WABOT_TOKEN or not settings.WABOT_OWNER_TO:
+    if not settings.WABOT_URL or not settings.WABOT_TOKEN or not settings.WABOT_OWNER_TO:
         return "not_configured"
     try:
         response = httpx.post(

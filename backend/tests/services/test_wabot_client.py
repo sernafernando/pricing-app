@@ -43,8 +43,8 @@ class TestSendToOwner:
             }
         ]
 
-    @pytest.mark.parametrize("missing", ["WABOT_OWNER_TO", "WABOT_TOKEN"])
-    def test_without_recipient_or_token_nothing_is_sent(self, posts, monkeypatch, missing) -> None:
+    @pytest.mark.parametrize("missing", ["WABOT_OWNER_TO", "WABOT_TOKEN", "WABOT_URL"])
+    def test_without_recipient_token_or_url_nothing_is_sent(self, posts, monkeypatch, missing) -> None:
         monkeypatch.setattr(settings, missing, None)
 
         assert wabot_client.send_to_owner("refresh is late") == "not_configured"

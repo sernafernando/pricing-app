@@ -1231,8 +1231,9 @@ class FreshnessHandler:
     changed, per resource, and the queue lag per lane, kept in its detail for the status report.
 
     A resource that becomes late sends the owner ONE WhatsApp; it is not repeated while the resource stays late,
-    and one more says when everything is back. An alert wabot did not take is tried again on the next tick.
-    It makes no ML call and holds no pacer.
+    and one more says when everything is back. An alert wabot did not take is tried again on the next tick. The
+    alerted resources live in its detail: a detail that cannot be written (logged by `_persist_detail`) repeats
+    the alert on the next tick. It makes no ML call and holds no pacer.
     """
 
     name = FRESHNESS_HANDLER
@@ -1250,8 +1251,10 @@ class FreshnessHandler:
             alert = wabot_client.send_to_owner(freshness_core.late_message(report))
         elif alerted and not late:
             alert = wabot_client.send_to_owner(freshness_core.BACK_MESSAGE)
-        if alert == "sent" or (alert is None and not late):
+        if alert == "sent":
             alerted = late
+        elif alert is None:
+            alerted = [name for name in alerted if name in late]  # a resource back on time alerts again if late again
         detail = {**report, "alerted": alerted, "alert": alert, "at": _utcnow().isoformat()}
         _persist_detail(self.name, detail)
         return JobResult(success=True, detail=detail)

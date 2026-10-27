@@ -238,3 +238,19 @@ class TestTheHandler:
         handlers.freshness.run(context())
 
         assert len(tries) == 2
+
+    def test_a_resource_late_again_after_recovering_alerts_again_while_another_stays_late(self, env, sent) -> None:
+        put_item(env, "MLA1", checked=ago(30))
+        notify(env, "MLA1", received=ago(7), resources=("core",))
+        put_item(env, "MLA2", checked=ago(30))
+        notify(env, "MLA2", received=ago(10), resources=("promotions",))
+        handlers.freshness.run(context())
+        assert len(sent) == 1
+
+        run(env, "DELETE FROM ml_pub_refresh_queue WHERE entity_id = 'MLA2'")  # promotions back, status still late
+        handlers.freshness.run(context())
+        notify(env, "MLA2", received=ago(10), resources=("promotions",))  # promotions late again
+        handlers.freshness.run(context())
+
+        assert len(sent) == 2
+        assert "promociones" in sent[1]

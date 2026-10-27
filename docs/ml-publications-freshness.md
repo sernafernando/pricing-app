@@ -30,6 +30,7 @@ and per queue lane the waiting count and the oldest wait.
 A resource that becomes late sends one WhatsApp; it is not repeated while it stays late, and one more message
 says when everything is back. An alert wabot did not take is tried again on the next tick (`detail.alert`).
 
-The message goes to `WABOT_OWNER_TO` with `WABOT_TOKEN` (backend `.env`). wabot sends a message without a
-recipient to the users' group, so nothing is sent until `WABOT_OWNER_TO` is set (`detail.alert:
-"not_configured"`).
+The message goes to `WABOT_OWNER_TO` (digits only, country code first: `54911...`) through `WABOT_URL` with
+`WABOT_TOKEN` (backend `.env`). wabot sends a message without a recipient to the users' group, so nothing is
+sent until all three are set (`detail.alert: "not_configured"`). A detail that cannot be written repeats the
+alert on the next tick.
