@@ -239,7 +239,8 @@ class LastEventOut(BaseModel):
 
 class ItemRowOut(BaseModel):
     item_id: str
-    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (services/ml_publication_colors.py).
+    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set
+    # (services/ml_publication_colors.py).
     color_marcado: Optional[str] = None
     color_hint_global: Optional[str] = None
     color_hint_equipo_inicial: Optional[str] = None
@@ -568,7 +569,8 @@ class GroupNodeOut(BaseModel):
     only on the nodes they describe."""
 
     kind: str
-    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (services/ml_publication_colors.py).
+    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set
+    # (services/ml_publication_colors.py).
     color_marcado: Optional[str] = None
     color_hint_global: Optional[str] = None
     color_hint_equipo_inicial: Optional[str] = None
@@ -607,7 +609,8 @@ class ProductRowOut(BaseModel):
     publications') needs `ml_metricas.ver`; null when none of its publications has Métricas figures."""
 
     key: str
-    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (services/ml_publication_colors.py).
+    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set
+    # (services/ml_publication_colors.py).
     color_marcado: Optional[str] = None
     color_hint_global: Optional[str] = None
     color_hint_equipo_inicial: Optional[str] = None

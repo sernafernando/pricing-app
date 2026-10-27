@@ -218,6 +218,12 @@ export default function PublicacionesML() {
   useSSEChannel('producto_color:changed', colorOverlay.apply);
   const getItemTone = useCallback((item) => itemRowTone(item, colorOverlay.colors), [colorOverlay.colors]);
   const { equipos, loaded: equiposLoaded } = useEquipos();
+  // The rows are asked on a team layer only once the teams say it is the user's: a link to another team's layer
+  // would answer 403 and flash a false error before ColorLayerSelect drops it. Until then nothing is asked.
+  const layerPending = filters.equipo !== '' && !equiposLoaded;
+  const layerKnown =
+    filters.equipo === '' || equipos.some((equipo) => !equipo.es_global && String(equipo.id) === filters.equipo);
+  const rowFilters = useMemo(() => (layerKnown ? filters : { ...filters, equipo: '' }), [filters, layerKnown]);
   useEffect(clearChecked, [filterKey, filters.vista, clearChecked]);
 
   const pageSize = filters.limite;
@@ -235,11 +241,12 @@ export default function PublicacionesML() {
   // sorted, so its one-row facets request never asks for a Métricas sort (a ranking of the whole set).
   const requestKey = JSON.stringify(
     ownRows
-      ? { ...buildItemsParams(filters, 1, { canSeeMargin: false }), offset: 0 }
-      : buildItemsParams(filters, pageSize, { canSeeMargin, canSeeSales }),
+      ? { ...buildItemsParams(rowFilters, 1, { canSeeMargin: false }), offset: 0 }
+      : buildItemsParams(rowFilters, pageSize, { canSeeMargin, canSeeSales }),
   );
 
   useEffect(() => {
+    if (layerPending) return;
     const request = ++latestRequest.current;
     const wantFacets = filterKey !== facetsFor.current;
     const params = JSON.parse(requestKey);
@@ -266,7 +273,7 @@ export default function PublicacionesML() {
         setError(err);
         setLoading(false);
       });
-  }, [requestKey, filterKey, reloadToken]);
+  }, [requestKey, filterKey, reloadToken, layerPending]);
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
@@ -315,7 +322,13 @@ export default function PublicacionesML() {
   const { toast, showToast, hideToast } = useToast();
 
   const kpis = usePublicacionesMLKpis(buildKpiParams(filters, periodo), canSeeKpis);
-  const productRows = useProductRows({ filters, pageSize, canSeeSales, canSeeMargin, enabled: producto });
+  const productRows = useProductRows({
+    filters: rowFilters,
+    pageSize,
+    canSeeSales,
+    canSeeMargin,
+    enabled: producto && !layerPending,
+  });
 
   const eventsEnabled = data?.events_enabled ?? false;
   // The divergence filter brings its own column: the SKU next to the product it names and the linked one.
@@ -713,9 +726,11 @@ export default function PublicacionesML() {
                 emptyMessage={hasActiveFilters ? 'Ningún producto coincide con los filtros' : 'No hay productos'}
               />
             ) : agrupado ? (
+              // The tree asks on mount: it waits for the layer like the other views.
+              !layerPending && (
               <AgrupadoTable
                 columns={selectableColumns}
-                filters={filters}
+                filters={rowFilters}
                 familias={filters.familias === '1'}
                 dimension={filters.agrupar}
                 colorOverlay={colorOverlay.colors}
@@ -726,6 +741,7 @@ export default function PublicacionesML() {
                 offset={TABLE_OFFSET}
                 emptyMessage={emptyMessage}
               />
+              )
             ) : (
               <TableShell
                 columns={selectableColumns}

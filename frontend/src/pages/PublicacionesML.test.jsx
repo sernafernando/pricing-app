@@ -1640,6 +1640,13 @@ describe('the color layer (S8)', () => {
     await page('/ml-publicaciones?equipo=99');
     await waitFor(() => expect(lastParams()).not.toHaveProperty('equipo_id'));
     expect(screen.getByRole('combobox', { name: 'Capa de color' })).toHaveValue('');
+    // Never asked on that layer, not even before the teams loaded: the 403 would flash a false error.
+    expect(calls().map((params) => params.equipo_id)).not.toContain('99');
+  });
+
+  it('a team layer from the link is asked once the teams say it is the user\'s, with no request before', async () => {
+    await page('/ml-publicaciones?equipo=12');
+    expect(calls().map((params) => params.equipo_id)).toEqual(['12']);
   });
 
   it("paints a publication with its product's color", async () => {
