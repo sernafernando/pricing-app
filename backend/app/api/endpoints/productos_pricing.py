@@ -917,6 +917,9 @@ def recalcular_cuotas_masivo(
     layer_activo = resolver_layer_activo(coerce_equipo_id(request.filtros), current_user, db)
     query = db.query(ProductoERP, ProductoPricing).join(ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id)
     query = join_color_layer(query, layer_activo)
+    if request.item_ids is not None:  # an explicit write set (Publicaciones ML): exactly these, `filtros` is None
+        rechazar_fuera_de_catalogo(db, request.item_ids)
+        query = query.filter(ProductoERP.item_id.in_(request.item_ids))
 
     # Solo productos que tengan precio base > 0 según lista_tipo
     if lista_tipo == "pvp":
@@ -1180,6 +1183,7 @@ def recalcular_cuotas_masivo(
             "accion": "recalcular_cuotas_masivo",
             "lista_tipo": lista_tipo,
             "filtros": request.filtros,
+            **({"item_ids_explicitos": len(request.item_ids)} if request.item_ids is not None else {}),
         },
         comentario=f"Recálculo masivo de cuotas {lista_tipo.upper()}",
     )

@@ -345,9 +345,8 @@ class CalculoPVPMasivoRequest(ExplicitItemIdsRequest):
     adicional_cuotas: float
 
 
-class RecalcularCuotasMasivoRequest(BaseModel):
+class RecalcularCuotasMasivoRequest(ExplicitItemIdsRequest):
     lista_tipo: str = "web"  # "web" o "pvp"
-    filtros: dict = None
 
 
 class ConfigCuotasRequest(BaseModel):

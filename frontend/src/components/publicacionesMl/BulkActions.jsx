@@ -6,21 +6,25 @@ import Toast from '../Toast';
 import AplicarMarkupMasivoModal from '../AplicarMarkupMasivoModal';
 import CalcularWebModal from '../CalcularWebModal';
 import CalcularPVPModal from '../CalcularPVPModal';
+import RecalcularCuotasModal from './RecalcularCuotasModal';
 import useBulkProductSet from './useBulkProductSet';
 import { resolverParams } from './bulkParams';
 import styles from './BulkActions.module.css';
 
-// Productos' bulk actions, behind Productos' own permissions.
+// Productos' bulk actions, behind Productos' own permissions. The cuotas recalculation is Productos' "Recalcular
+// Cuotas Web/PVP" button, which Productos shows in its Cuotas/PVP view modes.
 const ACTIONS = [
   { key: 'web', label: 'Calcular Web Transf.', permiso: 'productos.calcular_web_masivo' },
   { key: 'pvp', label: 'Calcular PVP', permiso: 'productos.calcular_pvp_masivo' },
   { key: 'markup', label: 'Markup y cuotas', permiso: 'productos.aplicar_markup_masivo' },
+  { key: 'cuotas-web', label: 'Recalcular cuotas Web', permiso: 'productos.editar_precio_cuotas' },
+  { key: 'cuotas-pvp', label: 'Recalcular cuotas PVP', permiso: 'productos.editar_precio_cuotas' },
 ];
 
 const plural = (n, one, many) => (n === 1 ? one : many);
 
 /**
- * Productos' bulk pricing actions (web transferencia, PVP, markup + cuotas) over Publicaciones ML. Pricing is per
+ * Productos' bulk pricing actions (web transferencia, PVP, markup + cuotas, cuotas recalculation) over Publicaciones ML. Pricing is per
  * product, so they act on PRODUCTS: the ones the operator checked in the list, else the linked products of every
  * publication the filters select (`useBulkProductSet`), sent to Productos' own modals as an explicit `itemIds` set.
  *
@@ -142,6 +146,8 @@ export default function BulkActions({ filters, checkedIds, onClearChecked, canSe
       {modal?.key === 'markup' && (
         <AplicarMarkupMasivoModal {...modalProps} puedeEditarCuotas={tienePermiso('productos.editar_precio_cuotas')} />
       )}
+      {modal?.key === 'cuotas-web' && <RecalcularCuotasModal {...modalProps} listaTipo="web" />}
+      {modal?.key === 'cuotas-pvp' && <RecalcularCuotasModal {...modalProps} listaTipo="pvp" />}
       <Toast toast={toast} onClose={hideToast} />
     </div>
   );
