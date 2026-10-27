@@ -404,7 +404,8 @@ export default function PublicacionesML() {
   usePublicacionesMLKeyboard({
     searchRef,
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
-    onExport: canExportVista(filters.vista) && !exporting ? handleExport : undefined,
+    // While an export runs the key is still taken from the browser, and starts nothing.
+    onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
     onToggleHelp: () => setShowShortcuts((open) => !open),
     showToast,
   });

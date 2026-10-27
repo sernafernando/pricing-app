@@ -18,12 +18,12 @@ const ROWS = Array.from({ length: 15 }, (_, index) => ({
 }));
 const COLUMNS = [{ key: 'titulo', label: 'Título', render: (row) => row.titulo }];
 
-function Harness({ onOpen = () => {}, onExport, showToast = () => {} }) {
+function Harness({ onOpen = () => {}, onExport, showToast = () => {}, rows = ROWS }) {
   const searchRef = useRef(null);
   const [help, setHelp] = useState(false);
   usePublicacionesMLKeyboard({
     searchRef,
-    findRow: (key) => ROWS.find((row) => row.item_id === key),
+    findRow: (key) => rows.find((row) => row.item_id === key),
     onExport,
     onToggleHelp: () => setHelp((open) => !open),
     showToast,
@@ -167,6 +167,14 @@ describe('usePublicacionesMLKeyboard', () => {
       'https://www.mercadolibre.com.ar/publicaciones/listado/promos?page=1&search=COD-1&sort=lowest_price',
     );
     await vi.waitFor(() => expect(showToast).toHaveBeenLastCalledWith('Enlace 2 copiado: COD-1'));
+  });
+
+  it('a focused row that is not a publication of the list says where copying works', async () => {
+    const showToast = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness showToast={showToast} rows={[]} />);
+    await user.keyboard('{ArrowDown}{Control>}{F1}{/Control}');
+    expect(showToast).toHaveBeenLastCalledWith('Los atajos de copia funcionan en la vista Publicaciones', 'error');
   });
 
   it('Ctrl+Shift+1 copies too (Ctrl+F1 is taken on some keyboards)', async () => {

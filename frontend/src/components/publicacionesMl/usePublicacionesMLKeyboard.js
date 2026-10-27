@@ -86,9 +86,13 @@ export default function usePublicacionesMLKeyboard({ searchRef, findRow, onExpor
     const copy = (action) => {
       const { findRow: find, showToast: toast } = props.current;
       const key = focusedRow()?.dataset.rowKey;
-      const row = key === undefined ? null : find?.(key);
-      if (!row) {
+      if (key === undefined) {
         toast?.('Posicionate sobre una publicación (flecha abajo) para usar este atajo', 'error');
+        return;
+      }
+      const row = find?.(key);
+      if (!row) {
+        toast?.('Los atajos de copia funcionan en la vista Publicaciones', 'error');
         return;
       }
       const codigo = row.link?.codigo;

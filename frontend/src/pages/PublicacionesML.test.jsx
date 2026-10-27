@@ -1633,3 +1633,19 @@ describe('keyboard shortcuts', () => {
     await waitFor(() => expect(publicacionesMlAPI.detail).toHaveBeenCalledWith(ITEMS[0].item_id));
   });
 });
+
+describe('keyboard export', () => {
+  it('Ctrl+E while an export runs starts no second one and is not left to the browser', async () => {
+    let finish;
+    exportPublicacionesCsv.mockReset();
+    exportPublicacionesCsv.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    const user = userEvent.setup();
+    await page();
+    await user.keyboard('{Control>}e{/Control}');
+    expect(screen.getByRole('button', { name: 'Exportando…' })).toBeDisabled();
+    // Still taken from the browser (Chrome would jump to its address bar), and no second export starts.
+    expect(fireEvent.keyDown(document.body, { key: 'e', ctrlKey: true })).toBe(false);
+    expect(exportPublicacionesCsv).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+  });
+});
