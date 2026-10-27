@@ -779,7 +779,6 @@ describe('MisSubPMs — "Por marca / par" tab', () => {
     });
     render(<MisSubPMs />);
     await elegirYExpandir(user, 'Ana');
-    await user.click(screen.getByLabelText('Seleccionar Samsung / Celulares'));
 
     await user.click(screen.getByRole('button', { name: 'Por marca / par' }));
     expect(screen.getByRole('button', { name: 'Por marca / par' })).toHaveAttribute('aria-pressed', 'true');
@@ -789,6 +788,42 @@ describe('MisSubPMs — "Por marca / par" tab', () => {
 
     await user.click(screen.getByRole('button', { name: 'Por usuario' }));
     expect(screen.getByRole('heading', { name: 'Ana' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).toBeChecked();
+  });
+
+  it('cannot be opened while the selected user has unsaved changes', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Ana');
+    const tab = screen.getByRole('button', { name: 'Por marca / par' });
+    expect(tab).toBeEnabled();
+
+    await user.click(screen.getByLabelText('Seleccionar Samsung / Celulares'));
+    expect(tab).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Descartar' }));
+    expect(tab).toBeEnabled();
+  });
+
+  it('refreshes grants, counts and the selected user after adding from a marca', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.asignarSubPMsBulk.mockResolvedValue({ data: { otorgados: 1, revocados: 0, total: 1 } });
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+    await waitFor(() => expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledTimes(1));
+    const conteosAntes = marcasPmAPI.obtenerConteosSubPMs.mock.calls.length;
+    const grantsAntes = marcasPmAPI.listarGrantsScope.mock.calls.length;
+
+    await user.click(screen.getByRole('button', { name: 'Por marca / par' }));
+    expect(screen.getByRole('button', { name: 'Por marca / par' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: /^Samsung/ }));
+    await user.click(screen.getByLabelText('Seleccionar Celulares'));
+    await user.selectOptions(screen.getByLabelText('Agregar como sub-PM'), '5');
+    await user.click(screen.getByRole('button', { name: /^Agregar a/ }));
+
+    expect(await screen.findByText('Ana agregado como sub-PM en 1 categoría de Samsung.')).toBeInTheDocument();
+    expect(marcasPmAPI.asignarSubPMsBulk).toHaveBeenCalledWith(5, [{ marca: 'Samsung', categoria: 'Celulares' }]);
+    await waitFor(() => expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledTimes(2));
+    expect(marcasPmAPI.obtenerConteosSubPMs.mock.calls.length).toBeGreaterThan(conteosAntes);
+    expect(marcasPmAPI.listarGrantsScope.mock.calls.length).toBeGreaterThan(grantsAntes);
   });
 });

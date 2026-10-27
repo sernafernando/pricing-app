@@ -22,7 +22,7 @@ Branches: `feat/sub-pms-scope-grants` (T1, PR #1759) → `feat/sub-pms-por-usuar
 - [x] T2b — S2 (grouped by marca), S6, S7 — inline — accordion per marca, ParesTable removed (PR #1764, merged)
 - [x] T2c — S2 (other sub-PMs), S3, S4, S9 — inline — chips per marca, sticky bar, Descartar, visual test, novedad (PR #1765)
 - [x] T3a — S5 (see), S9 — inline — tab + read-only `VistaPorMarca` (marcas, titular, sub-PMs), novedad (branch feat/sub-pms-vista-marca)
-- [ ] T3b — S5 (add), S9 — inline — add one user to several categories via the bulk PUT, tab blocked while dirty
+- [x] T3b — S5 (add), S9 — inline — add one user to several categories via the bulk PUT, tab blocked while dirty (branch feat/sub-pms-agregar-por-marca)
 - [ ] T3c — S5 (remove), S9 — inline — × with inline confirmation via DELETE
 
 ## Log

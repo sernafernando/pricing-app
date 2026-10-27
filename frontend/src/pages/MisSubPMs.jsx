@@ -178,20 +178,22 @@ export default function MisSubPMs() {
     })();
   }, [hayParesEnScope]);
 
+  const cargarConteos = useCallback(async () => {
+    try {
+      const { data } = await marcasPmAPI.obtenerConteosSubPMs();
+      const items = Array.isArray(data?.conteos) ? data.conteos : [];
+      setConteos(Object.fromEntries(items.map((c) => [c.usuario_id, c.total])));
+      setConteosError(false);
+    } catch (err) {
+      console.error('Error al cargar los conteos de sub-PMs', err);
+      setConteosError(true);
+    }
+  }, []);
+
   useEffect(() => {
     if (!hayParesEnScope) return;
-    (async () => {
-      try {
-        const { data } = await marcasPmAPI.obtenerConteosSubPMs();
-        const items = Array.isArray(data?.conteos) ? data.conteos : [];
-        setConteos(Object.fromEntries(items.map((c) => [c.usuario_id, c.total])));
-        setConteosError(false);
-      } catch (err) {
-        console.error('Error al cargar los conteos de sub-PMs', err);
-        setConteosError(true);
-      }
-    })();
-  }, [hayParesEnScope]);
+    cargarConteos();
+  }, [hayParesEnScope, cargarConteos]);
 
   const cargarGrantsScope = useCallback(async () => {
     try {
@@ -467,6 +469,16 @@ export default function MisSubPMs() {
       .map(([marca, total]) => ({ marca, total, cambiado: guardado.get(marca) !== total }));
   }, [checked, baseline, pairsByKey]);
 
+  // A change made from "Por marca / par" goes straight to the server, so the
+  // shared reads are refreshed; the selected user's baseline too when they
+  // were the one changed (the tab switch is blocked while it is dirty, so
+  // reloading it never throws away pending edits).
+  const alCambiarPorMarca = (usuarioIds) => {
+    cargarGrantsScope();
+    cargarConteos();
+    if (targetUserId != null && usuarioIds.includes(targetUserId)) seleccionarUsuario(targetUserId);
+  };
+
   const marcasGuardadas = new Set([...baseline].map((key) => pairsByKey.get(key)?.marca).filter(Boolean)).size;
   const paresGuardados = [...baseline].filter((key) => pairsByKey.has(key)).length;
 
@@ -506,13 +518,22 @@ export default function MisSubPMs() {
             aria-pressed={vista === 'marca'}
             className={vista === 'marca' ? styles.tabActiva : styles.tab}
             onClick={() => setVista('marca')}
+            disabled={dirty || saving}
+            title={dirty ? 'Guardá o descartá los cambios de este usuario primero' : undefined}
           >
             Por marca / par
           </button>
         </div>
       )}
 
-      {vista === 'marca' && hayParesEnScope && <VistaPorMarca pares={pares} grantsScope={grantsScope} />}
+      {vista === 'marca' && hayParesEnScope && (
+        <VistaPorMarca
+          pares={pares}
+          usuarios={usuariosDisponibles}
+          grantsScope={grantsScope}
+          onCambio={alCambiarPorMarca}
+        />
+      )}
 
       <div className={styles.layout} hidden={vista === 'marca' && hayParesEnScope}>
         <UsuariosLista
