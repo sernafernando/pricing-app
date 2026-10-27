@@ -101,12 +101,13 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 
 ## Pricing shell (started)
 
-- Route: `/para-ganar` (`productos.ver`)
-- Page: `frontend/src/pages/ParaGanarAdvisor.jsx` — queue + detail, status filter chips stubbed
+- Route: `/para-ganar` (`productos.ver`); subvistas `?vista=advisor` (default) y `?vista=criterios`
+- Page: `frontend/src/pages/ParaGanarAdvisor.jsx` — tabs Advisor | Criterios; misma cola MLA; detail distinto
 - API: `GET /api/para-ganar/cola` — active MLAs from sandbox (precio, catálogo, par sync por `inventory_id`)
 - Nav: Sidebar → Productos → PARA GANAR (badge WIP)
 - Catalog: `frontend/src/registry/screenCatalog.js`
+- Criterios: form stub por MLA + botón masivo deshabilitado (filtros Productos / persistencia TBD)
 
 ## Suggested next step
 
-Wire criteria + suggestion lifecycle + apply path against the local 20-product sandbox.
+Connect Productos-like scope filters (shared component, two universes) and persist criteria (MLA / product / PM default).
