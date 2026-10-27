@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { Download, FileSpreadsheet, FilterX, ShieldAlert } from 'lucide-react';
+import { Download, FileSpreadsheet, FilterX, Keyboard, ShieldAlert } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
@@ -17,6 +17,10 @@ import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
+import ShortcutsHelp from '../components/publicacionesMl/ShortcutsHelp';
+import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
+import Toast from '../components/Toast';
+import { useToast } from '../hooks/useToast';
 import { withProductSelection } from '../components/publicacionesMl/productSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
@@ -66,6 +70,8 @@ import styles from './PublicacionesML.module.css';
  * > publicación, `AgrupadoTable`): the tree loads its own
  * levels from `/view/groups`, so `/items` is asked only for what the screen
  * shares (the honest-state block and the facet counts, one row).
+ *
+ * Keyboard: Productos' shortcuts over what this screen has (`usePublicacionesMLKeyboard`, help on `?`).
  */
 // Space the table leaves for what is above and below it (header, filters, pager).
 const TABLE_OFFSET = '380px';
@@ -291,6 +297,10 @@ export default function PublicacionesML() {
   const handleExport = () => runExport(exportPublicacionesCsv, setExporting);
   const handleSheetsExport = () => runExport(exportPublicacionesSheets, setExportingSheets);
 
+  const searchRef = useRef(null);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const { toast, showToast, hideToast } = useToast();
+
   const kpis = usePublicacionesMLKpis(buildKpiParams(filters, periodo), canSeeKpis);
   const productRows = useProductRows({ filters, pageSize, canSeeSales, canSeeMargin, enabled: producto });
 
@@ -390,6 +400,15 @@ export default function PublicacionesML() {
   const hasActiveFilters = activeKeys.some((key) => (Array.isArray(filters[key]) ? filters[key].length > 0 : filters[key] !== ''));
 
   const items = data?.items ?? EMPTY_ROWS;
+  // The copy shortcuts act on the focused publication of the list (the Producto and Agrupado rows load their own).
+  usePublicacionesMLKeyboard({
+    searchRef,
+    findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
+    // While an export runs the key is still taken from the browser, and starts nothing.
+    onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
+    onToggleHelp: () => setShowShortcuts((open) => !open),
+    showToast,
+  });
   const total = producto ? productRows.total : (data?.total ?? 0);
   const unit = producto ? 'productos' : 'publicaciones';
   const offset = (filters.pagina - 1) * pageSize;
@@ -490,6 +509,7 @@ export default function PublicacionesML() {
         <div className={styles.filterBand}>
           <div className={styles.searchSlot}>
             <SearchInput
+              ref={searchRef}
               value={filters.q}
               onChange={(value) => setFilters({ q: value })}
               debounce={400}
@@ -501,6 +521,15 @@ export default function PublicacionesML() {
             {chipGroup('Filtrar por estado', 'estado', STATUS_OPTIONS, STATUS_LABELS, facets?.status)}
           </div>
           <span className={styles.spacer} />
+          <button
+            type="button"
+            className="btn-tesla ghost sm"
+            aria-label="Atajos de teclado"
+            title="Atajos de teclado (?)"
+            onClick={() => setShowShortcuts(true)}
+          >
+            <Keyboard size={14} aria-hidden="true" />
+          </button>
           {hasActiveFilters && (
             <button type="button" className="btn-tesla ghost sm" onClick={resetFilters}>
               <FilterX size={14} />
@@ -667,6 +696,8 @@ export default function PublicacionesML() {
           )}
         </div>
       )}
+      {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   );
 }
