@@ -35,6 +35,7 @@ vi.mock('../services/api', () => ({
   default: {
     get: vi.fn(() => Promise.resolve({ data: [] })),
     post: vi.fn(() => Promise.resolve({ data: {} })),
+    patch: vi.fn(() => Promise.resolve({ data: {} })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   productosPropiosAPI: { get: vi.fn(() => new Promise(() => {})), save: vi.fn() },
@@ -1708,5 +1709,40 @@ describe('keyboard export', () => {
     expect(fireEvent.keyDown(document.body, { key: 'e', code: 'KeyE', ctrlKey: true })).toBe(false);
     expect(exportPublicacionesCsv).toHaveBeenCalledTimes(1);
     await act(async () => finish());
+  });
+});
+
+describe('painting from the keyboard (S8)', () => {
+  const firstRow = () => screen.getByText('MLA1100000001').closest('tr');
+
+  it("a digit paints the focused publication's product on the layer on show, as Productos' quick colors", async () => {
+    const user = userEvent.setup();
+    await page('/ml-publicaciones?equipo=12');
+    await screen.findByRole('option', { name: 'Ventas' });
+    firstRow().focus();
+    await user.keyboard('4');
+    await waitFor(() => expect(firstRow()).toHaveAttribute('data-tone'));
+    expect(api.patch).toHaveBeenCalledWith('/productos/4101/color', { color: 'verde' }, { params: { equipo_id: 12 } });
+  });
+
+  it('says so for a publication with no product, and paints nothing', async () => {
+    const user = userEvent.setup();
+    api.patch.mockClear();
+    await page();
+    screen.getByText('MLA1100000003').closest('tr').focus();
+    await user.keyboard('1');
+    expect(await screen.findByText('La publicación no tiene producto vinculado')).toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('F7 / F6 step through Global and the teams, and say which layer is on', async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findByRole('option', { name: 'Ventas' });
+    await user.keyboard('{F7}');
+    await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
+    expect(await screen.findByText('Capa: Ventas')).toBeInTheDocument();
+    await user.keyboard('{F6}');
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('equipo_id'));
   });
 });

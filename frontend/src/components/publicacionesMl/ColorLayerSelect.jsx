@@ -1,14 +1,12 @@
 import { useEffect } from 'react';
-import { useEquipos } from '../../hooks/useEquipos';
 import styles from './ColorLayerSelect.module.css';
 
 /**
  * The color layer the rows are painted with (S8): the global one ('') or one of the user's teams, the same layers
- * Productos paints. Hidden while the user has no team: the global layer is all there is. A team the user is not in
+ * Productos paints; `equipos` / `loaded` are `useEquipos`' (the page shares them with F6/F7). Hidden while the user has no team: the global layer is all there is. A team the user is not in
  * (a link someone else shared) is dropped once the teams are known: the backend refuses it with a 403.
  */
-export default function ColorLayerSelect({ value, onChange, labelClassName }) {
-  const { equipos, loaded } = useEquipos();
+export default function ColorLayerSelect({ value, onChange, equipos, loaded, labelClassName }) {
   const teams = equipos.filter((equipo) => !equipo.es_global);
   const unknown = loaded && value !== '' && !teams.some((equipo) => String(equipo.id) === value);
 

@@ -19,6 +19,8 @@ import PaintColorMenu from '../components/publicacionesMl/PaintColorMenu';
 import { itemRowTone } from '../components/publicacionesMl/rowColor';
 import useColorOverlay from '../components/publicacionesMl/useColorOverlay';
 import { useSSEChannel } from '../hooks/useSSEChannel';
+import { useEquipos } from '../hooks/useEquipos';
+import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
@@ -215,6 +217,7 @@ export default function PublicacionesML() {
   const colorOverlay = useColorOverlay(filters.equipo);
   useSSEChannel('producto_color:changed', colorOverlay.apply);
   const getItemTone = useCallback((item) => itemRowTone(item, colorOverlay.colors), [colorOverlay.colors]);
+  const { equipos, loaded: equiposLoaded } = useEquipos();
   useEffect(clearChecked, [filterKey, filters.vista, clearChecked]);
 
   const pageSize = filters.limite;
@@ -411,8 +414,39 @@ export default function PublicacionesML() {
 
   const items = data?.items ?? EMPTY_ROWS;
   // The copy shortcuts act on the focused publication of the list (the Producto and Agrupado rows load their own).
+  const paintProduct = usePaintProduct({ equipo: filters.equipo, onPainted: colorOverlay.apply, showToast });
+  // The product of a focused row: a publication's linked product, or the product row itself (Producto view). The
+  // Agrupado tree keeps its rows to itself.
+  const paintRow = (key, color) => {
+    if (agrupado) {
+      showToast('Pintar con el teclado funciona en las vistas Publicaciones y Producto', 'error');
+      return;
+    }
+    const row = producto ? productRows.rows.find((candidate) => candidate.id === key) : null;
+    const productId = producto
+      ? row?.type === 'node'
+        ? row.node.productoItemId
+        : row?.item?.link?.producto_item_id
+      : items.find((item) => item.item_id === key)?.link?.producto_item_id;
+    if (productId == null) {
+      showToast('La publicación no tiene producto vinculado', 'error');
+      return;
+    }
+    paintProduct(productId, color);
+  };
+  // F6 / F7 step through [Global, ...the user's teams], wrapping around, as in Productos.
+  const cycleLayer = (delta) => {
+    const teams = equipos.filter((equipo) => !equipo.es_global);
+    const layers = ['', ...teams.map((equipo) => String(equipo.id))];
+    if (layers.length <= 1) return;
+    const next = layers[(Math.max(0, layers.indexOf(filters.equipo)) + delta + layers.length) % layers.length];
+    setFilters({ equipo: next });
+    showToast(`Capa: ${next ? teams.find((equipo) => String(equipo.id) === next).nombre : 'Global'}`, 'info');
+  };
   usePublicacionesMLKeyboard({
     searchRef,
+    onPaintRow: paintRow,
+    onCycleLayer: cycleLayer,
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
@@ -535,6 +569,8 @@ export default function PublicacionesML() {
             <ColorLayerSelect
               value={filters.equipo}
               onChange={(equipo) => setFilters({ equipo })}
+              equipos={equipos}
+              loaded={equiposLoaded}
               labelClassName={styles.filterLabel}
             />
             <PaintColorMenu
