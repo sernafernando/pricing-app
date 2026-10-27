@@ -140,6 +140,11 @@ _PARKED_SQL = text(
 )
 
 
+def queue_lanes(db: Session) -> List[Dict[str, Any]]:
+    """Waiting, claimed and parked entries and the oldest wait of each lane (the report's `queue.lanes`)."""
+    return _queue(db)["lanes"]
+
+
 def _queue(db: Session) -> Dict[str, Any]:
     found = {row["lane"]: row for row in db.execute(_LANES_SQL).mappings()}
     lanes = []

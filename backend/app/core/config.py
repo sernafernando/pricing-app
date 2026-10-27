@@ -232,6 +232,20 @@ class Settings(BaseSettings):
             "replenishment": 86400,
         }
     )
+    # ml-sync-pipeline S5: seconds a notified change may stay unapplied once due (past its minimum age) before
+    # the owner gets a WhatsApp. Visits are swept once a day (design D17), so theirs is the age of the check.
+    ML_PUB_FRESHNESS_TARGET_SECONDS: dict = Field(
+        default_factory=lambda: {
+            "items": 120,
+            "prices": 300,
+            "sale_price": 300,
+            "promotions": 300,
+            "competition": 300,
+            "description": 21600,
+            "family": 86400,
+            "visits": 90000,
+        }
+    )
     ML_PUB_SCAN_STATUSES: List[str] = Field(
         default_factory=lambda: ["closed", "paused", "under_review", "inactive", "pending", "active"]
     )
