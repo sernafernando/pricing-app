@@ -19,10 +19,12 @@ function mensajeError(err, fallback) {
  * Answers "who manages this marca?": pick a marca, see each category with
  * its titular and sub-PMs, and add one user to several categories at once.
  *
- * Adding goes through the existing atomic bulk PUT for that user: the
- * desired set is every grant the user already has in the caller's scope
- * (`grantsScope`) plus the selected pairs, so nothing else of theirs is
- * revoked and a rejected pair applies nothing.
+ * Adding goes through the existing atomic bulk PUT for that user, which
+ * REPLACES their whole set. The desired set is therefore read fresh from
+ * GET /marcas-pm/sub-pms/usuario/{id} right before writing, plus the
+ * selected pairs — never from `grantsScope`, which is cosmetic and empty
+ * when its read failed or is still in flight (that would silently revoke
+ * every other grant). If the fresh read fails, nothing is written.
  *
  * `onCambio(usuarioIds)` tells the parent which users changed so it can
  * reload grants and counts.
@@ -30,7 +32,7 @@ function mensajeError(err, fallback) {
 export default function VistaPorMarca({ pares, usuarios, grantsScope, onCambio }) {
   const [busqueda, setBusqueda] = useState('');
   const [marca, setMarca] = useState(null);
-  const [seleccionadas, setSeleccionadas] = useState(() => new Set());
+  const [seleccion, setSeleccion] = useState(() => new Set()); // parKey values
   const [usuarioId, setUsuarioId] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const [alerta, setAlerta] = useState(null); // { tipo, texto }
@@ -65,47 +67,51 @@ export default function VistaPorMarca({ pares, usuarios, grantsScope, onCambio }
   // gives way to the first one still listed.
   const actual = marcasVisibles.find((m) => m.nombre === marca) || marcasVisibles[0] || null;
 
+  // Only the ticked pairs of the marca on screen count: when the search
+  // swaps the marca, ticks made on another one never leak into a write.
+  const seleccionadas = actual ? actual.categorias.filter((par) => seleccion.has(parKey(par.marca, par.categoria))) : [];
+
   const elegirMarca = (nombre) => {
     setMarca(nombre);
-    setSeleccionadas(new Set());
+    setSeleccion(new Set());
     setAlerta(null);
   };
 
-  const toggleCategoria = (categoria) => {
-    setSeleccionadas((prev) => {
+  const toggleCategoria = (par) => {
+    const key = parKey(par.marca, par.categoria);
+    setSeleccion((prev) => {
       const next = new Set(prev);
-      if (next.has(categoria)) next.delete(categoria);
-      else next.add(categoria);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
 
-  const todasSeleccionadas = actual != null && seleccionadas.size === actual.categorias.length;
+  const todasSeleccionadas = actual != null && seleccionadas.length === actual.categorias.length;
   const toggleTodas = () => {
-    setSeleccionadas(todasSeleccionadas ? new Set() : new Set(actual.categorias.map((par) => par.categoria)));
+    setSeleccion(
+      todasSeleccionadas ? new Set() : new Set(actual.categorias.map((par) => parKey(par.marca, par.categoria))),
+    );
   };
 
   const agregar = async () => {
-    if (!actual || usuarioId === '' || seleccionadas.size === 0) return;
+    if (!actual || usuarioId === '' || seleccionadas.length === 0) return;
     const id = Number(usuarioId);
-    const deseados = new Map();
-    for (const g of grantsScope) {
-      if (g.usuario_id === id) deseados.set(parKey(g.marca, g.categoria), { marca: g.marca, categoria: g.categoria });
-    }
-    for (const categoria of seleccionadas) {
-      deseados.set(parKey(actual.nombre, categoria), { marca: actual.nombre, categoria });
-    }
     const nombre = usuarios.find((u) => u.id === id)?.nombre || `usuario #${id}`;
     setOcupado(true);
     setAlerta(null);
     try {
+      const { data: actuales } = await marcasPmAPI.obtenerGrantsUsuario(id);
+      const deseados = new Map();
+      for (const p of actuales?.pares || []) deseados.set(parKey(p.marca, p.categoria), { marca: p.marca, categoria: p.categoria });
+      for (const par of seleccionadas) deseados.set(parKey(par.marca, par.categoria), { marca: par.marca, categoria: par.categoria });
       const { data } = await marcasPmAPI.asignarSubPMsBulk(id, [...deseados.values()]);
       const texto =
         data.otorgados === 0
           ? `${nombre} ya era sub-PM de esas categorías de ${actual.nombre}.`
           : `${nombre} agregado como sub-PM en ${data.otorgados} ${data.otorgados === 1 ? 'categoría' : 'categorías'} de ${actual.nombre}.`;
       setAlerta({ tipo: 'success', texto });
-      setSeleccionadas(new Set());
+      setSeleccion(new Set());
       onCambio([id]);
     } catch (err) {
       console.error('Error al agregar el sub-PM', err);
@@ -114,7 +120,6 @@ export default function VistaPorMarca({ pares, usuarios, grantsScope, onCambio }
       setOcupado(false);
     }
   };
-
 
   return (
     <div className={styles.layout}>
@@ -179,9 +184,9 @@ export default function VistaPorMarca({ pares, usuarios, grantsScope, onCambio }
                 type="button"
                 className="btn-tesla outline-subtle-primary sm"
                 onClick={agregar}
-                disabled={ocupado || usuarioId === '' || seleccionadas.size === 0}
+                disabled={ocupado || usuarioId === '' || seleccionadas.length === 0}
               >
-                Agregar a {seleccionadas.size} {seleccionadas.size === 1 ? 'categoría' : 'categorías'}
+                Agregar a {seleccionadas.length} {seleccionadas.length === 1 ? 'categoría' : 'categorías'}
               </button>
               <button type="button" className="btn-tesla ghost sm" onClick={toggleTodas} disabled={ocupado}>
                 {todasSeleccionadas ? 'Deseleccionar todas' : 'Seleccionar todas'}
@@ -205,8 +210,8 @@ export default function VistaPorMarca({ pares, usuarios, grantsScope, onCambio }
                       <td>
                         <input
                           type="checkbox"
-                          checked={seleccionadas.has(par.categoria)}
-                          onChange={() => toggleCategoria(par.categoria)}
+                          checked={seleccion.has(parKey(par.marca, par.categoria))}
+                          onChange={() => toggleCategoria(par)}
                           disabled={ocupado}
                           aria-label={`Seleccionar ${par.categoria}`}
                         />

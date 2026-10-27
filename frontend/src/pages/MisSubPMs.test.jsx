@@ -822,7 +822,8 @@ describe('MisSubPMs — "Por marca / par" tab', () => {
 
     expect(await screen.findByText('Ana agregado como sub-PM en 1 categoría de Samsung.')).toBeInTheDocument();
     expect(marcasPmAPI.asignarSubPMsBulk).toHaveBeenCalledWith(5, [{ marca: 'Samsung', categoria: 'Celulares' }]);
-    await waitFor(() => expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledTimes(2));
+    // pick (1), fresh read right before the PUT (2), baseline reload after it (3)
+    await waitFor(() => expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledTimes(3));
     expect(marcasPmAPI.obtenerConteosSubPMs.mock.calls.length).toBeGreaterThan(conteosAntes);
     expect(marcasPmAPI.listarGrantsScope.mock.calls.length).toBeGreaterThan(grantsAntes);
   });

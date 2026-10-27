@@ -37,6 +37,9 @@ function filaDe(categoria) {
 }
 
 beforeEach(() => {
+  marcasPmAPI.obtenerGrantsUsuario
+    .mockReset()
+    .mockResolvedValue({ data: { pares: [{ marca: 'LG', categoria: 'Televisores' }], total: 1 } });
   marcasPmAPI.asignarSubPMsBulk.mockReset().mockResolvedValue({ data: { otorgados: 2, revocados: 0, total: 3 } });
 });
 
@@ -110,6 +113,50 @@ describe('VistaPorMarca', () => {
     expect(screen.getByLabelText('Seleccionar Monitores')).not.toBeChecked();
   });
 
+  it('reads the user\'s current grants before writing, not the cosmetic scope list', async () => {
+    const user = userEvent.setup();
+    renderVista({ grantsScope: [] }); // scope read failed or has not arrived yet
+    await user.click(screen.getByRole('button', { name: 'Samsung (3)' }));
+    await user.click(screen.getByLabelText('Seleccionar Monitores'));
+    await user.selectOptions(screen.getByLabelText('Agregar como sub-PM'), '5');
+    await user.click(screen.getByRole('button', { name: /^Agregar a/ }));
+
+    expect(marcasPmAPI.obtenerGrantsUsuario).toHaveBeenCalledWith(5);
+    const [, pares] = marcasPmAPI.asignarSubPMsBulk.mock.calls[0];
+    expect(pares).toEqual(
+      expect.arrayContaining([
+        { marca: 'LG', categoria: 'Televisores' },
+        { marca: 'Samsung', categoria: 'Monitores' },
+      ]),
+    );
+    expect(pares).toHaveLength(2);
+  });
+
+  it('writes nothing when the user\'s current grants cannot be read', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.obtenerGrantsUsuario.mockRejectedValue({ response: { status: 500, data: { detail: 'Error interno' } } });
+    const { onCambio } = renderVista();
+    await user.click(screen.getByLabelText('Seleccionar Televisores'));
+    await user.selectOptions(screen.getByLabelText('Agregar como sub-PM'), '6');
+    await user.click(screen.getByRole('button', { name: /^Agregar a/ }));
+
+    expect(await screen.findByText('Error interno No se aplicó ningún cambio.')).toBeInTheDocument();
+    expect(marcasPmAPI.asignarSubPMsBulk).not.toHaveBeenCalled();
+    expect(onCambio).not.toHaveBeenCalled();
+  });
+
+  it('does not carry ticked categories over to another marca shown by the search', async () => {
+    const user = userEvent.setup();
+    renderVista();
+    await user.click(screen.getByRole('button', { name: 'Samsung (3)' }));
+    await user.click(screen.getByLabelText('Seleccionar Monitores'));
+    await user.type(screen.getByRole('searchbox', { name: 'Buscar marca' }), 'lg');
+
+    expect(screen.getByRole('heading', { name: 'LG' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Agregar a/ })).toHaveTextContent('Agregar a 0 categorías');
+    expect(screen.getByRole('button', { name: 'Seleccionar todas' })).toBeInTheDocument();
+  });
+
   it('selects every category of the marca at once', async () => {
     const user = userEvent.setup();
     renderVista();
@@ -133,5 +180,4 @@ describe('VistaPorMarca', () => {
     expect(await screen.findByText('Pares fuera de tu scope No se aplicó ningún cambio.')).toBeInTheDocument();
     expect(onCambio).not.toHaveBeenCalled();
   });
-
 });
