@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 const ROW = 'tr[data-clickable][data-row-key]';
 const PAGE = 10;
@@ -72,9 +72,11 @@ function moveFocus(event) {
  * its row (a publication with `link.codigo`), so copying works wherever the rows are publications.
  */
 export default function usePublicacionesMLKeyboard({ searchRef, findRow, onExport, onToggleHelp, showToast, disabled }) {
-  // The latest props, so the one listener never reads stale ones.
-  const props = useRef();
-  props.current = { searchRef, findRow, onExport, onToggleHelp, showToast };
+  // The latest props, so the one listener never reads stale ones (updated after each render, never during it).
+  const props = useRef({});
+  useLayoutEffect(() => {
+    props.current = { searchRef, findRow, onExport, onToggleHelp, showToast };
+  });
 
   useEffect(() => {
     if (disabled) return undefined;
