@@ -47,8 +47,8 @@ vi.mock('../../services/api', () => ({
   },
 }));
 
-// Refresh button is gated on `promos.escribir`; default the mock to granted so
-// existing button tests render it, and flip it in the gating test.
+// Refresh button is gated on `promos.ver` (read-reconcile); default the mock
+// to granted so existing button tests render it, and flip it in the gating test.
 const { mockTienePermiso } = vi.hoisted(() => ({ mockTienePermiso: vi.fn(() => true) }));
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({ tienePermiso: mockTienePermiso }),
@@ -357,8 +357,8 @@ describe('TreeNode promo refresh button (per-MLA manual refresh)', () => {
     expect(screen.queryByRole('button', { name: /refrescar promociones/i })).not.toBeInTheDocument();
   });
 
-  it('hides the refresh button when the user lacks promos.escribir', async () => {
-    mockTienePermiso.mockReturnValue(false);
+  it('hides the refresh button when the user lacks promos.ver', async () => {
+    mockTienePermiso.mockImplementation((perm) => perm !== 'promos.ver');
     renderNode(buildMlaTree());
     await expandToMla();
     expect(screen.queryByRole('button', { name: /refrescar promociones/i })).not.toBeInTheDocument();
@@ -391,6 +391,20 @@ describe('TreeNode promo refresh button (per-MLA manual refresh)', () => {
     expect(screen.getByText(/refrescando/i)).toBeInTheDocument();
 
     resolvePromise({ data: { ok: true } });
+    await waitFor(() => expect(screen.queryByText(/refrescando/i)).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i })).not.toBeDisabled();
+  });
+
+  it('clears Refrescando after StrictMode remounts the mount effect', async () => {
+    // Regression: cleanup-only mountedRef effect left the ref false forever under
+    // StrictMode, so finally skipped setRefreshing(false).
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+    renderNode(buildMlaTree());
+    const user = await expandToMla();
+
+    await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
+
+    await waitFor(() => expect(screen.queryByText(/refrescando/i)).not.toBeInTheDocument());
   });
 
   it('invalidates the promos cache entry on success', async () => {

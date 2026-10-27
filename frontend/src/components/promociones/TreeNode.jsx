@@ -156,7 +156,15 @@ function TreeNode({
   // committed: it covers exactly ONE mount. Left sticky, a single click on
   // refresh stopped this node from ever pulling on open again.
   const justRefreshedRef = useRef(false);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  // Must set `true` in the effect body: React StrictMode runs the cleanup once
+  // on mount (dev), and a cleanup-only effect would leave this false forever —
+  // then refresh stays on "Refrescando…" because finally skips setRefreshing(false).
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Runs after the refresh-triggered remount has rendered with the flag set,
   // so the NEXT open pulls again. Clearing it during render would mutate a ref
@@ -215,10 +223,10 @@ function TreeNode({
   const displayLabel = node.label || node.mla || kindLabel;
   const rowKey = node.mla || `${node.kind}-${node.family_id || node.catalog_product_id || node.level}`;
   const bearsMla = isMlaBearing(node.kind);
-  // The refresh endpoint requires `promos.escribir` (same as enroll/remove);
-  // gate the button's visibility so a view-only user never sees a control
-  // that would 403 — mirrors PromoApplyControl's gating.
-  const canRefresh = bearsMla && tienePermiso('promos.escribir');
+  // The refresh endpoint is a read-reconcile (`promos.ver`), same as
+  // MlaPromocionesPanel's pull — it never writes to ML. Gate visibility so a
+  // user without promos.ver never sees a control that would 403.
+  const canRefresh = bearsMla && tienePermiso('promos.ver');
 
   // Collapsed-node promo summary (catalog-tree-node-summary PR) — restores
   // the old flat panel's per-MLA badges, visible without expanding the
