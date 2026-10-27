@@ -18,7 +18,7 @@ const ROWS = Array.from({ length: 15 }, (_, index) => ({
 }));
 const COLUMNS = [{ key: 'titulo', label: 'Título', render: (row) => row.titulo }];
 
-function Harness({ onOpen = () => {}, onExport, onPaintRow, onCycleLayer, showToast = () => {}, rows = ROWS }) {
+function Harness({ onOpen = () => {}, onExport, onPaintRow, onCycleLayer, onBulkAction, onOpenFilter, showToast = () => {}, rows = ROWS }) {
   const searchRef = useRef(null);
   const [help, setHelp] = useState(false);
   usePublicacionesMLKeyboard({
@@ -27,6 +27,8 @@ function Harness({ onOpen = () => {}, onExport, onPaintRow, onCycleLayer, showTo
     onExport,
     onPaintRow,
     onCycleLayer,
+    onBulkAction,
+    onOpenFilter,
     onToggleHelp: () => setHelp((open) => !open),
     showToast,
   });
@@ -255,5 +257,41 @@ describe('colors (S8): 0-7 paint the focused row, F6/F7 change the layer, as in 
     await user.click(screen.getByRole('textbox', { name: 'Buscar' }));
     await user.keyboard('{F7}');
     expect(onCycleLayer).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Productos' bulk and filter shortcuts (S9b)", () => {
+  it('Ctrl+K opens Calcular Web Transf., Ctrl+Shift+P Calcular PVP, taken from the browser (Caps Lock or not)', () => {
+    const onBulkAction = vi.fn();
+    render(<Harness onBulkAction={onBulkAction} />);
+    expect(fireEvent.keyDown(document.body, { key: 'k', code: 'KeyK', ctrlKey: true })).toBe(false);
+    expect(onBulkAction).toHaveBeenLastCalledWith('web');
+    expect(fireEvent.keyDown(document.body, { key: 'P', code: 'KeyP', ctrlKey: true, shiftKey: true })).toBe(false);
+    expect(onBulkAction).toHaveBeenLastCalledWith('pvp');
+    fireEvent.keyDown(document.body, { key: 'p', code: 'KeyP', ctrlKey: true });
+    expect(onBulkAction).toHaveBeenCalledTimes(2);
+  });
+
+  it('Alt+M / Alt+S / Alt+P open the Marca, Subcategoría and PM filters (the key, not the character a Mac types)', () => {
+    const onOpenFilter = vi.fn();
+    render(<Harness onOpenFilter={onOpenFilter} />);
+    expect(fireEvent.keyDown(document.body, { key: 'µ', code: 'KeyM', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('marcas');
+    fireEvent.keyDown(document.body, { key: 's', code: 'KeyS', altKey: true });
+    expect(onOpenFilter).toHaveBeenLastCalledWith('subcategorias');
+    fireEvent.keyDown(document.body, { key: 'p', code: 'KeyP', altKey: true });
+    expect(onOpenFilter).toHaveBeenLastCalledWith('pms');
+  });
+
+  it('none of them runs while typing in a field', async () => {
+    const onBulkAction = vi.fn();
+    const onOpenFilter = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onBulkAction={onBulkAction} onOpenFilter={onOpenFilter} />);
+    await user.click(screen.getByRole('textbox', { name: 'Buscar' }));
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Buscar' }), { key: 'k', code: 'KeyK', ctrlKey: true });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Buscar' }), { key: 'm', code: 'KeyM', altKey: true });
+    expect(onBulkAction).not.toHaveBeenCalled();
+    expect(onOpenFilter).not.toHaveBeenCalled();
   });
 });

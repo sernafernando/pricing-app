@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import {
+  buildExportParams,
   usePublicacionesMLFilters,
   buildItemsParams,
   AGRUPAR_DIMENSIONS,
@@ -498,9 +499,11 @@ describe('the color layer (`equipo`, S8)', () => {
     expect(buildItemsParams(base)).not.toHaveProperty('equipo_id');
   });
 
-  it('never sends it where colors are not shown: the KPI strip and the bulk set', () => {
+  it('never sends it where colors are not shown: the KPI strip, the bulk set and the CSV export', () => {
     expect(buildKpiParams({ ...base, equipo: '12' }, '30d')).toEqual({ periodo: '30d' });
     expect(buildProductIdsParams({ ...base, equipo: '12' })).toEqual({});
+    expect(buildExportParams({ ...base, equipo: '12' })).not.toHaveProperty('equipo_id');
+    expect(buildExportParams({ ...base, vista: 'producto', equipo: '12' })).not.toHaveProperty('equipo_id');
   });
 
   it('is how the rows are looked at, not a filter: "Limpiar filtros" keeps it and it never resets the page', () => {

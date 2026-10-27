@@ -247,8 +247,9 @@ export function buildProductsParams(filters, pageSize = filters.limite ?? PAGE_S
  */
 export function buildExportParams(filters, permissions = {}) {
   const build = filters.vista === 'producto' ? buildProductsParams : buildItemsParams;
-  const { limit, offset, ...params } = build(filters, undefined, permissions);
-  void limit, offset;
+  // The file carries no row colors, so the color layer is not asked either.
+  const { limit, offset, equipo_id, ...params } = build(filters, undefined, permissions);
+  void limit, offset, equipo_id;
   return params;
 }
 

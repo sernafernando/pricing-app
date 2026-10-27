@@ -19,6 +19,8 @@ const COPIES = {
 
 // Productos' quick colors (`useProductosKeyboard`): the digit is the index, 0 clears the color.
 const PAINT_COLORS = [null, 'rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
+// Alt+letter opens a product filter, by the key (`code`): a Mac types another character with Alt.
+const FILTER_KEYS = { KeyM: 'marcas', KeyS: 'subcategorias', KeyP: 'pms' };
 const NO_ROW = 'Posicionate sobre una publicación (flecha abajo) para usar este atajo';
 
 function copyAction(event) {
@@ -75,6 +77,8 @@ function moveFocus(event) {
  * - Ctrl+F1/F2/F3 (or Ctrl+Shift+1/2/3) copy the focused publication's product code and its two ML links.
  * - 0-7 paint the focused row's product (`onPaintRow(key, color)`, 0 = no color) and F6/F7 step to the previous /
  *   next color layer (`onCycleLayer(-1 | 1)`), as in Productos; each only where the page offers it.
+ * - Ctrl+K / Ctrl+Shift+P open the bulk Calcular Web Transf. / Calcular PVP (`onBulkAction('web' | 'pvp')`), and
+ *   Alt+M / Alt+S / Alt+P the Marca / Subcategoría / PM filters (`onOpenFilter(name)`), as in Productos.
  *
  * While the operator types in a field only Ctrl+F and the copy shortcuts run (as in Productos, which copies while
  * editing too); nothing runs while a dialog is open (the help only takes `?`, to close it). `findRow(key)` maps a focused row's key to
@@ -86,14 +90,17 @@ export default function usePublicacionesMLKeyboard({
   onExport,
   onPaintRow,
   onCycleLayer,
+  onBulkAction,
+  onOpenFilter,
   onToggleHelp,
   showToast,
   disabled,
 }) {
   // The latest props, so the one listener never reads stale ones (updated after each render, never during it).
+  // No dependency array on purpose (the latest-ref pattern): it copies the values after every render.
   const props = useRef({});
   useLayoutEffect(() => {
-    props.current = { searchRef, findRow, onExport, onPaintRow, onCycleLayer, onToggleHelp, showToast };
+    props.current = { searchRef, findRow, onExport, onPaintRow, onCycleLayer, onBulkAction, onOpenFilter, onToggleHelp, showToast };
   });
 
   useEffect(() => {
@@ -123,8 +130,16 @@ export default function usePublicacionesMLKeyboard({
     };
 
     const handleKeyDown = (event) => {
-      const { searchRef: search, onExport: exportView, onToggleHelp: toggleHelp, onPaintRow: paintRow, onCycleLayer: cycleLayer, showToast: toast } =
-        props.current;
+      const {
+        searchRef: search,
+        onExport: exportView,
+        onToggleHelp: toggleHelp,
+        onPaintRow: paintRow,
+        onCycleLayer: cycleLayer,
+        onBulkAction: bulkAction,
+        onOpenFilter: openFilter,
+        showToast: toast,
+      } = props.current;
       // Another dialog (a bulk action, a confirmation) owns the keyboard, as in Productos; the help only lets `?` close it.
       const dialog = document.querySelector('.modal-overlay-tesla');
       if (dialog) {
@@ -150,6 +165,19 @@ export default function usePublicacionesMLKeyboard({
       if (event.ctrlKey && !event.shiftKey && !event.altKey && event.code === 'KeyE' && exportView) {
         event.preventDefault();
         exportView();
+        return;
+      }
+      if (event.ctrlKey && !event.altKey && bulkAction) {
+        const bulk = event.code === 'KeyK' && !event.shiftKey ? 'web' : event.code === 'KeyP' && event.shiftKey ? 'pvp' : null;
+        if (bulk) {
+          event.preventDefault();
+          bulkAction(bulk);
+          return;
+        }
+      }
+      if (event.altKey && !event.ctrlKey && !event.metaKey && FILTER_KEYS[event.code] && openFilter) {
+        event.preventDefault();
+        openFilter(FILTER_KEYS[event.code]);
         return;
       }
       if (event.ctrlKey || event.altKey || event.metaKey) return;

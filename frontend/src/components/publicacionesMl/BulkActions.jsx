@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, Layers, X } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { useToast } from '../../hooks/useToast';
@@ -32,7 +32,9 @@ const plural = (n, one, many) => (n === 1 ? one : many);
  * cap) or fails, or when it is empty. Publications without a product and linked products gone from the ERP catalog
  * are left out by the resolver, and the menu says how many.
  */
-export default function BulkActions({ filters, checkedIds, onClearChecked, canSeeMargin, onDone }) {
+// `openRequest` ({ key, at }: a new `at` per request) opens an action's modal as its menu item would -- Ctrl+K and
+// Ctrl+Shift+P, as in Productos. An action the user may not run opens nothing; a set not ready yet says why.
+export default function BulkActions({ filters, checkedIds, onClearChecked, canSeeMargin, onDone, openRequest }) {
   const { tienePermiso } = usePermisos();
   const { toast, showToast, hideToast } = useToast();
   const actions = ACTIONS.filter((action) => tienePermiso(action.permiso));
@@ -51,8 +53,6 @@ export default function BulkActions({ filters, checkedIds, onClearChecked, canSe
     document.addEventListener('mousedown', closeOutside);
     return () => document.removeEventListener('mousedown', closeOutside);
   }, [open]);
-
-  if (actions.length === 0) return null;
 
   const checked = checkedIds.size > 0;
   const itemIds = checked ? [...checkedIds] : resolved.itemIds;
@@ -77,6 +77,28 @@ export default function BulkActions({ filters, checkedIds, onClearChecked, canSe
           `${resolved.fueraDeCatalogo} ${plural(resolved.fueraDeCatalogo, 'producto fuera del catálogo queda afuera', 'productos fuera del catálogo quedan afuera')}`,
       ].filter(Boolean);
   const nota = notas.length > 0 ? notas.join('. ') : null;
+
+  // The request is answered with this render's set (updated before effects run), once per `at`.
+  // No dependency array on purpose (the latest-ref pattern): it copies the values after every render.
+  const current = useRef({});
+  useLayoutEffect(() => {
+    current.current = { actions, reason, itemIds, nota };
+  });
+  const handledRequest = useRef(null);
+  useEffect(() => {
+    if (!openRequest || handledRequest.current === openRequest.at) return;
+    handledRequest.current = openRequest.at;
+    const { actions: allowed, reason: blocked, itemIds: ids, nota: note } = current.current;
+    if (!allowed.some((action) => action.key === openRequest.key)) return;
+    if (blocked) {
+      showToast(blocked, 'error');
+      return;
+    }
+    setOpen(false);
+    setModal({ key: openRequest.key, itemIds: ids, itemIdsNota: note });
+  }, [openRequest, showToast]);
+
+  if (actions.length === 0) return null;
 
   const closeOnEscape = (event) => {
     if (event.key === 'Escape' && open) {

@@ -109,6 +109,7 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
         <button
           type="button"
           className={`${styles.filterButton} ${selectedMarcas.length > 0 ? styles.filterButtonActive : ''}`}
+          data-filter="marcas"
           onClick={() => togglePanel('marcas')}
         >
           Marca
@@ -120,6 +121,7 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
         <button
           type="button"
           className={`${styles.filterButton} ${selectedCategorias.length > 0 ? styles.filterButtonActive : ''}`}
+          data-filter="categorias"
           onClick={() => togglePanel('categorias')}
         >
           Categoría
@@ -131,6 +133,7 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
         <button
           type="button"
           className={`${styles.filterButton} ${selectedSubcategorias.length > 0 ? styles.filterButtonActive : ''}`}
+          data-filter="subcategorias"
           onClick={() => togglePanel('subcategorias')}
         >
           Subcategoría
@@ -143,6 +146,7 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
           <button
             type="button"
             className={`${styles.filterButton} ${selectedPms.length > 0 ? styles.filterButtonActive : ''}`}
+            data-filter="pms"
             onClick={() => togglePanel('pms')}
           >
             PM

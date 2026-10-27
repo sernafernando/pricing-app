@@ -261,3 +261,27 @@ describe('BulkActions', () => {
     });
   });
 });
+
+describe('opened from the keyboard (Ctrl+K / Ctrl+Shift+P, S9b)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    granted = new Set(ALL);
+  });
+
+  it('a request opens its modal over the same set the menu would act on', async () => {
+    resolved({ item_ids: [4101, 4102], count: 2, sin_producto: 0 });
+    const { rerender } = renderBulk();
+    await screen.findByRole('button', { name: /acciones masivas \(2 productos\)/i });
+    rerender(<BulkActions filters={FILTERS} checkedIds={new Set()} onClearChecked={() => {}} canSeeMargin={false} openRequest={{ key: 'web', at: 1 }} />);
+    expect(await screen.findByRole('heading', { name: /Calcular Precios Web Transferencia/ })).toBeInTheDocument();
+  });
+
+  it('says why when the set is not there yet, and opens nothing the user may not run', async () => {
+    publicacionesMlAPI.productIds.mockReturnValue(new Promise(() => {}));
+    granted = new Set(['productos.calcular_web_masivo']);
+    const { rerender } = renderBulk({ openRequest: { key: 'web', at: 1 } });
+    expect(await screen.findByText('Calculando los productos del filtro…')).toBeInTheDocument();
+    rerender(<BulkActions filters={FILTERS} checkedIds={new Set([4101])} onClearChecked={() => {}} canSeeMargin={false} openRequest={{ key: 'pvp', at: 2 }} />);
+    expect(screen.queryByRole('heading', { name: /Calcular Precios PVP/ })).not.toBeInTheDocument();
+  });
+});

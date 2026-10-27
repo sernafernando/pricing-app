@@ -1640,6 +1640,13 @@ describe('the color layer (S8)', () => {
     await page('/ml-publicaciones?equipo=99');
     await waitFor(() => expect(lastParams()).not.toHaveProperty('equipo_id'));
     expect(screen.getByRole('combobox', { name: 'Capa de color' })).toHaveValue('');
+    // Never asked on that layer, not even before the teams loaded: the 403 would flash a false error.
+    expect(calls().map((params) => params.equipo_id)).not.toContain('99');
+  });
+
+  it('a team layer from the link is asked once the teams say it is the user\'s, with no request before', async () => {
+    await page('/ml-publicaciones?equipo=12');
+    expect(calls().map((params) => params.equipo_id)).toEqual(['12']);
   });
 
   it("paints a publication with its product's color", async () => {
@@ -1693,6 +1700,34 @@ describe('keyboard shortcuts', () => {
     screen.getByPlaceholderText(/Buscar por título/).blur();
     await user.keyboard('{ArrowDown}{Enter}');
     await waitFor(() => expect(publicacionesMlAPI.detail).toHaveBeenCalledWith(ITEMS[0].item_id));
+  });
+});
+
+describe('bulk actions and filters from the keyboard (S9b)', () => {
+  it('Ctrl+K opens Calcular Web Transf. and Ctrl+Shift+P opens Calcular PVP over the filtered products', async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' });
+    await user.keyboard('{Control>}k{/Control}');
+    expect(await screen.findByRole('heading', { name: /Calcular Precios Web Transferencia/ })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: /Calcular Precios Web Transferencia/ })).not.toBeInTheDocument(),
+    );
+    await user.keyboard('{Control>}{Shift>}P{/Shift}{/Control}');
+    expect(await screen.findByRole('heading', { name: /Calcular Precios PVP/ })).toBeInTheDocument();
+  });
+
+  it('Alt+M, Alt+S and Alt+P open the Marca, Subcategoría and PM filters', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.keyboard('{Alt>}m{/Alt}');
+    expect(await screen.findByLabelText('TP,LINK')).toBeInTheDocument();
+    await user.keyboard('{Alt>}p{/Alt}');
+    await waitFor(() => expect(screen.queryByLabelText('TP,LINK')).not.toBeInTheDocument());
+    expect(await screen.findByLabelText('Ana')).toBeInTheDocument();
+    await user.keyboard('{Alt>}s{/Alt}');
+    await waitFor(() => expect(screen.queryByLabelText('Ana')).not.toBeInTheDocument());
   });
 });
 

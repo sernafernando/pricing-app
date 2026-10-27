@@ -77,8 +77,8 @@ class TestPublicationRows:
     def test_the_global_layer_paints_each_publication_with_its_product_color(self, client, pg, reader, layers) -> None:
         seed_rows(pg, fill)
         assert items(client, reader) == {
-            "MLA1": {"color_marcado": "rojo", "color_hint_global": "rojo"},
-            "MLA2": {"color_marcado": "azul", "color_hint_global": "azul"},
+            "MLA1": {"color_marcado": "rojo"},  # no hint on the global layer: it is the color itself
+            "MLA2": {"color_marcado": "azul"},
             "MLA3": {},  # no product, no color
         }
 
@@ -127,7 +127,7 @@ class TestTreeNodes:
         assert all(colors(node) == {} for node in root["nodes"])  # brands are not painted
         body = client.get(GROUPS_URL, headers=reader, params={"path": "TP-LINK,REDES,10"}).json()
         node = next(n for n in body["nodes"] if n["key"] == "70")
-        assert colors(node) == {"color_marcado": "amarillo", "color_hint_global": "amarillo"}
+        assert colors(node) == {"color_marcado": "amarillo"}
 
     def test_a_team_the_user_is_not_in_is_a_403(self, client, pg, reader, layers) -> None:
         seed_rows(pg, seed_catalog)

@@ -212,12 +212,18 @@ export default function PublicacionesML() {
     [],
   );
   const clearChecked = useCallback(() => setCheckedIds(new Set()), []);
-  // What is painted since the rows loaded -- here or by anyone -- repaints them without asking the list again
-  // (the trees would close their open branches).
-  const colorOverlay = useColorOverlay(filters.equipo, filterKey);
+  const { equipos, loaded: equiposLoaded } = useEquipos();
+  // The rows are asked on a team layer only once the teams say it is the user's: a link to another team's layer
+  // would answer 403 and flash a false error before ColorLayerSelect drops it. Until then nothing is asked.
+  const layerPending = filters.equipo !== '' && !equiposLoaded;
+  const layerKnown =
+    filters.equipo === '' || equipos.some((equipo) => !equipo.es_global && String(equipo.id) === filters.equipo);
+  const rowFilters = useMemo(() => (layerKnown ? filters : { ...filters, equipo: '' }), [filters, layerKnown]);
+  // What is painted, on the layer and filters the rows were asked on, since the rows loaded -- here or by
+  // anyone -- repaints them without asking the list again (the trees would close their open branches).
+  const colorOverlay = useColorOverlay(rowFilters.equipo, filterKey);
   useSSEChannel('producto_color:changed', colorOverlay.apply);
   const getItemTone = useCallback((item) => itemRowTone(item, colorOverlay.colors), [colorOverlay.colors]);
-  const { equipos, loaded: equiposLoaded } = useEquipos();
   useEffect(clearChecked, [filterKey, filters.vista, clearChecked]);
 
   const pageSize = filters.limite;
@@ -235,11 +241,12 @@ export default function PublicacionesML() {
   // sorted, so its one-row facets request never asks for a Métricas sort (a ranking of the whole set).
   const requestKey = JSON.stringify(
     ownRows
-      ? { ...buildItemsParams(filters, 1, { canSeeMargin: false }), offset: 0 }
-      : buildItemsParams(filters, pageSize, { canSeeMargin, canSeeSales }),
+      ? { ...buildItemsParams(rowFilters, 1, { canSeeMargin: false }), offset: 0 }
+      : buildItemsParams(rowFilters, pageSize, { canSeeMargin, canSeeSales }),
   );
 
   useEffect(() => {
+    if (layerPending) return;
     const request = ++latestRequest.current;
     const wantFacets = filterKey !== facetsFor.current;
     const params = JSON.parse(requestKey);
@@ -266,7 +273,7 @@ export default function PublicacionesML() {
         setError(err);
         setLoading(false);
       });
-  }, [requestKey, filterKey, reloadToken]);
+  }, [requestKey, filterKey, reloadToken, layerPending]);
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
@@ -315,7 +322,13 @@ export default function PublicacionesML() {
   const { toast, showToast, hideToast } = useToast();
 
   const kpis = usePublicacionesMLKpis(buildKpiParams(filters, periodo), canSeeKpis);
-  const productRows = useProductRows({ filters, pageSize, canSeeSales, canSeeMargin, enabled: producto });
+  const productRows = useProductRows({
+    filters: rowFilters,
+    pageSize,
+    canSeeSales,
+    canSeeMargin,
+    enabled: producto && !layerPending,
+  });
 
   const eventsEnabled = data?.events_enabled ?? false;
   // The divergence filter brings its own column: the SKU next to the product it names and the linked one.
@@ -414,7 +427,7 @@ export default function PublicacionesML() {
 
   const items = data?.items ?? EMPTY_ROWS;
   // The copy shortcuts act on the focused publication of the list (the Producto and Agrupado rows load their own).
-  const paintProduct = usePaintProduct({ equipo: filters.equipo, onPainted: colorOverlay.apply, showToast });
+  const paintProduct = usePaintProduct({ equipo: rowFilters.equipo, onPainted: colorOverlay.apply, showToast });
   // The product of a focused row: a publication's linked product, or the product row itself (Producto view). The
   // Agrupado tree keeps its rows to itself.
   const paintRow = (key, color) => {
@@ -443,8 +456,14 @@ export default function PublicacionesML() {
     setFilters({ equipo: next });
     showToast(`Capa: ${next ? teams.find((equipo) => String(equipo.id) === next).nombre : 'Global'}`, 'info');
   };
+  // Ctrl+K / Ctrl+Shift+P ask BulkActions for a modal; `at` makes each press a new request.
+  const [bulkRequest, setBulkRequest] = useState(null);
+  const filterCardRef = useRef(null);
+  const openFilter = (name) => filterCardRef.current?.querySelector(`[data-filter="${name}"]`)?.click();
   usePublicacionesMLKeyboard({
     searchRef,
+    onBulkAction: (key) => setBulkRequest({ key, at: performance.now() }),
+    onOpenFilter: openFilter,
     onPaintRow: paintRow,
     onCycleLayer: cycleLayer,
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
@@ -512,6 +531,7 @@ export default function PublicacionesML() {
             onClearChecked={clearChecked}
             canSeeMargin={canSeeMargin}
             onDone={reloadList}
+            openRequest={bulkRequest}
           />
           <BulkStatusActions filters={filters} canSeeMargin={canSeeMargin} onDone={reloadList} />
           <ColumnPicker table={pickerTable} />
@@ -549,7 +569,7 @@ export default function PublicacionesML() {
         />
       )}
 
-      <section className={styles.filterCard} aria-label="Filtros">
+      <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
           <div className={styles.searchSlot}>
             <SearchInput
@@ -575,7 +595,7 @@ export default function PublicacionesML() {
             />
             <PaintColorMenu
               checkedIds={checkedIds}
-              equipo={filters.equipo}
+              equipo={rowFilters.equipo}
               onPainted={colorOverlay.apply}
               onClearChecked={clearChecked}
             />
@@ -706,9 +726,11 @@ export default function PublicacionesML() {
                 emptyMessage={hasActiveFilters ? 'Ningún producto coincide con los filtros' : 'No hay productos'}
               />
             ) : agrupado ? (
+              // The tree asks on mount: it waits for the layer like the other views.
+              !layerPending && (
               <AgrupadoTable
                 columns={selectableColumns}
-                filters={filters}
+                filters={rowFilters}
                 familias={filters.familias === '1'}
                 dimension={filters.agrupar}
                 colorOverlay={colorOverlay.colors}
@@ -719,6 +741,7 @@ export default function PublicacionesML() {
                 offset={TABLE_OFFSET}
                 emptyMessage={emptyMessage}
               />
+              )
             ) : (
               <TableShell
                 columns={selectableColumns}
