@@ -67,8 +67,9 @@ MEASURED: Dict[str, _Measured] = {
 
 def _late_sql(measured: _Measured) -> Any:
     return text(
-        "SELECT count(*) AS late, max(age) AS oldest FROM ("
-        " SELECT CAST(extract(epoch FROM now() - GREATEST(q.source_received_at,"
+        "SELECT count(DISTINCT entity) AS late, max(age) AS oldest FROM ("
+        f" SELECT {measured.entity} AS entity,"
+        " CAST(extract(epoch FROM now() - GREATEST(q.source_received_at,"
         "   s.last_checked_at + make_interval(secs => :min_age))) AS double precision) AS age"
         " FROM ml_pub_refresh_queue q"
         " LEFT JOIN ml_items i ON q.kind = :item_kind AND i.item_id = q.entity_id"
