@@ -22,6 +22,7 @@ from decimal import Decimal
 from app.models.ml_payments import MlPaymentCharge
 from app.services.ml_ventas_desglose.breakdown_service import (
     CONCEPTO_IMPUESTOS,
+    builtin_informational,
     debitos_creditos_total,
     is_debitos_creditos,
     is_recoverable_withholding,
@@ -178,18 +179,18 @@ class TestRecoverableAndDebitosCreditosPredicates:
             _charge("tax_withholding_sirtac_sobretasa-jujuy", "tax", Decimal("500.00")),
             _charge("meli_percentage_fee", "fee", Decimal("74676.08")),
         ]
-        assert recoverable_withholding_total(charges) == Decimal("1852.23")
+        assert recoverable_withholding_total(charges, is_informational=builtin_informational) == Decimal("1852.23")
 
     def test_debitos_creditos_total_sums_net_of_refund(self):
         charges = [
             _charge("tax_withholding_collector-debitos_creditos", "tax", Decimal("3584.45")),
             _charge("tax_withholding_sirtac-caba", "tax", Decimal("1792.23")),
         ]
-        assert debitos_creditos_total(charges) == Decimal("3584.45")
+        assert debitos_creditos_total(charges, is_informational=builtin_informational) == Decimal("3584.45")
 
     def test_no_matching_charges_totals_zero(self):
-        assert recoverable_withholding_total([]) == Decimal("0")
-        assert debitos_creditos_total([]) == Decimal("0")
+        assert recoverable_withholding_total([], is_informational=builtin_informational) == Decimal("0")
+        assert debitos_creditos_total([], is_informational=builtin_informational) == Decimal("0")
 
 
 class TestAnUnknownNameKeepsItsMoney:

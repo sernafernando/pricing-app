@@ -113,7 +113,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy.orm import Session, joinedload
 
@@ -123,6 +123,7 @@ from app.models.logistica_costo_cordon import LogisticaCostoCordon
 from app.models.ml_billing import MlBillingCharge, MlBillingChargeOrder
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
+from app.services.ml_ventas_desglose.tax_treatment import TaxTreatment
 from app.services.logistica_costo_service import costo_efectivo, get_lluvia_config, normalizar_cordon
 from app.services.ml_orders_ingestion.mode_resolution import (
     MODO_RETIRO,
@@ -211,6 +212,9 @@ __all__ = [
     "withholding_kind",
     "is_recoverable_withholding",
     "is_debitos_creditos",
+    "ChargeRule",
+    "informational_rule",
+    "builtin_informational",
     "recoverable_withholding_total",
     "debitos_creditos_total",
     # ml-ventas-modo-logistico PR5: the Flex deduction of the Total Gauss
@@ -380,22 +384,51 @@ def is_debitos_creditos(charge_type: Optional[str], charge_name: Optional[str]) 
     return charge_type == "tax" and withholding_kind(charge_name) == "collector"
 
 
-def recoverable_withholding_total(seller_charges: Sequence[MlPaymentCharge]) -> Decimal:
-    """Non-refunded total of every recoverable (SIRTAC) withholding among
+# Whether one seller charge is informational: shown, added back into the
+# neto, out of `neto_sin_iva`. Built per order by `informational_rule`.
+ChargeRule = Callable[[MlPaymentCharge], bool]
+
+
+def builtin_informational(charge: MlPaymentCharge) -> bool:
+    """The rule when no period is configured: SIRTAC only."""
+    return is_recoverable_withholding(charge.type, charge.name)
+
+
+def informational_rule(treatment: TaxTreatment, order_id: int) -> ChargeRule:
+    """The informational rule for the charges of `order_id`
+    (ventas-ml-impuestos-informativos S1, S2): a configured version in force
+    at the sale date decides for its exact charge name, and any other
+    withholding keeps `builtin_informational`. Every neto path asks this,
+    so they keep agreeing by construction."""
+
+    def is_informational(charge: MlPaymentCharge) -> bool:
+        if charge.type != "tax" or withholding_kind(charge.name) is None:
+            return False
+        configured = treatment.informativo(order_id, charge.name)
+        return builtin_informational(charge) if configured is None else configured
+
+    return is_informational
+
+
+def recoverable_withholding_total(
+    seller_charges: Sequence[MlPaymentCharge], *, is_informational: ChargeRule
+) -> Decimal:
+    """Non-refunded total of every informational withholding among
     `seller_charges` -- refund-aware via `net_amount`, so a partially or
-    fully refunded SIRTAC charge is added back only for what was not
-    already given back."""
+    fully refunded charge is added back only for what was not already
+    given back."""
     return sum(
-        (net_amount(c) for c in seller_charges if is_recoverable_withholding(c.type, c.name)),
+        (net_amount(c) for c in seller_charges if is_informational(c)),
         Decimal("0"),
     )
 
 
-def debitos_creditos_total(seller_charges: Sequence[MlPaymentCharge]) -> Decimal:
+def debitos_creditos_total(seller_charges: Sequence[MlPaymentCharge], *, is_informational: ChargeRule) -> Decimal:
     """Non-refunded total of every débitos/créditos charge among
-    `seller_charges` -- the amount paid again on withdrawal."""
+    `seller_charges` -- the amount paid again on withdrawal. One marked
+    informational costs nothing, so it is not paid again either."""
     return sum(
-        (net_amount(c) for c in seller_charges if is_debitos_creditos(c.type, c.name)),
+        (net_amount(c) for c in seller_charges if is_debitos_creditos(c.type, c.name) and not is_informational(c)),
         Decimal("0"),
     )
 
@@ -1047,6 +1080,7 @@ def payment_effective_net(
     seller_charges: Sequence[MlPaymentCharge],
     *,
     coupon_fees: Sequence[MlPaymentCharge],
+    is_informational: ChargeRule,
 ) -> Decimal:
     """`net_received_amount`, corrected for whatever was refunded -- see
     module docstring -- PLUS the non-refunded amount of any IIBB SIRTAC
@@ -1061,7 +1095,9 @@ def payment_effective_net(
     `coupon_fees` (the payment's `is_seller_coupon_fee` charges) only matter
     on a refund: ML deducted them from the net, so their refunded share is
     added back exactly like a seller charge's. Keyword-only and required so
-    no caller can silently leave them out."""
+    no caller can silently leave them out. `is_informational`
+    (`informational_rule` of the payment's order) says which withholdings
+    are added back; required for the same reason."""
     net = Decimal(str(payment.net_received_amount)) if payment.net_received_amount is not None else Decimal("0")
     refunded_total = (
         Decimal(str(payment.transaction_amount_refunded))
@@ -1069,11 +1105,16 @@ def payment_effective_net(
         else Decimal("0")
     )
     if refunded_total == 0:
-        return net + recoverable_withholding_total(seller_charges)
+        return net + recoverable_withholding_total(seller_charges, is_informational=is_informational)
     seller_refunded = sum(
         (Decimal(str(c.refunded)) if c.refunded is not None else Decimal("0")) for c in (*seller_charges, *coupon_fees)
     )
-    return net - refunded_total + seller_refunded + recoverable_withholding_total(seller_charges)
+    return (
+        net
+        - refunded_total
+        + seller_refunded
+        + recoverable_withholding_total(seller_charges, is_informational=is_informational)
+    )
 
 
 def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int, Optional[Decimal]]:
@@ -1122,6 +1163,7 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
     bonificacion_by_order = bonificacion_bruta_by_order_ids(db, list(payments_by_order))
     # flex-envio-comprador: the Flex buyer-paid shipping no payment carries.
     envio_flex_by_order = envio_comprador_flex_bruto_by_order_ids(db, list(payments_by_order))
+    treatment = TaxTreatment.load(db, list(payments_by_order))
 
     for order_id, order_payments in payments_by_order.items():
         order_relevant = [p for p in order_payments if p.status in RELEVANT_PAYMENT_STATUSES]
@@ -1135,10 +1177,13 @@ def compute_neto_by_order_ids(db: Session, order_ids: Sequence[int]) -> Dict[int
             result[order_id] = None
             continue
         neto = Decimal("0")
+        is_informational = informational_rule(treatment, order_id)
         for payment in order_relevant:
             payment_charges = charges_by_payment.get(payment.payment_id, [])
             seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
-            neto += payment_effective_net(payment, seller_charges, coupon_fees=_coupon_fees(payment_charges))
+            neto += payment_effective_net(
+                payment, seller_charges, coupon_fees=_coupon_fees(payment_charges), is_informational=is_informational
+            )
         result[order_id] = (
             neto + bonificacion_by_order.get(order_id, Decimal("0")) + envio_flex_by_order.get(order_id, Decimal("0"))
         )
@@ -1183,6 +1228,7 @@ def compute_neto_desglose_by_order_ids(
     # and the tooltip identity `neto == depositado + retenciones +
     # bonificación` keeps holding.
     envio_flex_by_order = envio_comprador_flex_bruto_by_order_ids(db, list(payments_by_order))
+    treatment = TaxTreatment.load(db, list(payments_by_order))
 
     for order_id, order_payments in payments_by_order.items():
         order_relevant = [p for p in order_payments if p.status in RELEVANT_PAYMENT_STATUSES]
@@ -1191,14 +1237,20 @@ def compute_neto_desglose_by_order_ids(
             continue
         depositado = envio_flex_by_order.get(order_id, Decimal("0"))
         recuperable = Decimal("0")
+        is_informational = informational_rule(treatment, order_id)
         for payment in order_relevant:
             payment_charges = charges_by_payment.get(payment.payment_id, [])
             seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
             # `payment_effective_net` already carries the SIRTAC add-back
             # (D2); subtracting it back off gives exactly what ML deposited.
-            recuperable_here = recoverable_withholding_total(seller_charges)
+            recuperable_here = recoverable_withholding_total(seller_charges, is_informational=is_informational)
             depositado += (
-                payment_effective_net(payment, seller_charges, coupon_fees=_coupon_fees(payment_charges))
+                payment_effective_net(
+                    payment,
+                    seller_charges,
+                    coupon_fees=_coupon_fees(payment_charges),
+                    is_informational=is_informational,
+                )
                 - recuperable_here
             )
             recuperable += recuperable_here
@@ -1249,13 +1301,25 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
     for charge in charges:
         charges_by_payment.setdefault(charge.payment_id, []).append(charge)
 
+    # A pack spans several orders, each with its own sale date: the rule is
+    # per payment's order.
+    treatment = TaxTreatment.load(db, order_ids)
+    rule_by_payment: Dict[int, ChargeRule] = {
+        p.payment_id: informational_rule(treatment, p.order_id) for p in relevant_payments
+    }
+
     neto = Decimal("0")
     retenciones_recuperables_total = Decimal("0")
     for payment in relevant_payments:
         payment_charges = charges_by_payment.get(payment.payment_id, [])
         seller_charges = [c for c in payment_charges if is_seller_charge(c.type, c.name)]
-        neto += payment_effective_net(payment, seller_charges, coupon_fees=_coupon_fees(payment_charges))
-        retenciones_recuperables_total += recoverable_withholding_total(seller_charges)
+        is_informational = rule_by_payment[payment.payment_id]
+        neto += payment_effective_net(
+            payment, seller_charges, coupon_fees=_coupon_fees(payment_charges), is_informational=is_informational
+        )
+        retenciones_recuperables_total += recoverable_withholding_total(
+            seller_charges, is_informational=is_informational
+        )
 
     # ventas-ml-bonificacion-en-neto: only the orders whose payments count,
     # exactly like `compute_neto_by_order_ids` (the two paths must agree).
@@ -1289,7 +1353,7 @@ def compute_breakdown(db: Session, order_ids: Sequence[int]) -> OperationBreakdo
         elif charge.type == "tax":
             etiqueta_impuesto = tax_label(charge.name)
             line_amounts[etiqueta_impuesto] = line_amounts.get(etiqueta_impuesto, Decimal("0")) + net_amount(charge)
-            if is_recoverable_withholding(charge.type, charge.name):
+            if rule_by_payment[charge.payment_id](charge):
                 recuperable_labels.add(etiqueta_impuesto)
 
     # The seller-funded coupon: already deducted from `net_received_amount`
