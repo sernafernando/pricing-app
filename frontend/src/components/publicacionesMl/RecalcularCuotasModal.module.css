@@ -1,0 +1,17 @@
+.message {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.note {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.error {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
+}

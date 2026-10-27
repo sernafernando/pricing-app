@@ -174,4 +174,78 @@ describe('BulkActions', () => {
     renderBulk();
     expect(screen.queryByRole('button', { name: /acciones masivas/i })).not.toBeInTheDocument();
   });
+
+  describe('recalcular cuotas (Productos\' "Recalcular Cuotas Web/PVP")', () => {
+    const CUOTAS = 'productos.editar_precio_cuotas';
+
+    it('recalculates the web cuotas of exactly the resolved products, after an in-app confirmation', async () => {
+      resolved({ item_ids: [4101, 4102], count: 2, sin_producto: 0 });
+      granted = new Set([CUOTAS]);
+      api.post.mockResolvedValue({ data: { procesados: 2, errores: 0, lista_tipo: 'web' } });
+      const user = userEvent.setup();
+      renderBulk();
+      await openMenu(user);
+      await user.click(screen.getByRole('menuitem', { name: 'Recalcular cuotas Web' }));
+      const title = await screen.findByRole('heading', { name: 'Recalcular cuotas Web' });
+      const dialog = title.closest('.modal-tesla');
+      expect(dialog).toHaveTextContent('2 productos');
+      expect(dialog).toHaveTextContent('No cambia el precio Web');
+      expect(api.post).not.toHaveBeenCalled();
+      await user.click(screen.getByRole('button', { name: 'Confirmar' }));
+      await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+      expect(api.post).toHaveBeenCalledWith('/productos/recalcular-cuotas-masivo', {
+        lista_tipo: 'web',
+        item_ids: [4101, 4102],
+      });
+      expect(await screen.findByText('Cuotas WEB recalculadas: 2 productos')).toBeInTheDocument();
+      expect(nativeConfirm).not.toHaveBeenCalled();
+    });
+
+    it('recalculates the PVP cuotas of the checked products and reports the ones that failed', async () => {
+      resolved({ item_ids: [4101, 4102, 4103], count: 3, sin_producto: 0 });
+      granted = new Set([CUOTAS]);
+      api.post.mockResolvedValue({ data: { procesados: 1, errores: 1, lista_tipo: 'pvp' } });
+      const user = userEvent.setup();
+      renderBulk({ checkedIds: new Set([4103, 4101]) });
+      await openMenu(user);
+      await user.click(screen.getByRole('menuitem', { name: 'Recalcular cuotas PVP' }));
+      await user.click(await screen.findByRole('button', { name: 'Confirmar' }));
+      await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+      expect(api.post.mock.calls[0][1]).toEqual({ lista_tipo: 'pvp', item_ids: [4103, 4101] });
+      expect(await screen.findByText('Cuotas PVP recalculadas: 1 producto (1 con errores)')).toBeInTheDocument();
+    });
+
+    it('cancelling the confirmation writes nothing', async () => {
+      resolved({ item_ids: [4101], count: 1, sin_producto: 0 });
+      granted = new Set([CUOTAS]);
+      const user = userEvent.setup();
+      renderBulk();
+      await openMenu(user);
+      await user.click(screen.getByRole('menuitem', { name: 'Recalcular cuotas Web' }));
+      await user.click(await screen.findByRole('button', { name: 'Cancelar' }));
+      await waitFor(() => expect(screen.queryByRole('heading', { name: 'Recalcular cuotas Web' })).not.toBeInTheDocument());
+      expect(api.post).not.toHaveBeenCalled();
+    });
+
+    it('says why when the run fails, and keeps the dialog for a retry', async () => {
+      resolved({ item_ids: [4101], count: 1, sin_producto: 0 });
+      granted = new Set([CUOTAS]);
+      api.post.mockRejectedValue({ response: { data: { detail: '1 producto(s) fuera del catálogo ERP (4101); no se aplicó nada' } } });
+      const user = userEvent.setup();
+      renderBulk();
+      await openMenu(user);
+      await user.click(screen.getByRole('menuitem', { name: 'Recalcular cuotas Web' }));
+      await user.click(await screen.findByRole('button', { name: 'Confirmar' }));
+      expect(await screen.findByText(/fuera del catálogo ERP \(4101\); no se aplicó nada/)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Recalcular cuotas Web' })).toBeInTheDocument();
+    });
+
+    it('is offered only with the cuotas permission', async () => {
+      resolved({ item_ids: [4101], count: 1, sin_producto: 0 });
+      const user = userEvent.setup();
+      renderBulk();
+      await openMenu(user);
+      expect(screen.queryByRole('menuitem', { name: /recalcular cuotas/i })).not.toBeInTheDocument();
+    });
+  });
 });
