@@ -19,7 +19,7 @@ import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
-import { offsetsGananciaAPI, preciosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
+import { mlItemOverridesAPI, offsetsGananciaAPI, preciosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { PRODUCTO_CON_REBATE_Y_OFERTA, SELL_IN_OUT } from '../../components/pricing/ProductPrices.fixtures';
 import {
   BRAND_NODES,
@@ -76,6 +76,7 @@ vi.mock('../../services/api', () => ({
     chooseSource: vi.fn(),
     saveDatos: vi.fn(),
   },
+  mlItemOverridesAPI: { get: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
@@ -1002,7 +1003,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
         }
         const tabs = [...panel.querySelectorAll('[role="tab"]')];
-        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Variaciones', 'Full', 'Promos', 'Eventos', 'Historial', 'Producto']);
+        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Datos', 'Variaciones', 'Full', 'Promos', 'Eventos', 'Historial', 'Producto']);
         // One row of tabs: they all start at the same height.
         expect(new Set(tabs.map((tab) => Math.round(rect(tab).top))).size).toBe(1);
         // The footer sits inside the panel's box even though the content is taller than the panel.
@@ -1098,6 +1099,40 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         expect(periodStarts).toHaveLength(2);
         expect(panel.textContent).not.toContain('Ocultos 74');
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the Datos tab shows the applied data and the original apart, inside the panel`, async () => {
+        const original = {
+          titulo: 'Router TP-Link Archer AX55 WiFi 6 AX3000 Dual Band Gigabit con OneMesh y control parental',
+          descripcion: 'Router WiFi 6 de doble banda.\nHasta 3 Gbps combinados, cuatro antenas y puertos Gigabit para toda la casa.',
+          fotos: [1, 2, 3, 4, 5].map((n) => ({ id: `P${n}`, url: `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"/>#${n}` })),
+          atributos: [
+            { id: 'BRAND', name: 'Marca', value_name: 'TP-Link' },
+            { id: 'MODEL', name: 'Modelo', value_name: 'Archer AX55 Pro edición internacional' },
+          ],
+        };
+        mlItemOverridesAPI.get.mockResolvedValue({
+          data: {
+            item_id: SELECTED,
+            original,
+            override: { titulo: 'Router Archer AX55 WiFi 6', descripcion: null, fotos: original.fotos.slice(1), atributos: null },
+            aplicado: { ...original, titulo: 'Router Archer AX55 WiFi 6', fotos: original.fotos.slice(1) },
+            editable: true,
+            updated_at: '2026-10-27T15:00:00Z',
+            can_edit: false,
+          },
+        });
+        const screen = await renderWithPanel({ width, height, theme, tab: 'datos' });
+        await expect.element(screen.getByRole('region', { name: 'Original en Mercado Libre' })).toBeVisible();
+        const panel = panelOf();
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        const box = rect(panel);
+        for (const img of panel.querySelectorAll('section img')) {
+          expect(rect(img).right).toBeLessThanOrEqual(box.right + 0.5);
+          expect(rect(img).left).toBeGreaterThanOrEqual(box.left - 0.5);
+        }
+        expect(panel.querySelectorAll('section img')).toHaveLength(9);
         screen.unmount();
       });
 

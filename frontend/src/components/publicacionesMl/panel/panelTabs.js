@@ -1,3 +1,4 @@
+import DatosTab from './DatosTab';
 import EventosTab from './EventosTab';
 import FullTab from './FullTab';
 import HistorialTab from './HistorialTab';
@@ -16,10 +17,11 @@ import VariacionesTab from './VariacionesTab';
  *  - `Component` gets `{ detail, itemId, canSeeMargin, dataState, onPromoApplied }`.
  *
  * Eventos and Historial load their own pages when opened (they cost a request
- * only when somebody looks at them); Producto vinculado reads the detail.
+ * only when somebody looks at them), and so does Datos; Producto vinculado reads the detail.
  */
 export const PANEL_TABS = [
   { key: 'resumen', label: 'Resumen', isVisible: () => true, Component: ResumenTab },
+  { key: 'datos', label: 'Datos', isVisible: () => true, Component: DatosTab },
   { key: 'variaciones', label: 'Variaciones', isVisible: ({ detail }) => detail.variationsCount > 0, Component: VariacionesTab },
   { key: 'full', label: 'Full', isVisible: ({ detail }) => detail.isFull || detail.replenishment != null, Component: FullTab },
   { key: 'promociones', label: 'Promos', isVisible: ({ canViewPromos }) => Boolean(canViewPromos), Component: PromocionesTab },
