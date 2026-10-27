@@ -79,7 +79,9 @@ export function useProductosSeleccion({ productos, setProductos, cargarStats, sh
     try {
       await api.patch(
         `/productos/${itemId}/color`,
-        { color, equipo_id: equipoActivoId || undefined }
+        { color },
+        // The PATCH reads the layer from the query string; in the body it was ignored (painted the global layer).
+        { params: equipoActivoId ? { equipo_id: equipoActivoId } : {} }
       );
 
       // Actualizar estado local en lugar de recargar
@@ -102,7 +104,9 @@ export function useProductosSeleccion({ productos, setProductos, cargarStats, sh
     try {
       await api.patch(
         `/productos/${itemId}/color`,
-        { color, equipo_id: equipoActivoId || undefined }
+        { color },
+        // The PATCH reads the layer from the query string; in the body it was ignored (painted the global layer).
+        { params: equipoActivoId ? { equipo_id: equipoActivoId } : {} }
       );
 
       // Actualizar estado local en lugar de recargar
