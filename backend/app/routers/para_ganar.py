@@ -1,4 +1,4 @@
-"""PARA GANAR advisor — read-only MLA queue for the sandbox/advisor UI.
+"""PARA GANAR advisor — MLA queue + per-MLA criteria persistence.
 
 Intent: docs/para-ganar-pro-source-map.md. Unit of work is MLA (sync pairs
 surfaced via inventory_id when present). No suggestion engine yet.
@@ -6,16 +6,18 @@ surfaced via inventory_id when present). No suggestion engine yet.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_permiso
 from app.core.database import get_db
+from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
 from app.models.usuario import Usuario
 
 router = APIRouter(prefix="/para-ganar", tags=["PARA GANAR"])
@@ -362,3 +364,140 @@ def listar_cola(
         page_size=page_size,
         items=items,
     )
+
+
+class ParaGanarCriteriosMla(BaseModel):
+    mla: str
+    source: str = Field(description="mla when a row exists, otherwise default")
+    markup_min: Optional[float] = None
+    markup_max: Optional[float] = None
+    top_sellers: Optional[int] = Field(default=None, ge=1, le=50)
+    precio_min: Optional[float] = None
+    precio_max: Optional[float] = None
+    ganar_catalogo: bool = True
+    ignorar_internacionales: bool = False
+    descartar_stock_residual: bool = False
+    descartar_reputacion_baja: bool = False
+    techo_monopolio: bool = False
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ParaGanarCriteriosMlaUpsert(BaseModel):
+    markup_min: Optional[float] = None
+    markup_max: Optional[float] = None
+    top_sellers: Optional[int] = Field(default=None, ge=1, le=50)
+    precio_min: Optional[float] = None
+    precio_max: Optional[float] = None
+    ganar_catalogo: bool = True
+    ignorar_internacionales: bool = False
+    descartar_stock_residual: bool = False
+    descartar_reputacion_baja: bool = False
+    techo_monopolio: bool = False
+
+    @field_validator("markup_min", "markup_max", "precio_min", "precio_max", mode="before")
+    @classmethod
+    def _empty_to_none(cls, value: object) -> object:
+        if value == "" or value is None:
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _ranges(self) -> ParaGanarCriteriosMlaUpsert:
+        if self.markup_min is not None and self.markup_max is not None and self.markup_min > self.markup_max:
+            raise ValueError("markup_min no puede ser mayor que markup_max")
+        if self.precio_min is not None and self.precio_max is not None and self.precio_min > self.precio_max:
+            raise ValueError("precio_min no puede ser mayor que precio_max")
+        return self
+
+
+def _criterios_defaults(mla: str) -> ParaGanarCriteriosMla:
+    return ParaGanarCriteriosMla(mla=mla, source="default")
+
+
+def _criterios_from_row(row: ParaGanarCriterioMla) -> ParaGanarCriteriosMla:
+    return ParaGanarCriteriosMla(
+        mla=row.mla,
+        source="mla",
+        markup_min=_precio_float(row.markup_min),
+        markup_max=_precio_float(row.markup_max),
+        top_sellers=row.top_sellers,
+        precio_min=_precio_float(row.precio_min),
+        precio_max=_precio_float(row.precio_max),
+        ganar_catalogo=bool(row.ganar_catalogo),
+        ignorar_internacionales=bool(row.ignorar_internacionales),
+        descartar_stock_residual=bool(row.descartar_stock_residual),
+        descartar_reputacion_baja=bool(row.descartar_reputacion_baja),
+        techo_monopolio=bool(row.techo_monopolio),
+        updated_at=row.updated_at,
+    )
+
+
+def _mla_exists(db: Session, mla: str) -> bool:
+    found = db.execute(
+        text("SELECT 1 FROM publicaciones_ml WHERE mla = :mla AND activo = true LIMIT 1"),
+        {"mla": mla},
+    ).first()
+    return found is not None
+
+
+@router.get(
+    "/criterios/{mla}",
+    response_model=ParaGanarCriteriosMla,
+    dependencies=[Depends(require_permiso("productos.ver"))],
+)
+def obtener_criterios_mla(
+    mla: str,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(get_current_user),
+) -> ParaGanarCriteriosMla:
+    """Return MLA criteria, or defaults when no override row exists yet."""
+    mla_norm = mla.strip().upper()
+    if not mla_norm:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MLA inválida")
+    row = db.get(ParaGanarCriterioMla, mla_norm)
+    if row is None:
+        return _criterios_defaults(mla_norm)
+    return _criterios_from_row(row)
+
+
+@router.put(
+    "/criterios/{mla}",
+    response_model=ParaGanarCriteriosMla,
+    dependencies=[Depends(require_permiso("productos.editar_precios"))],
+)
+def upsert_criterios_mla(
+    mla: str,
+    body: ParaGanarCriteriosMlaUpsert,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ParaGanarCriteriosMla:
+    """Create or replace per-MLA criteria. MLA must exist as an active publication."""
+    mla_norm = mla.strip().upper()
+    if not mla_norm:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MLA inválida")
+    if not _mla_exists(db, mla_norm):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MLA no encontrada")
+
+    row = db.get(ParaGanarCriterioMla, mla_norm)
+    if row is None:
+        row = ParaGanarCriterioMla(mla=mla_norm)
+        db.add(row)
+
+    row.markup_min = body.markup_min
+    row.markup_max = body.markup_max
+    row.top_sellers = body.top_sellers
+    row.precio_min = body.precio_min
+    row.precio_max = body.precio_max
+    row.ganar_catalogo = body.ganar_catalogo
+    row.ignorar_internacionales = body.ignorar_internacionales
+    row.descartar_stock_residual = body.descartar_stock_residual
+    row.descartar_reputacion_baja = body.descartar_reputacion_baja
+    row.techo_monopolio = body.techo_monopolio
+    row.updated_by_id = current_user.id
+    row.updated_at = datetime.now(UTC)
+
+    db.commit()
+    db.refresh(row)
+    return _criterios_from_row(row)

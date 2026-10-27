@@ -420,6 +420,23 @@
   font-size: 12px;
 }
 
+.saveCriteriaBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.criteriaFeedbackError {
+  margin: 0;
+  font-size: 12px;
+  color: var(--cf-accent-red);
+}
+
+.criteriaFeedbackOk {
+  margin: 0;
+  font-size: 12px;
+  color: var(--cf-accent-green, var(--cf-accent-blue));
+}
+
 .emptyState {
   flex: 1;
   min-height: 0;

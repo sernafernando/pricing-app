@@ -107,8 +107,8 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 - API: `GET /api/para-ganar/cola` — active MLAs (precio, catálogo, par sync por `inventory_id`) with Productos-like scope params
 - Nav: Sidebar → Productos → PARA GANAR (badge WIP)
 - Catalog: `frontend/src/registry/screenCatalog.js`
-- Criterios: form stub por MLA + botón masivo deshabilitado (persistencia TBD)
+- Criterios: override por MLA (`GET/PUT /api/para-ganar/criterios/{mla}`, tabla `para_ganar_criterios_mla`); botón masivo aún deshabilitado; herencia producto/PM TBD
 
 ## Suggested next step
 
-Persist criteria (MLA / product / PM default) and wire suggestion engine / apply-via-promotions.
+Product/PM default layers for criteria inheritance, then suggestion engine / apply-via-promotions.
