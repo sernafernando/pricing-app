@@ -1,6 +1,6 @@
 # Flex label logistics change history
 
-Objective: keep every change of etiquetas_envio.logistica_id (old, new, who, when, source). Branch feat/flex-logistica-historial, off origin/main d5cefea9. Worktree /mnt/kingston/sistema/dev/pricing-app-flex.
+Objective: keep every change of etiquetas_envio.logistica_id (old, new, who, when, source). Branch feat/flex-logistica-historial, off origin/main d5cefea9.
 Delivery: PR1 = migration (table + trigger, high risk, alone); PR2 = write paths record who and source. Runner: pytest (changed tests only, `@pytest.mark.postgres` for the trigger) + ruff format/check; full suite in CI.
 
 ## Specs
