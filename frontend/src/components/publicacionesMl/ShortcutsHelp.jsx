@@ -1,0 +1,41 @@
+import ModalTesla from '../ModalTesla';
+import styles from './ShortcutsHelp.module.css';
+import { HELP_CLASS } from './usePublicacionesMLKeyboard';
+
+// What `usePublicacionesMLKeyboard` and the list's rows do, in the order an operator meets them.
+const SHORTCUTS = [
+  { keys: ['↓', '↑'], what: 'Moverse por las filas de la lista (↓ entra en la primera)' },
+  { keys: ['RePág', 'AvPág'], what: 'Saltar 10 filas' },
+  { keys: ['Inicio', 'Fin'], what: 'Ir a la primera o a la última fila' },
+  { keys: ['Enter'], what: 'Abrir el detalle de la fila' },
+  { keys: ['Ctrl+Enter'], what: 'Abrir la publicación en Mercado Libre' },
+  { keys: ['Ctrl+F1', 'Ctrl+Shift+1'], what: 'Copiar el código del producto' },
+  { keys: ['Ctrl+F2', 'Ctrl+Shift+2'], what: 'Copiar el enlace 1 (listado por precio)' },
+  { keys: ['Ctrl+F3', 'Ctrl+Shift+3'], what: 'Copiar el enlace 2 (promociones)' },
+  { keys: ['Ctrl+F'], what: 'Ir a la búsqueda' },
+  { keys: ['Ctrl+E'], what: 'Exportar la vista a CSV' },
+  { keys: ['?'], what: 'Mostrar u ocultar esta ayuda' },
+];
+
+/** The keyboard shortcuts of Publicaciones ML, opened with `?` or the header's button. */
+export default function ShortcutsHelp({ onClose }) {
+  return (
+    <ModalTesla isOpen onClose={onClose} title="Atajos de teclado" size="sm" className={HELP_CLASS}>
+      <dl className={styles.list}>
+        {SHORTCUTS.map(({ keys, what }) => (
+          <div key={what} className={styles.entry}>
+            <dt className={styles.keys}>
+              {keys.map((key, index) => (
+                <span key={key}>
+                  {index > 0 && ' o '}
+                  <kbd className={styles.kbd}>{key}</kbd>
+                </span>
+              ))}
+            </dt>
+            <dd className={styles.what}>{what}</dd>
+          </div>
+        ))}
+      </dl>
+    </ModalTesla>
+  );
+}

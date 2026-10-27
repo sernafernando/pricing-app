@@ -276,3 +276,44 @@ class TestSave:
 
         assert save(client, reader, titulo="Mío").status_code == 403
         assert stored(pg) is None
+
+
+class TestPushRead:
+    """What "Actualizar en ML" (T8c) reads from the store before deciding: ML's rules' facts, the original and the
+    override, on its own short session."""
+
+    @pytest.fixture()
+    def push_db(self, pg, monkeypatch):
+        from contextlib import contextmanager
+
+        from app.services import ml_item_override_push_service as push
+
+        @contextmanager
+        def session():
+            with Session(pg) as db:
+                yield db
+
+        monkeypatch.setattr(push, "get_background_db", session)
+        return push
+
+    def test_reads_the_facts_the_original_and_the_override(self, client, pg, editor, push_db):
+        with pg.begin() as conn:
+            publication(conn, status="paused", sold_quantity=4, catalog_listing=False)
+            seed.add_variation(conn, "MLA1", 11)
+        assert save(client, editor, titulo="Router AX55").status_code == 200
+
+        stored_now = push_db._read("MLA1")
+
+        assert stored_now.found is True
+        assert stored_now.facts == push_db.PushFacts(
+            status="paused", deleted=False, catalog_listing=False, sold_quantity=4, has_variations=True
+        )
+        assert stored_now.original == ORIGINAL
+        assert stored_now.override == {**NOTHING, "titulo": "Router AX55"}
+
+    def test_a_deleted_publication_and_an_unknown_one(self, pg, push_db):
+        with pg.begin() as conn:
+            publication(conn, status="closed", sub_status=["deleted"])
+
+        assert push_db._read("MLA1").facts.deleted is True
+        assert push_db._read("MLA9") == push_db.Stored(False, None, None, None)

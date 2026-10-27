@@ -1326,6 +1326,35 @@ class MLWebhookClient:
 
         return self._classify_proxy_stamped_write(response, "status_write")
 
+    # ── Item data (the publication override, Publicaciones ML T8c) ─────
+    # `PUT /api/items/{item_id}/data` (title / pictures / attributes, only the keys sent) and
+    # `PUT /api/items/{item_id}/description` on the proxy, stamped `data_write` / `description_write`.
+
+    async def put_item_data(self, item_id: str, body: Dict) -> Dict:
+        """Writes `body` (any of `title`, `pictures: [{id}]`, `attributes: [{id, value_name}]`) to the item.
+        Single-shot, no retry, same contract as `put_item_status`: `{ok, status_code, ambiguous, body}`."""
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.put(f"{self.base_url}/api/items/{item_id}/data", json=body)
+        except Exception as e:
+            logger.error(f"Error (ambiguo) actualizando los datos del item {item_id}: {_describe_exc(e)}")
+            return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+        return self._classify_proxy_stamped_write(response, "data_write")
+
+    async def put_item_description(self, item_id: str, plain_text: str) -> Dict:
+        """Replaces the item's description. Single-shot, no retry: `{ok, status_code, ambiguous, body}`."""
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.put(
+                    f"{self.base_url}/api/items/{item_id}/description", json={"plain_text": plain_text}
+                )
+        except Exception as e:
+            logger.error(f"Error (ambiguo) actualizando la descripción del item {item_id}: {_describe_exc(e)}")
+            return {"ok": False, "status_code": None, "ambiguous": True, "body": None}
+
+        return self._classify_proxy_stamped_write(response, "description_write")
+
     async def get_pxq_seller_shipping_cost(self, item_id: str, quantity: int, tier_price: float) -> Optional[float]:
         """Fetches the whole-shipment shipping cost for an N-unit PxQ tier
         order, via the proxy route `GET /api/shipping/seller-cost`.
