@@ -93,6 +93,7 @@ from app.models.worker_job_state import WorkerJobState  # noqa: F401 — registe
 from app.models.pedido_factura_documento import PedidoFacturaDocumento  # noqa: F401 — registers table for create_all
 from app.models.pedido_compra_oc import PedidoCompraOc  # noqa: F401 — registers table for create_all
 from app.models.item_transaction import ItemTransaction  # noqa: F401 — registers table for create_all
+from app.models.ml_venta_impuesto_tratamiento import ImpuestoTratamientoVenta  # noqa: F401 — registers table for create_all
 
 # ---------------------------------------------------------------------------
 # Token revocation test seam
@@ -792,6 +793,13 @@ def pg_order_metrics_engine():
     for constraint in _VariosVentaPct.__table__.constraints:
         if isinstance(constraint, CheckConstraint):
             varios_table.append_constraint(CheckConstraint(constraint.sqltext, name=constraint.name))
+    # ventas-ml-impuestos-informativos: the neto paths read the tax treatment versions.
+    Table(
+        "ml_venta_impuesto_tratamiento",
+        local_metadata,
+        *(c._copy() for c in ImpuestoTratamientoVenta.__table__.columns if c.name != "creado_por"),
+        Column("creado_por", Integer, nullable=True),
+    )
 
     eng = create_engine(POSTGRES_TEST_URL)
     # Drop first: some of these tables (e.g. `ml_order_item_costos`) can
@@ -1120,6 +1128,13 @@ def pg_order_metrics_divergence_engine():
     for constraint in _VariosVentaPct.__table__.constraints:
         if isinstance(constraint, CheckConstraint):
             varios_table.append_constraint(CheckConstraint(constraint.sqltext, name=constraint.name))
+    # ventas-ml-impuestos-informativos: the neto paths read the tax treatment versions.
+    Table(
+        "ml_venta_impuesto_tratamiento",
+        local_metadata,
+        *(c._copy() for c in ImpuestoTratamientoVenta.__table__.columns if c.name != "creado_por"),
+        Column("creado_por", Integer, nullable=True),
+    )
 
     eng = create_engine(POSTGRES_TEST_URL)
     for table in reversed(own_tables):
@@ -1192,6 +1207,10 @@ def pg_order_metrics_config_triggers_engine():
     from app.services.order_metrics.triggers_pack import create_pack_triggers
     from app.services.order_metrics.triggers_shipment_costs import create_shipment_costs_trigger
     from app.services.order_metrics.triggers_config import create_config_triggers, drop_config_triggers
+    from app.services.order_metrics.triggers_tax_treatment import (
+        create_tax_treatment_triggers,
+        drop_tax_treatment_triggers,
+    )
 
     own_tables = [
         _MlOrdersOps.__table__,
@@ -1227,6 +1246,12 @@ def pg_order_metrics_config_triggers_engine():
         "ml_venta_varios_pct",
         local_metadata,
         *(c._copy() if c.name != "creado_por" else _plain(c) for c in _VariosVentaPct.__table__.columns),
+    )
+
+    impuesto_tratamiento_table = Table(  # noqa: F841
+        "ml_venta_impuesto_tratamiento",
+        local_metadata,
+        *(c._copy() if c.name != "creado_por" else _plain(c) for c in ImpuestoTratamientoVenta.__table__.columns),
     )
 
     logistica_costo_cordon_table = Table(  # noqa: F841
@@ -1268,6 +1293,7 @@ def pg_order_metrics_config_triggers_engine():
 
     eng = create_engine(POSTGRES_TEST_URL)
     with eng.begin() as conn:
+        drop_tax_treatment_triggers(conn)
         drop_config_triggers(conn)
         drop_triggers(conn)
     local_metadata.drop_all(bind=eng, checkfirst=True)
@@ -1287,9 +1313,11 @@ def pg_order_metrics_config_triggers_engine():
         # columns. AFTER `create_triggers`, which creates the trigger it replaces.
         create_shipment_costs_trigger(conn)
         create_config_triggers(conn)
+        create_tax_treatment_triggers(conn)
     _patch_pg_types_for_sqlite()
     yield eng
     with eng.begin() as conn:
+        drop_tax_treatment_triggers(conn)
         drop_config_triggers(conn)
         drop_triggers(conn)
     local_metadata.drop_all(bind=eng, checkfirst=True)
