@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Save } from 'lucide-react';
 import { marcasPmAPI } from '../services/api';
 import { ModalAlert, ModalLoading } from '../components/ModalTesla';
-import ParesTable from '../components/ParesTable';
 import UsuariosLista from '../components/subpms/UsuariosLista';
+import MarcasAcordeon from '../components/subpms/MarcasAcordeon';
 import { parKey } from '../components/parKey';
 import { clavesDesdePayload } from './misSubPMsHelpers';
 import { useAuthStore } from '../store/authStore';
@@ -54,6 +54,8 @@ function extraerError(err, fallback) {
  * (seleccionarPar cycled nuevoUsuarioId per click, O(N) clicks to delegate
  * one user across N pairs) with: pick the target user, pre-check their
  * current grants, edit the full set, confirm a named diff, one PUT.
+ * Pairs are grouped by marca (`MarcasAcordeon`) so a whole marca is one
+ * click.
  *
  * Pair source stays split by contract, same as before: admin
  * (`admin.gestionar_pms`) -> GET /marcas-pm (`listarTodosLosPares`,
@@ -266,10 +268,14 @@ export default function MisSubPMs() {
     });
   };
 
-  const seleccionarTodoFiltrado = (paresVisibles) => {
+  const marcarPares = (lista, valor) => {
     setChecked((prev) => {
       const next = new Set(prev);
-      for (const { marca, categoria } of paresVisibles) next.add(parKey(marca, categoria));
+      for (const { marca, categoria } of lista) {
+        const key = parKey(marca, categoria);
+        if (valor) next.add(key);
+        else next.delete(key);
+      }
       return next;
     });
   };
@@ -468,19 +474,22 @@ export default function MisSubPMs() {
             <ModalLoading message="Cargando..." />
           ) : (
             <>
-              {loadingGrants ? (
+              {targetUserId == null ? (
+                <div className={styles.emptyDetail}>
+                  <strong>Elegí un usuario</strong>
+                  <span>Vas a ver las marcas y categorías que gestiona y podés sumarle una marca entera de un clic.</span>
+                </div>
+              ) : loadingGrants ? (
                 <ModalLoading message="Cargando sub-PMs delegados..." />
               ) : (
-                <ParesTable
+                <MarcasAcordeon
                   pares={pares}
                   checked={checked}
+                  baseline={baseline}
                   onToggle={toggle}
-                  onSelectAllFiltered={seleccionarTodoFiltrado}
+                  onMarcarPares={marcarPares}
+                  disabled={saving}
                 />
-              )}
-
-              {targetUserId == null && (
-                <div className={styles.emptyDetail}>Elegí un usuario para guardar cambios de delegación.</div>
               )}
 
               {confirmando && (
