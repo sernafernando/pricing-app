@@ -255,7 +255,7 @@ export default function VistaPorMarca({ pares, usuarios, grantsScope, onCambio }
                                   <span>¿Quitar a {nombre}?</span>
                                   <button
                                     type="button"
-                                    className="btn-tesla outline-subtle-primary sm"
+                                    className="btn-tesla outline-subtle-danger sm"
                                     onClick={() => quitar(g)}
                                     disabled={ocupado}
                                   >
