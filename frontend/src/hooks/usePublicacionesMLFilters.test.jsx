@@ -483,3 +483,32 @@ describe('buildProductIdsParams (the products a bulk action acts on)', () => {
     expect(buildProductIdsParams(oferta)).toEqual({ con_oferta: false });
   });
 });
+
+describe('the color layer (`equipo`, S8)', () => {
+  const base = setup('/').result.current.hook.filters;
+
+  it('reads the team from the URL, the global layer (empty) by default', () => {
+    expect(base.equipo).toBe('');
+    expect(setup('/?equipo=12').result.current.hook.filters.equipo).toBe('12');
+  });
+
+  it('asks the rows of every view on that layer', () => {
+    expect(buildItemsParams({ ...base, equipo: '12' })).toMatchObject({ equipo_id: '12' });
+    expect(buildProductsParams({ ...base, equipo: '12' })).toMatchObject({ equipo_id: '12' });
+    expect(buildItemsParams(base)).not.toHaveProperty('equipo_id');
+  });
+
+  it('never sends it where colors are not shown: the KPI strip and the bulk set', () => {
+    expect(buildKpiParams({ ...base, equipo: '12' }, '30d')).toEqual({ periodo: '30d' });
+    expect(buildProductIdsParams({ ...base, equipo: '12' })).toEqual({});
+  });
+
+  it('is how the rows are looked at, not a filter: "Limpiar filtros" keeps it and it never resets the page', () => {
+    const { result } = setup('/?equipo=12&estado=active&pagina=2');
+    expect(FILTER_KEYS).not.toContain('equipo');
+    act(() => result.current.hook.setFilters({ equipo: '3' }));
+    expect(new URLSearchParams(result.current.search).get('pagina')).toBe('2');
+    act(() => result.current.hook.resetFilters());
+    expect(result.current.search).toBe('?equipo=3');
+  });
+});

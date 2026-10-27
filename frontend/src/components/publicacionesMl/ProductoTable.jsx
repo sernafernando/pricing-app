@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { TableShell } from '../kit';
 import { PRODUCT_FIGURES } from './productFigures';
 import VariationRows from './VariationRows';
+import { treeRowTone } from './rowColor';
 import { BranchState, NodeCount, NodeTitle } from './NodeCells';
 import { SelectionCheckbox } from './ProductCheckbox';
 import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
@@ -87,6 +88,7 @@ export default function ProductoTable({
       rows={rows}
       getRowKey={(row) => row.id}
       getRowDepth={(row) => row.depth}
+      getRowTone={treeRowTone}
       renderSubRows={(row) =>
         row.type === 'item' && row.item.variations_count > 1 && expandedIds.has(row.item.item_id) ? (
           <VariationRows item={row.item} columns={columns} canSeeMargin={canSeeMargin} depth={row.depth} />

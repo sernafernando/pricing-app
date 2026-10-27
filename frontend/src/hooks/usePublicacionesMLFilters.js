@@ -70,6 +70,10 @@ const VISTAS = ['publicacion', 'producto', 'agrupado'];
 export const AGRUPAR_DIMENSIONS = ['marca', 'categoria', 'subcategoria', 'tienda', 'pm'];
 // How the result is shown, not what it is made of: kept by "Limpiar filtros".
 const SHAPE_KEYS = ['vista', 'familias', 'agrupar'];
+// The team whose color layer paints the rows ('' = the global layer, as in Productos): how the rows are looked at,
+// so it neither resets the page nor goes away with "Limpiar filtros".
+const LAYER_KEY = 'equipo';
+const KEPT_ON_RESET = [...SHAPE_KEYS, LAYER_KEY];
 const DIRECTIONS = ['asc', 'desc'];
 const SORT_KEYS = ['orden', 'dir', 'limite'];
 const VIEW_KEYS = ['pagina', 'sel', 'tab', 'prod'];
@@ -168,6 +172,7 @@ function readFilters(params) {
   filters.sel = params.get('sel') ?? '';
   filters.tab = params.get('tab') ?? '';
   filters.prod = params.get('prod') ?? '';
+  filters.equipo = params.get(LAYER_KEY) ?? '';
   return filters;
 }
 
@@ -219,6 +224,7 @@ export function buildItemsParams(
   for (const key of PRESENCE_KEYS) {
     if (filters[key]) Object.assign(params, PRESENCE_PARAMS[key][filters[key]]);
   }
+  if (filters.equipo) params.equipo_id = filters.equipo;
   params.limit = pageSize;
   params.offset = (filters.pagina - 1) * pageSize;
   return params;
@@ -256,8 +262,9 @@ export const hasMarkupFilter = (filters) => MARKUP_KEYS.some((key) => filters[ke
  * sort, and never the markup filters (the backend computes the strip before them): the strip says so instead.
  */
 export function buildKpiParams(filters, periodo) {
-  const { orden, dir, limit, offset, ...params } = buildItemsParams(filters, 1, { canSeeMargin: false });
-  void orden, dir, limit, offset;
+  // The strip (and the bulk set built from it) shows no color: never the layer.
+  const { orden, dir, limit, offset, equipo_id, ...params } = buildItemsParams(filters, 1, { canSeeMargin: false });
+  void orden, dir, limit, offset, equipo_id;
   // The Producto view's rows ask mejor oferta of the product (any of its publications); its strip asks it the same
   // way, so the strip counts the publications the rows hold.
   if (filters.vista === 'producto' && filters.oferta) params.oferta_por_producto = true;
@@ -306,13 +313,13 @@ export function usePublicacionesMLFilters() {
     [setSearchParams],
   );
 
-  // Clears the filters, the sort and the page; the view (`vista`, `familias`, `agrupar`) is how the operator looks at
-  // the result, not a filter, so it stays.
+  // Clears the filters, the sort and the page; the view (`vista`, `familias`, `agrupar`) and the color layer are how
+  // the operator looks at the result, not filters, so they stay.
   const resetFilters = useCallback(
     () =>
       setSearchParams((prev) => {
         const next = new URLSearchParams();
-        for (const key of SHAPE_KEYS) if (prev.has(key)) next.set(key, prev.get(key));
+        for (const key of KEPT_ON_RESET) if (prev.has(key)) next.set(key, prev.get(key));
         return next;
       }),
     [setSearchParams],

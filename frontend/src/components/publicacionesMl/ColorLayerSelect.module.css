@@ -1,0 +1,9 @@
+.layer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.select {
+  composes: select selectSm from '../../styles/forms-tesla.css';
+}

@@ -284,3 +284,21 @@ describe('the product checkbox', () => {
     expect(toggle.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
+
+describe('row colors (S8)', () => {
+  it("paints a product with its layer's color and its publications with it, and hints the global one", async () => {
+    const [first, second] = PRODUCT_ROWS;
+    publicacionesMlAPI.products.mockResolvedValue({
+      data: productsResponse([{ ...first, color_marcado: 'rojo' }, { ...second, color_hint_global: 'azul' }]),
+    });
+    publicacionesMlAPI.items.mockResolvedValue({ data: { ...itemsPage(1), items: [makeItem({ item_id: 'MLA1', title: 'Pintada', color_marcado: 'rojo' })] } });
+    render(<Harness />);
+    await screen.findByText(first.descripcion);
+    const painted = rowOf(first.descripcion);
+    expect(painted).toHaveAttribute('data-tone');
+    expect(painted).toHaveAttribute('title', 'Color: Urgente');
+    expect(rowOf(second.descripcion)).toHaveAttribute('data-marker');
+    await userEvent.click(within(painted).getByRole('button', { name: `Abrir ${first.descripcion}` }));
+    expect((await screen.findByText(/Pintada/)).closest('tr')).toHaveAttribute('data-tone');
+  });
+});

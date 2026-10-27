@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { TableShell } from '../kit';
 import VariationRows from './VariationRows';
+import { treeRowTone } from './rowColor';
 import useGroupTree from './useGroupTree';
 import { BranchState, NodeCount, NodeMarkup, NodeNegatives, NodeTitle } from './NodeCells';
 
@@ -66,6 +67,7 @@ export default function AgrupadoTable({
       rows={rows}
       getRowKey={(row) => row.id}
       getRowDepth={(row) => row.depth}
+      getRowTone={treeRowTone}
       renderSubRows={(row) =>
         row.type === 'item' && row.item.variations_count > 1 && expandedIds.has(row.item.item_id) ? (
           <VariationRows item={row.item} columns={columns} canSeeMargin={canSeeMargin} depth={row.depth} />

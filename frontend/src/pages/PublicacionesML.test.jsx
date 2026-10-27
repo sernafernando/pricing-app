@@ -44,6 +44,11 @@ vi.mock('../services/api', () => ({
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     pms: vi.fn(() => Promise.resolve({ data: [{ id: 7, nombre: 'Ana' }] })),
   },
+  equiposAPI: {
+    listar: vi.fn(() =>
+      Promise.resolve({ data: [{ id: 1, nombre: 'U', es_global: true }, { id: 12, nombre: 'Ventas', es_global: false }] }),
+    ),
+  },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -1609,6 +1614,28 @@ describe('Exportar a Sheets', () => {
     await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
     await act(async () => cancel(Object.assign(new Error('Exportación cancelada'), { cancelled: true })));
     expect(screen.queryByText('Exportación cancelada')).not.toBeInTheDocument();
+  });
+});
+
+describe('the color layer (S8)', () => {
+  it('lists the global layer and the teams, and asks the rows on the chosen one', async () => {
+    await page();
+    const capa = await screen.findByRole('combobox', { name: 'Capa de color' });
+    expect(within(capa).getAllByRole('option').map((o) => o.textContent)).toEqual(['Global', 'Ventas']);
+    await userEvent.selectOptions(capa, '12');
+    await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
+  });
+
+  it("drops a layer the user has no team for (a link shared by someone else): the list is asked on the global one", async () => {
+    await page('/ml-publicaciones?equipo=99');
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('equipo_id'));
+    expect(screen.getByRole('combobox', { name: 'Capa de color' })).toHaveValue('');
+  });
+
+  it("paints a publication with its product's color", async () => {
+    respond({ ...ITEMS_RESPONSE, items: [{ ...ITEMS[0], color_marcado: 'rojo' }, ...ITEMS.slice(1)], facets: FACETS });
+    await page();
+    expect(screen.getByText('MLA1100000001').closest('tr')).toHaveAttribute('data-tone');
   });
 });
 

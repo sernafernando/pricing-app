@@ -713,6 +713,41 @@ input[type="checkbox"]:focus-visible {
 .transition-slow { transition: all var(--duration-300) var(--ease-in-out); }
 
 /* ============================================
+   PRODUCT ROW COLORS (Productos, Tienda, Publicaciones ML)
+   ============================================ */
+
+:root {
+  /* Fondos y textos de filas coloreadas */
+  --product-urgent-bg: #fecaca;
+  --product-urgent-text: #991b1b;
+  --product-urgent-accent: #7f1d1d; /* Checkbox accent */
+  
+  --product-warning-bg: #fed7aa;
+  --product-warning-text: #9a3412;
+  --product-warning-accent: #7c2d12;
+  
+  --product-attention-bg: #fde68a;
+  --product-attention-text: #92400e;
+  --product-attention-accent: #78350f;
+  
+  --product-ok-bg: #a7f3d0;
+  --product-ok-text: #065f46;
+  --product-ok-accent: #064e3b;
+  
+  --product-info-bg: #93c5fd;
+  --product-info-text: #1e40af;
+  --product-info-accent: #1e3a8a;
+  
+  --product-review-bg: #d8b4fe;
+  --product-review-text: #6b21a8;
+  --product-review-accent: #581c87;
+  
+  --product-inactive-bg: #d1d5db;
+  --product-inactive-text: #374151;
+  --product-inactive-accent: #1f2937;
+}
+
+/* ============================================
    HIGH CONTRAST MODE
    ============================================ */
 

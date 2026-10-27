@@ -36,6 +36,8 @@ export function readProduct(raw) {
     marca: raw.marca ?? null,
     stock: raw.stock ?? null,
     metrics: raw.metrics ?? null,
+    colorMarcado: raw.color_marcado ?? null,
+    colorHintGlobal: raw.color_hint_global ?? null,
   };
 }
 

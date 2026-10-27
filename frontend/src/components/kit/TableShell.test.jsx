@@ -272,3 +272,20 @@ describe('row interaction', () => {
     expect(row).not.toHaveAttribute('tabindex');
   });
 });
+
+describe('row tone (getRowTone)', () => {
+  it('paints a row with its tone and marks another with a hint, leaving the rest alone', () => {
+    const tones = { A: { background: 'var(--product-urgent-bg)', text: 'var(--product-urgent-text)' }, B: { marker: 'var(--product-info-bg)', label: 'Color global: Info' } };
+    renderShell({ getRowTone: (r) => tones[r.id] ?? null, rows: [...ROWS, { id: 'C', title: 'AP', price: 1, stock: 1 }] });
+    const [painted, hinted, plain] = screen.getAllByRole('row').slice(1);
+    expect(painted).toHaveAttribute('data-tone');
+    expect(painted.style.getPropertyValue('--row-tone-bg')).toBe('var(--product-urgent-bg)');
+    expect(painted.style.getPropertyValue('--row-tone-fg')).toBe('var(--product-urgent-text)');
+    expect(hinted).not.toHaveAttribute('data-tone');
+    expect(hinted).toHaveAttribute('data-marker');
+    expect(hinted.style.getPropertyValue('--row-marker')).toBe('var(--product-info-bg)');
+    expect(hinted).toHaveAttribute('title', 'Color global: Info');
+    expect(plain).not.toHaveAttribute('data-tone');
+    expect(plain).not.toHaveAttribute('data-marker');
+  });
+});
