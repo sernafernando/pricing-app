@@ -46,12 +46,161 @@ class ParaGanarColaResponse(BaseModel):
     items: List[ParaGanarColaItem]
 
 
+class ParaGanarSubcategoriaOpcion(BaseModel):
+    id: int
+    nombre: str
+
+
+class ParaGanarPmOpcion(BaseModel):
+    id: int
+    nombre: str
+
+
+class ParaGanarAlcanceOpciones(BaseModel):
+    marcas: List[str]
+    subcategorias: List[ParaGanarSubcategoriaOpcion]
+    pms: List[ParaGanarPmOpcion]
+
+
 def _precio_float(value: object) -> Optional[float]:
     if value is None:
         return None
     if isinstance(value, Decimal):
         return float(value)
     return float(value)  # type: ignore[arg-type]
+
+
+def _split_csv(raw: Optional[str]) -> list[str]:
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _build_alcance_where(
+    *,
+    q_norm: str,
+    marcas: list[str],
+    subcategorias: list[int],
+    pms: list[int],
+    params: dict,
+) -> str:
+    """Append scope filters shared by count + page queries. Mutates `params`."""
+    clauses: list[str] = []
+
+    if q_norm:
+        params["q"] = f"%{q_norm}%"
+        clauses.append(
+            """
+          AND (
+            p.mla ILIKE :q
+            OR COALESCE(p.codigo, '') ILIKE :q
+            OR COALESCE(p.item_title, '') ILIKE :q
+            OR COALESCE(e.descripcion, '') ILIKE :q
+            OR COALESCE(e.marca, '') ILIKE :q
+          )
+            """
+        )
+
+    if marcas:
+        placeholders = []
+        for i, marca in enumerate(marcas):
+            key = f"marca_{i}"
+            params[key] = marca.upper()
+            placeholders.append(f":{key}")
+        clauses.append(f" AND UPPER(e.marca) IN ({', '.join(placeholders)})")
+
+    if subcategorias:
+        placeholders = []
+        for i, subcat_id in enumerate(subcategorias):
+            key = f"subcat_{i}"
+            params[key] = subcat_id
+            placeholders.append(f":{key}")
+        clauses.append(f" AND e.subcategoria_id IN ({', '.join(placeholders)})")
+
+    if pms:
+        # Same semantics as /productos: marca+categoria pairs from marcas_pm.
+        placeholders = []
+        for i, pm_id in enumerate(pms):
+            key = f"pm_{i}"
+            params[key] = pm_id
+            placeholders.append(f":{key}")
+        clauses.append(
+            f"""
+          AND EXISTS (
+            SELECT 1 FROM marcas_pm mp
+            WHERE mp.usuario_id IN ({", ".join(placeholders)})
+              AND UPPER(mp.marca) = UPPER(e.marca)
+              AND UPPER(mp.categoria) = UPPER(e.categoria)
+          )
+            """
+        )
+
+    return "".join(clauses)
+
+
+@router.get(
+    "/alcance-opciones",
+    response_model=ParaGanarAlcanceOpciones,
+    dependencies=[Depends(require_permiso("productos.ver"))],
+)
+def listar_alcance_opciones(
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(get_current_user),
+) -> ParaGanarAlcanceOpciones:
+    """Distinct marcas/subcats/PMs for the PARA GANAR scope filter bar."""
+    marcas_rows = db.execute(
+        text(
+            """
+            SELECT DISTINCT e.marca
+            FROM productos_erp e
+            JOIN publicaciones_ml p ON p.item_id = e.item_id AND p.activo = true
+            WHERE e.marca IS NOT NULL AND e.marca <> ''
+            ORDER BY e.marca
+            """
+        )
+    ).all()
+
+    subcat_rows = (
+        db.execute(
+            text(
+                """
+            SELECT DISTINCT e.subcategoria_id AS id,
+              COALESCE(sg.nombre_subcategoria, CAST(e.subcategoria_id AS TEXT)) AS nombre
+            FROM productos_erp e
+            JOIN publicaciones_ml p ON p.item_id = e.item_id AND p.activo = true
+            LEFT JOIN subcategorias_grupos sg ON sg.subcat_id = e.subcategoria_id
+            WHERE e.subcategoria_id IS NOT NULL
+            ORDER BY nombre
+            """
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+    pm_rows = (
+        db.execute(
+            text(
+                """
+            SELECT DISTINCT u.id, COALESCE(u.nombre, u.username) AS nombre
+            FROM usuarios u
+            JOIN marcas_pm mp ON mp.usuario_id = u.id
+            WHERE u.activo = true
+            ORDER BY nombre
+            """
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+    return ParaGanarAlcanceOpciones(
+        marcas=[row[0] for row in marcas_rows],
+        subcategorias=[
+            ParaGanarSubcategoriaOpcion(id=int(row["id"]), nombre=str(row["nombre"])) for row in subcat_rows
+        ],
+        pms=[ParaGanarPmOpcion(id=int(row["id"]), nombre=str(row["nombre"])) for row in pm_rows],
+    )
 
 
 @router.get(
@@ -62,25 +211,52 @@ def _precio_float(value: object) -> Optional[float]:
 def listar_cola(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    q: Optional[str] = Query(None, max_length=120, description="Filter by MLA, codigo or title"),
+    q: Optional[str] = Query(None, max_length=120, description="Filter by MLA, codigo, title or marca"),
+    marcas: Optional[str] = Query(None, description="Comma-separated brand names"),
+    subcategorias: Optional[str] = Query(None, description="Comma-separated subcategory ids"),
+    pms: Optional[str] = Query(None, description="Comma-separated PM user ids"),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarColaResponse:
     """Paginated active MLAs from the local sandbox (joined with ERP + price + sync)."""
     offset = (page - 1) * page_size
     q_norm = (q or "").strip()
+    marcas_list = _split_csv(marcas)
+    subcat_list: list[int] = []
+    for raw in _split_csv(subcategorias):
+        try:
+            subcat_list.append(int(raw))
+        except ValueError:
+            continue
+    pm_list: list[int] = []
+    for raw in _split_csv(pms):
+        try:
+            pm_list.append(int(raw))
+        except ValueError:
+            continue
+
     params: dict = {"limit": page_size, "offset": offset}
-    where_extra = ""
-    if q_norm:
-        params["q"] = f"%{q_norm}%"
-        where_extra = """
-          AND (
-            p.mla ILIKE :q
-            OR COALESCE(p.codigo, '') ILIKE :q
-            OR COALESCE(p.item_title, '') ILIKE :q
-            OR COALESCE(e.descripcion, '') ILIKE :q
-          )
-        """
+    where_extra = _build_alcance_where(
+        q_norm=q_norm,
+        marcas=marcas_list,
+        subcategorias=subcat_list,
+        pms=pm_list,
+        params=params,
+    )
+
+    # PM filter with no marcas_pm rows → empty universe (same as /productos).
+    if pm_list:
+        pm_pair_count = db.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM marcas_pm
+                WHERE usuario_id IN ({})
+                """.format(", ".join(f":pm_check_{i}" for i in range(len(pm_list))))
+            ),
+            {f"pm_check_{i}": pm_id for i, pm_id in enumerate(pm_list)},
+        ).scalar_one()
+        if int(pm_pair_count) == 0:
+            return ParaGanarColaResponse(total=0, page=page, page_size=page_size, items=[])
 
     total = db.execute(
         text(

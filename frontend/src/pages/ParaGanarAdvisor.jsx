@@ -6,6 +6,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import ParaGanarQueue from '../components/paraGanar/ParaGanarQueue';
 import ParaGanarAdvisorDetail from '../components/paraGanar/ParaGanarAdvisorDetail';
 import ParaGanarCriteriosDetail from '../components/paraGanar/ParaGanarCriteriosDetail';
+import ParaGanarScopeFilters from '../components/paraGanar/ParaGanarScopeFilters';
 import styles from './ParaGanarAdvisor.module.css';
 
 /**
@@ -21,6 +22,10 @@ function parseVista(raw) {
   return raw === VISTA_CRITERIOS ? VISTA_CRITERIOS : VISTA_ADVISOR;
 }
 
+function joinCsv(values) {
+  return values.length > 0 ? values.join(',') : undefined;
+}
+
 export default function ParaGanarAdvisor() {
   const [searchParams, setSearchParams] = useSearchParams();
   const vista = parseVista(searchParams.get('vista'));
@@ -34,6 +39,9 @@ export default function ParaGanarAdvisor() {
   const [pageSize] = useState(50);
   const [q, setQ] = useState('');
   const [qInput, setQInput] = useState('');
+  const [marcas, setMarcas] = useState([]);
+  const [subcategorias, setSubcategorias] = useState([]);
+  const [pms, setPms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedMla, setSelectedMla] = useState(null);
@@ -47,7 +55,14 @@ export default function ParaGanarAdvisor() {
       setError(null);
       try {
         const { data } = await api.get('/para-ganar/cola', {
-          params: { page, page_size: pageSize, q: q || undefined },
+          params: {
+            page,
+            page_size: pageSize,
+            q: q || undefined,
+            marcas: joinCsv(marcas),
+            subcategorias: joinCsv(subcategorias),
+            pms: joinCsv(pms),
+          },
         });
         if (cancelled) return;
         setItems(data.items || []);
@@ -74,7 +89,7 @@ export default function ParaGanarAdvisor() {
     return () => {
       cancelled = true;
     };
-  }, [page, pageSize, q, reloadToken]);
+  }, [page, pageSize, q, marcas, subcategorias, pms, reloadToken]);
 
   const selected = items.find((row) => row.mla === selectedMla) || null;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -94,6 +109,25 @@ export default function ParaGanarAdvisor() {
     event.preventDefault();
     setPage(1);
     setQ(qInput.trim());
+  };
+
+  const setMarcasAndReset = (next) => {
+    setPage(1);
+    setMarcas(next);
+  };
+  const setSubcatsAndReset = (next) => {
+    setPage(1);
+    setSubcategorias(next);
+  };
+  const setPmsAndReset = (next) => {
+    setPage(1);
+    setPms(next);
+  };
+  const clearAlcance = () => {
+    setPage(1);
+    setMarcas([]);
+    setSubcategorias([]);
+    setPms([]);
   };
 
   return (
@@ -116,7 +150,7 @@ export default function ParaGanarAdvisor() {
             type="search"
             value={qInput}
             onChange={(e) => setQInput(e.target.value)}
-            placeholder="Buscar MLA, código o título"
+            placeholder="Buscar MLA, código, título o marca"
             aria-label="Buscar en la cola"
           />
           <button type="submit" className={styles.searchBtn}>
@@ -150,6 +184,18 @@ export default function ParaGanarAdvisor() {
         )}
       </nav>
 
+      {(canAdvisor || canCriterios) && (
+        <ParaGanarScopeFilters
+          marcas={marcas}
+          subcategorias={subcategorias}
+          pms={pms}
+          onMarcasChange={setMarcasAndReset}
+          onSubcategoriasChange={setSubcatsAndReset}
+          onPmsChange={setPmsAndReset}
+          onClear={clearAlcance}
+        />
+      )}
+
       <section
         className={styles.toolbar}
         aria-label={isCriterios ? 'Acciones de criterios' : 'Filtros de sugerencias'}
@@ -176,7 +222,7 @@ export default function ParaGanarAdvisor() {
               Aplicar criterios al filtro
             </button>
             <span className={styles.toolbarHint}>
-              {total.toLocaleString('es-AR')} MLAs en alcance · filtros de Productos aún no conectados
+              {total.toLocaleString('es-AR')} MLAs en alcance
             </span>
           </>
         )}

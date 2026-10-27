@@ -103,11 +103,12 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 
 - Route: `/para-ganar` (`productos.ver`); subvistas `?vista=advisor` (default) y `?vista=criterios`
 - Page: `frontend/src/pages/ParaGanarAdvisor.jsx` — tabs Advisor | Criterios; misma cola MLA; detail distinto
-- API: `GET /api/para-ganar/cola` — active MLAs from sandbox (precio, catálogo, par sync por `inventory_id`)
+- Scope filters (shared): marca / subcategoría / PM + search — `ParaGanarScopeFilters`; options from `GET /api/para-ganar/alcance-opciones`; applied via `marcas` / `subcategorias` / `pms` / `q` on cola
+- API: `GET /api/para-ganar/cola` — active MLAs (precio, catálogo, par sync por `inventory_id`) with Productos-like scope params
 - Nav: Sidebar → Productos → PARA GANAR (badge WIP)
 - Catalog: `frontend/src/registry/screenCatalog.js`
-- Criterios: form stub por MLA + botón masivo deshabilitado (filtros Productos / persistencia TBD)
+- Criterios: form stub por MLA + botón masivo deshabilitado (persistencia TBD)
 
 ## Suggested next step
 
-Connect Productos-like scope filters (shared component, two universes) and persist criteria (MLA / product / PM default).
+Persist criteria (MLA / product / PM default) and wire suggestion engine / apply-via-promotions.
