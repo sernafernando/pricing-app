@@ -111,11 +111,12 @@ def __getattr__(name: str) -> List[JobHandler]:
                 missed_feeds,
                 sweep,
                 verify,
-                freshness,
                 promo_refresh,
                 ads,
                 # promo-write-refresh P2: the ~60 s follow-up refresh after a promo write (was an unscheduled script).
                 promo_write_refresh,
+                # ml-sync-pipeline S5: the per-minute freshness check (no ML call).
+                freshness,
                 billing,
             ]
         return _ml_publications_registry

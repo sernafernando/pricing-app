@@ -509,4 +509,5 @@ class TestRegistry:
             "ml_publications.sweep",
             "ml_publications.verify",
             "ml_publications.promo_refresh",
+            "ml_publications.freshness",
         ]

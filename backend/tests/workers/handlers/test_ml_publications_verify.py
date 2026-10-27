@@ -81,7 +81,8 @@ class TestWiring:
 
     def test_it_is_right_before_the_promo_refresh_in_the_ml_worker_registry(self) -> None:
         ours = [h for h in registry.ML_PUBLICATIONS_REGISTRY if h.name.startswith("ml_publications.")]
-        assert ours[-2] is handlers.verify and ours[-1].name == "ml_publications.promo_refresh"
+        at = ours.index(handlers.verify)
+        assert ours[at + 1].name == "ml_publications.promo_refresh"
 
     def test_the_verification_module_adds_no_cron_timer_or_notify(self) -> None:
         source = Path(verification.__file__).read_text(encoding="utf-8")
