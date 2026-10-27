@@ -5,7 +5,9 @@ They run in their own worker process (`pricing-worker-ml.service`, registry
 
 Every handler is gated by a DB-backed flag (`ml_pub_settings`, env default off,
 `ML_PUB_KILL_SWITCH` overriding everything). A disabled handler returns the
-disabled outcome BEFORE any queue read, ML call or write.
+disabled outcome BEFORE any queue read, ML call or write. The exception is the
+freshness check: it only reads and has no flag, so a store stopped by a flag or the
+kill switch still shows as late.
 """
 
 from __future__ import annotations
