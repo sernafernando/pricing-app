@@ -168,3 +168,11 @@ def late_message(report: Mapping[str, Any]) -> str:
                 f"(objetivo {_duration(measured['target_seconds'])})"
             )
     return "\n".join(lines)
+
+
+BACK_MESSAGE = "Pricing: los datos de ML volvieron a estar al día."
+
+
+def late_resources(report: Mapping[str, Any]) -> List[str]:
+    """The names of the late resources of `report`, sorted."""
+    return sorted(name for name, measured in report["resources"].items() if measured["late"])

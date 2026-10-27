@@ -5,7 +5,9 @@ They run in their own worker process (`pricing-worker-ml.service`, registry
 
 Every handler is gated by a DB-backed flag (`ml_pub_settings`, env default off,
 `ML_PUB_KILL_SWITCH` overriding everything). A disabled handler returns the
-disabled outcome BEFORE any queue read, ML call or write.
+disabled outcome BEFORE any queue read, ML call or write. The exception is the
+freshness check: it only reads and has no flag, so a store stopped by a flag or the
+kill switch still shows as late.
 """
 
 from __future__ import annotations
@@ -23,6 +25,8 @@ from sqlalchemy import text
 
 from app.core import database
 from app.core.config import settings
+from app.services import wabot_client
+from app.services.ml_publications import freshness as freshness_core
 from app.services.ml_publications import intake as intake_core
 from app.services.ml_publications import (
     bundle,
@@ -1221,10 +1225,48 @@ class VerifyHandler:
         return detail
 
 
+FRESHNESS_HANDLER = "ml_publications.freshness"
+
+
+class FreshnessHandler:
+    """`ml_publications.freshness` (ml-sync-pipeline S5): every minute, how late the store is on what ML told it
+    changed, per resource, and the queue lag per lane, kept in its `worker_job_state.detail`.
+
+    A resource that becomes late sends the owner ONE WhatsApp; it is not repeated while the resource stays late,
+    and one more says when everything is back. An alert wabot did not take is tried again on the next tick. The
+    alerted resources live in its detail: a detail that cannot be written (logged by `_persist_detail`) repeats
+    the alert on the next tick. It makes no ML call and holds no pacer.
+    """
+
+    name = FRESHNESS_HANDLER
+    channels: Tuple[str, ...] = ()
+    interval: Optional[timedelta] = timedelta(minutes=1)
+    run_at_local: Optional[time] = None
+
+    def run(self, ctx: WorkerContext) -> JobResult:
+        with database.get_background_db() as db:
+            report = freshness_core.measure(db)
+        late = freshness_core.late_resources(report)
+        alerted: List[str] = _read_detail(self.name).get("alerted") or []
+        alert = None
+        if set(late) - set(alerted):
+            alert = wabot_client.send_to_owner(freshness_core.late_message(report))
+        elif alerted and not late:
+            alert = wabot_client.send_to_owner(freshness_core.BACK_MESSAGE)
+        if alert == "sent":
+            alerted = late
+        elif alert is None:
+            alerted = [name for name in alerted if name in late]  # a resource back on time alerts again if late again
+        detail = {**report, "alerted": alerted, "alert": alert, "at": _utcnow().isoformat()}
+        _persist_detail(self.name, detail)
+        return JobResult(success=True, detail=detail)
+
+
 refresh = RefreshHandler()
 intake = IntakeHandler()
 relink = RelinkHandler()
 scan = ScanHandler(pacer=refresh.pacer)  # one in-process ML budget for every call the store makes
 missed_feeds = MissedFeedsHandler(pacer=refresh.pacer)
 sweep = SweepHandler()
+freshness = FreshnessHandler()
 verify = VerifyHandler(pacer=refresh.pacer)

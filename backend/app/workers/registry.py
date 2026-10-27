@@ -91,7 +91,16 @@ def __getattr__(name: str) -> List[JobHandler]:
             from app.workers.handlers.ml_ads import ads
             from app.workers.handlers.ml_billing import billing
             from app.workers.handlers.ml_promo_refresh import promo_refresh
-            from app.workers.handlers.ml_publications import intake, missed_feeds, refresh, relink, scan, sweep, verify
+            from app.workers.handlers.ml_publications import (
+                freshness,
+                intake,
+                missed_feeds,
+                refresh,
+                relink,
+                scan,
+                sweep,
+                verify,
+            )
             from app.workers.handlers.promo_refresh import promo_write_refresh
 
             _ml_publications_registry = [
@@ -106,6 +115,8 @@ def __getattr__(name: str) -> List[JobHandler]:
                 ads,
                 # promo-write-refresh P2: the ~60 s follow-up refresh after a promo write (was an unscheduled script).
                 promo_write_refresh,
+                # ml-sync-pipeline S5: the per-minute freshness check (no ML call).
+                freshness,
                 billing,
             ]
         return _ml_publications_registry
