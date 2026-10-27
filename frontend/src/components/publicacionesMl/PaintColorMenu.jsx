@@ -22,6 +22,8 @@ export default function PaintColorMenu({ checkedIds, equipo, onPainted, onClearC
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const containerRef = useRef(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -30,6 +32,11 @@ export default function PaintColorMenu({ checkedIds, equipo, onPainted, onClearC
     };
     document.addEventListener('mousedown', closeOutside);
     return () => document.removeEventListener('mousedown', closeOutside);
+  }, [open]);
+
+  // A menu opens on its first item (WAI-ARIA menu button), so the arrows can take it from there.
+  useEffect(() => {
+    if (open) menuRef.current?.querySelector('[role="menuitem"]')?.focus();
   }, [open]);
 
   const allowed = equipo ? true : tienePermiso('productos.marcar_color_lote');
@@ -62,12 +69,23 @@ export default function PaintColorMenu({ checkedIds, equipo, onPainted, onClearC
     if (event.key === 'Escape' && open) {
       event.stopPropagation();
       setOpen(false);
+      triggerRef.current?.focus();
     }
+  };
+
+  const moveFocus = (event) => {
+    const items = [...menuRef.current.querySelectorAll('[role="menuitem"]')];
+    const at = items.indexOf(document.activeElement);
+    const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    items[(next + items.length) % items.length].focus();
   };
 
   return (
     <div className={styles.anchor} ref={containerRef} onKeyDown={closeOnEscape}>
       <button
+        ref={triggerRef}
         type="button"
         className="btn-tesla outline-subtle-primary sm"
         aria-haspopup="menu"
@@ -83,7 +101,7 @@ export default function PaintColorMenu({ checkedIds, equipo, onPainted, onClearC
         <ChevronDown size={14} aria-hidden="true" />
       </button>
       {open && (
-        <div role="menu" aria-label="Colores" className={styles.panel}>
+        <div role="menu" aria-label="Colores" className={styles.panel} ref={menuRef} onKeyDown={moveFocus}>
           {COLORES_DISPONIBLES.map((c) => (
             <button key={c.id ?? 'none'} type="button" role="menuitem" className={styles.item} onClick={() => paint(c.id)}>
               <span className={styles.swatch} data-empty={c.color ? undefined : ''} style={c.color ? { background: c.color } : undefined} />

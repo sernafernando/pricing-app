@@ -671,6 +671,18 @@ def _database_error(exc: DBAPIError) -> Optional[Exception]:
     return api_error(status.HTTP_503_SERVICE_UNAVAILABLE, SLOW_QUERY_CODE, "La consulta tardó demasiado; reintentá.")
 
 
+def _attach_colors(
+    auth_db: Session, layer: colors.ColorLayer, rows: list[dict[str, Any]], product_of: Callable[[dict[str, Any]], Any]
+) -> None:
+    """The row colors, with the list's own answer to a read over `statement_timeout`: the same 503."""
+    try:
+        colors.attach_colors(auth_db, layer, rows, product_of)
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+
+
 def filter_query(
     q: Optional[str] = Query(None, description="MLA id / digits (exact), else substring of title, SKU, product"),
     estado: Optional[str] = Query(None, description="csv of active,paused,closed,under_review,inactive,gone"),
@@ -932,7 +944,7 @@ def get_items(
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
     with timer.stage("colors"):
-        colors.attach_colors(auth_db, layer, page.items, lambda item: (item.get("link") or {}).get("producto_item_id"))
+        _attach_colors(auth_db, layer, page.items, lambda item: (item.get("link") or {}).get("producto_item_id"))
     with timer.stage("status"):
         data_state = status_provider()
     response.headers["Server-Timing"] = timer.server_timing()
@@ -1035,7 +1047,7 @@ def get_groups(
     nodes = [_node_out(node) for node in page.nodes]
     # Only a product node is painted: its product's color (the other levels group several products).
     product_nodes = [node for node in nodes if node["kind"] == groups.KIND_PRODUCT]
-    colors.attach_colors(auth_db, layer, product_nodes, lambda node: node.get("producto_item_id"))
+    _attach_colors(auth_db, layer, product_nodes, lambda node: node.get("producto_item_id"))
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(level=page.level, rows=len(page.nodes), total=page.total)
     body: dict[str, Any] = {
@@ -1166,7 +1178,7 @@ def get_products(
         _product_out(row, can_see_sales, can_see_margin, row.key not in page.without_figures, f.oferta is not None)
         for row in page.rows
     ]
-    colors.attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])
+    _attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])
     return {
         "rows": rows,
         "total": page.total,

@@ -132,3 +132,25 @@ class TestTreeNodes:
     def test_a_team_the_user_is_not_in_is_a_403(self, client, pg, reader, layers) -> None:
         seed_rows(pg, seed_catalog)
         assert client.get(GROUPS_URL, headers=reader, params={"equipo_id": layers["other"]}).status_code == 403
+
+
+class TestSlowColors:
+    @pytest.mark.parametrize("url", [ITEMS_URL, PRODUCTS_URL, GROUPS_URL])
+    def test_a_color_read_over_statement_timeout_is_the_same_controlled_503(
+        self, client, pg, reader, layers, monkeypatch, url
+    ) -> None:
+        from sqlalchemy.exc import OperationalError
+
+        from app.services import ml_publication_colors
+
+        class Canceled(Exception):
+            pgcode = "57014"
+
+        def slow(*_args, **_kwargs):
+            raise OperationalError("SELECT producto_color", {}, Canceled())
+
+        seed_rows(pg, seed_catalog if url == GROUPS_URL else fill)
+        monkeypatch.setattr(ml_publication_colors, "batch_colores", slow)
+        params = {"path": "TP-LINK,REDES,10"} if url == GROUPS_URL else {}
+        response = client.get(url, headers=reader, params=params)
+        assert response.status_code == 503 and response.json()["error"]["code"] == "consulta_lenta"
