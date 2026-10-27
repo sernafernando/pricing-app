@@ -3,6 +3,9 @@
 Reading needs `ml_ops.ver` (the Publicaciones ML screen); saving needs `ml_publicaciones.editar_publicacion`. Saving
 never writes to Mercado Libre: the override is kept here and every read answers the original (what ML has), the
 override and the applicable data. The rules live in `ml_item_override_service`.
+
+Pushing the override to ML ("Actualizar en ML", T8c) is its own route, with the same permission: only what ML lets
+change goes, and every field answers how it went or why it was left out (`ml_item_override_push_service`).
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from datetime import datetime
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy.orm import Session
 
@@ -23,6 +27,16 @@ from app.schemas.publication_data import (
     MAX_DESCRIPCION_LENGTH,
     MAX_TITULO_LENGTH,
     NonBlank,
+)
+from app.services.ml_item_override_push_service import (
+    DISABLED,
+    NOT_ELIGIBLE,
+    NOT_FOUND,
+    NOT_SENT,
+    NOTHING,
+    SENT,
+    UNKNOWN_STATUS,
+    push_override,
 )
 from app.services.ml_item_override_service import (
     OverrideView,
@@ -145,3 +159,43 @@ def put_override(
     if view is None:
         raise _not_found(item_id)
     return _response(view, True)
+
+
+_PUSH_HTTP_STATUS = {
+    SENT: 200,
+    NOTHING: 200,
+    NOT_FOUND: 404,
+    NOT_ELIGIBLE: 409,
+    DISABLED: 503,
+    NOT_SENT: 503,
+    UNKNOWN_STATUS: 503,
+}
+
+
+class PushParte(BaseModel):
+    campo: str  # titulo, fotos, atributos or descripcion
+    estado: str  # submitted, rejected, ambiguous, not_sent or omitted
+    motivo: Optional[str]
+
+
+class PushResponse(BaseModel):
+    status: str
+    message: Optional[str]
+    partes: list[PushParte]
+
+
+@router.post("/{item_id}/ml", response_model=PushResponse)
+async def push_override_to_ml(
+    item_id: ItemId,
+    user: Usuario = Depends(require_permiso(PERMISO_EDITAR)),
+) -> JSONResponse:
+    """Send the override to ML. 200 with each field's state when something was sent or nothing could be; 404 for an
+    unknown MLA; 409 for a publication ML does not let modify (catalog, deleted, closed); 503 when nothing reached ML
+    (the kill switch off, the store unreadable, the proxy not forwarding any write)."""
+    outcome = await push_override(item_id, user.id)
+    content = PushResponse(
+        status=outcome.status,
+        message=outcome.message,
+        partes=[PushParte(**asdict(parte)) for parte in outcome.partes],
+    )
+    return JSONResponse(status_code=_PUSH_HTTP_STATUS[outcome.status], content=content.model_dump())
