@@ -207,3 +207,11 @@ describe('buildLeafParams', () => {
     expect(buildLeafParams(filters, { params: { tiendas: 'none', producto: '4101' } }, 0).tiendas).toBe('none');
   });
 });
+
+describe('readNode colors (S8)', () => {
+  it('carries the product color of the chosen layer and the global hint', () => {
+    const node = readNode({ kind: 'producto', key: '77', producto_item_id: 77, color_marcado: 'verde', color_hint_global: 'rojo' }, { canSeeMargin: false });
+    expect(node).toMatchObject({ colorMarcado: 'verde', colorHintGlobal: 'rojo' });
+    expect(readNode(RAW_BRAND, { canSeeMargin: false })).toMatchObject({ colorMarcado: null, colorHintGlobal: null });
+  });
+});

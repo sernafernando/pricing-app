@@ -1,0 +1,15 @@
+.layer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.select {
+  height: 28px;
+  padding: 0 var(--space-2);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+}

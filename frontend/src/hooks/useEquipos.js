@@ -11,6 +11,8 @@ import { equiposAPI } from '../services/api';
 export function useEquipos() {
   const [equipos, setEquipos] = useState([]);
   const [loading, setLoading] = useState(false);
+  // True once the first request settled (even failed): an empty list then means "no team", not "not yet".
+  const [loaded, setLoaded] = useState(false);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -22,6 +24,7 @@ export function useEquipos() {
       console.error('Error al cargar equipos:', err);
     } finally {
       setLoading(false);
+      setLoaded(true);
     }
   }, []);
 
@@ -29,5 +32,5 @@ export function useEquipos() {
     recargar();
   }, [recargar]);
 
-  return { equipos, loading, recargar };
+  return { equipos, loading, loaded, recargar };
 }

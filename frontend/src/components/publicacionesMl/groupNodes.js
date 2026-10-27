@@ -49,6 +49,8 @@ export function readNode(raw, { canSeeMargin }) {
     codigo: raw.codigo ?? null,
     familyId: raw.family_id ?? null,
     itemId: raw.item_id ?? null,
+    colorMarcado: raw.color_marcado ?? null,
+    colorHintGlobal: raw.color_hint_global ?? null,
     ...readAggregates(raw, canSeeMargin),
   };
 }

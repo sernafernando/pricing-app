@@ -138,6 +138,27 @@
   background: var(--cf-bg-hover);
 }
 
+/* A row's color (`getRowTone`): the tone wins over hover and selection, which keep their edge marker below. Its
+   text color replaces the theme's text tokens inside the row, so what a cell draws with them reads on the tone in
+   both themes (a dark theme's near-white text would not). */
+.row[data-tone] {
+  --cf-text-primary: var(--row-tone-fg);
+  --cf-text-secondary: var(--row-tone-fg);
+  --cf-text-tertiary: var(--row-tone-fg);
+}
+
+.row[data-tone] .cell {
+  background: var(--row-tone-bg);
+  color: var(--row-tone-fg, var(--cf-text-primary));
+}
+
+/* Only a hint (another layer's color): an edge on the first cell, next to its divider. */
+.row[data-marker] .cell[data-pinned] {
+  box-shadow:
+    inset 4px 0 0 var(--row-marker),
+    inset -1px 0 0 var(--cf-border-default);
+}
+
 /* Selected marker on the left edge, plus the pinned column's right divider:
    both are inset shadows on the same cell, so they must be declared together
    or the more specific rule would drop the divider. */

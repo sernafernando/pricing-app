@@ -19,7 +19,7 @@ import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
-import { mlItemOverridesAPI, offsetsGananciaAPI, preciosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
+import { equiposAPI, mlItemOverridesAPI, offsetsGananciaAPI, preciosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { PRODUCTO_CON_REBATE_Y_OFERTA, SELL_IN_OUT } from '../../components/pricing/ProductPrices.fixtures';
 import {
   BRAND_NODES,
@@ -96,6 +96,7 @@ vi.mock('../../services/api', () => ({
     vigentes: vi.fn(() => new Promise(() => {})),
     grupoFiltros: vi.fn(() => new Promise(() => {})),
   },
+  equiposAPI: { listar: vi.fn(() => Promise.resolve({ data: [] })) },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -1386,5 +1387,41 @@ describe('Publicaciones ML bulk pause / activate (visual)', () => {
         screen.unmount();
       });
     }
+  }
+});
+
+describe('row colors and the color layer (S8)', () => {
+  beforeEach(() => {
+    canSeeMargin = false;
+    equiposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'U', es_global: true }, { id: 12, nombre: 'Ventas', es_global: false }] });
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({
+      data: {
+        ...RESPONSE,
+        items: RESPONSE.items.map((item, index) =>
+          index === 0 ? { ...item, color_marcado: 'rojo' } : index === 1 ? { ...item, color_hint_global: 'azul' } : item,
+        ),
+      },
+    });
+  });
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the layer selector fits the filter band and a painted row reads on its color`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      await expect.element(screen.getByRole('combobox', { name: 'Capa de color' })).toBeVisible();
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+      const [painted, hinted] = document.querySelectorAll('tbody tr');
+      const cell = painted.querySelector('td:nth-child(2)');
+      expect(getComputedStyle(cell).backgroundColor).toBe(tokenColor('--product-urgent-bg'));
+      const background = getComputedStyle(cell).backgroundColor;
+      // The texts a cell draws with the theme's tokens (the title, the MLA) read on the tone in both themes.
+      for (const text of [painted.querySelector('td'), screen.getByText('MLA1100000100').element()]) {
+        expect(contrastRatio(getComputedStyle(text).color, background)).toBeGreaterThanOrEqual(4.5);
+      }
+      expect(getComputedStyle(hinted.querySelector('td')).boxShadow).toContain('inset');
+      painted.scrollIntoView({ block: 'center' });
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/row-colors-1366-${theme}.png` });
+      screen.unmount();
+    });
   }
 });

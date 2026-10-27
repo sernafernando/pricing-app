@@ -454,3 +454,16 @@ describe('what resets the tree', () => {
     expect(screen.queryByText('VIEJA')).not.toBeInTheDocument();
   });
 });
+
+describe('row colors (S8)', () => {
+  it("paints a product node with its layer's color and never the other levels", async () => {
+    publicacionesMlAPI.groups.mockReset();
+    publicacionesMlAPI.groups.mockResolvedValue({
+      data: groupsResponse('producto', [{ ...PRODUCT_NODES[0], color_marcado: 'verde' }, { ...PRODUCT_NODES[1], color_hint_global: 'gris' }]),
+    });
+    render(<Harness />);
+    const node = (await screen.findByText(PRODUCT_NODES[0].label)).closest('tr');
+    expect(node).toHaveAttribute('data-tone');
+    expect(screen.getByText(PRODUCT_NODES[1].label).closest('tr')).toHaveAttribute('data-marker');
+  });
+});

@@ -14,6 +14,8 @@ import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import ProductPanel from '../components/publicacionesMl/ProductPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
+import ColorLayerSelect from '../components/publicacionesMl/ColorLayerSelect';
+import { itemRowTone } from '../components/publicacionesMl/rowColor';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
@@ -500,6 +502,11 @@ export default function PublicacionesML() {
             <span className={styles.filterLabel}>Estado:</span>
             {chipGroup('Filtrar por estado', 'estado', STATUS_OPTIONS, STATUS_LABELS, facets?.status)}
           </div>
+          <ColorLayerSelect
+            value={filters.equipo}
+            onChange={(equipo) => setFilters({ equipo })}
+            labelClassName={styles.filterLabel}
+          />
           <span className={styles.spacer} />
           {hasActiveFilters && (
             <button type="button" className="btn-tesla ghost sm" onClick={resetFilters}>
@@ -633,6 +640,7 @@ export default function PublicacionesML() {
                 columns={selectableColumns}
                 rows={items}
                 getRowKey={(item) => item.item_id}
+                getRowTone={itemRowTone}
                 renderSubRows={(item) =>
                   item.variations_count > 1 && expandedIds.has(item.item_id) ? (
                     <VariationRows item={item} columns={visibleColumns} canSeeMargin={canSeeMargin} />

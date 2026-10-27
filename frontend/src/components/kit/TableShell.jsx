@@ -108,6 +108,8 @@ function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className 
  * @param {{key: string, dir: 'asc'|'desc'}} [props.sort]
  * @param {(key: string) => void} [props.onSort]
  * @param {(row: object) => number} [props.getRowDepth] Tree depth, default 0.
+ * @param {(row: object) => ({background?: string, text?: string, marker?: string, label?: string} | null)} [props.getRowTone]
+ *   A row's color: `background`/`text` paint it, `marker` only edges its first cell; `label` names it (tooltip).
  * @param {(row: object) => import('react').ReactNode} [props.renderSubRows]
  * @param {(row: object, event: import('react').SyntheticEvent) => void} [props.onRowClick] The event lets a page
  *   tell a plain click from Ctrl/Cmd+click.
@@ -123,6 +125,7 @@ export default function TableShell({
   sort,
   onSort,
   getRowDepth,
+  getRowTone,
   renderSubRows,
   onRowClick,
   selectedKey,
@@ -205,11 +208,19 @@ export default function TableShell({
             rows.map((row) => {
               const key = getRowKey(row);
               const selected = selectedKey !== undefined && selectedKey === key;
+              const tone = getRowTone?.(row) ?? null;
               return (
                 <Fragment key={key}>
                   <tr
                     className={styles.row}
-                    style={{ '--indent': getRowDepth?.(row) ?? 0 }}
+                    style={{
+                      '--indent': getRowDepth?.(row) ?? 0,
+                      ...(tone?.background && { '--row-tone-bg': tone.background, '--row-tone-fg': tone.text }),
+                      ...(tone?.marker && { '--row-marker': tone.marker }),
+                    }}
+                    data-tone={tone?.background ? '' : undefined}
+                    data-marker={tone?.marker ? '' : undefined}
+                    title={tone?.label}
                     aria-current={selected || undefined}
                     data-selected={selected ? '' : undefined}
                     data-clickable={onRowClick ? '' : undefined}
