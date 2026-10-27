@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { marcasPmAPI } from '../../services/api';
 import { ModalAlert } from '../ModalTesla';
 import { parKey } from '../parKey';
@@ -11,7 +11,8 @@ import styles from './VistaPorMarca.module.css';
  * VistaPorMarca — "Por marca / par" tab of the Sub-PMs screen.
  *
  * Answers "who manages this marca?": pick a marca, see each category with
- * its titular and sub-PMs, and add one user to several categories at once.
+ * its titular and sub-PMs, add one user to several categories at once, or
+ * remove a sub-PM from one pair.
  *
  * Adding goes through the existing atomic bulk PUT for that user, which
  * REPLACES their whole set. The desired set is therefore read fresh from
@@ -19,6 +20,8 @@ import styles from './VistaPorMarca.module.css';
  * selected pairs — never from `grantsScope`, which is cosmetic and empty
  * when its read failed or is still in flight (that would silently revoke
  * every other grant). If the fresh read fails, nothing is written.
+ * Removing goes through DELETE /marcas-pm/sub-pms/{id}, after an inline
+ * confirmation.
  *
  * `onCambio(usuarioIds)` tells the parent which users changed so it can
  * reload grants and counts.
@@ -28,6 +31,7 @@ export default function VistaPorMarca({ pares, usuarios, grantsScope, onCambio }
   const [marca, setMarca] = useState(null);
   const [seleccion, setSeleccion] = useState(() => new Set()); // parKey values
   const [usuarioId, setUsuarioId] = useState('');
+  const [quitando, setQuitando] = useState(null); // grant id awaiting confirmation
   const [ocupado, setOcupado] = useState(false);
   const [alerta, setAlerta] = useState(null); // { tipo, texto }
 
@@ -68,6 +72,7 @@ export default function VistaPorMarca({ pares, usuarios, grantsScope, onCambio }
   const elegirMarca = (nombre) => {
     setMarca(nombre);
     setSeleccion(new Set());
+    setQuitando(null);
     setAlerta(null);
   };
 
@@ -114,6 +119,22 @@ export default function VistaPorMarca({ pares, usuarios, grantsScope, onCambio }
         ? ` Rechazados: ${rechazados.map((p) => `${p.marca} / ${p.categoria}`).join(', ')}.`
         : '';
       setAlerta({ tipo: 'error', texto: `${texto} No se aplicó ningún cambio.${detalle}` });
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const quitar = async (grant) => {
+    setOcupado(true);
+    setAlerta(null);
+    try {
+      await marcasPmAPI.eliminarSubPM(grant.id);
+      setAlerta({ tipo: 'success', texto: `${grant.usuario_nombre || 'El usuario'} ya no es sub-PM de ${grant.marca} / ${grant.categoria}.` });
+      setQuitando(null);
+      onCambio([grant.usuario_id]);
+    } catch (err) {
+      console.error('Error al quitar el sub-PM', err);
+      setAlerta({ tipo: 'error', texto: extraerError(err, 'Error al quitar el sub-PM').texto });
     } finally {
       setOcupado(false);
     }
@@ -227,11 +248,43 @@ export default function VistaPorMarca({ pares, usuarios, grantsScope, onCambio }
                           <span className={styles.ninguno}>—</span>
                         ) : (
                           <ul className={styles.subpms}>
-                            {grants.map((g) => (
-                              <li key={g.id} className={styles.chip}>
-                                {g.usuario_nombre || `Usuario #${g.usuario_id}`}
-                              </li>
-                            ))}
+                            {grants.map((g) => {
+                              const nombre = g.usuario_nombre || `Usuario #${g.usuario_id}`;
+                              return quitando === g.id ? (
+                                <li key={g.id} className={styles.confirmar}>
+                                  <span>¿Quitar a {nombre}?</span>
+                                  <button
+                                    type="button"
+                                    className="btn-tesla outline-subtle-primary sm"
+                                    onClick={() => quitar(g)}
+                                    disabled={ocupado}
+                                  >
+                                    Sí, quitar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn-tesla ghost sm"
+                                    onClick={() => setQuitando(null)}
+                                    disabled={ocupado}
+                                  >
+                                    No
+                                  </button>
+                                </li>
+                              ) : (
+                                <li key={g.id} className={styles.chip}>
+                                  {nombre}
+                                  <button
+                                    type="button"
+                                    className={styles.chipQuitar}
+                                    onClick={() => setQuitando(g.id)}
+                                    disabled={ocupado}
+                                    aria-label={`Quitar a ${nombre} de ${par.categoria}`}
+                                  >
+                                    <X size={12} aria-hidden="true" />
+                                  </button>
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
                       </td>

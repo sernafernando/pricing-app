@@ -29,6 +29,7 @@ vi.mock('../../services/api', async (importOriginal) => ({
     listarGrantsScope: vi.fn(),
     obtenerGrantsUsuario: vi.fn(),
     asignarSubPMsBulk: vi.fn(),
+    eliminarSubPM: vi.fn(),
   },
 }));
 
@@ -123,7 +124,7 @@ describe.each([
 
     await screen.getByRole('button', { name: 'Por marca / par' }).click();
     await screen.getByRole('button', { name: /^LENOVO/ }).click();
-    await expect.element(screen.getByRole('cell', { name: 'Sofía Benítez' })).toBeVisible();
+    await expect.element(screen.getByRole('button', { name: 'Quitar a Sofía Benítez de Monitores' })).toBeVisible();
 
     const lista = document.querySelector('aside[aria-label="Marcas"]').getBoundingClientRect();
     const detalle = screen.getByRole('heading', { name: 'LENOVO' }).element().closest('section');

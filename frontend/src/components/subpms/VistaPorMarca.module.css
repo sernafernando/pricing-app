@@ -74,9 +74,35 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px var(--spacing-sm);
+  padding: 2px 2px 2px var(--spacing-sm);
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-full);
   font-size: var(--font-xs);
   color: var(--cf-text-secondary);
+}
+
+.chipQuitar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+}
+
+.chipQuitar:hover:not(:disabled) {
+  background: var(--cf-bg-hover);
+  color: var(--cf-text-primary);
+}
+
+.confirmar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-text-primary);
 }
