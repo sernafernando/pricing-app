@@ -95,9 +95,10 @@ def listar_cola(
         params,
     ).scalar_one()
 
-    rows = db.execute(
-        text(
-            f"""
+    rows = (
+        db.execute(
+            text(
+                f"""
             SELECT
               p.mla,
               p.item_id,
@@ -121,9 +122,12 @@ def listar_cola(
             ORDER BY p.codigo NULLS LAST, p.lista_nombre NULLS LAST, p.mla
             LIMIT :limit OFFSET :offset
             """
-        ),
-        params,
-    ).mappings().all()
+            ),
+            params,
+        )
+        .mappings()
+        .all()
+    )
 
     # Sync partner without LATERAL (SQLite unit tests + Postgres sandbox).
     by_inv: dict[str, list[str]] = {}
@@ -131,18 +135,22 @@ def listar_cola(
     if inventory_ids:
         inv_params = {f"inv_{i}": inv for i, inv in enumerate(inventory_ids)}
         inv_placeholders = ", ".join(f":inv_{i}" for i in range(len(inventory_ids)))
-        partner_rows = db.execute(
-            text(
-                f"""
+        partner_rows = (
+            db.execute(
+                text(
+                    f"""
                 SELECT l.inventory_id, l.mla
                 FROM ml_publication_links l
                 JOIN publicaciones_ml p ON p.mla = l.mla AND p.activo = true
                 WHERE l.inventory_id IN ({inv_placeholders})
                 ORDER BY l.inventory_id, l.mla
                 """
-            ),
-            inv_params,
-        ).mappings().all()
+                ),
+                inv_params,
+            )
+            .mappings()
+            .all()
+        )
         for prow in partner_rows:
             by_inv.setdefault(prow["inventory_id"], []).append(prow["mla"])
 
