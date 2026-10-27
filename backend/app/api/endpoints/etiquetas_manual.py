@@ -31,6 +31,7 @@ from app.models.operador_actividad import OperadorActividad
 from app.models.rma_caso_item import RmaCasoItem
 from app.models.rma_seguimiento_opcion import RmaSeguimientoOpcion
 from app.models.rma_caso_historial import RmaCasoHistorial
+from app.services.etiquetas.logistica_historial_origen import marcar_origen_logistica
 from app.services.permisos_service import verificar_permiso
 
 from app.api.endpoints.etiquetas_shared import (
@@ -530,6 +531,7 @@ def editar_envio_manual(
     etiqueta.manual_comment = payload.comment
     etiqueta.manual_phone = payload.phone
     etiqueta.manual_deposito_mensaje = payload.deposito_mensaje
+    marcar_origen_logistica(db, "manual", usuario_id=current_user.id, operador_id=payload.operador_id)
     etiqueta.logistica_id = payload.logistica_id
     etiqueta.transporte_id = payload.transporte_id
 

@@ -27,6 +27,7 @@ from app.models.sale_order_status import SaleOrderStatus
 from app.models.mercadolibre_order_shipping import MercadoLibreOrderShipping
 from app.models.operador import Operador
 from app.models.operador_actividad import OperadorActividad
+from app.services.etiquetas.logistica_historial_origen import marcar_origen_logistica
 
 from app.api.endpoints.etiquetas_shared import (
     _check_permiso,
@@ -109,6 +110,7 @@ def pistolear_etiqueta(
     if etiqueta.logistica_id is not None and etiqueta.logistica_id != payload.logistica_id:
         if logistica_pistoleando.pistoleado_asigna:
             # Modo asignación: reasignar la logística de la etiqueta
+            marcar_origen_logistica(db, "pistoleado", usuario_id=current_user.id, operador_id=payload.operador_id)
             etiqueta.logistica_id = payload.logistica_id
             fue_asignada = True
         else:
@@ -127,11 +129,13 @@ def pistolear_etiqueta(
             )
     elif etiqueta.logistica_id is None and logistica_pistoleando.pistoleado_asigna:
         # Sin logística asignada + modo asignación → asignar
+        marcar_origen_logistica(db, "pistoleado", usuario_id=current_user.id, operador_id=payload.operador_id)
         etiqueta.logistica_id = payload.logistica_id
         fue_asignada = True
     elif etiqueta.logistica_id is None and not logistica_pistoleando.pistoleado_asigna:
         if payload.forzar_asignacion:
             # Doble escaneo: el operador confirmó asignar esta logística
+            marcar_origen_logistica(db, "pistoleado", usuario_id=current_user.id, operador_id=payload.operador_id)
             etiqueta.logistica_id = payload.logistica_id
             fue_asignada = True
         else:
