@@ -27,6 +27,7 @@ from app.models.logistica import Logistica
 from app.models.transporte import Transporte
 from app.models.operador import Operador
 from app.models.operador_actividad import OperadorActividad
+from app.services.etiquetas.logistica_historial_origen import marcar_origen_logistica
 
 from app.api.endpoints.etiquetas_shared import (
     _check_permiso,
@@ -70,6 +71,7 @@ def asignar_logistica(
         if not logistica:
             raise HTTPException(404, "Logística no encontrada o inactiva")
 
+    marcar_origen_logistica(db, "asignar", usuario_id=current_user.id)
     etiqueta.logistica_id = payload.logistica_id
     # PR8: the `marcar_stale` hook that used to live here is gone. The
     # `etiquetas_envio` triggers (ventas-ml-rediseno PR5) capture this same
@@ -194,6 +196,7 @@ def asignar_masivo(
         raise HTTPException(404, "Logística no encontrada o inactiva")
 
     # Update masivo
+    marcar_origen_logistica(db, "masivo", usuario_id=current_user.id)
     updated = (
         db.query(EtiquetaEnvio)
         .filter(EtiquetaEnvio.shipping_id.in_(payload.shipping_ids))
