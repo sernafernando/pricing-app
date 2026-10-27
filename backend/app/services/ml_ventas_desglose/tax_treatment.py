@@ -53,12 +53,13 @@ class TaxTreatment:
 
     def informativo(self, order_id: int, charge_name: Optional[str]) -> Optional[bool]:
         """What the version in force at the order's sale date says about `charge_name`, or `None` when none does."""
-        versions = self.versions_by_name.get(charge_name or "")
         sold_on = self.sale_dates.get(order_id)
-        if not versions or sold_on is None:
-            return None
+        return None if sold_on is None else self.informativo_on(charge_name, sold_on)
+
+    def informativo_on(self, charge_name: Optional[str], day: date) -> Optional[bool]:
+        """What the version of `charge_name` in force on `day` says, or `None` when none is."""
         answer: Optional[bool] = None
-        for desde, hasta, informativo in versions:
-            if desde <= sold_on and (hasta is None or hasta >= sold_on):
+        for desde, hasta, informativo in self.versions_by_name.get(charge_name or "", []):
+            if desde <= day and (hasta is None or hasta >= day):
                 answer = informativo
         return answer

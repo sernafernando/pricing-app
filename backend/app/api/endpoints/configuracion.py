@@ -10,6 +10,15 @@ from app.models.usuario import Usuario, RolUsuario
 from app.models.pricing_constants import PricingConstants
 from app.models.varios_venta_pct import VariosVentaPct
 from app.models.ml_orders_ops import MlOrdersOps
+from app.models.ml_payments import MlPaymentCharge, MlPaymentOps
+from app.models.ml_venta_impuesto_tratamiento import ImpuestoTratamientoVenta
+from app.services.ml_ventas_desglose.breakdown_service import (
+    is_recoverable_withholding,
+    is_seller_charge,
+    tax_label,
+    withholding_kind,
+)
+from app.services.ml_ventas_desglose.tax_treatment import TaxTreatment
 
 router = APIRouter()
 
@@ -360,3 +369,138 @@ def crear_varios_venta_pct(
     recalculando = db.query(MlOrdersOps).filter(MlOrdersOps.date_created >= affected_from).count()
 
     return {"mensaje": "% de varios creado correctamente", "id": nueva_version.id, "recalculando": recalculando}
+
+
+# ── Impuestos de ML: descontados o informativos, por período ──────────
+#
+# ventas-ml-impuestos-informativos S1-S3. Mismo patrón que el "% de varios":
+# versiones por `fecha_desde`/`fecha_hasta`, el POST cierra la versión abierta
+# del MISMO impuesto. Una venta usa la versión vigente a SU fecha
+# (`breakdown_service.informational_rule`); un impuesto sin versiones sigue la
+# regla de siempre (SIRTAC informativo, el resto se descuenta). El trigger de
+# `ml_venta_impuesto_tratamiento` re-encola las ventas guardadas del período.
+
+
+class ImpuestoVentaVersionResponse(BaseModel):
+    id: int
+    informativo: bool
+    fecha_desde: date
+    fecha_hasta: Optional[date] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ImpuestoVentaResponse(BaseModel):
+    charge_name: str
+    etiqueta: str
+    informativo_por_defecto: bool
+    informativo_hoy: bool
+    versiones: List[ImpuestoVentaVersionResponse]
+
+
+class ImpuestoVentaCreate(BaseModel):
+    charge_name: str = Field(min_length=1, max_length=120)
+    informativo: bool
+    fecha_desde: date
+
+
+class ImpuestoVentaCreateResponse(BaseModel):
+    mensaje: str
+    id: int
+    recalculando: int
+
+
+@router.get("/impuestos-venta", response_model=List[ImpuestoVentaResponse])
+def listar_impuestos_venta(
+    db: Session = Depends(get_db),
+    # Same read-only gate as "% de varios": viewable with the ML sales view.
+    current_user: Usuario = Depends(require_permiso("ml_ops.ver")),
+):
+    """Lista cada retención que ML cobró al vendedor (una por nombre exacto, o sea por provincia), con su
+    tratamiento por defecto, el vigente hoy y sus versiones, más los impuestos que solo tienen versiones."""
+    vistos = {
+        name
+        for (name,) in db.query(MlPaymentCharge.name).filter(MlPaymentCharge.type == "tax").distinct()
+        if is_seller_charge("tax", name) and withholding_kind(name) is not None
+    }
+    versiones = db.query(ImpuestoTratamientoVenta).order_by(ImpuestoTratamientoVenta.fecha_desde.desc()).all()
+    por_nombre: dict = {}
+    for version in versiones:
+        por_nombre.setdefault(version.charge_name, []).append(version)
+    treatment = TaxTreatment.load(db, [])
+    hoy = date.today()
+    filas = []
+    for name in vistos | set(por_nombre):
+        por_defecto = is_recoverable_withholding("tax", name)
+        configurado = treatment.informativo_on(name, hoy)
+        filas.append(
+            ImpuestoVentaResponse(
+                charge_name=name,
+                etiqueta=tax_label(name),
+                informativo_por_defecto=por_defecto,
+                informativo_hoy=por_defecto if configurado is None else configurado,
+                versiones=por_nombre.get(name, []),
+            )
+        )
+    return sorted(filas, key=lambda fila: (fila.etiqueta, fila.charge_name))
+
+
+@router.post("/impuestos-venta", response_model=ImpuestoVentaCreateResponse)
+def crear_impuesto_venta(
+    data: ImpuestoVentaCreate,
+    db: Session = Depends(get_db),
+    # Same edit permission as "% de varios": both are the sale-deduction setup.
+    current_user: Usuario = Depends(require_permiso("ml_ops.varios_editar")),
+):
+    """Crea una versión del tratamiento de un impuesto, cerrando la vigente anterior del mismo impuesto, y
+    devuelve cuántas ventas con ese impuesto se van a recalcular."""
+    if withholding_kind(data.charge_name) is None or not is_seller_charge("tax", data.charge_name):
+        raise HTTPException(status_code=422, detail=f"{data.charge_name} no es una retención de ML")
+    existing = (
+        db.query(ImpuestoTratamientoVenta)
+        .filter(
+            ImpuestoTratamientoVenta.charge_name == data.charge_name,
+            ImpuestoTratamientoVenta.fecha_desde == data.fecha_desde,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(
+            status_code=400, detail=f"Ya existe una versión de {data.charge_name} para la fecha {data.fecha_desde}"
+        )
+
+    abiertas = (
+        db.query(ImpuestoTratamientoVenta)
+        .filter(
+            ImpuestoTratamientoVenta.charge_name == data.charge_name,
+            ImpuestoTratamientoVenta.fecha_desde < data.fecha_desde,
+            ImpuestoTratamientoVenta.fecha_hasta.is_(None),
+        )
+        .all()
+    )
+    for version in abiertas:
+        version.fecha_hasta = data.fecha_desde
+
+    # Like "% de varios": the closed windows only shrink to the new start, so the union of old and new windows is
+    # "from the earliest touched start forward". The trigger does the re-queueing; this is the count shown.
+    afectadas_desde = min([data.fecha_desde] + [version.fecha_desde for version in abiertas])
+
+    nueva = ImpuestoTratamientoVenta(
+        charge_name=data.charge_name,
+        informativo=data.informativo,
+        fecha_desde=data.fecha_desde,
+        creado_por=current_user.id,
+    )
+    db.add(nueva)
+    db.commit()
+    db.refresh(nueva)
+
+    recalculando = (
+        db.query(MlOrdersOps.order_id)
+        .join(MlPaymentOps, MlPaymentOps.order_id == MlOrdersOps.order_id)
+        .join(MlPaymentCharge, MlPaymentCharge.payment_id == MlPaymentOps.payment_id)
+        .filter(MlPaymentCharge.name == data.charge_name, MlOrdersOps.date_created >= afectadas_desde)
+        .distinct()
+        .count()
+    )
+    return ImpuestoVentaCreateResponse(mensaje="Versión creada", id=nueva.id, recalculando=recalculando)
