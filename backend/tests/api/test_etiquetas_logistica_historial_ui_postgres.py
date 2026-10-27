@@ -303,3 +303,12 @@ class TestDeshacer:
 
         assert (exc.value.status_code, exc.value.detail) == (409, "La logística anterior está inactiva.")
         assert (_logistica_actual(engine, "S3"), len(_historial(engine, "S3")), publicados) == (1, 1, [])
+
+    def test_unknown_operador_is_404_and_changes_nothing(self, engine: Engine, db: Session, publicados: list) -> None:
+        _cambiar(engine, "S1", 2, "asignar", usuario_id=_USUARIO_ID)
+
+        with pytest.raises(HTTPException) as exc:
+            _deshacer(db, "S1", operador_id=_OPERADOR_ID + 999)
+
+        assert (exc.value.status_code, exc.value.detail) == (404, "Operador no encontrado o inactivo")
+        assert (_logistica_actual(engine, "S1"), len(_historial(engine, "S1")), publicados) == (2, 1, [])

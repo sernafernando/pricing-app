@@ -150,6 +150,11 @@ def deshacer_logistica(
         raise HTTPException(409, motivo)
 
     operador_id = payload.operador_id if payload else None
+    if operador_id is not None:
+        operador = db.query(Operador).filter(Operador.id == operador_id, Operador.activo.is_(True)).first()
+        if not operador:
+            db.rollback()
+            raise HTTPException(404, "Operador no encontrado o inactivo")
     marcar_origen_logistica(db, "deshacer", usuario_id=current_user.id, operador_id=operador_id)
     destino = ultimo.logistica_anterior_id
     etiqueta.logistica_id = destino
