@@ -12,7 +12,7 @@ const SHORTCUTS = [
   { keys: ['Ctrl+F1', 'Ctrl+Shift+1'], what: 'Copiar el código del producto' },
   { keys: ['Ctrl+F2', 'Ctrl+Shift+2'], what: 'Copiar el enlace 1 (listado por precio)' },
   { keys: ['Ctrl+F3', 'Ctrl+Shift+3'], what: 'Copiar el enlace 2 (promociones)' },
-  { keys: ['1', '…', '7'], what: 'Pintar el producto de la fila (Urgente, Advertencia, Atención, OK, Info, Revisión, Inactivo)' },
+  { keys: ['1–7'], what: 'Pintar el producto de la fila (Urgente, Advertencia, Atención, OK, Info, Revisión, Inactivo)' },
   { keys: ['0'], what: 'Sacarle el color al producto de la fila' },
   { keys: ['F6', 'F7'], what: 'Capa de color anterior o siguiente' },
   { keys: ['Ctrl+K'], what: 'Calcular Web Transf. sobre los productos marcados o filtrados' },

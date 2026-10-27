@@ -212,11 +212,6 @@ export default function PublicacionesML() {
     [],
   );
   const clearChecked = useCallback(() => setCheckedIds(new Set()), []);
-  // What is painted since the rows loaded -- here or by anyone -- repaints them without asking the list again
-  // (the trees would close their open branches).
-  const colorOverlay = useColorOverlay(filters.equipo);
-  useSSEChannel('producto_color:changed', colorOverlay.apply);
-  const getItemTone = useCallback((item) => itemRowTone(item, colorOverlay.colors), [colorOverlay.colors]);
   const { equipos, loaded: equiposLoaded } = useEquipos();
   // The rows are asked on a team layer only once the teams say it is the user's: a link to another team's layer
   // would answer 403 and flash a false error before ColorLayerSelect drops it. Until then nothing is asked.
@@ -224,6 +219,11 @@ export default function PublicacionesML() {
   const layerKnown =
     filters.equipo === '' || equipos.some((equipo) => !equipo.es_global && String(equipo.id) === filters.equipo);
   const rowFilters = useMemo(() => (layerKnown ? filters : { ...filters, equipo: '' }), [filters, layerKnown]);
+  // What is painted, on the layer the rows were asked on, since the rows loaded -- here or by
+  // anyone -- repaints them without asking the list again (the trees would close their open branches).
+  const colorOverlay = useColorOverlay(rowFilters.equipo);
+  useSSEChannel('producto_color:changed', colorOverlay.apply);
+  const getItemTone = useCallback((item) => itemRowTone(item, colorOverlay.colors), [colorOverlay.colors]);
   useEffect(clearChecked, [filterKey, filters.vista, clearChecked]);
 
   const pageSize = filters.limite;
@@ -427,7 +427,7 @@ export default function PublicacionesML() {
 
   const items = data?.items ?? EMPTY_ROWS;
   // The copy shortcuts act on the focused publication of the list (the Producto and Agrupado rows load their own).
-  const paintProduct = usePaintProduct({ equipo: filters.equipo, onPainted: colorOverlay.apply, showToast });
+  const paintProduct = usePaintProduct({ equipo: rowFilters.equipo, onPainted: colorOverlay.apply, showToast });
   // The product of a focused row: a publication's linked product, or the product row itself (Producto view). The
   // Agrupado tree keeps its rows to itself.
   const paintRow = (key, color) => {
@@ -595,7 +595,7 @@ export default function PublicacionesML() {
             />
             <PaintColorMenu
               checkedIds={checkedIds}
-              equipo={filters.equipo}
+              equipo={rowFilters.equipo}
               onPainted={colorOverlay.apply}
               onClearChecked={clearChecked}
             />

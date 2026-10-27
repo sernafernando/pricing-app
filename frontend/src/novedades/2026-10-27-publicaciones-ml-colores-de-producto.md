@@ -11,7 +11,6 @@ En **Publicaciones ML** las filas muestran el color que el producto vinculado ti
 - Pasando el mouse sobre una fila pintada se ve el nombre del color.
 - Funciona en las tres vistas: **Publicaciones**, **Producto** y **Agrupado** (en Agrupado se pintan los productos y sus publicaciones).
 - "Limpiar filtros" no cambia la capa elegida.
-- Por ahora los colores se ven acá pero se cambian desde **Productos**.
 
 ## Cómo se usa
 
