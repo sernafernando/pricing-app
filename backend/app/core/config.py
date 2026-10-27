@@ -150,6 +150,10 @@ class Settings(BaseSettings):
     # (`ml_item_status_write_service`). Default ON by the owner's decision: a
     # pause is undone by an activate. Checked first, before any ML call.
     ML_ITEM_STATUS_WRITE_ENABLED: bool = True
+    # Kill-switch for pushing a publication's local override to ML ("Actualizar en ML", Publicaciones ML T8c,
+    # `ml_item_override_push_service`). Default ON like the status write: the push is a separate button and
+    # ML's previous data stays readable as the original. Checked first, before any read or ML call.
+    ML_ITEM_DATA_WRITE_ENABLED: bool = True
     # Kill-switch for the ML operations source-of-truth ingestion layer
     # (ml_orders_ops/ml_order_items_ops/ml_shipments_ops + sweep + link
     # resolver). Default OFF, following the

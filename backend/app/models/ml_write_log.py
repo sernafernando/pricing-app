@@ -26,6 +26,9 @@ ACTION_REMOVE = "remove"
 RESOURCE_ITEM = "item"
 ACTION_PAUSE = "pause"
 ACTION_ACTIVATE = "activate"
+# The publication override pushed to ML (Publicaciones ML T8c): the item fields, and the description apart.
+ACTION_UPDATE_DATA = "update_data"
+ACTION_UPDATE_DESCRIPTION = "update_description"
 
 
 class MlWriteLog(Base):
