@@ -59,9 +59,9 @@ from app.models.usuario import Usuario
 from app.schemas.sell_in_out_producto import SellInOutProducto
 from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
+from app.services import ml_publication_colors as colors
 from app.services.ml_publications import admin, settings_store
 from app.services.ml_publications.view import (
-    colors,
     detail,
     events_view,
     export,
@@ -239,7 +239,7 @@ class LastEventOut(BaseModel):
 
 class ItemRowOut(BaseModel):
     item_id: str
-    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (view/colors.py).
+    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (services/ml_publication_colors.py).
     color_marcado: Optional[str] = None
     color_hint_global: Optional[str] = None
     color_hint_equipo_inicial: Optional[str] = None
@@ -568,7 +568,7 @@ class GroupNodeOut(BaseModel):
     only on the nodes they describe."""
 
     kind: str
-    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (view/colors.py).
+    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (services/ml_publication_colors.py).
     color_marcado: Optional[str] = None
     color_hint_global: Optional[str] = None
     color_hint_equipo_inicial: Optional[str] = None
@@ -607,7 +607,7 @@ class ProductRowOut(BaseModel):
     publications') needs `ml_metricas.ver`; null when none of its publications has Métricas figures."""
 
     key: str
-    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (view/colors.py).
+    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set (services/ml_publication_colors.py).
     color_marcado: Optional[str] = None
     color_hint_global: Optional[str] = None
     color_hint_equipo_inicial: Optional[str] = None

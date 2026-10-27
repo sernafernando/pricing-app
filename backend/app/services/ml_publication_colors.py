@@ -3,7 +3,9 @@
 A color belongs to the product, per layer (`producto_color`, the `ml` slot; docs/color-teams-frontend-contract.md).
 The layer is resolved like `GET /productos` resolves it (`resolver_layer_activo`: omitted = the global layer, another
 team needs membership, else 403) and the colors are read with Productos' own `batch_colores`, from the application's
-tables. The row fields appear only when they have a value, so a list nobody painted is unchanged:
+tables. It lives outside `app.services.ml_publications`, whose modules never import Productos' code (see
+tests/services/ml_publications/test_resources.py). The row fields appear only when they have a value, so a list
+nobody painted is unchanged:
 
 - `color_marcado`: the product's color on the active layer.
 - `color_hint_global`: its color on the global layer (the dot a team layer shows on a row it has not painted).
