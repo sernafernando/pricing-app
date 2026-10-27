@@ -33,9 +33,8 @@ function Pedido({ pedido, detalle }) {
 const SIN_GRUPO = { total: 0, items: [] };
 
 /**
- * Why an in-range invoice produced no purchase. The worker's key carries
- * attempts only after it failed (re-queueing resets attempts and error
- * together), so attempts mean the reason is that error.
+ * Why an in-range invoice produced no purchase. The backend flags the
+ * worker's error with `es_error`; any other reason is shown as is.
  */
 function motivo({ motivo: texto, intentos, es_error: esError }) {
   if (esError) return `Error al aplicar: ${texto} (${formatEntero(intentos)} ${intentos === 1 ? 'intento' : 'intentos'})`;
