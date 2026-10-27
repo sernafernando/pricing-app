@@ -8,7 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
-import { publicacionesMlAPI } from '../services/api';
+import api, { publicacionesMlAPI } from '../services/api';
 import { openInMlPanel } from '../utils/mlSidePanel';
 import { exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
 import { loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -34,6 +34,7 @@ import {
 vi.mock('../services/api', () => ({
   default: {
     get: vi.fn(() => Promise.resolve({ data: [] })),
+    post: vi.fn(() => Promise.resolve({ data: {} })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   productosPropiosAPI: { get: vi.fn(() => new Promise(() => {})), save: vi.fn() },
@@ -50,6 +51,14 @@ vi.mock('../services/api', () => ({
     ),
   },
   registerAuthFailureHandler: vi.fn(),
+}));
+
+// The color events (`producto_color:changed`) are pushed by each test through the captured listener.
+const sse = { listener: null };
+vi.mock('../hooks/useSSEChannel', () => ({
+  useSSEChannel: (channel, callback) => {
+    if (channel === 'producto_color:changed') sse.listener = callback;
+  },
 }));
 
 vi.mock('../utils/mlSidePanel', async (importOriginal) => ({
@@ -1636,5 +1645,30 @@ describe('the color layer (S8)', () => {
     respond({ ...ITEMS_RESPONSE, items: [{ ...ITEMS[0], color_marcado: 'rojo' }, ...ITEMS.slice(1)], facets: FACETS });
     await page();
     expect(screen.getByText('MLA1100000001').closest('tr')).toHaveAttribute('data-tone');
+  });
+});
+
+describe('painting colors (S8)', () => {
+  const firstRow = () => screen.getByText('MLA1100000001').closest('tr');
+
+  it("repaints the rows of a product someone paints on the layer on show, and ignores another team's", async () => {
+    await page();
+    expect(firstRow()).not.toHaveAttribute('data-tone');
+    act(() => sse.listener({ data: { vista: 'ml', is_global: false, equipo_id: 99, item_ids: [4101], color: 'rojo' } }));
+    expect(firstRow()).not.toHaveAttribute('data-tone');
+    act(() => sse.listener({ data: { vista: 'ml', is_global: true, equipo_id: 1, item_ids: [4101], color: 'rojo' } }));
+    expect(firstRow()).toHaveAttribute('data-tone');
+  });
+
+  it('paints the checked products from the list, without asking the list again', async () => {
+    await page();
+    const asked = publicacionesMlAPI.items.mock.calls.length;
+    await userEvent.click(within(firstRow()).getByRole('checkbox', { name: /Seleccionar el producto de/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Pintar 1 producto' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'OK' }));
+    await waitFor(() => expect(firstRow()).toHaveAttribute('data-tone'));
+    expect(api.post).toHaveBeenCalledWith('/productos/actualizar-color-lote', { item_ids: [4101], color: 'verde' });
+    expect(publicacionesMlAPI.items.mock.calls.length).toBe(asked);
+    expect(screen.queryByRole('button', { name: /Pintar/ })).not.toBeInTheDocument();
   });
 });

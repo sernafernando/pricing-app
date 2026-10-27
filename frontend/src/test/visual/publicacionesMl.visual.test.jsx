@@ -60,6 +60,7 @@ vi.mock('../../contexts/PermisosContext', () => ({
   PermisosProvider: ({ children }) => children,
 }));
 
+vi.mock('../../hooks/useSSEChannel', () => ({ useSSEChannel: vi.fn() }));
 vi.mock('../../services/api', () => ({
   default: {
     get: vi.fn(() => Promise.resolve({ data: [] })),
@@ -1421,6 +1422,14 @@ describe('row colors and the color layer (S8)', () => {
       expect(getComputedStyle(hinted.querySelector('td')).boxShadow).toContain('inset');
       painted.scrollIntoView({ block: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/row-colors-1366-${theme}.png` });
+      // With a product checked, the Pintar button joins the band and still fits it.
+      await screen.getByRole('checkbox', { name: /Seleccionar el producto de/ }).first().click();
+      await expect.element(screen.getByRole('button', { name: 'Pintar 1 producto' })).toBeVisible();
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+      if (PRODUCT_SHOTS_DIR) {
+        window.scrollTo(0, 0);
+        await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/paint-menu-1366-${theme}.png` });
+      }
       screen.unmount();
     });
   }
