@@ -146,6 +146,13 @@ def _duration(seconds: float) -> str:
     return f"{minutes / 60:.0f} h" if minutes >= 120 else f"{minutes:.0f} min"
 
 
+def _unit(name: str, count: int) -> str:
+    """What `count` counts: queue entries of families for `family`, publications for everything else."""
+    if name == "family":
+        return "familia" if count == 1 else "familias"
+    return "publicación" if count == 1 else "publicaciones"
+
+
 def late_message(report: Mapping[str, Any]) -> str:
     """The owner's WhatsApp for the late resources of `report`."""
     lines = ["Pricing: datos de ML atrasados."]
@@ -153,7 +160,7 @@ def late_message(report: Mapping[str, Any]) -> str:
         if measured["late"]:
             count = measured["late"]
             lines.append(
-                f"- {LABELS[name]}: {count} {'publicación' if count == 1 else 'publicaciones'}, "
+                f"- {LABELS[name]}: {count} {_unit(name, count)}, "
                 f"la más atrasada {_duration(measured['oldest_late_seconds'])} "
                 f"(objetivo {_duration(measured['target_seconds'])})"
             )
