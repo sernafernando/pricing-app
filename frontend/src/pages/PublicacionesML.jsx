@@ -212,7 +212,7 @@ export default function PublicacionesML() {
   const clearChecked = useCallback(() => setCheckedIds(new Set()), []);
   // What is painted since the rows loaded -- here or by anyone -- repaints them without asking the list again
   // (the trees would close their open branches).
-  const colorOverlay = useColorOverlay(filters.equipo);
+  const colorOverlay = useColorOverlay(filters.equipo, filterKey);
   useSSEChannel('producto_color:changed', colorOverlay.apply);
   const getItemTone = useCallback((item) => itemRowTone(item, colorOverlay.colors), [colorOverlay.colors]);
   useEffect(clearChecked, [filterKey, filters.vista, clearChecked]);

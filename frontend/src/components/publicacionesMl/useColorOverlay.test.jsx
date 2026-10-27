@@ -38,4 +38,12 @@ describe('useColorOverlay', () => {
     rerender({ equipo: '12' });
     expect(result.current.colors.size).toBe(0);
   });
+
+  it('starts empty when the rows are asked again for other filters: they bring their own colors', () => {
+    const { result, rerender } = renderHook(({ rows }) => useColorOverlay('', rows), { initialProps: { rows: 'a' } });
+    act(() => result.current.apply(event({ is_global: true, item_ids: [77], color: 'rojo' })));
+    expect(result.current.colors.size).toBe(1);
+    rerender({ rows: 'b' });
+    expect(result.current.colors.size).toBe(0);
+  });
 });

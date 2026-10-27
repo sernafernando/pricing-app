@@ -69,4 +69,22 @@ describe('PaintColorMenu', () => {
     expect(onPainted).not.toHaveBeenCalled();
     expect(onClearChecked).not.toHaveBeenCalled();
   });
+
+  it('works from the keyboard: focus on the first color, arrows move, Escape goes back to the button', async () => {
+    const { user } = setup();
+    const trigger = screen.getByRole('button', { name: 'Pintar 2 productos' });
+    trigger.focus();
+    await user.keyboard('{Enter}');
+    const items = screen.getAllByRole('menuitem');
+    expect(items[0]).toHaveFocus();
+    await user.keyboard('{ArrowDown}');
+    expect(items[1]).toHaveFocus();
+    await user.keyboard('{ArrowUp}{ArrowUp}');
+    expect(items.at(-1)).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(items[0]).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
 });
