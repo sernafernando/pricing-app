@@ -13,6 +13,8 @@
  *   - Success updates the user count locally, no reload.
  *   - A 403 with a dict `detail.pares_rechazados` renders WHICH pairs were
  *     rejected and states nothing was applied.
+ *   - Pairs are grouped by marca: a whole-marca checkbox, chips grouped by
+ *     marca that can be removed, other sub-PMs per pair, and "Descartar".
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
@@ -59,6 +61,7 @@ beforeEach(() => {
   marcasPmAPI.obtenerConteosSubPMs.mockReset().mockResolvedValue({ data: { conteos: [] } });
   marcasPmAPI.obtenerGrantsUsuario.mockReset().mockResolvedValue({ data: { pares: [], total: 0 } });
   marcasPmAPI.asignarSubPMsBulk.mockReset().mockResolvedValue({ data: { otorgados: 0, revocados: 0, total: 0 } });
+  marcasPmAPI.listarGrantsScope.mockReset().mockResolvedValue({ data: { grants: [] } });
   permisosDenegados.clear();
   permisosDenegados.add('admin.gestionar_pms'); // default: non-admin titular
 });
@@ -151,6 +154,7 @@ describe('MisSubPMs — user list fetch gated on having pairs in scope (security
     expect(screen.queryByRole('button', { name: /^Ana \(/ })).not.toBeInTheDocument();
     expect(marcasPmAPI.listarUsuariosPM).not.toHaveBeenCalled();
     expect(marcasPmAPI.obtenerConteosSubPMs).not.toHaveBeenCalled();
+    expect(marcasPmAPI.listarGrantsScope).not.toHaveBeenCalled();
   });
 
   it('does NOT fetch the global user list or counts when the admin has zero pairs at all', async () => {
@@ -185,6 +189,7 @@ describe('MisSubPMs — pre-check and dirty tracking', () => {
     const lgCheckbox = screen.getByLabelText('Seleccionar LG / Televisores');
     expect(samsungCheckbox).toBeChecked();
     expect(lgCheckbox).not.toBeChecked();
+    expect(screen.getByText(/gestiona/i)).toHaveTextContent('Gestiona 1 par en 1 marca');
   });
 
   it('disables save until the checked set differs from the baseline', async () => {
@@ -198,6 +203,7 @@ describe('MisSubPMs — pre-check and dirty tracking', () => {
 
     await user.click(screen.getByLabelText('Seleccionar Samsung / Celulares'));
     expect(guardar).toBeEnabled();
+    expect(screen.getByText('+1 agregar')).toBeInTheDocument();
 
     await user.click(screen.getByLabelText('Seleccionar Samsung / Celulares'));
     expect(guardar).toBeDisabled();
@@ -313,6 +319,100 @@ describe('MisSubPMs — grouped by marca', () => {
     expect(screen.getByLabelText('Seleccionar LENOVO / Monitores')).toBeChecked();
     expect(screen.queryByLabelText('Seleccionar LENOVO / Notebooks')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Seleccionar toda la marca SAMSUNG')).not.toBeInTheDocument();
+  });
+});
+
+describe('MisSubPMs — chips, other sub-PMs and save bar', () => {
+  const PARES_DOS_MARCAS = {
+    pares: [
+      { id: 1, marca: 'LENOVO', categoria: 'Monitores', usuario_id: 1, usuario_nombre: 'Titular' },
+      { id: 2, marca: 'LENOVO', categoria: 'Notebooks', usuario_id: 1, usuario_nombre: 'Titular' },
+      { id: 3, marca: 'SAMSUNG', categoria: 'Celulares', usuario_id: 1, usuario_nombre: 'Titular' },
+    ],
+    total: 3,
+  };
+
+  beforeEach(() => {
+    marcasPmAPI.misTitularidades.mockResolvedValue({ data: PARES_DOS_MARCAS });
+  });
+
+  it('shows one chip per marca with its pair count, and removing a chip unchecks that marca (pending)', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.obtenerGrantsUsuario.mockResolvedValue({
+      data: {
+        pares: [
+          { marca: 'LENOVO', categoria: 'Monitores' },
+          { marca: 'LENOVO', categoria: 'Notebooks' },
+          { marca: 'SAMSUNG', categoria: 'Celulares' },
+        ],
+        total: 3,
+      },
+    });
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+
+    const chips = within(await screen.findByRole('list', { name: /marcas que gestiona/i }));
+    expect(chips.getAllByRole('listitem').map((li) => li.textContent)).toEqual(['LENOVO· 2', 'SAMSUNG· 1']);
+
+    await user.click(chips.getByRole('button', { name: 'Quitar LENOVO' }));
+
+    expect(chips.getAllByRole('listitem').map((li) => li.textContent)).toEqual(['SAMSUNG· 1']);
+    expect(screen.getByText('−2 quitar')).toBeInTheDocument();
+    expect(marcasPmAPI.asignarSubPMsBulk).not.toHaveBeenCalled();
+  });
+
+  it('"Descartar" restores the saved selection', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Ana');
+    await user.click(screen.getByLabelText('Seleccionar LENOVO / Monitores'));
+
+    await user.click(screen.getByRole('button', { name: 'Descartar' }));
+
+    expect(screen.getByLabelText('Seleccionar LENOVO / Monitores')).not.toBeChecked();
+    expect(screen.getByRole('button', { name: /guardar cambios/i })).toBeDisabled();
+  });
+
+  it('shows the other sub-PMs of each pair, never the selected user', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.listarGrantsScope.mockResolvedValue({
+      data: {
+        grants: [
+          { id: 10, marca: 'LENOVO', categoria: 'Monitores', usuario_id: 6, usuario_nombre: 'Beto' },
+          { id: 11, marca: 'LENOVO', categoria: 'Monitores', usuario_id: 5, usuario_nombre: 'Ana' },
+        ],
+      },
+    });
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Ana');
+
+    expect(screen.getByText('También: Beto')).toBeInTheDocument();
+    expect(screen.queryByText(/También: .*Ana/)).not.toBeInTheDocument();
+  });
+
+  it('a failed other-sub-PMs read leaves the screen usable', async () => {
+    const user = userEvent.setup();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    marcasPmAPI.listarGrantsScope.mockRejectedValue(new Error('boom'));
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Ana');
+    expect(screen.getAllByText('Sin otros sub-PMs').length).toBeGreaterThan(0);
+    await user.click(screen.getByLabelText('Seleccionar LENOVO / Monitores'));
+    expect(screen.getByRole('button', { name: /guardar cambios/i })).toBeEnabled();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('reloads the other sub-PMs after a save', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.asignarSubPMsBulk.mockResolvedValue({ data: { otorgados: 1, revocados: 0, total: 1 } });
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Ana');
+    await waitFor(() => expect(marcasPmAPI.listarGrantsScope).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByLabelText('Seleccionar LENOVO / Monitores'));
+    await user.click(screen.getByRole('button', { name: /guardar cambios/i }));
+    await user.click(screen.getByRole('button', { name: /sí, guardar/i }));
+
+    await waitFor(() => expect(marcasPmAPI.listarGrantsScope).toHaveBeenCalledTimes(2));
   });
 });
 

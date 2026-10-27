@@ -24,8 +24,11 @@ function estadoPar(key, checked, baseline) {
  * exactly what a save would change. A marca checkbox applies to the pairs
  * of that marca that are currently VISIBLE (search and toggle applied), so
  * a filtered view never touches rows the user cannot see.
+ *
+ * `otrosPorPar` maps a `parKey` to the names of the other sub-PMs of that
+ * pair; it may be empty when that read failed (cosmetic, never blocking).
  */
-export default function MarcasAcordeon({ pares, checked, baseline, onToggle, onMarcarPares, disabled }) {
+export default function MarcasAcordeon({ pares, checked, baseline, otrosPorPar, onToggle, onMarcarPares, disabled }) {
   const [busqueda, setBusqueda] = useState('');
   const [soloAsignado, setSoloAsignado] = useState(false);
   const [expandidas, setExpandidas] = useState(() => new Set());
@@ -145,6 +148,7 @@ export default function MarcasAcordeon({ pares, checked, baseline, onToggle, onM
                     {lista.map((par) => {
                       const key = parKey(par.marca, par.categoria);
                       const estado = estadoPar(key, checked, baseline);
+                      const otros = otrosPorPar.get(key) || [];
                       return (
                         <li key={key} className={CLASE_FILA[estado] || styles.fila}>
                           <input
@@ -162,6 +166,9 @@ export default function MarcasAcordeon({ pares, checked, baseline, onToggle, onM
                             ) : (
                               par.usuario_nombre || `Usuario #${par.usuario_id}`
                             )}
+                          </span>
+                          <span className={styles.otros}>
+                            {otros.length > 0 ? `También: ${otros.join(', ')}` : 'Sin otros sub-PMs'}
                           </span>
                           {estado === 'agrega' && <span className={styles.badgeAgrega}>Se agrega</span>}
                           {estado === 'quita' && <span className={styles.badgeQuita}>Se quita</span>}
