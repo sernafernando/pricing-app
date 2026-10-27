@@ -1,7 +1,8 @@
 /**
  * VistaPorMarca — "Por marca / par" tab: pick a marca, see titular and
  * sub-PMs per category, add one user to several categories with a single
- * atomic PUT (their current grants plus the new ones).
+ * atomic PUT (their current grants plus the new ones), remove a sub-PM
+ * from one pair after an inline confirmation.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
@@ -41,6 +42,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ data: { pares: [{ marca: 'LG', categoria: 'Televisores' }], total: 1 } });
   marcasPmAPI.asignarSubPMsBulk.mockReset().mockResolvedValue({ data: { otorgados: 2, revocados: 0, total: 3 } });
+  marcasPmAPI.eliminarSubPM.mockReset().mockResolvedValue({ data: {} });
 });
 
 describe('VistaPorMarca', () => {
@@ -196,6 +198,35 @@ describe('VistaPorMarca', () => {
     await user.click(screen.getByRole('button', { name: /^Agregar a/ }));
 
     expect(await screen.findByText('Pares fuera de tu scope No se aplicó ningún cambio.')).toBeInTheDocument();
+    expect(onCambio).not.toHaveBeenCalled();
+  });
+
+  it('removes a sub-PM only after the inline confirmation', async () => {
+    const user = userEvent.setup();
+    const { onCambio } = renderVista();
+    await user.click(screen.getByRole('button', { name: /^Samsung/ }));
+
+    await user.click(screen.getByRole('button', { name: 'Quitar a Beto de Celulares' }));
+    await user.click(screen.getByRole('button', { name: 'No' }));
+    expect(marcasPmAPI.eliminarSubPM).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Quitar a Beto de Celulares' }));
+    expect(screen.getByText('¿Quitar a Beto?')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Sí, quitar' }));
+
+    expect(marcasPmAPI.eliminarSubPM).toHaveBeenCalledWith(70);
+    expect(await screen.findByText('Beto ya no es sub-PM de Samsung / Celulares.')).toBeInTheDocument();
+    expect(onCambio).toHaveBeenCalledWith([6]);
+  });
+
+  it('shows the backend error when the removal fails', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.eliminarSubPM.mockRejectedValue({ response: { status: 403, data: { detail: 'No sos titular' } } });
+    const { onCambio } = renderVista();
+    await user.click(screen.getByRole('button', { name: 'Quitar a Ana de Televisores' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, quitar' }));
+
+    expect(await screen.findByText('No sos titular')).toBeInTheDocument();
     expect(onCambio).not.toHaveBeenCalled();
   });
 });
