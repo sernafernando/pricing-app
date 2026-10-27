@@ -3,7 +3,9 @@
 `breakdown_service.informational_rule` reads the version of one charge name in force at the sale's `date_created`,
 so the affected orders are those whose date falls in the OLD or NEW `[fecha_desde, fecha_hasta]` window of a touched
 row (both sides: narrowing a window must recompute the orders that just left it) AND whose payments carry that
-exact charge name. Inclusive on both ends, like `% de varios` (`triggers_config.py`): over-enqueueing at the
+exact charge name. Inclusive on both ends and one day wider on each side: `::date` here follows the TimeZone of
+the session that fires the trigger, while the compute reads `date_created.date()` in its own session, so a sale
+near midnight could otherwise fall on the other side of a boundary and never be recomputed. Over-enqueueing at the
 boundary is harmless, missing it is not.
 
 Migration immutability contract (`triggers.py`): this module is the LIVE definition for fixtures and future
@@ -23,8 +25,8 @@ _ORDERS_IN_RANGES = """
     JOIN ml_payment_charges c ON c.name = r.charge_name
     JOIN ml_payments_ops p ON p.payment_id = c.payment_id
     JOIN ml_orders_ops o ON o.order_id = p.order_id
-    WHERE o.date_created::date >= r.fecha_desde
-      AND (r.fecha_hasta IS NULL OR o.date_created::date <= r.fecha_hasta);
+    WHERE o.date_created::date >= r.fecha_desde - 1
+      AND (r.fecha_hasta IS NULL OR o.date_created::date <= r.fecha_hasta + 1);
 """
 
 _CHANGED = """

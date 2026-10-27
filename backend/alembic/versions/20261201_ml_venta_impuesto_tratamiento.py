@@ -39,8 +39,8 @@ BEGIN
     JOIN ml_payment_charges c ON c.name = r.charge_name
     JOIN ml_payments_ops p ON p.payment_id = c.payment_id
     JOIN ml_orders_ops o ON o.order_id = p.order_id
-    WHERE o.date_created::date >= r.fecha_desde
-      AND (r.fecha_hasta IS NULL OR o.date_created::date <= r.fecha_hasta);
+    WHERE o.date_created::date >= r.fecha_desde - 1
+      AND (r.fecha_hasta IS NULL OR o.date_created::date <= r.fecha_hasta + 1);
 
         PERFORM order_metrics_enqueue(ids, 'impuesto_tratamiento_delete');
         RETURN NULL;
@@ -53,8 +53,8 @@ BEGIN
     JOIN ml_payment_charges c ON c.name = r.charge_name
     JOIN ml_payments_ops p ON p.payment_id = c.payment_id
     JOIN ml_orders_ops o ON o.order_id = p.order_id
-    WHERE o.date_created::date >= r.fecha_desde
-      AND (r.fecha_hasta IS NULL OR o.date_created::date <= r.fecha_hasta);
+    WHERE o.date_created::date >= r.fecha_desde - 1
+      AND (r.fecha_hasta IS NULL OR o.date_created::date <= r.fecha_hasta + 1);
 
         PERFORM order_metrics_enqueue(ids, 'impuesto_tratamiento_insert');
         RETURN NULL;
@@ -75,8 +75,8 @@ BEGIN
     JOIN ml_payment_charges c ON c.name = r.charge_name
     JOIN ml_payments_ops p ON p.payment_id = c.payment_id
     JOIN ml_orders_ops o ON o.order_id = p.order_id
-    WHERE o.date_created::date >= r.fecha_desde
-      AND (r.fecha_hasta IS NULL OR o.date_created::date <= r.fecha_hasta);
+    WHERE o.date_created::date >= r.fecha_desde - 1
+      AND (r.fecha_hasta IS NULL OR o.date_created::date <= r.fecha_hasta + 1);
 
     PERFORM order_metrics_enqueue(ids, 'impuesto_tratamiento_update');
     RETURN NULL;

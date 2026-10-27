@@ -21,9 +21,9 @@ def sales(pg_order_metrics_config_triggers_db):
     """Three sales: one in September with the surcharge, one in August with it, one in September without it."""
     session = pg_order_metrics_config_triggers_db
     for order_id, sold_on, charge in (
-        (IN_PERIOD, datetime(2026, 9, 10, tzinfo=timezone.utc), SOBRETASA),
-        (BEFORE, datetime(2026, 8, 10, tzinfo=timezone.utc), SOBRETASA),
-        (OTHER_TAX, datetime(2026, 9, 10, tzinfo=timezone.utc), "tax_withholding_sirtac-caba"),
+        (IN_PERIOD, datetime(2026, 9, 10, 15, tzinfo=timezone.utc), SOBRETASA),
+        (BEFORE, datetime(2026, 8, 10, 15, tzinfo=timezone.utc), SOBRETASA),
+        (OTHER_TAX, datetime(2026, 9, 10, 15, tzinfo=timezone.utc), "tax_withholding_sirtac-caba"),
     ):
         _insert_order(session, order_id, date_created=sold_on)
         session.execute(
@@ -102,6 +102,54 @@ def test_deleting_a_version_recomputes_the_sales_it_covered(sales) -> None:
     _clear_dirty(sales)
 
     sales.execute(text("DELETE FROM ml_venta_impuesto_tratamiento"))
+    sales.commit()
+
+    assert _enqueued(sales) == {IN_PERIOD}
+
+
+def test_moving_a_start_forward_recomputes_the_sales_it_no_longer_covers(sales) -> None:
+    sales.execute(
+        text("INSERT INTO ml_venta_impuesto_tratamiento (charge_name, informativo, fecha_desde) VALUES (:n, true, :d)"),
+        {"n": SOBRETASA, "d": date(2026, 9, 1)},
+    )
+    sales.commit()
+    _clear_dirty(sales)
+
+    # Only the OLD range covers the sale of 2026-09-10 now.
+    sales.execute(text("UPDATE ml_venta_impuesto_tratamiento SET fecha_desde = :d"), {"d": date(2026, 9, 20)})
+    sales.commit()
+
+    assert _enqueued(sales) == {IN_PERIOD}
+
+
+def test_a_closed_period_covers_its_last_day_and_stops_after_it(sales) -> None:
+    sales.execute(
+        text(
+            "INSERT INTO ml_venta_impuesto_tratamiento (charge_name, informativo, fecha_desde, fecha_hasta) "
+            "VALUES (:n, true, :desde, :hasta)"
+        ),
+        {"n": SOBRETASA, "desde": date(2026, 8, 20), "hasta": date(2026, 9, 10)},
+    )
+    sales.commit()
+    assert _enqueued(sales) == {IN_PERIOD}
+    _clear_dirty(sales)
+
+    # Ends two days before the sale: past the one-day margin either side of a boundary.
+    sales.execute(text("UPDATE ml_venta_impuesto_tratamiento SET fecha_hasta = :d"), {"d": date(2026, 8, 25)})
+    sales.commit()
+    _clear_dirty(sales)
+    sales.execute(text("UPDATE ml_venta_impuesto_tratamiento SET informativo = false"))
+    sales.commit()
+
+    assert _enqueued(sales) == set()
+
+
+def test_a_sale_one_day_past_a_boundary_is_recomputed_anyway(sales) -> None:
+    """`::date` follows the firing session's TimeZone, the compute its own: one day of margin each side."""
+    sales.execute(
+        text("INSERT INTO ml_venta_impuesto_tratamiento (charge_name, informativo, fecha_desde) VALUES (:n, true, :d)"),
+        {"n": SOBRETASA, "d": date(2026, 9, 11)},
+    )
     sales.commit()
 
     assert _enqueued(sales) == {IN_PERIOD}

@@ -116,3 +116,17 @@ class TestImpuestoTratamientoMigration:
             _scalar(engine, "SELECT count(*) FROM pg_proc WHERE proname = 'order_metrics_enqueue_impuesto_tratamiento'")
             == 0
         )
+
+
+def _normalized(statements) -> list:
+    return [" ".join(statement.split()) for statement in statements]
+
+
+def test_the_frozen_trigger_copy_matches_the_live_module_it_was_taken_from() -> None:
+    """At creation time the migration's frozen DDL and `triggers_tax_treatment.py` (what the fixtures apply) must
+    match. A later trigger change gets its own migration and moves this comparison to it."""
+    from app.services.order_metrics import triggers_tax_treatment
+
+    migration = _load_migration()
+    assert _normalized(migration._TRIGGER_STATEMENTS) == _normalized(triggers_tax_treatment._CREATE_STATEMENTS)
+    assert _normalized(migration._DROP_TRIGGER_STATEMENTS) == _normalized(triggers_tax_treatment._DROP_STATEMENTS)
