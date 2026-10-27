@@ -99,7 +99,7 @@ export default function VistaPorMarca({ pares, grantsScope }) {
                 {actual.categorias.map((par) => {
                   const grants = grantsPorPar.get(parKey(par.marca, par.categoria)) || [];
                   return (
-                    <tr key={par.categoria}>
+                    <tr key={par.id}>
                       <td>{par.categoria}</td>
                       <td>
                         {par.usuario_id == null ? (

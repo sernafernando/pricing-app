@@ -781,13 +781,13 @@ describe('MisSubPMs — "Por marca / par" tab', () => {
     await elegirYExpandir(user, 'Ana');
     await user.click(screen.getByLabelText('Seleccionar Samsung / Celulares'));
 
-    await user.click(screen.getByRole('tab', { name: 'Por marca / par' }));
-    expect(screen.getByRole('tab', { name: 'Por marca / par' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('button', { name: 'Por marca / par' }));
+    expect(screen.getByRole('button', { name: 'Por marca / par' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('heading', { name: 'Ana' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Samsung (1)' }));
     expect(within(screen.getByRole('cell', { name: 'Celulares' }).closest('tr')).getByText('Beto')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('tab', { name: 'Por usuario' }));
+    await user.click(screen.getByRole('button', { name: 'Por usuario' }));
     expect(screen.getByRole('heading', { name: 'Ana' })).toBeInTheDocument();
     expect(screen.getByLabelText('Seleccionar Samsung / Celulares')).toBeChecked();
   });

@@ -121,7 +121,7 @@ describe.each([
     document.body.style.background = 'var(--cf-bg-app)';
     const screen = await render(<MisSubPMs />);
 
-    await screen.getByRole('tab', { name: 'Por marca / par' }).click();
+    await screen.getByRole('button', { name: 'Por marca / par' }).click();
     await screen.getByRole('button', { name: /^LENOVO/ }).click();
     await expect.element(screen.getByRole('cell', { name: 'Sofía Benítez' })).toBeVisible();
 

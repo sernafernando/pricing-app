@@ -492,11 +492,10 @@ export default function MisSubPMs() {
       )}
 
       {hayParesEnScope && (
-        <div className={styles.tabs} role="tablist" aria-label="Vista">
+        <div className={styles.tabs} role="group" aria-label="Vista">
           <button
             type="button"
-            role="tab"
-            aria-selected={vista === 'usuario'}
+            aria-pressed={vista === 'usuario'}
             className={vista === 'usuario' ? styles.tabActiva : styles.tab}
             onClick={() => setVista('usuario')}
           >
@@ -504,8 +503,7 @@ export default function MisSubPMs() {
           </button>
           <button
             type="button"
-            role="tab"
-            aria-selected={vista === 'marca'}
+            aria-pressed={vista === 'marca'}
             className={vista === 'marca' ? styles.tabActiva : styles.tab}
             onClick={() => setVista('marca')}
           >
