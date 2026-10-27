@@ -3,7 +3,8 @@ import { Copy, Pencil } from 'lucide-react';
 import { productosPropiosAPI } from '../../../services/api';
 import { apiErrorMessage } from '../../../utils/apiErrorMessage';
 import { isDeletedPublication } from '../publicationStatus';
-import { Field, Fields, Section } from './PanelParts';
+import DataFields from './DataFields';
+import { Section } from './PanelParts';
 import ProductDataForm from './ProductDataForm';
 import { date } from './format';
 import styles from './panel.module.css';
@@ -26,35 +27,7 @@ function Copied({ datos }) {
   return (
     <>
       <p className={styles.note}>{`Copiados de ${datos.fuente_mla}${datos.copiado_at ? ` el ${date(datos.copiado_at)}` : ''}`}</p>
-      <Fields>
-        <Field label="Título">{datos.titulo}</Field>
-      </Fields>
-      <h4 className={styles.subTitle}>Descripción</h4>
-      {datos.descripcion ? <p className={styles.description}>{datos.descripcion}</p> : <p className={styles.note}>Sin descripción.</p>}
-      <h4 className={styles.subTitle}>Fotos</h4>
-      {datos.fotos.length > 0 ? (
-        <ul className={styles.pictures}>
-          {datos.fotos.map((foto, index) => (
-            <li key={foto.id ?? foto.url}>
-              <img src={foto.url} alt={`Foto ${index + 1}`} className={styles.picture} loading="lazy" />
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className={styles.note}>Sin fotos.</p>
-      )}
-      <h4 className={styles.subTitle}>Atributos</h4>
-      {datos.atributos.length > 0 ? (
-        <Fields>
-          {datos.atributos.map((atributo) => (
-            <Field key={atributo.id} label={atributo.name ?? atributo.id}>
-              {atributo.value_name}
-            </Field>
-          ))}
-        </Fields>
-      ) : (
-        <p className={styles.note}>Sin atributos.</p>
-      )}
+      <DataFields datos={datos} />
     </>
   );
 }

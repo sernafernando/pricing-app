@@ -12,18 +12,18 @@ const keysFor = (raw, context = {}) => visibleTabs(PANEL_TABS, { detail: readDet
 describe('the registry', () => {
   it('opens on Resumen and lists the history tabs after the data ones', () => {
     const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 3, is_full: true } });
-    expect(keysFor(raw)).toEqual(['resumen', 'variaciones', 'full', 'eventos', 'historial', 'producto']);
+    expect(keysFor(raw)).toEqual(['resumen', 'datos', 'variaciones', 'full', 'eventos', 'historial', 'producto']);
   });
 
   it('keeps Eventos, Historial and Producto vinculado for every publication, with or without margin', () => {
     const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 0, is_full: false }, replenishment: null });
-    expect(keysFor(raw)).toEqual(['resumen', 'eventos', 'historial', 'producto']);
-    expect(keysFor(raw, { canSeeMargin: true })).toEqual(['resumen', 'eventos', 'historial', 'producto']);
+    expect(keysFor(raw)).toEqual(['resumen', 'datos', 'eventos', 'historial', 'producto']);
+    expect(keysFor(raw, { canSeeMargin: true })).toEqual(['resumen', 'datos', 'eventos', 'historial', 'producto']);
   });
 
   it('labels them in Spanish', () => {
     const labels = Object.fromEntries(PANEL_TABS.map((tab) => [tab.key, tab.label]));
-    expect(labels).toMatchObject({ eventos: 'Eventos', historial: 'Historial', producto: 'Producto' });
+    expect(labels).toMatchObject({ datos: 'Datos', eventos: 'Eventos', historial: 'Historial', producto: 'Producto' });
   });
 });
 
@@ -32,7 +32,7 @@ describe('Promociones', () => {
 
   it('exists only for who can read promotions, between Full and Eventos', () => {
     expect(keysFor(raw, { canViewPromos: false })).not.toContain('promociones');
-    expect(keysFor(raw, { canViewPromos: true })).toEqual(['resumen', 'promociones', 'eventos', 'historial', 'producto']);
+    expect(keysFor(raw, { canViewPromos: true })).toEqual(['resumen', 'datos', 'promociones', 'eventos', 'historial', 'producto']);
   });
 
   it('is labelled "Promos" so the strip keeps its slack', () => {
@@ -45,7 +45,7 @@ describe('Precios', () => {
 
   it('exists only for who can see products, before Eventos', () => {
     expect(keysFor(raw, { canViewPrices: false })).not.toContain('precios');
-    expect(keysFor(raw, { canViewPrices: true })).toEqual(['resumen', 'precios', 'eventos', 'historial', 'producto']);
+    expect(keysFor(raw, { canViewPrices: true })).toEqual(['resumen', 'datos', 'precios', 'eventos', 'historial', 'producto']);
   });
 
   it('does not exist without a linked product', () => {

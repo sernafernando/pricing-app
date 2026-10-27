@@ -895,6 +895,11 @@ export const productosPropiosAPI = {
   saveDatos: (itemId, body) => api.put(`/productos-propios/${itemId}/datos`, body),
 };
 
+// A publication's data overridden locally (never written to ML): `{ original, override, aplicado, editable, can_edit }`.
+export const mlItemOverridesAPI = {
+  get: (mla) => api.get(`/ml-item-overrides/${mla}`),
+};
+
 // =============================================================================
 // Publicaciones ML (publicaciones-ml-vista): management screen reads
 // =============================================================================
