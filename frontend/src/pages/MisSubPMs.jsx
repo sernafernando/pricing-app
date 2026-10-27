@@ -3,6 +3,7 @@ import { Save } from 'lucide-react';
 import { marcasPmAPI } from '../services/api';
 import { ModalAlert, ModalLoading } from '../components/ModalTesla';
 import ParesTable from '../components/ParesTable';
+import UsuariosLista from '../components/subpms/UsuariosLista';
 import { parKey } from '../components/parKey';
 import { clavesDesdePayload } from './misSubPMsHelpers';
 import { useAuthStore } from '../store/authStore';
@@ -75,7 +76,7 @@ export default function MisSubPMs() {
   const [conteos, setConteos] = useState({}); // usuario_id -> total
   const [conteosError, setConteosError] = useState(false); // counts failed to load; render "?" instead of a fake (0)
 
-  // Normalized to Number|null at the boundary (the `<select>`'s onChange),
+  // Number|null — `UsuariosLista` passes the user's numeric `id` as is,
   // matching `usuario_id`'s type everywhere else — avoids scattering
   // `String(...)`/`Number(...)` coercions across every comparison and API
   // call (review finding #6).
@@ -134,7 +135,7 @@ export default function MisSubPMs() {
   }, [cargarPares]);
 
   // Two independent calls with independent failure handling (review finding
-  // #3): a counts failure must NOT empty the user picker — the picker is
+  // #3): a counts failure must NOT empty the user list — the list is
   // still fully usable without counts, it just can't show them. And a real
   // zero grants (the everyday case: production launches with none) must
   // render differently from "counts never loaded", or the screen looks
@@ -142,15 +143,15 @@ export default function MisSubPMs() {
   //
   // The two failures also must not compete for the single shared `alerta`
   // banner (review finding #4): a users-list failure is BLOCKING (the whole
-  // picker goes empty) and must always be visible; a counts failure is
+  // list goes empty) and must always be visible; a counts failure is
   // COSMETIC (`?` instead of a number) and gets its own small inline notice
-  // next to the picker instead, so it can never mask the blocking one.
+  // above the detail instead, so it can never mask the blocking one.
   //
   // Security invariant (restored — do NOT drop this again): the global PM
   // user list is potentially sensitive, so it must only be fetched once we
   // KNOW the caller has at least one pair in their writable scope (admin or
   // titular). Someone who navigates here holding zero pairs must never
-  // trigger `GET /usuarios/pms` — the picker instead stays disabled with an
+  // trigger `GET /usuarios/pms` — the user list instead stays empty with an
   // honest "no pairs in scope" message (see `hayParesEnScope` below). The
   // counts call is gated identically: there is nothing to count for.
   const hayParesEnScope = !loadingPares && pares.length > 0;
@@ -285,19 +286,22 @@ export default function MisSubPMs() {
   // Dirty-guard: switching the target user while there are unsaved checked
   // edits must NOT silently discard them (the whole point of this redesign
   // is to stop wasting the user's clicks). While a confirmation is pending,
-  // `targetUserId` (and therefore the controlled <select> value) is left
-  // untouched — the picker must never visually jump to the new value and
-  // then revert, it must stay put until the user confirms.
+  // `targetUserId` (and therefore the highlighted user in the list) is left
+  // untouched — the list must never visually jump to the new user and then
+  // revert, it must stay put until the user confirms.
   //
   // Review finding #1 (merge-blocking): switching target user while a save
   // is IN FLIGHT can race the async response — `guardar()`'s `.then` would
   // otherwise apply the OLD user's `checked` snapshot as the NEW user's
   // baseline once it resolves, silently corrupting a permissions screen.
-  // The `<select disabled={saving}>` above is the UX guard; this early
-  // return is the correctness guard — it must hold even if the event fires
-  // through the disabled attribute (e.g. a programmatic dispatch).
+  // The `disabled={saving}` on every `UsuariosLista` button is the UX guard;
+  // this early return is the correctness guard — it must hold even if a
+  // future caller invokes this handler without going through those buttons.
+  // No DOM interaction can reach it today (a disabled button never fires
+  // its click), so the tests cover the disabled buttons, not this line.
   const pedirCambioUsuario = (nuevoId) => {
     if (saving) return;
+    if (nuevoId === targetUserId) return;
     if (dirty) {
       setUsuarioPendiente(nuevoId);
       return;
@@ -318,8 +322,8 @@ export default function MisSubPMs() {
 
   const guardar = async () => {
     if (targetUserId == null) return;
-    // Snapshot the target user and the checked set being saved. The select
-    // is disabled and switching is blocked (via `saving`) for the whole
+    // Snapshot the target user and the checked set being saved. The user
+    // list is disabled and switching is blocked (via `saving`) for the whole
     // duration of this call — see `pedirCambioUsuario`/`confirmarCambioUsuario`
     // — so, AS THE CODE STANDS TODAY, `targetUserIdRef.current` cannot
     // actually diverge from `usuarioGuardado` by the time the awaited call
@@ -414,103 +418,102 @@ export default function MisSubPMs() {
         </div>
       )}
 
-      <div className={styles.pickerRow}>
-        <label className={styles.pickerLabel} htmlFor="misSubPMsUsuario">Usuario</label>
-        <select
-          id="misSubPMsUsuario"
-          className={styles.select}
-          value={targetUserId ?? ''}
-          disabled={saving || !hayParesEnScope}
-          onChange={(e) => pedirCambioUsuario(e.target.value === '' ? null : Number(e.target.value))}
-        >
-          <option value="">Elegí un usuario...</option>
-          {hayParesEnScope &&
-            usuariosDisponibles.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.nombre} ({conteosError ? '?' : conteos[u.id] ?? 0})
-              </option>
-            ))}
-        </select>
-        {!hayParesEnScope && (
-          <span className={styles.conteosAviso}>
-            {loadingPares ? 'Cargando marcas/categorías...' : 'No tenés marcas/categorías en tu scope; no hay usuarios para gestionar.'}
-          </span>
-        )}
-        {hayParesEnScope && conteosError && (
-          <span className={styles.conteosAviso}>No se pudieron cargar los conteos de sub-PMs; el picker sigue disponible sin ellos.</span>
-        )}
-      </div>
+      <div className={styles.layout}>
+        <UsuariosLista
+          usuarios={hayParesEnScope ? usuariosDisponibles : []}
+          conteos={conteos}
+          conteosError={conteosError}
+          seleccionadoId={targetUserId}
+          onSeleccionar={pedirCambioUsuario}
+          disabled={saving}
+          aviso={
+            hayParesEnScope
+              ? null
+              : loadingPares
+                ? 'Cargando marcas/categorías...'
+                : 'No tenés marcas/categorías en tu scope; no hay usuarios para gestionar.'
+          }
+        />
 
-      {usuarioPendiente != null && (
-        <div className={styles.confirmBox}>
-          <span>
-            Tenés cambios sin guardar para {usuarioSeleccionado?.nombre || `usuario #${targetUserId}`}:
-            {' '}<strong>+{toGrant.length}</strong> / <strong>−{toRevoke.length}</strong> pares.
-            {' '}¿Descartarlos y cambiar a {usuarioPendienteNombre}?
-          </span>
-          <div className={styles.confirmActions}>
-            <button className="btn-tesla outline-subtle-primary sm" onClick={confirmarCambioUsuario}>
-              Sí, cambiar
-            </button>
-            <button
-              className="btn-tesla ghost sm"
-              onClick={cancelarCambioUsuario}
-              aria-label="Cancelar cambio de usuario"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {loadingPares ? (
-        <ModalLoading message="Cargando..." />
-      ) : (
-        <>
-          {loadingGrants ? (
-            <ModalLoading message="Cargando sub-PMs delegados..." />
-          ) : (
-            <ParesTable
-              pares={pares}
-              checked={checked}
-              onToggle={toggle}
-              onSelectAllFiltered={seleccionarTodoFiltrado}
-            />
+        <section className={styles.detalle}>
+          {hayParesEnScope && conteosError && (
+            <span className={styles.conteosAviso}>
+              No se pudieron cargar los conteos de sub-PMs; la lista sigue disponible sin ellos.
+            </span>
           )}
 
-          {targetUserId == null && (
-            <div className={styles.emptyDetail}>Elegí un usuario para guardar cambios de delegación.</div>
-          )}
-
-          {confirmando && (
-            <div className={styles.confirmBox} data-testid="confirmarGuardarBox">
+          {usuarioPendiente != null && (
+            <div className={styles.confirmBox}>
               <span>
-                ¿Confirmás guardar los cambios para {usuarioSeleccionado?.nombre || `usuario #${targetUserId}`}?
-                {' '}Se otorgarán <strong>+{toGrant.length}</strong> pares y se revocarán <strong>−{toRevoke.length}</strong> pares.
+                Tenés cambios sin guardar para {usuarioSeleccionado?.nombre || `usuario #${targetUserId}`}:
+                {' '}<strong>+{toGrant.length}</strong> / <strong>−{toRevoke.length}</strong> pares.
+                {' '}¿Descartarlos y cambiar a {usuarioPendienteNombre}?
               </span>
               <div className={styles.confirmActions}>
-                <button className="btn-tesla outline-subtle-primary sm" onClick={guardar} disabled={saving}>
-                  {saving ? 'Guardando...' : 'Sí, guardar'}
+                <button className="btn-tesla outline-subtle-primary sm" onClick={confirmarCambioUsuario}>
+                  Sí, cambiar
                 </button>
-                <button className="btn-tesla ghost sm" onClick={() => setConfirmando(false)} disabled={saving}>
+                <button
+                  className="btn-tesla ghost sm"
+                  onClick={cancelarCambioUsuario}
+                  aria-label="Cancelar cambio de usuario"
+                >
                   Cancelar
                 </button>
               </div>
             </div>
           )}
 
-          <div className={styles.addRow}>
-            <button
-              className="btn-tesla outline-subtle-primary sm"
-              onClick={() => setConfirmando(true)}
-              disabled={targetUserId == null || !dirty || saving || usuarioPendiente != null}
-            >
-              <Save size={14} />
-              Guardar cambios
-            </button>
-          </div>
-        </>
-      )}
+          {loadingPares ? (
+            <ModalLoading message="Cargando..." />
+          ) : (
+            <>
+              {loadingGrants ? (
+                <ModalLoading message="Cargando sub-PMs delegados..." />
+              ) : (
+                <ParesTable
+                  pares={pares}
+                  checked={checked}
+                  onToggle={toggle}
+                  onSelectAllFiltered={seleccionarTodoFiltrado}
+                />
+              )}
+
+              {targetUserId == null && (
+                <div className={styles.emptyDetail}>Elegí un usuario para guardar cambios de delegación.</div>
+              )}
+
+              {confirmando && (
+                <div className={styles.confirmBox} data-testid="confirmarGuardarBox">
+                  <span>
+                    ¿Confirmás guardar los cambios para {usuarioSeleccionado?.nombre || `usuario #${targetUserId}`}?
+                    {' '}Se otorgarán <strong>+{toGrant.length}</strong> pares y se revocarán <strong>−{toRevoke.length}</strong> pares.
+                  </span>
+                  <div className={styles.confirmActions}>
+                    <button className="btn-tesla outline-subtle-primary sm" onClick={guardar} disabled={saving}>
+                      {saving ? 'Guardando...' : 'Sí, guardar'}
+                    </button>
+                    <button className="btn-tesla ghost sm" onClick={() => setConfirmando(false)} disabled={saving}>
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className={styles.addRow}>
+                <button
+                  className="btn-tesla outline-subtle-primary sm"
+                  onClick={() => setConfirmando(true)}
+                  disabled={targetUserId == null || !dirty || saving || usuarioPendiente != null}
+                >
+                  <Save size={14} />
+                  Guardar cambios
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
