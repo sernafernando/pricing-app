@@ -1672,3 +1672,41 @@ describe('painting colors (S8)', () => {
     expect(screen.queryByRole('button', { name: /Pintar/ })).not.toBeInTheDocument();
   });
 });
+
+describe('keyboard shortcuts', () => {
+  it('the header button and ? open the help; Ctrl+F goes to the search; ↓ then Enter opens a publication', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.click(screen.getByRole('button', { name: 'Atajos de teclado' }));
+    expect(screen.getByRole('heading', { name: 'Atajos de teclado' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Atajos de teclado' })).not.toBeInTheDocument());
+    await user.keyboard('?');
+    expect(screen.getByRole('heading', { name: 'Atajos de teclado' })).toBeInTheDocument();
+    await user.keyboard('?');
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Atajos de teclado' })).not.toBeInTheDocument());
+
+    await user.keyboard('{Control>}f{/Control}');
+    expect(screen.getByPlaceholderText(/Buscar por título/)).toHaveFocus();
+
+    screen.getByPlaceholderText(/Buscar por título/).blur();
+    await user.keyboard('{ArrowDown}{Enter}');
+    await waitFor(() => expect(publicacionesMlAPI.detail).toHaveBeenCalledWith(ITEMS[0].item_id));
+  });
+});
+
+describe('keyboard export', () => {
+  it('Ctrl+E while an export runs starts no second one and is not left to the browser', async () => {
+    let finish;
+    exportPublicacionesCsv.mockReset();
+    exportPublicacionesCsv.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    const user = userEvent.setup();
+    await page();
+    await user.keyboard('{Control>}e{/Control}');
+    expect(screen.getByRole('button', { name: 'Exportando…' })).toBeDisabled();
+    // Still taken from the browser (Chrome would jump to its address bar), and no second export starts.
+    expect(fireEvent.keyDown(document.body, { key: 'e', code: 'KeyE', ctrlKey: true })).toBe(false);
+    expect(exportPublicacionesCsv).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+  });
+});
