@@ -38,6 +38,8 @@ from app.services.ml_promotions_service import (
     fetch_promotion_items,
     fetch_promotions,
 )
+from app.core.config import settings
+from app.services.ml_promotions_mirror_sync import upsert_item_promotions_from_proxy
 from app.services.ml_promotions_write_service import enroll_one_item, remove_one_item
 from app.services.ml_publication_status_service import GONE, NEVER_EXISTED, NO_ML_DATA, fetch_publication_status_by_mla
 from app.services.ml_webhook_client import ml_webhook_client
@@ -705,6 +707,15 @@ def refrescar_promociones_item(
         # Not active (per the store): ML is NOT asked. The mirror stays as it is.
         return RefreshResult(ok=False, motivo=motivo)
     outcome = resolve_maybe_async(ml_webhook_client.refresh_item_promotions(mla_id))
+    if outcome.ok and settings.PROMO_REFRESH_UPSERT_FROM_PROXY:
+        # Local/sandbox mirrors are not the DB the proxy writes. Copy the live
+        # GET into ML_WEBHOOK_DB_URL so the next panel read sees fresh state.
+        # Fail-soft: a mirror upsert miss must not flip refresh to ok=false —
+        # the proxy refresh already succeeded.
+        try:
+            upsert_item_promotions_from_proxy(mla_id)
+        except Exception as e:
+            logger.error("promo mirror upsert after refresh failed for %s: %s", mla_id, e, exc_info=True)
     return RefreshResult(ok=outcome.ok, motivo=outcome.motivo)
 
 

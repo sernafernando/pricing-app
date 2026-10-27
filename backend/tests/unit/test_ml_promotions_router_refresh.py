@@ -3,13 +3,13 @@ Unit tests for the per-item promo-refresh endpoint on the ml_promotions
 router (per-MLA manual refresh button).
 
   POST /api/promociones/item/{mla_id}/refresh   -> RefreshResult,
-  gated by promos.escribir (same permission as enroll/remove).
+  gated by promos.ver (read-reconcile of the mirror; never writes to ML).
 
 Spec coverage:
   REQ-1 — happy path -> 200 {"ok": true}
   REQ-2 — proxy failure (refresh_item_promotions returns False, never
           raises) -> 200 {"ok": false} (FAIL-SOFT, never 500)
-  REQ-3 — missing promos.escribir -> 403, no downstream call
+  REQ-3 — missing promos.ver -> 403, no downstream call
   REQ-4 — unauthenticated -> 401 (handled by get_current_user dependency)
 """
 
@@ -76,6 +76,49 @@ class TestRefreshEndpoint:
                 patch(
                     "app.routers.ml_promotions.ml_webhook_client.refresh_item_promotions",
                     return_value=RefreshOutcome(ok=True),
+                ),
+                patch("app.routers.ml_promotions.settings.PROMO_REFRESH_UPSERT_FROM_PROXY", False),
+            ):
+                response = client.post("/api/promociones/item/MLA123456789/refresh")
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        assert response.json() == {"ok": True, "motivo": None}
+
+    def test_happy_path_upserts_local_mirror_when_flag_on(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch(
+                    "app.routers.ml_promotions.ml_webhook_client.refresh_item_promotions",
+                    return_value=RefreshOutcome(ok=True),
+                ),
+                patch("app.routers.ml_promotions.settings.PROMO_REFRESH_UPSERT_FROM_PROXY", True),
+                patch("app.routers.ml_promotions.upsert_item_promotions_from_proxy") as upsert,
+            ):
+                response = client.post("/api/promociones/item/MLA123456789/refresh")
+                upsert.assert_called_once_with("MLA123456789")
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 200
+        assert response.json() == {"ok": True, "motivo": None}
+
+    def test_upsert_failure_keeps_refresh_ok(self, client: TestClient) -> None:
+        fake_service = _override_auth(allowed_permiso=True)
+        try:
+            with (
+                patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
+                patch(
+                    "app.routers.ml_promotions.ml_webhook_client.refresh_item_promotions",
+                    return_value=RefreshOutcome(ok=True),
+                ),
+                patch("app.routers.ml_promotions.settings.PROMO_REFRESH_UPSERT_FROM_PROXY", True),
+                patch(
+                    "app.routers.ml_promotions.upsert_item_promotions_from_proxy",
+                    side_effect=RuntimeError("mirror down"),
                 ),
             ):
                 response = client.post("/api/promociones/item/MLA123456789/refresh")

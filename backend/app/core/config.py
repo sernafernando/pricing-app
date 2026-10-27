@@ -134,6 +134,11 @@ class Settings(BaseSettings):
     # explicitly enabled per environment. Consumed by the write-orchestration
     # service (PR2); the read path never checks this flag.
     PROMOS_WRITE_ENABLED: bool = False
+    # After a successful per-MLA promo refresh via the ml-webhook proxy, also
+    # GET the live payload and upsert it into ML_WEBHOOK_DB_URL's
+    # ml_item_promotions mirror. Default OFF (prod already shares that DB with
+    # the proxy). Turn ON for local sandboxes whose mirror is a separate DB.
+    PROMO_REFRESH_UPSERT_FROM_PROXY: bool = False
     # The Métricas ML board reads the persisted sold lines (`ml_sale_lines`,
     # written by the order metrics drain) instead of computing `sale_lines` and
     # `last_sales` live. Default OFF: turn it on only after the backfill has
