@@ -79,6 +79,7 @@ export default function BulkActions({ filters, checkedIds, onClearChecked, canSe
   const nota = notas.length > 0 ? notas.join('. ') : null;
 
   // The request is answered with this render's set (updated before effects run), once per `at`.
+  // No dependency array on purpose (the latest-ref pattern): it copies the values after every render.
   const current = useRef({});
   useLayoutEffect(() => {
     current.current = { actions, reason, itemIds, nota };

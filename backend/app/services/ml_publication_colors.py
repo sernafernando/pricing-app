@@ -8,7 +8,8 @@ tests/services/ml_publications/test_resources.py). The row fields appear only wh
 nobody painted is unchanged:
 
 - `color_marcado`: the product's color on the active layer.
-- `color_hint_global`: its color on the global layer (the dot a team layer shows on a row it has not painted).
+- `color_hint_global`: its color on the global layer, on a team layer only (the dot it shows on a row it has not
+  painted). On the global layer it would repeat `color_marcado` and outlive an unpaint.
 - `color_hint_equipo_inicial`: the active team's initial, on a team layer (the same on every row).
 """
 
@@ -48,7 +49,7 @@ def attach_colors(
     """Sets the color fields on each row in place; `product_of(row)` is the row's product id, None for none."""
     product_ids = sorted({pid for pid in map(product_of, rows) if pid is not None})
     active = batch_colores(db, product_ids, layer.active)
-    global_ = active if layer.active == layer.global_id else batch_colores(db, product_ids, layer.global_id)
+    global_ = {} if layer.active == layer.global_id else batch_colores(db, product_ids, layer.global_id)
     for row in rows:
         pid = product_of(row)
         fields = {

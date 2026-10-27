@@ -97,6 +97,7 @@ export default function usePublicacionesMLKeyboard({
   disabled,
 }) {
   // The latest props, so the one listener never reads stale ones (updated after each render, never during it).
+  // No dependency array on purpose (the latest-ref pattern): it copies the values after every render.
   const props = useRef({});
   useLayoutEffect(() => {
     props.current = { searchRef, findRow, onExport, onPaintRow, onCycleLayer, onBulkAction, onOpenFilter, onToggleHelp, showToast };
