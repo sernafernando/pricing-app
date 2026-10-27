@@ -1,4 +1,4 @@
-"""Migration `20261201_etiquetas_logistica_historial` (flex-logistica-historial T2, S1): every change of
+"""Migration `20261203_etiquetas_logistica_historial` (flex-logistica-historial T2, S1): every change of
 `etiquetas_envio.logistica_id` leaves one row in `etiquetas_envio_logistica_historial`, written by a row trigger
 so no write path can skip it. Who and source come from transaction-local settings; without them the row is
 still written, with those fields NULL.
@@ -26,7 +26,7 @@ from app.services.etiquetas import logistica_historial_sql
 from tests.services.sell._schema import throwaway_schema
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_REVISION = "20261201_etiquetas_logistica_historial"
+_REVISION = "20261203_etiquetas_logistica_historial"
 _PATH = os.path.join(_BACKEND_ROOT, "alembic", "versions", f"{_REVISION}.py")
 _TABLE = "etiquetas_envio_logistica_historial"
 _DRIFT = (
@@ -89,7 +89,7 @@ class TestMigrationGraph:
         # Not `get_heads() == [this]`: a later revision must not break this test.
         revision = _scripts().get_revision(_REVISION)
         assert revision is not None
-        assert revision.down_revision == "20261130_tb_item_full_row"
+        assert revision.down_revision == "20261202_sell_in_bono_requeue_auditoria"
 
 
 class TestFrozenTriggerCopy:

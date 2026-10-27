@@ -1,7 +1,7 @@
 """etiquetas_envio: history of logistics changes (table + row trigger)
 
-Revision ID: 20261201_etiquetas_logistica_historial
-Revises: 20261130_tb_item_full_row
+Revision ID: 20261203_etiquetas_logistica_historial
+Revises: 20261202_sell_in_bono_requeue_auditoria
 Create Date: 2026-10-27
 
 flex-logistica-historial T2 (S1). Every change of `etiquetas_envio.logistica_id` used to overwrite the old value
@@ -27,8 +27,8 @@ from typing import List, Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "20261201_etiquetas_logistica_historial"
-down_revision: Union[str, None] = "20261130_tb_item_full_row"
+revision: str = "20261203_etiquetas_logistica_historial"
+down_revision: Union[str, None] = "20261202_sell_in_bono_requeue_auditoria"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

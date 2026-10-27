@@ -14,7 +14,7 @@ Who and source come from transaction-local settings the write path sets before t
 A missing, empty or malformed setting is recorded as NULL and never blocks the change: the history must not
 make a label write fail. The ids carry no foreign key for the same reason.
 
-The migration `20261201_etiquetas_logistica_historial` installs a frozen copy of `UPGRADE_SQL` and
+The migration `20261203_etiquetas_logistica_historial` installs a frozen copy of `UPGRADE_SQL` and
 `DOWNGRADE_SQL`; changing them here requires a new migration (the frozen-copy test enforces it).
 """
 
