@@ -52,7 +52,9 @@ class Auditoria(Base):
     id = Column(Integer, primary_key=True, index=True)
     item_id = Column(Integer, index=True)  # Puede ser None si es masivo
     usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=False)
-    tipo_accion = Column(SQLEnum(TipoAccion), nullable=False, index=True)
+    # Production's column is VARCHAR(50) holding the member NAME, with no `tipoaccion` type behind it: a
+    # native enum would make SQLAlchemy cast to that missing type in multi-row INSERTs.
+    tipo_accion = Column(SQLEnum(TipoAccion, native_enum=False, length=50), nullable=False, index=True)
     valores_anteriores = Column(JSON)  # Valores antes del cambio
     valores_nuevos = Column(JSON)  # Valores después del cambio
     es_masivo = Column(Boolean, default=False)  # Si afectó a múltiples productos
