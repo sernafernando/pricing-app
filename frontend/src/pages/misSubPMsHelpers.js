@@ -24,3 +24,20 @@ import { parKey } from '../components/parKey';
 export function clavesDesdePayload(paresDeseados) {
   return new Set(paresDeseados.map((p) => parKey(p.marca, p.categoria)));
 }
+
+/**
+ * Backend error detail helper (Slice 3's T3.3/T3.4, deferred here). The bulk
+ * PUT's 403 sends `detail` as a DICT with `pares_rechazados` (marcas_pm.py
+ * :775-781); every other error path on this page still sends `detail` as a
+ * plain string. Both shapes must resolve to a real message — never blank.
+ */
+export function extraerError(err, fallback) {
+  const detail = err?.response?.data?.detail;
+  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+    const rechazados = Array.isArray(detail.pares_rechazados) ? detail.pares_rechazados : [];
+    const mensaje = detail.mensaje || fallback;
+    return { texto: mensaje, rechazados };
+  }
+  if (typeof detail === 'string' && detail) return { texto: detail, rechazados: [] };
+  return { texto: fallback, rechazados: [] };
+}

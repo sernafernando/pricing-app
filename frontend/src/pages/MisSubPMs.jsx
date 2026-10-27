@@ -7,7 +7,7 @@ import MarcasAcordeon from '../components/subpms/MarcasAcordeon';
 import ChipsPorMarca from '../components/subpms/ChipsPorMarca';
 import VistaPorMarca from '../components/subpms/VistaPorMarca';
 import { parKey } from '../components/parKey';
-import { clavesDesdePayload } from './misSubPMsHelpers';
+import { clavesDesdePayload, extraerError } from './misSubPMsHelpers';
 import { useAuthStore } from '../store/authStore';
 import { usePermisos } from '../contexts/PermisosContext';
 import styles from './MisSubPMs.module.css';
@@ -31,23 +31,6 @@ function esDirty(checked, baseline) {
     if (!baseline.has(key)) return true;
   }
   return false;
-}
-
-/**
- * Backend error detail helper (Slice 3's T3.3/T3.4, deferred here). The bulk
- * PUT's 403 sends `detail` as a DICT with `pares_rechazados` (marcas_pm.py
- * :775-781); every other error path on this page still sends `detail` as a
- * plain string. Both shapes must resolve to a real message — never blank.
- */
-function extraerError(err, fallback) {
-  const detail = err?.response?.data?.detail;
-  if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
-    const rechazados = Array.isArray(detail.pares_rechazados) ? detail.pares_rechazados : [];
-    const mensaje = detail.mensaje || fallback;
-    return { texto: mensaje, rechazados };
-  }
-  if (typeof detail === 'string' && detail) return { texto: detail, rechazados: [] };
-  return { texto: fallback, rechazados: [] };
 }
 
 /**
@@ -178,20 +161,22 @@ export default function MisSubPMs() {
     })();
   }, [hayParesEnScope]);
 
+  const cargarConteos = useCallback(async () => {
+    try {
+      const { data } = await marcasPmAPI.obtenerConteosSubPMs();
+      const items = Array.isArray(data?.conteos) ? data.conteos : [];
+      setConteos(Object.fromEntries(items.map((c) => [c.usuario_id, c.total])));
+      setConteosError(false);
+    } catch (err) {
+      console.error('Error al cargar los conteos de sub-PMs', err);
+      setConteosError(true);
+    }
+  }, []);
+
   useEffect(() => {
     if (!hayParesEnScope) return;
-    (async () => {
-      try {
-        const { data } = await marcasPmAPI.obtenerConteosSubPMs();
-        const items = Array.isArray(data?.conteos) ? data.conteos : [];
-        setConteos(Object.fromEntries(items.map((c) => [c.usuario_id, c.total])));
-        setConteosError(false);
-      } catch (err) {
-        console.error('Error al cargar los conteos de sub-PMs', err);
-        setConteosError(true);
-      }
-    })();
-  }, [hayParesEnScope]);
+    cargarConteos();
+  }, [hayParesEnScope, cargarConteos]);
 
   const cargarGrantsScope = useCallback(async () => {
     try {
@@ -467,6 +452,16 @@ export default function MisSubPMs() {
       .map(([marca, total]) => ({ marca, total, cambiado: guardado.get(marca) !== total }));
   }, [checked, baseline, pairsByKey]);
 
+  // A change made from "Por marca / par" goes straight to the server, so the
+  // shared reads are refreshed; the selected user's baseline too when they
+  // were the one changed (the tab switch is blocked while it is dirty, so
+  // reloading it never throws away pending edits).
+  const alCambiarPorMarca = (usuarioIds) => {
+    cargarGrantsScope();
+    cargarConteos();
+    if (targetUserId != null && usuarioIds.includes(targetUserId)) seleccionarUsuario(targetUserId);
+  };
+
   const marcasGuardadas = new Set([...baseline].map((key) => pairsByKey.get(key)?.marca).filter(Boolean)).size;
   const paresGuardados = [...baseline].filter((key) => pairsByKey.has(key)).length;
 
@@ -506,13 +501,22 @@ export default function MisSubPMs() {
             aria-pressed={vista === 'marca'}
             className={vista === 'marca' ? styles.tabActiva : styles.tab}
             onClick={() => setVista('marca')}
+            disabled={dirty || saving}
+            title={dirty ? 'Guardá o descartá los cambios de este usuario primero' : undefined}
           >
             Por marca / par
           </button>
         </div>
       )}
 
-      {vista === 'marca' && hayParesEnScope && <VistaPorMarca pares={pares} grantsScope={grantsScope} />}
+      {vista === 'marca' && hayParesEnScope && (
+        <VistaPorMarca
+          pares={pares}
+          usuarios={usuariosDisponibles}
+          grantsScope={grantsScope}
+          onCambio={alCambiarPorMarca}
+        />
+      )}
 
       <div className={styles.layout} hidden={vista === 'marca' && hayParesEnScope}>
         <UsuariosLista
