@@ -240,6 +240,18 @@ describe('BulkActions', () => {
       expect(screen.getByRole('heading', { name: 'Recalcular cuotas Web' })).toBeInTheDocument();
     });
 
+    it('a validation error (a list of field errors) shows as text, never as an object', async () => {
+      resolved({ item_ids: [4101], count: 1, sin_producto: 0 });
+      granted = new Set([CUOTAS]);
+      api.post.mockRejectedValue({ response: { data: { detail: [{ loc: ['body', 'item_ids'], msg: 'too many' }] } } });
+      const user = userEvent.setup();
+      renderBulk();
+      await openMenu(user);
+      await user.click(screen.getByRole('menuitem', { name: 'Recalcular cuotas Web' }));
+      await user.click(await screen.findByRole('button', { name: 'Confirmar' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron recalcular las cuotas');
+    });
+
     it('is offered only with the cuotas permission', async () => {
       resolved({ item_ids: [4101], count: 1, sin_producto: 0 });
       const user = userEvent.setup();

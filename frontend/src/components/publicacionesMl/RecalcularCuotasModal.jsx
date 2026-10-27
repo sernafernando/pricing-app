@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../../services/api';
+import { apiErrorMessage } from '../../utils/apiErrorMessage';
 import ModalTesla, { ModalFooterButtons } from '../ModalTesla';
 import styles from './RecalcularCuotasModal.module.css';
 
@@ -30,7 +31,7 @@ export default function RecalcularCuotasModal({ listaTipo, itemIds, itemIdsNota,
       onSuccess?.();
       onClose();
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'No se pudieron recalcular las cuotas');
+      setError(apiErrorMessage(err, 'No se pudieron recalcular las cuotas'));
     } finally {
       setRunning(false);
     }
