@@ -9,6 +9,7 @@ import {
   formToPayload,
   sourceLabel,
 } from './criteriaFields';
+import ParaGanarCatalogSellers from './ParaGanarCatalogSellers';
 import styles from '../../pages/ParaGanarAdvisor.module.css';
 
 export default function ParaGanarCriteriosDetail({ selected }) {
@@ -182,6 +183,8 @@ export default function ParaGanarCriteriosDetail({ selected }) {
               {saving ? 'Guardando…' : 'Guardar criterios de esta MLA'}
             </button>
           </form>
+
+          <ParaGanarCatalogSellers mla={selected.mla} />
         </div>
       )}
     </aside>

@@ -17,6 +17,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_permiso
 from app.core.database import get_db
+from app.models.para_ganar_catalog_seller import (
+    DISPOSITION_ACTIVE,
+    DISPOSITION_VALUES,
+    ParaGanarCatalogSeller,
+)
 from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
 from app.models.usuario import Usuario
 
@@ -521,3 +526,350 @@ def upsert_criterios_mla(
     db.commit()
     db.refresh(row)
     return _criterios_from_row(row)
+
+
+class ParaGanarCatalogSellerItem(BaseModel):
+    seller_id: str
+    nickname: Optional[str] = None
+    disposition: str = DISPOSITION_ACTIVE
+    last_item_id: Optional[str] = None
+    last_seen_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ParaGanarCatalogSellersResponse(BaseModel):
+    mla: str
+    catalog_product_id: Optional[str] = None
+    synced_from_competition: bool = False
+    sellers: List[ParaGanarCatalogSellerItem]
+
+
+class ParaGanarCatalogSellerDispositionUpdate(BaseModel):
+    seller_id: str = Field(min_length=1, max_length=32)
+    disposition: str
+
+    @field_validator("disposition")
+    @classmethod
+    def _disposition_ok(cls, value: str) -> str:
+        if value not in DISPOSITION_VALUES:
+            raise ValueError(f"disposition inválida: {value}")
+        return value
+
+
+class ParaGanarCatalogSellersUpsert(BaseModel):
+    sellers: List[ParaGanarCatalogSellerDispositionUpdate] = Field(min_length=1)
+
+
+def _catalog_product_id_for_mla(db: Session, mla: str) -> Optional[str]:
+    # Prefer publication links; fall back to any competition snapshot for this MLA.
+    # Avoid the Postgres-only latest view so SQLite unit tests stay portable.
+    from sqlalchemy.exc import OperationalError, ProgrammingError
+
+    try:
+        link = db.execute(
+            text(
+                """
+                SELECT catalog_product_id
+                FROM ml_publication_links
+                WHERE mla = :mla AND catalog_product_id IS NOT NULL
+                LIMIT 1
+                """
+            ),
+            {"mla": mla},
+        ).first()
+        if link and link[0]:
+            return str(link[0])
+    except (OperationalError, ProgrammingError):
+        db.rollback()
+
+    try:
+        snap = db.execute(
+            text(
+                """
+                SELECT catalog_product_id
+                FROM ml_catalog_competition
+                WHERE mla = :mla AND catalog_product_id IS NOT NULL
+                ORDER BY fecha_consulta DESC
+                LIMIT 1
+                """
+            ),
+            {"mla": mla},
+        ).first()
+        if snap and snap[0]:
+            return str(snap[0])
+    except (OperationalError, ProgrammingError):
+        db.rollback()
+    return None
+
+
+def _competition_sellers_by_id(db: Session, catalog_product_id: str) -> tuple[dict[str, dict], Optional[datetime]]:
+    """Unique sellers from the newest competition snapshot (no DB writes)."""
+    from sqlalchemy.exc import OperationalError, ProgrammingError
+
+    try:
+        snap = (
+            db.execute(
+                text(
+                    """
+                SELECT competitors, fecha_consulta
+                FROM ml_catalog_competition
+                WHERE catalog_product_id = :cid
+                  AND fetch_status = 'ok'
+                  AND competitors IS NOT NULL
+                ORDER BY fecha_consulta DESC
+                LIMIT 1
+                """
+                ),
+                {"cid": catalog_product_id},
+            )
+            .mappings()
+            .first()
+        )
+    except (OperationalError, ProgrammingError):
+        db.rollback()
+        return {}, None
+    if not snap:
+        return {}, None
+
+    competitors = snap["competitors"] or []
+    if not isinstance(competitors, list) or not competitors:
+        return {}, None
+
+    by_seller: dict[str, dict] = {}
+    for competitor in competitors:
+        if not isinstance(competitor, dict):
+            continue
+        raw_id = competitor.get("seller_id")
+        if raw_id is None:
+            continue
+        seller_id = str(raw_id).strip()
+        if not seller_id:
+            continue
+        nickname = competitor.get("seller_nickname")
+        nickname_s = str(nickname).strip()[:128] if nickname else None
+        item_raw = competitor.get("item_id")
+        item_id = str(item_raw).strip()[:32] if item_raw else None
+        by_seller[seller_id] = {"nickname": nickname_s, "item_id": item_id}
+    return by_seller, snap["fecha_consulta"]
+
+
+def _persist_roster_from_competition(
+    db: Session,
+    catalog_product_id: str,
+    *,
+    user_id: int,
+) -> bool:
+    """Write competition members into the roster table (write-permission callers only)."""
+    by_seller, seen_at = _competition_sellers_by_id(db, catalog_product_id)
+    if not by_seller:
+        return False
+
+    now = datetime.now(UTC)
+    seen = seen_at or now
+    existing = {
+        row.seller_id: row
+        for row in db.query(ParaGanarCatalogSeller)
+        .filter(ParaGanarCatalogSeller.catalog_product_id == catalog_product_id)
+        .all()
+    }
+    for seller_id, meta in by_seller.items():
+        row = existing.get(seller_id)
+        if row is None:
+            row = ParaGanarCatalogSeller(
+                catalog_product_id=catalog_product_id,
+                seller_id=seller_id,
+                disposition=DISPOSITION_ACTIVE,
+            )
+            db.add(row)
+            existing[seller_id] = row
+        if meta["nickname"]:
+            row.nickname = meta["nickname"]
+        if meta["item_id"]:
+            row.last_item_id = meta["item_id"]
+        row.last_seen_at = seen
+        row.updated_at = now
+        row.updated_by_id = user_id
+
+    db.commit()
+    return True
+
+
+def _sellers_response(
+    *,
+    mla: str,
+    catalog_product_id: str,
+    rows: list[ParaGanarCatalogSeller],
+    competition: dict[str, dict],
+    seen_at: Optional[datetime],
+    synced_from_competition: bool,
+) -> ParaGanarCatalogSellersResponse:
+    """Merge persisted rows with ephemeral competition members (read path)."""
+    by_id: dict[str, ParaGanarCatalogSellerItem] = {}
+    for row in rows:
+        by_id[row.seller_id] = ParaGanarCatalogSellerItem(
+            seller_id=row.seller_id,
+            nickname=row.nickname,
+            disposition=row.disposition or DISPOSITION_ACTIVE,
+            last_item_id=row.last_item_id,
+            last_seen_at=row.last_seen_at,
+        )
+    for seller_id, meta in competition.items():
+        if seller_id in by_id:
+            continue
+        by_id[seller_id] = ParaGanarCatalogSellerItem(
+            seller_id=seller_id,
+            nickname=meta.get("nickname"),
+            disposition=DISPOSITION_ACTIVE,
+            last_item_id=meta.get("item_id"),
+            last_seen_at=seen_at,
+        )
+    sellers = sorted(
+        by_id.values(),
+        key=lambda item: ((item.nickname or "").lower(), item.seller_id),
+    )
+    return ParaGanarCatalogSellersResponse(
+        mla=mla,
+        catalog_product_id=catalog_product_id,
+        synced_from_competition=synced_from_competition,
+        sellers=sellers,
+    )
+
+
+def _list_persisted_sellers(db: Session, catalog_product_id: str) -> list[ParaGanarCatalogSeller]:
+    return (
+        db.query(ParaGanarCatalogSeller)
+        .filter(ParaGanarCatalogSeller.catalog_product_id == catalog_product_id)
+        .order_by(ParaGanarCatalogSeller.nickname.nulls_last(), ParaGanarCatalogSeller.seller_id)
+        .all()
+    )
+
+
+@router.get(
+    "/criterios/{mla}/sellers",
+    response_model=ParaGanarCatalogSellersResponse,
+    dependencies=[Depends(require_permiso("productos.ver"))],
+)
+def listar_sellers_catalogo(
+    mla: str,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(get_current_user),
+) -> ParaGanarCatalogSellersResponse:
+    """Read-only roster: persisted dispositions + competition members (not written)."""
+    mla_norm = mla.strip().upper()
+    if not mla_norm:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MLA inválida")
+
+    catalog_product_id = _catalog_product_id_for_mla(db, mla_norm)
+    if not catalog_product_id:
+        return ParaGanarCatalogSellersResponse(
+            mla=mla_norm,
+            catalog_product_id=None,
+            synced_from_competition=False,
+            sellers=[],
+        )
+
+    competition, seen_at = _competition_sellers_by_id(db, catalog_product_id)
+    rows = _list_persisted_sellers(db, catalog_product_id)
+    return _sellers_response(
+        mla=mla_norm,
+        catalog_product_id=catalog_product_id,
+        rows=rows,
+        competition=competition,
+        seen_at=seen_at,
+        synced_from_competition=False,
+    )
+
+
+@router.post(
+    "/criterios/{mla}/sellers/sync",
+    response_model=ParaGanarCatalogSellersResponse,
+    dependencies=[Depends(require_permiso("productos.editar_precios"))],
+)
+def sincronizar_sellers_catalogo(
+    mla: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ParaGanarCatalogSellersResponse:
+    """Persist competition members into the catalog roster (write permission)."""
+    mla_norm = mla.strip().upper()
+    if not mla_norm:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MLA inválida")
+    catalog_product_id = _catalog_product_id_for_mla(db, mla_norm)
+    if not catalog_product_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="La MLA no tiene catalog_product_id",
+        )
+
+    synced = _persist_roster_from_competition(db, catalog_product_id, user_id=current_user.id)
+    competition, seen_at = _competition_sellers_by_id(db, catalog_product_id)
+    rows = _list_persisted_sellers(db, catalog_product_id)
+    return _sellers_response(
+        mla=mla_norm,
+        catalog_product_id=catalog_product_id,
+        rows=rows,
+        competition=competition,
+        seen_at=seen_at,
+        synced_from_competition=synced,
+    )
+
+
+@router.put(
+    "/criterios/{mla}/sellers",
+    response_model=ParaGanarCatalogSellersResponse,
+    dependencies=[Depends(require_permiso("productos.editar_precios"))],
+)
+def actualizar_sellers_catalogo(
+    mla: str,
+    body: ParaGanarCatalogSellersUpsert,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ParaGanarCatalogSellersResponse:
+    """Update dispositions for sellers in the MLA's catalog roster (bulk)."""
+    mla_norm = mla.strip().upper()
+    if not mla_norm:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MLA inválida")
+    catalog_product_id = _catalog_product_id_for_mla(db, mla_norm)
+    if not catalog_product_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="La MLA no tiene catalog_product_id",
+        )
+
+    seller_ids = [item.seller_id.strip() for item in body.sellers]
+    existing = {
+        row.seller_id: row
+        for row in db.query(ParaGanarCatalogSeller)
+        .filter(
+            ParaGanarCatalogSeller.catalog_product_id == catalog_product_id,
+            ParaGanarCatalogSeller.seller_id.in_(seller_ids),
+        )
+        .all()
+    }
+    now = datetime.now(UTC)
+    for item in body.sellers:
+        seller_id = item.seller_id.strip()
+        row = existing.get(seller_id)
+        if row is None:
+            row = ParaGanarCatalogSeller(
+                catalog_product_id=catalog_product_id,
+                seller_id=seller_id,
+            )
+            db.add(row)
+            existing[seller_id] = row
+        row.disposition = item.disposition
+        row.updated_at = now
+        row.updated_by_id = current_user.id
+
+    db.commit()
+    competition, seen_at = _competition_sellers_by_id(db, catalog_product_id)
+    rows = _list_persisted_sellers(db, catalog_product_id)
+    return _sellers_response(
+        mla=mla_norm,
+        catalog_product_id=catalog_product_id,
+        rows=rows,
+        competition=competition,
+        seen_at=seen_at,
+        synced_from_competition=False,
+    )

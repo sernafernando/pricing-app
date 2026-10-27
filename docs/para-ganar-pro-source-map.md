@@ -109,7 +109,8 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 - Catalog: `frontend/src/registry/screenCatalog.js`
 - Criterios: override por MLA (`GET/PUT /api/para-ganar/criterios/{mla}`, tabla `para_ganar_criterios_mla`); botón masivo aún deshabilitado; herencia producto/PM TBD
 - System defaults (source=`default`): markup 5–15%, top sellers 5, precio min/max unset, all flags off
+- Catalog sellers: `para_ganar_catalog_sellers` + `GET/PUT /criterios/{mla}/sellers` (dispositions: active / ignore_participant / hide / exclude_from_top); members synced from latest `ml_catalog_competition` snapshot
 
 ## Suggested next step
 
-Seller roster per catalog (members + ignore / hide / exclude-from-TOP); then product/PM default layers; then suggestion engine / apply-via-promotions.
+Product/PM default layers for criteria inheritance; then suggestion engine / apply-via-promotions (honoring seller dispositions).
