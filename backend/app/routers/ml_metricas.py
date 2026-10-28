@@ -822,7 +822,8 @@ def _csv_line(
             line += [
                 _csv_money(figures.sell_in),
                 _csv_money(figures.sell_out),
-                row.sell_out_pendientes,
+                # Its pending count goes with it: empty where no sell out applies, as on screen.
+                "" if figures.sell_out is None else row.sell_out_pendientes,
                 _csv_money(figures.costo_sell_in),
                 _csv_money(figures.total_gauss),
                 _csv_money(figures.markup_pct),
