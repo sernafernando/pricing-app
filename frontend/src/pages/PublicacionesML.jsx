@@ -704,7 +704,7 @@ export default function PublicacionesML() {
                 />
               ) : filters.prod ? (
                 <ProductPanel
-                  filters={filters}
+                  filters={rowFilters}
                   productKey={filters.prod}
                   onClose={closePanel}
                   onSelectItem={selectProductItem}

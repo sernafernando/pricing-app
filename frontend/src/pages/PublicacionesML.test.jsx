@@ -1299,6 +1299,15 @@ describe('the product panel', () => {
     expect(publicationPanel()).not.toBeInTheDocument();
   });
 
+  it("with a color filter on another team's layer, the panel asks its product on the list's own layer", async () => {
+    await products('/ml-publicaciones?vista=producto&prod=4101&colores=rojo&equipo=99');
+    await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    await waitFor(() => expect(publicacionesMlAPI.products).toHaveBeenCalledWith(expect.objectContaining({ producto: '4101' })));
+    const sent = publicacionesMlAPI.products.mock.calls.map(([params]) => params);
+    expect(sent.map((params) => params.equipo_id)).not.toContain('99');
+    expect(sent.every((params) => params.colores === 'rojo')).toBe(true);
+  });
+
   it('a publication opened from the list has no way back to a product', async () => {
     const user = userEvent.setup();
     await products();
