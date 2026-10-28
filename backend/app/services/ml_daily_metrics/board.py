@@ -650,6 +650,10 @@ class Kpis:
     series_gross: List[Decimal]
     series_tg: List[Decimal]
     series_markup: List[Optional[float]]
+    # Packs or lone orders with a sold line in the period / the comparison period, and per day (`Board._operations`).
+    operations: int = 0
+    prev_operations: int = 0
+    series_operations: List[int] = field(default_factory=list)
     # Only with the toggle ON.
     ads: Optional["AdsKpis"] = None
     # Only with "Costos TP" ON (see `Row`).
@@ -2357,6 +2361,7 @@ class Board:
             s_tg[i] = cents(s["tg"])
             s_mtg[i] = cents(s["mtg"])
             s_costo[i] = cents(s["costo"])
+        operations, prev_operations, s_operations = self._operations(joined, fp, days)
         dec = cents
         ads = self._ads_kpis() if self.ads else None
         # Position 2: the spend no row owns comes off the totals (never off a row, never off the denominator).
@@ -2389,10 +2394,45 @@ class Board:
             series_gross=s_gross,
             series_tg=s_tg,
             series_markup=[_round1(markup_of(s_mtg[i], s_costo[i])) for i in range(days)],
+            operations=operations,
+            prev_operations=prev_operations,
+            series_operations=s_operations,
             ads=ads,
             **self._tp_of(totals),
             **self._sell_of(totals),
         )
+
+    def _operations(self, joined: Any, fp: Any, days: int) -> Tuple[int, int, List[int]]:
+        """Operations of the period, of the comparison period and per day of the period: the packs or lone orders
+        (`group_key`) with a sold line of a row's pair -- the very lines Facturado and Unidades sum, so a
+        cancellation ML did not cover is no operation, and a pack counts once however many of its pairs sell. ONE
+        statement over the keyed lines of both periods (the board's per-day lines drop the key). Every line of a
+        group shares its `group_date`, so a group falls on one day and the per-day counts add up to the period's."""
+        f = self.f
+        pushdown = self.use_lines and self.mla_set is not None
+        lines = lines_source(
+            sqlite=self.sqlite,
+            ranges=[day_bounds(f.date_from, f.date_to), day_bounds(self.prev_from, self.prev_to)],
+            product=self.product_item_id,
+            groups=self._touched(),
+            mlas=select(self.mla_set.c.mla) if pushdown else None,
+            keyed=True,
+        )
+        per_day = self._in_mla_set(
+            select(lines.c.day, func.count(func.distinct(lines.c.group_key)).label("n"))
+            .select_from(joined)
+            .join(lines, and_(lines.c.product == fp.c.product, lines.c.mla == fp.c.mla)),
+            lines.c.mla,
+        ).group_by(lines.c.day)
+        now, before, series = 0, 0, [0] * days
+        for day, n in self.db.execute(per_day):
+            day = as_date(day)
+            if f.date_from <= day <= f.date_to:
+                now += n
+                series[(day - f.date_from).days] = n
+            elif self.prev_from <= day <= self.prev_to:
+                before += n
+        return now, before, series
 
     def _ads_kpis(self) -> AdsKpis:
         """ONE statement. The unfiltered view sums every ad line of the period (the MLAs whose rows a sort or a
