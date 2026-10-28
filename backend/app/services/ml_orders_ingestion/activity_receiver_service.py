@@ -93,7 +93,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import literal, null, select
+from sqlalchemy import func, literal, null, select
 
 from app.core.config import settings
 from app.core.database import get_background_db
@@ -103,6 +103,7 @@ from app.services.ml_orders_ingestion.ingestion_service import (
     QuarantineRetryResult,
     _insert_stmt,
     has_no_payload,
+    past_backoff,
     retry_quarantined_orders,
 )
 from app.services.ml_orders_ingestion.sweep_service import (
@@ -121,7 +122,7 @@ from app.services.ml_orders_ingestion.sweep_service import (
     release_lock_as_idle,
     try_acquire_run_lock,
 )
-from app.services.ml_webhook_client import ActivityCursorRejected, ml_webhook_client
+from app.services.ml_webhook_client import ActivityCursorRejected, OrderFetch, ml_webhook_client
 from app.utils.async_bridge import resolve_maybe_async
 
 logger = logging.getLogger(__name__)
@@ -421,6 +422,135 @@ def _clear_shipment_id_unresolved_debts(db) -> int:
         .filter(MlOrdersOpsCuarentena.order_id.in_(known_shipping_ids))
         .delete(synchronize_session=False)
     )
+
+
+# Orders asked again of ML per `refetch_unresolved_orders` pass. Each is one
+# proxy call of up to 10s, made before the write session opens, so the pass is
+# also bounded by the caller's deadline.
+MAX_REFETCHES_PER_PASS = 20
+
+
+@dataclass
+class RefetchResult:
+    """Outcome of one `refetch_unresolved_orders` pass. `attempted` counts the
+    rows an answer was applied to (not one that took a payload meanwhile).
+    `dropped`: ML has no such order. `failed`: a fetch that failed, or an
+    order that came back but did not land (it keeps its row)."""
+
+    attempted: int = 0
+    landed: int = 0
+    dropped: int = 0
+    failed: int = 0
+
+
+def _fetch_order(order_id: int) -> OrderFetch:
+    try:
+        return resolve_maybe_async(ml_webhook_client.fetch_order(order_id))
+    except Exception:
+        logger.warning("activity_receiver: re-fetch of order_id=%s raised; counted as failed", order_id, exc_info=True)
+        return OrderFetch("error")
+
+
+def refetch_unresolved_orders(
+    limit: int = MAX_REFETCHES_PER_PASS, deadline: Optional[datetime] = None
+) -> RefetchResult:
+    """Asks ML again for the orders the activity receiver never got (the
+    quarantine rows with no payload, remove-ml-divergences D2c), so a miss no
+    longer waits for the sweep to come across its order.
+
+    Every row with no payload is asked once past the replay's backoff
+    (`past_backoff`), selected by `has_no_payload` alone and never capped: a
+    row the replay of a worker still on the old code re-quarantined during the
+    deploy carries a `[permanent]` tag but is still a miss. HTTP never runs
+    inside a session (DB pool rule), and no new fetch starts once `deadline`
+    has passed. Then, per order:
+      - ML gives it back: it goes through `process_batch`, exactly as the
+        receiver handles an order it did get (window floor, shipment, cost and
+        payment fetches). Its row is deleted only if the order then is in
+        `ml_orders_ops`; any other outcome keeps it for the next backoff;
+      - ML says it does not exist (`not_found`): the row is deleted, with one
+        log line;
+      - anything else: the attempt is counted, the row goes back to
+        `UNRESOLVED_ERROR` and waits for its next backoff.
+    A row that took a payload in the meantime (another writer quarantined the
+    order's write error) is left to the replay.
+    """
+    result = RefetchResult()
+    if not settings.ML_ORDERS_OPS_ENABLED:
+        return result
+    now = datetime.now(timezone.utc)
+    with get_background_db() as db:
+        due = [
+            order_id
+            for (order_id,) in db.query(MlOrdersOpsCuarentena.order_id)
+            .filter(has_no_payload(), past_backoff(now))
+            .order_by(MlOrdersOpsCuarentena.ultimo_intento_at.asc())
+            .limit(limit)
+        ]
+    answers: Dict[int, OrderFetch] = {}
+    for order_id in due:
+        if deadline is not None and datetime.now(timezone.utc) >= deadline:
+            break
+        answers[order_id] = _fetch_order(order_id)
+    if not answers:
+        return result
+
+    returned: Dict[int, Dict[str, Any]] = {}
+    with get_background_db() as db:
+        for order_id, answer in answers.items():
+            row = _unresolved_debts(db).filter(MlOrdersOpsCuarentena.order_id == order_id)
+            if row.with_for_update(skip_locked=True).first() is None:
+                continue
+            result.attempted += 1
+            if answer.status == "ok":
+                returned[order_id] = answer.payload
+                # Counted before the write: if `process_batch` raises, the row still waits for its backoff.
+                row.update(
+                    {"intentos": MlOrdersOpsCuarentena.intentos + 1, "ultimo_intento_at": func.now()},
+                    synchronize_session=False,
+                )
+            elif answer.status == "not_found":
+                row.delete(synchronize_session=False)
+                logger.warning("activity_receiver: ML has no order_id=%s; dropped from the quarantine", order_id)
+                result.dropped += 1
+            else:
+                row.update(
+                    {
+                        "intentos": MlOrdersOpsCuarentena.intentos + 1,
+                        "ultimo_intento_at": func.now(),
+                        "error": UNRESOLVED_ERROR,
+                    },
+                    synchronize_session=False,
+                )
+                result.failed += 1
+    if not returned:
+        return result
+
+    # Identical to `drain_activity`'s floor and per-pass budgets.
+    process_batch(
+        list(returned.values()),
+        now - timedelta(days=settings.ML_ORDERS_OPS_WINDOW_DAYS),
+        SweepResult(ran=True),
+        [MAX_WINDOW_FETCHES_PER_PASS],
+        [MAX_COST_FETCHES_PER_PASS],
+        now,
+        [MAX_PAYMENT_FETCHES_PER_PASS],
+    )
+    # Fail-safe: a row without payload is deleted only once its order is known to be final, i.e. found in
+    # `ml_orders_ops`. `process_batch` reports no per-order outcome, so an order it left out -- outside the window, a
+    # mapping error, a per-pass budget that ran out, a write that failed together with its quarantine -- keeps its
+    # row, attempt already counted, and is asked again after the backoff. A write that failed and was quarantined now
+    # carries its payload and is the replay's.
+    ids = list(returned)
+    with get_background_db() as db:
+        landed_ids = [oid for (oid,) in db.query(MlOrdersOps.order_id).filter(MlOrdersOps.order_id.in_(ids))]
+        if landed_ids:
+            _unresolved_debts(db).filter(MlOrdersOpsCuarentena.order_id.in_(landed_ids)).delete(
+                synchronize_session=False
+            )
+    result.landed += len(landed_ids)
+    result.failed += len(ids) - len(landed_ids)
+    return result
 
 
 def drain_activity() -> ActivityDrainResult:

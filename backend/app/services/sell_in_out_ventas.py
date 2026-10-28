@@ -94,3 +94,25 @@ def montos_por_venta(db: Session, canal: str, refs: Iterable[int]) -> Dict[int, 
         ars, estimado = sell_out.get(ref, (None, None))
         salida[ref] = MontosVenta(sell_in_ars=sell_in.get(ref), sell_out_ars=ars, sell_out_estimado=estimado)
     return salida
+
+
+def sumar(partes: Iterable[Optional[MontosVenta]]) -> Optional[MontosVenta]:
+    """Several sales' amounts as one (an ML order's item rows, a pack's orders), under each kind's rule:
+    a part without rows of a kind adds nothing to it; an unknown sell out (`sell_out_estimado` without
+    an amount) makes the total unknown, never a partial sum. None when no part has any row."""
+    partes = [p for p in partes if p is not None]
+    if not partes:
+        return None
+    sell_in = [p.sell_in_ars for p in partes if p.sell_in_ars is not None]
+    con_sell_out = [p for p in partes if p.sell_out_estimado is not None]
+    sell_out_ars = None
+    estimado = None
+    if con_sell_out:
+        estimado = any(p.sell_out_estimado for p in con_sell_out)
+        if not any(p.sell_out_ars is None for p in con_sell_out):
+            sell_out_ars = sum((p.sell_out_ars for p in con_sell_out), Decimal(0))
+    return MontosVenta(
+        sell_in_ars=sum(sell_in, Decimal(0)) if sell_in else None,
+        sell_out_ars=sell_out_ars,
+        sell_out_estimado=estimado,
+    )

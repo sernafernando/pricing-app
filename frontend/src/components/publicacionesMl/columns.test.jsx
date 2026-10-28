@@ -6,6 +6,7 @@
  * actividad and Último evento start hidden (the picker brings them back).
  */
 import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import { COLUMN_GROUPS } from '../metricasMl/metricasMlColumns';
 import { DEFAULT_DIRECTION } from '../../hooks/usePublicacionesMLFilters';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from './columns';
@@ -31,6 +32,9 @@ const ALL = [
   'stock_propio',
   'stock_full',
   'stock_erp',
+  'codigo',
+  'marca',
+  'costo',
   'vinculo',
   'tienda',
   'actividad',
@@ -88,12 +92,43 @@ describe('layout', () => {
       'stock_propio',
       'stock_full',
       'stock_erp',
+      'codigo',
+      'marca',
+      'costo',
       'actividad',
     ]);
     expect(DEFAULT_DIRECTION.stock_propio).toBe('desc');
     for (const key of ['unidades_7d', 'unidades_30d', 'markup_30d', 'facturado_30d', 'total_gauss_30d']) {
       expect(DEFAULT_DIRECTION[key]).toBe('desc');
     }
+  });
+});
+
+describe('product columns', () => {
+  it('shows the linked product code and brand, and the cost in its own currency, as the panel shows it', () => {
+    const columns = byKey({ canSeeMargin: true });
+    const item = { link: { codigo: 'KB-HDMI', marca: 'Kabel' }, costo: { amount: 50, currency: 'USD' } };
+    expect([columns.codigo.header, columns.marca.header, columns.costo.header]).toEqual(['Código', 'Marca', 'Costo']);
+    render(
+      <>
+        <span>{columns.codigo.render(item)}</span>
+        <span>{columns.marca.render(item)}</span>
+        <span>{columns.costo.render(item)}</span>
+      </>,
+    );
+    expect(screen.getByText('KB-HDMI')).toBeInTheDocument();
+    expect(screen.getByText('Kabel')).toBeInTheDocument();
+    expect(screen.getByText('USD 50,00')).toBeInTheDocument();
+  });
+
+  it('a publication without a product or cost reads a dash, never 0', () => {
+    const columns = byKey({ canSeeMargin: true });
+    render(<>{columns.codigo.render({ link: {} })}{columns.costo.render({ costo: null })}</>);
+    expect(screen.getAllByText('—')).toHaveLength(2);
+  });
+
+  it('sorts code and brand ascending and the cost cheapest first by default', () => {
+    expect([DEFAULT_DIRECTION.codigo, DEFAULT_DIRECTION.marca, DEFAULT_DIRECTION.costo]).toEqual(['asc', 'asc', 'asc']);
   });
 });
 
@@ -108,8 +143,11 @@ describe('SKU divergence', () => {
 
 describe('permissions', () => {
   it('without ml_metricas.ver there are no Métricas figures; the current markup needs only ver_ganancia', () => {
-    expect(keys({ canSeeMargin: true })).toEqual(['titulo', 'estado', 'precio', 'markup', 'stock_propio', 'stock_full', 'stock_erp', 'vinculo', 'tienda', 'actividad']);
-    expect(keys({})).toEqual(['titulo', 'estado', 'precio', 'stock_propio', 'stock_full', 'stock_erp', 'vinculo', 'tienda', 'actividad']);
+    expect(keys({ canSeeMargin: true })).toEqual([
+      'titulo', 'estado', 'precio', 'markup', 'stock_propio', 'stock_full', 'stock_erp', 'codigo', 'marca', 'costo', 'vinculo', 'tienda', 'actividad',
+    ]);
+    // the cost, as in the panel, only with ver_ganancia
+    expect(keys({})).toEqual(['titulo', 'estado', 'precio', 'stock_propio', 'stock_full', 'stock_erp', 'codigo', 'marca', 'vinculo', 'tienda', 'actividad']);
   });
 
   it('with ml_metricas.ver but no ver_ganancia: units, gross and rotation, no markup and no Total Gauss', () => {
@@ -135,7 +173,15 @@ describe('the tree', () => {
 
 describe('default visibility', () => {
   it('hides Vínculo, Tienda, Última actividad and Último evento: they live in the Publicación cell and the panel', () => {
-    expect(defaultColumnVisibility()).toEqual({ vinculo: false, tienda: false, actividad: false, evento: false });
+    expect(defaultColumnVisibility()).toEqual({
+      codigo: false,
+      marca: false,
+      costo: false,
+      vinculo: false,
+      tienda: false,
+      actividad: false,
+      evento: false,
+    });
   });
 
   it('keeps only the user’s own picks apart from the defaults', () => {

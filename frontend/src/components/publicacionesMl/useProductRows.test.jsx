@@ -82,6 +82,18 @@ describe('the pager total', () => {
   });
 });
 
+describe("the Sin MLA count (Productos' card)", () => {
+  it('is what /products says, and unknown when it says nothing (a publication filter is on)', async () => {
+    publicacionesMlAPI.products.mockResolvedValueOnce({ data: productsResponse(undefined, { sin_mla_count: 42 }) });
+    const { result, rerender } = setup();
+    await waitFor(() => expect(result.current.sinMlaCount).toBe(42));
+    publicacionesMlAPI.products.mockResolvedValueOnce({ data: productsResponse(undefined, { total: 3 }) });
+    rerender({ filters: PAUSED });
+    await waitFor(() => expect(result.current.total).toBe(3));
+    expect(result.current.sinMlaCount).toBeNull();
+  });
+});
+
 describe('the in-flight guard', () => {
   it("a late answer of the previous list does not lift the new list's guard for the same page", async () => {
     const old = deferred();
