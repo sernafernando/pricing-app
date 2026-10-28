@@ -93,7 +93,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, literal, null, select
+from sqlalchemy import func, literal, not_, null, select
 
 from app.core.config import settings
 from app.core.database import get_background_db
@@ -506,6 +506,11 @@ def refetch_unresolved_orders(
             result.attempted += 1
             if answer.status == "ok":
                 returned[order_id] = answer.payload
+                # Counted before the write: if `process_batch` raises, the row still waits for its backoff.
+                row.update(
+                    {"intentos": MlOrdersOpsCuarentena.intentos + 1, "ultimo_intento_at": func.now()},
+                    synchronize_session=False,
+                )
             elif answer.status == "not_found":
                 row.delete(synchronize_session=False)
                 logger.warning("activity_receiver: ML has no order_id=%s; dropped from the quarantine", order_id)
@@ -536,16 +541,18 @@ def refetch_unresolved_orders(
     # Settled like the receiver's own resolved orders (`_clear_unresolved_orders`): the row goes whether the order
     # landed or `process_batch` left it out (outside the window, a mapping error, both logged there). Only a write
     # that failed keeps a row, now with its payload.
+    ids = list(returned)
     with get_background_db() as db:
-        landed = db.query(MlOrdersOps.order_id).filter(MlOrdersOps.order_id.in_(list(returned))).count()
-        cleared = (
-            _unresolved_debts(db)
-            .filter(MlOrdersOpsCuarentena.order_id.in_(list(returned)))
-            .delete(synchronize_session=False)
+        landed = db.query(MlOrdersOps.order_id).filter(MlOrdersOps.order_id.in_(ids)).count()
+        failed = (
+            db.query(MlOrdersOpsCuarentena.order_id)
+            .filter(MlOrdersOpsCuarentena.order_id.in_(ids), not_(has_no_payload()))
+            .count()
         )
+        _unresolved_debts(db).filter(MlOrdersOpsCuarentena.order_id.in_(ids)).delete(synchronize_session=False)
     result.landed += landed
-    result.dropped += max(cleared - landed, 0)
-    result.failed += len(returned) - cleared
+    result.failed += failed
+    result.dropped += max(len(ids) - landed - failed, 0)
     return result
 
 

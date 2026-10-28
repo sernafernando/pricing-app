@@ -127,6 +127,24 @@ class TestTheRefetch:
         floor = seen[0][1]
         assert timedelta(days=89) < datetime.now(timezone.utc) - floor < timedelta(days=91)
 
+    def test_a_process_batch_that_raises_still_waits_for_the_backoff(self, db, monkeypatch):
+        """The attempt is counted before the write: a persistent DB failure must not re-ask ML on every wake."""
+        _miss(db, 515)
+        _ml_answers(monkeypatch, {515: OrderFetch("ok", _order(515))})
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("write session failed")
+
+        monkeypatch.setattr(service, "process_batch", _boom)
+
+        with pytest.raises(RuntimeError):
+            service.refetch_unresolved_orders()
+
+        row = _row(db, 515)
+        assert row.raw_order is None
+        assert row.intentos == 2
+        assert service.refetch_unresolved_orders().attempted == 0
+
     def test_an_order_that_comes_back_outside_the_window_is_dropped(self, db, monkeypatch):
         """As the receiver does: an order before the window floor is never ingested, and its debt goes."""
         _miss(db, 513)
