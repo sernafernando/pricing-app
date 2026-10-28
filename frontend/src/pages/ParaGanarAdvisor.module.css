@@ -797,6 +797,18 @@
   margin-bottom: var(--space-2, 0.5rem);
 }
 
+.periodicidadMlaConCriterio {
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--cf-accent-blue) 8%, transparent);
+  padding: 2px 4px;
+}
+
+.periodicidadCriterioBadge {
+  font-weight: 700;
+  color: var(--cf-accent-blue);
+  letter-spacing: 0.01em;
+}
+
 .periodicidadFieldset {
   margin: 0;
   padding: var(--spacing-sm);

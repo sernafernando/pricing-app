@@ -252,7 +252,12 @@ export default function ParaGanarPeriodicidadDetail({
                     ? getLabel(opt.tienda_oficial_id) || `Tienda ${opt.tienda_oficial_id}`
                     : 'Sin tienda';
                 return (
-                  <label key={mla} className={styles.criteriaCheck}>
+                  <label
+                    key={mla}
+                    className={`${styles.criteriaCheck} ${
+                      opt.criterios_aplicados ? styles.periodicidadMlaConCriterio : ''
+                    }`}
+                  >
                     <input
                       type="checkbox"
                       disabled={!canWrite || todoElEan}
@@ -268,7 +273,12 @@ export default function ParaGanarPeriodicidadDetail({
                         (opt.pricelist_id != null ? `Lista ${opt.pricelist_id}` : 'Lista —')}
                       {' · '}
                       {tiendaLabel}
-                      {opt.criterios_aplicados ? ' · criterio' : ''}
+                      {opt.criterios_aplicados ? (
+                        <>
+                          {' · '}
+                          <span className={styles.periodicidadCriterioBadge}>Con criterio</span>
+                        </>
+                      ) : null}
                       {opt.titulo ? ` — ${opt.titulo}` : ''}
                     </span>
                   </label>
