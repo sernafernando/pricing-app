@@ -49,7 +49,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Optional
 
-from sqlalchemy import String, case, cast, func, literal, or_, select
+from sqlalchemy import String, and_, case, cast, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.ml_tienda_oficial import MlTiendaOficial
@@ -72,6 +72,7 @@ from app.services.ml_publications.view.filters import (
     build_base_select,
     decode_key,
     encode_key,
+    linked_product_conditions,
     product_links,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
@@ -255,8 +256,30 @@ def _scoped(f: PublicationFilter, path: list[str], tree: Tree, *columns: Any, pr
             query = query.join(target, onclause, isouter=True)
     if products or len(path) > len(tree.group_levels):
         query = query.outerjoin(PL, PL.c.item_id == T.i.item_id).outerjoin(PP, PP.item_id == PL.c.producto_item_id)
+        # only the products that pass the filter's product conditions and the ancestors' brand/category keys: a
+        # publication with variations in several products never brings a sibling product under a node
+        conditions = linked_product_conditions(f, PL.c.producto_item_id, PP) + _product_path(tree, path)
+        if conditions:
+            query = query.where(or_(PL.c.producto_item_id.is_(None), and_(*conditions)))
     keys = [tree.dimensions[name].key for name in tree.group_levels] + [product_key()]
     return query.where(*(keys[depth] == _raw_key(tree.levels[depth], key) for depth, key in enumerate(path)))
+
+
+# the group levels that are the product's own columns, keyed over the expanded product (`PP`) as over `T.p`
+PRODUCT_LEVELS = ("marca", "categoria", "subcategoria", SUBCATEGORIA_IN_CATEGORIA)
+
+
+def _product_path(tree: Tree, path: list[str]) -> list[Any]:
+    """The ancestors' keys of the product's own levels, over the expanded product (`PP`)."""
+    conditions = []
+    for depth, key in enumerate(path[: len(tree.group_levels)]):
+        level = tree.levels[depth]
+        if level in PRODUCT_LEVELS:
+            own = dimension_of(
+                level, marca=PP.marca, categoria=PP.categoria, subcategoria_id=PP.subcategoria_id, store_id=None
+            )
+            conditions.append(own.key == _raw_key(level, key))
+    return conditions
 
 
 def _group_level(
@@ -497,7 +520,7 @@ def _with_markup(
     else:
         result = compute_markups(db, markup.pricing_db, item_ids=[item for item, _key in members], ads=markup.ads)
     with gc_paused():
-        figures = aggregate_nodes(result.items, members)
+        figures = aggregate_nodes(result.items, members, products=page.level == KIND_PRODUCT)
     nodes = []
     for node in page.nodes:
         found = figures.get(node.key)

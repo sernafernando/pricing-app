@@ -137,11 +137,12 @@ class TestRootAggregates:
         self, conn, db, envio_calls
     ) -> None:
         seed_catalog(conn)
-        # MLA4 has one negative and one positive variation (linked to 71 and 70): under its product 70 it is ONE
-        # negative publication, and the range reaches both of its units
-        product_70 = by_key(tree(db, "ALFA", "__none__", "3845", markup=MarkupQuery(db)))["70"]
-        assert product_70.count == 2  # MLA1 and MLA4
-        assert figures(product_70) == (1, worst_of(71), worst_of(70))
+        # MLA4 has one negative and one positive variation (linked to 71 and 70): under its brand it is ONE negative
+        # publication whose range reaches both units; under each product, only that product's unit (#1870 B1)
+        assert figures(by_key(tree(db, markup=MarkupQuery(db)))["ALFA"]) == (2, worst_of(71), worst_of(70))
+        products = by_key(tree(db, "ALFA", "__none__", "3845", markup=MarkupQuery(db)))
+        assert figures(products["70"]) == (0, worst_of(70), worst_of(70))
+        assert figures(products["71"]) == (2, worst_of(71), worst_of(71))
         # MLA3, with no link, is the only publication without brand
         none = by_key(tree(db, markup=MarkupQuery(db)))[NO_GROUP]
         assert none.count == 1 and figures(none) == (0, None, None)
@@ -171,9 +172,9 @@ class TestEveryLevel:
         seed_catalog(conn)
         markup = MarkupQuery(db)
         products = by_key(tree(db, "ALFA", "__none__", "3845", markup=markup))
-        # MLA4 (linked per variation to both) is in each, with its whole publication's figures
-        assert figures(products["70"]) == (1, worst_of(71), worst_of(70))
-        assert figures(products["71"]) == (2, worst_of(71), worst_of(70))
+        # MLA4 (linked per variation to both) is in each, with only its units of that product
+        assert figures(products["70"]) == (0, worst_of(70), worst_of(70))
+        assert figures(products["71"]) == (2, worst_of(71), worst_of(71))
 
     def test_a_family_node_and_a_lone_publication_node_aggregate_too(self, conn, db, envio_calls) -> None:
         seed_catalog(conn)

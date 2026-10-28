@@ -78,18 +78,20 @@ MARKUP_PARAMS = [
 class TestMarkupFilter:
     @pytest.mark.parametrize("params", MARKUP_PARAMS, ids=lambda p: "&".join(f"{k}={v}" for k, v in p.items()))
     def test_the_products_are_those_of_the_publications_items_lists(self, client, analyst, pricing, params) -> None:
+        # a product is in the set when `/items?producto=<it>` lists a publication: its units of that product pass
         rows = listed(client, analyst, **params)
-        linked = sorted(set().union(*(products_of(r) for r in rows)))
+        candidates = set().union(*(products_of(r) for r in listed(client, analyst)))
+        linked = sorted(p for p in candidates if listed(client, analyst, producto=str(p), **params))
         got = resolve(client, analyst, **params)
         assert (got["item_ids"], got["count"]) == (linked, len(linked))
         assert got["sin_producto"] == sum(1 for r in rows if not products_of(r))
 
     def test_markup_neg_keeps_only_the_negative_products(self, client, analyst, pricing) -> None:
-        # 71 (MLA2) and 72 (MLA5) are negative; MLA4 is negative too, linked per variation to 70 and 71: it belongs
-        # to both products, as the Producto view groups it (S12g), so no publication is without product.
+        # 71 (MLA2) and 72 (MLA5) are negative. MLA4 is linked per variation to 70 (positive unit) and 71 (negative):
+        # only 71 is negative through it -- 70's own units are all positive, so a bulk action never reprices it.
         assert resolve(client, analyst, markup_neg="true") == {
-            "item_ids": [70, 71, 72],
-            "count": 3,
+            "item_ids": [71, 72],
+            "count": 2,
             "sin_producto": 0,
             "fuera_de_catalogo": 0,
         }

@@ -598,6 +598,44 @@ def has_product(products: Optional[list[int]] = None, *, outside: Optional[list[
     return exists(found)
 
 
+def _any_linked_product(test: Any) -> ColumnElement:
+    """One of the row's linked products (`product_links`) in the catalog passes `test` (given its catalog alias)."""
+    pl, pp = product_links("pl_any"), aliased(ProductoERP, name="pp_any")
+    return exists(
+        select(1)
+        .select_from(pl)
+        .join(pp, pp.item_id == pl.c.producto_item_id)
+        .where(pl.c.item_id == T.i.item_id, test(pp))
+    )
+
+
+def linked_product_conditions(f: PublicationFilter, product_id: Any, p: Any) -> list[ColumnElement]:
+    """The conditions of `f` that are about the PRODUCT, on one linked product (`product_id`, `p` its catalog row,
+    outer-joined): color, mejor oferta of the product, brand, category, subcategory and `q` (the product's own name
+    or code, unless the publication's own fields match). A publication `f` keeps is expanded to its linked products
+    that pass them -- the Producto view, its export, `/product-ids` and the tree's product level -- so a filter about
+    the product never brings in another product of the same publication (variations of different products)."""
+    conditions: list[ColumnElement] = []
+    if f.colors or f.no_color:
+        parts = []
+        if f.colors:
+            parts.append(product_id == any_(literal(list(f.color_ids or ()), ARRAY(Integer))))
+        if f.no_color:
+            parts.append(product_id != all_(literal(list(f.colored_ids or ()), ARRAY(Integer))))
+        conditions.append(or_(*parts))
+    if f.oferta is not None and f.oferta_per_product:
+        conditions.append(product_has_offer(product_id) if f.oferta else ~product_has_offer(product_id))
+    if f.marcas:
+        conditions.append(_text_in(p.marca, f.marcas))
+    if f.categorias:
+        conditions.append(_text_in(p.categoria, f.categorias))
+    if f.subcategorias or f.no_subcategoria:
+        conditions.append(_subcategorias_in(f, p))
+    if f.q is not None:
+        conditions.append(or_(*_search_parts(f.q, p)))
+    return conditions
+
+
 def price_amount() -> ColumnElement:
     """The ML price of the row: the sale price when there is one, else the item price (spec PRC-1)."""
     return func.coalesce(T.sp.amount, T.i.price)
@@ -674,32 +712,34 @@ def _variation_sku(match: Any) -> ColumnElement:
     )
 
 
-def _search(term: SearchTerm) -> ColumnElement:
+def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElement]:
+    """`term` on the publication's own fields, and on the product `p` (a catalog alias): `q` keeps a publication
+    when either matches, and its linked products whose own fields match (or all of them, when the publication's do)."""
     if term.kind == "item_id":
-        return T.i.item_id == term.value
+        return T.i.item_id == term.value, false()
     if term.kind == "digits":
 
         def same(column: Any) -> ColumnElement:
             return column == term.value
 
-        return or_(
+        own = or_(
             T.i.item_id == f"MLA{term.value}",
             same(T.i.seller_sku),
             same(T.i.seller_custom_field),
-            same(T.p.codigo),
             _variation_sku(same),
         )
+        return own, same(p.codigo)
     if term.kind == "codigo":
-        return func.upper(T.p.codigo) == term.value.upper()
+        return false(), func.upper(p.codigo) == term.value.upper()
     if term.kind == "marca":
-        return normalized_text(T.p.marca) == normalized_text(literal(term.value))
+        return false(), normalized_text(p.marca) == normalized_text(literal(term.value))
     if term.kind == "ends_with":
         suffix = f"%{escape_like(term.value)}"
 
         def ends(column: Any) -> ColumnElement:
             return column.ilike(suffix, escape=LIKE_ESCAPE)
 
-        return or_(ends(T.i.title), ends(T.p.descripcion), ends(T.p.marca), ends(T.p.codigo))
+        return ends(T.i.title), or_(ends(p.descripcion), ends(p.marca), ends(p.codigo))
     # ponytail: case-insensitive but accent-sensitive; `unaccent` is not installed on the test DB and its presence
     # on production is unverified (`scripts/measure_pubml_p5.py --database-url` reports it)
     pattern = f"%{escape_like(term.value)}%"
@@ -707,14 +747,17 @@ def _search(term: SearchTerm) -> ColumnElement:
     def contains(column: Any) -> ColumnElement:
         return column.ilike(pattern, escape=LIKE_ESCAPE)
 
-    return or_(
-        contains(T.i.title),
-        contains(T.i.seller_sku),
-        contains(T.i.seller_custom_field),
-        contains(T.p.codigo),
-        contains(T.p.descripcion),
-        _variation_sku(contains),
+    own = or_(
+        contains(T.i.title), contains(T.i.seller_sku), contains(T.i.seller_custom_field), _variation_sku(contains)
     )
+    return own, or_(contains(p.codigo), contains(p.descripcion))
+
+
+def _search(term: SearchTerm) -> ColumnElement:
+    """The publication's own fields, or any of its linked products' (`product_links`), so a publication with
+    variations in several products is found by each one's name or code."""
+    own, _ = _search_parts(term, T.p)
+    return or_(own, _any_linked_product(lambda p: _search_parts(term, p)[1]))
 
 
 def listing_clauses() -> dict[str, ColumnElement]:
@@ -795,12 +838,12 @@ def _text_in(column: Any, wanted: tuple[str, ...]) -> ColumnElement:
     return or_(*parts)
 
 
-def _subcategorias_in(f: PublicationFilter) -> ColumnElement:
+def _subcategorias_in(f: PublicationFilter, p: Any = T.p) -> ColumnElement:
     parts = []
     if f.subcategorias:
-        parts.append(T.p.subcategoria_id.in_(f.subcategorias))
+        parts.append(p.subcategoria_id.in_(f.subcategorias))
     if f.no_subcategoria:
-        parts.append(T.p.subcategoria_id.is_(None))
+        parts.append(p.subcategoria_id.is_(None))
     return or_(*parts)
 
 
@@ -884,18 +927,25 @@ def _oferta(on: bool, per_product: bool) -> ColumnElement:
     o = aliased(OfertaML, name="o")
     own = exists(select(1).where(o.mla == T.i.item_id, *_current_offer(o)))
     if per_product:
-        # any publication linked (`product_links`) to one of the row's products; a row with no product has only itself
-        mine, sibling = product_links("pl_oferta"), product_links("pl_oferta_sibling")
+        # one of the row's products (`product_links`) has an offer; a row with no product has only itself
+        mine = product_links("pl_oferta")
         of_product = exists(
-            select(1)
-            .select_from(mine)
-            .join(sibling, sibling.c.producto_item_id == mine.c.producto_item_id)
-            .join(o, o.mla == sibling.c.item_id)
-            .where(mine.c.item_id == T.i.item_id, *_current_offer(o))
+            select(1).select_from(mine).where(mine.c.item_id == T.i.item_id, product_has_offer(mine.c.producto_item_id))
         )
         linked = has_product()
         return or_(and_(linked, of_product if on else ~of_product), and_(~linked, own if on else ~own))
     return own if on else ~own
+
+
+def product_has_offer(product_id: Any) -> ColumnElement:
+    """Mejor oferta of a PRODUCT, as Productos asks it: one of the publications linked to it has a current offer."""
+    o, sibling = aliased(OfertaML, name="o_product"), product_links("pl_offer_sibling")
+    return exists(
+        select(1)
+        .select_from(sibling)
+        .join(o, o.mla == sibling.c.item_id)
+        .where(sibling.c.producto_item_id == product_id, *_current_offer(o))
+    )
 
 
 def _tienda_nube_in(state: str) -> ColumnElement:

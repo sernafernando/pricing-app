@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional
 
-from sqlalchemy import ARRAY, Text, any_, cast, func, literal, select, text, true
+from sqlalchemy import ARRAY, Text, any_, case, cast, func, literal, select, text, true
 from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
@@ -47,7 +47,9 @@ from app.services.ml_publications.view.markup_service import (
     MarkupResult,
     MarkupStats,
     compute_markups,
+    product_markup,
 )
+from app.services.ml_publications.view.markup import PublicationMarkup
 from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, needs_margin, ranked_page
 
 STATEMENT_TIMEOUT = "8s"
@@ -150,9 +152,12 @@ def row_columns() -> list[Any]:
         sp.campaign_id,
         link_state().label("link_state"),
         l.producto_item_id,
-        p.codigo,
-        p.descripcion,
-        p.marca,
+        # the LINK's product: `T.p` also names a publication linked per variation only (`filters.primary_product`),
+        # which has no item-level product, so its link shows none, as its `producto_item_id` and state do
+        *(
+            case((l.producto_item_id.isnot(None), column), else_=None).label(column.key)
+            for column in (p.codigo, p.descripcion, p.marca)
+        ),
         link_divergence().label("sku_divergence_kind"),
         l.suggested_producto_item_id,
         T.ps.codigo.label("suggested_codigo"),
@@ -354,10 +359,16 @@ def markup_accepted(db: Session, f: PublicationFilter, markup: MarkupQuery) -> t
     the publications `markup.filter` accepts. The one definition of "what the markup filter keeps": the list
     (`_list_by_markup`) and the bulk actions' product resolver (`products.product_ids`) both call it."""
     result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
+
+    def judged(item: ItemMarkup) -> PublicationMarkup:
+        # one product asked (`producto=`, a product row or node): only the publication's units of that product, as
+        # the Producto view and the tree's product nodes read them (`product_markup`)
+        return product_markup(item, f.producto) if f.producto is not None else item.markup
+
     accepted = frozenset(
         item_id
         for item_id, item in result.items.items()
-        if markup.filter.accepts(item.markup.worst, item.markup.any_negative)
+        if markup.filter.accepts(judged(item).worst, judged(item).any_negative)
     )
     return result, accepted
 

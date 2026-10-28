@@ -107,7 +107,9 @@ class TestVariationLinks:
                 # each leaf opens exactly its count
                 assert len(_items(client, admin_auth_headers, **node["params"])) == node["count"]
 
-        assert leaves == {"77": 3, "78": 1, "__none__": 3}
+        # MLA6 (variations to 77 TP-Link and 78 Ubiquiti) sits under its primary brand, TP-Link, and there only under
+        # 77: a product never appears under another brand's node (#1870 B1). Its 78 row is the Producto view's.
+        assert leaves == {"77": 3, "__none__": 3}
 
 
 @pytest.fixture()
@@ -168,3 +170,76 @@ class TestVariationLinksInTheProductFilters:
         assert _items(client, admin_auth_headers, q="Router") == ["MLA1", "MLA5", "MLA6"]  # the product's name too
         roots = {n["key"]: n["count"] for n in _json(client, admin_auth_headers, "groups")["nodes"]}
         assert roots == {"TP-LINK": 3, "__none__": 3}
+
+
+def fill_siblings(conn) -> None:
+    """The verifier's world (#1870 B1): publications whose variations are DIFFERENT products, which differ in color,
+    offer and brand. 78 is painted rojo (`painted_78`); only VA10 (a 78 publication) has a current offer.
+
+    * VA1: item-level 77 (TP-Link) -- VA6: variations to 78 and 77 -- VA10: a variation to 78, with the offer
+    * VA12: item-level 78 plus a variation to 79 -- VA9: item-level 79 (Kabel)"""
+    seed.create_presence_tables(conn)
+    seed.add_product(conn, 77, "R77", "Router AX", marca="TP-Link", categoria="Redes")
+    seed.add_product(conn, 78, "R78", "Antena Sector", marca="Ubiquiti", categoria="Antenas")
+    seed.add_product(conn, 79, "R79", "Cable UTP", marca="Kabel", categoria="Cables")
+    for mla in ("VA1", "VA6", "VA9", "VA10", "VA12"):
+        seed.add_item(conn, mla, status="active", title=f"Publicacion {mla}")
+    seed.add_link(conn, "VA1", 77)
+    seed.add_link(conn, "VA9", 79)
+    seed.add_link(conn, "VA12", 78)
+    for mla, variation_id, product in (("VA6", 61, 78), ("VA6", 62, 77), ("VA10", 101, 78), ("VA12", 121, 79)):
+        seed.add_variation(conn, mla, variation_id)
+        seed.add_link(conn, mla, product, variation_id=variation_id)
+    seed.add_oferta(conn, "VA10", *CURRENT, precio_final=900, pvp_seller=950)
+
+
+@pytest.fixture()
+def siblings(pg, db, rol_admin):
+    seed_rows(pg, fill_siblings)
+    grant(db, rol_admin, VER, METRICAS)
+    global_id = db.query(Equipo).filter(Equipo.es_global.is_(True)).one().id
+    db.add(ProductoERP(item_id=78, codigo="C78", descripcion="P78"))
+    db.flush()
+    db.add(ProductoColor(equipo_id=global_id, item_id=78, color_ml="rojo"))
+    db.flush()
+    return pg
+
+
+def _rows(client, headers, **params) -> dict[str, int]:
+    return {r["key"]: r["publications_count"] for r in _json(client, headers, "products", **params)["rows"]}
+
+
+@pytest.mark.postgres
+@pytest.mark.usefixtures("siblings")
+class TestAProductFilterNeverBringsASiblingProduct:
+    """A filter about the product keeps the publication's products that pass it, never its other ones (#1870 B1)."""
+
+    def test_color(self, client, admin_auth_headers):
+        assert _json(client, admin_auth_headers, "product-ids", colores="rojo")["item_ids"] == [78]
+        assert _rows(client, admin_auth_headers, colores="rojo") == {"78": 3}
+
+    def test_offer_of_the_product(self, client, admin_auth_headers):
+        got = _json(client, admin_auth_headers, "product-ids", con_oferta="true", oferta_por_producto="true")
+        assert got["item_ids"] == [78]
+        assert _rows(client, admin_auth_headers, con_oferta="true") == {"78": 3}
+
+    def test_brand(self, client, admin_auth_headers):
+        assert _rows(client, admin_auth_headers, marcas="TP-LINK") == {"77": 2}  # VA1, VA6 -- not VA6's 78
+
+    def test_product_name_or_code_search(self, client, admin_auth_headers):
+        assert _rows(client, admin_auth_headers, q="R78") == {"78": 3}  # VA6, VA10, VA12 -- not VA12's 79
+
+    def test_the_tree_s_product_level_under_a_brand(self, client, admin_auth_headers):
+        brand = _json(client, admin_auth_headers, "groups", path="TP-LINK,REDES")["nodes"]
+        leaves = _json(client, admin_auth_headers, "groups", path=f"TP-LINK,REDES,{brand[0]['key']}")["nodes"]
+        assert {n["key"]: n["count"] for n in leaves} == {"77": 2}
+
+    def test_a_variation_only_row_shows_no_item_level_product(self, client, admin_auth_headers):
+        rows = {r["item_id"]: r["link"] for r in _json(client, admin_auth_headers, "items", limit=100)["items"]}
+        assert rows["VA6"] == {
+            "state": rows["VA6"]["state"],
+            "producto_item_id": None,
+            "codigo": None,
+            "descripcion": None,
+            "marca": None,
+        }
