@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOpsDivergence, MlOrdersOps
+from app.models.ml_orders_ops import MlOrdersOps, MlOrdersOpsCuarentena
 from app.services.ml_orders_ingestion import activity_receiver_service as service
 from app.services.ml_orders_ingestion import ingestion_service
 
@@ -41,11 +41,7 @@ def _seed(db):
 
 
 def _debt(db, order_id):
-    db.add(
-        MlOpsDivergence(
-            order_id=order_id, kind="unknown", field=service.UNRESOLVED_FIELD, detected_at=datetime.now(timezone.utc)
-        )
-    )
+    db.add(MlOrdersOpsCuarentena(order_id=order_id, raw_order=None, error=ingestion_service.TRANSIENT_TAG + "none"))
 
 
 @pytest.mark.postgres
@@ -89,7 +85,7 @@ class TestShipmentDebtCleanupOnPostgres:
         cleared = service._clear_shipment_id_unresolved_debts(db)
 
         assert cleared == 2
-        assert [d.order_id for d in db.query(MlOpsDivergence).all()] == [UNKNOWN_SHIP]
+        assert [d.order_id for d in db.query(MlOrdersOpsCuarentena).all()] == [UNKNOWN_SHIP]
 
     def test_a_null_shipping_id_never_matches_a_debt(self, pg_orders_ops_db):
         db = pg_orders_ops_db
@@ -98,7 +94,7 @@ class TestShipmentDebtCleanupOnPostgres:
         db.flush()
 
         assert service._clear_shipment_id_unresolved_debts(db) == 0
-        assert db.query(MlOpsDivergence).count() == 1
+        assert db.query(MlOrdersOpsCuarentena).count() == 1
 
 
 def _event(topic, resource, order_id):

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
 import { AlertTriangle, Clock, Download, FileSpreadsheet, FilterX, ShieldAlert, TrendingDown } from 'lucide-react';
 import api from '../services/api';
@@ -18,15 +19,15 @@ import AdsUnattributedPanel from '../components/metricasMl/AdsUnattributedPanel'
 import AdsModeControl from '../components/metricasMl/AdsModeControl';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
 import VentasPorDiaChart from '../components/metricasMl/VentasPorDiaChart';
-import BoardTable from '../components/metricasMl/BoardTable';
+import BoardTable, { BOARD_SORT_KEYS } from '../components/metricasMl/BoardTable';
 import { adsRequestParams } from '../utils/metricasMlAds';
 import { TP_SOLO_DIMENSION, tpErrorMessage, tpRequestParams, tpSoloSortKey } from '../utils/metricasMlTp';
 import { isTpSolo } from '../components/ventasMl/tpMode';
-import { DIMENSION_OPTIONS, buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
+import { DIMENSION_OPTIONS, MARGIN_COLUMNS, buildBoardColumns } from '../components/metricasMl/metricasMlColumns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
-import { currentMonthRange } from '../utils/dateRangePresets';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
+import { DEFAULT_PRESET, defaultView, readMetricasUrl, writeMetricasUrl } from '../utils/metricasMlUrl';
 import { nodeId } from '../utils/metricasMlLevels';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
 import { exportMetricasSheets, isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -59,14 +60,12 @@ import styles from './MetricasML.module.css';
  * figures exist only when the backend says `can_see_margin`.
  */
 
-const DEFAULT_PRESET = 'mesActual';
 const DEFAULT_PAGE_SIZE = 50;
 // Ageing buckets whose rows, by definition, sold nothing in the last 30 days.
 const STALE_AGEING_BUCKETS = new Set(['from_31_to_60', 'over_60']);
 // The board's period cap (`MAX_PERIOD_DAYS` in `routers/ml_metricas.py`).
 const MAX_PERIOD_DAYS = 366;
 const PERIOD_LIMIT_MESSAGE = 'El período máximo es de 1 año';
-const EMPTY_PRODUCT_FILTERS = { marcas: [], categorias: [], subcategorias: [], pms: [] };
 const PERIOD_LABELS = {
   hoy: 'hoy',
   ayer: 'ayer',
@@ -127,10 +126,12 @@ function withoutSellTpSort(sort) {
   return sort.key === 'markup_sell' ? { key: 'gross', desc: true } : sort;
 }
 
-// The current month in Argentina time, the same default as Ventas ML.
-function defaultRange() {
-  const { desde, hasta } = currentMonthRange();
-  return { desde, hasta };
+// Sorts that need a view mode a link does not carry (Costos TP, Publicidad): the board answers 422 without it.
+const MODE_SORTS = new Set(['total_tp', 'ads_cost']);
+
+/** What a link may sort by: never a sort that needs a view mode, nor a margin one without the profit view. */
+function linkSortKeys(canSeeMargin) {
+  return new Set([...BOARD_SORT_KEYS].filter((key) => !MODE_SORTS.has(key) && (canSeeMargin || !MARGIN_COLUMNS.has(key))));
 }
 
 export default function MetricasML() {
@@ -144,35 +145,41 @@ export default function MetricasML() {
   // A `tplink.solo` user has the profit view without it (backend `_viewer`), so it gets the toggle too.
   const puedeVerGanancia = tpSolo || tienePermiso('ml_metricas.ver_ganancia');
   const latestRequestRef = useRef(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The view a link describes (period, grouping, filters, sort; `defaultView` where it says nothing): the URL then
+  // follows the state, so a reload keeps the view and a filtered view can be shared (U1).
+  const [fromUrl] = useState(() => readMetricasUrl(searchParams, { sortKeys: linkSortKeys(puedeVerGanancia) }));
+  // The query this page wrote last: a different one is a link followed while the page is open.
+  const writtenQueryRef = useRef(searchParams.toString());
 
-  const [range, setRange] = useState(() => ({ ...defaultRange(), filtro: DEFAULT_PRESET }));
-  const [compararCon, setCompararCon] = useState('periodo_anterior');
-  const [groupBy, setGroupBy] = useState('product');
+  const [range, setRange] = useState(fromUrl.range);
+  const [compararCon, setCompararCon] = useState(fromUrl.compararCon);
+  const [groupBy, setGroupBy] = useState(fromUrl.groupBy);
   // What the "Agrupado" view sums by (ignored by the other views).
-  const [dimension, setDimension] = useState('marca');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [productFilters, setProductFilters] = useState(EMPTY_PRODUCT_FILTERS);
-  const [storeFilter, setStoreFilter] = useState('');
+  const [dimension, setDimension] = useState(fromUrl.dimension);
+  const [searchQuery, setSearchQuery] = useState(fromUrl.searchQuery);
+  const [productFilters, setProductFilters] = useState(fromUrl.productFilters);
+  const [storeFilter, setStoreFilter] = useState(fromUrl.storeFilter);
   const { tiendas, getLabel } = useTiendasOficiales();
-  const [pubStatus, setPubStatus] = useState([]);
-  const [pubType, setPubType] = useState([]);
-  const [pubStatusExclude, setPubStatusExclude] = useState([]);
-  const [pubTypeExclude, setPubTypeExclude] = useState([]);
-  const [alerts, setAlerts] = useState([]);
-  const [stock, setStock] = useState([]);
-  const [stockExclude, setStockExclude] = useState([]);
-  const [ageing, setAgeing] = useState([]);
-  const [ageingExclude, setAgeingExclude] = useState([]);
+  const [pubStatus, setPubStatus] = useState(fromUrl.pubStatus);
+  const [pubType, setPubType] = useState(fromUrl.pubType);
+  const [pubStatusExclude, setPubStatusExclude] = useState(fromUrl.pubStatusExclude);
+  const [pubTypeExclude, setPubTypeExclude] = useState(fromUrl.pubTypeExclude);
+  const [alerts, setAlerts] = useState(fromUrl.alerts);
+  const [stock, setStock] = useState(fromUrl.stock);
+  const [stockExclude, setStockExclude] = useState(fromUrl.stockExclude);
+  const [ageing, setAgeing] = useState(fromUrl.ageing);
+  const [ageingExclude, setAgeingExclude] = useState(fromUrl.ageingExclude);
   // "Solo con ventas en el período": on by default -- a short period shows
   // what sold in it, not the whole catalog (ODD "Período y stock" PS1).
-  const [soloConVentas, setSoloConVentas] = useState(true);
+  const [soloConVentas, setSoloConVentas] = useState(fromUrl.soloConVentas);
   // The ads toggle's position (`off | mla | todo`); a view mode, so "Limpiar filtros" leaves it alone.
   const [publicidad, setPublicidad] = useState('off');
   // "Costos TP" (TP cost on the TP store's operations, Total TP next to Total Gauss): off by default, a view mode
   // like the ads toggle. `tpError` says why the board turned it back off (403 / 503) until it is turned on again.
   const [costosTp, setCostosTp] = useState(false);
   const [tpError, setTpError] = useState(null);
-  const [sort, setSort] = useState({ key: 'gross', desc: true });
+  const [sort, setSort] = useState(fromUrl.sort);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
@@ -250,6 +257,82 @@ export default function MetricasML() {
       tpSolo,
     ],
   );
+
+  // The URL follows the view (replacing the entry: the filters are no navigation history), and a link to this page
+  // followed while it is open (same route, another query) sets the view instead of being written over.
+  useEffect(() => {
+    const current = searchParams.toString();
+    if (current !== writtenQueryRef.current) {
+      writtenQueryRef.current = current;
+      const view = readMetricasUrl(searchParams, { sortKeys: linkSortKeys(puedeVerGanancia) });
+      setRange(view.range);
+      setCompararCon(view.compararCon);
+      setGroupBy(view.groupBy);
+      setDimension(view.dimension);
+      setSearchQuery(view.searchQuery);
+      setProductFilters(view.productFilters);
+      setStoreFilter(view.storeFilter);
+      setPubStatus(view.pubStatus);
+      setPubType(view.pubType);
+      setPubStatusExclude(view.pubStatusExclude);
+      setPubTypeExclude(view.pubTypeExclude);
+      setAlerts(view.alerts);
+      setStock(view.stock);
+      setStockExclude(view.stockExclude);
+      setAgeing(view.ageing);
+      setAgeingExclude(view.ageingExclude);
+      setSoloConVentas(view.soloConVentas);
+      setSort(view.sort);
+      setOffset(0);
+      return;
+    }
+    const next = writeMetricasUrl({
+      range,
+      compararCon,
+      groupBy,
+      dimension,
+      searchQuery,
+      productFilters,
+      storeFilter,
+      pubStatus,
+      pubType,
+      pubStatusExclude,
+      pubTypeExclude,
+      alerts,
+      stock,
+      stockExclude,
+      ageing,
+      ageingExclude,
+      soloConVentas,
+      sort,
+    }, searchParams);
+    if (next.toString() !== current) {
+      writtenQueryRef.current = next.toString();
+      setSearchParams(next, { replace: true });
+    }
+  }, [
+    range,
+    compararCon,
+    groupBy,
+    dimension,
+    searchQuery,
+    productFilters,
+    storeFilter,
+    pubStatus,
+    pubType,
+    pubStatusExclude,
+    pubTypeExclude,
+    alerts,
+    stock,
+    stockExclude,
+    ageing,
+    ageingExclude,
+    soloConVentas,
+    sort,
+    searchParams,
+    setSearchParams,
+    puedeVerGanancia,
+  ]);
 
   // Changing WHAT is filtered resets WHERE you are: page 1, nothing open.
   const withReset = (setter) => (...args) => {
@@ -412,9 +495,10 @@ export default function MetricasML() {
   };
 
   const clearFilters = () => {
-    setRange({ ...defaultRange(), filtro: DEFAULT_PRESET });
+    const defaults = defaultView();
+    setRange(defaults.range);
     setSearchQuery('');
-    setProductFilters(EMPTY_PRODUCT_FILTERS);
+    setProductFilters(defaults.productFilters);
     setStoreFilter('');
     setPubStatus([]);
     setPubType([]);

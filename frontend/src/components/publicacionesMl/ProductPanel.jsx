@@ -12,7 +12,9 @@ import { UnitsCell } from './MetricsCells';
 import PublicationStatusPill from './PublicationStatusPill';
 import PanelShell from './panel/PanelShell';
 import PanelTabs from './panel/PanelTabs';
+import ProductBanAction from './panel/ProductBanAction';
 import ProductChangesTab from './panel/ProductChangesTab';
+import ProductCuotasConfig from './panel/ProductCuotasConfig';
 import ProductIdentity from './panel/ProductIdentity';
 import { Field, Fields, Section } from './panel/PanelParts';
 import { amount, count } from './panel/format';
@@ -44,9 +46,11 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * what ProductoTable hides: nothing without `canSeeSales`, no markup or Total Gauss without `canSeeMargin`.
  *
  * Those go under the Resumen tab, after the product's SKU and EAN (`ProductIdentity`, editable with
- * `ml_publicaciones.editar_producto`). Precios mounts the product's prices (the same `ProductPrices` a publication's
- * Precios tab mounts) for whoever may see them, and Cambios the changes made to the product in the app, with who made
- * each one (`ProductChangesTab`); "Sin producto" has neither. Opening another product goes back to
+ * `ml_publicaciones.editar_producto`), and last the product's ban (`ProductBanAction`, gated by itself). Precios
+ * mounts the product's prices (the same `ProductPrices` a publication's Precios tab mounts), and under them its
+ * instalment settings (`ProductCuotasConfig`), for whoever may see them, and Cambios the changes made to the product
+ * in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. Opening another product goes
+ * back to
  * Resumen. A price write reloads the page's list (`onListReload`).
  *
  * @param {object} props
@@ -110,12 +114,15 @@ export default function ProductPanel({
           {activeKey === CAMBIOS.key ? (
             <ProductChangesTab key={productItemId} productItemId={productItemId} />
           ) : activeKey === PRECIOS.key ? (
-            <ProductPrices
-              productItemId={productItemId}
-              permissions={pricePermissions(tienePermiso)}
-              onWritten={onListReload}
-              showCost={canSeeMargin}
-            />
+            <>
+              <ProductPrices
+                productItemId={productItemId}
+                permissions={pricePermissions(tienePermiso)}
+                onWritten={onListReload}
+                showCost={canSeeMargin}
+              />
+              <ProductCuotasConfig key={productItemId} productItemId={productItemId} />
+            </>
           ) : (
             <>
               {productItemId != null && <ProductIdentity key={productItemId} productItemId={productItemId} publications={items} />}
@@ -181,6 +188,10 @@ export default function ProductPanel({
                   </button>
                 )}
               </Section>
+
+              {productItemId != null && (
+                <ProductBanAction key={productItemId} productItemId={productItemId} description={summary.label} />
+              )}
             </>
           )}
         </PanelTabs>

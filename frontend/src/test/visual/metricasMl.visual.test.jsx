@@ -29,7 +29,9 @@ import {
   GROUP_BOARD_RESPONSE,
 } from './metricasMlFixtures';
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router-dom', async () => ({
+  // The page keeps its filters in the URL (U1): an in-memory query, empty at the start.
+  useSearchParams: (await import('./searchParamsMock')).useSearchParams,
   Link: ({ to, children, ...rest }) => (
     <a href={to} {...rest}>
       {children}
@@ -247,6 +249,13 @@ describe('Métricas ML board (visual)', () => {
         expect(wrapped(table.querySelectorAll('[data-money]'))).toEqual([]);
         const kpis = document.querySelector('section[aria-label="Indicadores del período"]');
         expect(wrapped(kpis.querySelectorAll('[data-kpi-value]'))).toEqual([]);
+        // Sell in / sell out without "Costos TP": seven cards on one row, the sell card among them.
+        expect(kpis.hasAttribute('data-sell')).toBe(true);
+        expect(kpis.hasAttribute('data-tp')).toBe(false);
+        expect(kpis.textContent).toContain('Sell in / Sell out');
+        const tops = [...kpis.children].map((card) => card.getBoundingClientRect().top);
+        expect(tops).toHaveLength(7);
+        expect(new Set(tops).size).toBe(1);
         expect(wrapped(table.querySelectorAll('td[data-col-id="markup_delta"] > span'))).toEqual([]);
         expect(wrapped(table.querySelectorAll('td[data-col-id="markup_range"] > span'))).toEqual([]);
 

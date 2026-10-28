@@ -44,6 +44,7 @@ from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
+from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
 from app.models.markup_tienda import MarkupTiendaBrand
 from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
 from app.models.rol import Rol
@@ -205,7 +206,13 @@ from app.models.sell_in import (
     SellInCompraPedido,
     SellInConsumo,
 )
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutDirty
+from app.models.sell_out import (
+    SellOutCampana,
+    SellOutCampanaGrupo,
+    SellOutCampanaItem,
+    SellOutConsumo,
+    SellOutDirty,
+)
 from app.models.sell_dirty import SellDirty
 from app.models.combo_componente import ComboComponente
 
@@ -286,6 +293,7 @@ __all__ = [
     "OffsetGrupoResumen",
     "OffsetIndividualConsumo",
     "OffsetIndividualResumen",
+    "OffsetMigracionPendiente",
     "MarkupTiendaBrand",
     "Permiso",
     "RolPermisoBase",
@@ -477,6 +485,7 @@ __all__ = [
     "SellInConsumo",
     "SellOutCampana",
     "SellOutCampanaGrupo",
+    "SellOutCampanaItem",
     "SellOutConsumo",
     "SellOutDirty",
     "SellDirty",

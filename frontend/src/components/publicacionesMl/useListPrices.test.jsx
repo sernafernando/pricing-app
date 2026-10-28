@@ -66,4 +66,18 @@ describe('useListPrices', () => {
     rerender({ ids: [7] });
     expect(result.current).toBe(first);
   });
+
+  it("reads them again when the page's list is reloaded (`version`: a panel or bulk write changed prices)", async () => {
+    const { result, rerender } = renderHook(({ version }) => useListPrices([7], true, version), { initialProps: { version: 0 } });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender({ version: 0 });
+    expect(productosAPI.listar).toHaveBeenCalledTimes(1);
+    productosAPI.listar.mockResolvedValueOnce(listed({ item_id: 7, precio_lista_ml: 1800 }));
+    rerender({ version: 1 });
+    // The shown prices stay until the new ones arrive.
+    expect(result.current.byId.get(7)?.precio_lista_ml).toBe(1000);
+    expect(result.current.loading).toBe(false);
+    await waitFor(() => expect(result.current.byId.get(7)?.precio_lista_ml).toBe(1800));
+    expect(productosAPI.listar).toHaveBeenCalledTimes(2);
+  });
 });
