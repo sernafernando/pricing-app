@@ -151,6 +151,16 @@ describe('priceColumns', () => {
       }
     });
 
+    it("a zero TN price sent as text ('0', '0.00') draws no TN line; a promotion falls back to a positive regular price", () => {
+      for (const zero of ['0', '0.00']) {
+        expect(cell(tn({ tn_price: zero }))).toBe('—');
+        expect(cell(tn({ tn_price: zero, tn_promotional_price: zero, tn_has_promotion: true }))).toBe('—');
+        const { container, unmount } = render(<div>{tn({ tn_price: '1000.00', tn_promotional_price: zero, tn_has_promotion: true }).render(item())}</div>);
+        expect(container.querySelector('[data-tn-price]')).toHaveTextContent(/^\$ 1\.000,00\$800,00 transf\.$/);
+        unmount();
+      }
+    });
+
     it('without the surcharge (not loaded, or failed) the TN price shows alone, never a wrong transfer price', () => {
       // Not read yet or failed (null), and an unusable config value (0, not a number) alike.
       for (const percent of [null, 0, 'abc']) {
