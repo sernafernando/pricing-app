@@ -104,13 +104,13 @@ class ItemMarkup:
 
 def product_markup(item: ItemMarkup, product: int) -> PublicationMarkup:
     """The markup of the publication's units linked to `product`: a publication whose variations are different
-    products is, for each product, only its own units (a product never shows a sibling variation's margin). The whole
-    publication when none of its units is linked to `product`."""
+    products is, for each product, only its own units (a product never shows a sibling variation's margin). Every
+    unit `product`'s: the publication's own markup, untouched (Ads included). None of them (an item-level link whose
+    variations are another product): no value, never the sibling's."""
     units = item.markup.variations
-    mine = [unit for unit, linked in zip(units, item.unit_products) if linked == product]
-    if not mine or len(item.unit_products) != len(units):
+    if len(item.unit_products) != len(units) or all(linked == product for linked in item.unit_products):
         return item.markup
-    return summarize(mine)
+    return summarize([unit for unit, linked in zip(units, item.unit_products) if linked == product])
 
 
 def _unit_products(inputs: PublicationInputs) -> tuple[Optional[int], ...]:
