@@ -1,6 +1,10 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 import styles from './ParaGanarScopeFilters.module.css';
+
+function sameKey(a, b) {
+  return String(a) === String(b);
+}
 
 export default function ScopeMultiSelect({
   label,
@@ -28,11 +32,16 @@ export default function ScopeMultiSelect({
   }, [open]);
 
   const toggle = (key) => {
-    if (selected.includes(key)) {
-      onChange(selected.filter((item) => item !== key));
+    if (selected.some((item) => sameKey(item, key))) {
+      onChange(selected.filter((item) => !sameKey(item, key)));
     } else {
       onChange([...selected, key]);
     }
+  };
+
+  const clear = () => {
+    onChange([]);
+    setOpen(false);
   };
 
   const count = selected.length;
@@ -40,17 +49,30 @@ export default function ScopeMultiSelect({
 
   return (
     <div className={styles.selectWrap} ref={rootRef}>
-      <button
-        type="button"
-        className={`${styles.selectBtn} ${count > 0 ? styles.selectBtnActive : ''}`}
-        aria-expanded={open}
-        aria-controls={listId}
-        disabled={disabled}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span>{buttonLabel}</span>
-        <ChevronDown size={14} aria-hidden />
-      </button>
+      <div className={`${styles.selectGroup} ${count > 0 ? styles.selectGroupActive : ''}`}>
+        <button
+          type="button"
+          className={styles.selectBtn}
+          aria-expanded={open}
+          aria-controls={listId}
+          disabled={disabled}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <span>{buttonLabel}</span>
+          <ChevronDown size={14} aria-hidden />
+        </button>
+        {count > 0 && (
+          <button
+            type="button"
+            className={styles.clearChip}
+            aria-label={`Limpiar ${label.toLowerCase()}`}
+            disabled={disabled}
+            onClick={clear}
+          >
+            <X size={12} aria-hidden />
+          </button>
+        )}
+      </div>
       {open && (
         <div className={styles.dropdown} id={listId} role="listbox" aria-label={label}>
           {options.length === 0 ? (
@@ -59,7 +81,7 @@ export default function ScopeMultiSelect({
             <ul className={styles.optionList}>
               {options.map((option) => {
                 const key = getKey(option);
-                const checked = selected.includes(key);
+                const checked = selected.some((item) => sameKey(item, key));
                 return (
                   <li key={String(key)}>
                     <label className={`${styles.option} ${checked ? styles.optionSelected : ''}`}>
@@ -76,11 +98,7 @@ export default function ScopeMultiSelect({
             </ul>
           )}
           {count > 0 && (
-            <button
-              type="button"
-              className={styles.clearLocal}
-              onClick={() => onChange([])}
-            >
+            <button type="button" className={styles.clearLocal} onClick={clear}>
               Limpiar {label.toLowerCase()}
             </button>
           )}
