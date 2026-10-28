@@ -18,7 +18,7 @@ from tests.services.ml_ads.test_account_level_migration import _script_directory
 from tests.services.ml_ads.test_contributions_migration import run_migration, throwaway_schema
 
 REVISION = "20261208_ml_sale_lines_tg_unknown"
-PARENT = "20261207_sell_out_campana_items"
+PARENT = "20261211_sell_in_bono_tope"
 _PATH = Path(__file__).resolve().parents[3] / "alembic" / "versions" / f"{REVISION}.py"
 
 
