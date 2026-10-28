@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Mapping, Optional
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.services.costo_ppp_service import PppMarkups, resolver_ppp_batch
@@ -43,7 +44,7 @@ def cost_lines(
     (`resolver_sell_in_out_batch`, null when neither applies). No markup is recorded: the cost cell shows neither.
     Both resolvers read the pricing database, once for the whole page.
 
-    None when building them fails (logged): the lines are informative, so the page answers as it did before they
+    None when one of those reads fails (a database error, logged): the lines are informative, so the page answers as it did before they
     existed, each row with its cost and without the line keys, instead of failing whole. The reads run in a
     savepoint, so a failed one leaves the session usable for the rest of the request."""
     if not products:
@@ -51,7 +52,7 @@ def cost_lines(
     try:
         with pricing_db.begin_nested():
             return _cost_lines(pricing_db, products)
-    except Exception:
+    except SQLAlchemyError:  # a failed read; a programming error still surfaces
         logger.exception("Publicaciones ML: no se pudieron armar las líneas de PPP / sell in del costo")
         return None
 
