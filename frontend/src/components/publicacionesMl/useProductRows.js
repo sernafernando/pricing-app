@@ -45,6 +45,9 @@ export function readProduct(raw) {
     metrics: raw.metrics ?? null,
     colorMarcado: raw.color_marcado ?? null,
     colorHintGlobal: raw.color_hint_global ?? null,
+    // Productos' wholesale quick view (`PxqTramosBadge`); absent when the product has no tiers.
+    pxqTramos: raw.pxq_tramos ?? null,
+    pxqPrecioDesde: raw.pxq_precio_desde ?? null,
   };
 }
 

@@ -11,7 +11,7 @@ import ProductoTable from './ProductoTable';
 import useProductRows from './useProductRows';
 import { buildColumns } from './columns';
 import { publicacionesMlAPI } from '../../services/api';
-import { COST_LINES, PRODUCT_ROWS, makeItem, productsResponse } from '../../test/visual/publicacionesMlFixtures';
+import { COST_LINES, PRODUCT_ROWS, makeItem, makeProductRow, productsResponse } from '../../test/visual/publicacionesMlFixtures';
 
 vi.mock('../../services/api', () => ({
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn() },
@@ -64,6 +64,7 @@ function Harness({
   onSort = () => {},
   selection,
   prices,
+  prearmadasStats,
 }) {
   const [expandedIds] = useState(() => new Set());
   const tree = useProductRows({ filters, pageSize: 50, canSeeSales, canSeeMargin });
@@ -80,6 +81,7 @@ function Harness({
         onSelectProduct={onSelectProduct}
         selectedKey={filters.sel || undefined}
         selectedProductKey={filters.prod || undefined}
+        prearmadasStats={prearmadasStats}
         sort={tree.sort}
         onSort={onSort}
         selection={selection}
@@ -101,6 +103,19 @@ beforeEach(() => {
 });
 
 describe('the product rows', () => {
+  it("carry Productos' prearmadas and wholesale (PxQ) badges beside the product's name", async () => {
+    publicacionesMlAPI.products.mockResolvedValue({
+      data: productsResponse([makeProductRow({ pxq_tramos: 3, pxq_precio_desde: 37800 }), ...PRODUCT_ROWS.slice(1)]),
+    });
+    render(<Harness prearmadasStats={{ 4101: { exact: 2, upgrade: 0 }, 4102: { exact: 0, upgrade: 0 } }} />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).getByText('3 tramos · desde $37.800')).toBeInTheDocument();
+    expect(within(row).getByText('2 listas')).toBeInTheDocument();
+    const otra = rowOf('Sistema Mesh Deco X20 pack x3 con una descripción bastante larga para ver cómo corta');
+    expect(within(otra).queryByText(/tramo/)).not.toBeInTheDocument(); // no tiers, no stats: no badges
+    expect(within(otra).queryByText(/lista/)).not.toBeInTheDocument();
+  });
+
   it('asks /products once with the filters, the sort and the page -- never the markup filters', async () => {
     render(<Harness />);
     await screen.findByText('Router Archer AX55');
