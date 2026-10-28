@@ -485,10 +485,10 @@ def listar_productos(
 
         # Obtener productos que tienen auditorías cumpliendo los criterios
         audit_query = db.query(Auditoria.item_id).filter(and_(*filtros_audit))
-        item_ids = [item_id for (item_id,) in audit_query.distinct().all()]
+        audit_item_ids = [item_id for (item_id,) in audit_query.distinct().all()]
 
-        if item_ids:
-            query = query.filter(ProductoERP.item_id.in_(item_ids))
+        if audit_item_ids:
+            query = query.filter(ProductoERP.item_id.in_(audit_item_ids))
         else:
             return ProductoListResponse(total=0, page=page, page_size=page_size, productos=[])
 
@@ -1429,7 +1429,7 @@ def listar_productos(
 
     # Obtener precios de Tienda Nube
     if productos:
-        item_ids = [p.item_id for p in productos]
+        page_item_ids = [p.item_id for p in productos]
 
         tn_precios = db.execute(
             text("""
@@ -1442,7 +1442,7 @@ def listar_productos(
             WHERE item_id = ANY(:item_ids)
             AND activo = true
         """),
-            {"item_ids": item_ids},
+            {"item_ids": page_item_ids},
         ).fetchall()
 
         # Crear diccionario item_id -> precios TN
@@ -1464,12 +1464,12 @@ def listar_productos(
 
     # Obtener precios PVP desde precios_ml (rule shared with the product detail)
     if productos:
-        item_ids = [p.item_id for p in productos]
+        page_item_ids = [p.item_id for p in productos]
 
         # Build producto_erp lookup from original results (avoid per-product DB query)
         erp_by_item_id = {r[0].item_id: r[0] for r in results}
 
-        pvp_dict = fetch_pvp_precios_ml(db, item_ids)
+        pvp_dict = fetch_pvp_precios_ml(db, page_item_ids)
 
         # Asignar precios PVP y calcular markups (using prefetched data)
         for producto in productos:
