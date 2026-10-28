@@ -1759,7 +1759,7 @@ describe("editing Productos' prices in the table (S11c)", () => {
   });
   const table = () => screen.getByRole('table', { name: /Publicaciones de Mercado Libre/ });
   const editClasica = async (user, text) => {
-    await user.click((await within(table()).findAllByRole('button', { name: 'Editar Precio Clásica' }))[0]);
+    await user.click((await within(table()).findAllByRole('button', { name: /^Editar Precio Clásica/ }))[0]);
     const input = within(table()).getByRole('textbox', { name: 'Precio Clásica' });
     await user.clear(input);
     await user.type(input, `${text}{Enter}`);

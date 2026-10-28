@@ -104,7 +104,7 @@ describe('priceColumns', () => {
       const options = edit();
       const [clasica] = priceColumns('normal', { prices: prices(), edit: options });
       mount(clasica.render(item()));
-      await userEvent.click(screen.getByRole('button', { name: 'Editar Precio Clásica' }));
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Clásica/ }));
       await userEvent.type(screen.getByRole('textbox', { name: 'Precio Clásica' }), '{Control>}a{/Control}1500{Enter}');
       expect(options.onSave).toHaveBeenCalledWith(expect.objectContaining({ id: 'ml-clasica' }), PRODUCT, '1500');
     });
@@ -122,7 +122,7 @@ describe('priceColumns', () => {
       mount(clasica.render(item()));
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
       mount(cuota3.render(item()));
-      expect(screen.getByRole('button', { name: 'Editar 3 Cuotas' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Editar 3 Cuotas/ })).toBeInTheDocument();
     });
 
     it('never with no product, a request on its way or a failed one', () => {

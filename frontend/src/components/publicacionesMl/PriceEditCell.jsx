@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { formatPrecioInput } from '../../utils/precioInput';
+import { formatAmount } from '../../utils/ventasMlFormat';
 import styles from './cells.module.css';
 
 /**
@@ -9,16 +10,18 @@ import styles from './cells.module.css';
  */
 export default function PriceEditCell({ label, value, onSave, saving = false, children }) {
   const [draft, setDraft] = useState(null);
+  const priced = value != null && Number(value) > 0;
 
   if (draft === null) {
     return (
       <button
         type="button"
         className={styles.editable}
-        aria-label={`Editar ${label}`}
+        // The price too: the name replaces the cell's text for a screen reader.
+        aria-label={`Editar ${label}: ${priced ? formatAmount(value) : 'sin precio'}`}
         title={`Editar ${label}`}
         disabled={saving}
-        onClick={() => setDraft(formatPrecioInput(value != null && Number(value) > 0 ? value : null))}
+        onClick={() => setDraft(formatPrecioInput(priced ? value : null))}
       >
         {children}
       </button>
