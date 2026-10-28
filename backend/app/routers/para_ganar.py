@@ -1151,11 +1151,7 @@ def aplicar_criterios_masivo(
         )
 
     now = datetime.now(UTC)
-    existing_rows = (
-        db.query(ParaGanarCriterioMla)
-        .filter(ParaGanarCriterioMla.mla.in_(mlas))
-        .all()
-    )
+    existing_rows = db.query(ParaGanarCriterioMla).filter(ParaGanarCriterioMla.mla.in_(mlas)).all()
     by_mla = {row.mla: row for row in existing_rows}
     created = 0
     updated = 0
