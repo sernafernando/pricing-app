@@ -5,7 +5,7 @@ Pure: no database. The SQL these filters produce is exercised on Postgres in `te
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -30,6 +30,16 @@ class TestDefaults:
     def test_blank_values_are_no_filter(self) -> None:
         f = parse_filter(q="   ", estado="", tiendas=" , ", marcas="", familia="  ")
         assert f == PublicationFilter()
+
+
+class TestAuditMoment:
+    def test_an_until_with_minutes_takes_the_whole_minute(self) -> None:
+        # Buenos Aires wall time, naive UTC: 12:00 there is 15:00 here
+        f = parse_filter(audit_fecha_desde="2026-10-20 12:00", audit_fecha_hasta="2026-10-20 12:00")
+        assert (f.audit_since, f.audit_until) == (datetime(2026, 10, 20, 15, 0), datetime(2026, 10, 20, 15, 0, 59))
+
+    def test_an_until_with_seconds_is_kept_as_typed(self) -> None:
+        assert parse_filter(audit_fecha_hasta="2026-10-20 12:00:10").audit_until == datetime(2026, 10, 20, 15, 0, 10)
 
 
 class TestSearchTerm:

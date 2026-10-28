@@ -28,6 +28,7 @@ from sqlalchemy import (
     ARRAY,
     Integer,
     Interval,
+    String,
     all_,
     and_,
     any_,
@@ -415,7 +416,8 @@ _BUENOS_AIRES = ZoneInfo("America/Argentina/Buenos_Aires")
 
 def _audit_moment(field: str, raw: Optional[str], *, end_of_day: bool) -> Optional[datetime]:
     """Productos' audit dates: `YYYY-MM-DD[ HH:MM[:SS]]` in Buenos Aires wall time (a bare date is the whole day:
-    from 00:00, or until 23:59:59), as naive UTC like `auditoria.fecha`. Anything else is an error, never "today"."""
+    from 00:00, or until 23:59:59; an until without seconds is the whole minute), as naive UTC like
+    `auditoria.fecha`. Anything else is an error, never "today"."""
     text_ = (raw or "").strip()
     if not text_:
         return None
@@ -423,6 +425,8 @@ def _audit_moment(field: str, raw: Optional[str], *, end_of_day: bool) -> Option
     for fmt in _AUDIT_FORMATS:
         try:
             moment = datetime.strptime(text_, fmt)
+            if end_of_day and "%S" not in fmt:
+                moment = moment.replace(second=59)
             break
         except ValueError:
             continue
@@ -885,7 +889,9 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     if f.audits:
         where.append(_audited(f))
     if f.mla_scope is not None:
-        where.append(T.i.item_id.in_(sorted(f.mla_scope)) if f.mla_scope else false())
+        # one array parameter, as `_colors`: a promo scope can hold thousands of MLAs
+        scope = literal(sorted(f.mla_scope), ARRAY(String))
+        where.append(T.i.item_id == any_(scope) if f.mla_scope else false())
     return where
 
 
