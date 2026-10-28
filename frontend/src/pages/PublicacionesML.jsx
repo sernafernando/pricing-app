@@ -14,6 +14,7 @@ import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import ProductPanel from '../components/publicacionesMl/ProductPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
+import ColorFilterChips from '../components/publicacionesMl/ColorFilterChips';
 import ColorLayerSelect from '../components/publicacionesMl/ColorLayerSelect';
 import PaintColorMenu from '../components/publicacionesMl/PaintColorMenu';
 import { itemRowTone } from '../components/publicacionesMl/rowColor';
@@ -304,7 +305,7 @@ export default function PublicacionesML() {
     setExportError(null);
     setSheetsNotice(null);
     try {
-      const result = await exporter(filters.vista, buildExportParams(filters, { canSeeMargin, canSeeSales }));
+      const result = await exporter(filters.vista, buildExportParams(rowFilters, { canSeeMargin, canSeeSales }));
       if (result?.url) setSheetsNotice({ url: result.url });
     } catch (err) {
       if (askedFor !== currentExportList.current) return;
@@ -321,7 +322,8 @@ export default function PublicacionesML() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const { toast, showToast, hideToast } = useToast();
 
-  const kpis = usePublicacionesMLKpis(buildKpiParams(filters, periodo), canSeeKpis);
+  // Like the rows, the strip and the bulk sets ask only a layer known to be the user's (it matters with `colores`).
+  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending);
   const productRows = useProductRows({
     filters: rowFilters,
     pageSize,
@@ -526,14 +528,14 @@ export default function PublicacionesML() {
             />
           )}
           <BulkActions
-            filters={filters}
+            filters={rowFilters}
             checkedIds={checkedIds}
             onClearChecked={clearChecked}
             canSeeMargin={canSeeMargin}
             onDone={reloadList}
             openRequest={bulkRequest}
           />
-          <BulkStatusActions filters={filters} canSeeMargin={canSeeMargin} onDone={reloadList} />
+          <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} />
           <ColumnPicker table={pickerTable} />
           {canExportVista(filters.vista) && (
             <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
@@ -641,6 +643,11 @@ export default function PublicacionesML() {
               onChange={csvChange('tiendas')}
             />
           </div>
+          {/* Productos' color filter, on the layer on show (Capa). */}
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel}>Color:</span>
+            <ColorFilterChips value={filters.colores} onChange={(colores) => setFilters({ colores })} />
+          </div>
         </div>
         <div className={styles.filterBand}>
           <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
@@ -697,7 +704,7 @@ export default function PublicacionesML() {
                 />
               ) : filters.prod ? (
                 <ProductPanel
-                  filters={filters}
+                  filters={rowFilters}
                   productKey={filters.prod}
                   onClose={closePanel}
                   onSelectItem={selectProductItem}
