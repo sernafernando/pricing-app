@@ -1,43 +1,54 @@
-"""Migrate the legacy offsets (`offsets_ganancia`) to sell-out campaigns (sell-in-sell-out T15).
+"""Migrate the legacy offsets (`offsets_ganancia`) to sell-out campaigns (sell-in-sell-out T15, T22).
 
-Each ACTIVE offset (`fecha_hasta` NULL or not before `--hoy`) of type
-`monto_por_unidad` with a positive amount becomes ONE `por_unidad` campaign,
-loaded through the campaigns service (`app.services.sell_out.campanas`: the
-same validation, audit row and `sell_out.drain` queueing as a campaign loaded
-from the screen) and stamped with `offset_origen_id`:
+Owner: "Los offsets hay que migrar todo, lo que no se pueda migrar directo haceme
+un detalle y guardamelo en una tabla". Each offset of type `monto_por_unidad`
+with a positive amount becomes a `por_unidad` campaign, loaded through the
+campaigns service (`app.services.sell_out.campanas`: the same validation, audit
+row and `sell_out.drain` queueing as a campaign loaded from the screen) and
+stamped with `offset_origen_id`:
 
-- scope: a new `offset_grupos` row gets one `offset_grupo_filtros` row per non-null scope
-  field (marca / categoria / subcategoria_id / item_id). A legacy offset
-  reaches a product matching ANY of its fields and a group matches ANY of its
-  rows (each row ANDs its own fields), so the reach is the same;
+- an offset without a group gets a new `offset_grupos` row with one
+  `offset_grupo_filtros` row per non-null scope field (marca / categoria /
+  subcategoria_id / item_id). A legacy offset reaches a product matching ANY of
+  its fields and a group matches ANY of its rows, so the reach is the same;
+- the offsets of one group (same `grupo_id`) become ONE campaign linked to that
+  EXISTING group (its filters are the reach), as the legacy money path applies
+  them: each offset with a product gives it its own amount (`items`), the
+  campaign's `monto_unit` is the first offset's (by id: what a sale reached only
+  by the filters gets), the cap comes from the first offset with a limit, the
+  dates span the group's. The first offset is the campaign's origin; the others
+  are reported migrated in it. The group migrates whole or not at all: mixed
+  types or currencies, a non-positive amount, a product given twice, an offset
+  other than the first without a product, a product outside the group's reach
+  or no user keep every offset of the group in the review table;
 - `monto` -> `monto_unit` in the offset's `moneda`; a USD campaign gets the
   service's default FX mode (`al_cobro`), the offset's rate is not kept;
 - `max_unidades` -> `tope_unidades`; `max_monto_usd` -> `tope_monto` only for a
   USD offset (an ARS campaign keeps no money cap, with a warning);
+- an EXPIRED offset (`fecha_hasta` before `--hoy`) migrates with its real dates:
+  that changes the historical sell-out figures in Métricas ML, so its CSV row
+  warns, the summary lists it (`vencidos_migrados`) and the run says so on stderr;
 - a NULL `fecha_hasta` ends on `--fecha-hasta-default` (2026-12-31), with a
   warning so someone adjusts it; a campaign covers every channel, so an offset
   that skipped some is migrated with a warning.
 
 Everything else is reported in the CSV and NOT migrated, each with its reason:
-expired offsets (history is not recomputed), `porcentaje_costo` (waits for the
-sell-in percentage, T3g; until then it keeps working as a legacy offset),
-`monto_fijo`, a non-positive amount, an offset of a group (the legacy money
-path applies each grouped offset's own amount to its own product under one
-shared cap, which a campaign linked to the group would not), no scope, no user (offset without
-`usuario_id` and no `--usuario-id`) and the service's validation errors.
-An offset already migrated is reported as such with its campaign: a re-run
-creates nothing.
+`porcentaje_costo` (waits for the sell-in percentage, T3g), `monto_fijo` (no
+campaign type holds a fixed total), a non-positive amount, no scope, no user
+(offset without `usuario_id` and no `--usuario-id`) and the service's validation
+errors. An offset already migrated is reported as such with its campaign (a
+group's, through any of its offsets): a re-run creates nothing.
 
 Under `--apply`, every offset left out is also kept, with its own detail and the
-reason, in `offsets_migracion_pendientes` for the owner's review (T22a, owner:
-"lo que no se pueda migrar directo haceme un detalle y guardamelo en una
-tabla"): one row per offset, updated by a re-run, and removed once the offset
-migrates. The dry run leaves the table as it is; its summary counts what
-`--apply` would keep there (`pendientes`).
+reason, in `offsets_migracion_pendientes` for the owner's review (T22a): one row
+per offset, updated by a re-run, and removed once the offset migrates. The dry
+run leaves the table as it is; its summary counts what `--apply` would keep there
+(`pendientes`).
 
-Dry run is the DEFAULT: it only validates (`validar` / `validar_campos`) and
-writes nothing. `--apply` loads each offset in its own transaction (its new
-group and its campaign commit together, or neither does). Exits 1 when a
+Dry run is the DEFAULT: it only validates (`validar_campos`, `validar` for a
+group) and writes nothing; a product outside a group's reach is only found by
+`--apply`. `--apply` loads each offset, or each group, in its own transaction
+(its campaign and a new group commit together, or nothing does). Exits 1 when a
 validation or database error left an offset out, 0 otherwise. Run from `backend/` with `-m`:
     cd /var/www/html/pricing-app/backend && venv/bin/python -m app.scripts.migrar_offsets_a_sell_out --csv /tmp/offsets.csv
     cd /var/www/html/pricing-app/backend && venv/bin/python -m app.scripts.migrar_offsets_a_sell_out --csv /tmp/offsets.csv --apply
@@ -111,6 +122,7 @@ class _Plan:
     data: Optional[SellOutCampanaIn] = None
     usuario_id: Optional[int] = None
     avisos: list[str] = field(default_factory=list)
+    vencido: bool = False  # ends before `--hoy`: migrating it changes the historical sell-out figures
 
 
 def _texto(offset: OffsetGanancia) -> str:
@@ -127,17 +139,49 @@ def _monto(valor: float) -> Decimal:
     return Decimal(str(valor))
 
 
-# The legacy money path applies each grouped offset's own amount to its own product, the group only sharing one cap;
-# a campaign linked to the group would apply one amount to all it reaches. None is active in production (2026-10-22).
-GRUPO_MOTIVO = (
-    "Offset de un grupo: en el sistema anterior cada offset del grupo aplica su monto a su producto con un tope "
-    "compartido; revisar a mano"
-)
+VENCIDO = "Vencido el {}: migrarlo cambia las cifras históricas de sell out en Métricas ML"
+
+
+def _condiciones(
+    plan: _Plan, offsets: list[OffsetGanancia], tope_de: Optional[OffsetGanancia], moneda: str, hoy, default
+) -> dict:
+    """Caps (from `tope_de`), dates and the warnings shared by one offset and a group: the earliest start, the
+    latest end (an open-ended offset ends on `default`). An expired end is kept as it is, with its warning."""
+    tope_monto = None
+    if tope_de is not None and tope_de.max_monto_usd is not None:
+        if moneda == "USD":
+            tope_monto = _monto(tope_de.max_monto_usd)
+        else:
+            plan.avisos.append(
+                f"El tope en USD ({csv_money(tope_de.max_monto_usd)}) no se migró: la campaña es en pesos"
+            )
+    con_tc = next((o for o in offsets if o.tipo_cambio is not None), None)
+    if moneda == "USD" and con_tc is not None:
+        plan.avisos.append(
+            f"El tipo de cambio del offset ({csv_money(con_tc.tipo_cambio)}) no se migró: "
+            "la campaña queda con tipo de cambio al cobro"
+        )
+    if any(o.fecha_hasta is None for o in offsets):
+        fecha_hasta = default
+        plan.avisos.append(f"Sin fecha hasta: se usó {fecha_hasta.isoformat()}, revisar")
+    else:
+        fecha_hasta = max(o.fecha_hasta for o in offsets)
+        if fecha_hasta < hoy:
+            plan.vencido = True
+    sin_canal = [label for col, label in _CANALES if any(getattr(o, col) is False for o in offsets)]
+    if sin_canal:
+        plan.avisos.append(f"El offset no aplicaba a: {', '.join(sin_canal)}; la campaña aplica a todos los canales")
+    if plan.vencido:
+        plan.avisos.append(VENCIDO.format(fecha_hasta.isoformat()))
+    return {
+        "fecha_desde": min(o.fecha_desde for o in offsets),
+        "fecha_hasta": fecha_hasta,
+        "tope_unidades": tope_de.max_unidades if tope_de is not None else None,
+        "tope_monto": tope_monto,
+    }
 
 
 def _planear(offset: OffsetGanancia, hoy: date, fecha_hasta_default: date, usuario_id: Optional[int]) -> _Plan:
-    if offset.fecha_hasta is not None and offset.fecha_hasta < hoy:
-        return _Plan(f"Vencido el {offset.fecha_hasta.isoformat()}: no se migra para no recalcular la historia")
     if offset.tipo_offset == "porcentaje_costo":
         return _Plan("esperando sell-in % (T3g)")
     if offset.tipo_offset == "monto_fijo":
@@ -146,8 +190,6 @@ def _planear(offset: OffsetGanancia, hoy: date, fecha_hasta_default: date, usuar
         return _Plan(f"Tipo de offset desconocido: {offset.tipo_offset}")
     if offset.monto is None or offset.monto <= 0:
         return _Plan("Monto negativo o cero")
-    if offset.grupo_id is not None:
-        return _Plan(GRUPO_MOTIVO)
     usuario = offset.usuario_id if offset.usuario_id is not None else usuario_id
     if usuario is None:
         return _Plan("Sin usuario: indicar --usuario-id")
@@ -156,42 +198,72 @@ def _planear(offset: OffsetGanancia, hoy: date, fecha_hasta_default: date, usuar
 
     plan = _Plan(usuario_id=usuario)
     moneda = offset.moneda or "ARS"
-    tope_monto = None
-    if offset.max_monto_usd is not None:
-        if moneda == "USD":
-            tope_monto = _monto(offset.max_monto_usd)
-        else:
-            plan.avisos.append(
-                f"El tope en USD ({csv_money(offset.max_monto_usd)}) no se migró: la campaña es en pesos"
-            )
-    if moneda == "USD" and offset.tipo_cambio is not None:
-        plan.avisos.append(
-            f"El tipo de cambio del offset ({csv_money(offset.tipo_cambio)}) no se migró: "
-            "la campaña queda con tipo de cambio al cobro"
-        )
-    fecha_hasta = offset.fecha_hasta
-    if fecha_hasta is None:
-        fecha_hasta = fecha_hasta_default
-        plan.avisos.append(f"Sin fecha hasta: se usó {fecha_hasta.isoformat()}, revisar")
-    sin_canal = [label for col, label in _CANALES if getattr(offset, col) is False]
-    if sin_canal:
-        plan.avisos.append(f"El offset no aplicaba a: {', '.join(sin_canal)}; la campaña aplica a todos los canales")
+    condiciones = _condiciones(plan, [offset], offset, moneda, hoy, fecha_hasta_default)
     texto = _texto(offset)
     try:
         plan.data = SellOutCampanaIn(
             nombre=(texto or f"Offset #{offset.id}")[:NOMBRE_MAX],
             descripcion=f"Migrado del offset #{offset.id}" + (f": {texto}" if texto else ""),
-            fecha_desde=offset.fecha_desde,
-            fecha_hasta=fecha_hasta,
             tipo="por_unidad",
             monto_unit=_monto(offset.monto),
             moneda=moneda,
-            tope_unidades=offset.max_unidades,
-            tope_monto=tope_monto,
             grupo_ids=[],  # its own new group, created under --apply
+            **condiciones,
         )
     except ValidationError as exc:
         return _Plan(f"Valor no válido en: {_campos(exc)}", error=True)
+    return plan
+
+
+def _planear_grupo(
+    grupo_id: int, offsets: list[OffsetGanancia], hoy: date, fecha_hasta_default: date, usuario_id: Optional[int]
+) -> _Plan:
+    """A group (its offsets by id) as ONE campaign linked to the group, as the legacy money path applies it
+    (`_consumo_grupos`): each offset with a product gives that product its own amount, a sale reached only by the
+    group's filters gets the first offset's amount, and the first offset with a limit caps the whole group."""
+    g = f"Grupo #{grupo_id}"
+    ref = offsets[0]
+    tipos = sorted({o.tipo_offset for o in offsets})
+    if tipos != ["monto_por_unidad"]:
+        return _Plan(f"{g}: no todos sus offsets son monto por unidad ({', '.join(tipos)}); revisar a mano")
+    monedas = sorted({o.moneda or "ARS" for o in offsets})
+    if len(monedas) > 1:
+        return _Plan(f"{g}: mezcla monedas ({', '.join(monedas)})")
+    for o in offsets:
+        if o.monto is None or o.monto <= 0:
+            return _Plan(f"{g}: el offset #{o.id} tiene monto negativo o cero")
+    for o in offsets[1:]:
+        if o.item_id is None:
+            return _Plan(f"{g}: el offset #{o.id} no indica producto (solo el primero del grupo puede no indicarlo)")
+    con_item = [o for o in offsets if o.item_id is not None]
+    vistos = set()
+    for o in con_item:
+        if o.item_id in vistos:
+            return _Plan(f"{g}: el producto {o.item_id} tiene más de un offset")
+        vistos.add(o.item_id)
+    usuario = next((o.usuario_id for o in offsets if o.usuario_id is not None), usuario_id)
+    if usuario is None:
+        return _Plan(f"{g}: sin usuario; indicar --usuario-id")
+
+    plan = _Plan(usuario_id=usuario)
+    moneda = monedas[0]
+    tope_de = next((o for o in offsets if o.max_unidades or o.max_monto_usd), None)
+    condiciones = _condiciones(plan, offsets, tope_de, moneda, hoy, fecha_hasta_default)
+    texto = _texto(ref)
+    origen = ", ".join(f"#{o.id}" for o in offsets)
+    try:
+        plan.data = SellOutCampanaIn(
+            nombre=(texto or g)[:NOMBRE_MAX],
+            descripcion=f"Migrado de los offsets {origen} del grupo #{grupo_id}" + (f": {texto}" if texto else ""),
+            tipo="por_unidad",
+            monto_unit=_monto(ref.monto),
+            moneda=moneda,
+            grupo_ids=[grupo_id],  # the existing group: its filters already define the reach
+            items=[{"item_id": o.item_id, "monto_unit": _monto(o.monto)} for o in con_item],
+            **condiciones,
+        )
+    except ValidationError as exc:
+        return _Plan(f"{g}: Valor no válido en: {_campos(exc)}", error=True)
     return plan
 
 
@@ -283,6 +355,18 @@ def _ya_migrada(db: Session, offset_id: int) -> Optional[int]:
     return db.query(SellOutCampana.id).filter(SellOutCampana.offset_origen_id == offset_id).scalar()
 
 
+@dataclass
+class _Resultado:
+    """One offset's CSV row and what the run does with it."""
+
+    fila: dict
+    offset: Optional[OffsetGanancia] = None
+    error: Optional[str] = None
+    pendiente: Optional[tuple[str, list[str]]] = None  # (reason, warnings) for the review table
+    vencido: bool = False  # an expired offset that migrates (or, in a dry run, would)
+    nueva: bool = False  # the row that names a new campaign once in the summary
+
+
 def _uno(db: Session, offset: OffsetGanancia, plan: _Plan, apply: bool) -> tuple[dict, Optional[str]]:
     """The CSV row of one planned offset and its validation error, if any. Under `apply` it commits."""
     try:
@@ -303,6 +387,79 @@ def _uno(db: Session, offset: OffsetGanancia, plan: _Plan, apply: bool) -> tuple
         return _fila(offset, NO_MIGRADO, motivo=motivo, avisos=plan.avisos), motivo
 
 
+def _suelto(db: Session, offset: OffsetGanancia, hoy, default, usuario_id, apply: bool) -> list[_Resultado]:
+    ya = _ya_migrada(db, offset.id)
+    if ya is not None:
+        return [_Resultado(_fila(offset, YA_MIGRADO, ya), offset)]
+    plan = _planear(offset, hoy, default, usuario_id)
+    if plan.data is None:
+        fila = _fila(offset, NO_MIGRADO, motivo=plan.motivo, avisos=plan.avisos)
+        return [_Resultado(fila, offset, plan.motivo if plan.error else None, (plan.motivo, plan.avisos))]
+    fila, error = _uno(db, offset, plan, apply)
+    if fila["resultado"] == NO_MIGRADO:
+        return [_Resultado(fila, offset, error, (error or "No migrado", plan.avisos))]
+    return [_Resultado(fila, offset, vencido=plan.vencido, nueva=True)]
+
+
+def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool) -> list[_Resultado]:
+    """Every offset of one group (by id): one campaign, loaded in ONE transaction, or none of them migrates."""
+    grupo_id = offsets[0].grupo_id
+    ya = (
+        db.query(SellOutCampana.id)
+        .filter(SellOutCampana.offset_origen_id.in_([o.id for o in offsets]))
+        .order_by(SellOutCampana.id)
+        .first()
+    )
+    if ya is not None:
+        return [_Resultado(_fila(o, YA_MIGRADO, ya[0]), o) for o in offsets]
+    plan = _planear_grupo(grupo_id, offsets, hoy, default, usuario_id)
+    error = plan.motivo if plan.error else None
+    if plan.data is None:
+        return [
+            _Resultado(
+                _fila(o, NO_MIGRADO, motivo=plan.motivo, avisos=plan.avisos), o, error, (plan.motivo, plan.avisos)
+            )
+            for o in offsets
+        ]
+    campana_id = None
+    try:
+        if apply:
+            campana_id = campanas.crear_campana(db, plan.data, plan.usuario_id, offset_origen_id=offsets[0].id).id
+        else:
+            campanas.validar(db, plan.data)  # the group exists: its id is checked too
+    except (campanas.SellOutError, SQLAlchemyError) as exc:
+        db.rollback()
+        if isinstance(exc, SQLAlchemyError):
+            logger.exception("Group #%s: database error", grupo_id)
+            motivo = f"Grupo #{grupo_id}: Error de base de datos: {type(exc).__name__}"
+        else:
+            motivo = f"Grupo #{grupo_id}: {exc}"
+        return [
+            _Resultado(_fila(o, NO_MIGRADO, motivo=motivo, avisos=plan.avisos), o, motivo, (motivo, plan.avisos))
+            for o in offsets
+        ]
+    resultado = MIGRADO if apply else MIGRARIA
+    otro = (
+        f"migrado en la campaña #{campana_id} del grupo #{grupo_id}"
+        if apply
+        else f"en la campaña del grupo #{grupo_id}"
+    )
+    return [
+        _Resultado(
+            _fila(o, resultado, campana_id, avisos=plan.avisos if i == 0 else [otro, *plan.avisos]),
+            o,
+            vencido=plan.vencido,
+            nueva=i == 0,
+        )
+        for i, o in enumerate(offsets)
+    ]
+
+
+def _fila_sola(offset_id: int, motivo: str) -> dict:
+    """The row of an offset whose detail could not be read: its id and the reason."""
+    return {**dict.fromkeys(COLUMNAS, ""), "offset_id": offset_id, "resultado": NO_MIGRADO, "motivo": motivo}
+
+
 def run_migracion(
     *,
     session_factory: Callable[[], Session],
@@ -311,7 +468,8 @@ def run_migracion(
     fecha_hasta_default: date = FECHA_HASTA_DEFAULT,
     usuario_id: Optional[int] = None,
 ) -> tuple[dict, list[dict]]:
-    """`(summary, CSV rows)`: every offset in id order, each in its own session."""
+    """`(summary, CSV rows)`: every offset in id order, each (or each group, at its first offset) in its own
+    session."""
     with session_factory() as db:
         ids = [oid for (oid,) in db.query(OffsetGanancia.id).order_by(OffsetGanancia.id)]
     summary = {
@@ -324,77 +482,73 @@ def run_migracion(
         "con_error": [],
         "campana_ids": [],
         "pendientes": 0,
+        "vencidos_migrados": [],
     }
     contador = {MIGRADO: "migrados", MIGRARIA: "migrarian", YA_MIGRADO: "ya_migrados", NO_MIGRADO: "no_migrados"}
     filas = []
+    hechos: set[int] = set()  # the offsets of a group already reported with it
     for offset_id in ids:
+        if offset_id in hechos:
+            continue
         with session_factory() as db:
-            offset = fila = error = None
-            pendiente = None  # (reason, warnings) of an offset left out, for the review table
-            guardado = False  # kept for review (or, in a dry run, would be)
+            resultados: list[_Resultado] = []
+            miembros = [offset_id]
+            tabla = True  # the review table took this run's rows (or, in a dry run, would)
             try:
                 offset = db.get(OffsetGanancia, offset_id)
                 if offset is None:  # deleted after the ids were read: no detail left to keep
-                    filas.append(
-                        {
-                            **dict.fromkeys(COLUMNAS, ""),
-                            "offset_id": offset_id,
-                            "resultado": NO_MIGRADO,
-                            "motivo": "El offset ya no existe",
-                        }
-                    )
-                    summary["no_migrados"] += 1
-                    continue
-                ya = _ya_migrada(db, offset_id)
-                error = None
-                if ya is not None:
-                    fila = _fila(offset, YA_MIGRADO, ya)
+                    resultados = [_Resultado(_fila_sola(offset_id, "El offset ya no existe"))]
+                elif offset.grupo_id is None:
+                    resultados = _suelto(db, offset, hoy, fecha_hasta_default, usuario_id, apply)
                 else:
-                    plan = _planear(offset, hoy, fecha_hasta_default, usuario_id)
-                    if plan.data is None:
-                        fila = _fila(offset, NO_MIGRADO, motivo=plan.motivo, avisos=plan.avisos)
-                        error = plan.motivo if plan.error else None
-                        pendiente = (plan.motivo, plan.avisos)
-                    else:
-                        fila, error = _uno(db, offset, plan, apply)
-                        if fila["resultado"] == NO_MIGRADO:
-                            pendiente = (error or "No migrado", plan.avisos)
+                    grupo = (
+                        db.query(OffsetGanancia)
+                        .filter(OffsetGanancia.grupo_id == offset.grupo_id)
+                        .order_by(OffsetGanancia.id)
+                        .all()
+                    )
+                    miembros = [o.id for o in grupo]
+                    hechos.update(miembros)
+                    resultados = _grupo(db, grupo, hoy, fecha_hasta_default, usuario_id, apply)
                 if apply:
-                    # `_uno` already rolled a failed campaign back: what commits here is the review row alone.
-                    if pendiente is not None:
-                        _guardar_pendiente(db, offset, *pendiente)
-                    else:
-                        _quitar_pendiente(db, offset_id)
+                    # A failed campaign was already rolled back: what commits here is the review rows alone.
+                    for r in resultados:
+                        if r.offset is None:
+                            continue
+                        if r.pendiente is not None:
+                            _guardar_pendiente(db, r.offset, *r.pendiente)
+                        else:
+                            _quitar_pendiente(db, r.offset.id)
                     db.commit()
-                guardado = pendiente is not None
             except SQLAlchemyError as exc:
                 db.rollback()
                 logger.exception("Offset #%s: database error", offset_id)
                 motivo = f"Error de base de datos: {type(exc).__name__}"
-                error = error or motivo
-                if fila is None:
-                    # Reading the offset failed: reported with its id alone, the run and the report go on.
-                    fila = {
-                        **dict.fromkeys(COLUMNAS, ""),
-                        "offset_id": offset_id,
-                        "resultado": NO_MIGRADO,
-                        "motivo": motivo,
-                    }
+                tabla = False
+                if not resultados:
+                    # Reading failed: reported with the ids alone, the run and the report go on.
+                    resultados = [_Resultado(_fila_sola(i, motivo), error=motivo) for i in miembros]
                 else:
-                    # Updating the review table failed: the CSV keeps its row and says the table missed it.
+                    # Updating the review table failed: the CSV keeps its rows and says the table missed them.
                     aviso = f"No se actualizó la tabla de revisión ({motivo})"
-                    fila["avisos"] = csv_text(" | ".join(filter(None, [fila["avisos"], aviso])))
+                    for r in resultados:
+                        r.error = r.error or motivo
+                        r.fila["avisos"] = csv_text(" | ".join(filter(None, [r.fila["avisos"], aviso])))
             finally:
                 if not apply:
                     db.rollback()
-        filas.append(fila)
-        summary[contador[fila["resultado"]]] += 1
-        if guardado:
-            summary["pendientes"] += 1
-        if error is not None:
-            summary["con_error"].append(offset_id)
-        if fila["resultado"] == MIGRADO:
-            summary["campana_ids"].append(fila["campana_id"])
+        for r in resultados:
+            fila = r.fila
+            filas.append(fila)
+            summary[contador[fila["resultado"]]] += 1
+            if tabla and r.pendiente is not None:
+                summary["pendientes"] += 1
+            if r.error is not None:
+                summary["con_error"].append(fila["offset_id"])
+            if r.nueva and fila["resultado"] == MIGRADO:
+                summary["campana_ids"].append(fila["campana_id"])
+            if r.vencido:
+                summary["vencidos_migrados"].append(fila["offset_id"])
     return summary, filas
 
 
@@ -443,6 +597,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     escribir_csv(args.csv, filas)
     print(json.dumps(summary, ensure_ascii=False, default=str))
+    if summary["vencidos_migrados"]:
+        # On stderr, so stdout stays one JSON line: the owner must see it, Métricas ML's history changes.
+        ids = ", ".join(str(i) for i in summary["vencidos_migrados"])
+        hecho = "migrado(s)" if args.apply else "se migrarían"
+        print(
+            f"AVISO: {len(summary['vencidos_migrados'])} offset(s) vencido(s) {hecho} ({ids}): "
+            "cambian las cifras históricas de sell out en Métricas ML",
+            file=sys.stderr,
+        )
     return 1 if summary["con_error"] else 0
 
 

@@ -45,6 +45,7 @@ COLUMNAS = [
     "motivo",
     "avisos",
 ]
+VENCIDO = "Vencido el {}: migrarlo cambia las cifras históricas de sell out en Métricas ML"
 _STUBS = ["CREATE TABLE usuarios (id INTEGER PRIMARY KEY)", "INSERT INTO usuarios VALUES (7), (8)"]
 _TABLES = [
     ProductoERP.__table__,
@@ -100,7 +101,9 @@ def correr(engine, monkeypatch, capsys, tmp_path):
     def run(*args: str):
         path = tmp_path / "reporte.csv"
         code = script.main(["--csv", str(path), "--hoy", HOY, *args])
-        summary = json.loads(capsys.readouterr().out)
+        salida = capsys.readouterr()
+        run.err = salida.err
+        summary = json.loads(salida.out)
         raw = Path(path).read_bytes()
         assert raw.startswith(b"\xef\xbb\xbf")  # BOM: Excel reads the accents as UTF-8
         lineas = list(csv.reader(raw.decode("utf-8-sig").splitlines(), delimiter=";"))
@@ -244,6 +247,7 @@ def test_an_active_per_unit_usd_offset_becomes_one_campaign_through_the_service(
         "con_error": [],
         "campana_ids": [c["id"]],
         "pendientes": 0,
+        "vencidos_migrados": [],
     }
 
 
@@ -262,25 +266,6 @@ def test_an_offset_without_a_group_gets_a_new_group_with_one_filter_per_scope_fi
         (None, None, None, 950),
     ]
     assert filas[offset_id]["alcance"] == "marca TP-LINK o categoría Routers o subcategoría 12 o producto 950"
-
-
-def test_an_offset_of_a_group_is_not_migrated_and_its_group_is_left_as_is(engine, correr) -> None:
-    # Legacy money path: each offset of a group applies its own amount to its own item, the group only shares a cap.
-    # A campaign linked to the group would apply one amount to everything the group reaches, so it is left to a person.
-    grupo_id = w.grupo(engine, [{"marca": "EPSON"}])
-    offset_id = _offset(engine, item_id=2964, grupo_id=grupo_id)
-
-    _, summary, filas = correr("--apply")
-
-    assert _campanas(engine) == []
-    assert _count(engine, "offset_grupos") == 1
-    assert _filtros(engine, grupo_id) == [("EPSON", None, None, None)]
-    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == (
-        "no migrado",
-        "Offset de un grupo: en el sistema anterior cada offset del grupo aplica su monto a su producto con un tope "
-        "compartido; revisar a mano",
-    )
-    assert summary["migrados"] == 0
 
 
 def test_an_ars_offset_keeps_no_money_cap_and_warns(engine, correr) -> None:
@@ -358,16 +343,6 @@ def test_a_negative_amount_is_not_migrated(engine, correr) -> None:
     _no_migrado(engine, correr, "Monto negativo o cero", item_id=2964, monto=-2)
 
 
-def test_an_expired_offset_is_not_migrated(engine, correr) -> None:
-    _no_migrado(
-        engine,
-        correr,
-        "Vencido el 2026-10-21: no se migra para no recalcular la historia",
-        item_id=2964,
-        fecha_hasta=date(2026, 10, 21),
-    )
-
-
 def test_an_offset_without_scope_is_not_migrated(engine, correr) -> None:
     _no_migrado(engine, correr, "Sin alcance: no indica marca, categoría, subcategoría, producto ni grupo")
 
@@ -433,24 +408,26 @@ def test_a_rerun_reports_the_migrated_offsets_and_creates_nothing(engine, correr
 def test_the_default_dry_run_writes_nothing_and_reports_what_it_would_migrate(engine, correr) -> None:
     por_producto = _offset(engine, item_id=2964)
     sin_fin = _offset(engine, marca="TP-LINK", fecha_hasta=None)
-    vencido = _offset(engine, item_id=2964, fecha_hasta=date(2026, 1, 31))
+    vencido = _offset(engine, item_id=2964, fecha_desde=date(2026, 1, 1), fecha_hasta=date(2026, 1, 31))
     antes = {table: _count(engine, table) for table in _ESCRITAS}
 
     code, summary, filas = correr()
 
     assert {table: _count(engine, table) for table in _ESCRITAS} == antes
     assert code == 0
-    assert [filas[i]["resultado"] for i in (por_producto, sin_fin, vencido)] == [
-        "migraría (dry-run)",
-        "migraría (dry-run)",
-        "no migrado",
-    ]
+    assert [filas[i]["resultado"] for i in (por_producto, sin_fin, vencido)] == ["migraría (dry-run)"] * 3
     assert filas[sin_fin]["avisos"] == "Sin fecha hasta: se usó 2026-12-31, revisar"
+    assert filas[vencido]["avisos"] == VENCIDO.format("2026-01-31")
     assert (summary["dry_run"], summary["migrarian"], summary["no_migrados"], summary["campana_ids"]) == (
         True,
-        2,
-        1,
+        3,
+        0,
         [],
+    )
+    assert summary["vencidos_migrados"] == [vencido]
+    assert correr.err.splitlines()[-1] == (
+        f"AVISO: 1 offset(s) vencido(s) se migrarían ({vencido}): cambian las cifras históricas de sell out "
+        "en Métricas ML"
     )
 
 
@@ -689,3 +666,233 @@ def test_a_failure_keeping_the_review_row_keeps_the_reason_and_fails_the_run(eng
     assert "No se actualizó la tabla de revisión" in filas[falla]["avisos"]
     assert list(_pendientes(engine)) == [sana]
     assert (summary["pendientes"], summary["con_error"]) == (1, [falla])
+
+
+# ── Expired offsets (T22d) ───────────────────────────────────────────
+
+
+def test_an_expired_offset_migrates_with_its_real_dates_and_a_warning(engine, correr, capsys) -> None:
+    # Owner: "migrar todo". It changes the historical sell-out figures, so the CSV and the summary say so.
+    offset_id = _offset(engine, item_id=2964, fecha_desde=date(2026, 3, 1), fecha_hasta=date(2026, 10, 21))
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [c] = _campanas(engine)
+    assert (c["offset_origen_id"], c["fecha_desde"], c["fecha_hasta"]) == (
+        offset_id,
+        date(2026, 3, 1),
+        date(2026, 10, 21),
+    )
+    assert (filas[offset_id]["resultado"], filas[offset_id]["campana_id"]) == ("migrado", str(c["id"]))
+    assert filas[offset_id]["avisos"] == VENCIDO.format("2026-10-21")
+    assert (summary["migrados"], summary["vencidos_migrados"], summary["pendientes"]) == (1, [offset_id], 0)
+    assert _pendientes(engine) == {}
+    assert correr.err.splitlines()[-1] == (
+        f"AVISO: 1 offset(s) vencido(s) migrado(s) ({offset_id}): cambian las cifras históricas de sell out "
+        "en Métricas ML"
+    )
+
+
+def test_an_expired_offset_that_is_not_migrated_is_not_listed_as_migrated_expired(engine, correr) -> None:
+    offset_id = _offset(engine, item_id=2964, monto=0, fecha_desde=date(2026, 1, 1), fecha_hasta=date(2026, 1, 31))
+
+    _, summary, filas = correr("--apply")
+
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == ("no migrado", "Monto negativo o cero")
+    assert summary["vencidos_migrados"] == []
+    assert "AVISO" not in correr.err
+
+
+# ── Grouped offsets (T22d) ───────────────────────────────────────────
+
+
+def _items_de(engine: Engine, campana_id: int) -> list[tuple]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT item_id, monto_unit FROM sell_out_campana_items WHERE campana_id = :c ORDER BY item_id"),
+            {"c": campana_id},
+        )
+        return [tuple(r) for r in rows]
+
+
+def _grupo_tplink(engine: Engine, **ref) -> tuple[int, list[int]]:
+    """A TP-LINK group (reaches 2964 and 2270) with a reference offset without product and two per-product ones;
+    the cap comes from the first offset by id that has one (the second), like the legacy group summary."""
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    base = {"grupo_id": grupo_id, "descripcion": "Grupo TP-LINK"}
+    ids = [
+        _offset(engine, **base, monto=2, fecha_desde=date(2026, 9, 1), fecha_hasta=date(2026, 11, 30), **ref),
+        _offset(
+            engine,
+            **base,
+            item_id=2964,
+            monto=3.5,
+            max_unidades=100,
+            max_monto_usd=500,
+            fecha_desde=date(2026, 8, 15),
+            fecha_hasta=date(2026, 12, 15),
+        ),
+        _offset(engine, **base, item_id=2270, monto=4, max_unidades=999, fecha_hasta=date(2026, 10, 31)),
+    ]
+    return grupo_id, ids
+
+
+def test_a_group_becomes_one_campaign_linked_to_its_group_with_per_product_amounts(engine, correr) -> None:
+    grupo_id, (ref, o2, o3) = _grupo_tplink(engine)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [c] = _campanas(engine)
+    assert c["offset_origen_id"] == ref
+    assert (c["tipo"], c["monto_unit"], c["moneda"]) == ("por_unidad", Decimal("2.00"), "USD")
+    assert (c["tope_unidades"], c["tope_monto"]) == (100, Decimal("500.00"))
+    assert (c["fecha_desde"], c["fecha_hasta"]) == (date(2026, 8, 15), date(2026, 12, 15))
+    assert [g for g, _ in _grupos_de(engine, c["id"])] == [grupo_id]  # the existing group, no new one
+    assert _count(engine, "offset_grupos") == 1
+    assert _filtros(engine, grupo_id) == [("TP-LINK", None, None, None)]
+    assert _items_de(engine, c["id"]) == [(2270, Decimal("4.00")), (2964, Decimal("3.50"))]
+    assert {i: (filas[i]["resultado"], filas[i]["campana_id"]) for i in (ref, o2, o3)} == dict.fromkeys(
+        (ref, o2, o3), ("migrado", str(c["id"]))
+    )
+    assert filas[ref]["avisos"] == ""
+    otro = f"migrado en la campaña #{c['id']} del grupo #{grupo_id}"
+    assert (filas[o2]["avisos"], filas[o3]["avisos"]) == (otro, otro)
+    assert filas[o2]["alcance"] == f"grupo #{grupo_id}"
+    assert (summary["migrados"], summary["campana_ids"], summary["no_migrados"]) == (3, [c["id"]], 0)
+    assert (summary["pendientes"], summary["vencidos_migrados"], _pendientes(engine)) == (0, [], {})
+
+
+def test_a_group_reference_with_a_product_also_gets_its_own_amount(engine, correr) -> None:
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ref = _offset(engine, grupo_id=grupo_id, item_id=2964, monto=3, max_unidades=10)
+    otro = _offset(engine, grupo_id=grupo_id, item_id=2270, monto=5)
+
+    _, summary, filas = correr("--apply")
+
+    [c] = _campanas(engine)
+    assert (c["offset_origen_id"], c["monto_unit"], c["tope_unidades"]) == (ref, Decimal("3.00"), 10)
+    assert _items_de(engine, c["id"]) == [(2270, Decimal("5.00")), (2964, Decimal("3.00"))]
+    assert filas[otro]["resultado"] == "migrado" and summary["migrados"] == 2
+
+
+def test_a_group_without_end_date_ends_on_the_default_with_a_warning(engine, correr) -> None:
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ref = _offset(engine, grupo_id=grupo_id, fecha_hasta=None, moneda="ARS", monto=100, max_monto_usd=50)
+    otro = _offset(engine, grupo_id=grupo_id, item_id=2964, moneda="ARS", monto=150)
+
+    _, _, filas = correr("--apply")
+
+    [c] = _campanas(engine)
+    assert (c["fecha_hasta"], c["moneda"], c["tope_monto"]) == (date(2026, 12, 31), "ARS", None)
+    assert filas[ref]["avisos"] == (
+        "El tope en USD (50,00) no se migró: la campaña es en pesos | Sin fecha hasta: se usó 2026-12-31, revisar"
+    )
+    assert filas[otro]["avisos"].startswith(f"migrado en la campaña #{c['id']} del grupo #{grupo_id}")
+
+
+def test_a_group_rerun_reports_every_offset_as_already_migrated(engine, correr) -> None:
+    _, ids = _grupo_tplink(engine)
+    correr("--apply")
+    [c] = _campanas(engine)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert _campanas(engine) == [c]
+    assert {i: (filas[i]["resultado"], filas[i]["campana_id"]) for i in ids} == dict.fromkeys(
+        ids, ("ya migrado", str(c["id"]))
+    )
+    assert (summary["ya_migrados"], summary["migrados"], summary["campana_ids"]) == (3, 0, [])
+
+
+def test_a_group_dry_run_writes_nothing_and_reports_every_offset(engine, correr) -> None:
+    _, ids = _grupo_tplink(engine)
+    antes = {table: _count(engine, table) for table in _ESCRITAS}
+
+    code, summary, filas = correr()
+
+    assert {table: _count(engine, table) for table in _ESCRITAS} == antes
+    assert code == 0
+    assert [filas[i]["resultado"] for i in ids] == ["migraría (dry-run)"] * 3
+    assert (summary["migrarian"], summary["campana_ids"]) == (3, [])
+
+
+def test_an_expired_group_migrates_with_its_real_dates_and_a_warning_on_each_offset(engine, correr) -> None:
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ids = [
+        _offset(engine, grupo_id=grupo_id, fecha_desde=date(2026, 5, 1), fecha_hasta=date(2026, 6, 30)),
+        _offset(engine, grupo_id=grupo_id, item_id=2964, fecha_desde=date(2026, 6, 1), fecha_hasta=date(2026, 7, 31)),
+    ]
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [c] = _campanas(engine)
+    assert (c["fecha_desde"], c["fecha_hasta"]) == (date(2026, 5, 1), date(2026, 7, 31))
+    assert filas[ids[0]]["avisos"] == VENCIDO.format("2026-07-31")
+    assert filas[ids[1]]["avisos"] == (
+        f"migrado en la campaña #{c['id']} del grupo #{grupo_id} | " + VENCIDO.format("2026-07-31")
+    )
+    assert summary["vencidos_migrados"] == ids
+
+
+_RECHAZOS = {
+    "tipos": (
+        [{"tipo_offset": "monto_fijo", "monto": 100}, {"item_id": 2964}],
+        "Grupo #{g}: no todos sus offsets son monto por unidad (monto_fijo, monto_por_unidad); revisar a mano",
+        0,
+    ),
+    "monedas": (
+        [{}, {"item_id": 2964, "moneda": "ARS", "monto": 100}],
+        "Grupo #{g}: mezcla monedas (ARS, USD)",
+        0,
+    ),
+    "monto": ([{}, {"item_id": 2964, "monto": 0}], "Grupo #{g}: el offset #{o1} tiene monto negativo o cero", 0),
+    "sin_producto": (
+        [{}, {}],
+        "Grupo #{g}: el offset #{o1} no indica producto (solo el primero del grupo puede no indicarlo)",
+        0,
+    ),
+    "repetido": (
+        [{}, {"item_id": 2964}, {"item_id": 2964, "monto": 9}],
+        "Grupo #{g}: el producto 2964 tiene más de un offset",
+        0,
+    ),
+    "fuera_de_alcance": (
+        [{}, {"item_id": 950}],  # MERCUSYS: outside the TP-LINK group
+        "Grupo #{g}: El producto 950 no está en los grupos de la campaña",
+        1,
+    ),
+    "sin_usuario": (
+        [{"usuario_id": None}, {"item_id": 2964, "usuario_id": None}],
+        "Grupo #{g}: sin usuario; indicar --usuario-id",
+        0,
+    ),
+}
+
+
+@pytest.mark.parametrize("caso", list(_RECHAZOS))
+def test_a_group_that_cannot_be_modeled_stores_every_offset_for_review_and_creates_nothing(
+    engine, correr, caso
+) -> None:
+    valores, motivo, codigo = _RECHAZOS[caso]
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ids = [_offset(engine, grupo_id=grupo_id, **v) for v in valores]
+    motivo = motivo.format(g=grupo_id, o1=ids[1])
+
+    code, summary, filas = correr("--apply")
+
+    assert code == codigo
+    assert _campanas(engine) == [] and _count(engine, "offset_grupos") == 1
+    assert _count(engine, "sell_out_campana_items") == 0
+    assert {i: (filas[i]["resultado"], filas[i]["motivo"], filas[i]["campana_id"]) for i in ids} == dict.fromkeys(
+        ids, ("no migrado", motivo, "")
+    )
+    pendientes = _pendientes(engine)
+    assert {i: (pendientes[i]["motivo"], pendientes[i]["grupo_id"]) for i in pendientes} == dict.fromkeys(
+        ids, (motivo, grupo_id)
+    )
+    assert (summary["no_migrados"], summary["pendientes"], summary["migrados"]) == (len(ids), len(ids), 0)
+    assert summary["con_error"] == (ids if codigo else [])
