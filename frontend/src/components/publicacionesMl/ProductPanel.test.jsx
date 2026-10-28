@@ -33,6 +33,10 @@ vi.mock('./panel/ProductIdentity', () => ({
   default: ({ productItemId }) => <div data-testid="product-identity">{`identity of ${productItemId}`}</div>,
 }));
 
+vi.mock('./panel/ProductChangesTab', () => ({
+  default: ({ productItemId }) => <div data-testid="product-changes">{`changes of ${productItemId}`}</div>,
+}));
+
 const FILTERS = { vista: 'producto', estado: ['active'] };
 const SUMMARY = readProduct(makeProductRow());
 const NO_PRODUCT = readProduct(PRODUCT_ROWS[2]);
@@ -245,6 +249,20 @@ describe('ProductPanel', () => {
       renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT }) });
       expect(tab('Precios')).not.toBeInTheDocument();
       expect(figures()).toBeInTheDocument();
+    });
+
+    it("shows the product's changes made in the app on Cambios, with or without a price permission", async () => {
+      granted = new Set();
+      renderPanel();
+      await userEvent.click(tab('Cambios'));
+      expect(tab('Cambios')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('tabpanel')).toHaveTextContent('changes of 4101');
+      expect(figures()).not.toBeInTheDocument();
+    });
+
+    it('has no Cambios for "Sin producto"', () => {
+      renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT }) });
+      expect(tab('Cambios')).not.toBeInTheDocument();
     });
 
     it('goes back to Resumen when another product is opened', async () => {
