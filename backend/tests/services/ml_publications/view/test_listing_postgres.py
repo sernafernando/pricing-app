@@ -818,6 +818,26 @@ class TestSorting:
         )
         assert ids(first) + ids(second) == by_cost()  # the same order page by page
 
+    def test_cost_as_a_later_key_keeps_its_usd_tie_break(self, conn, db) -> None:
+        """`marca,costo` with no USD rate on record: within a brand, the peso costs first, then the USD costs by their
+        dollar amount, then no cost -- as when the cost leads."""
+        seed.add_usd_rate(conn, 1000.0, "2026-10-27")  # builds the table; then no rate is left
+        conn.execute(text("DELETE FROM tipo_cambio"))
+        costs = ((70, 80.0, "USD"), (71, 60000.0, "ARS"), (72, None, "ARS"), (73, 50.0, "USD"))
+        for product_id, costo, moneda in costs:
+            seed.add_product(conn, product_id, f"C{product_id}", "P", marca="Kabel")
+            seed.add_cost(conn, product_id, costo, moneda_costo=moneda)
+        for item_id, product_id in (("MLA1", 70), ("MLA2", 71), ("MLA3", 72), ("MLA4", 73)):
+            seed.add_item(conn, item_id)
+            seed.add_link(conn, item_id, product_id)
+
+        def by(direction) -> list[str]:
+            sort = listing.parse_sort("marca,costo", direction)
+            return ids(listing.list_items(db, parse_filter(), sort, 50, 0, events=True, can_see_margin=True))
+
+        assert by("asc,asc") == ["MLA2", "MLA4", "MLA1", "MLA3"]
+        assert by("asc,desc") == ["MLA2", "MLA1", "MLA4", "MLA3"]
+
     def test_title_ignores_case_and_puts_missing_titles_last(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", title="banana")
         seed.add_item(conn, "MLA2", title="Apple")
