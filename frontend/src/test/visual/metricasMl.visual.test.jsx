@@ -248,7 +248,8 @@ describe('Métricas ML board (visual)', () => {
         const kpis = document.querySelector('section[aria-label="Indicadores del período"]');
         expect(wrapped(kpis.querySelectorAll('[data-kpi-value]'))).toEqual([]);
         // Sell in / sell out without "Costos TP": seven cards on one row, the sell card among them.
-        expect(kpis.hasAttribute('data-sell') && !kpis.hasAttribute('data-tp')).toBe(true);
+        expect(kpis.hasAttribute('data-sell')).toBe(true);
+        expect(kpis.hasAttribute('data-tp')).toBe(false);
         expect(kpis.textContent).toContain('Sell in / Sell out');
         const tops = [...kpis.children].map((card) => card.getBoundingClientRect().top);
         expect(tops).toHaveLength(7);
