@@ -322,14 +322,18 @@ def add_write_log(
     )
 
 
-def add_auditoria(conn, tipo_accion: str, valores_nuevos: dict, at: datetime, usuario_id: int) -> None:
-    """One `auditoria` row; `fecha` naive UTC like `registrar_auditoria` and `links._record_audit` leave it."""
+def add_auditoria(
+    conn, tipo_accion: str, valores_nuevos: dict, at: datetime, usuario_id: int, *, item_id: Optional[int] = None
+) -> None:
+    """One `auditoria` row (`item_id`: the product changed, None for a bulk row); `fecha` naive UTC like
+    `registrar_auditoria` and `links._record_audit` leave it."""
     conn.execute(
         text(
-            "INSERT INTO auditoria (usuario_id, tipo_accion, valores_nuevos, fecha) "
-            "VALUES (:user, :tipo, CAST(:nuevos AS jsonb), :fecha)"
+            "INSERT INTO auditoria (item_id, usuario_id, tipo_accion, valores_nuevos, fecha) "
+            "VALUES (:item, :user, :tipo, CAST(:nuevos AS jsonb), :fecha)"
         ),
         {
+            "item": item_id,
             "user": usuario_id,
             "tipo": tipo_accion,
             "nuevos": json.dumps(valores_nuevos),

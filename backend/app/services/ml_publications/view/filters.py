@@ -20,8 +20,9 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
     ARRAY,
@@ -44,6 +45,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import aliased, join as orm_join
 from sqlalchemy.sql import ColumnElement, Select
 
+from app.models.auditoria import Auditoria, TipoAccion
 from app.models.ml_publications import (
     MlItem,
     MlItemEvent,
@@ -145,6 +147,17 @@ class PublicationFilter:
     # Productos' markup filters: (stored `productos_pricing` markup column, positive?) of the linked product. A margin
     # figure: the router asks `ml_metricas.ver_ganancia` before parsing them.
     markup_signs: tuple[tuple[str, bool], ...] = ()
+    # Productos' audit filter: the linked product has an `auditoria` row by one of these users, of one of these kinds
+    # (`TipoAccion` values), within [since, until] (naive UTC, the column's; parsed from Buenos Aires wall time).
+    audit_users: tuple[int, ...] = ()
+    audit_kinds: tuple[str, ...] = ()
+    audit_since: Optional[datetime] = None
+    audit_until: Optional[datetime] = None
+
+    @property
+    def audits(self) -> bool:
+        return bool(self.audit_users or self.audit_kinds or self.audit_since or self.audit_until)
+
     # The Producto view asks mejor oferta of the PRODUCT (any of its publications, as Productos does); the
     # publication list asks it of each publication. `oferta_por_producto` asks it of the product elsewhere too: the
     # Producto view's rows carry it in their `params` and its KPI strip sends it, so both agree with the rows.
@@ -318,6 +331,10 @@ def parse_filter(
     markup_rebate_positivo: Optional[bool] = None,
     markup_oferta_positivo: Optional[bool] = None,
     markup_web_transf_positivo: Optional[bool] = None,
+    audit_usuarios: Optional[str] = None,
+    audit_tipos_accion: Optional[str] = None,
+    audit_fecha_desde: Optional[str] = None,
+    audit_fecha_hasta: Optional[str] = None,
     colores: Optional[str] = None,
 ) -> PublicationFilter:
     """Query-string values (csv text, `None` when absent) -> `PublicationFilter`; `FilterError` when invalid."""
@@ -364,9 +381,43 @@ def parse_filter(
             )
             if positive is not None
         ),
+        audit_users=_integers("audit_usuarios", audit_usuarios),
+        audit_kinds=_vocabulary("audit_tipos_accion", audit_tipos_accion, AUDIT_KINDS),
+        audit_since=_audit_moment("audit_fecha_desde", audit_fecha_desde, end_of_day=False),
+        audit_until=_audit_moment("audit_fecha_hasta", audit_fecha_hasta, end_of_day=True),
         colors=tuple(c for c in colores_ if c != NO_COLOR),
         no_color=NO_COLOR in colores_,
     )
+
+
+AUDIT_KINDS = frozenset(kind.value for kind in TipoAccion)
+_AUDIT_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M")
+_BUENOS_AIRES = ZoneInfo("America/Argentina/Buenos_Aires")
+
+
+def _audit_moment(field: str, raw: Optional[str], *, end_of_day: bool) -> Optional[datetime]:
+    """Productos' audit dates: `YYYY-MM-DD[ HH:MM[:SS]]` in Buenos Aires wall time (a bare date is the whole day:
+    from 00:00, or until 23:59:59; an until without seconds is the whole minute), as naive UTC like
+    `auditoria.fecha`. Anything else is an error, never "today"."""
+    text_ = (raw or "").strip()
+    if not text_:
+        return None
+    moment = None
+    for fmt in _AUDIT_FORMATS:
+        try:
+            moment = datetime.strptime(text_, fmt)
+            if end_of_day and "%S" not in fmt:
+                moment = moment.replace(second=59)
+            break
+        except ValueError:
+            continue
+    if moment is None:
+        try:
+            day = date.fromisoformat(text_)
+        except ValueError as exc:
+            raise FilterError(field, "expected YYYY-MM-DD or YYYY-MM-DD HH:MM") from exc
+        moment = datetime.combine(day, time(23, 59, 59) if end_of_day else time.min)
+    return moment.replace(tzinfo=_BUENOS_AIRES).astimezone(UTC).replace(tzinfo=None)
 
 
 # --- markup filters (applied after the markup is computed, not in SQL) -------------------------------------------
@@ -738,6 +789,21 @@ def _markup_sign(column: str, positive: bool) -> ColumnElement:
     return exists(select(1).where(pp.item_id == T.p.item_id, markup > 0 if positive else markup < 0))
 
 
+def _audited(f: PublicationFilter) -> ColumnElement:
+    a = aliased(Auditoria, name="a")
+    where = [a.item_id == T.p.item_id]
+    if f.audit_users:
+        where.append(a.usuario_id.in_(f.audit_users))
+    if f.audit_kinds:
+        # through the ORM column, which stores the member name the value maps to
+        where.append(a.tipo_accion.in_([TipoAccion(kind) for kind in f.audit_kinds]))
+    if f.audit_since is not None:
+        where.append(a.fecha >= f.audit_since)
+    if f.audit_until is not None:
+        where.append(a.fecha <= f.audit_until)
+    return exists(select(1).where(*where))
+
+
 def _current_offer(o: Any) -> list[ColumnElement]:
     return [o.fecha_desde <= func.current_date(), o.fecha_hasta >= func.current_date(), o.pvp_seller.isnot(None)]
 
@@ -790,6 +856,8 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     if f.nuevos:
         where.append(T.p.fecha_sync >= func.now() - timedelta(days=7))
     where.extend(_markup_sign(column, positive) for column, positive in f.markup_signs)
+    if f.audits:
+        where.append(_audited(f))
     return where
 
 

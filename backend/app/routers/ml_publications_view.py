@@ -732,6 +732,13 @@ def filter_query(
     markup_rebate_positivo: Optional[bool] = Query(None, description="markup rebate > 0 (false: < 0)"),
     markup_oferta_positivo: Optional[bool] = Query(None, description="markup oferta > 0 (false: < 0)"),
     markup_web_transf_positivo: Optional[bool] = Query(None, description="markup web transferencia > 0 (false: < 0)"),
+    # Productos' audit filter: the linked product's `auditoria` rows
+    audit_usuarios: Optional[str] = Query(None, description="csv of user ids who changed the product"),
+    audit_tipos_accion: Optional[str] = Query(None, description="csv of audit kinds (GET /auditoria/tipos-accion)"),
+    audit_fecha_desde: Optional[str] = Query(None, description="YYYY-MM-DD[ HH:MM], Buenos Aires time"),
+    audit_fecha_hasta: Optional[str] = Query(
+        None, description="YYYY-MM-DD[ HH:MM], Buenos Aires time; a date: all day"
+    ),
     colores: Optional[str] = Query(
         None, description="csv of Productos' colors and/or `sin_color`, on the layer of `equipo_id` (the global one)"
     ),
@@ -784,6 +791,10 @@ def filter_query(
             markup_rebate_positivo=markup_rebate_positivo,
             markup_oferta_positivo=markup_oferta_positivo,
             markup_web_transf_positivo=markup_web_transf_positivo,
+            audit_usuarios=audit_usuarios,
+            audit_tipos_accion=audit_tipos_accion,
+            audit_fecha_desde=audit_fecha_desde,
+            audit_fecha_hasta=audit_fecha_hasta,
             colores=colores,
         )
     except FilterError as exc:

@@ -501,6 +501,29 @@ describe("Productos' markup sign filters (P6b)", () => {
   });
 });
 
+describe("Productos' audit filter (P6c)", () => {
+  it("reads Productos' URL keys and sends GET /productos' params, to every view", () => {
+    const { result } = setup('/?audit_usuarios=5,6&audit_tipos=activar_rebate&audit_desde=2026-10-20T09:00&audit_hasta=2026-10-21');
+    const f = result.current.hook.filters;
+    expect([f.audit_usuarios, f.audit_tipos, f.audit_desde, f.audit_hasta]).toEqual([
+      ['5', '6'],
+      ['activar_rebate'],
+      '2026-10-20T09:00',
+      '2026-10-21',
+    ]);
+    const audit = {
+      audit_usuarios: '5,6',
+      audit_tipos_accion: 'activar_rebate',
+      audit_fecha_desde: '2026-10-20T09:00',
+      audit_fecha_hasta: '2026-10-21',
+    };
+    expect(buildItemsParams(f, 50)).toEqual({ ...audit, limit: 50, offset: 0 });
+    expect(buildKpiParams(f, '30d')).toMatchObject(audit);
+    expect(buildProductIdsParams(f)).toMatchObject(audit);
+    expect(FILTER_KEYS).toEqual(expect.arrayContaining(['audit_usuarios', 'audit_tipos', 'audit_desde', 'audit_hasta']));
+  });
+});
+
 describe('buildProductIdsParams (the products a bulk action acts on)', () => {
   const base = setup('/').result.current.hook.filters;
 

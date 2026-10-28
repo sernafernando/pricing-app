@@ -9,7 +9,7 @@ The predicates are pinned in `view/test_presence_filters_postgres.py`; this file
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -136,3 +136,16 @@ def test_a_product_row_opens_into_exactly_its_publications_under_every_toggle(cl
     kpis = client.get(KPIS_URL, headers=mixed, params=kpi_params)
     assert kpis.status_code == 200, kpis.text
     assert kpis.json()["mla_count"] == page["mla_count"]
+
+
+def test_the_audit_filter_reaches_the_view_and_a_bad_date_is_a_422(client, reader, pg) -> None:
+    with pg.begin() as conn:
+        seed.create_audit_tables(conn)
+        ana = seed.add_user(conn, "Ana", "ana")
+        seed.add_auditoria(
+            conn, "ACTIVAR_REBATE", {}, datetime(2026, 10, 21, 15, 0, tzinfo=timezone.utc), ana, item_id=78
+        )
+    assert items(client, reader, audit_tipos_accion="activar_rebate") == ["MLA2"]
+    assert products(client, reader, audit_usuarios=str(ana)) == ["78"]
+    response = client.get(ITEMS_URL, headers=reader, params={"audit_fecha_desde": "ayer"})
+    assert response.status_code == 422

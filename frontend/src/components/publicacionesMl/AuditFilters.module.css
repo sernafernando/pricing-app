@@ -1,0 +1,69 @@
+/* The button and its floating panel: the presence panel's frame, with sections instead of select pairs. */
+.anchor {
+  composes: anchor from './PresenceFilters.module.css';
+}
+
+.count {
+  composes: count from './PresenceFilters.module.css';
+}
+
+.panel {
+  composes: panel from './PresenceFilters.module.css';
+  grid-template-columns: repeat(3, minmax(160px, auto));
+  align-items: start;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  padding: 0;
+  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+}
+
+/* users and kinds can be many: the list scrolls, the panel keeps its height */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+.date {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.input {
+  composes: input inputSm from '../../styles/forms-tesla.css';
+}
+
+.note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}

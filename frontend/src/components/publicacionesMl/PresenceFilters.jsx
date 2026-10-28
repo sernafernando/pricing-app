@@ -6,9 +6,9 @@ import styles from './PresenceFilters.module.css';
 
 /**
  * The "Presencia:" group of the Publicaciones ML filter card: Productos' "Filtros de Presencia" (rebate, mejor
- * oferta, web transferencia, Tienda Nube, out of cards) plus its Precio and Productos Nuevos selects, each a Todos / con / sin select as in Productos. Like
- * Productos keeps them behind "Filtros Avanzados", they sit in a panel behind one button, so the filter card does
- * not grow a row (the list's table must keep its header on screen at 1366x768). One removable chip per active
+ * oferta, web transferencia, Tienda Nube, out of cards) plus its Precio and Productos Nuevos selects, each a
+ * Todos / con / sin select as in Productos. Like Productos keeps them behind "Filtros Avanzados", they sit in a
+ * panel behind one button, so the filter card does not grow a row (the list's table must keep its header on screen at 1366x768). One removable chip per active
  * toggle and a control that clears them all stay in the row. The values live in the URL
  * (`usePublicacionesMLFilters`), so every view asks its endpoint with them.
  *
