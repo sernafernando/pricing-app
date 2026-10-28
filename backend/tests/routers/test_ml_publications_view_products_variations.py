@@ -248,6 +248,8 @@ class TestAProductFilterNeverBringsASiblingProduct:
         assert _rows(client, admin_auth_headers, con_rebate="true") == {"78": 3}  # VA6 too, not only by its 77
         assert _json(client, admin_auth_headers, "product-ids", con_rebate="true")["item_ids"] == [78]
         assert _rows(client, admin_auth_headers, con_precio="true") == {"77": 2}  # VA1, VA6 -- never VA6's 78
+        # the negative side: a catalog product outside the rebate -- VA6 under its 77, VA12 under its 79, never 78
+        assert _rows(client, admin_auth_headers, con_rebate="false") == {"77": 2, "79": 2}
 
     def test_product_name_or_code_search(self, client, admin_auth_headers):
         assert _rows(client, admin_auth_headers, q="R78") == {"78": 3}  # VA6, VA10, VA12 -- not VA12's 79

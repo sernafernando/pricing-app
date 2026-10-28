@@ -147,6 +147,24 @@ class TestRootAggregates:
         none = by_key(tree(db, markup=MarkupQuery(db)))[NO_GROUP]
         assert none.count == 1 and figures(none) == (0, None, None)
 
+    def test_the_product_level_prices_a_publication_of_two_products_once(
+        self, conn, db, envio_calls, monkeypatch
+    ) -> None:
+        seed_catalog(conn)
+        priced: list[list[str]] = []
+        compute = groups.compute_markups
+
+        def spy(*args, **kwargs):
+            priced.append(list(kwargs.get("item_ids") or []))
+            return compute(*args, **kwargs)
+
+        monkeypatch.setattr(groups, "compute_markups", spy)
+        products = by_key(tree(db, "ALFA", "__none__", "3845", markup=MarkupQuery(db)))
+        # MLA4 sits under 70 and under 71, yet it is priced once; each product still reads only its own unit
+        assert priced and all(len(ids) == len(set(ids)) for ids in priced) and "MLA4" in priced[-1]
+        assert figures(products["70"]) == (0, worst_of(70), worst_of(70))
+        assert figures(products["71"]) == (2, worst_of(71), worst_of(71))
+
     def test_a_node_whose_publications_have_no_value_has_a_null_range_and_no_negatives(
         self, conn, db, envio_calls
     ) -> None:
