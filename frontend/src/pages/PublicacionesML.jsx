@@ -54,6 +54,7 @@ import {
   PAGE_SIZES,
   pageSizeLabel,
   PRICE_MODES,
+  SIN_MLA,
   buildExportParams,
   buildItemsParams,
   buildKpiParams,
@@ -271,6 +272,8 @@ export default function PublicacionesML() {
   const pageSize = filters.limite;
   const agrupado = filters.vista === 'agrupado';
   const producto = filters.vista === 'producto';
+  // Productos' Sin MLA: products with no publication, so nothing a publication strip or action could act on.
+  const sinMla = filters.mla === SIN_MLA;
   // The views that load their own rows: `/items` brings them only the state and the facets.
   const ownRows = agrupado || producto;
   const latestRequest = useRef(0);
@@ -368,7 +371,7 @@ export default function PublicacionesML() {
   const { toast, showToast, hideToast } = useToast();
 
   // Like the rows, the strip and the bulk sets ask only a layer known to be the user's (it matters with `colores`).
-  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending);
+  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending && !sinMla);
   const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending);
   const productRows = useProductRows({
     filters: rowFilters,
@@ -649,7 +652,7 @@ export default function PublicacionesML() {
             label="Vista"
             options={VISTA_OPTIONS}
             value={filters.vista}
-            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value })}
+            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
           />
           {agrupado && (
             <SegmentedControl
@@ -676,7 +679,7 @@ export default function PublicacionesML() {
             onDone={reloadList}
             openRequest={bulkRequest}
           />
-          <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} />
+          {!sinMla && <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} />}
           <ColumnPicker table={pickerTable} />
           {canExportVista(filters.vista) && (
             <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
@@ -709,7 +712,7 @@ export default function PublicacionesML() {
 
       <StateBanner dataState={data?.data_state} />
 
-      {canSeeKpis && (
+      {canSeeKpis && !sinMla && (
         <PublicationKpiStrip
           state={kpis}
           periodo={periodo}
@@ -722,6 +725,7 @@ export default function PublicacionesML() {
         state={stats}
         filters={filters}
         canSeeMargin={canSeeMargin}
+        sinMla={producto}
         onApply={setFilters}
         onReset={resetFilters}
         onRetry={stats.reload}

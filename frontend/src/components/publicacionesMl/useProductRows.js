@@ -19,7 +19,8 @@ import { flattenTree } from './groupTree';
  * request of the previous list is dropped.
  */
 const ROOT = '';
-const NO_SUMMARY = { total: 0, mlaCount: 0 };
+// `sinMlaCount`: Productos' Sin MLA card; null when unknown (a publication filter is on, or nothing loaded yet).
+const NO_SUMMARY = { total: 0, mlaCount: 0, sinMlaCount: null };
 
 /** A row of `/view/products` as a leaf node of the tree. `metrics` is absent without `ml_metricas.ver`. */
 export function readProduct(raw) {
@@ -89,7 +90,11 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
           const rows = (response.data?.rows ?? []).map(readProduct);
           // The page is the whole branch: the pager, not "Ver más", moves through the products.
           setBranches((all) => ({ ...all, [key]: { ...all[key], status: 'ready', rows, total: rows.length } }));
-          setSummary({ total: response.data?.total ?? 0, mlaCount: response.data?.mla_count ?? 0 });
+          setSummary({
+            total: response.data?.total ?? 0,
+            mlaCount: response.data?.mla_count ?? 0,
+            sinMlaCount: response.data?.sin_mla_count ?? null,
+          });
           return;
         }
         const items = response.data?.items ?? [];
@@ -154,6 +159,7 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
     sort,
     total: summary.total,
     mlaCount: summary.mlaCount,
+    sinMlaCount: summary.sinMlaCount,
     loading: !root || root.status === 'loading',
   };
 }

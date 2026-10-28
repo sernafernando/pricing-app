@@ -2,7 +2,7 @@
  * PublicationStatCards (S12d4): Productos' stat cards over the screen's filters; a click applies the card's filter.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PublicationStatCards from './PublicationStatCards';
 import { STAT_FILTER_KEYS } from './statCards';
@@ -88,5 +88,30 @@ describe('PublicationStatCards', () => {
   it('says when a publication markup filter is on: the cards do not apply it', () => {
     setup({ markupNotice: true });
     expect(screen.getByText(/no aplican el filtro de markup de la publicación/)).toBeInTheDocument();
+  });
+});
+
+describe('the Sin MLA card (S12d4c)', () => {
+  const SIN_MLA = { ...STATS, sin_mla: 12, sin_mla_con_stock: 7, sin_mla_sin_stock: 5, sin_mla_nuevos: 2 };
+  const state = (stats) => ({ data: { stats, can_see_margin: false }, loading: false, error: null });
+
+  it('in the Producto view a click lists the products without MLA, clearing the publication filters', async () => {
+    const filters = { ...NO_STAT_FILTER, estado: ['active'], marcas: ['TP-Link'] };
+    const { onApply } = setup({ state: state(SIN_MLA), filters, sinMla: true });
+    const group = screen.getByRole('group', { name: 'Sin MLA' });
+    await userEvent.click(within(group).getByRole('button', { name: 'Con Stock: 7' }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ mla: 'sin_mla', stock: ['erp_con_stock'], estado: '' }));
+    expect(onApply.mock.calls[0][0]).not.toHaveProperty('marcas');
+  });
+
+  it('shows "–" when the count does not apply (a publication filter is on)', () => {
+    setup({ state: state(STATS), sinMla: true });
+    const total = within(screen.getByRole('group', { name: 'Sin MLA' })).getByRole('button', { name: 'Total: no disponible' });
+    expect(total).toHaveTextContent('–');
+  });
+
+  it('is not in the publication view', () => {
+    setup({ state: state(SIN_MLA) });
+    expect(screen.queryByRole('group', { name: 'Sin MLA' })).not.toBeInTheDocument();
   });
 });

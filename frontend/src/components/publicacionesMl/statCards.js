@@ -4,10 +4,11 @@
  * applies the card's filter with these URL keys and values (`usePublicacionesMLFilters`): the card's own filter
  * replaces every other filter a card sets, the rest of the screen's filters (search, brands, ...) stay.
  */
+import { SIN_MLA, sinMlaUpdates } from '../../hooks/usePublicacionesMLFilters';
 
-// The filters a card sets, so the ones a click clears (Productos resets exactly these). The Sin MLA card's own key
-// is not here yet: it joins this list when that card does.
+// The filters a card sets, so the ones a click clears (Productos resets exactly these, `mla` of the Sin MLA card too).
 export const STAT_FILTER_KEYS = [
+  'mla',
   'stock',
   'precio',
   'nuevos',
@@ -26,6 +27,15 @@ export function statUpdates(filter) {
   return { ...Object.fromEntries(STAT_FILTER_KEYS.map((key) => [key, ''])), ...filter };
 }
 
+/**
+ * The URL updates of a click on `item`: `statUpdates`, and for a Sin MLA figure first the publication filters
+ * cleared (`sinMlaUpdates`), since a product without a publication has nothing to answer them.
+ */
+export function cardUpdates(item, filters) {
+  const own = statUpdates(item.filter);
+  return item.filter.mla === SIN_MLA ? { ...sinMlaUpdates(filters), ...own } : own;
+}
+
 const sameValue = (current, wanted) => {
   if (Array.isArray(wanted)) return Array.isArray(current) && current.length === wanted.length && wanted.every((v) => current.includes(v));
   return current === wanted;
@@ -39,9 +49,10 @@ export function isStatActive(filters, filter) {
 
 /**
  * The cards in Productos' order and wording, each item `{ label, value, filter }` (`reset` for Total, which clears
- * the filters). `value` is null while there is no answer: an unknown figure, never 0.
+ * the filters). `value` is null while there is no answer: an unknown figure, never 0; `UNAVAILABLE` when the
+ * answer leaves the Sin MLA card out (a publication filter is on). `sinMla`: the Producto view's Sin MLA card.
  */
-export function statCardGroups(stats, { canSeeMargin = false } = {}) {
+export function statCardGroups(stats, { canSeeMargin = false, sinMla = false } = {}) {
   const value = (key) => stats?.[key] ?? null;
   const groups = [
     { label: 'Total Productos', items: [{ label: 'Total Productos', value: value('total'), reset: true }] },
@@ -64,6 +75,7 @@ export function statCardGroups(stats, { canSeeMargin = false } = {}) {
         { label: 'Sin Precio', value: value('nuevos_sin_precio'), filter: { nuevos: 'ultimos_7_dias', precio: 'sin_precio' } },
       ],
     },
+    ...(sinMla ? [sinMlaGroup(stats)] : []),
     {
       label: 'Oferta sin Rebate',
       items: [
@@ -83,4 +95,25 @@ export function statCardGroups(stats, { canSeeMargin = false } = {}) {
     });
   }
   return groups;
+}
+
+/** A figure the answer leaves out on purpose: the Sin MLA card while a publication filter is on. */
+export const UNAVAILABLE = 'unavailable';
+
+// Productos' "Sin MLA" card: the products no publication is linked to (`?mla=sin_mla`, the Producto view).
+function sinMlaGroup(stats) {
+  const value = (key) => {
+    if (!stats) return null;
+    return key in stats ? stats[key] : UNAVAILABLE;
+  };
+  const filter = (extra = {}) => ({ mla: SIN_MLA, ...extra });
+  return {
+    label: 'Sin MLA',
+    items: [
+      { label: 'Total', value: value('sin_mla'), filter: filter() },
+      { label: 'Con Stock', value: value('sin_mla_con_stock'), filter: filter({ stock: ['erp_con_stock'] }) },
+      { label: 'Sin Stock', value: value('sin_mla_sin_stock'), filter: filter({ stock: ['erp_sin_stock'] }) },
+      { label: 'Nuevos', value: value('sin_mla_nuevos'), filter: filter({ nuevos: 'ultimos_7_dias' }) },
+    ],
+  };
 }
