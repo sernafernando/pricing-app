@@ -118,6 +118,7 @@ class TestFilters:
         assert listed(q="codigo:c72") == [72]
         assert listed(q="hdmi") == [73]  # the product name
         assert listed(q="*73") == [73]  # the code
+        assert listed(q="72") == []  # digits are an exact code, never a fragment of "C72"
         assert listed(q="desc:cable-hdmi") == [73]  # the description, `-` and spaces folded
         assert listed(q="ant*") == [72]  # starts with
         assert listed(q="ubiquiti") == [72]  # the brand

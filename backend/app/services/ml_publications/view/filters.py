@@ -233,8 +233,9 @@ def _folded(column: Any, chars: str = "- ") -> ColumnElement:
 
 
 def _folded_contains(value: str) -> Callable[..., ColumnElement]:
-    """A test that `column`, folded (`_folded`), holds `value` folded the same way; nothing matches when no character
-    is left to look for (a lone `-` must not match every product)."""
+    """A test that `column`, folded by `chars` (`_folded`), holds `value` without dashes and spaces; nothing matches
+    when no character is left to look for (a lone `-` must not match every product). The value is always folded by
+    both, even where the column is folded by dashes only (the code): Productos' plain search does the same."""
     folded = value.replace("-", "").replace(" ", "")
     # upper-cased by the database on both sides, as `_text_in`: Python and Postgres disagree on some letters
     pattern = func.upper(literal(f"%{escape_like(folded)}%"))

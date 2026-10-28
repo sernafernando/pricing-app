@@ -30,13 +30,14 @@ const SHORTCUTS = [
   { keys: ['?'], what: 'Mostrar u ocultar esta ayuda' },
 ];
 
-// What the backend's `normalize_q` reads in the search box, the same operators Productos documents.
+// What the backend's `normalize_q` reads in the search box (pinned by `test_filters.py`, `TestSearchTerm`), the same
+// operators Productos documents.
 const SEARCH_OPERATORS = [
   { keys: ['MLA123456'], what: 'Una publicación por su número (exacto)' },
   { keys: ['ean:123456'], what: 'Búsqueda exacta por EAN' },
   { keys: ['codigo:ABC123'], what: 'Búsqueda exacta por código' },
   { keys: ['marca:Samsung'], what: 'Búsqueda exacta por marca' },
-  { keys: ['desc:texto'], what: 'Búsqueda en la descripción del producto (contiene, sin guiones ni espacios)' },
+  { keys: ['desc:texto', 'descripcion:texto'], what: 'Búsqueda en la descripción del producto (contiene, sin guiones ni espacios)' },
   { keys: ['*123'], what: 'Termina en "123" (título, descripción, marca o código)' },
   { keys: ['123*'], what: 'Comienza con "123" (título, descripción, marca o código)' },
   { keys: ['texto'], what: 'Búsqueda normal: título y SKU, o descripción, marca y código del producto (sin guiones ni espacios)' },
