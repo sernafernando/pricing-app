@@ -194,7 +194,8 @@ def test_a_model_id_beyond_an_integer_is_refused_by_the_schema(client, gestor, p
     resp = client.post(BASE, json=_body(modelos=[{"item_id": 2**31, "monto_unit": "5"}]), headers=gestor)
 
     assert resp.status_code == 422
-    assert resp.json()["detail"][0]["loc"][-1] == "item_id"
+    # `modelos` takes a bare id or an object: the object branch names `item_id`.
+    assert any(error["loc"][-1] == "item_id" for error in resp.json()["detail"])
 
 
 def test_the_audit_rows_carry_each_models_own_value(client, gestor, productos, db):
