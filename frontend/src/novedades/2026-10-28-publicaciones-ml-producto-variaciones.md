@@ -12,6 +12,7 @@ En **Publicaciones ML**, una publicación con variaciones vinculadas a un produc
 - El árbol de grupos y las acciones masivas por producto usan la misma regla.
 - Los filtros de **color**, **mejor oferta** por producto, **marca**, **categoría** y la búsqueda por nombre de producto también ven el producto de las variaciones. Si sus variaciones son de marcas distintas, la publicación toma la marca de una sola de ellas.
 - Con un filtro de color, mejor oferta, marca, categoría o búsqueda, la vista **Producto** y las acciones masivas muestran solo los productos que lo cumplen, no los otros productos de la misma publicación. El filtro de markup mira, para cada producto, solo sus propias variaciones.
+- En el árbol, las familias y publicaciones que cuelgan de un producto muestran el markup y las negativas solo de las variaciones de ese producto, igual que al abrirlas.
 
 ## Cómo se usa
 

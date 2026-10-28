@@ -509,6 +509,15 @@ def _family_members(
     return [(item_id, item_id if item_id in lone else k) for item_id, k in rows if item_id in lone or k in grouped]
 
 
+def _path_product(tree: Tree, path: list[str], page: GroupsPage) -> Optional[int]:
+    """The product a family page hangs from (its path's product key), so its nodes read that product's units;
+    None above the product level and under "Sin producto"."""
+    if page.level != KIND_FAMILY:
+        return None
+    key = path[len(tree.levels) - 1]
+    return int(key) if key.isdigit() else None
+
+
 def _with_markup(
     db: Session, f: PublicationFilter, tree: Tree, path: list[str], page: GroupsPage, markup: MarkupQuery
 ) -> GroupsPage:
@@ -525,7 +534,9 @@ def _with_markup(
     else:
         result = compute_markups(db, markup.pricing_db, item_ids=item_ids, ads=markup.ads)
     with gc_paused():
-        figures = aggregate_nodes(result.items, members, products=page.level == KIND_PRODUCT)
+        figures = aggregate_nodes(
+            result.items, members, products=page.level == KIND_PRODUCT, product=_path_product(tree, path, page)
+        )
     nodes = []
     for node in page.nodes:
         found = figures.get(node.key)
