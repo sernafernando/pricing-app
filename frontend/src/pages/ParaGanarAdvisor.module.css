@@ -520,12 +520,12 @@
 }
 
 .deltaNeg {
-  color: var(--cf-accent-red, #c62828);
+  color: var(--cf-accent-red);
   font-variant-numeric: tabular-nums;
 }
 
 .deltaPos {
-  color: var(--cf-accent-green, #2e7d32);
+  color: var(--cf-accent-green);
   font-variant-numeric: tabular-nums;
 }
 

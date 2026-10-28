@@ -1422,13 +1422,6 @@ def _cola_precio_for_mla(db: Session, mla: str) -> Optional[float]:
     return _positive_price(row["precio"])
 
 
-def _effective_top_sellers(db: Session, mla: str) -> int:
-    row = db.query(ParaGanarCriterioMla).filter(ParaGanarCriterioMla.mla == mla).first()
-    if row and row.top_sellers is not None:
-        return int(row.top_sellers)
-    return int(CRITERIOS_DEFAULT_TOP_SELLERS)
-
-
 def _effective_criterios_for_sugerencia(db: Session, mla: str) -> ParaGanarCriteriosMla:
     """Defaults or MLA override — TOP N, markup floor, price caps for suggested price."""
     row = db.query(ParaGanarCriterioMla).filter(ParaGanarCriterioMla.mla == mla).first()
