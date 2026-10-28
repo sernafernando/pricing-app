@@ -1,0 +1,224 @@
+/* Logistics history modal (Envíos Flex). Shell comes from ModalTesla. */
+
+.modal {
+  max-width: 880px;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+
+.titulo {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.tituloIcono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--tone-info-border);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+}
+
+.envioChip {
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+}
+
+.actual {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-left: 40px;
+}
+
+/* ── Logística chip ─────────────────────────────────────────── */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--tone-neutral-border);
+  background: var(--tone-neutral-bg);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.dotSinAsignar {
+  background: var(--text-tertiary);
+}
+
+/* ── Body ───────────────────────────────────────────────────── */
+
+.cuerpo {
+  padding-top: var(--spacing-md);
+}
+
+.encabezado {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: 0 var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.fila {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.fila:first-child {
+  background: var(--bg-secondary);
+}
+
+.fecha {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+}
+
+.transicion {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.flecha {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.origen {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--tone-neutral-border);
+  background: var(--tone-neutral-bg);
+  color: var(--tone-neutral-fg);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: var(--tracking-wide);
+  white-space: nowrap;
+}
+
+.origenAsignar {
+  border-color: var(--tone-success-border);
+  background: var(--tone-success-bg);
+  color: var(--tone-success-fg);
+}
+
+.origenMasivo {
+  border-color: var(--tone-info-border);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+}
+
+.origenPistoleado {
+  border-color: var(--tone-purple-border);
+  background: var(--tone-purple-bg);
+  color: var(--tone-purple-fg);
+}
+
+.origenDeshacer {
+  border-color: var(--tone-warning-border);
+  background: var(--tone-warning-bg);
+  color: var(--tone-warning-fg);
+}
+
+.autor {
+  max-width: 240px;
+  text-align: right;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.estado {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl) 0;
+  color: var(--text-secondary);
+}
+
+.error {
+  margin-bottom: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-md);
+  background: var(--tone-danger-bg);
+  color: var(--tone-danger-fg);
+  font-size: var(--font-sm);
+}
+
+/* ── Footer (inside .modal-footer-tesla, which wraps) ──────── */
+
+.pie {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.btnSecundario {
+  composes: btn-tesla outline-subtle-primary sm from '../../styles/buttons-tesla.css';
+  white-space: nowrap;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

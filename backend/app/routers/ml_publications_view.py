@@ -757,6 +757,10 @@ def filter_query(
     con_promo_aplicada: Optional[bool] = Query(None, description="any promotion started (without promo_tipos)"),
     con_promo_sin_aplicar: Optional[bool] = Query(None, description="only candidate promotions (without promo_tipos)"),
     con_pxq: Optional[bool] = Query(None, description="the publication has wholesale (PxQ) tiers"),
+    colores: Optional[str] = Query(
+        None, description="csv of Productos' colors and/or `sin_color`, on the layer of `equipo_id` (the global one)"
+    ),
+    equipo_id: Optional[int] = Query(None, description="color layer (Productos' teams); omitted = the global one"),
     # The caller and the application session, for the permission check of the markup filters (cached per request:
     # every endpoint already authenticates the same way).
     user: Usuario = Depends(get_current_user),
@@ -773,7 +777,7 @@ def filter_query(
             f"Se requiere el permiso {PERMISO_GANANCIA} para filtrar por markup",
         )
     try:
-        return parse_filter(
+        f = parse_filter(
             q=q,
             estado=estado,
             estado_excluir=estado_excluir,
@@ -810,9 +814,15 @@ def filter_query(
             audit_fecha_desde=audit_fecha_desde,
             audit_fecha_hasta=audit_fecha_hasta,
             mla_scope=_mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq),
+            colores=colores,
         )
     except FilterError as exc:
         raise _unprocessable(exc) from exc
+    if not (f.colors or f.no_color):
+        return f
+    # The colors are the layer's (a team the user is not in is a 403, as everywhere): resolved once, here, so the
+    # filter means the same products on every read it reaches.
+    return colors.resolve_color_filter(auth_db, colors.resolve_layer(auth_db, user, equipo_id), f)
 
 
 PROMO_STATES = ("disponible", "aplicada", "sin_aplicar")

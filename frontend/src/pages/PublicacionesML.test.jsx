@@ -1307,6 +1307,15 @@ describe('the product panel', () => {
     expect(publicationPanel()).not.toBeInTheDocument();
   });
 
+  it("with a color filter on another team's layer, the panel asks its product on the list's own layer", async () => {
+    await products('/ml-publicaciones?vista=producto&prod=4101&colores=rojo&equipo=99');
+    await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    await waitFor(() => expect(publicacionesMlAPI.products).toHaveBeenCalledWith(expect.objectContaining({ producto: '4101' })));
+    const sent = publicacionesMlAPI.products.mock.calls.map(([params]) => params);
+    expect(sent.map((params) => params.equipo_id)).not.toContain('99');
+    expect(sent.every((params) => params.colores === 'rojo')).toBe(true);
+  });
+
   it('a publication opened from the list has no way back to a product', async () => {
     const user = userEvent.setup();
     await products();
@@ -1661,6 +1670,29 @@ describe('the color layer (S8)', () => {
     respond({ ...ITEMS_RESPONSE, items: [{ ...ITEMS[0], color_marcado: 'rojo' }, ...ITEMS.slice(1)], facets: FACETS });
     await page();
     expect(screen.getByText('MLA1100000001').closest('tr')).toHaveAttribute('data-tone');
+  });
+});
+
+describe('the color filter (P6)', () => {
+  it("never asks another team's layer anywhere: the strip and the bulk set follow the list", async () => {
+    await page('/ml-publicaciones?colores=rojo&equipo=99');
+    await screen.findByRole('button', { name: /Acciones masivas/ });
+    await waitFor(() => expect(publicacionesMlAPI.kpis).toHaveBeenCalled());
+    const sent = [...publicacionesMlAPI.kpis.mock.calls, ...publicacionesMlAPI.productIds.mock.calls].map(([p]) => p);
+    expect(sent.map((params) => params.equipo_id)).not.toContain('99');
+    expect(sent.every((params) => params.colores === 'rojo')).toBe(true);
+  });
+
+  it('asks the list for the picked colors on the layer on show, from page 1, and "Limpiar filtros" clears them', async () => {
+    const user = userEvent.setup();
+    await page('/ml-publicaciones?pagina=2&equipo=12');
+    await screen.findByRole('option', { name: 'Ventas' });
+    const colores = screen.getByRole('group', { name: 'Filtrar por color' });
+    await user.click(within(colores).getByRole('button', { name: 'Urgente' }));
+    await user.click(within(colores).getByRole('button', { name: 'Sin color' }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ colores: 'rojo,sin_color', equipo_id: '12', offset: 0 }));
+    await user.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('colores'));
   });
 });
 
