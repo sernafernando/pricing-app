@@ -17,7 +17,9 @@ import ProductCatalogCompetition from './panel/ProductCatalogCompetition';
 import ProductChangesTab from './panel/ProductChangesTab';
 import ProductCuotasConfig from './panel/ProductCuotasConfig';
 import ProductIdentity from './panel/ProductIdentity';
+import ProductPrearmadas from './panel/ProductPrearmadas';
 import ProductPurchases from './panel/ProductPurchases';
+import ProductPxq from './panel/ProductPxq';
 import { Field, Fields, Section } from './panel/PanelParts';
 import { amount, count } from './panel/format';
 import useProductPanel, { NO_PRODUCT_KEY } from './panel/useProductPanel';
@@ -39,22 +41,24 @@ const PRECIOS = { key: 'precios', label: 'Precios' };
 const CAMBIOS = { key: 'cambios', label: 'Cambios' };
 
 /**
- * The panel of one product of the Producto view, beside the table: the product (its code, brand and publication
- * count), the sum of its publications' Métricas ML figures under the page's filters, and those publications, each
- * one opening its own panel (`onSelectItem`). The "Sin producto" row (`productKey` '0') has no code or brand,
- * only its figures and publications.
+ * The panel of one product of the Producto view, beside the table: the product (its code, brand, prearmadas badge
+ * and publication count), the sum of its publications' Métricas ML figures under the page's filters, and those
+ * publications, each one opening its own panel (`onSelectItem`). The prearmadas badge is the one Productos shows
+ * (`ProductPrearmadas`, `produccion.ver_prearmadas_stats`). The "Sin producto" row (`productKey` '0') has no code
+ * or brand, only its figures and publications.
  *
  * The figures are the columns of the list (`buildColumns`) a product row draws, so the permissions hide exactly
  * what ProductoTable hides: nothing without `canSeeSales`, no markup or Total Gauss without `canSeeMargin`.
  *
  * Those go under the Resumen tab, after the product's SKU and EAN (`ProductIdentity`, editable with
- * `ml_publicaciones.editar_producto`), its last purchases (`ProductPurchases`, `productos.ver_info_compras`) and
- * last the product's ban (`ProductBanAction`, gated by itself), and after the publications comes the catalog
- * competition of those in a catalog (`ProductCatalogCompetition`, `promos.ver`), for "Sin producto" too since it
- * belongs to each publication. Precios mounts the product's prices (the same `ProductPrices` a publication's Precios
- * tab mounts), and under them its instalment settings (`ProductCuotasConfig`), for whoever may see them, and Cambios
- * the changes made to the product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has
- * neither. Opening another product goes back to
+ * `ml_publicaciones.editar_producto`) and its last purchases (`ProductPurchases`, `productos.ver_info_compras`), and
+ * after the publications comes the catalog competition of those in a catalog (`ProductCatalogCompetition`,
+ * `promos.ver`) and the wholesale prices of each (`ProductPxq`, `pxq.ver`), for "Sin producto" too since both belong
+ * to each publication, and last the product's ban (`ProductBanAction`, gated by itself).
+ * Precios mounts the product's prices (the same `ProductPrices` a publication's Precios tab mounts), and under them
+ * its instalment settings (`ProductCuotasConfig`), for whoever may see them, and Cambios the changes made to the
+ * product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. Opening another
+ * product goes back to
  * Resumen. A price write reloads the page's list (`onListReload`).
  *
  * @param {object} props
@@ -101,6 +105,7 @@ export default function ProductPanel({
               </>
             )}
             {summary.marca && <span className={styles.brand}>{summary.marca}</span>}
+            {productItemId != null && <ProductPrearmadas key={productItemId} productItemId={productItemId} />}
             <span className={styles.count}>{publicationsLabel(summary.count)}</span>
           </div>
         )
@@ -193,7 +198,8 @@ export default function ProductPanel({
                   </button>
                 )}
               </Section>
-              <ProductCatalogCompetition key={productKey} publications={items} />
+              <ProductCatalogCompetition key={`catalog-${productKey}`} publications={items} />
+              <ProductPxq key={`pxq-${productKey}`} publications={items} />
 
               {productItemId != null && (
                 <ProductBanAction key={`ban-${productItemId}`} productItemId={productItemId} description={summary.label} />

@@ -7,7 +7,7 @@ import styles from './panel.module.css';
 const EDIT_PERMISSION = 'productos.editar_precio_cuotas';
 
 // `recalcular_cuotas_auto` as the select's value and back: null follows the global setting.
-const RECALC_VALUE = (stored) => (stored === true ? 'always' : stored === false ? 'never' : 'global');
+const recalcValueOf = (stored) => (stored === true ? 'always' : stored === false ? 'never' : 'global');
 const RECALC_STORED = { global: null, always: true, never: false };
 // The read view and the select say the same.
 const RECALC_LABELS = { global: 'Usar la configuración global', always: 'Siempre recalcular', never: 'Nunca recalcular' };
@@ -21,7 +21,7 @@ const STORED_FIELDS = ['recalcular_cuotas_auto', 'markup_adicional_cuotas_custom
 
 // `complete` is false when the read lacks a setting: the PATCH replaces all three, so it is not offered then.
 const settingsOf = (product) => ({
-  recalc: RECALC_VALUE(product.recalcular_cuotas_auto),
+  recalc: recalcValueOf(product.recalcular_cuotas_auto),
   web: product.markup_adicional_cuotas_custom ?? null,
   pvp: product.markup_adicional_cuotas_pvp_custom ?? null,
   complete: STORED_FIELDS.every((field) => field in product),
@@ -82,6 +82,8 @@ export default function ProductCuotasConfig({ productItemId }) {
   };
 
   const edit = () => {
+    // A read missing a setting would PATCH defaults over values never shown: only a complete read is editable.
+    if (!read.settings?.complete) return;
     const { recalc, web, pvp } = read.settings;
     setSaved(false);
     setForm({ recalc, web: inputOf(web), pvp: inputOf(pvp), status: 'editing', error: null });

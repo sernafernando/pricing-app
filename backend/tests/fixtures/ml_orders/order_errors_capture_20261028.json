@@ -1,0 +1,23 @@
+{
+  "_capture": "2026-10-28, read-only GET through the ml-webhook proxy route the backend uses (`MLWebhookClient.fetch_order`); ML's status and JSON body, passed through unchanged by the proxy.",
+  "order_not_found": {
+    "request": "GET /api/ml/orders?resource=/orders/2000000000001",
+    "status": 404,
+    "body": {
+      "cause": "",
+      "error": "order_not_found",
+      "message": "Order do not exists",
+      "status": 404
+    }
+  },
+  "not_owned_order": {
+    "request": "GET /api/ml/orders?resource=/orders/1",
+    "status": 403,
+    "body": {
+      "cause": [],
+      "error": "not_owned_order",
+      "message": "The user has not access to the order.",
+      "status": 403
+    }
+  }
+}

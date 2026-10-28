@@ -1,9 +1,7 @@
-import { useRef, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useRef } from 'react';
 import { usePermisos } from '../../../contexts/PermisosContext';
 import CatalogCompetitionPanel from '../../promociones/CatalogCompetitionPanel';
-import { Section } from './PanelParts';
-import styles from './panel.module.css';
+import PublicationDisclosures from './PublicationDisclosures';
 
 const VIEW_PERMISSION = 'promos.ver';
 
@@ -25,43 +23,13 @@ const VIEW_PERMISSION = 'promos.ver';
 export default function ProductCatalogCompetition({ publications }) {
   const { tienePermiso } = usePermisos();
   const snapshotsRef = useRef(new Map());
-  const [open, setOpen] = useState(() => new Set());
-
-  const catalog = publications.filter((publication) => publication.catalog_listing);
-  if (!tienePermiso(VIEW_PERMISSION) || catalog.length === 0) return null;
-
-  const toggle = (itemId) =>
-    setOpen((previous) => {
-      const next = new Set(previous);
-      if (next.has(itemId)) next.delete(itemId);
-      else next.add(itemId);
-      return next;
-    });
+  if (!tienePermiso(VIEW_PERMISSION)) return null;
 
   return (
-    <Section title="Competencia de catálogo">
-      <ul className={styles.entries}>
-        {catalog.map((publication) => {
-          const isOpen = open.has(publication.item_id);
-          const Chevron = isOpen ? ChevronDown : ChevronRight;
-          return (
-            <li key={publication.item_id} className={styles.entry}>
-              <button
-                type="button"
-                className={`btn-tesla ghost sm ${styles.disclosure}`}
-                onClick={() => toggle(publication.item_id)}
-                aria-expanded={isOpen}
-                aria-label={`Competencia de catálogo de ${publication.item_id}`}
-              >
-                <Chevron size={14} aria-hidden="true" />
-                <span className={styles.itemId}>{publication.item_id}</span>
-                <span className={styles.entryTitle}>{publication.title ?? 'Sin título'}</span>
-              </button>
-              {isOpen && <CatalogCompetitionPanel mla={publication.item_id} catalogCompetitionCacheRef={snapshotsRef} />}
-            </li>
-          );
-        })}
-      </ul>
-    </Section>
+    <PublicationDisclosures
+      title="Competencia de catálogo"
+      publications={publications.filter((publication) => publication.catalog_listing)}
+      renderOpen={(itemId) => <CatalogCompetitionPanel mla={itemId} catalogCompetitionCacheRef={snapshotsRef} />}
+    />
   );
 }

@@ -87,6 +87,16 @@ class TestPermission:
         response = get(client, admin_auth_headers, orden="markup_30d")
         assert response.status_code == 403 and GANANCIA in response.json()["error"]["message"]
 
+    @pytest.mark.parametrize(
+        ("orden", "has", "needs"),
+        [("titulo,facturado_30d", (VER, GANANCIA), METRICAS), ("titulo,markup_30d", (VER, METRICAS), GANANCIA)],
+    )
+    def test_every_sort_key_is_checked(self, client, sold, db, rol_admin, admin_auth_headers, orden, has, needs):
+        grant(db, rol_admin, *has)
+        for url in (URL, URL + "/export"):
+            response = client.get(url, headers=admin_auth_headers, params={"orden": orden})
+            assert response.status_code == 403 and needs in response.json()["error"]["message"], (url, orden)
+
     def test_without_ml_metricas_ver_the_rows_come_by_title_and_without_figures(
         self, client, sold, db, rol_admin, admin_auth_headers
     ) -> None:
@@ -189,6 +199,38 @@ class TestPaging:
     def test_the_default_is_by_gross_descending(self, client, sold, db, rol_admin, admin_auth_headers):
         grant(db, rol_admin, VER, METRICAS)
         assert [r["key"] for r in body(client, admin_auth_headers)["rows"]] == ["0", "77", "78"]  # no sales last
+
+    def test_several_keys_each_with_its_direction_and_the_answer_names_them(
+        self, client, sold, pg, db, rol_admin, admin_auth_headers
+    ):
+        with pg.begin() as conn:  # a second product with no figures: it ties with Antena (78)
+            seed.add_product(conn, 79, "R79", "Zeta")
+            seed.add_item(conn, "MLA5", status="active")
+            seed.add_link(conn, "MLA5", 79)
+        grant(db, rol_admin, VER, METRICAS)
+        for direction, tail in (("desc,desc", ["79", "78"]), ("desc,asc", ["78", "79"])):
+            got = body(client, admin_auth_headers, orden="unidades_30d,titulo", dir=direction)
+            assert [r["key"] for r in got["rows"]] == ["0", "77", *tail]
+            assert (got["orden"], got["dir"]) == ("unidades_30d,titulo", direction)
+        got = body(client, admin_auth_headers, orden="unidades_30d,titulo")  # a missing direction: the key's default
+        assert got["dir"] == "desc,asc"
+
+    @pytest.mark.parametrize(
+        ("orden", "direction", "field"),
+        [
+            ("titulo,titulo", None, "orden"),
+            ("titulo,precio", None, "orden"),
+            ("titulo", "asc,desc", "dir"),
+            ("titulo,unidades_30d", "asc,sideways", "dir"),
+        ],
+    )
+    def test_a_bad_sort_list_is_a_422_naming_it(
+        self, client, sold, db, rol_admin, admin_auth_headers, orden, direction, field
+    ):
+        grant(db, rol_admin, VER, METRICAS)
+        params = {"orden": orden, **({} if direction is None else {"dir": direction})}
+        response = get(client, admin_auth_headers, **params)
+        assert response.status_code == 422 and response.json()["error"]["field"] == field, response.text
 
     def test_an_unknown_sort_is_a_422_naming_it(self, client, sold, db, rol_admin, admin_auth_headers):
         grant(db, rol_admin, VER, METRICAS)

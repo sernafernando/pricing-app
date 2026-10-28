@@ -128,8 +128,8 @@ def test_a_models_bonus_stores_its_items_once_each(client, gestor, productos, db
     data = _crear(client, gestor, alcance="modelos", categoria=None, modelos=[4513, 4512, 4513])
 
     assert data["modelos"] == [
-        {"item_id": 4512, "codigo": "SW-8", "descripcion": "Switch"},
-        {"item_id": 4513, "codigo": "SW-16", "descripcion": "Switch"},
+        {"item_id": 4512, "codigo": "SW-8", "descripcion": "Switch", "monto_unit": None, "porcentaje": None},
+        {"item_id": 4513, "codigo": "SW-16", "descripcion": "Switch", "monto_unit": None, "porcentaje": None},
     ]
     rows = (
         db.query(SellInBonoItem.item_id).filter(SellInBonoItem.bono_id == data["id"]).order_by(SellInBonoItem.item_id)

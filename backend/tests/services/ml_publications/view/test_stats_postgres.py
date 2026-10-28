@@ -157,3 +157,21 @@ class TestSinMla:
         for card, extra in {**CARDS, **MARKUP_CARDS}.items():
             if card != "oferta_sin_rebate":  # an offer is a publication's: refused with Sin MLA
                 assert got[card] == listed_products(db, con_mla=False, **extra), card
+
+
+class TestVariationLinkedPublications:
+    def test_a_publication_of_two_products_counts_each_one(self, db, conn) -> None:
+        # linked per variation only, to 84 and 85: the Producto view lists both, so the cards count both
+        seed.add_product(conn, 84, "E1", "Modem", marca="TP-Link", stock=4)
+        seed.add_product(conn, 85, "F1", "Repetidor", marca="TP-Link", stock=0)
+        seed.add_pricing(conn, 85, precio_lista_ml=500, participa_rebate=False)
+        seed.add_item(conn, "MLA8", status="active")
+        for variation, product in ((81, 84), (82, 85)):
+            seed.add_variation(conn, "MLA8", variation)
+            seed.add_link(conn, "MLA8", product, variation_id=variation)
+        for current in ({}, {"marcas": "TP-Link"}, {"q": "Repetidor"}):
+            got = stats.compute(db, parse_filter(**current), markups=True)
+            expected = {
+                card: listed_products(db, **current, **extra) for card, extra in {**CARDS, **MARKUP_CARDS}.items()
+            }
+            assert (current, got) == (current, expected)

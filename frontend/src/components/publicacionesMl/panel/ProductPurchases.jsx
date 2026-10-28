@@ -19,9 +19,24 @@ function money(value, currencyId) {
   return code ? `${code} ${MONEY.format(value)}` : `${MONEY.format(value)} (moneda sin identificar)`;
 }
 
+/** Quantity × unit price = total; a missing quantity or price is said, and then there is no total to show. */
+function Line({ quantity, unit, currencyId }) {
+  if (quantity == null || unit == null) {
+    return (
+      <>
+        {quantity == null ? 'Cantidad sin dato' : `${QUANTITY.format(quantity)} u.`} ×{' '}
+        {unit == null ? 'precio sin dato' : money(unit, currencyId)}
+      </>
+    );
+  }
+  return (
+    <>
+      {QUANTITY.format(quantity)} u. × {money(unit, currencyId)} = <strong>{money(quantity * unit, currencyId)}</strong>
+    </>
+  );
+}
+
 function Purchase({ purchase }) {
-  const quantity = purchase.cantidad ?? 0;
-  const unit = purchase.precio_unitario ?? 0;
   return (
     <li className={styles.entry}>
       <div className={styles.entryHead}>
@@ -29,7 +44,7 @@ function Purchase({ purchase }) {
         <span className={styles.entryWhen}>{day(purchase.fecha) ?? 'Sin fecha'}</span>
       </div>
       <span className={styles.change}>
-        {QUANTITY.format(quantity)} u. × {money(unit, purchase.moneda_id)} = <strong>{money(quantity * unit, purchase.moneda_id)}</strong>
+        <Line quantity={purchase.cantidad} unit={purchase.precio_unitario} currencyId={purchase.moneda_id} />
       </span>
     </li>
   );

@@ -31,6 +31,7 @@ import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
 import { resolverParams } from '../components/publicacionesMl/bulkParams';
 import ExportModal from '../components/ExportModal';
 import ShortcutsHelp from '../components/publicacionesMl/ShortcutsHelp';
+import useRecalcularCuotasAuto from '../components/publicacionesMl/useRecalcularCuotasAuto';
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
@@ -48,7 +49,6 @@ import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
   AGRUPAR_DIMENSIONS,
-  DEFAULT_DIRECTION,
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
@@ -59,8 +59,12 @@ import {
   buildItemsParams,
   buildKpiParams,
   buildStatsParams,
-  effectiveSort,
+  effectiveSortKeys,
   hasMarkupFilter,
+  headerSort,
+  isLeadOnlySort,
+  nextSort,
+  sortParams,
   usePublicacionesMLFilters,
 } from '../hooks/usePublicacionesMLFilters';
 import { usePublicacionesMLKpis, usePublicationStats } from '../hooks/usePublicacionesMLKpis';
@@ -411,6 +415,8 @@ export default function PublicacionesML() {
   const canCalculatePrice = ['canEditClasica', 'canEditMlCuotas', 'canToggleRebate', 'canToggleWebTransf'].some(
     (flag) => priceWritePermissions[flag],
   );
+  // Productos' Auto-recalcular cuotas (S12f2), where a price can be written: button and Alt+R, as in Productos.
+  const autoRecalc = useRecalcularCuotasAuto();
   const [pricingProduct, setPricingProduct] = useState(null);
   const priceEdit = useMemo(
     () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, saving: priceEditor.saving }),
@@ -487,7 +493,7 @@ export default function PublicacionesML() {
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
   // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
   // The Producto view sorts the products by their own figures (`effectiveProductSort`).
-  const sort = producto ? productRows.sort : effectiveSort(filters, { canSeeSales, canSeeMargin });
+  const sort = producto ? productRows.sort : headerSort(effectiveSortKeys(filters, { canSeeSales, canSeeMargin }));
   // A publication's panel takes the place of its product's (`sel` over `prod`); closing either closes the panel.
   const closePanel = () => setFilters({ sel: '', tab: '', prod: '' });
   const selectProduct = (key) => setFilters({ prod: key, sel: '', tab: '' });
@@ -497,9 +503,12 @@ export default function PublicacionesML() {
     ? productRows.rows.find((row) => row.type === 'node' && row.node.key === filters.prod)?.node.label
     : undefined;
   const changeTab = (tab) => setFilters({ tab });
-  const handleSort = (key) => {
-    if (key === sort.key) setFilters({ orden: key, dir: sort.dir === 'asc' ? 'desc' : 'asc' });
-    else setFilters({ orden: key, dir: DEFAULT_DIRECTION[key] ?? 'desc' });
+  // Shift+click adds a column to the sort, like Productos. In the publication list the markup and Métricas' figures
+  // only lead it (they are not database columns): Shift+click on one, or over one, replaces the sort.
+  const handleSort = (key, event) => {
+    if (event?.shiftKey) window.getSelection()?.removeAllRanges(); // Shift+click also extends the text selection
+    const leadOnly = producto ? () => false : isLeadOnlySort;
+    setFilters(sortParams(nextSort(sort.keys, key, { shift: Boolean(event?.shiftKey), leadOnly })));
   };
 
   // Ctrl/Cmd+click opens the publication in ML (side panel when the extension
@@ -614,6 +623,7 @@ export default function PublicacionesML() {
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
+    onToggleAutoRecalc: canCalculatePrice ? autoRecalc.toggle : undefined,
     onToggleHelp: () => setShowShortcuts((open) => !open),
     showToast,
   });
@@ -765,6 +775,17 @@ export default function PublicacionesML() {
             />
           </div>
           <span className={styles.spacer} />
+          {canCalculatePrice && (
+            <button
+              type="button"
+              className={`btn-tesla outline-subtle-primary sm ${autoRecalc.enabled ? 'toggle-active' : ''}`}
+              aria-pressed={autoRecalc.enabled}
+              title="Recalcular las cuotas al guardar un precio (Alt+R)"
+              onClick={autoRecalc.toggle}
+            >
+              {autoRecalc.enabled ? '✓ ' : ''}Auto-recalcular
+            </button>
+          )}
           <button
             type="button"
             className="btn-tesla ghost sm"

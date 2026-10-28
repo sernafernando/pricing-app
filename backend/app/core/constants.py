@@ -51,3 +51,7 @@ def get_system_user_id(db) -> int:
 # Anything that turns a `YYYY-MM-DD` a human typed into a range MUST resolve
 # its midnights here, not in UTC.
 BUSINESS_TIMEZONE = "America/Argentina/Buenos_Aires"
+
+# The Publicaciones ML screen: Productos' own permission (owner decision S12f, 2026-10-28, so PRICING and VENTAS keep
+# their access while it replaces Productos) or the Mercado Libre operations one it had. Any of them reads it.
+PERMISOS_PUBLICACIONES_ML = ["productos.ver", "ml_ops.ver"]

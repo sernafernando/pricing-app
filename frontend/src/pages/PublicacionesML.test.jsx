@@ -337,6 +337,20 @@ describe('sorting and paging', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio', dir: 'desc' }));
   });
 
+  it('Shift+click adds a column to the sort, numbered in the header; a figure replaces it', async () => {
+    await page('/ml-publicaciones?orden=precio&dir=asc');
+    const header = (name) => screen.getByRole('columnheader', { name });
+    const shiftClick = (name) => fireEvent.click(within(header(name)).getByRole('button'), { shiftKey: true });
+    shiftClick(/^Propio/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio,stock_propio', dir: 'asc,desc' }));
+    expect(within(header(/^Propio/)).getByTestId('sort-order')).toHaveTextContent('2');
+    expect(within(header(/^Precio(?!s| [A-Z])/)).getByTestId('sort-order')).toHaveTextContent('1');
+    shiftClick(/^Propio/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio,stock_propio', dir: 'asc,asc' }));
+    shiftClick(/^Facturado 30D/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'facturado_30d', dir: 'desc' }));
+  });
+
   it('defaults to Facturado 30D, highest first, like Métricas: the whole set ranked by the backend', async () => {
     await page();
     expect(lastParams()).toMatchObject({ orden: 'facturado_30d' });
@@ -1341,6 +1355,14 @@ describe('the Producto view', () => {
     await waitFor(() => expect(productCalls().at(-1)).toMatchObject({ orden: 'unidades_7d', dir: 'desc' }));
   });
 
+  it('Shift+click combines the figures of the products', async () => {
+    await products();
+    fireEvent.click(screen.getByRole('button', { name: /^7D/ }), { shiftKey: true });
+    await waitFor(() =>
+      expect(productCalls().at(-1)).toMatchObject({ orden: 'facturado_30d,unidades_7d', dir: 'desc,desc' }),
+    );
+  });
+
   it('opens a publication of a product in the side panel, as the list does', async () => {
     publicacionesMlAPI.detail.mockReturnValue(new Promise(() => {}));
     const user = userEvent.setup();
@@ -1388,7 +1410,7 @@ describe('the product panel', () => {
     const user = userEvent.setup();
     await products('/ml-publicaciones?vista=producto&prod=4101');
     const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
-    await user.click(await within(opened).findByRole('button', { name: /MLA1100000001/ }));
+    await user.click(await within(opened).findByRole('button', { name: /^MLA1100000001/ }));
 
     const detail = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
     expect(productPanel()).not.toBeInTheDocument();
@@ -1932,6 +1954,61 @@ describe("editing Productos' prices in the table (S11c)", () => {
     await page();
     expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
     expect(within(table()).queryByRole('button', { name: /^Editar Precio/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("Productos' Auto-recalcular cuotas (S12f2)", () => {
+  const PRICED = [{ item_id: 4101, precio_lista_ml: 12345.5, markup: 21.5 }];
+  beforeEach(() => {
+    window.localStorage.removeItem('recalcularCuotasAuto');
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+    preciosAPI.setRapido.mockClear();
+  });
+  afterEach(() => window.localStorage.removeItem('recalcularCuotasAuto'));
+  const table = () => screen.getByRole('table', { name: /Publicaciones de Mercado Libre/ });
+  const toggle = () => screen.getByRole('button', { name: /Auto-recalcular/ });
+  const editClasica = async (user, text) => {
+    await user.click((await within(table()).findAllByRole('button', { name: /^Editar Precio Clásica/ }))[0]);
+    const input = within(table()).getByRole('textbox', { name: 'Precio Clásica' });
+    await user.clear(input);
+    await user.type(input, `${text}{Enter}`);
+  };
+
+  it("is on by default, as in Productos, and a price saved recalculates the cuotas", async () => {
+    const user = userEvent.setup();
+    await page();
+    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+    await editClasica(user, '15000');
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, recalcular_cuotas: true })));
+  });
+
+  it("the button turns it off for this browser (Productos' own preference) and the next price keeps the cuotas", async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.click(toggle());
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+    expect(window.localStorage.getItem('recalcularCuotasAuto')).toBe('false');
+    await editClasica(user, '15000');
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, recalcular_cuotas: false })));
+  });
+
+  it('starts from what Productos left, and Alt+R flips it back', async () => {
+    window.localStorage.setItem('recalcularCuotasAuto', 'false');
+    await page();
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.keyDown(document.body, { key: 'r', code: 'KeyR', altKey: true });
+    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+    expect(window.localStorage.getItem('recalcularCuotasAuto')).toBe('true');
+  });
+
+  it('without a price edit permission there is no button and Alt+R changes nothing', async () => {
+    canEditPrices = false;
+    await page();
+    expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Auto-recalcular/ })).not.toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: 'r', code: 'KeyR', altKey: true });
+    expect(window.localStorage.getItem('recalcularCuotasAuto')).toBeNull();
   });
 });
 

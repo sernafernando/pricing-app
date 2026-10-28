@@ -68,6 +68,20 @@ describe('each purchase', () => {
     expect(item).toHaveTextContent('Sin fecha');
     expect(item).toHaveTextContent('45,50 (moneda sin identificar)');
   });
+
+  it('a missing quantity or unit price says so, never a zero nor a total', async () => {
+    productosAPI.detalle.mockResolvedValue(
+      detail([compra({ cantidad: null }), compra({ proveedor: 'Otro', precio_unitario: null })]),
+    );
+    renderPurchases();
+    const [noQuantity, noPrice] = await screen.findAllByRole('listitem');
+    expect(noQuantity).toHaveTextContent('Cantidad sin dato × USD 45,50');
+    expect(noPrice).toHaveTextContent('12 u. × precio sin dato');
+    for (const item of [noQuantity, noPrice]) {
+      expect(item).not.toHaveTextContent('=');
+      expect(item).not.toHaveTextContent('0,00');
+    }
+  });
 });
 
 describe('the section', () => {

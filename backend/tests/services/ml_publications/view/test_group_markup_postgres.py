@@ -127,8 +127,9 @@ class TestRootAggregates:
     ) -> None:
         seed_catalog(conn)
         nodes = by_key(tree(db, markup=MarkupQuery(db)))
-        assert nodes["ALFA"].count == 2
-        assert figures(nodes["ALFA"]) == (1, worst_of(71), worst_of(70))
+        # MLA4 is linked per variation to 70 and 71: it has their brand (S12g), one negative publication more
+        assert nodes["ALFA"].count == 3
+        assert figures(nodes["ALFA"]) == (2, worst_of(71), worst_of(70))
         assert nodes["BETA"].count == 2
         assert figures(nodes["BETA"]) == (1, worst_of(72), worst_of(73))
 
@@ -136,11 +137,33 @@ class TestRootAggregates:
         self, conn, db, envio_calls
     ) -> None:
         seed_catalog(conn)
+        # MLA4 has one negative and one positive variation (linked to 71 and 70): under its brand it is ONE negative
+        # publication whose range reaches both units; under each product, only that product's unit (#1870 B1)
+        assert figures(by_key(tree(db, markup=MarkupQuery(db)))["ALFA"]) == (2, worst_of(71), worst_of(70))
+        products = by_key(tree(db, "ALFA", "__none__", "3845", markup=MarkupQuery(db)))
+        assert figures(products["70"]) == (0, worst_of(70), worst_of(70))
+        assert figures(products["71"]) == (2, worst_of(71), worst_of(71))
+        # MLA3, with no link, is the only publication without brand
         none = by_key(tree(db, markup=MarkupQuery(db)))[NO_GROUP]
-        # MLA3 has no link; MLA4 has one negative and one positive variation: ONE negative publication, and the
-        # range reaches both of its units
-        assert none.count == 2
-        assert figures(none) == (1, worst_of(71), worst_of(70))
+        assert none.count == 1 and figures(none) == (0, None, None)
+
+    def test_the_product_level_prices_a_publication_of_two_products_once(
+        self, conn, db, envio_calls, monkeypatch
+    ) -> None:
+        seed_catalog(conn)
+        priced: list[list[str]] = []
+        compute = groups.compute_markups
+
+        def spy(*args, **kwargs):
+            priced.append(list(kwargs.get("item_ids") or []))
+            return compute(*args, **kwargs)
+
+        monkeypatch.setattr(groups, "compute_markups", spy)
+        products = by_key(tree(db, "ALFA", "__none__", "3845", markup=MarkupQuery(db)))
+        # MLA4 sits under 70 and under 71, yet it is priced once; each product still reads only its own unit
+        assert priced and all(len(ids) == len(set(ids)) for ids in priced) and "MLA4" in priced[-1]
+        assert figures(products["70"]) == (0, worst_of(70), worst_of(70))
+        assert figures(products["71"]) == (2, worst_of(71), worst_of(71))
 
     def test_a_node_whose_publications_have_no_value_has_a_null_range_and_no_negatives(
         self, conn, db, envio_calls
@@ -167,8 +190,9 @@ class TestEveryLevel:
         seed_catalog(conn)
         markup = MarkupQuery(db)
         products = by_key(tree(db, "ALFA", "__none__", "3845", markup=markup))
+        # MLA4 (linked per variation to both) is in each, with only its units of that product
         assert figures(products["70"]) == (0, worst_of(70), worst_of(70))
-        assert figures(products["71"]) == (1, worst_of(71), worst_of(71))
+        assert figures(products["71"]) == (2, worst_of(71), worst_of(71))
 
     def test_a_family_node_and_a_lone_publication_node_aggregate_too(self, conn, db, envio_calls) -> None:
         seed_catalog(conn)
@@ -201,6 +225,19 @@ class TestEveryLevel:
         assert figures(lone) == (1, worst_of(71), worst_of(71))
         negatives = MarkupQuery(db, MarkupFilter(negative=True))
         assert lone.negative_count == TestConsistencyWithItems.items_total(db, lone.params, negatives)
+
+    def test_below_a_product_a_publication_of_two_products_reads_only_that_product_s_units(
+        self, conn, db, envio_calls
+    ) -> None:
+        """MLA4's variations are linked to 70 (positive) and 71 (negative). Under product 70 its node must count what
+        `/items?producto=70&markup_neg=true` opens: it is not negative there, and its range is 70's unit only."""
+        seed_catalog(conn)
+        negatives = MarkupQuery(db, MarkupFilter(negative=True))
+        for product, worst in (("70", worst_of(70)), ("71", worst_of(71))):
+            mla4 = by_key(tree(db, "ALFA", "__none__", "3845", product, markup=MarkupQuery(db), familias=True))["MLA4"]
+            assert mla4.params["producto"] == product
+            assert mla4.negative_count == TestConsistencyWithItems.items_total(db, mla4.params, negatives), product
+            assert (mla4.markup_min, mla4.markup_max) == (worst, worst), product
 
     def test_the_counts_of_a_level_still_add_up_with_the_figures_on(self, conn, db, envio_calls) -> None:
         seed_catalog(conn)

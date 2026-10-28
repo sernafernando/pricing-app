@@ -140,6 +140,14 @@ class TestRead:
 
         assert client.get(f"{BASE}/MLA1", headers=admin_auth_headers).status_code == 403
 
+    def test_productos_ver_alone_reads_it_as_the_screen_does(self, client, pg, db, rol_ventas, auth_headers):
+        # S12f1: the Publicaciones ML screen's panel reads it with Productos' permission.
+        grant(db, rol_ventas, "productos.ver")
+        with pg.begin() as conn:
+            publication(conn)
+
+        assert client.get(f"{BASE}/MLA1", headers=auth_headers).status_code == 200
+
 
 class TestSave:
     def test_overrides_the_title_and_keeps_the_original_beside_it(self, client, pg, editor):

@@ -178,14 +178,72 @@ export const defaultSortFor = ({ canSeeSales = false } = {}) => (canSeeSales ? '
 const mayAsk = (orden, { canSeeSales = false, canSeeMargin = false }) =>
   (!SALES_SORTS.has(orden) || canSeeSales) && (!MARGIN_SORTS.has(orden) || canSeeMargin);
 
+/** The markup and Métricas' figures are not database columns: they only lead the publication list's sort. */
+export const isLeadOnlySort = (key) => key === 'markup' || SALES_SORTS.has(key);
+
+const resolved = ({ key, dir }) => ({ key, dir: dir || DEFAULT_DIRECTION[key] || 'desc' });
+
 /**
- * The sort the list really applies: the URL's when the user may ask for it, else the default -- a link shared by
- * someone with more permissions still opens the list. Its direction is the URL's only with the URL's sort.
+ * The URL's sort (`orden` and `dir` as csv, Productos' multi-column sort) as `[{key, dir}]`, paired by position: a
+ * blank key takes its direction with it, a repeated key counts once, `dir` is '' where the URL names none.
  */
+function askedSort(filters) {
+  const dirs = (filters.dir ?? '').split(',');
+  const sort = [];
+  (filters.orden ?? '').split(',').forEach((raw, index) => {
+    const key = raw.trim();
+    if (!key || sort.some((entry) => entry.key === key)) return; // a repeated key counts once
+    sort.push({ key, dir: DIRECTIONS.includes(dirs[index]) ? dirs[index] : '' });
+  });
+  return sort;
+}
+
+/** The URL's sort keys the user may ask for the publication list; a key that only leads is dropped elsewhere. */
+function listSort(filters, permissions) {
+  return askedSort(filters)
+    .filter(({ key }) => mayAsk(key, permissions))
+    .filter(({ key }, index) => index === 0 || !isLeadOnlySort(key));
+}
+
+/**
+ * The sort keys the list really applies, each with its direction: the URL's the user may ask for, else the default --
+ * a link shared by someone with more permissions still opens the list. A key's direction is the URL's, or its own
+ * default.
+ */
+export function effectiveSortKeys(filters, permissions = {}) {
+  const asked = listSort(filters, permissions);
+  return (asked.length > 0 ? asked : [{ key: defaultSortFor(permissions), dir: '' }]).map(resolved);
+}
+
+/** The first of `effectiveSortKeys`: the column the header marks for screen readers. */
 export function effectiveSort(filters, permissions = {}) {
-  const asked = filters.orden && mayAsk(filters.orden, permissions) ? filters.orden : '';
-  const key = asked || defaultSortFor(permissions);
-  return { key, dir: (asked && filters.dir) || DEFAULT_DIRECTION[key] || 'desc' };
+  return effectiveSortKeys(filters, permissions)[0];
+}
+
+/**
+ * What a header click asks of the sort `current` (`[{key, dir}]`): a plain click sorts by `key` alone (its default
+ * direction first, the other way when it already leads alone or first); Shift+click, like Productos, adds `key` with
+ * its default direction, flips it, then takes it out. A key that only leads (`leadOnly`), or a sort one leads, is
+ * replaced instead.
+ */
+export function nextSort(current, key, { shift = false, leadOnly = () => false } = {}) {
+  const fallback = DEFAULT_DIRECTION[key] ?? 'desc';
+  const flip = (dir) => (dir === 'asc' ? 'desc' : 'asc');
+  if (!shift || leadOnly(key) || (current.length > 0 && leadOnly(current[0].key))) {
+    return current[0]?.key === key ? [{ key, dir: flip(current[0].dir) }] : [{ key, dir: fallback }];
+  }
+  const found = current.find((entry) => entry.key === key);
+  if (!found) return [...current, { key, dir: fallback }];
+  if (found.dir === fallback) return current.map((entry) => (entry.key === key ? { key, dir: flip(fallback) } : entry));
+  return current.filter((entry) => entry.key !== key);
+}
+
+/** What the table header draws for `keys` (`[{key, dir}]`): the first key leads, `keys` numbers every column. */
+export const headerSort = (keys) => ({ ...keys[0], keys });
+
+/** `orden` / `dir` for `sort` (`[{key, dir}]`): '' for both when it is empty (the default sort). */
+export function sortParams(sort) {
+  return { orden: sort.map(({ key }) => key).join(','), dir: sort.map(({ dir }) => dir).join(',') };
 }
 
 /**
@@ -198,12 +256,19 @@ export const PRODUCT_SORTS = ['titulo', 'unidades_7d', 'unidades_30d', 'markup_3
  * The sort the Producto view really applies: the URL's when the products can be sorted by it and the user may ask
  * for it, else Métricas' default (Facturado 30D) for who sees the sales and the name otherwise.
  */
+export function effectiveProductSortKeys(filters, permissions = {}) {
+  const asked = askedSort(filters);
+  // A product without MLA has no Métricas figure: its rows go by name alone (the backend falls back the same way).
+  if (filters.mla === SIN_MLA) return [resolved(asked.find(({ key }) => key === 'titulo') ?? { key: 'titulo', dir: '' })];
+  // Every key combines here: the products are sorted by the database, figures included.
+  const allowed = asked.filter(({ key }) => PRODUCT_SORTS.includes(key) && mayAsk(key, permissions));
+  const fallback = { key: permissions.canSeeSales ? 'facturado_30d' : 'titulo', dir: '' };
+  return (allowed.length > 0 ? allowed : [fallback]).map(resolved);
+}
+
+/** The first of `effectiveProductSortKeys`. */
 export function effectiveProductSort(filters, permissions = {}) {
-  // A product without MLA has no Métricas figure: its rows go by name (the backend falls back the same way).
-  if (filters.mla === SIN_MLA) return { key: 'titulo', dir: (filters.orden === 'titulo' && filters.dir) || 'asc' };
-  const asked = PRODUCT_SORTS.includes(filters.orden) && mayAsk(filters.orden, permissions) ? filters.orden : '';
-  const key = asked || (permissions.canSeeSales ? 'facturado_30d' : 'titulo');
-  return { key, dir: (asked && filters.dir) || DEFAULT_DIRECTION[key] || 'desc' };
+  return effectiveProductSortKeys(filters, permissions)[0];
 }
 
 const csv = (value) => (value ? value.split(',').filter(Boolean) : []);
@@ -245,8 +310,9 @@ function readFilters(params, { canSeeMargin = false } = {}) {
   const agrupar = params.get('agrupar');
   filters.agrupar = AGRUPAR_DIMENSIONS.includes(agrupar) ? agrupar : AGRUPAR_DIMENSIONS[0];
   filters.orden = params.get('orden') ?? '';
-  const dir = params.get('dir');
-  filters.dir = DIRECTIONS.includes(dir) ? dir : '';
+  // One direction per `orden` key (csv); one that is not asc / desc is that key's default ('').
+  const dirs = (params.get('dir') ?? '').split(',').map((dir) => (DIRECTIONS.includes(dir) ? dir : ''));
+  filters.dir = dirs.some(Boolean) ? dirs.join(',') : '';
   const pagina = Number.parseInt(params.get('pagina'), 10);
   filters.pagina = Number.isInteger(pagina) && pagina >= 1 ? pagina : 1;
   const limite = Number.parseInt(params.get('limite'), 10);
@@ -284,9 +350,10 @@ export function buildItemsParams(
   for (const key of ['familia', 'evento_desde']) {
     if (filters[key]) params[key] = filters[key];
   }
-  if (filters.orden && mayAsk(filters.orden, { canSeeMargin, canSeeSales })) {
-    params.orden = filters.orden;
-    if (filters.dir) params.dir = filters.dir;
+  const asked = listSort(filters, { canSeeMargin, canSeeSales });
+  if (asked.length > 0) {
+    params.orden = asked.map(({ key }) => key).join(',');
+    if (filters.dir) params.dir = asked.map((entry) => resolved(entry).dir).join(',');
   } else if (canSeeSales) {
     // Métricas' default sort has to be asked for: the backend's own default is the activity. Its direction too,
     // so the request says what the header shows instead of leaning on the backend's default.
@@ -341,8 +408,7 @@ export function buildItemsParams(
 export function buildProductsParams(filters, pageSize = filters.limite ?? PAGE_SIZE, permissions = {}) {
   const { orden, dir, ...params } = buildItemsParams(filters, pageSize, { canSeeMargin: false });
   void orden, dir;
-  const sort = effectiveProductSort(filters, permissions);
-  return { ...params, ...sinMlaParam(filters), orden: sort.key, dir: sort.dir };
+  return { ...params, ...sinMlaParam(filters), ...sortParams(effectiveProductSortKeys(filters, permissions)) };
 }
 
 /**

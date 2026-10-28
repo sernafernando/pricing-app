@@ -37,6 +37,7 @@ from app.services.ml_publications.view.markup import (
     UnitBreakdown,
     UnitInputs,
     aggregate_publication,
+    summarize,
     unit_breakdown,
     unit_markup,
 )
@@ -97,6 +98,25 @@ class ItemMarkup:
     markup: PublicationMarkup
     ads: Optional[AdsView] = None
     variation_ids: tuple[int, ...] = ()
+    # the linked product of each unit of `markup.variations` (a variation with no link of its own: the item-level's)
+    unit_products: tuple[Optional[int], ...] = ()
+
+
+def product_markup(item: ItemMarkup, product: int) -> PublicationMarkup:
+    """The markup of the publication's units linked to `product`: a publication whose variations are different
+    products is, for each product, only its own units (a product never shows a sibling variation's margin). Every
+    unit `product`'s: the publication's own markup, untouched (Ads included). None of them (an item-level link whose
+    variations are another product): no value, never the sibling's."""
+    units = item.markup.variations
+    if len(item.unit_products) != len(units) or all(linked == product for linked in item.unit_products):
+        return item.markup
+    return summarize([unit for unit, linked in zip(units, item.unit_products) if linked == product])
+
+
+def _unit_products(inputs: PublicationInputs) -> tuple[Optional[int], ...]:
+    if not inputs.variation_units:
+        return (inputs.item_unit.producto_item_id,)
+    return tuple((unit or inputs.item_unit).producto_item_id for unit in inputs.variation_units)
 
 
 @dataclass(frozen=True)
@@ -116,11 +136,18 @@ class NodeMarkup:
     markup_max: Optional[float]
 
 
-def aggregate_nodes(items: Mapping[str, ItemMarkup], members: Iterable[tuple[str, str]]) -> dict[str, NodeMarkup]:
+def aggregate_nodes(
+    items: Mapping[str, ItemMarkup],
+    members: Iterable[tuple[str, str]],
+    products: bool = False,
+    product: Optional[int] = None,
+) -> dict[str, NodeMarkup]:
     """`node key -> NodeMarkup` from the publications' markup (`compute_markups`, Ads applied when asked) and the
     `(item_id, node key)` pairs naming the node of each publication. A publication counts as negative exactly when
     `/items?markup_neg=true` would list it, and its units all enter the range (`value_min` / `value_max` span every
-    variation with a value). A node only of publications without a value has a null range."""
+    variation with a value). A node only of publications without a value has a null range. `products`: the nodes
+    are products (each reads its own units); `product`: every node is below that product (families, lone
+    publications), so each reads that product's units, as `/items?producto=` does."""
     negative: dict[str, int] = {}
     low: dict[str, float] = {}
     high: dict[str, float] = {}
@@ -129,7 +156,13 @@ def aggregate_nodes(items: Mapping[str, ItemMarkup], members: Iterable[tuple[str
         negative.setdefault(key, 0)
         if item is None:
             continue
-        markup = item.markup
+        # a product node reads only the publication's units of that product (`product_markup`)
+        if product is not None:
+            markup = product_markup(item, product)
+        elif products and key.isdigit():
+            markup = product_markup(item, int(key))
+        else:
+            markup = item.markup
         negative[key] += markup.any_negative
         if markup.value_min is not None and markup.value_max is not None:
             low[key] = min(low.get(key, markup.value_min), markup.value_min)
@@ -228,10 +261,16 @@ def compute_markups(
         plain = {pub.item_id: price_publication(ctx, pub, envio) for pub in publications}
     with_ads = _with_ads(pricing_db, ads, plain, item_ids) if ads is not None else None
     if with_ads is None:
-        items = {item_id: ItemMarkup(markup, None, inputs[item_id].variation_ids) for item_id, markup in plain.items()}
+        items = {
+            item_id: ItemMarkup(markup, None, inputs[item_id].variation_ids, _unit_products(inputs[item_id]))
+            for item_id, markup in plain.items()
+        }
     else:
         items = {
-            item_id: replace(item, variation_ids=inputs[item_id].variation_ids) for item_id, item in with_ads.items()
+            item_id: replace(
+                item, variation_ids=inputs[item_id].variation_ids, unit_products=_unit_products(inputs[item_id])
+            )
+            for item_id, item in with_ads.items()
         }
     unpriced = Counter(m.markup.reason for m in items.values() if m.markup.worst is None)
     stats = MarkupStats(

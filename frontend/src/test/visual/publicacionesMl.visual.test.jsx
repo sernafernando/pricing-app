@@ -19,7 +19,7 @@ import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
-import { equiposAPI, mlItemOverridesAPI, offsetsGananciaAPI, preciosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
+import { equiposAPI, mlItemOverridesAPI, offsetsGananciaAPI, preciosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI, pxqAPI } from '../../services/api';
 import { PRODUCTO_CON_REBATE_Y_OFERTA, SELL_IN_OUT } from '../../components/pricing/ProductPrices.fixtures';
 import {
   BRAND_NODES,
@@ -49,14 +49,17 @@ import {
 // The markup column, its filters and the sub-rows' cost are for `ver_ganancia` only.
 let canSeeMargin = false;
 let canSeeKpis = true;
+// One function for every render, as the real context's `tienePermiso` is: hooks that read on its change (the
+// prearmadas badge) would otherwise cancel their own read on each render.
+const tienePermiso = (permiso) => {
+  if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
+  if (permiso === 'ml_metricas.ver') return canSeeKpis;
+  return true;
+};
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
-    tienePermiso: (permiso) => {
-      if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
-      if (permiso === 'ml_metricas.ver') return canSeeKpis;
-      return true;
-    },
+    tienePermiso,
     cargandoPermisos: false,
   }),
   PermisosProvider: ({ children }) => children,
@@ -66,8 +69,13 @@ vi.mock('../../hooks/useSSEChannel', () => ({ useSSEChannel: vi.fn() }));
 vi.mock('../../services/api', () => ({
   default: {
     get: vi.fn(() => Promise.resolve({ data: [] })),
+    // Only the prearmadas badge posts here: two ready for every product asked.
+    post: vi.fn((url, body) =>
+      Promise.resolve({ data: { stats: Object.fromEntries((body?.items ?? []).map(({ item_id }) => [item_id, { exact: 2, upgrade: 0 }])) } }),
+    ),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
+  pxqAPI: { getLive: vi.fn(), getMarkup: vi.fn(), createTier: vi.fn(), updateTier: vi.fn(), deleteTier: vi.fn(), sync: vi.fn(), adoptLive: vi.fn() },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), stats: vi.fn(() => Promise.resolve({ data: { stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 }, can_see_margin: false } })), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
   productosPropiosAPI: {
     get: vi.fn(() =>
@@ -748,7 +756,7 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
   }
 });
 
-const renderProducts = async ({ width, height, theme, rows }) => {
+const renderProducts = async ({ width, height, theme, rows, entry = '/ml-publicaciones?vista=producto' }) => {
   canSeeMargin = true;
   publicacionesMlAPI.items.mockResolvedValue({ data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 130 } });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
@@ -768,7 +776,7 @@ const renderProducts = async ({ width, height, theme, rows }) => {
   document.body.style.background = 'var(--cf-bg-app)';
   window.scrollTo(0, 0);
   const screen = await render(
-    <MemoryRouter initialEntries={['/ml-publicaciones?vista=producto']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Shell>
         <PublicacionesML />
       </Shell>
@@ -810,6 +818,25 @@ describe('Publicaciones ML Producto view (visual)', () => {
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/products-header-${width}-${theme}.png` });
         expect(document.body.textContent).not.toContain('Markup:');
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: a sort by several columns numbers each header, arrow and number on one line`, async () => {
+        const entry = '/ml-publicaciones?vista=producto&orden=unidades_7d,titulo,facturado_30d&dir=desc,asc,desc';
+        const screen = await renderProducts({ width, height, theme, entry });
+        const marks = [...document.querySelectorAll('thead [data-testid="sort-order"]')];
+        const order = Object.fromEntries(marks.map((mark) => [mark.closest('th').dataset.column, mark.textContent]));
+        expect(order).toEqual({ unidades_7d: '1', titulo: '2', facturado_30d: '3' });
+        const buttons = marks.map((mark) => mark.closest('button'));
+        expect(wrapped(buttons)).toEqual([]);
+        for (const button of buttons) {
+          const cell = button.closest('th');
+          expect(rect(button).right, button.textContent).toBeLessThanOrEqual(rect(cell).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) {
+          const path = `${PRODUCT_SHOTS_DIR}/products-multisort-${width}-${theme}.png`;
+          await page.screenshot({ path, element: document.querySelector('thead') });
+        }
         screen.unmount();
       });
 
@@ -1041,6 +1068,60 @@ describe('Publicaciones ML Producto view (visual)', () => {
           // the next tests read the page's own items and no stored snapshot
           promocionesAPI.getCompetenciaCatalogo.mockReset();
           publicacionesMlAPI.items.mockReset();
+        }
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product's prearmadas badge fits in the panel header`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+        await expect.element(aside.getByText('2 listas')).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        const badge = aside.getByText('2 listas').element();
+        expect(rect(badge).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-prearmadas-${width}-${theme}.png` });
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the wholesale prices of a product's publication fit inside the panel`, async () => {
+        pxqAPI.getLive.mockResolvedValue({
+          data: {
+            item_id: 'MLA1100000005',
+            live_status: 'ok',
+            live_tiers: [
+              { id: 'p1', quantity: 3, amount: 95000 },
+              { id: 'p2', quantity: 10, amount: 91500.5 },
+            ],
+            mirror_tiers: [
+              { id: 1, cantidad_minima: 3, precio_unitario: 95000, costo_envio_total: 15000, estado: 'sincronizado', ml_price_id: 'p1' },
+              { id: 2, cantidad_minima: 10, precio_unitario: 91500.5, costo_envio_total: null, estado: 'sincronizado', ml_price_id: 'p2' },
+            ],
+          },
+        });
+        pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA1100000005', tiers: [] } });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('button', { name: /^Precios mayoristas de / }).first().click();
+          const section = aside.getByRole('heading', { name: 'Precios mayoristas' }).element().closest('section');
+          await expect.poll(() => section.querySelectorAll('table, li').length).toBeGreaterThan(1);
+          const panel = document.querySelector('[data-split-panel]');
+          section.scrollIntoView();
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-pxq-${width}-${theme}.png` });
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          for (const el of section.querySelectorAll('li, button, table, input')) {
+            expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          }
+          screen.unmount();
+        } finally {
+          pxqAPI.getLive.mockReset();
+          pxqAPI.getMarkup.mockReset();
         }
       });
     }
