@@ -207,6 +207,25 @@ class TestBoardSellInOut:
 
         assert keys == ["32", "31", "34", "33", "35"]
 
+    @pytest.mark.parametrize(
+        "sort,filled",
+        [
+            # 33 has no sell line, 35's is outside Total Gauss, 32 has only sell outs and 34 has no markup: each
+            # shows an empty cell in that column, so it sorts last, like any blank column (Stock, Total TP).
+            ("total_gauss_sell", ["34", "31", "32"]),
+            ("markup_sell", ["32", "31"]),
+            ("sell_in", ["34", "31"]),
+            ("sell_out", ["32", "31"]),
+        ],
+    )
+    def test_a_row_with_an_empty_sell_cell_sorts_last_ascending(self, catalog, sort, filled) -> None:
+        f = dataclasses.replace(ON, sort=sort, sort_desc=False)
+        with board.Board(catalog, f, scope_pairs=None) as b:
+            keys = [row.key for row in b.page(None)]
+
+        assert keys[: len(filled)] == filled
+        assert set(keys[len(filled) :]) == {"31", "32", "33", "34", "35"} - set(filled)
+
     def test_kpis_sum_the_rows(self, catalog) -> None:
         with board.Board(catalog, ON, scope_pairs=None) as b:
             k = b.kpis()
