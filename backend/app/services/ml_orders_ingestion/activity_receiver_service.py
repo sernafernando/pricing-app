@@ -93,10 +93,17 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import null
+
 from app.core.config import settings
 from app.core.database import get_background_db
-from app.models.ml_orders_ops import MlOpsDivergence, MlOrdersOps
-from app.services.ml_orders_ingestion.ingestion_service import QuarantineRetryResult, retry_quarantined_orders
+from app.models.ml_orders_ops import MlOrdersOps, MlOrdersOpsCuarentena
+from app.services.ml_orders_ingestion.ingestion_service import (
+    TRANSIENT_TAG,
+    QuarantineRetryResult,
+    _insert_stmt,
+    retry_quarantined_orders,
+)
 from app.services.ml_orders_ingestion.sweep_service import (
     BATCH_SIZE,
     CURSOR_NAME as SWEEP_CURSOR_NAME,
@@ -277,7 +284,8 @@ def _collect_new_order_ids(events: List[Dict[str, Any]], seen_this_pass: Dict[in
     return list(new_ids.keys()), without_order_id
 
 
-UNRESOLVED_FIELD = "activity_unresolved"
+# The error an unresolved order is quarantined with (no payload to replay).
+UNRESOLVED_ERROR = TRANSIENT_TAG + "get_order returned nothing to the activity receiver"
 
 
 def _record_unresolved_order(db, order_id: int) -> None:
@@ -290,40 +298,34 @@ def _record_unresolved_order(db, order_id: int) -> None:
     single permanently-dead order, which is precisely the bug fixed in
     `9cc60ef7` for the payments/costs backfill (a row that never settled
     blocked every candidate behind it). Recording the debt keeps the
-    stream moving AND keeps the miss recorded. No screen reads the debt
-    row any more (the divergences screen is gone), so the FIRST miss of an order
-    is logged with its id; a repeated miss only refreshes the row. D2 of
-    remove-ml-divergences moves this debt off `ml_ops_divergence` into a
-    column/quarantine of its own. The audit sweep re-ingesting the order
-    is still what settles it -- `_clear_resolved_unresolved_debts`
-    below is the function that closes the ticket once that re-ingest
-    lands (this docstring used to just say "the audit sweep re-ingests
-    the order on its next window pass" and stop there, which was true but
-    incomplete: nothing ever cleared the debt row once that re-ingest
-    landed, so 358 of these piled up as permanent false alarms on the
-    Ventas ML screen before that function existed). Deduped by the
-    `(order_id, kind, field)` unique constraint, so a repeated miss
-    refreshes `detected_at`.
+    stream moving AND keeps the miss recorded.
+
+    The debt is a quarantine row with no `raw_order` (remove-ml-divergences
+    D2b; it used to be an `ml_ops_divergence` row): the replay skips it, since
+    there is nothing to replay, and it is settled once the order lands in
+    `ml_orders_ops` (`_clear_unresolved_orders` below for this drain's own
+    orders, `_clear_resolved_unresolved_debts` for every other writer).
+    Inserted only if the order has no row yet: a quarantined write error keeps
+    its payload, and a repeated miss changes nothing. The first miss of an
+    order is logged with its id.
     """
-    existing = (
-        db.query(MlOpsDivergence)
-        .filter(
-            MlOpsDivergence.order_id == order_id,
-            MlOpsDivergence.kind == "unknown",
-            MlOpsDivergence.field == UNRESOLVED_FIELD,
-        )
-        .first()
+    stmt = (
+        _insert_stmt(db, MlOrdersOpsCuarentena.__table__)
+        .values(order_id=order_id, raw_order=null(), error=UNRESOLVED_ERROR, intentos=1)
+        .on_conflict_do_nothing(index_elements=["order_id"])
     )
-    now = datetime.now(timezone.utc)
-    if existing is not None:
-        existing.detected_at = now
-    else:
+    if db.execute(stmt).rowcount:
         logger.warning(
             "activity_receiver: order_id=%s unresolved (get_order returned nothing); "
-            "recorded as debt, the audit sweep re-ingests it",
+            "quarantined without payload until the order lands",
             order_id,
         )
-        db.add(MlOpsDivergence(order_id=order_id, kind="unknown", field=UNRESOLVED_FIELD, detected_at=now))
+
+
+def _unresolved_debts(db):
+    """The quarantine rows with no payload. A row WITH one is a write that failed: only the replay settles it, so
+    none of the clears below may touch it."""
+    return db.query(MlOrdersOpsCuarentena).filter(MlOrdersOpsCuarentena.raw_order.is_(None))
 
 
 def _clear_unresolved_orders(db, order_ids) -> None:
@@ -332,76 +334,54 @@ def _clear_unresolved_orders(db, order_ids) -> None:
     lesson as clearing the cost-sync give-up counter on success."""
     if not order_ids:
         return
-    db.query(MlOpsDivergence).filter(
-        MlOpsDivergence.order_id.in_(list(order_ids)),
-        MlOpsDivergence.kind == "unknown",
-        MlOpsDivergence.field == UNRESOLVED_FIELD,
-    ).delete(synchronize_session=False)
+    _unresolved_debts(db).filter(MlOrdersOpsCuarentena.order_id.in_(list(order_ids))).delete(synchronize_session=False)
 
 
 def _clear_resolved_unresolved_debts(db) -> int:
-    """Settles any `activity_unresolved` debt whose order has since
-    landed in `ml_orders_ops` -- by definition a false alarm, since the
-    debt means "we could not fetch this order" and the order is right
-    there.
+    """Settles any unresolved-order debt whose order has since landed in
+    `ml_orders_ops` -- by definition a false alarm, since the debt means
+    "we could not fetch this order" and the order is right there.
 
     Why this exists alongside `_clear_unresolved_orders` above: that
     function only clears ids THIS drain pass just resolved, on the
-    receiver's own page loop. Nothing else ever cleared the debt, so an
-    order that got picked up later by the sweep's own upsert (its
-    ordinary window pass, or the audit/backfill re-ingesting it) left its
-    debt row permanently open -- 358 of these had accumulated in
-    production, 29 naming an order already present in `ml_orders_ops`,
-    inflating the "N ventas no pudieron ingresar" warning on the Ventas
-    ML screen with pure false alarms.
+    receiver's own page loop. An order picked up later by the sweep's own
+    upsert (its ordinary window pass, or the audit/backfill re-ingesting it)
+    would otherwise leave its debt open forever -- 358 of these had
+    accumulated in production, 29 naming an order already present in
+    `ml_orders_ops`.
 
-    One `NOT EXISTS`-style membership check settles it, and self-heals
-    the existing backlog the first time it runs: it is provably incapable
-    of touching a debt whose order is ABSENT from `ml_orders_ops` (the
-    real, still-open misses), because the filter only ever selects
-    `order_id`s that appear in that table, and it never touches a
-    different `kind`/`field` divergence because both are pinned in the
-    `WHERE` clause exactly like `_clear_unresolved_orders` above. Prefer
-    this over threading resolved ids through the sweep's upsert loop: one
-    statement covers the sweep, the backfill, the receiver and the
-    already-open backlog, and it cannot drift out of sync with whoever
-    writes an order next.
+    Safe by construction: the filter only ever selects `order_id`s that
+    appear in `ml_orders_ops`, so a real, still-open miss cannot be
+    touched, and only rows with no payload, so a quarantined write error is
+    left to the replay. One statement covers the sweep, the backfill, the
+    receiver and the already-open backlog. Idempotent.
 
     Returns the number of debt rows cleared, purely for logging/tests.
     """
     resolved_order_ids = db.query(MlOrdersOps.order_id)
     return (
-        db.query(MlOpsDivergence)
-        .filter(
-            MlOpsDivergence.kind == "unknown",
-            MlOpsDivergence.field == UNRESOLVED_FIELD,
-            MlOpsDivergence.order_id.in_(resolved_order_ids),
-        )
+        _unresolved_debts(db)
+        .filter(MlOrdersOpsCuarentena.order_id.in_(resolved_order_ids))
         .delete(synchronize_session=False)
     )
 
 
 def _clear_shipment_id_unresolved_debts(db) -> int:
     """Settles the false debts recorded before events were classified by
-    `resource`: an `activity_unresolved` debt whose id is the `shipping_id`
-    of an order we hold names a SHIPMENT, not a missing sale (393 of them
-    in production on 2026-09-30).
+    `resource`: a debt whose id is the `shipping_id` of an order we hold
+    names a SHIPMENT, not a missing sale (393 of them in production on
+    2026-09-30).
 
     Safe by construction, same shape as `_clear_resolved_unresolved_debts`:
     the filter only ever selects ids that appear in
     `ml_orders_ops.shipping_id` (NULLs excluded), so a debt whose id is not
-    a shipping_id we hold -- a real, still-open miss -- cannot be touched;
-    `kind` and `field` are pinned in the `WHERE` so other divergences are
-    never touched either. Idempotent. Returns the rows cleared.
+    a shipping_id we hold -- a real, still-open miss -- cannot be touched,
+    and only rows with no payload. Idempotent. Returns the rows cleared.
     """
     known_shipping_ids = db.query(MlOrdersOps.shipping_id).filter(MlOrdersOps.shipping_id.isnot(None))
     return (
-        db.query(MlOpsDivergence)
-        .filter(
-            MlOpsDivergence.kind == "unknown",
-            MlOpsDivergence.field == UNRESOLVED_FIELD,
-            MlOpsDivergence.order_id.in_(known_shipping_ids),
-        )
+        _unresolved_debts(db)
+        .filter(MlOrdersOpsCuarentena.order_id.in_(known_shipping_ids))
         .delete(synchronize_session=False)
     )
 
@@ -460,7 +440,7 @@ def drain_activity() -> ActivityDrainResult:
         # taken in the block above, whose COMMIT lands outside every
         # try/finally; while that block only held the lock and one SELECT
         # its commit was trivial, but carrying up to fifty upserts, deletes
-        # and divergence inserts through it means a failed commit escapes
+        # and quarantine inserts through it means a failed commit escapes
         # and strands the lock for thirty minutes -- the exact failure that
         # cost four days of ingestion. The module docstring says closing
         # each individual path failed three times and the release is

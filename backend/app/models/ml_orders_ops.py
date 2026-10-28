@@ -9,10 +9,11 @@ Design decisions (see design doc, obs #1823):
 - Natural key is the ML `order_id`, never the ERP `mlo_id`.
 - `ml_order_items_ops` carries ZERO cost columns; a later change joins ERP
   cost onto `(seller_sku, item_id)` from a separate table/view.
-- `ml_ops_divergence` is legacy: the divergences board and its alarm
-  writers are gone and the cost-sync give-up counters moved to
-  `ml_shipments_ops.cost_sync_attempts`; only the `activity_unresolved`
-  debts still use it, until they move and the table is dropped.
+- `ml_ops_divergence` is legacy and no longer written: the divergences
+  board and its alarm writers are gone, the cost-sync give-up counters
+  moved to `ml_shipments_ops.cost_sync_attempts` and the
+  `activity_unresolved` debts to `ml_orders_ops_cuarentena`; a later
+  release drops the table.
 """
 
 from __future__ import annotations
@@ -390,12 +391,18 @@ class MlOrdersOpsCuarentena(Base):
     exact write with zero HTTP calls once the code is fixed -- this is
     what keeps a quarantined order from being lost forever. The worker
     handler `ml_orders.quarantine_retry` runs that retry on its own.
+
+    `raw_order` is NULL for an order ML did not give back to the activity
+    receiver (`activity_receiver_service._record_unresolved_order`): there is
+    no payload to replay, so the replay skips the row; it is settled once the
+    order lands in `ml_orders_ops`. SQL NULL, not JSON `null`
+    (`none_as_null`), so `IS NULL` finds it.
     """
 
     __tablename__ = "ml_orders_ops_cuarentena"
 
     order_id = Column(BigInteger, primary_key=True)
-    raw_order = Column(JSONB, nullable=False)
+    raw_order = Column(JSONB(none_as_null=True), nullable=True)
     error = Column(Text, nullable=False)
     intentos = Column(Integer, nullable=False, server_default="1")
     primera_falla_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -403,13 +410,14 @@ class MlOrdersOpsCuarentena(Base):
 
 
 class MlOpsDivergence(Base):
-    """LEGACY table, kept until its last writer moves (then dropped).
+    """LEGACY table, no longer written; a later release drops it.
 
-    Still written by: the activity receiver's `activity_unresolved` debts.
     The divergences board, its endpoints, the detector and every alarm
-    writer are gone; the cost-sync give-up counters it used to hold (rows
-    `order_id=0`, `field='cost_sync:<shipment_id>'`) moved to
-    `ml_shipments_ops.cost_sync_attempts`.
+    writer are gone. What it still held moved out: the cost-sync give-up
+    counters (rows `order_id=0`, `field='cost_sync:<shipment_id>'`) to
+    `ml_shipments_ops.cost_sync_attempts`, and the activity receiver's
+    `activity_unresolved` debts to `ml_orders_ops_cuarentena` (a row with no
+    `raw_order`).
     """
 
     __tablename__ = "ml_ops_divergence"

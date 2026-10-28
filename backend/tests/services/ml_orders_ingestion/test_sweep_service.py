@@ -1425,7 +1425,8 @@ class TestSweepPassClearsShipmentIdDebts:
     def test_a_false_debt_naming_a_known_shipping_id_is_cleared_by_the_pass(self, db, monkeypatch):
         """The sweep pass is what makes existing false `activity_unresolved`
         debts (a shipment id recorded as an order) self-heal."""
-        from app.services.ml_orders_ingestion.activity_receiver_service import UNRESOLVED_FIELD
+        from app.models.ml_orders_ops import MlOrdersOpsCuarentena
+        from app.services.ml_orders_ingestion.ingestion_service import TRANSIENT_TAG
 
         db.add(
             MlOrdersOps(
@@ -1435,23 +1436,15 @@ class TestSweepPassClearsShipmentIdDebts:
                 ml_last_updated=datetime.now(timezone.utc),
             )
         )
-        db.add(
-            MlOpsDivergence(
-                order_id=48137554327, kind="unknown", field=UNRESOLVED_FIELD, detected_at=datetime.now(timezone.utc)
-            )
-        )
-        db.add(
-            MlOpsDivergence(
-                order_id=48999999999, kind="unknown", field=UNRESOLVED_FIELD, detected_at=datetime.now(timezone.utc)
-            )
-        )
+        for order_id in (48137554327, 48999999999):
+            db.add(MlOrdersOpsCuarentena(order_id=order_id, raw_order=None, error=TRANSIENT_TAG + "no order"))
         db.commit()
         monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([])))
 
         result = sweep_service.run_sweep(seller_id=999, window_days=90)
 
         assert result.error is None
-        assert [d.order_id for d in db.query(MlOpsDivergence).all()] == [48999999999]
+        assert [d.order_id for d in db.query(MlOrdersOpsCuarentena).all()] == [48999999999]
 
 
 class TestASkippedWindowIsLoggedAsAnError:

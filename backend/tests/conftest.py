@@ -238,7 +238,10 @@ def _patch_pg_types_for_sqlite() -> None:
         for column in table.columns:
             for pg_type, factory in _PG_TYPE_MAP.items():
                 if isinstance(column.type, pg_type):
-                    column.type = factory()
+                    # A JSONB column that stores None as SQL NULL (`none_as_null`) keeps doing so here, or
+                    # `IS NULL` would miss the JSON "null" literal SQLite stored instead.
+                    none_as_null = getattr(column.type, "none_as_null", False)
+                    column.type = JSON(none_as_null=True) if none_as_null else factory()
                     break
             # BigInteger PKs → Integer under SQLite so autoincrement works.
             if column.primary_key and isinstance(column.type, BigInteger):

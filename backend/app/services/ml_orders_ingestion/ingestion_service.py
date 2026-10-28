@@ -501,7 +501,9 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
     a large backlog cannot turn the retry into the main job.
 
     Only DUE rows are selected: past their backoff (`_backoff`), and for a
-    row tagged permanent, under `MAX_PERMANENT_ATTEMPTS`. Every attempted row
+    row tagged permanent, under `MAX_PERMANENT_ATTEMPTS`. A row with no
+    `raw_order` (an order ML did not give back to the activity receiver) has
+    nothing to replay and is never selected. Every attempted row
     leaves with its attempt counted, whatever the outcome. A row that is not due
     is simply skipped -- every caller (the worker handler, the sweep, the
     activity drain) shares this gate.
@@ -536,7 +538,7 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
     # replay the same order at once.
     rows = (
         db.query(MlOrdersOpsCuarentena.order_id, MlOrdersOpsCuarentena.raw_order, MlOrdersOpsCuarentena.intentos)
-        .filter(_due_for_retry(datetime.now(timezone.utc)))
+        .filter(MlOrdersOpsCuarentena.raw_order.isnot(None), _due_for_retry(datetime.now(timezone.utc)))
         .order_by(nullsfirst(MlOrdersOpsCuarentena.ultimo_intento_at.asc()))
         .limit(limit)
         .with_for_update(skip_locked=True)
