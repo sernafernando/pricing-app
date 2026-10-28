@@ -14,7 +14,7 @@ import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTo
 import { deltaTone, formatDeltaPct, formatDeltaPp, formatPct, formatRatio, formatUnits } from '../../utils/metricasMlFormat';
 import { originalAmount } from '../../utils/metricasMlAds';
 import { TP_MARKUP_HINT, tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
-import { sellOutPendingTitle } from '../../utils/metricasMlSell';
+import { sellOutEstimatedTitle, sellOutPendingTitle } from '../../utils/metricasMlSell';
 import styles from './MetricasKpiStrip.module.css';
 
 /**
@@ -93,39 +93,49 @@ function TotalTpCard({ tp }) {
   );
 }
 
-/** A figure WITH sell in / sell out, under the same figure without them (sell-in-sell-out T11). */
-function WithSellInOut({ children, pendientes = 0 }) {
+/** The sell out's caveats next to a figure that adds it: the sales left out for want of a rate, and the ones
+ * added on a rate that is still an estimate ("≈ n", like the rows). */
+function SellOutFlags({ pendientes = 0, estimados = 0 }) {
   return (
-    // The figure (and its warning) wraps as a whole under the label in a narrow card, never mid-amount.
+    <>
+      {pendientes > 0 && (
+        <span className={styles.warn} title={sellOutPendingTitle(pendientes)}>
+          <AlertTriangle size={12} aria-hidden="true" />
+          {formatUnits(pendientes)}
+        </span>
+      )}
+      {estimados > 0 && (
+        <span className={styles.estimatedHint} title={sellOutEstimatedTitle(estimados)}>
+          ≈ {formatUnits(estimados)}
+        </span>
+      )}
+    </>
+  );
+}
+
+/** A figure WITH sell in / sell out, under the same figure without them (sell-in-sell-out T11). */
+function WithSellInOut({ children, pendientes = 0, estimados = 0 }) {
+  return (
+    // The figure (and its flags) wraps as a whole under the label in a narrow card, never mid-amount.
     <span className={`${styles.subtitle} ${styles.sellLine}`} data-testid="kpi-sell-in-out">
       <span>C/ sell in/out:</span>{' '}
       <span className={styles.sellValue}>
         <strong data-money>{children}</strong>
-        {pendientes > 0 && (
-          <span className={styles.warn} title={sellOutPendingTitle(pendientes)}>
-            <AlertTriangle size={12} aria-hidden="true" />
-            {formatUnits(pendientes)}
-          </span>
-        )}
+        <SellOutFlags pendientes={pendientes} estimados={estimados} />
       </span>
     </span>
   );
 }
 
 /** One figure of the sell in / sell out card; a figure that does not apply (null) leaves no line at all. */
-function SellFigure({ label, value, testId, pendientes = 0 }) {
+function SellFigure({ label, value, testId, pendientes = 0, estimados = 0 }) {
   if (value == null) return null;
   return (
     <div className={styles.sellFigure} data-testid={testId}>
       <span className={styles.subtitle}>{label}</span>
       <span className={styles.sellValue}>
         <strong data-money>{formatSignedMoney(value)}</strong>
-        {pendientes > 0 && (
-          <span className={styles.warn} title={sellOutPendingTitle(pendientes)}>
-            <AlertTriangle size={12} aria-hidden="true" />
-            {formatUnits(pendientes)}
-          </span>
-        )}
+        <SellOutFlags pendientes={pendientes} estimados={estimados} />
       </span>
     </div>
   );
@@ -138,7 +148,7 @@ function SellInOutCard({ sell }) {
     <Card label="Sell in / Sell out" icon={ArrowLeftRight}>
       <div className={styles.sellFigures}>
         <SellFigure label="Sell in" value={sell.sell_in} testId="kpi-sell-in" />
-        <SellFigure label="Sell out" value={sell.sell_out} testId="kpi-sell-out" pendientes={sell.sell_out_pendientes} />
+        <SellFigure label="Sell out" value={sell.sell_out} testId="kpi-sell-out" pendientes={sell.sell_out_pendientes} estimados={sell.sell_out_estimados} />
         <SellFigure label="Costo" value={sell.costo} testId="kpi-costo" />
         <SellFigure label="Costo c/ sell in" value={sell.costo_sell_in} testId="kpi-costo-sell-in" />
       </div>
@@ -216,7 +226,7 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
                   <Adjusted original={originalAmount(tg.value, ads.subtracted_total)} />
                 </div>
               )}
-              {sell && sell.total_gauss != null && <WithSellInOut pendientes={sell.sell_out_pendientes}>{formatSignedMoney(sell.total_gauss)}</WithSellInOut>}
+              {sell && sell.total_gauss != null && <WithSellInOut pendientes={sell.sell_out_pendientes} estimados={sell.sell_out_estimados}>{formatSignedMoney(sell.total_gauss)}</WithSellInOut>}
               <Sparkline values={tg.series} width={200} height={22} tone={deltaTone(tg.delta_pct)} className={styles.spark} label="Total Gauss por día" />
             </>
           ) : (
