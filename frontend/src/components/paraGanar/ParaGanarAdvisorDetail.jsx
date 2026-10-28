@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { formatPrice } from './formatPrice';
+import ParaGanarPromoPool from './ParaGanarPromoPool';
 import styles from '../../pages/ParaGanarAdvisor.module.css';
 
 export default function ParaGanarAdvisorDetail({ selected }) {
@@ -85,8 +86,8 @@ export default function ParaGanarAdvisorDetail({ selected }) {
         <div className={styles.emptyState}>
           <p className={styles.emptyTitle}>Seleccioná un MLA</p>
           <p className={styles.emptyBody}>
-            Acá aparece el precio sugerido (PARA GANAR) y el tablero TOP. Aplicar
-            promo llega después.
+            Acá aparece el precio sugerido, el tablero TOP y el pool de promos
+            candidatas (Aplicar desde Advisor llega después).
           </p>
         </div>
       )}
@@ -245,6 +246,8 @@ export default function ParaGanarAdvisorDetail({ selected }) {
                   </p>
                 )
               )}
+
+              <ParaGanarPromoPool mla={selected.mla} precioSugerido={board.precio_sugerido} />
             </>
           )}
         </div>

@@ -109,7 +109,7 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 - API: `GET /api/para-ganar/cola` — active MLAs (precio, catálogo, par sync por `inventory_id`) with Productos-like scope params
 - Nav: Sidebar → Productos → PARA GANAR (badge WIP)
 - Catalog: `frontend/src/registry/screenCatalog.js`
-- Criterios: override por MLA (`GET/PUT /api/para-ganar/criterios/{mla}`); masivo `POST /criterios/aplicar-masivo` al alcance filtrado (pisa markup/TOP/flags); herencia producto/PM TBD
+- Criterios: override por MLA (`GET/PUT /api/para-ganar/criterios/{mla}`); masivo `POST /criterios/aplicar-masivo`; Advisor pool D18 (SMART else DEAL/campaña en rango del sugerido; Aplicar gris); enroll TBD; herencia producto/PM TBD
 - System defaults (source=`default`): markup 5–15%, top sellers 5, precio min/max unset, all flags off
 - Catalog sellers: `para_ganar_catalog_sellers` + `GET/PUT /criterios/{mla}/sellers` (dispositions: active / ignore_participant / hide / exclude_from_top); members synced from latest `ml_catalog_competition` snapshot
 
