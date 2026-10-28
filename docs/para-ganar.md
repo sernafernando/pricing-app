@@ -43,6 +43,7 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D19 | **Hasta 3 sugeridas** que entren en criterios: Mejor / Intermedia / Tercera. Orden: SMART → otra DEAL/campaña → Premium (nombre contiene `premium`, ej. PREMIUM JULIO) al final. Markup band + rango vs sugerido | Requester: no inundar con el mirror completo | Superseded by D20 |
 | D20 | **Un slot por tipo:** 1 SMART + 1 DEAL/campaña no-Premium + 1 Premium (si califican). Premium ya no lo desplazan N campañas A PVP… Deal price = `precio_sugerido` clamp al rango → con enroll | Requester: Premium visible; brand campaigns no llenan el top-3 | Ranking done; sugerido-en-fila + enroll TBD |
 | D21 | **Premium `started`:** igual se muestra en el slot Premium con badge/botón **Aplicada** (no solo candidates). Min–max label skip — next slice replaces with sugerido | MLA2154276473: PREMIUM OCTUBRE ya enrolada | Done |
+| D22 | TOP board: `referent_note` por seller (Referente / Descartado: markup mín. / Sin markup / precio mín|máx.). Excluidos siguen fuera del ranking | Claridad vs sugerido | Done |
 
 ---
 
@@ -94,7 +95,7 @@ Newest first. Use for “why did we…” archaeology.
 - Bucket key is recomputed at read time from competitor `installments` (int/str/dict). If the snapshot lacks `our_bucket_key`, it is synthesized from this MLA’s web pricelist (e.g. lista 14 → `gold_pro|6`) so 6-cuotas peers are not dropped (D14).
 - TOP board shows **Competís en** + per-row `listing_label` from the competition API (e.g. `Premium · 3 cuotas`) so it is not confused with the website financing copy (“Mismo precio en 6 cuotas”).
 - If the bucket has fewer price positions than TOP N, a discreet notice says the TOP is incomplete (not enough competitors).
-- **Precio sugerido (D15):** cheapest same-bucket peer as referent; if `markup_min` is set and peer markups exist, skip peers below that floor. Caps `precio_min`/`precio_max` when set. **Perdiendo:** delta = sugerido − nuestro (negativo = bajar). **Ganando:** holgura hasta el siguiente peer.
+- **Precio sugerido (D15):** cheapest same-bucket peer as referent; if `markup_min` is set and peer markups exist, skip peers below that floor. Caps `precio_min`/`precio_max` when set. **Perdiendo:** delta = sugerido − nuestro (negativo = bajar). **Ganando:** holgura hasta el siguiente peer. TOP rows show `referent_note` (D22): who is Referente vs discarded by markup/price criteria. Disposition **Excluido** sellers never appear on the board.
 - **Pool promos (D20/D21):** under the TOP board, up to **3** slots: **one** SMART-like, **one** other DEAL/campaña, **one** Premium (name contains `premium`). Markup band + DEAL range vs `precio_sugerido` for candidates. If Premium is already `started`, still show it with **Aplicada**. Showing `deal_price = precio_sugerido` (clamped) + enroll = next slice.
 - Missing snapshot: `POST /para-ganar/criterios/{mla}/competencia/refresh` (permiso `productos.editar_precios`) fetches via the same `refrescar_competencia_catalogo` path as Promociones — **per MLA only** (ML throttle).
 

@@ -40,6 +40,7 @@ from app.services.para_ganar_top import (
     compute_suggested_price,
     dense_rank_positions,
     our_rank_from_positions,
+    peer_referent_notes,
 )
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
 from app.services.pricing_columns import (
@@ -1211,6 +1212,8 @@ class ParaGanarSugerenciaPositionSeller(BaseModel):
     item_id: Optional[str] = None
     is_us: bool = False
     listing_label: Optional[str] = None
+    # TOP board hint: Referente | Descartado: markup mín. | Sin markup | …
+    referent_note: Optional[str] = None
 
 
 class ParaGanarSugerenciaPosition(BaseModel):
@@ -1863,6 +1866,17 @@ def obtener_sugerencia_mla(
         suggestion_status = "alone"
     elif suggested is None:
         suggestion_status = "none"
+
+    notes = peer_referent_notes(
+        ranked,
+        markup_min=criterios.markup_min,
+        precio_min=criterios.precio_min,
+        precio_max=criterios.precio_max,
+        referent_seller_id=suggested.referent_seller_id if suggested else None,
+    )
+    for position in payload["positions"]:
+        for seller in position["sellers"]:
+            seller["referent_note"] = notes.get(seller["seller_id"])
 
     message = " ".join(message_parts) if message_parts else None
     snapshot_at = snap.get("fecha_consulta")

@@ -8,6 +8,7 @@ from app.services.para_ganar_top import (
     compute_suggested_price,
     dense_rank_positions,
     our_rank_from_positions,
+    peer_referent_notes,
     positions_within_top,
 )
 
@@ -73,6 +74,26 @@ def test_suggested_price_skips_low_markup_peer() -> None:
     assert result.precio_sugerido == 100.0
     assert result.referent_nickname == "OK"
     assert result.referent_reason == "markup_min"
+
+
+def test_peer_referent_notes_marks_discarded_and_referent() -> None:
+    ranked = [
+        RankCompetitor("cheap", "CHEAP", "MLA1", 90.0, markup=1.0),
+        RankCompetitor("ok", "OK", "MLA2", 100.0, markup=8.0),
+        RankCompetitor("unknown", "UNK", "MLA3", 95.0, markup=None),
+        RankCompetitor("us", "US", "MLAUS", 120.0, is_us=True),
+    ]
+    suggested = compute_suggested_price(ranked, markup_min=5.0)
+    assert suggested is not None
+    notes = peer_referent_notes(
+        ranked,
+        markup_min=5.0,
+        referent_seller_id=suggested.referent_seller_id,
+    )
+    assert notes["ok"] == "Referente"
+    assert notes["cheap"] == "Descartado: markup mín."
+    assert notes["unknown"] == "Sin markup"
+    assert "us" not in notes
 
 
 def test_suggested_price_winning_air_to_second() -> None:

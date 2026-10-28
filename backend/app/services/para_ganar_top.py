@@ -86,6 +86,42 @@ def compute_suggested_price(
     )
 
 
+def peer_referent_notes(
+    ranked: list[RankCompetitor],
+    *,
+    markup_min: Optional[float] = None,
+    precio_min: Optional[float] = None,
+    precio_max: Optional[float] = None,
+    referent_seller_id: Optional[str] = None,
+) -> dict[str, str]:
+    """Short TOP-board labels: who is the referent vs discarded by criteria.
+
+    Excluded sellers never reach `ranked` (filtered earlier). Notes are only for
+    peers that appear on the board.
+    """
+    notes: dict[str, str] = {}
+    for competitor in ranked:
+        if competitor.is_us:
+            continue
+        if referent_seller_id and competitor.seller_id == referent_seller_id:
+            notes[competitor.seller_id] = "Referente"
+            continue
+        if markup_min is not None:
+            if competitor.markup is None:
+                notes[competitor.seller_id] = "Sin markup"
+                continue
+            if competitor.markup < float(markup_min):
+                notes[competitor.seller_id] = "Descartado: markup mín."
+                continue
+        if precio_min is not None and competitor.price_ars < float(precio_min):
+            notes[competitor.seller_id] = "Descartado: precio mín."
+            continue
+        if precio_max is not None and competitor.price_ars > float(precio_max):
+            notes[competitor.seller_id] = "Descartado: precio máx."
+            continue
+    return notes
+
+
 @dataclass(frozen=True)
 class RankPositionSeller:
     seller_id: str
@@ -93,6 +129,7 @@ class RankPositionSeller:
     item_id: Optional[str]
     is_us: bool
     listing_label: Optional[str] = None
+    referent_note: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -224,6 +261,7 @@ def board_to_dict(
                         "item_id": s.item_id,
                         "is_us": s.is_us,
                         "listing_label": s.listing_label,
+                        "referent_note": s.referent_note,
                     }
                     for s in p.sellers
                 ],

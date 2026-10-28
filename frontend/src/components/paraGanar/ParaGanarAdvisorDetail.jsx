@@ -232,6 +232,18 @@ export default function ParaGanarAdvisorDetail({ selected }) {
                                   · {s.listing_label || board.bucket_label}
                                 </span>
                               )}
+                              {s.referent_note ? (
+                                <span
+                                  className={
+                                    s.referent_note === 'Referente'
+                                      ? styles.topBoardReferent
+                                      : styles.topBoardDiscard
+                                  }
+                                >
+                                  {' '}
+                                  · {s.referent_note}
+                                </span>
+                              ) : null}
                             </li>
                           ))}
                         </ul>

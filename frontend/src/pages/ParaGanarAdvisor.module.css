@@ -666,6 +666,16 @@
   font-weight: 400;
 }
 
+.topBoardReferent {
+  color: var(--cf-accent-blue);
+  font-weight: 400;
+}
+
+.topBoardDiscard {
+  color: var(--cf-text-tertiary);
+  font-weight: 400;
+}
+
 .deltaNeg {
   color: var(--cf-accent-red);
   font-variant-numeric: tabular-nums;
