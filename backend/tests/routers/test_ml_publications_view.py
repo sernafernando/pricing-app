@@ -248,9 +248,13 @@ class TestInvalidParams:
         assert response.status_code == 422
         assert response.json()["error"]["field"] == field
 
-    @pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 101}, {"offset": -1}, {"limit": "x"}])
+    @pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 10001}, {"offset": -1}, {"limit": "x"}])
     def test_the_page_size_is_bounded_by_the_framework(self, client, pg, reader, params) -> None:
         assert get(client, reader, **params).status_code == 422
+
+    def test_the_whole_list_fits_one_page_as_productos_todos(self, client, pg, reader) -> None:
+        response = get(client, reader, limit=9999)
+        assert response.status_code == 200 and response.json()["limit"] == 9999
 
     def test_the_event_filter_with_the_events_flag_off_is_422(self, client, pg, reader) -> None:
         response = get(client, reader, evento="price_changed")
