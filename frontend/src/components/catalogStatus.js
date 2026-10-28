@@ -40,8 +40,9 @@ export const NEUTRAL_TONE = 'var(--text-tertiary)';
  */
 export const catalogState = (status) => (Object.hasOwn(CATALOG_STATES, status ?? '') ? CATALOG_STATES[status] : undefined);
 
-// A price as the catalog tooltip writes it; null when it is not a usable number (no tooltip, never a crash). Missing,
-// empty and 0 all count as none (`Number` reads them as 0): Productos always read them that way, by truthiness.
+// A price as the catalog tooltip writes it; null when it is not a usable number (no tooltip, never a crash). Missing
+// (`Number` reads it as NaN) and text that is no number fail the finite check; null, empty and 0 (read as 0) fail the
+// zero one. Productos always read all of them as no price, by truthiness.
 const price = (value) => {
   const number = Number(value);
   return Number.isFinite(number) && number !== 0 ? number.toFixed(2) : null;
