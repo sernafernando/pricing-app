@@ -47,27 +47,42 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
             our_item_id="MLA88201",
             our_seller_id="999",
             our_price=108.0,
+            our_bucket_key="gold_special|3",
             competitors=[
                 {
                     "seller_id": "100",
                     "seller_nickname": "CHEAP",
                     "item_id": "MLA_OTHER_1",
                     "price_ars": 100.0,
+                    "same_bucket": True,
+                    "bucket_key": "gold_special|3",
                 },
                 {
                     "seller_id": "200",
                     "seller_nickname": "MID",
                     "item_id": "MLA_OTHER_2",
                     "price_ars": 105.0,
+                    "same_bucket": True,
+                    "bucket_key": "gold_special|3",
+                },
+                {
+                    "seller_id": "300",
+                    "seller_nickname": "CLASSIC_CHEAP",
+                    "item_id": "MLA_CLASSIC",
+                    "price_ars": 90.0,
+                    "same_bucket": False,
+                    "bucket_key": "gold_special|0",
                 },
                 {
                     "seller_id": "999",
                     "seller_nickname": "US",
                     "item_id": "MLA88201",
                     "price_ars": 108.0,
+                    "same_bucket": True,
+                    "bucket_key": "gold_special|3",
                 },
             ],
-            competitor_count=3,
+            competitor_count=4,
         )
     )
     db.commit()
@@ -76,11 +91,12 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
 
     body = obtener_sugerencia_mla(mla="MLA88201", db=db, _user=rma_superadmin_user)
     assert body.excluded_count == 1
-    assert body.our_rank == 2  # CHEAP excluded → MID #1, us #2
+    assert body.our_rank == 2  # CHEAP excluded → MID #1, us #2 (classic ignored)
     assert body.in_top is True
     assert body.top_sellers == 5
     assert body.positions[0].rank == 1
     assert body.positions[0].sellers[0].nickname == "MID"
+    assert all(s.nickname != "CLASSIC_CHEAP" for p in body.positions for s in p.sellers)
     assert body.message
 
     response = client.get(
@@ -136,18 +152,23 @@ def test_competencia_refresh_persists_and_returns_board(
             our_item_id=mlas[0],
             our_seller_id="999",
             our_price=200.0,
+            our_bucket_key="gold_special|3",
             competitors=[
                 {
                     "seller_id": "999",
                     "seller_nickname": "US",
                     "item_id": mlas[0],
                     "price_ars": 200.0,
+                    "same_bucket": True,
+                    "bucket_key": "gold_special|3",
                 },
                 {
                     "seller_id": "111",
                     "seller_nickname": "OTRO",
                     "item_id": "MLA_X",
                     "price_ars": 180.0,
+                    "same_bucket": True,
+                    "bucket_key": "gold_special|3",
                 },
             ],
             competitor_count=2,

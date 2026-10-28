@@ -1291,8 +1291,12 @@ def _positive_price(value: Any) -> Optional[float]:
     return number
 
 
-def _competition_snapshot_for_rank(db: Session, *, mla: str, catalog_product_id: str) -> Optional[dict[str, Any]]:
-    """Newest OK competition row for this catalog (prefer this MLA's snapshot)."""
+def _competition_snapshot_for_rank(db: Session, *, mla: str) -> Optional[dict[str, Any]]:
+    """Newest OK competition snapshot for THIS MLA only (same listing/cuotas bucket).
+
+    Do not fall back to a sibling MLA of the same catalog: a clásica snapshot
+    would rank 3-cuotas against cash prices.
+    """
     from sqlalchemy.exc import OperationalError, ProgrammingError
 
     try:
@@ -1300,18 +1304,17 @@ def _competition_snapshot_for_rank(db: Session, *, mla: str, catalog_product_id:
             db.execute(
                 text(
                     """
-                SELECT mla, competitors, fecha_consulta, our_price, our_seller_id, our_item_id
+                SELECT mla, competitors, fecha_consulta, our_price, our_seller_id,
+                       our_item_id, our_bucket_key
                 FROM ml_catalog_competition
-                WHERE catalog_product_id = :cid
+                WHERE mla = :mla
                   AND fetch_status = 'ok'
                   AND competitors IS NOT NULL
-                ORDER BY
-                  CASE WHEN mla = :mla THEN 0 ELSE 1 END,
-                  fecha_consulta DESC
+                ORDER BY fecha_consulta DESC
                 LIMIT 1
                 """
                 ),
-                {"cid": catalog_product_id, "mla": mla},
+                {"mla": mla},
             )
             .mappings()
             .first()
@@ -1320,6 +1323,16 @@ def _competition_snapshot_for_rank(db: Session, *, mla: str, catalog_product_id:
         db.rollback()
         return None
     return dict(snap) if snap else None
+
+
+def _competitor_in_our_bucket(competitor: dict[str, Any], our_bucket_key: Optional[str]) -> bool:
+    """True when the competitor shares our listing_type|cuotas bucket."""
+    if competitor.get("same_bucket") is True:
+        return True
+    if our_bucket_key and competitor.get("bucket_key") == our_bucket_key:
+        return True
+    # No usable bucket on either side: refuse comparability (under-claim).
+    return False
 
 
 def _cola_precio_for_mla(db: Session, mla: str) -> Optional[float]:
@@ -1379,13 +1392,16 @@ def obtener_sugerencia_mla(
             needs_competition_refresh=False,
         )
 
-    snap = _competition_snapshot_for_rank(db, mla=mla_norm, catalog_product_id=catalog_product_id)
+    snap = _competition_snapshot_for_rank(db, mla=mla_norm)
     if not snap:
         return ParaGanarSugerenciaResponse(
             mla=mla_norm,
             catalog_product_id=catalog_product_id,
             top_sellers=top_n,
-            message="Sin snapshot de competencia OK para este catálogo. Actualizá la competencia para traer precios de sellers.",
+            message=(
+                "Sin snapshot de competencia OK para esta MLA. "
+                "Actualizá la competencia de esta publicación (no alcanza el snapshot de otra lista/cuotas del mismo catálogo)."
+            ),
             needs_competition_refresh=True,
         )
 
@@ -1397,6 +1413,11 @@ def obtener_sugerencia_mla(
     our_seller_id = str(snap["our_seller_id"]).strip() if snap.get("our_seller_id") else None
     our_item_id = str(snap["our_item_id"]).strip() if snap.get("our_item_id") else mla_norm
     our_price = _positive_price(snap.get("our_price")) or _cola_precio_for_mla(db, mla_norm)
+    our_bucket_key = snap.get("our_bucket_key")
+    if isinstance(our_bucket_key, str):
+        our_bucket_key = our_bucket_key.strip() or None
+    else:
+        our_bucket_key = None
 
     competitors_raw = snap.get("competitors") or []
     if isinstance(competitors_raw, str):
@@ -1407,8 +1428,8 @@ def obtener_sugerencia_mla(
     if not isinstance(competitors_raw, list):
         competitors_raw = []
 
-    ranked: list[RankCompetitor] = []
-    seen_sellers: set[str] = set()
+    # Same seller may have several listings; keep the cheapest in OUR bucket.
+    best_by_seller: dict[str, RankCompetitor] = {}
     for competitor in competitors_raw:
         if not isinstance(competitor, dict):
             continue
@@ -1416,7 +1437,7 @@ def obtener_sugerencia_mla(
         if raw_id is None:
             continue
         seller_id = str(raw_id).strip()
-        if not seller_id or seller_id in seen_sellers:
+        if not seller_id:
             continue
         price_ars = _positive_price(competitor.get("price_ars"))
         if price_ars is None:
@@ -1425,22 +1446,27 @@ def obtener_sugerencia_mla(
         is_us = (our_seller_id and seller_id == our_seller_id) or (
             competitor.get("item_id") is not None and str(competitor.get("item_id")).strip() == mla_norm
         )
+        if not is_us and not _competitor_in_our_bucket(competitor, our_bucket_key):
+            continue
         if not is_us and is_excluded(dispositions.get(seller_id)):
             continue
         nickname = competitor.get("seller_nickname")
         nickname_s = str(nickname).strip()[:128] if nickname else None
         item_raw = competitor.get("item_id")
         item_id = str(item_raw).strip()[:32] if item_raw else None
-        ranked.append(
-            RankCompetitor(
-                seller_id=seller_id,
-                nickname=nickname_s,
-                item_id=item_id,
-                price_ars=price_ars,
-                is_us=bool(is_us),
-            )
+        candidate = RankCompetitor(
+            seller_id=seller_id,
+            nickname=nickname_s,
+            item_id=item_id,
+            price_ars=price_ars,
+            is_us=bool(is_us),
         )
-        seen_sellers.add(seller_id)
+        previous = best_by_seller.get(seller_id)
+        if previous is None or candidate.price_ars < previous.price_ars or (candidate.is_us and not previous.is_us):
+            best_by_seller[seller_id] = candidate
+
+    ranked: list[RankCompetitor] = list(best_by_seller.values())
+    seen_sellers = set(best_by_seller.keys())
 
     if our_price is not None and our_seller_id and our_seller_id not in seen_sellers:
         ranked.append(

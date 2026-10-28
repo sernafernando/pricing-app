@@ -79,7 +79,7 @@ Newest first. Use for “why did we…” archaeology.
 ### TOP (posiciones)
 
 - Field label: **TOP posiciones de precio**. Empates comparten puesto (D12).
-- Advisor: `GET /para-ganar/criterios/{mla}/sugerencia` ranks competition `price_ars` (dense rank); excluded sellers omitted; ourselves always counted.
+- Advisor: `GET /para-ganar/criterios/{mla}/sugerencia` ranks competition `price_ars` (dense rank) **only in the same bucket** as this MLA (`listing_type` + cuotas / `same_bucket`); excluded sellers omitted; ourselves always counted. Snapshot must be for **this MLA** (a clásica sibling of the same catalog is not reused).
 - Missing snapshot: `POST /para-ganar/criterios/{mla}/competencia/refresh` (permiso `productos.editar_precios`) fetches via the same `refrescar_competencia_catalogo` path as Promociones — **per MLA only** (ML throttle).
 
 ### Sellers del catálogo

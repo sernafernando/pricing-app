@@ -10,7 +10,7 @@ Delivery: ask-on-risk. Runner: backend pytest unit; frontend vitest unit.
 - S3: When any seller is excluded, show a discreet operator notice. Quote: "avisarle al operador/pm que hay sellers ocultos con un mensaje discreto cuando eso suceda".
 - S4: TOP N = **price positions** (ties share a rank), not N sellers. Quote docs D12: "Two at #1 + three at #2 = top **2** positions, five sellers".
 - S5: First Advisor slice = rank board (our price, our rank vs TOP N, positions table). No invented “precio PARA GANAR” / promo apply yet.
-- S6: Ranking universe = competition snapshot competitors with valid `price_ars`, minus excluded dispositions; include ourselves with snapshot `our_price` (fallback cola list price). Assumption: all convertible prices in the snapshot (not same_bucket-only) until product says otherwise.
+- S6: Ranking universe = competitors in **this MLA’s** snapshot with valid `price_ars` and **same_bucket** (listing_type + cuotas), minus excluded dispositions; include ourselves with snapshot `our_price` (fallback cola list price). Do not reuse a sibling MLA snapshot from the same catalog.
 
 ## Tasks
 
@@ -22,3 +22,4 @@ Delivery: ask-on-risk. Runner: backend pytest unit; frontend vitest unit.
 
 - L1: User authorized TOP engine; clarified excluded = out of ranking, stay on list, discreet notice; rejected multi-label dispositions (“si no sirven no tienen que estar”); “probemos a ver” on Activo/Excluido.
 - L2: Implemented Activo/Excluido + D12 board endpoint + Advisor UI; tests green (7 unit).
+- L3: User: 3-cuotas MLA was ranking against clásicas — fix same_bucket filter + snapshot must be this MLA.
