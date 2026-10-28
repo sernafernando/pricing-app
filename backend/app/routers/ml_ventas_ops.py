@@ -1732,6 +1732,7 @@ def _sales_page(
                 retenciones_recuperables=group_retenciones_recuperables,
                 bonificacion_envio=group_bonificacion,
                 **_sell_in_out_fields(sumar(sell_by_order.get(m.order_id) for m in members)),
+                # The cost is always ARS, so unlike `neto_sin_iva` it needs no currency gate.
                 costo_mercaderia=_float_or_none(
                     sum_all_or_nothing([_decimal_or_none(m.costo_mercaderia) for m in members])
                 ),
@@ -1914,14 +1915,11 @@ EXPORT_HEADER = [
     "provisorio",
     "estado_metricas",
     "alerta",
-    # Métricas audit B9: the old operations tab's figures. Gauss-only: the TP
-    # export stops at `alerta`. Per-item cells are joined like `producto`.
-    "costo_unitario",
-    "costo_total",
-    "neto_sin_iva",
-    "bonificacion_envio",
-    "tipo_publicacion",
 ]
+
+# Métricas audit B9: the old operations tab's figures, appended to the Gauss
+# export only (never to `EXPORT_HEADER_TP`). Per-item cells are joined like `producto`.
+EXPORT_HEADER_GAUSS_EXTRA = ["costo_unitario", "costo_total", "neto_sin_iva", "bonificacion_envio", "tipo_publicacion"]
 
 
 def _csv_money(value: Optional[float]) -> str:
@@ -1944,7 +1942,7 @@ def _csv_items(order: SaleListItem) -> "tuple[str, str, str]":
 
 # `tplink.solo` export: the sale columns, then the TP figures where the
 # Gauss ones go (`total_gauss`/`markup_pct`), then the rest.
-EXPORT_HEADER_TP = EXPORT_HEADER[:17] + ["costo_tp", "total_tp", "markup_tp", "tp_incompleto"] + EXPORT_HEADER[19:22]
+EXPORT_HEADER_TP = EXPORT_HEADER[:17] + ["costo_tp", "total_tp", "markup_tp", "tp_incompleto"] + EXPORT_HEADER[19:]
 
 # ML's own names for its listing types; any other id is exported as is.
 _LISTING_TYPE_LABELS = {"gold_special": "Clásica", "gold_pro": "Premium"}
@@ -1977,17 +1975,17 @@ def _csv_sale_cells(order: "SaleListItem | SaleListItemTP", accreditation_date: 
 def _csv_order_row(
     order: SaleListItem, accreditation_date: Optional[datetime], costos: Sequence[CostoItemDetalle] = ()
 ) -> List[str]:
-    """`costos`: the order's per-item frozen costs (`resolve_costo_mercaderia_detalle`),
-    in `order.items`' order; an item without one is a blank cell, never zero."""
+    """`costos`: the order's per-item frozen costs (`resolve_costo_mercaderia_detalle`):
+    one per item, an unknown one included, ordered by item row id exactly like
+    `order.items` (`_items_by_order`), so the per-item cells line up with
+    `producto`. An item without a cost is a blank cell, never zero."""
     return _csv_sale_cells(order, accreditation_date) + [
         _csv_money(order.total_gauss),
         _csv_money(order.markup),
         "si" if order.total_gauss_provisional else "no",
         order.metrics_state or "",
         order.alert_level,
-        _CSV_ITEM_SEPARATOR.join(
-            _csv_money(float(c.costo_unitario_ars) if c.costo_unitario_ars is not None else None) for c in costos
-        ),
+        _CSV_ITEM_SEPARATOR.join(_csv_money(_float_or_none(c.costo_unitario_ars)) for c in costos),
         _csv_money(order.costo_mercaderia),
         _csv_money(order.neto_sin_iva),
         _csv_money(order.bonificacion_envio),
@@ -2120,7 +2118,9 @@ def exportar_ventas(
 
     def stream():
         header = io.StringIO()
-        csv.writer(header, delimiter=";").writerow(EXPORT_HEADER_TP if tp_solo else EXPORT_HEADER)
+        csv.writer(header, delimiter=";").writerow(
+            EXPORT_HEADER_TP if tp_solo else EXPORT_HEADER + EXPORT_HEADER_GAUSS_EXTRA
+        )
         # BOM so Excel reads the accents as UTF-8.
         yield "\ufeff" + header.getvalue()
         current_rows, exported = first_rows, 0

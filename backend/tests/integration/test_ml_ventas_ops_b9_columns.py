@@ -23,11 +23,16 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_order_metrics import MlOrderMetrics
-from app.models.ml_orders_ops import MlOrderItemOps
+from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps
 from app.routers import ml_ventas_ops
 from app.services.order_metrics.constants import CURRENT_FORMULA_VERSION
 
+from app.services.order_metrics.store import recompute_order_metrics
+from tests.services.ml_ventas_desglose._bonificacion_capture import ORDER_ID as CAPTURE_ORDER_ID
+from tests.services.ml_ventas_desglose._bonificacion_capture import seed_capture
+
 from .test_ml_ventas_ops_sales_router import _grant_ml_ops_ver, _group_holding, _seed_order
+from .test_ml_ventas_ops_tplink_solo import catalogo, tp_solo  # noqa: F401 -- fixtures
 
 SEP_1 = datetime(2026, 9, 1, tzinfo=timezone.utc)
 ALL_ON = {"include_unknown": "true", "include_in_dispute": "true"}
@@ -190,6 +195,30 @@ class TestExport:
         assert row["costo_total"] == ""
         assert row["tipo_publicacion"] == "Clásica | free"
 
+    def test_per_item_cells_follow_the_item_rows_not_the_mla(self, db, client, admin_auth_headers):
+        """MUTATION: ordering the costs by `item_id` would put MLA1's cost under MLA9."""
+        _venta(
+            db,
+            93103,
+            items=(("MLA9", "gold_pro", 1, Decimal("9.00")), ("MLA1", "gold_special", 1, Decimal("1.00"))),
+            costo="10.00",
+        )
+
+        row = next(r for r in _export(db, client, admin_auth_headers) if r["orden"] == "93103")
+
+        assert row["costo_unitario"] == "9,00 | 1,00"
+        assert row["tipo_publicacion"] == "Premium | Clásica"
+
+    def test_the_flex_shipping_bonus_is_exported(self, db, client, admin_auth_headers, monkeypatch):
+        seed_capture(db)
+        # The capture's real seller, not the fixtures' 999.
+        monkeypatch.setattr(settings, "ML_USER_ID", db.get(MlOrdersOps, CAPTURE_ORDER_ID).seller_id)
+        recompute_order_metrics(db, [CAPTURE_ORDER_ID])
+
+        row = next(r for r in _export(db, client, admin_auth_headers) if r["orden"] == str(CAPTURE_ORDER_ID))
+
+        assert row["bonificacion_envio"] == "8990,00"
+
     def test_the_existing_columns_keep_their_place(self):
         assert ml_ventas_ops.EXPORT_HEADER[:22] == [
             "fecha_acreditacion", "fecha_creacion", "orden", "pack", "comprador", "producto", "sku", "cantidad",
@@ -197,7 +226,24 @@ class TestExport:
             "neto", "total_gauss", "markup_pct", "provisorio", "estado_metricas", "alerta",
         ]  # fmt: skip
 
+    def test_the_gauss_extra_columns_are_appended_last(self):
+        assert ml_ventas_ops.EXPORT_HEADER_GAUSS_EXTRA == [
+            "costo_unitario", "costo_total", "neto_sin_iva", "bonificacion_envio", "tipo_publicacion",
+        ]  # fmt: skip
+
     def test_the_tp_export_keeps_its_columns(self):
         assert ml_ventas_ops.EXPORT_HEADER_TP[17:] == [
             "costo_tp", "total_tp", "markup_tp", "tp_incompleto", "provisorio", "estado_metricas", "alerta",
         ]  # fmt: skip
+
+
+class TestTplinkSoloExport:
+    @pytest.mark.usefixtures("tp_solo")
+    def test_every_tp_row_matches_its_header_and_carries_no_cost(self, client, admin_auth_headers):
+        response = client.get("/api/ml-ventas-ops/sales/export", params=ALL_ON, headers=admin_auth_headers)
+
+        assert response.status_code == 200, response.text
+        lines = list(csv.reader(io.StringIO(response.content.decode("utf-8-sig")), delimiter=";"))
+        assert lines[0] == ml_ventas_ops.EXPORT_HEADER_TP
+        assert len(lines) > 1
+        assert all(len(line) == len(lines[0]) for line in lines[1:])
