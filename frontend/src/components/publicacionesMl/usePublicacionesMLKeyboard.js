@@ -84,7 +84,8 @@ function moveFocus(event) {
  *   Alt+M / Alt+S / Alt+P the Marca / Subcategoría / PM filters (`onOpenFilter(name)`), as in Productos.
  * - r / w / o flip the focused row's product rebate, web transfer and "fuera de tarjetas" (`onToggleRow(key, 'rebate' |
  *   'web' | 'tarjetas')`), as in Productos.
- * - Alt+V steps to the next mode of Productos' price columns (`onCycleMode()`: Normal, Cuotas, PVP), as in Productos.
+ * - Alt+V steps to the next mode of Productos' price columns (`onCycleMode()`: Normal, Cuotas, PVP), and Alt+R flips
+ *   Productos' "Auto-recalcular" cuotas (`onToggleAutoRecalc()`), as in Productos.
  * - Shift+Up / Shift+Down move like the arrows and check the row moved to (`onExtendRow(key)`), as in Productos.
  *
  * While the operator types in a field only Ctrl+F and the copy shortcuts run (as in Productos, which copies while
@@ -102,6 +103,7 @@ export default function usePublicacionesMLKeyboard({
   onCycleMode,
   onBulkAction,
   onOpenFilter,
+  onToggleAutoRecalc,
   onToggleHelp,
   showToast,
   disabled,
@@ -110,7 +112,7 @@ export default function usePublicacionesMLKeyboard({
   // No dependency array on purpose (the latest-ref pattern): it copies the values after every render.
   const props = useRef({});
   useLayoutEffect(() => {
-    props.current = { searchRef, findRow, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleHelp, showToast };
+    props.current = { searchRef, findRow, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleAutoRecalc, onToggleHelp, showToast };
   });
 
   useEffect(() => {
@@ -151,6 +153,7 @@ export default function usePublicacionesMLKeyboard({
         onCycleMode: cycleMode,
         onBulkAction: bulkAction,
         onOpenFilter: openFilter,
+        onToggleAutoRecalc: toggleAutoRecalc,
         showToast: toast,
       } = props.current;
       // Another dialog (a bulk action, a confirmation) owns the keyboard, as in Productos; the help only lets `?` close it.
@@ -191,6 +194,12 @@ export default function usePublicacionesMLKeyboard({
       if (event.altKey && !event.ctrlKey && !event.metaKey && FILTER_KEYS[event.code] && openFilter) {
         event.preventDefault();
         openFilter(FILTER_KEYS[event.code]);
+        return;
+      }
+      if (event.altKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyR' && toggleAutoRecalc) {
+        event.preventDefault();
+        // A held key repeats: each repeat would flip it again.
+        if (!event.repeat) toggleAutoRecalc();
         return;
       }
       if (event.altKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyV' && cycleMode) {

@@ -84,13 +84,27 @@ export const errorText = (error, fallback) => {
   return typeof detail === 'string' && detail ? detail : fallback;
 };
 
+const RECALCULAR_CUOTAS_KEY = 'recalcularCuotasAuto';
+// What this tab last chose, for when the browser refuses storage (the switch and the saves must still agree).
+let unsavedPreference = null;
+
 /** The user's Productos preference for recalculating instalments, default on. */
-function recalcularCuotasPreference() {
+export function recalcularCuotasPreference() {
   try {
-    const saved = window.localStorage.getItem('recalcularCuotasAuto');
+    const saved = window.localStorage.getItem(RECALCULAR_CUOTAS_KEY);
     return saved === null ? true : JSON.parse(saved);
   } catch {
-    return true;
+    return unsavedPreference ?? true;
+  }
+}
+
+/** Sets the preference Productos and Tienda flip too (same key), for this browser. */
+export function setRecalcularCuotasPreference(value) {
+  unsavedPreference = value;
+  try {
+    window.localStorage.setItem(RECALCULAR_CUOTAS_KEY, JSON.stringify(value));
+  } catch {
+    // Storage blocked: `unsavedPreference` keeps the choice for this tab.
   }
 }
 

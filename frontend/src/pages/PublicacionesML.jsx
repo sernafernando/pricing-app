@@ -31,6 +31,7 @@ import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
 import { resolverParams } from '../components/publicacionesMl/bulkParams';
 import ExportModal from '../components/ExportModal';
 import ShortcutsHelp from '../components/publicacionesMl/ShortcutsHelp';
+import useRecalcularCuotasAuto from '../components/publicacionesMl/useRecalcularCuotasAuto';
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
@@ -411,6 +412,8 @@ export default function PublicacionesML() {
   const canCalculatePrice = ['canEditClasica', 'canEditMlCuotas', 'canToggleRebate', 'canToggleWebTransf'].some(
     (flag) => priceWritePermissions[flag],
   );
+  // Productos' Auto-recalcular cuotas (S12f2), where a price can be written: button and Alt+R, as in Productos.
+  const autoRecalc = useRecalcularCuotasAuto();
   const [pricingProduct, setPricingProduct] = useState(null);
   const priceEdit = useMemo(
     () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, saving: priceEditor.saving }),
@@ -614,6 +617,7 @@ export default function PublicacionesML() {
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
+    onToggleAutoRecalc: canCalculatePrice ? autoRecalc.toggle : undefined,
     onToggleHelp: () => setShowShortcuts((open) => !open),
     showToast,
   });
@@ -765,6 +769,17 @@ export default function PublicacionesML() {
             />
           </div>
           <span className={styles.spacer} />
+          {canCalculatePrice && (
+            <button
+              type="button"
+              className={`btn-tesla outline-subtle-primary sm ${autoRecalc.enabled ? 'toggle-active' : ''}`}
+              aria-pressed={autoRecalc.enabled}
+              title="Recalcular las cuotas al guardar un precio (Alt+R)"
+              onClick={autoRecalc.toggle}
+            >
+              {autoRecalc.enabled ? '✓ ' : ''}Auto-recalcular
+            </button>
+          )}
           <button
             type="button"
             className="btn-tesla ghost sm"
