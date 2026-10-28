@@ -1,5 +1,76 @@
 import { describe, expect, it } from 'vitest';
-import { isPremiumPromo, selectParaGanarPromoPool } from './selectParaGanarPromoPool';
+import {
+  buildParaGanarEnrollBody,
+  clampDealToRange,
+  isPremiumPromo,
+  selectParaGanarPromoPool,
+} from './selectParaGanarPromoPool';
+
+describe('clampDealToRange', () => {
+  it('clamps sugerido into min/max', () => {
+    expect(clampDealToRange(150, 100, 200)).toBe(150);
+    expect(clampDealToRange(50, 100, 200)).toBe(100);
+    expect(clampDealToRange(250, 100, 200)).toBe(200);
+  });
+
+  it('returns null without a usable sugerido', () => {
+    expect(clampDealToRange(null, 100, 200)).toBeNull();
+    expect(clampDealToRange(0, 100, 200)).toBeNull();
+  });
+});
+
+describe('buildParaGanarEnrollBody', () => {
+  it('sends deal_price clamped for DEAL', () => {
+    expect(
+      buildParaGanarEnrollBody(
+        {
+          promotion_id: 'D1',
+          promotion_type: 'DEAL',
+          min_discounted_price: 100,
+          max_discounted_price: 200,
+        },
+        175,
+      ),
+    ).toEqual({
+      promotion_id: 'D1',
+      promotion_type: 'DEAL',
+      deal_price: 175,
+    });
+  });
+
+  it('sends precio_visto for SMART', () => {
+    expect(
+      buildParaGanarEnrollBody(
+        {
+          promotion_id: 'S1',
+          promotion_type: 'SMART',
+          price: 1499,
+          nuestro_markup: 8.5,
+        },
+        1500,
+      ),
+    ).toEqual({
+      promotion_id: 'S1',
+      promotion_type: 'SMART',
+      precio_visto: 1499,
+      markup_visto: 8.5,
+    });
+  });
+
+  it('returns null when DEAL has no sugerido', () => {
+    expect(
+      buildParaGanarEnrollBody(
+        {
+          promotion_id: 'D1',
+          promotion_type: 'DEAL',
+          min_discounted_price: 100,
+          max_discounted_price: 200,
+        },
+        null,
+      ),
+    ).toBeNull();
+  });
+});
 
 describe('isPremiumPromo', () => {
   it('matches PREMIUM + month style names', () => {
@@ -49,6 +120,9 @@ describe('selectParaGanarPromoPool', () => {
     );
     expect(pool.map((p) => p.promotion_id)).toEqual(['S1', 'D1', 'P1']);
     expect(pool.map((p) => p.pool_slot)).toEqual(['Mejor', 'Intermedia', 'Tercera']);
+    expect(pool[1].pool_deal_price).toBe(150);
+    expect(pool[2].pool_deal_price).toBe(150);
+    expect(pool[0].pool_deal_price).toBeNull();
   });
 
   it('still shows Premium last and only one non-Premium DEAL when several fit', () => {

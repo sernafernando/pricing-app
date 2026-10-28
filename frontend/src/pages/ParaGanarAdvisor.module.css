@@ -601,12 +601,25 @@
   color: var(--cf-text-tertiary);
 }
 
+.promoApplyActions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
 .promoApplyBtn {
   composes: btn-secondary from '../styles/buttons-tesla.css';
   font-size: 11px;
   flex-shrink: 0;
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.promoApplyBtnActive {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+  font-size: 11px;
+  flex-shrink: 0;
 }
 
 .sellersNotice {

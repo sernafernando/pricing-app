@@ -105,6 +105,73 @@ function sortByCloseness(list, precioSugerido) {
   });
 }
 
+/** Clamp suggested price into the seller-priced promo min/max band. */
+export function clampDealToRange(precioSugerido, minPrice, maxPrice) {
+  if (precioSugerido == null || !Number.isFinite(Number(precioSugerido))) return null;
+  let price = Number(precioSugerido);
+  if (!(price > 0)) return null;
+  if (minPrice != null && Number.isFinite(Number(minPrice))) {
+    price = Math.max(price, Number(minPrice));
+  }
+  if (maxPrice != null && Number.isFinite(Number(maxPrice))) {
+    price = Math.min(price, Number(maxPrice));
+  }
+  return price > 0 ? price : null;
+}
+
+/**
+ * Body for `POST /promociones/item/{mla}` from the Advisor pool.
+ * DEAL/SELLER_CAMPAIGN → deal_price = sugerido clamped to range.
+ * SMART-like → precio_visto (+ markup_visto) from the mirror offer.
+ * Returns null when the row cannot be enrolled safely.
+ */
+export function buildParaGanarEnrollBody(promo, precioSugerido) {
+  if (!promo?.promotion_id || !promo?.promotion_type) return null;
+  const type = promo.promotion_type;
+  const base = {
+    promotion_id: promo.promotion_id,
+    promotion_type: type,
+  };
+  if (SELLER_PRICED_TYPES.has(type)) {
+    const dealPrice = clampDealToRange(
+      precioSugerido,
+      promo.min_discounted_price,
+      promo.max_discounted_price,
+    );
+    if (dealPrice == null) return null;
+    return { ...base, deal_price: dealPrice };
+  }
+  if (ML_PRICED_TYPES.has(type)) {
+    const precioVisto = promoDisplayPrice(promo);
+    if (!(precioVisto > 0)) return null;
+    const body = { ...base, precio_visto: precioVisto };
+    if (promo.nuestro_markup != null && Number.isFinite(Number(promo.nuestro_markup))) {
+      body.markup_visto = Number(promo.nuestro_markup);
+    }
+    return body;
+  }
+  return null;
+}
+
+function enrichPoolRow(promo, index, precioSugerido) {
+  const applied = isStarted(promo);
+  const dealPrice =
+    !applied && SELLER_PRICED_TYPES.has(promo.promotion_type)
+      ? clampDealToRange(
+          precioSugerido,
+          promo.min_discounted_price,
+          promo.max_discounted_price,
+        )
+      : null;
+  return {
+    ...promo,
+    pool_slot: POOL_SLOT_LABELS[index],
+    pool_rank: index + 1,
+    pool_applied: applied,
+    pool_deal_price: dealPrice,
+  };
+}
+
 /**
  * PARA GANAR pool (D20/D21): one SMART, one other DEAL/campaña, one Premium.
  * Premium candidates preferred; if only `started` Premium exists, still show it
@@ -144,10 +211,5 @@ export function selectParaGanarPromoPool(promotions, opts = {}) {
   if (other[0]) slots.push(other[0]);
   if (premium[0]) slots.push(premium[0]);
 
-  return slots.map((promo, index) => ({
-    ...promo,
-    pool_slot: POOL_SLOT_LABELS[index],
-    pool_rank: index + 1,
-    pool_applied: isStarted(promo),
-  }));
+  return slots.map((promo, index) => enrichPoolRow(promo, index, precioSugerido));
 }

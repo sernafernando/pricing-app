@@ -87,7 +87,7 @@ export default function ParaGanarAdvisorDetail({ selected }) {
           <p className={styles.emptyTitle}>Seleccioná un MLA</p>
           <p className={styles.emptyBody}>
             Acá aparece el precio sugerido, el tablero TOP y el pool de promos
-            candidatas (Aplicar desde Advisor llega después).
+            candidatas (Aplicar usa el mismo enroll que Productos).
           </p>
         </div>
       )}
