@@ -1831,6 +1831,39 @@ describe('the color layer (S8)', () => {
     );
   });
 
+  it('closing team management after deleting the chosen layer\'s team drops it: the rows go back to the global one', async () => {
+    await page('/ml-publicaciones?equipo=12');
+    await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
+    const asked = calls().length;
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+    equiposAPI.listar.mockResolvedValueOnce({ data: [{ id: 1, nombre: 'U', es_global: true }] });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar equipos' }));
+
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('equipo_id'));
+    // With no team left there is no layer to choose: the selector goes away with it.
+    expect(screen.queryByRole('combobox', { name: 'Capa de color' })).not.toBeInTheDocument();
+    // Never asked again on the deleted team: it would answer 403.
+    expect(calls().slice(asked).map((params) => params.equipo_id)).not.toContain('12');
+  });
+
+  it('closing team management with nothing changed keeps the rows of a team layer, asking nothing again', async () => {
+    await page('/ml-publicaciones?equipo=12');
+    await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+    const asked = calls().length;
+    const reloads = equiposAPI.listar.mock.calls.length;
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar equipos' }));
+
+    await waitFor(() => expect(equiposAPI.listar.mock.calls.length).toBe(reloads + 1));
+    await act(async () => {
+      await equiposAPI.listar.mock.results.at(-1).value;
+    });
+    expect(calls().length).toBe(asked);
+    expect(screen.getByRole('combobox', { name: 'Capa de color' })).toHaveValue('12');
+  });
+
   it('lists the global layer and the teams, and asks the rows on the chosen one', async () => {
     await page();
     const capa = await screen.findByRole('combobox', { name: 'Capa de color' });
