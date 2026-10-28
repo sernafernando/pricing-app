@@ -2,9 +2,10 @@
 the MLAs the screen's filter selects, its figures the sum of its publications' Métricas ML figures over the last 30
 business days.
 
-One source of truth on this screen: the publication -> product link (`ml_item_product_links`, item level, joined
-exactly as the base select joins it). A row groups the publications linked to one product; "Sin producto" groups the
-ones with no linked product -- the very sets `/items?producto=` and `/items?sin_producto=` list under the same
+One source of truth on this screen: the publication -> product link (`ml_item_product_links`, read by
+`filters.product_links`: the item-level link, or an item's live variations' links). A row groups the publications
+linked to one product (an item whose variations name two products is in both rows, and counted once in
+`mla_count`); "Sin producto" groups the ones with no linked product -- the very sets `/items?producto=` and `/items?sin_producto=` list under the same
 filters, so a row's `publications_count` is what opening it shows. The product a sale's frozen cost or the ERP
 mirror names (what Métricas ML's own product rows group by) plays no part here.
 

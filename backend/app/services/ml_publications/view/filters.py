@@ -131,7 +131,8 @@ class PublicationFilter:
     pm_group: Optional[str] = None
     family_id: Optional[int] = None
     # A node of the Agrupado tree (P7a) or a Producto row: one linked product -- the LINK's product id, even when the
-    # product is gone from the catalog -- or the publications whose item-level link names no product at all.
+    # product is gone from the catalog -- or the publications with no linked product at all (`has_product`: the
+    # item-level link or a live variation's link).
     producto: Optional[int] = None
     sin_producto: bool = False
     listing: tuple[str, ...] = ()
@@ -964,6 +965,10 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     return where
 
 
+# ponytail: the color, the per-product mejor oferta (`_oferta`) and the brand/category filters still read the
+# item-level link (`T.l` / `T.p`), so a publication linked per variation only is "without product" to them while the
+# Producto view groups it under its variations' products (`product_links`, S12g). Extend them to `product_links` if
+# the operators filter those publications by color, offer or brand.
 def _colors(f: PublicationFilter) -> ColumnElement:
     if f.color_ids is None or f.colored_ids is None:
         raise RuntimeError("`colores` must be resolved (ml_publication_colors.resolve_color_filter) before the query")
