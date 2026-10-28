@@ -77,6 +77,8 @@ describe('SellInBonoPanel — new bonus', () => {
       fecha_desde: '2026-09-01',
       fecha_hasta: '2026-11-30',
       descripcion: 'Bono TP-Link',
+      tope_unidades: null,
+      tope_monto: null,
     });
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...BONO, id: 9 }));
     expect(sellInBonosAPI.detalle).not.toHaveBeenCalled();
@@ -112,7 +114,7 @@ const fechas = async (user) => {
   await user.type(screen.getByLabelText('Factura hasta'), '2026-11-30');
 };
 
-const BASE_BODY = { moneda: 'USD', fecha_desde: '2026-09-01', fecha_hasta: '2026-11-30', descripcion: null };
+const BASE_BODY = { moneda: 'USD', fecha_desde: '2026-09-01', fecha_hasta: '2026-11-30', descripcion: null, tope_unidades: null, tope_monto: null };
 
 describe('SellInBonoPanel — scope and kind (T3e)', () => {
   it('creates a category bonus from the catalog categories', async () => {
@@ -292,6 +294,8 @@ describe('SellInBonoPanel — existing bonus', () => {
       fecha_desde: '2026-09-01',
       fecha_hasta: '2026-11-30',
       descripcion: 'Bono TP-Link USD 3/u',
+      tope_unidades: null,
+      tope_monto: null,
     });
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...BONO, monto_unit: '4.00' }));
     expect(sellInBonosAPI.alcance).toHaveBeenCalledTimes(2);

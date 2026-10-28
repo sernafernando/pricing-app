@@ -21,6 +21,13 @@ export const BONO_VACIO = {
   fechaDesde: '',
   fechaHasta: '',
   descripcion: '',
+  // One cap shared by every product and purchase of the bonus (T24): invoiced units and/or money in its currency;
+  // '' is no cap.
+  topeUnidades: '',
+  topeMonto: '',
+  // The money cap as stored, with its currency (null on a new bonus): the form brings it back when the currency
+  // returns to it. Never sent.
+  topeGuardado: null,
 };
 
 /** The label of a model chip: code and description, or the bare item when the catalog lost it. */
@@ -42,6 +49,9 @@ export const valoresDeBono = (bono) => ({
   fechaDesde: bono.fecha_desde,
   fechaHasta: bono.fecha_hasta,
   descripcion: bono.descripcion ?? '',
+  topeUnidades: bono.tope_unidades != null ? String(bono.tope_unidades) : '',
+  topeMonto: texto(bono.tope_monto),
+  topeGuardado: { moneda: bono.moneda, monto: texto(bono.tope_monto) },
 });
 
 /** The key of the bonus's kind in the API and in a model's form values. */
@@ -66,7 +76,21 @@ const CAMPO_DEL_ALCANCE = {
   factura: (v) => ({ pedido_id: v.pedido?.id ?? null }),
 };
 
-/** The create/edit body (`SellInBonoIn`): a full replace on edit. */
+/**
+ * The values after a currency change: the money cap is in the bonus's currency, so moving to another one empties it
+ * (to be entered again there), and coming back to the stored currency brings the stored cap back, so a round trip
+ * never drops it.
+ */
+export const conMoneda = (valores, moneda) => {
+  if (moneda === valores.moneda) return valores;
+  const guardado = valores.topeGuardado;
+  return { ...valores, moneda, topeMonto: guardado && guardado.moneda === moneda ? guardado.monto : '' };
+};
+
+/** A cap field as sent: trimmed, or null when empty (empty means no cap). */
+const normalizarTope = (valor) => String(valor ?? '').trim() || null;
+
+/** The create/edit body (`SellInBonoIn`): a full replace on edit; an empty cap is sent as null (no cap). */
 export const bodyDeBono = (valores) => ({
   alcance: valores.alcance,
   ...CAMPO_DEL_ALCANCE[valores.alcance](valores),
@@ -76,6 +100,8 @@ export const bodyDeBono = (valores) => ({
   fecha_desde: valores.fechaDesde,
   fecha_hasta: valores.fechaHasta,
   descripcion: valores.descripcion.trim() || null,
+  tope_unidades: normalizarTope(valores.topeUnidades),
+  tope_monto: normalizarTope(valores.topeMonto),
 });
 
 const ALCANCE_COMPLETO = {
@@ -102,6 +128,29 @@ export const errorDeModelos = (v) => {
     if (porcentaje && Number(valor) > 100) return `El porcentaje de ${modelo.label} no puede superar 100.`;
   }
   return null;
+};
+
+/**
+ * Why the shared cap cannot be saved, or null: units must be plain digits above zero, money a plain decimal above
+ * zero with up to 2 decimals (the backend's NUMERIC(18, 2) refuses more instead of rounding). Plain notation only:
+ * "1e3" is refused here rather than by the backend.
+ */
+export const errorDeTope = (v) => {
+  const unidades = normalizarTope(v.topeUnidades);
+  if (unidades !== null && !(/^\d+$/.test(unidades) && Number(unidades) > 0)) return 'El tope de unidades debe ser un número entero mayor que cero.';
+  const monto = normalizarTope(v.topeMonto);
+  if (monto !== null && !/^\d+(\.\d+)?$/.test(monto)) return 'El tope de monto debe ser un número mayor que cero.';
+  if (monto !== null && !(Number(monto) > 0)) return 'El tope de monto debe ser mayor que cero.';
+  if (monto !== null && !/^\d+(\.\d{1,2})?$/.test(monto)) return 'El tope de monto admite hasta 2 decimales.';
+  return null;
+};
+
+/** What is left of the bonus's cap ("20 u de 100 · USD 500,00 de USD 3.000,00"), or null without a cap. */
+export const restanteDeTope = (bono, formatEntero, formatMonto) => {
+  const partes = [];
+  if (bono.tope_unidades != null) partes.push(`${formatEntero(bono.tope_unidades_restantes)} u de ${formatEntero(bono.tope_unidades)}`);
+  if (bono.tope_monto != null) partes.push(`${formatMonto(bono.tope_monto_restante, bono.moneda)} de ${formatMonto(bono.tope_monto, bono.moneda)}`);
+  return partes.length ? partes.join(' · ') : null;
 };
 
 const FALTA_ALCANCE = { marca: 'marca', categoria: 'categoría', modelos: 'al menos un modelo', factura: 'pedido de compra' };
