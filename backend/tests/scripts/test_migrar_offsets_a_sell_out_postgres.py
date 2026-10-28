@@ -873,6 +873,19 @@ def test_a_group_with_more_products_than_a_campaign_holds_says_so(engine, correr
     assert _campanas(engine) == [] and summary["pendientes"] == 502
 
 
+def test_a_rerun_over_a_group_whose_campaign_was_voided_says_so(engine, correr) -> None:
+    _, ids = _grupo_tplink(engine)
+    correr("--apply")
+    [c] = _campanas(engine)
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE sell_out_campanas SET estado = 'anulada' WHERE id = :c"), {"c": c["id"]})
+
+    _, _, filas = correr("--apply")
+
+    assert {filas[i]["resultado"] for i in ids} == {"ya migrado"}
+    assert all(f"La campaña #{c['id']} está anulada" in filas[i]["avisos"] for i in ids)
+
+
 def test_a_group_dry_run_writes_nothing_and_reports_every_offset(engine, correr) -> None:
     _, ids = _grupo_tplink(engine)
     antes = {table: _count(engine, table) for table in _ESCRITAS}

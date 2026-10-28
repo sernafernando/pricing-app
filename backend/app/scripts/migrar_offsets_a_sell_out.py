@@ -449,7 +449,8 @@ def _grupo_migrado(db: Session, grupo_id: int, offsets: list[OffsetGanancia], ca
             salida.append(_Resultado(_fila(o, NO_MIGRADO, motivo=motivo), o, None, (motivo, [])))
             continue
         if o.monto is not None and _monto(o.monto) == tenido:
-            salida.append(_Resultado(_fila(o, YA_MIGRADO, campana_id), o))
+            avisos = [f"La campaña #{campana_id} está anulada"] if campana.estado == "anulada" else []
+            salida.append(_Resultado(_fila(o, YA_MIGRADO, campana_id, avisos=avisos), o))
             continue
         motivo = (
             f"{g}: el monto del offset cambió después de migrar el grupo a la campaña #{campana_id} "
@@ -461,33 +462,12 @@ def _grupo_migrado(db: Session, grupo_id: int, offsets: list[OffsetGanancia], ca
 
 def _comprobar_alcance(db: Session, grupo_id: int, items) -> None:
     """Dry run: refuses a per-product amount outside the EXISTING group's reach with the error `--apply` gets from the
-    service (`campanas._asignar_items`). It resolves the group's filter rows to products the way `alcance._alcanzados`
-    does (a row's set fields must all match, a product matching any row is reached, an empty row reaches nothing),
-    read-only: that one starts from a stored campaign, which a dry run does not create."""
+    service (`campanas._asignar_items`), resolving the group's reach with the campaigns' own rule
+    (`alcance.productos_de_grupo`), read-only: a dry run creates no campaign."""
     if not items:
         return
-    f, p = OffsetGrupoFiltro, ProductoERP
-    algo = or_(
-        func.coalesce(f.marca, "") != "",
-        func.coalesce(f.categoria, "") != "",
-        func.coalesce(f.subcategoria_id, 0) != 0,
-        func.coalesce(f.item_id, 0) != 0,
-    )
-    coincide = and_(
-        algo,
-        alcance._texto(f.marca, p.marca),
-        alcance._texto(f.categoria, p.categoria),
-        alcance._numero(f.subcategoria_id, p.subcategoria_id),
-        alcance._numero(f.item_id, p.item_id),
-    )
     pedidos = [item.item_id for item in items]
-    alcanzados = {
-        i
-        for (i,) in db.query(p.item_id)
-        .join(f, coincide)
-        .filter(f.grupo_id == grupo_id, p.item_id.in_(pedidos))
-        .distinct()
-    }
+    alcanzados = alcance.productos_de_grupo(db, grupo_id, pedidos)
     for item_id in pedidos:
         if item_id not in alcanzados:
             raise campanas.SellOutError(f"El producto {item_id} no está en los grupos de la campaña")
