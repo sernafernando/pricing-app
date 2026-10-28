@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import CatalogStatusBadge from './CatalogStatusBadge';
 
-/** Productos' catalog-competition badge (P:1716-1747): its mark, tone and price tooltip per status. */
+/** Productos' catalog-competition badge (its product rows' `has_catalog` span): mark, tone and price tooltip per status. */
 describe('CatalogStatusBadge', () => {
   it('renders nothing for a product with no catalog or no status, or no product at all', () => {
     for (const product of [null, undefined, { has_catalog: false, catalog_status: 'winning' }, { has_catalog: true, catalog_status: null }]) {
@@ -28,6 +28,15 @@ describe('CatalogStatusBadge', () => {
   it('competing: an alert with the price to win', () => {
     render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: 'competing', catalog_price_to_win: 870.1 }} />);
     expect(screen.getByRole('img', { name: 'Catálogo: compitiendo (Precio para ganar: $870.10)' })).toHaveAttribute('title', 'Precio para ganar: $870.10');
+  });
+
+  it('a price that is not a number has no tooltip and never breaks the row; a numeric string still reads', () => {
+    const { container, unmount } = render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: 'winning', catalog_winner_price: 'n/a' }} />);
+    expect(container.firstChild).not.toHaveAttribute('title');
+    expect(container.firstChild).toHaveAttribute('aria-label', 'Catálogo: ganando');
+    unmount();
+    render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: 'competing', catalog_price_to_win: '870.1' }} />);
+    expect(screen.getByRole('img')).toHaveAttribute('title', 'Precio para ganar: $870.10');
   });
 
   it('a status without its price has no tooltip; any other status is an empty neutral badge, as Productos', () => {

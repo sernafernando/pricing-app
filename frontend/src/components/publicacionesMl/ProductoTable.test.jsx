@@ -82,7 +82,7 @@ function Harness({
         selectedKey={filters.sel || undefined}
         selectedProductKey={filters.prod || undefined}
         prearmadasStats={prearmadasStats}
-        catalogById={prices?.byId}
+        listingById={prices?.byId}
         sort={tree.sort}
         onSort={onSort}
         selection={selection}

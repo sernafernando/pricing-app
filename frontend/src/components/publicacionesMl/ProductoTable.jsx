@@ -32,7 +32,7 @@ import CatalogStatusBadge from '../CatalogStatusBadge';
  * whose panel is open (`selectedProductKey`).
  *
  * Beside a product's name, Productos' badges: its prearmadas (`prearmadasStats`, by product id, from the page) and its
- * wholesale (PxQ) tiers (the row's `pxq_tramos` / `pxq_precio_desde`), and its catalog competition (S4, `catalogById`:
+ * wholesale (PxQ) tiers (the row's `pxq_tramos` / `pxq_precio_desde`), and its catalog competition (S4, from `listingById`:
  * the Productos listing's product by id, the page's `useListPrices`).
  */
 // The columns a product row fills from its own product, as Productos' rows carry it: drawn by the publications' own
@@ -72,7 +72,7 @@ export default function ProductoTable({
   emptyMessage = 'Ningún producto coincide con los filtros',
   selection,
   prearmadasStats = NO_PREARMADAS,
-  catalogById = NO_LISTING,
+  listingById = NO_LISTING,
 }) {
   const { rows, toggle, loadMore } = tree;
 
@@ -94,7 +94,7 @@ export default function ProductoTable({
                 <>
                   <PrearmadaBadge stats={prearmadasStats[node.productoItemId]} />
                   <PxqTramosBadge tramos={node.pxqTramos} precioDesde={node.pxqPrecioDesde} />
-                  <CatalogStatusBadge product={catalogById.get(node.productoItemId)} />
+                  <CatalogStatusBadge product={listingById.get(node.productoItemId)} />
                 </>
               );
               return <NodeTitle row={row} onToggle={toggle} after={after} badges={badges} />;
@@ -109,7 +109,7 @@ export default function ProductoTable({
           return index === 0 ? <BranchState row={row} onMore={loadMore} onRetry={loadMore} /> : null;
         },
       })),
-    [columns, toggle, loadMore, selection, prearmadasStats, catalogById],
+    [columns, toggle, loadMore, selection, prearmadasStats, listingById],
   );
 
   // The page selects by MLA; the table by row, so only one row is highlighted.
