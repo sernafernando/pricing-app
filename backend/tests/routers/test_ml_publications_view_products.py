@@ -247,6 +247,19 @@ class TestSinMla:
         got = body(client, admin_auth_headers, con_mla="false", orden="facturado_30d", dir="desc")
         assert (got["orden"], got["dir"]) == ("titulo", "asc")  # what the rows are sorted by, not what was asked
 
+    def test_the_publication_reads_select_nothing(self, client, unlinked, db, rol_admin, admin_auth_headers) -> None:
+        grant(db, rol_admin, VER, "ml_publicaciones.pausar")
+        items = client.get("/api/ml-publications/view/items", headers=admin_auth_headers, params={"con_mla": "false"})
+        assert items.status_code == 200, items.text
+        assert (items.json()["items"], items.json()["total"]) == ([], 0)
+        status_ids = client.get(
+            "/api/ml-publications/view/status-item-ids",
+            headers=admin_auth_headers,
+            params={"con_mla": "false", "target": "paused"},
+        )
+        assert status_ids.status_code == 200, status_ids.text
+        assert status_ids.json()["item_ids"] == []  # a status action never reaches a publication from here
+
     def test_con_mla_true_is_the_usual_view(self, client, unlinked, db, rol_admin, admin_auth_headers) -> None:
         grant(db, rol_admin, VER)
         usual = body(client, admin_auth_headers)

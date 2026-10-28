@@ -1016,7 +1016,9 @@ def _without_mla() -> list[ColumnElement]:
     return [
         ~exists(select(1).where(link.producto_item_id == T.p.item_id, link.match_status == LINK_LINKED)),
         ~exists(select(1).where(sin_mla_banned.item_id == T.p.item_id)),
-        ~exists(select(1).where(banned.activo.is_(True), or_(banned.item_id == T.p.item_id, banned.ean == T.p.codigo))),
+        # Two probes, not one OR: each one rides its own unique index.
+        ~exists(select(1).where(banned.activo.is_(True), banned.item_id == T.p.item_id)),
+        ~exists(select(1).where(banned.activo.is_(True), banned.ean == T.p.codigo)),
     ]
 
 

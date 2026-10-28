@@ -17,7 +17,9 @@ joins it).
   publication -> product link; "Sin producto" = no link) over the MLAs the same filters select, its figures the sum of
   its publications' own (one Board, publication view, over the last 30 business days), sorted (`orden`/`dir`) and
   paged. Each row's `params` select exactly its `publications_count` publications in `/items`. Figures and figure
-  sorts need `ml_metricas.ver`, the margin also `ml_metricas.ver_ganancia`.
+  sorts need `ml_metricas.ver`, the margin also `ml_metricas.ver_ganancia`. `sin_mla_count` counts Productos' "Sin
+  MLA" products under the product filters (absent with a publication filter); `con_mla=false` lists them instead,
+  refusing a publication filter (422), while the publication reads (`/items`, `/groups`, `/kpis`) select nothing.
 - `GET /ml-publications/view/items/{item_id}` (`ml_ops.ver`): the Resumen of one publication, all its data; the cost of
   the product and the markup breakdown only with `ml_metricas.ver_ganancia`, `can_resync` from `ml_ops.gestionar`,
   `can_change_status` from `ml_publicaciones.pausar`.
