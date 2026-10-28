@@ -743,3 +743,19 @@
   width: 100%;
   text-align: left;
 }
+
+.banConfirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.banField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
