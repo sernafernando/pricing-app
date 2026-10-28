@@ -82,6 +82,7 @@ function Harness({
         selectedKey={filters.sel || undefined}
         selectedProductKey={filters.prod || undefined}
         prearmadasStats={prearmadasStats}
+        catalogById={prices?.byId}
         sort={tree.sort}
         onSort={onSort}
         selection={selection}
@@ -114,6 +115,19 @@ describe('the product rows', () => {
     const none = rowOf('Sin producto');
     expect(within(none).queryByText(/tramo/)).not.toBeInTheDocument(); // no tiers, no stats: no badges
     expect(within(none).queryByText(/lista/)).not.toBeInTheDocument();
+  });
+
+  it("carry Productos' catalog-competition badge beside the name, from the product's own listing (S4)", async () => {
+    const prices = {
+      byId: new Map([[4101, { item_id: 4101, has_catalog: true, catalog_status: 'competing', catalog_price_to_win: 870.1 }]]),
+      loading: false,
+      error: false,
+    };
+    render(<Harness prices={prices} />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).getByRole('img', { name: /^Catálogo: compitiendo/ })).toHaveAttribute('title', 'Precio para ganar: $870.10');
+    // A product the listing has no catalog for (or no listing at all) has none.
+    expect(within(rowOf('Sin producto')).queryByRole('img', { name: /^Catálogo/ })).not.toBeInTheDocument();
   });
 
   it('asks /products once with the filters, the sort and the page -- never the markup filters', async () => {
