@@ -94,6 +94,29 @@ class TestPermission:
         assert response.status_code == 403
         assert VER in response.json()["error"]["message"]
 
+    def test_productos_ver_alone_reads_the_screen_as_productos(self, client, pg, db, rol_ventas, auth_headers) -> None:
+        # S12f1 (owner 2026-10-28): the screen takes Productos' permission, so PRICING / VENTAS keep their access.
+        grant(db, rol_ventas, "productos.ver")
+        assert get(client, auth_headers).status_code == 200
+
+    def test_ml_ops_ver_alone_still_reads_the_screen(self, client, pg, db, rol_ventas, auth_headers) -> None:
+        grant(db, rol_ventas, VER)
+        assert get(client, auth_headers).status_code == 200
+
+    @pytest.mark.parametrize(
+        "path",
+        sorted(route.path.replace("{item_id}", "MLA1") for route in ml_publications_view.router.routes),
+    )
+    def test_every_read_of_the_screen_takes_productos_ver(self, client, pg, db, rol_ventas, auth_headers, path) -> None:
+        # What each read asks on top of the screen (the KPI strip Métricas, the status ids pausing) is granted;
+        # ml_ops.ver is not: none of them may answer 403. Only the permission is asked here: a read whose own tables
+        # this schema lacks fails AFTER it (500), as it did before with ml_ops.ver; the 403 came first.
+        grant(db, rol_ventas, "productos.ver", "ml_metricas.ver", "ml_publicaciones.pausar")
+        response = client.get(f"/api{path}", headers=auth_headers)
+        assert response.status_code not in (401, 403), response.text
+        if response.status_code == 404:  # an unknown publication, never an unknown route
+            assert response.json().get("detail") != "Not Found"
+
     def test_the_view_router_only_reads(self) -> None:
         verbs = {m for route in ml_publications_view.router.routes for m in getattr(route, "methods", set())}
         assert verbs == {"GET"}

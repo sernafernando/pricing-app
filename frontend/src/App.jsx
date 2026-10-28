@@ -153,8 +153,8 @@ const protectedRoutes = [
   { path: '/claims', component: ClaimsDashboard, permiso: 'rma.ver' },
   { path: '/ml-preguntas', component: MLQuestions, permiso: 'ml_bot.ver' },
   { path: '/ml-ventas-listado', component: VentasML, permiso: 'ml_ops.ver' },
-  // Hidden until go-live: reachable by URL only (no Sidebar item, SmartRedirect entry or novedad yet).
-  { path: '/ml-publicaciones', component: PublicacionesML, permiso: 'ml_ops.ver' },
+  // Productos' own permission or ml_ops.ver (S12f1): PRICING and VENTAS read it as they read Productos.
+  { path: '/ml-publicaciones', component: PublicacionesML, permisos: ['productos.ver', 'ml_ops.ver'] },
   { path: '/consultas/ranking', component: ConsultasRanking, permisos: ['consultas.ver_ranking', 'consultas.ver_mi_ranking'] },
   { path: '/traza', component: Traza, permiso: 'traza.ver' },
   { path: '/free-shipping-alerts', component: FreeShippingAlerts, permiso: 'alertas.ver_free_shipping' },

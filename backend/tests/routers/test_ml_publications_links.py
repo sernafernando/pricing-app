@@ -179,6 +179,12 @@ class TestReadItem:
     def test_without_ml_ops_ver_is_403(self, client, pg, auth_headers) -> None:
         assert client.get(f"{BASE}/items/{ITEM}/product-links", headers=auth_headers).status_code == 403
 
+    def test_productos_ver_alone_reads_it_as_the_screen_does(self, client, pg, db, rol_ventas, auth_headers) -> None:
+        # S12f1: the Publicaciones ML screen's panel reads it with Productos' permission.
+        grant(db, rol_ventas, "productos.ver")
+        apply(sample_item(ITEM), ITEM)
+        assert client.get(f"{BASE}/items/{ITEM}/product-links", headers=auth_headers).status_code == 200
+
     def test_returns_the_units_with_suggestion_and_candidates_even_while_linking_is_off(
         self, client, pg, reader
     ) -> None:
