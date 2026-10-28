@@ -44,7 +44,11 @@ export default function DatosTab({ itemId }) {
     let current = true;
     mlItemOverridesAPI
       .get(itemId)
-      .then(({ data }) => current && setLoaded({ itemId, data }))
+      .then(({ data }) => {
+        if (!current) return;
+        setLoaded({ itemId, data });
+        setFailedFor(null); // an earlier failure of this MLA is over
+      })
       .catch(() => current && setFailedFor(itemId));
     return () => {
       current = false;

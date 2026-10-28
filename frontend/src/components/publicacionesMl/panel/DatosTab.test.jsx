@@ -113,6 +113,22 @@ describe('reading', () => {
     expect(mlItemOverridesAPI.get).toHaveBeenLastCalledWith('MLA2');
   });
 
+  it('a failed read does not stick: back on that publication, a good read shows its data', async () => {
+    mlItemOverridesAPI.get
+      .mockRejectedValueOnce(new Error('HTTP 500'))
+      .mockResolvedValueOnce({ data: read({ item_id: 'MLA2' }) })
+      .mockResolvedValueOnce({ data: read() });
+    const { rerender } = render(<DatosTab itemId="MLA1" />);
+    await screen.findByRole('alert');
+
+    rerender(<DatosTab itemId="MLA2" />);
+    await screen.findByText('Router TP-Link Archer AX55');
+    rerender(<DatosTab itemId="MLA1" />);
+
+    await screen.findByText('Router TP-Link Archer AX55');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('says so while loading', () => {
     mlItemOverridesAPI.get.mockReturnValue(new Promise(() => {}));
     render(<DatosTab itemId="MLA1" />);

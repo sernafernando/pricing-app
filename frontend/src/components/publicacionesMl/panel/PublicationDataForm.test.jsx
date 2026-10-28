@@ -116,6 +116,43 @@ describe('what is saved', () => {
   });
 });
 
+describe('data ML sent incomplete', () => {
+  const withGaps = {
+    ...ORIGINAL,
+    fotos: [{ url: 'https://x/sin-id.webp' }, ...ORIGINAL.fotos],
+    atributos: [...ORIGINAL.atributos, { id: 'COLOR', name: 'Color', value_name: null }],
+  };
+  const renderGaps = () => render(<PublicationDataForm itemId="MLA1" aplicado={withGaps} original={withGaps} onSaved={vi.fn()} onCancel={vi.fn()} />);
+
+  it('a title-only change saves even with a picture without id and an attribute without value, untouched', async () => {
+    renderGaps();
+    const title = screen.getByLabelText('Título');
+    await userEvent.clear(title);
+    await userEvent.type(title, 'Router Archer AX55');
+    await save();
+
+    expect(mlItemOverridesAPI.save).toHaveBeenCalledWith('MLA1', { ...FOLLOWS_ML, titulo: 'Router Archer AX55' });
+  });
+
+  it('changing the pictures still asks to remove the one without id', async () => {
+    renderGaps();
+    await userEvent.click(screen.getByRole('button', { name: 'Quitar foto 3' }));
+    await save();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('La foto 1 vino de ML sin identificador y no se puede guardar: quitala.');
+    expect(mlItemOverridesAPI.save).not.toHaveBeenCalled();
+  });
+
+  it('changing the attributes asks for the missing value instead of failing', async () => {
+    renderGaps();
+    await userEvent.click(screen.getByRole('button', { name: 'Quitar Marca' }));
+    await save();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Completá el valor de Color o quitalo.');
+    expect(mlItemOverridesAPI.save).not.toHaveBeenCalled();
+  });
+});
+
 describe('what is refused', () => {
   it('a blank title is not sent', async () => {
     renderForm();

@@ -2,8 +2,15 @@ import { mlItemOverridesAPI } from '../../../services/api';
 import DataForm from './DataForm';
 
 const fotoIds = (fotos) => fotos.map((foto) => foto.id);
-const atributoValues = (atributos) => atributos.map((atributo) => ({ id: atributo.id, value_name: atributo.value_name }));
+const atributoValues = (atributos) => atributos.map((atributo) => ({ id: atributo.id, value_name: atributo.value_name ?? '' }));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Whether the form's pictures or attributes differ from ML's: only then does the save carry them. */
+function changed(field, form, original) {
+  return field === 'fotos'
+    ? !same(fotoIds(form.fotos), fotoIds(original.fotos))
+    : !same(atributoValues(form.atributos), atributoValues(original.atributos));
+}
 
 /**
  * The override body for `form` (`PUT /ml-item-overrides/{mla}`): each field the same as ML's `original` is null (it
@@ -11,13 +18,11 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
  * drops the override.
  */
 function overrideBody(form, original) {
-  const fotos = fotoIds(form.fotos);
-  const atributos = atributoValues(form.atributos);
   return {
     titulo: form.titulo === (original.titulo ?? '') ? null : form.titulo,
     descripcion: form.descripcion.trim() === (original.descripcion ?? '').trim() ? null : form.descripcion.trim() ? form.descripcion : '',
-    fotos: same(fotos, fotoIds(original.fotos)) ? null : fotos,
-    atributos: same(atributos, atributoValues(original.atributos)) ? null : atributos,
+    fotos: changed('fotos', form, original) ? fotoIds(form.fotos) : null,
+    atributos: changed('atributos', form, original) ? atributoValues(form.atributos) : null,
   };
 }
 
@@ -40,6 +45,7 @@ export default function PublicationDataForm({ itemId, aplicado, original, onSave
       original={original}
       submit={(form) => mlItemOverridesAPI.save(itemId, overrideBody(form, original))}
       forbidden="No tenés permiso para editar los datos de la publicación."
+      sends={(field, form) => changed(field, form, original)}
       onSaved={onSaved}
       onCancel={onCancel}
     />

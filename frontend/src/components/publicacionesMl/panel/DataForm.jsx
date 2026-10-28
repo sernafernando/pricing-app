@@ -19,15 +19,18 @@ function describeError(error, forbidden) {
 
 /**
  * Why the form cannot be saved as it is, or null: the server rejects a blank title or attribute value, and keeps
- * pictures by their ML id (a picture copied without one can only be removed).
+ * pictures by their ML id (a picture copied without one can only be removed). Pictures and attributes are checked
+ * only when `sends` says the save carries them (an override leaves an unchanged field out).
  */
-function formError(form) {
+function formError(form, sends) {
   if (!form.titulo.trim()) return 'El título no puede quedar vacío.';
-  const sinId = form.fotos.findIndex((foto) => !foto.id);
+  const sinId = sends('fotos', form) ? form.fotos.findIndex((foto) => !foto.id) : -1;
   if (sinId >= 0) return `La foto ${sinId + 1} vino de ML sin identificador y no se puede guardar: quitala.`;
-  const blank = form.atributos.find((atributo) => !atributo.value_name.trim());
+  const blank = sends('atributos', form) ? form.atributos.find((atributo) => !atributo.value_name.trim()) : null;
   return blank ? `Completá el valor de ${blank.name ?? blank.id} o quitalo.` : null;
 }
+
+const ALWAYS = () => true;
 
 /** `list` with the entry at `index` swapped with the one `offset` away. */
 function moved(list, index, offset) {
@@ -41,7 +44,7 @@ const formOf = (datos) => ({
   titulo: datos.titulo ?? '',
   descripcion: datos.descripcion ?? '',
   fotos: datos.fotos,
-  atributos: datos.atributos,
+  atributos: datos.atributos.map((atributo) => ({ ...atributo, value_name: atributo.value_name ?? '' })), // ML may send none
 });
 
 /**
@@ -55,10 +58,12 @@ const formOf = (datos) => ({
  * @param {object} [props.original] Offers "Volver al original": the form takes this data back.
  * @param {(form: object) => Promise<{ data: object }>} props.submit Sends the form (`{ titulo, descripcion, fotos, atributos }`).
  * @param {string} props.forbidden What a 403 says.
+ * @param {(field: 'fotos' | 'atributos', form: object) => boolean} [props.sends] Whether the save carries that field
+ *   (checked only then); every field by default.
  * @param {(data: object) => void} props.onSaved Receives what the server answered the save.
  * @param {() => void} props.onCancel
  */
-export default function DataForm({ datos, original, submit, forbidden, onSaved, onCancel }) {
+export default function DataForm({ datos, original, submit, forbidden, sends = ALWAYS, onSaved, onCancel }) {
   const [form, setForm] = useState(() => formOf(datos));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -74,7 +79,7 @@ export default function DataForm({ datos, original, submit, forbidden, onSaved, 
   const save = async (event) => {
     event.preventDefault();
     if (saving) return; // a second click before the re-render
-    const invalid = formError(form);
+    const invalid = formError(form, sends);
     if (invalid) {
       setError(invalid);
       return;
