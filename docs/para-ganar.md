@@ -45,6 +45,9 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D21 | **Premium `started`:** igual se muestra en el slot Premium con badge/botón **Aplicada** (no solo candidates). Min–max label skip — next slice replaces with sugerido | MLA2154276473: PREMIUM OCTUBRE ya enrolada | Done |
 | D22 | TOP board: `referent_note` por seller (Referente / Descartado: markup mín. / Sin markup / precio mín|máx.). Excluidos siguen fuera del ranking | Claridad vs sugerido | Done |
 | D23 | Pool: DEAL/campaña muestran `aplicar a $sugerido` (clamp); **Aplicar** → confirmar → `POST /promociones/item/{mla}` (mismo enroll que Productos). SMART manda `precio_visto`. Permiso `promos.escribir`. Sin smoke de activación ML en CI | Cerrar bridge sugerido→promo | Done |
+| — | Herencia producto/PM | Cubierto por filtro EAN + masivo | Deprecated |
+| — | Heurística campañas de marca | No aporta | Deprecated |
+| D24 | Cola: **Pendiente de revisión** / **Sin novedades** (badge + filtro). No Perdiendo/Ganando en cola | Work-queue feeling del Pro | Planned |
 
 ---
 
@@ -120,13 +123,15 @@ Newest first. Use for “why did we…” archaeology.
 9. ~~Mass criteria apply to filtered scope (D17)~~.
 10. ~~Show promo pool (D18→D19→D20 one-per-type)~~.
 11. ~~Show deal at `precio_sugerido` (clamped) + wire enroll from Advisor (D23)~~.
-12. Later: product/PM inheritance; suggestion states queue; optional brand-campaign heuristic.
+12. **Cola — estados de revisión (next):** badges/filtro **Pendiente de revisión** y **Sin novedades** (no Perdiendo/Ganando en cola). Semántica TBD con producto.
+13. ~~Herencia producto/PM~~ — **deprecado:** filtro EAN + aplicar masivo cubre el caso.
+14. ~~Heurística campañas de marca (A PVP…)~~ — **deprecado:** no aporta.
 
 ---
 
 ## Out of scope (for now)
 
-- Literal port of the Chrome extension / Sheet export loop.
+- Literal port of the Chrome extension / Sheet export loop (innecesario).
 - Scraping ML pages as primary data path.
-- Merging Draft PR #1796 until product says so.
-}
+- Merging Draft PR #1796 until product says so (todavía falta mucho trabajo útil antes).
+
