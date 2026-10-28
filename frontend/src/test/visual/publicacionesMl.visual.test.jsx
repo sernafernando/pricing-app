@@ -1813,6 +1813,8 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         const line = lock.element().closest('[data-price-detail]');
         expect(line.textContent).toBe('(+6,5%)');
         const cell = line.closest('td');
+        // The Tienda Nube price above it carries its transfer hint here too (the page hands the group tnCardPercent).
+        expect(cell.textContent).toContain('$183.999,20 transf.');
         for (const part of [line, lock.element()]) {
           expect(rect(part).left).toBeGreaterThanOrEqual(rect(cell).left - 0.5);
           expect(rect(part).right).toBeLessThanOrEqual(rect(cell).right + 0.5);
