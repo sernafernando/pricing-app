@@ -636,6 +636,60 @@ class TestTheMissLivesInTheQuarantine:
         assert (row.order_id, row.intentos) == (5, 1)
 
 
+class TestAdoptLegacyDebts:
+    """D2b's migration moves the open debts out of `ml_ops_divergence`. Until the receiver restarts on the new code
+    it still records new ones there, after the copy ran; the sweep pass adopts every open one left, so none is lost."""
+
+    def _legacy(self, db, order_id, state="open", field="activity_unresolved", detected_at=None):
+        db.add(
+            MlOpsDivergence(
+                order_id=order_id,
+                kind="unknown",
+                field=field,
+                state=state,
+                detected_at=detected_at or datetime.now(timezone.utc),
+            )
+        )
+
+    def test_an_open_legacy_debt_moves_to_the_quarantine(self, db):
+        detected = datetime(2026, 10, 27, 23, 0, tzinfo=timezone.utc)
+        self._legacy(db, 40, detected_at=detected)
+        self._legacy(db, 41, state="acknowledged")
+        self._legacy(db, 42, state="ignored")
+        self._legacy(db, 43)
+        db.add(_quarantined_write_error(43))
+        self._legacy(db, 0, field="cost_sync:700")
+        self._legacy(db, 44, field="other_field")
+        db.commit()
+
+        moved = service._adopt_legacy_unresolved_debts(db)
+        db.commit()
+
+        assert moved == 3
+        assert [row.order_id for row in _unresolved(db)] == [40, 41]
+        adopted = db.get(MlOrdersOpsCuarentena, 40)
+        assert adopted.error == service.UNRESOLVED_ERROR
+        assert adopted.primera_falla_at.replace(tzinfo=timezone.utc) == detected
+        # A quarantined payload wins; the legacy debt of that order is dropped with the others.
+        assert db.get(MlOrdersOpsCuarentena, 43).raw_order == {"id": 43}
+        left = sorted((d.order_id, d.field, d.state) for d in db.query(MlOpsDivergence).all())
+        assert left == [
+            (0, "cost_sync:700", "open"),
+            (42, "activity_unresolved", "ignored"),
+            (44, "other_field", "open"),
+        ]
+
+    def test_running_it_twice_is_a_no_op_the_second_time(self, db):
+        self._legacy(db, 40)
+        db.commit()
+
+        first = service._adopt_legacy_unresolved_debts(db)
+        db.commit()
+        second = service._adopt_legacy_unresolved_debts(db)
+
+        assert (first, second) == (1, 0)
+
+
 class TestColdStart:
     """The very first run has `activity_cursor = NULL`. Verified live
     against the bridge on 2026-09-09: `?since=` (empty) answers HTTP 200

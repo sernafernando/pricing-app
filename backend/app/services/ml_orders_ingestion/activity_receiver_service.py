@@ -93,11 +93,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import null
+from sqlalchemy import literal, null, select
 
 from app.core.config import settings
 from app.core.database import get_background_db
-from app.models.ml_orders_ops import MlOrdersOps, MlOrdersOpsCuarentena
+from app.models.ml_orders_ops import MlOpsDivergence, MlOrdersOps, MlOrdersOpsCuarentena
 from app.services.ml_orders_ingestion.ingestion_service import (
     TRANSIENT_TAG,
     QuarantineRetryResult,
@@ -365,6 +365,34 @@ def _clear_resolved_unresolved_debts(db) -> int:
         .filter(MlOrdersOpsCuarentena.order_id.in_(resolved_order_ids))
         .delete(synchronize_session=False)
     )
+
+
+def _adopt_legacy_unresolved_debts(db) -> int:
+    """Moves into the quarantine every open debt still in the legacy `ml_ops_divergence` table (rows
+    `kind='unknown'`, `field='activity_unresolved'`, state open or acknowledged), and deletes it there.
+
+    D2b's migration moved the open debts it found. Until the receiver restarts on the new code, the old one keeps
+    recording debts in the legacy table after that copy ran, and nothing else would ever read them; so every open
+    debt left there is one of those, and the sweep pass adopts it. A quarantined payload wins. Idempotent. Remove
+    with the table (remove-ml-divergences D3). Returns the legacy rows moved.
+    """
+    open_debt = (
+        MlOpsDivergence.kind == "unknown",
+        MlOpsDivergence.field == "activity_unresolved",
+        MlOpsDivergence.state.in_(("open", "acknowledged")),
+    )
+    legacy = select(
+        MlOpsDivergence.order_id, null(), literal(UNRESOLVED_ERROR), literal(1), MlOpsDivergence.detected_at
+    ).where(*open_debt)
+    db.execute(
+        _insert_stmt(db, MlOrdersOpsCuarentena.__table__)
+        .from_select(["order_id", "raw_order", "error", "intentos", "primera_falla_at"], legacy)
+        .on_conflict_do_nothing(index_elements=["order_id"])
+    )
+    moved = db.query(MlOpsDivergence).filter(*open_debt).delete(synchronize_session=False)
+    if moved:
+        logger.warning("activity_receiver: moved %s legacy unresolved-order debt(s) into the quarantine", moved)
+    return moved
 
 
 def _clear_shipment_id_unresolved_debts(db) -> int:

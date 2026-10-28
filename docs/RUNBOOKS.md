@@ -127,10 +127,11 @@ quoted text:
 old alarms) no longer has a reader, and nothing writes, resolves or purges
 them any more: the detector is gone, and so is the 30-day purge of
 `window_not_enumerable` rows (`ML_ORDERS_OPS_UNENUMERABLE_RETENTION_DAYS`).
-Nothing writes to that table any more: the `cost_sync:` and
-`activity_unresolved` rows were copied to their new homes (above) by the
-migrations that moved them, and the copies left behind are inert too. The rows
-stay until D3 drops the table.
+Nothing writes to that table any more. The `cost_sync:` rows were copied to
+their new column, and the copies left behind are inert. The open
+`activity_unresolved` debts were moved to the quarantine, and the sweep pass
+moves any open one still found there (recorded by the old code during the
+deploy). The rows stay until D3 drops the table.
 
 ---
 

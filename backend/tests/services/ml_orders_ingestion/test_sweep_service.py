@@ -1422,6 +1422,26 @@ class TestTheWholeCostsPayloadIsKept:
 
 
 class TestSweepPassClearsShipmentIdDebts:
+    def test_an_open_legacy_debt_is_adopted_by_the_pass(self, db, monkeypatch):
+        """A debt the old receiver recorded during D2b's deploy lands in the quarantine on the next sweep pass."""
+        from app.models.ml_orders_ops import MlOrdersOpsCuarentena
+
+        db.add(
+            MlOpsDivergence(
+                order_id=48999999999,
+                kind="unknown",
+                field="activity_unresolved",
+                detected_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([])))
+
+        assert sweep_service.run_sweep(seller_id=999, window_days=90).error is None
+
+        assert [q.order_id for q in db.query(MlOrdersOpsCuarentena).all()] == [48999999999]
+        assert db.query(MlOpsDivergence).count() == 0
+
     def test_a_false_debt_naming_a_known_shipping_id_is_cleared_by_the_pass(self, db, monkeypatch):
         """The sweep pass is what makes existing false `activity_unresolved`
         debts (a shipment id recorded as an order) self-heal."""

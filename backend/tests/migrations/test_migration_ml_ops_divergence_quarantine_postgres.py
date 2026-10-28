@@ -144,9 +144,10 @@ def test_upgrade_carries_every_open_debt_over_to_the_quarantine(engine) -> None:
         14: ({"id": 14}, "[permanent] boom", 3, True, _quarantine_day(engine, 14)),
         20: ({"id": 20}, "[transient] pool", 2, True, _quarantine_day(engine, 20)),
     }
-    # Ignored and resolved debts, and every other row, are not copied; the legacy rows stay (a later revision drops
-    # the table).
-    assert _divergence(engine) == before
+    # The open and acknowledged debts are moved (the sweep adopts any the old receiver records after this); ignored
+    # and resolved debts, and every other row, stay until a later revision drops the table.
+    moved = {10, 11, 14, 31}
+    assert _divergence(engine) == [row for row in before if not (row[0] in moved and row[2] == "activity_unresolved")]
 
 
 def _quarantine_day(engine: Engine, order_id: int) -> str:
@@ -192,8 +193,6 @@ def test_downgrade_copies_the_debts_back_and_restores_not_null(engine) -> None:
         (11, "unknown", "activity_unresolved", "open", "2026-10-02"),
         (12, "unknown", "activity_unresolved", "ignored", "2026-10-21"),
         (13, "unknown", "activity_unresolved", "resolved", "2026-10-04"),
-        # Quarantined with its payload: its debt was never copied, so it is left as it was.
-        (14, "unknown", "activity_unresolved", "open", "2026-10-05"),
         (15, "out_of_window_update", None, "open", "2026-10-07"),
         (16, "unknown", "other_field", "open", "2026-10-08"),
         (30, "unknown", "activity_unresolved", "open", "2026-10-20"),

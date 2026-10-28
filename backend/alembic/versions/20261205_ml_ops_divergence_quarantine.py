@@ -10,11 +10,13 @@ activity receiver, it recorded a debt in the legacy `ml_ops_divergence` table (r
 `raw_order` becomes nullable, the replay skips such a row (nothing to replay), and it is settled once the order lands
 in `ml_orders_ops`.
 
-The open debts (`state` open or acknowledged) are copied over (Postgres), keeping when they were detected as the first
+The open debts (`state` open or acknowledged) are moved over (Postgres): copied, then deleted from the legacy table,
+so every open debt found there later was recorded by a receiver still on the old code during the deploy, and the
+sweep pass adopts it (`activity_receiver_service._adopt_legacy_unresolved_debts`). The copy keeps when they were detected as the first
 failure. Their last attempt is now: until the worker restarts on the new code, its replay still selects every due
 row, and a copied row is not due for its backoff. An order already quarantined with its payload (a write that failed)
-keeps that row. A row with the JSON `null` literal (the old replay re-quarantining a copied row, its column had no
-`none_as_null`) has no payload either. The legacy rows are left in place: the
+keeps that row (its legacy debt is deleted with the others). A row with the JSON `null` literal (the old replay re-quarantining a copied row, its column had no
+`none_as_null`) has no payload either. Every other legacy row is left in place: the
 table is dropped by a later revision. Downgrade rewrites the open legacy debts from the rows with no payload (debts
 settled after the upgrade do not come back), removes those rows and makes `raw_order` NOT NULL again.
 
@@ -51,8 +53,10 @@ WHERE {UNRESOLVED_DEBT}
 ON CONFLICT (order_id) DO NOTHING
 """
 
+DELETE_MOVED_DEBTS = f"DELETE FROM ml_ops_divergence d WHERE {UNRESOLVED_DEBT}"
+
 # A debt settled after the upgrade (its quarantine row deleted) must not come back from its pre-upgrade row. The
-# debt of an order quarantined with its payload was never copied, so it is left as it was.
+# debt of an order quarantined with its payload (one the old receiver recorded after the move) is left as it was.
 DELETE_LEGACY_DEBTS = f"""
 DELETE FROM ml_ops_divergence d
 WHERE {UNRESOLVED_DEBT}
@@ -92,7 +96,8 @@ def _restore_lock_timeout() -> None:
 
 
 def _raw_order_nullable(nullable: bool) -> None:
-    op.alter_column(TABLE, "raw_order", existing_type=postgresql.JSONB(astext_type=sa.Text()), nullable=nullable)
+    with op.batch_alter_table(TABLE) as batch:
+        batch.alter_column("raw_order", existing_type=postgresql.JSONB(astext_type=sa.Text()), nullable=nullable)
 
 
 def upgrade() -> None:
@@ -102,6 +107,7 @@ def upgrade() -> None:
     _raw_order_nullable(True)
     if postgres:
         op.get_bind().execute(sa.text(COPY_FROM_DIVERGENCE), {"error": UNRESOLVED_ERROR})
+        op.execute(DELETE_MOVED_DEBTS)
         _restore_lock_timeout()
 
 

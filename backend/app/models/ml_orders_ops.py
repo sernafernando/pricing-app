@@ -12,8 +12,8 @@ Design decisions (see design doc, obs #1823):
 - `ml_ops_divergence` is legacy and no longer written: the divergences
   board and its alarm writers are gone, the cost-sync give-up counters
   moved to `ml_shipments_ops.cost_sync_attempts` and the
-  `activity_unresolved` debts to `ml_orders_ops_cuarentena`; a later
-  release drops the table.
+  `activity_unresolved` debts to `ml_orders_ops_cuarentena` (the sweep
+  moves any open one still left there); a later release drops the table.
 """
 
 from __future__ import annotations
@@ -417,7 +417,9 @@ class MlOpsDivergence(Base):
     counters (rows `order_id=0`, `field='cost_sync:<shipment_id>'`) to
     `ml_shipments_ops.cost_sync_attempts`, and the activity receiver's
     `activity_unresolved` debts to `ml_orders_ops_cuarentena` (a row with no
-    `raw_order`).
+    `raw_order`). The sweep pass moves any open debt still found here (one a
+    receiver on the old code recorded during that deploy):
+    `activity_receiver_service._adopt_legacy_unresolved_debts`.
     """
 
     __tablename__ = "ml_ops_divergence"
