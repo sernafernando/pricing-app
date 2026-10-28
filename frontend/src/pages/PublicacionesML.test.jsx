@@ -311,14 +311,16 @@ describe('stat cards (S12d4, Productos)', () => {
   });
 
   it('the Producto view asks mejor oferta of the product, as its rows', async () => {
-    await page('/ml-publicaciones?vista=producto&oferta=con_oferta').catch(() => {});
-    await waitFor(() => expect(publicacionesMlAPI.stats).toHaveBeenCalled());
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto&oferta=con_oferta'] });
+    expect(await screen.findByRole('button', { name: 'Total Productos: 40' })).toBeInTheDocument();
     expect(statsParams()).toMatchObject({ con_oferta: true, oferta_por_producto: true });
   });
 
   it("in the Producto view the Oferta sin Rebate card counts a product's offer on any of its publications, with no offer filter set", async () => {
-    await page('/ml-publicaciones?vista=producto').catch(() => {});
-    await waitFor(() => expect(publicacionesMlAPI.stats).toHaveBeenCalled());
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto'] });
+    expect(await screen.findByRole('button', { name: 'Total Productos: 40' })).toBeInTheDocument();
     expect(statsParams()).toMatchObject({ oferta_por_producto: true });
     expect(statsParams()).not.toHaveProperty('con_oferta');
   });
