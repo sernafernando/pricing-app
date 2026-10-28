@@ -1,3 +1,4 @@
+import { publicacionesMlAPI } from '../services/api';
 import { downloadCsv } from './ventasMlExport';
 import { exportarCsvASheets } from './googleSheetsExport';
 
@@ -35,3 +36,31 @@ function exportUrl(vista) {
 }
 
 const exportOptions = (vista) => ({ filename: exportFilename(vista), genericError: 'No se pudo exportar las publicaciones.' });
+
+/**
+ * The products Productos' price-list exports get from Publicaciones ML: the linked products of the publications the
+ * filters select, from the bulk resolver (`GET /ml-publications/view/product-ids`, `params` from `resolverParams`).
+ * Throws an Error whose message is safe to show the operator; an empty set too, so an export never reads it as "all".
+ */
+export async function resolverProductosExport(params) {
+  let response;
+  try {
+    response = await publicacionesMlAPI.productIds(params);
+  } catch (error) {
+    throw new Error(productIdsErrorMessage(error));
+  }
+  const itemIds = response.data.item_ids;
+  if (itemIds.length === 0) throw new Error('Las publicaciones filtradas no tienen productos vinculados para exportar.');
+  return itemIds;
+}
+
+function productIdsErrorMessage(error) {
+  const status = error?.response?.status;
+  const body = error?.response?.data?.error;
+  if (status === 422 && body?.count != null && body?.max != null) {
+    return `El filtro selecciona ${body.count} productos; una exportación admite hasta ${body.max}. Acotá el filtro.`;
+  }
+  if (status === 422 && body?.message) return body.message;
+  if (status === 503) return 'La consulta tardó demasiado: acotá los filtros o reintentá.';
+  return 'No se pudieron obtener los productos de los filtros.';
+}
