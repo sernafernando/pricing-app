@@ -34,6 +34,7 @@ import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublica
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { withProductSelection } from '../components/publicacionesMl/productSelection';
+import useProductSelection from '../components/publicacionesMl/useProductSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';
 import PriceModeSelect from '../components/publicacionesMl/PriceModeSelect';
@@ -251,19 +252,6 @@ export default function PublicacionesML() {
     [],
   );
 
-  // The products checked for the bulk pricing actions (a publication checks its linked product). They belong to
-  // the list they were picked from: another filter or view starts with none.
-  const [checkedIds, setCheckedIds] = useState(() => new Set());
-  const toggleChecked = useCallback(
-    (productId) =>
-      setCheckedIds((current) => {
-        const next = new Set(current);
-        if (!next.delete(productId)) next.add(productId);
-        return next;
-      }),
-    [],
-  );
-  const clearChecked = useCallback(() => setCheckedIds(new Set()), []);
   const { equipos, loaded: equiposLoaded } = useEquipos();
   // The rows are asked on a team layer only once the teams say it is the user's: a link to another team's layer
   // would answer 403 and flash a false error before ColorLayerSelect drops it. Until then nothing is asked.
@@ -276,7 +264,6 @@ export default function PublicacionesML() {
   const colorOverlay = useColorOverlay(rowFilters.equipo, filterKey);
   useSSEChannel('producto_color:changed', colorOverlay.apply);
   const getItemTone = useCallback((item) => itemRowTone(item, colorOverlay.colors), [colorOverlay.colors]);
-  useEffect(clearChecked, [filterKey, filters.vista, clearChecked]);
 
   const pageSize = filters.limite;
   const agrupado = filters.vista === 'agrupado';
@@ -400,6 +387,11 @@ export default function PublicacionesML() {
   );
   // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it.
   const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
+  // The products checked for the bulk pricing actions (a publication checks its linked product), as in Productos
+  // (S12d): Shift+click checks a range of the rows on show, the title header checks the page, and the selection
+  // outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page there.
+  const productSelection = useProductSelection(agrupado ? EMPTY_ROWS : listedProductIds);
+  const { checked: checkedIds, clear: clearChecked } = productSelection;
   // A price typed in a cell (S11c) is saved as Productos does; the list is reloaded after it, as after a panel write
   // (its prices with it).
   const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
@@ -479,7 +471,10 @@ export default function PublicacionesML() {
     () => columns.filter((column) => columnVisibility[column.key] !== false),
     [columns, columnVisibility],
   );
-  const selection = useMemo(() => ({ checked: checkedIds, onToggle: toggleChecked }), [checkedIds, toggleChecked]);
+  const selection = useMemo(
+    () => ({ checked: checkedIds, onToggle: productSelection.onToggle, togglePage: productSelection.togglePage, pageState: productSelection.pageState }),
+    [checkedIds, productSelection.onToggle, productSelection.togglePage, productSelection.pageState],
+  );
   const selectableColumns = useMemo(() => withProductSelection(visibleColumns, selection), [visibleColumns, selection]);
 
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
@@ -562,6 +557,10 @@ export default function PublicacionesML() {
     }
     paintProduct(productId, color);
   };
+  const extendRow = (key) => {
+    const productId = productIdOfRow(key);
+    if (productId != null) productSelection.onToggle(productId, true);
+  };
   // r / w / o (S9): flip the focused row's product rebate, web transfer or "fuera de tarjetas", as in Productos. They
   // write from the product's own figures (its stored percentages), so they wait for its prices.
   const toggleRow = (key, kind) => {
@@ -603,6 +602,8 @@ export default function PublicacionesML() {
     onCycleLayer: cycleLayer,
     onCycleMode: canSeePrices && !agrupado ? cyclePriceMode : undefined,
     onToggleRow: canSeePrices && !agrupado ? toggleRow : undefined,
+    // Shift+Up / Shift+Down check the row moved to, from the last product checked (S12d, as in Productos).
+    onExtendRow: agrupado ? undefined : extendRow,
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
