@@ -85,6 +85,7 @@ Newest first. Use for “why did we…” archaeology.
 - Advisor: `GET /para-ganar/criterios/{mla}/sugerencia` ranks competition `price_ars` (dense rank) **only in the same bucket** as this MLA (`listing_type` + cuotas); excluded sellers omitted; ourselves always counted. Snapshot must be for **this MLA** (a clásica sibling of the same catalog is not reused).
 - Bucket key is recomputed at read time from competitor `installments` (int/str/dict). If the snapshot lacks `our_bucket_key`, it is synthesized from this MLA’s web pricelist (e.g. lista 14 → `gold_pro|6`) so 6-cuotas peers are not dropped (D14).
 - TOP board shows **Competís en** + per-row `listing_label` from the competition API (e.g. `Premium · 3 cuotas`) so it is not confused with the website financing copy (“Mismo precio en 6 cuotas”).
+- If the bucket has fewer price positions than TOP N, a discreet notice says the TOP is incomplete (not enough competitors).
 - Missing snapshot: `POST /para-ganar/criterios/{mla}/competencia/refresh` (permiso `productos.editar_precios`) fetches via the same `refrescar_competencia_catalogo` path as Promociones — **per MLA only** (ML throttle).
 
 ### Sellers del catálogo

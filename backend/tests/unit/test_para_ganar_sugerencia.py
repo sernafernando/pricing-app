@@ -112,6 +112,9 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
     assert body.positions[0].sellers[0].listing_label == "Premium · 3 cuotas"
     assert all(s.nickname != "CLASSIC_CHEAP" for p in body.positions for s in p.sellers)
     assert body.message
+    assert "excluido" in body.message
+    assert "faltan competidores" in body.message
+    assert f"TOP pide {body.top_sellers}" in body.message
 
     response = client.get(
         "/api/para-ganar/criterios/MLA88201/sugerencia",
@@ -214,6 +217,7 @@ def test_sugerencia_ranks_peers_when_installments_are_bare_ints(client: TestClie
     assert "B" in nicknames
     assert "CASH" not in nicknames
     assert body.our_rank == 3
+    assert body.message and "faltan competidores" in body.message
 
 
 def test_competencia_refresh_persists_and_returns_board(

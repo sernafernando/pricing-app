@@ -1573,11 +1573,25 @@ def obtener_sugerencia_mla(
         snapshot_at=None,
         bucket_label=bucket_label,
     )
-    message = None
+    message_parts: list[str] = []
     if excluded_count > 0:
         noun = "seller" if excluded_count == 1 else "sellers"
         adj = "excluido" if excluded_count == 1 else "excluidos"
-        message = f"Hay {excluded_count} {noun} {adj} del ranking (siguen en la lista de Criterios para reactivarlos)."
+        message_parts.append(
+            f"Hay {excluded_count} {noun} {adj} del ranking (siguen en la lista de Criterios para reactivarlos)."
+        )
+    # D12 TOP N = price positions; if the bucket has fewer ranks than N, say so.
+    positions_available = len(positions)
+    if positions_available < top_n:
+        if positions_available == 0:
+            message_parts.append(f"No hay posiciones de precio en este bucket para armar el TOP {top_n}.")
+        else:
+            pos_word = "posición" if positions_available == 1 else "posiciones"
+            message_parts.append(
+                f"En este bucket solo hay {positions_available} {pos_word} de precio; "
+                f"el TOP pide {top_n} (faltan competidores)."
+            )
+    message = " ".join(message_parts) if message_parts else None
     snapshot_at = snap.get("fecha_consulta")
     if isinstance(snapshot_at, str):
         try:
