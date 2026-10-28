@@ -15,7 +15,8 @@ router = APIRouter()
 
 # Who may add a product: the roles the Productos and Tienda screens offer "Agregar a banlist" to, or the permission
 # that opens the Banlist page (its products tab adds too).
-ROLES_BANEAR = (RolUsuario.ADMIN, RolUsuario.SUPERADMIN)
+# The user's role (`rol_codigo`, from `rol_id`), never the deprecated `rol` column, which can hold stale data.
+ROLES_BANEAR = ("ADMIN", "SUPERADMIN")
 PERMISO_BANEAR = "admin.gestionar_mla_banlist"
 
 
@@ -85,7 +86,9 @@ def agregar_a_banlist(
 
     Solo ADMIN/SUPERADMIN o quien tenga `admin.gestionar_mla_banlist`; cualquier otro recibe 403 y no se escribe nada.
     """
-    if current_user.rol not in ROLES_BANEAR and not PermisosService(db).tiene_permiso(current_user, PERMISO_BANEAR):
+    if current_user.rol_codigo not in ROLES_BANEAR and not PermisosService(db).tiene_permiso(
+        current_user, PERMISO_BANEAR
+    ):
         raise HTTPException(403, "No tenés permiso para agregar productos a la banlist")
 
     agregados = []

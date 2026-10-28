@@ -2,7 +2,8 @@
 
 The Productos and Tienda screens offer "Agregar a banlist" only to ADMIN and SUPERADMIN; the Banlist page
 (`/mla-banlist`, `admin.gestionar_mla_banlist`) has a products tab that adds too. The server enforces the same: the
-role, or that permission. Anyone else gets 403 and nothing is written.
+role (the user's `rol_id` role, as `rol_codigo` reads it, never the deprecated `rol` column), or that permission.
+Anyone else gets 403 and nothing is written.
 """
 
 from __future__ import annotations
@@ -23,11 +24,12 @@ def _bearer(user: Usuario) -> dict[str, str]:
     return {"Authorization": f"Bearer {create_access_token(data={'sub': user.username})}"}
 
 
-@pytest.fixture()
-def test_rol(db) -> Rol:
-    rol = Rol(codigo="BANLIST_TEST", nombre="Banlist Test", es_sistema=False, orden=99, activo=True)
-    db.add(rol)
-    db.flush()
+def _rol(db, codigo: str) -> Rol:
+    rol = db.query(Rol).filter(Rol.codigo == codigo).first()
+    if rol is None:
+        rol = Rol(codigo=codigo, nombre=codigo.title(), es_sistema=False, orden=99, activo=True)
+        db.add(rol)
+        db.flush()
     return rol
 
 
@@ -54,14 +56,15 @@ def producto(db) -> ProductoERP:
     return row
 
 
-def _make_user(db, rol: Rol, username: str, rol_usuario: RolUsuario, perms=(), revoked=()) -> Usuario:
+def _make_user(db, codigo: str, username: str, legacy: RolUsuario | None = None, perms=(), revoked=()) -> Usuario:
+    """A user as Usuarios creates it: the role in `rol_id`, the deprecated `rol` column empty unless `legacy`."""
     user = Usuario(
         username=username,
         email=f"{username}@test.com",
         nombre=username,
         password_hash=get_password_hash("Pass123!"),
-        rol=rol_usuario,
-        rol_id=rol.id,
+        rol=legacy,
+        rol_id=_rol(db, codigo).id,
         auth_provider=AuthProvider.LOCAL,
         activo=True,
     )
@@ -85,21 +88,29 @@ def _banned(db) -> list[ProductoBanlist]:
     return db.query(ProductoBanlist).filter(ProductoBanlist.item_id == ITEM_ID).all()
 
 
-@pytest.mark.parametrize("rol_usuario", [RolUsuario.GERENTE, RolUsuario.PRICING, RolUsuario.VENTAS])
-def test_a_user_without_the_role_or_the_permission_gets_403_and_nothing_is_banned(
-    client, db, test_rol, producto, rol_usuario
-):
-    ventas = _make_user(db, test_rol, f"ban_denied_{rol_usuario.value.lower()}", rol_usuario)
+@pytest.mark.parametrize("codigo", ["GERENTE", "PRICING", "VENTAS"])
+def test_a_user_without_the_role_or_the_permission_gets_403_and_nothing_is_banned(client, db, producto, codigo):
+    denied = _make_user(db, codigo, f"ban_denied_{codigo.lower()}")
 
-    response = _ban(client, ventas)
+    response = _ban(client, denied)
 
     assert response.status_code == 403
     assert _banned(db) == []
 
 
-@pytest.mark.parametrize("rol_usuario", [RolUsuario.ADMIN, RolUsuario.SUPERADMIN])
-def test_admin_and_superadmin_still_ban(client, db, test_rol, producto, rol_usuario):
-    admin = _make_user(db, test_rol, f"ban_{rol_usuario.value.lower()}", rol_usuario)
+def test_a_stale_legacy_admin_column_does_not_grant_the_role(client, db, producto):
+    # The deprecated column says ADMIN, the user's role is VENTAS: the role decides.
+    stale = _make_user(db, "VENTAS", "ban_stale_admin", legacy=RolUsuario.ADMIN)
+
+    response = _ban(client, stale)
+
+    assert response.status_code == 403
+    assert _banned(db) == []
+
+
+@pytest.mark.parametrize("codigo", ["ADMIN", "SUPERADMIN"])
+def test_admin_and_superadmin_still_ban(client, db, producto, codigo):
+    admin = _make_user(db, codigo, f"ban_{codigo.lower()}")
 
     response = _ban(client, admin)
 
@@ -111,8 +122,8 @@ def test_admin_and_superadmin_still_ban(client, db, test_rol, producto, rol_usua
     assert row.motivo == "test"
 
 
-def test_the_banlist_page_permission_still_bans(client, db, test_rol, producto, perm_banlist):
-    gestor = _make_user(db, test_rol, "gestor_ban", RolUsuario.VENTAS, perms=[perm_banlist])
+def test_the_banlist_page_permission_still_bans(client, db, producto, perm_banlist):
+    gestor = _make_user(db, "VENTAS", "gestor_ban", perms=[perm_banlist])
 
     response = _ban(client, gestor)
 
@@ -121,10 +132,10 @@ def test_the_banlist_page_permission_still_bans(client, db, test_rol, producto, 
     assert [row.usuario_id for row in _banned(db)] == [gestor.id]
 
 
-def test_the_permission_granted_by_the_role_still_bans(client, db, test_rol, producto, perm_banlist):
-    db.add(RolPermisoBase(rol_id=test_rol.id, permiso_id=perm_banlist.id))
+def test_the_permission_granted_by_the_role_still_bans(client, db, producto, perm_banlist):
+    db.add(RolPermisoBase(rol_id=_rol(db, "BANLIST_TEST").id, permiso_id=perm_banlist.id))
     db.flush()
-    gestor = _make_user(db, test_rol, "gestor_rol_ban", RolUsuario.VENTAS)
+    gestor = _make_user(db, "BANLIST_TEST", "gestor_rol_ban")
 
     response = _ban(client, gestor)
 
@@ -133,12 +144,10 @@ def test_the_permission_granted_by_the_role_still_bans(client, db, test_rol, pro
     assert [row.usuario_id for row in _banned(db)] == [gestor.id]
 
 
-def test_the_permission_revoked_for_the_user_denies_even_when_the_role_grants_it(
-    client, db, test_rol, producto, perm_banlist
-):
-    db.add(RolPermisoBase(rol_id=test_rol.id, permiso_id=perm_banlist.id))
+def test_the_permission_revoked_for_the_user_denies_even_when_the_role_grants_it(client, db, producto, perm_banlist):
+    db.add(RolPermisoBase(rol_id=_rol(db, "BANLIST_TEST").id, permiso_id=perm_banlist.id))
     db.flush()
-    revocado = _make_user(db, test_rol, "revocado_ban", RolUsuario.VENTAS, revoked=[perm_banlist])
+    revocado = _make_user(db, "BANLIST_TEST", "revocado_ban", revoked=[perm_banlist])
 
     response = _ban(client, revocado)
 
