@@ -44,6 +44,7 @@ from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_individual_consumo import OffsetIndividualConsumo, OffsetIndividualResumen
+from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
 from app.models.markup_tienda import MarkupTiendaBrand
 from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
 from app.models.rol import Rol
@@ -286,6 +287,7 @@ __all__ = [
     "OffsetGrupoResumen",
     "OffsetIndividualConsumo",
     "OffsetIndividualResumen",
+    "OffsetMigracionPendiente",
     "MarkupTiendaBrand",
     "Permiso",
     "RolPermisoBase",

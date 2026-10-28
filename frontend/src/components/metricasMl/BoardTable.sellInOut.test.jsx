@@ -111,4 +111,16 @@ describe('BoardTable: sell in / sell out', () => {
       expect(cell(id)).toHaveTextContent(/^—$/);
     }
   });
+
+  it('with "Costos TP" shows a dash for the cost and the markup with them, and leaves the cost with sell in empty', () => {
+    // What the board sends with "Costos TP" on: no Gauss cost basis, so no cost nor markup with sell in.
+    renderRow({ ...SELL, costo: null, costo_sell_in: null, markup_pct: null });
+
+    expect(cell('costo')).toHaveTextContent(/^—$/);
+    expect(cell('markup_sell')).toHaveTextContent(/^—$/);
+    expect(cell('costo_sell_in')).toHaveTextContent(/^$/);
+    expect(cell('sell_in')).toHaveTextContent(formatSignedMoney(10));
+    expect(cell('sell_out')).toHaveTextContent(formatSignedMoney(5));
+    expect(cell('total_gauss_sell')).toHaveTextContent(formatSignedMoney(45));
+  });
 });
