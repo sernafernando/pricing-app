@@ -40,6 +40,23 @@ describe('useListPrices', () => {
     expect(result.current.byId.get(450).precio_lista_ml).toBe(4500);
   });
 
+  it('keeps at most 3 parts in flight, so a huge page never floods the server', async () => {
+    const ids = Array.from({ length: 2000 }, (_, n) => n + 1);
+    let inFlight = 0;
+    let most = 0;
+    productosAPI.listar.mockImplementation(async ({ item_ids }) => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight -= 1;
+      return listed(...item_ids.split(',').map((id) => ({ item_id: Number(id) })));
+    });
+    const { result } = renderHook(() => useListPrices(ids, true));
+    await waitFor(() => expect(result.current.byId.size).toBe(2000));
+    expect(productosAPI.listar).toHaveBeenCalledTimes(10);
+    expect(most).toBe(3);
+  });
+
   it('one failed part of a long page leaves no prices and says so', async () => {
     const ids = Array.from({ length: 250 }, (_, n) => n + 1);
     productosAPI.listar.mockResolvedValueOnce(listed({ item_id: 1, precio_lista_ml: 10 }));
