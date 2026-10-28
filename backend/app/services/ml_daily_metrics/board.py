@@ -2447,7 +2447,8 @@ class Board:
         """The period's sales per shipping type, most billed first: every sold line of a row's pair (the lines
         the KPI strip sums) under its order's logistic mode (`mode_resolution`'s rule, in SQL). Shipping is a
         property of the sale, not of the product, so the type is read per order through its shipment, never from
-        the publication. A pack whose orders ship differently is one operation in each of its types. ONE
+        the publication. A pack whose orders ship differently is one operation in each of its types. A line
+        whose order row is missing still counts, as "desconocido", so the types always add up to Facturado. ONE
         statement."""
         f = self.f
         joined, fp = self._members("", narrow=True)
@@ -2464,7 +2465,7 @@ class Board:
             )
             .select_from(joined)
             .join(lines, and_(lines.c.product == fp.c.product, lines.c.mla == fp.c.mla))
-            .join(O, O.order_id == lines.c.order_id)
+            .outerjoin(O, O.order_id == lines.c.order_id)
             .outerjoin(S, S.shipment_id == O.shipping_id)
             .where(lines.c.day.between(self._day(f.date_from), self._day(f.date_to))),
             lines.c.mla,
