@@ -9,7 +9,6 @@ Real Postgres: the writer is PostgreSQL-only, like the queue it hangs from.
 from __future__ import annotations
 
 import dataclasses
-
 from datetime import datetime, timezone
 from decimal import Decimal
 
