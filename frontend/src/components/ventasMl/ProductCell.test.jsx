@@ -134,7 +134,8 @@ describe('ProductCell', () => {
         <ProductCell items={[{ item_id: 'MLA1', title: 'Impresora', quantity: 1, thumbnail_url: PHOTO }]} category="IMPRESORAS" />,
       );
       expect(container.querySelector('img')).toHaveAttribute('src', PHOTO);
-      expect(screen.queryByRole('img', { name: 'IMPRESORAS' })).not.toBeInTheDocument();
+      // The photo takes the icon's place, and its job too: it still announces the category.
+      expect(screen.getByRole('img', { name: 'IMPRESORAS' })).toBe(container.querySelector('img'));
     });
 
     it('without a photo keeps the category icon', () => {

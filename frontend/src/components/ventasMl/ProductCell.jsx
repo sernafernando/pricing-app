@@ -90,6 +90,8 @@ export default function ProductCell({ items, category, variant = 'row', isPack =
     <div className={styles.cell}>
       <SaleItemThumbnail
         url={primary.thumbnail_url}
+        // The category icon announced the category; a photo in its place keeps announcing it.
+        alt={category || ''}
         className={`${styles.thumbnail} ${isPack ? styles.thumbnailPack : ''}`}
         title={category || undefined}
       >

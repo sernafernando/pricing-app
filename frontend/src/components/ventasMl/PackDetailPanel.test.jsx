@@ -90,14 +90,13 @@ describe('the photos of the items sold', () => {
       member_order_ids: [111],
     });
 
-    const { container } = render(<PackDetailPanel packId={556} onClose={vi.fn()} onSelectOrder={vi.fn()} />);
+    render(<PackDetailPanel packId={556} onClose={vi.fn()} onSelectOrder={vi.fn()} />);
 
     expect(await screen.findByText('Producto A')).toBeInTheDocument();
     const list = screen.getByRole('list', { name: 'Detalle de productos' });
     expect(list.querySelectorAll('img')).toHaveLength(1);
     expect(list.querySelector('img')).toHaveAttribute('src', 'https://http2.mlstatic.com/a.jpg');
     expect(list.querySelectorAll('[data-sale-item-placeholder]')).toHaveLength(1);
-    expect(container).toBeTruthy();
   });
 });
 
