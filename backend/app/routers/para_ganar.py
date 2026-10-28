@@ -1291,9 +1291,7 @@ def _positive_price(value: Any) -> Optional[float]:
     return number
 
 
-def _competition_snapshot_for_rank(
-    db: Session, *, mla: str, catalog_product_id: str
-) -> Optional[dict[str, Any]]:
+def _competition_snapshot_for_rank(db: Session, *, mla: str, catalog_product_id: str) -> Optional[dict[str, Any]]:
     """Newest OK competition row for this catalog (prefer this MLA's snapshot)."""
     from sqlalchemy.exc import OperationalError, ProgrammingError
 
@@ -1392,8 +1390,7 @@ def obtener_sugerencia_mla(
         )
 
     dispositions = {
-        row.seller_id: normalize_disposition(row.disposition)
-        for row in _list_persisted_sellers(db, catalog_product_id)
+        row.seller_id: normalize_disposition(row.disposition) for row in _list_persisted_sellers(db, catalog_product_id)
     }
     excluded_count = sum(1 for d in dispositions.values() if d != DISPOSITION_ACTIVE)
 
@@ -1481,10 +1478,7 @@ def obtener_sugerencia_mla(
     if excluded_count > 0:
         noun = "seller" if excluded_count == 1 else "sellers"
         adj = "excluido" if excluded_count == 1 else "excluidos"
-        message = (
-            f"Hay {excluded_count} {noun} {adj} del ranking "
-            "(siguen en la lista de Criterios para reactivarlos)."
-        )
+        message = f"Hay {excluded_count} {noun} {adj} del ranking (siguen en la lista de Criterios para reactivarlos)."
     snapshot_at = snap.get("fecha_consulta")
     if isinstance(snapshot_at, str):
         try:
