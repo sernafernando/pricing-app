@@ -1657,6 +1657,15 @@ describe('the color layer (S8)', () => {
 });
 
 describe('the color filter (P6)', () => {
+  it("never asks another team's layer anywhere: the strip and the bulk set follow the list", async () => {
+    await page('/ml-publicaciones?colores=rojo&equipo=99');
+    await screen.findByRole('button', { name: /Acciones masivas/ });
+    await waitFor(() => expect(publicacionesMlAPI.kpis).toHaveBeenCalled());
+    const sent = [...publicacionesMlAPI.kpis.mock.calls, ...publicacionesMlAPI.productIds.mock.calls].map(([p]) => p);
+    expect(sent.map((params) => params.equipo_id)).not.toContain('99');
+    expect(sent.every((params) => params.colores === 'rojo')).toBe(true);
+  });
+
   it('asks the list for the picked colors on the layer on show, from page 1, and "Limpiar filtros" clears them', async () => {
     const user = userEvent.setup();
     await page('/ml-publicaciones?pagina=2&equipo=12');

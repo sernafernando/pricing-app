@@ -223,7 +223,9 @@ export function buildItemsParams(
     }
   }
   for (const key of CSV_KEYS) {
-    const values = key === 'tiendas' ? filters[key].map((v) => (v === 'sin_tienda' ? 'none' : v)) : filters[key];
+    // A filter set built before `colores` existed (a caller's own object) has no such key: nothing to send.
+    const raw = filters[key] ?? [];
+    const values = key === 'tiendas' ? raw.map((v) => (v === 'sin_tienda' ? 'none' : v)) : raw;
     if (values.length > 0) params[key] = values.join(',');
   }
   for (const key of PRESENCE_KEYS) {
@@ -308,7 +310,7 @@ export function usePublicacionesMLFilters() {
   // it to know when the facet counts must be asked for again.
   // With a color filter on, the layer chooses the colored products, so it is part of the set.
   const filterKey = useMemo(
-    () => JSON.stringify([...FILTER_KEYS.map((key) => filters[key]), filters.colores.length ? filters.equipo : '']),
+    () => JSON.stringify([...FILTER_KEYS.map((key) => filters[key]), filters.colores?.length ? filters.equipo : '']),
     [filters],
   );
 
