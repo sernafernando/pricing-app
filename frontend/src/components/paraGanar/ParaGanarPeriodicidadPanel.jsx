@@ -39,8 +39,7 @@ export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
   // Stable key: parent rebuilds scopeQueryParams every render.
   const scopeKey = JSON.stringify(scopeQueryParams);
-  // criterios_aplicados is Advisor/Criterios-only; catalog ignores it.
-  const { criterios_aplicados: _criteriosOmit, ...catalogScope } = scopeQueryParams;
+  const catalogScope = scopeQueryParams;
 
   const loadList = useCallback(async () => {
     if (!canView) return;
@@ -148,10 +147,8 @@ export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
   };
 
   useEffect(() => {
-    if (selectedEan && form.scope_mode === 'mlas') {
-      loadMlasForEan(selectedEan);
-    }
-  }, [selectedEan, form.scope_mode, loadMlasForEan]);
+    if (selectedEan) loadMlasForEan(selectedEan);
+  }, [selectedEan, loadMlasForEan]);
 
   const handleSave = async () => {
     if (!selectedEan || !canWrite) return;

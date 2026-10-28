@@ -1,11 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ModalTesla from '../ModalTesla';
-import {
-  SCOPE_ALL,
-  SCOPE_MLAS,
-  SCOPE_RULES,
-  TIPO_OPCIONES,
-} from './periodicidadForm';
+import { SCOPE_ALL, SCOPE_MLAS, SCOPE_RULES, TIPO_OPCIONES } from './periodicidadForm';
 import styles from '../../pages/ParaGanarAdvisor.module.css';
 
 function toggleId(list, id, asNumber = false) {
@@ -14,6 +9,23 @@ function toggleId(list, id, asNumber = false) {
   if (next.has(value)) next.delete(value);
   else next.add(value);
   return [...next];
+}
+
+function matchesLocalFilters(opt, filters) {
+  if (filters.tipos.length > 0) {
+    if (!opt.tipo_publicacion || !filters.tipos.includes(opt.tipo_publicacion)) return false;
+  }
+  if (filters.pricelists.length > 0) {
+    if (opt.pricelist_id == null || !filters.pricelists.includes(Number(opt.pricelist_id))) {
+      return false;
+    }
+  }
+  if (filters.tiendas.length > 0) {
+    if (opt.tienda_oficial_id == null || !filters.tiendas.includes(Number(opt.tienda_oficial_id))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export default function ParaGanarPeriodicidadDetail({
@@ -35,6 +47,29 @@ export default function ParaGanarPeriodicidadDetail({
   onDelete,
 }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [filterTipos, setFilterTipos] = useState([]);
+  const [filterPricelists, setFilterPricelists] = useState([]);
+  const [filterTiendas, setFilterTiendas] = useState([]);
+
+  useEffect(() => {
+    setFilterTipos([]);
+    setFilterPricelists([]);
+    setFilterTiendas([]);
+    setConfirmOpen(false);
+  }, [selectedEan]);
+
+  const isLegacyRules = form.scope_mode === SCOPE_RULES;
+  const todoElEan = form.scope_mode === SCOPE_ALL;
+  const selectedSet = new Set((form.mlas || []).map((m) => String(m).toUpperCase()));
+
+  const filteredMlas = useMemo(() => {
+    const filters = {
+      tipos: filterTipos,
+      pricelists: filterPricelists,
+      tiendas: filterTiendas,
+    };
+    return (mlaOptions || []).filter((opt) => matchesLocalFilters(opt, filters));
+  }, [mlaOptions, filterTipos, filterPricelists, filterTiendas]);
 
   if (!selectedEan) {
     return (
@@ -51,7 +86,45 @@ export default function ParaGanarPeriodicidadDetail({
     );
   }
 
-  const selectedSet = new Set((form.mlas || []).map((m) => String(m).toUpperCase()));
+  const setTodoElEan = (checked) => {
+    if (checked) {
+      setForm((prev) => ({
+        ...prev,
+        scope_mode: SCOPE_ALL,
+        mlas: [],
+        tipos_publicacion: [],
+        pricelist_ids: [],
+        tienda_oficial_ids: [],
+      }));
+      return;
+    }
+    const allVisible = filteredMlas.map((opt) => String(opt.mla).toUpperCase());
+    setForm((prev) => ({
+      ...prev,
+      scope_mode: SCOPE_MLAS,
+      mlas: allVisible,
+      tipos_publicacion: [],
+      pricelist_ids: [],
+      tienda_oficial_ids: [],
+    }));
+  };
+
+  const toggleMla = (mla) => {
+    setForm((prev) => {
+      const nextMlas = toggleId(
+        (prev.mlas || []).map((x) => String(x).toUpperCase()),
+        String(mla).toUpperCase(),
+      );
+      return {
+        ...prev,
+        scope_mode: SCOPE_MLAS,
+        mlas: nextMlas,
+        tipos_publicacion: [],
+        pricelist_ids: [],
+        tienda_oficial_ids: [],
+      };
+    });
+  };
 
   return (
     <aside className={styles.detail} aria-label="Detalle de suscripción">
@@ -81,131 +154,127 @@ export default function ParaGanarPeriodicidadDetail({
             Activa en revisión periódica
           </label>
 
-          <label className={styles.criteriaField}>
-            Alcance
-            <select
-              className={styles.criteriaInput}
-              value={form.scope_mode}
+          <label className={styles.criteriaCheck}>
+            <input
+              type="checkbox"
+              checked={todoElEan}
               disabled={!canWrite}
-              onChange={(e) => setForm((prev) => ({ ...prev, scope_mode: e.target.value }))}
-            >
-              <option value={SCOPE_ALL}>Todo el EAN</option>
-              <option value={SCOPE_MLAS}>MLAs seleccionados</option>
-              <option value={SCOPE_RULES}>Por lista / tipo / tienda</option>
-            </select>
+              onChange={(e) => setTodoElEan(e.target.checked)}
+            />
+            Todo el EAN (incluye MLAs futuros)
           </label>
 
-          {form.scope_mode === SCOPE_MLAS && (
-            <fieldset className={styles.periodicidadFieldset}>
-              <legend>MLAs del EAN (filtro actual)</legend>
-              {mlasLoading && <p className={styles.emptyBody}>Cargando MLAs…</p>}
-              {!mlasLoading && mlaOptions.length === 0 && (
-                <p className={styles.emptyBody}>
-                  No hay MLAs para este EAN con el alcance filtrado.
-                </p>
-              )}
-              {!mlasLoading &&
-                mlaOptions.map((opt) => {
-                  const mla = String(opt.mla).toUpperCase();
-                  return (
-                    <label key={mla} className={styles.criteriaCheck}>
-                      <input
-                        type="checkbox"
-                        disabled={!canWrite}
-                        checked={selectedSet.has(mla)}
-                        onChange={() =>
-                          setForm((prev) => ({
-                            ...prev,
-                            mlas: toggleId(prev.mlas.map((x) => String(x).toUpperCase()), mla),
-                          }))
-                        }
-                      />
-                      <span>
-                        {mla}
-                        {opt.lista_nombre ? ` · ${opt.lista_nombre}` : ''}
-                        {opt.titulo ? ` — ${opt.titulo}` : ''}
-                      </span>
-                    </label>
-                  );
-                })}
-            </fieldset>
+          {isLegacyRules && (
+            <p className={styles.criteriaFeedbackError} role="status">
+              Suscripción por reglas (legado). Elegí Todo el EAN o tildá MLAs y guardá para
+              migrarla.
+            </p>
           )}
 
-          {form.scope_mode === SCOPE_RULES && (
-            <>
-              <fieldset className={styles.periodicidadFieldset}>
-                <legend>Tipos de publicación</legend>
-                {TIPO_OPCIONES.map((tipo) => (
-                  <label key={tipo.id} className={styles.criteriaCheck}>
+          <fieldset className={styles.periodicidadFieldset}>
+            <legend>Filtros del listado</legend>
+            <p className={styles.emptyBody}>
+              Achican los checkboxes de abajo; no definen la suscripción.
+            </p>
+            <div className={styles.periodicidadFilterRow} role="group" aria-label="Tipo">
+              {TIPO_OPCIONES.map((tipo) => (
+                <label key={tipo.id} className={styles.criteriaCheck}>
+                  <input
+                    type="checkbox"
+                    checked={filterTipos.includes(tipo.id)}
+                    onChange={() => setFilterTipos((prev) => toggleId(prev, tipo.id))}
+                  />
+                  {tipo.nombre}
+                </label>
+              ))}
+            </div>
+            <div className={styles.periodicidadFilterRow} role="group" aria-label="Lista">
+              {pricelists.length === 0 && <span className={styles.emptyBody}>Sin listas</span>}
+              {pricelists.map((lista) => (
+                <label key={lista.id} className={styles.criteriaCheck}>
+                  <input
+                    type="checkbox"
+                    checked={filterPricelists.includes(Number(lista.id))}
+                    onChange={() =>
+                      setFilterPricelists((prev) => toggleId(prev, lista.id, true))
+                    }
+                  />
+                  {lista.nombre || `Lista ${lista.id}`}
+                </label>
+              ))}
+            </div>
+            <div className={styles.periodicidadFilterRow} role="group" aria-label="Tienda">
+              {tiendasGrupos.length === 0 && <span className={styles.emptyBody}>Sin tiendas</span>}
+              {tiendasGrupos.map((grupo) => {
+                const ids = (grupo.ids || []).map(Number).filter((n) => n > 0);
+                const checked = ids.some((id) => filterTiendas.includes(id));
+                return (
+                  <label key={grupo.value} className={styles.criteriaCheck}>
                     <input
                       type="checkbox"
-                      disabled={!canWrite}
-                      checked={form.tipos_publicacion.includes(tipo.id)}
-                      onChange={() =>
-                        setForm((prev) => ({
-                          ...prev,
-                          tipos_publicacion: toggleId(prev.tipos_publicacion, tipo.id),
-                        }))
-                      }
+                      checked={checked}
+                      onChange={() => {
+                        setFilterTiendas((prev) => {
+                          const set = new Set(prev.map(Number));
+                          if (checked) ids.forEach((id) => set.delete(id));
+                          else ids.forEach((id) => set.add(id));
+                          return [...set];
+                        });
+                      }}
                     />
-                    {tipo.nombre}
+                    {grupo.label || ids.map((id) => getLabel(id)).join(' / ')}
                   </label>
-                ))}
-              </fieldset>
+                );
+              })}
+            </div>
+          </fieldset>
 
-              <fieldset className={styles.periodicidadFieldset}>
-                <legend>Listas de precios</legend>
-                {pricelists.length === 0 && (
-                  <p className={styles.emptyBody}>Sin listas disponibles.</p>
-                )}
-                {pricelists.map((lista) => (
-                  <label key={lista.id} className={styles.criteriaCheck}>
+          <fieldset className={styles.periodicidadFieldset}>
+            <legend>
+              MLAs ({filteredMlas.length}
+              {filteredMlas.length !== (mlaOptions || []).length
+                ? ` de ${(mlaOptions || []).length}`
+                : ''}
+              )
+            </legend>
+            {mlasLoading && <p className={styles.emptyBody}>Cargando MLAs…</p>}
+            {!mlasLoading && filteredMlas.length === 0 && (
+              <p className={styles.emptyBody}>
+                No hay MLAs con el alcance / filtros actuales.
+              </p>
+            )}
+            {!mlasLoading &&
+              filteredMlas.map((opt) => {
+                const mla = String(opt.mla).toUpperCase();
+                const checked = todoElEan || selectedSet.has(mla);
+                const tiendaLabel =
+                  opt.tienda_oficial_id != null
+                    ? getLabel(opt.tienda_oficial_id) || `Tienda ${opt.tienda_oficial_id}`
+                    : 'Sin tienda';
+                return (
+                  <label key={mla} className={styles.criteriaCheck}>
                     <input
                       type="checkbox"
-                      disabled={!canWrite}
-                      checked={form.pricelist_ids.includes(Number(lista.id))}
-                      onChange={() =>
-                        setForm((prev) => ({
-                          ...prev,
-                          pricelist_ids: toggleId(prev.pricelist_ids, lista.id, true),
-                        }))
-                      }
+                      disabled={!canWrite || todoElEan}
+                      checked={checked}
+                      onChange={() => toggleMla(mla)}
                     />
-                    {lista.nombre || `Lista ${lista.id}`}
+                    <span>
+                      <strong>{mla}</strong>
+                      {' · '}
+                      {opt.tipo_nombre || opt.tipo_publicacion || 'Tipo —'}
+                      {' · '}
+                      {opt.lista_nombre ||
+                        (opt.pricelist_id != null ? `Lista ${opt.pricelist_id}` : 'Lista —')}
+                      {' · '}
+                      {tiendaLabel}
+                      {opt.criterios_aplicados ? ' · criterio' : ''}
+                      {opt.titulo ? ` — ${opt.titulo}` : ''}
+                    </span>
                   </label>
-                ))}
-              </fieldset>
-
-              <fieldset className={styles.periodicidadFieldset}>
-                <legend>Tiendas oficiales</legend>
-                {tiendasGrupos.length === 0 && (
-                  <p className={styles.emptyBody}>Sin tiendas cargadas.</p>
-                )}
-                {tiendasGrupos.map((grupo) => {
-                  const ids = (grupo.ids || []).map(Number).filter((n) => n > 0);
-                  const checked = ids.some((id) => form.tienda_oficial_ids.includes(id));
-                  return (
-                    <label key={grupo.value} className={styles.criteriaCheck}>
-                      <input
-                        type="checkbox"
-                        disabled={!canWrite}
-                        checked={checked}
-                        onChange={() => {
-                          setForm((prev) => {
-                            const set = new Set(prev.tienda_oficial_ids.map(Number));
-                            if (checked) ids.forEach((id) => set.delete(id));
-                            else ids.forEach((id) => set.add(id));
-                            return { ...prev, tienda_oficial_ids: [...set] };
-                          });
-                        }}
-                      />
-                      {grupo.label || ids.map((id) => getLabel(id)).join(' / ')}
-                    </label>
-                  );
-                })}
-              </fieldset>
-            </>
-          )}
+                );
+              })}
+          </fieldset>
 
           {formError && (
             <p className={styles.criteriaFeedbackError} role="alert">

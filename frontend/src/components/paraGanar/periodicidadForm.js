@@ -72,27 +72,15 @@ export function formToPeriodicidadPayload(form) {
     };
   }
 
-  const tipos = Array.isArray(form.tipos_publicacion) ? form.tipos_publicacion : [];
-  const pricelists = Array.isArray(form.pricelist_ids) ? form.pricelist_ids.map(Number) : [];
-  const tiendas = Array.isArray(form.tienda_oficial_ids)
-    ? form.tienda_oficial_ids.map(Number)
-    : [];
-  if (tipos.length === 0 && pricelists.length === 0 && tiendas.length === 0) {
+  // rules no longer offered in UI (P3.2); keep API for legacy rows until migrated.
+  if (mode === SCOPE_RULES) {
     return {
       ok: false,
-      error: 'Elegí al menos un tipo, lista de precios o tienda.',
+      error: 'Migrá la suscripción: activá Todo el EAN o tildá MLAs y guardá.',
     };
   }
-  return {
-    ok: true,
-    payload: {
-      ...base,
-      mlas: [],
-      tipos_publicacion: tipos,
-      pricelist_ids: pricelists,
-      tienda_oficial_ids: tiendas,
-    },
-  };
+
+  return { ok: false, error: 'Alcance inválido.' };
 }
 
 export function scopeSummary(row) {

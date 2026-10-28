@@ -193,5 +193,73 @@ def test_periodicidad_catalogo_lists_subscribed_and_not(client: TestClient, rma_
         params={"catalog_product_id": catalog_id},
     )
     assert mlas_res.status_code == 200, mlas_res.text
-    mlas = {row["mla"] for row in mlas_res.json()["mlas"]}
+    mla_rows = mlas_res.json()["mlas"]
+    mlas = {row["mla"] for row in mla_rows}
     assert mlas == {"MLA99301A", "MLA99301B"}
+    assert all(row.get("tipo_publicacion") == "clasica" for row in mla_rows)
+
+
+def test_periodicidad_catalogo_filtra_ean_por_criterios(client: TestClient, rma_superadmin_user, db) -> None:
+    """P3.2: Sin/Con criterio is EAN-level (≥1 MLA with criterios row)."""
+    from app.models.ml_publication_link import MlPublicationLink
+    from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
+    from app.models.producto import ProductoERP
+    from app.models.publicacion_ml import PublicacionML
+
+    catalog_id = "MLA-PG-PER-CRIT-994"
+    ean_with = "779000PERCRIT01"
+    ean_without = "779000PERCRIT02"
+    db.add_all(
+        [
+            ProductoERP(item_id=99401, codigo=ean_with, descripcion="with crit", marca="Acme", costo=10),
+            ProductoERP(item_id=99402, codigo=ean_without, descripcion="no crit", marca="Acme", costo=10),
+        ]
+    )
+    db.flush()
+    for mla, item_id, codigo in (
+        ("MLA99401A", 99401, ean_with),
+        ("MLA99401B", 99401, ean_with),
+        ("MLA99402A", 99402, ean_without),
+    ):
+        db.add(
+            PublicacionML(
+                mla=mla,
+                item_id=item_id,
+                codigo=codigo,
+                activo=True,
+                pricelist_id=4,
+            )
+        )
+        db.add(
+            MlPublicationLink(
+                mla=mla,
+                catalog_product_id=catalog_id,
+                catalog_listing=True,
+            )
+        )
+    db.add(
+        ParaGanarCriterioMla(
+            mla="MLA99401A",
+            markup_min=5,
+            markup_max=15,
+            top_sellers=5,
+        )
+    )
+    db.commit()
+
+    headers = _auth(rma_superadmin_user)
+    with_crit = client.get(
+        "/api/para-ganar/periodicidad/catalogo",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "criterios_aplicados": True},
+    )
+    assert with_crit.status_code == 200, with_crit.text
+    assert {row["ean"] for row in with_crit.json()["items"]} == {ean_with}
+
+    without_crit = client.get(
+        "/api/para-ganar/periodicidad/catalogo",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "criterios_aplicados": False},
+    )
+    assert without_crit.status_code == 200, without_crit.text
+    assert {row["ean"] for row in without_crit.json()["items"]} == {ean_without}

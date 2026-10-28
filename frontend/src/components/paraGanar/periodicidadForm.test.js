@@ -26,7 +26,7 @@ describe('formToPeriodicidadPayload', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('builds rules payload', () => {
+  it('rejects rules from UI (legacy migrate)', () => {
     const result = formToPeriodicidadPayload({
       ...EMPTY_PERIODICIDAD_FORM,
       scope_mode: 'rules',
@@ -34,8 +34,7 @@ describe('formToPeriodicidadPayload', () => {
       pricelist_ids: [14],
       tienda_oficial_ids: [1],
     });
-    expect(result.ok).toBe(true);
-    expect(result.payload.tipos_publicacion).toEqual(['6']);
+    expect(result.ok).toBe(false);
   });
 });
 
