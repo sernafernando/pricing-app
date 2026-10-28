@@ -7,6 +7,7 @@ store never read it), so the UI keeps its placeholder. Never downloaded: the sto
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 import pytest
@@ -91,7 +92,7 @@ class TestSalesListing:
         statements = []
 
         def count(_conn, _cursor, statement, *_args):
-            if "ml_items" in statement and "ml_order_items" not in statement:
+            if re.search(r"\bFROM ml_items\b", statement):
                 statements.append(statement)
 
         engine = db.get_bind()

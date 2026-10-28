@@ -427,8 +427,8 @@ class OperationBreakdownSummary(BaseModel):
     bonificacion_envio: Optional[float] = None
 
     @classmethod
-    def from_domain(cls, breakdown, photos: Optional[Dict[str, str]] = None) -> "OperationBreakdownSummary":
-        """`photos`: the MLAs' stored photos (`_thumbnails_by_mla`), for the item lines; none given, no line has one."""
+    def from_domain(cls, breakdown, photos: Dict[str, str]) -> "OperationBreakdownSummary":
+        """`photos`: the MLAs' stored photos (`_thumbnails_by_mla`), for the item lines."""
         return cls(
             lines=[
                 BreakdownLineSummary(concepto=line.concepto, monto=float(line.monto), origen=line.origen)
@@ -443,7 +443,7 @@ class OperationBreakdownSummary(BaseModel):
                 float(breakdown.retenciones_recuperables) if breakdown.neto is not None else None
             ),
             bonificacion_envio=float(breakdown.bonificacion_envio) if breakdown.neto is not None else None,
-            item_lines=_desglose_lines(breakdown.item_lines, photos or {}),
+            item_lines=_desglose_lines(breakdown.item_lines, photos),
             item_lines_reconcilia=breakdown.item_lines_reconcilia,
             item_lines_razon=breakdown.item_lines_razon,
         )
