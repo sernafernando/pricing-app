@@ -47,6 +47,7 @@ from sqlalchemy.orm import aliased, join as orm_join
 from sqlalchemy.sql import ColumnElement, Select
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.item_sin_mla_banlist import ItemSinMLABanlist
 from app.models.ml_publications import (
     MlItem,
     MlItemEvent,
@@ -57,6 +58,7 @@ from app.models.ml_publications import (
 )
 from app.models.oferta_ml import OfertaML
 from app.models.producto import ProductoERP, ProductoPricing
+from app.models.producto_banlist import ProductoBanlist
 from app.models.tienda_nube_producto import TiendaNubeProducto
 from app.services.ml_daily_metrics.groups import NO_GROUP, pm_pairs
 from app.services.ml_publications.events import EVENT_TYPES as real_event_types
@@ -135,6 +137,9 @@ class PublicationFilter:
     # item-level link or a live variation's link).
     producto: Optional[int] = None
     sin_producto: bool = False
+    # Productos' "Sin MLA" (`con_mla=false`): the Producto view lists the ERP products no publication is linked to
+    # (`product_select`); the publication views list nothing, since no publication can match.
+    sin_mla: bool = False
     listing: tuple[str, ...] = ()
     link: tuple[str, ...] = ()
     stock: tuple[str, ...] = ()
@@ -345,6 +350,7 @@ def parse_filter(
     oferta_por_producto: Optional[bool] = None,
     con_precio: Optional[bool] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    con_mla: Optional[bool] = None,
     markup_clasica_positivo: Optional[bool] = None,
     markup_rebate_positivo: Optional[bool] = None,
     markup_oferta_positivo: Optional[bool] = None,
@@ -390,6 +396,7 @@ def parse_filter(
         oferta_per_product=bool(oferta_por_producto),
         precio=con_precio,
         nuevos=bool(nuevos_ultimos_7_dias),
+        sin_mla=con_mla is False,  # `true` is every row of this screen already: no filter
         markup_signs=tuple(
             (column, positive)
             for column, positive in (
@@ -1020,6 +1027,8 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     counts the rows each of ITS values would give while every other filter still applies. Skipping `status` also
     lifts the default hiding of gone items, so their count can be offered as the `gone` value."""
     where: list[ColumnElement] = [T.i.never_existed.isnot(True)]
+    if f.sin_mla:
+        where.append(false())  # a publication is an MLA: none is "without MLA"
     if skip != "status":  # the status facet offers every status, `gone` included, whatever is selected
         where.append(_status(f))
     if f.q is not None:
@@ -1056,19 +1065,117 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     return where
 
 
-def _colors(f: PublicationFilter) -> ColumnElement:
+def _colors(f: PublicationFilter, product: Any = None) -> ColumnElement:
     """A color is the PRODUCT's: one of the publication's linked products (`product_links`) is painted one of
-    `colors`; `sin_color`, it has no linked product or one that is not painted."""
+    `colors`; `sin_color`, it has no linked product or one that is not painted. `product`: the product id column of a
+    row that is a product, not a publication (`product_conditions`)."""
     if f.color_ids is None or f.colored_ids is None:
         raise RuntimeError("`colores` must be resolved (ml_publication_colors.resolve_color_filter) before the query")
+    painted, colored = list(f.color_ids), list(f.colored_ids)
     clauses = []
     if f.colors:
-        clauses.append(has_product(list(f.color_ids)))
+        clauses.append(has_product(painted) if product is None else product == any_(literal(painted, ARRAY(Integer))))
     if f.no_color:
-        clauses.append(or_(~has_product(), has_product(outside=list(f.colored_ids))))
+        clauses.append(
+            or_(~has_product(), has_product(outside=colored))
+            if product is None
+            else product != all_(literal(colored, ARRAY(Integer)))
+        )
     return or_(*clauses)
 
 
 def build_base_select(f: PublicationFilter, *columns: Any, skip: Optional[str] = None) -> Select:
     """`SELECT <columns> FROM ml_items i LEFT JOIN ... WHERE <filter>`; no ORDER BY, no paging."""
     return select(*columns).select_from(joined()).where(*conditions(f, skip))
+
+
+# --- Productos' "Sin MLA" (the Producto view, `con_mla=false`) -----------------------------------------------------
+#
+# The ERP products no publication is linked to. "Has an MLA" is this screen's source of truth, the link table: a
+# `linked` row at ANY variation (an item with variations links each variation, never the item level). Productos reads
+# the ERP mirror of the published items instead, so the two counts can differ. As in Productos, the
+# products in `items_sin_mla_banlist` and in `producto_banlist` (active, by item id or EAN -- the product code) are
+# left out. There is no publication row here, so only the filters that read the product apply; a filter about
+# publications is refused naming its parameter, never silently ignored.
+
+# Stock chips that read the product (`productos_erp.stock`) and so keep a meaning without a publication.
+PRODUCT_STOCK = {"erp_sin_stock": lambda: T.p.stock <= 0, "erp_con_stock": lambda: T.p.stock > 0}
+
+
+def publication_filter_in(f: PublicationFilter) -> Optional[str]:
+    """The parameter of the first filter of `f` that asks something of the publications, None when there is none."""
+    asked = (
+        ("q", f.q is not None and f.q.kind == "item_id"),
+        ("estado", bool(f.status)),
+        ("estado_excluir", bool(f.status_exclude)),
+        ("tiendas", bool(f.stores or f.no_store)),
+        ("familia", f.family_id is not None),
+        ("sin_producto", f.sin_producto),
+        ("tipo", bool(f.listing)),
+        ("vinculo", bool(f.link)),
+        ("stock", any(value not in PRODUCT_STOCK for value in f.stock)),
+        ("evento", bool(f.event_types)),
+        ("con_oferta", f.oferta is not None),
+        ("promo_tipos", f.mla_scope is not None),
+    )
+    return next((name for name, on in asked if on), None)
+
+
+def _product_search(term: SearchTerm) -> ColumnElement:
+    """`_search` without the publication's columns: the product's code, name and brand."""
+    if term.kind in ("codigo", "marca"):
+        return _search_parts(term, T.p)[1]
+    if term.kind == "digits":
+        return T.p.codigo == term.value
+    if term.kind == "ends_with":
+        suffix = f"%{escape_like(term.value)}"
+        return or_(*(column.ilike(suffix, escape=LIKE_ESCAPE) for column in (T.p.descripcion, T.p.marca, T.p.codigo)))
+    pattern = f"%{escape_like(term.value)}%"
+    return or_(T.p.codigo.ilike(pattern, escape=LIKE_ESCAPE), T.p.descripcion.ilike(pattern, escape=LIKE_ESCAPE))
+
+
+def _without_mla() -> list[ColumnElement]:
+    link = aliased(MlItemProductLink, name="l_any")
+    banned = aliased(ProductoBanlist, name="pb")
+    sin_mla_banned = aliased(ItemSinMLABanlist, name="smb")
+    return [
+        ~exists(select(1).where(link.producto_item_id == T.p.item_id, link.match_status == LINK_LINKED)),
+        ~exists(select(1).where(sin_mla_banned.item_id == T.p.item_id)),
+        # Two probes, not one OR: each one rides its own unique index.
+        ~exists(select(1).where(banned.activo.is_(True), banned.item_id == T.p.item_id)),
+        ~exists(select(1).where(banned.activo.is_(True), banned.ean == T.p.codigo)),
+    ]
+
+
+def product_conditions(f: PublicationFilter) -> list[ColumnElement]:
+    """The WHERE of the "Sin MLA" products over `productos_erp` (`T.p`); `FilterError` for a publication filter."""
+    refused = publication_filter_in(f)
+    if refused is not None:
+        raise FilterError(refused, "does not apply to the products without MLA (con_mla=false)")
+    where = _without_mla()
+    if f.producto is not None:  # one product (the product panel asks its row this way)
+        where.append(T.p.item_id == f.producto)
+    if f.q is not None:
+        where.append(_product_search(f.q))
+    if f.marcas:
+        where.append(_text_in(T.p.marca, f.marcas))
+    if f.categorias:
+        where.append(_text_in(T.p.categoria, f.categorias))
+    if f.subcategorias or f.no_subcategoria:
+        where.append(_subcategorias_in(f))
+    if f.pms:
+        where.append(_pm(f))
+    if f.pm_group is not None:
+        where.append(pm_group_in(f.pm_group))
+    if f.stock:
+        where.append(or_(*(PRODUCT_STOCK[value]() for value in f.stock)))
+    if f.colors or f.no_color:
+        where.append(_colors(f, T.p.item_id))
+    # what is left of the presence toggles: the product's own (`oferta` and the promo scope are refused above)
+    where.extend(product_flag_conditions(f, T.p))
+    return where
+
+
+def product_select(f: PublicationFilter, *columns: Any) -> Select:
+    """`SELECT <columns> FROM productos_erp p WHERE <the "Sin MLA" filter>`; no ORDER BY, no paging."""
+    return select(*columns).select_from(T.p).where(*product_conditions(f))

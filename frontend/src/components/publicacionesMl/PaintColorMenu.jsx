@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { ChevronDown, Paintbrush } from 'lucide-react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -16,7 +16,8 @@ const plural = (n, one, many) => (n === 1 ? one : many);
  * teams, the backend checks it again). On success `onPainted` gets the change shaped as the SSE event Productos
  * publishes, so the rows repaint without asking again; on failure nothing changes and the reason is shown.
  */
-export default function PaintColorMenu({ checkedIds, equipo, onPainted, onClearChecked }) {
+// `offPageCount`: how many checked products the list does not show now (the selection outlives filters and pages).
+export default function PaintColorMenu({ checkedIds, offPageCount = 0, equipo, onPainted, onClearChecked }) {
   const { tienePermiso } = usePermisos();
   const { toast, showToast, hideToast } = useToast();
   const [open, setOpen] = useState(false);
@@ -39,6 +40,7 @@ export default function PaintColorMenu({ checkedIds, equipo, onPainted, onClearC
     if (open) menuRef.current?.querySelector('[role="menuitem"]')?.focus();
   }, [open]);
 
+  const noteId = useId();
   const allowed = equipo ? true : tienePermiso('productos.marcar_color_lote');
   if (checkedIds.size === 0 || !allowed) return <Toast toast={toast} onClose={hideToast} />;
 
@@ -101,7 +103,20 @@ export default function PaintColorMenu({ checkedIds, equipo, onPainted, onClearC
         <ChevronDown size={14} aria-hidden="true" />
       </button>
       {open && (
-        <div role="menu" aria-label="Colores" className={styles.panel} ref={menuRef} onKeyDown={moveFocus}>
+        <div
+          role="menu"
+          aria-label="Colores"
+          aria-describedby={offPageCount > 0 ? noteId : undefined}
+          className={styles.panel}
+          ref={menuRef}
+          onKeyDown={moveFocus}
+        >
+          {offPageCount > 0 && (
+            // Read as the menu's description: a menu holds only its items.
+            <p id={noteId} role="none" className={styles.note}>
+              {offPageCount} {plural(offPageCount, 'producto seleccionado no está', 'productos seleccionados no están')} en esta página
+            </p>
+          )}
           {COLORES_DISPONIBLES.map((c) => (
             <button key={c.id ?? 'none'} type="button" role="menuitem" className={styles.item} onClick={() => paint(c.id)}>
               <span className={styles.swatch} data-empty={c.color ? undefined : ''} style={c.color ? { background: c.color } : undefined} />

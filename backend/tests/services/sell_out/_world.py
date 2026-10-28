@@ -22,7 +22,13 @@ from app.models.ml_sale_line import MlSaleLine
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutDirty
+from app.models.sell_out import (
+    SellOutCampana,
+    SellOutCampanaGrupo,
+    SellOutCampanaItem,
+    SellOutConsumo,
+    SellOutDirty,
+)
 from app.models.tipo_cambio import TipoCambio
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
@@ -40,6 +46,7 @@ TABLES = [
     OffsetGrupoFiltro.__table__,
     SellOutCampana.__table__,
     SellOutCampanaGrupo.__table__,
+    SellOutCampanaItem.__table__,
     SellOutConsumo.__table__,
     SellOutDirty.__table__,
     Auditoria.__table__,
@@ -152,6 +159,17 @@ def campana(
                 text("INSERT INTO sell_out_campana_grupos (campana_id, grupo_id) VALUES (:c, :g)"), {"c": cid, "g": gid}
             )
     return cid
+
+
+def monto_item(engine: Engine, campana_id: int, item_id: int, monto: str) -> None:
+    """A product's own amount per unit in the campaign (`sell_out_campana_items`, T22b)."""
+    execute(
+        engine,
+        "INSERT INTO sell_out_campana_items (campana_id, item_id, monto_unit) VALUES (:c, :i, :m)",
+        c=campana_id,
+        i=item_id,
+        m=monto,
+    )
 
 
 def tipo_cambio(engine: Engine, dia: date, venta_: float, moneda: str = "USD") -> None:
