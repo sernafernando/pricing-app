@@ -41,6 +41,7 @@ const INDENT_PX = 18;
 // Column id -> the backend `sort` value it orders by.
 const SORT_BY = {
   producto: 'title',
+  units: 'units',
   units_24h: 'units_24h',
   units_3d: 'units_3d',
   units_7d: 'units_7d',
@@ -330,8 +331,9 @@ function renderCell(colId, row, ctx) {
     case 'units_7d':
     case 'units_15d':
       return <UnitsCell value={row[colId]} />;
+    case 'units':
     case 'units_30d':
-      return <UnitsCell value={row.units_30d} strong />;
+      return <UnitsCell value={row[colId]} strong />;
     case 'units_trend': {
       const weeks = weeklySums(row.series_units_90d);
       const tone = weeks.length > 1 ? deltaTone(weeks.at(-1) - weeks.at(-2)) : null;
@@ -436,6 +438,7 @@ function renderCell(colId, row, ctx) {
 }
 
 const NUMERIC = new Set([
+  'units',
   'units_24h',
   'units_3d',
   'units_7d',

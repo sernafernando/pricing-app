@@ -60,6 +60,8 @@ export function buildBoardColumns({
   const markupHeader = tpSolo ? 'Markup TP' : 'Markup act.';
   const columns = [
     { id: 'producto', group: 'producto', header: productHeader(groupBy, dimension), enableHiding: false },
+    // The units sold in the chosen period (the KPI's figure, per row), ahead of the fixed windows.
+    { id: 'units', group: 'ventas', header: `Unidades ${periodLabel}` },
     { id: 'units_24h', group: 'ventas', header: '24H' },
     { id: 'units_3d', group: 'ventas', header: '3D' },
     { id: 'units_7d', group: 'ventas', header: '7D' },

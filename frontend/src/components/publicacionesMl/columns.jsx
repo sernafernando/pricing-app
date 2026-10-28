@@ -8,6 +8,7 @@ import LastEventCell from './LastEventCell';
 import ActivityCell from './ActivityCell';
 import StoreCell from './StoreCell';
 import MarkupCell from './MarkupCell';
+import { priceColumns } from './priceColumns';
 import {
   AgeingCell,
   FullStockCell,
@@ -22,6 +23,7 @@ import {
 } from './MetricsCells';
 import VariationsToggle from './VariationsToggle';
 import { COLUMN_GROUPS } from '../metricasMl/metricasMlColumns';
+import { formatAmount } from '../../utils/ventasMlFormat';
 import { chainHeader } from '../../utils/metricasMlLevels';
 import styles from './cells.module.css';
 
@@ -44,13 +46,19 @@ const RESULTADO = groupOf('resultado');
 const ROTACION = groupOf('rotacion');
 const STOCK = 'Stock';
 
+const dash = <span className={styles.empty}>—</span>;
+const orDash = (value) => (value ? value : dash);
+// The cost in its own currency, as the panel's "Costo" reads it; the sort compares it in pesos.
+const costText = (costo) => (costo?.amount == null ? dash : `${costo.currency ?? ''} ${formatAmount(costo.amount)}`.trim());
+
 /**
  * Columns hidden until the user turns them on in the picker: the store and the
  * link now sit inside the Publicación cell, and the activity and the last
- * event are in the panel.
+ * event are in the panel. The product's code, brand and cost are there to sort
+ * by, as in Productos.
  */
 export function defaultColumnVisibility() {
-  return { vinculo: false, tienda: false, actividad: false, evento: false };
+  return { codigo: false, marca: false, costo: false, vinculo: false, tienda: false, actividad: false, evento: false };
 }
 
 /**
@@ -84,6 +92,9 @@ export function columnChoicesOver(visibility, defaults) {
  * `skuDivergence` (the `sku_divergente` link filter is on) adds, right after
  * Publicación, the publication's SKU next to the product it names and the
  * linked product (`SkuDivergenceCell`).
+ * `prices` (`useListPrices`, only for who sees Productos' prices) adds, right after Precio, Productos' price columns
+ * of `priceMode` ('normal' | 'cuotas' | 'pvp', S11); the tree has none. `priceEdit` makes them editable (S11c);
+ * `onCalculatePrice` adds Productos' Calcular button (P3c).
  */
 export function buildColumns({
   eventsEnabled,
@@ -96,6 +107,10 @@ export function buildColumns({
   familias = false,
   producto = false,
   skuDivergence = false,
+  priceMode = 'normal',
+  prices = null,
+  priceEdit = null,
+  onCalculatePrice = null,
 }) {
   const withSales = (columns) => (canSeeSales ? columns : []);
   const withMargin = (columns) => (canSeeMargin ? columns : []);
@@ -143,6 +158,7 @@ export function buildColumns({
       render: (item) => <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />,
     },
     { key: 'precio', header: 'Precio', width: 150, sortable: true, align: 'right', render: (item) => <PriceCell price={item.price} /> },
+    ...(prices && !agrupado ? priceColumns(priceMode, { prices, canSeeMargin, edit: priceEdit, onCalculate: onCalculatePrice }) : []),
     ...withSales([
       {
         key: 'unidades_7d',
@@ -263,6 +279,11 @@ export function buildColumns({
       render: (item) => <ErpStockCell erpStock={item.erp_stock} />,
     },
     // Hidden by default (`defaultColumnVisibility`): the picker brings them back.
+    { key: 'codigo', header: 'Código', width: 130, sortable: true, render: (item) => orDash(item.link?.codigo) },
+    { key: 'marca', header: 'Marca', width: 130, sortable: true, render: (item) => orDash(item.link?.marca) },
+    ...withMargin([
+      { key: 'costo', header: 'Costo', width: 130, sortable: true, align: 'right', render: (item) => costText(item.costo) },
+    ]),
     { key: 'vinculo', header: 'Vínculo', width: 170, render: (item) => <LinkBadge link={item.link} /> },
     { key: 'tienda', header: 'Tienda', width: 140, render: (item) => <StoreCell item={item} /> },
     { key: 'actividad', header: 'Última actividad', width: 150, sortable: true, render: (item) => <ActivityCell item={item} /> },

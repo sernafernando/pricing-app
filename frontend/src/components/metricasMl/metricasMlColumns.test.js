@@ -85,3 +85,13 @@ describe('buildBoardColumns: sell in / sell out', () => {
     expect(ids({ tpSolo: true }).some((id) => SELL.includes(id))).toBe(false);
   });
 });
+
+describe('buildBoardColumns: units of the period', () => {
+  it('opens the sales group with the units of the chosen period, before the fixed windows', () => {
+    const columns = buildBoardColumns({ canSeeMargin: false, periodLabel: 'mes', groupBy: 'product' });
+    const ventas = columns.filter((col) => col.group === 'ventas').map((col) => col.id);
+
+    expect(ventas.slice(0, 2)).toEqual(['units', 'units_24h']);
+    expect(columns.find((col) => col.id === 'units')).toMatchObject({ header: 'Unidades mes' });
+  });
+});

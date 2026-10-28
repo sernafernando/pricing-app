@@ -740,7 +740,8 @@ def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElemen
         )
         return own, same(p.codigo)
     if term.kind == "codigo":
-        return false(), func.upper(p.codigo) == term.value.upper()
+        # upper-cased by the database on both sides, as `_text_in`: Python and Postgres disagree on some letters
+        return false(), func.upper(p.codigo) == func.upper(literal(term.value))
     if term.kind == "marca":
         return false(), normalized_text(p.marca) == normalized_text(literal(term.value))
     if term.kind == "ends_with":

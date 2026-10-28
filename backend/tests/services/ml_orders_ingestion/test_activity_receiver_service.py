@@ -24,12 +24,36 @@ from contextlib import contextmanager
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from sqlalchemy import JSON
 
 from app.core.config import settings
-from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps
+from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps, MlOrdersOpsCuarentena
 from app.services.ml_orders_ingestion import activity_receiver_service as service
-from app.services.ml_orders_ingestion import sweep_service
+from app.services.ml_orders_ingestion import ingestion_service, sweep_service
 from app.services.ml_webhook_client import ActivityCursorRejected, ml_webhook_client
+
+
+def _quarantined_miss(order_id: int) -> MlOrdersOpsCuarentena:
+    """An `activity_unresolved` debt: a quarantine row with no payload (ML never gave the order back)."""
+    return MlOrdersOpsCuarentena(
+        order_id=order_id, raw_order=None, error=ingestion_service.TRANSIENT_TAG + "get_order returned nothing"
+    )
+
+
+def _quarantined_write_error(order_id: int) -> MlOrdersOpsCuarentena:
+    """A write that failed: the row keeps ML's payload, and only the replay may settle it."""
+    return MlOrdersOpsCuarentena(
+        order_id=order_id, raw_order={"id": order_id}, error=ingestion_service.PERMANENT_TAG + "boom"
+    )
+
+
+def _unresolved(db) -> list:
+    return (
+        db.query(MlOrdersOpsCuarentena)
+        .filter(MlOrdersOpsCuarentena.raw_order.is_(None))
+        .order_by(MlOrdersOpsCuarentena.order_id)
+        .all()
+    )
 
 
 def _fake_ctx(db):
@@ -457,7 +481,7 @@ class TestAnUnresolvedOrderLeavesVisibleDebt:
     """
 
     def _unresolved_rows(self, db):
-        return db.query(MlOpsDivergence).filter(MlOpsDivergence.field == service.UNRESOLVED_FIELD).all()
+        return _unresolved(db)
 
     def test_a_miss_is_recorded_against_its_own_order(self, db, monkeypatch):
         monkeypatch.setattr(
@@ -531,6 +555,163 @@ class TestAnUnresolvedOrderLeavesVisibleDebt:
         service.drain_activity()
 
         assert self._unresolved_rows(db) == []
+
+
+class TestTheMissLivesInTheQuarantine:
+    """remove-ml-divergences D2b (owner: "divergencias no debería ni existir"): an order ML did not give back is a
+    quarantine row with no payload, retried like every other quarantined order; `ml_ops_divergence` is not written."""
+
+    def _drain_a_miss(self, monkeypatch, order_id=2):
+        monkeypatch.setattr(
+            ml_webhook_client,
+            "get_activity",
+            AsyncMock(return_value=_page([_event(order_id)], has_more=False, next_cursor="c1")),
+        )
+        monkeypatch.setattr(ml_webhook_client, "get_order", AsyncMock(return_value=None))
+        assert service.drain_activity().error is None
+
+    def test_a_miss_is_a_transient_quarantine_row_without_payload(self, db, monkeypatch):
+        self._drain_a_miss(monkeypatch)
+
+        [row] = _unresolved(db)
+        assert row.order_id == 2
+        assert row.raw_order is None
+        assert row.error.startswith(ingestion_service.TRANSIENT_TAG)
+        assert row.intentos == 1
+        assert db.query(MlOpsDivergence).count() == 0
+
+    def test_a_miss_keeps_a_quarantined_payload(self, db, monkeypatch):
+        db.add(_quarantined_write_error(2))
+        db.commit()
+
+        self._drain_a_miss(monkeypatch)
+
+        row = db.get(MlOrdersOpsCuarentena, 2)
+        db.refresh(row)
+        assert row.raw_order == {"id": 2}
+        assert row.error == ingestion_service.PERMANENT_TAG + "boom"
+        assert row.intentos == 1
+
+    def test_resolving_later_keeps_a_quarantined_payload(self, db, monkeypatch):
+        db.add(_quarantined_write_error(1))
+        db.commit()
+
+        service._clear_unresolved_orders(db, [1])
+        db.commit()
+
+        assert db.get(MlOrdersOpsCuarentena, 1).raw_order == {"id": 1}
+
+    def test_a_json_null_payload_is_no_payload(self, db):
+        """Mixed-version deploy window: the old replay re-quarantines a copied row through a JSONB column without
+        `none_as_null`, storing the JSON `null` literal. It is still a debt: the replay skips it and it is settled
+        once its order lands."""
+        db.execute(
+            MlOrdersOpsCuarentena.__table__.insert().values(
+                order_id=6, raw_order=JSON.NULL, error=ingestion_service.PERMANENT_TAG + "mapping error on retry"
+            )
+        )
+        db.execute(
+            MlOrdersOpsCuarentena.__table__.update()
+            .where(MlOrdersOpsCuarentena.order_id == 6)
+            .values(ultimo_intento_at=datetime.now(timezone.utc) - timedelta(days=1))
+        )
+        db.commit()
+
+        assert ingestion_service.retry_quarantined_orders(db).attempted == 0
+        db.add(MlOrdersOps(order_id=6, seller_id=999, ml_last_updated=datetime.now(timezone.utc)))
+        db.commit()
+        assert service._clear_resolved_unresolved_debts(db) == 1
+
+    def test_the_replay_skips_a_row_without_payload(self, db):
+        miss = _quarantined_miss(5)
+        miss.ultimo_intento_at = datetime.now(timezone.utc) - timedelta(days=1)
+        db.add(miss)
+        db.commit()
+
+        result = ingestion_service.retry_quarantined_orders(db)
+        db.commit()
+
+        assert result.attempted == 0
+        [row] = _unresolved(db)
+        assert (row.order_id, row.intentos) == (5, 1)
+
+
+class TestAdoptLegacyDebts:
+    """D2b's migration moves the open debts out of `ml_ops_divergence`. Until the receiver restarts on the new code
+    it still records new ones there, after the copy ran; the sweep pass adopts every open one left, so none is lost."""
+
+    def _legacy(self, db, order_id, state="open", field="activity_unresolved", detected_at=None):
+        db.add(
+            MlOpsDivergence(
+                order_id=order_id,
+                kind="unknown",
+                field=field,
+                state=state,
+                detected_at=detected_at or datetime.now(timezone.utc),
+            )
+        )
+
+    def test_an_open_legacy_debt_moves_to_the_quarantine(self, db):
+        detected = datetime(2026, 10, 27, 23, 0, tzinfo=timezone.utc)
+        self._legacy(db, 40, detected_at=detected)
+        self._legacy(db, 41, state="acknowledged")
+        self._legacy(db, 42, state="ignored")
+        self._legacy(db, 43)
+        db.add(_quarantined_write_error(43))
+        self._legacy(db, 0, field="cost_sync:700")
+        self._legacy(db, 44, field="other_field")
+        db.commit()
+
+        moved = service._adopt_legacy_unresolved_debts(db)
+        db.commit()
+
+        assert moved == 2
+        assert [row.order_id for row in _unresolved(db)] == [40, 41]
+        adopted = db.get(MlOrdersOpsCuarentena, 40)
+        assert adopted.error == service.UNRESOLVED_ERROR
+        assert adopted.primera_falla_at.replace(tzinfo=timezone.utc) == detected
+        # A quarantined payload wins, and the legacy debt of that order stays (a downgrade keeps it).
+        assert db.get(MlOrdersOpsCuarentena, 43).raw_order == {"id": 43}
+        left = sorted((d.order_id, d.field, d.state) for d in db.query(MlOpsDivergence).all())
+        assert left == [
+            (0, "cost_sync:700", "open"),
+            (42, "activity_unresolved", "ignored"),
+            (43, "activity_unresolved", "open"),
+            (44, "other_field", "open"),
+        ]
+
+    def test_a_debt_recorded_after_the_copy_is_not_deleted(self, db, monkeypatch):
+        """Postgres READ COMMITTED: a debt the old receiver commits between the copy and the delete is not in the
+        copy's snapshot. The delete takes only the debts the quarantine now holds, so this one waits for the next
+        pass instead of vanishing."""
+        self._legacy(db, 40)
+        db.commit()
+        execute = db.execute
+
+        def execute_then_record_a_debt(statement, *args, **kwargs):
+            result = execute(statement, *args, **kwargs)
+            if getattr(statement, "is_insert", False):
+                self._legacy(db, 45)
+                db.flush()
+            return result
+
+        monkeypatch.setattr(db, "execute", execute_then_record_a_debt)
+
+        assert service._adopt_legacy_unresolved_debts(db) == 1
+        db.commit()
+
+        assert [row.order_id for row in _unresolved(db)] == [40]
+        assert [d.order_id for d in db.query(MlOpsDivergence).all()] == [45]
+
+    def test_running_it_twice_is_a_no_op_the_second_time(self, db):
+        self._legacy(db, 40)
+        db.commit()
+
+        first = service._adopt_legacy_unresolved_debts(db)
+        db.commit()
+        second = service._adopt_legacy_unresolved_debts(db)
+
+        assert (first, second) == (1, 0)
 
 
 class TestColdStart:
@@ -916,15 +1097,8 @@ class TestClearResolvedUnresolvedDebts:
             )
         )
 
-    def _make_debt(self, db, order_id: int, kind: str = "unknown", field: str | None = None):
-        db.add(
-            MlOpsDivergence(
-                order_id=order_id,
-                kind=kind,
-                field=field if field is not None else service.UNRESOLVED_FIELD,
-                detected_at=datetime.now(timezone.utc),
-            )
-        )
+    def _make_debt(self, db, order_id: int):
+        db.add(_quarantined_miss(order_id))
 
     def test_a_debt_whose_order_exists_is_cleared(self, db):
         self._make_order(db, order_id=1)
@@ -935,16 +1109,7 @@ class TestClearResolvedUnresolvedDebts:
         db.commit()
 
         assert cleared == 1
-        assert (
-            db.query(MlOpsDivergence)
-            .filter(
-                MlOpsDivergence.order_id == 1,
-                MlOpsDivergence.kind == "unknown",
-                MlOpsDivergence.field == service.UNRESOLVED_FIELD,
-            )
-            .count()
-            == 0
-        )
+        assert _unresolved(db) == []
 
     def test_a_debt_whose_order_does_not_exist_is_left_alone(self, db):
         # THE SAFETY TEST: order_id=2 names no row in `ml_orders_ops`.
@@ -958,28 +1123,20 @@ class TestClearResolvedUnresolvedDebts:
         db.commit()
 
         assert cleared == 0
-        assert (
-            db.query(MlOpsDivergence)
-            .filter(
-                MlOpsDivergence.order_id == 2,
-                MlOpsDivergence.kind == "unknown",
-                MlOpsDivergence.field == service.UNRESOLVED_FIELD,
-            )
-            .count()
-            == 1
-        )
+        assert [row.order_id for row in _unresolved(db)] == [2]
 
-    def test_a_different_kind_or_field_naming_an_existing_order_is_not_touched(self, db):
+    def test_a_quarantined_write_error_naming_an_existing_order_is_not_touched(self, db):
+        # SAFETY: the order exists but its last write failed; the row holds ML's payload and only the replay may
+        # settle it. Clearing it would drop the update the order is still owed.
         self._make_order(db, order_id=3)
-        self._make_debt(db, order_id=3, kind="out_of_window_update", field=None)
-        self._make_debt(db, order_id=3, kind="unknown", field="some_other_field")
+        db.add(_quarantined_write_error(3))
         db.commit()
 
         cleared = service._clear_resolved_unresolved_debts(db)
         db.commit()
 
         assert cleared == 0
-        assert db.query(MlOpsDivergence).filter(MlOpsDivergence.order_id == 3).count() == 2
+        assert db.get(MlOrdersOpsCuarentena, 3).raw_order == {"id": 3}
 
     def test_running_it_twice_is_a_no_op_the_second_time(self, db):
         self._make_order(db, order_id=4)
@@ -1006,7 +1163,7 @@ class TestShipmentEventsAreNotOrders:
     (393 of them in production on 2026-09-30)."""
 
     def _debts(self, db):
-        return db.query(MlOpsDivergence).filter(MlOpsDivergence.field == service.UNRESOLVED_FIELD).all()
+        return _unresolved(db)
 
     def _known_order(self, db, order_id=ORDER_ID, shipping_id=SHIPMENT_ID):
         db.add(
@@ -1134,15 +1291,8 @@ class TestClearShipmentIdDebts:
             )
         )
 
-    def _debt(self, db, order_id, kind="unknown", field=None):
-        db.add(
-            MlOpsDivergence(
-                order_id=order_id,
-                kind=kind,
-                field=field if field is not None else service.UNRESOLVED_FIELD,
-                detected_at=datetime.now(timezone.utc),
-            )
-        )
+    def _debt(self, db, order_id):
+        db.add(_quarantined_miss(order_id))
 
     def test_a_debt_whose_id_is_a_known_shipping_id_is_cleared(self, db):
         self._order(db, ORDER_ID, SHIPMENT_ID)
@@ -1153,7 +1303,7 @@ class TestClearShipmentIdDebts:
         db.commit()
 
         assert cleared == 1
-        assert db.query(MlOpsDivergence).count() == 0
+        assert _unresolved(db) == []
 
     def test_a_debt_whose_id_is_not_a_known_shipping_id_is_left_alone(self, db):
         # THE SAFETY TEST. 48999999999 is neither a shipping_id nor an
@@ -1169,19 +1319,18 @@ class TestClearShipmentIdDebts:
         db.commit()
 
         assert cleared == 0
-        assert sorted(d.order_id for d in db.query(MlOpsDivergence).all()) == [48999999999, 2000018126384999]
+        assert [d.order_id for d in _unresolved(db)] == [48999999999, 2000018126384999]
 
-    def test_other_kinds_and_fields_naming_a_shipping_id_are_not_touched(self, db):
+    def test_a_quarantined_write_error_naming_a_shipping_id_is_not_touched(self, db):
         self._order(db, ORDER_ID, SHIPMENT_ID)
-        self._debt(db, SHIPMENT_ID, kind="out_of_window_update", field=None)
-        self._debt(db, SHIPMENT_ID, kind="unknown", field="some_other_field")
+        db.add(_quarantined_write_error(SHIPMENT_ID))
         db.commit()
 
         cleared = service._clear_shipment_id_unresolved_debts(db)
         db.commit()
 
         assert cleared == 0
-        assert db.query(MlOpsDivergence).count() == 2
+        assert db.get(MlOrdersOpsCuarentena, SHIPMENT_ID).raw_order == {"id": SHIPMENT_ID}
 
     def test_running_it_twice_is_a_no_op_the_second_time(self, db):
         self._order(db, ORDER_ID, SHIPMENT_ID)
