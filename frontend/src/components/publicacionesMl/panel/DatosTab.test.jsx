@@ -78,7 +78,7 @@ describe('reading', () => {
     render(<DatosTab itemId="MLA1" />);
 
     const aplicado = await screen.findByRole('region', { name: 'Datos que se usan' });
-    expect(within(aplicado).getByText(/Sobrescritos el .*: título y fotos\. No se cambian en Mercado Libre\./)).toBeInTheDocument();
+    expect(within(aplicado).getByText(/Sobrescritos el .*: título y fotos\. Guardar no los cambia en Mercado Libre\./)).toBeInTheDocument();
     expect(within(aplicado).getByText('Router Archer AX55 WiFi 6')).toBeInTheDocument();
     expect(within(aplicado).getAllByRole('img').map((img) => img.getAttribute('src'))).toEqual(['https://x/p2.webp']);
     // A field that follows ML shows ML's value in the applied data too.
@@ -281,5 +281,20 @@ describe('Actualizar en ML', () => {
 
     expect(await screen.findByText('Título: enviado a Mercado Libre.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Editar datos' })).toBeInTheDocument();
+  });
+
+  it('a push answering after leaving the publication does not lock Editar datos when coming back', async () => {
+    let answer;
+    mlItemOverridesAPI.get.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    mlItemOverridesAPI.pushToMl.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const { rerender } = render(<DatosTab itemId="MLA1" />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar en ML' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+    rerender(<DatosTab itemId="MLA2" />);
+    answer({ data: { status: 'sent', message: null, partes: [] } });
+    rerender(<DatosTab itemId="MLA1" />);
+
+    expect(await screen.findByRole('button', { name: 'Editar datos' })).toBeInTheDocument();
   });
 });

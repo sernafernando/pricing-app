@@ -126,7 +126,7 @@ export default function DatosTab({ itemId }) {
           itemId={itemId}
           canPush={Boolean(read.override)}
           replacesPictures={read.override?.fotos != null}
-          onSendingChange={(sending) => setPushingFor(sending ? itemId : null)}
+          onSendingChange={(sending) => setPushingFor((current) => (sending ? itemId : current === itemId ? null : current))}
           onPushed={() => setAttempt((n) => n + 1)}
         />
       )}
@@ -152,7 +152,7 @@ export default function DatosTab({ itemId }) {
     <>
       <Section title="Datos que se usan">
         <p className={styles.note}>
-          {`Sobrescritos${read.updated_at ? ` el ${date(read.updated_at)}` : ''}: ${overriddenFields(read.override)}. No se cambian en Mercado Libre.`}
+          {`Sobrescritos${read.updated_at ? ` el ${date(read.updated_at)}` : ''}: ${overriddenFields(read.override)}. Guardar no los cambia en Mercado Libre.`}
         </p>
         <DataFields datos={read.aplicado} />
         {actions}

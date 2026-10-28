@@ -90,8 +90,8 @@ export default function PushToMl({ itemId, onPushed, canPush = true, replacesPic
     } catch (error) {
       next = outcomeOf(null, error);
     }
+    onSendingChange?.(false); // the caller outlives this (it keeps the tab when the MLA changes)
     if (!mounted.current) return;
-    onSendingChange?.(false);
     setOutcome(next);
     setPhase('idle');
     if (next.mayHaveLanded) onPushed();
