@@ -410,9 +410,7 @@ def listar_alcance_opciones(
 
     def where_skip(*facets: str) -> tuple[str, dict]:
         params: dict = {}
-        clause = _build_alcance_where(
-            **scope, params=params, skip=set(facets), tipo_cambio_usd=tipo_cambio_usd
-        )
+        clause = _build_alcance_where(**scope, params=params, skip=set(facets), tipo_cambio_usd=tipo_cambio_usd)
         return clause, params
 
     marcas_where, marcas_params = where_skip("marcas")
