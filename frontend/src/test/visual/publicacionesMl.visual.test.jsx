@@ -754,7 +754,7 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
   }
 });
 
-const renderProducts = async ({ width, height, theme }) => {
+const renderProducts = async ({ width, height, theme, entry = '/ml-publicaciones?vista=producto' }) => {
   canSeeMargin = true;
   publicacionesMlAPI.items.mockResolvedValue({ data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 130 } });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
@@ -774,7 +774,7 @@ const renderProducts = async ({ width, height, theme }) => {
   document.body.style.background = 'var(--cf-bg-app)';
   window.scrollTo(0, 0);
   const screen = await render(
-    <MemoryRouter initialEntries={['/ml-publicaciones?vista=producto']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Shell>
         <PublicacionesML />
       </Shell>
@@ -816,6 +816,25 @@ describe('Publicaciones ML Producto view (visual)', () => {
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/products-header-${width}-${theme}.png` });
         expect(document.body.textContent).not.toContain('Markup:');
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: a sort by several columns numbers each header, arrow and number on one line`, async () => {
+        const entry = '/ml-publicaciones?vista=producto&orden=unidades_7d,titulo,facturado_30d&dir=desc,asc,desc';
+        const screen = await renderProducts({ width, height, theme, entry });
+        const marks = [...document.querySelectorAll('thead [data-testid="sort-order"]')];
+        const order = Object.fromEntries(marks.map((mark) => [mark.closest('th').dataset.column, mark.textContent]));
+        expect(order).toEqual({ unidades_7d: '1', titulo: '2', facturado_30d: '3' });
+        const buttons = marks.map((mark) => mark.closest('button'));
+        expect(wrapped(buttons)).toEqual([]);
+        for (const button of buttons) {
+          const cell = button.closest('th');
+          expect(rect(button).right, button.textContent).toBeLessThanOrEqual(rect(cell).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) {
+          const path = `${PRODUCT_SHOTS_DIR}/products-multisort-${width}-${theme}.png`;
+          await page.screenshot({ path, element: document.querySelector('thead') });
+        }
         screen.unmount();
       });
 

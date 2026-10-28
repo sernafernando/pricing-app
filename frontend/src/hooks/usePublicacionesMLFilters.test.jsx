@@ -14,6 +14,9 @@ import {
   PAGE_SIZE,
   effectiveSort,
   effectiveProductSort,
+  effectiveSortKeys,
+  effectiveProductSortKeys,
+  nextSort,
   buildProductsParams,
   buildKpiParams,
   buildProductIdsParams,
@@ -693,5 +696,82 @@ describe("Productos' Sin MLA (mla=sin_mla, Producto view only)", () => {
     );
     act(() => result.current.hook.setFilters(sinMlaUpdates(result.current.hook.filters)));
     expect(result.current.search).toBe('?vista=producto&marcas=TP-Link&stock=erp_con_stock&mla=sin_mla');
+  });
+});
+
+describe('sorting by several columns (S12e, Shift+click like Productos)', () => {
+  const base = setup('/').result.current.hook.filters;
+  const SALES = { canSeeSales: true };
+  const ALL = { canSeeSales: true, canSeeMargin: true };
+
+  it('reads orden and dir as csv, one direction per key', () => {
+    const { result } = setup('/?orden=marca,precio&dir=asc,desc');
+    expect(result.current.hook.filters).toMatchObject({ orden: 'marca,precio', dir: 'asc,desc' });
+    expect(setup('/?orden=marca,precio&dir=asc,sideways').result.current.hook.filters.dir).toBe('asc,');
+    expect(setup('/?orden=precio&dir=sideways').result.current.hook.filters.dir).toBe('');
+  });
+
+  it('asks /items for every key the user may ask for, in order', () => {
+    const filters = { ...base, orden: 'marca,precio', dir: 'asc,desc' };
+    expect(buildItemsParams(filters, 50, ALL)).toMatchObject({ orden: 'marca,precio', dir: 'asc,desc' });
+    expect(effectiveSortKeys(filters, ALL)).toEqual([
+      { key: 'marca', dir: 'asc' },
+      { key: 'precio', dir: 'desc' },
+    ]);
+    // A missing direction is the key's default; a key the user may not ask for is left out.
+    expect(effectiveSortKeys({ ...base, orden: 'precio,costo,titulo', dir: '' }, SALES)).toEqual([
+      { key: 'precio', dir: 'asc' },
+      { key: 'titulo', dir: 'asc' },
+    ]);
+  });
+
+  it('keeps the markup and the Métricas figures only as the first key of the publications list', () => {
+    expect(effectiveSortKeys({ ...base, orden: 'precio,markup,facturado_30d', dir: '' }, ALL)).toEqual([
+      { key: 'precio', dir: 'asc' },
+    ]);
+    expect(effectiveSortKeys({ ...base, orden: 'facturado_30d,precio', dir: 'desc,asc' }, ALL)).toEqual([
+      { key: 'facturado_30d', dir: 'desc' },
+      { key: 'precio', dir: 'asc' },
+    ]);
+  });
+
+  it('combines every figure in the Producto view, and asks /products for all of them', () => {
+    const filters = { ...base, vista: 'producto', orden: 'unidades_7d,titulo', dir: 'desc,desc' };
+    expect(effectiveProductSortKeys(filters, SALES)).toEqual([
+      { key: 'unidades_7d', dir: 'desc' },
+      { key: 'titulo', dir: 'desc' },
+    ]);
+    expect(buildProductsParams(filters, 50, SALES)).toMatchObject({ orden: 'unidades_7d,titulo', dir: 'desc,desc' });
+  });
+
+  it('sorts the Sin MLA products by name alone, in the direction asked for it', () => {
+    const filters = { ...base, vista: 'producto', mla: 'sin_mla', orden: 'facturado_30d,titulo', dir: 'desc,desc' };
+    expect(effectiveProductSortKeys(filters, SALES)).toEqual([{ key: 'titulo', dir: 'desc' }]);
+  });
+
+  describe('nextSort (what a header click asks)', () => {
+    const precio = [{ key: 'precio', dir: 'asc' }];
+
+    it('a plain click sorts by that column alone: its default first, then the other way', () => {
+      expect(nextSort(precio, 'marca')).toEqual([{ key: 'marca', dir: 'asc' }]);
+      expect(nextSort(precio, 'precio')).toEqual([{ key: 'precio', dir: 'desc' }]);
+      expect(nextSort([...precio, { key: 'marca', dir: 'asc' }], 'marca')).toEqual([{ key: 'marca', dir: 'asc' }]);
+    });
+
+    it('Shift+click adds the column, flips it, then takes it out', () => {
+      const added = nextSort(precio, 'stock_propio', { shift: true });
+      expect(added).toEqual([...precio, { key: 'stock_propio', dir: 'desc' }]);
+      const flipped = nextSort(added, 'stock_propio', { shift: true });
+      expect(flipped).toEqual([...precio, { key: 'stock_propio', dir: 'asc' }]);
+      expect(nextSort(flipped, 'stock_propio', { shift: true })).toEqual(precio);
+      expect(nextSort(precio, 'precio', { shift: true })).toEqual([{ key: 'precio', dir: 'desc' }]);
+      expect(nextSort([{ key: 'precio', dir: 'desc' }], 'precio', { shift: true })).toEqual([]);
+    });
+
+    it('Shift+click on a key that only leads (or over one) replaces the sort', () => {
+      const leadOnly = (key) => key === 'markup' || key === 'facturado_30d';
+      expect(nextSort(precio, 'facturado_30d', { shift: true, leadOnly })).toEqual([{ key: 'facturado_30d', dir: 'desc' }]);
+      expect(nextSort([{ key: 'facturado_30d', dir: 'desc' }], 'precio', { shift: true, leadOnly })).toEqual(precio);
+    });
   });
 });

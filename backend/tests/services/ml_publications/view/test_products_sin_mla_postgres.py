@@ -92,6 +92,14 @@ class TestTheRows:
     def test_a_figure_sort_falls_back_to_the_name_since_there_is_no_figure(self, db) -> None:
         assert keys(products.list_products(db, sin_mla(), "facturado_30d", True, 50, 0)) == [72, 73, 77]
 
+    def test_a_figure_first_falls_back_to_the_name_in_the_direction_asked_for_it(self, db) -> None:
+        then = (("titulo", True),)
+        assert products.applied_sort(sin_mla(), "facturado_30d", True, then) == ("titulo", True, ())
+        assert products.applied_sort(sin_mla(), "facturado_30d", True, ()) == ("titulo", False, ())
+        assert products.applied_sort(sin_mla(), "titulo", True, (("unidades_30d", True),)) == ("titulo", True, ())
+        assert products.applied_sort(parse_filter(), "facturado_30d", True, then) == ("facturado_30d", True, then)
+        assert keys(products.list_products(db, sin_mla(), "facturado_30d", True, 50, 0, then=then)) == [77, 73, 72]
+
     def test_pages_are_stable(self, db) -> None:
         first = products.list_products(db, sin_mla(), "titulo", False, 2, 0)
         second = products.list_products(db, sin_mla(), "titulo", False, 2, 2)

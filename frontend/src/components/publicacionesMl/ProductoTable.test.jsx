@@ -148,7 +148,7 @@ describe('the product rows', () => {
     render(<Harness onSort={onSort} />);
     await screen.findByText('Router Archer AX55');
     await userEvent.click(screen.getByRole('button', { name: /^30D/ }));
-    expect(onSort).toHaveBeenCalledWith('unidades_30d');
+    expect(onSort).toHaveBeenCalledWith('unidades_30d', expect.anything());
     expect(screen.queryByRole('button', { name: /^Precio/ })).not.toBeInTheDocument();
   });
 });

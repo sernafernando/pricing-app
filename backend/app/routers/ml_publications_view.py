@@ -1268,6 +1268,7 @@ class ProductsAsk:
     can_see_sales: bool
     sort_name: str
     sort_dir: str
+    then: tuple[tuple[str, bool], ...] = ()  # the sort keys after the first, each with whether it is descending
 
 
 def products_ask(
@@ -1275,36 +1276,46 @@ def products_ask(
     orden: Optional[str] = Query(
         None,
         description=(
-            "facturado_30d (default with ml_metricas.ver), unidades_7d, unidades_30d (ml_metricas.ver); markup_30d, "
-            "total_gauss_30d (also ver_ganancia); titulo (the default without ml_metricas.ver)"
+            "csv of: facturado_30d (default with ml_metricas.ver), unidades_7d, unidades_30d (ml_metricas.ver); "
+            "markup_30d, total_gauss_30d (also ver_ganancia); titulo (the default without ml_metricas.ver)"
         ),
     ),
-    direction: Optional[str] = Query(None, alias="dir", description="asc or desc (default desc; asc by titulo)"),
+    direction: Optional[str] = Query(
+        None, alias="dir", description="csv, one per orden key: asc or desc (default desc; asc by titulo)"
+    ),
     auth_db: Session = Depends(get_db),  # the permission checks (see `get_items`)
 ) -> ProductsAsk:
     """The permission checks (403) and the parsing (422) of a Producto-view request's sort."""
     permisos = PermisosService(auth_db)
     can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
     can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
-    sort_name = (orden or "").strip() or (products.DEFAULT_SORT if can_see_sales else products.NEUTRAL_SORT)
-    known = sort_name in products.PRODUCT_SORTS
-    if known and products.needs_metrics(sort_name) and not can_see_sales:
+    default = products.DEFAULT_SORT if can_see_sales else products.NEUTRAL_SORT
+    try:
+        pairs = listing.sort_pairs(orden, direction, default)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    known = [name for name, _ in pairs if name in products.PRODUCT_SORTS]
+    if any(products.needs_metrics(name) for name in known) and not can_see_sales:
         raise api_error(
             status.HTTP_403_FORBIDDEN,
             ErrorCode.INSUFFICIENT_PERMISSIONS,
             f"Se requiere el permiso {PERMISO_METRICAS} para ordenar por las cifras de Métricas ML",
         )
-    if known and products.needs_margin(sort_name) and not can_see_margin:
+    if any(products.needs_margin(name) for name in known) and not can_see_margin:
         raise api_error(
             status.HTTP_403_FORBIDDEN,
             ErrorCode.INSUFFICIENT_PERMISSIONS,
             f"Se requiere el permiso {PERMISO_GANANCIA} para ordenar por markup",
         )
-    default_dir = "asc" if sort_name == products.NEUTRAL_SORT else "desc"
-    sort_dir = (direction or default_dir).strip().lower()
-    if sort_dir not in ("asc", "desc"):
-        raise _unprocessable(FilterError("dir", "must be asc or desc"))
-    return ProductsAsk(can_see_margin, can_see_sales, sort_name, sort_dir)
+    if len({name for name, _ in pairs}) < len(pairs):
+        raise _unprocessable(FilterError("orden", "a sort key appears more than once"))
+    directions = []
+    for name, wanted in pairs:  # an unknown key is the 422 of `products.parse_sort`
+        if wanted not in ("", "asc", "desc"):
+            raise _unprocessable(FilterError("dir", "must be asc or desc"))
+        directions.append(wanted or ("asc" if name == products.NEUTRAL_SORT else "desc"))
+    then = tuple((name, wanted == "desc") for (name, _), wanted in zip(pairs[1:], directions[1:]))
+    return ProductsAsk(can_see_margin, can_see_sales, pairs[0][0], directions[0], then)
 
 
 @router.get("/products", response_model=ProductsResponse, response_model_exclude_unset=True)
@@ -1334,7 +1345,9 @@ def get_products(
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         with timer.stage("products"):
-            page = products.list_products(db, f, sort_name, sort_dir == "desc", limit, offset, cost=can_see_margin)
+            page = products.list_products(
+                db, f, sort_name, sort_dir == "desc", limit, offset, then=ask.then, cost=can_see_margin
+            )
         if f.sin_mla:  # the rows are the Sin MLA products: their total is the count
             sin_mla_count = page.total
         else:
@@ -1362,15 +1375,16 @@ def get_products(
         for row in page.rows
     ]
     _attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])
-    applied_name, applied_desc = products.applied_sort(f, sort_name, sort_dir == "desc")
+    applied = products.applied_sort(f, sort_name, sort_dir == "desc", ask.then)
+    applied_keys = ((applied[0], applied[1]), *applied[2])
     return {
         "rows": rows,
         "total": page.total,
         "mla_count": page.mla_count,
         "limit": limit,
         "offset": offset,
-        "orden": applied_name,
-        "dir": "desc" if applied_desc else "asc",
+        "orden": ",".join(name for name, _ in applied_keys),
+        "dir": ",".join("desc" if desc else "asc" for _, desc in applied_keys),
         "can_see_margin": can_see_margin,
         **({} if sin_mla_count is None else {"sin_mla_count": sin_mla_count}),
     }
@@ -1619,7 +1633,7 @@ def export_products(
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         f = listing.resolve_pm_pairs(db, f)
-        keys = products.ordered_product_keys(db, f, ask.sort_name, descending, None)  # every row
+        keys = products.ordered_product_keys(db, f, ask.sort_name, descending, None, then=ask.then)  # every row
 
         def read(session: Session, page_keys: Sequence[int]) -> list[list[Any]]:
             page = products.products_for_keys(session, f, list(page_keys))

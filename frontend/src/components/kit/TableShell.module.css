@@ -114,6 +114,12 @@
 
 .sortMark {
   display: inline-flex;
+  align-items: center;
+}
+
+.sortOrder {
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
 }
 
 .cell {

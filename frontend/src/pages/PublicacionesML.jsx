@@ -49,7 +49,6 @@ import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
   AGRUPAR_DIMENSIONS,
-  DEFAULT_DIRECTION,
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
@@ -60,8 +59,12 @@ import {
   buildItemsParams,
   buildKpiParams,
   buildStatsParams,
-  effectiveSort,
+  effectiveSortKeys,
   hasMarkupFilter,
+  headerSort,
+  isLeadOnlySort,
+  nextSort,
+  sortParams,
   usePublicacionesMLFilters,
 } from '../hooks/usePublicacionesMLFilters';
 import { usePublicacionesMLKpis, usePublicationStats } from '../hooks/usePublicacionesMLKpis';
@@ -490,7 +493,7 @@ export default function PublicacionesML() {
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
   // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
   // The Producto view sorts the products by their own figures (`effectiveProductSort`).
-  const sort = producto ? productRows.sort : effectiveSort(filters, { canSeeSales, canSeeMargin });
+  const sort = producto ? productRows.sort : headerSort(effectiveSortKeys(filters, { canSeeSales, canSeeMargin }));
   // A publication's panel takes the place of its product's (`sel` over `prod`); closing either closes the panel.
   const closePanel = () => setFilters({ sel: '', tab: '', prod: '' });
   const selectProduct = (key) => setFilters({ prod: key, sel: '', tab: '' });
@@ -500,9 +503,12 @@ export default function PublicacionesML() {
     ? productRows.rows.find((row) => row.type === 'node' && row.node.key === filters.prod)?.node.label
     : undefined;
   const changeTab = (tab) => setFilters({ tab });
-  const handleSort = (key) => {
-    if (key === sort.key) setFilters({ orden: key, dir: sort.dir === 'asc' ? 'desc' : 'asc' });
-    else setFilters({ orden: key, dir: DEFAULT_DIRECTION[key] ?? 'desc' });
+  // Shift+click adds a column to the sort, like Productos. In the publication list the markup and Métricas' figures
+  // only lead it (they are not database columns): Shift+click on one, or over one, replaces the sort.
+  const handleSort = (key, event) => {
+    if (event?.shiftKey) window.getSelection()?.removeAllRanges(); // Shift+click also extends the text selection
+    const leadOnly = producto ? () => false : isLeadOnlySort;
+    setFilters(sortParams(nextSort(sort.keys, key, { shift: Boolean(event?.shiftKey), leadOnly })));
   };
 
   // Ctrl/Cmd+click opens the publication in ML (side panel when the extension

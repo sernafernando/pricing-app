@@ -81,6 +81,7 @@ PRODUCT_SORTS: dict[str, tuple[str, bool, bool]] = {
     "total_gauss_30d": ("tg", True, True),
     "titulo": ("name", False, False),
 }
+SortKeys = Sequence[tuple[str, bool]]  # the sort keys after the first, each with whether it is descending
 DEFAULT_SORT = "facturado_30d"
 NEUTRAL_SORT = "titulo"  # the default for a caller who may not see Métricas' figures
 NO_PRODUCT_LABEL = "Sin producto"
@@ -98,10 +99,12 @@ def needs_metrics(key: str) -> bool:
     return PRODUCT_SORTS[key][2]
 
 
-def parse_sort(orden: str) -> str:
+def parse_sort(orden: str, then: SortKeys = ()) -> str:
+    """The first sort key, every key checked (`then`: the keys after it, Productos' multi-column sort)."""
     key = orden.strip()
-    if key not in PRODUCT_SORTS:
-        raise FilterError("orden", f"must be one of {', '.join(PRODUCT_SORTS)}")
+    for name in (key, *(name for name, _ in then)):
+        if name not in PRODUCT_SORTS:
+            raise FilterError("orden", f"must be one of {', '.join(PRODUCT_SORTS)}")
     return key
 
 
@@ -211,12 +214,14 @@ def _sin_mla_rows(db: Session, f: PublicationFilter) -> Any:
     ).subquery("product_rows")
 
 
-def applied_sort(f: PublicationFilter, key: str, descending: bool) -> tuple[str, bool]:
+def applied_sort(f: PublicationFilter, key: str, descending: bool, then: SortKeys = ()) -> tuple[str, bool, SortKeys]:
     """The sort the rows of `f` really come in: a "Sin MLA" product has no publication, so no Métricas figure, and
-    a figure sort falls back to the name, A to Z (the response says so, never the sort that was asked)."""
-    if not f.sin_mla or key == NEUTRAL_SORT:
-        return key, descending
-    return NEUTRAL_SORT, False
+    the sort is the name alone, in the direction asked for it, A to Z when it was not asked (the response says so,
+    never the sort that was asked)."""
+    if not f.sin_mla:
+        return key, descending, tuple(then)
+    by_name = dict(((key, descending), *then)).get(NEUTRAL_SORT, False)
+    return NEUTRAL_SORT, by_name, ()
 
 
 def sin_mla_count(db: Session, f: PublicationFilter) -> Optional[int]:
@@ -228,18 +233,20 @@ def sin_mla_count(db: Session, f: PublicationFilter) -> Optional[int]:
     return int(db.execute(select(func.count()).select_from(rows)).scalar_one())
 
 
-def _ordered(rows: Any, key: str, descending: bool) -> tuple[Any, ...]:
+def _by(rows: Any, key: str, descending: bool) -> tuple[Any, ...]:
     column = rows.c[PRODUCT_SORTS[key][0]]
     if key == NEUTRAL_SORT:
-        # By the name the row shows, case-insensitively; "Sin producto" is not a name: pinned last either way.
+        # By the name the row shows, case-insensitively; "Sin producto" is not a name: last either way (among the
+        # ties of the keys before it when the name is not the first key).
         name = func.lower(column)
-        return (
-            (rows.c.product == NO_PRODUCT).asc(),
-            name.desc() if descending else name.asc(),
-            rows.c.product.asc(),
-        )
+        return (rows.c.product == NO_PRODUCT).asc(), name.desc() if descending else name.asc()
     figure = case((rows.c.units > 0, column), else_=None)  # no sale in the 30 days: no figure, last
-    return ((figure.desc() if descending else figure.asc()).nulls_last(), rows.c.product.asc())
+    return ((figure.desc() if descending else figure.asc()).nulls_last(),)
+
+
+def _ordered(rows: Any, key: str, descending: bool, then: SortKeys = ()) -> tuple[Any, ...]:
+    keys = ((key, descending), *then)
+    return (*(clause for name, desc in keys for clause in _by(rows, name, desc)), rows.c.product.asc())
 
 
 def _row(r: Any, today: date) -> board.Row:
@@ -346,18 +353,20 @@ def list_products(
     descending: bool,
     limit: int,
     offset: int,
+    then: SortKeys = (),
     *,
     cost: bool = False,
 ) -> ProductsPage:
-    """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` names.
-    With `cost` (only for who sees the margin) each row's product cost too; without it, not even read."""
-    key = parse_sort(orden)
+    """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` (then
+    `then`) names. With `cost` (only for who sees the margin) each row's product cost too; without it, not even read."""
+    key = parse_sort(orden, then)
     if f.sin_mla:
         rows = _sin_mla_rows(db, f)
         total = db.execute(select(func.count()).select_from(rows)).scalar_one()
         found = []
         if offset < total:
-            page = select(rows).order_by(*_ordered(rows, *applied_sort(f, key, descending))).limit(limit).offset(offset)
+            ordered = _ordered(rows, *applied_sort(f, key, descending, then))
+            page = select(rows).order_by(*ordered).limit(limit).offset(offset)
             found = list(db.execute(page).mappings())
         today = board.today_business()
         return ProductsPage([_row(r, today) for r in found], int(total), 0, frozenset(str(r["product"]) for r in found))
@@ -371,7 +380,7 @@ def list_products(
         ).one()
         found: list[Any] = []
         if offset < total:
-            page = select(rows).order_by(*_ordered(rows, key, descending)).limit(limit).offset(offset)
+            page = select(rows).order_by(*_ordered(rows, key, descending, then)).limit(limit).offset(offset)
             found = list(db.execute(page).mappings())
         out = [_row(r, b.today) for r in found]
         _series(b, members, {row.key: row for row in out})
@@ -380,17 +389,17 @@ def list_products(
 
 
 def ordered_product_keys(
-    db: Session, f: PublicationFilter, orden: str, descending: bool, cap: Optional[int]
+    db: Session, f: PublicationFilter, orden: str, descending: bool, cap: Optional[int], then: SortKeys = ()
 ) -> list[int]:
     """The product ids (`NO_PRODUCT` for "Sin producto") of every row of the Producto view, at most `cap` (every
     one when None), in the very order `list_products` pages them: the keys an export fixes before reading its pages."""
-    key = parse_sort(orden)
+    key = parse_sort(orden, then)
     if f.sin_mla:
         rows = _sin_mla_rows(db, f)
-        query = select(rows.c.product).order_by(*_ordered(rows, *applied_sort(f, key, descending))).limit(cap)
+        query = select(rows.c.product).order_by(*_ordered(rows, *applied_sort(f, key, descending, then))).limit(cap)
         return [int(product) for product in db.execute(query).scalars()]
     with _product_rows(db, f) as (_, _, rows):
-        query = select(rows.c.product).order_by(*_ordered(rows, key, descending)).limit(cap)
+        query = select(rows.c.product).order_by(*_ordered(rows, key, descending, then)).limit(cap)
         return [int(product) for product in db.execute(query).scalars()]
 
 
