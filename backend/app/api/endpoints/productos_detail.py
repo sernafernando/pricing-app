@@ -311,6 +311,13 @@ async def obtener_datos_ml_producto(
     fail-closed): `matches_filter` is left absent (shows all, degrades
     gracefully) — consistent with this endpoint's existing enrichment
     degradation pattern (e.g. `fetch_promo_summary_by_mla` above).
+
+    Each block is returned only to users holding the permission the product
+    info modal uses to show it: `publicaciones_ml` needs
+    productos.ver_info_mercadolibre (otherwise []) and `ventas` needs
+    productos.ver_info_ventas (otherwise None). Nothing is read for a hidden
+    block, and the response stays 200 because the modal loads it when either
+    tab opens.
     """
     # Validate promo_estado identically to the LISTADO endpoint so both call
     # sites of select_promo_resolver reject the same inputs (single source of
@@ -326,9 +333,16 @@ async def obtener_datos_ml_producto(
     from app.services.ml_webhook_client import ml_webhook_client
     from sqlalchemy import text
 
-    # Obtener todas las publicaciones ML del item
+    permisos = PermisosService(db)
+    ver_ml = permisos.tiene_permiso(current_user, "productos.ver_info_mercadolibre")
+    ver_ventas = permisos.tiene_permiso(current_user, "productos.ver_info_ventas")
+
+    # Obtener todas las publicaciones ML del item. Without the ML permission
+    # there are no mla_ids, so every enrichment below is skipped.
     publicaciones_ml_query = (
         db.query(PublicacionML).filter(PublicacionML.item_id == item_id, PublicacionML.activo == True).all()
+        if ver_ml
+        else []
     )
 
     # Crear diccionario base de publicaciones
@@ -461,8 +475,17 @@ async def obtener_datos_ml_producto(
                 publicaciones_dict[mla]["publication_status"] = found.status
                 publicaciones_dict[mla]["publication_sub_status"] = found.sub_status
 
-    # Calcular ventas de los últimos 7, 15 y 30 días
-    # Usamos MLVentaMetrica (misma fuente que el dashboard)
+    return {
+        "publicaciones_ml": sorted(
+            publicaciones_dict.values(),
+            key=lambda x: ({4: 0, 17: 1, 14: 2, 13: 3, 23: 4}.get(x.get("pricelist_id"), 999), x.get("mla", "")),
+        ),
+        "ventas": _ventas_ml_stats(db, item_id) if ver_ventas else None,
+    }
+
+
+def _ventas_ml_stats(db: Session, item_id: int) -> dict:
+    """Ventas ML de los últimos 7, 15 y 30 días, desde MLVentaMetrica (misma fuente que el dashboard)."""
     from app.models.ml_venta_metrica import MLVentaMetrica
 
     fecha_actual = datetime.now(UTC).date()
@@ -494,13 +517,7 @@ async def obtener_datos_ml_producto(
             "numero_ventas": int(ventas_ml.numero_ventas or 0),
         }
 
-    return {
-        "publicaciones_ml": sorted(
-            publicaciones_dict.values(),
-            key=lambda x: ({4: 0, 17: 1, 14: 2, 13: 3, 23: 4}.get(x.get("pricelist_id"), 999), x.get("mla", "")),
-        ),
-        "ventas": ventas_stats,
-    }
+    return ventas_stats
 
 
 @router.get("/productos/{item_id}/mercadolibre/tree", response_model=ProductTreeResponse)
