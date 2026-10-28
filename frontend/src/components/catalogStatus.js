@@ -42,7 +42,8 @@ export const catalogState = (status) => (Object.hasOwn(CATALOG_STATES, status ??
 
 // A price as the catalog tooltip writes it; null when it is not a usable number (no tooltip, never a crash). Missing
 // (`Number` reads it as NaN) and text that is no number fail the finite check; null, empty and 0 (read as 0) fail the
-// zero one. Productos always read all of them as no price, by truthiness.
+// zero one. Productos read missing, null, empty and 0 as no price too (by truthiness); text that is no number used to
+// break its row, and now just has no tooltip.
 const price = (value) => {
   const number = Number(value);
   return Number.isFinite(number) && number !== 0 ? number.toFixed(2) : null;
