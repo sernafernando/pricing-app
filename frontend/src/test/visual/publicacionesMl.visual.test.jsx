@@ -299,6 +299,8 @@ describe('Publicaciones ML (visual)', () => {
       it(`${width}x${height} ${theme}: the header stays on top and the Publicación column stays pinned while scrolling both axes`, async () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
+        // The filters above can push the table below a short window, and elementFromPoint sees only the viewport.
+        scroller.scrollIntoView({ block: 'start' });
         scroller.scrollTo({ top: 300, left: 120 });
         await frame();
         const scrollerBox = rect(scroller);
