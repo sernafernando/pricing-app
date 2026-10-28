@@ -13,6 +13,7 @@ import PublicationStatusPill from './PublicationStatusPill';
 import PanelShell from './panel/PanelShell';
 import PanelTabs from './panel/PanelTabs';
 import ProductBanAction from './panel/ProductBanAction';
+import ProductCatalogCompetition from './panel/ProductCatalogCompetition';
 import ProductChangesTab from './panel/ProductChangesTab';
 import ProductCuotasConfig from './panel/ProductCuotasConfig';
 import ProductIdentity from './panel/ProductIdentity';
@@ -48,10 +49,12 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  *
  * Those go under the Resumen tab, after the product's SKU and EAN (`ProductIdentity`, editable with
  * `ml_publicaciones.editar_producto`), its last purchases (`ProductPurchases`, `productos.ver_info_compras`) and
- * last the product's ban (`ProductBanAction`, gated by itself). Precios mounts the product's prices (the same
- * `ProductPrices` a publication's Precios tab mounts), and under them its instalment settings (`ProductCuotasConfig`),
- * for whoever may see them, and Cambios the changes made to the product in the app, with who made each one
- * (`ProductChangesTab`); "Sin producto" has neither. Opening another product goes back to
+ * last the product's ban (`ProductBanAction`, gated by itself), and after the publications comes the catalog
+ * competition of those in a catalog (`ProductCatalogCompetition`, `promos.ver`), for "Sin producto" too since it
+ * belongs to each publication. Precios mounts the product's prices (the same `ProductPrices` a publication's Precios
+ * tab mounts), and under them its instalment settings (`ProductCuotasConfig`), for whoever may see them, and Cambios
+ * the changes made to the product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has
+ * neither. Opening another product goes back to
  * Resumen. A price write reloads the page's list (`onListReload`).
  *
  * @param {object} props
@@ -190,9 +193,10 @@ export default function ProductPanel({
                   </button>
                 )}
               </Section>
+              <ProductCatalogCompetition key={productKey} publications={items} />
 
               {productItemId != null && (
-                <ProductBanAction key={productItemId} productItemId={productItemId} description={summary.label} />
+                <ProductBanAction key={`ban-${productItemId}`} productItemId={productItemId} description={summary.label} />
               )}
             </>
           )}

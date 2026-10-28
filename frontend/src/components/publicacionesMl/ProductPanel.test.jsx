@@ -41,6 +41,12 @@ vi.mock('./panel/ProductCuotasConfig', () => ({
   default: ({ productItemId }) => <div data-testid="product-cuotas">{`cuotas of ${productItemId}`}</div>,
 }));
 
+vi.mock('./panel/ProductCatalogCompetition', () => ({
+  default: ({ publications }) => (
+    <div data-testid="product-catalog-competition">{`competition of ${publications.map((p) => p.item_id).join(',')}`}</div>
+  ),
+}));
+
 vi.mock('./panel/ProductPurchases', () => ({
   default: ({ productItemId }) => <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div>,
 }));
@@ -187,6 +193,19 @@ describe('ProductPanel', () => {
     const purchases = screen.getByTestId('product-purchases');
     expect(purchases).toHaveTextContent(`purchases of ${SUMMARY.productoItemId}`);
     expect(identity.compareDocumentPosition(purchases) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows the catalog competition of the listed publications under Resumen, after them', () => {
+    renderPanel();
+    const competition = screen.getByTestId('product-catalog-competition');
+    expect(competition).toHaveTextContent(`competition of ${ITEMS.map((item) => item.item_id).join(',')}`);
+    const publications = screen.getByRole('heading', { name: 'Publicaciones' });
+    expect(publications.compareDocumentPosition(competition) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows the catalog competition for "Sin producto" too: it belongs to each publication', () => {
+    renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
+    expect(screen.getByTestId('product-catalog-competition')).toBeInTheDocument();
   });
 
   it("gives each Resumen section its own key, so switching products restarts every one of them", () => {
