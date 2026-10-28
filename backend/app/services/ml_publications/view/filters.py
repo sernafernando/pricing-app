@@ -536,6 +536,7 @@ class T:
     l = aliased(MlItemProductLink, name="l")  # noqa: E741 -- the design names the link table `l`
     p = aliased(ProductoERP, name="p")
     ps = aliased(ProductoERP, name="ps")  # the product the link's seller SKU names (the stored suggestion)
+    pp = aliased(ProductoERP, name="pp")  # a `product_links` row's product (the groups tree's product level)
     st = aliased(MlUserProductStock, name="st")
     v = aliased(MlItemVariation, name="v")
     e = aliased(MlItemEvent, name="e")

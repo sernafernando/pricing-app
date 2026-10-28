@@ -109,9 +109,8 @@ def _members(mla_set: Any) -> Any:
             T.p.descripcion,
             T.p.codigo,
             T.p.marca,
-            erp_stock(pl.c.producto_item_id.isnot(None)).label(
-                "stock"
-            ),  # `/items`' own rule: only a `linked` link gives the ERP stock
+            # `/items`' own rule: only a `linked` link gives the ERP stock
+            erp_stock(pl.c.producto_item_id.isnot(None)).label("stock"),
         )
         .select_from(mla_set)
         .outerjoin(pl, pl.c.item_id == mla_set.c.mla)

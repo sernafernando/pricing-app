@@ -50,10 +50,9 @@ from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from sqlalchemy import String, case, cast, func, literal, or_, select
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session
 
 from app.models.ml_tienda_oficial import MlTiendaOficial
-from app.models.producto import ProductoERP
 from app.services.ml_daily_metrics.groups import (
     CLAVE_KEY_PREFIX,
     HIERARCHIES,
@@ -184,7 +183,7 @@ def _total(db: Session, page: list[Any], key: Any) -> int:
 # The product level's own joins (`_scoped(products=True)`): a publication sits under each of its linked products
 # (`filters.product_links`: item-level link or live variations' links), the set `producto=` / `sin_producto` filter on.
 PL = product_links("pl_tree")
-PP = aliased(ProductoERP, name="pp")
+PP = T.pp
 
 
 def product_key() -> Any:
