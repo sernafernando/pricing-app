@@ -406,13 +406,18 @@ def cost_lines(pricing_db: Session, products: Mapping[int, tuple[Any, Any, Any]]
         costo, moneda, iva = products[item_id]
         moneda = getattr(moneda, "value", moneda) or "ARS"
         ppp_payload = PppMarkups(ppp.get(item_id), moneda_costo=moneda, tipo_cambio=rate).payload()
-        product = _CostedProduct(item_id, None if costo is None else float(costo), moneda, iva)
+        product = _CostedProduct(item_id, _as_float(costo), moneda, _as_float(iva))
         sio_payload = sell_in_out.markups(product, tipo_cambio=rate).payload()
         out[item_id] = {
             "ppp": None if ppp_payload is None else ppp_payload.model_dump(),
             "sell_in_out": None if sio_payload is None else sio_payload.model_dump(),
         }
     return out
+
+
+def _as_float(value: Any) -> Optional[float]:
+    """A Numeric column's value (a Decimal) as the float the sell in arithmetic mixes it with."""
+    return None if value is None else float(value)
 
 
 def attach_cost(items: list[dict[str, Any]], rows: list[Any], pricing_db: Optional[Session] = None) -> None:
