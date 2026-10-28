@@ -227,4 +227,33 @@ describe('Actualizar en ML', () => {
     // The result outlives the re-read.
     expect(screen.getByText('Título: enviado a Mercado Libre.')).toBeInTheDocument();
   });
+
+  it('the result stays when the re-read finds the override gone, and the button goes', async () => {
+    mlItemOverridesAPI.get.mockResolvedValueOnce({ data: { ...OVERRIDDEN, can_edit: true } }).mockResolvedValueOnce({ data: read({ can_edit: true }) });
+    mlItemOverridesAPI.pushToMl.mockResolvedValue({ data: { status: 'sent', message: null, partes: [{ campo: 'titulo', estado: 'submitted', motivo: null }] } });
+    render(<DatosTab itemId="MLA1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar en ML' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+    await screen.findByText('Sin cambios locales: se usan los datos de Mercado Libre.');
+    expect(screen.getByText('Título: enviado a Mercado Libre.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Actualizar en ML' })).not.toBeInTheDocument();
+  });
+
+  it('saving an edit clears an earlier push result', async () => {
+    mlItemOverridesAPI.get.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    mlItemOverridesAPI.pushToMl.mockResolvedValue({ data: { status: 'sent', message: null, partes: [{ campo: 'titulo', estado: 'submitted', motivo: null }] } });
+    mlItemOverridesAPI.save.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    render(<DatosTab itemId="MLA1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar en ML' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+    await screen.findByText('Título: enviado a Mercado Libre.');
+    await userEvent.click(screen.getByRole('button', { name: 'Editar datos' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await screen.findByText('Guardado. No se cambió nada en Mercado Libre.');
+    expect(screen.queryByText('Título: enviado a Mercado Libre.')).not.toBeInTheDocument();
+  });
 });

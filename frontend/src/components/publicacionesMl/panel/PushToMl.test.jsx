@@ -144,6 +144,26 @@ describe('nothing reached ML', () => {
     expect(onPushed).toHaveBeenCalledTimes(1);
   });
 
+  it('a 2xx that is not the push body (a proxy page) is unknown, not a crash', async () => {
+    mlItemOverridesAPI.pushToMl.mockResolvedValue({ data: '<html>ok</html>' });
+    const onPushed = renderPush();
+    await confirmPush();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se sabe si llegó a Mercado Libre. Revisá la publicación antes de volver a enviar.');
+    expect(onPushed).toHaveBeenCalledTimes(1);
+  });
+
+  it('a push body on a failure that still lists a field sent or unconfirmed reads the publication again', async () => {
+    mlItemOverridesAPI.pushToMl.mockRejectedValue(
+      httpFailure(503, { status: 'not_sent', message: 'Parcial.', partes: [{ campo: 'descripcion', estado: 'ambiguous', motivo: null }] }),
+    );
+    const onPushed = renderPush();
+    await confirmPush();
+
+    await screen.findByText('Descripción: sin confirmar.');
+    expect(onPushed).toHaveBeenCalledTimes(1);
+  });
+
   it('a push still out when the panel moves to another publication does not read that one again', async () => {
     let answer;
     mlItemOverridesAPI.pushToMl.mockReturnValue(new Promise((resolve) => (answer = resolve)));

@@ -19,6 +19,9 @@ const ESTADO_TONES = { submitted: styles.pushSubmitted, rejected: styles.pushRej
 
 const UNANSWERED = 'No se sabe si llegó a Mercado Libre. Revisá la publicación antes de volver a enviar.';
 
+/** A field that reached ML, or may have. */
+const landed = (parte) => parte.estado === 'submitted' || parte.estado === 'ambiguous';
+
 /** The push's own body (`{ status, message, partes }`), as opposed to a gateway's page or the app's error envelope. */
 const isPushBody = (data) => Boolean(data) && typeof data.status === 'string' && Array.isArray(data.partes);
 
@@ -29,13 +32,16 @@ const isPushBody = (data) => Boolean(data) && typeof data.status === 'string' &&
  */
 function outcomeOf(response, error) {
   if (response) {
+    if (!isPushBody(response.data)) return { ok: false, message: UNANSWERED, partes: [], mayHaveLanded: true };
     const { status, message, partes } = response.data;
-    return { ok: true, message, partes, mayHaveLanded: status === 'sent' };
+    return { ok: true, message, partes, mayHaveLanded: status === 'sent' || partes.some(landed) };
   }
   const failed = error?.response;
   if (!failed) return { ok: false, message: UNANSWERED, partes: [], mayHaveLanded: true };
   if (failed.status === 403) return { ok: false, message: 'No tenés permiso para actualizar la publicación en Mercado Libre.', partes: [] };
-  if (isPushBody(failed.data)) return { ok: false, message: failed.data.message, partes: failed.data.partes };
+  if (isPushBody(failed.data)) {
+    return { ok: false, message: failed.data.message, partes: failed.data.partes, mayHaveLanded: failed.data.partes.some(landed) };
+  }
   if (failed.status >= 500) return { ok: false, message: UNANSWERED, partes: [], mayHaveLanded: true };
   return { ok: false, message: 'No se pudo enviar a Mercado Libre. Probá de nuevo.', partes: [] };
 }
@@ -55,8 +61,9 @@ function Parte({ parte }) {
  * @param {object} props
  * @param {string} props.itemId The MLA.
  * @param {() => void} props.onPushed Something may have landed in ML: the caller reads the publication again.
+ * @param {boolean} [props.canPush] Offers the button (an override to send); the last result stays without it.
  */
-export default function PushToMl({ itemId, onPushed }) {
+export default function PushToMl({ itemId, onPushed, canPush = true }) {
   const [phase, setPhase] = useState('idle'); // idle | confirming | sending
   const [outcome, setOutcome] = useState(null);
   const resultId = useId();
@@ -87,7 +94,7 @@ export default function PushToMl({ itemId, onPushed }) {
 
   return (
     <>
-      {phase === 'idle' && (
+      {phase === 'idle' && canPush && (
         <div className={styles.statusConfirm}>
           <button type="button" className="btn-tesla outline sm" onClick={() => setPhase('confirming')}>
             <Upload size={14} aria-hidden="true" />

@@ -118,7 +118,10 @@ export default function DatosTab({ itemId }) {
           </button>
         </div>
       )}
-      {read.can_edit && read.editable && read.override && <PushToMl key={itemId} itemId={itemId} onPushed={() => setAttempt((n) => n + 1)} />}
+      {read.can_edit && read.editable && (
+        // Mounted without an override too, so a result stays when the re-read after a push finds the override gone.
+        <PushToMl key={itemId} itemId={itemId} canPush={Boolean(read.override)} onPushed={() => setAttempt((n) => n + 1)} />
+      )}
       {savedFor === itemId && (
         <p className={styles.feedback} role="status">
           Guardado. No se cambió nada en Mercado Libre.
