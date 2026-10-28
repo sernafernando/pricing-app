@@ -204,6 +204,17 @@ describe('ProductPanel', () => {
     expect(screen.getByTestId('product-catalog-competition')).toBeInTheDocument();
   });
 
+  it("gives each Resumen section its own key, so switching products restarts every one of them", () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      renderPanel();
+      const duplicated = errors.mock.calls.filter((args) => String(args[0]).includes('same key'));
+      expect(duplicated).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
   it('has no last purchases for "Sin producto"', () => {
     renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
     expect(screen.queryByTestId('product-purchases')).not.toBeInTheDocument();
