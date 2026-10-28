@@ -117,7 +117,7 @@ def test_get_reports_what_was_used_and_what_is_left(client, gestor, productos, a
     got = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
 
     assert (got["unidades"], got["monto_generado"]) == (120, "3000.00")
-    # Used up (more units than the cap only if it was lowered after): never below zero.
+    # Used up; more units than the cap only until the worker applies a lowered cap: never below zero.
     assert _tope(got) == (100, "3000.00", 0, "0.00")
     assert _tope(client.get(BASE, headers=gestor).json()["items"][0]) == (100, "3000.00", 0, "0.00")
 
@@ -168,3 +168,32 @@ def test_a_cap_must_be_positive(client, gestor, productos, overrides, message):
 @pytest.mark.parametrize("overrides", [{"tope_monto": "1.005"}, {"tope_unidades": 2**31}, {"tope_unidades": 1.5}])
 def test_a_cap_out_of_its_column_is_refused_never_rounded(client, gestor, productos, overrides):
     assert client.post(BASE, json=_body(**overrides), headers=gestor).status_code == 422
+
+
+def test_a_partly_used_cap_reports_the_difference(client, gestor, productos, admin_user, db):
+    data = _crear(client, gestor, tope_unidades=100)
+    _generada(db, data["id"], admin_user.id, 40, "1000.50")
+
+    assert _tope(client.get(f"{BASE}/{data['id']}", headers=gestor).json()) == (100, "3000.00", 60, "1999.50")
+
+
+def test_money_used_past_a_lowered_cap_shows_none_left(client, gestor, productos, admin_user, db):
+    data = _crear(client, gestor, tope_monto="500.00")
+    _generada(db, data["id"], admin_user.id, 40, "1000.00")
+
+    assert _tope(client.get(f"{BASE}/{data['id']}", headers=gestor).json())[3] == "0.00"
+
+
+def test_changing_the_currency_asks_for_the_money_cap_again(client, gestor, productos):
+    data = _crear(client, gestor)
+    sin_topes = {k: v for k, v in _body().items() if not k.startswith("tope_")}
+
+    resp = client.put(f"{BASE}/{data['id']}", json={**sin_topes, "moneda": "ARS"}, headers=gestor)
+    assert resp.status_code == 422
+    assert _message(resp) == "Al cambiar la moneda hay que volver a indicar el tope de monto"
+
+    ok = client.put(
+        f"{BASE}/{data['id']}", json={**sin_topes, "moneda": "ARS", "tope_monto": "4500000.00"}, headers=gestor
+    )
+    assert ok.status_code == 200, ok.text
+    assert _tope(ok.json())[:2] == (None, "4500000.00")

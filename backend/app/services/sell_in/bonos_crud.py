@@ -301,6 +301,9 @@ def editar_bono(db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int) 
     if bono is None:
         return None
     campos = validar(db, data)
+    if data.moneda != bono.moneda and bono.tope_monto is not None and "tope_monto" not in data.model_fields_set:
+        # The stored money cap is in the old currency: kept as is it would silently mean another amount.
+        raise SellInBonoError("Al cambiar la moneda hay que volver a indicar el tope de monto")
     antes = _valores(db, bono)
     _asignar(db, bono, data, campos)
     _audit(db, TipoAccion.SELL_IN_BONO_EDITADO, usuario_id, antes, _valores(db, bono))
@@ -394,6 +397,7 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
     filas = []
     for bono in bonos:
         por_moneda = montos.get(bono.id, {})
+        monto_generado = por_moneda.get(bono.moneda, Decimal("0.00"))
         filas.append(
             {
                 **{col: getattr(bono, col) for col in _COLUMNAS},
@@ -411,16 +415,17 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
                 "compras_activas": int(compras.get(bono.id, 0)),
                 "unidades": unidades.get(bono.id, 0),
                 # Only the bonus's own currency: a purchase left in another one is listed apart, never added.
-                "monto_generado": por_moneda.get(bono.moneda, Decimal("0.00")),
+                "monto_generado": monto_generado,
                 "montos_generados": [{"moneda": m, "monto": v} for m, v in sorted(por_moneda.items())],
-                **_restante(bono, unidades.get(bono.id, 0), por_moneda.get(bono.moneda, Decimal("0.00"))),
+                **_restante(bono, unidades.get(bono.id, 0), monto_generado),
             }
         )
     return filas
 
 
 def _restante(bono: SellInBonoMarca, unidades: int, monto: Decimal) -> dict:
-    """What is left of each cap after what the bonus generated (never below zero: a cap lowered after the fact)."""
+    """What is left of each cap after what the bonus generated. The reconcile never generates past the cap
+    (`bonos._aplicar_topes`), so it is below zero only between lowering a cap and the worker applying it: shown as 0."""
     return {
         "tope_unidades_restantes": max(bono.tope_unidades - unidades, 0) if bono.tope_unidades is not None else None,
         "tope_monto_restante": max(Decimal(bono.tope_monto) - monto, Decimal("0.00")).quantize(Decimal("0.01"))
