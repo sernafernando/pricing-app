@@ -220,20 +220,23 @@ def test_tplink_solo_never_gets_them(client, admin_auth_headers, db, rol_admin, 
 
 
 @pytest.mark.parametrize(
-    ("sort", "expected"),
+    ("sort", "expected", "ascending"),
     [
-        # 10 vs 0; 5 vs 0 (the pending sell out is left out); 45 vs 40; 50% vs 40% (without them: 30% vs 40%).
-        ("sell_in", ["11", "12"]),
-        ("sell_out", ["11", "12"]),
-        ("total_gauss_sell", ["11", "12"]),
-        ("markup_sell", ["11", "12"]),
+        # 10 vs an empty cell (12 has no sell in: last both ways, never sorted as 0); 5 vs 0 (the pending sell out is
+        # left out); 45 vs 40; 50% vs 40% (without them: 30% vs 40%).
+        ("sell_in", ["11", "12"], ["11", "12"]),
+        ("sell_out", ["11", "12"], ["12", "11"]),
+        ("total_gauss_sell", ["11", "12"], ["12", "11"]),
+        ("markup_sell", ["11", "12"], ["12", "11"]),
     ],
 )
-def test_sorts_by_the_sell_in_out_columns(client, admin_auth_headers, db, rol_admin, sells, sort, expected) -> None:
+def test_sorts_by_the_sell_in_out_columns(
+    client, admin_auth_headers, db, rol_admin, sells, sort, expected, ascending
+) -> None:
     _grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
     db.commit()
 
-    for direction, order in (("desc", expected), ("asc", expected[::-1])):
+    for direction, order in (("desc", expected), ("asc", ascending)):
         body = _get(client, admin_auth_headers, sort=sort, sort_dir=direction)
         assert [row["key"] for row in body["rows"]] == order
 
