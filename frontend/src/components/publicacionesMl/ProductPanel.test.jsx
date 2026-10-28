@@ -45,6 +45,10 @@ vi.mock('./panel/ProductPurchases', () => ({
   default: ({ productItemId }) => <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div>,
 }));
 
+vi.mock('./panel/ProductBanAction', () => ({
+  default: ({ productItemId, description }) => <div data-testid="product-ban">{`ban ${productItemId}: ${description}`}</div>,
+}));
+
 const FILTERS = { vista: 'producto', estado: ['active'] };
 const SUMMARY = readProduct(makeProductRow());
 const NO_PRODUCT = readProduct(PRODUCT_ROWS[2]);
@@ -204,6 +208,16 @@ describe('ProductPanel', () => {
   it('has no SKU and EAN for "Sin producto"', () => {
     renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
     expect(screen.queryByTestId('product-identity')).not.toBeInTheDocument();
+  });
+
+  it('offers banning the product under Resumen, with its description', () => {
+    renderPanel();
+    expect(screen.getByTestId('product-ban')).toHaveTextContent(`ban ${SUMMARY.productoItemId}: ${SUMMARY.label}`);
+  });
+
+  it('offers no ban for "Sin producto"', () => {
+    renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
+    expect(screen.queryByTestId('product-ban')).not.toBeInTheDocument();
   });
 
   it('shows the skeleton while the product loads', () => {

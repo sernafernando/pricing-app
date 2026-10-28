@@ -21,6 +21,7 @@ from app.models.auditoria import Auditoria
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
+from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutDirty
 from app.scripts import migrar_offsets_a_sell_out as script
@@ -50,6 +51,7 @@ _TABLES = [
     OffsetGrupo.__table__,
     OffsetGrupoFiltro.__table__,
     OffsetGanancia.__table__,
+    OffsetMigracionPendiente.__table__,
     SellOutCampana.__table__,
     SellOutCampanaGrupo.__table__,
     SellOutDirty.__table__,
@@ -63,6 +65,7 @@ _ESCRITAS = (
     "sell_out_campana_grupos",
     "sell_out_dirty",
     "auditoria",
+    "offsets_migracion_pendientes",
 )
 
 
@@ -76,7 +79,14 @@ def engine() -> Iterator[Engine]:
 def _clean(engine: Engine) -> Iterator[None]:
     yield
     with engine.begin() as conn:
-        for table in ("sell_out_campanas", "offsets_ganancia", "offset_grupos", "auditoria", "sell_out_dirty"):
+        for table in (
+            "sell_out_campanas",
+            "offsets_ganancia",
+            "offset_grupos",
+            "auditoria",
+            "sell_out_dirty",
+            "offsets_migracion_pendientes",
+        ):
             conn.execute(text(f"DELETE FROM {table}"))
 
 
@@ -231,6 +241,7 @@ def test_an_active_per_unit_usd_offset_becomes_one_campaign_through_the_service(
         "no_migrados": 0,
         "con_error": [],
         "campana_ids": [c["id"]],
+        "pendientes": 0,
     }
 
 
@@ -542,3 +553,137 @@ def test_an_offset_deleted_during_the_run_is_reported_and_the_run_goes_on(engine
     assert code == 0
     assert (filas[borrado]["resultado"], filas[borrado]["motivo"]) == ("no migrado", "El offset ya no existe")
     assert [c["offset_origen_id"] for c in _campanas(engine)] == [primero]
+
+
+# ── Review table (T22a) ──────────────────────────────────────────────
+
+
+def _pendientes(engine: Engine) -> dict:
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT * FROM offsets_migracion_pendientes ORDER BY offset_id")).mappings().all()
+    return {r["offset_id"]: dict(r) for r in rows}
+
+
+def test_apply_stores_each_offset_it_could_not_migrate_with_its_full_detail(engine, correr) -> None:
+    fijo = _offset(
+        engine,
+        marca="EPSON",
+        tipo_offset="monto_fijo",
+        monto=10000.5,
+        moneda="ARS",
+        tipo_cambio=1400,
+        descripcion="Bono anual",
+        fecha_hasta=None,
+        max_unidades=50,
+        max_monto_usd=900,
+        aplica_fuera=False,
+    )
+    migrado = _offset(engine, item_id=2964)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    pendientes = _pendientes(engine)
+    assert list(pendientes) == [fijo]
+    fila = pendientes[fijo]
+    assert {k: fila[k] for k in fila if k not in ("id", "registrado_en")} == {
+        "offset_id": fijo,
+        "tipo_offset": "monto_fijo",
+        "descripcion": "Bono anual",
+        "marca": "EPSON",
+        "categoria": None,
+        "subcategoria_id": None,
+        "item_id": None,
+        "grupo_id": None,
+        "monto": 10000.5,
+        "porcentaje": None,
+        "moneda": "ARS",
+        "tipo_cambio": 1400.0,
+        "fecha_desde": date(2026, 9, 1),
+        "fecha_hasta": None,
+        "max_unidades": 50,
+        "max_monto_usd": 900.0,
+        "aplica_ml": True,
+        "aplica_fuera": False,
+        "aplica_tienda_nube": True,
+        "usuario_id": 7,
+        "motivo": "Monto fijo: no tiene equivalente en una campaña por unidad",
+        "avisos": None,
+    }
+    assert fila["registrado_en"] is not None
+    assert filas[fijo]["motivo"] == fila["motivo"]
+    assert filas[migrado]["resultado"] == "migrado"
+    assert summary["pendientes"] == 1
+
+
+def test_a_validation_error_is_stored_for_review_too(engine, correr) -> None:
+    offset_id = _offset(engine, item_id=2964, monto=1e20)
+
+    code, _, filas = correr("--apply")
+
+    assert code == 1
+    assert _pendientes(engine)[offset_id]["motivo"] == filas[offset_id]["motivo"]
+
+
+def test_a_rerun_updates_the_review_row_instead_of_adding_another(engine, correr) -> None:
+    offset_id = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=100)
+    correr("--apply")
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE offsets_ganancia SET monto = -1, tipo_offset = 'monto_por_unidad' WHERE id = :i"),
+            {"i": offset_id},
+        )
+
+    correr("--apply")
+
+    pendientes = _pendientes(engine)
+    assert list(pendientes) == [offset_id]
+    assert (pendientes[offset_id]["motivo"], pendientes[offset_id]["monto"]) == ("Monto negativo o cero", -1.0)
+
+
+def test_an_offset_that_migrates_later_leaves_the_review_table(engine, correr) -> None:
+    offset_id = _offset(engine, item_id=2964, monto=0)
+    correr("--apply")
+    assert list(_pendientes(engine)) == [offset_id]
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE offsets_ganancia SET monto = 2 WHERE id = :i"), {"i": offset_id})
+
+    _, summary, filas = correr("--apply")
+
+    assert filas[offset_id]["resultado"] == "migrado"
+    assert _pendientes(engine) == {}
+    assert summary["pendientes"] == 0
+
+
+def test_the_dry_run_leaves_an_existing_review_table_as_it_was(engine, correr) -> None:
+    offset_id = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=100)
+    correr("--apply")
+    antes = _pendientes(engine)
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE offsets_ganancia SET monto = 200 WHERE id = :i"), {"i": offset_id})
+
+    _, summary, _ = correr()
+
+    assert _pendientes(engine) == antes
+    assert summary["pendientes"] == 1  # what --apply would store
+
+
+def test_a_failure_keeping_the_review_row_keeps_the_reason_and_fails_the_run(engine, correr, monkeypatch) -> None:
+    falla = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=100)
+    sana = _offset(engine, marca="LENOVO", tipo_offset="monto_fijo", monto=200)
+    real = script._guardar_pendiente
+
+    def guardar(db, offset, motivo, avisos):
+        if offset.id == falla:
+            db.execute(text("SELECT * FROM tabla_que_no_existe"))
+        return real(db, offset, motivo, avisos)
+
+    monkeypatch.setattr(script, "_guardar_pendiente", guardar)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 1
+    assert filas[falla]["motivo"] == "Monto fijo: no tiene equivalente en una campaña por unidad"
+    assert "No se actualizó la tabla de revisión" in filas[falla]["avisos"]
+    assert list(_pendientes(engine)) == [sana]
+    assert (summary["pendientes"], summary["con_error"]) == (1, [falla])

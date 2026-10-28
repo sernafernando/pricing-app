@@ -78,12 +78,28 @@ vi.mock('../../services/api', () => ({
     saveDatos: vi.fn(),
   },
   mlItemOverridesAPI: { get: vi.fn(), save: vi.fn(), pushToMl: vi.fn() },
+  productoBanlistAPI: { add: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     pms: vi.fn(() => Promise.resolve({ data: [] })),
+    // Productos' prices of the products on show (S11): Normal, Cuotas and PVP columns.
+    listar: vi.fn(() =>
+      Promise.resolve({
+        data: {
+          productos: [
+            { item_id: 4101, descripcion: 'Router Archer AX55', marca: 'TP-LINK', categoria: 'REDES', stock: 12, costo: 95.5, moneda_costo: 'USD',
+              precio_lista_ml: 189999, markup: 24.3, participa_rebate: true, precio_rebate: 197911, markup_rebate: 21.1,
+              precio_3_cuotas: 209999, markup_3_cuotas: 18.2, precio_6_cuotas: 229999, markup_6_cuotas: 15.4,
+              precio_pvp: 239999, markup_pvp: 31.9 },
+            { item_id: 4102, precio_lista_ml: 45999, markup: -3.2, mejor_oferta_precio: 41399, mejor_oferta_markup: -0.098 },
+          ],
+          total: 2,
+        },
+      }),
+    ),
     auditoria: vi.fn(() =>
       Promise.resolve({
         data: [
@@ -296,6 +312,8 @@ describe('Publicaciones ML (visual)', () => {
       it(`${width}x${height} ${theme}: the header stays on top and the Publicación column stays pinned while scrolling both axes`, async () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
+        // The filters above can push the table below a short window, and elementFromPoint sees only the viewport.
+        scroller.scrollIntoView({ block: 'start' });
         scroller.scrollTo({ top: 300, left: 120 });
         await frame();
         const scrollerBox = rect(scroller);
@@ -358,7 +376,8 @@ describe('Publicaciones ML (visual)', () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
         const groups = [...scroller.querySelectorAll('thead th[scope="colgroup"]')];
-        expect(groups.map((th) => th.textContent)).toEqual(['Ventas (unidades)', 'Resultado financiero', 'Rotación', 'Stock']);
+        // Productos' price columns (S11) lead, right after Precio.
+        expect(groups.map((th) => th.textContent)).toEqual(['Precios de Productos', 'Ventas (unidades)', 'Resultado financiero', 'Rotación', 'Stock']);
         for (const th of groups) {
           expect(getComputedStyle(th).textAlign).toBe('center');
           expect(getComputedStyle(th).textTransform).toBe('uppercase');
@@ -372,7 +391,7 @@ describe('Publicaciones ML (visual)', () => {
         // Scrolled down, the group row and the leaf row both stay on top, in that order.
         scroller.scrollTo({ top: 400, left: 0 });
         await frame();
-        const ventas = rect(groups[0]);
+        const ventas = rect(groups[1]);
         const leaf = rect(scroller.querySelector('thead th[data-column="unidades_7d"]'));
         expect(Math.abs(ventas.top - rect(scroller).top)).toBeLessThanOrEqual(2);
         expect(Math.abs(leaf.top - ventas.bottom)).toBeLessThanOrEqual(2);
@@ -937,6 +956,23 @@ describe('Publicaciones ML Producto view (visual)', () => {
           preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
           offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
         }
+      });
+
+      it(`${width}x${height} ${theme}: the product's ban and its confirmation fit inside the panel`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+        await aside.getByRole('button', { name: 'Agregar a la banlist' }).click();
+        await expect.element(aside.getByLabelText('Palabra de verificación')).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        const confirm = aside.getByLabelText('Palabra de verificación').element().closest('section');
+        confirm.scrollIntoView({ block: 'end' });
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const control of confirm.querySelectorAll('input, textarea, button, strong')) {
+          expect(rect(control).right, control.textContent || control.tagName).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-ban-${width}-${theme}.png` });
+        screen.unmount();
       });
     }
 
@@ -1593,6 +1629,50 @@ describe('row colors and the color layer (S8)', () => {
         window.scrollTo(0, 0);
         await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/paint-menu-1366-${theme}.png` });
       }
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: a price edited in place keeps its input inside the cell`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const edit = screen.getByRole('button', { name: /^Editar Precio Clásica/ }).first();
+      await expect.element(edit).toBeVisible();
+      await edit.click();
+      const input = screen.getByRole('textbox', { name: 'Precio Clásica' });
+      await expect.element(input).toBeVisible();
+      const box = input.element().getBoundingClientRect();
+      const cellBox = input.element().closest('td').getBoundingClientRect();
+      expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
+      expect(box.right).toBeLessThanOrEqual(cellBox.right);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+      // The first row is painted: what is typed reads on the input in both themes.
+      const style = getComputedStyle(input.element());
+      expect(contrastRatio(style.color, style.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+      input.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/price-edit-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: Calcular fits its cell and opens Productos' pricing modal inside the screen`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const calculate = screen.getByRole('button', { name: 'Calcular el precio de Router Archer AX55' }).first();
+      await expect.element(calculate).toBeVisible();
+      const box = calculate.element().getBoundingClientRect();
+      const cellBox = calculate.element().closest('td').getBoundingClientRect();
+      expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
+      expect(box.right).toBeLessThanOrEqual(cellBox.right);
+      calculate.element().scrollIntoView({ block: 'center', inline: 'center' });
+      // Nothing covers it (the pinned title column, the sticky header): the point at its center is the button.
+      const center = calculate.element().getBoundingClientRect();
+      expect(document.elementFromPoint(center.left + center.width / 2, center.top + center.height / 2)?.closest('button')).toBe(calculate.element());
+      calculate.element().click();
+      const modal = screen.getByText(/TP-LINK \| REDES \| Stock: 12/);
+      await expect.element(modal).toBeVisible();
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/pricing-modal-1366-${theme}.png` });
       screen.unmount();
     });
   }
