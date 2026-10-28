@@ -107,15 +107,21 @@ class TestPermission:
         "path",
         sorted(route.path.replace("{item_id}", "MLA1") for route in ml_publications_view.router.routes),
     )
-    def test_every_read_of_the_screen_takes_productos_ver(self, client, pg, db, rol_ventas, auth_headers, path) -> None:
-        # What each read asks on top of the screen (the KPI strip Métricas, the status ids pausing) is granted;
-        # ml_ops.ver is not: none of them may answer 403. Only the permission is asked here: a read whose own tables
-        # this schema lacks fails AFTER it (500), as it did before with ml_ops.ver; the 403 came first.
-        grant(db, rol_ventas, "productos.ver", "ml_metricas.ver", "ml_publicaciones.pausar")
-        response = client.get(f"/api{path}", headers=auth_headers)
-        assert response.status_code not in (401, 403), response.text
-        if response.status_code == 404:  # an unknown publication, never an unknown route
-            assert response.json().get("detail") != "Not Found"
+    def test_every_read_of_the_screen_answers_productos_ver_as_ml_ops_ver(
+        self, client, pg, db, rol_ventas, auth_headers, rol_admin, admin_auth_headers, path
+    ) -> None:
+        # What each read asks on top of the screen (the KPI strip Métricas, the status ids pausing) is granted to both
+        # callers; one holds productos.ver, the other ml_ops.ver. Each read answers them alike, whatever it answers on
+        # this schema (some fail on tables it lacks, after the permission), and never 401/403.
+        extras = ("ml_metricas.ver", "ml_publicaciones.pausar")
+        grant(db, rol_ventas, "productos.ver", *extras)
+        grant(db, rol_admin, VER, *extras)
+        productos = client.get(f"/api{path}", headers=auth_headers)
+        ml_ops = client.get(f"/api{path}", headers=admin_auth_headers)
+        assert productos.status_code not in (401, 403), productos.text
+        assert productos.status_code == ml_ops.status_code, (productos.text, ml_ops.text)
+        if productos.status_code == 404:  # an unknown publication, never an unknown route
+            assert productos.json().get("detail") != "Not Found"
 
     def test_the_view_router_only_reads(self) -> None:
         verbs = {m for route in ml_publications_view.router.routes for m in getattr(route, "methods", set())}
