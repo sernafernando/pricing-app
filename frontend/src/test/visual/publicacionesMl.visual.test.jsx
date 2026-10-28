@@ -2102,7 +2102,7 @@ describe('row colors and the color layer (S8)', () => {
 
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: the Tienda Nube price and its transfer hint sit over the web transfer, inside the cell`, async () => {
-      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });
       await expect.element(screen.getByText('$183.999,20 transf.').first()).toBeVisible();
       const lines = [...document.querySelectorAll('[data-tn-price]')];
       // The fixture's products repeat down the page.
