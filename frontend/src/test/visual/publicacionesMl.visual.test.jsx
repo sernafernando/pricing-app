@@ -47,14 +47,17 @@ import {
 // The markup column, its filters and the sub-rows' cost are for `ver_ganancia` only.
 let canSeeMargin = false;
 let canSeeKpis = true;
+// One function for every render, as the real context's `tienePermiso` is: hooks that read on its change (the
+// prearmadas badge) would otherwise cancel their own read on each render.
+const tienePermiso = (permiso) => {
+  if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
+  if (permiso === 'ml_metricas.ver') return canSeeKpis;
+  return true;
+};
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
-    tienePermiso: (permiso) => {
-      if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
-      if (permiso === 'ml_metricas.ver') return canSeeKpis;
-      return true;
-    },
+    tienePermiso,
     cargandoPermisos: false,
   }),
   PermisosProvider: ({ children }) => children,
@@ -64,6 +67,10 @@ vi.mock('../../hooks/useSSEChannel', () => ({ useSSEChannel: vi.fn() }));
 vi.mock('../../services/api', () => ({
   default: {
     get: vi.fn(() => Promise.resolve({ data: [] })),
+    // Only the prearmadas badge posts here: two ready for every product asked.
+    post: vi.fn((url, body) =>
+      Promise.resolve({ data: { stats: Object.fromEntries((body?.items ?? []).map(({ item_id }) => [item_id, { exact: 2, upgrade: 0 }])) } }),
+    ),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   pxqAPI: { getLive: vi.fn(), getMarkup: vi.fn(), createTier: vi.fn(), updateTier: vi.fn(), deleteTier: vi.fn(), sync: vi.fn(), adoptLive: vi.fn() },
@@ -947,6 +954,21 @@ describe('Publicaciones ML Producto view (visual)', () => {
           promocionesAPI.getCompetenciaCatalogo.mockReset();
           publicacionesMlAPI.items.mockReset();
         }
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product's prearmadas badge fits in the panel header`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+        await expect.element(aside.getByText('2 listas')).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        const badge = aside.getByText('2 listas').element();
+        expect(rect(badge).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-prearmadas-${width}-${theme}.png` });
+        screen.unmount();
       });
     }
 
