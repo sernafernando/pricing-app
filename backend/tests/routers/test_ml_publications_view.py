@@ -94,6 +94,35 @@ class TestPermission:
         assert response.status_code == 403
         assert VER in response.json()["error"]["message"]
 
+    def test_productos_ver_alone_reads_the_screen_as_productos(self, client, pg, db, rol_ventas, auth_headers) -> None:
+        # S12f1 (owner 2026-10-28): the screen takes Productos' permission, so PRICING / VENTAS keep their access.
+        grant(db, rol_ventas, "productos.ver")
+        assert get(client, auth_headers).status_code == 200
+
+    def test_ml_ops_ver_alone_still_reads_the_screen(self, client, pg, db, rol_ventas, auth_headers) -> None:
+        grant(db, rol_ventas, VER)
+        assert get(client, auth_headers).status_code == 200
+
+    @pytest.mark.parametrize(
+        "path",
+        sorted(route.path.replace("{item_id}", "MLA1") for route in ml_publications_view.router.routes),
+    )
+    def test_every_read_of_the_screen_answers_productos_ver_as_ml_ops_ver(
+        self, client, pg, db, rol_ventas, auth_headers, rol_admin, admin_auth_headers, path
+    ) -> None:
+        # What each read asks on top of the screen (the KPI strip Métricas, the status ids pausing) is granted to both
+        # callers; one holds productos.ver, the other ml_ops.ver. Each read answers them alike, whatever it answers on
+        # this schema (some fail on tables it lacks, after the permission), and never 401/403.
+        extras = ("ml_metricas.ver", "ml_publicaciones.pausar")
+        grant(db, rol_ventas, "productos.ver", *extras)
+        grant(db, rol_admin, VER, *extras)
+        productos = client.get(f"/api{path}", headers=auth_headers)
+        ml_ops = client.get(f"/api{path}", headers=admin_auth_headers)
+        assert productos.status_code not in (401, 403), productos.text
+        assert productos.status_code == ml_ops.status_code, (productos.text, ml_ops.text)
+        if productos.status_code == 404:  # an unknown publication, never an unknown route
+            assert productos.json().get("detail") != "Not Found"
+
     def test_the_view_router_only_reads(self) -> None:
         verbs = {m for route in ml_publications_view.router.routes for m in getattr(route, "methods", set())}
         assert verbs == {"GET"}
@@ -248,9 +277,13 @@ class TestInvalidParams:
         assert response.status_code == 422
         assert response.json()["error"]["field"] == field
 
-    @pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 101}, {"offset": -1}, {"limit": "x"}])
+    @pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 10001}, {"offset": -1}, {"limit": "x"}])
     def test_the_page_size_is_bounded_by_the_framework(self, client, pg, reader, params) -> None:
         assert get(client, reader, **params).status_code == 422
+
+    def test_the_whole_list_fits_one_page_as_productos_todos(self, client, pg, reader) -> None:
+        response = get(client, reader, limit=9999)
+        assert response.status_code == 200 and response.json()["limit"] == 9999
 
     def test_the_event_filter_with_the_events_flag_off_is_422(self, client, pg, reader) -> None:
         response = get(client, reader, evento="price_changed")

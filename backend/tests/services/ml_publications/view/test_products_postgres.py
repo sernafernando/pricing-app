@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
@@ -100,8 +100,10 @@ def store(mlpub_pg):  # noqa: F811
     reader.close()
 
 
-def page(db: Session, orden: str = products.DEFAULT_SORT, descending: bool = True, limit=50, offset=0, **filters):
-    got = products.list_products(db, parse_filter(**filters), orden, descending, limit, offset)
+def page(
+    db: Session, orden: str = products.DEFAULT_SORT, descending: bool = True, limit=50, offset=0, then=(), **filters
+):
+    got = products.list_products(db, parse_filter(**filters), orden, descending, limit, offset, then=then)
     db.rollback()  # each request ends its transaction, as the router does
     return got
 
@@ -190,6 +192,35 @@ def test_sorted_by_name_with_sin_producto_last(store) -> None:
     assert asc == [72, 70, 71, NO_PRODUCT]
 
 
+def test_a_next_key_breaks_the_ties_of_the_first_and_the_export_keeps_the_order(store) -> None:
+    with store.get_bind().begin() as conn:  # a second product with no figures: it ties with Antena (72)
+        seed.add_product(conn, 73, "D73", "Zeta")
+        seed.add_item(conn, "MLA8", status="active")
+        seed.add_link(conn, "MLA8", 73)
+
+    def ordered(then) -> list[int]:
+        return [row.product_item_id for row in page(store, "unidades_30d", True, then=then, estado="active").rows]
+
+    assert ordered(()) == [71, 70, NO_PRODUCT, 72, 73]  # the tie goes by product id
+    assert ordered((("titulo", True),)) == [71, 70, NO_PRODUCT, 73, 72]
+    assert ordered((("titulo", False),)) == [71, 70, NO_PRODUCT, 72, 73]
+    keys = products.ordered_product_keys(
+        store, parse_filter(estado="active"), "unidades_30d", True, None, then=(("titulo", True),)
+    )
+    store.rollback()
+    assert keys == [71, 70, NO_PRODUCT, 73, 72]
+
+
+def test_name_first_keeps_sin_producto_last_whatever_follows(store) -> None:
+    got = page(store, "titulo", True, then=(("unidades_30d", True),), estado="active")
+    assert [row.product_item_id for row in got.rows] == [71, 70, 72, NO_PRODUCT]
+
+
+def test_an_unknown_next_key_is_rejected(store) -> None:
+    with pytest.raises(products.FilterError):
+        page(store, "titulo", False, then=(("precio", False),))
+
+
 def test_an_unknown_sort_is_rejected(store) -> None:
     with pytest.raises(products.FilterError):
         page(store, "precio")
@@ -276,3 +307,13 @@ def test_the_stock_is_the_erp_stock_of_items_only_through_a_linked_link(store) -
     assert 74 not in rows
     assert rows[NO_PRODUCT].stock is None and "MLA8" in expansion(store, rows[NO_PRODUCT], estado="active")
     assert rows[70].stock == 9  # a linked link keeps it
+
+
+def test_the_product_cost_is_read_only_when_asked(store) -> None:
+    store.execute(text("UPDATE productos_erp SET costo = 50, moneda_costo = 'USD' WHERE item_id = 70"))
+    f = parse_filter(estado="active")
+    assert products.list_products(store, f, products.DEFAULT_SORT, True, 50, 0).costs == {}
+    costs = products.list_products(store, f, products.DEFAULT_SORT, True, 50, 0, cost=True).costs
+    store.rollback()
+    assert costs["70"] == {"amount": 50.0, "currency": "USD"}
+    assert costs["71"] is None and costs[str(NO_PRODUCT)] is None

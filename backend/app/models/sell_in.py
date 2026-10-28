@@ -44,7 +44,7 @@ class SellInBonoMarca(Base):
     The scope (`alcance`) is a brand (`marca`), a category (`categoria`), some models
     (`SellInBonoItem` rows) or one invoice (`pedido_id`); each carries only its own field. The table
     keeps its brand-bonus name. The reconcile (`app.services.sell_in.bonos`) and the API read every
-    scope and kind (T3e-2, T3e-3)."""
+    scope and kind (T3e-2, T3e-3), and its shared cap (T24)."""
 
     __tablename__ = "sell_in_bonos_marca"
     __table_args__ = (
@@ -68,6 +68,8 @@ class SellInBonoMarca(Base):
             "AND monto_unit IS NULL)",
             name="ck_sell_in_bonos_marca_monto_segun_tipo",
         ),
+        CheckConstraint("tope_unidades IS NULL OR tope_unidades > 0", name="ck_sell_in_bonos_marca_tope_unidades"),
+        CheckConstraint("tope_monto IS NULL OR tope_monto > 0", name="ck_sell_in_bonos_marca_tope_monto"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -88,6 +90,10 @@ class SellInBonoMarca(Base):
     moneda = Column(String(3), nullable=False)
     fecha_desde = Column(Date, nullable=False)  # supplier invoice date, inclusive
     fecha_hasta = Column(Date, nullable=False)  # inclusive
+    # One cap shared by every product and operation the bonus reaches (T24): invoiced units and/or money in
+    # `moneda`; NULL: no cap. Allocated like sell out's cap (`sell_out.tope`) by the reconcile, which reads it from T24b.
+    tope_unidades = Column(Integer, nullable=True)
+    tope_monto = Column(Numeric(18, 2), nullable=True)
     descripcion = Column(Text, nullable=True)
     estado = Column(String(16), nullable=False, default="activa", server_default="activa")
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
@@ -98,14 +104,27 @@ class SellInBonoMarca(Base):
 
 class SellInBonoItem(Base):
     """A model (`item_id`) reached by a 'modelos' bonus. No FK to `productos_erp`: the ERP may hold an item
-    the catalog sync has not brought yet (like `pedido_compra_lineas_facturadas`)."""
+    the catalog sync has not brought yet (like `pedido_compra_lineas_facturadas`).
+
+    A model may carry its own value (T23a, legacy grouped offsets): `monto_unit` on a 'por_unidad' bonus or
+    `porcentaje` on a 'porcentaje' one replaces the bonus's for that model; NULL takes the bonus's."""
 
     __tablename__ = "sell_in_bono_items"
-    __table_args__ = (UniqueConstraint("bono_id", "item_id", name="uq_sell_in_bono_items_bono_item"),)
+    __table_args__ = (
+        UniqueConstraint("bono_id", "item_id", name="uq_sell_in_bono_items_bono_item"),
+        CheckConstraint("monto_unit IS NULL OR monto_unit > 0", name="ck_sell_in_bono_items_monto_positivo"),
+        CheckConstraint(
+            "porcentaje IS NULL OR (porcentaje > 0 AND porcentaje <= 100)",
+            name="ck_sell_in_bono_items_porcentaje_rango",
+        ),
+        CheckConstraint("monto_unit IS NULL OR porcentaje IS NULL", name="ck_sell_in_bono_items_un_valor"),
+    )
 
     id = Column(BigInteger, primary_key=True)
     bono_id = Column(BigInteger, ForeignKey("sell_in_bonos_marca.id", ondelete="CASCADE"), nullable=False)
     item_id = Column(Integer, nullable=False, index=True)
+    monto_unit = Column(Numeric(18, 2), nullable=True)  # like SellInBonoMarca.monto_unit
+    porcentaje = Column(Numeric(7, 4), nullable=True)  # like SellInBonoMarca.porcentaje
 
 
 class SellInBonoDirty(Base):

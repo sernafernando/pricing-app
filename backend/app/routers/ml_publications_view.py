@@ -4,33 +4,35 @@ Thin on purpose: it parses the query, checks the permission, calls `services/ml_
 No SQL here and no access to the product catalog (the base select in the view services is the one place that
 joins it).
 
-- `GET /ml-publications/view/items` (`ml_ops.ver`): one row per MLA, filters, search, sorts, optional facets and
+- "screen" is the screen's own permission, Productos' `productos.ver` OR `ml_ops.ver` (`PERMISOS_PUBLICACIONES_ML`,
+  owner decision S12f 2026-10-28: PRICING and VENTAS read it as they read Productos).
+- `GET /ml-publications/view/items` (screen): one row per MLA, filters, search, sorts, optional facets and
   the honest-state block. NO PM or sub-PM scoping: the screen is a management tool over every publication.
   With `ml_metricas.ver`, each row also carries `metrics`: Métricas ML's own publication row for it over the last 30
   business days (one Board per page) -- the 7/30-day units and their 90-day series, the gross revenue, the last sale
   and the ageing; Total Gauss, the real (sales-weighted) markup and its series only with `ml_metricas.ver_ganancia`.
   `sales_30d` (units, gross, markup) is the same row's 30-day figures, kept for screens that still read it.
-- `GET /ml-publications/view/groups` (`ml_ops.ver`): the children of one node of the Agrupado tree, grouped by one of
+- `GET /ml-publications/view/groups` (screen): the children of one node of the Agrupado tree, grouped by one of
   Métricas ML's dimensions (`dimension`, default `marca`: marca > categoria > subcategoria > producto > [familia]),
   with the same filters as `/items`; the publications of a leaf node come from `/items` with the node's `params`.
-- `GET /ml-publications/view/products` (`ml_ops.ver`): the Producto view, one row per LINKED product (the
+- `GET /ml-publications/view/products` (screen): the Producto view, one row per LINKED product (the
   publication -> product link; "Sin producto" = no link) over the MLAs the same filters select, its figures the sum of
   its publications' own (one Board, publication view, over the last 30 business days), sorted (`orden`/`dir`) and
   paged. Each row's `params` select exactly its `publications_count` publications in `/items`. Figures and figure
   sorts need `ml_metricas.ver`, the margin also `ml_metricas.ver_ganancia`. `sin_mla_count` counts Productos' "Sin
   MLA" products under the product filters (absent with a publication filter); `con_mla=false` lists them instead,
   refusing a publication filter (422), while the publication reads (`/items`, `/groups`, `/kpis`) select nothing.
-- `GET /ml-publications/view/items/{item_id}` (`ml_ops.ver`): the Resumen of one publication, all its data; the cost of
+- `GET /ml-publications/view/items/{item_id}` (screen): the Resumen of one publication, all its data; the cost of
   the product and the markup breakdown only with `ml_metricas.ver_ganancia`, `can_resync` from `ml_ops.gestionar`,
   `can_change_status` from `ml_publicaciones.pausar`.
-- `GET /ml-publications/view/items/{item_id}/events` (`ml_ops.ver`): the publication's business events from
+- `GET /ml-publications/view/items/{item_id}/events` (screen): the publication's business events from
   `ml_item_events`, newest first, keyset-paged by an opaque cursor; an empty list while `events.enabled` is off.
-- `GET /ml-publications/view/items/{item_id}/history` (`ml_ops.ver`): its `ml_change_log` rows (and those of its user
+- `GET /ml-publications/view/items/{item_id}/history` (screen): its `ml_change_log` rows (and those of its user
   product and family), one entry per row with the business fields apart from the technical ones.
-- `GET /ml-publications/view/kpis` (`ml_ops.ver` AND `ml_metricas.ver`): Métricas ML's KPI strip over the MLAs the same
+- `GET /ml-publications/view/kpis` (screen AND `ml_metricas.ver`): Métricas ML's KPI strip over the MLAs the same
   filters select, for its own period (`periodo` 7/15/30/60/90 or `desde`/`hasta`, default the last 30 days) and
   `comparar_con`. The profit figures only with `ml_metricas.ver_ganancia` (omitted otherwise). No PM scoping.
-- `GET /ml-publications/view/items/export` and `/products/export` (`ml_ops.ver`): the current view (same filters,
+- `GET /ml-publications/view/items/export` and `/products/export` (screen): the current view (same filters,
   sort, markup filters and permission checks as `/items` and `/products`, through the same dependencies) as a CSV
   streamed page by page, its keys fixed first and each later page read by key on its own session
   (`view/export.py`); every row, no cap. The Agrupado view has no export.
@@ -55,7 +57,8 @@ from pydantic import BaseModel
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_permiso
+from app.api.deps import get_current_user, require_algun_permiso, require_permiso
+from app.core.constants import PERMISOS_PUBLICACIONES_ML
 from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
@@ -74,6 +77,7 @@ from app.services.ml_publications.view import (
     listing,
     products,
     row_metrics,
+    stats,
     status_block,
     status_targets,
     variations,
@@ -101,7 +105,7 @@ from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.permisos_service import PermisosService
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 
-PERMISO_VER = "ml_ops.ver"
+PERMISO_VER = "ml_ops.ver"  # one of the screen's permissions (`PERMISOS_PUBLICACIONES_ML`), not the only one
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
 OFFER_OF_PRODUCT = "oferta_por_producto"  # the `filter_query` param a Producto row's `params` carry with `con_oferta`
 PERMISO_METRICAS = "ml_metricas.ver"  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
@@ -642,6 +646,7 @@ class ProductRowOut(BaseModel):
     marca: Optional[str] = None
     publications_count: int
     stock: Optional[int] = None
+    costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
     params: dict[str, str]
     metrics: Optional[MetricsOut] = None
 
@@ -676,6 +681,11 @@ class KpisResponse(BaseModel):
     period: kpi_strip.BoardPeriod
     kpis: KpiStripOut
     mla_count: int  # the publications the filter selects: the list's `total`, not the ones that sold
+    can_see_margin: bool
+
+
+class StatsResponse(BaseModel):
+    stats: dict[str, int]  # card -> linked products (`stats.compute`); the markup cards only with `can_see_margin`
     can_see_margin: bool
 
 
@@ -988,16 +998,19 @@ class ItemsAsk:
 
 
 def items_ask(
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    user: Usuario = Depends(
+        require_algun_permiso(PERMISOS_PUBLICACIONES_ML)
+    ),  # first: who may ask comes before what is asked
     orden: Optional[str] = Query(
         None,
         description=(
             "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, markup "
             "(ver_ganancia); Métricas ML's figures over the whole filtered set (ml_metricas.ver): facturado_30d, "
-            "unidades_7d, unidades_30d, markup_30d and total_gauss_30d (also ver_ganancia)"
+            "unidades_7d, unidades_30d, markup_30d and total_gauss_30d (also ver_ganancia). Several keys as csv "
+            "(multi-column sort): the markup and the Métricas figures only as the first one"
         ),
     ),
-    direction: Optional[str] = Query(None, alias="dir", description="asc or desc"),
+    direction: Optional[str] = Query(None, alias="dir", description="asc or desc; csv, one per `orden` key"),
     markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia)"),
     markup_min: Optional[str] = Query(None, description="worst variation >= this percent (ver_ganancia)"),
     markup_max: Optional[str] = Query(None, description="worst variation <= this percent (ver_ganancia)"),
@@ -1016,8 +1029,9 @@ def items_ask(
     permisos = PermisosService(auth_db)
     can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
     can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
-    sort_name = (orden or "").strip()
-    if sort_name in METRIC_SORTS and not can_see_sales:
+    # Every key of a multi-column sort is checked as a single sort would be (csv, trimmed, as the parser reads it).
+    sort_names = [name for name in listing.csv_values(orden) if name]
+    if any(name in METRIC_SORTS for name in sort_names) and not can_see_sales:
         raise api_error(
             status.HTTP_403_FORBIDDEN,
             ErrorCode.INSUFFICIENT_PERMISSIONS,
@@ -1028,10 +1042,11 @@ def items_ask(
         or restar_publicidad
         or (markup_min or "").strip()
         or (markup_max or "").strip()
-        or sort_name == "markup"
-        or sort_name in listing.MARGIN_SORTS
-        or (sort_name in METRIC_SORTS and needs_margin(sort_name))
-    )  # blank values are absent parameters and the sort name is trimmed, here as in the parsers
+        or any(
+            name == "markup" or name in listing.MARGIN_SORTS or (name in METRIC_SORTS and needs_margin(name))
+            for name in sort_names
+        )
+    )  # blank values are absent parameters and the sort names are trimmed, here as in the parsers
     if not can_see_margin and asks_for_margin:
         raise api_error(
             status.HTTP_403_FORBIDDEN,
@@ -1052,7 +1067,9 @@ def items_ask(
 @router.get("/items", response_model=ItemsResponse, response_model_exclude_unset=True)
 def get_items(
     response: Response,
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    user: Usuario = Depends(
+        require_algun_permiso(PERMISOS_PUBLICACIONES_ML)
+    ),  # first: who may ask comes before what is asked
     f: PublicationFilter = Depends(filter_query),
     ask: ItemsAsk = Depends(items_ask),
     limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
@@ -1149,7 +1166,9 @@ def _node_out(node: groups.Node) -> dict[str, Any]:
 @router.get("/groups", response_model=GroupsResponse, response_model_exclude_unset=True)
 def get_groups(
     response: Response,
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    user: Usuario = Depends(
+        require_algun_permiso(PERMISOS_PUBLICACIONES_ML)
+    ),  # first: who may ask comes before what is asked
     f: PublicationFilter = Depends(filter_query),
     path: Optional[str] = Query(None, description="csv of the keys of the opened node, root first; empty = roots"),
     dimension: str = Query(groups.DEFAULT_DIMENSION, description=" | ".join(groups.DIMENSIONS)),
@@ -1221,7 +1240,12 @@ def get_groups(
 
 
 def _product_out(
-    row: board.Row, with_metrics: bool, with_margin: bool, has_figures: bool, offer_filter: bool
+    row: board.Row,
+    with_metrics: bool,
+    with_margin: bool,
+    has_figures: bool,
+    offer_filter: bool,
+    costs: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     no_product = row.product_item_id == NO_PRODUCT
     params = {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
@@ -1237,6 +1261,8 @@ def _product_out(
         "stock": row.stock,
         "params": params,
     }
+    if with_margin and costs is not None:
+        out["costo"] = costs.get(row.key)  # the product's cost, as a publication row carries it
     if with_metrics:
         out["metrics"] = _metrics_out(row, with_margin) if has_figures else None
     return out
@@ -1251,49 +1277,64 @@ class ProductsAsk:
     can_see_sales: bool
     sort_name: str
     sort_dir: str
+    then: tuple[tuple[str, bool], ...] = ()  # the sort keys after the first, each with whether it is descending
 
 
 def products_ask(
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    user: Usuario = Depends(
+        require_algun_permiso(PERMISOS_PUBLICACIONES_ML)
+    ),  # first: who may ask comes before what is asked
     orden: Optional[str] = Query(
         None,
         description=(
-            "facturado_30d (default with ml_metricas.ver), unidades_7d, unidades_30d (ml_metricas.ver); markup_30d, "
-            "total_gauss_30d (also ver_ganancia); titulo (the default without ml_metricas.ver)"
+            "csv of: facturado_30d (default with ml_metricas.ver), unidades_7d, unidades_30d (ml_metricas.ver); "
+            "markup_30d, total_gauss_30d (also ver_ganancia); titulo (the default without ml_metricas.ver)"
         ),
     ),
-    direction: Optional[str] = Query(None, alias="dir", description="asc or desc (default desc; asc by titulo)"),
+    direction: Optional[str] = Query(
+        None, alias="dir", description="csv, one per orden key: asc or desc (default desc; asc by titulo)"
+    ),
     auth_db: Session = Depends(get_db),  # the permission checks (see `get_items`)
 ) -> ProductsAsk:
     """The permission checks (403) and the parsing (422) of a Producto-view request's sort."""
     permisos = PermisosService(auth_db)
     can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
     can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
-    sort_name = (orden or "").strip() or (products.DEFAULT_SORT if can_see_sales else products.NEUTRAL_SORT)
-    known = sort_name in products.PRODUCT_SORTS
-    if known and products.needs_metrics(sort_name) and not can_see_sales:
+    default = products.DEFAULT_SORT if can_see_sales else products.NEUTRAL_SORT
+    try:
+        pairs = listing.sort_pairs(orden, direction, default)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    known = [name for name, _ in pairs if name in products.PRODUCT_SORTS]
+    if any(products.needs_metrics(name) for name in known) and not can_see_sales:
         raise api_error(
             status.HTTP_403_FORBIDDEN,
             ErrorCode.INSUFFICIENT_PERMISSIONS,
             f"Se requiere el permiso {PERMISO_METRICAS} para ordenar por las cifras de Métricas ML",
         )
-    if known and products.needs_margin(sort_name) and not can_see_margin:
+    if any(products.needs_margin(name) for name in known) and not can_see_margin:
         raise api_error(
             status.HTTP_403_FORBIDDEN,
             ErrorCode.INSUFFICIENT_PERMISSIONS,
             f"Se requiere el permiso {PERMISO_GANANCIA} para ordenar por markup",
         )
-    default_dir = "asc" if sort_name == products.NEUTRAL_SORT else "desc"
-    sort_dir = (direction or default_dir).strip().lower()
-    if sort_dir not in ("asc", "desc"):
-        raise _unprocessable(FilterError("dir", "must be asc or desc"))
-    return ProductsAsk(can_see_margin, can_see_sales, sort_name, sort_dir)
+    if len({name for name, _ in pairs}) < len(pairs):
+        raise _unprocessable(FilterError("orden", "a sort key appears more than once"))
+    directions = []
+    for name, wanted in pairs:  # an unknown key is the 422 of `products.parse_sort`
+        if wanted not in ("", "asc", "desc"):
+            raise _unprocessable(FilterError("dir", "must be asc or desc"))
+        directions.append(wanted or ("asc" if name == products.NEUTRAL_SORT else "desc"))
+    then = tuple((name, wanted == "desc") for (name, _), wanted in zip(pairs[1:], directions[1:]))
+    return ProductsAsk(can_see_margin, can_see_sales, pairs[0][0], directions[0], then)
 
 
 @router.get("/products", response_model=ProductsResponse, response_model_exclude_unset=True)
 def get_products(
     response: Response,
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    user: Usuario = Depends(
+        require_algun_permiso(PERMISOS_PUBLICACIONES_ML)
+    ),  # first: who may ask comes before what is asked
     f: PublicationFilter = Depends(filter_query),
     ask: ProductsAsk = Depends(products_ask),
     limit: int = Query(listing.DEFAULT_LIMIT, ge=1, le=listing.MAX_LIMIT),
@@ -1317,7 +1358,9 @@ def get_products(
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         with timer.stage("products"):
-            page = products.list_products(db, f, sort_name, sort_dir == "desc", limit, offset)
+            page = products.list_products(
+                db, f, sort_name, sort_dir == "desc", limit, offset, then=ask.then, cost=can_see_margin
+            )
         if f.sin_mla:  # the rows are the Sin MLA products: their total is the count
             sin_mla_count = page.total
         else:
@@ -1334,19 +1377,27 @@ def get_products(
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(rows=len(page.rows), total=page.total)
     rows = [
-        _product_out(row, can_see_sales, can_see_margin, row.key not in page.without_figures, f.oferta is not None)
+        _product_out(
+            row,
+            can_see_sales,
+            can_see_margin,
+            row.key not in page.without_figures,
+            f.oferta is not None,
+            page.costs,
+        )
         for row in page.rows
     ]
     _attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])
-    applied_name, applied_desc = products.applied_sort(f, sort_name, sort_dir == "desc")
+    applied = products.applied_sort(f, sort_name, sort_dir == "desc", ask.then)
+    applied_keys = ((applied[0], applied[1]), *applied[2])
     return {
         "rows": rows,
         "total": page.total,
         "mla_count": page.mla_count,
         "limit": limit,
         "offset": offset,
-        "orden": applied_name,
-        "dir": "desc" if applied_desc else "asc",
+        "orden": ",".join(name for name, _ in applied_keys),
+        "dir": ",".join("desc" if desc else "asc" for _, desc in applied_keys),
         "can_see_margin": can_see_margin,
         **({} if sin_mla_count is None else {"sin_mla_count": sin_mla_count}),
     }
@@ -1389,7 +1440,9 @@ def _markup_query(
 
 @router.get("/product-ids", response_model=ProductIdsResponse)
 def get_product_ids(
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    user: Usuario = Depends(
+        require_algun_permiso(PERMISOS_PUBLICACIONES_ML)
+    ),  # first: who may ask comes before what is asked
     f: PublicationFilter = Depends(filter_query),
     markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia), as in /items"),
     markup_min: Optional[str] = Query(None, description="worst variation >= this percent (ver_ganancia)"),
@@ -1444,7 +1497,9 @@ STATUS_ITEM_IDS_OVER_CAP = "demasiadas_publicaciones"
 @router.get("/status-item-ids", response_model=StatusItemIdsResponse)
 def get_status_item_ids(
     target: Literal["paused", "active"] = Query(..., description="the status the bulk action asks for"),
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    user: Usuario = Depends(
+        require_algun_permiso(PERMISOS_PUBLICACIONES_ML)
+    ),  # first: who may ask comes before what is asked
     _may_change: Usuario = Depends(require_permiso(PERMISO_PAUSAR)),
     f: PublicationFilter = Depends(filter_query),
     markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia), as in /items"),
@@ -1498,7 +1553,9 @@ def _csv_response(body: Any, name: str) -> StreamingResponse:
 
 @router.get("/items/export")
 def export_items(
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    user: Usuario = Depends(
+        require_algun_permiso(PERMISOS_PUBLICACIONES_ML)
+    ),  # first: who may ask comes before what is asked
     f: PublicationFilter = Depends(filter_query),
     ask: ItemsAsk = Depends(items_ask),  # the list's own checks and parsing: the file cannot show what it cannot
     db: Session = Depends(get_view_db),
@@ -1578,7 +1635,9 @@ def export_items(
 
 @router.get("/products/export")
 def export_products(
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    user: Usuario = Depends(
+        require_algun_permiso(PERMISOS_PUBLICACIONES_ML)
+    ),  # first: who may ask comes before what is asked
     f: PublicationFilter = Depends(filter_query),
     ask: ProductsAsk = Depends(products_ask),  # the Producto view's own checks and parsing
     db: Session = Depends(get_view_db),
@@ -1595,7 +1654,7 @@ def export_products(
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         f = listing.resolve_pm_pairs(db, f)
-        keys = products.ordered_product_keys(db, f, ask.sort_name, descending, None)  # every row
+        keys = products.ordered_product_keys(db, f, ask.sort_name, descending, None, then=ask.then)  # every row
 
         def read(session: Session, page_keys: Sequence[int]) -> list[list[Any]]:
             page = products.products_for_keys(session, f, list(page_keys))
@@ -1631,7 +1690,7 @@ def get_item_variations(
     restar_publicidad: Optional[bool] = Query(None, description="markup after Ads cost (ver_ganancia)"),
     ads_desde: Optional[str] = Query(None, description="first day of the Ads period, YYYY-MM-DD (ver_ganancia)"),
     ads_hasta: Optional[str] = Query(None, description="last day of the Ads period, YYYY-MM-DD (ver_ganancia)"),
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
     db: Session = Depends(get_view_db),
     auth_db: Session = Depends(get_db),
     ads_provider: AdsCostProvider = Depends(get_ads_provider),
@@ -1681,7 +1740,7 @@ def get_item_variations(
 def get_item_detail(
     response: Response,
     item_id: str = Path(..., pattern=admin.ITEM_ID_PATTERN),
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
     db: Session = Depends(get_view_db),
     auth_db: Session = Depends(get_db),  # the permission checks and the pricing tables (see `get_items`)
 ) -> dict[str, Any]:
@@ -1724,7 +1783,7 @@ def get_item_events(
     item_id: str = Path(..., pattern=admin.ITEM_ID_PATTERN),
     cursor: Optional[str] = Query(None, description="opaque position returned as next_cursor by the previous page"),
     limit: int = Query(events_view.DEFAULT_LIMIT, ge=1, le=events_view.MAX_LIMIT),
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
     db: Session = Depends(get_view_db),
 ) -> dict[str, Any]:
     """The Eventos tab: a page of the publication's events, newest first. With `events.enabled` off, an empty list
@@ -1758,7 +1817,7 @@ def get_item_history(
     cursor: Optional[str] = Query(None, description="opaque position returned as next_cursor by the previous page"),
     limit: int = Query(history.DEFAULT_LIMIT, ge=1, le=history.MAX_LIMIT),
     tecnicos: bool = Query(False, description="include the technical lines in each entry's rows"),
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
     db: Session = Depends(get_view_db),
 ) -> dict[str, Any]:
     """The Historial tab: a page of the publication's change log, newest first, each row split into the business
@@ -1829,10 +1888,10 @@ def kpi_period(periodo: Optional[str], desde: Optional[str], hasta: Optional[str
 
 
 def require_kpis_access(
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
     auth_db: Session = Depends(get_db),
 ) -> Usuario:
-    """The strip is Métricas' numbers, so it needs `ml_metricas.ver` on top of `ml_ops.ver` (owner decision 4).
+    """The strip is Métricas' numbers, so it needs `ml_metricas.ver` on top of the screen's (owner decision 4).
     A dependency declared first: who may ask is decided before anything asked is validated."""
     if not PermisosService(auth_db).tiene_permiso(user, PERMISO_METRICAS):
         raise api_error(
@@ -1841,6 +1900,43 @@ def require_kpis_access(
             f"Se requiere el permiso {PERMISO_METRICAS} para ver los KPIs",
         )
     return user
+
+
+@router.get("/stats", response_model=StatsResponse)
+def get_stats(
+    response: Response,
+    user: Usuario = Depends(
+        require_algun_permiso(PERMISOS_PUBLICACIONES_ML)
+    ),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
+    tarjetas_sin_mla: bool = Query(
+        False, description="true: also the Sin MLA card (Producto view), absent while a publication filter is on"
+    ),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the permission checks (see `get_items`)
+) -> dict[str, Any]:
+    """Productos' stat cards (`/stats-dinamicos`) over the MLAs the filters select: each card counts the linked
+    products its click lists. The markup cards are margin figures: only with `ml_metricas.ver_ganancia`. The Sin MLA
+    card (`tarjetas_sin_mla`) counts the products no publication is linked to, under the product filters."""
+    timer = Timer("stats")
+    can_see_margin = PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA)
+    try:
+        if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
+            raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+        listing.bound(db)
+        with timer.stage("stats"):
+            cards = stats.compute(db, f, markups=can_see_margin, sin_mla=tarjetas_sin_mla)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    response.headers["Server-Timing"] = timer.server_timing()
+    timer.emit(total=cards["total"])
+    return {"stats": cards, "can_see_margin": can_see_margin}
 
 
 @router.get("/kpis", response_model=KpisResponse, response_model_exclude_unset=True)

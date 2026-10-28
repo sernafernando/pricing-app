@@ -12,6 +12,7 @@ import AuditFilters from '../components/publicacionesMl/AuditFilters';
 import PromoFilters from '../components/publicacionesMl/PromoFilters';
 import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
+import PublicationStatCards from '../components/publicacionesMl/PublicationStatCards';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import ProductPanel from '../components/publicacionesMl/ProductPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
@@ -30,6 +31,7 @@ import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
 import { resolverParams } from '../components/publicacionesMl/bulkParams';
 import ExportModal from '../components/ExportModal';
 import ShortcutsHelp from '../components/publicacionesMl/ShortcutsHelp';
+import useRecalcularCuotasAuto from '../components/publicacionesMl/useRecalcularCuotasAuto';
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
@@ -47,19 +49,25 @@ import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
   AGRUPAR_DIMENSIONS,
-  DEFAULT_DIRECTION,
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
+  pageSizeLabel,
   PRICE_MODES,
+  SIN_MLA,
   buildExportParams,
   buildItemsParams,
   buildKpiParams,
-  effectiveSort,
+  buildStatsParams,
+  effectiveSortKeys,
   hasMarkupFilter,
+  headerSort,
+  isLeadOnlySort,
+  nextSort,
+  sortParams,
   usePublicacionesMLFilters,
 } from '../hooks/usePublicacionesMLFilters';
-import { usePublicacionesMLKpis } from '../hooks/usePublicacionesMLKpis';
+import { usePublicacionesMLKpis, usePublicationStats } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
 import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../utils/mlSellerPanel';
 import {
@@ -268,6 +276,8 @@ export default function PublicacionesML() {
   const pageSize = filters.limite;
   const agrupado = filters.vista === 'agrupado';
   const producto = filters.vista === 'producto';
+  // Productos' Sin MLA: products with no publication, so nothing a publication strip or action could act on.
+  const sinMla = filters.mla === SIN_MLA;
   // The views that load their own rows: `/items` brings them only the state and the facets.
   const ownRows = agrupado || producto;
   const latestRequest = useRef(0);
@@ -365,7 +375,8 @@ export default function PublicacionesML() {
   const { toast, showToast, hideToast } = useToast();
 
   // Like the rows, the strip and the bulk sets ask only a layer known to be the user's (it matters with `colores`).
-  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending);
+  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending && !sinMla);
+  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending);
   const productRows = useProductRows({
     filters: rowFilters,
     pageSize,
@@ -404,6 +415,8 @@ export default function PublicacionesML() {
   const canCalculatePrice = ['canEditClasica', 'canEditMlCuotas', 'canToggleRebate', 'canToggleWebTransf'].some(
     (flag) => priceWritePermissions[flag],
   );
+  // Productos' Auto-recalcular cuotas (S12f2), where a price can be written: button and Alt+R, as in Productos.
+  const autoRecalc = useRecalcularCuotasAuto();
   const [pricingProduct, setPricingProduct] = useState(null);
   const priceEdit = useMemo(
     () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, saving: priceEditor.saving }),
@@ -480,7 +493,7 @@ export default function PublicacionesML() {
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
   // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
   // The Producto view sorts the products by their own figures (`effectiveProductSort`).
-  const sort = producto ? productRows.sort : effectiveSort(filters, { canSeeSales, canSeeMargin });
+  const sort = producto ? productRows.sort : headerSort(effectiveSortKeys(filters, { canSeeSales, canSeeMargin }));
   // A publication's panel takes the place of its product's (`sel` over `prod`); closing either closes the panel.
   const closePanel = () => setFilters({ sel: '', tab: '', prod: '' });
   const selectProduct = (key) => setFilters({ prod: key, sel: '', tab: '' });
@@ -490,9 +503,12 @@ export default function PublicacionesML() {
     ? productRows.rows.find((row) => row.type === 'node' && row.node.key === filters.prod)?.node.label
     : undefined;
   const changeTab = (tab) => setFilters({ tab });
-  const handleSort = (key) => {
-    if (key === sort.key) setFilters({ orden: key, dir: sort.dir === 'asc' ? 'desc' : 'asc' });
-    else setFilters({ orden: key, dir: DEFAULT_DIRECTION[key] ?? 'desc' });
+  // Shift+click adds a column to the sort, like Productos. In the publication list the markup and Métricas' figures
+  // only lead it (they are not database columns): Shift+click on one, or over one, replaces the sort.
+  const handleSort = (key, event) => {
+    if (event?.shiftKey) window.getSelection()?.removeAllRanges(); // Shift+click also extends the text selection
+    const leadOnly = producto ? () => false : isLeadOnlySort;
+    setFilters(sortParams(nextSort(sort.keys, key, { shift: Boolean(event?.shiftKey), leadOnly })));
   };
 
   // Ctrl/Cmd+click opens the publication in ML (side panel when the extension
@@ -607,6 +623,7 @@ export default function PublicacionesML() {
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
+    onToggleAutoRecalc: canCalculatePrice ? autoRecalc.toggle : undefined,
     onToggleHelp: () => setShowShortcuts((open) => !open),
     showToast,
   });
@@ -645,7 +662,7 @@ export default function PublicacionesML() {
             label="Vista"
             options={VISTA_OPTIONS}
             value={filters.vista}
-            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value })}
+            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
           />
           {agrupado && (
             <SegmentedControl
@@ -672,7 +689,7 @@ export default function PublicacionesML() {
             onDone={reloadList}
             openRequest={bulkRequest}
           />
-          <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} />
+          {!sinMla && <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} />}
           <ColumnPicker table={pickerTable} />
           {canExportVista(filters.vista) && (
             <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
@@ -705,7 +722,7 @@ export default function PublicacionesML() {
 
       <StateBanner dataState={data?.data_state} />
 
-      {canSeeKpis && (
+      {canSeeKpis && !sinMla && (
         <PublicationKpiStrip
           state={kpis}
           periodo={periodo}
@@ -713,6 +730,17 @@ export default function PublicacionesML() {
           markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
         />
       )}
+
+      <PublicationStatCards
+        state={stats}
+        filters={filters}
+        canSeeMargin={canSeeMargin}
+        sinMla={producto}
+        onApply={setFilters}
+        onReset={resetFilters}
+        onRetry={stats.reload}
+        markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
+      />
 
       <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
@@ -747,6 +775,17 @@ export default function PublicacionesML() {
             />
           </div>
           <span className={styles.spacer} />
+          {canCalculatePrice && (
+            <button
+              type="button"
+              className={`btn-tesla outline-subtle-primary sm ${autoRecalc.enabled ? 'toggle-active' : ''}`}
+              aria-pressed={autoRecalc.enabled}
+              title="Recalcular las cuotas al guardar un precio (Alt+R)"
+              onClick={autoRecalc.toggle}
+            >
+              {autoRecalc.enabled ? '✓ ' : ''}Auto-recalcular
+            </button>
+          )}
           <button
             type="button"
             className="btn-tesla ghost sm"
@@ -936,6 +975,7 @@ export default function PublicacionesML() {
                 offset={offset}
                 pageSize={pageSize}
                 pageSizeOptions={PAGE_SIZES}
+                pageSizeLabel={pageSizeLabel}
                 summary={
                   <span>
                     mostrando {total === 0 ? 0 : offset + 1}-{Math.min(offset + pageSize, total)} de {total} {unit}

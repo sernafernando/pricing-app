@@ -35,7 +35,14 @@ export default function SellOutCampanasTable({ campanas, selectedId, onSelect })
                 <div>{campana.nombre}</div>
                 {campana.offset_origen_id != null && <div className={styles.sub}>{`Del offset #${campana.offset_origen_id}`}</div>}
               </td>
-              <td>{beneficio(campana)}</td>
+              <td>
+                <div>{beneficio(campana)}</div>
+                {campana.items?.length > 0 && (
+                  <div className={styles.sub}>
+                    {campana.items.length === 1 ? '1 monto por producto' : `${campana.items.length} montos por producto`}
+                  </div>
+                )}
+              </td>
               <td>{`${formatDateOnly(campana.fecha_desde, DIA)} – ${formatDateOnly(campana.fecha_hasta, DIA)}`}</td>
               <td className={styles.num}>
                 <div>{`${formatEntero(campana.resumen?.unidades)} u`}</div>

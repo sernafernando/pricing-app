@@ -140,7 +140,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         // The route opens with ml_metricas.ver (screen catalog), but the menu lists it only for ver_ganancia: without it
         // the page shows nothing but a notice.
         { label: 'Aportes de marcas (Ads ML)', path: '/ml-ads-aportes', permiso: 'ml_metricas.ver_ganancia', badge: 'Nuevo' },
-        { label: 'Publicaciones ML', path: '/ml-publicaciones', permiso: 'ml_ops.ver', badge: 'Nuevo' },
+        { label: 'Publicaciones ML', path: '/ml-publicaciones', permiso: 'productos.ver,ml_ops.ver', multiple: true, badge: 'Nuevo' },
         { label: 'Ventas ML', path: '/ml-ventas-listado', permiso: 'ml_ops.ver' },
         { label: 'Dashboard TP-Link', path: '/dashboard-tplink', permiso: 'dashboard_tplink.ver' },
         { label: 'Ventas por Fuera', path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },

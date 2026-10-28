@@ -39,12 +39,14 @@ vi.mock('../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   productosPropiosAPI: { get: vi.fn(() => new Promise(() => {})), save: vi.fn() },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: ['TP,LINK', 'EPSON'] } })),
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: ['REDES'] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     pms: vi.fn(() => Promise.resolve({ data: [{ id: 7, nombre: 'Ana' }] })),
+    // The product panel's last purchases: no purchase, these tests are about the panel's opening and closing.
+    detalle: vi.fn(() => Promise.resolve({ data: { producto: {}, pricing: {}, ultimas_compras: [] } })),
     listar: vi.fn(() => Promise.resolve({ data: { productos: [], total: 0 } })),
   },
   equiposAPI: {
@@ -115,6 +117,11 @@ const calls = () => publicacionesMlAPI.items.mock.calls.map(([params]) => params
 const lastParams = () => calls().at(-1);
 const httpError = (status, data = {}) => Object.assign(new Error(`HTTP ${status}`), { response: { status, data } });
 
+const STATS_RESPONSE = {
+  stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 },
+  can_see_margin: false,
+};
+
 const page = async (entry = '/ml-publicaciones') => {
   renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
   await screen.findByText('MLA1100000001');
@@ -128,6 +135,8 @@ beforeEach(() => {
   denied = new Set();
   publicacionesMlAPI.kpis.mockReset();
   publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE });
+  publicacionesMlAPI.stats.mockReset();
+  publicacionesMlAPI.stats.mockResolvedValue({ data: STATS_RESPONSE });
   seedTiendasOficiales([
     { store_id: 471846, nombre: 'TP-Link', clave: null, orden: 0, activa: true },
     { store_id: 57997, nombre: 'Gauss', clave: null, orden: 1, activa: true },
@@ -276,6 +285,49 @@ describe('filters', () => {
   });
 });
 
+describe('stat cards (S12d4, Productos)', () => {
+  const statsParams = () => publicacionesMlAPI.stats.mock.calls.at(-1)[0];
+
+  it("count over the list's filters, without paging or sort", async () => {
+    await page('/ml-publicaciones?marcas=TP-Link&q=router');
+    await waitFor(() => expect(publicacionesMlAPI.stats).toHaveBeenCalled());
+    expect(statsParams()).toMatchObject({ marcas: 'TP-Link', q: 'router' });
+    expect(statsParams()).not.toHaveProperty('limit');
+    expect(statsParams()).not.toHaveProperty('orden');
+    expect(await screen.findByRole('button', { name: 'Stock sin $: 3' })).toBeInTheDocument();
+  });
+
+  it("a card applies its filter and clears the other card filters, keeping the search and brands", async () => {
+    await page('/ml-publicaciones?marcas=TP-Link&q=router&oferta=con_oferta');
+    await userEvent.click(await screen.findByRole('button', { name: 'Stock sin $: 3' }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ stock: 'erp_con_stock', con_precio: false, marcas: 'TP-Link', q: 'router' }));
+    expect(lastParams()).not.toHaveProperty('con_oferta');
+    expect(screen.getByRole('button', { name: 'Stock sin $: 3' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('Total Productos clears the filters', async () => {
+    await page('/ml-publicaciones?estado=active&precio=sin_precio');
+    await userEvent.click(await screen.findByRole('button', { name: 'Total Productos: 40' }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('estado'));
+    expect(lastParams()).not.toHaveProperty('con_precio');
+  });
+
+  it('the Producto view asks mejor oferta of the product, as its rows', async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto&oferta=con_oferta'] });
+    expect(await screen.findByRole('button', { name: 'Total Productos: 40' })).toBeInTheDocument();
+    expect(statsParams()).toMatchObject({ con_oferta: true, oferta_por_producto: true });
+  });
+
+  it("in the Producto view the Oferta sin Rebate card counts a product's offer on any of its publications, with no offer filter set", async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto'] });
+    expect(await screen.findByRole('button', { name: 'Total Productos: 40' })).toBeInTheDocument();
+    expect(statsParams()).toMatchObject({ oferta_por_producto: true });
+    expect(statsParams()).not.toHaveProperty('con_oferta');
+  });
+});
+
 describe('sorting and paging', () => {
   it('clicking a sortable header sorts by it, its default direction first', async () => {
     await page();
@@ -283,6 +335,20 @@ describe('sorting and paging', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio', dir: 'asc' }));
     await userEvent.click(screen.getByRole('button', { name: /^Precio/ }));
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio', dir: 'desc' }));
+  });
+
+  it('Shift+click adds a column to the sort, numbered in the header; a figure replaces it', async () => {
+    await page('/ml-publicaciones?orden=precio&dir=asc');
+    const header = (name) => screen.getByRole('columnheader', { name });
+    const shiftClick = (name) => fireEvent.click(within(header(name)).getByRole('button'), { shiftKey: true });
+    shiftClick(/^Propio/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio,stock_propio', dir: 'asc,desc' }));
+    expect(within(header(/^Propio/)).getByTestId('sort-order')).toHaveTextContent('2');
+    expect(within(header(/^Precio(?!s| [A-Z])/)).getByTestId('sort-order')).toHaveTextContent('1');
+    shiftClick(/^Propio/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio,stock_propio', dir: 'asc,asc' }));
+    shiftClick(/^Facturado 30D/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'facturado_30d', dir: 'desc' }));
   });
 
   it('defaults to Facturado 30D, highest first, like Métricas: the whole set ranked by the backend', async () => {
@@ -444,6 +510,12 @@ describe('page size', () => {
     await page('/ml-publicaciones?pagina=3');
     await userEvent.selectOptions(screen.getByLabelText('Filas por página'), '25');
     await waitFor(() => expect(lastParams()).toMatchObject({ limit: 25, offset: 0 }));
+  });
+
+  it('"Todos" asks for every row on one page, as Productos does', async () => {
+    await page('/ml-publicaciones?pagina=3');
+    await userEvent.selectOptions(screen.getByLabelText('Filas por página'), 'Todos');
+    await waitFor(() => expect(lastParams()).toMatchObject({ limit: 9999, offset: 0 }));
   });
 });
 
@@ -1283,6 +1355,14 @@ describe('the Producto view', () => {
     await waitFor(() => expect(productCalls().at(-1)).toMatchObject({ orden: 'unidades_7d', dir: 'desc' }));
   });
 
+  it('Shift+click combines the figures of the products', async () => {
+    await products();
+    fireEvent.click(screen.getByRole('button', { name: /^7D/ }), { shiftKey: true });
+    await waitFor(() =>
+      expect(productCalls().at(-1)).toMatchObject({ orden: 'facturado_30d,unidades_7d', dir: 'desc,desc' }),
+    );
+  });
+
   it('opens a publication of a product in the side panel, as the list does', async () => {
     publicacionesMlAPI.detail.mockReturnValue(new Promise(() => {}));
     const user = userEvent.setup();
@@ -1330,7 +1410,7 @@ describe('the product panel', () => {
     const user = userEvent.setup();
     await products('/ml-publicaciones?vista=producto&prod=4101');
     const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
-    await user.click(await within(opened).findByRole('button', { name: /MLA1100000001/ }));
+    await user.click(await within(opened).findByRole('button', { name: /^MLA1100000001/ }));
 
     const detail = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
     expect(productPanel()).not.toBeInTheDocument();
@@ -1796,7 +1876,7 @@ describe("Productos' price columns (S11)", () => {
     expect(within(table()).getByRole('columnheader', { name: /Precio Clásica/ })).toBeInTheDocument();
     expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
     expect(productosAPI.listar).toHaveBeenCalledTimes(1);
-    expect(productosAPI.listar).toHaveBeenCalledWith({ item_ids: '4101,4102', page: 1, page_size: 2 });
+    expect(productosAPI.listar).toHaveBeenCalledWith({ item_ids: '4101,4102', page: 1, page_size: 2 }, { signal: expect.any(AbortSignal) });
     // The markup only with ver_ganancia, as every markup of this screen.
     expect(within(table()).queryByText('21,5%')).not.toBeInTheDocument();
   });
@@ -1874,6 +1954,61 @@ describe("editing Productos' prices in the table (S11c)", () => {
     await page();
     expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
     expect(within(table()).queryByRole('button', { name: /^Editar Precio/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("Productos' Auto-recalcular cuotas (S12f2)", () => {
+  const PRICED = [{ item_id: 4101, precio_lista_ml: 12345.5, markup: 21.5 }];
+  beforeEach(() => {
+    window.localStorage.removeItem('recalcularCuotasAuto');
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+    preciosAPI.setRapido.mockClear();
+  });
+  afterEach(() => window.localStorage.removeItem('recalcularCuotasAuto'));
+  const table = () => screen.getByRole('table', { name: /Publicaciones de Mercado Libre/ });
+  const toggle = () => screen.getByRole('button', { name: /Auto-recalcular/ });
+  const editClasica = async (user, text) => {
+    await user.click((await within(table()).findAllByRole('button', { name: /^Editar Precio Clásica/ }))[0]);
+    const input = within(table()).getByRole('textbox', { name: 'Precio Clásica' });
+    await user.clear(input);
+    await user.type(input, `${text}{Enter}`);
+  };
+
+  it("is on by default, as in Productos, and a price saved recalculates the cuotas", async () => {
+    const user = userEvent.setup();
+    await page();
+    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+    await editClasica(user, '15000');
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, recalcular_cuotas: true })));
+  });
+
+  it("the button turns it off for this browser (Productos' own preference) and the next price keeps the cuotas", async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.click(toggle());
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+    expect(window.localStorage.getItem('recalcularCuotasAuto')).toBe('false');
+    await editClasica(user, '15000');
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, recalcular_cuotas: false })));
+  });
+
+  it('starts from what Productos left, and Alt+R flips it back', async () => {
+    window.localStorage.setItem('recalcularCuotasAuto', 'false');
+    await page();
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.keyDown(document.body, { key: 'r', code: 'KeyR', altKey: true });
+    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+    expect(window.localStorage.getItem('recalcularCuotasAuto')).toBe('true');
+  });
+
+  it('without a price edit permission there is no button and Alt+R changes nothing', async () => {
+    canEditPrices = false;
+    await page();
+    expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Auto-recalcular/ })).not.toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: 'r', code: 'KeyR', altKey: true });
+    expect(window.localStorage.getItem('recalcularCuotasAuto')).toBeNull();
   });
 });
 
@@ -2112,5 +2247,53 @@ describe("Productos' price-list exports (S12c)", () => {
     await page();
 
     expect(screen.queryByRole('button', { name: /Listas de precios/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("Productos' Sin MLA in the Producto view", () => {
+  const productCalls = () => publicacionesMlAPI.products.mock.calls.map(([params]) => params);
+  const sinMlaGroup = () => screen.findByRole('group', { name: 'Sin MLA' });
+  const products = async (entry) => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
+    await screen.findByText('Router Archer AX55');
+  };
+
+  beforeEach(() => {
+    publicacionesMlAPI.products.mockReset();
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120, sin_mla_count: 37 }) });
+    publicacionesMlAPI.stats.mockResolvedValue({
+      data: { ...STATS_RESPONSE, stats: { ...STATS_RESPONSE.stats, sin_mla: 37, sin_mla_con_stock: 20, sin_mla_sin_stock: 17, sin_mla_nuevos: 3 } },
+    });
+  });
+
+  it('a stat card counts them and lists them on click, clearing the publication filters (S12d4c)', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&estado=active&marcas=TP-Link');
+    expect(publicacionesMlAPI.stats.mock.calls.at(-1)[0]).toMatchObject({ tarjetas_sin_mla: true });
+    const total = within(await sinMlaGroup()).getByRole('button', { name: 'Total: 37' });
+    expect(total).toHaveAttribute('aria-pressed', 'false');
+    await user.click(total);
+    await waitFor(() =>
+      expect(productCalls().at(-1)).toEqual({ marcas: 'TP-Link', con_mla: false, orden: 'titulo', dir: 'asc', limit: 50, offset: 0 }),
+    );
+    expect(within(await sinMlaGroup()).getByRole('button', { name: 'Total: 37' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Con Precio: 35' })); // any other card leaves Sin MLA
+    await waitFor(() => expect(productCalls().at(-1).con_mla).toBeUndefined());
+  });
+
+  it('hides what counts or changes publications: the KPI strip and "Pausar / activar"', async () => {
+    await products('/ml-publicaciones?vista=producto&mla=sin_mla');
+    expect(screen.queryByRole('region', { name: 'Indicadores de las publicaciones' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Pausar \/ activar/ })).not.toBeInTheDocument();
+  });
+
+  it('is only the Producto view: leaving it drops the filter', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&mla=sin_mla');
+    await user.click(screen.getByRole('button', { name: 'Publicaciones' }));
+    expect(screen.queryByRole('group', { name: 'Sin MLA' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Producto' }));
+    await screen.findByText('Router Archer AX55');
+    await waitFor(() => expect(productCalls().at(-1).con_mla).toBeUndefined());
   });
 });

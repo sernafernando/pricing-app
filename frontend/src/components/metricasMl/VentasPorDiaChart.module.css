@@ -1,0 +1,132 @@
+/* "Ventas por día": the old dashboard's daily bars (DashboardMetricasML), on the board's card surface. */
+
+.card {
+  margin-bottom: var(--spacing-md);
+  padding: 12px 14px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs) var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+.legend {
+  display: inline-flex;
+  gap: var(--spacing-md);
+  margin-left: auto;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legendItem::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cf-accent-blue);
+}
+
+.bars {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.track {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 100%;
+  height: 160px;
+}
+
+.bar {
+  display: block;
+  width: 100%;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--cf-accent-blue);
+}
+
+.value {
+  margin-bottom: 2px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text-primary);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  visibility: hidden;
+}
+
+.day:hover .value,
+.day[data-extremo] .value {
+  visibility: visible;
+}
+
+.day[data-extremo='max'] .bar,
+.legendItem[data-extremo='max']::before {
+  background: var(--cf-accent-green);
+}
+
+.day[data-extremo='min'] .bar,
+.legendItem[data-extremo='min']::before {
+  background: var(--cf-accent-red);
+}
+
+.date {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+.ops {
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--tone-neutral-bg);
+  color: var(--tone-neutral-fg);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}

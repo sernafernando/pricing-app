@@ -86,6 +86,16 @@ class TestPermission:
         response = get(client, admin_auth_headers, orden="markup_30d")
         assert response.status_code == 403 and GANANCIA in response.json()["error"]["message"]
 
+    @pytest.mark.parametrize(
+        ("orden", "has", "needs"),
+        [("titulo,facturado_30d", (VER, GANANCIA), METRICAS), ("titulo,markup_30d", (VER, METRICAS), GANANCIA)],
+    )
+    def test_every_sort_key_is_checked(self, client, sold, db, rol_admin, admin_auth_headers, orden, has, needs):
+        grant(db, rol_admin, *has)
+        for url in (URL, URL + "/export"):
+            response = client.get(url, headers=admin_auth_headers, params={"orden": orden})
+            assert response.status_code == 403 and needs in response.json()["error"]["message"], (url, orden)
+
     def test_without_ml_metricas_ver_the_rows_come_by_title_and_without_figures(
         self, client, sold, db, rol_admin, admin_auth_headers
     ) -> None:
@@ -141,6 +151,24 @@ class TestRows:
         metrics = by_key(got["rows"])["77"]["metrics"]
         assert MARGIN <= set(metrics) and metrics["markup_30d"] == 100.0  # every seeded order: TG 1 over cost 1
 
+    def test_the_product_cost_comes_with_ver_ganancia_in_its_own_currency(
+        self, client, sold, db, rol_admin, admin_auth_headers
+    ):
+        with sold.begin() as conn:
+            seed.add_cost(conn, 77, 50.0, moneda_costo="USD")
+        grant(db, rol_admin, VER, GANANCIA)
+        rows = by_key(body(client, admin_auth_headers, estado="active")["rows"])
+        assert rows["77"]["costo"] == {"amount": 50.0, "currency": "USD"}
+        assert rows["78"]["costo"] is None  # a product with no cost on record
+        assert rows["0"]["costo"] is None  # "Sin producto" has no product, so no cost
+
+    def test_without_ver_ganancia_a_product_row_has_no_cost(self, client, sold, db, rol_admin, admin_auth_headers):
+        with sold.begin() as conn:
+            seed.add_cost(conn, 77, 50.0, moneda_costo="USD")
+        grant(db, rol_admin, VER, METRICAS)
+        rows = body(client, admin_auth_headers, estado="active")["rows"]
+        assert all("costo" not in row for row in rows)
+
 
 class TestPaging:
     def test_sorted_by_a_figure_paged_and_counted(self, client, sold, db, rol_admin, admin_auth_headers):
@@ -150,9 +178,47 @@ class TestPaging:
         assert [r["key"] for r in first["rows"] + second["rows"]] == ["0", "77"]  # 4 units vs 2 + 1
         assert (first["total"], first["mla_count"], first["limit"], first["offset"]) == (3, 4, 1, 0)
 
+    def test_the_whole_list_fits_one_page_as_productos_todos(self, client, sold, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER, METRICAS)
+        page = body(client, admin_auth_headers, limit=9999)
+        assert (len(page["rows"]), page["total"], page["limit"]) == (3, 3, 9999)
+        assert get(client, admin_auth_headers, limit=10001).status_code == 422
+
     def test_the_default_is_by_gross_descending(self, client, sold, db, rol_admin, admin_auth_headers):
         grant(db, rol_admin, VER, METRICAS)
         assert [r["key"] for r in body(client, admin_auth_headers)["rows"]] == ["0", "77", "78"]  # no sales last
+
+    def test_several_keys_each_with_its_direction_and_the_answer_names_them(
+        self, client, sold, pg, db, rol_admin, admin_auth_headers
+    ):
+        with pg.begin() as conn:  # a second product with no figures: it ties with Antena (78)
+            seed.add_product(conn, 79, "R79", "Zeta")
+            seed.add_item(conn, "MLA5", status="active")
+            seed.add_link(conn, "MLA5", 79)
+        grant(db, rol_admin, VER, METRICAS)
+        for direction, tail in (("desc,desc", ["79", "78"]), ("desc,asc", ["78", "79"])):
+            got = body(client, admin_auth_headers, orden="unidades_30d,titulo", dir=direction)
+            assert [r["key"] for r in got["rows"]] == ["0", "77", *tail]
+            assert (got["orden"], got["dir"]) == ("unidades_30d,titulo", direction)
+        got = body(client, admin_auth_headers, orden="unidades_30d,titulo")  # a missing direction: the key's default
+        assert got["dir"] == "desc,asc"
+
+    @pytest.mark.parametrize(
+        ("orden", "direction", "field"),
+        [
+            ("titulo,titulo", None, "orden"),
+            ("titulo,precio", None, "orden"),
+            ("titulo", "asc,desc", "dir"),
+            ("titulo,unidades_30d", "asc,sideways", "dir"),
+        ],
+    )
+    def test_a_bad_sort_list_is_a_422_naming_it(
+        self, client, sold, db, rol_admin, admin_auth_headers, orden, direction, field
+    ):
+        grant(db, rol_admin, VER, METRICAS)
+        params = {"orden": orden, **({} if direction is None else {"dir": direction})}
+        response = get(client, admin_auth_headers, **params)
+        assert response.status_code == 422 and response.json()["error"]["field"] == field, response.text
 
     def test_an_unknown_sort_is_a_422_naming_it(self, client, sold, db, rol_admin, admin_auth_headers):
         grant(db, rol_admin, VER, METRICAS)

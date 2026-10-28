@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime
 
+from unittest.mock import patch
+
 import pytest
 
 from app.models.comision_config import SubcategoriaGrupo
@@ -27,6 +29,9 @@ import app.models.item_cost_list_history  # noqa: F401
 import app.models.commercial_transaction  # noqa: F401
 import app.models.tb_supplier  # noqa: F401
 import app.models.precio_gremio_override  # noqa: F401
+
+from tests.integration.test_productos_listing_golden import _FETCH_LIST_COST
+from tests.integration.test_productos_tienda_orden import _guard_incompatible_raw_sql as _guard_tienda_raw_sql
 
 CUOTAS = ("3", "6", "9", "12")
 
@@ -309,3 +314,84 @@ def test_a_failing_markup_input_leaves_markups_empty_and_the_detail_still_answer
     assert data["markup_3_cuotas"] is None
     assert data["markup_6_cuotas"] is None
     assert any("sin cotizacion" in record.getMessage() for record in caplog.records)
+
+
+# A product's own extra instalment markup (`markup_adicional_cuotas_custom` / `_pvp_custom`): 0 is a real setting
+# ("no extra markup"), only None follows the global one. The detail and the config PATCH used to test the value's
+# truth, so a saved 0 came back as None and Productos / Publicaciones ML showed it as "global".
+
+
+def _con_markup_adicional(db, producto, web, pvp):
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == producto.item_id).one()
+    pricing.markup_adicional_cuotas_custom = web
+    pricing.markup_adicional_cuotas_pvp_custom = pvp
+    db.flush()
+
+
+def test_detail_returns_a_saved_zero_extra_markup_as_zero(client, auth_headers, db, producto_con_cuotas):
+    _con_markup_adicional(db, producto_con_cuotas, 0, 0)
+
+    data = client.get(f"/api/productos/{producto_con_cuotas.item_id}", headers=auth_headers).json()
+
+    assert data["markup_adicional_cuotas_custom"] == 0
+    assert data["markup_adicional_cuotas_pvp_custom"] == 0
+
+
+def test_the_productos_listing_returns_a_saved_zero_extra_markup_as_zero(client, auth_headers, db, producto_con_cuotas):
+    # Productos' instalment-settings modal starts from the listing row, not from the detail.
+    _guard_incompatible_raw_sql(db)
+    _con_markup_adicional(db, producto_con_cuotas, 0, None)
+
+    listing = client.get("/api/productos?page=1&page_size=50", headers=auth_headers).json()["productos"]
+
+    rows = [p for p in listing if p["item_id"] == producto_con_cuotas.item_id]
+    assert len(rows) == 1, f"the product is not once in the listing: {[p['item_id'] for p in listing]}"
+    row = rows[0]
+    assert row["markup_adicional_cuotas_custom"] == 0
+    assert row["markup_adicional_cuotas_pvp_custom"] is None
+
+
+def test_the_tienda_listing_returns_a_saved_zero_extra_markup_as_zero(client, auth_headers, db, producto_con_cuotas):
+    _guard_tienda_raw_sql(db)
+    _con_markup_adicional(db, producto_con_cuotas, None, 0)
+
+    with patch(_FETCH_LIST_COST, return_value={}):
+        response = client.get("/api/productos/tienda?page=1&page_size=50", headers=auth_headers)
+
+    assert response.status_code == 200, response.text
+    rows = [p for p in response.json()["productos"] if p["item_id"] == producto_con_cuotas.item_id]
+    assert len(rows) == 1, f"the product is not once in the tienda listing: {response.json()['productos']}"
+    assert rows[0]["markup_adicional_cuotas_custom"] is None
+    assert rows[0]["markup_adicional_cuotas_pvp_custom"] == 0
+
+
+def test_detail_keeps_none_for_an_extra_markup_never_set(client, auth_headers, db, producto_con_cuotas):
+    _con_markup_adicional(db, producto_con_cuotas, None, 2.5)
+
+    data = client.get(f"/api/productos/{producto_con_cuotas.item_id}", headers=auth_headers).json()
+
+    assert data["markup_adicional_cuotas_custom"] is None
+    assert data["markup_adicional_cuotas_pvp_custom"] == 2.5
+
+
+def test_config_patch_answers_a_saved_zero_extra_markup_as_zero(
+    client, auth_headers, db, grant_permiso, rol_ventas, producto_con_cuotas
+):
+    grant_permiso(rol_ventas, "productos.editar_precio_cuotas")
+
+    response = client.patch(
+        f"/api/productos/{producto_con_cuotas.item_id}/config-cuotas",
+        json={
+            "recalcular_cuotas_auto": None,
+            "markup_adicional_cuotas_custom": 0,
+            "markup_adicional_cuotas_pvp_custom": 0,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["markup_adicional_cuotas_custom"] == 0
+    assert response.json()["markup_adicional_cuotas_pvp_custom"] == 0
+    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == producto_con_cuotas.item_id).one()
+    assert pricing.markup_adicional_cuotas_custom == 0
+    assert pricing.markup_adicional_cuotas_pvp_custom == 0

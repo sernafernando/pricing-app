@@ -5,7 +5,7 @@ import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
 import SellInBonoAlcance from './SellInBonoAlcance';
 import SellInBonoForm from './SellInBonoForm';
-import { BONO_VACIO, alcanceDeBono, bodyDeBono, bonoCompleto, faltanDatos, valoresDeBono } from './sellInBonoValores';
+import { BONO_VACIO, alcanceDeBono, bodyDeBono, bonoCompleto, errorDeModelos, faltanDatos, valoresDeBono } from './sellInBonoValores';
 import { apiMessage, formatEntero, formatMonto } from './sellInFormat';
 import styles from './SellInPanel.module.css';
 
@@ -77,6 +77,10 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
   const guardar = async () => {
     if (!bonoCompleto(valores)) {
       setError(faltanDatos(valores));
+      return;
+    }
+    if (errorDeModelos(valores)) {
+      setError(errorDeModelos(valores));
       return;
     }
     setBusy(true);

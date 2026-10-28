@@ -16,7 +16,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import event, update
+from sqlalchemy import event, text, update
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
@@ -120,6 +120,18 @@ class TestOrder:
     def test_gross_ranks_the_whole_set_ties_by_item_id_unsold_last(self, store) -> None:
         assert ids(store, "facturado_30d", "desc", estado="active") == ["MLA1", "MLA2", "MLA3", "MLA6", *UNSOLD]
         assert ids(store, "facturado_30d", "asc", estado="active") == ["MLA6", "MLA2", "MLA3", "MLA1", *UNSOLD]
+
+    def test_a_next_key_breaks_the_figure_ties_and_the_export_keeps_the_order(self, store) -> None:
+        for mla, title in (("MLA2", "Zeta"), ("MLA3", "Alfa"), ("MLA4", "Zulu"), ("MLA5", "Beta")):
+            store.execute(text("UPDATE ml_items SET title = :t WHERE item_id = :i"), {"t": title, "i": mla})
+        # MLA2 and MLA3 both sold 30; the unsold tie too: the title decides, not the item id
+        expected = ["MLA1", "MLA3", "MLA2", "MLA6", "MLA5", "MLA4"]
+        assert ids(store, "facturado_30d,titulo", "desc", estado="active") == expected
+        assert every_page(store, "facturado_30d,titulo", "desc", estado="active") == expected
+        keys = listing.ordered_keys(
+            store, parse_filter(estado="active"), listing.parse_sort("facturado_30d,titulo", "desc"), None, events=False
+        )
+        assert keys == expected
 
     def test_pages_cut_the_ranked_set_never_rank_the_page(self, store) -> None:
         whole = ids(store, "facturado_30d", "desc", estado="active")

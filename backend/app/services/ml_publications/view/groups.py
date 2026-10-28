@@ -17,9 +17,14 @@ family.
 
 Rules worth knowing before reading the code:
 
-* Every publication is in exactly ONE node of every level, so the counts of a level add up to their parent's.
-  A publication with no linked product has no brand, category or subcategory either: it sits under the `__none__`
-  brand, category and subcategory, in a "Sin producto" product node (`__none__`) whose children are the MLAs.
+* Every publication is in exactly ONE node of every group level, so the counts of a level add up to their parent's.
+  The exception is a publication linked to several products (`filters.product_links`: an item linked per variation
+  can name several): it sits under EACH of its linked products, and under each one's brand, category, subcategory
+  and PM (owner decision: a data-error case, ML variations share the product), once per node, so the counts of
+  such a node may add up to more than its parent. Every level but the store reads the expanded product (`PP`), the
+  same (publication, product) pairs the Producto view reads, so a node opens to exactly what it counts and a
+  product's leaf holds its Producto row. A publication with no linked product sits under the `__none__` brand,
+  category and subcategory, in "Sin producto" (`__none__`).
 * A node's `count` is the `/items` total with the node's own filters (`params`): the node is built from the SAME
   base select (`filters.build_base_select`) the list is, so the two cannot disagree. `params` is what the screen
   appends to the user's filters to fetch the publications of a node; the leaves are never served by this module.
@@ -35,8 +40,8 @@ Rules worth knowing before reading the code:
 * With a `MarkupQuery` (the caller may see margins) each node also carries `negative_count`, `markup_min` and
   `markup_max` (owner decision 7: no average, no Ads sum). They are aggregated in Python from P6's
   computation (`compute_markups`: one inputs pass and one shipping batch, Ads applied when asked) over the
-  publications of the page's nodes, which one query names (the node of each publication), so the statements stay fixed and `negative_count` equals the `/items`
-  total with `markup_neg` under the node's `params`.
+  publications of the page's nodes, which one query names (the node of each publication), so the statements stay
+  fixed and `negative_count` equals the `/items` total with `markup_neg` under the node's `params`.
 
 Postgres only (`bool_or`); its tests are `@pytest.mark.postgres`.
 """
@@ -46,7 +51,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Optional
 
-from sqlalchemy import String, case, cast, func, literal, or_, select
+from sqlalchemy import String, and_, case, cast, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.ml_tienda_oficial import MlTiendaOficial
@@ -69,6 +74,8 @@ from app.services.ml_publications.view.filters import (
     build_base_select,
     decode_key,
     encode_key,
+    linked_product_conditions,
+    product_links,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
 from app.services.ml_publications.view.markup_service import MarkupQuery, aggregate_nodes, compute_markups, gc_paused
@@ -136,7 +143,8 @@ def levels_of(dimension: str) -> tuple[str, ...]:
 @dataclass(frozen=True)
 class Tree:
     """The tree of one request: its levels and the key/label/joins of each group level, built ONCE per request
-    (the columns and the joins of the dimensions must be the same aliases)."""
+    (the columns and the joins of the dimensions must be the same aliases): the product's levels over the expanded
+    product (`PP`), the store over the publication."""
 
     levels: tuple[str, ...]
     dimensions: dict[str, Dimension]
@@ -146,14 +154,21 @@ class Tree:
         return self.levels[:-1]
 
 
+# The tree's own joins (`_scoped`): a publication sits under each of its linked products (`filters.product_links`:
+# item-level link or live variations' links), the set `producto=` / `sin_producto` filter on, and under its brand,
+# category, subcategory and PM.
+PL = product_links("pl_tree")
+PP = T.pl_p
+
+
 def tree_of(dimension: str) -> Tree:
     levels = levels_of(dimension)
     dimensions = {
         name: dimension_of(
             name,
-            marca=T.p.marca,
-            categoria=T.p.categoria,
-            subcategoria_id=T.p.subcategoria_id,
+            marca=PP.marca,
+            categoria=PP.categoria,
+            subcategoria_id=PP.subcategoria_id,
             store_id=T.i.official_store_id,
         )
         for name in levels[:-1]
@@ -177,9 +192,9 @@ def _total(db: Session, page: list[Any], key: Any) -> int:
 
 
 def product_key() -> Any:
-    """The product a publication sits under: its item-level LINK's product id (the one `producto=` filters on), even
-    when that product is gone from the catalog; `NO_GROUP` when the link names none."""
-    return case((T.l.producto_item_id.is_(None), literal(NO_GROUP)), else_=cast(T.l.producto_item_id, String))
+    """The product a publication sits under: a linked product's id (the one `producto=` filters on), even when that
+    product is gone from the catalog; `NO_GROUP` when it has none. Needs `_scoped(products=True)`."""
+    return case((PL.c.producto_item_id.is_(None), literal(NO_GROUP)), else_=cast(PL.c.producto_item_id, String))
 
 
 def family_key() -> Any:
@@ -237,8 +252,15 @@ def _check_path(tree: Tree, path: list[str]) -> None:
 
 
 def _scoped(f: PublicationFilter, path: list[str], tree: Tree, *columns: Any) -> Any:
-    """The base select with the dimensions' lookup tables joined and the ancestors' keys applied."""
+    """The base select, one row per (publication, linked product) (`PL`, `PP`; a publication with no linked product
+    is one row with none), with the dimensions' lookup tables joined and the ancestors' keys applied. Only the
+    products that pass the filter's product conditions are kept: a publication with variations in several products
+    never brings a sibling product (nor its brand) under a node. A group level counts its distinct publications."""
     query = build_base_select(f, *columns)
+    query = query.outerjoin(PL, PL.c.item_id == T.i.item_id).outerjoin(PP, PP.item_id == PL.c.producto_item_id)
+    conditions = linked_product_conditions(f, PL.c.producto_item_id, PP)
+    if conditions:
+        query = query.where(or_(PL.c.producto_item_id.is_(None), and_(*conditions)))
     for dimension in tree.dimensions.values():
         for target, onclause in dimension.joins:
             query = query.join(target, onclause, isouter=True)
@@ -251,14 +273,16 @@ def _group_level(
 ) -> GroupsPage:
     dimension = tree.dimensions[level]
     title = title_of(level, dimension.key, dimension.label)
-    rows = _scoped(f, path, tree, dimension.key.label("k"), title.label("t")).subquery("rows")
+    rows = _scoped(f, path, tree, dimension.key.label("k"), title.label("t"), T.i.item_id.label("item")).subquery(
+        "rows"
+    )
     # One key can carry spelling variants of the same name ("Redes" / "redes "): show the trimmed one, and
     # pick it with the byte-wise "C" collation so the label does not depend on the server's locale. MIN under "C"
     # prefers the capitalized spelling ("TP-Link" over "tp-link").
     shown = func.min(func.trim(rows.c.t).collate("C"))
     ordered = (rows.c.k == NO_GROUP, func.lower(shown), rows.c.k)  # "Sin ..." last, then by name
     page = db.execute(
-        select(rows.c.k, shown, func.count(), _nodes_in_level())
+        select(rows.c.k, shown, func.count(func.distinct(rows.c.item)), _nodes_in_level())
         .group_by(rows.c.k)
         .order_by(*ordered)
         .limit(limit)
@@ -336,10 +360,10 @@ def _with_store_ids(db: Session, f: PublicationFilter, page: GroupsPage) -> Grou
 
 def _product_columns() -> list[Any]:
     label = case(
-        (T.l.producto_item_id.is_(None), literal(NO_PRODUCT_LABEL)),
-        else_=func.coalesce(T.p.descripcion, T.p.codigo, literal("Producto #") + cast(T.l.producto_item_id, String)),
+        (PL.c.producto_item_id.is_(None), literal(NO_PRODUCT_LABEL)),
+        else_=func.coalesce(PP.descripcion, PP.codigo, literal("Producto #") + cast(PL.c.producto_item_id, String)),
     )
-    return [product_key().label("k"), label.label("t"), T.p.codigo.label("codigo"), T.l.producto_item_id.label("pid")]
+    return [product_key().label("k"), label.label("t"), PP.codigo.label("codigo"), PL.c.producto_item_id.label("pid")]
 
 
 def _products(
@@ -447,11 +471,13 @@ def _members(db: Session, f: PublicationFilter, tree: Tree, path: list[str], pag
     """`(item_id, node key)` of every publication of the page's nodes, the key written as the node's own."""
     if page.level == KIND_FAMILY:
         return _family_members(db, f, tree, path, page)
-    key = tree.dimensions[page.level].key if page.level in tree.dimensions else product_key()
+    is_product = page.level not in tree.dimensions
+    key = product_key() if is_product else tree.dimensions[page.level].key
     raw = {_raw_key(page.level, node.key): node.key for node in page.nodes}
     # Plain columns, straight through the connection: the ORM loading layer costs more than the rows on a big set.
     query = _scoped(f, path, tree, T.i.item_id, key.label("k")).where(key.in_(list(raw)))
-    return [(item_id, raw[k]) for item_id, k in db.connection().execute(query).all()]
+    # a group node holds a publication once, whatever the number of its products in it
+    return list(dict.fromkeys((item_id, raw[k]) for item_id, k in db.connection().execute(query).all()))
 
 
 def _family_members(
@@ -469,6 +495,15 @@ def _family_members(
     return [(item_id, item_id if item_id in lone else k) for item_id, k in rows if item_id in lone or k in grouped]
 
 
+def _path_product(tree: Tree, path: list[str], page: GroupsPage) -> Optional[int]:
+    """The product a family page hangs from (its path's product key), so its nodes read that product's units;
+    None above the product level and under "Sin producto"."""
+    if page.level != KIND_FAMILY or KIND_PRODUCT not in tree.levels:
+        return None
+    key = path[tree.levels.index(KIND_PRODUCT)]  # a family page's path names every tree level (`level_of`)
+    return int(key) if key.isdigit() else None
+
+
 def _with_markup(
     db: Session, f: PublicationFilter, tree: Tree, path: list[str], page: GroupsPage, markup: MarkupQuery
 ) -> GroupsPage:
@@ -478,12 +513,16 @@ def _with_markup(
     with gc_paused():  # tens of thousands of small objects, none in a cycle (see `gc_paused`)
         members = _members(db, f, tree, path, page)
     # `compute_markups` pauses the collector itself around the inputs and the pricing, never around the Ads provider.
-    if len(members) > ITEM_IDS_MAX:
+    # the product level holds a publication once per linked product: price each publication once
+    item_ids = list(dict.fromkeys(item for item, _key in members))
+    if len(item_ids) > ITEM_IDS_MAX:
         result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
     else:
-        result = compute_markups(db, markup.pricing_db, item_ids=[item for item, _key in members], ads=markup.ads)
+        result = compute_markups(db, markup.pricing_db, item_ids=item_ids, ads=markup.ads)
     with gc_paused():
-        figures = aggregate_nodes(result.items, members)
+        figures = aggregate_nodes(
+            result.items, members, products=page.level == KIND_PRODUCT, product=_path_product(tree, path, page)
+        )
     nodes = []
     for node in page.nodes:
         found = figures.get(node.key)

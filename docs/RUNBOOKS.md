@@ -121,7 +121,17 @@ quoted text:
   `raw_order` (error `[transient] get_order returned nothing to the activity
   receiver`); the replay skips it, and it is deleted when the order lands in
   `ml_orders_ops` (the sweep, the drain or the backfill ingesting it). An order
-  already quarantined with its payload keeps that row.
+  already quarantined with its payload keeps that row. The
+  `ml_orders.quarantine_retry` worker also asks ML for it again, past the same
+  backoff and with no attempt cap: an order ML gives back goes through the
+  receiver's `process_batch`, and its row is deleted only once the order is in
+  `ml_orders_ops` (a write error is quarantined with its payload for the
+  replay; an order left out for any other reason, such as outside the window,
+  keeps its row and is asked again after each backoff, at most every 6 h); one ML answers
+  a 404 `order_not_found` for is deleted (`activity_receiver: ML has no order_id=...;
+  dropped from the quarantine` WARNING); any other answer counts the attempt
+  and waits. Its job detail reports `refetched`, `refetch_landed`, `dropped`
+  and `refetch_failed`.
 
 **Existing `ml_ops_divergence` rows.** Every other row in that table (the
 old alarms) no longer has a reader, and nothing writes, resolves or purges

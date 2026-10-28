@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { publicacionesMlAPI } from '../../services/api';
-import { buildProductsParams, effectiveProductSort } from '../../hooks/usePublicacionesMLFilters';
+import { buildProductsParams, effectiveProductSortKeys, headerSort } from '../../hooks/usePublicacionesMLFilters';
 import { buildLeafParams } from './groupNodes';
 import { flattenTree } from './groupTree';
 
@@ -19,9 +19,13 @@ import { flattenTree } from './groupTree';
  * request of the previous list is dropped.
  */
 const ROOT = '';
-const NO_SUMMARY = { total: 0, mlaCount: 0 };
+// `sinMlaCount`: Productos' Sin MLA card; null when unknown (a publication filter is on, or nothing loaded yet).
+const NO_SUMMARY = { total: 0, mlaCount: 0, sinMlaCount: null };
 
-/** A row of `/view/products` as a leaf node of the tree. `metrics` is absent without `ml_metricas.ver`. */
+/**
+ * A row of `/view/products` as a leaf node of the tree. `metrics` is absent without `ml_metricas.ver`, `costo` without
+ * `ml_metricas.ver_ganancia`.
+ */
 export function readProduct(raw) {
   return {
     kind: 'producto',
@@ -35,6 +39,7 @@ export function readProduct(raw) {
     codigo: raw.codigo ?? null,
     marca: raw.marca ?? null,
     stock: raw.stock ?? null,
+    costo: raw.costo ?? null, // the product's cost, only with ml_metricas.ver_ganancia
     metrics: raw.metrics ?? null,
     colorMarcado: raw.color_marcado ?? null,
     colorHintGlobal: raw.color_hint_global ?? null,
@@ -61,7 +66,7 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
     latest.current = { filters, pageSize, permissions };
   }, [filters, pageSize, permissions]);
 
-  const sort = effectiveProductSort(filters, permissions);
+  const sort = headerSort(effectiveProductSortKeys(filters, permissions));
   // What the products are asked with: the selection does not restart the list.
   const listKey = enabled ? JSON.stringify(buildProductsParams(filters, pageSize, permissions)) : '';
 
@@ -89,7 +94,11 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
           const rows = (response.data?.rows ?? []).map(readProduct);
           // The page is the whole branch: the pager, not "Ver más", moves through the products.
           setBranches((all) => ({ ...all, [key]: { ...all[key], status: 'ready', rows, total: rows.length } }));
-          setSummary({ total: response.data?.total ?? 0, mlaCount: response.data?.mla_count ?? 0 });
+          setSummary({
+            total: response.data?.total ?? 0,
+            mlaCount: response.data?.mla_count ?? 0,
+            sinMlaCount: response.data?.sin_mla_count ?? null,
+          });
           return;
         }
         const items = response.data?.items ?? [];
@@ -154,6 +163,7 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
     sort,
     total: summary.total,
     mlaCount: summary.mlaCount,
+    sinMlaCount: summary.sinMlaCount,
     loading: !root || root.status === 'loading',
   };
 }

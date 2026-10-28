@@ -18,6 +18,8 @@ import AdsKpiBlock from '../components/metricasMl/AdsKpiBlock';
 import AdsUnattributedPanel from '../components/metricasMl/AdsUnattributedPanel';
 import AdsModeControl from '../components/metricasMl/AdsModeControl';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
+import VentasPorDiaChart from '../components/metricasMl/VentasPorDiaChart';
+import MetricasEnviosPanel from '../components/metricasMl/MetricasEnviosPanel';
 import BoardTable, { BOARD_SORT_KEYS } from '../components/metricasMl/BoardTable';
 import { adsRequestParams } from '../utils/metricasMlAds';
 import { TP_SOLO_DIMENSION, tpErrorMessage, tpRequestParams, tpSoloSortKey } from '../utils/metricasMlTp';
@@ -844,6 +846,10 @@ export default function MetricasML() {
       <AdsAppliedBanner ads={ads} />
 
       <MetricasKpiStrip kpis={board?.kpis} canSeeMargin={canSeeMargin} groupBy={groupBy} loading={loading} tpSolo={tpSolo} />
+
+      <VentasPorDiaChart period={board?.period} kpis={board?.kpis} />
+
+      <MetricasEnviosPanel params={filterParams} />
 
       {adsOn && <AdsKpiBlock ads={ads} />}
 

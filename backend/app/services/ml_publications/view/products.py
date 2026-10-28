@@ -2,11 +2,12 @@
 the MLAs the screen's filter selects, its figures the sum of its publications' Métricas ML figures over the last 30
 business days.
 
-One source of truth on this screen: the publication -> product link (`ml_item_product_links`, item level, joined
-exactly as the base select joins it). A row groups the publications linked to one product; "Sin producto" groups the
-ones with no linked product -- the very sets `/items?producto=` and `/items?sin_producto=` list under the same
-filters, so a row's `publications_count` is what opening it shows. The product a sale's frozen cost or the ERP
-mirror names (what Métricas ML's own product rows group by) plays no part here.
+One source of truth on this screen: the publication -> product link (`ml_item_product_links`, read by
+`filters.product_links`: the item-level link, or an item's live variations' links). A row groups the publications linked
+to one product (an item whose variations name two products is in both rows, and counted once in `mla_count`); "Sin
+producto" groups the ones with no linked product -- the very sets `/items?producto=` and `/items?sin_producto=` list
+under the same filters, so a row's `publications_count` is what opening it shows. The product a sale's frozen cost or
+the ERP mirror names (what Métricas ML's own product rows group by) plays no part here.
 
 Nothing is computed twice (one metric, one source). The filter becomes the Board's MLA set (`BoardFilter.mla_source`)
 and the Board answers its PUBLICATION rows -- the figures `/items` shows for each MLA (`row_metrics`). ONE statement
@@ -33,7 +34,22 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Iterator, Optional, Sequence
 
-from sqlalchemy import ARRAY, Date, Integer, String, Text, and_, any_, case, cast, func, literal, null, select
+from sqlalchemy import (
+    ARRAY,
+    Date,
+    Integer,
+    String,
+    and_,
+    any_,
+    case,
+    cast,
+    false,
+    func,
+    literal,
+    null,
+    or_,
+    select,
+)
 from sqlalchemy.orm import Session
 
 from app.services.ml_daily_metrics import board
@@ -41,17 +57,19 @@ from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services.ml_publications.view import row_metrics
 from app.services.ml_publications.view.caps import MAX_EXPLICIT_PRODUCT_IDS
 from app.services.ml_publications.view.filters import (
-    LINK_ITEM_LEVEL,
     FilterError,
     PublicationFilter,
     T,
     build_base_select,
     erp_stock,
+    has_product,
+    linked_product_conditions,
+    product_links,
     product_select,
     publication_filter_in,
 )
 from app.services.ml_publications.view.listing import markup_accepted, resolve_pm_pairs
-from app.services.ml_publications.view.markup_service import MarkupQuery
+from app.services.ml_publications.view.markup_service import MarkupQuery, MarkupResult, product_markup
 
 # `orden` -> (the summed row's column, whether it is a margin figure: `ml_metricas.ver_ganancia` only, whether it is a
 # Métricas figure: `ml_metricas.ver` only). The figure names are the ones `/items` sorts by.
@@ -63,6 +81,7 @@ PRODUCT_SORTS: dict[str, tuple[str, bool, bool]] = {
     "total_gauss_30d": ("tg", True, True),
     "titulo": ("name", False, False),
 }
+SortKeys = Sequence[tuple[str, bool]]  # the sort keys after the first, each with whether it is descending
 DEFAULT_SORT = "facturado_30d"
 NEUTRAL_SORT = "titulo"  # the default for a caller who may not see Métricas' figures
 NO_PRODUCT_LABEL = "Sin producto"
@@ -80,10 +99,12 @@ def needs_metrics(key: str) -> bool:
     return PRODUCT_SORTS[key][2]
 
 
-def parse_sort(orden: str) -> str:
+def parse_sort(orden: str, then: SortKeys = ()) -> str:
+    """The first sort key, every key checked (`then`: the keys after it, Productos' multi-column sort)."""
     key = orden.strip()
-    if key not in PRODUCT_SORTS:
-        raise FilterError("orden", f"must be one of {', '.join(PRODUCT_SORTS)}")
+    for name in (key, *(name for name, _ in then)):
+        if name not in PRODUCT_SORTS:
+            raise FilterError("orden", f"must be one of {', '.join(PRODUCT_SORTS)}")
     return key
 
 
@@ -93,27 +114,48 @@ class ProductsPage:
     total: int  # the product rows of the whole filtered set
     mla_count: int  # the publications the filter selects
     without_figures: frozenset[str] = field(default_factory=frozenset)  # keys of rows with no Board row at all
+    # key -> the product's cost in its own currency (`{amount, currency}`, None without one); only when asked
+    costs: dict[str, Optional[dict[str, Any]]] = field(default_factory=dict)
 
 
-def _members(mla_set: Any) -> Any:
-    """Each MLA of the set with its linked product -- the LINK's product id, even when the product is gone from the
-    catalog (its name then reads "Producto #<id>") -- through the base select's own item-level link join
-    (`filters.joined`), so the grouping is exactly what `/items?producto=` and `sin_producto` filter on."""
-    return (
-        select(
-            mla_set.c.mla,
-            # NO_PRODUCT (0) is the Board's own "no product" sentinel; ERP item ids are positive.
-            func.coalesce(T.l.producto_item_id, NO_PRODUCT).label("product"),
-            T.p.descripcion,
-            T.p.codigo,
-            T.p.marca,
-            erp_stock().label("stock"),  # `/items`' own rule: only a `linked` link gives the ERP stock
-        )
-        .select_from(mla_set)
-        .outerjoin(T.l, and_(T.l.item_id == mla_set.c.mla, T.l.variation_id == LINK_ITEM_LEVEL))
-        .outerjoin(T.p, T.p.item_id == T.l.producto_item_id)
-        .subquery("members")
+def product_pairs(f: PublicationFilter, mlas: Any, *columns: Any) -> Any:
+    """`columns` over each MLA of `mlas` once per linked product (`filters.product_links`: its item-level link or its
+    live variations' links; `T.p` the product's catalog row), keeping only the products that pass `f`'s conditions
+    about the product (`filters.linked_product_conditions`): a publication with variations in several products is in
+    the rows of its products that match, never of a sibling that does not. An MLA with no linked product is one row
+    with no product."""
+    pl = product_links("pl_members")
+    query = (
+        select(*(column(pl) if callable(column) else column for column in columns))
+        .select_from(mlas)
+        .outerjoin(pl, pl.c.item_id == mlas.c.mla)
+        .outerjoin(T.p, T.p.item_id == pl.c.producto_item_id)
     )
+    conditions = linked_product_conditions(f, pl.c.producto_item_id, T.p)
+    if f.q is not None:  # `q` also matches the publication's own fields
+        query = query.join(T.i, T.i.item_id == mlas.c.mla)
+    if conditions:
+        query = query.where(or_(pl.c.producto_item_id.is_(None), and_(*conditions)))
+    return query
+
+
+def _members(f: PublicationFilter, mla_set: Any) -> Any:
+    """Each MLA of the set once per linked product that passes `f` (`product_pairs`) -- the LINK's product id, even
+    when the product is gone from the catalog (its name then reads "Producto #<id>") -- so the grouping is exactly
+    what `/items?producto=` and `sin_producto` filter on. An MLA with no linked product is one `NO_PRODUCT` row."""
+    return product_pairs(
+        f,
+        mla_set,
+        mla_set.c.mla,
+        # NO_PRODUCT (0) is the Board's own "no product" sentinel; ERP item ids are positive.
+        lambda pl: func.coalesce(pl.c.producto_item_id, NO_PRODUCT).label("product"),
+        T.p.descripcion,
+        T.p.codigo,
+        T.p.marca,
+        # `erp_stock` over this row's links: a link names a product only when `linked` (the table's CHECK), so
+        # naming one is the `linked` test; a publication linked per variation gets its product's stock
+        lambda pl: erp_stock(pl.c.producto_item_id.isnot(None)).label("stock"),
+    ).subquery("members")
 
 
 def _summed(members: Any, rows: Any) -> Any:
@@ -172,12 +214,14 @@ def _sin_mla_rows(db: Session, f: PublicationFilter) -> Any:
     ).subquery("product_rows")
 
 
-def applied_sort(f: PublicationFilter, key: str, descending: bool) -> tuple[str, bool]:
+def applied_sort(f: PublicationFilter, key: str, descending: bool, then: SortKeys = ()) -> tuple[str, bool, SortKeys]:
     """The sort the rows of `f` really come in: a "Sin MLA" product has no publication, so no Métricas figure, and
-    a figure sort falls back to the name, A to Z (the response says so, never the sort that was asked)."""
-    if not f.sin_mla or key == NEUTRAL_SORT:
-        return key, descending
-    return NEUTRAL_SORT, False
+    the sort is the name alone, in the direction asked for it, A to Z when it was not asked (the response says so,
+    never the sort that was asked)."""
+    if not f.sin_mla:
+        return key, descending, tuple(then)
+    by_name = dict(((key, descending), *then)).get(NEUTRAL_SORT, False)
+    return NEUTRAL_SORT, by_name, ()
 
 
 def sin_mla_count(db: Session, f: PublicationFilter) -> Optional[int]:
@@ -189,18 +233,20 @@ def sin_mla_count(db: Session, f: PublicationFilter) -> Optional[int]:
     return int(db.execute(select(func.count()).select_from(rows)).scalar_one())
 
 
-def _ordered(rows: Any, key: str, descending: bool) -> tuple[Any, ...]:
+def _by(rows: Any, key: str, descending: bool) -> tuple[Any, ...]:
     column = rows.c[PRODUCT_SORTS[key][0]]
     if key == NEUTRAL_SORT:
-        # By the name the row shows, case-insensitively; "Sin producto" is not a name: pinned last either way.
+        # By the name the row shows, case-insensitively; "Sin producto" is not a name: last either way (among the
+        # ties of the keys before it when the name is not the first key).
         name = func.lower(column)
-        return (
-            (rows.c.product == NO_PRODUCT).asc(),
-            name.desc() if descending else name.asc(),
-            rows.c.product.asc(),
-        )
+        return (rows.c.product == NO_PRODUCT).asc(), name.desc() if descending else name.asc()
     figure = case((rows.c.units > 0, column), else_=None)  # no sale in the 30 days: no figure, last
-    return ((figure.desc() if descending else figure.asc()).nulls_last(), rows.c.product.asc())
+    return ((figure.desc() if descending else figure.asc()).nulls_last(),)
+
+
+def _ordered(rows: Any, key: str, descending: bool, then: SortKeys = ()) -> tuple[Any, ...]:
+    keys = ((key, descending), *then)
+    return (*(clause for name, desc in keys for clause in _by(rows, name, desc)), rows.c.product.asc())
 
 
 def _row(r: Any, today: date) -> board.Row:
@@ -271,54 +317,89 @@ def _product_rows(db: Session, f: PublicationFilter, only: Optional[Sequence[int
     first, last = row_metrics.window(board.today_business())
     mla_source = build_base_select(f, T.i.item_id)
     if only is not None:
-        product = func.coalesce(T.l.producto_item_id, NO_PRODUCT)
-        mla_source = mla_source.where(product == any_(literal(list(only), ARRAY(Integer))))
+        linked = [k for k in only if k != NO_PRODUCT]
+        wanted = [has_product(linked)] if linked else []
+        if NO_PRODUCT in only:
+            wanted.append(~has_product())
+        mla_source = mla_source.where(or_(false(), *wanted))
     board_filter = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
     with board.Board(db, board_filter, scope_pairs=None) as b:
-        members = _members(b.mla_set)
+        members = _members(f, b.mla_set)
         yield b, members, _summed(members, b.rows())
 
 
+def _costs(db: Session, rows: Sequence[board.Row]) -> dict[str, Optional[dict[str, Any]]]:
+    """Each row's product cost in its own currency, as the publication rows carry it (`listing.attach_cost`): one
+    statement over the page's products; "Sin producto" and a product with no cost read None."""
+    ids = [row.product_item_id for row in rows if row.product_item_id != NO_PRODUCT]
+    found = {}
+    if ids:
+        query = select(T.p.item_id, T.p.costo, T.p.moneda_costo).where(
+            T.p.item_id == any_(literal(ids, ARRAY(Integer)))
+        )
+        found = {int(r.item_id): r for r in db.execute(query)}
+    out: dict[str, Optional[dict[str, Any]]] = {}
+    for row in rows:
+        r = found.get(row.product_item_id)
+        currency = getattr(r.moneda_costo, "value", r.moneda_costo) if r is not None else None
+        out[row.key] = None if r is None or r.costo is None else {"amount": float(r.costo), "currency": currency}
+    return out
+
+
 def list_products(
-    db: Session, f: PublicationFilter, orden: str, descending: bool, limit: int, offset: int
+    db: Session,
+    f: PublicationFilter,
+    orden: str,
+    descending: bool,
+    limit: int,
+    offset: int,
+    then: SortKeys = (),
+    *,
+    cost: bool = False,
 ) -> ProductsPage:
-    """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` names."""
-    key = parse_sort(orden)
+    """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` (then
+    `then`) names. With `cost` (only for who sees the margin) each row's product cost too; without it, not even read."""
+    key = parse_sort(orden, then)
     if f.sin_mla:
         rows = _sin_mla_rows(db, f)
         total = db.execute(select(func.count()).select_from(rows)).scalar_one()
         found = []
         if offset < total:
-            page = select(rows).order_by(*_ordered(rows, *applied_sort(f, key, descending))).limit(limit).offset(offset)
+            ordered = _ordered(rows, *applied_sort(f, key, descending, then))
+            page = select(rows).order_by(*ordered).limit(limit).offset(offset)
             found = list(db.execute(page).mappings())
         today = board.today_business()
         return ProductsPage([_row(r, today) for r in found], int(total), 0, frozenset(str(r["product"]) for r in found))
     with _product_rows(db, f) as (b, members, rows):
+        # The publications are counted once: one linked to two products is a member of both rows.
         total, mla_count = db.execute(
-            select(func.count(), func.coalesce(func.sum(rows.c.pubs), 0)).select_from(rows)
+            select(
+                select(func.count()).select_from(rows).scalar_subquery(),
+                select(func.count(func.distinct(members.c.mla))).scalar_subquery(),
+            )
         ).one()
         found: list[Any] = []
         if offset < total:
-            page = select(rows).order_by(*_ordered(rows, key, descending)).limit(limit).offset(offset)
+            page = select(rows).order_by(*_ordered(rows, key, descending, then)).limit(limit).offset(offset)
             found = list(db.execute(page).mappings())
         out = [_row(r, b.today) for r in found]
         _series(b, members, {row.key: row for row in out})
     without = frozenset(str(r["product"]) for r in found if not r["board_rows"])
-    return ProductsPage(out, int(total), int(mla_count), without)
+    return ProductsPage(out, int(total), int(mla_count), without, _costs(db, out) if cost else {})
 
 
 def ordered_product_keys(
-    db: Session, f: PublicationFilter, orden: str, descending: bool, cap: Optional[int]
+    db: Session, f: PublicationFilter, orden: str, descending: bool, cap: Optional[int], then: SortKeys = ()
 ) -> list[int]:
     """The product ids (`NO_PRODUCT` for "Sin producto") of every row of the Producto view, at most `cap` (every
     one when None), in the very order `list_products` pages them: the keys an export fixes before reading its pages."""
-    key = parse_sort(orden)
+    key = parse_sort(orden, then)
     if f.sin_mla:
         rows = _sin_mla_rows(db, f)
-        query = select(rows.c.product).order_by(*_ordered(rows, *applied_sort(f, key, descending))).limit(cap)
+        query = select(rows.c.product).order_by(*_ordered(rows, *applied_sort(f, key, descending, then))).limit(cap)
         return [int(product) for product in db.execute(query).scalars()]
     with _product_rows(db, f) as (_, _, rows):
-        query = select(rows.c.product).order_by(*_ordered(rows, key, descending)).limit(cap)
+        query = select(rows.c.product).order_by(*_ordered(rows, key, descending, then)).limit(cap)
         return [int(product) for product in db.execute(query).scalars()]
 
 
@@ -334,11 +415,42 @@ def products_for_keys(db: Session, f: PublicationFilter, keys: Sequence[int]) ->
         found = [by_key[k] for k in keys if k in by_key]
         today = board.today_business()
         return ProductsPage([_row(r, today) for r in found], len(found), 0, frozenset(str(k) for k in by_key))
-    with _product_rows(db, f, only=keys) as (b, _, rows):
+    with _product_rows(db, f, only=keys) as (b, members, rows):
         by_product = {int(r["product"]): r for r in db.execute(select(rows)).mappings()}
+        # the publications of the rows returned, counted once (as `list_products` does): the set also holds sibling
+        # products of `keys`' publications, which this page does not show
+        shown = [k for k in keys if k in by_product]
+        mla_count = db.execute(
+            select(func.count(func.distinct(members.c.mla))).where(
+                members.c.product == any_(literal(shown, ARRAY(Integer)))
+            )
+        ).scalar_one()
     found = [by_product[k] for k in keys if k in by_product]
     without = frozenset(str(r["product"]) for r in found if not r["board_rows"])
-    return ProductsPage([_row(r, b.today) for r in found], len(found), sum(int(r["pubs"]) for r in found), without)
+    return ProductsPage([_row(r, b.today) for r in found], len(found), int(mla_count), without)
+
+
+def _product_ids_by_markup(db: Session, members: Any, result: MarkupResult, markup: MarkupQuery) -> ProductIds:
+    """`product_ids` under the markup filter: a product is in the set when one of its publications' units OF THAT
+    PRODUCT pass it (`product_markup`, what `/items?producto=` judges), so a product is never repriced for a sibling
+    variation's margin; a publication with no product, on its whole markup. Python over the pairs: the markup is
+    computed in Python already, over the whole set."""
+    ids: set[int] = set()
+    gone: set[int] = set()
+    unlinked: set[str] = set()
+    for mla, product, in_catalog in db.execute(select(members)).all():
+        item = result.items.get(mla)
+        if product is None or product == NO_PRODUCT:
+            if item is not None and markup.filter.accepts(item.markup.worst, item.markup.any_negative):
+                unlinked.add(mla)
+            continue
+        own = product_markup(item, int(product)) if item is not None else None
+        if own is None or not markup.filter.accepts(own.worst, own.any_negative):
+            continue
+        (ids if in_catalog is not None else gone).add(int(product))
+    if len(ids) > MAX_PRODUCT_IDS:
+        raise TooManyProducts(len(ids), MAX_PRODUCT_IDS)
+    return ProductIds(sorted(ids), len(unlinked), len(gone))
 
 
 # The most products one bulk action may name, shared with the bulk endpoints (`caps`). Over it the request is refused,
@@ -361,10 +473,10 @@ class ProductIds:
 
 
 def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery] = None) -> ProductIds:
-    """The linked products of the MLAs `f` selects -- the very grouping `list_products` makes (the base select's
-    item-level link), so their count is its product rows. Unlike `list_products`, mejor oferta is asked the way the
-    caller asks it (`oferta_por_producto`): in the publication view a product is in the set when one of ITS matching
-    publications is, which is what the operator sees.
+    """The linked products of the MLAs `f` selects -- the very grouping `list_products` makes
+    (`filters.product_links`), so their count is its product rows. Unlike `list_products`, mejor oferta is asked the
+    way the caller asks it (`oferta_por_producto`): in the publication view a product is in the set when one of ITS
+    matching publications is, which is what the operator sees.
 
     `markup` (its filter active) narrows the MLAs as `/items` does, with the same post-query step
     (`listing.markup_accepted`) over the whole filtered set. A linked product the ERP catalog no longer has is left
@@ -386,13 +498,17 @@ def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery]
             raise TooManyProducts(int(count), MAX_PRODUCT_IDS)
         return ProductIds([int(row.product) for row in found], 0, 0)
     f = resolve_pm_pairs(db, f)
-    base = build_base_select(
-        f, T.i.item_id.label("mla"), T.l.producto_item_id.label("product"), T.p.item_id.label("in_catalog")
-    )
-    if markup is not None and markup.filter.active:
-        _, kept = markup_accepted(db, f, markup)
-        base = base.where(T.i.item_id == any_(literal(sorted(kept), ARRAY(Text))))
-    members = base.subquery("m")
+    base = build_base_select(f, T.i.item_id.label("mla"))
+    markup_on = markup is not None and markup.filter.active
+    if markup_on:
+        # the whole set priced once; each (publication, product) pair is judged on its own units below
+        result, _ = markup_accepted(db, f, markup)
+    mlas = base.subquery("mlas")
+    members = product_pairs(
+        f, mlas, mlas.c.mla, lambda pl: pl.c.producto_item_id.label("product"), T.p.item_id.label("in_catalog")
+    ).subquery("m")
+    if markup_on:
+        return _product_ids_by_markup(db, members, result, markup)
     linked = members.c.product.isnot(None) & (members.c.product != NO_PRODUCT)
     priceable = linked & members.c.in_catalog.isnot(None)
     # The ids and their total come from ONE statement (a window over the distinct ids, evaluated before the LIMIT):

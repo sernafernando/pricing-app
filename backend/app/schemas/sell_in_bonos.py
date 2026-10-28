@@ -7,15 +7,20 @@ back as a 422 with one readable Spanish message. `monto_unit` and `porcentaje`
 are bounded to their columns (NUMERIC(18, 2) and NUMERIC(7, 4)): more decimals
 are rejected, never rounded. A body without `alcance`/`tipo` is a brand bonus
 per unit, as before.
+
+`modelos` takes item ids (as before) or objects `{item_id, monto_unit?,
+porcentaje?}` (T23a): a model's own value of the bonus's kind replaces the
+bonus's for it, bounded like the bonus's own field. A bare id on an edit keeps
+the value the model had stored; an object's values are what is stored.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Moneda = Literal["ARS", "USD"]
 Estado = Literal["activa", "anulada"]
@@ -33,10 +38,41 @@ class SellInBonoMontoOut(BaseModel):
     monto: Decimal
 
 
+# A model's own value fits its `sell_in_bono_items` column: (field, label, max digits, decimal places).
+_VALORES_MODELO = (("monto_unit", "El monto por unidad", 18, 2), ("porcentaje", "El porcentaje", 7, 4))
+
+
+class SellInBonoModeloIn(BaseModel):
+    """A model with its own value (T23a); neither: the bonus's. An unknown key is refused (`extra='forbid'`):
+    a typo must not fall back to the bonus value silently."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: int = Field(ge=-(2**31), le=2**31 - 1)  # INTEGER, like a sell-out campaign's product
+    monto_unit: Optional[Decimal] = None
+    porcentaje: Optional[Decimal] = None
+
+    @model_validator(mode="after")
+    def _cabe_en_su_columna(self) -> "SellInBonoModeloIn":
+        """Digits and decimals of each value, with a message naming the model."""
+        for campo, etiqueta, digitos, decimales in _VALORES_MODELO:
+            valor = getattr(self, campo)
+            if valor is None or not valor.is_finite():
+                continue
+            exponente = valor.normalize().as_tuple().exponent
+            if exponente < -decimales:
+                raise ValueError(f"{etiqueta} del modelo {self.item_id} admite hasta {decimales} decimales")
+            if len(valor.quantize(Decimal(1).scaleb(-decimales)).as_tuple().digits) > digitos:
+                raise ValueError(f"{etiqueta} del modelo {self.item_id} tiene demasiados dígitos")
+        return self
+
+
 class SellInBonoModeloOut(BaseModel):
     item_id: int
     codigo: Optional[str]  # None when the catalog no longer has the item
     descripcion: Optional[str]
+    monto_unit: Optional[Decimal] = None  # the model's own value; None: the bonus's
+    porcentaje: Optional[Decimal] = None
 
 
 class SellInBonoIn(BaseModel):
@@ -45,7 +81,8 @@ class SellInBonoIn(BaseModel):
     alcance: Alcance = "marca"
     marca: Optional[str] = Field(default=None, max_length=MARCA_MAX)
     categoria: Optional[str] = Field(default=None, max_length=CATEGORIA_MAX)
-    modelos: list[int] = Field(default_factory=list, max_length=MODELOS_MAX)  # item ids
+    # Item ids, or objects with a model's own value; a bare id on an edit keeps the stored value.
+    modelos: list[Union[int, SellInBonoModeloIn]] = Field(default_factory=list, max_length=MODELOS_MAX)
     pedido_id: Optional[int] = None  # the Compras operation of an invoice bonus
     tipo: TipoBono = "por_unidad"
     monto_unit: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=2)  # per unit, in `moneda`
