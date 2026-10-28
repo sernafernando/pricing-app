@@ -19,4 +19,9 @@ describe('ShortcutsHelp', () => {
     render(<ShortcutsHelp onClose={() => {}} />);
     expect(keysOf('Ver la información del producto de la fila')).toEqual(['Ctrl+I']);
   });
+
+  it("lists Productos' Esc, leaving the navigation mode", () => {
+    render(<ShortcutsHelp onClose={() => {}} />);
+    expect(keysOf('Salir del modo navegación (deja la fila)')).toEqual(['Esc']);
+  });
 });

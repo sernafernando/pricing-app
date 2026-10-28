@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const ROW = 'tr[data-clickable][data-row-key]';
 const PAGE = 10;
@@ -99,6 +99,8 @@ function moveFocus(event) {
  * - Alt+V steps to the next mode of Productos' price columns (`onCycleMode()`: Normal, Cuotas, PVP), and Alt+R flips
  *   Productos' "Auto-recalcular" cuotas (`onToggleAutoRecalc()`), as in Productos.
  * - Shift+Up / Shift+Down move like the arrows and check the row moved to (`onExtendRow(key)`), as in Productos.
+ * - A focused row is Productos' navigation mode (the returned `navigating`, for its banner) and Escape leaves it,
+ *   taking the focus off the row; while the side panel is open Escape is the panel's (`keepRowOnEscape`).
  *
  * While the operator types in a field only Ctrl+F and the copy shortcuts run (as in Productos, which copies while
  * editing too); nothing runs while a dialog is open (the help only takes `?`, to close it). `findRow(key)` maps a focused row's key to
@@ -118,14 +120,16 @@ export default function usePublicacionesMLKeyboard({
   onToggleAutoRecalc,
   onShowInfo,
   onToggleHelp,
+  keepRowOnEscape,
   showToast,
   disabled,
 }) {
+  const [navigating, setNavigating] = useState(false);
   // The latest props, so the one listener never reads stale ones (updated after each render, never during it).
   // No dependency array on purpose (the latest-ref pattern): it copies the values after every render.
   const props = useRef({});
   useLayoutEffect(() => {
-    props.current = { searchRef, findRow, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleAutoRecalc, onShowInfo, onToggleHelp, showToast };
+    props.current = { searchRef, findRow, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleAutoRecalc, onShowInfo, onToggleHelp, keepRowOnEscape, showToast };
   });
 
   useEffect(() => {
@@ -168,6 +172,7 @@ export default function usePublicacionesMLKeyboard({
         onOpenFilter: openFilter,
         onToggleAutoRecalc: toggleAutoRecalc,
         onShowInfo: showInfo,
+        keepRowOnEscape: keepRow,
         showToast: toast,
       } = props.current;
       // Another dialog (a bulk action, a confirmation, Productos' info modal) owns the keyboard, as in Productos; the
@@ -194,6 +199,14 @@ export default function usePublicacionesMLKeyboard({
         return;
       }
       if (isTyping(event.target)) return;
+      if (event.key === 'Escape' && !keepRow && !event.defaultPrevented) {
+        const current = focusedRow();
+        if (current) {
+          event.preventDefault();
+          current.blur();
+        }
+        return;
+      }
       // Cmd+I too, as Productos accepts it (`e.ctrlKey || e.metaKey`), unlike the Alt keys below.
       if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.code === 'KeyI' && showInfo) {
         event.preventDefault();
@@ -273,4 +286,19 @@ export default function usePublicacionesMLKeyboard({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [disabled]);
+
+  // Navigating = a list row has the focus. On `focusout` the next element is `relatedTarget` (null when the focus
+  // leaves to nowhere), since `document.activeElement` is still the row being left.
+  useEffect(() => {
+    const onFocusIn = (event) => setNavigating(Boolean(event.target?.closest?.(ROW)));
+    const onFocusOut = (event) => setNavigating(Boolean(event.relatedTarget?.closest?.(ROW)));
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('focusout', onFocusOut);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('focusout', onFocusOut);
+    };
+  }, []);
+
+  return { navigating: navigating && !disabled };
 }

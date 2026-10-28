@@ -2210,6 +2210,37 @@ describe("Ctrl+I: Productos' product information", () => {
   });
 });
 
+describe("Productos' navigation mode banner", () => {
+  const banner = () => screen.queryByText(/Modo Navegación Activo/);
+
+  it('shows while a row has the focus, and Escape leaves the row and hides it', async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findAllByRole('row');
+    expect(banner()).not.toBeInTheDocument();
+    await user.keyboard('{ArrowDown}');
+    expect(banner()).toHaveTextContent('Modo Navegación Activo - Presiona Esc para salir o ? para ayuda');
+    await user.keyboard('{Escape}');
+    expect(banner()).not.toBeInTheDocument();
+    expect(document.activeElement.closest('tr')).toBeNull();
+  });
+
+  it('with the detail open, Escape first closes the detail and the row stays focused', async () => {
+    const user = userEvent.setup();
+    await page();
+    const row = screen.getByText('MLA1100000001').closest('tr');
+    await user.click(row);
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('heading', { name: /Router TP-Link Archer AX55/ })).not.toBeInTheDocument());
+    expect(row).toHaveFocus();
+    expect(banner()).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(row).not.toHaveFocus();
+    expect(banner()).not.toBeInTheDocument();
+  });
+});
+
 describe("Productos' Alt+A / Alt+C / Alt+F filter keys", () => {
   it('Alt+A opens and closes the Auditoría filters, Alt+C and Alt+F the presence ones', async () => {
     const user = userEvent.setup();
