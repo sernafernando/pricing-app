@@ -63,11 +63,16 @@ def comision_smoke(db):
 class TestEnvioConsistencyAcrossConsumers:
     """The same mocked resolver value must reach both the detail and pricing consumers."""
 
-    def test_detail_and_pricing_use_same_resolver(self, client, auth_headers, producto_smoke, comision_smoke):
+    def test_detail_and_pricing_use_same_resolver(
+        self, client, auth_headers, producto_smoke, comision_smoke, rol_ventas, grant_permiso
+    ):
         """
         When resolver_costo_envio returns MOCKED_ENVIO, both endpoints receive
         the same value — proving they both route through the same resolver.
         """
+        # costo_envio is part of the pricing block of the detail endpoint
+        grant_permiso(rol_ventas, "productos.ver_info_pricing")
+
         # Step 1: detail endpoint returns MOCKED_ENVIO as costo_envio
         with patch(
             "app.api.endpoints.productos_detail.resolver_costo_envio",

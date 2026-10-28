@@ -395,14 +395,14 @@ def persisted_lines(
     independent, so no other line of the group is needed. `tp=True` adds the
     TP-Link shares under the same queue rule, but NULL (unknown) where the
     Gauss columns say 0, as the live derivation does. `keyed=True` adds the line's
-    `item_row_id`."""
+    `item_row_id`, `order_id` and `group_key`."""
     L = MlSaleLine
     o2 = aliased(MlOrdersOps)
     queued_orders = select(D.order_id)
     queued_groups = select(group_key_expr(o2)).select_from(o2).join(D, D.order_id == o2.order_id)
     order_queued, group_queued = L.order_id.in_(queued_orders), L.group_key.in_(queued_groups)
     q = select(
-        *([L.item_row_id] if keyed else []),
+        *([L.item_row_id, L.order_id, L.group_key] if keyed else []),
         L.product,
         L.mla,
         L.group_date,
@@ -454,7 +454,7 @@ def lines_source(
     read: the persisted lines are independent rows, while the live ones need their
     whole groups (the caller still keeps the lines of its MLAs there). `tp=True`
     adds the TP-Link shares (`tg_tp`, `mtg_tp`, `mcosto_tp`) from either source, `keyed=True`
-    the line's `item_row_id` (the persisted read adds only that one)."""
+    the line's `item_row_id`, `order_id` and `group_key`."""
     if reads_persisted_lines(sqlite):
         return persisted_lines(ranges=ranges, product=product, mlas=mlas, tp=tp, keyed=keyed)
     return sale_lines(sqlite=sqlite, ranges=ranges, product=product, groups=groups, tp=tp, keyed=keyed)

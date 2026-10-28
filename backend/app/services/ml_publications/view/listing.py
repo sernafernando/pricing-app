@@ -74,7 +74,8 @@ DIRECTIONS = ("asc", "desc")
 FACET_AXES = AXES
 FACET_MAX_BRANDS = 100
 DEFAULT_LIMIT = 50
-MAX_LIMIT = 100
+# Room for Productos' "Todos" page (9999 rows): the list stays bounded by STATEMENT_TIMEOUT.
+MAX_LIMIT = 10_000
 
 
 def cost_in_pesos() -> Any:

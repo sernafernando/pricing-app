@@ -184,3 +184,20 @@ describe('useProductPanel', () => {
     expect(publicacionesMlAPI.items).not.toHaveBeenCalled();
   });
 });
+
+describe("a Sin MLA product (Productos' Sin MLA)", () => {
+  it('asks its row as one product among the products without MLA, which the backend takes as a product filter', async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse([PRODUCT], { total: 1 }) });
+    publicacionesMlAPI.items.mockResolvedValue(itemsPage([], 0));
+    setup(PRODUCT.key, { ...FILTERS, estado: [], mla: 'sin_mla' });
+    await waitFor(() => expect(publicacionesMlAPI.products).toHaveBeenCalled());
+    expect(publicacionesMlAPI.products.mock.calls[0][0]).toEqual({
+      con_mla: false,
+      producto: PRODUCT.key,
+      orden: 'titulo',
+      dir: 'asc',
+      limit: 1,
+      offset: 0,
+    });
+  });
+});

@@ -16,6 +16,13 @@ export function formatUnits(value) {
   return isNumber(value) ? INT.format(Number(value)) : '—';
 }
 
+const TWO_DECIMALS = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** A ratio such as units per sale: two decimals, '—' when unknown. */
+export function formatRatio(value) {
+  return isNumber(value) ? TWO_DECIMALS.format(Number(value)) : '—';
+}
+
 export function formatPct(value) {
   return isNumber(value) ? `${ONE_DECIMAL.format(Number(value))}%` : '—';
 }

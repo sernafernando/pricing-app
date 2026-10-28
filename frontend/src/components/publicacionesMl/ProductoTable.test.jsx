@@ -63,10 +63,11 @@ function Harness({
   onSelectProduct = () => {},
   onSort = () => {},
   selection,
+  prices,
 }) {
   const [expandedIds] = useState(() => new Set());
   const tree = useProductRows({ filters, pageSize: 50, canSeeSales, canSeeMargin });
-  const columns = buildColumns({ eventsEnabled: false, canSeeMargin, canSeeSales, expandedIds, producto: true });
+  const columns = buildColumns({ eventsEnabled: false, canSeeMargin, canSeeSales, expandedIds, producto: true, prices });
   return (
     <>
       <span data-testid="total">{tree.total}</span>
@@ -158,6 +159,17 @@ describe('the product rows', () => {
     await userEvent.click(screen.getByRole('button', { name: /^30D/ }));
     expect(onSort).toHaveBeenCalledWith('unidades_30d');
     expect(screen.queryByRole('button', { name: /^Precio/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("Productos' prices (S11)", () => {
+  it("draws a product row with its own product's prices, and the \"Sin producto\" row with none", async () => {
+    const prices = { byId: new Map([[4101, { item_id: 4101, precio_lista_ml: 2500 }]]), loading: false, error: false };
+    render(<Harness prices={prices} />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).getByText('2.500,00')).toBeInTheDocument();
+    expect(within(rowOf(/Sistema Mesh Deco X20/)).queryByText('2.500,00')).not.toBeInTheDocument();
+    expect(within(rowOf('Sin producto')).queryByText('2.500,00')).not.toBeInTheDocument();
   });
 });
 
