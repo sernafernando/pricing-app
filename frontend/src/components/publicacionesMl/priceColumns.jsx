@@ -23,7 +23,7 @@ const GROUP = 'Precios de Productos';
 
 const LIST_ROWS = new Map(LISTS.flatMap((group) => group.rows).map((row) => [row.id, row]));
 
-const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, toggles, details, showTnPrice = false } = {}) => ({
+const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, toggles, details, locked, showTnPrice = false } = {}) => ({
   key,
   header,
   price,
@@ -33,8 +33,12 @@ const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, t
   list: edits,
   toggles,
   details,
+  locked,
   showTnPrice,
 });
+// The web transfer's % over the clásica, as Productos writes it under the price; locked when kept in bulk changes.
+const webTransfPercent = (product) =>
+  product.porcentaje_markup_web == null ? [] : [`(+${Number(product.porcentaje_markup_web).toLocaleString('es-AR', { maximumFractionDigits: 2 })}%)`];
 // The permission of each flag's editor (`pricePermissions`).
 const TOGGLE_PERMS = { rebate: 'canToggleRebate', web: 'canToggleWebTransf' };
 const CLASICA = list('lista_clasica', 'Precio Clásica', 'precio_lista_ml', 'markup', { edits: 'ml-clasica' });
@@ -47,8 +51,14 @@ const MODES = {
     // The listing sends the best offer's markup as a fraction (every other one as a percentage); Productos scales it.
     // Under its price, its details as in Productos (S2).
     list('lista_oferta', 'Mejor Oferta', 'mejor_oferta_precio', 'mejor_oferta_markup', { markupScale: 100, details: offerDetails }),
-    // Over it, the Tienda Nube price with its transfer price, as Productos (S3).
-    list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', { takesPart: 'participa_web_transferencia', toggles: 'web', showTnPrice: true }),
+    // Over it, the Tienda Nube price with its transfer price (S3); under it, its % and the lock, as Productos.
+    list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', {
+      takesPart: 'participa_web_transferencia',
+      toggles: 'web',
+      showTnPrice: true,
+      details: webTransfPercent,
+      locked: (product) => Boolean(product.preservar_porcentaje_web),
+    }),
   ],
   cuotas: [CLASICA, ...CUOTAS.map((n) => list(`lista_${n}_cuotas`, `${n} Cuotas`, `precio_${n}_cuotas`, `markup_${n}_cuotas`, { edits: `ml-${n}` }))],
   pvp: [

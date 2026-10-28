@@ -102,7 +102,9 @@ vi.mock('../../services/api', () => ({
             { item_id: 4101, descripcion: 'Router Archer AX55', marca: 'TP-LINK', categoria: 'REDES', stock: 12, costo: 95.5, moneda_costo: 'USD',
               precio_lista_ml: 189999, markup: 24.3, participa_rebate: true, precio_rebate: 197911, markup_rebate: 21.1,
               precio_3_cuotas: 209999, markup_3_cuotas: 18.2, precio_6_cuotas: 229999, markup_6_cuotas: 15.4,
-              precio_pvp: 239999, markup_pvp: 31.9, tn_price: 249999, tn_promotional_price: 229999, tn_has_promotion: true },
+              precio_pvp: 239999, markup_pvp: 31.9, tn_price: 249999, tn_promotional_price: 229999, tn_has_promotion: true,
+              participa_web_transferencia: true, precio_web_transferencia: 179899, markup_web_real: 17.6, porcentaje_markup_web: 6.5,
+              preservar_porcentaje_web: true },
             { item_id: 4102, precio_lista_ml: 45999, markup: -3.2, mejor_oferta_precio: 41399, mejor_oferta_markup: -0.098,
               mejor_oferta_porcentaje_rebate: 12.5, mejor_oferta_monto_rebate: 5174.88, mejor_oferta_fecha_hasta: '2026-11-30',
               mejor_oferta_pvp_seller: 47999, tn_price: 52999 },
@@ -1838,7 +1840,8 @@ describe('row colors and the color layer (S8)', () => {
     it(`1366x768 ${theme}: the best offer's details sit under its price, each on one line inside the cell`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme });
       await expect.element(screen.getByText('Hasta 30/11').first()).toBeVisible();
-      const lines = [...document.querySelectorAll('[data-offer-detail]')];
+      // The web transfer's % line is a price detail too.
+      const lines = [...document.querySelectorAll('[data-price-detail]')].filter((line) => !line.textContent.startsWith('(+'));
       expect(lines.map((line) => line.textContent).slice(0, 4)).toEqual(['Aporte 12,50%', 'Rebate $ 5.174,88', 'Hasta 30/11', 'PVP $ 47.999,00']);
       const cell = lines[0].closest('td');
       const cellBox = cell.getBoundingClientRect();
@@ -1879,6 +1882,28 @@ describe('row colors and the color layer (S8)', () => {
       expect(wrapped(document.querySelectorAll('[data-tn-price] > div > span:first-child, [data-tn-price] s'))).toEqual([]);
       lines[1].closest('td').scrollIntoView({ block: 'center', inline: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tn-price-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the web transfer's % and its lock sit under the price, inside the cell`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const lock = screen.getByRole('img', { name: '% conservado en cambios masivos' }).first();
+      await expect.element(lock).toBeVisible();
+      const line = lock.element().closest('[data-price-detail]');
+      expect(line.textContent).toBe('(+6,5%)');
+      const cell = line.closest('td');
+      const cellBox = cell.getBoundingClientRect();
+      for (const part of [line, lock.element()]) {
+        const box = part.getBoundingClientRect();
+        expect(box.left).toBeGreaterThanOrEqual(cellBox.left - 0.5);
+        expect(box.right).toBeLessThanOrEqual(cellBox.right + 0.5);
+      }
+      expect(wrapped([line])).toEqual([]);
+      expect(contrastRatio(getComputedStyle(line).color, getComputedStyle(cell).backgroundColor)).toBeGreaterThanOrEqual(4.5);
+      cell.scrollIntoView({ block: 'center', inline: 'center' });
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/web-transf-percent-1366-${theme}.png` });
       screen.unmount();
     });
   }
