@@ -640,6 +640,7 @@ class ProductRowOut(BaseModel):
     marca: Optional[str] = None
     publications_count: int
     stock: Optional[int] = None
+    costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
     params: dict[str, str]
     metrics: Optional[MetricsOut] = None
 
@@ -1200,7 +1201,12 @@ def get_groups(
 
 
 def _product_out(
-    row: board.Row, with_metrics: bool, with_margin: bool, has_figures: bool, offer_filter: bool
+    row: board.Row,
+    with_metrics: bool,
+    with_margin: bool,
+    has_figures: bool,
+    offer_filter: bool,
+    costs: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     no_product = row.product_item_id == NO_PRODUCT
     params = {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
@@ -1216,6 +1222,8 @@ def _product_out(
         "stock": row.stock,
         "params": params,
     }
+    if with_margin and costs is not None:
+        out["costo"] = costs.get(row.key)  # the product's cost, as a publication row carries it
     if with_metrics:
         out["metrics"] = _metrics_out(row, with_margin) if has_figures else None
     return out
@@ -1296,7 +1304,7 @@ def get_products(
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         with timer.stage("products"):
-            page = products.list_products(db, f, sort_name, sort_dir == "desc", limit, offset)
+            page = products.list_products(db, f, sort_name, sort_dir == "desc", limit, offset, cost=can_see_margin)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
@@ -1308,7 +1316,14 @@ def get_products(
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(rows=len(page.rows), total=page.total)
     rows = [
-        _product_out(row, can_see_sales, can_see_margin, row.key not in page.without_figures, f.oferta is not None)
+        _product_out(
+            row,
+            can_see_sales,
+            can_see_margin,
+            row.key not in page.without_figures,
+            f.oferta is not None,
+            page.costs,
+        )
         for row in page.rows
     ]
     _attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])

@@ -91,6 +91,8 @@ class ProductsPage:
     total: int  # the product rows of the whole filtered set
     mla_count: int  # the publications the filter selects
     without_figures: frozenset[str] = field(default_factory=frozenset)  # keys of rows with no Board row at all
+    # key -> the product's cost in its own currency (`{amount, currency}`, None without one); only when asked
+    costs: dict[str, Optional[dict[str, Any]]] = field(default_factory=dict)
 
 
 def _members(mla_set: Any) -> Any:
@@ -238,10 +240,36 @@ def _product_rows(db: Session, f: PublicationFilter, only: Optional[Sequence[int
         yield b, members, _summed(members, b.rows())
 
 
+def _costs(db: Session, rows: Sequence[board.Row]) -> dict[str, Optional[dict[str, Any]]]:
+    """Each row's product cost in its own currency, as the publication rows carry it (`listing.attach_cost`): one
+    statement over the page's products; "Sin producto" and a product with no cost read None."""
+    ids = [row.product_item_id for row in rows if row.product_item_id != NO_PRODUCT]
+    found = {}
+    if ids:
+        query = select(T.p.item_id, T.p.costo, T.p.moneda_costo).where(
+            T.p.item_id == any_(literal(ids, ARRAY(Integer)))
+        )
+        found = {int(r.item_id): r for r in db.execute(query)}
+    out: dict[str, Optional[dict[str, Any]]] = {}
+    for row in rows:
+        r = found.get(row.product_item_id)
+        currency = getattr(r.moneda_costo, "value", r.moneda_costo) if r is not None else None
+        out[row.key] = None if r is None or r.costo is None else {"amount": float(r.costo), "currency": currency}
+    return out
+
+
 def list_products(
-    db: Session, f: PublicationFilter, orden: str, descending: bool, limit: int, offset: int
+    db: Session,
+    f: PublicationFilter,
+    orden: str,
+    descending: bool,
+    limit: int,
+    offset: int,
+    *,
+    cost: bool = False,
 ) -> ProductsPage:
-    """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` names."""
+    """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` names.
+    With `cost` (only for who sees the margin) each row's product cost too; without it, not even read."""
     key = parse_sort(orden)
     with _product_rows(db, f) as (b, members, rows):
         total, mla_count = db.execute(
@@ -254,7 +282,7 @@ def list_products(
         out = [_row(r, b.today) for r in found]
         _series(b, members, {row.key: row for row in out})
     without = frozenset(str(r["product"]) for r in found if not r["board_rows"])
-    return ProductsPage(out, int(total), int(mla_count), without)
+    return ProductsPage(out, int(total), int(mla_count), without, _costs(db, out) if cost else {})
 
 
 def ordered_product_keys(
