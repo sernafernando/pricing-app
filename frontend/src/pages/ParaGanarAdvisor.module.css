@@ -762,6 +762,13 @@
   border: 0;
 }
 
+.periodicidadRoot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  min-height: 0;
+}
+
 .periodicidadShell {
   flex: 1;
   min-height: 280px;
@@ -781,6 +788,31 @@
 
 .periodicidadShellIcon {
   color: var(--cf-text-tertiary);
+}
+
+.periodicidadFieldset {
+  margin: 0;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.periodicidadFieldset legend {
+  padding: 0 var(--spacing-xs);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+.criteriaIdentity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .emptyState {

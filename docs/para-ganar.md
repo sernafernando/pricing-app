@@ -57,7 +57,7 @@ Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por ML
 |--------|-----|------------|--------|
 | **P1** | Shell: tab **Periodicidad** (`?vista=periodicidad`) | — | Done |
 | **P2** | Modelo + API: suscripción periódica por EAN (alcance: todo el EAN / MLAs elegidos / match lista+tipo+tienda) | P1 | Done |
-| **P3** | UI gestión: cola por EAN, abrir detalle, elegir MLAs o reglas de alcance, guardar | P2 | Planned |
+| **P3** | UI gestión: cola por EAN, abrir detalle, elegir MLAs o reglas de alcance, guardar | P2 | Done |
 | **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Planned |
 | **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Planned |
 | **A1** | Advisor **Consultar filtrados**: misma pipeline que el periódico, pero a demanda sobre el alcance del filtro (manual; lo no suscripto a Periodicidad) | P5 | Planned |
@@ -132,7 +132,8 @@ Newest first. Use for “why did we…” archaeology.
 - API (`productos.ver` read / `productos.editar_precios` write):
   - `GET /para-ganar/periodicidad` — list (q, page)
   - `GET/PUT/DELETE /para-ganar/periodicidad/{ean}`
-- `scope_mode`: `all` (todo el EAN) | `mlas` (lista explícita) | `rules` (`tipos_publicacion` / `pricelist_ids` / `tienda_oficial_ids`). UI de gestión = P3.
+- `scope_mode`: `all` (todo el EAN) | `mlas` (lista explícita) | `rules` (`tipos_publicacion` / `pricelist_ids` / `tienda_oficial_ids`).
+- UI (P3): tab Periodicidad — lista de suscripciones + detalle (guardar / quitar). Requiere `productos.editar_precios` para escribir.
 
 ---
 
@@ -149,7 +150,7 @@ Newest first. Use for “why did we…” archaeology.
 9. ~~Mass criteria apply to filtered scope (D17)~~.
 10. ~~Show promo pool (D18→D19→D20 one-per-type)~~.
 11. ~~Show deal at `precio_sugerido` (clamped) + wire enroll from Advisor (D23)~~.
-12. ~~**Periodicidad P1** shell~~ / ~~**P2** modelo+API~~ → **P3** UI por EAN.
+12. ~~**Periodicidad P1–P3**~~ (shell + API + UI por EAN).
 13. **P4** — estados Advisor Pendiente de revisión / Sin novedades.
 14. **P5** — motor de evaluación.
 15. **A1** — Advisor **Consultar filtrados** (manual sobre el filtro; UI stub ya visible, cableado tras P5).

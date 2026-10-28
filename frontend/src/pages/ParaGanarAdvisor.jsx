@@ -7,7 +7,7 @@ import ParaGanarQueue from '../components/paraGanar/ParaGanarQueue';
 import ParaGanarAdvisorDetail from '../components/paraGanar/ParaGanarAdvisorDetail';
 import ParaGanarCriteriosDetail from '../components/paraGanar/ParaGanarCriteriosDetail';
 import ParaGanarMassApplyModal from '../components/paraGanar/ParaGanarMassApplyModal';
-import ParaGanarPeriodicidadShell from '../components/paraGanar/ParaGanarPeriodicidadShell';
+import ParaGanarPeriodicidadPanel from '../components/paraGanar/ParaGanarPeriodicidadPanel';
 import ParaGanarScopeFilters from '../components/paraGanar/ParaGanarScopeFilters';
 import {
   parseVista,
@@ -29,7 +29,7 @@ function subtitleForVista(vista) {
     return 'Criterios por MLA — individual y masivo al filtro';
   }
   if (vista === VISTA_PERIODICIDAD) {
-    return 'Gestionar periodicidad — suscripción por EAN (próximos slices)';
+    return 'Gestionar periodicidad — suscripción por EAN';
   }
   return 'Advisor de sugerencias — cola sandbox (solo lectura)';
 }
@@ -228,7 +228,7 @@ export default function ParaGanarAdvisor() {
         />
       )}
 
-      {canCurrent && isPeriodicidad && <ParaGanarPeriodicidadShell />}
+      {canCurrent && isPeriodicidad && <ParaGanarPeriodicidadPanel />}
 
       {canCurrent && !isPeriodicidad && (
         <div className={styles.layout}>
