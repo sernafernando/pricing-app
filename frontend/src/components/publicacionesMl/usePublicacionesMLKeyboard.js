@@ -85,6 +85,7 @@ function moveFocus(event) {
  * - r / w / o flip the focused row's product rebate, web transfer and "fuera de tarjetas" (`onToggleRow(key, 'rebate' |
  *   'web' | 'tarjetas')`), as in Productos.
  * - Alt+V steps to the next mode of Productos' price columns (`onCycleMode()`: Normal, Cuotas, PVP), as in Productos.
+ * - Shift+Up / Shift+Down move like the arrows and check the row moved to (`onExtendRow(key)`), as in Productos.
  *
  * While the operator types in a field only Ctrl+F and the copy shortcuts run (as in Productos, which copies while
  * editing too); nothing runs while a dialog is open (the help only takes `?`, to close it). `findRow(key)` maps a focused row's key to
@@ -96,6 +97,7 @@ export default function usePublicacionesMLKeyboard({
   onExport,
   onPaintRow,
   onToggleRow,
+  onExtendRow,
   onCycleLayer,
   onCycleMode,
   onBulkAction,
@@ -108,7 +110,7 @@ export default function usePublicacionesMLKeyboard({
   // No dependency array on purpose (the latest-ref pattern): it copies the values after every render.
   const props = useRef({});
   useLayoutEffect(() => {
-    props.current = { searchRef, findRow, onExport, onPaintRow, onToggleRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleHelp, showToast };
+    props.current = { searchRef, findRow, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleHelp, showToast };
   });
 
   useEffect(() => {
@@ -144,6 +146,7 @@ export default function usePublicacionesMLKeyboard({
         onToggleHelp: toggleHelp,
         onPaintRow: paintRow,
         onToggleRow: toggleRow,
+        onExtendRow: extendRow,
         onCycleLayer: cycleLayer,
         onCycleMode: cycleMode,
         onBulkAction: bulkAction,
@@ -223,7 +226,15 @@ export default function usePublicacionesMLKeyboard({
         toggleHelp();
         return;
       }
-      if (moveFocus(event)) event.preventDefault();
+      const before = focusedRow();
+      if (moveFocus(event)) {
+        event.preventDefault();
+        // Shift+Up / Shift+Down check the row moved to (S12d, Productos); a move that stays put checks nothing.
+        const after = focusedRow();
+        if (event.shiftKey && extendRow && (event.key === 'ArrowUp' || event.key === 'ArrowDown') && after && after !== before) {
+          extendRow(after.dataset.rowKey);
+        }
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);

@@ -7,6 +7,7 @@ const SHORTCUTS = [
   { keys: ['↓', '↑'], what: 'Moverse por las filas de la lista (↓ entra en la primera)' },
   { keys: ['RePág', 'AvPág'], what: 'Saltar 10 filas' },
   { keys: ['Inicio', 'Fin'], what: 'Ir a la primera o a la última fila' },
+  { keys: ['Shift+↓', 'Shift+↑'], what: 'Moverse y seleccionar el producto de la fila (desde el último seleccionado)' },
   { keys: ['Enter'], what: 'Abrir el detalle de la fila' },
   { keys: ['Ctrl+Enter'], what: 'Abrir la publicación en Mercado Libre' },
   { keys: ['Ctrl+F1', 'Ctrl+Shift+1'], what: 'Copiar el código del producto' },

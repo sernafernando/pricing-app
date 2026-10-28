@@ -1617,4 +1617,26 @@ describe('row colors and the color layer (S8)', () => {
       screen.unmount();
     });
   }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the page's checkbox sits on the title header's line, before its sort button, and is clickable`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const all = screen.getByRole('checkbox', { name: 'Seleccionar los productos de la página' });
+      await expect.element(all).toBeVisible();
+      all.element().scrollIntoView({ block: 'center', inline: 'nearest' });
+      const header = all.element().closest('th');
+      const sort = header.querySelector('button');
+      const box = all.element().getBoundingClientRect();
+      const sortBox = sort.getBoundingClientRect();
+      const headerBox = header.getBoundingClientRect();
+      // One line: the checkbox and the sort button share a vertical band, the checkbox first, both inside the cell.
+      expect(Math.abs(box.top + box.height / 2 - (sortBox.top + sortBox.height / 2))).toBeLessThanOrEqual(3);
+      expect(box.right).toBeLessThanOrEqual(sortBox.left);
+      expect(box.left).toBeGreaterThanOrEqual(headerBox.left);
+      expect(sortBox.right).toBeLessThanOrEqual(headerBox.right);
+      expect(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)).toBe(all.element());
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/select-page-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
 });

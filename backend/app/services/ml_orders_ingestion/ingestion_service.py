@@ -450,14 +450,14 @@ def has_no_payload():
     return or_(raw_order.is_(None), cast(raw_order, Text) == "null")
 
 
-def _due_for_retry(now: datetime):
-    """Past its backoff and, if tagged permanent, under the attempt cap. The
-    backoff is spelled out per attempt count (it only has ten distinct
-    values) so one portable expression serves Postgres and the SQLite tests
-    alike -- no dialect branch proving a different query than production."""
+def past_backoff(now: datetime):
+    """Past its backoff. The backoff is spelled out per attempt count (it
+    only has ten distinct values) so one portable expression serves Postgres
+    and the SQLite tests alike -- no dialect branch proving a different query
+    than production."""
     intentos = MlOrdersOpsCuarentena.intentos
     last = MlOrdersOpsCuarentena.ultimo_intento_at
-    past_backoff = or_(
+    return or_(
         last.is_(None),
         *(and_(intentos == k, last < now - _backoff(k)) for k in range(_BACKOFF_MAX_EXPONENT)),
         and_(
@@ -465,8 +465,13 @@ def _due_for_retry(now: datetime):
             last < now - _backoff(_BACKOFF_MAX_EXPONENT),
         ),
     )
+
+
+def _due_for_retry(now: datetime):
+    """Past its backoff and, if tagged permanent, under the attempt cap."""
+    intentos = MlOrdersOpsCuarentena.intentos
     capped = MlOrdersOpsCuarentena.error.like(f"{PERMANENT_TAG}%")
-    return and_(past_backoff, or_(not_(capped), intentos < MAX_PERMANENT_ATTEMPTS))
+    return and_(past_backoff(now), or_(not_(capped), intentos < MAX_PERMANENT_ATTEMPTS))
 
 
 def _count_attempt(db: Session, order_id: int) -> None:
