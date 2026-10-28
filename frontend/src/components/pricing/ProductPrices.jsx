@@ -376,18 +376,22 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
     };
   }, [load, productItemId]);
 
-  // A read asked from outside: only the prices change, the editor and its message stay.
+  // A read asked from outside: only the prices change, the editor and its message stay. Only a change of `readAgain`
+  // asks it: another product is read by the effect above, once.
+  const readAgainSeen = useRef(readAgain);
   useEffect(() => {
-    if (!readAgain) return undefined;
+    if (readAgain === readAgainSeen.current) return undefined;
+    readAgainSeen.current = readAgain;
+    const itemId = productItemId;
     let active = true;
     load()
-      .then((product) => active && setState({ status: 'ready', product, error: null }))
+      .then((product) => active && shownItemRef.current === itemId && setState({ status: 'ready', product, error: null }))
       // A failed re-read keeps the prices on screen: the caller's own write already succeeded.
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [load, readAgain]);
+  }, [load, productItemId, readAgain]);
 
   const { status, product } = state;
   const editable = LISTS.some((list) => list.rows.some((row) => permissions?.[row.perm]));

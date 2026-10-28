@@ -194,7 +194,7 @@ describe('recalculating the instalments after saving (as Productos does)', () =>
     const user = userEvent.setup();
     await save(user);
 
-    expect(await screen.findByText('boom.')).toBeInTheDocument();
+    expect(await screen.findByText('boom')).toBeInTheDocument();
     expect(preciosAPI.recalcularCuotas).not.toHaveBeenCalled();
     expect(onRecalculated).not.toHaveBeenCalled();
   });

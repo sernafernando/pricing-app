@@ -58,7 +58,7 @@ const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
 function reasonOf(error, { forbidden, fallback }) {
   if (error?.response?.status === 403) return forbidden;
   const detail = error?.response?.data?.detail;
-  return sentence(typeof detail === 'string' && detail ? detail : fallback);
+  return typeof detail === 'string' && detail ? detail : fallback;
 }
 
 const describeError = (error) =>
@@ -78,15 +78,16 @@ async function recalculate(productItemId, lists) {
       results.push({ list, ok: true });
     } catch (error) {
       const reason = reasonOf(error, { forbidden: 'No tenés permiso para recalcular las cuotas.', fallback: 'Probá de nuevo.' });
-      results.push({ list, ok: false, reason });
+      // Several of them are joined into one note: each a sentence of its own.
+      results.push({ list, ok: false, reason: sentence(reason) });
     }
   }
-  const done = results.filter((r) => r.ok).map((r) => LIST_LABELS[r.list]);
+  const recalculatedLabels = results.filter((r) => r.ok).map((r) => LIST_LABELS[r.list]);
   const failed = results.filter((r) => !r.ok);
   const parts = ['Guardado.'];
-  if (done.length > 0) parts.push(`Cuotas ${done.join(' y ')} recalculadas desde la clásica.`);
+  if (recalculatedLabels.length > 0) parts.push(`Cuotas ${recalculatedLabels.join(' y ')} recalculadas desde la clásica.`);
   for (const { list, reason } of failed) parts.push(`No se pudieron recalcular las ${LIST_LABELS[list]}: ${reason}`);
-  return { note: parts.join(' '), done: done.length > 0 };
+  return { note: parts.join(' '), done: recalculatedLabels.length > 0 };
 }
 
 /**

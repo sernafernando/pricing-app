@@ -109,6 +109,18 @@ describe('reading again from outside (readAgain)', () => {
     expect(await screen.findByRole('row', { name: /^3 cuotas\b.*111\.111/ })).toBeInTheDocument();
     expect(within(await rowOf('Clásica')).getByRole('textbox', { name: 'Clásica' })).toHaveValue('777');
   });
+
+  it('only a change of readAgain reads again: opening another product afterwards reads it once', async () => {
+    const { rerender } = renderPrices({ readAgain: 0 });
+    await rowOf('Clásica');
+    rerender(<ProductPrices productItemId={4101} permissions={ALL} onWritten={vi.fn()} readAgain={1} />);
+    await waitFor(() => expect(preciosAPI.obtenerProducto).toHaveBeenCalledTimes(2));
+
+    rerender(<ProductPrices productItemId={4102} permissions={ALL} onWritten={vi.fn()} readAgain={1} />);
+
+    await rowOf('Clásica');
+    expect(preciosAPI.obtenerProducto.mock.calls.filter(([id]) => id === 4102)).toHaveLength(1);
+  });
 });
 
 describe('writing the PVP list', () => {
