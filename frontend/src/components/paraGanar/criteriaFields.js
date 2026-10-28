@@ -15,12 +15,21 @@ export const SYSTEM_CRITERIA_DEFAULTS = {
 };
 
 export const CRITERIA_NUMBER_FIELDS = [
-  { key: 'markup_min', label: 'Markup mínimo %', placeholder: 'ej. 5' },
-  { key: 'markup_max', label: 'Markup máximo %', placeholder: 'ej. 15' },
-  { key: 'top_sellers', label: 'TOP sellers por tipo', placeholder: 'ej. 5', integer: true },
-  { key: 'precio_min', label: 'Precio mínimo', placeholder: 'sin tope' },
-  { key: 'precio_max', label: 'Precio máximo', placeholder: 'sin tope' },
+  { key: 'markup_min', label: 'Markup mínimo %', placeholder: 'ej. 5', syncGroup: 'min' },
+  { key: 'markup_max', label: 'Markup máximo %', placeholder: 'ej. 15', syncGroup: 'max' },
+  {
+    key: 'top_sellers',
+    label: 'TOP posiciones de precio',
+    placeholder: 'ej. 5',
+    integer: true,
+    hint: 'Posiciones de precio (empates comparten puesto), no cantidad de sellers',
+  },
+  { key: 'precio_min', label: 'Precio mínimo (ARS)', placeholder: 'sin tope', syncGroup: 'min' },
+  { key: 'precio_max', label: 'Precio máximo (ARS)', placeholder: 'sin tope', syncGroup: 'max' },
 ];
+
+/** Mass / system criteria expose markup (+ flags/TOP), never price caps (D10). */
+export const MASS_CRITERIA_NUMBER_KEYS = ['markup_min', 'markup_max', 'top_sellers'];
 
 export const CRITERIA_FLAG_FIELDS = [
   { key: 'ganar_catalogo', label: 'Ganar catálogo' },

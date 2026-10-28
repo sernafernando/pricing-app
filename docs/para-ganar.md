@@ -31,9 +31,9 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D7 | Faceted `alcance-opciones`: each facet skips **only itself**; tipo↔lista both apply | Cascading options; mutual tipo/lista need each other | Done |
 | D8 | Tienda filter via `ml_tiendas_oficiales` + `tb_mercadolibre_items_publicados`; “Sin tienda” = no row | Named stores need seed in empty sandbox | Done (+ seeds) |
 | D9 | **Cost USD from–to** = scope filter (not criteria) | Different cost bands need different criteria later | Done (`costo_usd_min` / `costo_usd_max`; ARS→USD via TC venta) |
-| D10 | **Mass / system criteria = markup only** (no mass price caps) | No single cost → price caps as mass criteria are meaningless | **Next** |
-| D11 | **Per MLA:** precio ↔ markup stay in sync (edit either; other derives from that MLA’s cost) | Deterministic math; avoid impossible floors | **Next** |
-| D12 | **TOP N = price positions** (ties share a rank), not “N sellers” | Two at #1 + three at #2 = top **2** positions, five sellers | Documented; engine when TOP logic lands |
+| D10 | **Mass / system criteria = markup only** (no mass price caps) | No single cost → price caps as mass criteria are meaningless | Done (defaults + `MASS_CRITERIA_NUMBER_KEYS`; mass apply UI still disabled) |
+| D11 | **Per MLA:** precio ↔ markup stay in sync (edit either; other derives from that MLA’s cost in ARS) | Deterministic floor: `precio = costo_ars * (1 + markup/100)` — not limpio/comisiones | Done (UI sync + `costo_ars` on GET/PUT) |
+| D12 | **TOP N = price positions** (ties share a rank), not “N sellers” | Two at #1 + three at #2 = top **2** positions, five sellers | Label done; engine when TOP logic lands |
 
 ---
 
@@ -72,14 +72,13 @@ Newest first. Use for “why did we…” archaeology.
 
 ### Criterios
 
-- **Sin override MLA:** UI shows system defaults (`Origen: default`).
-- **Con override:** `Origen: MLA` after save.
-- Mass “apply to filtered” button: still disabled until product/PM layers + D10.
-- Planned: mass UI exposes **markup (and flags/TOP)** only; price fields only on per-MLA editor with live sync (D10–D11).
+- **Sin override MLA:** UI shows system defaults (`Origen: default`). System defaults are **markup + TOP + flags** only — no mass price caps (D10).
+- **Con override:** `Origen: MLA` after save. Precio min/max ↔ markup min/max sync using ERP cost in ARS (D11).
+- Mass “apply to filtered” button: still disabled until product/PM layers; when built, only `MASS_CRITERIA_NUMBER_KEYS` + flags.
 
-### TOP sellers
+### TOP (posiciones)
 
-- Configured number means **top price positions**. Sellers tied at the same price share a position. Label/engine must say so (D12).
+- Field label: **TOP posiciones de precio**. Empates comparten puesto (D12). Suggestion engine must use rank-by-price, not headcount.
 
 ### Sellers del catálogo
 
@@ -93,8 +92,8 @@ Newest first. Use for “why did we…” archaeology.
 1. Keep this doc updated on every slice (this file is the source of truth).
 2. ~~Fix CI css-guard~~ (`filterGroupActive`).
 3. ~~Scope: costo USD desde–hasta~~ (D9).
-4. Criterios UI/API: mass = markup only; MLA = precio↔markup sync on that MLA’s cost (D10–D11).
-5. When suggestion/TOP engine lands: implement D12 (positions, not headcount).
+4. ~~D10–D11 criteria markup/price~~ (mass keys + per-MLA sync).
+5. Suggestion/TOP engine: enforce D12 rank-by-price (ties share position).
 6. Later: product/PM criteria inheritance; suggestion states; apply via promotions.
 
 ---

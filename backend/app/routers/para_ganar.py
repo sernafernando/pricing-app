@@ -716,6 +716,8 @@ class ParaGanarCriteriosMla(BaseModel):
     descartar_stock_residual: bool = False
     descartar_reputacion_baja: bool = False
     techo_monopolio: bool = False
+    # ERP cost in ARS for UI markup↔precio sync (D11). Null if unknown / no TC for USD.
+    costo_ars: Optional[float] = None
     updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -749,7 +751,37 @@ class ParaGanarCriteriosMlaUpsert(BaseModel):
         return self
 
 
-def _criterios_defaults(mla: str) -> ParaGanarCriteriosMla:
+def _costo_ars_for_mla(db: Session, mla: str) -> Optional[float]:
+    """ERP cost converted to ARS for criteria precio↔markup sync (D11)."""
+    row = (
+        db.execute(
+            text(
+                """
+                SELECT e.costo, CAST(e.moneda_costo AS TEXT) AS moneda
+                FROM publicaciones_ml p
+                JOIN productos_erp e ON e.item_id = p.item_id
+                WHERE p.mla = :mla
+                LIMIT 1
+                """
+            ),
+            {"mla": mla},
+        )
+        .mappings()
+        .first()
+    )
+    if row is None or row["costo"] is None:
+        return None
+    costo = float(row["costo"])
+    moneda = (row["moneda"] or "ARS").strip().upper()
+    if moneda == "ARS":
+        return costo
+    tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+    if tipo_cambio and float(tipo_cambio) > 0:
+        return costo * float(tipo_cambio)
+    return None
+
+
+def _criterios_defaults(mla: str, *, costo_ars: Optional[float] = None) -> ParaGanarCriteriosMla:
     """Effective criteria before any MLA override (precio min/max stay unset)."""
     return ParaGanarCriteriosMla(
         mla=mla,
@@ -764,10 +796,11 @@ def _criterios_defaults(mla: str) -> ParaGanarCriteriosMla:
         descartar_stock_residual=False,
         descartar_reputacion_baja=False,
         techo_monopolio=False,
+        costo_ars=costo_ars,
     )
 
 
-def _criterios_from_row(row: ParaGanarCriterioMla) -> ParaGanarCriteriosMla:
+def _criterios_from_row(row: ParaGanarCriterioMla, *, costo_ars: Optional[float] = None) -> ParaGanarCriteriosMla:
     return ParaGanarCriteriosMla(
         mla=row.mla,
         source="mla",
@@ -781,6 +814,7 @@ def _criterios_from_row(row: ParaGanarCriterioMla) -> ParaGanarCriteriosMla:
         descartar_stock_residual=bool(row.descartar_stock_residual),
         descartar_reputacion_baja=bool(row.descartar_reputacion_baja),
         techo_monopolio=bool(row.techo_monopolio),
+        costo_ars=costo_ars,
         updated_at=row.updated_at,
     )
 
@@ -807,10 +841,11 @@ def obtener_criterios_mla(
     mla_norm = mla.strip().upper()
     if not mla_norm:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MLA inválida")
+    costo_ars = _costo_ars_for_mla(db, mla_norm)
     row = db.get(ParaGanarCriterioMla, mla_norm)
     if row is None:
-        return _criterios_defaults(mla_norm)
-    return _criterios_from_row(row)
+        return _criterios_defaults(mla_norm, costo_ars=costo_ars)
+    return _criterios_from_row(row, costo_ars=costo_ars)
 
 
 @router.put(
@@ -851,7 +886,7 @@ def upsert_criterios_mla(
 
     db.commit()
     db.refresh(row)
-    return _criterios_from_row(row)
+    return _criterios_from_row(row, costo_ars=_costo_ars_for_mla(db, mla_norm))
 
 
 class ParaGanarCatalogSellerItem(BaseModel):

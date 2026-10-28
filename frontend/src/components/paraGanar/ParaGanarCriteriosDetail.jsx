@@ -9,6 +9,7 @@ import {
   formToPayload,
   sourceLabel,
 } from './criteriaFields';
+import { syncLinkedCriteriaField } from './criteriaMarkupPriceSync';
 import ParaGanarCatalogSellers from './ParaGanarCatalogSellers';
 import styles from '../../pages/ParaGanarAdvisor.module.css';
 
@@ -18,6 +19,7 @@ export default function ParaGanarCriteriosDetail({ selected }) {
 
   const [form, setForm] = useState(EMPTY_CRITERIA_FORM);
   const [source, setSource] = useState('default');
+  const [costoArs, setCostoArs] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -28,6 +30,7 @@ export default function ParaGanarCriteriosDetail({ selected }) {
     if (!selected?.mla) {
       setForm(EMPTY_CRITERIA_FORM);
       setSource('default');
+      setCostoArs(null);
       setLoadError(null);
       setSaveError(null);
       setSaveOk(false);
@@ -45,10 +48,12 @@ export default function ParaGanarCriteriosDetail({ selected }) {
         if (cancelled) return;
         setForm(criteriaToForm(data));
         setSource(data.source || 'default');
+        setCostoArs(data.costo_ars != null ? Number(data.costo_ars) : null);
       } catch (err) {
         if (cancelled) return;
         setForm(EMPTY_CRITERIA_FORM);
         setSource('default');
+        setCostoArs(null);
         if (err.response?.status === 403) {
           setLoadError('No tenés permiso para ver criterios.');
         } else {
@@ -68,7 +73,7 @@ export default function ParaGanarCriteriosDetail({ selected }) {
   const setField = (key, value) => {
     setSaveOk(false);
     setSaveError(null);
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => syncLinkedCriteriaField(prev, key, value, costoArs));
   };
 
   const onSubmit = async (event) => {
@@ -86,6 +91,7 @@ export default function ParaGanarCriteriosDetail({ selected }) {
       );
       setForm(criteriaToForm(data));
       setSource(data.source || 'mla');
+      setCostoArs(data.costo_ars != null ? Number(data.costo_ars) : null);
       setSaveOk(true);
     } catch (err) {
       const detail = err.response?.data?.detail;
@@ -125,12 +131,23 @@ export default function ParaGanarCriteriosDetail({ selected }) {
             <div className={styles.criteriaSource}>
               Origen efectivo: <strong>{sourceLabel(source)}</strong>
               {loading ? ' · cargando…' : ''}
+              {costoArs != null && Number.isFinite(costoArs) ? (
+                <>
+                  {' '}
+                  · costo ERP ~ ${costoArs.toLocaleString('es-AR', { maximumFractionDigits: 2 })} ARS
+                </>
+              ) : null}
             </div>
           </div>
 
           {loadError && (
             <p className={styles.criteriaFeedbackError} role="alert">
               {loadError}
+            </p>
+          )}
+          {!loading && (costoArs == null || !Number.isFinite(costoArs) || !(costoArs > 0)) && (
+            <p className={styles.emptyBody} role="status">
+              Sin costo ERP en ARS: markup y precio no se sincronizan (faltan costo o tipo de cambio).
             </p>
           )}
 
@@ -149,6 +166,7 @@ export default function ParaGanarCriteriosDetail({ selected }) {
                   placeholder={field.placeholder}
                   value={form[field.key]}
                   disabled={loading || !canWrite}
+                  title={field.hint}
                   onChange={(e) => setField(field.key, e.target.value)}
                 />
               </label>

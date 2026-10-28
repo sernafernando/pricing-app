@@ -60,6 +60,18 @@ def test_criterios_put_rejects_inverted_markup(client: TestClient, rma_superadmi
     assert response.status_code == 422
 
 
+def test_criterios_get_includes_costo_ars(client: TestClient, rma_superadmin_user, db) -> None:
+    producto = ProductoERP(item_id=88003, codigo="SKU-PG-COST", descripcion="Costo ARS", costo=250.5)
+    db.add(producto)
+    db.flush()
+    db.add(PublicacionML(mla="MLA88003", item_id=producto.item_id, codigo="SKU-PG-COST", activo=True))
+    db.commit()
+
+    response = client.get("/api/para-ganar/criterios/MLA88003", headers=_auth(rma_superadmin_user))
+    assert response.status_code == 200, response.text
+    assert response.json()["costo_ars"] == 250.5
+
+
 def test_criterios_put_and_get_roundtrip(client: TestClient, rma_superadmin_user, db) -> None:
     producto = ProductoERP(item_id=88002, codigo="SKU-PG-CRIT2", descripcion="Criterios roundtrip", costo=10)
     db.add(producto)
