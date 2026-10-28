@@ -42,7 +42,9 @@ class QuarantineRetryHandler:
         # again, and the ones that come back are written in that same pass.
         # Neither a failure there (the pool, the proxy) nor a slow proxy may
         # hold back the replay of the orders whose write failed: an exception
-        # is logged, and the re-fetch gets at most half of the run's time.
+        # is logged, and no order fetch starts past half of the run's time.
+        # The orders ML gave back then go through `process_batch`, whose own
+        # shipment/cost/payment fetches are bounded by its pass budget.
         now = datetime.now(timezone.utc)
         refetch_deadline = now + max(ctx.deadline - now, timedelta(0)) / 2
         try:
