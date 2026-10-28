@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional
 
-from sqlalchemy import ARRAY, Numeric, Text, any_, case, cast, func, literal, select, text, true
+from sqlalchemy import ARRAY, Numeric, Text, and_, any_, case, cast, func, literal, select, text, true
 from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
@@ -87,6 +87,16 @@ def cost_in_pesos() -> Any:
         .scalar_subquery()
     )
     return case((T.p.moneda_costo == "USD", T.p.costo * latest_usd), else_=T.p.costo)
+
+
+def unconverted_usd_cost() -> Any:
+    """A USD cost `cost_in_pesos` has no rate for, in dollars (null otherwise): with no USD rate on record, the USD
+    costs still sort, after the peso costs, by their own amount, and before the rows with no cost at all."""
+    return case((and_(T.p.moneda_costo == "USD", cost_in_pesos().is_(None)), T.p.costo), else_=None)
+
+
+# sort key -> the ordering column that breaks its ties, missing values last like the key's own
+SORT_TIES: dict[str, Any] = {"costo": unconverted_usd_cost}
 
 
 @dataclass(frozen=True)
@@ -217,15 +227,20 @@ def row_columns(*, cost: bool = False) -> list[Any]:
     ]
 
 
-def _column_order(key: str, descending: bool) -> Any:
-    """One column key, missing values last in either direction."""
-    expression = SORT_COLUMNS[key][0]()
-    return (expression.desc() if descending else expression.asc()).nulls_last()
+def _column_order(key: str, descending: bool) -> tuple[Any, ...]:
+    """One column key and its tie-break, if any (`SORT_TIES`), missing values last in either direction."""
+    expressions = [SORT_COLUMNS[key][0](), *((SORT_TIES[key](),) if key in SORT_TIES else ())]
+    return tuple((expression.desc() if descending else expression.asc()).nulls_last() for expression in expressions)
+
+
+def _columns_order(keys: Any) -> list[Any]:
+    """`_column_order` of each `(key, descending)` of `keys`, in order."""
+    return [clause for key, descending in keys for clause in _column_order(key, descending)]
 
 
 def _order_by(sort: Sort) -> list[Any]:
     """The sort keys, then `item_id`, which makes the order total."""
-    return [_column_order(sort.key, sort.descending), *(_column_order(*key) for key in sort.then), T.i.item_id]
+    return [*_columns_order(((sort.key, sort.descending), *sort.then)), T.i.item_id]
 
 
 def _by_figures(
@@ -242,7 +257,7 @@ def _by_figures(
     first = figured.c.figure.desc() if sort.descending else figured.c.figure.asc()
     query = (
         source.where(figured.c.item_id == T.i.item_id)
-        .order_by(first.nulls_last(), *(_column_order(*key) for key in sort.then), T.i.item_id)
+        .order_by(first.nulls_last(), *_columns_order(sort.then), T.i.item_id)
         .limit(limit)
         .offset(offset)
     )
