@@ -76,7 +76,11 @@ const MARKUP_SIGN_PARAMS = {
 };
 const MARKUP_SIGN_KEYS = Object.keys(MARKUP_SIGN_PARAMS);
 const MARKUP_SIGNS = ['positivo', 'negativo'];
-export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS, ...PRESENCE_KEYS, ...MARKUP_SIGN_KEYS];
+/** Productos' audit filter: its URL keys (`useProductosFilters`) and the `GET /productos` param each one sends. */
+const AUDIT_CSV_PARAMS = { audit_usuarios: 'audit_usuarios', audit_tipos: 'audit_tipos_accion' };
+const AUDIT_TEXT_PARAMS = { audit_desde: 'audit_fecha_desde', audit_hasta: 'audit_fecha_hasta' };
+const AUDIT_KEYS = [...Object.keys(AUDIT_CSV_PARAMS), ...Object.keys(AUDIT_TEXT_PARAMS)];
+export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS, ...PRESENCE_KEYS, ...MARKUP_SIGN_KEYS, ...AUDIT_KEYS];
 
 // `producto` = one row per product, opening into its publications (`/view/products`).
 const VISTAS = ['publicacion', 'producto', 'agrupado'];
@@ -173,6 +177,8 @@ function readFilters(params, { canSeeMargin = false } = {}) {
     const value = params.get(key);
     filters[key] = canSeeMargin && MARKUP_SIGNS.includes(value) ? value : '';
   }
+  for (const key of Object.keys(AUDIT_CSV_PARAMS)) filters[key] = csv(params.get(key));
+  for (const key of Object.keys(AUDIT_TEXT_PARAMS)) filters[key] = params.get(key) ?? '';
   // One reading for the switch and the request: only `1` / `true` mean on.
   filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
   const vista = params.get('vista');
@@ -245,6 +251,12 @@ export function buildItemsParams(
   }
   for (const key of MARKUP_SIGN_KEYS) {
     if (filters[key]) params[MARKUP_SIGN_PARAMS[key]] = filters[key] === 'positivo';
+  }
+  for (const [key, param] of Object.entries(AUDIT_CSV_PARAMS)) {
+    if (filters[key]?.length > 0) params[param] = filters[key].join(',');
+  }
+  for (const [key, param] of Object.entries(AUDIT_TEXT_PARAMS)) {
+    if (filters[key]) params[param] = filters[key];
   }
   if (filters.equipo) params.equipo_id = filters.equipo;
   params.limit = pageSize;
