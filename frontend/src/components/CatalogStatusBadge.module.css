@@ -1,4 +1,5 @@
-/* Productos' catalog-competition badge: one tone per status, inverse text. */
+/* Publicaciones ML's catalog-competition badge, mirroring Productos' (its tones are CATALOG_STATES' `tone`, keyed by
+   the same statuses in catalogStatus.js): one tone per status, inverse text. */
 .badge {
   display: inline-flex;
   align-items: center;

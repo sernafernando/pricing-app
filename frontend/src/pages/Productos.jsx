@@ -15,7 +15,7 @@ import Toast from '../components/Toast';
 import { usePrearmadasStats, PREARMADAS_LIMITE } from '../hooks/usePrearmadasStats';
 import PrearmadaBadge from '../components/PrearmadaBadge';
 import PxqTramosBadge from '../components/PxqTramosBadge';
-import { catalogTooltip } from '../components/catalogStatus';
+import { CATALOG_STATES, catalogTooltip } from '../components/catalogStatus';
 import { ChevronDown, ChevronRight, Users } from 'lucide-react';
 import { useExpandedSet } from '../hooks/useExpandedSet';
 import ProductoMLAsPanel from '../components/promociones/ProductoMLAsPanel';
@@ -1722,20 +1722,13 @@ export default function Productos() {
                             fontSize: '10px',
                             fontWeight: '600',
                             marginLeft: '6px',
-                            backgroundColor:
-                              p.catalog_status === 'winning' ? 'var(--success)' :
-                              p.catalog_status === 'sharing_first_place' ? 'var(--info)' :
-                              p.catalog_status === 'competing' ? 'var(--warning)' :
-                              'var(--text-tertiary)',
+                            backgroundColor: CATALOG_STATES[p.catalog_status]?.tone ?? 'var(--text-tertiary)',
                             color: 'var(--text-inverse)',
                             whiteSpace: 'nowrap'
                           }}
                           title={catalogTooltip(p) ?? ''}
                         >
-                          {p.catalog_status === 'winning' ? '🏆' :
-                           p.catalog_status === 'sharing_first_place' ? '🤝' :
-                           p.catalog_status === 'competing' ? '!' :
-                           ''}
+                          {CATALOG_STATES[p.catalog_status]?.mark ?? ''}
                         </span>
                       )}
                     </td>

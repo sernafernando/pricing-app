@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import CatalogStatusBadge from './CatalogStatusBadge';
+import { CATALOG_STATES } from './catalogStatus';
 
-/** Productos' catalog-competition badge (its product rows' `has_catalog` span): mark, tone and price tooltip per status. */
+/** Publicaciones ML's catalog-competition badge, mirroring Productos' row badge: mark, tone and price tooltip per status. */
 describe('CatalogStatusBadge', () => {
   it('renders nothing for a product with no catalog or no status, or no product at all', () => {
     for (const product of [null, undefined, { has_catalog: false, catalog_status: 'winning' }, { has_catalog: true, catalog_status: null }]) {
@@ -37,6 +38,11 @@ describe('CatalogStatusBadge', () => {
     unmount();
     render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: 'competing', catalog_price_to_win: '870.1' }} />);
     expect(screen.getByRole('img')).toHaveAttribute('title', 'Precio para ganar: $870.10');
+  });
+
+  it.each(Object.entries(CATALOG_STATES))('every state has its icon and its words: %s', (status, { label }) => {
+    render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: status }} />);
+    expect(screen.getByRole('img', { name: `Catálogo: ${label}` }).querySelector('svg')).toBeInTheDocument();
   });
 
   it('a price of 0 is no price, as in Productos: no tooltip', () => {

@@ -32,7 +32,7 @@ import CatalogStatusBadge from '../CatalogStatusBadge';
  * whose panel is open (`selectedProductKey`).
  *
  * Beside a product's name, Productos' badges: its prearmadas (`prearmadasStats`, by product id, from the page) and its
- * wholesale (PxQ) tiers (the row's `pxq_tramos` / `pxq_precio_desde`), and its catalog competition (S4, from `listingById`:
+ * wholesale (PxQ) tiers (the row's `pxq_tramos` / `pxq_precio_desde`), and its catalog competition (from `listingById`:
  * the Productos listing's product by id, the page's `useListPrices`).
  */
 // The columns a product row fills from its own product, as Productos' rows carry it: drawn by the publications' own

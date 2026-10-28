@@ -1,3 +1,14 @@
+/**
+ * The catalog competition states ML reports, one table for Productos' row badge and Publicaciones ML's
+ * `CatalogStatusBadge`: the state in words, Productos' emoji mark and the tone of the badge. A status missing here is
+ * shown as a neutral badge with no mark (`CatalogStatusBadge.module.css` keys its tones by these same statuses).
+ */
+export const CATALOG_STATES = {
+  winning: { label: 'ganando', mark: '🏆', tone: 'var(--success)' },
+  sharing_first_place: { label: 'compartiendo el primer lugar', mark: '🤝', tone: 'var(--info)' },
+  competing: { label: 'compitiendo', mark: '!', tone: 'var(--warning)' },
+};
+
 // A price as the catalog tooltip writes it; null when it is not a usable number (no tooltip, never a crash). A price
 // of 0 counts as none: Productos always read it that way (its check was the price's truthiness).
 const price = (value) => {

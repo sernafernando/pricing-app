@@ -117,7 +117,7 @@ describe('the product rows', () => {
     expect(within(none).queryByText(/lista/)).not.toBeInTheDocument();
   });
 
-  it("carry Productos' catalog-competition badge beside the name, from the product's own listing (S4)", async () => {
+  it("carry Productos' catalog-competition badge beside the name, from the product's own listing", async () => {
     const prices = {
       byId: new Map([[4101, { item_id: 4101, has_catalog: true, catalog_status: 'competing', catalog_price_to_win: 870.1 }]]),
       loading: false,
