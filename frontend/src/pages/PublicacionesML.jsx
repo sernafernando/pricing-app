@@ -105,8 +105,13 @@ const VINCULO_LABELS = {
   sku_divergente: 'SKU distinto del producto',
 };
 // One chip per stock column, each filtering its own source: our own stock at ML, Full and the ERP's -- never a sum.
-const STOCK_OPTIONS = ['propio_sin_stock', 'full_sin_stock', 'erp_sin_stock'];
-const STOCK_LABELS = { propio_sin_stock: 'Sin stock propio', full_sin_stock: 'Full sin stock', erp_sin_stock: 'Sin stock ERP' };
+const STOCK_OPTIONS = ['propio_sin_stock', 'full_sin_stock', 'erp_sin_stock', 'erp_con_stock'];
+const STOCK_LABELS = {
+  propio_sin_stock: 'Sin stock propio',
+  full_sin_stock: 'Full sin stock',
+  erp_sin_stock: 'Sin stock ERP',
+  erp_con_stock: 'Con stock ERP',
+};
 
 const EMPTY_ROWS = [];
 

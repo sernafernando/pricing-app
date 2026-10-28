@@ -703,7 +703,9 @@ def filter_query(
     vinculo: Optional[str] = Query(
         None, description="csv of auto,manual,sin_producto,conflicto,no_evaluado,sku_divergente"
     ),
-    stock: Optional[str] = Query(None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,propio_sin_stock"),
+    stock: Optional[str] = Query(
+        None, description="csv of sin_stock,full_sin_stock,erp_sin_stock,erp_con_stock,propio_sin_stock"
+    ),
     evento: Optional[str] = Query(None, description="csv of event types; needs events.enabled"),
     evento_desde: Optional[str] = Query(None, description="24h, 7d or 30d"),
     # Productos' "Filtros de Presencia": the same params as `GET /productos`
@@ -720,6 +722,10 @@ def filter_query(
     out_of_cards: Optional[bool] = Query(None, description="the linked product is marked out of cards"),
     oferta_por_producto: Optional[bool] = Query(
         None, description="ask con_oferta of the product (any of its publications), as the Producto view does"
+    ),
+    con_precio: Optional[bool] = Query(None, description="the linked product has a list price (false: it has none)"),
+    nuevos_ultimos_7_dias: Optional[bool] = Query(
+        None, description="the linked product was synced from the ERP in the last 7 days"
     ),
 ) -> PublicationFilter:
     """The filters every read of the screen shares (`/items` and `/groups`): one declaration, so a filter added here
@@ -751,6 +757,8 @@ def filter_query(
             tn_no_publicado=tn_no_publicado,
             out_of_cards=out_of_cards,
             oferta_por_producto=oferta_por_producto,
+            con_precio=con_precio,
+            nuevos_ultimos_7_dias=nuevos_ultimos_7_dias,
         )
     except FilterError as exc:
         raise _unprocessable(exc) from exc

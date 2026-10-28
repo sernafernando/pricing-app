@@ -56,6 +56,8 @@ const PRESENCE_PARAMS = {
     no_publicado: { tn_no_publicado: true },
   },
   outofcards: { con_out_of_cards: { out_of_cards: true }, sin_out_of_cards: { out_of_cards: false } },
+  precio: { con_precio: { con_precio: true }, sin_precio: { con_precio: false } },
+  nuevos: { ultimos_7_dias: { nuevos_ultimos_7_dias: true } },
 };
 export const PRESENCE_VALUES = Object.fromEntries(
   Object.entries(PRESENCE_PARAMS).map(([key, values]) => [key, Object.keys(values)]),

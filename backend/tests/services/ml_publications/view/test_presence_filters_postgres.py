@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
+from sqlalchemy import text
 
 from app.services.ml_publications.view import listing
 from app.services.ml_publications.view.filters import parse_filter
@@ -106,3 +107,21 @@ class TestWithTheOtherFilters:
         assert listed(db, con_rebate=False, marcas="tp-link") == ["MLA3"]
         assert listed(db, con_web_transf=True, out_of_cards=False) == ["MLA2"]
         assert listed(db, con_rebate=True, con_oferta=True) == ["MLA1"]
+
+
+class TestProductosMissingFilters:
+    """P6: Productos' stock, precio and nuevos filters, with `GET /productos`' meaning, asked of the linked product."""
+
+    def test_con_stock_erp_is_stock_above_zero_and_needs_a_product(self, db) -> None:
+        assert listed(db, stock="erp_con_stock") == ["MLA1", "MLA3", "MLA5"]  # 71 has 0; MLA4 has no product
+        assert listing.facets(db, parse_filter())["stock"]["erp_con_stock"] == 3  # the chip's count is what it lists
+
+    def test_con_precio_is_a_list_price_in_productos_pricing(self, db, conn) -> None:
+        conn.execute(text("UPDATE productos_pricing SET precio_lista_ml = 167021 WHERE item_id = 70"))
+        assert listed(db, con_precio=True) == ["MLA1", "MLA5"]
+        assert listed(db, con_precio=False) == ["MLA2", "MLA3"]  # 72 has no pricing row: "sin"; MLA4 neither side
+
+    def test_nuevos_are_products_synced_in_the_last_7_days(self, db, conn) -> None:
+        conn.execute(text("UPDATE productos_erp SET fecha_sync = now() - interval '8 days' WHERE item_id <> 71"))
+        assert listed(db, nuevos_ultimos_7_dias=True) == ["MLA2"]
+        assert len(listed(db, nuevos_ultimos_7_dias=False)) == 5  # false is no filter, as in Productos

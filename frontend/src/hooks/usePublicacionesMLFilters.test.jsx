@@ -409,6 +409,8 @@ describe("Productos' presence filters (S5)", () => {
       webtransf: ['con_web_transf', 'sin_web_transf'],
       tiendanube: ['con_descuento', 'sin_descuento', 'no_publicado'],
       outofcards: ['con_out_of_cards', 'sin_out_of_cards'],
+      precio: ['con_precio', 'sin_precio'],
+      nuevos: ['ultimos_7_dias'],
     });
     expect(FILTER_KEYS).toEqual(expect.arrayContaining(Object.keys(PRESENCE_VALUES)));
   });
@@ -449,6 +451,17 @@ describe("Productos' presence filters (S5)", () => {
     expect(buildKpiParams(filters, '30d')).toEqual({ ...presence, periodo: '30d' });
     expect(buildItemsParams({ ...base, tiendanube: 'con_descuento' }, 50).tn_con_descuento).toBe(true);
     expect(buildItemsParams({ ...base, tiendanube: 'no_publicado' }, 50).tn_no_publicado).toBe(true);
+  });
+
+  it("sends Productos' precio and nuevos params (P6)", () => {
+    expect(buildItemsParams({ ...base, precio: 'con_precio', nuevos: 'ultimos_7_dias' }, 50)).toEqual({
+      con_precio: true,
+      nuevos_ultimos_7_dias: true,
+      limit: 50,
+      offset: 0,
+    });
+    expect(buildItemsParams({ ...base, precio: 'sin_precio' }, 50).con_precio).toBe(false);
+    expect(buildProductIdsParams({ ...base, precio: 'sin_precio' }).con_precio).toBe(false);
   });
 
   it('in the Producto view, the KPI strip asks mejor oferta of the product, as the product rows do', () => {
