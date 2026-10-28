@@ -39,12 +39,14 @@ vi.mock('../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   productosPropiosAPI: { get: vi.fn(() => new Promise(() => {})), save: vi.fn() },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: ['TP,LINK', 'EPSON'] } })),
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: ['REDES'] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     pms: vi.fn(() => Promise.resolve({ data: [{ id: 7, nombre: 'Ana' }] })),
+    // The product panel's last purchases: no purchase, these tests are about the panel's opening and closing.
+    detalle: vi.fn(() => Promise.resolve({ data: { producto: {}, pricing: {}, ultimas_compras: [] } })),
     listar: vi.fn(() => Promise.resolve({ data: { productos: [], total: 0 } })),
   },
   equiposAPI: {
@@ -115,6 +117,11 @@ const calls = () => publicacionesMlAPI.items.mock.calls.map(([params]) => params
 const lastParams = () => calls().at(-1);
 const httpError = (status, data = {}) => Object.assign(new Error(`HTTP ${status}`), { response: { status, data } });
 
+const STATS_RESPONSE = {
+  stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 },
+  can_see_margin: false,
+};
+
 const page = async (entry = '/ml-publicaciones') => {
   renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
   await screen.findByText('MLA1100000001');
@@ -128,6 +135,8 @@ beforeEach(() => {
   denied = new Set();
   publicacionesMlAPI.kpis.mockReset();
   publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE });
+  publicacionesMlAPI.stats.mockReset();
+  publicacionesMlAPI.stats.mockResolvedValue({ data: STATS_RESPONSE });
   seedTiendasOficiales([
     { store_id: 471846, nombre: 'TP-Link', clave: null, orden: 0, activa: true },
     { store_id: 57997, nombre: 'Gauss', clave: null, orden: 1, activa: true },
@@ -273,6 +282,49 @@ describe('filters', () => {
     await page('/ml-publicaciones?estado=active');
     await userEvent.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
     await waitFor(() => expect(lastParams()).not.toHaveProperty('estado'));
+  });
+});
+
+describe('stat cards (S12d4, Productos)', () => {
+  const statsParams = () => publicacionesMlAPI.stats.mock.calls.at(-1)[0];
+
+  it("count over the list's filters, without paging or sort", async () => {
+    await page('/ml-publicaciones?marcas=TP-Link&q=router');
+    await waitFor(() => expect(publicacionesMlAPI.stats).toHaveBeenCalled());
+    expect(statsParams()).toMatchObject({ marcas: 'TP-Link', q: 'router' });
+    expect(statsParams()).not.toHaveProperty('limit');
+    expect(statsParams()).not.toHaveProperty('orden');
+    expect(await screen.findByRole('button', { name: 'Stock sin $: 3' })).toBeInTheDocument();
+  });
+
+  it("a card applies its filter and clears the other card filters, keeping the search and brands", async () => {
+    await page('/ml-publicaciones?marcas=TP-Link&q=router&oferta=con_oferta');
+    await userEvent.click(await screen.findByRole('button', { name: 'Stock sin $: 3' }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ stock: 'erp_con_stock', con_precio: false, marcas: 'TP-Link', q: 'router' }));
+    expect(lastParams()).not.toHaveProperty('con_oferta');
+    expect(screen.getByRole('button', { name: 'Stock sin $: 3' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('Total Productos clears the filters', async () => {
+    await page('/ml-publicaciones?estado=active&precio=sin_precio');
+    await userEvent.click(await screen.findByRole('button', { name: 'Total Productos: 40' }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('estado'));
+    expect(lastParams()).not.toHaveProperty('con_precio');
+  });
+
+  it('the Producto view asks mejor oferta of the product, as its rows', async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto&oferta=con_oferta'] });
+    expect(await screen.findByRole('button', { name: 'Total Productos: 40' })).toBeInTheDocument();
+    expect(statsParams()).toMatchObject({ con_oferta: true, oferta_por_producto: true });
+  });
+
+  it("in the Producto view the Oferta sin Rebate card counts a product's offer on any of its publications, with no offer filter set", async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto'] });
+    expect(await screen.findByRole('button', { name: 'Total Productos: 40' })).toBeInTheDocument();
+    expect(statsParams()).toMatchObject({ oferta_por_producto: true });
+    expect(statsParams()).not.toHaveProperty('con_oferta');
   });
 });
 
@@ -2118,5 +2170,53 @@ describe("Productos' price-list exports (S12c)", () => {
     await page();
 
     expect(screen.queryByRole('button', { name: /Listas de precios/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("Productos' Sin MLA in the Producto view", () => {
+  const productCalls = () => publicacionesMlAPI.products.mock.calls.map(([params]) => params);
+  const sinMlaGroup = () => screen.findByRole('group', { name: 'Sin MLA' });
+  const products = async (entry) => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
+    await screen.findByText('Router Archer AX55');
+  };
+
+  beforeEach(() => {
+    publicacionesMlAPI.products.mockReset();
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120, sin_mla_count: 37 }) });
+    publicacionesMlAPI.stats.mockResolvedValue({
+      data: { ...STATS_RESPONSE, stats: { ...STATS_RESPONSE.stats, sin_mla: 37, sin_mla_con_stock: 20, sin_mla_sin_stock: 17, sin_mla_nuevos: 3 } },
+    });
+  });
+
+  it('a stat card counts them and lists them on click, clearing the publication filters (S12d4c)', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&estado=active&marcas=TP-Link');
+    expect(publicacionesMlAPI.stats.mock.calls.at(-1)[0]).toMatchObject({ tarjetas_sin_mla: true });
+    const total = within(await sinMlaGroup()).getByRole('button', { name: 'Total: 37' });
+    expect(total).toHaveAttribute('aria-pressed', 'false');
+    await user.click(total);
+    await waitFor(() =>
+      expect(productCalls().at(-1)).toEqual({ marcas: 'TP-Link', con_mla: false, orden: 'titulo', dir: 'asc', limit: 50, offset: 0 }),
+    );
+    expect(within(await sinMlaGroup()).getByRole('button', { name: 'Total: 37' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Con Precio: 35' })); // any other card leaves Sin MLA
+    await waitFor(() => expect(productCalls().at(-1).con_mla).toBeUndefined());
+  });
+
+  it('hides what counts or changes publications: the KPI strip and "Pausar / activar"', async () => {
+    await products('/ml-publicaciones?vista=producto&mla=sin_mla');
+    expect(screen.queryByRole('region', { name: 'Indicadores de las publicaciones' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Pausar \/ activar/ })).not.toBeInTheDocument();
+  });
+
+  it('is only the Producto view: leaving it drops the filter', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&mla=sin_mla');
+    await user.click(screen.getByRole('button', { name: 'Publicaciones' }));
+    expect(screen.queryByRole('group', { name: 'Sin MLA' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Producto' }));
+    await screen.findByText('Router Archer AX55');
+    await waitFor(() => expect(productCalls().at(-1).con_mla).toBeUndefined());
   });
 });

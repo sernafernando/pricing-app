@@ -92,3 +92,29 @@ describe('Sell in / out cell (Métricas audit A7)', () => {
     }
   });
 });
+
+describe('Total Gauss cell: cost sub-line (Métricas audit B9)', () => {
+  const totalGauss = COLUMNS.find((c) => c.id === 'total_gauss');
+  const renderTg = (ctx) => {
+    const view = render(<div data-testid="tg">{totalGauss.cell(ctx)}</div>);
+    return Object.assign(screen.getByTestId('tg'), { unmount: view.unmount });
+  };
+
+  it('shows the stored merchandise cost of a sale and of a pack under Total Gauss', () => {
+    let cell = renderTg({ kind: 'member', order: order({ total_gauss: 100, costo_mercaderia: 2012.5, metrics_state: 'ok' }) });
+    expect(cell).toHaveTextContent('costo $ 2.012,50');
+    cell.unmount();
+    cell = renderTg({ kind: 'group', group: { total_gauss: 50, costo_mercaderia: 150.5 }, metricsState: 'ok', orders: [] });
+    expect(cell).toHaveTextContent('costo $ 150,50');
+  });
+
+  it('an unknown cost shows no sub-line, never a zero', () => {
+    const cell = renderTg({ kind: 'member', order: order({ total_gauss: null, costo_mercaderia: null, metrics_state: 'ok' }) });
+    expect(cell).not.toHaveTextContent('costo');
+  });
+
+  it('while the metrics recompute it shows no stale cost', () => {
+    const cell = renderTg({ kind: 'member', order: order({ total_gauss: 1, costo_mercaderia: 10, metrics_state: 'pending' }) });
+    expect(cell).not.toHaveTextContent('costo');
+  });
+});

@@ -23,6 +23,7 @@ pytestmark = pytest.mark.postgres
 
 URL = "/api/ml-publications/view/stats"
 MARKUP_CARDS = set(stats_service.MARKUP_COLUMNS)
+SIN_MLA_CARDS = ("sin_mla", "sin_mla_con_stock", "sin_mla_sin_stock", "sin_mla_nuevos")
 
 
 def fill(conn) -> None:
@@ -30,6 +31,7 @@ def fill(conn) -> None:
     conn.execute(text(seed.MARKUP_DDL))
     seed.add_product(conn, 77, "R77", "Router AX", marca="TP-Link", stock=4)
     seed.add_product(conn, 78, "R78", "Antena", marca="Ubiquiti", stock=0)
+    seed.add_product(conn, 79, "R79", "Fuente", marca="TP-Link", stock=2)  # no publication: Sin MLA
     for mla in ("MLA1", "MLA2", "MLA3"):
         seed.add_item(conn, mla, status="active")
     seed.add_link(conn, "MLA1", 77)
@@ -87,6 +89,17 @@ def test_with_ver_ganancia_the_markup_cards_come_too(client, viewer, db, rol_adm
 def test_a_markup_filter_without_ver_ganancia_is_403(client, viewer) -> None:
     response = get(client, viewer, markup_clasica_positivo="false")
     assert response.status_code == 403 and GANANCIA in response.json()["error"]["message"]
+
+
+def test_the_sin_mla_card_comes_only_when_asked(client, viewer) -> None:
+    assert "sin_mla" not in get(client, viewer).json()["stats"]
+    body = get(client, viewer, tarjetas_sin_mla="true").json()["stats"]
+    assert {key: body[key] for key in SIN_MLA_CARDS} == {
+        "sin_mla": 1,
+        "sin_mla_con_stock": 1,
+        "sin_mla_sin_stock": 0,
+        "sin_mla_nuevos": 1,
+    }
 
 
 def test_the_screens_filters_apply(client, viewer) -> None:

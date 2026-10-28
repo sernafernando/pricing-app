@@ -56,6 +56,7 @@ const order = (overrides) => ({
   sell_in_ars: 14210.5,
   sell_out_ars: 1875.25,
   sell_out_estimado: false,
+  costo_mercaderia: 384210.75,
   ...overrides,
 });
 
@@ -82,6 +83,7 @@ const lone = (o) => ({
   sell_in_ars: o.sell_in_ars,
   sell_out_ars: o.sell_out_ars,
   sell_out_estimado: o.sell_out_estimado,
+  costo_mercaderia: o.costo_mercaderia,
 });
 
 const sum = (orders, key) =>
@@ -110,6 +112,7 @@ const pack = (packId, orders, overrides = {}) => ({
   sell_in_ars: sum(orders, 'sell_in_ars'),
   sell_out_ars: sum(orders, 'sell_out_ars'),
   sell_out_estimado: orders.some((o) => o.sell_out_estimado),
+  costo_mercaderia: sum(orders, 'costo_mercaderia'),
   ...overrides,
 });
 

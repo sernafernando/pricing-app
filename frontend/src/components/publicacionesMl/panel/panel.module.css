@@ -737,6 +737,13 @@
   margin: 0;
 }
 
+/* A row that opens what sits under it (a catalog publication's competition): reads left to right like the rest. */
+.disclosure {
+  justify-content: flex-start;
+  width: 100%;
+  text-align: left;
+}
+
 .banConfirm {
   display: flex;
   flex-direction: column;
