@@ -49,7 +49,7 @@ export default function ScopeMultiSelect({
 
   return (
     <div className={styles.selectWrap} ref={rootRef}>
-      <div className={`${styles.selectGroup} ${count > 0 ? styles.selectGroupActive : ''}`}>
+      <div className={`${styles.selectGroup} ${count > 0 ? styles.filterGroupActive : ''}`}>
         <button
           type="button"
           className={styles.selectBtn}

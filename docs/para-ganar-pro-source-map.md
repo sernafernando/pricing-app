@@ -1,5 +1,7 @@
 # PARA GANAR Pro — source map (emulate & improve, not a literal port)
 
+**Living decisions, commit trail, and operator manual seed:** [`para-ganar.md`](./para-ganar.md) (update that file as we ship; this map stays extension archaeology).
+
 Source: [catalog-context-collector](https://github.com/GabeADemarco/catalog-context-collector) branch `experimental-endpoint-chicho`  
 Primary refs: `extension/MANUAL_USUARIO_PARA_GANAR_PRO.md`, `extension/viewer/app.js`, `extension/background.js`, `DESIGN.md`  
 Date: 2026-10-27  
@@ -113,4 +115,4 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 
 ## Suggested next step
 
-Product/PM default layers for criteria inheritance; then suggestion engine / apply-via-promotions (honoring seller dispositions).
+See backlog in [`para-ganar.md`](./para-ganar.md): cost USD scope filter; mass criteria = markup only + per-MLA precio↔markup sync; TOP = price positions; then product/PM inheritance and suggestion engine.

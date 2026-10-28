@@ -19,7 +19,10 @@
   overflow: hidden;
 }
 
-.selectGroupActive {
+/* Named filterGroupActive (not selectGroupActive): css-guard treats
+   *Select* + non-wrapper tail as a form control and forbids hand-rolled
+   background/padding/radius — active chrome is layout state, not a control. */
+.filterGroupActive {
   border-color: var(--cf-accent-blue);
   background: color-mix(in srgb, var(--cf-accent-blue) 14%, transparent);
 }
@@ -37,7 +40,7 @@
   cursor: pointer;
 }
 
-.selectGroupActive .selectBtn {
+.filterGroupActive .selectBtn {
   color: var(--cf-text-primary);
 }
 
