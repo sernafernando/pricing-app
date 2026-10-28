@@ -5,8 +5,8 @@
  * replaces every other filter a card sets, the rest of the screen's filters (search, brands, ...) stay.
  */
 
-// The filters a card sets, so the ones a click clears (Productos resets exactly these, and `mla`, the Sin MLA card
-// of #1845's own key).
+// The filters a card sets, so the ones a click clears (Productos resets exactly these). The Sin MLA card's own key
+// is not here yet: it joins this list when that card does.
 export const STAT_FILTER_KEYS = [
   'stock',
   'precio',
