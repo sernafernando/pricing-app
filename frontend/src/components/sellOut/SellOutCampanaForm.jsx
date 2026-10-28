@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import { SegmentedControl } from '../kit';
+import SellOutCampanaItems from './SellOutCampanaItems';
 import { TC_MODO_LABELS } from './sellOutFormat';
 import styles from '../sellIn/SellInPanel.module.css';
 import formStyles from './SellOutCampanaForm.module.css';
@@ -16,7 +17,7 @@ const MONEDAS = [
 /**
  * The terms of a sell-out campaign (`SellOutCampanaIn`): name, validity, a per-unit amount or a percentage of
  * cost or net price, currency and, in USD, how the exchange rate is taken; caps, VAT, stacking and the product
- * groups it reaches (managed in Gestionar Offsets). Controlled.
+ * groups it reaches (managed in Gestionar Offsets); per unit, the products with their own amount. Controlled.
  */
 export default function SellOutCampanaForm({ valores, onChange, grupos }) {
   const id = useId();
@@ -125,6 +126,17 @@ export default function SellOutCampanaForm({ valores, onChange, grupos }) {
           </label>
         ))}
       </fieldset>
+      {porUnidad ? (
+        <SellOutCampanaItems items={valores.items} moneda={valores.moneda} onChange={(items) => set({ items })} />
+      ) : (
+        valores.items.length > 0 && (
+          <p className={styles.hint}>
+            {`Una campaña por porcentaje no lleva montos por producto: al guardar se ${
+              valores.items.length === 1 ? 'quita 1 monto por producto' : `quitan ${valores.items.length} montos por producto`
+            }.`}
+          </p>
+        )
+      )}
     </>
   );
 }

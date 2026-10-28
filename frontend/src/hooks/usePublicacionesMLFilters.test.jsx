@@ -19,6 +19,8 @@ import {
   buildProductIdsParams,
   hasMarkupFilter,
   PRESENCE_VALUES,
+  PRICE_MODES,
+  sinMlaUpdates,
 } from './usePublicacionesMLFilters';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 
@@ -75,7 +77,11 @@ describe('reading the URL', () => {
 
   it('reads the page size from `limite`, only the sizes the backend allows', () => {
     expect(setup('/?limite=100').result.current.hook.filters.limite).toBe(100);
-    expect(setup('/?limite=200').result.current.hook.filters.limite).toBe(PAGE_SIZE);
+    expect(setup('/?limite=200').result.current.hook.filters.limite).toBe(200);
+    expect(setup('/?limite=500').result.current.hook.filters.limite).toBe(500);
+    // Productos' "Todos".
+    expect(setup('/?limite=9999').result.current.hook.filters.limite).toBe(9999);
+    expect(setup('/?limite=1000').result.current.hook.filters.limite).toBe(PAGE_SIZE);
     expect(setup('/').result.current.hook.filters.limite).toBe(PAGE_SIZE);
   });
 
@@ -631,5 +637,61 @@ describe("the color filter (`colores`, P6): Productos' colors on the layer on sh
     const plainBefore = plain.result.current.hook.filterKey;
     act(() => plain.result.current.hook.setFilters({ equipo: '12' }));
     expect(plain.result.current.hook.filterKey).toBe(plainBefore);
+  });
+});
+
+describe("the price columns' mode (`modo`, S11): Productos' Normal / Cuotas / PVP", () => {
+  it('reads the mode from the URL, Normal by default and for an unknown value', () => {
+    expect(PRICE_MODES).toEqual(['normal', 'cuotas', 'pvp']);
+    expect(setup('/').result.current.hook.filters.modo).toBe('normal');
+    expect(setup('/?modo=pvp').result.current.hook.filters.modo).toBe('pvp');
+    expect(setup('/?modo=otro').result.current.hook.filters.modo).toBe('normal');
+  });
+
+  it('is how the rows are looked at, not a filter: it never reaches the backend, resets no page and survives "Limpiar filtros"', () => {
+    const { result } = setup('/?modo=cuotas&estado=active&pagina=2');
+    expect(FILTER_KEYS).not.toContain('modo');
+    expect(buildItemsParams(result.current.hook.filters)).not.toHaveProperty('modo');
+    act(() => result.current.hook.setFilters({ modo: 'pvp' }));
+    expect(new URLSearchParams(result.current.search).get('pagina')).toBe('2');
+    act(() => result.current.hook.resetFilters());
+    expect(result.current.search).toBe('?modo=pvp');
+  });
+});
+
+describe("Productos' Sin MLA (mla=sin_mla, Producto view only)", () => {
+  const producto = { ...setup('/?vista=producto').result.current.hook.filters, mla: 'sin_mla' };
+  const sales = { canSeeSales: true, canSeeMargin: false };
+
+  it('reads mla=sin_mla only in the Producto view', () => {
+    expect(setup('/?vista=producto&mla=sin_mla').result.current.hook.filters.mla).toBe('sin_mla');
+    expect(setup('/?mla=sin_mla').result.current.hook.filters.mla).toBe('');
+    expect(setup('/?vista=producto&mla=otro').result.current.hook.filters.mla).toBe('');
+  });
+
+  it('is a filter: "Limpiar filtros" clears it and it resets the page', () => {
+    const { result } = setup('/?vista=producto&mla=sin_mla&pagina=3');
+    act(() => result.current.hook.resetFilters());
+    expect(result.current.search).toBe('?vista=producto');
+    expect(FILTER_KEYS).toContain('mla');
+  });
+
+  it('asks /products, its export and the bulk set for the products without MLA, sorted by name', () => {
+    expect(buildProductsParams(producto, 25, sales)).toEqual({ con_mla: false, orden: 'titulo', dir: 'asc', limit: 25, offset: 0 });
+    expect(buildExportParams(producto, sales)).toEqual({ con_mla: false, orden: 'titulo', dir: 'asc' });
+    expect(buildProductIdsParams(producto)).toEqual({ con_mla: false });
+    expect(effectiveProductSort({ ...producto, orden: 'titulo', dir: 'desc' }, sales)).toEqual({ key: 'titulo', dir: 'desc' });
+  });
+
+  it('never reaches the KPI strip, which counts publications', () => {
+    expect(buildKpiParams(producto, '30d')).toEqual({ periodo: '30d' });
+  });
+
+  it('turning it on clears the filters only a publication has', () => {
+    const { result } = setup(
+      '/?vista=producto&estado=active&marcas=TP-Link&tiendas=57997&oferta=con_oferta&familia=9&stock=full_sin_stock,erp_con_stock',
+    );
+    act(() => result.current.hook.setFilters(sinMlaUpdates(result.current.hook.filters)));
+    expect(result.current.search).toBe('?vista=producto&marcas=TP-Link&stock=erp_con_stock&mla=sin_mla');
   });
 });

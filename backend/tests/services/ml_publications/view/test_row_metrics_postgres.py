@@ -166,6 +166,11 @@ class TestOnlyThePage:
     def test_an_mla_the_board_has_no_row_for_is_absent(self, sold) -> None:
         assert set(row_metrics.metrics_by_mla(sold, ["MLA1", "MLA999"])) == {"MLA1"}
 
+    def test_a_todos_page_of_9999_mlas_is_answered(self, sold) -> None:
+        # Productos' "Todos" (#1846): the MLA set is one array parameter; a SELECT per MLA blew Postgres' stack depth.
+        page = ["MLA1", *(f"MLA9{n:06d}" for n in range(9998))]
+        assert set(row_metrics.metrics_by_mla(sold, page)) == {"MLA1"}
+
     def test_no_mlas_ask_nothing(self, sold, monkeypatch) -> None:
         monkeypatch.setattr(board.Board, "__enter__", lambda self: pytest.fail("no Board for an empty page"))
         assert row_metrics.metrics_by_mla(sold, []) == {}

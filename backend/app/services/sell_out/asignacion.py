@@ -49,6 +49,10 @@ USD row or conversion with no rate fails the campaign: never a guessed nor an
 empty rate.
 A campaign loaded with VAT reaching a product without `iva` fails too.
 
+Per-product amounts (T22b, legacy grouped offsets): a `por_unidad` campaign's
+`sell_out_campana_items` give a product its own amount instead of
+`monto_unit`, under the same one cap (`tope`); read in ONE query per call.
+
 Concurrency: `pg_advisory_xact_lock(LOCK_NAMESPACE, campana_id)` for every
 campaign rebuilt, in id order, before reading what is stored. Does not commit;
 any error propagates and the caller rolls back.
@@ -64,7 +68,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 from sqlalchemy import delete, insert, or_, text
 from sqlalchemy.orm import Session
 
-from app.models.sell_out import SellOutCampana, SellOutConsumo
+from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell_in.bonos import tasas_bna_por_fecha
 from app.services.sell_out import alcance, tope
@@ -81,6 +85,7 @@ _TC_ESCALA = Decimal("0.000001")  # `sell_out_consumos.tc_venta` is NUMERIC(18, 
 
 Clave = Tuple[str, int]  # (canal, venta_ref)
 Productos = Dict[int, Dict[int, Optional[Decimal]]]
+Montos = Dict[int, Dict[int, Decimal]]  # campana_id -> item_id -> its own amount per unit
 
 
 class SellOutAsignacionError(ValueError):
@@ -128,8 +133,21 @@ def vinculadas(db: Session, campana_ids: Iterable[int]) -> List[int]:
     return _vinculadas(db, ids)[2] if ids else []
 
 
-def _tope(c: SellOutCampana) -> tope.Campana:
+def montos_item(db: Session, campanas: Iterable[SellOutCampana]) -> Montos:
+    """`{campana_id: {item_id: amount}}` of the given `por_unidad` campaigns' own product amounts, in ONE query
+    (none when no campaign is `por_unidad`); a campaign without any is absent."""
+    ids = sorted({c.id for c in campanas if c.tipo == "por_unidad"})
+    salida: Montos = {}
+    if ids:
+        t = SellOutCampanaItem
+        for cid, item_id, monto in db.query(t.campana_id, t.item_id, t.monto_unit).filter(t.campana_id.in_(ids)):
+            salida.setdefault(cid, {})[item_id] = Decimal(monto)
+    return salida
+
+
+def _tope(c: SellOutCampana, montos: Optional[Dict[int, Decimal]] = None) -> tope.Campana:
     return tope.Campana(
+        montos_item=dict(montos or {}) if c.tipo == "por_unidad" else {},
         tipo=c.tipo,
         moneda=c.moneda,
         monto_unit=c.monto_unit,
@@ -159,12 +177,19 @@ def _tasa(c: SellOutCampana, fecha: date, tasas: _Tasas) -> Decimal:
 
 
 def credito_unitario(
-    c: SellOutCampana, fecha: date, iva: Optional[Decimal], base_ars: Optional[Decimal], bna: Optional[Decimal]
+    c: SellOutCampana,
+    fecha: date,
+    iva: Optional[Decimal],
+    base_ars: Optional[Decimal],
+    bna: Optional[Decimal],
+    *,
+    monto_item: Optional[Decimal] = None,
 ) -> Optional[Tuple[Decimal, Decimal]]:
     """A unit not sold yet, on `fecha`: `(its credit in the campaign currency, the rate to ARS)`, by
     this allocator's rules (`_tasa`, `tope.credito_unitario`); the rate is 1 for ARS. `base_ars` is
     the percentage base per unit, ARS, without VAT; `bna` the BNA of `fecha`, also taken as the
-    current one. None when a percentage base is unknown; a missing rate or VAT rate raises."""
+    current one; `monto_item` the product's own amount in the campaign (`montos_item`), if any.
+    None when a percentage base is unknown; a missing rate or VAT rate raises."""
     tasa = Decimal(1) if c.moneda == "ARS" else _tasa(c, fecha, _Tasas({fecha: bna}, bna))
     if c.monto_incluye_iva and iva is None:
         raise SellOutAsignacionError(f"campaign {c.id}: a product it reaches has no VAT rate")
@@ -174,7 +199,8 @@ def credito_unitario(
             return None
         base = Decimal(base_ars) / tasa
     linea = tope.Linea("", 0, 0, fecha, 1, iva_pct=iva or Decimal(0), base_unit=base)
-    return tope.credito_unitario(_tope(c), linea), tasa
+    montos = {} if monto_item is None else {0: Decimal(monto_item)}  # keyed by the preview line's item 0
+    return tope.credito_unitario(_tope(c, montos), linea), tasa
 
 
 def _base_registrada(c: SellOutCampana, v: alcance.Venta) -> Optional[Decimal]:
@@ -201,8 +227,16 @@ def _base(c: SellOutCampana, v: alcance.Venta, iva: Optional[Decimal], tasas: _T
     return base if c.moneda == "ARS" else base / _tasa(c, v.fecha, tasas)
 
 
-def _asignar(activas: List[SellOutCampana], productos: Productos, ventas: List[alcance.Venta], tasas: _Tasas):
-    """`{campana_id: [Consumo]}`, campaigns in id order, each after those taking precedence over it."""
+def _asignar(
+    activas: List[SellOutCampana],
+    productos: Productos,
+    ventas: List[alcance.Venta],
+    tasas: _Tasas,
+    montos: Optional[Montos] = None,
+):
+    """`{campana_id: [Consumo]}`, campaigns in id order, each after those taking precedence over it.
+    `montos`: the campaigns' per-product amounts (`montos_item`)."""
+    montos = montos or {}
     tenidas: Dict[int, Dict[Clave, List[int]]] = {}  # per campaign and line: the unit numbers it took or freed
     salida: Dict[int, List[tope.Consumo]] = {}
     pendientes: Dict[int, int] = {}
@@ -241,7 +275,7 @@ def _asignar(activas: List[SellOutCampana], productos: Productos, ventas: List[a
                 )
             )
         por_linea: Dict[Clave, int] = {}
-        salida[c.id] = tope.asignar(_tope(c), lineas, por_linea=por_linea)
+        salida[c.id] = tope.asignar(_tope(c, montos.get(c.id)), lineas, por_linea=por_linea)
         tenidas[c.id] = {clave: libres[clave][:n] for clave, n in por_linea.items()}
     return salida, pendientes
 
@@ -289,7 +323,7 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
         desde = min(c.fecha_desde for c in activas)
         ventas = alcance.ventas(db, items, desde, max(c.fecha_hasta for c in activas))
     tasas = _tasas(db, activas, ventas)
-    deseados, pendientes = _asignar(activas, productos, ventas, tasas)
+    deseados, pendientes = _asignar(activas, productos, ventas, tasas, montos_item(db, activas))
 
     guardados: Dict[Tuple[int, str, int], Tuple[int, tuple]] = {}
     t = SellOutConsumo

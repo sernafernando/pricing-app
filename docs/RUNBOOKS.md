@@ -114,21 +114,34 @@ quoted text:
 - **Cost sync given up** (`backfill_ml_payments_costs: shipment_id=... gave
   up on cost sync after 5 attempt(s)` ERROR, logged once per shipment):
   ML never settled that shipment's costs, and it is no longer a candidate.
-  The counter still lives in `ml_ops_divergence` (`field = 'cost_sync:<id>'`);
-  D2 of remove-ml-divergences moves it to a column on `ml_shipments_ops`.
+  The counter is `ml_shipments_ops.cost_sync_attempts`.
 - **Unresolved activity order** (`activity_receiver: order_id=... unresolved`
   WARNING, logged on the first miss): `get_order` returned nothing for an
-  activity event. The debt row (`field = 'activity_unresolved'`) is cleared
-  when the sweep ingests the order. D2 moves it off `ml_ops_divergence`
-  into a column/quarantine of its own.
+  activity event. The debt is a row of `ml_orders_ops_cuarentena` with no
+  `raw_order` (error `[transient] get_order returned nothing to the activity
+  receiver`); the replay skips it, and it is deleted when the order lands in
+  `ml_orders_ops` (the sweep, the drain or the backfill ingesting it). An order
+  already quarantined with its payload keeps that row. The
+  `ml_orders.quarantine_retry` worker also asks ML for it again, past the same
+  backoff and with no attempt cap: an order ML gives back goes through the
+  receiver's `process_batch`, and its row is deleted only once the order is in
+  `ml_orders_ops` (a write error is quarantined with its payload for the
+  replay; an order left out for any other reason, such as outside the window,
+  keeps its row and is asked again after each backoff, at most every 6 h); one ML answers
+  `not_found` for is deleted (`activity_receiver: ML has no order_id=...;
+  dropped from the quarantine` WARNING); any other answer counts the attempt
+  and waits. Its job detail reports `refetched`, `refetch_landed`, `dropped`
+  and `refetch_failed`.
 
 **Existing `ml_ops_divergence` rows.** Every other row in that table (the
 old alarms) no longer has a reader, and nothing writes, resolves or purges
 them any more: the detector is gone, and so is the 30-day purge of
 `window_not_enumerable` rows (`ML_ORDERS_OPS_UNENUMERABLE_RETENTION_DAYS`).
-The rows are inert and harmless; they stay until D3 drops the table. Do not clean them by
-hand: the `cost_sync:` and `activity_unresolved` rows above are still
-working state.
+Nothing writes to that table any more. The `cost_sync:` rows were copied to
+their new column, and the copies left behind are inert. The open
+`activity_unresolved` debts were moved to the quarantine, and the sweep pass
+moves any open one still found there (recorded by the old code during the
+deploy). The rows stay until D3 drops the table.
 
 ---
 
