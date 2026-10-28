@@ -103,6 +103,17 @@ class TestMoneyCap:
         assert b.items_de(engine, bono, primero) == [(2964, 3, Decimal("5.01"))]
         assert b.items_de(engine, bono, segundo) == [(2964, 1, Decimal("0.99"))]
 
+    def test_a_whole_line_whose_amount_does_not_divide_by_its_units_keeps_it(self, engine) -> None:
+        bono = b.bono(engine)
+        b.update_bono(engine, bono, tipo="porcentaje", monto_unit=None, porcentaje="15", tope_monto="100.00")
+        pedido = b.pedido(engine, {2964: 3, 2270: 7}, D(2026, 10, 5))
+        b.set_importe(engine, pedido, 2964, "66.67", "USD")  # 15% = 10.0005 -> 10.00, 3.333... per unit
+        b.set_importe(engine, pedido, 2270, "33.35", "USD")  # 5.0025 -> 5.00 over 7 units
+
+        _reconciliar(engine, bono_ids=[bono])
+
+        assert b.items_de(engine, bono, pedido) == [(2270, 7, Decimal("5.00")), (2964, 3, Decimal("10.00"))]
+
 
 @pytest.mark.postgres
 class TestUnitCap:
@@ -216,3 +227,13 @@ class TestFailure:
         assert "tope" in result.fallidas[(bono, despues)]
         assert b.items_de(engine, bono, antes) == [(2964, 1, Decimal("10.00"))]
         assert b.items_de(engine, bono, despues) == []
+
+    def test_a_call_for_one_later_operation_still_sees_the_failure_of_an_earlier_one(self, engine) -> None:
+        bono = _bono_con_tope(engine, tope_unidades=4)
+        sin_tasa = b.pedido(engine, {2964: 2}, D(2026, 10, 5), moneda="ARS", tipo_cambio=None)
+        despues = b.pedido(engine, {2964: 2}, D(2026, 10, 6))
+
+        result = _reconciliar(engine, pedido_ids=[despues])
+
+        assert set(result.fallidas) == {(bono, sin_tasa), (bono, despues)}
+        assert b.generadas(engine) == []

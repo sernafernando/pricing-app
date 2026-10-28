@@ -569,12 +569,14 @@ def _aplicar_topes(
     operation comes after a failed one of the same capped bonus moves from `deseadas` to `fallidas`."""
     por_bono: Dict[int, List[int]] = defaultdict(list)
     for bono_id, pedido_id in list(deseadas) + list(fallidas):
-        bono = bonos[bono_id]
-        if bono.tope_unidades is not None or bono.tope_monto is not None:
+        bono = bonos.get(bono_id)
+        if bono is not None and (bono.tope_unidades is not None or bono.tope_monto is not None):
             por_bono[bono_id].append(pedido_id)
     for bono_id, pedido_ids in por_bono.items():
         bono = bonos[bono_id]
-        fallas = [pedidos[pid] for pid in pedido_ids if (bono_id, pid) in fallidas]
+        # A pair only fails once its operation is known and dated (`_deseada`); `.get` keeps any other one harmless.
+        fallas = [pedidos.get(pid) for pid in pedido_ids if (bono_id, pid) in fallidas]
+        fallas = [p for p in fallas if p is not None and p.fecha_factura is not None]
         corte = min((_orden(p) for p in fallas), default=None)
         # Only applying pairs have a date to sort by; the others desire nothing whatever the cap.
         vigentes = sorted((pedidos[pid] for pid in pedido_ids if deseadas.get((bono_id, pid)) is not None), key=_orden)
@@ -596,6 +598,7 @@ def _topear(bono: SellInBonoMarca, vigentes: List[_Pedido], deseadas: Dict[Par, 
     Each desired line becomes a `tope.Linea` whose per-unit credit is its own amount over its units (a 100%
     "percentage" of that base: the amount is already in the bonus's currency, VAT and rate applied), so a line the
     cap leaves whole gets back exactly its amount, and the line that crosses it gets what sell out would give."""
+    # Every desired line has units: the invoiced snapshot keeps CHECK(cantidad > 0), so `monto / cantidad` is safe.
     lineas: List[tope.Linea] = []
     origen: Dict[int, Tuple[int, int]] = {}  # venta_ref -> (pedido_id, item_id)
     for pedido in vigentes:
