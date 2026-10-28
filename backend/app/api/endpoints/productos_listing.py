@@ -140,7 +140,8 @@ def parse_listing_item_ids(value: Optional[str]) -> Optional[list[int]]:
     if value is None:
         return None
     parts = [part.strip() for part in value.split(",")]
-    if any(not part.isdigit() for part in parts):
+    # ASCII digits only: str.isdigit() also takes '²' (int() then raises) and other scripts' digits.
+    if any(not (part.isascii() and part.isdigit()) for part in parts):
         raise HTTPException(status_code=422, detail="item_ids inválido: debe ser una lista de ids separados por coma")
     if len(parts) > MAX_LISTING_ITEM_IDS:
         raise HTTPException(status_code=422, detail=f"item_ids: como máximo {MAX_LISTING_ITEM_IDS} ids")

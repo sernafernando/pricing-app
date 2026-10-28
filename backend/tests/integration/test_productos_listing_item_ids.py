@@ -92,7 +92,7 @@ def test_item_ids_combine_with_the_other_filters(client, auth_headers, db, produ
     assert [p["item_id"] for p in data["productos"]] == [9402]
 
 
-@pytest.mark.parametrize("value", ["abc", "9401,x", ",", ""])
+@pytest.mark.parametrize("value", ["abc", "9401,x", ",", "", "²", "9401,٣"])
 def test_a_value_that_is_not_a_list_of_ids_is_a_422(client, auth_headers, value):
     response = client.get(f"/api/productos?item_ids={value}", headers=auth_headers)
     assert response.status_code == 422, response.text
