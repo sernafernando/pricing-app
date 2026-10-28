@@ -91,7 +91,7 @@ class SellInBonoMarca(Base):
     fecha_desde = Column(Date, nullable=False)  # supplier invoice date, inclusive
     fecha_hasta = Column(Date, nullable=False)  # inclusive
     # One cap shared by every product and operation the bonus reaches (T24): invoiced units and/or money in
-    # `moneda`; NULL: no cap. The reconcile allocates it like sell out's (`sell_out.tope`).
+    # `moneda`; NULL: no cap. Allocated like sell out's cap (`sell_out.tope`) by the reconcile, which reads it from T24b.
     tope_unidades = Column(Integer, nullable=True)
     tope_monto = Column(Numeric(18, 2), nullable=True)
     descripcion = Column(Text, nullable=True)

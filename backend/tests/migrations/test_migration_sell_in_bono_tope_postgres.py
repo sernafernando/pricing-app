@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+from decimal import Decimal
 from typing import Iterator
 
 import pytest
@@ -88,7 +89,10 @@ def test_upgrade_adds_both_caps_nullable_and_existing_bonuses_have_none(before) 
         existente = conn.execute(text(f"SELECT tope_unidades, tope_monto FROM {_TABLE} WHERE id = 1")).one()
     assert columns == [("tope_monto", "numeric", 18, 2, "YES"), ("tope_unidades", "integer", 32, 0, "YES")]
     assert tuple(existente) == (None, None)
-    _update(before, "tope_unidades = 500, tope_monto = 3000.00")
+    assert _update(before, "tope_unidades = 500, tope_monto = 3000.00") == [1]
+    with before.connect() as conn:
+        guardado = conn.execute(text(f"SELECT tope_unidades, tope_monto FROM {_TABLE} WHERE id = 1")).one()
+    assert tuple(guardado) == (500, Decimal("3000.00"))
 
 
 @pytest.mark.postgres
