@@ -11,7 +11,9 @@ current-BNA estimate of an `al_cobro` campaign whose rate is not set yet) are
 applied by the allocator (T7); this module stores them and queues the campaign
 for the `sell_out.drain` rebuild in the same transaction (`queue`). An edit also
 queues the campaigns that shared products with it BEFORE the edit, since
-afterwards the rebuild no longer finds them. The payment rate
+afterwards the rebuild no longer finds them. A `por_unidad` campaign may give
+products of its groups their own amount (`items`, T22b), replaced with the rest
+on every edit and audited with it. The payment rate
 of an `al_cobro` campaign is set with `definir_tipo_cambio`, never by an edit.
 """
 
@@ -29,10 +31,10 @@ from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
+from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem
 from app.schemas.sell_out import SellOutCampanaIn
 from app.services.sell_in.compras import contiene
-from app.services.sell_out import asignacion, queue
+from app.services.sell_out import alcance, asignacion, queue
 
 # Each NUMERIC column's scale as a quantum: `monto_unit` 0.01, `porcentaje` 0.0001, ...
 _QUANTUM = {
@@ -151,6 +153,20 @@ def validar_campos(data: SellOutCampanaIn, actual: Optional[SellOutCampana] = No
         raise SellOutError("El tope de unidades tiene que ser mayor a 0")
     if data.tope_monto is not None and data.tope_monto <= 0:
         raise SellOutError("El tope de monto tiene que ser mayor a 0")
+    _validar_items(data)
+
+
+def _validar_items(data: SellOutCampanaIn) -> None:
+    """The per-product amounts, without the database; their reach is checked once the groups are stored."""
+    if data.items and data.tipo != "por_unidad":
+        raise SellOutError("Una campaña por porcentaje no lleva montos por producto")
+    vistos = set()
+    for item in data.items:
+        if item.item_id in vistos:
+            raise SellOutError(f"El producto {item.item_id} tiene más de un monto")
+        vistos.add(item.item_id)
+        if item.monto_unit <= 0:
+            raise SellOutError(f"El monto del producto {item.item_id} tiene que ser mayor a 0")
 
 
 def _a_escala(campo: str, valor):
@@ -169,7 +185,7 @@ def _utc(instante: Optional[datetime]) -> Optional[datetime]:
     return instante.astimezone(timezone.utc)
 
 
-def _valores(campana: SellOutCampana, grupo_ids: list[int]) -> dict:
+def _valores(campana: SellOutCampana, grupo_ids: list[int], items: list[dict]) -> dict:
     valores = {campo: getattr(campana, campo) for campo in _CAMPOS}
     for campo, valor in valores.items():
         if valor is not None and not isinstance(valor, (bool, int, str)):
@@ -182,12 +198,24 @@ def _valores(campana: SellOutCampana, grupo_ids: list[int]) -> dict:
         "tc_definido_en": definido,
         "estado": campana.estado,
         "grupo_ids": grupo_ids,
+        "items": [{"item_id": i["item_id"], "monto_unit": str(i["monto_unit"])} for i in items],
     }
 
 
 def _grupo_ids(db: Session, campana_id: int) -> list[int]:
     rows = db.query(SellOutCampanaGrupo.grupo_id).filter(SellOutCampanaGrupo.campana_id == campana_id)
     return [gid for (gid,) in rows.order_by(SellOutCampanaGrupo.id)]
+
+
+def _items(db: Session, campana_ids: list[int]) -> dict[int, list[dict]]:
+    """`{campana_id: [{item_id, monto_unit}]}` by item_id, in one query; every asked campaign is present."""
+    salida: dict[int, list[dict]] = {i: [] for i in campana_ids}
+    if campana_ids:
+        t = SellOutCampanaItem
+        rows = db.query(t.campana_id, t.item_id, t.monto_unit).filter(t.campana_id.in_(campana_ids))
+        for campana_id, item_id, monto in rows.order_by(t.item_id):
+            salida[campana_id].append({"item_id": item_id, "monto_unit": Decimal(monto)})
+    return salida
 
 
 def _audit(db: Session, tipo: TipoAccion, usuario_id: int, antes: Optional[dict], despues: dict, motivo=None) -> None:
@@ -221,6 +249,28 @@ def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo
     tenidos = set(_grupo_ids(db, campana.id))
     db.add_all(SellOutCampanaGrupo(campana_id=campana.id, grupo_id=g) for g in grupo_ids if g not in tenidos)
     db.flush()
+    _asignar_items(db, campana, data)
+
+
+def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn) -> None:
+    """Replace the per-product amounts with `data.items`, refusing (and rolling back) one outside the reach of
+    the groups just stored: an amount that would never apply must not be stored as if it did."""
+    if data.items:
+        alcanzados = alcance.productos(db, [campana.id]).get(campana.id, {})
+        for item in data.items:
+            if item.item_id not in alcanzados:
+                db.rollback()
+                raise SellOutError(f"El producto {item.item_id} no está en los grupos de la campaña")
+    pedidos = {item.item_id: _a_escala("monto_unit", item.monto_unit) for item in data.items}
+    t = SellOutCampanaItem
+    tenidos = {fila.item_id: fila for fila in db.query(t).filter(t.campana_id == campana.id)}
+    for item_id, fila in tenidos.items():
+        if item_id not in pedidos:
+            db.delete(fila)
+        elif fila.monto_unit != pedidos[item_id]:
+            fila.monto_unit = pedidos[item_id]
+    db.add_all(t(campana_id=campana.id, item_id=i, monto_unit=m) for i, m in pedidos.items() if i not in tenidos)
+    db.flush()
 
 
 def crear_campana(
@@ -231,7 +281,7 @@ def crear_campana(
     campana = SellOutCampana(usuario_id=usuario_id, offset_origen_id=offset_origen_id)
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)
-    valores = _valores(campana, grupo_ids)
+    valores = _valores(campana, grupo_ids, _items(db, [campana.id])[campana.id])
     if offset_origen_id is not None:
         valores["offset_origen_id"] = offset_origen_id
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, valores)
@@ -254,10 +304,11 @@ def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario
     if campana is None:
         return None
     grupo_ids = validar(db, data, campana)
-    antes = _valores(campana, _grupo_ids(db, campana_id))
+    antes = _valores(campana, _grupo_ids(db, campana_id), _items(db, [campana_id])[campana_id])
     compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
     _asignar(db, campana, data, grupo_ids)
-    _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, _valores(campana, grupo_ids))
+    despues = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
+    _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues)
     _encolar(db, [campana_id, *compartian])
     db.commit()
     db.refresh(campana)
@@ -270,9 +321,8 @@ def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Option
     if campana is None:
         return None
     campana.estado = "anulada"
-    _audit(
-        db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, _valores(campana, _grupo_ids(db, campana_id)), motivo
-    )
+    valores = _valores(campana, _grupo_ids(db, campana_id), _items(db, [campana_id])[campana_id])
+    _audit(db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, valores, motivo)
     _encolar(db, [campana_id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
     db.commit()
     db.refresh(campana)
@@ -294,10 +344,11 @@ def definir_tipo_cambio(
     if tipo_cambio <= 0:
         raise SellOutError("El tipo de cambio tiene que ser mayor a 0")
     grupo_ids = _grupo_ids(db, campana_id)
-    antes = _valores(campana, grupo_ids)
+    items = _items(db, [campana_id])[campana_id]
+    antes = _valores(campana, grupo_ids, items)
     campana.tipo_cambio = _a_escala("tipo_cambio", tipo_cambio)
     campana.tc_definido_en = datetime.now(timezone.utc)
-    _audit(db, TipoAccion.SELL_OUT_CAMPANA_TC_DEFINIDO, usuario_id, antes, _valores(campana, grupo_ids))
+    _audit(db, TipoAccion.SELL_OUT_CAMPANA_TC_DEFINIDO, usuario_id, antes, _valores(campana, grupo_ids, items))
     _encolar(db, [campana_id])
     db.commit()
     db.refresh(campana)
@@ -343,7 +394,8 @@ def listar_campanas(
 
 
 def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
-    """Each campaign with its groups (id and name, in link order), in one query for the whole page."""
+    """Each campaign with its groups (id and name, in link order) and its per-product amounts (by item_id),
+    in one query each for the whole page."""
     ids = [c.id for c in campanas]
     grupos: dict[int, list[dict]] = {i: [] for i in ids}
     if ids:
@@ -355,6 +407,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         )
         for campana_id, gid, nombre in rows:
             grupos[campana_id].append({"id": gid, "nombre": nombre})
+    items = _items(db, ids)
     salida = []
     for c in campanas:
         fila = {campo: getattr(c, campo) for campo in _CAMPOS}
@@ -368,5 +421,6 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
             updated_at=c.updated_at,
         )
         fila["grupos"] = grupos[c.id]
+        fila["items"] = items[c.id]
         salida.append(fila)
     return salida
