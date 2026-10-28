@@ -199,3 +199,14 @@ class TestProductosAuditFilter:
         with pytest.raises(FilterError) as raised:
             parse_filter(**{param: value})
         assert raised.value.field == param
+
+
+class TestMlaScope:
+    """P6d: the promo and PxQ filters resolve, in the router, to the set of MLAs that match (from the mlwebhook
+    database); the filter narrows the list to it. An empty set lists nothing, never everything."""
+
+    def test_the_list_is_narrowed_to_the_resolved_mlas(self, db) -> None:
+        assert listed(db, mla_scope=frozenset({"MLA2", "MLA4", "MLA9"})) == ["MLA2", "MLA4"]
+
+    def test_an_empty_scope_lists_nothing(self, db) -> None:
+        assert listed(db, mla_scope=frozenset()) == []

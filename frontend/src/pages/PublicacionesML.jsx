@@ -9,6 +9,7 @@ import StateBanner from '../components/publicacionesMl/StateBanner';
 import MarkupFilters from '../components/publicacionesMl/MarkupFilters';
 import PresenceFilters from '../components/publicacionesMl/PresenceFilters';
 import AuditFilters from '../components/publicacionesMl/AuditFilters';
+import PromoFilters from '../components/publicacionesMl/PromoFilters';
 import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
@@ -659,6 +660,7 @@ export default function PublicacionesML() {
             canSeeMargin={canSeeMargin}
           />
           <AuditFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
+          <PromoFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
         </div>
         {showMarkupFilters && (
           <div className={styles.filterBand}>

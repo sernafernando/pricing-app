@@ -134,6 +134,10 @@ class PublicationFilter:
     audit_since: Optional[datetime] = None
     audit_until: Optional[datetime] = None
 
+    # The promo and PxQ filters, resolved by the router to the matching MLAs (mlwebhook database): `None` = no such
+    # filter, an empty set lists nothing.
+    mla_scope: Optional[frozenset[str]] = None
+
     @property
     def audits(self) -> bool:
         return bool(self.audit_users or self.audit_kinds or self.audit_since or self.audit_until)
@@ -307,6 +311,7 @@ def parse_filter(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    mla_scope: Optional[frozenset[str]] = None,
 ) -> PublicationFilter:
     """Query-string values (csv text, `None` when absent) -> `PublicationFilter`; `FilterError` when invalid."""
     status_vocabulary = (*STATUS_VALUES, STATUS_GONE, NO_STATUS)
@@ -355,6 +360,7 @@ def parse_filter(
         audit_kinds=_vocabulary("audit_tipos_accion", audit_tipos_accion, AUDIT_KINDS),
         audit_since=_audit_moment("audit_fecha_desde", audit_fecha_desde, end_of_day=False),
         audit_until=_audit_moment("audit_fecha_hasta", audit_fecha_hasta, end_of_day=True),
+        mla_scope=mla_scope,
     )
 
 
@@ -823,6 +829,8 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     where.extend(_markup_sign(column, positive) for column, positive in f.markup_signs)
     if f.audits:
         where.append(_audited(f))
+    if f.mla_scope is not None:
+        where.append(T.i.item_id.in_(sorted(f.mla_scope)) if f.mla_scope else false())
     return where
 
 

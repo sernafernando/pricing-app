@@ -42,6 +42,7 @@ joins it).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Literal, Optional, Sequence
@@ -49,7 +50,7 @@ from typing import Any, Callable, Literal, Optional, Sequence
 from fastapi import APIRouter, Depends, Path, Query, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_permiso
@@ -87,7 +88,16 @@ from app.services.ml_publications.view.filters import (
 from app.services.ml_publications.view.markup_service import AdsPlan, MarkupQuery
 from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, needs_margin
 from app.services.ml_publications.view.timing import Timer
+from app.services.ml_promotions_service import (
+    KNOWN_PROMOTION_TYPES,
+    fetch_mlas_with_active_promo_type,
+    fetch_mlas_with_candidate_only,
+    fetch_mlas_with_candidate_only_for_types,
+    fetch_mlas_with_started,
+)
+from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.permisos_service import PermisosService
+from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 
 PERMISO_VER = "ml_ops.ver"
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
@@ -96,6 +106,8 @@ PERMISO_METRICAS = "ml_metricas.ver"  # the KPI strip is Métricas' numbers: see
 PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
 PERMISO_PAUSAR = "ml_publicaciones.pausar"  # what lets the screen offer "Pausar" / "Activar"
 QUERY_CANCELED = "57014"  # Postgres' SQLSTATE for statement_timeout
+logger = logging.getLogger(__name__)
+
 SLOW_QUERY_CODE = "consulta_lenta"
 
 router = APIRouter(prefix="/ml-publications/view", tags=["ML Publications View"])
@@ -739,6 +751,12 @@ def filter_query(
     audit_fecha_hasta: Optional[str] = Query(
         None, description="YYYY-MM-DD[ HH:MM], Buenos Aires time; a date: all day"
     ),
+    # Productos' promo filter and its "Con precios mayoristas" (MLA sets from the mlwebhook database)
+    promo_tipos: Optional[str] = Query(None, description="csv of promotion types (SELLER_CAMPAIGN, DEAL, ...)"),
+    promo_estado: Optional[str] = Query(None, description="disponible (default), aplicada or sin_aplicar"),
+    con_promo_aplicada: Optional[bool] = Query(None, description="any promotion started (without promo_tipos)"),
+    con_promo_sin_aplicar: Optional[bool] = Query(None, description="only candidate promotions (without promo_tipos)"),
+    con_pxq: Optional[bool] = Query(None, description="the publication has wholesale (PxQ) tiers"),
     # The caller and the application session, for the permission check of the markup filters (cached per request:
     # every endpoint already authenticates the same way).
     user: Usuario = Depends(get_current_user),
@@ -791,9 +809,62 @@ def filter_query(
             audit_tipos_accion=audit_tipos_accion,
             audit_fecha_desde=audit_fecha_desde,
             audit_fecha_hasta=audit_fecha_hasta,
+            mla_scope=_mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq),
         )
     except FilterError as exc:
         raise _unprocessable(exc) from exc
+
+
+PROMO_STATES = ("disponible", "aplicada", "sin_aplicar")
+FILTER_UNAVAILABLE_CODE = "filtro_no_disponible"
+
+
+def _mla_scope(
+    promo_tipos: Optional[str],
+    promo_estado: Optional[str],
+    con_promo_aplicada: Optional[bool],
+    con_promo_sin_aplicar: Optional[bool],
+    con_pxq: Optional[bool],
+) -> Optional[frozenset[str]]:
+    """Productos' promo filter (the same `select_promo_resolver` dispatch) and its PxQ toggle as the MLAs that match,
+    read from the mlwebhook database, ANDed; `None` when neither is asked. A resolver that cannot answer is a 503:
+    never the unfiltered list."""
+    tipos = [t.strip() for t in (promo_tipos or "").split(",") if t.strip()]
+    unknown = [t for t in tipos if t not in KNOWN_PROMOTION_TYPES]
+    if unknown:
+        raise FilterError(
+            "promo_tipos", f"unknown value(s) {', '.join(unknown)}; known: {', '.join(sorted(KNOWN_PROMOTION_TYPES))}"
+        )
+    if promo_estado is not None and promo_estado not in PROMO_STATES:
+        raise FilterError("promo_estado", f"unknown value {promo_estado}; known: {', '.join(PROMO_STATES)}")
+    asked = []
+    promo = select_promo_resolver(
+        PromoResolverFns(
+            active_promo_type=fetch_mlas_with_active_promo_type,
+            started=fetch_mlas_with_started,
+            candidate_only=fetch_mlas_with_candidate_only,
+            candidate_only_for_types=fetch_mlas_with_candidate_only_for_types,
+        ),
+        tipos or None,
+        promo_estado,
+        con_promo_aplicada,
+        con_promo_sin_aplicar,
+    )
+    if promo is not None:
+        asked.append((*promo, "Filtro de promociones no disponible temporalmente"))
+    if con_pxq:
+        asked.append(
+            (fetch_mlas_with_pxq_tiers, "Filtro PxQ", "Filtro de precios mayoristas no disponible temporalmente")
+        )
+    scope: Optional[frozenset[str]] = None
+    for resolver, context, message in asked:
+        try:
+            found = frozenset(resolver())
+        except (RuntimeError, SQLAlchemyError) as exc:
+            logger.warning("%s no disponible: %s", context, exc)
+            raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, FILTER_UNAVAILABLE_CODE, message) from exc
+        scope = found if scope is None else scope & found
+    return scope
 
 
 def _ads_status(provider: AdsCostProvider, requested: bool, first: Optional[date], last: Optional[date]) -> AdsStatus:
