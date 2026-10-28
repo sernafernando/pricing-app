@@ -20,7 +20,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Moneda = Literal["ARS", "USD"]
 Estado = Literal["activa", "anulada"]
@@ -38,12 +38,33 @@ class SellInBonoMontoOut(BaseModel):
     monto: Decimal
 
 
+# A model's own value fits its `sell_in_bono_items` column: (field, label, max digits, decimal places).
+_VALORES_MODELO = (("monto_unit", "El monto por unidad", 18, 2), ("porcentaje", "El porcentaje", 7, 4))
+
+
 class SellInBonoModeloIn(BaseModel):
-    """A model with its own value (T23a); neither: the bonus's."""
+    """A model with its own value (T23a); neither: the bonus's. An unknown key is refused (`extra='forbid'`):
+    a typo must not fall back to the bonus value silently."""
+
+    model_config = ConfigDict(extra="forbid")
 
     item_id: int = Field(ge=-(2**31), le=2**31 - 1)  # INTEGER, like a sell-out campaign's product
-    monto_unit: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=2)
-    porcentaje: Optional[Decimal] = Field(default=None, max_digits=7, decimal_places=4)
+    monto_unit: Optional[Decimal] = None
+    porcentaje: Optional[Decimal] = None
+
+    @model_validator(mode="after")
+    def _cabe_en_su_columna(self) -> "SellInBonoModeloIn":
+        """Digits and decimals of each value, with a message naming the model."""
+        for campo, etiqueta, digitos, decimales in _VALORES_MODELO:
+            valor = getattr(self, campo)
+            if valor is None or not valor.is_finite():
+                continue
+            exponente = valor.normalize().as_tuple().exponent
+            if exponente < -decimales:
+                raise ValueError(f"{etiqueta} del modelo {self.item_id} admite hasta {decimales} decimales")
+            if len(valor.quantize(Decimal(1).scaleb(-decimales)).as_tuple().digits) > digitos:
+                raise ValueError(f"{etiqueta} del modelo {self.item_id} tiene demasiados dígitos")
+        return self
 
 
 class SellInBonoModeloOut(BaseModel):

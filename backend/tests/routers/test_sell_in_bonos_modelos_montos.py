@@ -183,10 +183,36 @@ def test_per_model_value_errors_are_422_with_a_spanish_message(client, gestor, p
 
 
 @pytest.mark.parametrize(
-    "modelo", [{"item_id": 4512, "monto_unit": "1.234"}, {"item_id": 4512, "porcentaje": "1.23456"}]
+    "overrides,modelo,mensaje",
+    [
+        ({}, {"item_id": 4512, "monto_unit": "1.234"}, "El monto por unidad del modelo 4512 admite hasta 2 decimales"),
+        (
+            {},
+            {"item_id": 4512, "monto_unit": "1" + "0" * 16},
+            "El monto por unidad del modelo 4512 tiene demasiados dígitos",
+        ),
+        (
+            {"tipo": "porcentaje", "monto_unit": None, "porcentaje": "2"},
+            {"item_id": 4512, "porcentaje": "1.23456"},
+            "El porcentaje del modelo 4512 admite hasta 4 decimales",
+        ),
+    ],
 )
-def test_per_model_values_beyond_the_columns_decimals_are_422(client, gestor, productos, modelo):
-    assert client.post(BASE, json=_body(modelos=[modelo]), headers=gestor).status_code == 422
+def test_per_model_values_beyond_the_columns_decimals_are_422_naming_the_model(
+    client, gestor, productos, overrides, modelo, mensaje
+):
+    resp = client.post(BASE, json=_body(modelos=[modelo], **overrides), headers=gestor)
+
+    assert resp.status_code == 422
+    assert mensaje in resp.text
+
+
+def test_a_typo_in_a_models_key_is_a_422_not_the_bonus_value(client, gestor, productos, db):
+    # `monto` instead of `monto_unit` must not silently fall back to the bonus amount.
+    resp = client.post(BASE, json=_body(modelos=[{"item_id": 4512, "monto": "5"}]), headers=gestor)
+
+    assert resp.status_code == 422
+    assert client.get(BASE, headers=gestor).json()["total"] == 0
 
 
 def test_a_model_id_beyond_an_integer_is_refused_by_the_schema(client, gestor, productos):
