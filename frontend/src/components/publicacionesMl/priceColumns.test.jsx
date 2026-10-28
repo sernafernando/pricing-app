@@ -135,4 +135,32 @@ describe('priceColumns', () => {
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
     });
   });
+
+  describe("Productos' pricing modal (P3c)", () => {
+    it("closes the group with a Calcular column whose button hands over the row's product", async () => {
+      const onCalculate = vi.fn();
+      const columns = priceColumns('cuotas', { prices: prices(), onCalculate });
+      const last = columns.at(-1);
+      expect(last).toMatchObject({ header: 'Calcular', group: 'Precios de Productos' });
+      render(<div>{last.render(item())}</div>);
+      await userEvent.click(screen.getByRole('button', { name: 'Calcular el precio del producto 7' }));
+      expect(onCalculate).toHaveBeenCalledWith(PRODUCT);
+    });
+
+    it('a product row opens it too; no product or a price on its way has no button', () => {
+      const onCalculate = vi.fn();
+      const [last] = priceColumns('normal', { prices: prices(), onCalculate }).slice(-1);
+      render(<div>{last.renderProduct(7)}</div>);
+      expect(screen.getByRole('button', { name: 'Calcular el precio del producto 7' })).toBeInTheDocument();
+      const { container } = render(<div>{last.render(item(null))}</div>);
+      expect(container.querySelector('button')).toBeNull();
+      const [pending] = priceColumns('normal', { prices: prices(new Map(), true), onCalculate }).slice(-1);
+      const other = render(<div>{pending.render(item())}</div>);
+      expect(other.container.querySelector('button')).toBeNull();
+    });
+
+    it('without onCalculate (no price edit permission) there is no such column', () => {
+      expect(priceColumns('normal', { prices: prices() }).map((column) => column.header)).not.toContain('Calcular');
+    });
+  });
 });

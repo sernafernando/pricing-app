@@ -175,3 +175,8 @@
   --cf-bg-card: var(--row-tone-bg);
   --cf-bg-hover: var(--row-tone-bg);
 }
+
+/* Productos' Calcular button (P3c): opens its pricing modal on the row's product. */
+.calculate {
+  composes: btn-tesla outline-subtle-primary icon-only sm from '../../styles/buttons-tesla.css';
+}

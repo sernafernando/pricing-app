@@ -1,6 +1,8 @@
+import { Calculator } from 'lucide-react';
 import { LISTS } from '../pricing/priceWrites';
 import ListPriceCell from './ListPriceCell';
 import PriceEditCell from './PriceEditCell';
+import styles from './cells.module.css';
 
 /**
  * Productos' price columns (S11), one set per mode like Productos' Normal / Cuotas / PVP, with Productos' headers.
@@ -38,9 +40,11 @@ const MODES = {
  * The columns of `mode` ('normal' | 'cuotas' | 'pvp'). `render(item)` draws a publication with its linked product;
  * `renderProduct(productId)` draws a product row (the Producto view). `edit` (`{ permissions, onSave, saving }`, from
  * `pricePermissions` and `useInlinePriceEdit`) makes the list prices editable: `onSave(listRow, product, text)`.
+ * `onCalculate(product)` (P3c, for whoever may edit prices) closes the group with Productos' Calcular button, which
+ * opens its pricing modal on the row's product.
  */
-export function priceColumns(mode, { prices, canSeeMargin = false, edit = null }) {
-  return (MODES[mode] ?? MODES.normal).map((column) => {
+export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, onCalculate = null }) {
+  const columns = (MODES[mode] ?? MODES.normal).map((column) => {
     const listRow = column.list ? LIST_ROWS.get(column.list) : null;
     const editable = Boolean(edit && listRow && edit.permissions[listRow.perm]);
     const renderProduct = (productId) => {
@@ -67,4 +71,28 @@ export function priceColumns(mode, { prices, canSeeMargin = false, edit = null }
       renderProduct,
     };
   });
+  return onCalculate ? [...columns, calculateColumn(prices, onCalculate)] : columns;
+}
+
+function calculateColumn(prices, onCalculate) {
+  // Only on a product whose prices are here: the modal shows its cost and stock from the same listing.
+  const renderProduct = (productId) => {
+    const product = productId == null ? null : prices.byId.get(productId);
+    if (!product) return null;
+    const label = product.descripcion ? `Calcular el precio de ${product.descripcion}` : `Calcular el precio del producto ${product.item_id}`;
+    return (
+      <button type="button" className={styles.calculate} aria-label={label} title={label} onClick={() => onCalculate(product)}>
+        <Calculator size={14} aria-hidden="true" />
+      </button>
+    );
+  };
+  return {
+    key: 'calcular_precio',
+    group: GROUP,
+    header: 'Calcular',
+    width: 84,
+    align: 'center',
+    render: (item) => renderProduct(item.link?.producto_item_id ?? null),
+    renderProduct,
+  };
 }
