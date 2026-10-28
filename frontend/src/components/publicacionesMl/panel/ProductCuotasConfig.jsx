@@ -16,18 +16,28 @@ const PERCENT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
 /** A product's extra markup, or "Global" when it follows the global one. */
 const markupText = (value) => (value == null ? 'Global' : `${PERCENT.format(value)} %`);
 
+const STORED_FIELDS = ['recalcular_cuotas_auto', 'markup_adicional_cuotas_custom', 'markup_adicional_cuotas_pvp_custom'];
+
+// `complete` is false when the read lacks a setting: the PATCH replaces all three, so it is not offered then.
 const settingsOf = (product) => ({
   recalc: RECALC_VALUE(product.recalcular_cuotas_auto),
   web: product.markup_adicional_cuotas_custom ?? null,
   pvp: product.markup_adicional_cuotas_pvp_custom ?? null,
+  complete: STORED_FIELDS.every((field) => field in product),
 });
 
 const inputOf = (value) => (value == null ? '' : String(value));
 
-/** The typed markup as the server takes it: empty is null (the global one); `undefined` is out of 0-100. */
+/**
+ * The typed markup as the server takes it: empty is null (the global one); `undefined` is not a number of 0-100.
+ * A text field, not a number one: the browser reports a number field it cannot parse ("6,5") as empty, which would
+ * be saved as the global markup.
+ */
 function markupOf(text) {
-  if (text.trim() === '') return null;
-  const value = Number(text);
+  const typed = text.trim();
+  if (typed === '') return null;
+  if (!/^\d+([.,]\d+)?$/.test(typed)) return undefined;
+  const value = Number(typed.replace(',', '.'));
   return Number.isFinite(value) && value >= 0 && value <= 100 ? value : undefined;
 }
 
@@ -82,7 +92,7 @@ export default function ProductCuotasConfig({ productItemId }) {
     const web = markupOf(form.web);
     const pvp = markupOf(form.pvp);
     if (web === undefined || pvp === undefined) {
-      setForm({ ...form, error: 'El markup adicional va de 0 a 100.' });
+      setForm({ ...form, error: 'El markup adicional tiene que ser un número de 0 a 100.' });
       return;
     }
     setForm({ ...form, status: 'saving', error: null });
@@ -121,7 +131,7 @@ export default function ProductCuotasConfig({ productItemId }) {
   } else if (form) {
     const saving = form.status === 'saving';
     body = (
-      <form className={styles.identityForm} onSubmit={save} noValidate>
+      <form className={styles.identityForm} onSubmit={save}>
         <label className={styles.identityField}>
           <span>Recalcular cuotas</span>
           <select
@@ -138,10 +148,8 @@ export default function ProductCuotasConfig({ productItemId }) {
         <label className={styles.identityField}>
           <span>Markup adicional cuotas Web (%)</span>
           <input
-            type="number"
-            min="0"
-            max="100"
-            step="0.1"
+            type="text"
+            inputMode="decimal"
             className={styles.identityInput}
             value={form.web}
             disabled={saving}
@@ -151,10 +159,8 @@ export default function ProductCuotasConfig({ productItemId }) {
         <label className={styles.identityField}>
           <span>Markup adicional cuotas PVP (%)</span>
           <input
-            type="number"
-            min="0"
-            max="100"
-            step="0.1"
+            type="text"
+            inputMode="decimal"
             className={styles.identityInput}
             value={form.pvp}
             disabled={saving}
@@ -178,7 +184,7 @@ export default function ProductCuotasConfig({ productItemId }) {
       </form>
     );
   } else {
-    const { recalc, web, pvp } = read.settings;
+    const { recalc, web, pvp, complete } = read.settings;
     body = (
       <>
         <Fields>
@@ -186,7 +192,10 @@ export default function ProductCuotasConfig({ productItemId }) {
           <Field label="Markup adicional cuotas Web">{markupText(web)}</Field>
           <Field label="Markup adicional cuotas PVP">{markupText(pvp)}</Field>
         </Fields>
-        {tienePermiso(EDIT_PERMISSION) && (
+        {tienePermiso(EDIT_PERMISSION) && !complete && (
+          <p className={styles.note}>No se pudo leer la configuración completa, así que no se puede editar.</p>
+        )}
+        {tienePermiso(EDIT_PERMISSION) && complete && (
           <button type="button" className={`btn-tesla outline sm ${styles.identityEdit}`} onClick={edit}>
             Editar cuotas
           </button>
@@ -198,7 +207,7 @@ export default function ProductCuotasConfig({ productItemId }) {
   return (
     <Section title="Configuración de cuotas">
       {body}
-      {saved && !form && (
+      {saved && !form && read.status === 'ready' && (
         <p className={styles.feedback} role="status">
           Guardado. No cambia ningún precio: se aplica la próxima vez que se recalculen las cuotas.
         </p>

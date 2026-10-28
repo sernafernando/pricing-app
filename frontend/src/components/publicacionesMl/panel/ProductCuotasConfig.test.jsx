@@ -93,8 +93,8 @@ describe('editing', () => {
     const user = userEvent.setup();
     await openForm(user);
     expect(screen.getByLabelText('Recalcular cuotas')).toHaveValue('global');
-    expect(screen.getByLabelText('Markup adicional cuotas Web (%)')).toHaveValue(6.5);
-    expect(screen.getByLabelText('Markup adicional cuotas PVP (%)')).toHaveValue(null);
+    expect(screen.getByLabelText('Markup adicional cuotas Web (%)')).toHaveValue('6.5');
+    expect(screen.getByLabelText('Markup adicional cuotas PVP (%)')).toHaveValue('');
 
     await user.selectOptions(screen.getByLabelText('Recalcular cuotas'), 'never');
     await user.clear(screen.getByLabelText('Markup adicional cuotas Web (%)'));
@@ -130,8 +130,43 @@ describe('editing', () => {
     await user.clear(screen.getByLabelText('Markup adicional cuotas Web (%)'));
     await user.type(screen.getByLabelText('Markup adicional cuotas Web (%)'), '150');
     await user.click(screen.getByRole('button', { name: 'Guardar' }));
-    expect(screen.getByRole('alert')).toHaveTextContent('El markup adicional va de 0 a 100.');
+    expect(screen.getByRole('alert')).toHaveTextContent('El markup adicional tiene que ser un número de 0 a 100.');
     expect(productosAPI.configCuotas).not.toHaveBeenCalled();
+  });
+
+  it('a markup typed with a comma is saved as that number', async () => {
+    const user = userEvent.setup();
+    await openForm(user);
+    await user.clear(screen.getByLabelText('Markup adicional cuotas Web (%)'));
+    await user.type(screen.getByLabelText('Markup adicional cuotas Web (%)'), '7,25');
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    expect(productosAPI.configCuotas).toHaveBeenCalledWith(4101, expect.objectContaining({ markup_adicional_cuotas_custom: 7.25 }));
+  });
+
+  it('a markup that is not a number is refused, never saved as the global one', async () => {
+    const user = userEvent.setup();
+    await openForm(user);
+    await user.clear(screen.getByLabelText('Markup adicional cuotas Web (%)'));
+    await user.type(screen.getByLabelText('Markup adicional cuotas Web (%)'), '6,5,1');
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('El markup adicional tiene que ser un número de 0 a 100.');
+    expect(productosAPI.configCuotas).not.toHaveBeenCalled();
+  });
+
+  it('a read missing a setting offers no edit, so saving cannot overwrite what it did not see', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { item_id: 4101, recalcular_cuotas_auto: null, markup_adicional_cuotas_custom: 6.5 } });
+    renderConfig();
+    expect(await screen.findByText('No se pudo leer la configuración completa, así que no se puede editar.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Editar cuotas' })).not.toBeInTheDocument();
+  });
+
+  it('a failed read after saving says so, without claiming it was saved', async () => {
+    const user = userEvent.setup();
+    await openForm(user);
+    preciosAPI.obtenerProducto.mockRejectedValue(httpError(500));
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar la configuración de cuotas.');
+    expect(screen.queryByText(/Guardado\./)).not.toBeInTheDocument();
   });
 
   it('Cancelar sends nothing', async () => {
