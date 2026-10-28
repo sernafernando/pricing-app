@@ -649,7 +649,8 @@ def _search(term: SearchTerm) -> ColumnElement:
             _variation_sku(same),
         )
     if term.kind == "codigo":
-        return func.upper(T.p.codigo) == term.value.upper()
+        # upper-cased by the database on both sides, as `_text_in`: Python and Postgres disagree on some letters
+        return func.upper(T.p.codigo) == func.upper(literal(term.value))
     if term.kind == "marca":
         return normalized_text(T.p.marca) == normalized_text(literal(term.value))
     if term.kind == "ends_with":
