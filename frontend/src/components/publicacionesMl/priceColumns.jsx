@@ -1,4 +1,5 @@
 import { Calculator } from 'lucide-react';
+import { offerDetails } from '../pricing/offerDetails';
 import { LISTS } from '../pricing/priceWrites';
 import ListPriceCell from './ListPriceCell';
 import PriceEditCell from './PriceEditCell';
@@ -20,7 +21,7 @@ const GROUP = 'Precios de Productos';
 
 const LIST_ROWS = new Map(LISTS.flatMap((group) => group.rows).map((row) => [row.id, row]));
 
-const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, toggles } = {}) => ({
+const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, toggles, details } = {}) => ({
   key,
   header,
   price,
@@ -29,6 +30,7 @@ const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, t
   markupScale,
   list: edits,
   toggles,
+  details,
 });
 // The permission of each flag's editor (`pricePermissions`).
 const TOGGLE_PERMS = { rebate: 'canToggleRebate', web: 'canToggleWebTransf' };
@@ -40,7 +42,8 @@ const MODES = {
     CLASICA,
     list('lista_rebate', 'Precio Rebate', 'precio_rebate', 'markup_rebate', { takesPart: 'participa_rebate', toggles: 'rebate' }),
     // The listing sends the best offer's markup as a fraction (every other one as a percentage); Productos scales it.
-    list('lista_oferta', 'Mejor Oferta', 'mejor_oferta_precio', 'mejor_oferta_markup', { markupScale: 100 }),
+    // Under its price, its details as in Productos (S2).
+    list('lista_oferta', 'Mejor Oferta', 'mejor_oferta_precio', 'mejor_oferta_markup', { markupScale: 100, details: offerDetails }),
     list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', { takesPart: 'participa_web_transferencia', toggles: 'web' }),
   ],
   cuotas: [CLASICA, ...CUOTAS.map((n) => list(`lista_${n}_cuotas`, `${n} Cuotas`, `precio_${n}_cuotas`, `markup_${n}_cuotas`, { edits: `ml-${n}` }))],

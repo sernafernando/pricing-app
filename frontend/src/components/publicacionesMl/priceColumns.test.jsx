@@ -57,6 +57,33 @@ describe('priceColumns', () => {
     expect(cell(rebate)).toContain('22,5%');
   });
 
+  it("shows the best offer's details under its price, in Productos' order: contribution %, rebate, end date, seller PVP (S2)", () => {
+    const product = {
+      ...PRODUCT,
+      mejor_oferta_precio: 990,
+      mejor_oferta_markup: 0.1,
+      mejor_oferta_porcentaje_rebate: 12.5,
+      mejor_oferta_monto_rebate: 1500,
+      mejor_oferta_fecha_hasta: '2026-11-30',
+      mejor_oferta_pvp_seller: 1200,
+    };
+    const [, , oferta] = priceColumns('normal', { prices: prices(new Map([[7, product]])) });
+    const { container, unmount } = render(<div>{oferta.render(item())}</div>);
+    const lines = [...container.querySelectorAll('[data-offer-detail]')].map((line) => line.textContent);
+    expect(lines).toEqual(['Aporte 12,50%', 'Rebate $ 1.500,00', 'Hasta 30/11', 'PVP $ 1.200,00']);
+    unmount();
+    // Only the details it has; none without an offer.
+    const partial = { ...PRODUCT, mejor_oferta_precio: 990, mejor_oferta_fecha_hasta: '2026-11-30' };
+    const [, , onlyDate] = priceColumns('normal', { prices: prices(new Map([[7, partial]])) });
+    expect(cell(onlyDate)).toContain('Hasta 30/11');
+    expect(cell(onlyDate)).not.toContain('Aporte');
+    const [, , none] = priceColumns('normal', { prices: prices(new Map([[7, { ...PRODUCT, mejor_oferta_fecha_hasta: '2026-11-30' }]])) });
+    expect(cell(none)).toBe('—');
+    // The other columns have no details.
+    const [clasica] = priceColumns('normal', { prices: prices(new Map([[7, product]])) });
+    expect(cell(clasica)).not.toContain('Hasta');
+  });
+
   it('never shows a markup without the margin permission', () => {
     const [clasica] = priceColumns('normal', { prices: prices(), canSeeMargin: false });
     expect(cell(clasica)).toContain('1.000,00');

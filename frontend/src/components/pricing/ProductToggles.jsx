@@ -4,6 +4,7 @@ import { preciosAPI } from '../../services/api';
 import { formatAmount } from '../../utils/ventasMlFormat';
 import { Empty, MarkupChip } from './PriceParts';
 import { formatRate, isBlank } from './priceFormat';
+import { offerDetails } from './offerDetails';
 import { RebateEditor, WebTransfEditor } from './toggleEditors';
 import { rebateDraft, rebateWrite, webTransfDraft, webTransfWrite } from './toggleWrites';
 import styles from './ProductPrices.module.css';
@@ -15,22 +16,6 @@ import styles from './ProductPrices.module.css';
  * negative-markup check, as there). The figures are what
  * `GET /productos/{item_id}` computes, the same as the Productos listing.
  */
-
-/** "2099-12-31" as "31/12", read as a calendar date (no time-zone shift). */
-function dayMonth(isoDate) {
-  const [, month, day] = String(isoDate).split('-');
-  return day && month ? `${day.slice(0, 2)}/${month}` : isoDate;
-}
-
-/** The best offer's details, in Productos' order (price and markup have their own cells). */
-function offerDetails(product) {
-  const details = [];
-  if (product.mejor_oferta_porcentaje_rebate) details.push(`Aporte ${formatAmount(product.mejor_oferta_porcentaje_rebate)}%`);
-  if (product.mejor_oferta_monto_rebate) details.push(`Rebate $ ${formatAmount(product.mejor_oferta_monto_rebate)}`);
-  if (product.mejor_oferta_fecha_hasta) details.push(`Hasta ${dayMonth(product.mejor_oferta_fecha_hasta)}`);
-  if (product.mejor_oferta_pvp_seller) details.push(`PVP $ ${formatAmount(product.mejor_oferta_pvp_seller)}`);
-  return details;
-}
 
 const Money = ({ value }) => (isBlank(value) ? <Empty /> : `$ ${formatAmount(value)}`);
 

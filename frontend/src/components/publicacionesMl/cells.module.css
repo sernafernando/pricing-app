@@ -205,3 +205,11 @@
   --cf-bg-card: var(--row-tone-bg);
   --cf-bg-hover: var(--row-tone-bg);
 }
+
+/* A detail line under a price (the best offer's contribution, rebate, end date and seller PVP, S2). */
+.priceDetail {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
