@@ -834,13 +834,13 @@ def _audited(f: PublicationFilter) -> ColumnElement:
     return exists(select(1).where(*where))
 
 
-def _current_offer(o: Any) -> list[ColumnElement]:
+def current_offer(o: Any) -> list[ColumnElement]:
     return [o.fecha_desde <= func.current_date(), o.fecha_hasta >= func.current_date(), o.pvp_seller.isnot(None)]
 
 
 def _oferta(on: bool, per_product: bool) -> ColumnElement:
     o = aliased(OfertaML, name="o")
-    own = exists(select(1).where(o.mla == T.i.item_id, *_current_offer(o)))
+    own = exists(select(1).where(o.mla == T.i.item_id, *current_offer(o)))
     if per_product:
         # any publication linked (item level) to the row's product; a row with no product has only itself
         sibling = aliased(MlItemProductLink, name="l_oferta")
@@ -851,7 +851,7 @@ def _oferta(on: bool, per_product: bool) -> ColumnElement:
             .where(
                 sibling.variation_id == LINK_ITEM_LEVEL,
                 sibling.producto_item_id == T.l.producto_item_id,
-                *_current_offer(o),
+                *current_offer(o),
             )
         )
         has_product = T.l.producto_item_id.isnot(None)

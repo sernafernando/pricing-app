@@ -26,7 +26,7 @@ from app.services.ml_publications.view.filters import (
     LINK_LINKED,
     PublicationFilter,
     T,
-    _current_offer,
+    current_offer,
     build_base_select,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
@@ -41,9 +41,9 @@ MARKUP_COLUMNS = {
 
 
 def _offered_mlas():
-    """The MLAs with a current offer that has a seller price (`filters._current_offer`), once each."""
+    """The MLAs with a current offer that has a seller price (`filters.current_offer`), once each."""
     o = aliased(OfertaML, name="o_stats")
-    return select(o.mla).where(*_current_offer(o)).group_by(o.mla).subquery("offered")
+    return select(o.mla).where(*current_offer(o)).group_by(o.mla).subquery("offered")
 
 
 def _offered_products(offered):
