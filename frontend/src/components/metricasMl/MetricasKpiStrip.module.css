@@ -225,6 +225,15 @@
   color: var(--tone-warning-fg);
 }
 
+/* "≈ n": sell outs added on an estimated rate (the rows' hint). */
+.estimatedHint {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--tone-warning-fg);
+}
+
 .subtitle {
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
