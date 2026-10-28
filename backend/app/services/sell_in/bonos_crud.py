@@ -5,6 +5,11 @@ on edit) or one Compras operation (`alcance`), and pays an amount per invoiced
 unit or a percentage of the invoiced net (`tipo`); each carries only its own
 fields, so a field of another scope or kind is refused, never dropped.
 
+A model of a 'modelos' bonus may carry its own `monto_unit` or `porcentaje`, of
+the bonus's kind (T23a). On an edit a model sent as an object stores the
+object's values; one sent as a bare id keeps what it had stored (a value of the
+other kind, after a kind change, is dropped).
+
 A bonus is edited by full replace while it is `activa`; it is never deleted,
 only voided (`anulada`), once. Every load, edit and void writes one audit row
 (`item_id` NULL, `bono_id` in the values), like the sell-out campaigns.
@@ -29,7 +34,7 @@ from app.models.auditoria import Auditoria, TipoAccion
 from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
-from app.schemas.sell_in_bonos import SellInBonoIn
+from app.schemas.sell_in_bonos import SellInBonoIn, SellInBonoModeloIn
 
 _CAMPOS = (
     "alcance",
@@ -60,7 +65,9 @@ class SellInBonoYaAnulado(SellInBonoError):
 
 @dataclass(frozen=True)
 class Campos:
-    """The validated scope and kind fields, normalized (trimmed text, models once each and sorted)."""
+    """The validated scope and kind fields, normalized (trimmed text, models once each and sorted).
+    `valores_modelos` holds `(monto_unit, porcentaje)` of each model sent as an object; a model sent as a
+    bare id is not in it (it keeps what it had stored)."""
 
     marca: Optional[str]
     categoria: Optional[str]
@@ -68,6 +75,11 @@ class Campos:
     pedido_id: Optional[int]
     monto_unit: Optional[Decimal]
     porcentaje: Optional[Decimal]
+    valores_modelos: dict[int, tuple[Optional[Decimal], Optional[Decimal]]]
+
+
+def _item_id(modelo) -> int:
+    return modelo.item_id if isinstance(modelo, SellInBonoModeloIn) else modelo
 
 
 def _texto(valor: Optional[str]) -> Optional[str]:
@@ -76,7 +88,7 @@ def _texto(valor: Optional[str]) -> Optional[str]:
 
 def _validar_alcance(db: Session, data: SellInBonoIn) -> tuple[Optional[str], Optional[str], list[int], Optional[int]]:
     marca, categoria = _texto(data.marca), _texto(data.categoria)
-    modelos = sorted(set(data.modelos))
+    modelos = sorted({_item_id(m) for m in data.modelos})
     dados = {"marca": marca, "categoria": categoria, "modelos": modelos, "pedido_id": data.pedido_id}
     propio = _CAMPO_DE_ALCANCE[data.alcance]
     for campo, valor in dados.items():
@@ -128,6 +140,7 @@ def validar(db: Session, data: SellInBonoIn) -> Campos:
             raise SellInBonoError("El porcentaje no puede superar 100")
     if data.fecha_desde > data.fecha_hasta:
         raise SellInBonoError("La fecha desde no puede ser posterior a la fecha hasta")
+    valores_modelos = _validar_valores_modelos(data)
     return Campos(
         marca=marca,
         categoria=categoria,
@@ -135,26 +148,76 @@ def validar(db: Session, data: SellInBonoIn) -> Campos:
         pedido_id=pedido_id,
         monto_unit=data.monto_unit.quantize(Decimal("0.01")) if data.monto_unit is not None else None,
         porcentaje=data.porcentaje.quantize(Decimal("0.0001")) if data.porcentaje is not None else None,
+        valores_modelos=valores_modelos,
     )
 
 
-def _modelos(db: Session, bono_ids: list[int]) -> dict[int, list[int]]:
-    modelos: dict[int, list[int]] = {}
-    for bono_id, item_id in (
-        db.query(SellInBonoItem.bono_id, SellInBonoItem.item_id)
+def _validar_valores_modelos(data: SellInBonoIn) -> dict[int, tuple[Optional[Decimal], Optional[Decimal]]]:
+    """Each model's own value: of the bonus's kind, positive, a percentage up to 100; a model listed twice is
+    refused when either is an object (two bare ids are the same model, as before)."""
+    vistos: set[int] = set()
+    valores: dict[int, tuple[Optional[Decimal], Optional[Decimal]]] = {}
+    for modelo in data.modelos:
+        item_id = _item_id(modelo)
+        if item_id in vistos and (isinstance(modelo, SellInBonoModeloIn) or item_id in valores):
+            raise SellInBonoError(f"El modelo {item_id} está repetido")
+        vistos.add(item_id)
+        if not isinstance(modelo, SellInBonoModeloIn):
+            continue
+        monto, porcentaje = modelo.monto_unit, modelo.porcentaje
+        if monto is not None:
+            if data.tipo != "por_unidad":
+                raise SellInBonoError(f"Un bono por porcentaje no lleva monto por unidad en el modelo {item_id}")
+            if monto <= 0:
+                raise SellInBonoError(f"El monto por unidad del modelo {item_id} debe ser mayor que cero")
+        if porcentaje is not None:
+            if data.tipo != "porcentaje":
+                raise SellInBonoError(f"Un bono por unidad no lleva porcentaje en el modelo {item_id}")
+            if porcentaje <= 0:
+                raise SellInBonoError(f"El porcentaje del modelo {item_id} debe ser mayor que cero")
+            if porcentaje > 100:
+                raise SellInBonoError(f"El porcentaje del modelo {item_id} no puede superar 100")
+        valores[item_id] = (
+            monto.quantize(Decimal("0.01")) if monto is not None else None,
+            porcentaje.quantize(Decimal("0.0001")) if porcentaje is not None else None,
+        )
+    return valores
+
+
+def _modelos(db: Session, bono_ids: list[int]) -> dict[int, list[tuple[int, Optional[Decimal], Optional[Decimal]]]]:
+    """Each bonus's models as `(item_id, monto_unit, porcentaje)`, by item id."""
+    modelos: dict[int, list[tuple[int, Optional[Decimal], Optional[Decimal]]]] = {}
+    for bono_id, item_id, monto_unit, porcentaje in (
+        db.query(SellInBonoItem.bono_id, SellInBonoItem.item_id, SellInBonoItem.monto_unit, SellInBonoItem.porcentaje)
         .filter(SellInBonoItem.bono_id.in_(bono_ids))
         .order_by(SellInBonoItem.bono_id, SellInBonoItem.item_id)
     ):
-        modelos.setdefault(bono_id, []).append(item_id)
+        modelos.setdefault(bono_id, []).append((item_id, monto_unit, porcentaje))
     return modelos
 
 
-def _valores(bono: SellInBonoMarca, modelos: list[int]) -> dict:
+def _str(valor: Optional[Decimal]) -> Optional[str]:
+    return str(valor) if valor is not None else None
+
+
+def _valores(db: Session, bono: SellInBonoMarca) -> dict:
+    """The audit snapshot: the bonus's fields, its model ids and the models with their own value."""
     valores = {campo: getattr(bono, campo) for campo in _CAMPOS}
     for campo, valor in valores.items():
         if isinstance(valor, (date, Decimal)):
             valores[campo] = str(valor)  # JSON-safe
-    return {"bono_id": bono.id, **valores, "modelos": list(modelos), "estado": bono.estado}
+    modelos = _modelos(db, [bono.id]).get(bono.id, [])
+    return {
+        "bono_id": bono.id,
+        **valores,
+        "modelos": [item_id for item_id, _, _ in modelos],
+        "valores_modelos": [
+            {"item_id": item_id, "monto_unit": _str(monto), "porcentaje": _str(porcentaje)}
+            for item_id, monto, porcentaje in modelos
+            if monto is not None or porcentaje is not None
+        ],
+        "estado": bono.estado,
+    }
 
 
 def _audit(db: Session, tipo: TipoAccion, usuario_id: int, antes: Optional[dict], despues: dict, motivo=None) -> None:
@@ -178,13 +241,29 @@ def _asignar(db: Session, bono: SellInBonoMarca, data: SellInBonoIn, campos: Cam
     for campo in ("marca", "categoria", "pedido_id", "monto_unit", "porcentaje"):
         setattr(bono, campo, getattr(campos, campo))
     db.flush()
-    # The model list, replaced: rows that stay are kept, so their trigger queues only a real change.
+    # The model list, replaced: rows that stay are kept, so their trigger queues only a real change. A model
+    # sent as an object takes its values; one sent as a bare id keeps its stored value of the bonus's kind.
     actuales = {item.item_id: item for item in db.query(SellInBonoItem).filter(SellInBonoItem.bono_id == bono.id)}
     for item_id, item in actuales.items():
         if item_id not in campos.modelos:
             db.delete(item)
-    db.add_all(SellInBonoItem(bono_id=bono.id, item_id=i) for i in campos.modelos if i not in actuales)
+        elif item_id in campos.valores_modelos:
+            item.monto_unit, item.porcentaje = campos.valores_modelos[item_id]
+        elif bono.tipo == "porcentaje":
+            item.monto_unit = None
+        else:
+            item.porcentaje = None
+    db.add_all(
+        SellInBonoItem(bono_id=bono.id, item_id=i, **_valor_nuevo(campos, i))
+        for i in campos.modelos
+        if i not in actuales
+    )
     db.flush()
+
+
+def _valor_nuevo(campos: Campos, item_id: int) -> dict:
+    monto_unit, porcentaje = campos.valores_modelos.get(item_id, (None, None))
+    return {"monto_unit": monto_unit, "porcentaje": porcentaje}
 
 
 def crear_bono(db: Session, data: SellInBonoIn, usuario_id: int) -> SellInBonoMarca:
@@ -192,7 +271,7 @@ def crear_bono(db: Session, data: SellInBonoIn, usuario_id: int) -> SellInBonoMa
     bono = SellInBonoMarca(usuario_id=usuario_id, estado="activa")
     db.add(bono)
     _asignar(db, bono, data, campos)
-    _audit(db, TipoAccion.SELL_IN_BONO_CREADO, usuario_id, None, _valores(bono, campos.modelos))
+    _audit(db, TipoAccion.SELL_IN_BONO_CREADO, usuario_id, None, _valores(db, bono))
     db.commit()
     db.refresh(bono)
     return bono
@@ -211,9 +290,9 @@ def editar_bono(db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int) 
     if bono is None:
         return None
     campos = validar(db, data)
-    antes = _valores(bono, _modelos(db, [bono.id]).get(bono.id, []))
+    antes = _valores(db, bono)
     _asignar(db, bono, data, campos)
-    _audit(db, TipoAccion.SELL_IN_BONO_EDITADO, usuario_id, antes, _valores(bono, campos.modelos))
+    _audit(db, TipoAccion.SELL_IN_BONO_EDITADO, usuario_id, antes, _valores(db, bono))
     db.commit()
     db.refresh(bono)
     return bono
@@ -232,7 +311,7 @@ def anular_bono(db: Session, bono_id: int, usuario_id: int, motivo: Optional[str
         TipoAccion.SELL_IN_BONO_ANULADO,
         usuario_id,
         None,
-        _valores(bono, _modelos(db, [bono.id]).get(bono.id, [])),
+        _valores(db, bono),
         motivo,
     )
     db.commit()
@@ -292,7 +371,7 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
     productos = {
         p.item_id: p
         for p in db.query(ProductoERP.item_id, ProductoERP.codigo, ProductoERP.descripcion).filter(
-            ProductoERP.item_id.in_({i for items in modelos.values() for i in items})
+            ProductoERP.item_id.in_({i for items in modelos.values() for i, _, _ in items})
         )
     }
     pedido_ids = {b.pedido_id for b in bonos if b.pedido_id is not None}
@@ -312,8 +391,10 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
                         "item_id": i,
                         "codigo": productos[i].codigo if i in productos else None,
                         "descripcion": productos[i].descripcion if i in productos else None,
+                        "monto_unit": monto_unit,
+                        "porcentaje": porcentaje,
                     }
-                    for i in modelos.get(bono.id, [])
+                    for i, monto_unit, porcentaje in modelos.get(bono.id, [])
                 ],
                 "pedido_numero": numeros.get(bono.pedido_id),
                 "compras_activas": int(compras.get(bono.id, 0)),

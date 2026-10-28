@@ -7,13 +7,18 @@ back as a 422 with one readable Spanish message. `monto_unit` and `porcentaje`
 are bounded to their columns (NUMERIC(18, 2) and NUMERIC(7, 4)): more decimals
 are rejected, never rounded. A body without `alcance`/`tipo` is a brand bonus
 per unit, as before.
+
+`modelos` takes item ids (as before) or objects `{item_id, monto_unit?,
+porcentaje?}` (T23a): a model's own value of the bonus's kind replaces the
+bonus's for it, bounded like the bonus's own field. A bare id on an edit keeps
+the value the model had stored; an object's values are what is stored.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -33,10 +38,20 @@ class SellInBonoMontoOut(BaseModel):
     monto: Decimal
 
 
+class SellInBonoModeloIn(BaseModel):
+    """A model with its own value (T23a); neither: the bonus's."""
+
+    item_id: int
+    monto_unit: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=2)
+    porcentaje: Optional[Decimal] = Field(default=None, max_digits=7, decimal_places=4)
+
+
 class SellInBonoModeloOut(BaseModel):
     item_id: int
     codigo: Optional[str]  # None when the catalog no longer has the item
     descripcion: Optional[str]
+    monto_unit: Optional[Decimal] = None  # the model's own value; None: the bonus's
+    porcentaje: Optional[Decimal] = None
 
 
 class SellInBonoIn(BaseModel):
@@ -45,7 +60,8 @@ class SellInBonoIn(BaseModel):
     alcance: Alcance = "marca"
     marca: Optional[str] = Field(default=None, max_length=MARCA_MAX)
     categoria: Optional[str] = Field(default=None, max_length=CATEGORIA_MAX)
-    modelos: list[int] = Field(default_factory=list, max_length=MODELOS_MAX)  # item ids
+    # Item ids, or objects with a model's own value; a bare id on an edit keeps the stored value.
+    modelos: list[Union[int, SellInBonoModeloIn]] = Field(default_factory=list, max_length=MODELOS_MAX)
     pedido_id: Optional[int] = None  # the Compras operation of an invoice bonus
     tipo: TipoBono = "por_unidad"
     monto_unit: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=2)  # per unit, in `moneda`
