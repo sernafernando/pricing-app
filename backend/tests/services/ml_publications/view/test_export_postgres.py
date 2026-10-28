@@ -169,6 +169,7 @@ class TestProductKeys:
             for row in products.products_for_keys(db, parse_filter(), [0, 77, 78]).rows
         }
         assert counts == {0: 1, 77: 3, 78: 2}
+        assert products.products_for_keys(db, parse_filter(), [77, 78]).mla_count == 4  # MLA5 once
         assert [r.publications_count for r in products.products_for_keys(db, parse_filter(), [0]).rows] == [1]
         assert products.products_for_keys(db, parse_filter(), []).rows == []
 

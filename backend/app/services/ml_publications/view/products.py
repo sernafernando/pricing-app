@@ -3,11 +3,11 @@ the MLAs the screen's filter selects, its figures the sum of its publications' M
 business days.
 
 One source of truth on this screen: the publication -> product link (`ml_item_product_links`, read by
-`filters.product_links`: the item-level link, or an item's live variations' links). A row groups the publications
-linked to one product (an item whose variations name two products is in both rows, and counted once in
-`mla_count`); "Sin producto" groups the ones with no linked product -- the very sets `/items?producto=` and `/items?sin_producto=` list under the same
-filters, so a row's `publications_count` is what opening it shows. The product a sale's frozen cost or the ERP
-mirror names (what Métricas ML's own product rows group by) plays no part here.
+`filters.product_links`: the item-level link, or an item's live variations' links). A row groups the publications linked
+to one product (an item whose variations name two products is in both rows, and counted once in `mla_count`); "Sin
+producto" groups the ones with no linked product -- the very sets `/items?producto=` and `/items?sin_producto=` list
+under the same filters, so a row's `publications_count` is what opening it shows. The product a sale's frozen cost or
+the ERP mirror names (what Métricas ML's own product rows group by) plays no part here.
 
 Nothing is computed twice (one metric, one source). The filter becomes the Board's MLA set (`BoardFilter.mla_source`)
 and the Board answers its PUBLICATION rows -- the figures `/items` shows for each MLA (`row_metrics`). ONE statement
@@ -34,7 +34,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Iterator, Optional, Sequence
 
-from sqlalchemy import ARRAY, Date, String, Text, and_, any_, case, cast, false, func, literal, or_, select
+from sqlalchemy import ARRAY, Date, Integer, String, Text, and_, any_, case, cast, false, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.services.ml_daily_metrics import board
@@ -286,11 +286,17 @@ def products_for_keys(db: Session, f: PublicationFilter, keys: Sequence[int]) ->
     not draw them). A product with no publication left under `f` is skipped."""
     if not keys:
         return ProductsPage([], 0, 0)
-    with _product_rows(db, f, only=keys) as (b, _, rows):
+    with _product_rows(db, f, only=keys) as (b, members, rows):
         by_product = {int(r["product"]): r for r in db.execute(select(rows)).mappings()}
+        # the publications counted once, as `list_products` does: one linked to two of `keys` is in both rows
+        mla_count = db.execute(
+            select(func.count(func.distinct(members.c.mla))).where(
+                members.c.product == any_(literal(list(by_product), ARRAY(Integer)))
+            )
+        ).scalar_one()
     found = [by_product[k] for k in keys if k in by_product]
     without = frozenset(str(r["product"]) for r in found if not r["board_rows"])
-    return ProductsPage([_row(r, b.today) for r in found], len(found), sum(int(r["pubs"]) for r in found), without)
+    return ProductsPage([_row(r, b.today) for r in found], len(found), int(mla_count), without)
 
 
 # The most products one bulk action may name, shared with the bulk endpoints (`caps`). Over it the request is refused,
@@ -314,9 +320,9 @@ class ProductIds:
 
 def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery] = None) -> ProductIds:
     """The linked products of the MLAs `f` selects -- the very grouping `list_products` makes
-    (`filters.product_links`), so their count is its product rows. Unlike `list_products`, mejor oferta is asked the way the
-    caller asks it (`oferta_por_producto`): in the publication view a product is in the set when one of ITS matching
-    publications is, which is what the operator sees.
+    (`filters.product_links`), so their count is its product rows. Unlike `list_products`, mejor oferta is asked the
+    way the caller asks it (`oferta_por_producto`): in the publication view a product is in the set when one of ITS
+    matching publications is, which is what the operator sees.
 
     `markup` (its filter active) narrows the MLAs as `/items` does, with the same post-query step
     (`listing.markup_accepted`) over the whole filtered set. A linked product the ERP catalog no longer has is left
