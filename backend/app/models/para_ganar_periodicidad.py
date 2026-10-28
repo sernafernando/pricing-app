@@ -98,4 +98,3 @@ class ParaGanarPeriodicidadEanMlaDescartado(Base):
     )
 
     subscription = relationship("ParaGanarPeriodicidadEan", back_populates="mlas_descartados")
-

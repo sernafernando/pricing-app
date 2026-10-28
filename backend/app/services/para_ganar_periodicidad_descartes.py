@@ -131,9 +131,7 @@ def descartar_mlas_nuevos_ean(
     if sub.scope_mode != SCOPE_MLAS:
         return 0
 
-    nuevos = list_mlas_nuevos_for_ean(
-        db, ean=ean_norm, incluir_tradicionales=incluir_tradicionales
-    )
+    nuevos = list_mlas_nuevos_for_ean(db, ean=ean_norm, incluir_tradicionales=incluir_tradicionales)
     return _bulk_insert_descartados(
         db,
         pairs=[(ean_norm, mla) for mla in nuevos],
