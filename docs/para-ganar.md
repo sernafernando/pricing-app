@@ -58,6 +58,7 @@ Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por ML
 | **P1** | Shell: tab **Periodicidad** (`?vista=periodicidad`) | — | Done |
 | **P2** | Modelo + API: suscripción periódica por EAN (alcance: todo el EAN / MLAs elegidos / match lista+tipo+tienda) | P1 | Done |
 | **P3** | UI gestión: cola por EAN, abrir detalle, elegir MLAs o reglas de alcance, guardar | P2 | Done |
+| **P3.1** | Catálogo filtrado: listar **todos** los EAN del alcance (suscriptos y no), chips Todos/Suscriptos/Sin; MLAs por checkbox desde el mismo filtro | P3 | Done |
 | **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Planned |
 | **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Planned |
 | **A1** | Advisor **Consultar filtrados**: misma pipeline que el periódico, pero a demanda sobre el alcance del filtro (manual; lo no suscripto a Periodicidad) | P5 | Planned |
@@ -126,14 +127,16 @@ Newest first. Use for “why did we…” archaeology.
 - Sync pulls members from latest competition snapshot.
 - Dispositions: **Activo** | **Excluido**. Excluido = fuera del ranking (como si no existiera), sigue en la lista; aviso discreto si hay alguno.
 
-### Periodicidad (P2)
+### Periodicidad (P2 + P3.1)
 
 - Tables: `para_ganar_periodicidad_ean` (+ `…_ean_mla` for explicit MLA lists).
 - API (`productos.ver` read / `productos.editar_precios` write):
-  - `GET /para-ganar/periodicidad` — list (q, page)
+  - `GET /para-ganar/periodicidad` — list of **subscriptions only** (q, page)
+  - `GET /para-ganar/periodicidad/catalogo` — EANs in the **same alcance filters** as Advisor (subscribed + not); optional `suscripto=true|false`
+  - `GET /para-ganar/periodicidad/catalogo/{ean}/mlas` — MLAs of that EAN inside the current filters (checkbox picker)
   - `GET/PUT/DELETE /para-ganar/periodicidad/{ean}`
 - `scope_mode`: `all` (todo el EAN) | `mlas` (lista explícita) | `rules` (`tipos_publicacion` / `pricelist_ids` / `tienda_oficial_ids`).
-- UI (P3): tab Periodicidad — lista de suscripciones + detalle (guardar / quitar). Requiere `productos.editar_precios` para escribir.
+- UI (P3.1): tab Periodicidad reuses ScopeFilters; left list = filtered EAN catalog; open a row to subscribe/edit; MLA mode uses checkboxes from catalog, not free text.
 
 ---
 

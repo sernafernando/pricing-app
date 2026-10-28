@@ -15,18 +15,18 @@ export const TIPO_OPCIONES = [
 export const EMPTY_PERIODICIDAD_FORM = {
   enabled: true,
   scope_mode: SCOPE_ALL,
-  mlasText: '',
+  mlas: [],
   tipos_publicacion: [],
   pricelist_ids: [],
   tienda_oficial_ids: [],
 };
 
 export function subscriptionToForm(row) {
-  if (!row) return { ...EMPTY_PERIODICIDAD_FORM };
+  if (!row) return { ...EMPTY_PERIODICIDAD_FORM, mlas: [] };
   return {
     enabled: row.enabled !== false,
     scope_mode: row.scope_mode || SCOPE_ALL,
-    mlasText: Array.isArray(row.mlas) ? row.mlas.join(', ') : '',
+    mlas: Array.isArray(row.mlas) ? [...row.mlas] : [],
     tipos_publicacion: Array.isArray(row.tipos_publicacion) ? [...row.tipos_publicacion] : [],
     pricelist_ids: Array.isArray(row.pricelist_ids) ? row.pricelist_ids.map(Number) : [],
     tienda_oficial_ids: Array.isArray(row.tienda_oficial_ids)
@@ -35,23 +35,13 @@ export function subscriptionToForm(row) {
   };
 }
 
-export function parseMlasText(text) {
-  if (!text || !String(text).trim()) return [];
-  const seen = new Set();
-  const out = [];
-  for (const part of String(text).split(/[\s,;]+/)) {
-    const mla = part.trim().toUpperCase();
-    if (!mla || seen.has(mla)) continue;
-    seen.add(mla);
-    out.push(mla);
-  }
-  return out;
-}
-
 /** Build PUT body; returns { ok:false, error } or { ok:true, payload }. */
 export function formToPeriodicidadPayload(form) {
   const mode = form.scope_mode || SCOPE_ALL;
   const base = { enabled: Boolean(form.enabled), scope_mode: mode };
+  const mlas = Array.isArray(form.mlas)
+    ? [...new Set(form.mlas.map((m) => String(m).trim().toUpperCase()).filter(Boolean))]
+    : [];
 
   if (mode === SCOPE_ALL) {
     return {
@@ -67,9 +57,8 @@ export function formToPeriodicidadPayload(form) {
   }
 
   if (mode === SCOPE_MLAS) {
-    const mlas = parseMlasText(form.mlasText);
     if (mlas.length === 0) {
-      return { ok: false, error: 'Agregá al menos un MLA (separados por coma).' };
+      return { ok: false, error: 'Seleccioná al menos un MLA del listado.' };
     }
     return {
       ok: true,
@@ -110,12 +99,20 @@ export function scopeSummary(row) {
   if (!row) return '';
   if (row.scope_mode === SCOPE_ALL) return 'Todo el EAN';
   if (row.scope_mode === SCOPE_MLAS) {
-    const n = Array.isArray(row.mlas) ? row.mlas.length : 0;
+    const n = Array.isArray(row.mlas) ? row.mlas.length : row.mla_count || 0;
     return `${n} MLA${n === 1 ? '' : 's'}`;
   }
-  const parts = [];
-  if (row.tipos_publicacion?.length) parts.push(`${row.tipos_publicacion.length} tipo(s)`);
-  if (row.pricelist_ids?.length) parts.push(`${row.pricelist_ids.length} lista(s)`);
-  if (row.tienda_oficial_ids?.length) parts.push(`${row.tienda_oficial_ids.length} tienda(s)`);
-  return parts.length ? parts.join(' · ') : 'Reglas';
+  if (row.scope_mode === SCOPE_RULES) {
+    const parts = [];
+    if (row.tipos_publicacion?.length) parts.push(`${row.tipos_publicacion.length} tipo(s)`);
+    if (row.pricelist_ids?.length) parts.push(`${row.pricelist_ids.length} lista(s)`);
+    if (row.tienda_oficial_ids?.length) parts.push(`${row.tienda_oficial_ids.length} tienda(s)`);
+    return parts.length ? parts.join(' · ') : 'Reglas';
+  }
+  // Catalog browse rows (no subscription scope_mode): show MLA count in filter.
+  if (typeof row.mla_count === 'number') {
+    return `${row.mla_count} MLA${row.mla_count === 1 ? '' : 's'}`;
+  }
+  if (row.suscripto === false) return 'Sin suscribir';
+  return '';
 }

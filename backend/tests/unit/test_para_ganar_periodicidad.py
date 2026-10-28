@@ -110,3 +110,94 @@ def test_periodicidad_put_rejects_bad_rules(client: TestClient, rma_superadmin_u
         json={"scope_mode": "rules", "tipos_publicacion": [], "pricelist_ids": []},
     )
     assert response.status_code == 422
+
+
+def test_periodicidad_catalogo_lists_subscribed_and_not(
+    client: TestClient, rma_superadmin_user, db
+) -> None:
+    """P3.1: catalog lists EANs in scope; suscripto filter; MLA checkboxes from filters."""
+    from app.models.ml_publication_link import MlPublicationLink
+    from app.models.producto import ProductoERP
+    from app.models.publicacion_ml import PublicacionML
+
+    catalog_id = "MLA-PG-PER-CAT-993"
+    ean_sub = "779000PERCAT01"
+    ean_plain = "779000PERCAT02"
+    p_sub = ProductoERP(
+        item_id=99301, codigo=ean_sub, descripcion="periodicidad sub", marca="Acme", costo=10
+    )
+    p_plain = ProductoERP(
+        item_id=99302, codigo=ean_plain, descripcion="periodicidad plain", marca="Acme", costo=10
+    )
+    db.add_all([p_sub, p_plain])
+    db.flush()
+    for mla, item_id, codigo in (
+        ("MLA99301A", 99301, ean_sub),
+        ("MLA99301B", 99301, ean_sub),
+        ("MLA99302A", 99302, ean_plain),
+    ):
+        db.add(
+            PublicacionML(
+                mla=mla,
+                item_id=item_id,
+                codigo=codigo,
+                activo=True,
+                pricelist_id=4,
+                item_title=f"Title {mla}",
+                lista_nombre="Lista test",
+            )
+        )
+        db.add(
+            MlPublicationLink(
+                mla=mla,
+                catalog_product_id=catalog_id,
+                catalog_listing=True,
+            )
+        )
+    db.commit()
+
+    headers = _auth(rma_superadmin_user)
+    put = client.put(
+        f"/api/para-ganar/periodicidad/{ean_sub}",
+        headers=headers,
+        json={"enabled": True, "scope_mode": "all"},
+    )
+    assert put.status_code == 200, put.text
+
+    all_res = client.get(
+        "/api/para-ganar/periodicidad/catalogo",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "page_size": 50},
+    )
+    assert all_res.status_code == 200, all_res.text
+    body = all_res.json()
+    eans = {row["ean"]: row for row in body["items"]}
+    assert ean_sub in eans and ean_plain in eans
+    assert eans[ean_sub]["suscripto"] is True
+    assert eans[ean_sub]["mla_count"] == 2
+    assert eans[ean_plain]["suscripto"] is False
+
+    only_sub = client.get(
+        "/api/para-ganar/periodicidad/catalogo",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "suscripto": True},
+    )
+    assert only_sub.status_code == 200
+    assert {row["ean"] for row in only_sub.json()["items"]} == {ean_sub}
+
+    only_plain = client.get(
+        "/api/para-ganar/periodicidad/catalogo",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "suscripto": False},
+    )
+    assert only_plain.status_code == 200
+    assert {row["ean"] for row in only_plain.json()["items"]} == {ean_plain}
+
+    mlas_res = client.get(
+        f"/api/para-ganar/periodicidad/catalogo/{ean_sub}/mlas",
+        headers=headers,
+        params={"catalog_product_id": catalog_id},
+    )
+    assert mlas_res.status_code == 200, mlas_res.text
+    mlas = {row["mla"] for row in mlas_res.json()["mlas"]}
+    assert mlas == {"MLA99301A", "MLA99301B"}

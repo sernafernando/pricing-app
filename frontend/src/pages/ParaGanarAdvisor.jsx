@@ -128,7 +128,7 @@ export default function ParaGanarAdvisor() {
         )}
       </nav>
 
-      {canCurrent && !isPeriodicidad && (
+      {canCurrent && (
         <ParaGanarScopeFilters
           marcas={cola.marcas}
           subcategorias={cola.subcategorias}
@@ -228,7 +228,9 @@ export default function ParaGanarAdvisor() {
         />
       )}
 
-      {canCurrent && isPeriodicidad && <ParaGanarPeriodicidadPanel />}
+      {canCurrent && isPeriodicidad && (
+        <ParaGanarPeriodicidadPanel scopeQueryParams={cola.scopeQueryParams} />
+      )}
 
       {canCurrent && !isPeriodicidad && (
         <div className={styles.layout}>

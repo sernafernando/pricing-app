@@ -2,23 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   EMPTY_PERIODICIDAD_FORM,
   formToPeriodicidadPayload,
-  parseMlasText,
   scopeSummary,
   subscriptionToForm,
 } from './periodicidadForm';
-
-describe('parseMlasText', () => {
-  it('splits and uppercases unique MLAs', () => {
-    expect(parseMlasText('mla1, MLA2; mla1')).toEqual(['MLA1', 'MLA2']);
-  });
-});
 
 describe('formToPeriodicidadPayload', () => {
   it('builds all scope', () => {
     const result = formToPeriodicidadPayload({
       ...EMPTY_PERIODICIDAD_FORM,
       scope_mode: 'all',
-      mlasText: 'MLA1',
+      mlas: ['MLA1'],
     });
     expect(result.ok).toBe(true);
     expect(result.payload.mlas).toEqual([]);
@@ -28,7 +21,7 @@ describe('formToPeriodicidadPayload', () => {
     const result = formToPeriodicidadPayload({
       ...EMPTY_PERIODICIDAD_FORM,
       scope_mode: 'mlas',
-      mlasText: '  ',
+      mlas: [],
     });
     expect(result.ok).toBe(false);
   });
@@ -56,7 +49,12 @@ describe('subscriptionToForm / scopeSummary', () => {
       pricelist_ids: [],
       tienda_oficial_ids: [],
     });
-    expect(form.mlasText).toBe('MLA1, MLA2');
+    expect(form.mlas).toEqual(['MLA1', 'MLA2']);
     expect(scopeSummary({ scope_mode: 'all' })).toBe('Todo el EAN');
+  });
+
+  it('summarizes catalog rows without subscription scope', () => {
+    expect(scopeSummary({ suscripto: false, mla_count: 3 })).toBe('3 MLAs');
+    expect(scopeSummary({ suscripto: true, mla_count: 1 })).toBe('1 MLA');
   });
 });

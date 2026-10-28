@@ -1,4 +1,4 @@
-"""PARA GANAR — Periodicidad subscription CRUD (P2)."""
+"""PARA GANAR — Periodicidad subscription CRUD (P2) + catalog browse (P3.1)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user, require_permiso
@@ -17,7 +17,9 @@ from app.models.para_ganar_periodicidad import (
     ParaGanarPeriodicidadEanMla,
 )
 from app.models.usuario import Usuario
+from app.routers.para_ganar import _build_alcance_where, _parse_scope_query
 from app.services.para_ganar_periodicidad import normalize_ean, validate_scope_payload
+from app.services.pricing_calculator import obtener_tipo_cambio_actual
 
 router = APIRouter(prefix="/para-ganar", tags=["PARA GANAR"])
 
@@ -56,6 +58,43 @@ class PeriodicidadEanListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PeriodicidadCatalogoEanItem(BaseModel):
+    ean: str
+    marca: Optional[str] = None
+    descripcion: Optional[str] = None
+    mla_count: int = 0
+    suscripto: bool = False
+    enabled: Optional[bool] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PeriodicidadCatalogoEanListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    items: List[PeriodicidadCatalogoEanItem]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PeriodicidadCatalogoMlaItem(BaseModel):
+    mla: str
+    titulo: Optional[str] = None
+    lista_nombre: Optional[str] = None
+    pricelist_id: Optional[int] = None
+    catalog_listing: Optional[bool] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PeriodicidadCatalogoMlasResponse(BaseModel):
+    ean: str
+    mlas: List[PeriodicidadCatalogoMlaItem]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 def _as_str_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -85,6 +124,247 @@ def _to_response(row: ParaGanarPeriodicidadEan) -> PeriodicidadEanResponse:
         tienda_oficial_ids=_as_int_list(row.tienda_oficial_ids),
         updated_at=row.updated_at,
         updated_by_id=row.updated_by_id,
+    )
+
+
+def _scope_from_query(
+    *,
+    q: Optional[str],
+    marcas: Optional[str],
+    subcategorias: Optional[str],
+    pms: Optional[str],
+    tipos_publicacion: Optional[str],
+    pricelists: Optional[str],
+    tiendas: Optional[str],
+    ean: Optional[str],
+    catalog_product_id: Optional[str],
+    costo_usd_min: Optional[float],
+    costo_usd_max: Optional[float],
+    incluir_tradicionales_sincronizadas: bool,
+) -> dict:
+    return _parse_scope_query(
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        tipos_publicacion=tipos_publicacion,
+        pricelists=pricelists,
+        tiendas=tiendas,
+        ean=ean,
+        catalog_product_id=catalog_product_id,
+        costo_usd_min=costo_usd_min,
+        costo_usd_max=costo_usd_max,
+        incluir_tradicionales_sincronizadas=incluir_tradicionales_sincronizadas,
+        criterios_aplicados=None,
+    )
+
+
+@router.get(
+    "/periodicidad/catalogo",
+    response_model=PeriodicidadCatalogoEanListResponse,
+    dependencies=[Depends(require_permiso("productos.ver"))],
+)
+def listar_catalogo_eans_periodicidad(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    q: Optional[str] = Query(None, max_length=120),
+    marcas: Optional[str] = Query(None),
+    subcategorias: Optional[str] = Query(None),
+    pms: Optional[str] = Query(None),
+    tipos_publicacion: Optional[str] = Query(None),
+    pricelists: Optional[str] = Query(None),
+    tiendas: Optional[str] = Query(None),
+    ean: Optional[str] = Query(None, max_length=80),
+    catalog_product_id: Optional[str] = Query(None, max_length=64),
+    costo_usd_min: Optional[float] = Query(None, ge=0),
+    costo_usd_max: Optional[float] = Query(None, ge=0),
+    incluir_tradicionales_sincronizadas: bool = Query(False),
+    suscripto: Optional[bool] = Query(
+        None,
+        description="True = only subscribed EANs; false = only not subscribed; omit = all",
+    ),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(get_current_user),
+) -> PeriodicidadCatalogoEanListResponse:
+    """EANs present in the filtered publication universe (subscribed or not)."""
+    scope = _scope_from_query(
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        tipos_publicacion=tipos_publicacion,
+        pricelists=pricelists,
+        tiendas=tiendas,
+        ean=ean,
+        catalog_product_id=catalog_product_id,
+        costo_usd_min=costo_usd_min,
+        costo_usd_max=costo_usd_max,
+        incluir_tradicionales_sincronizadas=incluir_tradicionales_sincronizadas,
+    )
+    params: dict = {"limit": page_size, "offset": (page - 1) * page_size}
+    tipo_cambio_usd = (
+        obtener_tipo_cambio_actual(db, "USD")
+        if scope["costo_usd_min"] is not None or scope["costo_usd_max"] is not None
+        else None
+    )
+    where_extra = _build_alcance_where(**scope, params=params, tipo_cambio_usd=tipo_cambio_usd)
+    where_extra += " AND e.codigo IS NOT NULL AND TRIM(e.codigo) <> ''"
+
+    if suscripto is True:
+        where_extra += " AND pe.ean IS NOT NULL"
+    elif suscripto is False:
+        where_extra += " AND pe.ean IS NULL"
+
+    total = db.execute(
+        text(
+            f"""
+            SELECT COUNT(*) FROM (
+              SELECT e.codigo
+              FROM publicaciones_ml p
+              JOIN productos_erp e ON e.item_id = p.item_id
+              LEFT JOIN para_ganar_periodicidad_ean pe ON pe.ean = e.codigo
+              WHERE p.activo = true
+              {where_extra}
+              GROUP BY e.codigo
+            ) t
+            """
+        ),
+        params,
+    ).scalar_one()
+
+    rows = (
+        db.execute(
+            text(
+                f"""
+            SELECT
+              e.codigo AS ean,
+              MAX(e.marca) AS marca,
+              MAX(e.descripcion) AS descripcion,
+              COUNT(DISTINCT p.mla) AS mla_count,
+              CASE WHEN pe.ean IS NOT NULL THEN 1 ELSE 0 END AS suscripto,
+              pe.enabled AS enabled
+            FROM publicaciones_ml p
+            JOIN productos_erp e ON e.item_id = p.item_id
+            LEFT JOIN para_ganar_periodicidad_ean pe ON pe.ean = e.codigo
+            WHERE p.activo = true
+            {where_extra}
+            GROUP BY e.codigo, pe.ean, pe.enabled
+            ORDER BY e.codigo
+            LIMIT :limit OFFSET :offset
+            """
+            ),
+            params,
+        )
+        .mappings()
+        .all()
+    )
+
+    items = [
+        PeriodicidadCatalogoEanItem(
+            ean=str(row["ean"]),
+            marca=row["marca"],
+            descripcion=row["descripcion"],
+            mla_count=int(row["mla_count"] or 0),
+            suscripto=bool(row["suscripto"]),
+            enabled=bool(row["enabled"]) if row["enabled"] is not None else None,
+        )
+        for row in rows
+    ]
+    return PeriodicidadCatalogoEanListResponse(
+        total=int(total),
+        page=page,
+        page_size=page_size,
+        items=items,
+    )
+
+
+@router.get(
+    "/periodicidad/catalogo/{ean}/mlas",
+    response_model=PeriodicidadCatalogoMlasResponse,
+    dependencies=[Depends(require_permiso("productos.ver"))],
+)
+def listar_mlas_de_ean_periodicidad(
+    ean: str,
+    q: Optional[str] = Query(None, max_length=120),
+    marcas: Optional[str] = Query(None),
+    subcategorias: Optional[str] = Query(None),
+    pms: Optional[str] = Query(None),
+    tipos_publicacion: Optional[str] = Query(None),
+    pricelists: Optional[str] = Query(None),
+    tiendas: Optional[str] = Query(None),
+    catalog_product_id: Optional[str] = Query(None, max_length=64),
+    costo_usd_min: Optional[float] = Query(None, ge=0),
+    costo_usd_max: Optional[float] = Query(None, ge=0),
+    incluir_tradicionales_sincronizadas: bool = Query(False),
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(get_current_user),
+) -> PeriodicidadCatalogoMlasResponse:
+    """MLAs of one EAN inside the current scope filters (for checkbox pickers)."""
+    ean_norm = normalize_ean(ean)
+    if not ean_norm:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="EAN inválido")
+
+    # Exact EAN match via path; do not also apply substring ean from filters.
+    scope = _scope_from_query(
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        tipos_publicacion=tipos_publicacion,
+        pricelists=pricelists,
+        tiendas=tiendas,
+        ean=None,
+        catalog_product_id=catalog_product_id,
+        costo_usd_min=costo_usd_min,
+        costo_usd_max=costo_usd_max,
+        incluir_tradicionales_sincronizadas=incluir_tradicionales_sincronizadas,
+    )
+    params: dict = {"ean_exact": ean_norm}
+    tipo_cambio_usd = (
+        obtener_tipo_cambio_actual(db, "USD")
+        if scope["costo_usd_min"] is not None or scope["costo_usd_max"] is not None
+        else None
+    )
+    where_extra = _build_alcance_where(**scope, params=params, tipo_cambio_usd=tipo_cambio_usd)
+    where_extra += " AND e.codigo = :ean_exact"
+
+    rows = (
+        db.execute(
+            text(
+                f"""
+            SELECT
+              p.mla,
+              p.item_title AS titulo,
+              p.lista_nombre,
+              p.pricelist_id,
+              l.catalog_listing
+            FROM publicaciones_ml p
+            JOIN productos_erp e ON e.item_id = p.item_id
+            LEFT JOIN ml_publication_links l ON l.mla = p.mla
+            WHERE p.activo = true
+            {where_extra}
+            ORDER BY p.lista_nombre NULLS LAST, p.mla
+            """
+            ),
+            params,
+        )
+        .mappings()
+        .all()
+    )
+    return PeriodicidadCatalogoMlasResponse(
+        ean=ean_norm,
+        mlas=[
+            PeriodicidadCatalogoMlaItem(
+                mla=str(row["mla"]),
+                titulo=row["titulo"],
+                lista_nombre=row["lista_nombre"],
+                pricelist_id=int(row["pricelist_id"]) if row["pricelist_id"] is not None else None,
+                catalog_listing=bool(row["catalog_listing"])
+                if row["catalog_listing"] is not None
+                else None,
+            )
+            for row in rows
+        ],
     )
 
 

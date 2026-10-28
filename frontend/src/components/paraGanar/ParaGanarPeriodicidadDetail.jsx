@@ -29,6 +29,8 @@ export default function ParaGanarPeriodicidadDetail({
   pricelists,
   tiendasGrupos,
   getLabel,
+  mlaOptions,
+  mlasLoading,
   onSave,
   onDelete,
 }) {
@@ -41,12 +43,15 @@ export default function ParaGanarPeriodicidadDetail({
         <div className={styles.emptyState}>
           <p className={styles.emptyTitle}>Seleccioná un EAN</p>
           <p className={styles.emptyBody}>
-            O ingresá uno arriba para crear la suscripción a la revisión periódica.
+            La lista de la izquierda usa los mismos filtros de alcance. Desde acá
+            suscribís o editás la periodicidad.
           </p>
         </div>
       </aside>
     );
   }
+
+  const selectedSet = new Set((form.mlas || []).map((m) => String(m).toUpperCase()));
 
   return (
     <aside className={styles.detail} aria-label="Detalle de suscripción">
@@ -55,7 +60,7 @@ export default function ParaGanarPeriodicidadDetail({
         <div className={styles.criteriaIdentity}>
           <div className={styles.mla}>{selectedEan}</div>
           <div className={styles.criteriaIdentityMeta}>
-            {isNew ? 'Nueva suscripción' : 'Suscripción guardada'}
+            {isNew ? 'Sin suscribir — al guardar entra a periodicidad' : 'Suscripción guardada'}
           </div>
         </div>
 
@@ -91,17 +96,39 @@ export default function ParaGanarPeriodicidadDetail({
           </label>
 
           {form.scope_mode === SCOPE_MLAS && (
-            <label className={styles.criteriaField}>
-              MLAs (coma o espacio)
-              <textarea
-                className={styles.criteriaInput}
-                rows={3}
-                value={form.mlasText}
-                disabled={!canWrite}
-                onChange={(e) => setForm((prev) => ({ ...prev, mlasText: e.target.value }))}
-                placeholder="MLA123, MLA456"
-              />
-            </label>
+            <fieldset className={styles.periodicidadFieldset}>
+              <legend>MLAs del EAN (filtro actual)</legend>
+              {mlasLoading && <p className={styles.emptyBody}>Cargando MLAs…</p>}
+              {!mlasLoading && mlaOptions.length === 0 && (
+                <p className={styles.emptyBody}>
+                  No hay MLAs para este EAN con el alcance filtrado.
+                </p>
+              )}
+              {!mlasLoading &&
+                mlaOptions.map((opt) => {
+                  const mla = String(opt.mla).toUpperCase();
+                  return (
+                    <label key={mla} className={styles.criteriaCheck}>
+                      <input
+                        type="checkbox"
+                        disabled={!canWrite}
+                        checked={selectedSet.has(mla)}
+                        onChange={() =>
+                          setForm((prev) => ({
+                            ...prev,
+                            mlas: toggleId(prev.mlas.map((x) => String(x).toUpperCase()), mla),
+                          }))
+                        }
+                      />
+                      <span>
+                        {mla}
+                        {opt.lista_nombre ? ` · ${opt.lista_nombre}` : ''}
+                        {opt.titulo ? ` — ${opt.titulo}` : ''}
+                      </span>
+                    </label>
+                  );
+                })}
+            </fieldset>
           )}
 
           {form.scope_mode === SCOPE_RULES && (
@@ -192,7 +219,7 @@ export default function ParaGanarPeriodicidadDetail({
           )}
 
           <button type="submit" className={styles.saveCriteriaBtn} disabled={!canWrite || saving}>
-            {saving ? 'Guardando…' : 'Guardar'}
+            {saving ? 'Guardando…' : isNew ? 'Suscribir EAN' : 'Guardar'}
           </button>
           {!isNew && (
             <button
@@ -239,7 +266,7 @@ export default function ParaGanarPeriodicidadDetail({
       >
         <p className={styles.massModalLead}>
           ¿Sacar el EAN <strong>{selectedEan}</strong> de la revisión periódica? Seguirá
-          consultable a mano desde Advisor.
+          visible en el catálogo y consultable a mano desde Advisor.
         </p>
       </ModalTesla>
     </aside>

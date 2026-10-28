@@ -11,7 +11,7 @@ import {
 } from './periodicidadForm';
 import styles from '../../pages/ParaGanarAdvisor.module.css';
 
-export default function ParaGanarPeriodicidadPanel() {
+export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
   const { tienePermiso } = usePermisos();
   const canView = tienePermiso('productos.ver');
   const canWrite = tienePermiso('productos.editar_precios');
@@ -20,13 +20,11 @@ export default function ParaGanarPeriodicidadPanel() {
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [qInput, setQInput] = useState('');
-  const [q, setQ] = useState('');
+  const [suscriptoFilter, setSuscriptoFilter] = useState(null); // null | true | false
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState(null);
 
   const [selectedEan, setSelectedEan] = useState(null);
-  const [draftEan, setDraftEan] = useState('');
   const [form, setForm] = useState(EMPTY_PERIODICIDAD_FORM);
   const [isNew, setIsNew] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -34,32 +32,55 @@ export default function ParaGanarPeriodicidadPanel() {
   const [formError, setFormError] = useState(null);
   const [formOk, setFormOk] = useState(false);
   const [pricelists, setPricelists] = useState([]);
+  const [mlaOptions, setMlaOptions] = useState([]);
+  const [mlasLoading, setMlasLoading] = useState(false);
 
   const pageSize = 50;
   const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
+  // Stable key: parent rebuilds scopeQueryParams every render.
+  const scopeKey = JSON.stringify(scopeQueryParams);
+  // criterios_aplicados is Advisor/Criterios-only; catalog ignores it.
+  const { criterios_aplicados: _criteriosOmit, ...catalogScope } = scopeQueryParams;
 
   const loadList = useCallback(async () => {
     if (!canView) return;
     setLoading(true);
     setListError(null);
     try {
-      const { data } = await api.get('/para-ganar/periodicidad', {
-        params: { page, page_size: pageSize, ...(q ? { q } : {}) },
+      const { data } = await api.get('/para-ganar/periodicidad/catalogo', {
+        params: {
+          page,
+          page_size: pageSize,
+          ...catalogScope,
+          ...(suscriptoFilter === true || suscriptoFilter === false
+            ? { suscripto: suscriptoFilter }
+            : {}),
+        },
       });
       setItems(data.items || []);
       setTotal(data.total || 0);
+      setSelectedEan((prev) => {
+        if (!prev) return null;
+        return (data.items || []).some((row) => row.ean === prev) ? prev : null;
+      });
     } catch (err) {
       setItems([]);
       setTotal(0);
       if (err.response?.status === 403) {
         setListError('No tenés permiso para ver periodicidad (productos.ver).');
       } else {
-        setListError('No se pudo cargar la lista de suscripciones.');
+        setListError('No se pudo cargar el catálogo de EANs.');
       }
     } finally {
       setLoading(false);
     }
-  }, [canView, page, q]);
+    // catalogScope content tracked via scopeKey
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey
+  }, [canView, page, pageSize, scopeKey, suscriptoFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [scopeKey, suscriptoFilter]);
 
   useEffect(() => {
     loadList();
@@ -69,7 +90,9 @@ export default function ParaGanarPeriodicidadPanel() {
     let cancelled = false;
     async function loadPricelists() {
       try {
-        const { data } = await api.get('/para-ganar/alcance-opciones');
+        const { data } = await api.get('/para-ganar/alcance-opciones', {
+          params: catalogScope,
+        });
         if (!cancelled) setPricelists(data.listas_precios || []);
       } catch {
         if (!cancelled) setPricelists([]);
@@ -79,34 +102,56 @@ export default function ParaGanarPeriodicidadPanel() {
     return () => {
       cancelled = true;
     };
-  }, [canView]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey
+  }, [canView, scopeKey]);
 
-  const openSubscription = (row) => {
-    setSelectedEan(row.ean);
-    setDraftEan(row.ean);
-    setForm(subscriptionToForm(row));
-    setIsNew(false);
+  const loadMlasForEan = useCallback(
+    async (ean) => {
+      if (!ean) {
+        setMlaOptions([]);
+        return;
+      }
+      setMlasLoading(true);
+      try {
+        const { data } = await api.get(
+          `/para-ganar/periodicidad/catalogo/${encodeURIComponent(ean)}/mlas`,
+          { params: catalogScope },
+        );
+        setMlaOptions(data.mlas || []);
+      } catch {
+        setMlaOptions([]);
+      } finally {
+        setMlasLoading(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey
+    [scopeKey],
+  );
+
+  const openEan = async (row) => {
+    const ean = row.ean;
+    setSelectedEan(ean);
     setFormError(null);
     setFormOk(false);
-  };
-
-  const startNew = () => {
-    const ean = draftEan.trim();
-    if (!ean) {
-      setFormError('Ingresá un EAN para suscribir.');
-      return;
-    }
-    const existing = items.find((row) => row.ean === ean);
-    if (existing) {
-      openSubscription(existing);
-      return;
-    }
-    setSelectedEan(ean);
     setForm({ ...EMPTY_PERIODICIDAD_FORM });
     setIsNew(true);
-    setFormError(null);
-    setFormOk(false);
+    try {
+      const { data } = await api.get(`/para-ganar/periodicidad/${encodeURIComponent(ean)}`);
+      setForm(subscriptionToForm(data));
+      setIsNew(false);
+    } catch (err) {
+      if (err.response?.status !== 404) {
+        setFormError('No se pudo cargar la suscripción.');
+      }
+    }
+    await loadMlasForEan(ean);
   };
+
+  useEffect(() => {
+    if (selectedEan && form.scope_mode === 'mlas') {
+      loadMlasForEan(selectedEan);
+    }
+  }, [selectedEan, form.scope_mode, loadMlasForEan]);
 
   const handleSave = async () => {
     if (!selectedEan || !canWrite) return;
@@ -149,9 +194,8 @@ export default function ParaGanarPeriodicidadPanel() {
     setFormOk(false);
     try {
       await api.delete(`/para-ganar/periodicidad/${encodeURIComponent(selectedEan)}`);
-      setSelectedEan(null);
-      setForm(EMPTY_PERIODICIDAD_FORM);
-      setIsNew(false);
+      setForm({ ...EMPTY_PERIODICIDAD_FORM });
+      setIsNew(true);
       await loadList();
     } catch (err) {
       if (err.response?.status === 403) {
@@ -176,48 +220,30 @@ export default function ParaGanarPeriodicidadPanel() {
 
   return (
     <div className={styles.periodicidadRoot}>
-      <section className={styles.toolbar} aria-label="Alta de EAN">
-        <form
-          className={styles.searchForm}
-          onSubmit={(event) => {
-            event.preventDefault();
-            startNew();
-          }}
+      <section className={styles.toolbar} aria-label="Filtro de suscripción">
+        <button
+          type="button"
+          className={`${styles.chip} ${suscriptoFilter === null ? styles.chipActive : ''}`}
+          onClick={() => setSuscriptoFilter(null)}
         >
-          <input
-            className={styles.searchInput}
-            type="search"
-            value={draftEan}
-            onChange={(e) => setDraftEan(e.target.value)}
-            placeholder="EAN a suscribir o abrir"
-            aria-label="EAN"
-          />
-          <button type="submit" className={styles.bulkBtn} disabled={!draftEan.trim()}>
-            Abrir / suscribir
-          </button>
-        </form>
-        <form
-          className={styles.searchForm}
-          onSubmit={(event) => {
-            event.preventDefault();
-            setPage(1);
-            setQ(qInput.trim());
-          }}
+          Todos
+        </button>
+        <button
+          type="button"
+          className={`${styles.chip} ${suscriptoFilter === true ? styles.chipActive : ''}`}
+          onClick={() => setSuscriptoFilter(true)}
         >
-          <input
-            className={styles.searchInput}
-            type="search"
-            value={qInput}
-            onChange={(e) => setQInput(e.target.value)}
-            placeholder="Filtrar lista por EAN"
-            aria-label="Filtrar suscripciones"
-          />
-          <button type="submit" className={styles.searchBtn}>
-            Buscar
-          </button>
-        </form>
+          Suscriptos
+        </button>
+        <button
+          type="button"
+          className={`${styles.chip} ${suscriptoFilter === false ? styles.chipActive : ''}`}
+          onClick={() => setSuscriptoFilter(false)}
+        >
+          Sin suscribir
+        </button>
         <span className={styles.toolbarHint}>
-          {total.toLocaleString('es-AR')} suscripción{total === 1 ? '' : 'es'}
+          {total.toLocaleString('es-AR')} EAN{total === 1 ? '' : 's'} en alcance
         </span>
       </section>
 
@@ -229,7 +255,7 @@ export default function ParaGanarPeriodicidadPanel() {
           page={page}
           totalPages={totalPages}
           selectedEan={selectedEan}
-          onSelect={openSubscription}
+          onSelect={openEan}
           onRetry={loadList}
           onPrevPage={() => setPage((p) => Math.max(1, p - 1))}
           onNextPage={() => setPage((p) => p + 1)}
@@ -247,6 +273,8 @@ export default function ParaGanarPeriodicidadPanel() {
           pricelists={pricelists}
           tiendasGrupos={tiendasGrupos}
           getLabel={getLabel}
+          mlaOptions={mlaOptions}
+          mlasLoading={mlasLoading}
           onSave={handleSave}
           onDelete={handleDelete}
         />

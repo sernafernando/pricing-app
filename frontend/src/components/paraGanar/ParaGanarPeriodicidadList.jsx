@@ -15,9 +15,9 @@ export default function ParaGanarPeriodicidadList({
   onNextPage,
 }) {
   return (
-    <section className={styles.queue} aria-label="Suscripciones por EAN">
+    <section className={styles.queue} aria-label="EANs del alcance">
       <div className={styles.panelTitle}>
-        EANs en periodicidad
+        EANs (alcance filtrado)
         {!loading && (
           <span className={styles.panelMeta}>
             pág. {page}/{totalPages}
@@ -44,9 +44,9 @@ export default function ParaGanarPeriodicidadList({
 
       {!loading && !error && items.length === 0 && (
         <div className={styles.emptyState}>
-          <p className={styles.emptyTitle}>Sin suscripciones</p>
+          <p className={styles.emptyTitle}>Sin EANs</p>
           <p className={styles.emptyBody}>
-            Suscribí un EAN arriba. Lo no listado se consulta a mano desde Advisor.
+            No hay códigos en el alcance actual. Ajustá los filtros de arriba.
           </p>
         </div>
       )}
@@ -60,17 +60,29 @@ export default function ParaGanarPeriodicidadList({
                 <li key={row.ean}>
                   <button
                     type="button"
-                    className={`${styles.queueRow} ${selected ? styles.queueRowSelected : ''}`}
+                    className={`${styles.queueRow} ${
+                      row.suscripto ? styles.queueRowCriteriaApplied : ''
+                    } ${selected ? styles.queueRowSelected : ''}`}
                     onClick={() => onSelect(row)}
                     aria-pressed={selected}
                   >
                     <div className={styles.queueRowTop}>
                       <strong>{row.ean}</strong>
-                      {!row.enabled ? (
-                        <span className={styles.queueRowMeta}>pausada</span>
-                      ) : null}
+                      <span className={styles.queueRowMeta}>
+                        {row.suscripto
+                          ? row.enabled === false
+                            ? 'Suscripto · pausada'
+                            : 'Suscripto'
+                          : 'Sin suscribir'}
+                      </span>
                     </div>
-                    <div className={styles.queueRowMeta}>{scopeSummary(row)}</div>
+                    <div className={styles.queueRowTitle}>
+                      {row.descripcion || row.marca || 'Sin descripción'}
+                    </div>
+                    <div className={styles.queueRowMeta}>
+                      <span>{row.marca || '—'}</span>
+                      <span>{scopeSummary(row)}</span>
+                    </div>
                   </button>
                 </li>
               );
