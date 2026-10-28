@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { COLUMNS } from './ventasMlColumns';
+import { COLUMN_VISIBILITY_STORAGE_KEY, loadColumnVisibility } from '../../pages/ventasMlTableHelpers';
 
 const importe = COLUMNS.find((c) => c.id === 'importe');
 
@@ -62,11 +63,13 @@ describe('Sell in / out cell (Métricas audit A7)', () => {
     const cell = renderSell({ kind: 'group', group: { sell_in_ars: 10, sell_out_ars: null, sell_out_estimado: null }, orders: [] });
     expect(cell).toHaveTextContent('10,00');
     expect(cell).not.toHaveTextContent('out');
+    expect(cell.tooltip).toBe('Sell in: $ 10,00');
   });
 
   it('an estimated sell out is marked, an unknown one says it is not defined yet', () => {
     let cell = renderSell({ kind: 'member', order: order({ sell_out_ars: 50, sell_out_estimado: true }) });
     expect(cell).toHaveTextContent('out ≈ $ 50,00');
+    expect(cell.tooltip).toBe('Sell out: $ 50,00 (estimado: tipo de cambio a definir)');
     cell.unmount();
     cell = renderSell({ kind: 'member', order: order({ sell_out_ars: null, sell_out_estimado: true }) });
     expect(cell).toHaveTextContent('out a definir');
@@ -80,7 +83,12 @@ describe('Sell in / out cell (Métricas audit A7)', () => {
     expect(cell.tooltip).toBeUndefined();
   });
 
-  it('can be hidden', () => {
-    expect(sell.enableHiding).not.toBe(false);
+  it('can be hidden from Columnas, and a stored choice to hide it is kept', () => {
+    localStorage.setItem(COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify({ sell_in_out: false, total_gauss: false }));
+    try {
+      expect(loadColumnVisibility(COLUMNS)).toEqual({ sell_in_out: false });
+    } finally {
+      localStorage.removeItem(COLUMN_VISIBILITY_STORAGE_KEY);
+    }
   });
 });

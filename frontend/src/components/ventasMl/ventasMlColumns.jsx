@@ -28,7 +28,7 @@ import {
   GOODS_STATUS_TONE,
   MODO_LOGISTICO_TONE,
 } from '../../utils/ventasMlTone';
-import { partesSellInOut } from '../../utils/sellInOutOperacion';
+import { lineaSellOut, partesSellInOut } from '../../utils/sellInOutOperacion';
 
 // Single source of truth for the Ventas ML table's columns
 // (ventas-ml-columnas): both the header (via `@tanstack/react-table`, used
@@ -67,6 +67,8 @@ import { partesSellInOut } from '../../utils/sellInOutOperacion';
 // `minSize` is the narrowest the operator can drag a column, in real pixels
 // (`useColumnResize` clamps with it): it is what keeps one column from being
 // dragged over its neighbour -- the Producto/Orden overlap bug.
+
+const sellMoney = (value) => `$ ${formatAmount(value)}`;
 
 const orderMeta = (ctx) => (ctx.kind === 'group' ? ctx.loneOrder || ctx.orders[0] : ctx.order);
 
@@ -393,12 +395,7 @@ export const COLUMNS = [
     numeric: true,
     cell: (ctx) => {
       const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
-      let sellOut = null;
-      if (entity.sell_out_ars != null) {
-        sellOut = `out ${entity.sell_out_estimado ? '≈ ' : ''}$ ${formatAmount(entity.sell_out_ars)}`;
-      } else if (entity.sell_out_estimado) {
-        sellOut = 'out a definir';
-      }
+      const sellOut = lineaSellOut(entity, sellMoney);
       return (
         <>
           <Money value={entity.sell_in_ars} currencyId="ARS" />
@@ -408,7 +405,7 @@ export const COLUMNS = [
     },
     cellProps: (ctx) => {
       const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
-      const partes = partesSellInOut(entity, (v) => `$ ${formatAmount(v)}`);
+      const partes = partesSellInOut(entity, sellMoney);
       return { title: partes.join(' · ') || undefined };
     },
   },
