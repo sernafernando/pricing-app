@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { preciosAPI } from '../../services/api';
 import { parsePrecioInput } from '../../utils/precioInput';
 import { errorText, warningText, writePrice } from '../pricing/priceWrites';
@@ -9,21 +9,26 @@ import { errorText, warningText, writePrice } from '../pricing/priceWrites';
  * markup check does not block the save. `row` is one of `LISTS`, `product` the listing's product (its `item_id` and
  * `recalcular_cuotas_auto`). `onWritten` runs after every write, for the caller to read the prices again.
  *
- * `save` and `confirm` resolve true when the price was written.
+ * `save` and `confirm` resolve true when the price was written. `save` is the same function between renders (the
+ * table's columns hold it).
  */
 export default function useInlinePriceEdit({ onWritten } = {}) {
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState(null);
   const [message, setMessage] = useState(null);
+  const onWrittenRef = useRef(onWritten);
+  useEffect(() => {
+    onWrittenRef.current = onWritten;
+  });
 
-  const commit = async (row, product, precio) => {
+  const commit = useCallback(async (row, product, precio) => {
     setSaving(true);
     setMessage(null);
     try {
       await writePrice(row, product.item_id, precio, product);
       setPending(null);
       setMessage({ tone: 'ok', text: 'Precio guardado.' });
-      onWritten?.();
+      onWrittenRef.current?.();
       return true;
     } catch (error) {
       setMessage({ tone: 'error', text: errorText(error, 'No se pudo guardar el precio.') });
@@ -31,9 +36,9 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
     } finally {
       setSaving(false);
     }
-  };
+  }, []);
 
-  const save = async (row, product, value) => {
+  const save = useCallback(async (row, product, value) => {
     const precio = parsePrecioInput(value);
     if (precio === null) {
       setMessage({ tone: 'error', text: 'El precio debe ser un número válido mayor o igual a 0 (ej. 120.000,50).' });
@@ -53,7 +58,7 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
       return false;
     }
     return commit(row, product, precio);
-  };
+  }, [commit]);
 
   const confirm = () => (pending ? commit(pending.row, pending.product, pending.precio) : Promise.resolve(false));
   const cancel = () => setPending(null);

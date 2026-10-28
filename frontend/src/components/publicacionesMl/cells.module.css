@@ -137,3 +137,40 @@
 .divergenceName {
   color: var(--cf-text-tertiary);
 }
+
+/* A price edited in place (S11c): the cell reads as before, and shows it can be edited on hover and focus. */
+.editable {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  padding: 2px var(--spacing-xs);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  cursor: text;
+}
+
+.editable:hover,
+.editable:focus-visible {
+  border-color: var(--cf-border-strong);
+}
+
+.editable:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.priceInput {
+  width: 100%;
+  padding: 2px var(--spacing-xs);
+  border: 1px solid var(--cf-accent-blue);
+  border-radius: var(--radius-sm);
+  background: var(--cf-bg-elevated);
+  color: var(--cf-text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
