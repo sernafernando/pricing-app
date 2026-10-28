@@ -105,3 +105,32 @@ def test_alcance_opciones_cascades_on_impossible_ean(client: TestClient, rma_sup
     assert body["subcategorias"] == []
     assert body["listas_precios"] == []
     assert body["tipos_publicacion"] == []
+
+
+def test_alcance_listas_cascade_from_tipo(client: TestClient, rma_superadmin_user) -> None:
+    """Selected tipo constrains lista options to that cuota bucket (web + PVP)."""
+    from app.routers.para_ganar import _pricelists_for_tipos
+
+    headers = {"Authorization": f"Bearer {make_access_token(rma_superadmin_user)}"}
+    response = client.get(
+        "/api/para-ganar/alcance-opciones",
+        headers=headers,
+        params={"tipos_publicacion": "clasica"},
+    )
+    assert response.status_code == 200, response.text
+    allowed = set(_pricelists_for_tipos(["clasica"]))
+    for row in response.json()["listas_precios"]:
+        assert row["id"] in allowed
+
+
+def test_alcance_tipos_cascade_from_lista(client: TestClient, rma_superadmin_user) -> None:
+    """Selected pricelist 17 (3 cuotas) only offers tipo '3' when present."""
+    headers = {"Authorization": f"Bearer {make_access_token(rma_superadmin_user)}"}
+    response = client.get(
+        "/api/para-ganar/alcance-opciones",
+        headers=headers,
+        params={"pricelists": "17"},
+    )
+    assert response.status_code == 200, response.text
+    tipo_ids = {row["id"] for row in response.json()["tipos_publicacion"]}
+    assert tipo_ids <= {"3"}

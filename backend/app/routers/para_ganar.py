@@ -424,7 +424,8 @@ def listar_alcance_opciones(
         .all()
     )
 
-    lista_where, lista_params = where_skip("pricelists", "tipos_publicacion")
+    # Lista options respect selected tipo (and other facets); skip only self.
+    lista_where, lista_params = where_skip("pricelists")
     lista_rows = (
         db.execute(
             text(
@@ -444,7 +445,8 @@ def listar_alcance_opciones(
         .all()
     )
 
-    tipo_where, tipo_params = where_skip("tipos_publicacion", "pricelists")
+    # Tipo options respect selected listas (and other facets); skip only self.
+    tipo_where, tipo_params = where_skip("tipos_publicacion")
     tipo_pricelist_rows = db.execute(
         text(
             f"""
