@@ -5,10 +5,11 @@ import {
   Upload, RefreshCw, MapPin, CheckCircle, AlertCircle, Settings,
   ScanBarcode, Plus, Trash2, ToggleLeft, ToggleRight, X, Download,
   Truck, Search, Printer, Pencil, Bike, Building, Calendar,
-  Table, Map, CloudRain, Flag, FileDown, Clock, ChevronRight, MessageCircle,
+  Table, Map, CloudRain, Flag, FileDown, Clock, ChevronRight, MessageCircle, History,
 } from 'lucide-react';
 import DocumentGeneratorModal from './DocumentGeneratorModal';
 import ModalRemitoManual from './ModalRemitoManual';
+import HistorialLogisticaModal from './enviosFlex/HistorialLogisticaModal';
 import MapaEnviosFlex from './MapaEnviosFlex';
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
@@ -306,6 +307,7 @@ export default function TabEnviosFlex({ operador = null }) {
 
   // Flag modal
   const [showFlagModal, setShowFlagModal] = useState(false);
+  const [historialShippingId, setHistorialShippingId] = useState(null);
   const [flagType, setFlagType] = useState('mal_pasado');
   const [flagMotivo, setFlagMotivo] = useState('');
   const [flagLoading, setFlagLoading] = useState(false);
@@ -482,6 +484,7 @@ export default function TabEnviosFlex({ operador = null }) {
       showExportManualesModal ||
       showPrintManualModal ||
       showFlagModal ||
+      historialShippingId ||
       bulkActualizando
     ) {
       return;
@@ -498,7 +501,7 @@ export default function TabEnviosFlex({ operador = null }) {
   }, [
     showManualEnvioModal, showLogisticasModal, showTransportesModal,
     showExportModal, showExportManualesModal, showPrintManualModal,
-    showFlagModal, bulkActualizando, buildFilterParams,
+    showFlagModal, historialShippingId, bulkActualizando, buildFilterParams,
   ]);
 
   useSSEChannel('etiquetas:changed', silentReload);
@@ -2808,6 +2811,15 @@ export default function TabEnviosFlex({ operador = null }) {
                       {e.pistoleado_caja || '—'}
                     </td>
                     <td>
+                      <button
+                        type="button"
+                        className={styles.btnPrint}
+                        onClick={() => setHistorialShippingId(e.shipping_id)}
+                        title="Historial de logística"
+                        aria-label={`Historial de logística ${e.shipping_id}`}
+                      >
+                        <History size={14} />
+                      </button>
                       {e.es_manual && puedeVerCostos && (
                         <button
                           className={styles.btnPrint}
@@ -4362,6 +4374,13 @@ export default function TabEnviosFlex({ operador = null }) {
           envios: etiquetasFiltradas,
         }}
       />
+
+      {historialShippingId && (
+        <HistorialLogisticaModal
+          shippingId={historialShippingId}
+          onClose={() => setHistorialShippingId(null)}
+        />
+      )}
 
       {/* Modal remito manual con items */}
       <ModalRemitoManual

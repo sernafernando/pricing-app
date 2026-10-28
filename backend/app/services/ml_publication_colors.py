@@ -15,14 +15,15 @@ nobody painted is unchanged:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Optional
 
 from sqlalchemy.orm import Session
 
 from app.api.endpoints.productos_shared import batch_colores, get_global_equipo_id, resolver_layer_activo
-from app.models.equipo import Equipo
+from app.models.equipo import Equipo, ProductoColor
 from app.models.usuario import Usuario
+from app.services.ml_publications.view.filters import PublicationFilter
 
 
 @dataclass(frozen=True)
@@ -58,3 +59,20 @@ def attach_colors(
             "color_hint_equipo_inicial": layer.initial,
         }
         row.update({name: value for name, value in fields.items() if value is not None})
+
+
+def resolve_color_filter(db: Session, layer: ColorLayer, f: PublicationFilter) -> PublicationFilter:
+    """Fill the products the color filter (`colores`) keeps, on `layer`, read like Productos reads them (the `ml` slot
+    of `producto_color`): one statement for every painted product of the layer. A filter with no `colores` comes back
+    as it is, with no query."""
+    if not (f.colors or f.no_color):
+        return f
+    painted = db.query(ProductoColor.item_id, ProductoColor.color_ml).filter(
+        ProductoColor.equipo_id == layer.active, ProductoColor.color_ml.isnot(None)
+    )
+    by_color = [(int(item_id), color) for item_id, color in painted]
+    return replace(
+        f,
+        color_ids=tuple(sorted(item_id for item_id, color in by_color if color in f.colors)),
+        colored_ids=tuple(sorted(item_id for item_id, _ in by_color)),
+    )

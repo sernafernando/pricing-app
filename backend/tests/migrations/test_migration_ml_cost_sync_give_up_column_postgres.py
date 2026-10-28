@@ -49,6 +49,7 @@ _STUBS = [
         (0, 'unknown', 'cost_sync:702', '9'),
         (0, 'unknown', 'cost_sync:703', 'garbage'),
         (0, 'unknown', 'cost_sync:999', '3'),
+        (0, 'unknown', 'costXsync:700', '1'),
         (704, 'unknown', 'activity_unresolved', NULL)""",
 ]
 
@@ -117,6 +118,8 @@ def test_downgrade_copies_the_counters_back_and_drops_the_column(engine) -> None
     with engine.begin() as conn:
         conn.execute(text("UPDATE ml_shipments_ops SET cost_sync_attempts = 3 WHERE shipment_id = 701"))
         conn.execute(text("UPDATE ml_shipments_ops SET cost_sync_attempts = 1 WHERE shipment_id = 704"))
+        # 700 settled after the upgrade: its pre-upgrade legacy row ('5') must not come back as "given up".
+        conn.execute(text("UPDATE ml_shipments_ops SET cost_sync_attempts = 0 WHERE shipment_id = 700"))
 
     _step(engine, "downgrade")
 
@@ -129,7 +132,24 @@ def test_downgrade_copies_the_counters_back_and_drops_the_column(engine) -> None
         ).scalars()
         assert "cost_sync_attempts" not in set(columns)
     rows = {(order_id, field): value for order_id, field, value in _divergence(engine)}
-    assert rows[(0, "cost_sync:700")] == "5"
+    assert (0, "cost_sync:700") not in rows
     assert rows[(0, "cost_sync:701")] == "3"
     assert rows[(0, "cost_sync:704")] == "1"
     assert rows[(704, "activity_unresolved")] is None
+    # A legacy row for a shipment we do not hold was never migrated, so the round trip keeps it as it was.
+    assert rows[(0, "cost_sync:999")] == "3"
+    # A held shipment's unusable legacy value is dropped (the old code reset it to 1 on its next attempt anyway).
+    assert (0, "cost_sync:703") not in rows
+    # Only the exact prefix is a counter (no LIKE wildcard).
+    assert rows[(0, "costXsync:700")] == "1"
+
+
+def test_the_lock_timeout_is_restored_after_each_step(engine) -> None:
+    with engine.connect() as conn:
+        ctx = MigrationContext.configure(conn)
+        with ctx.begin_transaction(), Operations.context(ctx):
+            conn.execute(text("SET LOCAL lock_timeout = '42s'"))
+            _module().upgrade()
+            assert conn.execute(text("SHOW lock_timeout")).scalar() == "42s"
+            _module().downgrade()
+            assert conn.execute(text("SHOW lock_timeout")).scalar() == "42s"

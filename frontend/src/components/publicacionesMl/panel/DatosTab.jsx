@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { Pencil } from 'lucide-react';
 import { mlItemOverridesAPI } from '../../../services/api';
 import DataFields from './DataFields';
 import { Section } from './PanelParts';
+import PublicationDataForm from './PublicationDataForm';
 import { date } from './format';
 import styles from './panel.module.css';
 
@@ -24,6 +26,9 @@ function overriddenFields(override) {
  * field, without changing ML; then the panel shows the data that applies (the override, else ML's) and, apart, the
  * original ML has (`GET /ml-item-overrides/{mla}`).
  *
+ * With `can_edit` (`ml_publicaciones.editar_publicacion`; the server enforces it too) "Editar datos" opens the form
+ * (`PublicationDataForm`); a deleted publication reads but cannot be edited.
+ *
  * @param {object} props
  * @param {string} props.itemId The MLA.
  */
@@ -32,12 +37,18 @@ export default function DatosTab({ itemId }) {
   const [loaded, setLoaded] = useState(null); // { itemId, data }
   const [failedFor, setFailedFor] = useState(null);
   const [attempt, setAttempt] = useState(0); // bumped by Reintentar: loads again
+  const [editingFor, setEditingFor] = useState(null); // the MLA whose form is open
+  const [savedFor, setSavedFor] = useState(null); // the MLA just saved
 
   useEffect(() => {
     let current = true;
     mlItemOverridesAPI
       .get(itemId)
-      .then(({ data }) => current && setLoaded({ itemId, data }))
+      .then(({ data }) => {
+        if (!current) return;
+        setLoaded({ itemId, data });
+        setFailedFor(null); // an earlier failure of this MLA is over
+      })
       .catch(() => current && setFailedFor(itemId));
     return () => {
       current = false;
@@ -73,11 +84,52 @@ export default function DatosTab({ itemId }) {
     );
   }
 
+  if (read.can_edit && read.editable && editingFor === itemId) {
+    const saved = (data) => {
+      setLoaded({ itemId, data });
+      setEditingFor(null);
+      setSavedFor(itemId);
+    };
+    return (
+      <Section title="Editar datos de la publicación">
+        <p className={styles.note}>Se guardan acá, sin cambiar la publicación en Mercado Libre.</p>
+        <PublicationDataForm itemId={itemId} aplicado={read.aplicado} original={read.original} onSaved={saved} onCancel={() => setEditingFor(null)} />
+      </Section>
+    );
+  }
+
+  const actions = (
+    <>
+      {read.can_edit && !read.editable && <p className={styles.note}>La publicación está eliminada: sus datos no se pueden editar.</p>}
+      {read.can_edit && read.editable && (
+        <div className={styles.statusConfirm}>
+          <button
+            type="button"
+            className="btn-tesla outline sm"
+            onClick={() => {
+              setSavedFor(null);
+              setEditingFor(itemId);
+            }}
+          >
+            <Pencil size={14} aria-hidden="true" />
+            Editar datos
+          </button>
+        </div>
+      )}
+      {savedFor === itemId && (
+        <p className={styles.feedback} role="status">
+          Guardado. No se cambió nada en Mercado Libre.
+        </p>
+      )}
+    </>
+  );
+
   if (!read.override) {
     return (
       <Section title="Datos de la publicación">
         <p className={styles.note}>Sin cambios locales: se usan los datos de Mercado Libre.</p>
         <DataFields datos={read.original} />
+        {actions}
       </Section>
     );
   }
@@ -89,6 +141,7 @@ export default function DatosTab({ itemId }) {
           {`Sobrescritos${read.updated_at ? ` el ${date(read.updated_at)}` : ''}: ${overriddenFields(read.override)}. No se cambian en Mercado Libre.`}
         </p>
         <DataFields datos={read.aplicado} />
+        {actions}
       </Section>
       <Section title="Original en Mercado Libre">
         <DataFields datos={read.original} />

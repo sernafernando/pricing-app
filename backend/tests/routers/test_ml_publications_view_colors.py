@@ -154,3 +154,61 @@ class TestSlowColors:
         params = {"path": "TP-LINK,REDES,10"} if url == GROUPS_URL else {}
         response = client.get(url, headers=reader, params=params)
         assert response.status_code == 503 and response.json()["error"]["code"] == "consulta_lenta"
+
+
+PRODUCT_IDS_URL = "/api/ml-publications/view/product-ids"
+
+
+class TestColorFilter:
+    """`colores` (P6): Productos' color filter -- csv of colors plus `sin_color` -- on the layer on show (`equipo_id`,
+    omitted = the global one), on every read the filters reach."""
+
+    def test_a_color_keeps_the_publications_whose_product_has_it_on_the_global_layer(
+        self, client, pg, reader, layers
+    ) -> None:
+        seed_rows(pg, fill)
+        assert set(items(client, reader, colores="rojo")) == {"MLA1"}
+        assert set(items(client, reader, colores="rojo,azul")) == {"MLA1", "MLA2"}
+
+    def test_sin_color_keeps_the_unpainted_ones_and_the_publications_with_no_product(
+        self, client, pg, reader, layers
+    ) -> None:
+        seed_rows(pg, fill)
+        assert set(items(client, reader, colores="sin_color")) == {"MLA3"}
+        assert set(items(client, reader, colores="azul,sin_color")) == {"MLA2", "MLA3"}
+
+    def test_on_a_team_layer_it_is_that_team_color(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, fill)
+        assert set(items(client, reader, colores="verde", equipo_id=layers["team"])) == {"MLA1"}
+        assert set(items(client, reader, colores="rojo", equipo_id=layers["team"])) == set()
+        assert set(items(client, reader, colores="sin_color", equipo_id=layers["team"])) == {"MLA2", "MLA3"}
+
+    def test_the_producto_view_and_the_bulk_set_apply_it_too(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, fill)
+        assert set(products(client, reader, colores="azul")) == {"78"}
+        response = client.get(PRODUCT_IDS_URL, headers=reader, params={"colores": "verde", "equipo_id": layers["team"]})
+        assert response.status_code == 200, response.text
+        assert response.json()["item_ids"] == [77]
+
+    def test_a_team_the_user_is_not_in_is_a_403_wherever_the_filter_goes(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, fill)
+        params = {"colores": "rojo", "equipo_id": layers["other"]}
+        assert client.get(PRODUCT_IDS_URL, headers=reader, params=params).status_code == 403
+
+    def test_a_color_outside_the_vocabulary_is_a_422_naming_it(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, fill)
+        response = client.get(ITEMS_URL, headers=reader, params={"colores": "fucsia"})
+        assert response.status_code == 422
+        assert "colores" in response.text
+
+    def test_without_it_nothing_changes(self, client, pg, reader, layers) -> None:
+        seed_rows(pg, fill)
+        assert set(items(client, reader)) == {"MLA1", "MLA2", "MLA3"}
+
+
+def test_the_filter_colors_are_exactly_productos_colors() -> None:
+    """The view package may not import Productos (the ERP guard), so its list is a copy: this keeps it one."""
+    from app.api.endpoints.productos_colors import COLORES_VALIDOS
+    from app.services.ml_publications.view.filters import COLOR_VALUES
+
+    assert set(COLOR_VALUES) == {c for c in COLORES_VALIDOS if c is not None}
