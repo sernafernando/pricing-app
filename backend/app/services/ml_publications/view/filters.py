@@ -23,7 +23,24 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import Interval, and_, case, exists, false, func, literal, not_, or_, select, true, tuple_
+from sqlalchemy import (
+    ARRAY,
+    Integer,
+    Interval,
+    all_,
+    and_,
+    any_,
+    case,
+    exists,
+    false,
+    func,
+    literal,
+    not_,
+    or_,
+    select,
+    true,
+    tuple_,
+)
 from sqlalchemy.orm import aliased, join as orm_join
 from sqlalchemy.sql import ColumnElement, Select
 
@@ -55,6 +72,9 @@ LINK_SKU_DIVERGENT = "sku_divergente"
 LINK_STATES = ("auto", "manual", "sin_producto", "conflicto", "no_evaluado")
 LINK_VALUES = (*LINK_STATES, LINK_SKU_DIVERGENT)
 STOCK_VALUES = ("sin_stock", "full_sin_stock", "erp_sin_stock", "propio_sin_stock")
+# Productos' row colors (`productos_colors.COLORES_VALIDOS`) and its "no color" sentinel.
+COLOR_VALUES = ("rojo", "naranja", "amarillo", "verde", "azul", "purpura", "gris")
+NO_COLOR = "sin_color"
 NO_STORE = "none"
 NO_STATUS = "sin_estado"
 
@@ -124,6 +144,14 @@ class PublicationFilter:
     # publication list asks it of each publication. `oferta_por_producto` asks it of the product elsewhere too: the
     # Producto view's rows carry it in their `params` and its KPI strip sends it, so both agree with the rows.
     oferta_per_product: bool = False
+    # Productos' color filter (`colores`): the products painted one of `colors` on the layer on show, plus the
+    # unpainted ones (and the publications with no product) with `no_color`. The colors live with Productos' tables,
+    # so the router resolves them first (`ml_publication_colors.resolve_color_filter`): `color_ids` are the products
+    # with one of `colors`, `colored_ids` every painted product of the layer. `None` while unresolved.
+    colors: tuple[str, ...] = ()
+    no_color: bool = False
+    color_ids: Optional[tuple[int, ...]] = None
+    colored_ids: Optional[tuple[int, ...]] = None
 
     @property
     def needs_events(self) -> bool:
@@ -279,12 +307,14 @@ def parse_filter(
     tn_no_publicado: Optional[bool] = None,
     out_of_cards: Optional[bool] = None,
     oferta_por_producto: Optional[bool] = None,
+    colores: Optional[str] = None,
 ) -> PublicationFilter:
     """Query-string values (csv text, `None` when absent) -> `PublicationFilter`; `FilterError` when invalid."""
     status_vocabulary = (*STATUS_VALUES, STATUS_GONE, NO_STATUS)
     stores, no_store = _store_ids(tiendas)
     event_types = _vocabulary("evento", evento, EVENT_TYPES)
     subcategorias_, no_subcategoria = _subcategorias(subcategorias)
+    colores_ = _vocabulary("colores", colores, (*COLOR_VALUES, NO_COLOR))
     return PublicationFilter(
         q=normalize_q(q),
         status=_vocabulary("estado", estado, status_vocabulary),
@@ -311,6 +341,8 @@ def parse_filter(
         out_of_cards=out_of_cards,
         tienda_nube=_tienda_nube(tn_con_descuento, tn_sin_descuento, tn_no_publicado),
         oferta_per_product=bool(oferta_por_producto),
+        colors=tuple(c for c in colores_ if c != NO_COLOR),
+        no_color=NO_COLOR in colores_,
     )
 
 
@@ -754,8 +786,22 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
         where.append(_any_of(stock_clauses(), f.stock))
     if f.event_types:
         where.append(_event(f))
+    if f.colors or f.no_color:
+        where.append(_colors(f))
     where.extend(presence_conditions(f))
     return where
+
+
+def _colors(f: PublicationFilter) -> ColumnElement:
+    if f.color_ids is None or f.colored_ids is None:
+        raise RuntimeError("`colores` must be resolved (ml_publication_colors.resolve_color_filter) before the query")
+    product = T.l.producto_item_id
+    clauses = []
+    if f.colors:
+        clauses.append(product == any_(literal(list(f.color_ids), ARRAY(Integer))))
+    if f.no_color:
+        clauses.append(or_(product.is_(None), product != all_(literal(list(f.colored_ids), ARRAY(Integer)))))
+    return or_(*clauses)
 
 
 def build_base_select(f: PublicationFilter, *columns: Any, skip: Optional[str] = None) -> Select:
