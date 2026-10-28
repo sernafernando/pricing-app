@@ -2,7 +2,7 @@
  * useTnCardPercent (S3): the Tienda Nube card surcharge Productos reads for its "transf." hint.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import api from '../../services/api';
 import useTnCardPercent from './useTnCardPercent';
 
@@ -27,9 +27,14 @@ describe('useTnCardPercent', () => {
   });
 
   it('stays null when the read fails: no hint rather than a wrong one', async () => {
-    api.get.mockRejectedValue(new Error('boom'));
+    let fail;
+    api.get.mockReturnValue(new Promise((_, reject) => (fail = reject)));
     const { result } = renderHook(() => useTnCardPercent());
-    await waitFor(() => expect(api.get).toHaveBeenCalled());
+    // The rejection and its handler run before the assertion, not just the request.
+    await act(async () => {
+      fail(new Error('boom'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     expect(result.current).toBeNull();
   });
 });

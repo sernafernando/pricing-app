@@ -4,6 +4,7 @@ import { LISTS } from '../pricing/priceWrites';
 import ListPriceCell from './ListPriceCell';
 import PriceEditCell from './PriceEditCell';
 import TnPriceLine from './TnPriceLine';
+import { tnShownPrice } from './tnPrice';
 import ToggleEditCell from './ToggleEditCell';
 import styles from './cells.module.css';
 
@@ -22,7 +23,7 @@ const GROUP = 'Precios de Productos';
 
 const LIST_ROWS = new Map(LISTS.flatMap((group) => group.rows).map((row) => [row.id, row]));
 
-const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, toggles, details, tienda = false } = {}) => ({
+const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, toggles, details, showTnPrice = false } = {}) => ({
   key,
   header,
   price,
@@ -32,7 +33,7 @@ const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, t
   list: edits,
   toggles,
   details,
-  tienda,
+  showTnPrice,
 });
 // The permission of each flag's editor (`pricePermissions`).
 const TOGGLE_PERMS = { rebate: 'canToggleRebate', web: 'canToggleWebTransf' };
@@ -47,7 +48,7 @@ const MODES = {
     // Under its price, its details as in Productos (S2).
     list('lista_oferta', 'Mejor Oferta', 'mejor_oferta_precio', 'mejor_oferta_markup', { markupScale: 100, details: offerDetails }),
     // Over it, the Tienda Nube price with its transfer price, as Productos (S3).
-    list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', { takesPart: 'participa_web_transferencia', toggles: 'web', tienda: true }),
+    list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', { takesPart: 'participa_web_transferencia', toggles: 'web', showTnPrice: true }),
   ],
   cuotas: [CLASICA, ...CUOTAS.map((n) => list(`lista_${n}_cuotas`, `${n} Cuotas`, `precio_${n}_cuotas`, `markup_${n}_cuotas`, { edits: `ml-${n}` }))],
   pvp: [
@@ -73,8 +74,7 @@ export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, 
     const renderProduct = (productId) => {
       const content = renderCell(productId);
       const product = productId == null || prices.error ? null : prices.byId.get(productId);
-      const tn = column.tienda && product && ((product.tn_has_promotion && product.tn_promotional_price) || product.tn_price);
-      if (!tn) return content;
+      if (!column.showTnPrice || !product || !tnShownPrice(product)) return content;
       return (
         <div className={`${styles.stack} ${styles.stackEnd}`}>
           <TnPriceLine product={product} percent={tnCardPercent} />

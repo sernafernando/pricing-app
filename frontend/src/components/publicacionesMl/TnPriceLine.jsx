@@ -1,5 +1,6 @@
 import { formatAmount } from '../../utils/ventasMlFormat';
 import PrecioTransfHint from '../PrecioTransfHint';
+import { tnShownPrice } from './tnPrice';
 import styles from './cells.module.css';
 
 /**
@@ -8,9 +9,10 @@ import styles from './cells.module.css';
  * (`PrecioTransfHint`, the card surcharge `percent` taken off; nothing without it). Nothing without a TN price.
  */
 export default function TnPriceLine({ product, percent }) {
-  const promo = product.tn_has_promotion && product.tn_promotional_price;
-  const shown = promo ? product.tn_promotional_price : product.tn_price;
+  const shown = tnShownPrice(product);
   if (!shown) return null;
+  // Under a promotion the regular price is struck through.
+  const promo = Boolean(product.tn_has_promotion && product.tn_promotional_price);
   return (
     <div className={styles.tnPrice} data-tn-price="">
       <div className={styles.tnAmount}>
