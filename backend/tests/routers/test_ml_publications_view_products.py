@@ -151,6 +151,24 @@ class TestRows:
         metrics = by_key(got["rows"])["77"]["metrics"]
         assert MARGIN <= set(metrics) and metrics["markup_30d"] == 100.0  # every seeded order: TG 1 over cost 1
 
+    def test_the_product_cost_comes_with_ver_ganancia_in_its_own_currency(
+        self, client, sold, db, rol_admin, admin_auth_headers
+    ):
+        with sold.begin() as conn:
+            seed.add_cost(conn, 77, 50.0, moneda_costo="USD")
+        grant(db, rol_admin, VER, GANANCIA)
+        rows = by_key(body(client, admin_auth_headers, estado="active")["rows"])
+        assert rows["77"]["costo"] == {"amount": 50.0, "currency": "USD"}
+        assert rows["78"]["costo"] is None  # a product with no cost on record
+        assert rows["0"]["costo"] is None  # "Sin producto" has no product, so no cost
+
+    def test_without_ver_ganancia_a_product_row_has_no_cost(self, client, sold, db, rol_admin, admin_auth_headers):
+        with sold.begin() as conn:
+            seed.add_cost(conn, 77, 50.0, moneda_costo="USD")
+        grant(db, rol_admin, VER, METRICAS)
+        rows = body(client, admin_auth_headers, estado="active")["rows"]
+        assert all("costo" not in row for row in rows)
+
 
 class TestPaging:
     def test_sorted_by_a_figure_paged_and_counted(self, client, sold, db, rol_admin, admin_auth_headers):
@@ -159,6 +177,12 @@ class TestPaging:
         second = body(client, admin_auth_headers, orden="unidades_30d", dir="desc", limit=1, offset=1)
         assert [r["key"] for r in first["rows"] + second["rows"]] == ["0", "77"]  # 4 units vs 2 + 1
         assert (first["total"], first["mla_count"], first["limit"], first["offset"]) == (3, 4, 1, 0)
+
+    def test_the_whole_list_fits_one_page_as_productos_todos(self, client, sold, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER, METRICAS)
+        page = body(client, admin_auth_headers, limit=9999)
+        assert (len(page["rows"]), page["total"], page["limit"]) == (3, 3, 9999)
+        assert get(client, admin_auth_headers, limit=10001).status_code == 422
 
     def test_the_default_is_by_gross_descending(self, client, sold, db, rol_admin, admin_auth_headers):
         grant(db, rol_admin, VER, METRICAS)

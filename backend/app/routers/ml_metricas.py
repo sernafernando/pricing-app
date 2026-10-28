@@ -213,6 +213,20 @@ class PublicationsResponse(BaseModel):
     rows: List[BoardRow]
 
 
+class ShippingTypeRow(BaseModel):
+    """The period's sales of one shipping type: `modo` is the order's logistic mode as Ventas ML resolves it
+    (`self_service`, `fulfillment`, `cross_docking`, `retiro`, `desconocido`, or any other ML value verbatim)."""
+
+    modo: str
+    operations: int
+    units: int
+    gross: float
+
+
+class ShippingTypesResponse(BaseModel):
+    rows: List[ShippingTypeRow]
+
+
 class GroupNodesResponse(BaseModel):
     """One page of the level below a node of the "Agrupado" tree (its child
     nodes, or its products at the last level) and how many it has in all."""
@@ -678,6 +692,26 @@ def get_product_publications(
 MAX_PATH_KEY_LENGTH = 300
 
 
+@router.get("/board/envios", response_model=ShippingTypesResponse)
+def get_board_shipping_types(
+    f: board.BoardFilter = Depends(board_filter_tp),
+    current_user: Usuario = Depends(require_ver),
+    db: Session = Depends(get_db),
+    tp_solo: TpSolo = None,
+) -> ShippingTypesResponse:
+    """The period's sales by shipping type ("Por tipo de envío", Métricas ML audit B8), under the board's
+    filters: operations, units and gross of the sold lines of the rows the board keeps, each line under its
+    order's logistic mode. Only sales figures, so no profit permission is needed."""
+    tp_solo = _tp_solo_of(tp_solo, db, current_user)
+    can_see_margin, scope_pairs = _viewer(db, current_user, tp_solo)
+    f = _margin_gate(f, can_see_margin)
+    with board.Board(db, f, scope_pairs=scope_pairs) as b:
+        rows = b.by_shipping()
+    return ShippingTypesResponse(
+        rows=[ShippingTypeRow(modo=r.modo, operations=r.operations, units=r.units, gross=float(r.gross)) for r in rows]
+    )
+
+
 def _parse_path(raw: str, dimension: str) -> Tuple[str, ...]:
     """The node's path: a JSON list of 1..N keys (N = the group levels of the
     dimension's tree). It travels as ONE query param because a key may hold any
@@ -822,7 +856,8 @@ def _csv_line(
             line += [
                 _csv_money(figures.sell_in),
                 _csv_money(figures.sell_out),
-                row.sell_out_pendientes,
+                # Its pending count goes with it: empty where no sell out applies, as on screen.
+                "" if figures.sell_out is None else row.sell_out_pendientes,
                 _csv_money(figures.costo_sell_in),
                 _csv_money(figures.total_gauss),
                 _csv_money(figures.markup_pct),

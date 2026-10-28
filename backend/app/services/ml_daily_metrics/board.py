@@ -117,7 +117,7 @@ from app.models.ml_ads import (
     MlAdsItemDay,
 )
 from app.models.ml_order_item_costo import MlOrderItemCosto
-from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps
+from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
@@ -138,6 +138,7 @@ from app.services.ml_daily_metrics.sales import (
     persisted_last_sales,
     reads_persisted_lines,
 )
+from app.services.ml_orders_ingestion.mode_resolution import modo_logistico_expr
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
 from app.services.ml_sales_query.filters import NO_STORE, SalesFilter, _resolve_pm_pairs, build_scope
 from app.services.product_facets import (
@@ -650,6 +651,10 @@ class Kpis:
     series_gross: List[Decimal]
     series_tg: List[Decimal]
     series_markup: List[Optional[float]]
+    # Packs or lone orders with a sold line in the period / the comparison period, and per day (`Board._operations`).
+    operations: int = 0
+    prev_operations: int = 0
+    series_operations: List[int] = field(default_factory=list)
     # Only with the toggle ON.
     ads: Optional["AdsKpis"] = None
     # Only with "Costos TP" ON (see `Row`).
@@ -669,6 +674,16 @@ class Kpis:
     costo_sell_in = property(lambda self: SellInOut.costo_sell_in(self))
     total_gauss_sell = property(lambda self: SellInOut.total_gauss_sell(self))
     markup_sell = property(lambda self: SellInOut.markup_sell(self))
+
+
+@dataclass
+class ShippingRow:
+    """The period's sales of one shipping type (`Board.by_shipping`)."""
+
+    modo: str
+    operations: int
+    units: int
+    gross: Decimal
 
 
 @dataclass
@@ -1016,16 +1031,7 @@ class Board:
         # kept ones. The LIVE derivation is never narrowed by MLA: it computes those shares and that rule, so it
         # needs every member of each group, and only the touched (whole) groups bound it. Pinned by
         # `test_row_metrics_postgres.TestAPackPartlyInsideTheMlaSet`.
-        pushdown = self.use_lines and self.mla_set is not None
-        lines = lines_source(
-            sqlite=self.sqlite,
-            ranges=self._ranges(),
-            product=self.product_item_id,
-            groups=self._touched(),
-            mlas=select(self.mla_set.c.mla) if pushdown else None,
-            tp=self.tp,
-            keyed=self.sell,
-        )
+        lines = self._read_lines(self._ranges(), tp=self.tp, keyed=self.sell)
         markup = [func.sum(lines.c.mtg).label("mtg"), func.sum(lines.c.mcosto).label("mcosto")]
         if self.tp:
             markup = self._tp_line_sums(lines)
@@ -1047,6 +1053,19 @@ class Board:
             ).select_from(source),
             lines.c.mla,
         ).group_by(lines.c.product, lines.c.mla, lines.c.day)
+
+    def _read_lines(self, ranges: List[Any], *, tp: bool = False, keyed: bool = False) -> Any:
+        """The sold lines of `ranges` from the request's line source, bounded as `_lines_source` explains."""
+        pushdown = self.use_lines and self.mla_set is not None
+        return lines_source(
+            sqlite=self.sqlite,
+            ranges=ranges,
+            product=self.product_item_id,
+            groups=self._touched(),
+            mlas=select(self.mla_set.c.mla) if pushdown else None,
+            tp=tp,
+            keyed=keyed,
+        )
 
     def _sell_line_sums(self, lines: Any) -> Tuple[Any, List[Any]]:
         """Sell in / sell out per sold line (`venta_ref` = its `item_row_id`, channel 'ml'): `(the lines joined to
@@ -1731,16 +1750,23 @@ class Board:
         return q
 
     def _sell_sort_columns(self, g: Any) -> List[Any]:
-        """Total Gauss and markup WITH sell in / sell out of a summed row, for sorting (`SellInOut` in SQL)."""
+        """The sell in / sell out sort keys of a summed row (`SellInOut` in SQL): NULL wherever the screen shows an
+        empty cell, so those rows sort last both ways instead of as 0 among the real figures."""
         if not self.sell:
             return []
-        columns = [(g.c.tg + g.c.sell_in + g.c.sell_out).label("total_gauss_sell")]
+        has_in, has_out = g.c.sell_in_lineas > 0, g.c.sell_out_lineas > 0
+        applies = or_(has_in, has_out)
+        columns = [
+            case((has_in, g.c.sell_in), else_=None).label("sell_in_sort"),
+            case((has_out, g.c.sell_out), else_=None).label("sell_out_sort"),
+            case((applies, g.c.tg + g.c.sell_in + g.c.sell_out), else_=None).label("total_gauss_sell"),
+        ]
         if not self.tp:
             cost = g.c.costo - g.c.m_sell_in
             columns.append(
-                case((cost > 0, (g.c.mtg + g.c.m_sell_in + g.c.m_sell_out) * 100 / cost), else_=None).label(
-                    "markup_sell"
-                )
+                case(
+                    (and_(applies, cost > 0), (g.c.mtg + g.c.m_sell_in + g.c.m_sell_out) * 100 / cost), else_=None
+                ).label("markup_sell")
             )
         return columns
 
@@ -1834,8 +1860,8 @@ class Board:
             "stock": rows.c.stock,
             # An unknown Total TP (incomplete, or no TP-store sale) is NULL: last either way.
             "total_tp": rows.c.tg_tp if self.tp else None,
-            "sell_in": rows.c.sell_in if self.sell else None,
-            "sell_out": rows.c.sell_out if self.sell else None,
+            "sell_in": rows.c.sell_in_sort if self.sell else None,
+            "sell_out": rows.c.sell_out_sort if self.sell else None,
             "total_gauss_sell": rows.c.total_gauss_sell if self.sell else None,
             "markup_sell": rows.c.markup_sell if self.sell and not self.tp else None,
         }
@@ -2357,6 +2383,7 @@ class Board:
             s_tg[i] = cents(s["tg"])
             s_mtg[i] = cents(s["mtg"])
             s_costo[i] = cents(s["costo"])
+        operations, prev_operations, s_operations = self._operations(joined, fp, days)
         dec = cents
         ads = self._ads_kpis() if self.ads else None
         # Position 2: the spend no row owns comes off the totals (never off a row, never off the denominator).
@@ -2389,10 +2416,69 @@ class Board:
             series_gross=s_gross,
             series_tg=s_tg,
             series_markup=[_round1(markup_of(s_mtg[i], s_costo[i])) for i in range(days)],
+            operations=operations,
+            prev_operations=prev_operations,
+            series_operations=s_operations,
             ads=ads,
             **self._tp_of(totals),
             **self._sell_of(totals),
         )
+
+    def _operations(self, joined: Any, fp: Any, days: int) -> Tuple[int, int, List[int]]:
+        """Operations of the period, of the comparison period and per day of the period: the packs or lone orders
+        (`group_key`) with a sold line of a row's pair -- the very lines Facturado and Unidades sum, so a
+        cancellation ML did not cover is no operation, and a pack counts once however many of its pairs sell. ONE
+        statement over the keyed lines of both periods (the board's per-day lines drop the key). Every line of a
+        group shares its `group_date`, so a group falls on one day and the per-day counts add up to the period's."""
+        f = self.f
+        lines = self._read_lines(
+            [day_bounds(f.date_from, f.date_to), day_bounds(self.prev_from, self.prev_to)], keyed=True
+        )
+        per_day = self._in_mla_set(
+            select(lines.c.day, func.count(func.distinct(lines.c.group_key)).label("n"))
+            .select_from(joined)
+            .join(lines, and_(lines.c.product == fp.c.product, lines.c.mla == fp.c.mla)),
+            lines.c.mla,
+        ).group_by(lines.c.day)
+        now, before, series = 0, 0, [0] * days
+        for day, n in self.db.execute(per_day):
+            day = as_date(day)
+            if f.date_from <= day <= f.date_to:
+                now += n
+                series[(day - f.date_from).days] = n
+            elif self.prev_from <= day <= self.prev_to:
+                before += n
+        return now, before, series
+
+    def by_shipping(self) -> List[ShippingRow]:
+        """The period's sales per shipping type, most billed first: every sold line of a row's pair (the lines
+        the KPI strip sums) under its order's logistic mode (`mode_resolution`'s rule, in SQL). Shipping is a
+        property of the sale, not of the product, so the type is read per order through its shipment, never from
+        the publication. A pack whose orders ship differently is one operation in each of its types. A line
+        whose order row is missing still counts, as "desconocido", so the types always add up to Facturado. ONE
+        statement."""
+        f = self.f
+        joined, fp = self._members("", narrow=True)
+        lines = self._read_lines([day_bounds(f.date_from, f.date_to)], keyed=True)
+        O, S = aliased(MlOrdersOps), aliased(MlShipmentOps)
+        modo = modo_logistico_expr(S.shipment_id, S.logistic_type, O.has_no_shipping_tag).label("modo")
+        gross = func.sum(lines.c.gross)
+        query = self._in_mla_set(
+            select(
+                modo,
+                func.count(func.distinct(lines.c.group_key)).label("operations"),
+                func.sum(lines.c.qty).label("units"),
+                gross.label("gross"),
+            )
+            .select_from(joined)
+            .join(lines, and_(lines.c.product == fp.c.product, lines.c.mla == fp.c.mla))
+            .outerjoin(O, O.order_id == lines.c.order_id)
+            .outerjoin(S, S.shipment_id == O.shipping_id)
+            .where(lines.c.day.between(self._day(f.date_from), self._day(f.date_to))),
+            lines.c.mla,
+        )
+        rows = self.db.execute(query.group_by(modo).order_by(gross.desc(), modo)).all()
+        return [ShippingRow(modo=m, operations=int(n), units=int(u), gross=cents(g)) for m, n, u, g in rows]
 
     def _ads_kpis(self) -> AdsKpis:
         """ONE statement. The unfiltered view sums every ad line of the period (the MLAs whose rows a sort or a

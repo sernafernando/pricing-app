@@ -25,7 +25,7 @@ import asyncio
 import httpx
 import pytest
 
-from app.services.ml_webhook_client import MLWebhookClient
+from app.services.ml_webhook_client import MLWebhookClient, OrderFetch
 
 
 def _patch_client(monkeypatch: pytest.MonkeyPatch, transport: httpx.MockTransport) -> None:
@@ -110,6 +110,65 @@ class TestGetOrder:
         result = asyncio.run(client.get_order("123"))  # type: ignore[arg-type]
 
         assert result == ORDER_PAYLOAD
+
+
+# ML's own 404 body, the shape captured for `/items/MLA1` (tests/fixtures/ml_publications/item_single_404_MLA1_20261006.json);
+# the proxy's `/api/ml/orders` passes ML's status and JSON body through unchanged.
+ML_NOT_FOUND = {"message": "Order 999 not found", "error": "not_found", "status": 404, "cause": []}
+
+
+class TestFetchOrder:
+    """`fetch_order` tells "ML has no such order" apart from "the read failed" (remove-ml-divergences D2c): only the
+    first lets the quarantine retry delete a row, so it is the one answer that must be unmistakable."""
+
+    def _fetch(self, monkeypatch, handler, order_id=999):
+        _patch_client(monkeypatch, httpx.MockTransport(handler))
+        return asyncio.run(MLWebhookClient().fetch_order(order_id))
+
+    def test_success_returns_the_payload(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/api/ml/orders"
+            assert request.url.params["resource"] == "/orders/2000003508498841"
+            return httpx.Response(200, json=ORDER_PAYLOAD)
+
+        assert self._fetch(monkeypatch, handler, 2000003508498841) == OrderFetch("ok", ORDER_PAYLOAD)
+
+    def test_mls_not_found_is_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert self._fetch(monkeypatch, lambda r: httpx.Response(404, json=ML_NOT_FOUND)) == OrderFetch("not_found")
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            # A route the proxy has not deployed: Flask's HTML 404.
+            httpx.Response(404, text="<!doctype html><title>404 Not Found</title>"),
+            # ML answered something that is not JSON: the proxy keeps the 404 but says so.
+            httpx.Response(404, json={"error": "respuesta no-JSON de ML", "ml_status": 404}),
+            httpx.Response(404, json={"message": "not found"}),
+            httpx.Response(200, json=["not", "an", "order"]),
+            httpx.Response(403, json={"error": "forbidden", "status": 403}),
+            httpx.Response(429, json={"error": "too_many_requests"}),
+            httpx.Response(502, json={"error": "no se pudo leer el recurso de ML"}),
+        ],
+    )
+    def test_anything_else_is_an_error(self, monkeypatch: pytest.MonkeyPatch, response: httpx.Response) -> None:
+        assert self._fetch(monkeypatch, lambda r: response) == OrderFetch("error")
+
+    def test_a_transport_failure_is_an_error_never_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.TimeoutException("timeout", request=request)
+
+        assert self._fetch(monkeypatch, handler) == OrderFetch("error")
+
+    def test_non_numeric_id_raises_before_any_http_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request.url.path)
+            return httpx.Response(200, json=ORDER_PAYLOAD)
+
+        with pytest.raises(ValueError):
+            self._fetch(monkeypatch, handler, "123; DROP TABLE")
+        assert calls == []
 
 
 class TestGetShipment:

@@ -9,3 +9,10 @@
 .check:disabled {
   cursor: not-allowed;
 }
+
+/* The page's checkbox in the title header, before its sort button. */
+.pageCheck {
+  composes: check;
+  margin-right: var(--spacing-xs);
+  vertical-align: middle;
+}

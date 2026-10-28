@@ -21,3 +21,7 @@ export function recalculo(estado) {
   const label = RECALCULO_LABELS[estado.estado] ?? estado.estado;
   return estado.estado === 'fallida' && estado.error ? `${label}: ${estado.error}` : label;
 }
+
+/** How a per-product amount's product is named: its code (picked in the form, or sent by the API with the stored
+ * amount); its `item_id` only when the product left the ERP catalog. */
+export const nombreDeItem = (item) => item.codigo ?? `#${item.itemId}`;

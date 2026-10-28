@@ -7,7 +7,8 @@
  * defined yet is `sell_out_estimado`, and its markup is null while the amount itself is unknown.
  */
 
-const montos = (op, moneda) => {
+/** The amounts a sale's sell in / sell out tooltip names, shared by every list that shows them. */
+export const partesSellInOut = (op, moneda) => {
   const partes = [];
   if (op.sell_in_ars != null) partes.push(`Sell in: ${moneda(op.sell_in_ars)}`);
   if (op.sell_out_ars != null) {
@@ -18,12 +19,18 @@ const montos = (op, moneda) => {
   return partes;
 };
 
+/** A sale's sell out under its sell in in Ventas ML: `out ≈` while estimated, `a definir` while unknown, null without one. */
+export const lineaSellOut = (op, moneda) => {
+  if (op.sell_out_ars != null) return `out ${op.sell_out_estimado ? '≈ ' : ''}${moneda(op.sell_out_ars)}`;
+  return op.sell_out_estimado ? 'out a definir' : null;
+};
+
 /** `{ costo, markup }` cells: `texto`, the `title` naming the amounts, and whether the markup is negative. */
 export const celdasSellInOut = (op, { moneda, porcentaje }) => {
   if (op.costo_con_sell_in == null) {
     return { costo: { texto: '-', title: undefined }, markup: { texto: '-', title: undefined, negativo: false } };
   }
-  const partes = montos(op, moneda);
+  const partes = partesSellInOut(op, moneda);
   const markup = op.markup_con_sell_in_out;
   let texto = 'A definir';
   if (markup != null) texto = `${op.sell_out_estimado ? '≈ ' : ''}${porcentaje(markup)}`;

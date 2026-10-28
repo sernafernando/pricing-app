@@ -34,7 +34,8 @@ const plural = (n, one, many) => (n === 1 ? one : many);
  */
 // `openRequest` ({ key, at }: a new `at` per request) opens an action's modal as its menu item would -- Ctrl+K and
 // Ctrl+Shift+P, as in Productos. An action the user may not run opens nothing; a set not ready yet says why.
-export default function BulkActions({ filters, checkedIds, onClearChecked, canSeeMargin, onDone, openRequest }) {
+// `offPageCount`: how many checked products the list does not show now (the selection outlives filters and pages).
+export default function BulkActions({ filters, checkedIds, offPageCount = 0, onClearChecked, canSeeMargin, onDone, openRequest }) {
   const { tienePermiso } = usePermisos();
   const { toast, showToast, hideToast } = useToast();
   const actions = ACTIONS.filter((action) => tienePermiso(action.permiso));
@@ -69,7 +70,10 @@ export default function BulkActions({ filters, checkedIds, onClearChecked, canSe
       ? null
       : `${n} ${plural(n, 'producto', 'productos')}`;
   const notas = checked
-    ? []
+    ? [
+        offPageCount > 0 &&
+          `${offPageCount} ${plural(offPageCount, 'producto seleccionado no está', 'productos seleccionados no están')} en esta página (se eligieron con otros filtros o en otra página)`,
+      ].filter(Boolean)
     : [
         resolved.sinProducto > 0 &&
           `${resolved.sinProducto} ${plural(resolved.sinProducto, 'publicación sin producto queda afuera', 'publicaciones sin producto quedan afuera')}`,

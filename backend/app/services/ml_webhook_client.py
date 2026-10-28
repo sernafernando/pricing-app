@@ -269,6 +269,22 @@ def _billing_fetch_from_response(response: httpx.Response, what: str) -> Billing
     return BillingFetch(status=response.status_code, body=body, error=f"HTTP {response.status_code}")
 
 
+@dataclass(frozen=True)
+class OrderFetch:
+    """Outcome of one `fetch_order` (remove-ml-divergences D2c).
+
+    `status` is "ok" (with `payload`), "not_found" or "error". "not_found" is
+    ML's own answer that the order does not exist -- a 404 whose JSON body
+    names `error: not_found`, which the proxy passes through. A 404 without
+    that body (a proxy route not deployed, a non-JSON answer from ML) is an
+    "error": the caller deletes data on "not_found", so it must be the one
+    answer that cannot be a failed read in disguise.
+    """
+
+    status: str
+    payload: Optional[Dict] = None
+
+
 class MLWebhookClient:
     """Cliente para el servicio ml-webhook que consulta la API de MercadoLibre"""
 
@@ -547,6 +563,39 @@ class MLWebhookClient:
         except Exception as e:
             logger.error(f"Error obteniendo orden {order_id_int}: {_describe_exc(e)}")
             return None
+
+    async def fetch_order(self, order_id: Union[int, str]) -> OrderFetch:
+        """Like `get_order`, but tells "ML has no such order" apart from a
+        failed read (`OrderFetch`). Never raises for HTTP/network errors.
+
+        Raises:
+            ValueError: si `order_id` no es coercionable a `int` — antes de
+                cualquier llamada HTTP (SSRF-safe, igual que `get_order`).
+        """
+        try:
+            order_id_int = int(order_id)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"order_id no coercionable a int: {order_id!r}") from e
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.base_url}/api/ml/orders", params={"resource": f"/orders/{order_id_int}"}
+                )
+        except Exception as e:
+            logger.error(f"Error obteniendo orden {order_id_int}: {_describe_exc(e)}")
+            return OrderFetch("error")
+
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        if response.status_code == 200 and isinstance(body, dict):
+            return OrderFetch("ok", body)
+        if response.status_code == 404 and isinstance(body, dict) and body.get("error") == "not_found":
+            return OrderFetch("not_found")
+        logger.warning(f"Orden {order_id_int}: respuesta inesperada de ML (HTTP {response.status_code})")
+        return OrderFetch("error")
 
     async def get_shipment(self, shipment_id: Union[int, str]) -> Optional[Dict]:
         """Obtiene un envío de MercadoLibre vía el proxy `preview`.

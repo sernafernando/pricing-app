@@ -14,18 +14,33 @@ import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
  * sub-rows of a publication).
  *
  * `columns` are the page's visible ones (`buildColumns({producto: true})`): a
- * product fills its name, its publication count and the sum of its
- * publications' Métricas ML figures (the row's `metrics` has the publications'
- * shape, so the same cells draw it; null reads "—"); a
+ * product fills its name, its publication count, its code, brand, ERP stock and
+ * cost (`PRODUCT_FIELDS`), and the sum of its publications' Métricas ML figures
+ * (the row's `metrics` has the publications' shape, so the same cells draw it;
+ * null reads "—"); a
  * publication fills them all, exactly like the list. Only the product figures
  * are sortable (`PRODUCT_SORTS`): the backend sorts the products, not their
  * publications. With `selection` (`{ checked, onToggle }`) a product row leads
- * with its product's checkbox, for the bulk pricing actions.
+ * with its product's checkbox, for the bulk pricing actions. A column with `renderProduct` (Productos' prices, S11)
+ * draws a product row from the product's id.
  *
  * A click (or Enter/Space) on a product row opens its panel (`onSelectProduct(key)`); its chevron opens it into
  * its publications. The highlighted row is the selected publication (`selectedKey`) or, with none, the product
  * whose panel is open (`selectedProductKey`).
  */
+// The columns a product row fills from its own product, as Productos' rows carry it: drawn by the publications' own
+// cells over the product read in their shape (`productAsItem`).
+const PRODUCT_FIELDS = new Set(['codigo', 'marca', 'costo', 'stock_erp']);
+
+/** A product node in the shape the publication cells read: its code and brand as a link's, its ERP stock, its cost. */
+function productAsItem(node) {
+  return {
+    link: { codigo: node.codigo, marca: node.marca },
+    erp_stock: node.stock == null ? null : { quantity: node.stock },
+    costo: node.costo,
+  };
+}
+
 export default function ProductoTable({
   tree,
   columns,
@@ -61,6 +76,8 @@ export default function ProductoTable({
             }
             if (column.key === 'publicaciones') return <NodeCount node={row.node} />;
             if (PRODUCT_FIGURES.has(column.key)) return column.render({ metrics: row.node.metrics });
+            if (PRODUCT_FIELDS.has(column.key)) return column.render(productAsItem(row.node));
+            if (column.renderProduct) return column.renderProduct(row.node.productoItemId);
             return null;
           }
           // "Ver más" and the states of a product's publications live in the pinned cell.

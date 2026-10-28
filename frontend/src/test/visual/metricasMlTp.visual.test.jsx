@@ -13,7 +13,9 @@ import api from '../../services/api';
 import { BOARD_RESPONSE } from './metricasMlFixtures';
 import { withTp } from '../../components/metricasMl/tpFixtures';
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router-dom', async () => ({
+  // The page keeps its filters in the URL (U1): an in-memory query, empty at the start.
+  useSearchParams: (await import('./searchParamsMock')).useSearchParams,
   Link: ({ to, children, ...rest }) => (
     <a href={to} {...rest}>
       {children}
@@ -90,9 +92,11 @@ describe.each(['light', 'dark'])('Métricas ML Costos TP (%s)', (theme) => {
     await expect.element(screen.getByText('$ 3.125.400,50')).toBeVisible();
     await expect.element(screen.getByText('incompleto').first()).toBeVisible();
     expect(wrappedMoney()).toEqual([]);
-    // Seven cards on one row at this width.
+    // Eight cards on one row at this width: Total TP and the sell in / sell out card join it.
+    // The fixture carries sell in / sell out figures: without the card the row would be seven.
+    expect(document.querySelector('section[data-tp][data-sell]')?.textContent).toContain('Sell in / Sell out');
     const tops = [...document.querySelectorAll('section[data-tp] > div')].map((card) => card.getBoundingClientRect().top);
-    expect(tops).toHaveLength(7);
+    expect(tops).toHaveLength(8);
     expect(new Set(tops).size).toBe(1);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);
     await shot(`costos-tp-${theme}`);

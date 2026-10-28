@@ -25,7 +25,7 @@ from sqlalchemy import event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.comision_config import SubcategoriaGrupo
-from app.services.ml_publications.view import groups, listing, markup_inputs, markup_service, products
+from app.services.ml_publications.view import groups, listing, markup_inputs, markup_service, products, stats
 from app.services.ml_publications.view.filters import MarkupFilter, build_base_select, parse_filter
 from tests.services.ml_publications.conftest import module_env
 from tests.services.ml_publications.view import seed as view_seed
@@ -279,6 +279,7 @@ class TestVolume:
         print("\n--- list service timings (service only, no HTTP), 25k publications")
         timed("default page (limit 50)", lambda: page(session))
         timed("default page, page 200 (offset 10k)", lambda: page(session, offset=10_000))
+        timed("Todos page (limit 9999, Productos' Todos)", lambda: page(session, limit=9_999))
         timed("default page + 6 facets", lambda: (page(session), listing.facets(session, parse_filter())))
         timed("search: title substring, common word", lambda: page(session, q="router"))
         timed("search: title substring, rare token", lambda: page(session, q="modelo 9972"))
@@ -294,6 +295,36 @@ class TestVolume:
         timed("filter: evento=price_changed 7d", lambda: page(session, evento="price_changed", evento_desde="7d"))
         timed(
             "count only (no filter)", lambda: session.execute(build_base_select(parse_filter(), listing.func.count()))
+        )
+
+    def test_stat_card_timings(self, session) -> None:
+        """S12d4: the stat cards' one statement. The tables the presence cards read, with a current offer on one
+        publication in ten and every markup stored, live only in this test's transaction (rolled back)."""
+        for ddl in (*view_seed.PRESENCE_DDL, view_seed.MARKUP_DDL):
+            session.execute(text(ddl))
+        session.execute(
+            text(
+                "UPDATE productos_pricing SET participa_rebate = item_id % 3 = 0, markup_calculado = item_id % 7 - 2, "
+                "markup_rebate = item_id % 5 - 1, markup_oferta = item_id % 9 - 3, markup_web_real = item_id % 4 - 1"
+            )
+        )
+        session.execute(
+            text(
+                "INSERT INTO ofertas_ml (mla, fecha_desde, fecha_hasta, pvp_seller) SELECT 'MLA' || (1000000 + i), "
+                "current_date - 3, current_date + 3, 1000 FROM generate_series(1, :items) AS i WHERE i % 10 = 0"
+            ),
+            {"items": ITEMS},
+        )
+        print("\n--- stat cards (service only, no HTTP), 25k publications")
+        timed("stat cards, no filter", lambda: stats.compute(session, parse_filter(), markups=True))
+        timed("stat cards, no markups", lambda: stats.compute(session, parse_filter(), markups=False))
+        timed(
+            "stat cards, estado=active + marca",
+            lambda: stats.compute(session, parse_filter(estado="active", marcas="TP-Link"), markups=True),
+        )
+        timed(
+            "stat cards, Producto view (offer per product)",
+            lambda: stats.compute(session, parse_filter(oferta_por_producto=True), markups=True),
         )
 
     def test_plans_of_the_search_and_the_count(self, session) -> None:
@@ -362,6 +393,7 @@ class TestMarkupVolume:
     def test_markup_timings(self, session, priced) -> None:
         print("\n--- markup timings (service only, no HTTP, no shipping batch), 25k publications")
         timed("page of 50 + markup (default sort)", lambda: markup_page(session))
+        timed("Todos page (limit 9999) + markup", lambda: markup_page(session, limit=9_999))
         timed("orden=markup, page 1 (set-wide)", lambda: markup_page(session, orden="markup"))
         timed("orden=markup, page 200 (offset 10k)", lambda: markup_page(session, orden="markup", offset=10_000))
         timed("markup_neg=true, sort titulo (set-wide)", lambda: markup_page(session, negative=True, orden="titulo"))

@@ -194,6 +194,21 @@ class TestWithTheProfitView:
         row = dict(zip(header, next(line for line in lines if "Switch" in line)))
         assert (row["Sell in"], row["Costo c/ sell in"], row["Total Gauss c/ sell in/out"]) == ("", "", "40,00")
 
+    def test_the_pending_sell_out_count_is_empty_in_the_csv_where_no_sell_out_applies(
+        self, client, admin_auth_headers, db
+    ) -> None:
+        # A sale with neither sell in nor sell out: the screen leaves the sell out (and its pending count) empty.
+        _producto(db, 13, "Hub", "TP-Link")
+        _sale(db, 13, "MLA3", "20", "100")
+        db.commit()
+
+        resp = client.get(URL + "/export", headers=admin_auth_headers)
+        header, *lines = list(csv.reader(io.StringIO(resp.text.lstrip("﻿")), delimiter=";"))
+        rows = {name: dict(zip(header, next(line for line in lines if name in line))) for name in ("Hub", "Switch")}
+        assert (rows["Hub"]["Sell out"], rows["Hub"]["Sell out pendientes"]) == ("", "")
+        # Where a sell out applies, its pending count stays a number.
+        assert rows["Switch"]["Sell out pendientes"] == "1"
+
 
 class TestWithoutTheProfitView:
     @pytest.fixture(autouse=True)
@@ -220,20 +235,23 @@ def test_tplink_solo_never_gets_them(client, admin_auth_headers, db, rol_admin, 
 
 
 @pytest.mark.parametrize(
-    ("sort", "expected"),
+    ("sort", "expected", "ascending"),
     [
-        # 10 vs 0; 5 vs 0 (the pending sell out is left out); 45 vs 40; 50% vs 40% (without them: 30% vs 40%).
-        ("sell_in", ["11", "12"]),
-        ("sell_out", ["11", "12"]),
-        ("total_gauss_sell", ["11", "12"]),
-        ("markup_sell", ["11", "12"]),
+        # 10 vs an empty cell (12 has no sell in: last both ways, never sorted as 0); 5 vs 0 (the pending sell out is
+        # left out); 45 vs 40; 50% vs 40% (without them: 30% vs 40%).
+        ("sell_in", ["11", "12"], ["11", "12"]),
+        ("sell_out", ["11", "12"], ["12", "11"]),
+        ("total_gauss_sell", ["11", "12"], ["12", "11"]),
+        ("markup_sell", ["11", "12"], ["12", "11"]),
     ],
 )
-def test_sorts_by_the_sell_in_out_columns(client, admin_auth_headers, db, rol_admin, sells, sort, expected) -> None:
+def test_sorts_by_the_sell_in_out_columns(
+    client, admin_auth_headers, db, rol_admin, sells, sort, expected, ascending
+) -> None:
     _grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
     db.commit()
 
-    for direction, order in (("desc", expected), ("asc", expected[::-1])):
+    for direction, order in (("desc", expected), ("asc", ascending)):
         body = _get(client, admin_auth_headers, sort=sort, sort_dir=direction)
         assert [row["key"] for row in body["rows"]] == order
 

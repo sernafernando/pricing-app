@@ -109,6 +109,20 @@ describe('column groups', () => {
     expect(onSort).toHaveBeenCalledWith('price');
   });
 
+  it("puts a column's headerControl before its title, outside the sort button", async () => {
+    const onSort = vi.fn();
+    const onPick = vi.fn();
+    const control = <input type="checkbox" aria-label="Seleccionar todo" onChange={onPick} />;
+    renderShell({ columns: [COLUMNS[0], { ...COLUMNS[1], headerControl: control }], onSort });
+    const header = screen.getByRole('columnheader', { name: /Precio/ });
+    const checkbox = within(header).getByRole('checkbox', { name: 'Seleccionar todo' });
+    expect(within(header).getByRole('button', { name: 'Precio' })).not.toContainElement(checkbox);
+    expect(checkbox.compareDocumentPosition(within(header).getByRole('button')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(checkbox);
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onSort).not.toHaveBeenCalled();
+  });
+
   it('marks where each group starts, in the header and in every body row, for its divider', () => {
     const { container } = renderShell({ columns: GROUPED });
     const startsOf = (cells) => [...cells].map((c) => c.hasAttribute('data-group-start'));
