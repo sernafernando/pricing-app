@@ -39,6 +39,12 @@ describe('CatalogStatusBadge', () => {
     expect(screen.getByRole('img')).toHaveAttribute('title', 'Precio para ganar: $870.10');
   });
 
+  it('a price of 0 is no price, as in Productos: no tooltip', () => {
+    const { container } = render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: 'winning', catalog_winner_price: 0 }} />);
+    expect(container.firstChild).not.toHaveAttribute('title');
+    expect(container.firstChild).toHaveAttribute('aria-label', 'Catálogo: ganando');
+  });
+
   it('a status without its price has no tooltip; any other status is an empty neutral badge, as Productos', () => {
     const { container, unmount } = render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: 'competing' }} />);
     expect(container.firstChild).not.toHaveAttribute('title');

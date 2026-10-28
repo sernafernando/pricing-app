@@ -130,6 +130,20 @@ describe('the product rows', () => {
     expect(within(rowOf('Sin producto')).queryByRole('img', { name: /^Catálogo/ })).not.toBeInTheDocument();
   });
 
+  it('finds the listing of a product whose id arrives as text (the listing is keyed by number)', async () => {
+    publicacionesMlAPI.products.mockResolvedValue({
+      data: productsResponse([makeProductRow({ product_item_id: '4101' })]),
+    });
+    const prices = {
+      byId: new Map([[4101, { item_id: 4101, has_catalog: true, catalog_status: 'winning', catalog_winner_price: 900 }]]),
+      loading: false,
+      error: false,
+    };
+    render(<Harness prices={prices} />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).getByRole('img', { name: /^Catálogo: ganando/ })).toBeInTheDocument();
+  });
+
   it('asks /products once with the filters, the sort and the page -- never the markup filters', async () => {
     render(<Harness />);
     await screen.findByText('Router Archer AX55');

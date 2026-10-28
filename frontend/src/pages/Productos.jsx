@@ -15,6 +15,7 @@ import Toast from '../components/Toast';
 import { usePrearmadasStats, PREARMADAS_LIMITE } from '../hooks/usePrearmadasStats';
 import PrearmadaBadge from '../components/PrearmadaBadge';
 import PxqTramosBadge from '../components/PxqTramosBadge';
+import { catalogTooltip } from '../components/catalogStatus';
 import { ChevronDown, ChevronRight, Users } from 'lucide-react';
 import { useExpandedSet } from '../hooks/useExpandedSet';
 import ProductoMLAsPanel from '../components/promociones/ProductoMLAsPanel';
@@ -1729,15 +1730,7 @@ export default function Productos() {
                             color: 'var(--text-inverse)',
                             whiteSpace: 'nowrap'
                           }}
-                          title={
-                            p.catalog_status === 'winning' && p.catalog_winner_price ?
-                              `Ganando a $${p.catalog_winner_price.toFixed(2)}` :
-                            p.catalog_status === 'competing' && p.catalog_price_to_win ?
-                              `Precio para ganar: $${p.catalog_price_to_win.toFixed(2)}` :
-                            p.catalog_status === 'sharing_first_place' && p.catalog_winner_price ?
-                              `Empatando a $${p.catalog_winner_price.toFixed(2)}` :
-                            ''
-                          }
+                          title={catalogTooltip(p) ?? ''}
                         >
                           {p.catalog_status === 'winning' ? '🏆' :
                            p.catalog_status === 'sharing_first_place' ? '🤝' :

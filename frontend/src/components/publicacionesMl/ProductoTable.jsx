@@ -94,7 +94,7 @@ export default function ProductoTable({
                 <>
                   <PrearmadaBadge stats={prearmadasStats[node.productoItemId]} />
                   <PxqTramosBadge tramos={node.pxqTramos} precioDesde={node.pxqPrecioDesde} />
-                  <CatalogStatusBadge product={listingById.get(node.productoItemId)} />
+                  <CatalogStatusBadge product={listingById.get(Number(node.productoItemId))} />
                 </>
               );
               return <NodeTitle row={row} onToggle={toggle} after={after} badges={badges} />;
