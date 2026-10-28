@@ -922,23 +922,30 @@ describe('Publicaciones ML Producto view (visual)', () => {
             ],
           },
         });
-        const screen = await renderProducts({ width, height, theme });
-        publicacionesMlAPI.items.mockResolvedValue({
-          data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3).map((item, i) => ({ ...item, catalog_listing: i === 0 })), total: 3 },
-        });
-        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
-        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
-        await aside.getByRole('button', { name: /^Competencia de catálogo de / }).click();
-        await expect.element(aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
-        const panel = document.querySelector('[data-split-panel]');
-        const section = aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL').element().closest('section');
-        section.scrollIntoView();
-        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
-        for (const el of section.querySelectorAll('li, li span, button')) {
-          expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          // renderProducts sets the list's items; the product panel fetches its own after the click, with these
+          publicacionesMlAPI.items.mockResolvedValue({
+            data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3).map((item, i) => ({ ...item, catalog_listing: i === 0 })), total: 3 },
+          });
+          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('button', { name: /^Competencia de catálogo de / }).click();
+          await expect.element(aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
+          const panel = document.querySelector('[data-split-panel]');
+          const section = aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL').element().closest('section');
+          section.scrollIntoView();
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          for (const el of section.querySelectorAll('li, li span, button')) {
+            expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          }
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-catalogo-${width}-${theme}.png` });
+          screen.unmount();
+        } finally {
+          // the next tests read the page's own items and no stored snapshot
+          promocionesAPI.getCompetenciaCatalogo.mockReset();
+          publicacionesMlAPI.items.mockReset();
         }
-        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-catalogo-${width}-${theme}.png` });
-        screen.unmount();
       });
     }
 

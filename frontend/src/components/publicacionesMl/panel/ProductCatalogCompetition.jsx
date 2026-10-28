@@ -15,7 +15,8 @@ const VIEW_PERMISSION = 'promos.ver';
  * the panel shows this product, so reopening reads nothing.
  *
  * Only with `promos.ver`, the permission that endpoint requires; nothing shows when no publication is in a catalog.
- * Self-contained so the panel can place it anywhere; mount it with `key={productItemId}`.
+ * Self-contained so the panel can place it anywhere; mount it with the product row's key (`key={productKey}`, which
+ * "Sin producto" also has) so another product starts closed and reads afresh.
  *
  * @param {object} props
  * @param {Array<{item_id: string, title?: string, catalog_listing?: boolean}>} props.publications The product's
