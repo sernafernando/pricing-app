@@ -157,7 +157,7 @@ export default function HistorialLogisticaModal({
         </div>
       )}
       <div className={styles.pie}>
-        {puedeDeshacer && (
+        {puedeDeshacer && historial && (
           <span className={styles.pista}>
             <Info size={14} aria-hidden="true" />
             {motivoDeshabilitado ?? 'Deshacer vuelve a la logística anterior al último cambio.'}
