@@ -4,6 +4,7 @@ import { mlItemOverridesAPI } from '../../../services/api';
 import DataFields from './DataFields';
 import { Section } from './PanelParts';
 import PublicationDataForm from './PublicationDataForm';
+import PushToMl from './PushToMl';
 import { date } from './format';
 import styles from './panel.module.css';
 
@@ -27,7 +28,8 @@ function overriddenFields(override) {
  * original ML has (`GET /ml-item-overrides/{mla}`).
  *
  * With `can_edit` (`ml_publicaciones.editar_publicacion`; the server enforces it too) "Editar datos" opens the form
- * (`PublicationDataForm`); a deleted publication reads but cannot be edited.
+ * (`PublicationDataForm`); a deleted publication reads but cannot be edited. With an override, "Actualizar en ML"
+ * sends it to Mercado Libre (`PushToMl`), a separate step; the publication is read again after it.
  *
  * @param {object} props
  * @param {string} props.itemId The MLA.
@@ -116,6 +118,7 @@ export default function DatosTab({ itemId }) {
           </button>
         </div>
       )}
+      {read.can_edit && read.editable && read.override && <PushToMl key={itemId} itemId={itemId} onPushed={() => setAttempt((n) => n + 1)} />}
       {savedFor === itemId && (
         <p className={styles.feedback} role="status">
           Guardado. No se cambió nada en Mercado Libre.

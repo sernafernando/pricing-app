@@ -900,6 +900,8 @@ export const mlItemOverridesAPI = {
   get: (mla) => api.get(`/ml-item-overrides/${mla}`),
   // `{ titulo, descripcion, fotos: [id], atributos: [{ id, value_name }] }`: null follows ML; every field null drops it.
   save: (mla, body) => api.put(`/ml-item-overrides/${mla}`, body),
+  // Send the override to ML (only what differs and ML lets change): `{ status, message, partes: [{ campo, estado, motivo }] }`.
+  pushToMl: (mla) => api.post(`/ml-item-overrides/${mla}/ml`),
 };
 
 // =============================================================================
