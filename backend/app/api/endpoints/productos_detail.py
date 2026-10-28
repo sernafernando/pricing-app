@@ -14,7 +14,7 @@ from datetime import UTC, datetime, date, timedelta
 from app.core.database import get_db, get_async_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permiso
 from app.services.envio_real_service import resolver_costo_envio
 from app.services.ml_promotions_service import (
     fetch_mlas_with_active_promo_type,
@@ -441,7 +441,8 @@ async def obtener_datos_ml_producto(
 def obtener_arbol_ml_producto(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    # The tree is read only by Productos' expandable publication rows, a screen behind productos.ver.
+    current_user: Usuario = Depends(require_permiso("productos.ver")),
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
