@@ -20,13 +20,15 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
     ARRAY,
     Integer,
     Interval,
+    String,
     all_,
     and_,
     any_,
@@ -44,6 +46,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import aliased, join as orm_join
 from sqlalchemy.sql import ColumnElement, Select
 
+from app.models.auditoria import Auditoria, TipoAccion
 from app.models.ml_publications import (
     MlItem,
     MlItemEvent,
@@ -71,7 +74,7 @@ LISTING_VALUES = ("clasica", "premium", "catalogo", "full")
 LINK_SKU_DIVERGENT = "sku_divergente"
 LINK_STATES = ("auto", "manual", "sin_producto", "conflicto", "no_evaluado")
 LINK_VALUES = (*LINK_STATES, LINK_SKU_DIVERGENT)
-STOCK_VALUES = ("sin_stock", "full_sin_stock", "erp_sin_stock", "propio_sin_stock")
+STOCK_VALUES = ("sin_stock", "full_sin_stock", "erp_sin_stock", "erp_con_stock", "propio_sin_stock")
 # Productos' row colors (`productos_colors.COLORES_VALIDOS`) and its "no color" sentinel.
 COLOR_VALUES = ("rojo", "naranja", "amarillo", "verde", "azul", "purpura", "gris")
 NO_COLOR = "sin_color"
@@ -98,7 +101,9 @@ class FilterError(ValueError):
 
 @dataclass(frozen=True)
 class SearchTerm:
-    """`kind`: `item_id` (canonical `MLA123`), `digits` (exact key) or `text` (substring)."""
+    """`kind`: `item_id` (canonical `MLA123`), `digits` (exact key), `text` (substring), or one of Productos'
+    operators: `codigo` (`codigo:` / `ean:`, the exact product code), `marca` (`marca:`, the exact brand) and
+    `ends_with` (`*X`)."""
 
     kind: str
     value: str
@@ -140,6 +145,26 @@ class PublicationFilter:
     web_transf: Optional[bool] = None
     out_of_cards: Optional[bool] = None
     tienda_nube: Optional[str] = None  # one of `TIENDA_NUBE_STATES`
+    precio: Optional[bool] = None  # Productos' "con precio": the product has a `precio_lista_ml`
+    nuevos: bool = False  # Productos' "Nuevos (7 días)": the product was synced from the ERP in the last 7 days
+    # Productos' markup filters: (stored `productos_pricing` markup column, positive?) of the linked product. A margin
+    # figure: the router asks `ml_metricas.ver_ganancia` before parsing them.
+    markup_signs: tuple[tuple[str, bool], ...] = ()
+    # Productos' audit filter: the linked product has an `auditoria` row by one of these users, of one of these kinds
+    # (`TipoAccion` values), within [since, until] (naive UTC, the column's; parsed from Buenos Aires wall time).
+    audit_users: tuple[int, ...] = ()
+    audit_kinds: tuple[str, ...] = ()
+    audit_since: Optional[datetime] = None
+    audit_until: Optional[datetime] = None
+
+    # The promo and PxQ filters, resolved by the router to the matching MLAs (mlwebhook database): `None` = no such
+    # filter, an empty set lists nothing.
+    mla_scope: Optional[frozenset[str]] = None
+
+    @property
+    def audits(self) -> bool:
+        return bool(self.audit_users or self.audit_kinds or self.audit_since or self.audit_until)
+
     # The Producto view asks mejor oferta of the PRODUCT (any of its publications, as Productos does); the
     # publication list asks it of each publication. `oferta_por_producto` asks it of the product elsewhere too: the
     # Producto view's rows carry it in their `params` and its KPI strip sends it, so both agree with the rows.
@@ -172,7 +197,17 @@ def normalize_q(raw: Optional[str]) -> Optional[SearchTerm]:
         return SearchTerm("item_id", term.upper())
     if _DIGITS.fullmatch(term):
         return SearchTerm("digits", term)
+    field, sep, value = term.partition(":")
+    value = value.strip()
+    if sep and value and not value.startswith("*") and field.strip().lower() in _OPERATORS:
+        return SearchTerm(_OPERATORS[field.strip().lower()], value)
+    if term.startswith("*") and term[1:].strip():
+        return SearchTerm("ends_with", term[1:].strip())
     return SearchTerm("text", term)
+
+
+# Productos' search operators (`productos_listing.py`): `ean:` is the same code column there too
+_OPERATORS = {"codigo": "codigo", "ean": "codigo", "marca": "marca"}
 
 
 def escape_like(text: str) -> str:
@@ -307,6 +342,17 @@ def parse_filter(
     tn_no_publicado: Optional[bool] = None,
     out_of_cards: Optional[bool] = None,
     oferta_por_producto: Optional[bool] = None,
+    con_precio: Optional[bool] = None,
+    nuevos_ultimos_7_dias: Optional[bool] = None,
+    markup_clasica_positivo: Optional[bool] = None,
+    markup_rebate_positivo: Optional[bool] = None,
+    markup_oferta_positivo: Optional[bool] = None,
+    markup_web_transf_positivo: Optional[bool] = None,
+    audit_usuarios: Optional[str] = None,
+    audit_tipos_accion: Optional[str] = None,
+    audit_fecha_desde: Optional[str] = None,
+    audit_fecha_hasta: Optional[str] = None,
+    mla_scope: Optional[frozenset[str]] = None,
     colores: Optional[str] = None,
 ) -> PublicationFilter:
     """Query-string values (csv text, `None` when absent) -> `PublicationFilter`; `FilterError` when invalid."""
@@ -341,9 +387,56 @@ def parse_filter(
         out_of_cards=out_of_cards,
         tienda_nube=_tienda_nube(tn_con_descuento, tn_sin_descuento, tn_no_publicado),
         oferta_per_product=bool(oferta_por_producto),
+        precio=con_precio,
+        nuevos=bool(nuevos_ultimos_7_dias),
+        markup_signs=tuple(
+            (column, positive)
+            for column, positive in (
+                ("markup_calculado", markup_clasica_positivo),
+                ("markup_rebate", markup_rebate_positivo),
+                ("markup_oferta", markup_oferta_positivo),
+                ("markup_web_real", markup_web_transf_positivo),
+            )
+            if positive is not None
+        ),
+        audit_users=_integers("audit_usuarios", audit_usuarios),
+        audit_kinds=_vocabulary("audit_tipos_accion", audit_tipos_accion, AUDIT_KINDS),
+        audit_since=_audit_moment("audit_fecha_desde", audit_fecha_desde, end_of_day=False),
+        audit_until=_audit_moment("audit_fecha_hasta", audit_fecha_hasta, end_of_day=True),
+        mla_scope=mla_scope,
         colors=tuple(c for c in colores_ if c != NO_COLOR),
         no_color=NO_COLOR in colores_,
     )
+
+
+AUDIT_KINDS = frozenset(kind.value for kind in TipoAccion)
+_AUDIT_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M")
+_BUENOS_AIRES = ZoneInfo("America/Argentina/Buenos_Aires")
+
+
+def _audit_moment(field: str, raw: Optional[str], *, end_of_day: bool) -> Optional[datetime]:
+    """Productos' audit dates: `YYYY-MM-DD[ HH:MM[:SS]]` in Buenos Aires wall time (a bare date is the whole day:
+    from 00:00, or until 23:59:59; an until without seconds is the whole minute), as naive UTC like
+    `auditoria.fecha`. Anything else is an error, never "today"."""
+    text_ = (raw or "").strip()
+    if not text_:
+        return None
+    moment = None
+    for fmt in _AUDIT_FORMATS:
+        try:
+            moment = datetime.strptime(text_, fmt)
+            if end_of_day and "%S" not in fmt:
+                moment = moment.replace(second=59)
+            break
+        except ValueError:
+            continue
+    if moment is None:
+        try:
+            day = date.fromisoformat(text_)
+        except ValueError as exc:
+            raise FilterError(field, "expected YYYY-MM-DD or YYYY-MM-DD HH:MM") from exc
+        moment = datetime.combine(day, time(23, 59, 59) if end_of_day else time.min)
+    return moment.replace(tzinfo=_BUENOS_AIRES).astimezone(UTC).replace(tzinfo=None)
 
 
 # --- markup filters (applied after the markup is computed, not in SQL) -------------------------------------------
@@ -555,6 +648,17 @@ def _search(term: SearchTerm) -> ColumnElement:
             same(T.p.codigo),
             _variation_sku(same),
         )
+    if term.kind == "codigo":
+        return func.upper(T.p.codigo) == term.value.upper()
+    if term.kind == "marca":
+        return normalized_text(T.p.marca) == normalized_text(literal(term.value))
+    if term.kind == "ends_with":
+        suffix = f"%{escape_like(term.value)}"
+
+        def ends(column: Any) -> ColumnElement:
+            return column.ilike(suffix, escape=LIKE_ESCAPE)
+
+        return or_(ends(T.i.title), ends(T.p.descripcion), ends(T.p.marca), ends(T.p.codigo))
     # ponytail: case-insensitive but accent-sensitive; `unaccent` is not installed on the test DB and its presence
     # on production is unverified (`scripts/measure_pubml_p5.py --database-url` reports it)
     pattern = f"%{escape_like(term.value)}%"
@@ -596,6 +700,7 @@ def stock_clauses() -> dict[str, ColumnElement]:
         "sin_stock": T.i.available_quantity == 0,
         "full_sin_stock": T.st.full_quantity == 0,
         "erp_sin_stock": erp_stock() <= 0,
+        "erp_con_stock": erp_stock() > 0,
         "propio_sin_stock": T.st.own_quantity == 0,
     }
 
@@ -701,6 +806,34 @@ def _pricing_flag(flag: Any, on: bool) -> ColumnElement:
     return flagged if on else and_(T.p.item_id.isnot(None), ~flagged)
 
 
+def _precio(on: bool) -> ColumnElement:
+    pp = aliased(ProductoPricing, name="pp")
+    priced = exists(select(1).where(pp.item_id == T.p.item_id, pp.precio_lista_ml.isnot(None)))
+    return priced if on else and_(T.p.item_id.isnot(None), ~priced)
+
+
+def _markup_sign(column: str, positive: bool) -> ColumnElement:
+    """Productos' rule: positive is > 0, negative < 0; zero, NULL or no pricing row match neither side."""
+    pp = aliased(ProductoPricing, name="pp")
+    markup = getattr(pp, column)
+    return exists(select(1).where(pp.item_id == T.p.item_id, markup > 0 if positive else markup < 0))
+
+
+def _audited(f: PublicationFilter) -> ColumnElement:
+    a = aliased(Auditoria, name="a")
+    where = [a.item_id == T.p.item_id]
+    if f.audit_users:
+        where.append(a.usuario_id.in_(f.audit_users))
+    if f.audit_kinds:
+        # through the ORM column, which stores the member name the value maps to
+        where.append(a.tipo_accion.in_([TipoAccion(kind) for kind in f.audit_kinds]))
+    if f.audit_since is not None:
+        where.append(a.fecha >= f.audit_since)
+    if f.audit_until is not None:
+        where.append(a.fecha <= f.audit_until)
+    return exists(select(1).where(*where))
+
+
 def _current_offer(o: Any) -> list[ColumnElement]:
     return [o.fecha_desde <= func.current_date(), o.fecha_hasta >= func.current_date(), o.pvp_seller.isnot(None)]
 
@@ -748,6 +881,17 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
         where.append(_tienda_nube_in(f.tienda_nube))
     if f.oferta is not None:
         where.append(_oferta(f.oferta, f.oferta_per_product))
+    if f.precio is not None:
+        where.append(_precio(f.precio))
+    if f.nuevos:
+        where.append(T.p.fecha_sync >= func.now() - timedelta(days=7))
+    where.extend(_markup_sign(column, positive) for column, positive in f.markup_signs)
+    if f.audits:
+        where.append(_audited(f))
+    if f.mla_scope is not None:
+        # one array parameter, as `_colors`: a promo scope can hold thousands of MLAs
+        scope = literal(sorted(f.mla_scope), ARRAY(String))
+        where.append(T.i.item_id == any_(scope) if f.mla_scope else false())
     return where
 
 

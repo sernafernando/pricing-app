@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { Download, FileSpreadsheet, FilterX, Keyboard, ShieldAlert } from 'lucide-react';
+import { Download, FileDown, FileSpreadsheet, FilterX, Keyboard, ShieldAlert } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
@@ -8,6 +8,8 @@ import { ColumnPicker, FacetChips, Pagination, SegmentedControl, SplitPanelLayou
 import StateBanner from '../components/publicacionesMl/StateBanner';
 import MarkupFilters from '../components/publicacionesMl/MarkupFilters';
 import PresenceFilters from '../components/publicacionesMl/PresenceFilters';
+import AuditFilters from '../components/publicacionesMl/AuditFilters';
+import PromoFilters from '../components/publicacionesMl/PromoFilters';
 import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
@@ -25,6 +27,8 @@ import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
+import { resolverParams } from '../components/publicacionesMl/bulkParams';
+import ExportModal from '../components/ExportModal';
 import ShortcutsHelp from '../components/publicacionesMl/ShortcutsHelp';
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
 import Toast from '../components/Toast';
@@ -56,7 +60,12 @@ import {
 import { usePublicacionesMLKpis } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
 import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../utils/mlSellerPanel';
-import { canExportVista, exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
+import {
+  canExportVista,
+  exportPublicacionesCsv,
+  exportPublicacionesSheets,
+  resolverProductosExport,
+} from '../utils/publicacionesMlExport';
 import { isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 import SheetsNotice from '../components/sheets/SheetsNotice';
@@ -90,6 +99,10 @@ import styles from './PublicacionesML.module.css';
 // Space the table leaves for what is above and below it (header, filters, pager).
 const TABLE_OFFSET = '380px';
 
+// Productos' search operators, also understood by the backend's `normalize_q`.
+const SEARCH_OPERATORS_HELP =
+  'Operadores: codigo:ABC123 o ean:7790001234567 (código exacto), marca:Samsung (marca exacta), *123 (termina en)';
+
 const STATUS_OPTIONS = ['active', 'paused', 'closed', 'under_review', 'inactive', 'gone'];
 const STATUS_LABELS = {
   active: 'Activas',
@@ -112,8 +125,13 @@ const VINCULO_LABELS = {
   sku_divergente: 'SKU distinto del producto',
 };
 // One chip per stock column, each filtering its own source: our own stock at ML, Full and the ERP's -- never a sum.
-const STOCK_OPTIONS = ['propio_sin_stock', 'full_sin_stock', 'erp_sin_stock'];
-const STOCK_LABELS = { propio_sin_stock: 'Sin stock propio', full_sin_stock: 'Full sin stock', erp_sin_stock: 'Sin stock ERP' };
+const STOCK_OPTIONS = ['propio_sin_stock', 'full_sin_stock', 'erp_sin_stock', 'erp_con_stock'];
+const STOCK_LABELS = {
+  propio_sin_stock: 'Sin stock propio',
+  full_sin_stock: 'Full sin stock',
+  erp_sin_stock: 'Sin stock ERP',
+  erp_con_stock: 'Con stock ERP',
+};
 
 const EMPTY_ROWS = [];
 
@@ -131,7 +149,12 @@ const AGRUPAR_OPTIONS = DIMENSION_OPTIONS.filter((option) => AGRUPAR_DIMENSIONS.
 /** What to tell the operator when a request fails (S69.1). */
 function describeError(error) {
   const status = error?.response?.status;
-  if (status === 503) return 'La consulta tardó demasiado. Probá con filtros más acotados o reintentá.';
+  if (status === 503) {
+    // A promo or wholesale-price filter whose source is down is not a slow query: say which one failed.
+    const body = error.response.data?.error;
+    if (body?.code === 'filtro_no_disponible' && body.message) return body.message;
+    return 'La consulta tardó demasiado. Probá con filtros más acotados o reintentá.';
+  }
   if (status === 403) return 'No tenés permiso para ver las publicaciones.';
   if (status === 422) {
     const detail = error.response.data?.error?.message;
@@ -150,12 +173,24 @@ function ListSkeleton() {
   );
 }
 
+// Productos' price lists (its export modal), each behind its own permission; the button shows with any of them.
+const PRICE_LIST_EXPORT_PERMISSIONS = [
+  'productos.exportar_vista_actual',
+  'productos.exportar_rebate',
+  'productos.exportar_web_transferencia',
+  'productos.exportar_clasica',
+  'productos.exportar_pvp',
+];
+
+const PRICE_LIST_SET =
+  'Se exportan los productos vinculados a las publicaciones de los filtros actuales; las publicaciones sin producto vinculado quedan afuera.';
+
 export default function PublicacionesML() {
-  const { filters, filterKey, setFilters, resetFilters } = usePublicacionesMLFilters();
-  const { tiendas, getLabel } = useTiendasOficiales();
   const { tienePermiso } = usePermisos();
   // The markup column, filters and sort exist only for this permission (S68.1).
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
+  const { filters, filterKey, setFilters, resetFilters } = usePublicacionesMLFilters({ canSeeMargin });
+  const { tiendas, getLabel } = useTiendasOficiales();
   // The strip is Métricas' numbers: it needs `ml_metricas.ver`; the table does not.
   const canSeeKpis = tienePermiso('ml_metricas.ver');
   // The rows' Métricas figures (`metrics`) are Métricas' numbers too: same permission as the strip.
@@ -325,6 +360,10 @@ export default function PublicacionesML() {
   };
   const handleExport = () => runExport(exportPublicacionesCsv, setExporting);
   const handleSheetsExport = () => runExport(exportPublicacionesSheets, setExportingSheets);
+  // Productos' price lists over the linked products of the filtered publications, resolved as a bulk action's set.
+  const canExportPriceLists = PRICE_LIST_EXPORT_PERMISSIONS.some((codigo) => tienePermiso(codigo));
+  const [priceListsOpen, setPriceListsOpen] = useState(false);
+  const resolvePriceListProducts = () => resolverProductosExport(resolverParams(rowFilters, canSeeMargin));
 
   const searchRef = useRef(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -606,6 +645,12 @@ export default function PublicacionesML() {
               {exportingSheets ? 'Exportando a Sheets…' : 'Exportar a Sheets'}
             </button>
           )}
+          {canExportPriceLists && (
+            <button type="button" className="btn-tesla outline sm" onClick={() => setPriceListsOpen(true)}>
+              <FileDown size={14} />
+              Listas de precios
+            </button>
+          )}
         </div>
       </header>
 
@@ -630,7 +675,7 @@ export default function PublicacionesML() {
 
       <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
-          <div className={styles.searchSlot}>
+          <div className={styles.searchSlot} title={SEARCH_OPERATORS_HELP}>
             <SearchInput
               ref={searchRef}
               value={filters.q}
@@ -710,7 +755,14 @@ export default function PublicacionesML() {
           <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
           {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
               the fold at 1366x768. */}
-          <PresenceFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
+          <PresenceFilters
+            filters={filters}
+            setFilters={setFilters}
+            labelClassName={styles.filterLabel}
+            canSeeMargin={canSeeMargin}
+          />
+          <AuditFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
+          <PromoFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
           {/* Productos' price columns (S11): how the rows are looked at, like the Capa; the header has no room left. */}
           {canSeePrices && !agrupado && (
             <PriceModeSelect
@@ -873,6 +925,15 @@ export default function PublicacionesML() {
         >
           <p>{priceEditor.warning}</p>
         </ModalTesla>
+      )}
+      {priceListsOpen && (
+        <ExportModal
+          onClose={() => setPriceListsOpen(false)}
+          filtrosActivos={{}}
+          showToast={showToast}
+          resolverProductos={resolvePriceListProducts}
+          descripcionConjunto={PRICE_LIST_SET}
+        />
       )}
       <Toast toast={toast} onClose={hideToast} />
     </div>

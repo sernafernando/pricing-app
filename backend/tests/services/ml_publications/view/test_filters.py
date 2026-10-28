@@ -5,7 +5,7 @@ Pure: no database. The SQL these filters produce is exercised on Postgres in `te
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -32,6 +32,16 @@ class TestDefaults:
         assert f == PublicationFilter()
 
 
+class TestAuditMoment:
+    def test_an_until_with_minutes_takes_the_whole_minute(self) -> None:
+        # Buenos Aires wall time, naive UTC: 12:00 there is 15:00 here
+        f = parse_filter(audit_fecha_desde="2026-10-20 12:00", audit_fecha_hasta="2026-10-20 12:00")
+        assert (f.audit_since, f.audit_until) == (datetime(2026, 10, 20, 15, 0), datetime(2026, 10, 20, 15, 0, 59))
+
+    def test_an_until_with_seconds_is_kept_as_typed(self) -> None:
+        assert parse_filter(audit_fecha_hasta="2026-10-20 12:00:10").audit_until == datetime(2026, 10, 20, 15, 0, 10)
+
+
 class TestSearchTerm:
     @pytest.mark.parametrize("raw", ["MLA935110613", "mla935110613", "  MlA935110613  "])
     def test_an_mla_id_is_an_exact_item_id_in_canonical_case(self, raw: str) -> None:
@@ -46,6 +56,20 @@ class TestSearchTerm:
 
     def test_mla_with_letters_after_the_digits_is_text(self) -> None:
         assert normalize_q("MLA123abc") == SearchTerm("text", "MLA123abc")
+
+    @pytest.mark.parametrize(("raw", "kind"), [("codigo:KB-HDMI", "codigo"), ("EAN:KB-HDMI", "codigo")])
+    def test_codigo_and_ean_are_an_exact_product_code(self, raw: str, kind: str) -> None:
+        assert normalize_q(raw) == SearchTerm(kind, "KB-HDMI")
+
+    def test_marca_is_an_exact_brand(self) -> None:
+        assert normalize_q("marca: Hikvision ") == SearchTerm("marca", "Hikvision")
+
+    def test_a_leading_asterisk_is_an_ends_with(self) -> None:
+        assert normalize_q("*domo") == SearchTerm("ends_with", "domo")
+
+    @pytest.mark.parametrize("raw", ["color:rojo", "codigo:", "*", "marca:*hik"])
+    def test_an_unknown_field_an_empty_value_or_a_bare_asterisk_is_plain_text(self, raw: str) -> None:
+        assert normalize_q(raw) == SearchTerm("text", raw)
 
     def test_blank_is_no_search(self) -> None:
         assert normalize_q("") is None

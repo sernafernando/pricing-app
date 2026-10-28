@@ -11,7 +11,9 @@ from fastapi.responses import Response
 import logging
 
 from app.api.endpoints.productos_shared import (  # noqa: F401
+    ExportItemIdsBody,
     ExportRebateRequest,
+    solo_item_ids,
     batch_colores,
     color_slot,
     filtro_colores,
@@ -33,6 +35,24 @@ from app.services.ml_promotions_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Each price list the export modal offers, with the permission that gates it there and here.
+PERMISOS_EXPORTAR = {
+    "vista_actual": ("productos.exportar_vista_actual", "la vista actual"),
+    "rebate": ("productos.exportar_rebate", "la lista de Rebate ML"),
+    "web_transferencia": ("productos.exportar_web_transferencia", "la lista de Web Transferencia"),
+    "clasica": ("productos.exportar_clasica", "la lista de precios clásica"),
+    "pvp": ("productos.exportar_pvp", "la lista PVP"),
+}
+
+
+def _requerir_permiso_exportar(db: Session, current_user: Usuario, tipo: str) -> None:
+    """403 unless the user holds the permission of this kind of export (`PERMISOS_EXPORTAR`)."""
+    from app.services.permisos_service import verificar_permiso
+
+    codigo, lista = PERMISOS_EXPORTAR[tipo]
+    if not verificar_permiso(db, current_user, codigo):
+        raise HTTPException(status_code=403, detail=f"No tienes permiso para exportar {lista}")
 
 
 def _cargar_precios_mlwebhook(mla_ids: list[str]) -> dict[str, float]:
@@ -303,7 +323,8 @@ def _apply_nuevos_7_dias_filter(query, nuevos_ultimos_7_dias: Optional[bool]):
 def exportar_rebate(
     request: ExportRebateRequest, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
-    """Exporta productos con rebate a Excel"""
+    """Exporta productos con rebate a Excel. Con `item_ids`, exactamente esos productos (no combina con `filtros`)."""
+    _requerir_permiso_exportar(db, current_user, "rebate")
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment
     from datetime import datetime, date
@@ -364,6 +385,7 @@ def exportar_rebate(
         .filter(ProductoPricing.participa_rebate == True, ProductoPricing.out_of_cards != True)
     )
     query = join_color_layer(query, layer_activo)
+    query = solo_item_ids(query, request.item_ids)
 
     # Aplicar filtros si existen
     if request.filtros:
@@ -792,7 +814,7 @@ def exportar_rebate(
     )
 
 
-@router.get("/exportar-web-transferencia")
+@router.api_route("/exportar-web-transferencia", methods=["GET", "POST"])
 def exportar_web_transferencia(
     porcentaje_adicional: float = Query(0, description="Porcentaje adicional a sumar"),
     currency_id: int = Query(1, description="ID de moneda: 1=ARS, 2=USD"),
@@ -829,10 +851,13 @@ def exportar_web_transferencia(
     con_promo_aplicada: Optional[bool] = None,
     con_promo_sin_aplicar: Optional[bool] = None,
     equipo_id: Optional[int] = None,
+    body: Optional[ExportItemIdsBody] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """Exporta precios de Web Transferencia en formato Excel con filtros opcionales"""
+    """Exporta precios de Web Transferencia en formato Excel con filtros opcionales. Por POST, `body.item_ids` acota
+    a esos productos (`ExportItemIdsBody`)."""
+    _requerir_permiso_exportar(db, current_user, "web_transferencia")
     from io import BytesIO
     from openpyxl import Workbook
     from app.models.tipo_cambio import TipoCambio
@@ -848,6 +873,7 @@ def exportar_web_transferencia(
         )
     )
     query = join_color_layer(query, layer_activo)
+    query = solo_item_ids(query, body.item_ids if body else None)
 
     # FILTRADO POR AUDITORÍA (igual que en el listado principal)
     if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
@@ -1151,7 +1177,7 @@ def exportar_web_transferencia(
     )
 
 
-@router.get("/exportar-clasica")
+@router.api_route("/exportar-clasica", methods=["GET", "POST"])
 def exportar_clasica(
     porcentaje_adicional: float = Query(0, description="Porcentaje adicional sobre rebate"),
     tipo_cuotas: str = Query(
@@ -1201,15 +1227,13 @@ def exportar_clasica(
         ),
     ),
     equipo_id: Optional[int] = None,
+    body: Optional[ExportItemIdsBody] = None,
     current_user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Exporta precios de Clásica. Si tiene rebate activo, aplica % sobre precio rebate."""
-    from app.services.permisos_service import verificar_permiso
-
-    # Verificar permiso
-    if not verificar_permiso(db, current_user, "productos.exportar_clasica"):
-        raise HTTPException(status_code=403, detail="No tienes permiso para exportar lista de precios clásica")
+    """Exporta precios de Clásica. Si tiene rebate activo, aplica % sobre precio rebate. Los `tipo_cuotas` pvp* son
+    la lista PVP, con su propio permiso. Por POST, `body.item_ids` acota a esos productos (`ExportItemIdsBody`)."""
+    _requerir_permiso_exportar(db, current_user, "pvp" if tipo_cuotas.startswith("pvp") else "clasica")
     from io import BytesIO
     from openpyxl import Workbook
     from app.models.tipo_cambio import TipoCambio
@@ -1238,6 +1262,7 @@ def exportar_clasica(
         .filter(ProductoPricing.precio_lista_ml.isnot(None))
     )
     query = join_color_layer(query, layer_activo)
+    query = solo_item_ids(query, body.item_ids if body else None)
 
     # FILTRADO POR AUDITORÍA (igual que en el listado principal)
     if audit_usuarios or audit_tipos_accion or audit_fecha_desde or audit_fecha_hasta:
@@ -1770,7 +1795,7 @@ def exportar_clasica(
     )
 
 
-@router.get("/exportar-vista-actual")
+@router.api_route("/exportar-vista-actual", methods=["GET", "POST"])
 def exportar_vista_actual(
     page: int = 1,
     page_size: int = 10000,
@@ -1805,10 +1830,13 @@ def exportar_vista_actual(
     con_promo_aplicada: Optional[bool] = None,
     con_promo_sin_aplicar: Optional[bool] = None,
     equipo_id: Optional[int] = None,
+    body: Optional[ExportItemIdsBody] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """Exporta la vista actual de productos a Excel con todos los datos"""
+    """Exporta la vista actual de productos a Excel con todos los datos. Por POST, `body.item_ids` acota a esos
+    productos (`ExportItemIdsBody`)."""
+    _requerir_permiso_exportar(db, current_user, "vista_actual")
     try:
         import logging
 
@@ -1829,6 +1857,7 @@ def exportar_vista_actual(
             ProductoPricing, ProductoERP.item_id == ProductoPricing.item_id
         )
         query = join_color_layer(query, layer_activo)
+        query = solo_item_ids(query, body.item_ids if body else None)
 
         # Aplicar todos los filtros (reutilizar la lógica del endpoint obtener_productos)
         query = _apply_search_filter(query, search)

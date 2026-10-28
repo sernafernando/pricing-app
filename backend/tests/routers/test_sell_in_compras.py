@@ -358,7 +358,10 @@ def test_create_keeps_a_known_supplier_and_purchase_order(client, gestor, produc
     data = _crear(client, gestor, proveedor_id=proveedor.id, pedido_compra_id=pedido.id)
 
     compra = db.get(SellInCompra, data["id"])
-    assert (compra.proveedor_id, compra.pedido_compra_id) == (proveedor.id, pedido.id)
+    assert compra.proveedor_id == proveedor.id
+    assert _links(db, data["id"]) == [pedido.id]
+    # The legacy column is no longer written: the link table is the only source (T3b-4).
+    assert compra.pedido_compra_id is None
 
 
 def _links(db, compra_id: int) -> list[int]:
@@ -674,17 +677,18 @@ def test_list_free_text_matches_the_purchase_order_number(client, gestor, produc
     assert _ids(resp) == [con["id"]]
 
 
-def test_list_free_text_finds_the_purchase_order_through_the_link_or_the_column(client, gestor, productos, pedido, db):
-    """The number is matched over the link rows AND the old column, so a write path that sets the column
-    without syncing the links never drops the purchase from the search."""
+def test_list_free_text_finds_the_purchase_order_through_the_link_only(client, gestor, productos, pedido, db):
+    """The number is matched over the link rows; the legacy column is no longer read (T3b-4)."""
     solo_link = _crear(client, gestor, descripcion=None)
     db.add(SellInCompraPedido(compra_id=solo_link["id"], pedido_compra_id=pedido.id))
-    solo_columna = _crear(client, gestor, pedido_compra_id=pedido.id, descripcion=None)
-    db.query(SellInCompraPedido).filter(SellInCompraPedido.compra_id == solo_columna["id"]).delete()
+    solo_columna = _crear(client, gestor, descripcion=None)
+    db.get(SellInCompra, solo_columna["id"]).pedido_compra_id = pedido.id
     db.flush()
 
     resp = client.get(BASE, params={"q": "p-si-0000"}, headers=gestor)
-    assert sorted(_ids(resp)) == sorted([solo_link["id"], solo_columna["id"]])
+    assert _ids(resp) == [solo_link["id"]]
+    detalle = client.get(f"{BASE}/{solo_columna['id']}", headers=gestor).json()
+    assert (detalle["pedido_compra_id"], detalle["pedido_compra_ids"]) == (None, [])
 
 
 @pytest.mark.parametrize(

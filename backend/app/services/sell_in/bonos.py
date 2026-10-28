@@ -30,7 +30,7 @@ Desired state of a pair, recomputed from scratch on every call:
   `formula = 'manual'`, like a % sell in loaded by hand; a line whose share is
   0 is left out), in the bonus's currency, dated the invoice date
   (`cuenta_desde = 'compra'`), of the operation's supplier, linked to the
-  operation (`sell_in_compra_pedidos` and `pedido_compra_id`), authored by the
+  operation (`sell_in_compra_pedidos`), authored by the
   bonus's author;
 - a USD bonus converts at the operation's own rate (`pedidos_compra.tipo_cambio`,
   the effective rate the Compras module keeps), like every sell in (owner
@@ -300,7 +300,6 @@ def _deseada(
     cabecera = {
         "estado": "activa",
         "proveedor_id": pedido.proveedor_id,
-        "pedido_compra_id": pedido.id,
         "fecha_compra": fecha,
         "moneda": bono.moneda,
         "tipo_cambio": tasa.quantize(Decimal("0.000001")) if tasa is not None else None,
@@ -361,7 +360,6 @@ def _foto(compra: SellInCompra, lineas: Dict[int, Tuple[int, Decimal]]) -> dict:
 _CABECERA = (
     "estado",
     "proveedor_id",
-    "pedido_compra_id",
     "fecha_compra",
     "moneda",
     "tipo_cambio",

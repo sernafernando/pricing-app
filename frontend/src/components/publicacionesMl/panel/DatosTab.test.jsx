@@ -13,7 +13,7 @@ vi.mock('../../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  mlItemOverridesAPI: { get: vi.fn(), save: vi.fn() },
+  mlItemOverridesAPI: { get: vi.fn(), save: vi.fn(), pushToMl: vi.fn() },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -78,7 +78,7 @@ describe('reading', () => {
     render(<DatosTab itemId="MLA1" />);
 
     const aplicado = await screen.findByRole('region', { name: 'Datos que se usan' });
-    expect(within(aplicado).getByText(/Sobrescritos el .*: título y fotos\. No se cambian en Mercado Libre\./)).toBeInTheDocument();
+    expect(within(aplicado).getByText(/Sobrescritos el .*: título y fotos\. Guardar no los cambia en Mercado Libre\./)).toBeInTheDocument();
     expect(within(aplicado).getByText('Router Archer AX55 WiFi 6')).toBeInTheDocument();
     expect(within(aplicado).getAllByRole('img').map((img) => img.getAttribute('src'))).toEqual(['https://x/p2.webp']);
     // A field that follows ML shows ML's value in the applied data too.
@@ -192,5 +192,109 @@ describe('editing', () => {
     expect(screen.queryByLabelText('Título')).not.toBeInTheDocument();
     expect(screen.getByText('Router TP-Link Archer AX55')).toBeInTheDocument();
     expect(mlItemOverridesAPI.save).not.toHaveBeenCalled();
+  });
+});
+
+describe('Actualizar en ML', () => {
+  it('is offered only for an override the user may edit', async () => {
+    mlItemOverridesAPI.get.mockResolvedValue({ data: read({ can_edit: true }) });
+    const { unmount } = render(<DatosTab itemId="MLA1" />);
+    await screen.findByRole('button', { name: 'Editar datos' });
+    expect(screen.queryByRole('button', { name: 'Actualizar en ML' })).not.toBeInTheDocument();
+    unmount();
+
+    mlItemOverridesAPI.get.mockResolvedValue({ data: OVERRIDDEN });
+    const second = render(<DatosTab itemId="MLA1" />);
+    await screen.findByRole('region', { name: 'Datos que se usan' });
+    expect(screen.queryByRole('button', { name: 'Actualizar en ML' })).not.toBeInTheDocument();
+    second.unmount();
+
+    mlItemOverridesAPI.get.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    render(<DatosTab itemId="MLA1" />);
+    expect(await screen.findByRole('button', { name: 'Actualizar en ML' })).toBeInTheDocument();
+  });
+
+  it('after a push that may have landed, reads the publication again', async () => {
+    mlItemOverridesAPI.get.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    mlItemOverridesAPI.pushToMl.mockResolvedValue({ data: { status: 'sent', message: null, partes: [{ campo: 'titulo', estado: 'submitted', motivo: null }] } });
+    render(<DatosTab itemId="MLA1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar en ML' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+    await screen.findByText('Título: enviado a Mercado Libre.');
+    expect(mlItemOverridesAPI.get).toHaveBeenCalledTimes(2);
+    // The result outlives the re-read.
+    expect(screen.getByText('Título: enviado a Mercado Libre.')).toBeInTheDocument();
+  });
+
+  it('the result stays when the re-read finds the override gone, and the button goes', async () => {
+    mlItemOverridesAPI.get.mockResolvedValueOnce({ data: { ...OVERRIDDEN, can_edit: true } }).mockResolvedValueOnce({ data: read({ can_edit: true }) });
+    mlItemOverridesAPI.pushToMl.mockResolvedValue({ data: { status: 'sent', message: null, partes: [{ campo: 'titulo', estado: 'submitted', motivo: null }] } });
+    render(<DatosTab itemId="MLA1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar en ML' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+    await screen.findByText('Sin cambios locales: se usan los datos de Mercado Libre.');
+    expect(screen.getByText('Título: enviado a Mercado Libre.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Actualizar en ML' })).not.toBeInTheDocument();
+  });
+
+  it('saving an edit clears an earlier push result', async () => {
+    mlItemOverridesAPI.get.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    mlItemOverridesAPI.pushToMl.mockResolvedValue({ data: { status: 'sent', message: null, partes: [{ campo: 'titulo', estado: 'submitted', motivo: null }] } });
+    mlItemOverridesAPI.save.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    render(<DatosTab itemId="MLA1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar en ML' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+    await screen.findByText('Título: enviado a Mercado Libre.');
+    await userEvent.click(screen.getByRole('button', { name: 'Editar datos' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    await screen.findByText('Guardado. No se cambió nada en Mercado Libre.');
+    expect(screen.queryByText('Título: enviado a Mercado Libre.')).not.toBeInTheDocument();
+  });
+
+  it('the confirmation warns about pictures only when the override has them', async () => {
+    mlItemOverridesAPI.get.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    render(<DatosTab itemId="MLA1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar en ML' }));
+
+    expect(screen.getByText(/Las fotos se reemplazan por la lista guardada/)).toBeInTheDocument();
+  });
+
+  it('while a push is out, Editar datos is not offered (it would drop the result)', async () => {
+    let answer;
+    mlItemOverridesAPI.get.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    mlItemOverridesAPI.pushToMl.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    render(<DatosTab itemId="MLA1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar en ML' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+    expect(screen.getByText('Enviando a Mercado Libre…')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Editar datos' })).not.toBeInTheDocument();
+    answer({ data: { status: 'sent', message: null, partes: [{ campo: 'titulo', estado: 'submitted', motivo: null }] } });
+
+    expect(await screen.findByText('Título: enviado a Mercado Libre.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Editar datos' })).toBeInTheDocument();
+  });
+
+  it('a push answering after leaving the publication does not lock Editar datos when coming back', async () => {
+    let answer;
+    mlItemOverridesAPI.get.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    mlItemOverridesAPI.pushToMl.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const { rerender } = render(<DatosTab itemId="MLA1" />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar en ML' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+    rerender(<DatosTab itemId="MLA2" />);
+    answer({ data: { status: 'sent', message: null, partes: [] } });
+    rerender(<DatosTab itemId="MLA1" />);
+
+    expect(await screen.findByRole('button', { name: 'Editar datos' })).toBeInTheDocument();
   });
 });

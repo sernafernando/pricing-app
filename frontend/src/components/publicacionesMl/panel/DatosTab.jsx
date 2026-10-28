@@ -4,6 +4,7 @@ import { mlItemOverridesAPI } from '../../../services/api';
 import DataFields from './DataFields';
 import { Section } from './PanelParts';
 import PublicationDataForm from './PublicationDataForm';
+import PushToMl from './PushToMl';
 import { date } from './format';
 import styles from './panel.module.css';
 
@@ -27,7 +28,8 @@ function overriddenFields(override) {
  * original ML has (`GET /ml-item-overrides/{mla}`).
  *
  * With `can_edit` (`ml_publicaciones.editar_publicacion`; the server enforces it too) "Editar datos" opens the form
- * (`PublicationDataForm`); a deleted publication reads but cannot be edited.
+ * (`PublicationDataForm`); a deleted publication reads but cannot be edited. With an override, "Actualizar en ML"
+ * sends it to Mercado Libre (`PushToMl`), a separate step; the publication is read again after it.
  *
  * @param {object} props
  * @param {string} props.itemId The MLA.
@@ -39,6 +41,7 @@ export default function DatosTab({ itemId }) {
   const [attempt, setAttempt] = useState(0); // bumped by Reintentar: loads again
   const [editingFor, setEditingFor] = useState(null); // the MLA whose form is open
   const [savedFor, setSavedFor] = useState(null); // the MLA just saved
+  const [pushingFor, setPushingFor] = useState(null); // the MLA whose push is out: no edit until it answers
 
   useEffect(() => {
     let current = true;
@@ -101,7 +104,7 @@ export default function DatosTab({ itemId }) {
   const actions = (
     <>
       {read.can_edit && !read.editable && <p className={styles.note}>La publicación está eliminada: sus datos no se pueden editar.</p>}
-      {read.can_edit && read.editable && (
+      {read.can_edit && read.editable && pushingFor !== itemId && (
         <div className={styles.statusConfirm}>
           <button
             type="button"
@@ -115,6 +118,17 @@ export default function DatosTab({ itemId }) {
             Editar datos
           </button>
         </div>
+      )}
+      {read.can_edit && read.editable && (
+        // Mounted without an override too, so a result stays when the re-read after a push finds the override gone.
+        <PushToMl
+          key={itemId}
+          itemId={itemId}
+          canPush={Boolean(read.override)}
+          replacesPictures={read.override?.fotos != null}
+          onSendingChange={(sending) => setPushingFor((current) => (sending ? itemId : current === itemId ? null : current))}
+          onPushed={() => setAttempt((n) => n + 1)}
+        />
       )}
       {savedFor === itemId && (
         <p className={styles.feedback} role="status">
@@ -138,7 +152,7 @@ export default function DatosTab({ itemId }) {
     <>
       <Section title="Datos que se usan">
         <p className={styles.note}>
-          {`Sobrescritos${read.updated_at ? ` el ${date(read.updated_at)}` : ''}: ${overriddenFields(read.override)}. No se cambian en Mercado Libre.`}
+          {`Sobrescritos${read.updated_at ? ` el ${date(read.updated_at)}` : ''}: ${overriddenFields(read.override)}. Guardar no los cambia en Mercado Libre.`}
         </p>
         <DataFields datos={read.aplicado} />
         {actions}
