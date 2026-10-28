@@ -108,13 +108,20 @@ class TestGating:
         seed_rows(pg, fill)
         body = get(client, reader).json()
         assert not {"markup_stats", "ads"} & set(body)
-        assert all("markup" not in row for row in body["items"])
+        assert all("markup" not in row and "costo" not in row for row in body["items"])
         assert pricing == []  # nothing was even computed
+
+    def test_with_ver_ganancia_each_row_has_its_product_cost(self, client, pg, analyst, pricing) -> None:
+        seed_rows(pg, fill)
+        rows = {row["item_id"]: row for row in get(client, analyst).json()["items"]}
+        assert rows["MLA1"]["costo"] == {"amount": 40000.0, "currency": "ARS"}
+        assert rows["MLA3"]["costo"] is None  # no product
 
     @pytest.mark.parametrize(
         "params",
         [
             {"orden": "markup"},
+            {"orden": "costo"},
             {"markup_neg": "true"},
             {"markup_min": "0"},
             {"markup_max": "10"},

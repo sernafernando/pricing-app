@@ -68,10 +68,25 @@ def keyed_sample(name: str) -> Any:
 
 
 def _create_publication_map(target, connection, **kwargs) -> None:
-    """`publicaciones_ml` from its real model, right after `productos_erp` (its foreign key target)."""
+    """`publicaciones_ml` from its real model, right after `productos_erp` (its foreign key target), and the banlists."""
+    from sqlalchemy import text
+
     from app.models.publicacion_ml import PublicacionML
 
     PublicacionML.__table__.create(bind=connection)
+    # Productos' two banlists, which the Producto view's "Sin MLA" leaves out (`filters.product_conditions`). Their
+    # real tables carry a user foreign key, and these schemas have no `usuarios`: same columns, no foreign key.
+    for ddl in BANLIST_DDL:
+        connection.execute(text(ddl))
+
+
+BANLIST_DDL = (
+    "CREATE TABLE producto_banlist (id serial PRIMARY KEY, item_id integer UNIQUE, ean varchar(50) UNIQUE, "
+    "motivo varchar(500), activo boolean NOT NULL DEFAULT true, usuario_id integer, "
+    "fecha_creacion timestamptz DEFAULT now(), fecha_modificacion timestamptz)",
+    "CREATE TABLE items_sin_mla_banlist (id serial PRIMARY KEY, item_id integer UNIQUE NOT NULL, motivo text, "
+    "usuario_id integer, fecha_creacion timestamptz DEFAULT now())",
+)
 
 
 @contextmanager

@@ -34,6 +34,13 @@ describe('PaintColorMenu', () => {
     expect(screen.queryByRole('button', { name: /pintar/i })).not.toBeInTheDocument();
   });
 
+  // S12d: the selection outlives a filter change, so it may hold products the list no longer shows.
+  it('says how many checked products are not on the page, in its menu', async () => {
+    const { user } = setup({ offPageCount: 1 });
+    await user.click(screen.getByRole('button', { name: 'Pintar 2 productos' }));
+    expect(screen.getByText('1 producto seleccionado no está en esta página')).toBeInTheDocument();
+  });
+
   it('on the global layer, only with productos.marcar_color_lote; on a team layer, for its members (every team listed)', () => {
     granted = new Set();
     const { unmount } = render(<PaintColorMenu checkedIds={new Set([77])} equipo="" onPainted={vi.fn()} />);
