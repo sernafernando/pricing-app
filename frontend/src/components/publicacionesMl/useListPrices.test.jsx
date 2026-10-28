@@ -66,6 +66,24 @@ describe('useListPrices', () => {
     expect(result.current.byId.size).toBe(0);
   });
 
+  it('stops asking for the rest of a long page once a part fails, or once the page moves on', async () => {
+    const ids = Array.from({ length: 1000 }, (_, n) => n + 1);
+    const slowAnswer = ({ item_ids }) => new Promise((resolve) => setTimeout(() => resolve(listed({ item_id: Number(item_ids.split(',')[0]) })), 1));
+    productosAPI.listar.mockImplementation(slowAnswer);
+    productosAPI.listar.mockRejectedValueOnce(new Error('HTTP 500'));
+    const failing = renderHook(() => useListPrices(ids, true));
+    await waitFor(() => expect(failing.result.current.error).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // The first 3 parts were already asked; the other 2 of the 5 never are.
+    expect(productosAPI.listar).toHaveBeenCalledTimes(3);
+
+    productosAPI.listar.mockClear();
+    const leaving = renderHook(() => useListPrices(ids, true));
+    leaving.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(productosAPI.listar).toHaveBeenCalledTimes(3);
+  });
+
   it('asks nothing when disabled or with no product on show', () => {
     renderHook(() => useListPrices([7], false));
     renderHook(() => useListPrices([null], true));
