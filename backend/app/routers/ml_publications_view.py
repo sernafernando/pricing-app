@@ -645,6 +645,9 @@ class ProductsResponse(BaseModel):
     orden: str
     dir: str
     can_see_margin: bool
+    # Productos' "Sin MLA" card: the products the product filters keep that no publication is linked to; absent
+    # when a publication filter is on (it has nothing to ask of a product with no publication)
+    sin_mla_count: Optional[int] = None
 
 
 class KpiStripOut(BaseModel):
@@ -761,6 +764,9 @@ def filter_query(
         None, description="csv of Productos' colors and/or `sin_color`, on the layer of `equipo_id` (the global one)"
     ),
     equipo_id: Optional[int] = Query(None, description="color layer (Productos' teams); omitted = the global one"),
+    con_mla: Optional[bool] = Query(
+        None, description="false: the products no publication is linked to (Productos' Sin MLA, Producto view)"
+    ),
     # The caller and the application session, for the permission check of the markup filters (cached per request:
     # every endpoint already authenticates the same way).
     user: Usuario = Depends(get_current_user),
@@ -815,6 +821,7 @@ def filter_query(
             audit_fecha_hasta=audit_fecha_hasta,
             mla_scope=_mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq),
             colores=colores,
+            con_mla=con_mla,
         )
     except FilterError as exc:
         raise _unprocessable(exc) from exc
@@ -1288,6 +1295,8 @@ def get_products(
         listing.bound(db)
         with timer.stage("products"):
             page = products.list_products(db, f, sort_name, sort_dir == "desc", limit, offset)
+        with timer.stage("sin_mla"):
+            sin_mla_count = products.sin_mla_count(db, f)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
@@ -1312,6 +1321,7 @@ def get_products(
         "orden": sort_name,
         "dir": sort_dir,
         "can_see_margin": can_see_margin,
+        **({} if sin_mla_count is None else {"sin_mla_count": sin_mla_count}),
     }
 
 

@@ -198,3 +198,63 @@ class TestSlowQuery:
         monkeypatch.setattr(products_service, "build_base_select", real)
         status_block.REPORT.reset()
         assert get(client, admin_auth_headers).status_code == 200
+
+
+@pytest.fixture()
+def unlinked(sold):
+    with sold.begin() as conn:
+        seed.add_product(conn, 79, "S79", "Switch", marca="Kabel", stock=2)  # no publication is linked to it
+    return sold
+
+
+class TestSinMla:
+    """`con_mla=false`: Productos' "Sin MLA", the products no publication is linked to (service tests:
+    `tests/services/ml_publications/view/test_products_sin_mla_postgres.py`)."""
+
+    def test_lists_the_products_without_mla_and_counts_them(
+        self, client, unlinked, db, rol_admin, admin_auth_headers
+    ) -> None:
+        grant(db, rol_admin, VER)
+        got = body(client, admin_auth_headers, con_mla="false")
+        assert [row["key"] for row in got["rows"]] == ["79"]
+        assert (got["total"], got["mla_count"], got["sin_mla_count"]) == (1, 0, 1)
+        assert got["rows"][0]["publications_count"] == 0
+
+    def test_every_page_says_how_many_products_have_no_mla(
+        self, client, unlinked, db, rol_admin, admin_auth_headers
+    ) -> None:
+        grant(db, rol_admin, VER)
+        assert body(client, admin_auth_headers)["sin_mla_count"] == 1
+        assert body(client, admin_auth_headers, marcas="TP-Link")["sin_mla_count"] == 0
+
+    def test_with_a_publication_filter_the_count_is_absent(
+        self, client, unlinked, db, rol_admin, admin_auth_headers
+    ) -> None:
+        grant(db, rol_admin, VER)
+        assert "sin_mla_count" not in body(client, admin_auth_headers, estado="active")
+
+    def test_a_publication_filter_is_a_422_naming_it(self, client, unlinked, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER)
+        for url in (URL, URL + "/export", "/api/ml-publications/view/product-ids"):
+            response = client.get(url, headers=admin_auth_headers, params={"con_mla": "false", "estado": "active"})
+            assert response.status_code == 422, (url, response.text)
+            assert "estado" in response.text
+
+    def test_con_mla_true_is_the_usual_view(self, client, unlinked, db, rol_admin, admin_auth_headers) -> None:
+        grant(db, rol_admin, VER)
+        usual = body(client, admin_auth_headers)
+        assert body(client, admin_auth_headers, con_mla="true")["rows"] == usual["rows"]
+
+    def test_the_bulk_ids_and_the_export_are_the_same_products(
+        self, client, unlinked, db, rol_admin, admin_auth_headers
+    ) -> None:
+        grant(db, rol_admin, VER)
+        ids = client.get(
+            "/api/ml-publications/view/product-ids", headers=admin_auth_headers, params={"con_mla": "false"}
+        )
+        assert ids.status_code == 200, ids.text
+        assert (ids.json()["item_ids"], ids.json()["count"]) == ([79], 1)
+        csv = client.get(URL + "/export", headers=admin_auth_headers, params={"con_mla": "false"})
+        assert csv.status_code == 200, csv.text
+        lines = [line for line in csv.text.splitlines() if line.strip()]
+        assert len(lines) == 2 and "S79" in lines[1]
