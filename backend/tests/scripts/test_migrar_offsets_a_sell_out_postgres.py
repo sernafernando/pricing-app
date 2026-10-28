@@ -23,6 +23,7 @@ from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
 from app.models.producto import ProductoERP
+from app.models.sell_in import SellInBonoMarca
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem, SellOutDirty
 from app.scripts import migrar_offsets_a_sell_out as script
 from tests.services.sell._schema import throwaway_schema
@@ -46,7 +47,11 @@ COLUMNAS = [
     "avisos",
 ]
 VENCIDO = "Vencido el {}: migrarlo cambia las cifras históricas de sell out en Métricas ML"
-_STUBS = ["CREATE TABLE usuarios (id INTEGER PRIMARY KEY)", "INSERT INTO usuarios VALUES (7), (8)"]
+_STUBS = [
+    "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
+    "INSERT INTO usuarios VALUES (7), (8)",
+    "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY)",  # sell_in_bonos_marca.pedido_id's FK target
+]
 _TABLES = [
     ProductoERP.__table__,
     OffsetGrupo.__table__,
@@ -58,6 +63,7 @@ _TABLES = [
     SellOutCampanaItem.__table__,
     SellOutDirty.__table__,
     Auditoria.__table__,
+    SellInBonoMarca.__table__,
 ]
 # Every table the script could write, for the dry-run check.
 _ESCRITAS = (
@@ -89,6 +95,7 @@ def _clean(engine: Engine) -> Iterator[None]:
             "auditoria",
             "sell_out_dirty",
             "offsets_migracion_pendientes",
+            "sell_in_bonos_marca",
         ):
             conn.execute(text(f"DELETE FROM {table}"))
 
@@ -345,18 +352,6 @@ def test_an_offset_ending_today_is_still_active(engine, correr) -> None:
 
 
 # ── Not migrated ─────────────────────────────────────────────────────
-
-
-def test_a_cost_percentage_offset_waits_for_the_sell_in_percentage(engine, correr) -> None:
-    _no_migrado(
-        engine,
-        correr,
-        "esperando sell-in % (T3g)",
-        marca="TP-LINK",
-        tipo_offset="porcentaje_costo",
-        monto=None,
-        porcentaje=4,
-    )
 
 
 def test_a_fixed_amount_offset_is_not_migrated(engine, correr) -> None:
@@ -1065,3 +1060,149 @@ def test_an_offset_whose_amount_changed_after_its_group_migrated_goes_to_review(
         1,
         0,
     )
+
+
+# ── Cost percentage (T22e) and fixed amount ──────────────────────────
+
+
+def _bono(engine: Engine, porcentaje="4", **values) -> int:
+    row = {
+        "alcance": "marca",
+        "marca": "TP-LINK",
+        "categoria": None,
+        "tipo": "porcentaje",
+        "monto_unit": None,
+        "porcentaje": porcentaje,
+        "moneda": "ARS",
+        "fecha_desde": date(2026, 10, 1),
+        "fecha_hasta": date(2026, 12, 31),
+        "estado": "activa",
+        "usuario_id": 7,
+        **values,
+    }
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                f"INSERT INTO sell_in_bonos_marca ({', '.join(row)}) VALUES ({', '.join(':' + k for k in row)}) "
+                "RETURNING id"
+            ),
+            row,
+        ).scalar_one()
+
+
+SIN_BONO = "Porcentaje sobre costo: no hay un bono de sell in equivalente; cargarlo a mano"
+
+
+def _porcentaje(engine, correr, **values) -> tuple[int, int, dict, dict]:
+    """A cost-percentage offset run with --apply: (offset id, exit code, its CSV row, its review row);
+    nothing is created, neither a campaign nor a bono."""
+    bonos = _count(engine, "sell_in_bonos_marca")
+    offset_id = _offset(
+        engine, **{"marca": "TP-LINK", "tipo_offset": "porcentaje_costo", "monto": None, "porcentaje": 4, **values}
+    )
+    code, summary, filas = correr("--apply")
+    assert _campanas(engine) == [] and _count(engine, "offset_grupos") == 0
+    assert _count(engine, "sell_in_bonos_marca") == bonos
+    assert (filas[offset_id]["resultado"], filas[offset_id]["campana_id"]) == ("no migrado", "")
+    assert (summary["no_migrados"], summary["pendientes"], summary["con_error"]) == (1, 1, [])
+    return offset_id, code, filas[offset_id], _pendientes(engine)[offset_id]
+
+
+def test_a_cost_percentage_already_loaded_by_hand_as_a_bono_is_reported_with_it(engine, correr) -> None:
+    bono = _bono(engine, marca="tp-link ")  # same brand, case and spaces aside
+    _bono(engine, marca="EPSON")
+    _bono(engine, estado="anulada")
+    _bono(engine, alcance="categoria", marca=None, categoria="TP-LINK")
+    _bono(engine, tipo="por_unidad", porcentaje=None, monto_unit=5)
+
+    _, code, fila, pendiente = _porcentaje(engine, correr, marca=" TP-Link")
+
+    assert code == 0
+    assert (fila["motivo"], fila["avisos"]) == (f"ya cargado a mano como bono #{bono}", "")
+    assert (pendiente["motivo"], pendiente["avisos"], pendiente["porcentaje"]) == (fila["motivo"], None, 4.0)
+
+
+def test_a_bono_with_another_percentage_is_reported_with_a_warning(engine, correr) -> None:
+    bono = _bono(engine, porcentaje="3.5")
+
+    _, _, fila, pendiente = _porcentaje(engine, correr)
+
+    assert fila["motivo"] == f"ya cargado a mano como bono #{bono}"
+    assert fila["avisos"] == pendiente["avisos"] == "el bono tiene 3,5 % y el offset 4 %"
+
+
+def test_several_equivalent_bonos_are_all_named(engine, correr) -> None:
+    uno, otro = _bono(engine), _bono(engine, porcentaje="5")
+
+    _, _, fila, _ = _porcentaje(engine, correr)
+
+    assert fila["motivo"] == f"ya cargado a mano como bonos #{uno}, #{otro}"
+    assert fila["avisos"] == f"el bono #{otro} tiene 5 % y el offset 4 %"
+
+
+def test_a_cost_percentage_without_an_equivalent_bono_is_stored_with_its_detail(engine, correr) -> None:
+    _bono(engine, marca="EPSON")
+
+    _, code, fila, pendiente = _porcentaje(engine, correr)
+
+    assert code == 0
+    assert fila["motivo"] == pendiente["motivo"] == SIN_BONO
+    assert (pendiente["tipo_offset"], pendiente["marca"], pendiente["porcentaje"]) == (
+        "porcentaje_costo",
+        "TP-LINK",
+        4.0,
+    )
+
+
+@pytest.mark.parametrize(
+    "alcance", [{"marca": None, "categoria": "TP-LINK"}, {"marca": None, "item_id": 2964}, {"categoria": "Routers"}]
+)
+def test_a_cost_percentage_not_scoped_to_a_brand_alone_has_no_equivalent_bono(engine, correr, alcance) -> None:
+    _bono(engine)
+
+    _, _, fila, _ = _porcentaje(engine, correr, **alcance)
+
+    assert fila["motivo"] == SIN_BONO
+
+
+@pytest.mark.parametrize(
+    "fechas,coincide",
+    [
+        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": date(2026, 6, 30)}, False),  # expired before the bono
+        ({"fecha_desde": date(2027, 1, 1), "fecha_hasta": None}, False),  # open-ended, after the bono
+        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": None}, True),  # open-ended, reaching the bono
+        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": date(2026, 10, 1)}, True),  # ends on its first day
+        ({"fecha_desde": date(2026, 12, 31), "fecha_hasta": date(2027, 2, 28)}, True),  # starts on its last day
+    ],
+    ids=["vencido", "abierto_despues", "abierto_cubre", "termina_el_primer_dia", "empieza_el_ultimo_dia"],
+)
+def test_a_cost_percentage_matches_only_a_bono_covering_its_dates(engine, correr, fechas, coincide) -> None:
+    # A4: a bono of another period is not the one loaded by hand for this offset.
+    bono = _bono(engine)  # 2026-10-01..2026-12-31
+
+    _, code, fila, pendiente = _porcentaje(engine, correr, **fechas)
+
+    assert code == 0
+    motivo = f"ya cargado a mano como bono #{bono}" if coincide else SIN_BONO
+    assert (fila["motivo"], fila["avisos"]) == (motivo, "")
+    assert (pendiente["motivo"], pendiente["avisos"]) == (motivo, None)
+
+
+def test_only_the_bonos_covering_the_offset_dates_are_named(engine, correr) -> None:
+    _bono(engine, porcentaje="5", fecha_desde=date(2026, 1, 1), fecha_hasta=date(2026, 2, 28))
+    cubre = _bono(engine)
+
+    _, _, fila, _ = _porcentaje(engine, correr)
+
+    assert (fila["motivo"], fila["avisos"]) == (f"ya cargado a mano como bono #{cubre}", "")
+
+
+def test_a_fixed_amount_offset_is_stored_for_review(engine, correr) -> None:
+    offset_id = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=10000)
+
+    code, _, filas = correr("--apply")
+
+    assert code == 0
+    motivo = "Monto fijo: no tiene equivalente en una campaña por unidad"
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == ("no migrado", motivo)
+    assert (_pendientes(engine)[offset_id]["motivo"], _campanas(engine)) == (motivo, [])
