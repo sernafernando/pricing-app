@@ -102,7 +102,13 @@ describe('priceColumns', () => {
     expect(free.container).toHaveTextContent('(+6%)');
     expect(screen.queryByRole('img')).toBeNull();
     free.unmount();
-    expect(cell(web({ porcentaje_markup_web: null, preservar_porcentaje_web: true }))).toBe('950,00');
+    // A web transfer under the clásica carries its own sign; 0 reads as +0.
+    expect(cell(web({ porcentaje_markup_web: -3 }))).toContain('(-3%)');
+    expect(cell(web({ porcentaje_markup_web: 0 }))).toContain('(+0%)');
+    const bare = draw({ porcentaje_markup_web: null, preservar_porcentaje_web: true });
+    expect(bare.container).toHaveTextContent(/^950,00$/);
+    expect(screen.queryByRole('img')).toBeNull();
+    bare.unmount();
     expect(cell(web({ participa_web_transferencia: false, porcentaje_markup_web: 6 }))).toBe('—');
   });
 

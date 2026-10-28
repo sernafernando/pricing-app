@@ -1840,12 +1840,12 @@ describe('row colors and the color layer (S8)', () => {
     it(`1366x768 ${theme}: the best offer's details sit under its price, each on one line inside the cell`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme });
       await expect.element(screen.getByText('Hasta 30/11').first()).toBeVisible();
-      // The web transfer's % line is a price detail too.
-      const lines = [...document.querySelectorAll('[data-price-detail]')].filter((line) => !line.textContent.startsWith('(+'));
-      expect(lines.map((line) => line.textContent).slice(0, 4)).toEqual(['Aporte 12,50%', 'Rebate $ 5.174,88', 'Hasta 30/11', 'PVP $ 47.999,00']);
-      const cell = lines[0].closest('td');
+      // The best offer's cell only (the web transfer's % line is a price detail too).
+      const cell = screen.getByText('Hasta 30/11').first().element().closest('td');
+      const lines = [...cell.querySelectorAll('[data-price-detail]')];
+      expect(lines.map((line) => line.textContent)).toEqual(['Aporte 12,50%', 'Rebate $ 5.174,88', 'Hasta 30/11', 'PVP $ 47.999,00']);
       const cellBox = cell.getBoundingClientRect();
-      for (const line of lines.slice(0, 4)) {
+      for (const line of lines) {
         const box = line.getBoundingClientRect();
         expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
         expect(box.right).toBeLessThanOrEqual(cellBox.right);
