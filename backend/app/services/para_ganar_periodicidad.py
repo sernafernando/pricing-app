@@ -109,9 +109,7 @@ def validate_scope_payload(
         }
     # rules
     if not tipos and not pricelists and not tiendas:
-        raise ValueError(
-            "scope_mode=rules requiere tipos_publicacion, pricelist_ids o tienda_oficial_ids"
-        )
+        raise ValueError("scope_mode=rules requiere tipos_publicacion, pricelist_ids o tienda_oficial_ids")
     return {
         "scope_mode": SCOPE_RULES,
         "mlas": [],

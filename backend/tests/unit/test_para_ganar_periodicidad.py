@@ -55,9 +55,7 @@ def test_periodicidad_requires_auth(client: TestClient) -> None:
     assert response.status_code in (401, 403)
 
 
-def test_periodicidad_put_get_delete_roundtrip(
-    client: TestClient, rma_superadmin_user
-) -> None:
+def test_periodicidad_put_get_delete_roundtrip(client: TestClient, rma_superadmin_user) -> None:
     headers = _auth(rma_superadmin_user)
     ean = "7790001122334"
 
@@ -105,9 +103,7 @@ def test_periodicidad_put_get_delete_roundtrip(
     assert client.get(f"/api/para-ganar/periodicidad/{ean}", headers=headers).status_code == 404
 
 
-def test_periodicidad_put_rejects_bad_rules(
-    client: TestClient, rma_superadmin_user
-) -> None:
+def test_periodicidad_put_rejects_bad_rules(client: TestClient, rma_superadmin_user) -> None:
     response = client.put(
         "/api/para-ganar/periodicidad/779999",
         headers=_auth(rma_superadmin_user),
