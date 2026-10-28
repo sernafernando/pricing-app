@@ -36,6 +36,12 @@ import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { withProductSelection } from '../components/publicacionesMl/productSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
+import useListPrices from '../components/publicacionesMl/useListPrices';
+import PriceModeSelect from '../components/publicacionesMl/PriceModeSelect';
+import { canViewProductPrices, pricePermissions } from '../components/pricing/productPricePermissions';
+import useInlinePriceEdit from '../components/publicacionesMl/useInlinePriceEdit';
+import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
+import PricingModalTesla from '../components/PricingModalTesla';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
@@ -45,6 +51,7 @@ import {
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
+  PRICE_MODES,
   SIN_MLA,
   buildExportParams,
   buildItemsParams,
@@ -182,6 +189,13 @@ const PRICE_LIST_EXPORT_PERMISSIONS = [
 const PRICE_LIST_SET =
   'Se exportan los productos vinculados a las publicaciones de los filtros actuales; las publicaciones sin producto vinculado quedan afuera.';
 
+// The r / w / o toggles (S9): the `pricePermissions` flag each needs, and its name in the messages.
+const TOGGLE_PERMISSION = {
+  rebate: ['canToggleRebate', 'el rebate'],
+  web: ['canToggleWebTransf', 'web transferencia'],
+  tarjetas: ['canToggleOutOfCards', 'fuera de tarjetas'],
+};
+
 export default function PublicacionesML() {
   const { tienePermiso } = usePermisos();
   // The markup column, filters and sort exist only for this permission (S68.1).
@@ -192,6 +206,8 @@ export default function PublicacionesML() {
   const canSeeKpis = tienePermiso('ml_metricas.ver');
   // The rows' Métricas figures (`metrics`) are Métricas' numbers too: same permission as the strip.
   const canSeeSales = canSeeKpis;
+  // Productos' price columns (S11): for who sees Productos' prices, as Productos and the panel's Precios tab.
+  const canSeePrices = canViewProductPrices(tienePermiso);
   // The period belongs to the strip alone: it is not a filter and never reaches `/items`.
   const [periodo, setPeriodo] = useState(30);
 
@@ -376,6 +392,41 @@ export default function PublicacionesML() {
     enabled: producto && !layerPending,
   });
 
+  // Productos' prices of the products on show: the publications' linked products, or the product rows themselves.
+  // The tree loads its rows by itself and has no price columns.
+  const listedProductIds = useMemo(
+    () =>
+      producto
+        ? productRows.rows.map((row) =>
+            row.type === 'node' ? row.node.productoItemId : row.type === 'item' ? row.item.link?.producto_item_id : null,
+          )
+        : (data?.items ?? EMPTY_ROWS).map((item) => item.link?.producto_item_id),
+    [producto, productRows.rows, data],
+  );
+  // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it.
+  const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
+  // A price typed in a cell (S11c) is saved as Productos does; the list is reloaded after it, as after a panel write
+  // (its prices with it).
+  const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
+  const { message: priceMessage } = priceEditor;
+  useEffect(() => {
+    if (priceMessage) showToast(priceMessage.text, priceMessage.tone === 'ok' ? 'success' : 'error');
+  }, [priceMessage, showToast]);
+  const priceWritePermissions = useMemo(() => pricePermissions(tienePermiso), [tienePermiso]);
+  // Productos' pricing modal (P3c), with Productos' own gate (`puedeEditar`): any price edit or rebate/web toggle.
+  const canCalculatePrice = ['canEditClasica', 'canEditMlCuotas', 'canToggleRebate', 'canToggleWebTransf'].some(
+    (flag) => priceWritePermissions[flag],
+  );
+  const [pricingProduct, setPricingProduct] = useState(null);
+  const priceEdit = useMemo(
+    () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, saving: priceEditor.saving }),
+    [priceWritePermissions, priceEditor.save, priceEditor.saving],
+  );
+  const cyclePriceMode = () => {
+    const next = PRICE_MODES[(PRICE_MODES.indexOf(filters.modo) + 1) % PRICE_MODES.length];
+    setFilters({ modo: next === PRICE_MODES[0] ? '' : next });
+  };
+
   const eventsEnabled = data?.events_enabled ?? false;
   // The divergence filter brings its own column: the SKU next to the product it names and the linked one.
   const skuDivergence = filters.vinculo.includes('sku_divergente');
@@ -392,8 +443,28 @@ export default function PublicacionesML() {
         dimension: filters.agrupar,
         familias: filters.familias === '1',
         skuDivergence,
+        priceMode: filters.modo,
+        prices: canSeePrices ? listPrices : null,
+        priceEdit,
+        onCalculatePrice: canCalculatePrice ? setPricingProduct : null,
       }),
-    [eventsEnabled, canSeeMargin, canSeeSales, expandedIds, toggleVariations, agrupado, producto, filters.agrupar, filters.familias, skuDivergence],
+    [
+      eventsEnabled,
+      canSeeMargin,
+      canSeeSales,
+      expandedIds,
+      toggleVariations,
+      agrupado,
+      producto,
+      filters.agrupar,
+      filters.familias,
+      skuDivergence,
+      filters.modo,
+      canSeePrices,
+      listPrices,
+      priceEdit,
+      canCalculatePrice,
+    ],
   );
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
@@ -476,22 +547,45 @@ export default function PublicacionesML() {
   const paintProduct = usePaintProduct({ equipo: rowFilters.equipo, onPainted: colorOverlay.apply, showToast });
   // The product of a focused row: a publication's linked product, or the product row itself (Producto view). The
   // Agrupado tree keeps its rows to itself.
+  const productIdOfRow = (key) => {
+    const row = producto ? productRows.rows.find((candidate) => candidate.id === key) : null;
+    return producto
+      ? row?.type === 'node'
+        ? row.node.productoItemId
+        : row?.item?.link?.producto_item_id
+      : items.find((item) => item.item_id === key)?.link?.producto_item_id;
+  };
   const paintRow = (key, color) => {
     if (agrupado) {
       showToast('Pintar con el teclado funciona en las vistas Publicaciones y Producto', 'error');
       return;
     }
-    const row = producto ? productRows.rows.find((candidate) => candidate.id === key) : null;
-    const productId = producto
-      ? row?.type === 'node'
-        ? row.node.productoItemId
-        : row?.item?.link?.producto_item_id
-      : items.find((item) => item.item_id === key)?.link?.producto_item_id;
+    const productId = productIdOfRow(key);
     if (productId == null) {
       showToast('La publicación no tiene producto vinculado', 'error');
       return;
     }
     paintProduct(productId, color);
+  };
+  // r / w / o (S9): flip the focused row's product rebate, web transfer or "fuera de tarjetas", as in Productos. They
+  // write from the product's own figures (its stored percentages), so they wait for its prices.
+  const toggleRow = (key, kind) => {
+    const [permission, name] = TOGGLE_PERMISSION[kind];
+    if (!priceWritePermissions[permission]) {
+      showToast(`No tenés permiso para cambiar ${name}`, 'error');
+      return;
+    }
+    const productId = productIdOfRow(key);
+    if (productId == null) {
+      showToast('La publicación no tiene producto vinculado', 'error');
+      return;
+    }
+    const product = listPrices.byId.get(productId);
+    if (!product) {
+      showToast('Los precios del producto todavía no están cargados', 'error');
+      return;
+    }
+    priceEditor.toggle(kind, product);
   };
   // F6 / F7 step through [Global, ...the user's teams], wrapping around, as in Productos.
   const cycleLayer = (delta) => {
@@ -512,6 +606,8 @@ export default function PublicacionesML() {
     onOpenFilter: openFilter,
     onPaintRow: paintRow,
     onCycleLayer: cycleLayer,
+    onCycleMode: canSeePrices && !agrupado ? cyclePriceMode : undefined,
+    onToggleRow: canSeePrices && !agrupado ? toggleRow : undefined,
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
@@ -718,6 +814,14 @@ export default function PublicacionesML() {
           />
           <AuditFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
           <PromoFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
+          {/* Productos' price columns (S11): how the rows are looked at, like the Capa; the header has no room left. */}
+          {canSeePrices && !agrupado && (
+            <PriceModeSelect
+              value={filters.modo}
+              onChange={(value) => setFilters({ modo: value === PRICE_MODES[0] ? '' : value })}
+              labelClassName={styles.filterLabel}
+            />
+          )}
         </div>
         {showMarkupFilters && (
           <div className={styles.filterBand}>
@@ -854,6 +958,34 @@ export default function PublicacionesML() {
         </div>
       )}
       {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+      {priceEditor.pending && (
+        <ModalTesla
+          isOpen
+          onClose={priceEditor.saving ? () => {} : priceEditor.cancel}
+          title={priceEditor.pending.kind === 'zero' ? 'Borrar precio' : 'Markup negativo'}
+          size="sm"
+          footer={
+            <ModalFooterButtons
+              // A write on its way finishes anyway: the confirmation stays until it does.
+              onCancel={priceEditor.saving ? () => {} : priceEditor.cancel}
+              onConfirm={priceEditor.confirm}
+              confirmText={priceEditor.pending.kind === 'zero' ? 'Borrar el precio' : 'Guardar igual'}
+              confirmLoading={priceEditor.saving}
+            />
+          }
+        >
+          <p>{priceEditor.warning}</p>
+        </ModalTesla>
+      )}
+      <PricingModalTesla
+        isOpen={Boolean(pricingProduct)}
+        producto={pricingProduct}
+        onClose={() => setPricingProduct(null)}
+        onSave={() => {
+          setPricingProduct(null);
+          reloadList();
+        }}
+      />
       {priceListsOpen && (
         <ExportModal
           onClose={() => setPriceListsOpen(false)}

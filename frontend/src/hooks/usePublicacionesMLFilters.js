@@ -132,7 +132,11 @@ const SHAPE_KEYS = ['vista', 'familias', 'agrupar'];
 // The team whose color layer paints the rows ('' = the global layer, as in Productos): how the rows are looked at,
 // so it neither resets the page nor goes away with "Limpiar filtros".
 const LAYER_KEY = 'equipo';
-const KEPT_ON_RESET = [...SHAPE_KEYS, LAYER_KEY];
+// Which of Productos' price columns show (S11): Normal (clásica, rebate, oferta, web), Cuotas or PVP. Like the
+// layer, how the rows are looked at: no request, no page reset, kept by "Limpiar filtros".
+export const PRICE_MODES = ['normal', 'cuotas', 'pvp'];
+const MODE_KEY = 'modo';
+const KEPT_ON_RESET = [...SHAPE_KEYS, LAYER_KEY, MODE_KEY];
 const DIRECTIONS = ['asc', 'desc'];
 const SORT_KEYS = ['orden', 'dir', 'limite'];
 const VIEW_KEYS = ['pagina', 'sel', 'tab', 'prod'];
@@ -149,6 +153,10 @@ export const DEFAULT_DIRECTION = {
   stock_propio: 'desc',
   stock_full: 'desc',
   stock_erp: 'desc',
+  // The linked product's, as Productos sorts them: A to Z, the cheapest first.
+  codigo: 'asc',
+  marca: 'asc',
+  costo: 'asc',
   // Worst variation first: the most negative markup on top.
   markup: 'asc',
   // Métricas' figures: highest first, as Métricas orders them.
@@ -160,7 +168,7 @@ export const DEFAULT_DIRECTION = {
 };
 
 const SALES_SORTS = new Set(['unidades_7d', 'unidades_30d', 'facturado_30d', 'markup_30d', 'total_gauss_30d']);
-const MARGIN_SORTS = new Set(['markup', 'markup_30d', 'total_gauss_30d']);
+const MARGIN_SORTS = new Set(['markup', 'markup_30d', 'total_gauss_30d', 'costo']);
 
 /** Métricas' default (Facturado 30D) for who sees the sales; the activity otherwise. */
 export const defaultSortFor = ({ canSeeSales = false } = {}) => (canSeeSales ? 'facturado_30d' : 'actividad');
@@ -245,6 +253,8 @@ function readFilters(params, { canSeeMargin = false } = {}) {
   filters.tab = params.get('tab') ?? '';
   filters.prod = params.get('prod') ?? '';
   filters.equipo = params.get(LAYER_KEY) ?? '';
+  const modo = params.get(MODE_KEY);
+  filters.modo = PRICE_MODES.includes(modo) ? modo : PRICE_MODES[0];
   return filters;
 }
 
