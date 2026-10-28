@@ -125,4 +125,40 @@ describe('ProductCell', () => {
     );
     expect(screen.getByText(/ex 1214/)).toBeInTheDocument();
   });
+
+  describe("the MLA's stored photo in the thumbnail box", () => {
+    const PHOTO = 'https://http2.mlstatic.com/D_NQ_NP_1-O.jpg';
+
+    it('shows the first item\'s photo instead of the category icon', () => {
+      const { container } = render(
+        <ProductCell items={[{ item_id: 'MLA1', title: 'Impresora', quantity: 1, thumbnail_url: PHOTO }]} category="IMPRESORAS" />,
+      );
+      expect(container.querySelector('img')).toHaveAttribute('src', PHOTO);
+      // The photo takes the icon's place, and its job too: it still announces the category.
+      expect(screen.getByRole('img', { name: 'IMPRESORAS' })).toBe(container.querySelector('img'));
+    });
+
+    it('without a photo keeps the category icon', () => {
+      const { container } = render(
+        <ProductCell items={[{ item_id: 'MLA1', title: 'Impresora', quantity: 1, thumbnail_url: null }]} category="IMPRESORAS" />,
+      );
+      expect(container.querySelector('img')).toBeNull();
+      expect(screen.getByRole('img', { name: 'IMPRESORAS' })).toBeInTheDocument();
+    });
+
+    it('without a category the photo is decorative, as the icon was', () => {
+      const { container } = render(
+        <ProductCell items={[{ item_id: 'MLA1', title: 'Impresora', quantity: 1, thumbnail_url: PHOTO }]} category={null} />,
+      );
+      expect(container.querySelector('img')).toHaveAttribute('alt', '');
+      expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    });
+
+    it("a pack member sub-row has no thumbnail, photo or not", () => {
+      const { container } = render(
+        <ProductCell variant="member" items={[{ item_id: 'MLA1', title: 'Impresora', quantity: 1, thumbnail_url: PHOTO }]} />,
+      );
+      expect(container.querySelector('img')).toBeNull();
+    });
+  });
 });

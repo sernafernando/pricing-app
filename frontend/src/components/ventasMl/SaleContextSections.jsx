@@ -1,5 +1,6 @@
 import { Package } from 'lucide-react';
 import CopyButton from './CopyButton';
+import SaleItemThumbnail from './SaleItemThumbnail';
 import StatusPill from './StatusPill';
 import styles from './SaleDetailPanel.module.css';
 import { MODO_LOGISTICO_LABELS, formatDay, paymentMethodLabel } from '../../utils/ventasMlFormat';
@@ -20,7 +21,8 @@ function Row({ label, children }) {
 
 /**
  * Producto card (Stitch `detalle`): one block per item of the order, with
- * its SKU, publication, quantity and unit price. From the detail response's
+ * the first stored photo of its MLA (`SaleItemThumbnail`, the `Package`
+ * placeholder without one), its SKU, publication, quantity and unit price. From the detail response's
  * own `items`; absent fields are left out, never printed blank.
  */
 export function ProductSection({ items }) {
@@ -31,9 +33,9 @@ export function ProductSection({ items }) {
       <h3 className={styles.cardTitle}>Producto{list.length > 1 ? 's' : ''}</h3>
       {list.map((item, index) => (
         <div key={`${index}-${item.item_id}-${item.variation_id ?? ''}`} className={styles.productBlock}>
-          <div className={styles.productThumb} aria-hidden="true">
+          <SaleItemThumbnail url={item.thumbnail_url} className={styles.productThumb} aria-hidden="true">
             <Package size={20} />
-          </div>
+          </SaleItemThumbnail>
           <div className={styles.productInfo}>
             <p className={styles.productTitle}>{item.title || item.item_id}</p>
             <dl className={styles.contextList}>
