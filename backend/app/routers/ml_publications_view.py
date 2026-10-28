@@ -921,6 +921,14 @@ PROMO_STATES = ("disponible", "aplicada", "sin_aplicar")
 FILTER_UNAVAILABLE_CODE = "filtro_no_disponible"
 
 
+class MlaScope(NamedTuple):
+    """The MLAs the promo and PxQ filters leave (`scope`), the PxQ ones alone (`pxq`) and whether a promo filter is on."""
+
+    scope: Optional[frozenset[str]]
+    pxq: Optional[frozenset[str]]
+    promo_filter: bool
+
+
 def _mla_scope(
     promo_tipos: Optional[str],
     promo_estado: Optional[str],
@@ -970,12 +978,6 @@ def _mla_scope(
             pxq = found
         scope = found if scope is None else scope & found
     return MlaScope(scope=scope, pxq=pxq, promo_filter=promo is not None)
-
-
-class MlaScope(NamedTuple):
-    scope: Optional[frozenset[str]]
-    pxq: Optional[frozenset[str]]
-    promo_filter: bool
 
 
 class _RecentSet:

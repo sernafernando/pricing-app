@@ -18,7 +18,8 @@ import { COLORES_DISPONIBLES } from '../utils/productosConstants';
  *    `prod` is the product row whose panel is open (`/view/products` `key`, `0` = "Sin producto").
  *    The sort (`orden`, `dir`) and the page size (`limite`) also go back to
  *    page 1 but need no new facets.
- *    `vista` (`precios` = the publication rows with Productos' prices, `producto` = the product rows, `agrupado` = the tree) and `familias` (family nodes in the tree)
+ *    `vista` (`precios` = the publication rows with Productos' prices, `producto` = the product rows,
+ *    `agrupado` = the tree) and `familias` (family nodes in the tree)
  *    choose how the set is shown: they go back to page 1 and close the
  *    selection too, but are not filters (no new facets). So does `agrupar`,
  *    the dimension the tree is grouped by (`AGRUPAR_DIMENSIONS`, default marca).

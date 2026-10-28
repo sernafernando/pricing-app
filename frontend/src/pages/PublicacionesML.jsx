@@ -420,7 +420,8 @@ export default function PublicacionesML() {
         : (data?.items ?? EMPTY_ROWS).map((item) => item.link?.producto_item_id),
     [producto, productRows.rows, data],
   );
-  // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it.
+  // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it. Read in every list
+  // view, not only Precios: the r / w / o shortcuts toggle the focused row's product from these prices.
   const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
   // Productos' "markup con offsets" under the clásica markup: the offsets are about the cost, so only with the margin.
   const listOffsets = useListOffsets(canSeePrices && canSeeMargin && !agrupado);
