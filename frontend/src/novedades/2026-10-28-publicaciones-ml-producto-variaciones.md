@@ -10,6 +10,7 @@ En **Publicaciones ML**, una publicación con variaciones vinculadas a un produc
 - Si sus variaciones apuntan a productos distintos, aparece en cada uno, y el total de publicaciones de arriba la cuenta una sola vez.
 - **Sin producto** queda solo para las publicaciones sin ningún producto vinculado, ni en la publicación ni en una variación activa.
 - El árbol de grupos y las acciones masivas por producto usan la misma regla.
+- Los filtros de **color**, **mejor oferta** por producto, **marca**, **categoría** y la búsqueda por nombre de producto también ven el producto de las variaciones. Si sus variaciones son de marcas distintas, la publicación toma la marca de una sola de ellas.
 
 ## Cómo se usa
 

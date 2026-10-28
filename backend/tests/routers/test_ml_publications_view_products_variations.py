@@ -95,13 +95,19 @@ class TestVariationLinks:
         assert (got["item_ids"], got["sin_producto"]) == ([77, 78], 3)
 
     def test_the_groups_tree_puts_a_publication_under_each_of_its_products(self, client, admin_auth_headers):
-        # MLA5..MLA8 and MLA2 have no item-level link, so no brand/category: the tree's "__none__" branch.
-        got = _json(client, admin_auth_headers, "groups", path="__none__,__none__,__none__")
+        leaves: dict[str, int] = {}
+        pending: list[list[str]] = [[]]
+        while pending:
+            path = pending.pop()
+            for node in _json(client, admin_auth_headers, "groups", path=",".join(path))["nodes"]:
+                if node["kind"] != "producto":
+                    pending.append([*path, node["key"]])
+                    continue
+                leaves[node["key"]] = leaves.get(node["key"], 0) + node["count"]
+                # each leaf opens exactly its count
+                assert len(_items(client, admin_auth_headers, **node["params"])) == node["count"]
 
-        leaves = {node["key"]: (node["count"], node["params"]) for node in got["nodes"]}
-        assert {key: count for key, (count, _) in leaves.items()} == {"77": 2, "78": 1, "__none__": 3}
-        for count, params in leaves.values():  # each leaf opens exactly its count
-            assert len(_items(client, admin_auth_headers, **params)) == count
+        assert leaves == {"77": 3, "78": 1, "__none__": 3}
 
 
 @pytest.fixture()
@@ -144,3 +150,10 @@ class TestVariationLinksInTheProductFilters:
             "MLA5",
             "MLA6",
         ]
+
+    def test_the_brand_is_the_linked_product_s(self, client, admin_auth_headers):
+        # MLA5/MLA6 are linked per variation only: their brand is their (first) variation product's, 77 TP-Link
+        assert _items(client, admin_auth_headers, marcas="TP-LINK") == ["MLA1", "MLA5", "MLA6"]
+        assert _items(client, admin_auth_headers, q="Router") == ["MLA1", "MLA5", "MLA6"]  # the product's name too
+        roots = {n["key"]: n["count"] for n in _json(client, admin_auth_headers, "groups")["nodes"]}
+        assert roots == {"TP-LINK": 3, "__none__": 3}

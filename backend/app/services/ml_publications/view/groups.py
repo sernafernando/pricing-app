@@ -20,9 +20,9 @@ Rules worth knowing before reading the code:
 * Every publication is in exactly ONE node of every group level, so the counts of a level add up to their parent's.
   The product level is the exception: a publication sits under EACH of its linked products (`filters.product_links`:
   an item linked per variation can name several), once per product, so its counts may add up to more than the parent.
-  Brand, category and subcategory come from the item-level link's product (`T.p`): a publication without one -- no
-  link, or linked per variation only -- sits under the `__none__` brand, category and subcategory, and under its
-  variations' products there ("Sin producto", `__none__`, when it has none).
+  Brand, category and subcategory come from ONE product (`T.p`, `filters.primary_product`: the item-level link's,
+  else the lowest-id live variation product), so the group levels keep one node per publication; a publication with
+  no linked product sits under the `__none__` brand, category and subcategory, in "Sin producto" (`__none__`).
 * A node's `count` is the `/items` total with the node's own filters (`params`): the node is built from the SAME
   base select (`filters.build_base_select`) the list is, so the two cannot disagree. `params` is what the screen
   appends to the user's filters to fetch the publications of a node; the leaves are never served by this module.

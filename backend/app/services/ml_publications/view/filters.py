@@ -551,7 +551,7 @@ def joined() -> Any:
     )
     linked = orm_join(priced, T.l, and_(T.l.item_id == T.i.item_id, T.l.variation_id == LINK_ITEM_LEVEL), isouter=True)
     products = orm_join(
-        orm_join(linked, T.p, T.p.item_id == T.l.producto_item_id, isouter=True),
+        orm_join(linked, T.p, T.p.item_id == primary_product(), isouter=True),
         T.ps,
         T.ps.item_id == T.l.suggested_producto_item_id,
         isouter=True,
@@ -575,6 +575,15 @@ def product_links(name: str = "product_links") -> Any:
         .distinct()
         .subquery(name)
     )
+
+
+def primary_product() -> ColumnElement:
+    """The product whose catalog columns the row reads (`T.p`: brand, category, subcategory, name, PM): its
+    item-level link's, else the first (lowest id) of its live variations' linked products (`product_links`), so a
+    publication linked per variation only has its product's brand. The product level reads every one of them."""
+    pl = product_links("pl_primary")
+    first = select(func.min(pl.c.producto_item_id)).where(pl.c.item_id == T.i.item_id).scalar_subquery()
+    return func.coalesce(T.l.producto_item_id, first)
 
 
 def has_product(products: Optional[list[int]] = None, *, outside: Optional[list[int]] = None) -> ColumnElement:
