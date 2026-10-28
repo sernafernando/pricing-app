@@ -109,6 +109,10 @@ describe('priceColumns', () => {
     expect(bare.container).toHaveTextContent(/^950,00$/);
     expect(screen.queryByRole('img')).toBeNull();
     bare.unmount();
+    // A % that is not a number (or blank) draws no line rather than '(+NaN%)' or '(+0%)'; a numeric string still reads.
+    expect(cell(web({ porcentaje_markup_web: 'n/a' }))).toBe('950,00');
+    expect(cell(web({ porcentaje_markup_web: '' }))).toBe('950,00');
+    expect(cell(web({ porcentaje_markup_web: '6.5' }))).toContain('(+6,5%)');
     expect(cell(web({ participa_web_transferencia: false, porcentaje_markup_web: 6 }))).toBe('—');
   });
 

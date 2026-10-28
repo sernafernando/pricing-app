@@ -8,7 +8,7 @@ En Publicaciones ML, la celda **Web Transf.** ahora muestra debajo del precio el
 
 ## Cómo se usa
 
-1. Abrir **Reportes → Publicaciones ML** con los precios en modo **Normal**.
+1. Abrir **Reportes → Publicaciones ML**, entrar a la vista **Precios** y dejar los precios en modo **Normal**. También se ve en la pestaña **Precios** del panel de un producto.
 2. En la columna **Web Transf.**, debajo del precio del producto aparece "(+X%)".
 3. El candado indica que el porcentaje no cambia en los cambios masivos. Se activa o desactiva desde el editor de la celda, con la opción "Conservar el % en cambios masivos".
 

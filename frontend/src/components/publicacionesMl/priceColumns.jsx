@@ -40,8 +40,9 @@ const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, t
 // The web transfer's % over the clásica, as Productos writes it under the price, with its own sign (it can sit under
 // the clásica). The column's `locked` lock goes on the last `details` line: with no % stored, no line and no lock.
 const webTransfPercent = (product) => {
-  if (product.porcentaje_markup_web == null) return [];
-  const percent = Number(product.porcentaje_markup_web);
+  const stored = product.porcentaje_markup_web;
+  const percent = Number(stored);
+  if (stored == null || String(stored).trim() === '' || !Number.isFinite(percent)) return [];
   return [`(${percent < 0 ? '' : '+'}${percent.toLocaleString('es-AR', { maximumFractionDigits: 2 })}%)`];
 };
 // The permission of each flag's editor (`pricePermissions`).
