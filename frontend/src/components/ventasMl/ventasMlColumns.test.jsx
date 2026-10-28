@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { COLUMNS } from './ventasMlColumns';
+import { COLUMN_VISIBILITY_STORAGE_KEY, loadColumnVisibility } from '../../pages/ventasMlTableHelpers';
 
 const importe = COLUMNS.find((c) => c.id === 'importe');
 
@@ -41,5 +42,53 @@ describe('Importe cell: ML coupon sub-line', () => {
   it('a pack-member row shows its own coupon', () => {
     const cell = renderCell({ kind: 'member', order: order({ coupon_amount: 75 }) });
     expect(cell).toHaveTextContent('cupón ML $ 75,00');
+  });
+});
+
+describe('Sell in / out cell (Métricas audit A7)', () => {
+  const sell = COLUMNS.find((c) => c.id === 'sell_in_out');
+  const renderSell = (ctx) => {
+    const view = render(<div data-testid="sell">{sell.cell(ctx)}</div>);
+    return Object.assign(screen.getByTestId('sell'), { unmount: view.unmount, tooltip: sell.cellProps(ctx).title });
+  };
+
+  it('shows the sell in with the sell out on the sub-line, and names both in the tooltip', () => {
+    const cell = renderSell({ kind: 'member', order: order({ sell_in_ars: 1200.5, sell_out_ars: 300, sell_out_estimado: false }) });
+    expect(cell).toHaveTextContent('1.200,50');
+    expect(cell).toHaveTextContent('out $ 300,00');
+    expect(cell.tooltip).toBe('Sell in: $ 1.200,50 · Sell out: $ 300,00');
+  });
+
+  it('a pack row reads the pack sums', () => {
+    const cell = renderSell({ kind: 'group', group: { sell_in_ars: 10, sell_out_ars: null, sell_out_estimado: null }, orders: [] });
+    expect(cell).toHaveTextContent('10,00');
+    expect(cell).not.toHaveTextContent('out');
+    expect(cell.tooltip).toBe('Sell in: $ 10,00');
+  });
+
+  it('an estimated sell out is marked, an unknown one says it is not defined yet', () => {
+    let cell = renderSell({ kind: 'member', order: order({ sell_out_ars: 50, sell_out_estimado: true }) });
+    expect(cell).toHaveTextContent('out ≈ $ 50,00');
+    expect(cell.tooltip).toBe('Sell out: $ 50,00 (estimado: tipo de cambio a definir)');
+    cell.unmount();
+    cell = renderSell({ kind: 'member', order: order({ sell_out_ars: null, sell_out_estimado: true }) });
+    expect(cell).toHaveTextContent('out a definir');
+    expect(cell.tooltip).toBe('Sell out en USD sin tipo de cambio');
+  });
+
+  it('a sale with nothing applied shows a dash and no tooltip', () => {
+    const cell = renderSell({ kind: 'member', order: order() });
+    expect(cell).toHaveTextContent('—');
+    expect(cell).not.toHaveTextContent('out');
+    expect(cell.tooltip).toBeUndefined();
+  });
+
+  it('can be hidden from Columnas, and a stored choice to hide it is kept', () => {
+    localStorage.setItem(COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify({ sell_in_out: false, total_gauss: false }));
+    try {
+      expect(loadColumnVisibility(COLUMNS)).toEqual({ sell_in_out: false });
+    } finally {
+      localStorage.removeItem(COLUMN_VISIBILITY_STORAGE_KEY);
+    }
   });
 });

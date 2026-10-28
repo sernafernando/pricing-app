@@ -74,6 +74,7 @@ from app.services.ml_publications.view import (
     listing,
     products,
     row_metrics,
+    stats,
     status_block,
     status_targets,
     variations,
@@ -676,6 +677,11 @@ class KpisResponse(BaseModel):
     period: kpi_strip.BoardPeriod
     kpis: KpiStripOut
     mla_count: int  # the publications the filter selects: the list's `total`, not the ones that sold
+    can_see_margin: bool
+
+
+class StatsResponse(BaseModel):
+    stats: dict[str, int]  # card -> linked products (`stats.compute`); the markup cards only with `can_see_margin`
     can_see_margin: bool
 
 
@@ -1841,6 +1847,37 @@ def require_kpis_access(
             f"Se requiere el permiso {PERMISO_METRICAS} para ver los KPIs",
         )
     return user
+
+
+@router.get("/stats", response_model=StatsResponse)
+def get_stats(
+    response: Response,
+    user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
+    f: PublicationFilter = Depends(filter_query),
+    db: Session = Depends(get_view_db),
+    auth_db: Session = Depends(get_db),  # the permission checks (see `get_items`)
+) -> dict[str, Any]:
+    """Productos' stat cards (`/stats-dinamicos`) over the MLAs the filters select: each card counts the linked
+    products its click lists. The markup cards are margin figures: only with `ml_metricas.ver_ganancia`."""
+    timer = Timer("stats")
+    can_see_margin = PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA)
+    try:
+        if f.needs_events and settings_store.get_setting("events.enabled").value is not True:
+            raise FilterError("evento", "requires the events flag (events.enabled) to be on")
+        listing.bound(db)
+        with timer.stage("stats"):
+            cards = stats.compute(db, f, markups=can_see_margin)
+    except FilterError as exc:
+        raise _unprocessable(exc) from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    response.headers["Server-Timing"] = timer.server_timing()
+    timer.emit(total=cards["total"])
+    return {"stats": cards, "can_see_margin": can_see_margin}
 
 
 @router.get("/kpis", response_model=KpisResponse, response_model_exclude_unset=True)

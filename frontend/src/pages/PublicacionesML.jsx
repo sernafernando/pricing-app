@@ -51,6 +51,7 @@ import {
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
+  pageSizeLabel,
   PRICE_MODES,
   buildExportParams,
   buildItemsParams,
@@ -936,6 +937,7 @@ export default function PublicacionesML() {
                 offset={offset}
                 pageSize={pageSize}
                 pageSizeOptions={PAGE_SIZES}
+                pageSizeLabel={pageSizeLabel}
                 summary={
                   <span>
                     mostrando {total === 0 ? 0 : offset + 1}-{Math.min(offset + pageSize, total)} de {total} {unit}
