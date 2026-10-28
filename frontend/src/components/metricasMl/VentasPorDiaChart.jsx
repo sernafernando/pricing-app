@@ -53,12 +53,14 @@ export default function VentasPorDiaChart({ period, kpis }) {
         {dias.map((d) => {
           const extremo = !hayExtremos ? undefined : d.monto === max ? 'max' : d.monto === min ? 'min' : undefined;
           const conOps = d.ops !== null && d.ops !== undefined;
+          const detalle = `${formatMoney(d.monto)}${conOps ? ` - ${d.ops} ops` : ''}`;
           return (
             <li
               key={d.fecha}
               className={styles.day}
               data-extremo={extremo}
-              title={`${formatMoney(d.monto)}${conOps ? ` - ${d.ops} ops` : ''}`}
+              title={detalle}
+              aria-label={`${d.fecha}: ${detalle}`}
             >
               <span className={styles.track}>
                 <span className={styles.value}>{montoCorto(d.monto)}</span>

@@ -29,6 +29,8 @@ describe('VentasPorDiaChart', () => {
     render(<VentasPorDiaChart period={PERIOD} kpis={kpis()} />);
 
     expect(barras()[3]).toHaveAttribute('title', '$ 1.500,50 - 15 ops');
+    // Screen readers get it too, not only the mouse (the amount over most bars is hidden).
+    expect(screen.getByRole('listitem', { name: '10/09: $ 1.500,50 - 15 ops' })).toBe(barras()[3]);
   });
 
   it('marks the highest day green and the lowest red, with their amounts always visible', () => {
