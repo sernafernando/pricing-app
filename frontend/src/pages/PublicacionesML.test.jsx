@@ -45,6 +45,8 @@ vi.mock('../services/api', () => ({
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: ['REDES'] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     pms: vi.fn(() => Promise.resolve({ data: [{ id: 7, nombre: 'Ana' }] })),
+    // The product panel's last purchases: no purchase, these tests are about the panel's opening and closing.
+    detalle: vi.fn(() => Promise.resolve({ data: { producto: {}, pricing: {}, ultimas_compras: [] } })),
   },
   equiposAPI: {
     listar: vi.fn(() =>
