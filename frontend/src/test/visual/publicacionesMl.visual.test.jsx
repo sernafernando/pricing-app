@@ -541,6 +541,25 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
         screen.unmount();
       });
 
+      it(`${width}x${height} ${theme}: the clásica "markup con offsets" sits under its markup, on one line, inside the cell`, async () => {
+        offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [{ id: 1, tipo_offset: 'porcentaje_costo', porcentaje: 10, marca: 'TP-LINK' }] });
+        preciosAPI.tipoCambioActual.mockResolvedValue({ data: { venta: 1000 } });
+        try {
+          const screen = await renderMarginPage({ width, height, theme });
+          await expect.element(screen.getByTitle('Markup con offsets aplicados').first()).toBeVisible();
+          const scroller = scrollerOf();
+          const lines = [...scroller.querySelectorAll('[title="Markup con offsets aplicados"]')];
+          expect(lines.length).toBeGreaterThan(0);
+          expect(lines[0].textContent).toMatch(/^→ [-\d.,]+%$/);
+          expect(wrapped(lines)).toEqual([]);
+          expect(overflowingCells(scroller)).toEqual([]);
+          screen.unmount();
+        } finally {
+          offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
+          preciosAPI.tipoCambioActual.mockImplementation(() => new Promise(() => {}));
+        }
+      });
+
       it(`${width}x${height} ${theme}: an expanded row shows its variations under it, inside the scroller, nothing poking out`, async () => {
         const screen = await renderMarginPage({ width, height, theme });
         await screen.getByRole('button', { name: /variaciones de MLA1100000005/ }).click();

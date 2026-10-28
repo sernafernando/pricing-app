@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Info, Pencil, Percent, X } from 'lucide-react';
 import { preciosAPI } from '../../services/api';
 import { useOffsetsVigentes } from '../../hooks/useOffsetsVigentes';
+import { useUsdRate } from '../../hooks/useUsdRate';
 import { costoConOffset, markupConOffset, requiereTipoCambio } from '../../utils/offsetsGanancia';
 import { formatMarkupInput, formatPrecioInput, parseMarkupInput, parsePrecioInput } from '../../utils/precioInput';
 import { formatAmount } from '../../utils/ventasMlFormat';
@@ -14,31 +15,6 @@ import styles from './ProductPrices.module.css';
 /** The typed value as editable text again, for the editor's mode. */
 const editorValue = (row, product, mode) =>
   mode === 'markup' ? formatMarkupInput(product[row.markup]) : formatPrecioInput(product[row.precio]);
-
-/**
- * The current USD rate (`venta`, the one pricing converts costs with), read
- * only when the cost shown needs it (a USD cost or a USD per-unit offset):
- * undefined while it loads, null when there is none.
- */
-function useUsdRate(enabled) {
-  const [rate, setRate] = useState(undefined);
-  useEffect(() => {
-    if (!enabled) return undefined;
-    let active = true;
-    setRate(undefined);
-    preciosAPI
-      .tipoCambioActual()
-      .then((response) => {
-        const venta = Number(response?.data?.venta);
-        if (active) setRate(Number.isFinite(venta) && venta > 0 ? venta : null);
-      })
-      .catch(() => active && setRate(null));
-    return () => {
-      active = false;
-    };
-  }, [enabled]);
-  return rate;
-}
 
 /** "Rebate TP-Link" or, without a description, the offset's id. */
 const offsetLabel = (aplicado) => aplicado.descripcion || `Offset #${aplicado.id}`;

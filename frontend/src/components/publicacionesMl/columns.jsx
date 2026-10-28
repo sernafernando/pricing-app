@@ -108,7 +108,8 @@ export function columnChoicesOver(visibility, defaults) {
  * linked product (`SkuDivergenceCell`).
  * `prices` (`useListPrices`, only for who sees Productos' prices) adds, right after Precio, Productos' price columns
  * of `priceMode` ('normal' | 'cuotas' | 'pvp', S11); the tree has none. `priceEdit` makes them editable (S11c);
- * `onCalculatePrice` adds Productos' Calcular button (P3c).
+ * `onCalculatePrice` adds Productos' Calcular button (P3c); `priceOffsets` (`useListOffsets`) Productos' "markup con
+ * offsets" under the clásica markup.
  */
 export function buildColumns({
   eventsEnabled,
@@ -125,6 +126,7 @@ export function buildColumns({
   prices = null,
   priceEdit = null,
   onCalculatePrice = null,
+  priceOffsets = null,
 }) {
   const withSales = (columns) => (canSeeSales ? columns : []);
   const withMargin = (columns) => (canSeeMargin ? columns : []);
@@ -172,7 +174,7 @@ export function buildColumns({
       render: (item) => <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />,
     },
     { key: 'precio', header: 'Precio', width: 150, sortable: true, align: 'right', render: (item) => <PriceCell price={item.price} /> },
-    ...(prices && !agrupado ? priceColumns(priceMode, { prices, canSeeMargin, edit: priceEdit, onCalculate: onCalculatePrice }) : []),
+    ...(prices && !agrupado ? priceColumns(priceMode, { prices, canSeeMargin, edit: priceEdit, onCalculate: onCalculatePrice, offsets: priceOffsets }) : []),
     ...withSales([
       {
         key: 'unidades_7d',

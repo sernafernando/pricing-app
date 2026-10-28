@@ -42,6 +42,7 @@ import { withProductSelection } from '../components/publicacionesMl/productSelec
 import useProductSelection from '../components/publicacionesMl/useProductSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';
+import { useListOffsets } from '../hooks/useListOffsets';
 import PriceModeSelect from '../components/publicacionesMl/PriceModeSelect';
 import { canViewProductPrices, pricePermissions } from '../components/pricing/productPricePermissions';
 import useInlinePriceEdit from '../components/publicacionesMl/useInlinePriceEdit';
@@ -415,6 +416,8 @@ export default function PublicacionesML() {
   );
   // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it.
   const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
+  // Productos' "markup con offsets" under the clásica markup: the offsets are about the cost, so only with the margin.
+  const listOffsets = useListOffsets(canSeePrices && canSeeMargin && !agrupado);
   // The products checked for the bulk pricing actions (a publication checks its linked product), as in Productos
   // (S12d): Shift+click checks a range of the rows on show, the title header checks the page, and the selection
   // outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page there.
@@ -464,6 +467,7 @@ export default function PublicacionesML() {
         prices: canSeePrices ? listPrices : null,
         priceEdit,
         onCalculatePrice: canCalculatePrice ? setPricingProduct : null,
+        priceOffsets: listOffsets,
       }),
     [
       eventsEnabled,
@@ -481,6 +485,7 @@ export default function PublicacionesML() {
       listPrices,
       priceEdit,
       canCalculatePrice,
+      listOffsets,
     ],
   );
 

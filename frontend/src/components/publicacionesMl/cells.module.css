@@ -86,6 +86,18 @@
   color: var(--tone-danger-fg);
 }
 
+/* Productos' "markup con offsets": the clásica markup over the cost the offsets discount, under the markup. */
+.markupOffset {
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.markupOffset[data-negative] {
+  color: var(--tone-danger-fg);
+}
+
 /* Says what the markup sort orders by, inside the sortable header. */
 .sortHint {
   margin-left: var(--spacing-xs);
