@@ -14,4 +14,9 @@ describe('ShortcutsHelp', () => {
     expect(keysOf('Abrir los filtros de Auditoría')).toEqual(['Alt+A']);
     expect(keysOf('Abrir los filtros de Presencia (los Avanzados de Productos)')).toEqual(['Alt+C', 'Alt+F']);
   });
+
+  it("lists Productos' Ctrl+I, the focused row's product information", () => {
+    render(<ShortcutsHelp onClose={() => {}} />);
+    expect(keysOf('Ver la información del producto de la fila')).toEqual(['Ctrl+I']);
+  });
 });

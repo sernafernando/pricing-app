@@ -85,6 +85,7 @@ function moveFocus(event) {
  *
  * - The arrows, PageUp/PageDown (ten rows) and Home/End move the focus over the list's rows; ArrowDown with no row
  *   focused (and nothing else focused) enters on the first one. Enter opens the focused row (the table's own key; Ctrl+Enter opens it in ML).
+ * - Ctrl+I (Cmd+I) opens Productos' information of the focused row's product (`onShowInfo(key)`), as in Productos.
  * - Ctrl+F focuses the search, Ctrl+E exports (only where the view can: `onExport` absent leaves it to the browser),
  *   `?` toggles the help.
  * - Ctrl+F1/F2/F3 (or Ctrl+Shift+1/2/3) copy the focused publication's product code and its two ML links.
@@ -115,6 +116,7 @@ export default function usePublicacionesMLKeyboard({
   onBulkAction,
   onOpenFilter,
   onToggleAutoRecalc,
+  onShowInfo,
   onToggleHelp,
   showToast,
   disabled,
@@ -123,7 +125,7 @@ export default function usePublicacionesMLKeyboard({
   // No dependency array on purpose (the latest-ref pattern): it copies the values after every render.
   const props = useRef({});
   useLayoutEffect(() => {
-    props.current = { searchRef, findRow, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleAutoRecalc, onToggleHelp, showToast };
+    props.current = { searchRef, findRow, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleAutoRecalc, onShowInfo, onToggleHelp, showToast };
   });
 
   useEffect(() => {
@@ -165,10 +167,13 @@ export default function usePublicacionesMLKeyboard({
         onBulkAction: bulkAction,
         onOpenFilter: openFilter,
         onToggleAutoRecalc: toggleAutoRecalc,
+        onShowInfo: showInfo,
         showToast: toast,
       } = props.current;
-      // Another dialog (a bulk action, a confirmation) owns the keyboard, as in Productos; the help only lets `?` close it.
-      const dialog = document.querySelector('.modal-overlay-tesla');
+      // Another dialog (a bulk action, a confirmation, Productos' info modal) owns the keyboard, as in Productos; the
+      // help only lets `?` close it. The info modal is matched by its own class: `.modal-overlay` alone is shared by
+      // unrelated components.
+      const dialog = document.querySelector('.modal-overlay-tesla, .modal-info-producto');
       if (dialog) {
         if (event.key === '?' && toggleHelp && dialog.querySelector(`.${HELP_CLASS}`) && !isTyping(event.target)) {
           event.preventDefault();
@@ -189,6 +194,14 @@ export default function usePublicacionesMLKeyboard({
         return;
       }
       if (isTyping(event.target)) return;
+      // Cmd+I too, as Productos accepts it (`e.ctrlKey || e.metaKey`), unlike the Alt keys below.
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.code === 'KeyI' && showInfo) {
+        event.preventDefault();
+        const key = focusedRow()?.dataset.rowKey;
+        if (key === undefined) toast?.(NO_ROW, 'error');
+        else showInfo(key);
+        return;
+      }
       if (event.ctrlKey && !event.shiftKey && !event.altKey && event.code === 'KeyE' && exportView) {
         event.preventDefault();
         exportView();
