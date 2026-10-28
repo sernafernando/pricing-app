@@ -109,7 +109,8 @@ describe('editing', () => {
       markup_adicional_cuotas_custom: null,
       markup_adicional_cuotas_pvp_custom: 3,
     });
-    expect(await screen.findByRole('status')).toHaveTextContent('Guardado.');
+    // The re-read shows a loading status first; wait for the confirmation itself.
+    expect(await screen.findByText(/^Guardado\./)).toHaveAttribute('role', 'status');
     // What is shown after saving is the stored setting, read again.
     expect(await screen.findByText('Nunca recalcular')).toBeInTheDocument();
     expect(field('Markup adicional cuotas PVP')).toHaveTextContent('3 %');
