@@ -151,7 +151,7 @@ def test_the_audit_filter_reaches_the_view_and_a_bad_date_is_a_422(client, reade
     assert response.status_code == 422
 
 
-def fill_paused(conn) -> None:
+def fill_estado_mla(conn) -> None:
     fill(conn)
     seed.add_item(conn, "MLA4", status="paused")
     seed.add_link(conn, "MLA4", 78)  # 78: MLA2 active, MLA4 paused -- not "Pausadas"
@@ -161,7 +161,7 @@ def fill_paused(conn) -> None:
 
 
 def test_estado_mla_filters_the_publications_and_the_products(client, pg, db, rol_admin, admin_auth_headers):
-    seed_rows(pg, fill_paused)
+    seed_rows(pg, fill_estado_mla)
     grant(db, rol_admin, VER)
     assert items(client, admin_auth_headers, estado_mla="pausada") == ["MLA5"]
     assert products(client, admin_auth_headers, estado_mla="pausada") == ["79"]

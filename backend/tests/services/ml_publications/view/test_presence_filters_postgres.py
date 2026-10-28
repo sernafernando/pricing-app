@@ -212,10 +212,10 @@ class TestMlaScope:
         assert listed(db, mla_scope=frozenset()) == []
 
 
-class TestEstadoMlaPausada:
+class TestEstadoMla:
     """Productos' "Estado MLA" (`estado_mla`, `GET /productos`): "Pausadas" is a linked product with publications
-    and none of them active, "Activas" one with at least one active publication. As in Productos, a publication with no status counts as active, and a
-    closed or deleted one as not active."""
+    and none of them active, "Activas" one with at least one active publication. As in Productos, a publication
+    with no status counts as active, and a closed or deleted one as not active."""
 
     @pytest.fixture(autouse=True)
     def statuses(self, conn) -> None:
