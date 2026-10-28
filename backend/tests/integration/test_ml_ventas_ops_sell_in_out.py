@@ -249,5 +249,6 @@ class TestTplinkSolo:
         )
 
         assert response.status_code == 200, response.text
-        assert 98002 in [o["order_id"] for g in response.json()["sales"] for o in g["orders"]]
-        assert "sell_" not in response.text
+        group = _group_holding(response.json(), 98002)
+        for row in (group, _order(response.json(), 98002)):
+            assert not set(SELL_FIELDS) & set(row)
