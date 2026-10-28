@@ -32,6 +32,8 @@ export default function useParaGanarAlcanceOpciones({
   tiendas,
   ean,
   catalogProductId,
+  costoUsdMin = '',
+  costoUsdMax = '',
   onMarcasChange,
   onSubcategoriasChange,
   onPmsChange,
@@ -44,6 +46,8 @@ export default function useParaGanarAlcanceOpciones({
   const [reloadToken, setReloadToken] = useState(0);
   const eanDebounced = useDebounce(ean.trim(), 300);
   const catalogDebounced = useDebounce(catalogProductId.trim(), 300);
+  const costoMinDebounced = useDebounce(String(costoUsdMin || '').trim(), 300);
+  const costoMaxDebounced = useDebounce(String(costoUsdMax || '').trim(), 300);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +65,12 @@ export default function useParaGanarAlcanceOpciones({
             tiendas: joinCsv(tiendas),
             ean: eanDebounced || undefined,
             catalog_product_id: catalogDebounced || undefined,
+            ...(Number.isFinite(Number(costoMinDebounced)) && costoMinDebounced !== ''
+              ? { costo_usd_min: Number(costoMinDebounced) }
+              : {}),
+            ...(Number.isFinite(Number(costoMaxDebounced)) && costoMaxDebounced !== ''
+              ? { costo_usd_max: Number(costoMaxDebounced) }
+              : {}),
           },
         });
         if (cancelled) return;
@@ -126,6 +136,8 @@ export default function useParaGanarAlcanceOpciones({
     tiendas,
     eanDebounced,
     catalogDebounced,
+    costoMinDebounced,
+    costoMaxDebounced,
     reloadToken,
   ]);
 

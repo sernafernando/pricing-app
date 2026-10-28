@@ -30,7 +30,7 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D6 | Seller dispositions on catalog roster | Ignore/hide/exclude without deleting competition data | Done (API + UI) |
 | D7 | Faceted `alcance-opciones`: each facet skips **only itself**; tipo↔lista both apply | Cascading options; mutual tipo/lista need each other | Done |
 | D8 | Tienda filter via `ml_tiendas_oficiales` + `tb_mercadolibre_items_publicados`; “Sin tienda” = no row | Named stores need seed in empty sandbox | Done (+ seeds) |
-| D9 | **Cost USD from–to** = scope filter (not criteria) | Different cost bands need different criteria later | **Next** |
+| D9 | **Cost USD from–to** = scope filter (not criteria) | Different cost bands need different criteria later | Done (`costo_usd_min` / `costo_usd_max`; ARS→USD via TC venta) |
 | D10 | **Mass / system criteria = markup only** (no mass price caps) | No single cost → price caps as mass criteria are meaningless | **Next** |
 | D11 | **Per MLA:** precio ↔ markup stay in sync (edit either; other derives from that MLA’s cost) | Deterministic math; avoid impossible floors | **Next** |
 | D12 | **TOP N = price positions** (ties share a rank), not “N sellers” | Two at #1 + three at #2 = top **2** positions, five sellers | Documented; engine when TOP logic lands |
@@ -68,6 +68,7 @@ Newest first. Use for “why did we…” archaeology.
 - Filters restrict the **cola**; they are not saved as criteria.
 - Multi-select: open → check options → optional **X** on the chip or **Limpiar** at the bottom of the list.
 - Facets refresh from other active filters (e.g. marca narrows EAN options).
+- **Costo USD desde/hasta:** ERP `productos_erp.costo` normalized to USD (`moneda_costo=USD` as-is; ARS ÷ tipo de cambio venta). Rows without a convertible cost drop out of the band.
 
 ### Criterios
 
@@ -90,9 +91,9 @@ Newest first. Use for “why did we…” archaeology.
 ## Backlog (ordered for this week)
 
 1. Keep this doc updated on every slice (this file is the source of truth).
-2. Fix CI css-guard on scope filter CSS (rename active chip class — `select*` + `background` tripped the control-box ratchet).
-3. Scope: **costo USD desde–hasta**.
-4. Criterios UI/API: mass = markup only; MLA = precio↔markup sync on that MLA’s cost.
+2. ~~Fix CI css-guard~~ (`filterGroupActive`).
+3. ~~Scope: costo USD desde–hasta~~ (D9).
+4. Criterios UI/API: mass = markup only; MLA = precio↔markup sync on that MLA’s cost (D10–D11).
 5. When suggestion/TOP engine lands: implement D12 (positions, not headcount).
 6. Later: product/PM criteria inheritance; suggestion states; apply via promotions.
 

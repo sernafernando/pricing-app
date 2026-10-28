@@ -60,12 +60,24 @@ def test_cola_accepts_scope_filter_params(client: TestClient, rma_superadmin_use
             "tiendas": "999999",
             "ean": "NOEXISTE",
             "catalog_product_id": "MLA00000000",
+            "costo_usd_min": 999999,
+            "costo_usd_max": 999999.5,
         },
     )
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["total"] == 0
     assert body["items"] == []
+
+
+def test_cola_rejects_inverted_costo_usd_range(client: TestClient, rma_superadmin_user) -> None:
+    headers = {"Authorization": f"Bearer {make_access_token(rma_superadmin_user)}"}
+    response = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={"costo_usd_min": 100, "costo_usd_max": 10},
+    )
+    assert response.status_code == 422
 
 
 def test_cola_rejects_invalid_tienda_token(client: TestClient, rma_superadmin_user) -> None:

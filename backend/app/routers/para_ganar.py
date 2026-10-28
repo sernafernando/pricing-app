@@ -25,6 +25,7 @@ from app.models.para_ganar_catalog_seller import (
 )
 from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
 from app.models.usuario import Usuario
+from app.services.pricing_calculator import obtener_tipo_cambio_actual
 from app.services.pricing_columns import (
     PRICELIST_TO_CAMPO,
     PVP_PRICELIST_TO_CAMPO,
@@ -137,6 +138,12 @@ def _parse_int_csv(raw: Optional[str]) -> list[int]:
     return values
 
 
+def _parse_optional_float(raw: Optional[float]) -> Optional[float]:
+    if raw is None:
+        return None
+    return float(raw)
+
+
 def _parse_scope_query(
     *,
     q: Optional[str] = None,
@@ -148,6 +155,8 @@ def _parse_scope_query(
     tiendas: Optional[str] = None,
     ean: Optional[str] = None,
     catalog_product_id: Optional[str] = None,
+    costo_usd_min: Optional[float] = None,
+    costo_usd_max: Optional[float] = None,
 ) -> dict:
     """Normalize cola/alcance query params into filter lists."""
     parsed_tiendas = parsear_tiendas_oficiales_mla(tiendas)
@@ -155,6 +164,13 @@ def _parse_scope_query(
     incluir_sin_tienda = False
     if parsed_tiendas is not None:
         tienda_ids, incluir_sin_tienda = parsed_tiendas
+    min_usd = _parse_optional_float(costo_usd_min)
+    max_usd = _parse_optional_float(costo_usd_max)
+    if min_usd is not None and max_usd is not None and min_usd > max_usd:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="costo_usd_min no puede ser mayor que costo_usd_max",
+        )
     return {
         "q_norm": (q or "").strip(),
         "marcas": _split_csv(marcas),
@@ -166,6 +182,8 @@ def _parse_scope_query(
         "incluir_sin_tienda": incluir_sin_tienda,
         "ean_norm": (ean or "").strip(),
         "catalog_product_id_norm": (catalog_product_id or "").strip(),
+        "costo_usd_min": min_usd,
+        "costo_usd_max": max_usd,
     }
 
 
@@ -181,8 +199,11 @@ def _build_alcance_where(
     incluir_sin_tienda: bool,
     ean_norm: str,
     catalog_product_id_norm: str,
+    costo_usd_min: Optional[float],
+    costo_usd_max: Optional[float],
     params: dict,
     skip: Optional[set[str]] = None,
+    tipo_cambio_usd: Optional[float] = None,
 ) -> str:
     """Append scope filters shared by count + page + facet queries. Mutates `params`.
 
@@ -317,6 +338,27 @@ def _build_alcance_where(
             """
         )
 
+    # Cost band in USD (scope, not criteria). ARS rows convert via tipo_cambio
+    # venta; without a rate only native-USD costs can match.
+    if ("costo_usd" not in omit) and (costo_usd_min is not None or costo_usd_max is not None):
+        tc = float(tipo_cambio_usd) if tipo_cambio_usd and float(tipo_cambio_usd) > 0 else 0.0
+        params["tc_usd"] = tc
+        costo_usd_expr = """
+          CASE
+            WHEN e.costo IS NULL THEN NULL
+            WHEN CAST(e.moneda_costo AS TEXT) = 'USD' THEN e.costo
+            WHEN :tc_usd > 0 THEN e.costo / :tc_usd
+            ELSE NULL
+          END
+        """
+        clauses.append(f" AND ({costo_usd_expr}) IS NOT NULL")
+        if costo_usd_min is not None:
+            params["costo_usd_min"] = float(costo_usd_min)
+            clauses.append(f" AND ({costo_usd_expr}) >= :costo_usd_min")
+        if costo_usd_max is not None:
+            params["costo_usd_max"] = float(costo_usd_max)
+            clauses.append(f" AND ({costo_usd_expr}) <= :costo_usd_max")
+
     return "".join(clauses)
 
 
@@ -341,6 +383,8 @@ def listar_alcance_opciones(
     tiendas: Optional[str] = Query(None),
     ean: Optional[str] = Query(None, max_length=80),
     catalog_product_id: Optional[str] = Query(None, max_length=64),
+    costo_usd_min: Optional[float] = Query(None, ge=0),
+    costo_usd_max: Optional[float] = Query(None, ge=0),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarAlcanceOpciones:
@@ -355,11 +399,20 @@ def listar_alcance_opciones(
         tiendas=tiendas,
         ean=ean,
         catalog_product_id=catalog_product_id,
+        costo_usd_min=costo_usd_min,
+        costo_usd_max=costo_usd_max,
+    )
+    tipo_cambio_usd = (
+        obtener_tipo_cambio_actual(db, "USD")
+        if scope["costo_usd_min"] is not None or scope["costo_usd_max"] is not None
+        else None
     )
 
     def where_skip(*facets: str) -> tuple[str, dict]:
         params: dict = {}
-        clause = _build_alcance_where(**scope, params=params, skip=set(facets))
+        clause = _build_alcance_where(
+            **scope, params=params, skip=set(facets), tipo_cambio_usd=tipo_cambio_usd
+        )
         return clause, params
 
     marcas_where, marcas_params = where_skip("marcas")
@@ -495,6 +548,8 @@ def listar_cola(
     catalog_product_id: Optional[str] = Query(
         None, max_length=64, description="Exact catalog_product_id (e.g. MLA24106790)"
     ),
+    costo_usd_min: Optional[float] = Query(None, ge=0, description="Min ERP cost in USD (ARS converted via TC)"),
+    costo_usd_max: Optional[float] = Query(None, ge=0, description="Max ERP cost in USD (ARS converted via TC)"),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarColaResponse:
@@ -510,10 +565,17 @@ def listar_cola(
         tiendas=tiendas,
         ean=ean,
         catalog_product_id=catalog_product_id,
+        costo_usd_min=costo_usd_min,
+        costo_usd_max=costo_usd_max,
     )
 
     params: dict = {"limit": page_size, "offset": offset}
-    where_extra = _build_alcance_where(**scope, params=params)
+    tipo_cambio_usd = (
+        obtener_tipo_cambio_actual(db, "USD")
+        if scope["costo_usd_min"] is not None or scope["costo_usd_max"] is not None
+        else None
+    )
+    where_extra = _build_alcance_where(**scope, params=params, tipo_cambio_usd=tipo_cambio_usd)
 
     # PM filter with no marcas_pm rows → empty universe (same as /productos).
     if scope["pms"]:

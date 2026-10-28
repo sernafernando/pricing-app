@@ -23,8 +23,12 @@ export default function useParaGanarCola(pageSize = 50) {
   const [tiendas, setTiendas] = useState([]);
   const [eanInput, setEanInput] = useState('');
   const [catalogInput, setCatalogInput] = useState('');
+  const [costoUsdMinInput, setCostoUsdMinInput] = useState('');
+  const [costoUsdMaxInput, setCostoUsdMaxInput] = useState('');
   const ean = useDebounce(eanInput.trim(), 300);
   const catalogProductId = useDebounce(catalogInput.trim(), 300);
+  const costoUsdMin = useDebounce(costoUsdMinInput.trim(), 300);
+  const costoUsdMax = useDebounce(costoUsdMaxInput.trim(), 300);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedMla, setSelectedMla] = useState(null);
@@ -50,6 +54,12 @@ export default function useParaGanarCola(pageSize = 50) {
             tiendas: joinCsv(tiendas),
             ean: ean || undefined,
             catalog_product_id: catalogProductId || undefined,
+            ...(Number.isFinite(Number(costoUsdMin)) && costoUsdMin !== ''
+              ? { costo_usd_min: Number(costoUsdMin) }
+              : {}),
+            ...(Number.isFinite(Number(costoUsdMax)) && costoUsdMax !== ''
+              ? { costo_usd_max: Number(costoUsdMax) }
+              : {}),
           },
         });
         if (cancelled) return;
@@ -89,6 +99,8 @@ export default function useParaGanarCola(pageSize = 50) {
     tiendas,
     ean,
     catalogProductId,
+    costoUsdMin,
+    costoUsdMax,
     reloadToken,
   ]);
 
@@ -107,6 +119,8 @@ export default function useParaGanarCola(pageSize = 50) {
     setTiendas([]);
     setEanInput('');
     setCatalogInput('');
+    setCostoUsdMinInput('');
+    setCostoUsdMaxInput('');
   };
 
   const applySearch = (event) => {
@@ -134,6 +148,8 @@ export default function useParaGanarCola(pageSize = 50) {
     tiendas,
     eanInput,
     catalogInput,
+    costoUsdMinInput,
+    costoUsdMaxInput,
     loading,
     error,
     selectedMla,
@@ -150,6 +166,8 @@ export default function useParaGanarCola(pageSize = 50) {
     setTiendas: resetPage(setTiendas),
     setEanInput: resetPage(setEanInput),
     setCatalogInput: resetPage(setCatalogInput),
+    setCostoUsdMinInput: resetPage(setCostoUsdMinInput),
+    setCostoUsdMaxInput: resetPage(setCostoUsdMaxInput),
     reload: () => setReloadToken((n) => n + 1),
   };
 }

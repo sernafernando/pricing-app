@@ -189,6 +189,27 @@
   max-width: 160px;
 }
 
+.costRange {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.costField {
+  display: inline-flex;
+}
+
+.costInput {
+  composes: input inputSm from '../../styles/forms-tesla.css';
+  width: 6.5rem;
+  min-width: 0;
+}
+
+.costSep {
+  color: var(--cf-text-tertiary);
+  font-size: 12px;
+}
+
 .srOnly {
   position: absolute;
   width: 1px;

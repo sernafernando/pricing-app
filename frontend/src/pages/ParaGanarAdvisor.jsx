@@ -106,6 +106,8 @@ export default function ParaGanarAdvisor() {
           tiendas={cola.tiendas}
           ean={cola.eanInput}
           catalogProductId={cola.catalogInput}
+          costoUsdMin={cola.costoUsdMinInput}
+          costoUsdMax={cola.costoUsdMaxInput}
           onMarcasChange={cola.setMarcas}
           onSubcategoriasChange={cola.setSubcategorias}
           onPmsChange={cola.setPms}
@@ -114,6 +116,8 @@ export default function ParaGanarAdvisor() {
           onTiendasChange={cola.setTiendas}
           onEanChange={cola.setEanInput}
           onCatalogProductIdChange={cola.setCatalogInput}
+          onCostoUsdMinChange={cola.setCostoUsdMinInput}
+          onCostoUsdMaxChange={cola.setCostoUsdMaxInput}
           onClear={cola.clearAlcance}
         />
       )}

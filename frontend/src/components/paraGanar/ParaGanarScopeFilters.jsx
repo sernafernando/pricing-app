@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { useTiendasOficiales } from '../../hooks/useTiendasOficiales';
 import useParaGanarAlcanceOpciones from '../../hooks/useParaGanarAlcanceOpciones';
 import { STORE_NONE } from '../../constants/tiendasOficiales';
+import ScopeCostRange from './ScopeCostRange';
 import ScopeMultiSelect from './ScopeMultiSelect';
 import ScopeTextFilter from './ScopeTextFilter';
 import styles from './ParaGanarScopeFilters.module.css';
@@ -20,6 +21,8 @@ export default function ParaGanarScopeFilters({
   tiendas,
   ean,
   catalogProductId,
+  costoUsdMin,
+  costoUsdMax,
   onMarcasChange,
   onSubcategoriasChange,
   onPmsChange,
@@ -28,6 +31,8 @@ export default function ParaGanarScopeFilters({
   onTiendasChange,
   onEanChange,
   onCatalogProductIdChange,
+  onCostoUsdMinChange,
+  onCostoUsdMaxChange,
   onClear,
 }) {
   const { opciones, loading, loadError, retry } = useParaGanarAlcanceOpciones({
@@ -39,6 +44,8 @@ export default function ParaGanarScopeFilters({
     tiendas,
     ean,
     catalogProductId,
+    costoUsdMin,
+    costoUsdMax,
     onMarcasChange,
     onSubcategoriasChange,
     onPmsChange,
@@ -59,7 +66,9 @@ export default function ParaGanarScopeFilters({
     pricelists.length > 0 ||
     tiendas.length > 0 ||
     Boolean(ean.trim()) ||
-    Boolean(catalogProductId.trim());
+    Boolean(catalogProductId.trim()) ||
+    Boolean(String(costoUsdMin || '').trim()) ||
+    Boolean(String(costoUsdMax || '').trim());
 
   const emptyHint = (emptyLabel) => {
     if (loading) return 'Cargando…';
@@ -151,6 +160,13 @@ export default function ParaGanarScopeFilters({
         value={catalogProductId}
         onChange={onCatalogProductIdChange}
         placeholder="MLA catálogo"
+        disabled={false}
+      />
+      <ScopeCostRange
+        min={costoUsdMin}
+        max={costoUsdMax}
+        onMinChange={onCostoUsdMinChange}
+        onMaxChange={onCostoUsdMaxChange}
         disabled={false}
       />
       {hasActive && (
