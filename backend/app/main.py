@@ -82,6 +82,7 @@ from app.routers import (
     empresas,
     free_shipping_alerts,
     para_ganar,
+    para_ganar_periodicidad,
     ml_order_metrics,
     ml_promotions,
     ml_ventas_ops,
@@ -395,6 +396,7 @@ app.include_router(etiquetas_zpl_tools.router, prefix="/api", tags=["etiquetas-z
 app.include_router(weather.router, prefix="/api", tags=["weather"])
 app.include_router(free_shipping_alerts.router, prefix="/api", tags=["free-shipping-alerts"])
 app.include_router(para_ganar.router, prefix="/api", tags=["PARA GANAR"])
+app.include_router(para_ganar_periodicidad.router, prefix="/api", tags=["PARA GANAR"])
 app.include_router(ml_promotions.router, prefix="/api")
 app.include_router(ml_ventas_ops.router, prefix="/api")
 app.include_router(ml_metricas.router, prefix="/api")

@@ -115,4 +115,4 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 
 ## Suggested next step
 
-See backlog + modules in [`para-ganar.md`](./para-ganar.md). **P1** done; Advisor stub **Consultar filtrados** (A1, cableado tras P5). Next: **P2** modelo/API de suscripción por EAN.
+See backlog + modules in [`para-ganar.md`](./para-ganar.md). **P1–P2** done (`GET/PUT/DELETE /para-ganar/periodicidad`). Next: **P3** UI gestión por EAN.

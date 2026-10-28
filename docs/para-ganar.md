@@ -56,7 +56,7 @@ Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por ML
 | Módulo | Qué | Depende de | Status |
 |--------|-----|------------|--------|
 | **P1** | Shell: tab **Periodicidad** (`?vista=periodicidad`) | — | Done |
-| **P2** | Modelo + API: suscripción periódica por EAN (alcance: todo el EAN / MLAs elegidos / match lista+tipo+tienda) | P1 | Planned |
+| **P2** | Modelo + API: suscripción periódica por EAN (alcance: todo el EAN / MLAs elegidos / match lista+tipo+tienda) | P1 | Done |
 | **P3** | UI gestión: cola por EAN, abrir detalle, elegir MLAs o reglas de alcance, guardar | P2 | Planned |
 | **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Planned |
 | **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Planned |
@@ -126,6 +126,14 @@ Newest first. Use for “why did we…” archaeology.
 - Sync pulls members from latest competition snapshot.
 - Dispositions: **Activo** | **Excluido**. Excluido = fuera del ranking (como si no existiera), sigue en la lista; aviso discreto si hay alguno.
 
+### Periodicidad (P2)
+
+- Tables: `para_ganar_periodicidad_ean` (+ `…_ean_mla` for explicit MLA lists).
+- API (`productos.ver` read / `productos.editar_precios` write):
+  - `GET /para-ganar/periodicidad` — list (q, page)
+  - `GET/PUT/DELETE /para-ganar/periodicidad/{ean}`
+- `scope_mode`: `all` (todo el EAN) | `mlas` (lista explícita) | `rules` (`tipos_publicacion` / `pricelist_ids` / `tienda_oficial_ids`). UI de gestión = P3.
+
 ---
 
 ## Backlog (ordered for this week)
@@ -141,7 +149,7 @@ Newest first. Use for “why did we…” archaeology.
 9. ~~Mass criteria apply to filtered scope (D17)~~.
 10. ~~Show promo pool (D18→D19→D20 one-per-type)~~.
 11. ~~Show deal at `precio_sugerido` (clamped) + wire enroll from Advisor (D23)~~.
-12. ~~**Periodicidad P1** shell tab~~ → **P2→P3** modelo + UI por EAN.
+12. ~~**Periodicidad P1** shell~~ / ~~**P2** modelo+API~~ → **P3** UI por EAN.
 13. **P4** — estados Advisor Pendiente de revisión / Sin novedades.
 14. **P5** — motor de evaluación.
 15. **A1** — Advisor **Consultar filtrados** (manual sobre el filtro; UI stub ya visible, cableado tras P5).
