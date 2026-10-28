@@ -616,8 +616,9 @@ def linked_product_conditions(f: PublicationFilter, product_id: Any, p: Any) -> 
     """The conditions of `f` that are about the PRODUCT, on one linked product (`product_id`, `p` its catalog row,
     outer-joined): color, mejor oferta of the product, brand, category, subcategory, the product's presence toggles
     (`product_flag_conditions`), PM and `q` (the product's own name or code, unless the publication's own fields
-    match). A publication `f` keeps is expanded to its linked products that pass them -- the Producto view, its export, `/product-ids` and the tree's product level -- so a filter about
-    the product never brings in another product of the same publication (variations of different products)."""
+    match). A publication `f` keeps is expanded to its linked products that pass them -- the Producto view, its
+    export, `/product-ids` and the tree's product level -- so a filter about the product never brings in another
+    product of the same publication (variations of different products)."""
     conditions: list[ColumnElement] = []
     if f.colors or f.no_color:
         parts = []
