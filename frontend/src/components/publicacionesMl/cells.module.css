@@ -262,10 +262,12 @@
 }
 
 /* Tienda Nube's price over the web transfer (S3): its amount with the transfer hint beside it on one line, as Productos;
-   where a wider font does not leave room, the hint drops whole to the next line instead of poking out. The regular
-   price struck through under a promotion, a divider before the web transfer's figure. */
+   where a wider font or a narrower cell (the panel's Precios tab) does not leave room, the hint drops to the next line
+   and, if still too wide, breaks there instead of poking out. The regular price struck through under a promotion, a
+   divider before the web transfer's figure. */
 .tnPrice {
   display: flex;
+  max-width: 100%;
   flex-direction: column;
   align-items: flex-end;
   padding-bottom: 2px;
@@ -276,6 +278,7 @@
 
 .tnAmount {
   display: flex;
+  max-width: 100%;
   flex-wrap: wrap;
   justify-content: flex-end;
   column-gap: 8px;
@@ -286,4 +289,9 @@
 .tnRegular {
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
+}
+
+.tnHint {
+  white-space: normal;
+  text-align: right;
 }
