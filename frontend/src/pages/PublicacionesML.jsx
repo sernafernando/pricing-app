@@ -486,22 +486,50 @@ export default function PublicacionesML() {
   const paintProduct = usePaintProduct({ equipo: rowFilters.equipo, onPainted: colorOverlay.apply, showToast });
   // The product of a focused row: a publication's linked product, or the product row itself (Producto view). The
   // Agrupado tree keeps its rows to itself.
+  const productIdOfRow = (key) => {
+    const row = producto ? productRows.rows.find((candidate) => candidate.id === key) : null;
+    return producto
+      ? row?.type === 'node'
+        ? row.node.productoItemId
+        : row?.item?.link?.producto_item_id
+      : items.find((item) => item.item_id === key)?.link?.producto_item_id;
+  };
   const paintRow = (key, color) => {
     if (agrupado) {
       showToast('Pintar con el teclado funciona en las vistas Publicaciones y Producto', 'error');
       return;
     }
-    const row = producto ? productRows.rows.find((candidate) => candidate.id === key) : null;
-    const productId = producto
-      ? row?.type === 'node'
-        ? row.node.productoItemId
-        : row?.item?.link?.producto_item_id
-      : items.find((item) => item.item_id === key)?.link?.producto_item_id;
+    const productId = productIdOfRow(key);
     if (productId == null) {
       showToast('La publicación no tiene producto vinculado', 'error');
       return;
     }
     paintProduct(productId, color);
+  };
+  // r / w / o (S9): flip the focused row's product rebate, web transfer or "fuera de tarjetas", as in Productos. They
+  // write from the product's own figures (its stored percentages), so they wait for its prices.
+  const TOGGLE_PERMISSION = {
+    rebate: ['canToggleRebate', 'el rebate'],
+    web: ['canToggleWebTransf', 'web transferencia'],
+    tarjetas: ['canToggleOutOfCards', 'fuera de tarjetas'],
+  };
+  const toggleRow = (key, kind) => {
+    const [permission, name] = TOGGLE_PERMISSION[kind];
+    if (!priceWritePermissions[permission]) {
+      showToast(`No tenés permiso para cambiar ${name}`, 'error');
+      return;
+    }
+    const productId = productIdOfRow(key);
+    if (productId == null) {
+      showToast('La publicación no tiene producto vinculado', 'error');
+      return;
+    }
+    const product = listPrices.byId.get(productId);
+    if (!product) {
+      showToast('Los precios del producto todavía no están cargados', 'error');
+      return;
+    }
+    priceEditor.toggle(kind, product);
   };
   // F6 / F7 step through [Global, ...the user's teams], wrapping around, as in Productos.
   const cycleLayer = (delta) => {
@@ -523,6 +551,7 @@ export default function PublicacionesML() {
     onPaintRow: paintRow,
     onCycleLayer: cycleLayer,
     onCycleMode: canSeePrices && !agrupado ? cyclePriceMode : undefined,
+    onToggleRow: canSeePrices && !agrupado ? toggleRow : undefined,
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,

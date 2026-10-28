@@ -18,7 +18,7 @@ const ROWS = Array.from({ length: 15 }, (_, index) => ({
 }));
 const COLUMNS = [{ key: 'titulo', label: 'Título', render: (row) => row.titulo }];
 
-function Harness({ onOpen = () => {}, onExport, onPaintRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, showToast = () => {}, rows = ROWS }) {
+function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, showToast = () => {}, rows = ROWS }) {
   const searchRef = useRef(null);
   const [help, setHelp] = useState(false);
   usePublicacionesMLKeyboard({
@@ -26,6 +26,7 @@ function Harness({ onOpen = () => {}, onExport, onPaintRow, onCycleLayer, onCycl
     findRow: (key) => rows.find((row) => row.item_id === key),
     onExport,
     onPaintRow,
+    onToggleRow,
     onCycleLayer,
     onCycleMode,
     onBulkAction,
@@ -207,6 +208,39 @@ describe('usePublicacionesMLKeyboard', () => {
     await user.keyboard('{ArrowDown}{ArrowDown}{Control>}{F1}{/Control}');
     expect(showToast).toHaveBeenLastCalledWith('La publicación no tiene producto vinculado', 'error');
     expect(await copied()).toBe('');
+  });
+});
+
+describe("r / w / o (S9): the focused row's product rebate, web transfer and fuera de tarjetas, as in Productos", () => {
+  it('each key flips its toggle on the focused row', async () => {
+    const onToggleRow = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onToggleRow={onToggleRow} />);
+    await user.keyboard('{ArrowDown}r');
+    expect(onToggleRow).toHaveBeenLastCalledWith('MLA1', 'rebate');
+    await user.keyboard('{ArrowDown}w');
+    expect(onToggleRow).toHaveBeenLastCalledWith('MLA2', 'web');
+    await user.keyboard('o');
+    expect(onToggleRow).toHaveBeenLastCalledWith('MLA2', 'tarjetas');
+  });
+
+  it('says where to stand without a focused row, and never runs while typing, with a modifier or where not offered', async () => {
+    const onToggleRow = vi.fn();
+    const showToast = vi.fn();
+    const user = userEvent.setup();
+    const { unmount } = render(<Harness onToggleRow={onToggleRow} showToast={showToast} />);
+    await user.keyboard('r');
+    expect(showToast).toHaveBeenCalledWith('Posicionate sobre una publicación (flecha abajo) para usar este atajo', 'error');
+    await user.click(screen.getByRole('textbox', { name: 'Buscar' }));
+    await user.keyboard('rwo');
+    screen.getByRole('textbox', { name: 'Buscar' }).blur();
+    await user.keyboard('{ArrowDown}{Shift>}r{/Shift}');
+    expect(onToggleRow).not.toHaveBeenCalled();
+    unmount();
+    showToast.mockClear();
+    render(<Harness showToast={showToast} />);
+    await user.keyboard('{ArrowDown}r');
+    expect(showToast).not.toHaveBeenCalled();
   });
 });
 

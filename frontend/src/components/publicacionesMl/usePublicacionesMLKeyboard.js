@@ -34,6 +34,9 @@ function copyAction(event) {
   return null;
 }
 
+// r / w / o, as in Productos.
+const TOGGLE_KEYS = { KeyR: 'rebate', KeyW: 'web', KeyO: 'tarjetas' };
+
 const isTyping = (element) => Boolean(element?.closest?.(TYPING));
 const focusedRow = () => document.activeElement?.closest?.(ROW) ?? null;
 
@@ -79,6 +82,8 @@ function moveFocus(event) {
  *   next color layer (`onCycleLayer(-1 | 1)`), as in Productos; each only where the page offers it.
  * - Ctrl+K / Ctrl+Shift+P open the bulk Calcular Web Transf. / Calcular PVP (`onBulkAction('web' | 'pvp')`), and
  *   Alt+M / Alt+S / Alt+P the Marca / Subcategoría / PM filters (`onOpenFilter(name)`), as in Productos.
+ * - r / w / o flip the focused row's product rebate, web transfer and "fuera de tarjetas" (`onToggleRow(key, 'rebate' |
+ *   'web' | 'tarjetas')`), as in Productos.
  * - Alt+V steps to the next mode of Productos' price columns (`onCycleMode()`: Normal, Cuotas, PVP), as in Productos.
  *
  * While the operator types in a field only Ctrl+F and the copy shortcuts run (as in Productos, which copies while
@@ -90,6 +95,7 @@ export default function usePublicacionesMLKeyboard({
   findRow,
   onExport,
   onPaintRow,
+  onToggleRow,
   onCycleLayer,
   onCycleMode,
   onBulkAction,
@@ -102,7 +108,7 @@ export default function usePublicacionesMLKeyboard({
   // No dependency array on purpose (the latest-ref pattern): it copies the values after every render.
   const props = useRef({});
   useLayoutEffect(() => {
-    props.current = { searchRef, findRow, onExport, onPaintRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleHelp, showToast };
+    props.current = { searchRef, findRow, onExport, onPaintRow, onToggleRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleHelp, showToast };
   });
 
   useEffect(() => {
@@ -137,6 +143,7 @@ export default function usePublicacionesMLKeyboard({
         onExport: exportView,
         onToggleHelp: toggleHelp,
         onPaintRow: paintRow,
+        onToggleRow: toggleRow,
         onCycleLayer: cycleLayer,
         onCycleMode: cycleMode,
         onBulkAction: bulkAction,
@@ -199,6 +206,14 @@ export default function usePublicacionesMLKeyboard({
         const key = focusedRow()?.dataset.rowKey;
         if (key === undefined) toast?.(NO_ROW, 'error');
         else paintRow(key, PAINT_COLORS[Number(event.key)]);
+        return;
+      }
+      // `code`: Caps Lock or a layout must not change which toggle a key flips; Shift+R and the like are not it.
+      if (TOGGLE_KEYS[event.code] && !event.shiftKey && toggleRow) {
+        event.preventDefault();
+        const key = focusedRow()?.dataset.rowKey;
+        if (key === undefined) toast?.(NO_ROW, 'error');
+        else toggleRow(key, TOGGLE_KEYS[event.code]);
         return;
       }
       if (event.key === '?' && toggleHelp) {

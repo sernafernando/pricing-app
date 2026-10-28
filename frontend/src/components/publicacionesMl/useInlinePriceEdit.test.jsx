@@ -9,7 +9,14 @@ import { LISTS } from '../pricing/priceWrites';
 import { preciosAPI } from '../../services/api';
 
 vi.mock('../../services/api', () => ({
-  preciosAPI: { calcularMarkup: vi.fn(), setRapido: vi.fn(), setCuota: vi.fn() },
+  preciosAPI: {
+    calcularMarkup: vi.fn(),
+    setRapido: vi.fn(),
+    setCuota: vi.fn(),
+    setRebate: vi.fn(),
+    setWebTransferencia: vi.fn(),
+    setOutOfCards: vi.fn(),
+  },
 }));
 
 const ROWS = LISTS.flatMap((list) => list.rows);
@@ -28,6 +35,9 @@ beforeEach(() => {
   preciosAPI.calcularMarkup.mockResolvedValue({ data: { markup: 12 } });
   preciosAPI.setRapido.mockResolvedValue({ data: {} });
   preciosAPI.setCuota.mockResolvedValue({ data: {} });
+  preciosAPI.setRebate.mockResolvedValue({ data: {} });
+  preciosAPI.setWebTransferencia.mockResolvedValue({ data: {} });
+  preciosAPI.setOutOfCards.mockResolvedValue({ data: {} });
 });
 
 describe('useInlinePriceEdit', () => {
@@ -126,5 +136,50 @@ describe('useInlinePriceEdit', () => {
     expect(result.current.message).toEqual({ tone: 'error', text: 'Sin permiso' });
     expect(result.current.saving).toBe(false);
     expect(onWritten).not.toHaveBeenCalled();
+  });
+
+  describe('the r / w / o toggles (S9), written as the panel writes them', () => {
+    it("r turns the rebate on with the product's stored percentage (3.8 when it has none), and off again", async () => {
+      const { result, onWritten } = setup();
+      await act(async () => {
+        await result.current.toggle('rebate', { item_id: 7, participa_rebate: false, porcentaje_rebate: null });
+      });
+      expect(preciosAPI.setRebate).toHaveBeenCalledWith(7, { participa_rebate: true, porcentaje_rebate: 3.8 });
+      expect(result.current.message).toEqual({ tone: 'ok', text: 'Rebate activado.' });
+      await act(async () => {
+        await result.current.toggle('rebate', { item_id: 7, participa_rebate: true, porcentaje_rebate: 4.5 });
+      });
+      expect(preciosAPI.setRebate).toHaveBeenLastCalledWith(7, { participa_rebate: false, porcentaje_rebate: 4.5 });
+      expect(result.current.message).toEqual({ tone: 'ok', text: 'Rebate desactivado.' });
+      expect(onWritten).toHaveBeenCalledTimes(2);
+    });
+
+    it('w flips the web transfer keeping its percentage and its preserve flag', async () => {
+      const { result } = setup();
+      await act(async () => {
+        await result.current.toggle('web', { item_id: 7, participa_web_transferencia: false, porcentaje_markup_web: 5, preservar_porcentaje_web: true });
+      });
+      expect(preciosAPI.setWebTransferencia).toHaveBeenCalledWith(7, { participa: true, porcentaje_markup: 5, preservar_porcentaje: true });
+      expect(result.current.message.text).toBe('Web transferencia activada.');
+    });
+
+    it('o flips "fuera de tarjetas"', async () => {
+      const { result } = setup();
+      await act(async () => {
+        await result.current.toggle('tarjetas', { item_id: 7, out_of_cards: true });
+      });
+      expect(preciosAPI.setOutOfCards).toHaveBeenCalledWith(7, false);
+      expect(result.current.message.text).toBe('Fuera de tarjetas desactivado.');
+    });
+
+    it("a failed toggle shows the backend's reason and reports nothing written", async () => {
+      preciosAPI.setOutOfCards.mockRejectedValue({ response: { data: { detail: 'El producto no tiene pricing' } } });
+      const { result, onWritten } = setup();
+      await act(async () => {
+        await result.current.toggle('tarjetas', { item_id: 7, out_of_cards: false });
+      });
+      expect(result.current.message).toEqual({ tone: 'error', text: 'El producto no tiene pricing' });
+      expect(onWritten).not.toHaveBeenCalled();
+    });
   });
 });
