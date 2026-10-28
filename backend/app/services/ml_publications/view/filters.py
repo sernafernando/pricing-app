@@ -82,6 +82,9 @@ COLOR_VALUES = ("rojo", "naranja", "amarillo", "verde", "azul", "purpura", "gris
 NO_COLOR = "sin_color"
 NO_STORE = "none"
 NO_STATUS = "sin_estado"
+# Productos' "Estado MLA" values (`estado_mla`): a product with an active publication, or with publications and none
+# active
+ESTADO_MLA = ("activa", "pausada")
 
 # The event types the store really writes (`events.EVENT_TYPES`, the one list); anything else is a typo.
 EVENT_TYPES = frozenset(real_event_types)
@@ -156,6 +159,8 @@ class PublicationFilter:
     tienda_nube: Optional[str] = None  # one of `TIENDA_NUBE_STATES`
     precio: Optional[bool] = None  # Productos' "con precio": the product has a `precio_lista_ml`
     nuevos: bool = False  # Productos' "Nuevos (7 días)": the product was synced from the ERP in the last 7 days
+    # Productos' "Estado MLA" (`estado_mla`): one of `ESTADO_MLA`, or `None` for no filter
+    estado_mla: Optional[str] = None
     # Productos' markup filters: (stored `productos_pricing` markup column, positive?) of the linked product. A margin
     # figure: the router asks `ml_metricas.ver_ganancia` before parsing them.
     markup_signs: tuple[tuple[str, bool], ...] = ()
@@ -324,6 +329,13 @@ def _pm_group(raw: Optional[str]) -> Optional[str]:
     return str(_integer("pm_grupo", tokens[0]))
 
 
+def _estado_mla(raw: Optional[str]) -> Optional[str]:
+    tokens = _vocabulary("estado_mla", raw, ESTADO_MLA)
+    if len(tokens) > 1:
+        raise FilterError("estado_mla", "a single value")
+    return tokens[0] if tokens else None
+
+
 def _family(raw: Optional[str]) -> Optional[int]:
     tokens = _tokens(raw, "familia")
     if not tokens:
@@ -387,6 +399,7 @@ def parse_filter(
     con_precio: Optional[bool] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     con_mla: Optional[bool] = None,
+    estado_mla: Optional[str] = None,
     markup_clasica_positivo: Optional[bool] = None,
     markup_rebate_positivo: Optional[bool] = None,
     markup_oferta_positivo: Optional[bool] = None,
@@ -433,6 +446,7 @@ def parse_filter(
         precio=con_precio,
         nuevos=bool(nuevos_ultimos_7_dias),
         sin_mla=con_mla is False,  # `true` is every row of this screen already: no filter
+        estado_mla=_estado_mla(estado_mla),
         markup_signs=tuple(
             (column, positive)
             for column, positive in (
@@ -713,11 +727,11 @@ def price_amount() -> ColumnElement:
     return func.coalesce(T.sp.amount, T.i.price)
 
 
-def deleted() -> ColumnElement:
+def deleted(i: Any = T.i) -> ColumnElement:
     """A deleted item, the `gone` status token: it vanished from ML (`gone_at` set), or ML marks it deleted in its
     `sub_status` (ML keeps a deleted item as `inactive`/`closed` with `deleted` there, and never sets our `gone_at`)."""
     # IS TRUE: on a NULL sub_status `= ANY` is NULL, and NOT of it would hide every live item without a sub_status
-    return or_(T.i.gone_at.isnot(None), T.i.sub_status.any("deleted").is_(true()))
+    return or_(i.gone_at.isnot(None), i.sub_status.any("deleted").is_(true()))
 
 
 def status_value() -> ColumnElement:
@@ -1067,6 +1081,21 @@ def _tienda_nube_in(state: str, p: Any) -> ColumnElement:
     return and_(p.stock > 0, ~exists(active))
 
 
+def _estado_mla_in(state: str, p: Any) -> ColumnElement:
+    """Productos' "Estado MLA" of the product, over its linked publications (`product_links`): "activa" has at least
+    one active, "pausada" has some and none active. As Productos reads the ERP status, a publication with no status
+    counts as active; a deleted one (`deleted`) as not active, whatever status it kept."""
+    pl, pi = product_links("pl_estado_mla"), aliased(MlItem, name="pi_estado_mla")
+    publications = (
+        select(1)
+        .select_from(pl)
+        .join(pi, pi.item_id == pl.c.item_id)
+        .where(pl.c.producto_item_id == p.item_id, pi.never_existed.isnot(True))
+    )
+    active = exists(publications.where(not_(deleted(pi)), or_(pi.status == "active", pi.status.is_(None))))
+    return active if state == "activa" else and_(exists(publications), ~active)
+
+
 def product_flag_conditions(f: PublicationFilter, p: Any) -> list[ColumnElement]:
     """The presence toggles that are the PRODUCT's (its pricing flags, list price, Tienda Nube, sync date, Productos'
     markup signs, its audit trail), on the catalog row `p`."""
@@ -1083,6 +1112,8 @@ def product_flag_conditions(f: PublicationFilter, p: Any) -> list[ColumnElement]
         where.append(_precio(f.precio, p))
     if f.nuevos:
         where.append(p.fecha_sync >= func.now() - timedelta(days=7))
+    if f.estado_mla is not None:
+        where.append(_estado_mla_in(f.estado_mla, p))
     where.extend(_markup_sign(column, positive, p) for column, positive in f.markup_signs)
     if f.audits:
         where.append(_audited(f, p))

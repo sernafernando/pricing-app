@@ -842,6 +842,11 @@ def filter_query(
     con_mla: Optional[bool] = Query(
         None, description="false: the products no publication is linked to (Productos' Sin MLA, Producto view)"
     ),
+    estado_mla: Optional[str] = Query(
+        None,
+        description="Productos' Estado MLA: activa (a product with an active publication) or pausada (publications,"
+        " none active)",
+    ),
     # The caller and the application session, for the permission check of the markup filters (cached per request:
     # every endpoint already authenticates the same way).
     user: Usuario = Depends(get_current_user),
@@ -897,6 +902,7 @@ def filter_query(
             mla_scope=_mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq),
             colores=colores,
             con_mla=con_mla,
+            estado_mla=estado_mla,
         )
         f = _resolve_promo_search(f)
     except FilterError as exc:
