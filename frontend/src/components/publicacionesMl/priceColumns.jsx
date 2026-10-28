@@ -38,6 +38,7 @@ export function priceColumns(mode, { prices, canSeeMargin = false }) {
         product={productId == null ? null : prices.byId.get(productId)}
         column={column}
         loading={productId != null && prices.loading}
+        failed={productId != null && prices.error}
         canSeeMargin={canSeeMargin}
       />
     );

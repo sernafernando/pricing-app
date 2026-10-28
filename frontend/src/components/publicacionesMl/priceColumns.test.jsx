@@ -79,6 +79,16 @@ describe('priceColumns', () => {
     expect(cell(pending, item(null))).toBe('—');
   });
 
+  it('a failed request says so, never "—" as if there were no price', () => {
+    const [clasica] = priceColumns('normal', { prices: { byId: new Map(), loading: false, error: true } });
+    const { container, unmount } = render(<div>{clasica.render(item())}</div>);
+    expect(container.textContent).not.toBe('—');
+    expect(container.querySelector('[title="No se pudieron cargar los precios de Productos"]')).not.toBeNull();
+    unmount();
+    // A publication with no product has no price to fail.
+    expect(cell(clasica, item(null))).toBe('—');
+  });
+
   it("draws a product row from the product's own id", () => {
     const [pvp] = priceColumns('pvp', { prices: prices() });
     expect(textOf(pvp.renderProduct(7))).toContain('1.500,00');

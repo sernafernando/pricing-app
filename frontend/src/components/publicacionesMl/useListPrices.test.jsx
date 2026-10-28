@@ -58,4 +58,12 @@ describe('useListPrices', () => {
     expect(result.current.byId.size).toBe(0);
     expect(result.current.loading).toBe(false);
   });
+
+  it('keeps the same answer object between renders while nothing changed, so the columns are not rebuilt', async () => {
+    const { result, rerender } = renderHook(({ ids }) => useListPrices(ids, true), { initialProps: { ids: [7] } });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const first = result.current;
+    rerender({ ids: [7] });
+    expect(result.current).toBe(first);
+  });
 });

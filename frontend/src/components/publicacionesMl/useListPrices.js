@@ -36,5 +36,9 @@ export default function useListPrices(productIds, enabled) {
   }, [key]);
 
   const answered = Boolean(key) && state.key === key;
-  return { byId: answered ? state.byId : NONE, loading: Boolean(key) && !answered, error: answered && state.error };
+  // The same object while nothing changed: the page's columns depend on it.
+  return useMemo(
+    () => ({ byId: answered ? state.byId : NONE, loading: Boolean(key) && !answered, error: answered && state.error }),
+    [answered, key, state],
+  );
 }
