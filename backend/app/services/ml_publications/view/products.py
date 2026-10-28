@@ -109,7 +109,8 @@ def _members(mla_set: Any) -> Any:
             T.p.descripcion,
             T.p.codigo,
             T.p.marca,
-            # `erp_stock` over this row's links: a publication linked per variation gets its product's stock
+            # `erp_stock` over this row's links: a link names a product only when `linked` (the table's CHECK), so
+            # naming one is the `linked` test; a publication linked per variation gets its product's stock
             erp_stock(pl.c.producto_item_id.isnot(None)).label("stock"),
         )
         .select_from(mla_set)

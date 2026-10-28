@@ -136,6 +136,17 @@ class TestVariationLinksInTheProductFilters:
         }
         assert counts["77"] == 3
 
+    @pytest.mark.usefixtures("painted")
+    def test_a_publication_with_a_painted_and_an_unpainted_product_is_in_both_color_sets(
+        self, db, client, admin_auth_headers
+    ):
+        db.query(ProductoColor).filter(ProductoColor.item_id == 78).delete()
+        db.flush()
+
+        # MLA6 is linked per variation to 77 (rojo) and 78 (no color now)
+        assert _items(client, admin_auth_headers, colores="rojo") == ["MLA1", "MLA5", "MLA6"]
+        assert _items(client, admin_auth_headers, colores="sin_color") == ["MLA2", "MLA6", "MLA7", "MLA8"]
+
     def test_a_variation_linked_publication_s_offer_is_its_product_s(self, pg, client, admin_auth_headers):
         seed_rows(pg, lambda conn: seed.add_oferta(conn, "MLA5", *CURRENT, precio_final=900, pvp_seller=950))
 
