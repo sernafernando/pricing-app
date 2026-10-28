@@ -10,6 +10,10 @@ function isCandidate(promo) {
   return promo?.status === 'candidate';
 }
 
+function isStarted(promo) {
+  return promo?.status === 'started';
+}
+
 /** Premium campaigns are named e.g. "PREMIUM JULIO" (month changes; "premium" stays). */
 export function isPremiumPromo(promo) {
   const blob = `${promo?.name || ''} ${promo?.payload?.name || ''}`.toLowerCase();
@@ -50,6 +54,19 @@ function fitsCriteria(promo, { precioSugerido, markupMin, markupMax }) {
   return true;
 }
 
+/** Premium slot: candidate that fits, or already-started Premium (show as aplicada). */
+function fitsPremiumSlot(promo, { precioSugerido, markupMin, markupMax }) {
+  if (!isPremiumPromo(promo)) return false;
+  if (!SELLER_PRICED_TYPES.has(promo.promotion_type)) return false;
+  if (ML_PRICED_TYPES.has(promo.promotion_type)) return false;
+  if (!fitsMarkupBand(promo, markupMin, markupMax)) return false;
+  if (isCandidate(promo)) {
+    return inDealRange(promo, precioSugerido);
+  }
+  // Started Premium often has null min/max; still surface it as applied.
+  return isStarted(promo);
+}
+
 /** Lower score = closer to suggested price (or range midpoint). */
 function closenessScore(promo, precioSugerido) {
   if (precioSugerido == null || !Number.isFinite(Number(precioSugerido))) return 0;
@@ -57,6 +74,10 @@ function closenessScore(promo, precioSugerido) {
   if (ML_PRICED_TYPES.has(promo.promotion_type)) {
     const offer = promoDisplayPrice(promo);
     if (offer == null) return Number.POSITIVE_INFINITY;
+    return Math.abs(offer - target);
+  }
+  const offer = promoDisplayPrice(promo);
+  if (offer != null) {
     return Math.abs(offer - target);
   }
   const min =
@@ -85,10 +106,9 @@ function sortByCloseness(list, precioSugerido) {
 }
 
 /**
- * PARA GANAR pool (D20): up to 3 slots by type — one SMART, one other DEAL/campaña,
- * one Premium (name contains "premium"). Premium keeps the last slot when it fits;
- * brand-specific campaigns (A PVP …) may appear as the single "other" pick but no
- * longer crowd Premium out.
+ * PARA GANAR pool (D20/D21): one SMART, one other DEAL/campaña, one Premium.
+ * Premium candidates preferred; if only `started` Premium exists, still show it
+ * marked as applied (D21).
  *
  * @param {Array<object>} promotions
  * @param {{ precioSugerido?: number|null, markupMin?: number|null, markupMax?: number|null }} [opts]
@@ -96,16 +116,12 @@ function sortByCloseness(list, precioSugerido) {
  */
 export function selectParaGanarPromoPool(promotions, opts = {}) {
   const { precioSugerido = null, markupMin = null, markupMax = null } = opts;
-  const eligible = (Array.isArray(promotions) ? promotions : []).filter((p) =>
-    fitsCriteria(p, { precioSugerido, markupMin, markupMax }),
-  );
+  const list = Array.isArray(promotions) ? promotions : [];
+  const criteriaOpts = { precioSugerido, markupMin, markupMax };
+  const eligible = list.filter((p) => fitsCriteria(p, criteriaOpts));
 
   const smart = sortByCloseness(
     eligible.filter((p) => ML_PRICED_TYPES.has(p.promotion_type)),
-    precioSugerido,
-  );
-  const premium = sortByCloseness(
-    eligible.filter((p) => isPremiumPromo(p) && !ML_PRICED_TYPES.has(p.promotion_type)),
     precioSugerido,
   );
   const other = sortByCloseness(
@@ -118,6 +134,11 @@ export function selectParaGanarPromoPool(promotions, opts = {}) {
     precioSugerido,
   );
 
+  const premiumPool = list.filter((p) => fitsPremiumSlot(p, criteriaOpts));
+  const premiumCandidates = sortByCloseness(premiumPool.filter(isCandidate), precioSugerido);
+  const premiumStarted = sortByCloseness(premiumPool.filter(isStarted), precioSugerido);
+  const premium = [...premiumCandidates, ...premiumStarted];
+
   const slots = [];
   if (smart[0]) slots.push(smart[0]);
   if (other[0]) slots.push(other[0]);
@@ -127,5 +148,6 @@ export function selectParaGanarPromoPool(promotions, opts = {}) {
     ...promo,
     pool_slot: POOL_SLOT_LABELS[index],
     pool_rank: index + 1,
+    pool_applied: isStarted(promo),
   }));
 }

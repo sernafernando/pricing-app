@@ -109,6 +109,34 @@ describe('selectParaGanarPromoPool', () => {
     expect(pool.map((p) => p.promotion_id)).toEqual(['S1', 'P1']);
   });
 
+  it('shows started Premium as applied when no candidate Premium exists', () => {
+    const pool = selectParaGanarPromoPool(
+      [
+        {
+          promotion_id: 'P-on',
+          promotion_type: 'SELLER_CAMPAIGN',
+          status: 'started',
+          name: 'PREMIUM OCTUBRE',
+          price: 1699256,
+          nuestro_markup: 9.3,
+        },
+        {
+          promotion_id: 'D1',
+          promotion_type: 'DEAL',
+          status: 'candidate',
+          name: 'OFERTAS OCTUBRE',
+          min_discounted_price: 500000,
+          max_discounted_price: 2300000,
+          nuestro_markup: 9.3,
+        },
+      ],
+      { precioSugerido: 1740385, markupMin: 9, markupMax: 19 },
+    );
+    expect(pool.map((p) => p.promotion_id)).toEqual(['D1', 'P-on']);
+    expect(pool[1].pool_applied).toBe(true);
+    expect(pool[0].pool_applied).toBe(false);
+  });
+
   it('drops DEAL outside suggested range and started rows', () => {
     const pool = selectParaGanarPromoPool(
       [

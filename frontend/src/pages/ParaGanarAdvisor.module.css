@@ -585,6 +585,17 @@
   font-weight: var(--font-normal, 400);
 }
 
+.promoPoolApplied {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cf-accent-blue);
+  border: 1px solid color-mix(in srgb, var(--cf-accent-blue) 40%, var(--cf-border-subtle));
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-weight: var(--font-normal, 400);
+}
+
 .promoPoolMeta {
   font-size: 11px;
   color: var(--cf-text-tertiary);

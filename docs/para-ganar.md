@@ -42,6 +42,7 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D18 | **Pool promos Advisor:** prefer SMART-like `candidate`; else DEAL/SELLER_CAMPAIGN cuyo rango cubra `precio_sugerido`. `GET /promociones/item/{mla}` (`promos.ver`). Aplicar gris (enroll después) | “Premium” ≠ tipo ML; bridge = rango vs sugerido | Superseded by D19 |
 | D19 | **Hasta 3 sugeridas** que entren en criterios: Mejor / Intermedia / Tercera. Orden: SMART → otra DEAL/campaña → Premium (nombre contiene `premium`, ej. PREMIUM JULIO) al final. Markup band + rango vs sugerido | Requester: no inundar con el mirror completo | Superseded by D20 |
 | D20 | **Un slot por tipo:** 1 SMART + 1 DEAL/campaña no-Premium + 1 Premium (si califican). Premium ya no lo desplazan N campañas A PVP… Deal price = `precio_sugerido` clamp al rango → con enroll | Requester: Premium visible; brand campaigns no llenan el top-3 | Ranking done; sugerido-en-fila + enroll TBD |
+| D21 | **Premium `started`:** igual se muestra en el slot Premium con badge/botón **Aplicada** (no solo candidates). Min–max label skip — next slice replaces with sugerido | MLA2154276473: PREMIUM OCTUBRE ya enrolada | Done |
 
 ---
 
@@ -94,7 +95,7 @@ Newest first. Use for “why did we…” archaeology.
 - TOP board shows **Competís en** + per-row `listing_label` from the competition API (e.g. `Premium · 3 cuotas`) so it is not confused with the website financing copy (“Mismo precio en 6 cuotas”).
 - If the bucket has fewer price positions than TOP N, a discreet notice says the TOP is incomplete (not enough competitors).
 - **Precio sugerido (D15):** cheapest same-bucket peer as referent; if `markup_min` is set and peer markups exist, skip peers below that floor. Caps `precio_min`/`precio_max` when set. **Perdiendo:** delta = sugerido − nuestro (negativo = bajar). **Ganando:** holgura hasta el siguiente peer.
-- **Pool promos (D20):** under the TOP board, up to **3** slots from `GET /promociones/item/{mla}` that fit criteria: **one** SMART-like, **one** other DEAL/campaña, **one** Premium (name contains `premium`). Markup band + DEAL range vs `precio_sugerido`. Showing `deal_price = precio_sugerido` (clamped) + enroll = next slice. **Aplicar** stays disabled for now.
+- **Pool promos (D20/D21):** under the TOP board, up to **3** slots: **one** SMART-like, **one** other DEAL/campaña, **one** Premium (name contains `premium`). Markup band + DEAL range vs `precio_sugerido` for candidates. If Premium is already `started`, still show it with **Aplicada**. Showing `deal_price = precio_sugerido` (clamped) + enroll = next slice.
 - Missing snapshot: `POST /para-ganar/criterios/{mla}/competencia/refresh` (permiso `productos.editar_precios`) fetches via the same `refrescar_competencia_catalogo` path as Promociones — **per MLA only** (ML throttle).
 
 ### Sellers del catálogo

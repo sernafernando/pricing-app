@@ -11,15 +11,20 @@ function promoLabel(promo) {
 }
 
 function priceHint(promo) {
+  const offer = promoDisplayPrice(promo);
   if (ML_PRICED_TYPES.has(promo.promotion_type)) {
-    const price = promoDisplayPrice(promo);
-    return price != null ? `$ ${formatPrice(price)}` : 'precio ML';
+    return offer != null ? `$ ${formatPrice(offer)}` : 'precio ML';
+  }
+  // Started Premium often has a live offer price and null min/max.
+  if (promo.pool_applied && offer != null) {
+    return `$ ${formatPrice(offer)}`;
   }
   const min = promo.min_discounted_price;
   const max = promo.max_discounted_price;
   if (min != null && max != null) {
     return `$ ${formatPrice(min)} – ${formatPrice(max)}`;
   }
+  if (offer != null) return `$ ${formatPrice(offer)}`;
   if (min != null) return `desde $ ${formatPrice(min)}`;
   if (max != null) return `hasta $ ${formatPrice(max)}`;
   return 'rango no informado';
@@ -114,6 +119,9 @@ export default function ParaGanarPromoPool({ mla, precioSugerido }) {
               <div className={styles.promoPoolBody}>
                 <div className={styles.promoPoolName}>
                   <span className={styles.promoPoolSlot}>{promo.pool_slot}</span>
+                  {promo.pool_applied ? (
+                    <span className={styles.promoPoolApplied}>Aplicada</span>
+                  ) : null}
                   {promoLabel(promo)}
                 </div>
                 <div className={styles.promoPoolMeta}>
@@ -129,9 +137,13 @@ export default function ParaGanarPromoPool({ mla, precioSugerido }) {
                 type="button"
                 className={styles.promoApplyBtn}
                 disabled
-                title="Próximo: enroll desde Advisor (mismo POST que Productos)"
+                title={
+                  promo.pool_applied
+                    ? 'Ya está aplicada en ML'
+                    : 'Próximo: enroll desde Advisor (mismo POST que Productos)'
+                }
               >
-                Aplicar
+                {promo.pool_applied ? 'Aplicada' : 'Aplicar'}
               </button>
             </li>
           ))}
