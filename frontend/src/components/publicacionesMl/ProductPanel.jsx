@@ -15,6 +15,7 @@ import PanelTabs from './panel/PanelTabs';
 import ProductChangesTab from './panel/ProductChangesTab';
 import ProductCuotasConfig from './panel/ProductCuotasConfig';
 import ProductIdentity from './panel/ProductIdentity';
+import ProductPurchases from './panel/ProductPurchases';
 import { Field, Fields, Section } from './panel/PanelParts';
 import { amount, count } from './panel/format';
 import useProductPanel, { NO_PRODUCT_KEY } from './panel/useProductPanel';
@@ -45,10 +46,11 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * what ProductoTable hides: nothing without `canSeeSales`, no markup or Total Gauss without `canSeeMargin`.
  *
  * Those go under the Resumen tab, after the product's SKU and EAN (`ProductIdentity`, editable with
- * `ml_publicaciones.editar_producto`). Precios mounts the product's prices (the same `ProductPrices` a publication's
- * Precios tab mounts), and under them its instalment settings (`ProductCuotasConfig`), for whoever may see them, and
- * Cambios the changes made to the product in the app, with who made each one (`ProductChangesTab`); "Sin producto"
- * has neither. Opening another product goes back to
+ * `ml_publicaciones.editar_producto`) and its last purchases (`ProductPurchases`, `productos.ver_info_compras`).
+ * Precios mounts the product's prices (the same `ProductPrices` a publication's Precios tab mounts), and under them
+ * its instalment settings (`ProductCuotasConfig`), for whoever may see them, and Cambios the changes made to the
+ * product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. Opening another
+ * product goes back to
  * Resumen. A price write reloads the page's list (`onListReload`).
  *
  * @param {object} props
@@ -124,6 +126,7 @@ export default function ProductPanel({
           ) : (
             <>
               {productItemId != null && <ProductIdentity key={productItemId} productItemId={productItemId} publications={items} />}
+              {productItemId != null && <ProductPurchases key={productItemId} productItemId={productItemId} />}
               {figures.length > 0 && (
                 <Section title="Cifras">
                   <p className={panelStyles.note}>Con los filtros actuales</p>

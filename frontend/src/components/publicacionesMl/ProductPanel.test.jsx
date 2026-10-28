@@ -41,6 +41,10 @@ vi.mock('./panel/ProductCuotasConfig', () => ({
   default: ({ productItemId }) => <div data-testid="product-cuotas">{`cuotas of ${productItemId}`}</div>,
 }));
 
+vi.mock('./panel/ProductPurchases', () => ({
+  default: ({ productItemId }) => <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div>,
+}));
+
 const FILTERS = { vista: 'producto', estado: ['active'] };
 const SUMMARY = readProduct(makeProductRow());
 const NO_PRODUCT = readProduct(PRODUCT_ROWS[2]);
@@ -171,6 +175,19 @@ describe('ProductPanel', () => {
   it('shows the SKU and EAN of the product under Resumen', () => {
     renderPanel();
     expect(screen.getByTestId('product-identity')).toHaveTextContent(`identity of ${SUMMARY.productoItemId}`);
+  });
+
+  it('shows the last purchases under Resumen, after the SKU and EAN', () => {
+    renderPanel();
+    const identity = screen.getByTestId('product-identity');
+    const purchases = screen.getByTestId('product-purchases');
+    expect(purchases).toHaveTextContent(`purchases of ${SUMMARY.productoItemId}`);
+    expect(identity.compareDocumentPosition(purchases) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('has no last purchases for "Sin producto"', () => {
+    renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
+    expect(screen.queryByTestId('product-purchases')).not.toBeInTheDocument();
   });
 
   it('has no SKU and EAN for "Sin producto"', () => {
