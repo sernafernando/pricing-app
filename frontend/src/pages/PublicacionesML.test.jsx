@@ -1865,6 +1865,33 @@ describe("r / w / o on the focused row's product (S9)", () => {
   });
 });
 
+describe("Productos' pricing modal from the table (P3c)", () => {
+  const PRICED = [{ item_id: 4101, descripcion: 'Router Archer AX55', precio_lista_ml: 12345.5, costo: 100, moneda_costo: 'USD', stock: 3 }];
+  beforeEach(() => {
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+  });
+  const table = () => screen.getByRole('table', { name: /Publicaciones de Mercado Libre/ });
+
+  it("Calcular opens Productos' pricing modal on the row's product", async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.click(await within(table()).findByRole('button', { name: 'Calcular el precio de Router Archer AX55' }));
+    // PricingModalTesla, titled with the product and its listing figures as in Productos.
+    const modal = (await screen.findByText(/Stock: 3 \| Costo: USD \$100\.00/)).closest('.modal-tesla');
+    expect(modal).toHaveTextContent('Router Archer AX55');
+    // Opening it is not opening the row.
+    expect(table().querySelector('tr[aria-current]')).toBeNull();
+  });
+
+  it('without a price edit permission there is no Calcular', async () => {
+    canEditPrices = false;
+    await page();
+    expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
+    expect(within(table()).queryByRole('columnheader', { name: /Calcular/ })).not.toBeInTheDocument();
+  });
+});
+
 describe('painting colors (S8)', () => {
   const firstRow = () => screen.getByText('MLA1100000001').closest('tr');
 

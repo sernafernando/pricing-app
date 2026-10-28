@@ -40,6 +40,7 @@ import PriceModeSelect from '../components/publicacionesMl/PriceModeSelect';
 import { canViewProductPrices, pricePermissions } from '../components/pricing/productPricePermissions';
 import useInlinePriceEdit from '../components/publicacionesMl/useInlinePriceEdit';
 import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
+import PricingModalTesla from '../components/PricingModalTesla';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
@@ -407,6 +408,11 @@ export default function PublicacionesML() {
     if (priceMessage) showToast(priceMessage.text, priceMessage.tone === 'ok' ? 'success' : 'error');
   }, [priceMessage, showToast]);
   const priceWritePermissions = useMemo(() => pricePermissions(tienePermiso), [tienePermiso]);
+  // Productos' pricing modal (P3c), with Productos' own gate (`puedeEditar`): any price edit or rebate/web toggle.
+  const canCalculatePrice = ['canEditClasica', 'canEditMlCuotas', 'canToggleRebate', 'canToggleWebTransf'].some(
+    (flag) => priceWritePermissions[flag],
+  );
+  const [pricingProduct, setPricingProduct] = useState(null);
   const priceEdit = useMemo(
     () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, saving: priceEditor.saving }),
     [priceWritePermissions, priceEditor.save, priceEditor.saving],
@@ -435,6 +441,7 @@ export default function PublicacionesML() {
         priceMode: filters.modo,
         prices: canSeePrices ? listPrices : null,
         priceEdit,
+        onCalculatePrice: canCalculatePrice ? setPricingProduct : null,
       }),
     [
       eventsEnabled,
@@ -451,6 +458,7 @@ export default function PublicacionesML() {
       canSeePrices,
       listPrices,
       priceEdit,
+      canCalculatePrice,
     ],
   );
 
@@ -957,6 +965,15 @@ export default function PublicacionesML() {
           <p>{priceEditor.warning}</p>
         </ModalTesla>
       )}
+      <PricingModalTesla
+        isOpen={Boolean(pricingProduct)}
+        producto={pricingProduct}
+        onClose={() => setPricingProduct(null)}
+        onSave={() => {
+          setPricingProduct(null);
+          reloadList();
+        }}
+      />
       {priceListsOpen && (
         <ExportModal
           onClose={() => setPriceListsOpen(false)}
