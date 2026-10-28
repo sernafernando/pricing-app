@@ -177,6 +177,8 @@ describe('editing', () => {
     renderConfig();
     expect(await screen.findByText('No se pudo leer la configuración completa, así que no se puede editar.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Editar cuotas' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Recalcular cuotas')).not.toBeInTheDocument();
+    expect(productosAPI.configCuotas).not.toHaveBeenCalled();
   });
 
   it('a failed read after saving says so, without claiming it was saved', async () => {
