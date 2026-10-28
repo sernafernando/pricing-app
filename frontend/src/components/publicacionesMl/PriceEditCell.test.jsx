@@ -18,14 +18,19 @@ const setup = (props = {}) => {
 };
 
 describe('PriceEditCell', () => {
-  it('shows the price as a button that names what it edits', () => {
+  it('shows the price as a button that names what it edits and the price it holds', () => {
     setup();
-    expect(screen.getByRole('button', { name: 'Editar Precio Clásica' })).toHaveTextContent('1.200,50');
+    expect(screen.getByRole('button', { name: 'Editar Precio Clásica: 1.200,50' })).toHaveTextContent('1.200,50');
+  });
+
+  it('a price not set is named as such', () => {
+    setup({ value: null });
+    expect(screen.getByRole('button', { name: 'Editar Precio Clásica: sin precio' })).toBeInTheDocument();
   });
 
   it('a click opens an input with the current price, and Enter saves the typed one', async () => {
     const { onSave } = setup();
-    await userEvent.click(screen.getByRole('button', { name: 'Editar Precio Clásica' }));
+    await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Clásica/ }));
     const input = screen.getByRole('textbox', { name: 'Precio Clásica' });
     expect(input).toHaveValue('1200,5');
     expect(input).toHaveFocus();
@@ -37,16 +42,16 @@ describe('PriceEditCell', () => {
 
   it('a price not set opens an empty input', async () => {
     setup({ value: null });
-    await userEvent.click(screen.getByRole('button', { name: 'Editar Precio Clásica' }));
+    await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Clásica/ }));
     expect(screen.getByRole('textbox', { name: 'Precio Clásica' })).toHaveValue('');
   });
 
   it('Escape and leaving the input save nothing', async () => {
     const { onSave } = setup();
-    await userEvent.click(screen.getByRole('button', { name: 'Editar Precio Clásica' }));
+    await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Clásica/ }));
     await userEvent.type(screen.getByRole('textbox'), '9{Escape}');
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Editar Precio Clásica' }));
+    await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Clásica/ }));
     fireEvent.blur(screen.getByRole('textbox'));
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(onSave).not.toHaveBeenCalled();
@@ -61,13 +66,13 @@ describe('PriceEditCell', () => {
         </PriceEditCell>
       </div>,
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Editar Precio Clásica' }));
+    await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Clásica/ }));
     await userEvent.type(screen.getByRole('textbox'), '2');
     expect(onKeyDown).not.toHaveBeenCalled();
   });
 
   it('while a save is running the button is disabled', () => {
     setup({ saving: true });
-    expect(screen.getByRole('button', { name: 'Editar Precio Clásica' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Editar Precio Clásica/ })).toBeDisabled();
   });
 });

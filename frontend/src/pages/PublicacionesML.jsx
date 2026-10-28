@@ -358,9 +358,11 @@ export default function PublicacionesML() {
         : (data?.items ?? EMPTY_ROWS).map((item) => item.link?.producto_item_id),
     [producto, productRows.rows, data],
   );
-  const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado);
-  // A price typed in a cell (S11c) is saved as Productos does; the page's prices are read again after it.
-  const priceEditor = useInlinePriceEdit({ onWritten: listPrices.reload });
+  // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it.
+  const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
+  // A price typed in a cell (S11c) is saved as Productos does; the list is reloaded after it, as after a panel write
+  // (its prices with it).
+  const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
   const { message: priceMessage } = priceEditor;
   useEffect(() => {
     if (priceMessage) showToast(priceMessage.text, priceMessage.tone === 'ok' ? 'success' : 'error');
