@@ -12,12 +12,13 @@ Row shapes follow production rows (product 3163's flags, product 1123 / 983's Ti
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import text
 
 from app.services.ml_publications.view import listing
-from app.services.ml_publications.view.filters import parse_filter
+from app.services.ml_publications.view.filters import FilterError, parse_filter
 from tests.services.ml_publications.conftest import env, mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
 from tests.services.ml_publications.view.test_listing_postgres import conn, db, ids  # noqa: F401
@@ -106,3 +107,106 @@ class TestWithTheOtherFilters:
         assert listed(db, con_rebate=False, marcas="tp-link") == ["MLA3"]
         assert listed(db, con_web_transf=True, out_of_cards=False) == ["MLA2"]
         assert listed(db, con_rebate=True, con_oferta=True) == ["MLA1"]
+
+
+class TestProductosMissingFilters:
+    """P6: Productos' stock, precio and nuevos filters, with `GET /productos`' meaning, asked of the linked product."""
+
+    def test_con_stock_erp_is_stock_above_zero_and_needs_a_product(self, db) -> None:
+        assert listed(db, stock="erp_con_stock") == ["MLA1", "MLA3", "MLA5"]  # 71 has 0; MLA4 has no product
+        assert listing.facets(db, parse_filter())["stock"]["erp_con_stock"] == 3  # the chip's count is what it lists
+
+    def test_con_precio_is_a_list_price_in_productos_pricing(self, db, conn) -> None:
+        conn.execute(text("UPDATE productos_pricing SET precio_lista_ml = 167021 WHERE item_id = 70"))
+        assert listed(db, con_precio=True) == ["MLA1", "MLA5"]
+        assert listed(db, con_precio=False) == ["MLA2", "MLA3"]  # 72 has no pricing row: "sin"; MLA4 neither side
+
+    def test_nuevos_are_products_synced_in_the_last_7_days(self, db, conn) -> None:
+        conn.execute(text("UPDATE productos_erp SET fecha_sync = now() - interval '8 days' WHERE item_id <> 71"))
+        assert listed(db, nuevos_ultimos_7_dias=True) == ["MLA2"]
+        assert len(listed(db, nuevos_ultimos_7_dias=False)) == 5  # false is no filter, as in Productos
+
+
+class TestProductosMarkupFilters:
+    """P6b: Productos' Markup Clásica / Rebate / Oferta / Web Transf. filters, its stored markups of the linked
+    product: positive is > 0, negative < 0; a zero, a missing value or no pricing row matches neither side."""
+
+    @pytest.fixture(autouse=True)
+    def markups(self, conn) -> None:
+        conn.execute(text(seed.MARKUP_DDL))
+        conn.execute(
+            text(
+                "UPDATE productos_pricing SET markup_calculado = 12.5, markup_rebate = -3, markup_oferta = 0, "
+                "markup_web_real = NULL WHERE item_id = 70"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE productos_pricing SET markup_calculado = -8, markup_rebate = 4, markup_oferta = 2, "
+                "markup_web_real = -1 WHERE item_id = 71"
+            )
+        )
+
+    @pytest.mark.parametrize(
+        ("param", "positive", "negative"),
+        [
+            ("markup_clasica_positivo", ["MLA1", "MLA5"], ["MLA2"]),
+            ("markup_rebate_positivo", ["MLA2"], ["MLA1", "MLA5"]),
+            ("markup_oferta_positivo", ["MLA2"], []),  # 70's zero is neither
+            ("markup_web_transf_positivo", [], ["MLA2"]),  # 70's NULL is neither
+        ],
+    )
+    def test_each_markup_by_its_sign(self, db, param, positive, negative) -> None:
+        assert listed(db, **{param: True}) == positive
+        assert listed(db, **{param: False}) == negative  # MLA3 (no pricing row) and MLA4 (no product): neither
+
+
+def utc(*parts: int) -> datetime:
+    return datetime(*parts, tzinfo=timezone.utc)
+
+
+class TestProductosAuditFilter:
+    """P6c: Productos' audit filter (who changed the product, what kind of change, when), asked of the linked
+    product's `auditoria` rows. Dates are Buenos Aires wall time, as Productos reads them; the column is UTC."""
+
+    @pytest.fixture(autouse=True)
+    def users(self, conn) -> tuple[int, int]:
+        seed.create_audit_tables(conn)
+        ana, beto = seed.add_user(conn, "Ana", "ana"), seed.add_user(conn, "Beto", "beto")
+        # the ORM (`SQLEnum(TipoAccion)`, not native) stores the member NAME; the API speaks the value
+        seed.add_auditoria(conn, "MODIFICAR_PRECIO_CLASICA", {}, utc(2026, 10, 20, 15, 0), ana, item_id=70)  # 12:00 BA
+        seed.add_auditoria(conn, "ACTIVAR_REBATE", {}, utc(2026, 10, 22, 2, 30), beto, item_id=71)  # 21 Oct 23:30 BA
+        seed.add_auditoria(conn, "MODIFICAR_PRECIO_CLASICA", {}, utc(2026, 10, 21, 12, 0), ana)  # a bulk row
+        return ana, beto
+
+    def test_by_user_and_by_kind(self, db, users) -> None:
+        ana, beto = users
+        assert listed(db, audit_usuarios=str(ana)) == ["MLA1", "MLA5"]
+        assert listed(db, audit_tipos_accion="activar_rebate") == ["MLA2"]
+        assert listed(db, audit_usuarios=f"{ana},{beto}", audit_tipos_accion="activar_rebate") == ["MLA2"]
+
+    def test_by_date_in_buenos_aires_time(self, db) -> None:
+        assert listed(db, audit_fecha_desde="2026-10-21") == ["MLA2"]  # 23:30 on the 21st in BA
+        assert listed(db, audit_fecha_hasta="2026-10-21") == ["MLA1", "MLA2", "MLA5"]  # the whole day
+        assert listed(db, audit_fecha_desde="2026-10-20 12:01") == ["MLA2"]
+        assert listed(db, audit_fecha_hasta="2026-10-20 12:00") == ["MLA1", "MLA5"]
+
+    @pytest.mark.parametrize(
+        ("param", "value"),
+        [("audit_usuarios", "ana"), ("audit_tipos_accion", "borrar_todo"), ("audit_fecha_desde", "ayer")],
+    )
+    def test_a_value_outside_the_vocabulary_is_an_error(self, param, value) -> None:
+        with pytest.raises(FilterError) as raised:
+            parse_filter(**{param: value})
+        assert raised.value.field == param
+
+
+class TestMlaScope:
+    """P6d: the promo and PxQ filters resolve, in the router, to the set of MLAs that match (from the mlwebhook
+    database); the filter narrows the list to it. An empty set lists nothing, never everything."""
+
+    def test_the_list_is_narrowed_to_the_resolved_mlas(self, db) -> None:
+        assert listed(db, mla_scope=frozenset({"MLA2", "MLA4", "MLA9"})) == ["MLA2", "MLA4"]
+
+    def test_an_empty_scope_lists_nothing(self, db) -> None:
+        assert listed(db, mla_scope=frozenset()) == []

@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { PROMO_TYPES } from '../constants/promoTypes';
 import { COLORES_DISPONIBLES } from '../utils/productosConstants';
 
 /**
@@ -60,12 +61,39 @@ const PRESENCE_PARAMS = {
     no_publicado: { tn_no_publicado: true },
   },
   outofcards: { con_out_of_cards: { out_of_cards: true }, sin_out_of_cards: { out_of_cards: false } },
+  precio: { con_precio: { con_precio: true }, sin_precio: { con_precio: false } },
+  nuevos: { ultimos_7_dias: { nuevos_ultimos_7_dias: true } },
 };
 export const PRESENCE_VALUES = Object.fromEntries(
   Object.entries(PRESENCE_PARAMS).map(([key, values]) => [key, Object.keys(values)]),
 );
 const PRESENCE_KEYS = Object.keys(PRESENCE_PARAMS);
-export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS, ...PRESENCE_KEYS];
+/**
+ * Productos' markup filters (`mkclasica` ... with `positivo` / `negativo`), its stored markups of the linked product:
+ * a filter of the query (every view, the KPIs and the bulk set apply it), but a margin figure, so they are read from
+ * the URL only for a user with `ml_metricas.ver_ganancia` -- the backend refuses them otherwise.
+ */
+const MARKUP_SIGN_PARAMS = {
+  mkclasica: 'markup_clasica_positivo',
+  mkrebate: 'markup_rebate_positivo',
+  mkoferta: 'markup_oferta_positivo',
+  mkwebtransf: 'markup_web_transf_positivo',
+};
+const MARKUP_SIGN_KEYS = Object.keys(MARKUP_SIGN_PARAMS);
+const MARKUP_SIGNS = ['positivo', 'negativo'];
+/** Productos' audit filter: its URL keys (`useProductosFilters`) and the `GET /productos` param each one sends. */
+const AUDIT_CSV_PARAMS = { audit_usuarios: 'audit_usuarios', audit_tipos: 'audit_tipos_accion' };
+const AUDIT_TEXT_PARAMS = { audit_desde: 'audit_fecha_desde', audit_hasta: 'audit_fecha_hasta' };
+const AUDIT_KEYS = [...Object.keys(AUDIT_CSV_PARAMS), ...Object.keys(AUDIT_TEXT_PARAMS)];
+/**
+ * Productos' promo filter and its "Precios mayoristas" (`useProductosFilters`): `promo_tipos` (csv of
+ * `PROMO_TYPES`), `promo_estado` ('' = disponible) and `pxq` ('con_pxq' or ''). Sent as `GET /productos` sends them
+ * (`construirFiltrosParams`): the types with their state, else the state alone as the legacy booleans.
+ */
+const PROMO_TYPE_VALUES = PROMO_TYPES.map(({ type }) => type);
+export const PROMO_STATES = ['aplicada', 'sin_aplicar'];
+const PROMO_KEYS = ['promo_tipos', 'promo_estado', 'pxq'];
+export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS, ...PRESENCE_KEYS, ...MARKUP_SIGN_KEYS, ...AUDIT_KEYS, ...PROMO_KEYS];
 
 // `producto` = one row per product, opening into its publications (`/view/products`).
 const VISTAS = ['publicacion', 'producto', 'agrupado'];
@@ -153,7 +181,7 @@ function currentStockValues(values) {
   return [...new Set(values.map((value) => LEGACY_STOCK[value] ?? value))];
 }
 
-function readFilters(params) {
+function readFilters(params, { canSeeMargin = false } = {}) {
   const filters = {};
   for (const key of TEXT_KEYS) filters[key] = params.get(key) ?? '';
   for (const key of CSV_KEYS) filters[key] = csv(params.get(key));
@@ -163,6 +191,15 @@ function readFilters(params) {
     const value = params.get(key);
     filters[key] = PRESENCE_VALUES[key].includes(value) ? value : '';
   }
+  for (const key of MARKUP_SIGN_KEYS) {
+    const value = params.get(key);
+    filters[key] = canSeeMargin && MARKUP_SIGNS.includes(value) ? value : '';
+  }
+  for (const key of Object.keys(AUDIT_CSV_PARAMS)) filters[key] = csv(params.get(key));
+  for (const key of Object.keys(AUDIT_TEXT_PARAMS)) filters[key] = params.get(key) ?? '';
+  filters.promo_tipos = csv(params.get('promo_tipos')).filter((type) => PROMO_TYPE_VALUES.includes(type));
+  filters.promo_estado = PROMO_STATES.includes(params.get('promo_estado')) ? params.get('promo_estado') : '';
+  filters.pxq = params.get('pxq') === 'con_pxq' ? 'con_pxq' : '';
   // One reading for the switch and the request: only `1` / `true` mean on.
   filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
   const vista = params.get('vista');
@@ -237,6 +274,24 @@ export function buildItemsParams(
   for (const key of PRESENCE_KEYS) {
     if (filters[key]) Object.assign(params, PRESENCE_PARAMS[key][filters[key]]);
   }
+  for (const key of MARKUP_SIGN_KEYS) {
+    if (filters[key]) params[MARKUP_SIGN_PARAMS[key]] = filters[key] === 'positivo';
+  }
+  for (const [key, param] of Object.entries(AUDIT_CSV_PARAMS)) {
+    if (filters[key]?.length > 0) params[param] = filters[key].join(',');
+  }
+  for (const [key, param] of Object.entries(AUDIT_TEXT_PARAMS)) {
+    if (filters[key]) params[param] = filters[key];
+  }
+  if (filters.promo_tipos?.length > 0) {
+    params.promo_tipos = filters.promo_tipos.join(',');
+    params.promo_estado = filters.promo_estado || 'disponible';
+  } else if (filters.promo_estado === 'aplicada') {
+    params.con_promo_aplicada = true;
+  } else if (filters.promo_estado === 'sin_aplicar') {
+    params.con_promo_sin_aplicar = true;
+  }
+  if (filters.pxq === 'con_pxq') params.con_pxq = true;
   if (filters.equipo) params.equipo_id = filters.equipo;
   params.limit = pageSize;
   params.offset = (filters.pagina - 1) * pageSize;
@@ -308,9 +363,9 @@ export function buildProductIdsParams(filters) {
   return params;
 }
 
-export function usePublicacionesMLFilters() {
+export function usePublicacionesMLFilters({ canSeeMargin = false } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const filters = useMemo(() => readFilters(searchParams), [searchParams]);
+  const filters = useMemo(() => readFilters(searchParams, { canSeeMargin }), [searchParams, canSeeMargin]);
 
   // Stable while only the page / sort / selection change: the page compares
   // it to know when the facet counts must be asked for again.

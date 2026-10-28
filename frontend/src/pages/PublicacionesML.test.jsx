@@ -93,10 +93,12 @@ let canSeeKpis = true;
 let canSeePrices = true;
 // Writing them (S11c): the Productos and Tienda edit codes (`pricePermissions`).
 let canEditPrices = true;
+let denied = new Set();
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
     tienePermiso: (permiso) => {
+      if (denied.has(permiso)) return false;
       if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
       if (permiso === 'ml_metricas.ver') return canSeeKpis;
       if (/^(productos\.(editar|toggle)|tienda\.editar)/.test(permiso)) return canSeePrices && canEditPrices;
@@ -123,6 +125,7 @@ beforeEach(() => {
   canSeeKpis = true;
   canSeePrices = true;
   canEditPrices = true;
+  denied = new Set();
   publicacionesMlAPI.kpis.mockReset();
   publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE });
   seedTiendasOficiales([
@@ -366,6 +369,14 @@ describe('stock: our own, Full and the ERP, three columns never summed', () => {
     await waitFor(() => expect(lastParams().stock).toBe('propio_sin_stock'));
   });
 
+  it('offers "Con stock ERP" (Productos\' "Con stock") with its count and asks for it (P6)', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, stock: { ...FACETS.stock, erp_con_stock: 4 } } });
+    await page();
+    const stock = screen.getByRole('group', { name: 'Filtrar por stock' });
+    await userEvent.click(within(stock).getByRole('button', { name: /Con stock ERP.*4/ }));
+    await waitFor(() => expect(lastParams().stock).toBe('erp_con_stock'));
+  });
+
   it('an old link with the "Sin stock ML" value opens with "Sin stock propio" active and asks for it', async () => {
     await page('/ml-publicaciones?stock=sin_stock');
     expect(lastParams().stock).toBe('propio_sin_stock');
@@ -552,6 +563,19 @@ describe('loading and errors', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
     expect(await screen.findByText('MLA1100000001')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('a 503 filtro_no_disponible shows the backend\'s message, not the slow-query text', async () => {
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockRejectedValue(
+      httpError(503, {
+        error: { code: 'filtro_no_disponible', message: 'Filtro de promociones no disponible temporalmente' },
+      }),
+    );
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?promo_tipos=DEAL'] });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Filtro de promociones no disponible temporalmente');
+    expect(alert).not.toHaveTextContent('La consulta tardó demasiado');
   });
 
   it('says so when the filter is invalid (422), with the backend\'s message', async () => {
@@ -1991,5 +2015,50 @@ describe('painting from the keyboard (S8)', () => {
     expect(await screen.findByText('Capa: Ventas')).toBeInTheDocument();
     await user.keyboard('{F6}');
     await waitFor(() => expect(lastParams()).not.toHaveProperty('equipo_id'));
+  });
+});
+
+describe("Productos' price-list exports (S12c)", () => {
+  const EXPORT_PERMISSIONS = [
+    'productos.exportar_vista_actual',
+    'productos.exportar_rebate',
+    'productos.exportar_web_transferencia',
+    'productos.exportar_clasica',
+    'productos.exportar_pvp',
+  ];
+
+  beforeEach(() => {
+    api.post.mockClear();
+    api.post.mockResolvedValue({ data: 'xlsx' });
+    window.URL.createObjectURL = vi.fn(() => 'blob:x');
+    window.URL.revokeObjectURL = vi.fn();
+  });
+
+  it("exports the linked products of the filtered publications, resolved as a bulk action's set", async () => {
+    await page('/ml-publicaciones?q=router&estado=active');
+    await userEvent.click(screen.getByRole('button', { name: /Listas de precios/ }));
+    expect(await screen.findByText(/productos vinculados a las publicaciones de los filtros actuales/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Exportar Vista Actual' }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/exportar-vista-actual?page=1&page_size=10000', { item_ids: [4101, 4102] }, { responseType: 'blob' }));
+    expect(publicacionesMlAPI.productIds.mock.calls.at(-1)[0]).toMatchObject({ q: 'router', estado: 'active' });
+  });
+
+  it('offers only the kinds the user may export', async () => {
+    denied = new Set(['productos.exportar_rebate', 'productos.exportar_pvp']);
+    await page();
+    await userEvent.click(screen.getByRole('button', { name: /Listas de precios/ }));
+
+    expect(await screen.findByRole('button', { name: 'Clásica' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rebate ML' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'PVP' })).not.toBeInTheDocument();
+  });
+
+  it('has no button without any export permission', async () => {
+    denied = new Set(EXPORT_PERMISSIONS);
+    await page();
+
+    expect(screen.queryByRole('button', { name: /Listas de precios/ })).not.toBeInTheDocument();
   });
 });

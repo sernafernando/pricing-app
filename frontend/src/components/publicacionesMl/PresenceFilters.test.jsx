@@ -8,7 +8,19 @@ const filters = (overrides = {}) => ({ ...EMPTY_PRESENCE_FILTERS, ...overrides }
 
 describe('presenceFilters', () => {
   it("clears every presence key (Productos' URL keys)", () => {
-    expect(EMPTY_PRESENCE_FILTERS).toEqual({ rebate: '', oferta: '', webtransf: '', tiendanube: '', outofcards: '' });
+    expect(EMPTY_PRESENCE_FILTERS).toEqual({
+      rebate: '',
+      oferta: '',
+      webtransf: '',
+      tiendanube: '',
+      outofcards: '',
+      precio: '',
+      nuevos: '',
+      mkclasica: '',
+      mkrebate: '',
+      mkoferta: '',
+      mkwebtransf: '',
+    });
   });
 
   it('gives one chip per active toggle, labelled the way Productos labels the value, that clears it', () => {
@@ -23,7 +35,7 @@ describe('presenceFilters', () => {
 const openPanel = () => userEvent.click(screen.getByRole('button', { name: /Filtros de presencia/ }));
 
 describe('PresenceFilters', () => {
-  it('keeps the five toggles behind one button, as Productos keeps them behind "Filtros Avanzados"', async () => {
+  it('keeps the toggles behind one button, as Productos keeps them behind "Filtros Avanzados"', async () => {
     render(<PresenceFilters filters={filters()} setFilters={vi.fn()} />);
     expect(screen.getByText('Presencia:')).toBeInTheDocument();
     const button = screen.getByRole('button', { name: /Filtros de presencia/ });
@@ -31,7 +43,20 @@ describe('PresenceFilters', () => {
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     await openPanel();
     expect(button).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getAllByRole('combobox')).toHaveLength(5);
+    expect(screen.getAllByRole('combobox')).toHaveLength(7);
+  });
+
+  it("adds Productos' four markup selects only for a user who may see margins (P6b)", async () => {
+    const { unmount } = render(<PresenceFilters filters={filters()} setFilters={vi.fn()} canSeeMargin />);
+    await openPanel();
+    const options = (name) => [...screen.getByRole('combobox', { name }).options].map((o) => o.textContent);
+    for (const name of ['Markup Clásica', 'Markup Rebate', 'Markup Oferta', 'Markup Web Transf.']) {
+      expect(options(name)).toEqual(['Todos', 'Positivo', 'Negativo']);
+    }
+    unmount();
+    render(<PresenceFilters filters={filters()} setFilters={vi.fn()} />);
+    await openPanel();
+    expect(screen.queryByRole('combobox', { name: 'Markup Clásica' })).not.toBeInTheDocument();
   });
 
   it('closes the panel on Escape and on a click outside it', async () => {
@@ -54,7 +79,7 @@ describe('PresenceFilters', () => {
     expect(screen.getByRole('button', { name: 'Filtros de presencia (2 activos)' })).toBeInTheDocument();
   });
 
-  it("offers Productos' five toggles with Productos' options", async () => {
+  it("offers Productos' toggles with Productos' options", async () => {
     render(<PresenceFilters filters={filters()} setFilters={vi.fn()} />);
     await openPanel();
     const options = (name) => [...screen.getByRole('combobox', { name }).options].map((o) => o.textContent);
@@ -63,6 +88,8 @@ describe('PresenceFilters', () => {
     expect(options('Web Transferencia')).toEqual(['Todos', 'Con Web Transf.', 'Sin Web Transf.']);
     expect(options('Tienda Nube')).toEqual(['Todos', 'Con Descuento', 'Sin Descuento', 'No Publicado']);
     expect(options('Out of Cards')).toEqual(['Todos', 'Marcados', 'No Marcados']);
+    expect(options('Precio')).toEqual(['Todos', 'Con precio', 'Sin precio']);
+    expect(options('Productos Nuevos')).toEqual(['Todos', 'Últimos 7 días']);
   });
 
   it('writes the picked value to the URL and "Todos" clears it', async () => {
@@ -95,7 +122,7 @@ describe('PresenceFilters', () => {
     await openPanel();
     expect(container.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
     const icons = container.querySelectorAll('label svg');
-    expect(icons).toHaveLength(3); // Rebate, Web Transferencia, Tienda Nube, as in Productos
+    expect(icons).toHaveLength(4); // Rebate, Web Transferencia, Tienda Nube, Productos Nuevos, as in Productos
     icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
   });
 

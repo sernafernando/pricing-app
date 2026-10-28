@@ -1,18 +1,18 @@
 /**
  * Envíos Flex logistics history modal -- real CSS, real Chromium (flex-logistica-historial S5).
  *
- * jsdom does no layout, so the unit suite proves the copy, and
+ * jsdom does no layout, so the unit suite proves the copy and the undo flow, and
  * this file proves the layout promises of the Stitch design:
  *  - logística chips and origin badges never wrap;
- *  - "Cerrar" stays on one line;
- *  - nothing overflows the modal sideways.
+ *  - "Deshacer último cambio" and "Confirmar" stay on one line;
+ *  - nothing overflows the modal sideways, with the confirmation strip open.
  *
  *   pnpm exec vitest run --project=visual historialLogisticaModal
  *   VITE_HISTORIAL_SHOTS_DIR=<dir> pnpm exec vitest run --project=visual historialLogisticaModal   (also saves screenshots)
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { setTheme } from './visualHelpers';
 import HistorialLogisticaModal from '../../components/enviosFlex/HistorialLogisticaModal';
 
@@ -67,24 +67,27 @@ describe('HistorialLogisticaModal (visual)', () => {
     [1920, 1080],
   ]) {
     for (const theme of ['light', 'dark']) {
-      it(`keeps chips, badges and the button on one line at ${width}px, ${theme}`, async () => {
+      it(`keeps chips, badges and buttons on one line at ${width}px, ${theme}`, async () => {
         await page.viewport(width, height);
         setTheme(theme);
         document.body.style.background = 'var(--cf-bg-app)';
         const screen = await render(
-          <HistorialLogisticaModal shippingId="44812345678" onClose={() => {}} />,
+          <HistorialLogisticaModal shippingId="44812345678" puedeDeshacer operadorId={7} onClose={() => {}} />,
         );
         await expect.element(screen.getByText('Ana Gómez')).toBeVisible();
+
+        await userEvent.click(screen.getByRole('button', { name: /Deshacer último cambio/ }));
+        await expect.element(screen.getByRole('group', { name: 'Confirmar deshacer' })).toBeVisible();
 
         const modal = document.querySelector('.modal-tesla');
         const chips = [...modal.querySelectorAll('span[class*="chip"]')].filter(
           (el) => !/envioChip/.test(el.className),
         );
-        // 1 current + 5 rows x 2.
-        expect(chips.length).toBe(11);
+        // 1 current + 5 rows x 2 + 1 in the confirmation strip.
+        expect(chips.length).toBe(12);
         for (const chip of chips) expectOneLine(chip, 32);
         for (const badge of modal.querySelectorAll('span[class*="origen"]')) expectOneLine(badge, 28);
-        for (const name of ['Cerrar']) {
+        for (const name of ['Deshacer último cambio', 'Confirmar', 'Cancelar', 'Cerrar']) {
           const button = [...modal.querySelectorAll('button')].find((b) => b.textContent.trim() === name);
           expectOneLine(button, 40);
         }

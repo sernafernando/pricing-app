@@ -487,6 +487,23 @@ class TestSearch:
         assert ids(run(db, q="cobre_y")) == []
         assert ids(run(db, q="%")) == ["MLA900400"]  # only the title that really holds a percent sign
 
+    def test_codigo_and_ean_operators_are_exact_and_case_insensitive_on_the_product_code(self, db) -> None:
+        assert ids(run(db, q="codigo:kb-hdmi-2m")) == ["MLA900700"]
+        assert ids(run(db, q="ean:7790001234567")) == ["MLA900300"]
+        assert ids(run(db, q="codigo:kb-hdmi")) == []  # exact, not a fragment
+
+    def test_marca_operator_is_the_exact_brand(self, db) -> None:
+        assert ids(run(db, q="marca:hikvision")) == ["MLA900300"]
+        assert ids(run(db, q="marca:hik")) == []
+
+    def test_a_leading_asterisk_matches_the_end_of_title_name_brand_or_code(self, db) -> None:
+        assert ids(run(db, q="*domo")) == ["MLA900300"]  # product name
+        assert ids(run(db, q="*ac1200")) == ["MLA900100"]  # title
+        assert ids(run(db, q="*bel")) == ["MLA900700"]  # brand
+        assert ids(run(db, q="*-2m")) == ["MLA900700"]  # code
+        assert ids(run(db, q="*router")) == []  # "Router Wifi AC1200" starts with it, does not end with it
+        assert ids(run(db, q="*100%")) == []  # the wildcard is literal
+
     def test_no_match_is_an_empty_page_with_total_zero(self, db) -> None:
         page = run(db, q="inexistente")
         assert (page.items, page.total) == ([], 0)
@@ -851,7 +868,13 @@ class TestFacets:
             "marcas": {"TP-LINK": 1, "HIKVISION": 1},
             "listing": {"clasica": 1, "premium": 1, "catalogo": 1, "full": 1},
             "link": {"auto": 1, "manual": 1, "conflicto": 1, "no_evaluado": 2},
-            "stock": {"sin_stock": 1, "full_sin_stock": 1, "erp_sin_stock": 0, "propio_sin_stock": 0},
+            "stock": {
+                "sin_stock": 1,
+                "full_sin_stock": 1,
+                "erp_sin_stock": 0,
+                "erp_con_stock": 0,
+                "propio_sin_stock": 0,
+            },
         }
 
     def test_the_erp_without_stock_count_is_what_selecting_it_lists(self, conn, db) -> None:
@@ -899,7 +922,13 @@ class TestFacets:
             "marcas": {},
             "listing": {"clasica": 0, "premium": 0, "catalogo": 0, "full": 0},
             "link": {},
-            "stock": {"sin_stock": 0, "full_sin_stock": 0, "erp_sin_stock": 0, "propio_sin_stock": 0},
+            "stock": {
+                "sin_stock": 0,
+                "full_sin_stock": 0,
+                "erp_sin_stock": 0,
+                "erp_con_stock": 0,
+                "propio_sin_stock": 0,
+            },
         }
 
     def test_one_statement_per_axis_whatever_the_data(self, db) -> None:

@@ -86,7 +86,19 @@ const FiltrosActivosDisplay = ({ filtrosActivos }) => {
   );
 };
 
-export default function ExportModal({ onClose, filtrosActivos, showToast, esTienda = false }) {
+/**
+ * `resolverProductos` (optional, async → item_ids): export exactly the products it resolves instead of the Productos
+ * filters (Publicaciones ML resolves its own filtered set). Its Error message is shown as is; `descripcionConjunto`
+ * tells the operator what is exported.
+ */
+export default function ExportModal({
+  onClose,
+  filtrosActivos,
+  showToast,
+  esTienda = false,
+  resolverProductos = null,
+  descripcionConjunto = null,
+}) {
   const { tienePermiso } = usePermisos();
   const modalRef = useRef(null);
 
@@ -253,30 +265,32 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
   }, [handleKeyDown]);
 
   const hayFiltros =
-    !!filtrosActivos?.search ||
-    filtrosActivos?.con_stock !== null ||
-    filtrosActivos?.con_precio !== null ||
-    (filtrosActivos?.marcas?.length > 0) ||
-    (filtrosActivos?.subcategorias?.length > 0) ||
-    filtrosActivos?.filtroRebate !== null ||
-    filtrosActivos?.filtroOferta !== null ||
-    filtrosActivos?.filtroWebTransf !== null ||
-    filtrosActivos?.filtroTiendaNube !== null ||
-    filtrosActivos?.filtroMarkupClasica !== null ||
-    filtrosActivos?.filtroMarkupRebate !== null ||
-    filtrosActivos?.filtroMarkupOferta !== null ||
-    filtrosActivos?.filtroMarkupWebTransf !== null ||
-    filtrosActivos?.filtroOutOfCards !== null ||
-    (filtrosActivos?.coloresSeleccionados?.length > 0) ||
-    (filtrosActivos?.pmsSeleccionados?.length > 0) ||
-    (filtrosActivos?.audit_usuarios?.length > 0) ||
-    (filtrosActivos?.audit_tipos_accion?.length > 0) ||
-    !!filtrosActivos?.audit_fecha_desde ||
-    !!filtrosActivos?.audit_fecha_hasta ||
-    filtrosActivos?.filtroMLA !== null ||
-    filtrosActivos?.filtroEstadoMLA !== null ||
-    filtrosActivos?.filtroNuevos !== null ||
-    filtrosActivos?.filtroTiendaOficial !== null;
+    !resolverProductos && (
+      !!filtrosActivos?.search ||
+      filtrosActivos?.con_stock !== null ||
+      filtrosActivos?.con_precio !== null ||
+      (filtrosActivos?.marcas?.length > 0) ||
+      (filtrosActivos?.subcategorias?.length > 0) ||
+      filtrosActivos?.filtroRebate !== null ||
+      filtrosActivos?.filtroOferta !== null ||
+      filtrosActivos?.filtroWebTransf !== null ||
+      filtrosActivos?.filtroTiendaNube !== null ||
+      filtrosActivos?.filtroMarkupClasica !== null ||
+      filtrosActivos?.filtroMarkupRebate !== null ||
+      filtrosActivos?.filtroMarkupOferta !== null ||
+      filtrosActivos?.filtroMarkupWebTransf !== null ||
+      filtrosActivos?.filtroOutOfCards !== null ||
+      (filtrosActivos?.coloresSeleccionados?.length > 0) ||
+      (filtrosActivos?.pmsSeleccionados?.length > 0) ||
+      (filtrosActivos?.audit_usuarios?.length > 0) ||
+      (filtrosActivos?.audit_tipos_accion?.length > 0) ||
+      !!filtrosActivos?.audit_fecha_desde ||
+      !!filtrosActivos?.audit_fecha_hasta ||
+      filtrosActivos?.filtroMLA !== null ||
+      filtrosActivos?.filtroEstadoMLA !== null ||
+      filtrosActivos?.filtroNuevos !== null ||
+      filtrosActivos?.filtroTiendaOficial !== null
+  );
 
   const agregarFiltrosAvanzados = (params) => {
     if (filtrosActivos.filtroRebate === 'con_rebate') params.con_rebate = true;
@@ -357,24 +371,43 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
     window.URL.revokeObjectURL(url);
   };
 
+  /** The products `resolverProductos` resolves; its failure keeps its own message (`mensajeError`). */
+  const resolverConjunto = async () => {
+    try {
+      return await resolverProductos();
+    } catch (err) {
+      throw Object.assign(new Error(err?.message || 'No se pudieron obtener los productos a exportar.'), { delConjunto: true });
+    }
+  };
+
+  const mensajeError = (err, porDefecto) => (err?.delConjunto ? err.message : porDefecto);
+
+  /**
+   * Asks one export: the GET with its query string or, with `resolverProductos`, the same route by POST with the
+   * resolved products as `item_ids` (a long list does not fit a URL).
+   */
+  const pedirExport = async (path, params) => {
+    if (!resolverProductos) return api.get(`${path}?${params}`, { responseType: 'blob' });
+    const itemIds = await resolverConjunto();
+    return api.post(`${path}?${params}`, { item_ids: itemIds }, { responseType: 'blob' });
+  };
+
   const exportarVistaActual = async () => {
     setExportando(true);
     try {
       let params = `page=1&page_size=10000`;
-      if (aplicarFiltros) {
+      if (aplicarFiltros && !resolverProductos) {
         params += buildFilterQueryString(filtrosActivos);
       }
 
-      const response = await api.get(`/exportar-vista-actual?${params}`, {
-        responseType: 'blob'
-      });
+      const response = await pedirExport('/exportar-vista-actual', params);
 
       const timestamp = toLocalTimestamp();
       descargarBlob(response.data, `vista_actual_${timestamp}.xlsx`);
       showToast('Exportación completada');
       onClose();
-    } catch {
-      showToast('Error al exportar Vista Actual', 'error');
+    } catch (err) {
+      showToast(mensajeError(err, 'Error al exportar Vista Actual'), 'error');
     } finally {
       setExportando(false);
     }
@@ -396,7 +429,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         body.offset_pvp_lleno = parseFloat(offsetPvpLleno.toString().replace(',', '.')) || 0;
       }
 
-      if (aplicarFiltros) {
+      if (aplicarFiltros && !resolverProductos) {
         body.filtros = {
           search: filtrosActivos.search || null,
           con_stock: filtrosActivos.con_stock,
@@ -405,6 +438,10 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
           subcategorias: filtrosActivos.subcategorias?.length > 0 ? filtrosActivos.subcategorias.join(',') : null
         };
         body.filtros = agregarFiltrosAvanzados(body.filtros);
+      }
+
+      if (resolverProductos) {
+        body.item_ids = await resolverConjunto();
       }
 
       // Tiendas oficiales viajan en el TOP-LEVEL del body (no dentro de filtros)
@@ -421,8 +458,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       descargarBlob(response.data, `rebate_export_${timestamp}.xlsx`);
       showToast('Exportación completada');
       onClose();
-    } catch {
-      showToast('Error al exportar', 'error');
+    } catch (err) {
+      showToast(mensajeError(err, 'Error al exportar'), 'error');
     } finally {
       setExportando(false);
     }
@@ -441,7 +478,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         params += `&offset_dolar=${offset}`;
       }
 
-      if (aplicarFiltros) {
+      if (aplicarFiltros && !resolverProductos) {
         params += buildFilterQueryString(filtrosActivos);
       }
 
@@ -451,9 +488,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         params += `&tiendas_oficiales=${encodeURIComponent(tiendasOfMLA)}`;
       }
 
-      const response = await api.get(`/exportar-clasica?${params}`, {
-        responseType: 'blob'
-      });
+      const response = await pedirExport('/exportar-clasica', params);
 
       const timestamp = toLocalTimestamp();
 
@@ -467,8 +502,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       descargarBlob(response.data, `${nombreBase}_${timestamp}.xlsx`);
       showToast('Exportación completada');
       onClose();
-    } catch {
-      showToast('Error al exportar Clásica', 'error');
+    } catch (err) {
+      showToast(mensajeError(err, 'Error al exportar Clásica'), 'error');
     } finally {
       setExportando(false);
     }
@@ -583,19 +618,17 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         params += `&offset_dolar=${offset}`;
       }
 
-      if (aplicarFiltros) {
+      if (aplicarFiltros && !resolverProductos) {
         params += buildFilterQueryString(filtrosActivos);
       }
 
-      const response = await api.get(`/exportar-web-transferencia?${params}`, {
-        responseType: 'blob'
-      });
+      const response = await pedirExport('/exportar-web-transferencia', params);
       const timestamp = toLocalTimestamp();
       descargarBlob(response.data, `web_transferencia_${timestamp}.xlsx`);
       showToast('Exportación completada');
       onClose();
-    } catch {
-      showToast('Error al exportar Web Transferencia', 'error');
+    } catch (err) {
+      showToast(mensajeError(err, 'Error al exportar Web Transferencia'), 'error');
     } finally {
       setExportando(false);
     }
@@ -614,7 +647,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         params += `&offset_dolar=${offset}`;
       }
 
-      if (aplicarFiltros) {
+      if (aplicarFiltros && !resolverProductos) {
         params += buildFilterQueryString(filtrosActivos);
       }
 
@@ -624,9 +657,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
         params += `&tiendas_oficiales=${encodeURIComponent(tiendasOfMLA)}`;
       }
 
-      const response = await api.get(`/exportar-clasica?${params}`, {
-        responseType: 'blob'
-      });
+      const response = await pedirExport('/exportar-clasica', params);
       const timestamp = toLocalTimestamp();
 
       // Determinar nombre del archivo según tipo de cuotas
@@ -639,8 +670,8 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
       descargarBlob(response.data, `${nombreBase}_${timestamp}.xlsx`);
       showToast('Exportación completada');
       onClose();
-    } catch {
-      showToast('Error al exportar PVP', 'error');
+    } catch (err) {
+      showToast(mensajeError(err, 'Error al exportar PVP'), 'error');
     } finally {
       setExportando(false);
     }
@@ -729,6 +760,7 @@ export default function ExportModal({ onClose, filtrosActivos, showToast, esTien
 
         {tabsDisponibles.length > 0 && (
         <div className={styles.content}>
+          {resolverProductos && descripcionConjunto && <p className={styles.conjunto}>{descripcionConjunto}</p>}
           {tab === 'vista_actual' && puedeExportarVistaActual && (
             <div>
               {hayFiltros && (

@@ -17,15 +17,16 @@ import {
   buildProductsParams,
   buildKpiParams,
   buildProductIdsParams,
+  hasMarkupFilter,
   PRESENCE_VALUES,
   PRICE_MODES,
 } from './usePublicacionesMLFilters';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 
-const setup = (url = '/') => {
+const setup = (url = '/', permissions = undefined) => {
   const wrapper = ({ children }) => <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>;
   return renderHook(
-    () => ({ hook: usePublicacionesMLFilters(), search: useLocation().search }),
+    () => ({ hook: usePublicacionesMLFilters(permissions), search: useLocation().search }),
     { wrapper },
   );
 };
@@ -410,6 +411,8 @@ describe("Productos' presence filters (S5)", () => {
       webtransf: ['con_web_transf', 'sin_web_transf'],
       tiendanube: ['con_descuento', 'sin_descuento', 'no_publicado'],
       outofcards: ['con_out_of_cards', 'sin_out_of_cards'],
+      precio: ['con_precio', 'sin_precio'],
+      nuevos: ['ultimos_7_dias'],
     });
     expect(FILTER_KEYS).toEqual(expect.arrayContaining(Object.keys(PRESENCE_VALUES)));
   });
@@ -452,6 +455,17 @@ describe("Productos' presence filters (S5)", () => {
     expect(buildItemsParams({ ...base, tiendanube: 'no_publicado' }, 50).tn_no_publicado).toBe(true);
   });
 
+  it("sends Productos' precio and nuevos params (P6)", () => {
+    expect(buildItemsParams({ ...base, precio: 'con_precio', nuevos: 'ultimos_7_dias' }, 50)).toEqual({
+      con_precio: true,
+      nuevos_ultimos_7_dias: true,
+      limit: 50,
+      offset: 0,
+    });
+    expect(buildItemsParams({ ...base, precio: 'sin_precio' }, 50).con_precio).toBe(false);
+    expect(buildProductIdsParams({ ...base, precio: 'sin_precio' }).con_precio).toBe(false);
+  });
+
   it('in the Producto view, the KPI strip asks mejor oferta of the product, as the product rows do', () => {
     const oferta = { ...base, oferta: 'sin_oferta' };
     expect(buildKpiParams({ ...oferta, vista: 'producto' }, '30d')).toEqual({
@@ -464,6 +478,73 @@ describe("Productos' presence filters (S5)", () => {
       con_rebate: true,
       periodo: '30d',
     });
+  });
+});
+
+describe("Productos' markup sign filters (P6b)", () => {
+  const url = '/?mkclasica=positivo&mkrebate=negativo&mkoferta=quizas';
+
+  it("reads Productos' URL keys only for a user who may see margins", () => {
+    const f = setup(url, { canSeeMargin: true }).result.current.hook.filters;
+    expect([f.mkclasica, f.mkrebate, f.mkoferta, f.mkwebtransf]).toEqual(['positivo', 'negativo', '', '']);
+    const hidden = setup(url).result.current.hook.filters;
+    expect([hidden.mkclasica, hidden.mkrebate]).toEqual(['', '']); // a shared link never asks a 403
+  });
+
+  it('sends the params GET /productos takes, to every view: they are a filter of the query, not of the page', () => {
+    const f = setup(url, { canSeeMargin: true }).result.current.hook.filters;
+    const signs = { markup_clasica_positivo: true, markup_rebate_positivo: false };
+    expect(buildItemsParams(f, 50)).toMatchObject(signs);
+    expect(buildProductsParams(f, 50)).toMatchObject(signs);
+    expect(buildKpiParams(f, '30d')).toMatchObject(signs);
+    expect(buildProductIdsParams(f)).toMatchObject(signs);
+    expect(hasMarkupFilter(f)).toBe(false); // the KPI strip applies them too
+  });
+});
+
+describe("Productos' audit filter (P6c)", () => {
+  it("reads Productos' URL keys and sends GET /productos' params, to every view", () => {
+    const { result } = setup('/?audit_usuarios=5,6&audit_tipos=activar_rebate&audit_desde=2026-10-20T09:00&audit_hasta=2026-10-21');
+    const f = result.current.hook.filters;
+    expect([f.audit_usuarios, f.audit_tipos, f.audit_desde, f.audit_hasta]).toEqual([
+      ['5', '6'],
+      ['activar_rebate'],
+      '2026-10-20T09:00',
+      '2026-10-21',
+    ]);
+    const audit = {
+      audit_usuarios: '5,6',
+      audit_tipos_accion: 'activar_rebate',
+      audit_fecha_desde: '2026-10-20T09:00',
+      audit_fecha_hasta: '2026-10-21',
+    };
+    expect(buildItemsParams(f, 50)).toEqual({ ...audit, limit: 50, offset: 0 });
+    expect(buildKpiParams(f, '30d')).toMatchObject(audit);
+    expect(buildProductIdsParams(f)).toMatchObject(audit);
+    expect(FILTER_KEYS).toEqual(expect.arrayContaining(['audit_usuarios', 'audit_tipos', 'audit_desde', 'audit_hasta']));
+  });
+});
+
+describe("Productos' promo and wholesale filters (P6d)", () => {
+  it("reads Productos' URL keys and drops values outside the vocabulary", () => {
+    const f = setup('/?promo_tipos=DEAL,REGALO&promo_estado=aplicada&pxq=con_pxq').result.current.hook.filters;
+    expect([f.promo_tipos, f.promo_estado, f.pxq]).toEqual([['DEAL'], 'aplicada', 'con_pxq']);
+    const bad = setup('/?promo_estado=x&pxq=sin').result.current.hook.filters;
+    expect([bad.promo_estado, bad.pxq]).toEqual(['', '']);
+  });
+
+  it('sends what GET /productos takes: types with their state, else the legacy booleans, and con_pxq', () => {
+    const base = setup('/').result.current.hook.filters;
+    expect(buildItemsParams({ ...base, promo_tipos: ['DEAL', 'SMART'], promo_estado: '' }, 50)).toEqual({
+      promo_tipos: 'DEAL,SMART',
+      promo_estado: 'disponible',
+      limit: 50,
+      offset: 0,
+    });
+    expect(buildItemsParams({ ...base, promo_estado: 'aplicada' }, 50).con_promo_aplicada).toBe(true);
+    expect(buildItemsParams({ ...base, promo_estado: 'sin_aplicar' }, 50).con_promo_sin_aplicar).toBe(true);
+    expect(buildKpiParams({ ...base, pxq: 'con_pxq' }, '30d')).toEqual({ con_pxq: true, periodo: '30d' });
+    expect(FILTER_KEYS).toEqual(expect.arrayContaining(['promo_tipos', 'promo_estado', 'pxq']));
   });
 });
 

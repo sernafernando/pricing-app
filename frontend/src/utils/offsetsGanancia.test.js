@@ -50,6 +50,15 @@ describe('offsetsSinLimite', () => {
   it('tolerates a missing list', () => {
     expect(offsetsSinLimite(undefined)).toEqual([]);
   });
+
+  it('drops an offset already migrated to a sell-out campaign: only the campaign counts', () => {
+    const kept = offsetsSinLimite([
+      offset({ id: 1, tipo_offset: 'monto_por_unidad', campana_id: 48 }),
+      offset({ id: 2, tipo_offset: 'monto_por_unidad', campana_id: null }),
+      offset({ id: 3, tipo_offset: 'porcentaje_costo' }),
+    ]);
+    expect(kept.map((o) => o.id)).toEqual([2, 3]);
+  });
 });
 
 describe('costoConOffset', () => {
