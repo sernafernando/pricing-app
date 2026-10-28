@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { History, ArrowRight, Loader2 } from 'lucide-react';
+import { History, ArrowRight, Undo2, Check, CircleHelp, Info, Loader2 } from 'lucide-react';
 import ModalTesla from '../ModalTesla';
 import api from '../../services/api';
 import styles from './HistorialLogisticaModal.module.css';
@@ -44,10 +44,21 @@ const autorDe = (cambio) => {
   return partes.length ? partes.join(' · ') : '—';
 };
 
-export default function HistorialLogisticaModal({ shippingId, onClose }) {
+export default function HistorialLogisticaModal({
+  shippingId,
+  puedeDeshacer = false,
+  operadorId = null,
+  onClose,
+  onDeshecho,
+}) {
   const [historial, setHistorial] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState(false);
+  // Bumped to reload the history after an undo attempt.
+  const [recarga, setRecarga] = useState(0);
+  const [confirmando, setConfirmando] = useState(false);
+  const [deshaciendo, setDeshaciendo] = useState(false);
+  const [errorDeshacer, setErrorDeshacer] = useState(null);
 
   useEffect(() => {
     let vigente = true;
@@ -68,9 +79,42 @@ export default function HistorialLogisticaModal({ shippingId, onClose }) {
     return () => {
       vigente = false;
     };
-  }, [shippingId]);
+  }, [shippingId, recarga]);
+
+  const confirmarDeshacer = async () => {
+    const destino = historial?.deshacer_a ?? null;
+    setDeshaciendo(true);
+    setErrorDeshacer(null);
+    try {
+      const { data } = await api.post(`/etiquetas-envio/${shippingId}/logistica/deshacer`, {
+        operador_id: operadorId,
+      });
+      const mismoDestino = (destino?.id ?? null) === data.logistica_id;
+      onDeshecho?.({
+        logistica_id: data.logistica_id,
+        logistica_nombre: mismoDestino ? destino?.nombre ?? null : null,
+        logistica_color: mismoDestino ? destino?.color ?? null : null,
+      });
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setErrorDeshacer(typeof detail === 'string' ? detail : 'No se pudo deshacer el cambio.');
+    } finally {
+      // Either way, show the current history: the label may have changed under us.
+      setConfirmando(false);
+      setDeshaciendo(false);
+      setRecarga((n) => n + 1);
+    }
+  };
 
   const cambios = historial?.cambios ?? [];
+  const sePuedeDeshacer = Boolean(historial?.puede_deshacer);
+  let motivoDeshabilitado;
+  if (historial && !sePuedeDeshacer) {
+    motivoDeshabilitado = cambios.length === 0
+      ? 'No hay un cambio para deshacer'
+      : 'El último cambio no se puede deshacer';
+  }
+
   const title = (
     <span className={styles.titulo}>
       <span className={styles.tituloIcono} aria-hidden="true">
@@ -89,11 +133,64 @@ export default function HistorialLogisticaModal({ shippingId, onClose }) {
   ) : null;
 
   const footer = (
-    <div className={styles.pie}>
-      <button type="button" className={styles.btnSecundario} onClick={onClose}>
-        Cerrar
-      </button>
-    </div>
+    <>
+      {confirmando && historial && (
+        <div className={styles.confirmar} role="group" aria-label="Confirmar deshacer">
+          <CircleHelp size={18} className={styles.confirmarIcono} aria-hidden="true" />
+          <span className={styles.confirmarTexto}>
+            ¿Volver a <LogisticaChip logistica={historial.deshacer_a} />? La etiqueta deja{' '}
+            {nombreLogistica(historial.logistica_actual)}.
+          </span>
+          <div className={styles.confirmarAcciones}>
+            <button
+              type="button"
+              className={styles.btnSecundario}
+              onClick={() => setConfirmando(false)}
+              disabled={deshaciendo}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className={styles.btnConfirmar}
+              onClick={confirmarDeshacer}
+              disabled={deshaciendo}
+            >
+              {deshaciendo ? <Loader2 size={14} className={styles.spin} /> : <Check size={14} />}
+              Confirmar
+            </button>
+          </div>
+        </div>
+      )}
+      <div className={styles.pie}>
+        {puedeDeshacer && (
+          <span className={styles.pista}>
+            <Info size={14} aria-hidden="true" />
+            Deshacer vuelve a la logística anterior al último cambio.
+          </span>
+        )}
+        <div className={styles.pieAcciones}>
+          <button type="button" className={styles.btnSecundario} onClick={onClose}>
+            Cerrar
+          </button>
+          {puedeDeshacer && (
+            <button
+              type="button"
+              className={styles.btnPrimario}
+              onClick={() => {
+                setErrorDeshacer(null);
+                setConfirmando(true);
+              }}
+              disabled={!sePuedeDeshacer || cargando || deshaciendo || confirmando}
+              title={motivoDeshabilitado}
+            >
+              <Undo2 size={16} />
+              Deshacer último cambio
+            </button>
+          )}
+        </div>
+      </div>
+    </>
   );
 
   return (
@@ -107,6 +204,12 @@ export default function HistorialLogisticaModal({ shippingId, onClose }) {
       className={styles.modal}
       bodyClassName={styles.cuerpo}
     >
+      {errorDeshacer && (
+        <div className={styles.error} role="alert">
+          {errorDeshacer}
+        </div>
+      )}
+
       {cargando && !historial && (
         <div className={styles.estado}>
           <Loader2 size={16} className={styles.spin} /> Cargando historial…

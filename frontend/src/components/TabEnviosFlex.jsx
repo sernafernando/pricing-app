@@ -4378,7 +4378,14 @@ export default function TabEnviosFlex({ operador = null }) {
       {historialShippingId && (
         <HistorialLogisticaModal
           shippingId={historialShippingId}
+          puedeDeshacer={puedeAsignarLogistica}
+          operadorId={operador?.operadorActivo?.id ?? null}
           onClose={() => setHistorialShippingId(null)}
+          onDeshecho={(cambio) => {
+            setEtiquetas(prev =>
+              prev.map(et => (et.shipping_id === historialShippingId ? { ...et, ...cambio } : et))
+            );
+          }}
         />
       )}
 
