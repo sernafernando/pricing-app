@@ -258,6 +258,30 @@ class TestContract:
         get(client, reader, facets="true", estado="active")
         assert len(reads) == 1
 
+    def test_with_pxq_and_a_promo_filter_the_promo_facet_keeps_the_pxq_restriction(
+        self, client, pg, reader, monkeypatch
+    ) -> None:
+        seed_rows(pg, self.fill)
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", lambda mla_ids=None: {"MLA1"})
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_pxq_tiers", lambda mla_ids=None: {"MLA2"})
+        body = get(client, reader, facets="true", con_pxq="true", con_promo_aplicada="true").json()
+        assert body["items"] == []  # MLA1 has the promotion, only MLA2 has PxQ tiers
+        # without its own filter: of the PxQ publications (MLA2), none with promo and one without
+        assert body["facets"]["promo"] == {"con_promo": 0, "sin_promo": 1}
+
+    def test_the_kept_promotions_are_read_again_after_a_minute(self, client, pg, reader, monkeypatch) -> None:
+        seed_rows(pg, self.fill)
+        now = [1000.0]
+        monkeypatch.setattr(ml_publications_view.time, "monotonic", lambda: now[0])
+        started = [{"MLA1"}]
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", lambda mla_ids=None: started[0])
+        assert get(client, reader, facets="true").json()["facets"]["promo"]["con_promo"] == 1
+        started[0] = {"MLA1", "MLA2"}
+        now[0] += 59
+        assert get(client, reader, facets="true", estado="active").json()["facets"]["promo"]["con_promo"] == 1
+        now[0] += 2
+        assert get(client, reader, facets="true").json()["facets"]["promo"]["con_promo"] == 2
+
     def test_promotions_that_cannot_be_read_leave_out_the_promo_facet_not_the_list(
         self, client, pg, reader, monkeypatch
     ) -> None:

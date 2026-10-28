@@ -10,7 +10,8 @@ const withPromo = (filters) => filters.promo_estado === 'aplicada' && filters.pr
  * The Publicaciones view's summary (owner, 2026-10-28): how many publications are active, paused, with a started
  * promotion and without one, over the list's filters. The figures are the `/items` facets (`status` and `promo`), so
  * they follow every other filter. Con promo counts the same set its click lists: the backend counts the publications
- * with a started promotion, which is what "Aplicada" (`con_promo_aplicada`) filters. A click applies the figure's
+ * with a started promotion, which is what "Aplicada" (`con_promo_aplicada`) filters (the count may lag a minute: the
+ * backend keeps that set 60 s). A click applies the figure's
  * filter (the status, or "Aplicada" promotions) and a
  * second click takes it off; Sin promo has no filter of its own, so it is only a figure. No answer yet reads "…", a
  * promo count the backend could not read "–": never 0.

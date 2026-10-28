@@ -1004,7 +1004,8 @@ STARTED_PROMOTIONS = _RecentSet(ttl=60)
 
 def _started_promotions() -> Optional[frozenset[str]]:
     """The MLAs with a started promotion, for the facets' with / without promo counts: the very set the Con promo
-    filter (`con_promo_aplicada`, `select_promo_resolver`'s `started`) lists, so a count is what its click shows.
+    filter (`con_promo_aplicada`, `select_promo_resolver`'s `started`) lists, so a count is what its click shows --
+    up to `STARTED_PROMOTIONS.ttl` behind it, since the filter reads them fresh and the count reuses them a minute.
     `None` (no such facet, the list still answers) when the mlwebhook database cannot be read."""
     try:
         return STARTED_PROMOTIONS.get(fetch_mlas_with_started)
