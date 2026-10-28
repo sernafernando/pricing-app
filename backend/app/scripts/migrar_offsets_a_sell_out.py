@@ -381,8 +381,8 @@ def run_migracion(
                         "motivo": motivo,
                     }
                 else:
-                    # Keeping it for review failed: the CSV keeps its reason and says the table missed it.
-                    aviso = f"No se guardó en la tabla de revisión ({motivo})"
+                    # Updating the review table failed: the CSV keeps its row and says the table missed it.
+                    aviso = f"No se actualizó la tabla de revisión ({motivo})"
                     fila["avisos"] = csv_text(" | ".join(filter(None, [fila["avisos"], aviso])))
             finally:
                 if not apply:

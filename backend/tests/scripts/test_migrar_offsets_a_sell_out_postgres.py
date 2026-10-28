@@ -684,6 +684,6 @@ def test_a_failure_keeping_the_review_row_keeps_the_reason_and_fails_the_run(eng
 
     assert code == 1
     assert filas[falla]["motivo"] == "Monto fijo: no tiene equivalente en una campaña por unidad"
-    assert "No se guardó en la tabla de revisión" in filas[falla]["avisos"]
+    assert "No se actualizó la tabla de revisión" in filas[falla]["avisos"]
     assert list(_pendientes(engine)) == [sana]
     assert (summary["pendientes"], summary["con_error"]) == (1, [falla])
