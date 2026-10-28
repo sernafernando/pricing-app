@@ -2812,6 +2812,7 @@ export default function TabEnviosFlex({ operador = null }) {
                     </td>
                     <td>
                       <button
+                        type="button"
                         className={styles.btnPrint}
                         onClick={() => setHistorialShippingId(e.shipping_id)}
                         title="Historial de logística"

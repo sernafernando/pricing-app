@@ -8,7 +8,6 @@ const ORIGEN_CLASS = {
   asignar: styles.origenAsignar,
   masivo: styles.origenMasivo,
   pistoleado: styles.origenPistoleado,
-  manual: styles.origenManual,
   deshacer: styles.origenDeshacer,
 };
 

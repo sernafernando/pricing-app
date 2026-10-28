@@ -166,10 +166,6 @@
   color: var(--tone-purple-fg);
 }
 
-.origenManual {
-  border-color: var(--tone-neutral-border);
-}
-
 .origenDeshacer {
   border-color: var(--tone-warning-border);
   background: var(--tone-warning-bg);
