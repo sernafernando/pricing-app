@@ -536,6 +536,14 @@ class TestSearch:
         # nothing left to fold: no product matches everything, only the fields that really hold a dash
         assert sorted(ids(run(db, q="-"))) == ["MLA900100", "MLA900200", "MLA900500", "MLA900700"]
 
+    def test_mla_operator_is_the_exact_item_id(self, db) -> None:
+        assert ids(run(db, q="mla:mla900200")) == ["MLA900200"]
+        assert ids(run(db, q="mla:900200")) == []  # the id, not its digits: as Productos
+
+    def test_a_promo_search_the_router_did_not_resolve_matches_nothing(self, db) -> None:
+        # the MLAs of a promotion live in another database: unresolved, the search fails closed
+        assert ids(run(db, q="promo:deal")) == []
+
     def test_no_match_is_an_empty_page_with_total_zero(self, db) -> None:
         page = run(db, q="inexistente")
         assert (page.items, page.total) == ([], 0)

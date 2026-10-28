@@ -105,10 +105,13 @@ class FilterError(ValueError):
 class SearchTerm:
     """`kind`: `item_id` (canonical `MLA123`), `digits` (exact key), `text` (substring), or one of Productos'
     operators: `codigo` (`codigo:` / `ean:`, the exact product code), `marca` (`marca:`, the exact brand),
-    `descripcion` (`desc:` / `descripcion:`, the product description), `ends_with` (`*X`) and `starts_with` (`X*`)."""
+    `descripcion` (`desc:` / `descripcion:`, the product description), `ends_with` (`*X`), `starts_with` (`X*`) and
+    `promo` (`promo:`, a promotion type or name). `mla:` is an `item_id`. A `promo` matches the publications in
+    `mlas`, the set the router reads from the mlwebhook database; unresolved (`None`) it matches nothing."""
 
     kind: str
     value: str
+    mlas: Optional[frozenset[str]] = None
 
 
 @dataclass(frozen=True)
@@ -206,7 +209,8 @@ def normalize_q(raw: Optional[str]) -> Optional[SearchTerm]:
     field, sep, value = term.partition(":")
     value = value.strip()
     if sep and value and not value.startswith("*") and not value.endswith("*") and field.strip().lower() in _OPERATORS:
-        return SearchTerm(_OPERATORS[field.strip().lower()], value)
+        kind = _OPERATORS[field.strip().lower()]
+        return SearchTerm(kind, value.upper() if kind == "item_id" else value)
     if term.startswith("*") and term[1:].strip():
         return SearchTerm("ends_with", term[1:].strip())
     if term.endswith("*") and term[:-1].strip():
@@ -221,6 +225,8 @@ _OPERATORS = {
     "marca": "marca",
     "desc": "descripcion",
     "descripcion": "descripcion",
+    "mla": "item_id",
+    "promo": "promo",
 }
 
 
@@ -783,6 +789,8 @@ def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElemen
     when either matches, and its linked products whose own fields match (or all of them, when the publication's do)."""
     if term.kind == "item_id":
         return T.i.item_id == term.value, false()
+    if term.kind == "promo":
+        return _item_in(term.mlas or frozenset()), false()
     if term.kind == "digits":
 
         def same(column: Any) -> ColumnElement:
@@ -850,7 +858,7 @@ def _search(term: SearchTerm) -> ColumnElement:
     """The publication's own fields, or any of its linked products' (`product_links`), so a publication with
     variations in several products is found by each one's name or code."""
     own, _ = _search_parts(term, T.p)
-    if term.kind == "item_id":  # no product side
+    if term.kind in ("item_id", "promo"):  # no product side
         return own
     return or_(own, has_product(_matching_products(term)))
 
@@ -1089,10 +1097,13 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     if f.oferta is not None:
         where.append(_oferta(f.oferta, f.oferta_per_product))
     if f.mla_scope is not None:
-        # one array parameter, as `_colors`: a promo scope can hold thousands of MLAs
-        scope = literal(sorted(f.mla_scope), ARRAY(String))
-        where.append(T.i.item_id == any_(scope) if f.mla_scope else false())
+        where.append(_item_in(f.mla_scope))
     return where
+
+
+def _item_in(mlas: frozenset[str]) -> ColumnElement:
+    """The publication is one of `mlas`: one array parameter, as `_colors` (a promo can hold thousands of MLAs)."""
+    return T.i.item_id == any_(literal(sorted(mlas), ARRAY(String))) if mlas else false()
 
 
 def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnElement]:

@@ -50,6 +50,7 @@ def calls(monkeypatch) -> list[tuple]:
     monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", resolver("started", {"MLA2", "MLA3"}))
     monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_candidate_only", resolver("candidate", {"MLA1"}))
     monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_pxq_tiers", resolver("pxq", {"MLA3", "MLA2"}))
+    monkeypatch.setattr(ml_publications_view, "fetch_mlas_by_promo_name", resolver("nombre", {"MLA2"}))
     return seen
 
 
@@ -99,3 +100,40 @@ def test_a_resolver_that_cannot_answer_is_a_503(client, reader, monkeypatch) -> 
     monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_pxq_tiers", down)
     response = client.get(ITEMS_URL, headers=reader, params={"con_pxq": "true"})
     assert response.status_code == 503
+
+
+def test_promo_search_with_a_known_type_reads_its_active_promotions_like_productos(client, reader, calls) -> None:
+    assert items(client, reader, q="promo:deal") == ["MLA1", "MLA3"]
+    assert calls == [("tipo", (["DEAL"],), {"applied_only": False})]
+
+
+def test_promo_search_with_any_other_text_reads_the_promotion_name(client, reader, calls) -> None:
+    assert items(client, reader, q="promo: Hot Sale") == ["MLA2"]
+    assert calls == [("nombre", ("Hot Sale",), {})]
+
+
+def test_promo_search_ands_with_the_promo_filter(client, reader, calls) -> None:
+    assert items(client, reader, q="promo:hot sale", promo_tipos="DEAL") == []  # {MLA2} and {MLA1, MLA3}
+
+
+def test_promo_search_reaches_the_products_and_finds_none_without_mla(client, reader, calls) -> None:
+    response = client.get(PRODUCTS_URL, headers=reader, params={"q": "promo:deal"})
+    assert sorted(row["key"] for row in response.json()["rows"]) == ["0", "77"]  # MLA3 is the no-product row
+    response = client.get(PRODUCTS_URL, headers=reader, params={"q": "promo:deal", "con_mla": "false"})
+    assert response.status_code == 200, response.text
+    assert response.json()["rows"] == []  # a product without MLA has no promotion
+
+
+def test_mla_search_asks_no_resolver(client, reader, calls) -> None:
+    assert items(client, reader, q="mla:mla2") == ["MLA2"]
+    assert calls == []
+
+
+def test_a_promo_search_that_cannot_be_resolved_is_a_503(client, reader, monkeypatch) -> None:
+    def down(*args, **kwargs):
+        raise OperationalError("select", {}, Exception("mlwebhook down"))
+
+    monkeypatch.setattr(ml_publications_view, "fetch_mlas_by_promo_name", down)
+    response = client.get(ITEMS_URL, headers=reader, params={"q": "promo:hot sale"})
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "filtro_no_disponible"
