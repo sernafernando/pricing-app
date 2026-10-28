@@ -10,11 +10,11 @@ const WEB_TRANSF_DEFAULT = 6.0;
 
 /**
  * The r / w / o toggles (S9): each flips one flag of the product as the panel's ProductToggles writes it, keeping
- * its stored percentage. `on` names the state the flip leads to, for the message.
+ * its stored percentage. `flag` is the flag as it stands now; `on`, the state the flip leads to.
  */
 const TOGGLES = {
-  rebate: (product) => {
-    const on = !product.participa_rebate;
+  rebate: (product, flag) => {
+    const on = !flag;
     const porcentaje = isBlank(product.porcentaje_rebate) ? REBATE_DEFAULT : product.porcentaje_rebate;
     return {
       write: () => preciosAPI.setRebate(product.item_id, { participa_rebate: on, porcentaje_rebate: porcentaje }),
@@ -22,8 +22,8 @@ const TOGGLES = {
       fallback: 'No se pudo cambiar el rebate.',
     };
   },
-  web: (product) => {
-    const on = !product.participa_web_transferencia;
+  web: (product, flag) => {
+    const on = !flag;
     const params = {
       participa: on,
       porcentaje_markup: product.porcentaje_markup_web || WEB_TRANSF_DEFAULT,
@@ -36,8 +36,8 @@ const TOGGLES = {
       fallback: 'No se pudo cambiar web transferencia.',
     };
   },
-  tarjetas: (product) => {
-    const on = !product.out_of_cards;
+  tarjetas: (product, flag) => {
+    const on = !flag;
     return {
       write: () => preciosAPI.setOutOfCards(product.item_id, on),
       saved: on ? 'Fuera de tarjetas activado' : 'Fuera de tarjetas desactivado',
@@ -45,6 +45,7 @@ const TOGGLES = {
     };
   },
 };
+const FLAGS = { rebate: 'participa_rebate', web: 'participa_web_transferencia', tarjetas: 'out_of_cards' };
 
 /**
  * Saves a price typed in a Publicaciones ML table cell (S11c) with the flow of the product panel and Productos:
@@ -63,12 +64,19 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
   const [pending, setPending] = useState(null);
   const [message, setMessage] = useState(null);
   const onWrittenRef = useRef(onWritten);
+  // One write at a time: a second one started on the same figures would write the same thing again.
+  const busy = useRef(false);
+  // The flags just written, until the prices are read again: `over` is the product object they were written over, so
+  // a press before the re-read flips from what was written and a fresh read of the product wins again.
+  const written = useRef(new Map());
   useEffect(() => {
     onWrittenRef.current = onWritten;
   });
 
   // One write: reported, and the caller re-reads after it.
   const run = useCallback(async ({ write, saved, fallback }) => {
+    if (busy.current) return false;
+    busy.current = true;
     setSaving(true);
     setMessage(null);
     try {
@@ -81,6 +89,7 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
       setMessage({ tone: 'error', text: errorText(error, fallback) });
       return false;
     } finally {
+      busy.current = false;
       setSaving(false);
     }
   }, []);
@@ -91,7 +100,17 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
     [run],
   );
 
-  const toggle = useCallback((kind, product) => run(TOGGLES[kind](product)), [run]);
+  const toggle = useCallback(
+    async (kind, product) => {
+      const key = `${kind}:${product.item_id}`;
+      const last = written.current.get(key);
+      const flag = last?.over === product ? last.on : Boolean(product[FLAGS[kind]]);
+      const done = await run(TOGGLES[kind](product, flag));
+      if (done) written.current.set(key, { over: product, on: !flag });
+      return done;
+    },
+    [run],
+  );
 
   const save = useCallback(async (row, product, value) => {
     const precio = parsePrecioInput(value);

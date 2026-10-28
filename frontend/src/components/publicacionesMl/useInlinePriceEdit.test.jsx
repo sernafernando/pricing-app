@@ -181,5 +181,42 @@ describe('useInlinePriceEdit', () => {
       expect(result.current.message).toEqual({ tone: 'error', text: 'El producto no tiene pricing' });
       expect(onWritten).not.toHaveBeenCalled();
     });
+  
+    it('a second press before the prices are read again flips back, from what was just written', async () => {
+      const { result } = setup();
+      const stale = { item_id: 7, participa_rebate: false, porcentaje_rebate: 4 };
+      await act(async () => {
+        await result.current.toggle('rebate', stale);
+      });
+      await act(async () => {
+        await result.current.toggle('rebate', stale);
+      });
+      expect(preciosAPI.setRebate.mock.calls.map(([, body]) => body.participa_rebate)).toEqual([true, false]);
+      // A fresh read of the product is the truth again.
+      await act(async () => {
+        await result.current.toggle('rebate', { ...stale, participa_rebate: true });
+      });
+      expect(preciosAPI.setRebate).toHaveBeenLastCalledWith(7, { participa_rebate: false, porcentaje_rebate: 4 });
+    });
+
+    it('a press while a write is on its way writes nothing', async () => {
+      let finish;
+      preciosAPI.setOutOfCards.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+      const { result } = setup();
+      let first;
+      act(() => {
+        first = result.current.toggle('tarjetas', { item_id: 7, out_of_cards: false });
+      });
+      let second;
+      await act(async () => {
+        second = await result.current.toggle('tarjetas', { item_id: 7, out_of_cards: false });
+      });
+      expect(second).toBe(false);
+      await act(async () => {
+        finish({ data: {} });
+        await first;
+      });
+      expect(preciosAPI.setOutOfCards).toHaveBeenCalledTimes(1);
+    });
   });
 });

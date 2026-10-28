@@ -211,6 +211,8 @@ export default function usePublicacionesMLKeyboard({
       // `code`: Caps Lock or a layout must not change which toggle a key flips; Shift+R and the like are not it.
       if (TOGGLE_KEYS[event.code] && !event.shiftKey && toggleRow) {
         event.preventDefault();
+        // A held key repeats: each repeat would flip it again.
+        if (event.repeat) return;
         const key = focusedRow()?.dataset.rowKey;
         if (key === undefined) toast?.(NO_ROW, 'error');
         else toggleRow(key, TOGGLE_KEYS[event.code]);

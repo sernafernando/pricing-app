@@ -222,6 +222,9 @@ describe("r / w / o (S9): the focused row's product rebate, web transfer and fue
     expect(onToggleRow).toHaveBeenLastCalledWith('MLA2', 'web');
     await user.keyboard('o');
     expect(onToggleRow).toHaveBeenLastCalledWith('MLA2', 'tarjetas');
+    // A held key repeats: only its first press flips.
+    fireEvent.keyDown(document.activeElement, { key: 'r', code: 'KeyR', repeat: true });
+    expect(onToggleRow).toHaveBeenCalledTimes(3);
   });
 
   it('says where to stand without a focused row, and never runs while typing, with a modifier or where not offered', async () => {
