@@ -210,3 +210,28 @@
 .calculate {
   composes: btn-tesla outline-subtle-primary icon-only sm from '../../styles/buttons-tesla.css';
 }
+
+/* Productos' rebate / web transfer editor in a price cell (S1): stacked to the cell's width, its buttons wrapping. */
+.toggleEditor {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-xs);
+  margin: 0;
+  text-align: left;
+  white-space: normal;
+}
+
+.toggleEditor [data-editor-actions] {
+  flex-wrap: wrap;
+}
+
+.toggleEditor input[type='text'] {
+  max-width: none;
+}
+
+/* On a painted row, its % input takes the tone's surface too, as `.priceInput`. */
+:global([data-tone]) .toggleEditor input[type='text'] {
+  --cf-bg-card: var(--row-tone-bg);
+  --cf-bg-hover: var(--row-tone-bg);
+}

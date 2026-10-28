@@ -4,6 +4,8 @@ import { preciosAPI } from '../../services/api';
 import { formatAmount } from '../../utils/ventasMlFormat';
 import { Empty, MarkupChip } from './PriceParts';
 import { formatRate, isBlank } from './priceFormat';
+import { RebateEditor, WebTransfEditor } from './toggleEditors';
+import { rebateDraft, rebateWrite, webTransfDraft, webTransfWrite } from './toggleWrites';
 import styles from './ProductPrices.module.css';
 
 /**
@@ -13,13 +15,6 @@ import styles from './ProductPrices.module.css';
  * negative-markup check, as there). The figures are what
  * `GET /productos/{item_id}` computes, the same as the Productos listing.
  */
-
-// Productos' defaults for a product that never had them.
-const REBATE_DEFAULT = 3.8;
-const WEB_TRANSF_DEFAULT = 6.0;
-
-/** Productos' parse: the first comma is the decimal separator. */
-const parsePercent = (text) => parseFloat(String(text).replace(',', '.'));
 
 /** "2099-12-31" as "31/12", read as a calendar date (no time-zone shift). */
 function dayMonth(isoDate) {
@@ -47,106 +42,6 @@ function EditButton({ label, onClick, disabled }) {
   );
 }
 
-/** The editor's keys: Enter saves, Escape cancels the edit (not the side panel around it). */
-const editorKeys = (onSave, onCancel) => (event) => {
-  // Enter on a button is that button's click (Cancelar must not save).
-  if (event.key === 'Enter' && event.target.tagName !== 'BUTTON') {
-    event.preventDefault();
-    onSave();
-  } else if (event.key === 'Escape') {
-    event.stopPropagation();
-    onCancel();
-  }
-};
-
-function EditorActions({ saving, onCancel }) {
-  return (
-    <div className={styles.warningActions}>
-      <button type="button" className="btn-tesla outline sm" onClick={onCancel} disabled={saving}>
-        Cancelar
-      </button>
-      <button type="submit" className="btn-tesla primary sm" disabled={saving}>
-        Guardar
-      </button>
-    </div>
-  );
-}
-
-function RebateEditor({ initial, saving, onSave, onCancel }) {
-  const [draft, setDraft] = useState(initial);
-  const save = () => onSave(draft);
-  return (
-    <form
-      className={styles.editor}
-      role="group"
-      aria-label="Rebate"
-      onKeyDown={editorKeys(save, onCancel)}
-      onSubmit={(event) => {
-        event.preventDefault();
-        save();
-      }}
-    >
-      <label className={styles.check}>
-        <input type="checkbox" checked={draft.participa} onChange={(event) => setDraft({ ...draft, participa: event.target.checked })} autoFocus={!draft.participa} disabled={saving} />
-        Participa
-      </label>
-      {draft.participa && (
-        <input
-          className={styles.input}
-          type="text"
-          inputMode="decimal"
-          aria-label="% de rebate"
-          placeholder="%"
-          value={draft.porcentaje}
-          onChange={(event) => setDraft({ ...draft, porcentaje: event.target.value })}
-          onFocus={(event) => event.target.select()}
-          disabled={saving}
-          autoFocus
-        />
-      )}
-      <EditorActions saving={saving} onCancel={onCancel} />
-    </form>
-  );
-}
-
-function WebTransfEditor({ initial, saving, onSave, onCancel }) {
-  const [draft, setDraft] = useState(initial);
-  const save = () => onSave(draft);
-  return (
-    <form
-      className={styles.editor}
-      role="group"
-      aria-label="Web transferencia"
-      onKeyDown={editorKeys(save, onCancel)}
-      onSubmit={(event) => {
-        event.preventDefault();
-        save();
-      }}
-    >
-      <label className={styles.check}>
-        <input type="checkbox" checked={draft.participa} onChange={(event) => setDraft({ ...draft, participa: event.target.checked })} disabled={saving} autoFocus />
-        Participa
-      </label>
-      <input
-        className={styles.input}
-        type="text"
-        inputMode="decimal"
-        aria-label="% sobre la clásica"
-        placeholder="%"
-        value={draft.porcentaje}
-        onChange={(event) => setDraft({ ...draft, porcentaje: event.target.value })}
-        onFocus={(event) => event.target.select()}
-        disabled={saving}
-      />
-      <label className={styles.check}>
-        <input type="checkbox" checked={draft.preservar} onChange={(event) => setDraft({ ...draft, preservar: event.target.checked })} disabled={saving} />
-        Conservar el % en cambios masivos
-      </label>
-      <EditorActions saving={saving} onCancel={onCancel} />
-    </form>
-  );
-}
-
 /**
  * @param {object} props
  * @param {object} props.product The `ProductoResponse` on screen.
@@ -167,32 +62,17 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
   const offer = product.mejor_oferta_precio ? offerDetails(product) : [];
   const webTransf = Boolean(product.participa_web_transferencia);
 
-  const storedRebate = isBlank(product.porcentaje_rebate) ? REBATE_DEFAULT : product.porcentaje_rebate;
-
-  const saveRebate = async ({ participa, porcentaje }) => {
-    // Turning it off sends the stored percentage, as Productos' quick toggle
-    // does: the field is hidden then, so whatever it holds is not read.
-    const value = participa ? parsePercent(porcentaje) : storedRebate;
-    if (!Number.isFinite(value) || value < 0 || value > 100) {
-      onInvalid('El porcentaje de rebate debe ser un número entre 0 y 100.');
+  // A value that is not sent is reported; a saved one closes the editor.
+  const saveWith = async (built) => {
+    if (built.error) {
+      onInvalid(built.error);
       return;
     }
-    const saved = await onSave((itemId) => preciosAPI.setRebate(itemId, { participa_rebate: participa, porcentaje_rebate: value }), {
-      saved: 'Rebate guardado',
-      fallback: 'No se pudo guardar el rebate.',
-    });
+    const saved = await onSave(built.write, { saved: built.saved, fallback: built.fallback });
     if (saved) setEditing(null);
   };
-
-  const saveWebTransf = async ({ participa, porcentaje, preservar }) => {
-    // As Productos: an unreadable percentage is sent as 0.
-    const value = parsePercent(porcentaje) || 0;
-    const saved = await onSave(
-      (itemId) => preciosAPI.setWebTransferencia(itemId, { participa, porcentaje_markup: value, preservar_porcentaje: preservar }),
-      { saved: 'Web transferencia guardada', fallback: 'No se pudo guardar web transferencia.' },
-    );
-    if (saved) setEditing(null);
-  };
+  const saveRebate = (draft) => saveWith(rebateWrite(product, draft));
+  const saveWebTransf = (draft) => saveWith(webTransfWrite(product, draft));
 
   // A written "fuera de tarjetas" whose re-read failed: shown until the next
   // successful read replaces the product (the override belongs to the product
@@ -306,10 +186,7 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
 
       {editing === 'rebate' && (
         <RebateEditor
-          initial={{
-            participa: Boolean(product.participa_rebate),
-            porcentaje: formatRate(storedRebate),
-          }}
+          initial={rebateDraft(product)}
           saving={saving}
           onSave={saveRebate}
           onCancel={cancel}
@@ -317,11 +194,7 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
       )}
       {editing === 'web' && (
         <WebTransfEditor
-          initial={{
-            participa: Boolean(product.participa_web_transferencia),
-            porcentaje: formatRate(isBlank(product.porcentaje_markup_web) ? WEB_TRANSF_DEFAULT : product.porcentaje_markup_web),
-            preservar: Boolean(product.preservar_porcentaje_web),
-          }}
+          initial={webTransfDraft(product)}
           saving={saving}
           onSave={saveWebTransf}
           onCancel={cancel}
