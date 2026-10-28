@@ -26,8 +26,8 @@ from app.services.ml_publications.view.filters import (
     LINK_LINKED,
     PublicationFilter,
     T,
-    current_offer,
     build_base_select,
+    current_offer,
     product_pricing,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
