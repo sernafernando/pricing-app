@@ -49,7 +49,8 @@ class TestContract:
     ) -> None:
         seed_rows(pg, seed_catalog)
         node = node_of(get(client, analyst), "ALFA")
-        assert node["count"] == 2 and node["negative_count"] == 1
+        # MLA4 is linked per variation to 70 and 71 (ALFA): it has their brand (S12g), and it is negative
+        assert node["count"] == 3 and node["negative_count"] == 2
         assert node["markup_min"] == round(worst_of(71), 2) and node["markup_max"] == round(worst_of(70), 2)
         assert not {"markup_avg", "markup_mean", "ads", "ads_total"} & set(node)
 

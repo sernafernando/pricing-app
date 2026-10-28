@@ -12,6 +12,7 @@ none and is refused (422), never silently ignored. The publication views list no
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -113,6 +114,23 @@ class TestFilters:
         assert listed(stock="erp_sin_stock") == [73]  # 77 has no stock figure: unknown, never "sin stock"
         assert listed(producto="73") == [73]  # one product: the product panel asks its row this way
         assert listed(producto="70") == []  # it has an MLA
+
+    def test_the_product_s_own_toggles_and_colors_apply(self, db, store) -> None:
+        # read on the product row itself: there is no publication, nor a link, to look a product up through
+        with store.begin() as conn:
+            seed.create_presence_tables(conn, with_pricing=True)
+            seed.add_pricing(conn, 72, precio_lista_ml=1000)
+
+        def listed(f) -> list[int]:
+            return keys(products.list_products(db, f, "titulo", False, 50, 0))
+
+        def colored(colores: str):
+            return replace(sin_mla(colores=colores), color_ids=frozenset({72}), colored_ids=frozenset({72, 73}))
+
+        assert listed(sin_mla(con_precio=True)) == [72]
+        assert listed(sin_mla(con_precio=False)) == [73, 77]
+        assert listed(colored("rojo")) == [72]
+        assert listed(colored("sin_color")) == [77]
 
     @pytest.mark.parametrize(
         ("param", "params"),

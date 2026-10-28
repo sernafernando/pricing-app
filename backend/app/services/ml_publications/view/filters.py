@@ -133,7 +133,8 @@ class PublicationFilter:
     pm_group: Optional[str] = None
     family_id: Optional[int] = None
     # A node of the Agrupado tree (P7a) or a Producto row: one linked product -- the LINK's product id, even when the
-    # product is gone from the catalog -- or the publications whose item-level link names no product at all.
+    # product is gone from the catalog -- or the publications with no linked product at all (`has_product`: the
+    # item-level link or a live variation's link).
     producto: Optional[int] = None
     sin_producto: bool = False
     # Productos' "Sin MLA" (`con_mla=false`): the Producto view lists the ERP products no publication is linked to
@@ -542,6 +543,7 @@ class T:
     l = aliased(MlItemProductLink, name="l")  # noqa: E741 -- the design names the link table `l`
     p = aliased(ProductoERP, name="p")
     ps = aliased(ProductoERP, name="ps")  # the product the link's seller SKU names (the stored suggestion)
+    pl_p = aliased(ProductoERP, name="pl_p")  # a `product_links` row's product (the groups tree's product level)
     st = aliased(MlUserProductStock, name="st")
     v = aliased(MlItemVariation, name="v")
     e = aliased(MlItemEvent, name="e")
@@ -556,12 +558,99 @@ def joined() -> Any:
     )
     linked = orm_join(priced, T.l, and_(T.l.item_id == T.i.item_id, T.l.variation_id == LINK_ITEM_LEVEL), isouter=True)
     products = orm_join(
-        orm_join(linked, T.p, T.p.item_id == T.l.producto_item_id, isouter=True),
+        orm_join(linked, T.p, T.p.item_id == primary_product(), isouter=True),
         T.ps,
         T.ps.item_id == T.l.suggested_producto_item_id,
         isouter=True,
     )
     return orm_join(products, T.st, T.st.user_product_id == T.i.user_product_id, isouter=True)
+
+
+def product_links(name: str = "product_links") -> Any:
+    """Each publication's linked products, one row per (item, product): its item-level link, or -- an item with
+    variations is linked per variation only (`links.units_for_item`) -- its live variations' links (the rule
+    `producto_propio_service.linked_skus` reads them by). A link names a product only in state `linked` (the table's
+    CHECK), the state that gives the ERP stock (`erp_stock`). The Producto view and the `producto` / `sin_producto`
+    filters read this, so a product's rows are what opening it lists."""
+    link, var = aliased(MlItemProductLink, name=f"{name}_l"), aliased(MlItemVariation, name=f"{name}_v")
+    live = or_(link.variation_id == LINK_ITEM_LEVEL, and_(var.variation_id.isnot(None), var.gone_at.is_(None)))
+    return (
+        select(link.item_id, link.producto_item_id)
+        .select_from(link)
+        .outerjoin(var, and_(var.item_id == link.item_id, var.variation_id == link.variation_id))
+        .where(link.producto_item_id.isnot(None), live)
+        .distinct()
+        .subquery(name)
+    )
+
+
+def primary_product() -> ColumnElement:
+    """The product whose catalog columns the row reads (`T.p`: brand, category, subcategory, name, PM): its
+    item-level link's, else the first (lowest id) of its live variations' linked products (`product_links`), so a
+    publication linked per variation only has its product's brand. The product level reads every one of them."""
+    pl = product_links("pl_primary")
+    first = select(func.min(pl.c.producto_item_id)).where(pl.c.item_id == T.i.item_id).scalar_subquery()
+    return func.coalesce(T.l.producto_item_id, first)
+
+
+def has_product(products: Any = None, *, outside: Optional[list[int]] = None) -> ColumnElement:
+    """The row's publication is linked (`product_links`) to one of `products` (any product when None): a list of ids,
+    or an uncorrelated select of them (`_matching_products`, resolved once per query, not per row), or, with
+    `outside`, to a product that is not one of those."""
+    pl = product_links("pl_filter")
+    found = select(1).select_from(pl).where(pl.c.item_id == T.i.item_id)
+    if isinstance(products, Select):
+        found = found.where(pl.c.producto_item_id.in_(products))
+    elif products is not None:
+        found = found.where(pl.c.producto_item_id == any_(literal(products, ARRAY(Integer))))
+    if outside is not None:
+        found = found.where(pl.c.producto_item_id != all_(literal(outside, ARRAY(Integer))))
+    return exists(found)
+
+
+def _any_linked_product(test: Any) -> ColumnElement:
+    """One of the row's linked products (`product_links`) in the catalog passes `test` (given its catalog alias)."""
+    pl, pp = product_links("pl_any"), aliased(ProductoERP, name="pp_any")
+    return exists(
+        select(1)
+        .select_from(pl)
+        .join(pp, pp.item_id == pl.c.producto_item_id)
+        .where(pl.c.item_id == T.i.item_id, test(pp))
+    )
+
+
+def linked_product_conditions(f: PublicationFilter, product_id: Any, p: Any) -> list[ColumnElement]:
+    """The conditions of `f` that are about the PRODUCT, on one linked product (`product_id`, `p` its catalog row,
+    outer-joined): color, mejor oferta of the product, brand, category, subcategory, the product's presence toggles
+    (`product_flag_conditions`), PM and `q` (the product's own name or code, unless the publication's own fields
+    match). A publication `f` keeps is expanded to its linked products that pass them -- the Producto view, its
+    export, `/product-ids` and the tree's product level -- so a filter about the product never brings in another
+    product of the same publication (variations of different products)."""
+    conditions: list[ColumnElement] = []
+    if f.colors or f.no_color:
+        parts = []
+        if f.colors:
+            parts.append(product_id == any_(literal(list(f.color_ids or ()), ARRAY(Integer))))
+        if f.no_color:
+            parts.append(product_id != all_(literal(list(f.colored_ids or ()), ARRAY(Integer))))
+        conditions.append(or_(*parts))
+    if f.oferta is not None and f.oferta_per_product:
+        conditions.append(product_has_offer(product_id) if f.oferta else ~product_has_offer(product_id))
+    if f.marcas:
+        conditions.append(_text_in(p.marca, f.marcas))
+    if f.categorias:
+        conditions.append(_text_in(p.categoria, f.categorias))
+    if f.subcategorias or f.no_subcategoria:
+        conditions.append(_subcategorias_in(f, p))
+    conditions.extend(product_flag_conditions(f, p))
+    if f.pms:
+        conditions.append(_pm(f, p))
+    if f.pm_group is not None:
+        conditions.append(pm_group_in(f.pm_group, p))
+    if f.q is not None:
+        own, _ = _search_parts(f.q, p)
+        conditions.append(or_(own, product_id.in_(_matching_products(f.q))))
+    return conditions
 
 
 def price_amount() -> ColumnElement:
@@ -640,33 +729,35 @@ def _variation_sku(match: Any) -> ColumnElement:
     )
 
 
-def _search(term: SearchTerm) -> ColumnElement:
+def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElement]:
+    """`term` on the publication's own fields, and on the product `p` (a catalog alias): `q` keeps a publication
+    when either matches, and its linked products whose own fields match (or all of them, when the publication's do)."""
     if term.kind == "item_id":
-        return T.i.item_id == term.value
+        return T.i.item_id == term.value, false()
     if term.kind == "digits":
 
         def same(column: Any) -> ColumnElement:
             return column == term.value
 
-        return or_(
+        own = or_(
             T.i.item_id == f"MLA{term.value}",
             same(T.i.seller_sku),
             same(T.i.seller_custom_field),
-            same(T.p.codigo),
             _variation_sku(same),
         )
+        return own, same(p.codigo)
     if term.kind == "codigo":
         # upper-cased by the database on both sides, as `_text_in`: Python and Postgres disagree on some letters
-        return func.upper(T.p.codigo) == func.upper(literal(term.value))
+        return false(), func.upper(p.codigo) == func.upper(literal(term.value))
     if term.kind == "marca":
-        return normalized_text(T.p.marca) == normalized_text(literal(term.value))
+        return false(), normalized_text(p.marca) == normalized_text(literal(term.value))
     if term.kind == "ends_with":
         suffix = f"%{escape_like(term.value)}"
 
         def ends(column: Any) -> ColumnElement:
             return column.ilike(suffix, escape=LIKE_ESCAPE)
 
-        return or_(ends(T.i.title), ends(T.p.descripcion), ends(T.p.marca), ends(T.p.codigo))
+        return ends(T.i.title), or_(ends(p.descripcion), ends(p.marca), ends(p.codigo))
     # ponytail: case-insensitive but accent-sensitive; `unaccent` is not installed on the test DB and its presence
     # on production is unverified (`scripts/measure_pubml_p5.py --database-url` reports it)
     pattern = f"%{escape_like(term.value)}%"
@@ -674,14 +765,27 @@ def _search(term: SearchTerm) -> ColumnElement:
     def contains(column: Any) -> ColumnElement:
         return column.ilike(pattern, escape=LIKE_ESCAPE)
 
-    return or_(
-        contains(T.i.title),
-        contains(T.i.seller_sku),
-        contains(T.i.seller_custom_field),
-        contains(T.p.codigo),
-        contains(T.p.descripcion),
-        _variation_sku(contains),
+    own = or_(
+        contains(T.i.title), contains(T.i.seller_sku), contains(T.i.seller_custom_field), _variation_sku(contains)
     )
+    return own, or_(contains(p.codigo), contains(p.descripcion))
+
+
+def _matching_products(term: SearchTerm) -> Select:
+    """The catalog products whose own fields match `term`: one uncorrelated select, so the catalog is scanned once
+    per query and each row only tests its links against the set (never an ILIKE per row and linked product)."""
+    pp = aliased(ProductoERP, name="pp_q")
+    _, product = _search_parts(term, pp)
+    return select(pp.item_id).where(product).correlate(None)
+
+
+def _search(term: SearchTerm) -> ColumnElement:
+    """The publication's own fields, or any of its linked products' (`product_links`), so a publication with
+    variations in several products is found by each one's name or code."""
+    own, _ = _search_parts(term, T.p)
+    if term.kind == "item_id":  # no product side
+        return own
+    return or_(own, has_product(_matching_products(term)))
 
 
 def listing_clauses() -> dict[str, ColumnElement]:
@@ -693,11 +797,12 @@ def listing_clauses() -> dict[str, ColumnElement]:
     }
 
 
-def erp_stock() -> ColumnElement:
-    """The ERP stock of the row (depósito 1 on hand, `productos_erp.stock`, the figure Productos shows): only an
-    item-level link in state `linked` gives the row a product, so a conflict, no product or a dangling link read
-    NULL (unknown), never 0. A source apart from the ML stock (`ml_items` / `ml_user_product_stock`)."""
-    return case((T.l.match_status == LINK_LINKED, T.p.stock), else_=None)
+def erp_stock(linked: Optional[ColumnElement] = None) -> ColumnElement:
+    """The ERP stock of the row (depósito 1 on hand, `productos_erp.stock`, the figure Productos shows): only a link
+    in state `linked` gives the row a product -- by default the item-level one (`/items`), or the caller's own test
+    (`linked`: a `product_links` row's, for a Producto row) -- so a conflict, no product or a dangling link read NULL
+    (unknown), never 0. A source apart from the ML stock (`ml_items` / `ml_user_product_stock`)."""
+    return case((T.l.match_status == LINK_LINKED if linked is None else linked, T.p.stock), else_=None)
 
 
 def stock_clauses() -> dict[str, ColumnElement]:
@@ -761,30 +866,30 @@ def _text_in(column: Any, wanted: tuple[str, ...]) -> ColumnElement:
     return or_(*parts)
 
 
-def _subcategorias_in(f: PublicationFilter) -> ColumnElement:
+def _subcategorias_in(f: PublicationFilter, p: Any = T.p) -> ColumnElement:
     parts = []
     if f.subcategorias:
-        parts.append(T.p.subcategoria_id.in_(f.subcategorias))
+        parts.append(p.subcategoria_id.in_(f.subcategorias))
     if f.no_subcategoria:
-        parts.append(T.p.subcategoria_id.is_(None))
+        parts.append(p.subcategoria_id.is_(None))
     return or_(*parts)
 
 
-def _pm(f: PublicationFilter) -> ColumnElement:
+def _pm(f: PublicationFilter, p: Any = T.p) -> ColumnElement:
     if f.pm_pairs is None:
         raise RuntimeError("`pms` must be resolved to pairs (listing.resolve_pm_pairs) before building the query")
     if not f.pm_pairs:
         return false()  # a PM that owns no (marca, categoria) pair matches nothing, never everything
-    return tuple_(normalized_text(T.p.marca), normalized_text(T.p.categoria)).in_(list(f.pm_pairs))
+    return tuple_(normalized_text(p.marca), normalized_text(p.categoria)).in_(list(f.pm_pairs))
 
 
-def _pm_group_in(group: str) -> ColumnElement:
+def pm_group_in(group: str, p: Any = T.p) -> ColumnElement:
     """`pm_grupo`: the rule of the tree's PM level (`ml_daily_metrics.groups.pm_pairs`, the very same subquery), so
     a PM node's filter selects exactly the publications the node counts."""
     pairs = pm_pairs("pm_group_pairs")
     owns = select(1).where(
-        pairs.c.marca == func.upper(T.p.marca),
-        pairs.c.categoria == func.upper(T.p.categoria),
+        pairs.c.marca == func.upper(p.marca),
+        pairs.c.categoria == func.upper(p.categoria),
     )
     if group == NO_GROUP:
         return ~exists(owns)
@@ -814,28 +919,28 @@ def product_pricing(name: str) -> Any:
     return aliased(ProductoPricing, name=name)
 
 
-def _pricing_flag(flag: Any, on: bool) -> ColumnElement:
+def _pricing_flag(flag: Any, on: bool, p: Any) -> ColumnElement:
     pp = aliased(ProductoPricing, name="pp")
-    flagged = exists(select(1).where(pp.item_id == T.p.item_id, flag(pp).is_(True)))
-    return flagged if on else and_(T.p.item_id.isnot(None), ~flagged)
+    flagged = exists(select(1).where(pp.item_id == p.item_id, flag(pp).is_(True)))
+    return flagged if on else and_(p.item_id.isnot(None), ~flagged)
 
 
-def _precio(on: bool) -> ColumnElement:
+def _precio(on: bool, p: Any) -> ColumnElement:
     pp = aliased(ProductoPricing, name="pp")
-    priced = exists(select(1).where(pp.item_id == T.p.item_id, pp.precio_lista_ml.isnot(None)))
-    return priced if on else and_(T.p.item_id.isnot(None), ~priced)
+    priced = exists(select(1).where(pp.item_id == p.item_id, pp.precio_lista_ml.isnot(None)))
+    return priced if on else and_(p.item_id.isnot(None), ~priced)
 
 
-def _markup_sign(column: str, positive: bool) -> ColumnElement:
+def _markup_sign(column: str, positive: bool, p: Any) -> ColumnElement:
     """Productos' rule: positive is > 0, negative < 0; zero, NULL or no pricing row match neither side."""
     pp = aliased(ProductoPricing, name="pp")
     markup = getattr(pp, column)
-    return exists(select(1).where(pp.item_id == T.p.item_id, markup > 0 if positive else markup < 0))
+    return exists(select(1).where(pp.item_id == p.item_id, markup > 0 if positive else markup < 0))
 
 
-def _audited(f: PublicationFilter) -> ColumnElement:
+def _audited(f: PublicationFilter, p: Any) -> ColumnElement:
     a = aliased(Auditoria, name="a")
-    where = [a.item_id == T.p.item_id]
+    where = [a.item_id == p.item_id]
     if f.audit_users:
         where.append(a.usuario_id.in_(f.audit_users))
     if f.audit_kinds:
@@ -856,52 +961,66 @@ def _oferta(on: bool, per_product: bool) -> ColumnElement:
     o = aliased(OfertaML, name="o")
     own = exists(select(1).where(o.mla == T.i.item_id, *current_offer(o)))
     if per_product:
-        # any publication linked (item level) to the row's product; a row with no product has only itself
-        sibling = aliased(MlItemProductLink, name="l_oferta")
+        # one of the row's products (`product_links`) has an offer; a row with no product has only itself
+        mine = product_links("pl_oferta")
         of_product = exists(
-            select(1)
-            .select_from(sibling)
-            .join(o, o.mla == sibling.item_id)
-            .where(
-                sibling.variation_id == LINK_ITEM_LEVEL,
-                sibling.producto_item_id == T.l.producto_item_id,
-                *current_offer(o),
-            )
+            select(1).select_from(mine).where(mine.c.item_id == T.i.item_id, product_has_offer(mine.c.producto_item_id))
         )
-        has_product = T.l.producto_item_id.isnot(None)
-        return or_(and_(has_product, of_product if on else ~of_product), and_(~has_product, own if on else ~own))
+        linked = has_product()
+        return or_(and_(linked, of_product if on else ~of_product), and_(~linked, own if on else ~own))
     return own if on else ~own
 
 
-def _tienda_nube_in(state: str) -> ColumnElement:
+def product_has_offer(product_id: Any) -> ColumnElement:
+    """Mejor oferta of a PRODUCT, as Productos asks it: one of the publications linked to it has a current offer."""
+    o, sibling = aliased(OfertaML, name="o_product"), product_links("pl_offer_sibling")
+    return exists(
+        select(1)
+        .select_from(sibling)
+        .join(o, o.mla == sibling.c.item_id)
+        .where(sibling.c.producto_item_id == product_id, *current_offer(o))
+    )
+
+
+def _tienda_nube_in(state: str, p: Any) -> ColumnElement:
     tn = aliased(TiendaNubeProducto, name="tn")
-    active = select(1).where(tn.item_id == T.p.item_id, tn.activo.is_(True))
+    active = select(1).where(tn.item_id == p.item_id, tn.activo.is_(True))
     if state == "con_descuento":
         return exists(active.where(tn.promotional_price > 0))
     if state == "sin_descuento":
         return exists(active.where(or_(tn.promotional_price.is_(None), tn.promotional_price == 0)))
-    return and_(T.p.stock > 0, ~exists(active))
+    return and_(p.stock > 0, ~exists(active))
+
+
+def product_flag_conditions(f: PublicationFilter, p: Any) -> list[ColumnElement]:
+    """The presence toggles that are the PRODUCT's (its pricing flags, list price, Tienda Nube, sync date, Productos'
+    markup signs, its audit trail), on the catalog row `p`."""
+    where = []
+    if f.rebate is not None:
+        where.append(_pricing_flag(lambda pp: pp.participa_rebate, f.rebate, p))
+    if f.web_transf is not None:
+        where.append(_pricing_flag(lambda pp: pp.participa_web_transferencia, f.web_transf, p))
+    if f.out_of_cards is not None:
+        where.append(_pricing_flag(lambda pp: pp.out_of_cards, f.out_of_cards, p))
+    if f.tienda_nube is not None:
+        where.append(_tienda_nube_in(f.tienda_nube, p))
+    if f.precio is not None:
+        where.append(_precio(f.precio, p))
+    if f.nuevos:
+        where.append(p.fecha_sync >= func.now() - timedelta(days=7))
+    where.extend(_markup_sign(column, positive, p) for column, positive in f.markup_signs)
+    if f.audits:
+        where.append(_audited(f, p))
+    return where
 
 
 def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     where = []
-    if f.rebate is not None:
-        where.append(_pricing_flag(lambda pp: pp.participa_rebate, f.rebate))
-    if f.web_transf is not None:
-        where.append(_pricing_flag(lambda pp: pp.participa_web_transferencia, f.web_transf))
-    if f.out_of_cards is not None:
-        where.append(_pricing_flag(lambda pp: pp.out_of_cards, f.out_of_cards))
-    if f.tienda_nube is not None:
-        where.append(_tienda_nube_in(f.tienda_nube))
+    if product_flag_conditions(f, T.p):  # built only to know whether `f` asks any; one list, no copy to drift
+        # one of the publication's linked products has them all (variations of different products: any of them)
+        where.append(_any_linked_product(lambda p: and_(*product_flag_conditions(f, p))))
     if f.oferta is not None:
         where.append(_oferta(f.oferta, f.oferta_per_product))
-    if f.precio is not None:
-        where.append(_precio(f.precio))
-    if f.nuevos:
-        where.append(T.p.fecha_sync >= func.now() - timedelta(days=7))
-    where.extend(_markup_sign(column, positive) for column, positive in f.markup_signs)
-    if f.audits:
-        where.append(_audited(f))
     if f.mla_scope is not None:
         # one array parameter, as `_colors`: a promo scope can hold thousands of MLAs
         scope = literal(sorted(f.mla_scope), ARRAY(String))
@@ -929,13 +1048,13 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     if f.subcategorias or f.no_subcategoria:
         where.append(_subcategorias_in(f))
     if f.producto is not None:
-        where.append(T.l.producto_item_id == f.producto)
+        where.append(has_product([f.producto]))
     if f.sin_producto:
-        where.append(T.l.producto_item_id.is_(None))
+        where.append(~has_product())
     if f.pms:
         where.append(_pm(f))
     if f.pm_group is not None:
-        where.append(_pm_group_in(f.pm_group))
+        where.append(pm_group_in(f.pm_group))
     if f.family_id is not None:
         where.append(T.i.family_id == f.family_id)
     if f.listing and skip != "listing":
@@ -953,15 +1072,21 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
 
 
 def _colors(f: PublicationFilter, product: Any = None) -> ColumnElement:
-    """`product`: the product id column the colors are keyed by (the row's link, unless given)."""
+    """A color is the PRODUCT's: one of the publication's linked products (`product_links`) is painted one of
+    `colors`; `sin_color`, it has no linked product or one that is not painted. `product`: the product id column of a
+    row that is a product, not a publication (`product_conditions`)."""
     if f.color_ids is None or f.colored_ids is None:
         raise RuntimeError("`colores` must be resolved (ml_publication_colors.resolve_color_filter) before the query")
-    product = T.l.producto_item_id if product is None else product
+    painted, colored = list(f.color_ids), list(f.colored_ids)
     clauses = []
     if f.colors:
-        clauses.append(product == any_(literal(list(f.color_ids), ARRAY(Integer))))
+        clauses.append(has_product(painted) if product is None else product == any_(literal(painted, ARRAY(Integer))))
     if f.no_color:
-        clauses.append(or_(product.is_(None), product != all_(literal(list(f.colored_ids), ARRAY(Integer)))))
+        clauses.append(
+            or_(~has_product(), has_product(outside=colored))
+            if product is None
+            else product != all_(literal(colored, ARRAY(Integer)))
+        )
     return or_(*clauses)
 
 
@@ -1005,7 +1130,7 @@ def publication_filter_in(f: PublicationFilter) -> Optional[str]:
 def _product_search(term: SearchTerm) -> ColumnElement:
     """`_search` without the publication's columns: the product's code, name and brand."""
     if term.kind in ("codigo", "marca"):
-        return _search(term)
+        return _search_parts(term, T.p)[1]
     if term.kind == "digits":
         return T.p.codigo == term.value
     if term.kind == "ends_with":
@@ -1047,12 +1172,13 @@ def product_conditions(f: PublicationFilter) -> list[ColumnElement]:
     if f.pms:
         where.append(_pm(f))
     if f.pm_group is not None:
-        where.append(_pm_group_in(f.pm_group))
+        where.append(pm_group_in(f.pm_group))
     if f.stock:
         where.append(or_(*(PRODUCT_STOCK[value]() for value in f.stock)))
     if f.colors or f.no_color:
         where.append(_colors(f, T.p.item_id))
-    where.extend(presence_conditions(f))  # what is left of them reads the product (`T.p`)
+    # what is left of the presence toggles: the product's own (`oferta` and the promo scope are refused above)
+    where.extend(product_flag_conditions(f, T.p))
     return where
 
 

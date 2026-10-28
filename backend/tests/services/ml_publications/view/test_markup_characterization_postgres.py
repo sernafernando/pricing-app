@@ -266,11 +266,12 @@ EXPECTED = {
     "MLA9": ((), None, None, None, False, 0, "sin_costo", ((None, "sin_costo", None, None, None, None, None),)),
 }
 EXPECTED_STATS = (11, {"sin_precio": 1, "sin_vinculo": 1, "sin_costo": 1, "sin_lista": 2, "cofinanciada": 1})
+# The negative publication linked per variation only has its variation product's brand, ALFA (S12g), not "__none__".
 EXPECTED_TREE = {
-    "ALFA": (8, 4, -6.380165289256201, -2.975206611570236),
+    "ALFA": (9, 5, -6.380165289256201, -2.975206611570236),
     "BETA": (3, 3, -87.56404958677686, 0.31404958677685446),
     "GAMMA": (4, 0, 75.94066539521087, 90.11125238397966),
-    "__none__": (2, 1, -6.380165289256201, -6.380165289256201),
+    "__none__": (1, 0, None, None),
 }
 EXPECTED_DETAIL = (
     12,
