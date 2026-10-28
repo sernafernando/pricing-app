@@ -266,8 +266,9 @@ def _by_figures(
 ) -> list[str]:
     """The ids of `source` (a one-column select of the set) at `[offset, offset + limit)`, ordered by `sort`'s keys in
     their order, then `item_id`. `figures` holds, per key that is not a database column (the worst markup, a Métricas
-    figure), each id's figure computed outside the query (missing values last). They reach the database as arrays of
-    the same length, unnested side by side, so a column key before or after a figure is the database's own column."""
+    figure), each id's figure computed outside the query. They reach the database as arrays of the same length,
+    unnested side by side and joined to `source` from its side, so a column key before or after a figure is the
+    database's own column, and an id a figure leaves out keeps its row with no value (last, like a missing figure)."""
     ids = sorted({item_id for values in figures.values() for item_id in values})
     names = {key: f"figure_{index}" for index, key in enumerate(figures)}
     figured = select(
@@ -284,7 +285,12 @@ def _by_figures(
             order.append((column.desc() if descending else column.asc()).nulls_last())
         else:
             order.extend(_column_order(key, descending))
-    query = source.where(figured.c.item_id == T.i.item_id).order_by(*order, T.i.item_id).limit(limit).offset(offset)
+    query = (
+        source.outerjoin(figured, figured.c.item_id == T.i.item_id)
+        .order_by(*order, T.i.item_id)
+        .limit(limit)
+        .offset(offset)
+    )
     return list(db.execute(query).scalars())
 
 
@@ -297,12 +303,13 @@ def _figured_ids(
     worst: Optional[Mapping[str, Any]] = None,
 ) -> list[str]:
     """A sort with figure keys over `source`: a Métricas figure alone is the Board's ranking; any other combination
-    takes each figure (`worst`, the markup's, priced by the caller; each Métricas one from the Board) then orders."""
+    takes each figure (`worst`, the markup's, priced by the caller; the Métricas ones from one Board run) then
+    orders."""
     if len(sort.keys) == 1 and sort.key in METRIC_SORTS:
         return ranked_page(db, source, sort.key, sort.descending, limit, offset)
-    figures = {
-        key: (worst or {}) if key == SORT_MARKUP else metric_figures(db, source, key) for key in sort.figure_keys
-    }
+    metric_keys = [key for key in sort.figure_keys if key in METRIC_SORTS]
+    metrics = metric_figures(db, source, metric_keys) if metric_keys else {}
+    figures = {key: (worst or {}) if key == SORT_MARKUP else metrics[key] for key in sort.figure_keys}
     return _by_figures(db, source, figures, sort, limit, offset)
 
 

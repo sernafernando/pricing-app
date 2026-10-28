@@ -155,3 +155,47 @@ class TestMarkupAsALaterKey:
         titled(conn)
         total, got = page(db, MarkupFilter(negative=True), "titulo,markup")
         assert total == 8 and got == NEGATIVE_BY_TITLE  # distinct titles: the title alone decides
+
+
+class TestMarkupWithAMetricasFigure:
+    """A Métricas figure and the markup in one sort: both figures unnested next to the ids, each in its position.
+    The Board is stubbed (its own ranking is pinned in `test_metrics_sort_postgres.py`); `units` is a figure."""
+
+    @staticmethod
+    def stub_units(monkeypatch, units) -> None:
+        monkeypatch.setattr(listing, "metric_figures", lambda session, source, keys: {key: units for key in keys})
+
+    @staticmethod
+    def worst(db) -> dict:
+        result, _ = listing.markup_accepted(db, parse_filter(), MarkupQuery(db, MarkupFilter()))
+        return {item_id: item.markup.worst for item_id, item in result.items.items()}
+
+    @staticmethod
+    def by(units, worst):
+        # units highest first (missing last), then the worst markup lowest first (missing last), then the item id
+        return lambda i: (units.get(i) is None, -(units.get(i) or 0), worst[i] is None, worst[i] or 0, i)
+
+    def test_the_figure_leads_and_the_markup_breaks_its_ties_across_pages(self, conn, db, monkeypatch) -> None:
+        titled(conn)
+        worst = self.worst(db)
+        units = {item_id: int(item_id[3:]) % 2 for item_id in worst}  # two big ties
+        self.stub_units(monkeypatch, units)
+        expected = sorted(worst, key=self.by(units, worst))
+        assert page(db, MarkupFilter(), "unidades_7d,markup", "desc,asc")[1] == expected
+        pages = [
+            page(db, MarkupFilter(), "unidades_7d,markup", "desc,asc", limit=4, offset=o)[1] for o in range(0, 40, 4)
+        ]
+        assert [item_id for chunk in pages for item_id in chunk] == expected
+        negative = set(NEGATIVE_BY_TITLE)
+        assert page(db, MarkupFilter(negative=True), "unidades_7d,markup", "desc,asc") == (
+            8,
+            [item_id for item_id in expected if item_id in negative],
+        )
+
+    def test_an_id_a_figure_leaves_out_is_last_never_dropped(self, conn, db, monkeypatch) -> None:
+        titled(conn)
+        worst = self.worst(db)
+        units = {item_id: 1 for item_id in sorted(worst)[::2]}  # every other publication has no figure at all
+        self.stub_units(monkeypatch, units)
+        total, got = page(db, MarkupFilter(), "unidades_7d,markup", "desc,asc")
+        assert total == len(worst) and got == sorted(worst, key=self.by(units, worst))
