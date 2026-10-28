@@ -378,3 +378,10 @@ def add_tn_variant(conn, item_id: int, variant_id: int, **columns: Any) -> None:
 
 def add_oferta(conn, mla: str, fecha_desde, fecha_hasta, **columns: Any) -> None:
     _insert(conn, "ofertas_ml", {"mla": mla, "fecha_desde": fecha_desde, "fecha_hasta": fecha_hasta, **columns})
+
+
+# Productos' stored markups of a product (`productos_pricing`), the ones its markup filters read.
+MARKUP_DDL = (
+    "ALTER TABLE productos_pricing ADD COLUMN markup_calculado numeric(10,2), ADD COLUMN markup_rebate numeric(10,2), "
+    "ADD COLUMN markup_oferta numeric(10,2), ADD COLUMN markup_web_real numeric(10,2)"
+)

@@ -52,7 +52,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permiso
+from app.api.deps import get_current_user, require_permiso
 from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
@@ -727,9 +727,26 @@ def filter_query(
     nuevos_ultimos_7_dias: Optional[bool] = Query(
         None, description="the linked product was synced from the ERP in the last 7 days"
     ),
+    # Productos' markup filters, its stored markups of the linked product (ver_ganancia)
+    markup_clasica_positivo: Optional[bool] = Query(None, description="markup clásica > 0 (false: < 0)"),
+    markup_rebate_positivo: Optional[bool] = Query(None, description="markup rebate > 0 (false: < 0)"),
+    markup_oferta_positivo: Optional[bool] = Query(None, description="markup oferta > 0 (false: < 0)"),
+    markup_web_transf_positivo: Optional[bool] = Query(None, description="markup web transferencia > 0 (false: < 0)"),
+    # The caller and the application session, for the permission check of the markup filters (cached per request:
+    # every endpoint already authenticates the same way).
+    user: Usuario = Depends(get_current_user),
+    auth_db: Session = Depends(get_db),
 ) -> PublicationFilter:
     """The filters every read of the screen shares (`/items` and `/groups`): one declaration, so a filter added here
-    reaches both. A value outside its vocabulary is a 422 naming the parameter."""
+    reaches both. A value outside its vocabulary is a 422 naming the parameter; a markup filter without
+    `ml_metricas.ver_ganancia` is a 403, as every markup of this screen."""
+    signs = (markup_clasica_positivo, markup_rebate_positivo, markup_oferta_positivo, markup_web_transf_positivo)
+    if any(sign is not None for sign in signs) and not PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA):
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            ErrorCode.INSUFFICIENT_PERMISSIONS,
+            f"Se requiere el permiso {PERMISO_GANANCIA} para filtrar por markup",
+        )
     try:
         return parse_filter(
             q=q,
@@ -759,6 +776,10 @@ def filter_query(
             oferta_por_producto=oferta_por_producto,
             con_precio=con_precio,
             nuevos_ultimos_7_dias=nuevos_ultimos_7_dias,
+            markup_clasica_positivo=markup_clasica_positivo,
+            markup_rebate_positivo=markup_rebate_positivo,
+            markup_oferta_positivo=markup_oferta_positivo,
+            markup_web_transf_positivo=markup_web_transf_positivo,
         )
     except FilterError as exc:
         raise _unprocessable(exc) from exc

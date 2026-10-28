@@ -125,3 +125,37 @@ class TestProductosMissingFilters:
         conn.execute(text("UPDATE productos_erp SET fecha_sync = now() - interval '8 days' WHERE item_id <> 71"))
         assert listed(db, nuevos_ultimos_7_dias=True) == ["MLA2"]
         assert len(listed(db, nuevos_ultimos_7_dias=False)) == 5  # false is no filter, as in Productos
+
+
+class TestProductosMarkupFilters:
+    """P6b: Productos' Markup Clásica / Rebate / Oferta / Web Transf. filters, its stored markups of the linked
+    product: positive is > 0, negative < 0; a zero, a missing value or no pricing row matches neither side."""
+
+    @pytest.fixture(autouse=True)
+    def markups(self, conn) -> None:
+        conn.execute(text(seed.MARKUP_DDL))
+        conn.execute(
+            text(
+                "UPDATE productos_pricing SET markup_calculado = 12.5, markup_rebate = -3, markup_oferta = 0, "
+                "markup_web_real = NULL WHERE item_id = 70"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE productos_pricing SET markup_calculado = -8, markup_rebate = 4, markup_oferta = 2, "
+                "markup_web_real = -1 WHERE item_id = 71"
+            )
+        )
+
+    @pytest.mark.parametrize(
+        ("param", "positive", "negative"),
+        [
+            ("markup_clasica_positivo", ["MLA1", "MLA5"], ["MLA2"]),
+            ("markup_rebate_positivo", ["MLA2"], ["MLA1", "MLA5"]),
+            ("markup_oferta_positivo", ["MLA2"], []),  # 70's zero is neither
+            ("markup_web_transf_positivo", [], ["MLA2"]),  # 70's NULL is neither
+        ],
+    )
+    def test_each_markup_by_its_sign(self, db, param, positive, negative) -> None:
+        assert listed(db, **{param: True}) == positive
+        assert listed(db, **{param: False}) == negative  # MLA3 (no pricing row) and MLA4 (no product): neither
