@@ -1886,9 +1886,9 @@ describe('row colors and the color layer (S8)', () => {
     });
   }
 
-  for (const theme of ['light', 'dark']) {
-    it(`1366x768 ${theme}: the web transfer's % and its lock sit under the price, inside the cell`, async () => {
-      const screen = await renderPage({ width: 1366, height: 768, theme });
+  for (const [width, height, theme] of [[1366, 768, 'light'], [1366, 768, 'dark'], [1920, 1080, 'light'], [1920, 1080, 'dark']]) {
+    it(`${width}x${height} ${theme}: the web transfer's % and its lock sit under the price, inside the cell`, async () => {
+      const screen = await renderPage({ width, height, theme });
       const lock = screen.getByRole('img', { name: '% conservado en cambios masivos' }).first();
       await expect.element(lock).toBeVisible();
       const line = lock.element().closest('[data-price-detail]');
@@ -1903,7 +1903,7 @@ describe('row colors and the color layer (S8)', () => {
       expect(wrapped([line])).toEqual([]);
       expect(contrastRatio(getComputedStyle(line).color, getComputedStyle(cell).backgroundColor)).toBeGreaterThanOrEqual(4.5);
       cell.scrollIntoView({ block: 'center', inline: 'center' });
-      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/web-transf-percent-1366-${theme}.png` });
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/web-transf-percent-${width}-${theme}.png` });
       screen.unmount();
     });
   }
