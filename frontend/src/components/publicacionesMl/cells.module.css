@@ -177,6 +177,17 @@
   border-color: var(--cf-border-strong);
 }
 
+/* The active price of the keyboard (←/→ over a row's prices): the ring of the row's toggles. */
+.editable:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+/* The open editor: only a frame for Tab / Shift+Tab to cycle in, it draws nothing. */
+.priceEditor {
+  display: contents;
+}
+
 .editable:disabled {
   cursor: progress;
   opacity: 0.6;
