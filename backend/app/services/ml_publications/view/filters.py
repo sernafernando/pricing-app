@@ -967,7 +967,7 @@ def build_base_select(f: PublicationFilter, *columns: Any, skip: Optional[str] =
 #
 # The ERP products no publication is linked to. "Has an MLA" is this screen's source of truth, the link table: a
 # `linked` row at ANY variation (an item with variations links each variation, never the item level). Productos reads
-# the ERP mirror (`tb_mercadolibre_items_publicados`) instead, so the two counts can differ. As in Productos, the
+# the ERP mirror of the published items instead, so the two counts can differ. As in Productos, the
 # products in `items_sin_mla_banlist` and in `producto_banlist` (active, by item id or EAN -- the product code) are
 # left out. There is no publication row here, so only the filters that read the product apply; a filter about
 # publications is refused naming its parameter, never silently ignored.
