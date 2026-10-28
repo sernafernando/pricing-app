@@ -17,6 +17,12 @@ const PERCENT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
 /** A product's extra markup, or "Global" when it follows the global one. */
 const markupText = (value) => (value == null ? 'Global' : `${PERCENT.format(value)} %`);
 
+const LISTS = [
+  { key: 'web', label: 'Web', priceField: 'precio_lista_ml' },
+  { key: 'pvp', label: 'PVP', priceField: 'precio_pvp' },
+];
+const LIST_LABELS = Object.fromEntries(LISTS.map(({ key, label }) => [key, label]));
+
 const STORED_FIELDS = ['recalcular_cuotas_auto', 'markup_adicional_cuotas_custom', 'markup_adicional_cuotas_pvp_custom'];
 
 // `complete` is false when the read lacks a setting: the PATCH replaces all three, so it is not offered then.
@@ -25,6 +31,8 @@ const settingsOf = (product) => ({
   web: product.markup_adicional_cuotas_custom ?? null,
   pvp: product.markup_adicional_cuotas_pvp_custom ?? null,
   complete: STORED_FIELDS.every((field) => field in product),
+  // The lists whose instalments a save recalculates (Productos' "recalcular cuotas desde clásica"): those with a price.
+  lists: LISTS.filter(({ priceField }) => Number(product[priceField]) > 0).map(({ key }) => key),
 });
 
 const inputOf = (value) => (value == null ? '' : String(value));
@@ -42,6 +50,28 @@ function markupOf(text) {
   return Number.isFinite(value) && value >= 0 && value <= 100 ? value : undefined;
 }
 
+/** Recalculates the instalments of each list from its clásica price, as Productos does after saving; says how it went. */
+async function recalculate(productItemId, lists) {
+  if (lists.length === 0) return { note: 'Guardado. Sin precio Web ni PVP, no hay cuotas para recalcular.', done: false };
+  const results = [];
+  // One after the other, as Productos' calls: each reads the settings just stored.
+  for (const list of lists) {
+    try {
+      await preciosAPI.recalcularCuotas(productItemId, list);
+      results.push({ list, ok: true });
+    } catch (error) {
+      const detail = error?.response?.data?.detail;
+      results.push({ list, ok: false, reason: typeof detail === 'string' && detail ? detail : 'probá de nuevo' });
+    }
+  }
+  const done = results.filter((r) => r.ok).map((r) => LIST_LABELS[r.list]);
+  const failed = results.filter((r) => !r.ok);
+  let note = 'Guardado.';
+  if (done.length > 0) note += ` Cuotas ${done.join(' y ')} recalculadas desde la clásica.`;
+  for (const { list, reason } of failed) note += ` No se pudieron recalcular las ${LIST_LABELS[list]}: ${reason}`;
+  return { note, done: done.length > 0 };
+}
+
 function describeError(error) {
   if (error?.response?.status === 403) return 'No tenés permiso para editar la configuración de cuotas.';
   const detail = error?.response?.data?.detail;
@@ -51,19 +81,22 @@ function describeError(error) {
 /**
  * A product's own instalment settings, as Productos' gear edits them: whether its instalments are recalculated when
  * the price changes (the global setting, always or never) and the extra markup of its Web and PVP instalments (empty
- * follows the global one). Editable with `productos.editar_precio_cuotas`, which the server checks too. Saving changes
- * no price: the settings apply the next time the instalments are recalculated. Self-contained so the panel can place
- * it anywhere; mount it with `key={productItemId}`.
+ * follows the global one). Editable with `productos.editar_precio_cuotas`, which the server checks too. Saving then
+ * recalculates the instalments of the Web and PVP lists that have a price from their clásica price, as Productos does
+ * (`POST /precios/recalcular-cuotas`), and `onRecalculated` tells the panel so its prices are read again.
+ * Self-contained so the panel can place it anywhere; mount it with `key={productItemId}`.
  *
  * @param {object} props
  * @param {number} props.productItemId The ERP product.
+ * @param {() => void} [props.onRecalculated] Called once a list's instalments were recalculated.
  */
-export default function ProductCuotasConfig({ productItemId }) {
+export default function ProductCuotasConfig({ productItemId, onRecalculated }) {
   const { tienePermiso } = usePermisos();
   const [read, setRead] = useState({ status: 'loading', settings: null });
   const [attempt, setAttempt] = useState(0);
   const [form, setForm] = useState(null);
-  const [saved, setSaved] = useState(false);
+  // What the last save says (saved, and how the recalculation went), or null.
+  const [saved, setSaved] = useState(null);
 
   useEffect(() => {
     let current = true;
@@ -85,7 +118,7 @@ export default function ProductCuotasConfig({ productItemId }) {
     // A read missing a setting would PATCH defaults over values never shown: only a complete read is editable.
     if (!read.settings?.complete) return;
     const { recalc, web, pvp } = read.settings;
-    setSaved(false);
+    setSaved(null);
     setForm({ recalc, web: inputOf(web), pvp: inputOf(pvp), status: 'editing', error: null });
   };
 
@@ -106,8 +139,10 @@ export default function ProductCuotasConfig({ productItemId }) {
         markup_adicional_cuotas_custom: web,
         markup_adicional_cuotas_pvp_custom: pvp,
       });
+      const { note, done } = await recalculate(productItemId, read.settings.lists);
+      if (done) onRecalculated?.();
       setForm(null);
-      setSaved(true);
+      setSaved(note);
       // Show what is stored, not what was typed.
       reload();
     } catch (error) {
@@ -214,7 +249,7 @@ export default function ProductCuotasConfig({ productItemId }) {
       {body}
       {saved && !form && read.status === 'ready' && (
         <p className={styles.feedback} role="status">
-          Guardado. No cambia ningún precio: se aplica la próxima vez que se recalculen las cuotas.
+          {saved}
         </p>
       )}
     </Section>

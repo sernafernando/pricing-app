@@ -21,13 +21,23 @@ vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({ tienePermiso: (permiso) => granted.has(permiso) }),
 }));
 
-vi.mock('../pricing/ProductPrices', () => ({
-  default: ({ productItemId, permissions, showCost }) => (
+// Each mount of the prices is a fresh read of them.
+const pricesMounts = vi.hoisted(() => ({ count: 0 }));
+vi.mock('../pricing/ProductPrices', async () => {
+  const { useEffect } = await import('react');
+  return {
+    default: function ProductPricesMock({ productItemId, permissions, showCost }) {
+      useEffect(() => {
+        pricesMounts.count += 1;
+      }, []);
+      return (
     <div data-testid="product-prices">
       {`prices of ${productItemId}, cost ${showCost ? 'shown' : 'hidden'}, clasica ${permissions.canEditClasica ? 'editable' : 'read-only'}`}
     </div>
-  ),
-}));
+      );
+    },
+  };
+});
 
 vi.mock('./panel/ProductIdentity', () => ({
   default: ({ productItemId }) => <div data-testid="product-identity">{`identity of ${productItemId}`}</div>,
@@ -38,7 +48,14 @@ vi.mock('./panel/ProductChangesTab', () => ({
 }));
 
 vi.mock('./panel/ProductCuotasConfig', () => ({
-  default: ({ productItemId }) => <div data-testid="product-cuotas">{`cuotas of ${productItemId}`}</div>,
+  default: ({ productItemId, onRecalculated }) => (
+    <div data-testid="product-cuotas">
+      {`cuotas of ${productItemId}`}
+      <button type="button" onClick={onRecalculated}>
+        Simular recálculo
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock('./panel/ProductCatalogCompetition', () => ({
@@ -325,6 +342,18 @@ describe('ProductPanel', () => {
       const cuotas = screen.getByTestId('product-cuotas');
       expect(cuotas).toHaveTextContent('cuotas of 4101');
       expect(prices.compareDocumentPosition(cuotas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("a recalculation from the instalment settings reads the product's prices again and reloads the list", async () => {
+      const onListReload = vi.fn();
+      renderPanel({ onListReload });
+      await userEvent.click(tab('Precios'));
+      const before = pricesMounts.count;
+
+      await userEvent.click(screen.getByRole('button', { name: 'Simular recálculo' }));
+
+      expect(pricesMounts.count).toBe(before + 1);
+      expect(onListReload).toHaveBeenCalledTimes(1);
     });
 
     it('hides the cost on Precios without the margin permission', async () => {
