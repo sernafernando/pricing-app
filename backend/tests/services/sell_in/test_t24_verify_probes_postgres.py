@@ -381,8 +381,6 @@ def test_p6b_two_reconciles_of_different_operations_of_one_capped_bonus_serializ
     y = b.pedido(engine, {2964: 2}, D(2026, 10, 12))
     b.clear_queue(engine)
     Session = sessionmaker(bind=engine)
-    s1 = Session()
-    bonos.reconciliar(s1, pedido_ids=[x])  # holds the bonus lock, uncommitted
     outcome = {}
 
     def other():
@@ -395,13 +393,19 @@ def test_p6b_two_reconciles_of_different_operations_of_one_capped_bonus_serializ
             except OperationalError as exc:
                 outcome["r"] = f"blocked: {type(exc.orig).__name__}"
                 s2.rollback()
+            except Exception as exc:  # reported by the assertion below, not as a KeyError
+                outcome["r"] = f"error: {exc!r}"
+                s2.rollback()
 
-    t = threading.Thread(target=other)
-    t.start()
-    t.join(10)
-    s1.commit()
-    s1.close()
-    assert outcome["r"].startswith("blocked"), outcome
+    with Session() as s1:
+        bonos.reconciliar(s1, pedido_ids=[x])  # holds the bonus lock, uncommitted
+        t = threading.Thread(target=other)
+        t.start()
+        t.join(10)
+        # Still alive means it waited past its own 1s lock_timeout: it did not fail fast.
+        assert not t.is_alive(), "the second reconcile is still waiting on the bonus lock"
+        s1.commit()
+    assert outcome.get("r", "").startswith("blocked"), outcome
     assert _activas(engine, bono) == {x: (2, Decimal("20.00")), y: (1, Decimal("5.00"))}
 
 

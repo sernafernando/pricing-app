@@ -39,7 +39,8 @@ def test_rejected_edit_changes_nothing(client, gestor, productos, db, overrides)
     data = _crear(client, gestor, tope_unidades=50)
     antes = _stored(db, data["id"])
     body = _body(monto_unit="30.00", fecha_hasta="2026-11-30", **overrides)
-    body.pop("tope_monto") if "tope_monto" not in overrides else None
+    if "tope_monto" not in overrides:
+        body.pop("tope_monto", None)  # the cap is not resent: the stored one must stay
     resp = client.put(f"{BASE}/{data['id']}", json=body, headers=gestor)
     assert resp.status_code == 422, resp.text
     assert _stored(db, data["id"]) == antes
@@ -82,7 +83,7 @@ def test_list_and_detail_carry_the_same_cap_fields(client, gestor, productos):  
     data = _crear(client, gestor, tope_unidades=9)
     detalle = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
     lista = client.get(BASE, headers=gestor).json()
-    fila = next(f for f in lista["items"] if f["id"] == data["id"]) if isinstance(lista, dict) else None
-    assert fila is not None, lista
+    assert isinstance(lista, dict) and "items" in lista, lista
+    fila = next(f for f in lista["items"] if f["id"] == data["id"])
     for k in ("tope_unidades", "tope_monto", "tope_unidades_restantes", "tope_monto_restante"):
         assert fila[k] == detalle[k]
