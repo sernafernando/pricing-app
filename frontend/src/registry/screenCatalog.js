@@ -179,7 +179,7 @@ export const PERMISOS_ADICIONALES = {
     promos: ['/productos', '/ml-publicaciones'], // promociones panels + PublicationPanel.
     pxq: ['/productos'], // PxqPanel inside the Productos promo tree.
     sell_out: ['/sell-in'],
-    equipos: ['/productos'], // EquiposModal.
+    equipos: ['/productos', '/ml-publicaciones'], // EquiposModal, in both screens.
     tplink: [], // Global opt-in flags (ThemeContext); tplink.solo is listed below.
   },
   porPantalla: {
