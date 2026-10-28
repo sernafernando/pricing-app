@@ -2573,9 +2573,31 @@ describe("the panels' Precios tab shows the list's price group (owner, 2026-10-2
     await user.click((await within(prices).findAllByRole('button', { name: /^Editar Precio Clásica/ }))[0]);
     const input = within(prices).getByRole('textbox', { name: 'Precio Clásica' });
     await user.clear(input);
+    const asked = productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length;
+    productosAPI.listar.mockResolvedValue({ data: { productos: [{ ...PRICED[0], precio_lista_ml: 15000 }], total: 1 } });
     await user.type(input, '15000{Enter}');
     await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 15000 })));
     expect(await screen.findByText('Precio guardado.')).toBeInTheDocument();
+    // The group reads the product's prices again and shows the saved one.
+    await waitFor(() => expect(productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length).toBeGreaterThan(asked));
+    expect((await within(prices).findAllByText('15.000,00')).length).toBeGreaterThan(0);
+  });
+
+  it('without a price edit permission the group reads only: no editor, no Calcular', async () => {
+    canEditPrices = false;
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
+    const prices = await group();
+    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
+    expect(within(prices).queryByRole('button', { name: /^Editar/ })).not.toBeInTheDocument();
+    expect(within(prices).queryByRole('button', { name: /^Calcular/ })).not.toBeInTheDocument();
+  });
+
+  it('the Agrupado tree asks no offsets until a panel opens', async () => {
+    canSeeMargin = true;
+    offsetsGananciaAPI.vigentes.mockClear();
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await waitFor(() => expect(publicacionesMlAPI.groups).toHaveBeenCalled());
+    expect(offsetsGananciaAPI.vigentes).not.toHaveBeenCalled();
   });
 
   it("Calcular opens Productos' pricing modal on the product", async () => {

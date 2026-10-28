@@ -158,9 +158,11 @@ export default function ProductPanel({
             <ProductChangesTab key={productItemId} productItemId={productItemId} />
           ) : activeKey === PRECIOS.key ? (
             <>
-              <ListPriceGroup productItemId={productItemId} canSeeMargin={canSeeMargin} group={priceGroup} />
+              <ListPriceGroup productItemId={productItemId} canSeeMargin={canSeeMargin} priceGroup={priceGroup} />
               <ProductPrices
                 productItemId={productItemId}
+                // Read again after the instalment settings or after a list write (the group above): both counters only
+                // ever go up, so their sum changes whenever either does.
                 readAgain={pricesReadAgain + (priceGroup?.version ?? 0)}
                 permissions={pricePermissions(tienePermiso)}
                 onWritten={onListReload}

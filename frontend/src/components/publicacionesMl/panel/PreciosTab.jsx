@@ -18,12 +18,13 @@ export default function PreciosTab({ detail, canSeeMargin, onWritten, priceGroup
   const productItemId = detail.product.item_id;
   return (
     <>
-      <ListPriceGroup productItemId={productItemId} canSeeMargin={Boolean(canSeeMargin)} group={priceGroup} />
+      <ListPriceGroup productItemId={productItemId} canSeeMargin={Boolean(canSeeMargin)} priceGroup={priceGroup} />
       <ProductPrices
         productItemId={productItemId}
         permissions={pricePermissions(tienePermiso)}
         onWritten={onWritten}
         showCost={Boolean(canSeeMargin)}
+        // A write from the group above reloads the list (`version`): these prices are read again with it.
         readAgain={priceGroup?.version ?? 0}
       />
     </>

@@ -17,18 +17,18 @@ const MODES = [
  * Productos' listing of that product (`useListPrices`), read again when `version` changes (the page's list reload
  * after a write).
  *
- * `group` is what the page hands the list's columns: `edit` (the list's write handlers and permissions),
+ * `priceGroup` is what the page hands the list's columns: `edit` (the list's write handlers and permissions),
  * `onCalculate` (the pricing modal), `offsets` (markup con offsets) and `version`. Without it the prices read only.
  */
-export default function ListPriceGroup({ productItemId, canSeeMargin = false, group = null }) {
+export default function ListPriceGroup({ productItemId, canSeeMargin = false, priceGroup = null }) {
   const ids = useMemo(() => [productItemId], [productItemId]);
-  const prices = useListPrices(ids, productItemId != null, group?.version ?? 0);
-  const options = { prices, canSeeMargin, edit: group?.edit ?? null, offsets: group?.offsets ?? null };
+  const prices = useListPrices(ids, productItemId != null, priceGroup?.version ?? 0);
+  const options = { prices, canSeeMargin, edit: priceGroup?.edit ?? null, offsets: priceGroup?.offsets ?? null };
 
   return (
     <section className={styles.group} aria-label="Precios de la lista">
       {MODES.map(({ mode, label }, index) => {
-        const columns = priceColumns(mode, { ...options, onCalculate: index === 0 ? (group?.onCalculate ?? null) : null });
+        const columns = priceColumns(mode, { ...options, onCalculate: index === 0 ? (priceGroup?.onCalculate ?? null) : null });
         return (
           <table key={mode} className={styles.table}>
             <caption className={styles.caption}>{label}</caption>

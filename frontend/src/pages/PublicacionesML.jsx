@@ -417,8 +417,8 @@ export default function PublicacionesML() {
   // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it.
   const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
   // Productos' "markup con offsets" under the clásica markup: the offsets are about the cost, so only with the margin.
-  // Also for the panels' Precios tab, which opens from the tree too.
-  const listOffsets = useListOffsets(canSeePrices && canSeeMargin);
+  // Also for the panels' Precios tab: in the tree, which has no price columns, only while a panel is open.
+  const listOffsets = useListOffsets(canSeePrices && canSeeMargin && (!agrupado || Boolean(filters.sel || filters.prod)));
   // The products checked for the bulk pricing actions (a publication checks its linked product), as in Productos
   // (S12d): Shift+click checks a range of the rows on show, the title header checks the page, and the selection
   // outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page there.
