@@ -80,10 +80,12 @@ vi.mock('../utils/googleSheetsExport', async (importOriginal) => ({
 // Everything is allowed except the margin, which each test grants on purpose.
 let canSeeMargin = false;
 let canSeeKpis = true;
+let denied = new Set();
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
     tienePermiso: (permiso) => {
+      if (denied.has(permiso)) return false;
       if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
       if (permiso === 'ml_metricas.ver') return canSeeKpis;
       return true;
@@ -106,6 +108,7 @@ const page = async (entry = '/ml-publicaciones') => {
 beforeEach(() => {
   canSeeMargin = false;
   canSeeKpis = true;
+  denied = new Set();
   publicacionesMlAPI.kpis.mockReset();
   publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE });
   seedTiendasOficiales([
@@ -1832,5 +1835,50 @@ describe('painting from the keyboard (S8)', () => {
     expect(await screen.findByText('Capa: Ventas')).toBeInTheDocument();
     await user.keyboard('{F6}');
     await waitFor(() => expect(lastParams()).not.toHaveProperty('equipo_id'));
+  });
+});
+
+describe("Productos' price-list exports (S12c)", () => {
+  const EXPORT_PERMISSIONS = [
+    'productos.exportar_vista_actual',
+    'productos.exportar_rebate',
+    'productos.exportar_web_transferencia',
+    'productos.exportar_clasica',
+    'productos.exportar_pvp',
+  ];
+
+  beforeEach(() => {
+    api.post.mockClear();
+    api.post.mockResolvedValue({ data: 'xlsx' });
+    window.URL.createObjectURL = vi.fn(() => 'blob:x');
+    window.URL.revokeObjectURL = vi.fn();
+  });
+
+  it("exports the linked products of the filtered publications, resolved as a bulk action's set", async () => {
+    await page('/ml-publicaciones?q=router&estado=active');
+    await userEvent.click(screen.getByRole('button', { name: /Listas de precios/ }));
+    expect(await screen.findByText(/productos vinculados a las publicaciones de los filtros actuales/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Exportar Vista Actual' }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/exportar-vista-actual?page=1&page_size=10000', { item_ids: [4101, 4102] }, { responseType: 'blob' }));
+    expect(publicacionesMlAPI.productIds.mock.calls.at(-1)[0]).toMatchObject({ q: 'router', estado: 'active' });
+  });
+
+  it('offers only the kinds the user may export', async () => {
+    denied = new Set(['productos.exportar_rebate', 'productos.exportar_pvp']);
+    await page();
+    await userEvent.click(screen.getByRole('button', { name: /Listas de precios/ }));
+
+    expect(await screen.findByRole('button', { name: 'Clásica' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rebate ML' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'PVP' })).not.toBeInTheDocument();
+  });
+
+  it('has no button without any export permission', async () => {
+    denied = new Set(EXPORT_PERMISSIONS);
+    await page();
+
+    expect(screen.queryByRole('button', { name: /Listas de precios/ })).not.toBeInTheDocument();
   });
 });

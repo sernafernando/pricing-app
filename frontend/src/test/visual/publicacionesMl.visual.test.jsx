@@ -77,13 +77,41 @@ vi.mock('../../services/api', () => ({
     chooseSource: vi.fn(),
     saveDatos: vi.fn(),
   },
-  mlItemOverridesAPI: { get: vi.fn(), save: vi.fn() },
+  mlItemOverridesAPI: { get: vi.fn(), save: vi.fn(), pushToMl: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     pms: vi.fn(() => Promise.resolve({ data: [] })),
+    auditoria: vi.fn(() =>
+      Promise.resolve({
+        data: [
+          {
+            id: 2,
+            item_id: 4101,
+            usuario_nombre: 'Ana Pérez',
+            usuario_email: 'ana.perez@example.com',
+            tipo_accion: 'modificar_precio_clasica',
+            valores_anteriores: { precio_lista_ml: 98500, markup_calculado: 12.5 },
+            valores_nuevos: { precio_lista_ml: 102000.5, markup_calculado: 15.25 },
+            fecha_cambio: '2026-10-20T14:30:00',
+            comentario: 'Ajuste por la lista nueva del proveedor, con un comentario largo para ver cómo corta',
+          },
+          {
+            id: 1,
+            item_id: 4101,
+            usuario_nombre: 'Juan Gómez',
+            usuario_email: 'juan@example.com',
+            tipo_accion: 'ml_vinculo_manual',
+            valores_anteriores: null,
+            valores_nuevos: { item_id: 'MLA1100000001', variation_id: null, producto: { item_id: 4101, codigo: 'ARCHER-AX55' } },
+            fecha_cambio: '2026-10-19T10:00:00',
+            comentario: null,
+          },
+        ],
+      }),
+    ),
   },
   preciosAPI: {
     obtenerProducto: vi.fn(() => new Promise(() => {})),
@@ -834,6 +862,24 @@ describe('Publicaciones ML Producto view (visual)', () => {
     }
 
     for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product panel's Cambios tab lists the app's changes inside the panel`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+        await aside.getByRole('tab', { name: 'Cambios' }).click();
+        await expect.element(aside.getByText('Precio Clásica')).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+        for (const el of panel.querySelectorAll('article, article span, article p, article time')) {
+          expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cambios-${width}-${theme}.png` });
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: the product panel's Precios tab shows the product's prices inside the panel`, async () => {
         preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
         offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
@@ -848,7 +894,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
           expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
           const tabs = [...panel.querySelectorAll('[role="tab"]')];
-          expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Precios']);
+          expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Precios', 'Cambios']);
           for (const tab of tabs) expect(rect(tab).right).toBeLessThanOrEqual(box.right + 0.5);
           expect(panel.textContent).not.toContain('Cifras');
           if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-precios-${width}-${theme}.png` });
@@ -1149,6 +1195,48 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
             expect(rect(button).right, button.getAttribute('aria-label')).toBeLessThanOrEqual(rect(tile).right + 0.5);
           }
         }
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: "Actualizar en ML" shows each field's state inside the panel, in the theme's tones`, async () => {
+        const datos = { titulo: 'Router TP-Link Archer AX55', descripcion: 'Router WiFi 6', fotos: [], atributos: [] };
+        mlItemOverridesAPI.get.mockResolvedValue({
+          data: {
+            item_id: SELECTED,
+            original: datos,
+            override: { titulo: 'Router Archer AX55 WiFi 6', descripcion: null, fotos: null, atributos: null },
+            aplicado: { ...datos, titulo: 'Router Archer AX55 WiFi 6' },
+            editable: true,
+            updated_at: '2026-10-27T15:00:00Z',
+            can_edit: true,
+          },
+        });
+        mlItemOverridesAPI.pushToMl.mockResolvedValue({
+          data: {
+            status: 'sent',
+            message: null,
+            partes: [
+              { campo: 'fotos', estado: 'submitted', motivo: null },
+              { campo: 'atributos', estado: 'rejected', motivo: 'The attribute MODEL_WITH_A_VERY_LONG_IDENTIFIER_FROM_ML cannot be modified for items with sales' },
+              { campo: 'descripcion', estado: 'ambiguous', motivo: 'No se sabe si Mercado Libre aplicó el cambio: se vuelve a consultar.' },
+              { campo: 'titulo', estado: 'omitted', motivo: 'La publicación tiene ventas: Mercado Libre no deja cambiar el título.' },
+            ],
+          },
+        });
+        const screen = await renderWithPanel({ width, height, theme, tab: 'datos' });
+        await screen.getByRole('button', { name: 'Actualizar en ML' }).click();
+        await screen.getByRole('button', { name: 'Confirmar' }).click();
+        await expect.element(screen.getByRole('region', { name: 'Resultado en Mercado Libre' })).toBeVisible();
+        const panel = panelOf();
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        const lines = [...panel.querySelectorAll('li[data-estado]')];
+        expect(lines).toHaveLength(4);
+        for (const line of lines) expect(rect(line).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        const tone = (estado) => getComputedStyle(lines.find((line) => line.dataset.estado === estado)).color;
+        expect(tone('submitted')).toBe(tokenColor('--tone-success-fg'));
+        expect(tone('rejected')).toBe(tokenColor('--tone-danger-fg'));
+        expect(tone('ambiguous')).toBe(tokenColor('--tone-warning-fg'));
+        expect(tone('omitted')).toBe(tokenColor('--cf-text-primary'));
         screen.unmount();
       });
 

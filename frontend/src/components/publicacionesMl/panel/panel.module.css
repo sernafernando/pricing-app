@@ -707,3 +707,32 @@
   align-items: flex-end;
   gap: var(--spacing-xs);
 }
+
+/* "Actualizar en ML": how each field went, one line each (PushToMl). */
+.pushResult {
+  margin-top: var(--spacing-sm);
+}
+
+.pushParts {
+  margin: var(--spacing-xs) 0 0;
+  padding-left: var(--spacing-md);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.pushSubmitted {
+  color: var(--tone-success-fg);
+}
+
+.pushRejected {
+  color: var(--tone-danger-fg);
+}
+
+.pushAmbiguous {
+  color: var(--tone-warning-fg);
+}
+
+.changeKind {
+  margin: 0;
+}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { Download, FileSpreadsheet, FilterX, Keyboard, ShieldAlert } from 'lucide-react';
+import { Download, FileDown, FileSpreadsheet, FilterX, Keyboard, ShieldAlert } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
@@ -27,6 +27,8 @@ import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
+import { resolverParams } from '../components/publicacionesMl/bulkParams';
+import ExportModal from '../components/ExportModal';
 import ShortcutsHelp from '../components/publicacionesMl/ShortcutsHelp';
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
 import Toast from '../components/Toast';
@@ -52,7 +54,12 @@ import {
 import { usePublicacionesMLKpis } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
 import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../utils/mlSellerPanel';
-import { canExportVista, exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
+import {
+  canExportVista,
+  exportPublicacionesCsv,
+  exportPublicacionesSheets,
+  resolverProductosExport,
+} from '../utils/publicacionesMlExport';
 import { isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 import SheetsNotice from '../components/sheets/SheetsNotice';
@@ -159,6 +166,18 @@ function ListSkeleton() {
     </div>
   );
 }
+
+// Productos' price lists (its export modal), each behind its own permission; the button shows with any of them.
+const PRICE_LIST_EXPORT_PERMISSIONS = [
+  'productos.exportar_vista_actual',
+  'productos.exportar_rebate',
+  'productos.exportar_web_transferencia',
+  'productos.exportar_clasica',
+  'productos.exportar_pvp',
+];
+
+const PRICE_LIST_SET =
+  'Se exportan los productos vinculados a las publicaciones de los filtros actuales; las publicaciones sin producto vinculado quedan afuera.';
 
 export default function PublicacionesML() {
   const { tienePermiso } = usePermisos();
@@ -333,6 +352,10 @@ export default function PublicacionesML() {
   };
   const handleExport = () => runExport(exportPublicacionesCsv, setExporting);
   const handleSheetsExport = () => runExport(exportPublicacionesSheets, setExportingSheets);
+  // Productos' price lists over the linked products of the filtered publications, resolved as a bulk action's set.
+  const canExportPriceLists = PRICE_LIST_EXPORT_PERMISSIONS.some((codigo) => tienePermiso(codigo));
+  const [priceListsOpen, setPriceListsOpen] = useState(false);
+  const resolvePriceListProducts = () => resolverProductosExport(resolverParams(rowFilters, canSeeMargin));
 
   const searchRef = useRef(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -563,6 +586,12 @@ export default function PublicacionesML() {
             <button type="button" className="btn-tesla outline sm" onClick={handleSheetsExport} disabled={exportingSheets}>
               <FileSpreadsheet size={14} />
               {exportingSheets ? 'Exportando a Sheets…' : 'Exportar a Sheets'}
+            </button>
+          )}
+          {canExportPriceLists && (
+            <button type="button" className="btn-tesla outline sm" onClick={() => setPriceListsOpen(true)}>
+              <FileDown size={14} />
+              Listas de precios
             </button>
           )}
         </div>
@@ -813,6 +842,15 @@ export default function PublicacionesML() {
         </div>
       )}
       {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+      {priceListsOpen && (
+        <ExportModal
+          onClose={() => setPriceListsOpen(false)}
+          filtrosActivos={{}}
+          showToast={showToast}
+          resolverProductos={resolvePriceListProducts}
+          descripcionConjunto={PRICE_LIST_SET}
+        />
+      )}
       <Toast toast={toast} onClose={hideToast} />
     </div>
   );

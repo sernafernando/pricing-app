@@ -268,3 +268,13 @@
 .tiendaCheckboxLabel input[type="checkbox"] {
   cursor: pointer;
 }
+
+/* What an explicit product set exports (Publicaciones ML), in place of the Productos filter checkbox. */
+.conjunto {
+  padding: 12px 16px;
+  margin: 0 0 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  color: var(--text-primary);
+}

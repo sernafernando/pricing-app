@@ -121,7 +121,8 @@ def _response_bytes(response) -> bytes:
 
 
 def _call_vista_actual(db, **kwargs):
-    return export_mod.exportar_vista_actual(db=db, current_user=_current_user(), **kwargs)
+    with patch("app.services.permisos_service.verificar_permiso", return_value=True):
+        return export_mod.exportar_vista_actual(db=db, current_user=_current_user(), **kwargs)
 
 
 def _call_gremio(db, **kwargs):
@@ -143,7 +144,8 @@ def _call_web_transferencia(db, **kwargs):
     kwargs.setdefault("currency_id", 1)
     kwargs.setdefault("offset_dolar", 0)
     kwargs.setdefault("redondear", True)
-    return export_mod.exportar_web_transferencia(db=db, current_user=_current_user(), **kwargs)
+    with patch("app.services.permisos_service.verificar_permiso", return_value=True):
+        return export_mod.exportar_web_transferencia(db=db, current_user=_current_user(), **kwargs)
 
 
 def _call_clasica(db, **kwargs):

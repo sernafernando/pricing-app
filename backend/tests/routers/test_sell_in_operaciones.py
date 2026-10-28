@@ -120,7 +120,7 @@ def _links(db, compra_id: int) -> list[int]:
 # ── Create with several operations ──────────────────────────────────
 
 
-def test_create_links_every_operation_once_and_keeps_the_first_in_the_column(
+def test_create_links_every_operation_once_and_shows_the_first(
     client, gestor, productos, proveedores, nuevo_pedido, db
 ):
     p1, p2 = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
@@ -130,13 +130,26 @@ def test_create_links_every_operation_once_and_keeps_the_first_in_the_column(
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert _links(db, data["id"]) == sorted([p1.id, p2.id])
-    assert db.get(SellInCompra, data["id"]).pedido_compra_id == p1.id
+    assert db.get(SellInCompra, data["id"]).pedido_compra_id is None
     assert data["pedido_compra_id"] == p1.id
     assert data["pedido_compra_ids"] == sorted([p1.id, p2.id])
     detalle = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
     assert detalle["pedido_compra_ids"] == sorted([p1.id, p2.id])
     fila = client.get(BASE, headers=gestor).json()["items"][0]
     assert fila["pedido_compra_ids"] == sorted([p1.id, p2.id])
+
+
+def test_the_single_operation_shown_is_the_first_one_sent_not_the_lowest_id(
+    client, gestor, productos, proveedores, nuevo_pedido, db
+):
+    p1, p2 = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
+    assert p1.id < p2.id
+
+    data = client.post(BASE, json=_body(pedido_compra_ids=[p2.id, p1.id]), headers=gestor).json()
+
+    assert data["pedido_compra_id"] == p2.id
+    assert client.get(f"{BASE}/{data['id']}", headers=gestor).json()["pedido_compra_id"] == p2.id
+    assert data["pedido_compra_ids"] == sorted([p1.id, p2.id])
 
 
 def test_create_takes_the_operations_supplier_when_none_is_sent(
@@ -158,7 +171,7 @@ def test_legacy_single_operation_is_a_one_element_list(client, gestor, productos
     assert _links(db, data["id"]) == [p1.id]
 
 
-def test_legacy_id_inside_the_list_is_accepted_and_goes_to_the_column(
+def test_legacy_id_inside_the_list_is_accepted_and_is_the_first_operation(
     client, gestor, productos, proveedores, nuevo_pedido, db
 ):
     p1, p2 = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
@@ -167,7 +180,9 @@ def test_legacy_id_inside_the_list_is_accepted_and_goes_to_the_column(
 
     assert resp.status_code == 201, resp.text
     assert resp.json()["pedido_compra_id"] == p2.id
+    assert client.get(f"{BASE}/{resp.json()['id']}", headers=gestor).json()["pedido_compra_id"] == p2.id
     assert _links(db, resp.json()["id"]) == sorted([p1.id, p2.id])
+    assert db.get(SellInCompra, resp.json()["id"]).pedido_compra_id is None
 
 
 def test_one_operation_may_feed_several_sell_ins(client, gestor, productos, proveedores, nuevo_pedido, db):
@@ -214,14 +229,17 @@ def test_create_accepts_the_operations_own_supplier(client, gestor, productos, p
     assert resp.json()["proveedor_id"] == proveedores[0].id
 
 
-def test_an_operation_only_in_the_column_still_shows(client, gestor, productos, proveedores, nuevo_pedido, db):
-    """Rows written before the link table's backfill, or straight to the column, keep their operation."""
+def test_an_operation_only_in_the_legacy_column_is_not_read(client, gestor, productos, proveedores, nuevo_pedido, db):
+    """The link table is the only source (T3b-4): the column that revision `20261102_sell_in_compra_pedidos`
+    backfilled into it is no longer read, and the release that drops it first recreates any link it lacks."""
     p1 = nuevo_pedido(proveedores[0])
     data = client.post(BASE, json=_body(pedido_compra_ids=[p1.id]), headers=gestor).json()
     db.query(SellInCompraPedido).filter(SellInCompraPedido.compra_id == data["id"]).delete()
+    db.get(SellInCompra, data["id"]).pedido_compra_id = p1.id
     db.flush()
 
-    assert client.get(f"{BASE}/{data['id']}", headers=gestor).json()["pedido_compra_ids"] == [p1.id]
+    detalle = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
+    assert (detalle["pedido_compra_id"], detalle["pedido_compra_ids"]) == (None, [])
 
 
 def test_too_many_operations_is_refused_by_the_schema(client, gestor, productos, db):

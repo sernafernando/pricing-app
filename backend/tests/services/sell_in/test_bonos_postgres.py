@@ -79,7 +79,8 @@ class TestGeneration:
                 ),
                 {"b": bono},
             ).one()
-        assert tuple(row) == ("bono_marca", "por_unidad", pedido, 7, "compra", pedido)
+        # The legacy column is no longer written: the link row is the operation (T3b-4).
+        assert tuple(row) == ("bono_marca", "por_unidad", None, 7, "compra", pedido)
 
     def test_operations_outside_the_range_cancelled_or_rejected_get_nothing(self, engine: Engine) -> None:
         bono = b.bono(engine, desde=D(2026, 10, 1), hasta=D(2026, 10, 31))

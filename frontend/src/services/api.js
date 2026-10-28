@@ -246,6 +246,8 @@ export const authAPI = {
 
 export const productosAPI = {
   listar: (params) => api.get('/productos', { params }),
+  // The product's changes made in the app, newest first (the Productos "Historial de Cambios" log).
+  auditoria: (itemId) => api.get(`/productos/${itemId}/auditoria`),
   listarTienda: (params) => api.get('/productos/tienda', { params }),
   stats: (params) => api.get('/stats', { params }),
   statsDinamicos: (params) => api.get('/stats-dinamicos', { params }),
@@ -895,11 +897,13 @@ export const productosPropiosAPI = {
   saveDatos: (itemId, body) => api.put(`/productos-propios/${itemId}/datos`, body),
 };
 
-// A publication's data overridden locally (never written to ML): `{ original, override, aplicado, editable, can_edit }`.
+// A publication's data overridden locally (saving never writes ML; only pushToMl does): `{ original, override, aplicado, editable, can_edit }`.
 export const mlItemOverridesAPI = {
   get: (mla) => api.get(`/ml-item-overrides/${mla}`),
   // `{ titulo, descripcion, fotos: [id], atributos: [{ id, value_name }] }`: null follows ML; every field null drops it.
   save: (mla, body) => api.put(`/ml-item-overrides/${mla}`, body),
+  // Send the override to ML (only what differs and ML lets change): `{ status, message, partes: [{ campo, estado, motivo }] }`.
+  pushToMl: (mla) => api.post(`/ml-item-overrides/${mla}/ml`),
 };
 
 // =============================================================================

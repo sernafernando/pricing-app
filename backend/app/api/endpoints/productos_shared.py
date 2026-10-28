@@ -289,6 +289,55 @@ class ExportRebateRequest(BaseModel):
             "Distinto de 'tienda_oficial' (filtro a nivel producto)."
         ),
     )
+    # The explicit product set Publicaciones ML exports (`ExportItemIdsBody`); `filtros` alongside is a 422.
+    item_ids: Optional[List[int]] = Field(default=None, min_length=1)
+
+    @field_validator("item_ids")
+    @classmethod
+    def _distinct_within_cap(cls, item_ids: Optional[List[int]]) -> Optional[List[int]]:
+        return distinct_export_item_ids(item_ids)
+
+    @model_validator(mode="after")
+    def _one_product_set(self):
+        if self.item_ids is not None and self.filtros:
+            raise ValueError("item_ids y filtros son excluyentes: mandá uno solo")
+        return self
+
+
+def distinct_item_ids(item_ids: Optional[List[int]], uso: str) -> Optional[List[int]]:
+    """An explicit product set: duplicates collapse (first-seen order), then the cap (Publicaciones ML's resolver's
+    own), its error naming what the set is for (`uso`)."""
+    if item_ids is None:
+        return None
+    unique = list(dict.fromkeys(item_ids))
+    if len(unique) > MAX_EXPLICIT_PRODUCT_IDS:
+        raise ValueError(f"{len(unique)} productos superan el máximo de {MAX_EXPLICIT_PRODUCT_IDS} por {uso}")
+    return unique
+
+
+def distinct_export_item_ids(item_ids: Optional[List[int]]) -> Optional[List[int]]:
+    """An export's explicit product set (`distinct_item_ids`)."""
+    return distinct_item_ids(item_ids, "exportación")
+
+
+class ExportItemIdsBody(BaseModel):
+    """The optional body of the GET exports, sent as POST: export exactly these products (Publicaciones ML resolves
+    them from its own filters with `/ml-publications/view/product-ids`). They combine with the query filters. An empty
+    list is refused: it must never read as "all"."""
+
+    item_ids: List[int] = Field(min_length=1)
+
+    @field_validator("item_ids")
+    @classmethod
+    def _distinct_within_cap(cls, item_ids: List[int]) -> List[int]:
+        return distinct_export_item_ids(item_ids)
+
+
+def solo_item_ids(query: Query, item_ids: Optional[List[int]]) -> Query:
+    """Narrows an export's product query to its explicit set, when it has one."""
+    from app.models.producto import ProductoERP
+
+    return query if item_ids is None else query.filter(ProductoERP.item_id.in_(item_ids))
 
 
 class ExplicitItemIdsRequest(BaseModel):
@@ -303,14 +352,7 @@ class ExplicitItemIdsRequest(BaseModel):
     @field_validator("item_ids")
     @classmethod
     def _distinct_within_cap(cls, item_ids: Optional[List[int]]) -> Optional[List[int]]:
-        if item_ids is None:
-            return None
-        unique = list(dict.fromkeys(item_ids))
-        if len(unique) > MAX_EXPLICIT_PRODUCT_IDS:
-            raise ValueError(
-                f"{len(unique)} productos superan el máximo de {MAX_EXPLICIT_PRODUCT_IDS} por acción masiva"
-            )
-        return unique
+        return distinct_item_ids(item_ids, "acción masiva")
 
     @model_validator(mode="after")
     def _one_write_set(self):

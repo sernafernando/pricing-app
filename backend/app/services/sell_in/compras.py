@@ -295,13 +295,16 @@ def _validar_referencias(db: Session, data: SellInCompraCreate) -> None:
 
 def ids_pedidos(data: SellInCompraCreate) -> list[int]:
     """The purchase's operations: `pedido_compra_ids` deduplicated in order, the legacy single
-    `pedido_compra_id` read as a one-element list. When both come, the single one must be in the list."""
+    `pedido_compra_id` read as a one-element list. When both come, the single one must be in the list,
+    and it goes first: the first linked operation is what the response's `pedido_compra_id` shows."""
     ids = list(dict.fromkeys(data.pedido_compra_ids))
     legado = data.pedido_compra_id
     if legado is not None and not ids:
         return [legado]
     if legado is not None and legado not in ids:
         raise SellInError(f"El pedido de compra {legado} no figura entre las operaciones indicadas")
+    if legado is not None:
+        return [legado] + [i for i in ids if i != legado]
     return ids
 
 
@@ -389,11 +392,10 @@ def _guardar(
 ) -> Tuple[SellInCompra, List[SellInCompraItem]]:
     """Writes the purchase, its operation links, lines and audit rows (flushed, not committed): every
     `IntegrityError` it raises is about the purchase's own references. Without a supplier of its own the
-    purchase takes the operations' one; the legacy `pedido_compra_id` column keeps the single id sent,
-    else the first operation (until the column is dropped)."""
+    purchase takes the operations' one. The operations live in the link table only; the legacy
+    `pedido_compra_id` column is no longer written (it is dropped by a later release)."""
     compra = SellInCompra(
         proveedor_id=data.proveedor_id if data.proveedor_id is not None else (ops.proveedor_id if ops else None),
-        pedido_compra_id=data.pedido_compra_id if data.pedido_compra_id is not None else (ids[0] if ids else None),
         fecha_compra=data.fecha_compra,
         fecha_ingreso=data.fecha_ingreso,
         cuenta_desde=data.cuenta_desde,
@@ -536,16 +538,13 @@ def contiene(columna, q: str):
 def _texto(db: Session, q: str):
     """Case-insensitive substring over supplier name, the lines' product code or description,
     the purchase's own reference text (`descripcion`) and its purchase orders' numbers, through
-    `SellInCompraPedido` or the `pedido_compra_id` column (a writer that skips the link sync still matches)."""
+    `SellInCompraPedido`."""
     return or_(
         contiene(SellInCompra.descripcion, q),
         db.query(Proveedor).filter(Proveedor.id == SellInCompra.proveedor_id, contiene(Proveedor.nombre, q)).exists(),
         db.query(SellInCompraPedido)
         .join(PedidoCompra, PedidoCompra.id == SellInCompraPedido.pedido_compra_id)
         .filter(SellInCompraPedido.compra_id == SellInCompra.id, contiene(PedidoCompra.numero, q))
-        .exists(),
-        db.query(PedidoCompra)
-        .filter(PedidoCompra.id == SellInCompra.pedido_compra_id, contiene(PedidoCompra.numero, q))
         .exists(),
         _items_que_cumplen(db, or_(contiene(ProductoERP.codigo, q), contiene(ProductoERP.descripcion, q))),
     )
@@ -676,12 +675,14 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
         else {}
     )
 
-    # The column too, so a writer that skips the link sync still shows its operation.
-    pedidos: dict[int, set[int]] = {c.id: {c.pedido_compra_id} - {None} for c in compras}
-    for compra_id, pedido_id in db.query(SellInCompraPedido.compra_id, SellInCompraPedido.pedido_compra_id).filter(
-        SellInCompraPedido.compra_id.in_(ids)
+    # In link order: the first linked operation is the response's single `pedido_compra_id`.
+    pedidos: dict[int, list[int]] = {c.id: [] for c in compras}
+    for compra_id, pedido_id in (
+        db.query(SellInCompraPedido.compra_id, SellInCompraPedido.pedido_compra_id)
+        .filter(SellInCompraPedido.compra_id.in_(ids))
+        .order_by(SellInCompraPedido.id)
     ):
-        pedidos[compra_id].add(pedido_id)
+        pedidos[compra_id].append(pedido_id)
 
     por_compra: dict[int, list[dict]] = {c.id: [] for c in compras}
     for item in items:
@@ -717,6 +718,7 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
                 **{col: getattr(compra, col) for col in _COLUMNAS_COMPRA},
                 "aplica": cabeceras[compra.id][0],
                 "proveedor_nombre": cabeceras[compra.id][1],
+                "pedido_compra_id": pedidos[compra.id][0] if pedidos[compra.id] else None,
                 "pedido_compra_ids": sorted(pedidos[compra.id]),
                 "unidades_total": total,
                 "unidades_consumidas": usadas,
@@ -730,7 +732,6 @@ def serializar(db: Session, compras: list[SellInCompra]) -> list[dict]:
 _COLUMNAS_COMPRA = (
     "id",
     "proveedor_id",
-    "pedido_compra_id",
     "fecha_compra",
     "fecha_ingreso",
     "cuenta_desde",
