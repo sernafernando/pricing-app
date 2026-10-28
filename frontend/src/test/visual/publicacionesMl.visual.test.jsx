@@ -820,6 +820,24 @@ describe('Publicaciones ML Producto view (visual)', () => {
         expect(overflowingCells(scroller)).toEqual([]);
         screen.unmount();
       });
+
+      it(`${width}x${height} ${theme}: a product row fills its code, brand, cost and ERP stock inside their cells`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('button', { name: 'Columnas' }).click();
+        for (const name of ['Código', 'Marca', 'Costo']) await screen.getByRole('checkbox', { name }).click();
+        await screen.getByRole('button', { name: 'Columnas' }).click();
+        const row = rowWith(scrollerOf(), 'Router Archer AX55');
+        for (const text of ['TP-LINK', 'USD 45,50', '12']) {
+          expect([...row.querySelectorAll('td')].some((cell) => cell.textContent.trim() === text), text).toBe(true);
+        }
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          [...row.querySelectorAll('td')].find((cell) => cell.textContent.trim() === 'USD 45,50').scrollIntoView({ inline: 'center' });
+          await frame();
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-rows-fields-${width}-${theme}.png` });
+        }
+        screen.unmount();
+      });
     }
 
     for (const { width, height } of VIEWPORTS) {

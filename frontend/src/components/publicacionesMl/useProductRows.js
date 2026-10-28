@@ -22,7 +22,10 @@ const ROOT = '';
 // `sinMlaCount`: Productos' Sin MLA card; null when unknown (a publication filter is on, or nothing loaded yet).
 const NO_SUMMARY = { total: 0, mlaCount: 0, sinMlaCount: null };
 
-/** A row of `/view/products` as a leaf node of the tree. `metrics` is absent without `ml_metricas.ver`. */
+/**
+ * A row of `/view/products` as a leaf node of the tree. `metrics` is absent without `ml_metricas.ver`, `costo` without
+ * `ml_metricas.ver_ganancia`.
+ */
 export function readProduct(raw) {
   return {
     kind: 'producto',
@@ -36,6 +39,7 @@ export function readProduct(raw) {
     codigo: raw.codigo ?? null,
     marca: raw.marca ?? null,
     stock: raw.stock ?? null,
+    costo: raw.costo ?? null, // the product's cost, only with ml_metricas.ver_ganancia
     metrics: raw.metrics ?? null,
     colorMarcado: raw.color_marcado ?? null,
     colorHintGlobal: raw.color_hint_global ?? null,
