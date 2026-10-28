@@ -397,7 +397,8 @@ _BUENOS_AIRES = ZoneInfo("America/Argentina/Buenos_Aires")
 
 def _audit_moment(field: str, raw: Optional[str], *, end_of_day: bool) -> Optional[datetime]:
     """Productos' audit dates: `YYYY-MM-DD[ HH:MM[:SS]]` in Buenos Aires wall time (a bare date is the whole day:
-    from 00:00, or until 23:59:59), as naive UTC like `auditoria.fecha`. Anything else is an error, never "today"."""
+    from 00:00, or until 23:59:59; an until without seconds is the whole minute), as naive UTC like
+    `auditoria.fecha`. Anything else is an error, never "today"."""
     text_ = (raw or "").strip()
     if not text_:
         return None
@@ -405,6 +406,8 @@ def _audit_moment(field: str, raw: Optional[str], *, end_of_day: bool) -> Option
     for fmt in _AUDIT_FORMATS:
         try:
             moment = datetime.strptime(text_, fmt)
+            if end_of_day and "%S" not in fmt:
+                moment = moment.replace(second=59)
             break
         except ValueError:
             continue
