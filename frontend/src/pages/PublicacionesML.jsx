@@ -93,6 +93,10 @@ import styles from './PublicacionesML.module.css';
 // Space the table leaves for what is above and below it (header, filters, pager).
 const TABLE_OFFSET = '380px';
 
+// Productos' search operators, also understood by the backend's `normalize_q`.
+const SEARCH_OPERATORS_HELP =
+  'Operadores: codigo:ABC123 o ean:7790001234567 (código exacto), marca:Samsung (marca exacta), *123 (termina en)';
+
 const STATUS_OPTIONS = ['active', 'paused', 'closed', 'under_review', 'inactive', 'gone'];
 const STATUS_LABELS = {
   active: 'Activas',
@@ -614,7 +618,7 @@ export default function PublicacionesML() {
 
       <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
-          <div className={styles.searchSlot}>
+          <div className={styles.searchSlot} title={SEARCH_OPERATORS_HELP}>
             <SearchInput
               ref={searchRef}
               value={filters.q}
