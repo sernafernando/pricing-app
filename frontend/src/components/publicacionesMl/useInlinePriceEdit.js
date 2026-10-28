@@ -12,8 +12,9 @@ import { WEB_TRANSF_DEFAULT, storedRebate, rebateWrite, webTransfWrite } from '.
 const TOGGLES = {
   rebate: (product, flag) => {
     const on = !flag;
-    const { write } = rebateWrite(product, { participa: on, porcentaje: String(storedRebate(product)) });
-    return { write, saved: on ? 'Rebate activado' : 'Rebate desactivado', fallback: 'No se pudo cambiar el rebate.' };
+    // A stored % out of 0-100 comes back as `error`, as in the editor.
+    const built = rebateWrite(product, { participa: on, porcentaje: String(storedRebate(product)) });
+    return { ...built, saved: on ? 'Rebate activado' : 'Rebate desactivado', fallback: 'No se pudo cambiar el rebate.' };
   },
   web: (product, flag) => {
     const on = !flag;
@@ -105,6 +106,10 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
       const last = written.current.get(key);
       const flag = last?.over === product ? last.on : Boolean(product[FLAGS[kind]]);
       const built = TOGGLES[kind](product, flag);
+      if (built.error) {
+        setMessage({ tone: 'error', text: built.error });
+        return false;
+      }
       const done = await run({ ...built, write: () => built.write(product.item_id) });
       if (done) written.current.set(key, { over: product, on: !flag });
       return done;

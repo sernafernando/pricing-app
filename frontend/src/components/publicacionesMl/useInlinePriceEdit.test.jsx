@@ -163,6 +163,18 @@ describe('useInlinePriceEdit', () => {
       expect(result.current.message.text).toBe('Web transferencia activada.');
     });
 
+    it("r on a product whose stored rebate % is out of 0-100 says so, as the editor does, and writes nothing", async () => {
+      const { result, onWritten } = setup();
+      let done;
+      await act(async () => {
+        done = await result.current.toggle('rebate', { item_id: 7, participa_rebate: false, porcentaje_rebate: 150 });
+      });
+      expect(done).toBe(false);
+      expect(result.current.message).toEqual({ tone: 'error', text: 'El porcentaje de rebate debe ser un número entre 0 y 100.' });
+      expect(preciosAPI.setRebate).not.toHaveBeenCalled();
+      expect(onWritten).not.toHaveBeenCalled();
+    });
+
     it('o flips "fuera de tarjetas"', async () => {
       const { result } = setup();
       await act(async () => {
