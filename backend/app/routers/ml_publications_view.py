@@ -61,7 +61,6 @@ from app.api.deps import get_current_user, require_algun_permiso, require_permis
 from app.core.constants import PERMISOS_PUBLICACIONES_ML
 from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
-from app.models.publicacion_ml import PublicacionML
 from app.models.usuario import Usuario
 from app.schemas.costo_ppp import PppPayload
 from app.schemas.sell_in_out_producto import SellInOutProducto
@@ -745,19 +744,15 @@ def _attach_colors(
         raise
 
 
-def _attach_pxq(auth_db: Session, rows: list[dict[str, Any]]) -> None:
-    """Productos' PxQ quick view on each product row, over every publication of the product (`publicaciones_ml`, as
-    Productos reads them): one tier read for the page. FAIL-OPEN like Productos: the list answers without the badge
-    when mlwebhook does not."""
+def _attach_pxq(db: Session, rows: list[dict[str, Any]]) -> None:
+    """Productos' PxQ quick view on each product row, over every publication linked to the product
+    (`products.mlas_by_product`, whatever the filter shows): one tier read for the page. FAIL-OPEN like Productos: the
+    list answers without the badge when mlwebhook does not."""
     item_ids = {row["product_item_id"] for row in rows if row["product_item_id"] is not None}
     if not item_ids:
         return
-    mlas: dict[int, list[str]] = {}
     try:
-        for item_id, mla in auth_db.query(PublicacionML.item_id, PublicacionML.mla).filter(
-            PublicacionML.item_id.in_(item_ids)
-        ):
-            mlas.setdefault(item_id, []).append(mla)
+        mlas = products.mlas_by_product(db, sorted(item_ids))
     except DBAPIError as exc:  # over `statement_timeout`: the list's own controlled 503, as `_attach_colors`
         if (slow := _database_error(exc)) is not None:
             raise slow from exc
@@ -1451,7 +1446,7 @@ def get_products(
         for row in page.rows
     ]
     _attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])
-    _attach_pxq(auth_db, rows)
+    _attach_pxq(db, rows)
     applied = products.applied_sort(f, sort_name, sort_dir == "desc", ask.then)
     applied_keys = ((applied[0], applied[1]), *applied[2])
     return {
