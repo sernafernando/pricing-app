@@ -53,7 +53,8 @@ currency). It is allocated the way sell out allocates a campaign's cap, by the s
 cap, the units needed to cover the money left, its amount capped at it), later lines get nothing, and an operation
 left with nothing has no purchase. A capped bonus's operations depend on each other, so any call that looks at
 one of them looks at all of them (`_pares`) and the allocation is rebuilt from scratch: an edit, a cancelled
-operation or a credit note frees the cap for the later ones. When an operation of a capped bonus FAILS, the
+operation or a credit note frees the cap for the later ones. So does a deleted operation: voiding its orphan
+purchase recomputes the bonus's other operations. When an operation of a capped bonus FAILS, the
 bonus's later operations are left as they were too (reported in `fallidas`): their share is unknown.
 
 Writes, set against what is stored:
@@ -198,16 +199,23 @@ def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
     )
     pares.update((int(bid), int(pid)) for bid, pid in generadas)
     # A capped bonus's operations share its cap: looking at one of them means looking at all of them.
-    con_tope = {
-        int(bid)
-        for (bid,) in db.query(SellInBonoMarca.id).filter(
-            SellInBonoMarca.id.in_({bid for bid, _ in pares} - bono_ids or [-1]),
-            or_(SellInBonoMarca.tope_unidades.isnot(None), SellInBonoMarca.tope_monto.isnot(None)),
-        )
-    }
+    con_tope = _con_tope(db, {bid for bid, _ in pares} - bono_ids)
     if con_tope:
         return _pares(db, bono_ids | con_tope, pedido_ids)
     return pares
+
+
+def _con_tope(db: Session, bono_ids: Set[int]) -> Set[int]:
+    """The given bonuses that carry a cap (units or money)."""
+    if not bono_ids:
+        return set()
+    return {
+        int(bid)
+        for (bid,) in db.query(SellInBonoMarca.id).filter(
+            SellInBonoMarca.id.in_(bono_ids),
+            or_(SellInBonoMarca.tope_unidades.isnot(None), SellInBonoMarca.tope_monto.isnot(None)),
+        )
+    }
 
 
 def _huerfanas(db: Session) -> List[SellInCompra]:
@@ -421,8 +429,11 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
     bono_set = {int(i) for i in bono_ids}
     pedido_set = {int(i) for i in pedido_ids}
     result = ReconcileResult()
-    pares = _pares(db, bono_set, pedido_set)
     huerfanas = _huerfanas(db)
+    # Voiding an orphan of a capped bonus (its operation was deleted) frees part of the cap: the bonus's other
+    # operations are recomputed with it, or they would keep their old capped share.
+    bono_set |= _con_tope(db, {c.bono_id for c in huerfanas})
+    pares = _pares(db, bono_set, pedido_set)
     if not pares and not huerfanas:
         return result
     bloqueados = {bid for bid, _ in pares} | {c.bono_id for c in huerfanas}
