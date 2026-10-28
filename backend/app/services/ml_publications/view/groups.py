@@ -512,9 +512,9 @@ def _family_members(
 def _path_product(tree: Tree, path: list[str], page: GroupsPage) -> Optional[int]:
     """The product a family page hangs from (its path's product key), so its nodes read that product's units;
     None above the product level and under "Sin producto"."""
-    if page.level != KIND_FAMILY:
+    if page.level != KIND_FAMILY or KIND_PRODUCT not in tree.levels:
         return None
-    key = path[len(tree.levels) - 1]
+    key = path[tree.levels.index(KIND_PRODUCT)]  # a family page's path names every tree level (`level_of`)
     return int(key) if key.isdigit() else None
 
 
