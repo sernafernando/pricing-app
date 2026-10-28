@@ -18,7 +18,7 @@ const ROWS = Array.from({ length: 15 }, (_, index) => ({
 }));
 const COLUMNS = [{ key: 'titulo', label: 'Título', render: (row) => row.titulo }];
 
-function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleAutoRecalc, showToast = () => {}, rows = ROWS }) {
+function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleAutoRecalc, onShowInfo, showToast = () => {}, rows = ROWS }) {
   const searchRef = useRef(null);
   const [help, setHelp] = useState(false);
   usePublicacionesMLKeyboard({
@@ -33,6 +33,7 @@ function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onExten
     onBulkAction,
     onOpenFilter,
     onToggleAutoRecalc,
+    onShowInfo,
     onToggleHelp: () => setHelp((open) => !open),
     showToast,
   });
@@ -327,6 +328,47 @@ describe('colors (S8): 0-7 paint the focused row, F6/F7 change the layer, as in 
   });
 });
 
+describe("Ctrl+I: the focused row's product information, as in Productos", () => {
+  it('opens it for the focused row (Ctrl or Cmd, the key not the character), taken from the browser', async () => {
+    const onShowInfo = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onShowInfo={onShowInfo} />);
+    await user.click(row(2));
+    expect(fireEvent.keyDown(document.body, { key: 'i', code: 'KeyI', ctrlKey: true })).toBe(false);
+    expect(onShowInfo).toHaveBeenLastCalledWith(ROWS[1].item_id);
+    fireEvent.keyDown(document.body, { key: 'I', code: 'KeyI', metaKey: true });
+    expect(onShowInfo).toHaveBeenCalledTimes(2);
+  });
+
+  it('with no row focused it says how, and it does nothing while typing', async () => {
+    const onShowInfo = vi.fn();
+    const showToast = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onShowInfo={onShowInfo} showToast={showToast} />);
+    fireEvent.keyDown(document.body, { key: 'i', code: 'KeyI', ctrlKey: true });
+    expect(onShowInfo).not.toHaveBeenCalled();
+    expect(showToast).toHaveBeenCalledWith(expect.stringContaining('Posicionate'), 'error');
+    await user.click(screen.getByRole('textbox', { name: 'Buscar' }));
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Buscar' }), { key: 'i', code: 'KeyI', ctrlKey: true });
+    expect(onShowInfo).not.toHaveBeenCalled();
+  });
+
+  it("Productos' info modal (`.modal-info-producto`) owns the keyboard while open: the arrows do not move the list", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Harness />
+        <div className="modal-overlay">
+          <div className="modal-info-producto" />
+        </div>
+      </>,
+    );
+    await user.click(row(1));
+    fireEvent.keyDown(row(1), { key: 'ArrowDown' });
+    expect(row(1)).toHaveFocus();
+  });
+});
+
 describe("Productos' bulk and filter shortcuts (S9b)", () => {
   it('Ctrl+K opens Calcular Web Transf., Ctrl+Shift+P Calcular PVP, taken from the browser (Caps Lock or not)', () => {
     const onBulkAction = vi.fn();
@@ -348,6 +390,19 @@ describe("Productos' bulk and filter shortcuts (S9b)", () => {
     expect(onOpenFilter).toHaveBeenLastCalledWith('subcategorias');
     fireEvent.keyDown(document.body, { key: 'p', code: 'KeyP', altKey: true });
     expect(onOpenFilter).toHaveBeenLastCalledWith('pms');
+  });
+
+  it("Alt+A opens the Auditoría filters and Alt+C / Alt+F the presence ones (Productos' Avanzados), by the key", () => {
+    const onOpenFilter = vi.fn();
+    render(<Harness onOpenFilter={onOpenFilter} />);
+    expect(fireEvent.keyDown(document.body, { key: 'å', code: 'KeyA', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('auditoria');
+    expect(fireEvent.keyDown(document.body, { key: 'ç', code: 'KeyC', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('presencia');
+    // Alt+F is the browsers' menu key: taken from them too.
+    expect(fireEvent.keyDown(document.body, { key: 'ƒ', code: 'KeyF', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('presencia');
+    expect(onOpenFilter).toHaveBeenCalledTimes(3);
   });
 
   it("Alt+V steps through the price columns' modes (the key, not the character a Mac types), not while typing", async () => {

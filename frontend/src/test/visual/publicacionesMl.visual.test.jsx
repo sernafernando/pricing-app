@@ -42,6 +42,8 @@ import {
   groupsResponse,
   makeNode,
   productsResponse,
+  COST_LINES,
+  PRODUCT_ROWS,
 } from './publicacionesMlFixtures';
 
 // The markup column, its filters and the sub-rows' cost are for `ver_ganancia` only.
@@ -754,11 +756,11 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
   }
 });
 
-const renderProducts = async ({ width, height, theme, entry = '/ml-publicaciones?vista=producto' }) => {
+const renderProducts = async ({ width, height, theme, rows, entry = '/ml-publicaciones?vista=producto' }) => {
   canSeeMargin = true;
   publicacionesMlAPI.items.mockResolvedValue({ data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 130 } });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
-  publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 1234, sin_mla_count: 12345 }) });
+  publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(rows, { total: 1234, sin_mla_count: 12345 }) });
   publicacionesMlAPI.stats.mockResolvedValueOnce({
     data: {
       stats: {
@@ -862,6 +864,27 @@ describe('Publicaciones ML Producto view (visual)', () => {
           [...row.querySelectorAll('td')].find((cell) => cell.textContent.trim() === 'USD 45,50').scrollIntoView({ inline: 'center' });
           await frame();
           await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-rows-fields-${width}-${theme}.png` });
+        }
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the PPP and sell in lines stay inside the cost cell of a product row`, async () => {
+        const rows = [{ ...PRODUCT_ROWS[0], ...COST_LINES }, ...PRODUCT_ROWS.slice(1)];
+        const screen = await renderProducts({ width, height, theme, rows });
+        await screen.getByRole('button', { name: 'Columnas' }).click();
+        await screen.getByRole('checkbox', { name: 'Costo' }).click();
+        await screen.getByRole('button', { name: 'Columnas' }).click();
+        const row = rowWith(scrollerOf(), 'Router Archer AX55');
+        const cell = [...row.querySelectorAll('td')].find((td) => td.textContent.includes('USD 45,50'));
+        expect(cell.textContent).toContain('ppp: USD $41.20');
+        expect(cell.textContent).toContain('c/ sell in: ARS $63000.00');
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          cell.scrollIntoView({ inline: 'center' });
+          await frame();
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-rows-cost-lines-${width}-${theme}.png` });
         }
         screen.unmount();
       });

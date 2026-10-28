@@ -1,19 +1,44 @@
-import { describe, expect, it, vi } from 'vitest';
+/**
+ * The `?` help of Publicaciones ML lists every shortcut the screen answers (usePublicacionesMLKeyboard).
+ */
 import { render, screen, within } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
 import ShortcutsHelp from './ShortcutsHelp';
 
+const entry = (what) => screen.getByText(what).closest('div');
+const keysOf = (what) => Array.from(entry(what).querySelectorAll('kbd')).map((kbd) => kbd.textContent);
+
 describe('ShortcutsHelp', () => {
-  it('lists the search operators, as Productos does', () => {
-    render(<ShortcutsHelp onClose={vi.fn()} />);
-    const section = screen.getByRole('region', { name: 'Operadores de búsqueda' });
-    const operators = within(section).getAllByRole('term').map((term) => term.textContent);
-    expect(operators).toEqual(['MLA123456', 'ean:123456', 'codigo:ABC123', 'marca:Samsung', 'desc:texto o descripcion:texto', '*123', '123*', 'texto']);
-    expect(within(section).getByText('Búsqueda en la descripción del producto (contiene, sin guiones ni espacios)')).toBeInTheDocument();
-    expect(within(section).getByText('Comienza con "123" (título, descripción, marca o código)')).toBeInTheDocument();
+  it("lists Productos' Alt+A (Auditoría) and Alt+C / Alt+F (Presencia) filter keys", () => {
+    render(<ShortcutsHelp onClose={() => {}} />);
+    expect(keysOf('Abrir los filtros de Auditoría')).toEqual(['Alt+A']);
+    expect(keysOf('Abrir los filtros de Presencia (los Avanzados de Productos)')).toEqual(['Alt+C', 'Alt+F']);
   });
 
-  it('keeps the keyboard shortcuts', () => {
-    render(<ShortcutsHelp onClose={vi.fn()} />);
-    expect(screen.getByText('Mostrar u ocultar esta ayuda')).toBeInTheDocument();
+  it("lists Productos' Ctrl+I, the focused row's product information", () => {
+    render(<ShortcutsHelp onClose={() => {}} />);
+    expect(keysOf('Ver la información del producto de la fila')).toEqual(['Ctrl+I']);
+  });
+
+  it('lists the search operators, as Productos does', () => {
+    render(<ShortcutsHelp onClose={() => {}} />);
+    const section = screen.getByRole('region', { name: 'Operadores de búsqueda' });
+    const operators = within(section)
+      .getAllByRole('term')
+      .map((term) => term.textContent);
+    expect(operators).toEqual([
+      'MLA123456',
+      'ean:123456',
+      'codigo:ABC123',
+      'marca:Samsung',
+      'desc:texto o descripcion:texto',
+      '*123',
+      '123*',
+      'texto',
+    ]);
+    expect(
+      within(section).getByText('Búsqueda en la descripción del producto (contiene, sin guiones ni espacios)'),
+    ).toBeInTheDocument();
+    expect(within(section).getByText('Comienza con "123" (título, descripción, marca o código)')).toBeInTheDocument();
   });
 });

@@ -408,6 +408,9 @@ export const preciosAPI = {
   setRapido: (params) => api.post('/precios/set-rapido', null, { params }),
   // { item_id, tipo_cuota, precio, lista_tipo }
   setCuota: (params) => api.post('/precios/set-cuota', null, { params }),
+  // Productos' "recalcular cuotas desde clásica": the list's 3/6/9/12 instalments from its clásica price.
+  recalcularCuotas: (itemId, listaTipo) =>
+    api.post('/precios/recalcular-cuotas', null, { params: { item_id: itemId, lista_tipo: listaTipo } }),
   // The Productos toggles (useProductosToggles), same payloads.
   // { participa_rebate, porcentaje_rebate } -- the backend recomputes markup_rebate.
   setRebate: (itemId, data) => api.patch(`/productos/${itemId}/rebate`, data),

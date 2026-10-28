@@ -56,7 +56,8 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * `promos.ver`) and the wholesale prices of each (`ProductPxq`, `pxq.ver`), for "Sin producto" too since both belong
  * to each publication, and last the product's ban (`ProductBanAction`, gated by itself).
  * Precios mounts the product's prices (the same `ProductPrices` a publication's Precios tab mounts), and under them
- * its instalment settings (`ProductCuotasConfig`), for whoever may see them, and Cambios the changes made to the
+ * its instalment settings (`ProductCuotasConfig`, whose save recalculates the instalments: the prices are read
+ * again and the list reloaded), for whoever may see them, and Cambios the changes made to the
  * product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. Opening another
  * product goes back to
  * Resumen. A price write reloads the page's list (`onListReload`).
@@ -83,6 +84,13 @@ export default function ProductPanel({
   const { tienePermiso } = usePermisos();
   // The open tab belongs to the product it was opened on: another product starts on Resumen.
   const [openTab, setOpenTab] = useState({ productKey, key: RESUMEN.key });
+  // Bumped when the instalment settings recalculated the instalments: `ProductPrices` reads its prices again (an open
+  // price edit stays as typed).
+  const [pricesReadAgain, setPricesReadAgain] = useState(0);
+  const onCuotasRecalculated = () => {
+    setPricesReadAgain((n) => n + 1);
+    onListReload?.();
+  };
   const withoutProduct = productKey === NO_PRODUCT_KEY;
   const productItemId = summary?.productoItemId;
   const tabs =
@@ -126,11 +134,12 @@ export default function ProductPanel({
             <>
               <ProductPrices
                 productItemId={productItemId}
+                readAgain={pricesReadAgain}
                 permissions={pricePermissions(tienePermiso)}
                 onWritten={onListReload}
                 showCost={canSeeMargin}
               />
-              <ProductCuotasConfig key={productItemId} productItemId={productItemId} />
+              <ProductCuotasConfig key={productItemId} productItemId={productItemId} onRecalculated={onCuotasRecalculated} />
             </>
           ) : (
             <>

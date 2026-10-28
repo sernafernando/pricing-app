@@ -92,6 +92,37 @@ describe('writing the ML list', () => {
   });
 });
 
+describe('reading again from outside (readAgain)', () => {
+  it('re-reads the prices when the caller asks, keeping an open edit as it was typed', async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderPrices({ readAgain: 0 });
+    const row = await rowOf('Clásica');
+    await user.click(within(row).getByRole('button', { name: 'Editar Clásica' }));
+    const input = within(row).getByRole('textbox', { name: 'Clásica' });
+    await user.clear(input);
+    await user.type(input, '777');
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO, precio_3_cuotas: 111111 } });
+
+    rerender(<ProductPrices productItemId={4101} permissions={ALL} onWritten={vi.fn()} readAgain={1} />);
+
+    await waitFor(() => expect(preciosAPI.obtenerProducto).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('row', { name: /^3 cuotas\b.*111\.111/ })).toBeInTheDocument();
+    expect(within(await rowOf('Clásica')).getByRole('textbox', { name: 'Clásica' })).toHaveValue('777');
+  });
+
+  it('only a change of readAgain reads again: opening another product afterwards reads it once', async () => {
+    const { rerender } = renderPrices({ readAgain: 0 });
+    await rowOf('Clásica');
+    rerender(<ProductPrices productItemId={4101} permissions={ALL} onWritten={vi.fn()} readAgain={1} />);
+    await waitFor(() => expect(preciosAPI.obtenerProducto).toHaveBeenCalledTimes(2));
+
+    rerender(<ProductPrices productItemId={4102} permissions={ALL} onWritten={vi.fn()} readAgain={1} />);
+
+    await rowOf('Clásica');
+    expect(preciosAPI.obtenerProducto.mock.calls.filter(([id]) => id === 4102)).toHaveLength(1);
+  });
+});
+
 describe('writing the PVP list', () => {
   it('saves the PVP clásica through set-rapido with lista_tipo pvp', async () => {
     const user = userEvent.setup();

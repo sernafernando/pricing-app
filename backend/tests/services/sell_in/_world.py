@@ -139,7 +139,7 @@ def venta(
             conn.execute(
                 text(
                     "INSERT INTO ml_sale_lines (item_row_id, order_id, group_key, product, mla, group_date, day, qty, "
-                    "gross, tg, mtg, mcosto) VALUES (:id, :o, :g, :p, :mla, :gd, :d, :q, 100, 50, 50, 30)"
+                    "gross, tg, tg_known, mtg, mcosto) VALUES (:id, :o, :g, :p, :mla, :gd, :d, :q, 100, 50, true, 50, 30)"
                 ),
                 {
                     "id": ref,

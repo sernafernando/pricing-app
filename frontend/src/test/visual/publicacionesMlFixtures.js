@@ -592,6 +592,17 @@ export const makeProductRow = (overrides = {}) => ({
   ...overrides,
 });
 
+/** The lines under a product's cost (`ppp`, `sell_in_out`), as `/view/products` sends them with ver_ganancia. */
+export const COST_LINES = {
+  ppp: { costo: 41.2, moneda: 'USD', fecha: '2026-09-30', markups: {} },
+  sell_in_out: {
+    sell_in: { compra_item_id: 7, descuento_unit: 3250, costo: 63000, unidades_restantes: 140 },
+    sell_out: null,
+    markups_sell_in: {},
+    markups_sell_in_out: {},
+  },
+};
+
 export const PRODUCT_ROWS = [
   makeProductRow(),
   makeProductRow({
