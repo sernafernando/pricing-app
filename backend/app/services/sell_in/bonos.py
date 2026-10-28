@@ -11,6 +11,9 @@ operation (`pedido_id`; the invoice still has to fall in the range). Lines
 whose item is not in the catalog are never read. Its `tipo` says how much:
 `monto_unit` per unit, or `porcentaje` of each line's invoiced net
 (`pedido_compra_lineas_facturadas.importe_neto`, net of credit notes).
+A model of a models bonus may carry its own `monto_unit` or `porcentaje`
+(`sell_in_bono_items`, T23a: legacy grouped offsets), which replaces the
+bonus's for that model; the others take the bonus's.
 
 It is applied by itself (owner: "los pedidos se tienen que aplicar solos a esa
 marca"): `reconciliar` keeps ONE sell-in purchase per (bonus,
@@ -78,7 +81,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
+from typing import Collection, Dict, Iterable, List, Mapping, NamedTuple, Optional, Set, Tuple
 
 from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
@@ -217,7 +220,7 @@ def tasas_bna_por_fecha(db: Session, fechas: Set[date]) -> Dict[date, Optional[D
     return tasas
 
 
-def _alcanzadas(bono: SellInBonoMarca, pedido: _Pedido, lineas: List[_Linea], modelos: Set[int]) -> List[_Linea]:
+def _alcanzadas(bono: SellInBonoMarca, pedido: _Pedido, lineas: List[_Linea], modelos: Collection[int]) -> List[_Linea]:
     """The operation's lines the bonus reaches. No duplicate or non-positive units: the snapshot has
     UNIQUE(pedido_id, item_id) and CHECK(cantidad > 0)."""
     if bono.alcance == "categoria":
@@ -229,14 +232,16 @@ def _alcanzadas(bono: SellInBonoMarca, pedido: _Pedido, lineas: List[_Linea], mo
     return [linea for linea in lineas if linea.marca == bono.marca]
 
 
-def _monto_porcentaje(bono: SellInBonoMarca, pedido: _Pedido, linea: _Linea, tasa: Optional[Decimal]) -> Decimal:
-    """`porcentaje` of the line's invoiced net, in the bonus's currency (converted at the pair's rate when
-    the invoice is in the other one), half up to cents."""
+def _monto_porcentaje(
+    bono: SellInBonoMarca, pedido: _Pedido, linea: _Linea, tasa: Optional[Decimal], porcentaje: Decimal
+) -> Decimal:
+    """`porcentaje` (the bonus's, or the model's own) of the line's invoiced net, in the bonus's currency
+    (converted at the pair's rate when the invoice is in the other one), half up to cents."""
     if linea.importe_neto is None or linea.moneda is None:
         raise SellInError(
             f"El facturado del item {linea.item_id} en el pedido {pedido.id} mezcla monedas: no sirve de base"
         )
-    monto = Decimal(linea.importe_neto) * Decimal(bono.porcentaje) / 100
+    monto = Decimal(linea.importe_neto) * Decimal(porcentaje) / 100
     if linea.moneda != bono.moneda:
         if tasa is None:
             raise SellInError(
@@ -267,12 +272,13 @@ def _deseada(
     pedido: Optional[_Pedido],
     lineas: List[_Linea],
     tasas_bna: Dict[date, Optional[Decimal]],
-    modelos: Set[int],
+    modelos: Mapping[int, Optional[Decimal]],
 ) -> Optional[_Deseada]:
     """The purchase the pair must have, or None when the bonus does not apply to it. Raises `SellInError`
     when it applies but an amount cannot be computed: a USD purchase or a currency conversion with no
     rate, or a % line whose invoiced net mixes currencies. `tasas_bna` holds the BNA rate per invoice date
-    for the whole call; `modelos` the item ids of a models bonus."""
+    for the whole call; `modelos` the item ids of a models bonus, each with its own value of the bonus's kind
+    (`monto_unit` or `porcentaje`; None: the bonus's), which replaces the bonus's for that item."""
     if bono.estado != "activa" or pedido is None or pedido.estado in ESTADOS_EXCLUIDOS:
         return None
     fecha = pedido.fecha_factura
@@ -289,14 +295,22 @@ def _deseada(
             f"El pedido {pedido.id} no tiene tipo de cambio y no hay cotización del dólar al {fecha.isoformat()}"
         )
     if bono.tipo == "porcentaje":
-        montos = {linea.item_id: _monto_porcentaje(bono, pedido, linea, tasa) for linea in propias}
+        montos = {
+            linea.item_id: _monto_porcentaje(bono, pedido, linea, tasa, _propio(modelos, linea, bono.porcentaje))
+            for linea in propias
+        }
         # A share that rounds to nothing pays nothing; with no line left the bonus does not apply.
         detalle = {linea.item_id: (linea.cantidad, montos[linea.item_id]) for linea in propias if montos[linea.item_id]}
         if not detalle:
             return None
     else:
-        monto_unit = Decimal(bono.monto_unit)
-        detalle = {linea.item_id: (linea.cantidad, (monto_unit * linea.cantidad).quantize(CENT)) for linea in propias}
+        detalle = {
+            linea.item_id: (
+                linea.cantidad,
+                (_propio(modelos, linea, bono.monto_unit) * linea.cantidad).quantize(CENT),
+            )
+            for linea in propias
+        }
     cabecera = {
         "estado": "activa",
         "proveedor_id": pedido.proveedor_id,
@@ -312,6 +326,12 @@ def _deseada(
         "usuario_id": bono.usuario_id,
     }
     return _Deseada(cabecera, detalle)
+
+
+def _propio(modelos: Mapping[int, Optional[Decimal]], linea: _Linea, del_bono) -> Decimal:
+    """The model's own value when it has one, else the bonus's."""
+    propio = modelos.get(linea.item_id)
+    return Decimal(propio if propio is not None else del_bono)
 
 
 def _costo(costo, moneda_costo, moneda_compra: str, tasa: Optional[Decimal]) -> Decimal:
@@ -432,11 +452,12 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
         .filter(PedidoCompraLineaFacturada.pedido_id.in_(pids or [-1]))
     ):
         lineas[pid].append(_Linea(*linea))
-    modelos: Dict[int, Set[int]] = defaultdict(set)
-    for bid, item_id in db.query(SellInBonoItem.bono_id, SellInBonoItem.item_id).filter(
-        SellInBonoItem.bono_id.in_(list(bonos) or [-1])
-    ):
-        modelos[bid].add(item_id)
+    # Each model with its own value of its bonus's kind (None: the bonus's).
+    modelos: Dict[int, Dict[int, Optional[Decimal]]] = defaultdict(dict)
+    for bid, item_id, monto_unit, porcentaje in db.query(
+        SellInBonoItem.bono_id, SellInBonoItem.item_id, SellInBonoItem.monto_unit, SellInBonoItem.porcentaje
+    ).filter(SellInBonoItem.bono_id.in_(list(bonos) or [-1])):
+        modelos[bid][item_id] = porcentaje if bonos[bid].tipo == "porcentaje" else monto_unit
     existentes: Dict[Par, SellInCompra] = {
         (c.bono_id, c.bono_pedido_id): c
         for c in db.query(SellInCompra).filter(

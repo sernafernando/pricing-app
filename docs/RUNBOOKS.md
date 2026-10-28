@@ -128,7 +128,7 @@ quoted text:
   `ml_orders_ops` (a write error is quarantined with its payload for the
   replay; an order left out for any other reason, such as outside the window,
   keeps its row and is asked again after each backoff, at most every 6 h); one ML answers
-  `not_found` for is deleted (`activity_receiver: ML has no order_id=...;
+  a 404 `order_not_found` for is deleted (`activity_receiver: ML has no order_id=...;
   dropped from the quarantine` WARNING); any other answer counts the attempt
   and waits. Its job detail reports `refetched`, `refetch_landed`, `dropped`
   and `refetch_failed`.

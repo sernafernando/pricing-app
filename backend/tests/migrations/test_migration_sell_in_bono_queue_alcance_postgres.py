@@ -22,7 +22,8 @@ from tests.models import test_sell_in_schema_postgres as base
 
 _REVISION = "20261115_sell_in_bono_queue_alcance"
 _PATH = next(p for p in base._MIGRATIONS if p.stem == _REVISION)
-_BEFORE = [p for p in base._MIGRATIONS if p.stem != _REVISION]
+# Only what came before it: a later revision (20261211) replaces the same bonus trigger.
+_BEFORE = base._MIGRATIONS[: base._MIGRATIONS.index(_PATH)]
 
 _TRIGGERS = (
     "SELECT t.tgname, pg_get_triggerdef(t.oid) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "

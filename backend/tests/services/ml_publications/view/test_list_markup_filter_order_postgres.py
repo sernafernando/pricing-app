@@ -118,3 +118,18 @@ class TestTheDatabaseOrdersOnlyWhatPassed:
             event.remove(db.get_bind(), "before_cursor_execute", record)
         ordering = [s for s in recorded if "ORDER BY" in s and "lower(" in s]
         assert len(ordering) == 1 and "LIMIT" in ordering[0] and "ANY" in ordering[0].upper()
+
+
+class TestMarkupFirstThenAColumn:
+    def test_the_worst_markup_leads_and_the_title_breaks_its_ties(self, conn, db) -> None:
+        titled(conn)
+        _, got = page(db, MarkupFilter(), "markup,titulo", "asc,asc")
+        result, _ = listing.markup_accepted(db, parse_filter(), MarkupQuery(db, MarkupFilter()))
+        worst = {item_id: item.markup.worst for item_id, item in result.items.items()}
+        titles = dict(db.execute(text("SELECT item_id, lower(title) FROM ml_items")).all())
+        expected = sorted(worst, key=lambda i: (worst[i] is None, worst[i] or 0, titles[i], i))
+        assert got == expected
+        pages = [page(db, MarkupFilter(), "markup,titulo", "asc,asc", limit=4, offset=o)[1] for o in range(0, 40, 4)]
+        assert [item_id for chunk in pages for item_id in chunk] == expected  # the database cuts stable pages
+        tied = len(worst) - len(set(worst.values()))
+        assert tied > 0  # real ties (the unpriced ones at least), broken by the title, which runs against the ids

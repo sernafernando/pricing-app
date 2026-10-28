@@ -21,20 +21,20 @@ from sqlalchemy import and_, false, func, select, true
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.models.ml_publications import MlItemProductLink
 from app.models.oferta_ml import OfertaML
 from app.services.ml_publications.view.filters import (
-    LINK_ITEM_LEVEL,
     LINK_LINKED,
     PublicationFilter,
     T,
     build_base_select,
     current_offer,
+    product_has_offer,
     product_pricing,
     product_select,
     publication_filter_in,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
+from app.services.ml_publications.view.products import product_pairs
 
 # The markup cards, Productos' stored markup of each pricing: shown only to who may see the margin.
 MARKUP_COLUMNS = {
@@ -51,19 +51,6 @@ def _offered_mlas():
     return select(o.mla).where(*current_offer(o)).group_by(o.mla).subquery("offered")
 
 
-def _offered_products(offered):
-    """The products with a current offer on any of their item-level linked publications (the Producto view's
-    `oferta_por_producto`, `filters._oferta`)."""
-    sibling = aliased(MlItemProductLink, name="l_stats")
-    return (
-        select(sibling.producto_item_id.label("product"))
-        .join(offered, offered.c.mla == sibling.item_id)
-        .where(sibling.variation_id == LINK_ITEM_LEVEL, sibling.producto_item_id.isnot(None))
-        .group_by(sibling.producto_item_id)
-        .subquery("offered_products")
-    )
-
-
 NEW_DAYS = 7  # Productos' "Nuevos": synced from the ERP in the last 7 days (`filters` `nuevos_ultimos_7_dias`)
 
 
@@ -72,22 +59,37 @@ def _is_new(fecha_sync: Any) -> ColumnElement:
 
 
 def _linked_members(f: PublicationFilter, offered: Any) -> Any:
-    """The filtered publications collapsed to one row per linked product, with its ERP stock and sync date."""
+    """The filtered publications collapsed to one row per linked product, with its ERP stock and sync date: each
+    publication once per linked product that passes `f`, as the Producto view groups them (`products.product_pairs`;
+    `T.p` the product's catalog row, NULL for a product gone from the ERP: in no card)."""
+    publications = build_base_select(
+        f,
+        T.i.item_id.label("mla"),
+        # the ERP stock only counts through a link in state `linked` (`filters.erp_stock`)
+        (T.l.match_status == LINK_LINKED).label("linked"),
+    ).subquery("publications")
+    pairs = product_pairs(
+        f,
+        publications,
+        publications.c.mla,
+        T.p.item_id.label("product"),
+        publications.c.linked,
+        T.p.stock,
+        T.p.fecha_sync,
+    ).subquery("pairs")
     return (
-        build_base_select(
-            f,
-            T.p.item_id.label("product"),  # NULL with no link or a product gone from the ERP: in no card
-            # the ERP stock only counts through a link in state `linked` (`filters.erp_stock`)
-            func.bool_or(T.l.match_status == LINK_LINKED).label("linked"),
+        select(
+            pairs.c.product,
+            func.bool_or(pairs.c.linked).label("linked"),
             # mejor oferta of the publication itself: some matching publication of the product has one
             func.bool_or(offered.c.mla.isnot(None)).label("own_offer"),
-            # the product's own ERP figures, one value per product (its catalog row, `T.p`)
-            func.max(T.p.stock).label("stock"),
-            func.max(T.p.fecha_sync).label("fecha_sync"),
+            # the product's own ERP figures, one value per product
+            func.max(pairs.c.stock).label("stock"),
+            func.max(pairs.c.fecha_sync).label("fecha_sync"),
         )
-        .outerjoin(offered, offered.c.mla == T.i.item_id)
-        .where(T.p.item_id.isnot(None))
-        .group_by(T.p.item_id)
+        .outerjoin(offered, offered.c.mla == pairs.c.mla)
+        .where(pairs.c.product.isnot(None))
+        .group_by(pairs.c.product)
         .subquery("members")
     )
 
@@ -133,12 +135,8 @@ def compute(db: Session, f: PublicationFilter, *, markups: bool, sin_mla: bool =
     members = _sin_mla_members(f) if f.sin_mla else _linked_members(f, offered)
     pp = product_pricing("pp_stats")
     query = select().select_from(members).outerjoin(pp, pp.item_id == members.c.product)
-    if f.oferta_per_product:
-        by_product = _offered_products(offered)
-        query = query.outerjoin(by_product, by_product.c.product == members.c.product)
-        has_offer: ColumnElement = by_product.c.product.isnot(None)
-    else:
-        has_offer = members.c.own_offer.is_(True)
+    # mejor oferta of the product: one of the publications linked to it has one (`filters.product_has_offer`)
+    has_offer = product_has_offer(members.c.product) if f.oferta_per_product else members.c.own_offer.is_(True)
 
     con_stock = and_(members.c.linked.is_(True), members.c.stock > 0)
     con_precio = pp.precio_lista_ml.isnot(None)

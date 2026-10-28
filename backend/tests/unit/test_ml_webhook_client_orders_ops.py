@@ -21,6 +21,8 @@ Spec coverage:
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -112,9 +114,13 @@ class TestGetOrder:
         assert result == ORDER_PAYLOAD
 
 
-# ML's own 404 body, the shape captured for `/items/MLA1` (tests/fixtures/ml_publications/item_single_404_MLA1_20261006.json);
-# the proxy's `/api/ml/orders` passes ML's status and JSON body through unchanged.
-ML_NOT_FOUND = {"message": "Order 999 not found", "error": "not_found", "status": 404, "cause": []}
+# ML's own answers for an order, captured through the proxy's `/api/ml/orders`, which passes ML's status and JSON body
+# through unchanged. An order's 404 names `order_not_found`, not the items' `not_found`.
+ORDER_ERRORS = json.loads(
+    (Path(__file__).parents[1] / "fixtures/ml_orders/order_errors_capture_20261028.json").read_text()
+)
+ML_NOT_FOUND = ORDER_ERRORS["order_not_found"]
+ML_NOT_OWNED = ORDER_ERRORS["not_owned_order"]
 
 
 class TestFetchOrder:
@@ -134,7 +140,8 @@ class TestFetchOrder:
         assert self._fetch(monkeypatch, handler, 2000003508498841) == OrderFetch("ok", ORDER_PAYLOAD)
 
     def test_mls_not_found_is_not_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        assert self._fetch(monkeypatch, lambda r: httpx.Response(404, json=ML_NOT_FOUND)) == OrderFetch("not_found")
+        captured = httpx.Response(ML_NOT_FOUND["status"], json=ML_NOT_FOUND["body"])
+        assert self._fetch(monkeypatch, lambda r: captured) == OrderFetch("not_found")
 
     @pytest.mark.parametrize(
         "response",
@@ -144,6 +151,10 @@ class TestFetchOrder:
             # ML answered something that is not JSON: the proxy keeps the 404 but says so.
             httpx.Response(404, json={"error": "respuesta no-JSON de ML", "ml_status": 404}),
             httpx.Response(404, json={"message": "not found"}),
+            # The items' 404 code, not an order's: never taken for ML's "no such order".
+            httpx.Response(404, json={"error": "not_found", "status": 404}),
+            # Another seller's order: it exists, so it is no reason to delete anything.
+            httpx.Response(ML_NOT_OWNED["status"], json=ML_NOT_OWNED["body"]),
             httpx.Response(200, json=["not", "an", "order"]),
             httpx.Response(403, json={"error": "forbidden", "status": 403}),
             httpx.Response(429, json={"error": "too_many_requests"}),

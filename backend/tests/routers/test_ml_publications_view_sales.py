@@ -204,3 +204,44 @@ class TestSortingByMetricas:
         grant(db, rol_admin, VER, METRICAS, GANANCIA)
         for orden in ("markup_30d", "total_gauss_30d"):
             assert self.page(client, admin_auth_headers, orden=orden).status_code == 200
+
+
+class TestSeveralSortKeys:
+    """`orden`/`dir` as csv (Productos' multi-column sort): every key is checked as a single sort would be."""
+
+    @staticmethod
+    def page(client, headers, **params):
+        return client.get(URL, headers=headers, params=params)
+
+    def test_a_metricas_key_anywhere_needs_ml_metricas_ver(self, client, pg, db, rol_admin, admin_auth_headers):
+        seed_rows(pg, fill)
+        grant(db, rol_admin, VER, GANANCIA)
+        response = self.page(client, admin_auth_headers, orden="facturado_30d,titulo")
+        assert response.status_code == 403 and METRICAS in response.json()["error"]["message"]
+
+    @pytest.mark.parametrize("orden", ["titulo,costo", "precio,markup", "titulo,markup_30d"])
+    def test_a_margin_key_anywhere_needs_ver_ganancia(self, client, pg, db, rol_admin, admin_auth_headers, orden):
+        seed_rows(pg, fill)
+        grant(db, rol_admin, VER, METRICAS)
+        response = self.page(client, admin_auth_headers, orden=orden)
+        assert response.status_code == 403 and GANANCIA in response.json()["error"]["message"]
+
+    def test_a_figure_after_the_first_key_is_a_422_saying_why(self, client, pg, db, rol_admin, admin_auth_headers):
+        seed_rows(pg, fill)
+        grant(db, rol_admin, VER, METRICAS, GANANCIA)
+        response = self.page(client, admin_auth_headers, orden="titulo,facturado_30d")
+        assert response.status_code == 422
+        assert "only as the first sort key" in response.json()["error"]["message"]
+
+    def test_column_keys_combine_each_with_its_direction(self, client, pg, db, rol_admin, admin_auth_headers):
+        def titled(conn) -> None:
+            seed.add_item(conn, "MLA1", title="Beta", price=100)
+            seed.add_item(conn, "MLA2", title="Alfa", price=300)
+            seed.add_item(conn, "MLA3", title="Alfa", price=200)
+
+        seed_rows(pg, titled)
+        grant(db, rol_admin, VER)
+        for direction, expected in (("desc,asc", ["MLA1", "MLA3", "MLA2"]), ("asc,desc", ["MLA2", "MLA3", "MLA1"])):
+            response = self.page(client, admin_auth_headers, orden="titulo,precio", dir=direction)
+            assert response.status_code == 200, response.text
+            assert [row["item_id"] for row in response.json()["items"]] == expected

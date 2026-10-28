@@ -168,6 +168,17 @@ def bono_alcance(
     return bono_id
 
 
+def valor_de_modelo(
+    engine: Engine, bono_id: int, item_id: int, *, monto: Optional[str] = None, porcentaje: Optional[str] = None
+) -> None:
+    """A model's own value inside a 'modelos' bonus (T23a): `monto_unit` or `porcentaje` replaces the bonus's."""
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE sell_in_bono_items SET monto_unit = :m, porcentaje = :p WHERE bono_id = :b AND item_id = :i"),
+            {"m": monto, "p": porcentaje, "b": bono_id, "i": item_id},
+        )
+
+
 def update_bono(engine: Engine, bono_id: int, **values) -> None:
     sets = ", ".join(f"{column} = :{column}" for column in values)
     with engine.begin() as conn:

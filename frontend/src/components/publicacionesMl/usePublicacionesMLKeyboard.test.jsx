@@ -18,7 +18,7 @@ const ROWS = Array.from({ length: 15 }, (_, index) => ({
 }));
 const COLUMNS = [{ key: 'titulo', label: 'Título', render: (row) => row.titulo }];
 
-function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, showToast = () => {}, rows = ROWS }) {
+function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleAutoRecalc, showToast = () => {}, rows = ROWS }) {
   const searchRef = useRef(null);
   const [help, setHelp] = useState(false);
   usePublicacionesMLKeyboard({
@@ -32,6 +32,7 @@ function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onExten
     onCycleMode,
     onBulkAction,
     onOpenFilter,
+    onToggleAutoRecalc,
     onToggleHelp: () => setHelp((open) => !open),
     showToast,
   });
@@ -358,6 +359,25 @@ describe("Productos' bulk and filter shortcuts (S9b)", () => {
     await user.click(screen.getByRole('textbox', { name: 'Buscar' }));
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'Buscar' }), { key: 'v', code: 'KeyV', altKey: true });
     expect(onCycleMode).toHaveBeenCalledTimes(1);
+  });
+
+  it("Alt+R flips Productos' Auto-recalcular cuotas (S12f2; the key, not the character a Mac types), once per press, not while typing", async () => {
+    const onToggleAutoRecalc = vi.fn();
+    const onToggleRow = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onToggleAutoRecalc={onToggleAutoRecalc} onToggleRow={onToggleRow} />);
+    expect(fireEvent.keyDown(document.body, { key: '®', code: 'KeyR', altKey: true })).toBe(false);
+    expect(onToggleAutoRecalc).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(document.body, { key: 'r', code: 'KeyR', altKey: true, repeat: true });
+    expect(onToggleAutoRecalc).toHaveBeenCalledTimes(1);
+    // Plain r is still the focused row's rebate, never Auto-recalcular.
+    await user.click(row(1));
+    fireEvent.keyDown(document.body, { key: 'r', code: 'KeyR' });
+    expect(onToggleRow).toHaveBeenCalledTimes(1);
+    expect(onToggleAutoRecalc).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('textbox', { name: 'Buscar' }));
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Buscar' }), { key: 'r', code: 'KeyR', altKey: true });
+    expect(onToggleAutoRecalc).toHaveBeenCalledTimes(1);
   });
 
   it('none of them runs while typing in a field', async () => {

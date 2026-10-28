@@ -1001,10 +1001,11 @@ def items_ask(
         description=(
             "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, markup "
             "(ver_ganancia); Métricas ML's figures over the whole filtered set (ml_metricas.ver): facturado_30d, "
-            "unidades_7d, unidades_30d, markup_30d and total_gauss_30d (also ver_ganancia)"
+            "unidades_7d, unidades_30d, markup_30d and total_gauss_30d (also ver_ganancia). Several keys as csv "
+            "(multi-column sort): the markup and the Métricas figures only as the first one"
         ),
     ),
-    direction: Optional[str] = Query(None, alias="dir", description="asc or desc"),
+    direction: Optional[str] = Query(None, alias="dir", description="asc or desc; csv, one per `orden` key"),
     markup_neg: Optional[bool] = Query(None, description="ANY variation negative (ver_ganancia)"),
     markup_min: Optional[str] = Query(None, description="worst variation >= this percent (ver_ganancia)"),
     markup_max: Optional[str] = Query(None, description="worst variation <= this percent (ver_ganancia)"),
@@ -1023,8 +1024,9 @@ def items_ask(
     permisos = PermisosService(auth_db)
     can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
     can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
-    sort_name = (orden or "").strip()
-    if sort_name in METRIC_SORTS and not can_see_sales:
+    # Every key of a multi-column sort is checked as a single sort would be (csv, trimmed, as the parser reads it).
+    sort_names = [name for name in listing.csv_values(orden) if name]
+    if any(name in METRIC_SORTS for name in sort_names) and not can_see_sales:
         raise api_error(
             status.HTTP_403_FORBIDDEN,
             ErrorCode.INSUFFICIENT_PERMISSIONS,
@@ -1035,10 +1037,11 @@ def items_ask(
         or restar_publicidad
         or (markup_min or "").strip()
         or (markup_max or "").strip()
-        or sort_name == "markup"
-        or sort_name in listing.MARGIN_SORTS
-        or (sort_name in METRIC_SORTS and needs_margin(sort_name))
-    )  # blank values are absent parameters and the sort name is trimmed, here as in the parsers
+        or any(
+            name == "markup" or name in listing.MARGIN_SORTS or (name in METRIC_SORTS and needs_margin(name))
+            for name in sort_names
+        )
+    )  # blank values are absent parameters and the sort names are trimmed, here as in the parsers
     if not can_see_margin and asks_for_margin:
         raise api_error(
             status.HTTP_403_FORBIDDEN,

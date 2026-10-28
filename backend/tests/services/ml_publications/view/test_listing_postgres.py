@@ -748,6 +748,20 @@ class TestSorting:
         assert ids(run(db, orden="precio", direction="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
         assert ids(run(db, orden="precio", direction="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
 
+    def test_several_keys_each_with_its_direction_then_item_id(self, conn, db) -> None:
+        for product_id, marca in ((70, "Zeta"), (71, "Acme")):
+            seed.add_product(conn, product_id, f"C{product_id}", "P", marca=marca)
+        for item_id, product_id, price in (("MLA1", 70, 500), ("MLA2", 71, 300), ("MLA3", 71, 900), ("MLA4", 70, 500)):
+            seed.add_item(conn, item_id, price=price)
+            seed.add_link(conn, item_id, product_id)
+        assert ids(run(db, orden="marca,precio", direction="asc,desc")) == ["MLA3", "MLA2", "MLA1", "MLA4"]
+        assert ids(run(db, orden="marca,precio")) == ["MLA2", "MLA3", "MLA1", "MLA4"]  # each key's own default
+        # a key without a direction takes its default; equal on every key, item_id decides
+        assert ids(run(db, orden="marca,precio", direction="desc")) == ["MLA1", "MLA4", "MLA2", "MLA3"]
+        assert listing.ordered_keys(
+            db, parse_filter(), listing.parse_sort("marca,precio", "asc,desc"), None, events=False
+        ) == ["MLA3", "MLA2", "MLA1", "MLA4"]  # the export's keys, in the same order
+
     def test_codigo_and_brand_sort_ignore_case_and_put_publications_without_product_last(self, conn, db) -> None:
         for product_id, codigo, marca in ((70, "b-200", "tp-link"), (71, "A-100", "Zeta"), (72, "C-300", "Hikvision")):
             seed.add_product(conn, product_id, codigo, "P", marca=marca)
@@ -813,6 +827,26 @@ class TestSorting:
             db, parse_filter(), listing.parse_sort("costo", None), 3, 3, events=True, can_see_margin=True
         )
         assert ids(first) + ids(second) == by_cost()  # the same order page by page
+
+    def test_cost_as_a_later_key_keeps_its_usd_tie_break(self, conn, db) -> None:
+        """`marca,costo` with no USD rate on record: within a brand, the peso costs first, then the USD costs by their
+        dollar amount, then no cost -- as when the cost leads."""
+        seed.add_usd_rate(conn, 1000.0, "2026-10-27")  # builds the table; then no rate is left
+        conn.execute(text("DELETE FROM tipo_cambio"))
+        costs = ((70, 80.0, "USD"), (71, 60000.0, "ARS"), (72, None, "ARS"), (73, 50.0, "USD"))
+        for product_id, costo, moneda in costs:
+            seed.add_product(conn, product_id, f"C{product_id}", "P", marca="Kabel")
+            seed.add_cost(conn, product_id, costo, moneda_costo=moneda)
+        for item_id, product_id in (("MLA1", 70), ("MLA2", 71), ("MLA3", 72), ("MLA4", 73)):
+            seed.add_item(conn, item_id)
+            seed.add_link(conn, item_id, product_id)
+
+        def by(direction) -> list[str]:
+            sort = listing.parse_sort("marca,costo", direction)
+            return ids(listing.list_items(db, parse_filter(), sort, 50, 0, events=True, can_see_margin=True))
+
+        assert by("asc,asc") == ["MLA2", "MLA4", "MLA1", "MLA3"]
+        assert by("asc,desc") == ["MLA2", "MLA1", "MLA4", "MLA3"]
 
     def test_title_ignores_case_and_puts_missing_titles_last(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", title="banana")
@@ -1030,3 +1064,33 @@ class TestFacets:
         finally:
             event.remove(engine, "before_cursor_execute", record)
         assert len(statements) == len(listing.FACET_AXES) == 6
+
+
+class TestSortKeys:
+    """`orden` / `dir` as csv (Productos' multi-column sort): one value is today's single sort."""
+
+    def test_one_key_is_a_single_sort(self) -> None:
+        sort = listing.parse_sort("precio", "desc")
+        assert (sort.key, sort.descending, sort.then) == ("precio", True, ())
+
+    def test_markup_and_the_metricas_figures_only_lead(self) -> None:
+        for orden in ("precio,markup", "titulo,facturado_30d"):
+            with pytest.raises(FilterError) as raised:
+                listing.parse_sort(orden, None)
+            assert raised.value.field == "orden"
+            assert "only as the first sort key" in raised.value.message
+        sort = listing.parse_sort("facturado_30d,titulo", "desc")
+        assert (sort.key, sort.descending, sort.then) == ("facturado_30d", True, (("titulo", False),))
+
+    def test_a_blank_key_takes_its_direction_with_it(self) -> None:
+        sort = listing.parse_sort("precio,,titulo", "asc,,desc")
+        assert (sort.key, sort.descending, sort.then) == ("precio", False, (("titulo", True),))
+
+    @pytest.mark.parametrize(
+        ("orden", "direction", "field"),
+        [("precio,precio", None, "orden"), ("precio", "asc,desc", "dir"), ("precio,titulo", "asc,sideways", "dir")],
+    )
+    def test_a_repeated_key_or_a_wrong_direction_is_refused(self, orden, direction, field) -> None:
+        with pytest.raises(FilterError) as raised:
+            listing.parse_sort(orden, direction)
+        assert raised.value.field == field
