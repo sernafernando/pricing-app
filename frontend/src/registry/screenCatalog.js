@@ -177,7 +177,7 @@ export const PERMISOS_ADICIONALES = {
     envios_flex: ['/pedidos-preparacion'], // TabEnviosFlex, TabCheckeoColecta.
     pedidos: ['/pedidos-preparacion'],
     promos: ['/productos', '/ml-publicaciones'], // promociones panels + PublicationPanel.
-    pxq: ['/productos'], // PxqPanel inside the Productos promo tree.
+    pxq: ['/productos', '/ml-publicaciones'], // PxqPanel: Productos' promo tree, Publicaciones ML's product panel.
     sell_out: ['/sell-in'],
     equipos: ['/productos', '/ml-publicaciones'], // EquiposModal, in both screens.
     tplink: [], // Global opt-in flags (ThemeContext); tplink.solo is listed below.

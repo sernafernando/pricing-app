@@ -250,6 +250,8 @@ describe('extra permissions map (PERMISOS_ADICIONALES)', () => {
     expect(donde('promos.escribir')).toEqual(['/productos', '/ml-publicaciones']);
     // Team management (EquiposModal) lives in Publicaciones ML too (#1860).
     expect(donde('equipos.gestionar_global')).toEqual(['/productos', '/ml-publicaciones']);
+    // The PxQ tiers show in Publicaciones ML's product panel too (ProductPxq).
+    expect(donde('pxq.ver')).toEqual(['/productos', '/ml-publicaciones']);
     expect(donde('deposito.despachar_retiro')).toEqual(['/administracion/compras']);
   });
 
