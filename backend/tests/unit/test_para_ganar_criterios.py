@@ -151,3 +151,93 @@ def test_aplicar_defaults_unknown_mla_404(client: TestClient, rma_superadmin_use
         headers=_auth(rma_superadmin_user),
     )
     assert response.status_code == 404
+
+
+def test_aplicar_masivo_overwrites_scope_keeps_precio(
+    client: TestClient, rma_superadmin_user, db
+) -> None:
+    """Mass apply hits every MLA in scope; overwrites markup; keeps precio caps."""
+    from app.models.ml_publication_link import MlPublicationLink
+    from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
+
+    headers = _auth(rma_superadmin_user)
+    # Scope filter `ean` matches productos_erp.codigo (same as Productos search).
+    shared_codigo = "7790000000010"
+    for item_id, mla, codigo in (
+        (88010, "MLA88010", shared_codigo),
+        (88011, "MLA88011", shared_codigo),
+        (88012, "MLA88012", "7790000000099"),
+    ):
+        db.add(
+            ProductoERP(
+                item_id=item_id,
+                codigo=codigo,
+                descripcion=f"Mass {mla}",
+                costo=10,
+            )
+        )
+        db.flush()
+        db.add(PublicacionML(mla=mla, item_id=item_id, codigo=codigo, activo=True))
+        db.add(
+            MlPublicationLink(
+                mla=mla,
+                catalog_listing=True,
+                catalog_product_id=f"CBT-{mla}",
+            )
+        )
+    db.add(
+        ParaGanarCriterioMla(
+            mla="MLA88010",
+            markup_min=1,
+            markup_max=2,
+            top_sellers=1,
+            precio_min=1000,
+            precio_max=9000,
+            ganar_catalogo=True,
+        )
+    )
+    db.commit()
+
+    response = client.post(
+        "/api/para-ganar/criterios/aplicar-masivo",
+        headers=headers,
+        params={"ean": shared_codigo},
+        json={
+            "markup_min": 7,
+            "markup_max": 14,
+            "top_sellers": 4,
+            "ganar_catalogo": False,
+            "ignorar_internacionales": True,
+            "descartar_stock_residual": False,
+            "descartar_reputacion_baja": False,
+            "techo_monopolio": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["scope_total"] == 2
+    assert body["applied"] == 2
+    assert body["created"] == 1
+    assert body["updated"] == 1
+
+    row_a = db.get(ParaGanarCriterioMla, "MLA88010")
+    row_b = db.get(ParaGanarCriterioMla, "MLA88011")
+    row_out = db.get(ParaGanarCriterioMla, "MLA88012")
+    assert row_a is not None and float(row_a.markup_min) == 7.0
+    assert float(row_a.precio_min) == 1000.0
+    assert float(row_a.precio_max) == 9000.0
+    assert row_a.ignorar_internacionales is True
+    assert row_a.ganar_catalogo is False
+    assert row_b is not None and float(row_b.markup_max) == 14.0
+    assert row_b.precio_min is None
+    assert row_out is None
+
+
+def test_aplicar_masivo_empty_scope_422(client: TestClient, rma_superadmin_user) -> None:
+    response = client.post(
+        "/api/para-ganar/criterios/aplicar-masivo",
+        headers=_auth(rma_superadmin_user),
+        params={"ean": "EAN-QUE-NO-EXISTE-999"},
+        json={"markup_min": 5, "markup_max": 15, "top_sellers": 5},
+    )
+    assert response.status_code == 422

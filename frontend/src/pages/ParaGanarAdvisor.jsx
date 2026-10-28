@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Target, ListChecks, SlidersHorizontal } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
@@ -5,6 +6,7 @@ import useParaGanarCola from '../hooks/useParaGanarCola';
 import ParaGanarQueue from '../components/paraGanar/ParaGanarQueue';
 import ParaGanarAdvisorDetail from '../components/paraGanar/ParaGanarAdvisorDetail';
 import ParaGanarCriteriosDetail from '../components/paraGanar/ParaGanarCriteriosDetail';
+import ParaGanarMassApplyModal from '../components/paraGanar/ParaGanarMassApplyModal';
 import ParaGanarScopeFilters from '../components/paraGanar/ParaGanarScopeFilters';
 import styles from './ParaGanarAdvisor.module.css';
 
@@ -27,7 +29,10 @@ export default function ParaGanarAdvisor() {
   const { tienePermiso } = usePermisos();
   const canAdvisor = tienePermiso(PERMISO_PARA_GANAR);
   const canCriterios = tienePermiso(PERMISO_PARA_GANAR);
+  const canWriteCriteria = tienePermiso('productos.editar_precios');
   const cola = useParaGanarCola(50);
+  const [massOpen, setMassOpen] = useState(false);
+  const [massFeedback, setMassFeedback] = useState(null);
 
   const isCriterios = vista === VISTA_CRITERIOS;
   const canCurrent = isCriterios ? canCriterios : canAdvisor;
@@ -51,7 +56,7 @@ export default function ParaGanarAdvisor() {
             <h1 className={styles.title}>PARA GANAR</h1>
             <p className={styles.subtitle}>
               {isCriterios
-                ? 'Criterios por MLA — config individual y masiva (WIP)'
+                ? 'Criterios por MLA — individual y masivo al filtro'
                 : 'Advisor de sugerencias — cola sandbox (solo lectura)'}
             </p>
           </div>
@@ -148,15 +153,46 @@ export default function ParaGanarAdvisor() {
         )}
         {isCriterios && canCriterios && (
           <>
-            <button type="button" className={styles.bulkBtn} disabled title="Próximo: aplicar al filtro actual">
+            <button
+              type="button"
+              className={styles.bulkBtn}
+              disabled={cola.loading || cola.total <= 0 || !canWriteCriteria}
+              title={
+                !canWriteCriteria
+                  ? 'Requiere productos.editar_precios'
+                  : cola.total <= 0
+                    ? 'No hay MLAs en el alcance'
+                    : 'Pisa markup/TOP/flags en todas las MLAs del filtro'
+              }
+              onClick={() => {
+                setMassFeedback(null);
+                setMassOpen(true);
+              }}
+            >
               Aplicar criterios al filtro
             </button>
             <span className={styles.toolbarHint}>
               {cola.total.toLocaleString('es-AR')} MLAs en alcance
+              {massFeedback
+                ? ` · aplicadas ${massFeedback.applied.toLocaleString('es-AR')} (${massFeedback.created} nuevas, ${massFeedback.updated} actualizadas)`
+                : ''}
             </span>
           </>
         )}
       </section>
+
+      {isCriterios && (
+        <ParaGanarMassApplyModal
+          isOpen={massOpen}
+          onClose={() => setMassOpen(false)}
+          scopeTotal={cola.total}
+          scopeQueryParams={cola.scopeQueryParams}
+          onApplied={(result) => {
+            setMassFeedback(result);
+            cola.reload();
+          }}
+        />
+      )}
 
       {canCurrent && (
         <div className={styles.layout}>

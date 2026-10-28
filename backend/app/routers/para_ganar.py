@@ -842,6 +842,39 @@ class ParaGanarCriteriosMlaUpsert(BaseModel):
         return self
 
 
+class ParaGanarCriteriosMasivoBody(BaseModel):
+    """Mass apply payload (D10/D17): markup + TOP + flags only — never price caps."""
+
+    markup_min: Optional[float] = None
+    markup_max: Optional[float] = None
+    top_sellers: Optional[int] = Field(default=None, ge=1, le=50)
+    ganar_catalogo: bool = False
+    ignorar_internacionales: bool = False
+    descartar_stock_residual: bool = False
+    descartar_reputacion_baja: bool = False
+    techo_monopolio: bool = False
+
+    @field_validator("markup_min", "markup_max", mode="before")
+    @classmethod
+    def _empty_to_none(cls, value: object) -> object:
+        if value == "" or value is None:
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _ranges(self) -> ParaGanarCriteriosMasivoBody:
+        if self.markup_min is not None and self.markup_max is not None and self.markup_min > self.markup_max:
+            raise ValueError("markup_min no puede ser mayor que markup_max")
+        return self
+
+
+class ParaGanarCriteriosMasivoResponse(BaseModel):
+    scope_total: int
+    applied: int
+    created: int
+    updated: int
+
+
 def _costo_ars_for_mla(db: Session, mla: str) -> Optional[float]:
     """ERP cost converted to ARS for criteria precio↔markup sync (D11)."""
     row = (
@@ -916,6 +949,44 @@ def _mla_exists(db: Session, mla: str) -> bool:
         {"mla": mla},
     ).first()
     return found is not None
+
+
+def _list_scope_mlas(db: Session, scope: dict) -> list[str]:
+    """All active MLAs matching the cola/alcance filters (no pagination)."""
+    if scope["pms"]:
+        pm_pair_count = db.execute(
+            text(
+                """
+                SELECT COUNT(*) FROM marcas_pm
+                WHERE usuario_id IN ({})
+                """.format(", ".join(f":pm_check_{i}" for i in range(len(scope["pms"]))))
+            ),
+            {f"pm_check_{i}": pm_id for i, pm_id in enumerate(scope["pms"])},
+        ).scalar_one()
+        if int(pm_pair_count) == 0:
+            return []
+
+    params: dict = {}
+    tipo_cambio_usd = (
+        obtener_tipo_cambio_actual(db, "USD")
+        if scope["costo_usd_min"] is not None or scope["costo_usd_max"] is not None
+        else None
+    )
+    where_extra = _build_alcance_where(**scope, params=params, tipo_cambio_usd=tipo_cambio_usd)
+    rows = db.execute(
+        text(
+            f"""
+            SELECT p.mla
+            FROM publicaciones_ml p
+            JOIN productos_erp e ON e.item_id = p.item_id
+            WHERE p.activo = true
+            {where_extra}
+            ORDER BY p.mla
+            """
+        ),
+        params,
+    ).all()
+    return [str(row[0]) for row in rows]
 
 
 @router.get(
@@ -1024,6 +1095,100 @@ def aplicar_criterios_defaults_mla(
     db.commit()
     db.refresh(row)
     return _criterios_from_row(row, costo_ars=_costo_ars_for_mla(db, mla_norm))
+
+
+@router.post(
+    "/criterios/aplicar-masivo",
+    response_model=ParaGanarCriteriosMasivoResponse,
+    dependencies=[Depends(require_permiso("productos.editar_precios"))],
+)
+def aplicar_criterios_masivo(
+    body: ParaGanarCriteriosMasivoBody,
+    q: Optional[str] = Query(None, max_length=120),
+    marcas: Optional[str] = Query(None),
+    subcategorias: Optional[str] = Query(None),
+    pms: Optional[str] = Query(None),
+    tipos_publicacion: Optional[str] = Query(None),
+    pricelists: Optional[str] = Query(None),
+    tiendas: Optional[str] = Query(None),
+    ean: Optional[str] = Query(None, max_length=80),
+    catalog_product_id: Optional[str] = Query(None, max_length=64),
+    costo_usd_min: Optional[float] = Query(None, ge=0),
+    costo_usd_max: Optional[float] = Query(None, ge=0),
+    incluir_tradicionales_sincronizadas: bool = Query(False),
+    criterios_aplicados: Optional[bool] = Query(
+        None,
+        description="True = only MLAs with saved criteria; false = only without; omit = all",
+    ),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ParaGanarCriteriosMasivoResponse:
+    """Upsert mass criteria onto every MLA in the current cola scope (D17).
+
+    Overwrites markup/TOP/flags on existing rows; leaves precio_min/max untouched.
+    New rows get precio caps unset (D10).
+    """
+    scope = _parse_scope_query(
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        tipos_publicacion=tipos_publicacion,
+        pricelists=pricelists,
+        tiendas=tiendas,
+        ean=ean,
+        catalog_product_id=catalog_product_id,
+        costo_usd_min=costo_usd_min,
+        costo_usd_max=costo_usd_max,
+        incluir_tradicionales_sincronizadas=incluir_tradicionales_sincronizadas,
+        criterios_aplicados=criterios_aplicados,
+    )
+    mlas = _list_scope_mlas(db, scope)
+    if not mlas:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No hay MLAs en el alcance filtrado",
+        )
+
+    now = datetime.now(UTC)
+    existing_rows = (
+        db.query(ParaGanarCriterioMla)
+        .filter(ParaGanarCriterioMla.mla.in_(mlas))
+        .all()
+    )
+    by_mla = {row.mla: row for row in existing_rows}
+    created = 0
+    updated = 0
+    for mla in mlas:
+        row = by_mla.get(mla)
+        if row is None:
+            row = ParaGanarCriterioMla(
+                mla=mla,
+                precio_min=None,
+                precio_max=None,
+            )
+            db.add(row)
+            created += 1
+        else:
+            updated += 1
+        row.markup_min = body.markup_min
+        row.markup_max = body.markup_max
+        row.top_sellers = body.top_sellers
+        row.ganar_catalogo = body.ganar_catalogo
+        row.ignorar_internacionales = body.ignorar_internacionales
+        row.descartar_stock_residual = body.descartar_stock_residual
+        row.descartar_reputacion_baja = body.descartar_reputacion_baja
+        row.techo_monopolio = body.techo_monopolio
+        row.updated_by_id = current_user.id
+        row.updated_at = now
+
+    db.commit()
+    return ParaGanarCriteriosMasivoResponse(
+        scope_total=len(mlas),
+        applied=len(mlas),
+        created=created,
+        updated=updated,
+    )
 
 
 class ParaGanarCatalogSellerItem(BaseModel):

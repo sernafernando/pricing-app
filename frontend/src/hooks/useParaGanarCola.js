@@ -145,6 +145,28 @@ export default function useParaGanarCola(pageSize = 50) {
   const selected = items.find((row) => row.mla === selectedMla) || null;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  const scopeQueryParams = {
+    q: q || undefined,
+    marcas: joinCsv(marcas),
+    subcategorias: joinCsv(subcategorias),
+    pms: joinCsv(pms),
+    tipos_publicacion: joinCsv(tiposPublicacion),
+    pricelists: joinCsv(pricelists),
+    tiendas: joinCsv(tiendas),
+    ean: ean || undefined,
+    catalog_product_id: catalogProductId || undefined,
+    ...(Number.isFinite(Number(costoUsdMin)) && costoUsdMin !== ''
+      ? { costo_usd_min: Number(costoUsdMin) }
+      : {}),
+    ...(Number.isFinite(Number(costoUsdMax)) && costoUsdMax !== ''
+      ? { costo_usd_max: Number(costoUsdMax) }
+      : {}),
+    ...(incluirTradicionalSync ? { incluir_tradicionales_sincronizadas: true } : {}),
+    ...(criteriosAplicados === true || criteriosAplicados === false
+      ? { criterios_aplicados: criteriosAplicados }
+      : {}),
+  };
+
   return {
     items,
     total,
@@ -169,6 +191,7 @@ export default function useParaGanarCola(pageSize = 50) {
     setSelectedMla,
     selected,
     totalPages,
+    scopeQueryParams,
     applySearch,
     clearAlcance,
     setMarcas: resetPage(setMarcas),

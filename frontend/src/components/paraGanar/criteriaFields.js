@@ -92,6 +92,25 @@ export function formToPayload(form) {
   };
 }
 
+/** Mass apply body: markup + TOP + flags only (D10). */
+export function formToMassPayload(form) {
+  const full = formToPayload(form);
+  return {
+    markup_min: full.markup_min,
+    markup_max: full.markup_max,
+    top_sellers: full.top_sellers,
+    ganar_catalogo: full.ganar_catalogo,
+    ignorar_internacionales: full.ignorar_internacionales,
+    descartar_stock_residual: full.descartar_stock_residual,
+    descartar_reputacion_baja: full.descartar_reputacion_baja,
+    techo_monopolio: full.techo_monopolio,
+  };
+}
+
+export const MASS_CRITERIA_NUMBER_FIELDS = CRITERIA_NUMBER_FIELDS.filter((field) =>
+  MASS_CRITERIA_NUMBER_KEYS.includes(field.key),
+);
+
 export function sourceLabel(source) {
   if (source === 'mla') return 'MLA';
   if (source === 'producto') return 'producto';

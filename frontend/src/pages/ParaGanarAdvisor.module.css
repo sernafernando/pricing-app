@@ -102,6 +102,37 @@
   font-size: 12px;
 }
 
+.bulkBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.massModalLead {
+  margin: 0 0 var(--spacing-md);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--cf-text-secondary);
+}
+
+.massModalForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.massModalFooter {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--spacing-sm);
+  width: 100%;
+}
+
+.massModalCancel {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+  font-size: 12px;
+}
+
 .chip {
   appearance: none;
   border: 1px solid var(--cf-border-subtle);
