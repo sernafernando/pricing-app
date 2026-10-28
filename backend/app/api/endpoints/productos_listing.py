@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, func, and_, select, tuple_
 from sqlalchemy import false as sa_false
 from sqlalchemy.exc import SQLAlchemyError
-from typing import Optional
+from typing import Annotated, Optional
 from app.core.database import get_db
 from app.models.equipo import Equipo
 from app.models.producto import ProductoERP, ProductoPricing
@@ -355,10 +355,11 @@ def listar_productos(
     con_promo_sin_aplicar: Optional[bool] = None,
     con_pxq: Optional[bool] = None,
     equipo_id: Optional[int] = None,
-    item_ids: Optional[str] = Query(
-        None,
-        description=f"csv of product item_ids (at most {MAX_LISTING_ITEM_IDS}): only those products",
-    ),
+    # Annotated so a direct call (tests call the function) still defaults to None, not to the Query marker.
+    item_ids: Annotated[
+        Optional[str],
+        Query(description=f"csv of product item_ids (at most {MAX_LISTING_ITEM_IDS}): only those products"),
+    ] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
