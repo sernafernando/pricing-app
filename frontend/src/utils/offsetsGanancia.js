@@ -14,10 +14,15 @@ const DEFAULT_TIPO_CAMBIO = 1000;
 /** The flag of `OffsetGananciaResponse` that says an offset reaches each sales channel. */
 const CANAL_FLAG = { ml: 'aplica_ml', fuera: 'aplica_fuera', tienda_nube: 'aplica_tienda_nube' };
 
-/** The offsets that discount the unit cost: uncapped percentage or per-unit amount. */
+/**
+ * The offsets that discount the unit cost: uncapped percentage or per-unit amount.
+ * An offset already migrated to a sell-out campaign (`campana_id`) is left out:
+ * the campaign is what counts now, and showing both would count it twice.
+ */
 export function offsetsSinLimite(offsets) {
   return (offsets || []).filter(
     (o) =>
+      o.campana_id == null &&
       !o.max_unidades &&
       !o.max_monto_usd &&
       (o.tipo_offset === 'porcentaje_costo' || o.tipo_offset === 'monto_por_unidad'),
