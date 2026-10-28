@@ -5,8 +5,9 @@ very meaning those filters have (`filters._precio`, `erp_stock`, `_oferta`, `_pr
 count and the list it opens can never disagree (`test_stats_postgres.py` checks each card against its list).
 Products are the Producto view's rows (`products.product_ids`): the item-level link's product, in the ERP catalog.
 
-ONE statement, built to scale: the filtered rows collapse to one row per product first, and only then meet the
-product's pricing, ERP row and offers, each once. The filters' own clauses are correlated `EXISTS` per publication;
+ONE statement, built to scale: the filtered rows collapse to one row per product first (with its ERP stock and
+sync date, read through the view's catalog alias `T.p`), and only then meet the product's pricing and offers, each
+once. The filters' own clauses are correlated `EXISTS` per publication;
 asked eleven times over a whole unfiltered set they cost seconds (`test_view_volume_postgres.py`).
 """
 
@@ -20,7 +21,6 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.ml_publications import MlItemProductLink
 from app.models.oferta_ml import OfertaML
-from app.models.producto import ProductoERP, ProductoPricing
 from app.services.ml_publications.view.filters import (
     LINK_ITEM_LEVEL,
     LINK_LINKED,
@@ -28,6 +28,7 @@ from app.services.ml_publications.view.filters import (
     T,
     current_offer,
     build_base_select,
+    product_pricing,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
 
@@ -71,20 +72,17 @@ def compute(db: Session, f: PublicationFilter, *, markups: bool) -> dict[str, in
             func.bool_or(T.l.match_status == LINK_LINKED).label("linked"),
             # mejor oferta of the publication itself: some matching publication of the product has one
             func.bool_or(offered.c.mla.isnot(None)).label("own_offer"),
+            # the product's own ERP figures, one value per product (its catalog row, `T.p`)
+            func.max(T.p.stock).label("stock"),
+            func.max(T.p.fecha_sync).label("fecha_sync"),
         )
         .outerjoin(offered, offered.c.mla == T.i.item_id)
         .where(T.p.item_id.isnot(None))
         .group_by(T.p.item_id)
         .subquery("members")
     )
-    p = aliased(ProductoERP, name="p_stats")
-    pp = aliased(ProductoPricing, name="pp_stats")
-    query = (
-        select()
-        .select_from(members)
-        .join(p, p.item_id == members.c.product)
-        .outerjoin(pp, pp.item_id == members.c.product)
-    )
+    pp = product_pricing("pp_stats")
+    query = select().select_from(members).outerjoin(pp, pp.item_id == members.c.product)
     if f.oferta_per_product:
         by_product = _offered_products(offered)
         query = query.outerjoin(by_product, by_product.c.product == members.c.product)
@@ -92,10 +90,10 @@ def compute(db: Session, f: PublicationFilter, *, markups: bool) -> dict[str, in
     else:
         has_offer = members.c.own_offer.is_(True)
 
-    con_stock = and_(members.c.linked.is_(True), p.stock > 0)
+    con_stock = and_(members.c.linked.is_(True), members.c.stock > 0)
     con_precio = pp.precio_lista_ml.isnot(None)
     sin_precio = ~con_precio  # no pricing row reads "sin", as `filters._precio`
-    nuevos = p.fecha_sync >= func.now() - timedelta(days=7)
+    nuevos = members.c.fecha_sync >= func.now() - timedelta(days=7)
     cards: dict[str, ColumnElement] = {
         "total": true(),
         "con_stock": con_stock,
