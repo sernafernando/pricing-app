@@ -1866,15 +1866,17 @@ describe('row colors and the color layer (S8)', () => {
       for (const line of lines) {
         const cell = line.closest('td');
         const cellBox = cell.getBoundingClientRect();
+        // As `overflowingCells`: half a pixel of rounding, never more.
         for (const part of line.querySelectorAll('span, s')) {
           const box = part.getBoundingClientRect();
-          expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
-          expect(box.right).toBeLessThanOrEqual(cellBox.right);
+          expect(box.left).toBeGreaterThanOrEqual(cellBox.left - 0.5);
+          expect(box.right).toBeLessThanOrEqual(cellBox.right + 0.5);
         }
         const hint = getComputedStyle(line.querySelector('div span:last-child'));
         expect(contrastRatio(hint.color, getComputedStyle(cell).backgroundColor)).toBeGreaterThanOrEqual(4.5);
       }
-      expect(wrapped(document.querySelectorAll('[data-tn-price] span, [data-tn-price] s'))).toEqual([]);
+      // The amounts never wrap; the hint may put "transf." on its own line.
+      expect(wrapped(document.querySelectorAll('[data-tn-price] > div > span:first-child, [data-tn-price] s'))).toEqual([]);
       lines[1].closest('td').scrollIntoView({ block: 'center', inline: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tn-price-1366-${theme}.png` });
       screen.unmount();
