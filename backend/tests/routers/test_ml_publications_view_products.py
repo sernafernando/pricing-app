@@ -16,7 +16,7 @@ from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.services.ml_publications.view import listing, products as products_service, status_block
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import GANANCIA, VER, seed_rows
-from tests.routers.test_ml_publications_view_cost_lines import expected_lines, seed_lines
+from tests.routers.test_ml_publications_view_cost_lines import expected_lines, falla, seed_lines
 from tests.routers.test_ml_publications_view_kpis import METRICAS, _seller, pg, sell, view_pg  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
@@ -180,6 +180,18 @@ class TestRows:
         rows = by_key(body(client, admin_auth_headers, estado="active")["rows"])
         assert {k: rows["77"][k] for k in ("ppp", "sell_in_out")} == expected_lines(linea, 40000.0)
         assert rows["0"]["ppp"] is None and rows["0"]["sell_in_out"] is None  # "Sin producto"
+
+    def test_a_failing_line_read_keeps_each_product_cost_without_the_lines(
+        self, client, sold, db, rol_admin, admin_auth_headers, admin_user, monkeypatch
+    ):
+        with sold.begin() as conn:
+            seed.add_cost(conn, 77, 40000.0)
+        seed_lines(db, admin_user, 77, 40000.0)
+        falla(monkeypatch, "resolver_sell_in_out_batch")
+        grant(db, rol_admin, VER, GANANCIA)
+        rows = by_key(body(client, admin_auth_headers, estado="active")["rows"])
+        assert rows["77"]["costo"] == {"amount": 40000.0, "currency": "ARS"}
+        assert all(not {"ppp", "sell_in_out"} & set(row) for row in rows.values())
 
 
 class TestPaging:
