@@ -120,7 +120,9 @@ export default function DatosTab({ itemId }) {
       )}
       {read.can_edit && read.editable && (
         // Mounted without an override too, so a result stays when the re-read after a push finds the override gone.
-        <PushToMl key={itemId} itemId={itemId} canPush={Boolean(read.override)} onPushed={() => setAttempt((n) => n + 1)} />
+        <PushToMl key={itemId} itemId={itemId} canPush={Boolean(read.override)}
+          replacesPictures={read.override?.fotos != null}
+          onPushed={() => setAttempt((n) => n + 1)} />
       )}
       {savedFor === itemId && (
         <p className={styles.feedback} role="status">

@@ -256,4 +256,13 @@ describe('Actualizar en ML', () => {
     await screen.findByText('Guardado. No se cambió nada en Mercado Libre.');
     expect(screen.queryByText('Título: enviado a Mercado Libre.')).not.toBeInTheDocument();
   });
+
+  it('the confirmation warns about pictures only when the override has them', async () => {
+    mlItemOverridesAPI.get.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    render(<DatosTab itemId="MLA1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar en ML' }));
+
+    expect(screen.getByText(/Las fotos se reemplazan por la lista guardada/)).toBeInTheDocument();
+  });
 });

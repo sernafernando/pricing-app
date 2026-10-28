@@ -62,8 +62,9 @@ function Parte({ parte }) {
  * @param {string} props.itemId The MLA.
  * @param {() => void} props.onPushed Something may have landed in ML: the caller reads the publication again.
  * @param {boolean} [props.canPush] Offers the button (an override to send); the last result stays without it.
+ * @param {boolean} [props.replacesPictures] The override has pictures: ML takes the saved list as a whole.
  */
-export default function PushToMl({ itemId, onPushed, canPush = true }) {
+export default function PushToMl({ itemId, onPushed, canPush = true, replacesPictures = false }) {
   const [phase, setPhase] = useState('idle'); // idle | confirming | sending
   const [outcome, setOutcome] = useState(null);
   const resultId = useId();
@@ -105,6 +106,12 @@ export default function PushToMl({ itemId, onPushed, canPush = true }) {
       {phase === 'confirming' && (
         <div className={styles.statusConfirm}>
           <span>{`Se envían a Mercado Libre los datos sobrescritos que difieren del original. ¿Actualizar ${itemId}?`}</span>
+          {replacesPictures && (
+            <span>
+              Las fotos se reemplazan por la lista guardada: las que se agregaron o quitaron directo en Mercado Libre desde entonces se
+              pierden.
+            </span>
+          )}
           <button type="button" className="btn-tesla primary sm" onClick={send}>
             Confirmar
           </button>

@@ -50,6 +50,24 @@ describe('confirming', () => {
     expect(screen.getByRole('button', { name: 'Actualizar en ML' })).toBeEnabled();
   });
 
+  it('with overridden pictures, warns that the saved list replaces ML pictures as a whole', async () => {
+    render(<PushToMl itemId="MLA1" onPushed={vi.fn()} replacesPictures />);
+    await userEvent.click(screen.getByRole('button', { name: 'Actualizar en ML' }));
+
+    expect(
+      screen.getByText(
+        'Las fotos se reemplazan por la lista guardada: las que se agregaron o quitaron directo en Mercado Libre desde entonces se pierden.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('without overridden pictures there is no pictures warning', async () => {
+    renderPush();
+    await userEvent.click(screen.getByRole('button', { name: 'Actualizar en ML' }));
+
+    expect(screen.queryByText(/Las fotos se reemplazan/)).not.toBeInTheDocument();
+  });
+
   it('says it is sending and does not send twice', async () => {
     mlItemOverridesAPI.pushToMl.mockReturnValue(new Promise(() => {}));
     renderPush();
