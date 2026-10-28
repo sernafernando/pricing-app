@@ -42,9 +42,10 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
 
 /**
  * The panel of one product of the Producto view, beside the table: the product (its code, brand, prearmadas badge
- * as in Productos — `ProductPrearmadas`, `produccion.ver_prearmadas_stats` — and publication count), the sum of its publications' Métricas ML figures under the page's filters, and those publications, each
- * one opening its own panel (`onSelectItem`). The "Sin producto" row (`productKey` '0') has no code or brand,
- * only its figures and publications.
+ * and publication count), the sum of its publications' Métricas ML figures under the page's filters, and those
+ * publications, each one opening its own panel (`onSelectItem`). The prearmadas badge is the one Productos shows
+ * (`ProductPrearmadas`, `produccion.ver_prearmadas_stats`). The "Sin producto" row (`productKey` '0') has no code
+ * or brand, only its figures and publications.
  *
  * The figures are the columns of the list (`buildColumns`) a product row draws, so the permissions hide exactly
  * what ProductoTable hides: nothing without `canSeeSales`, no markup or Total Gauss without `canSeeMargin`.
