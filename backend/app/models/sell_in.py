@@ -44,7 +44,7 @@ class SellInBonoMarca(Base):
     The scope (`alcance`) is a brand (`marca`), a category (`categoria`), some models
     (`SellInBonoItem` rows) or one invoice (`pedido_id`); each carries only its own field. The table
     keeps its brand-bonus name. The reconcile (`app.services.sell_in.bonos`) and the API read every
-    scope and kind (T3e-2, T3e-3)."""
+    scope and kind (T3e-2, T3e-3), and its shared cap (T24)."""
 
     __tablename__ = "sell_in_bonos_marca"
     __table_args__ = (
@@ -68,6 +68,8 @@ class SellInBonoMarca(Base):
             "AND monto_unit IS NULL)",
             name="ck_sell_in_bonos_marca_monto_segun_tipo",
         ),
+        CheckConstraint("tope_unidades IS NULL OR tope_unidades > 0", name="ck_sell_in_bonos_marca_tope_unidades"),
+        CheckConstraint("tope_monto IS NULL OR tope_monto > 0", name="ck_sell_in_bonos_marca_tope_monto"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -88,6 +90,10 @@ class SellInBonoMarca(Base):
     moneda = Column(String(3), nullable=False)
     fecha_desde = Column(Date, nullable=False)  # supplier invoice date, inclusive
     fecha_hasta = Column(Date, nullable=False)  # inclusive
+    # One cap shared by every product and operation the bonus reaches (T24): invoiced units and/or money in
+    # `moneda`; NULL: no cap. The reconcile allocates it like sell out's (`sell_out.tope`).
+    tope_unidades = Column(Integer, nullable=True)
+    tope_monto = Column(Numeric(18, 2), nullable=True)
     descripcion = Column(Text, nullable=True)
     estado = Column(String(16), nullable=False, default="activa", server_default="activa")
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
