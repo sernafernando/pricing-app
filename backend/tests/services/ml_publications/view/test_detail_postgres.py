@@ -445,8 +445,18 @@ class TestMargin:
         assert pricing == []  # nothing was priced, not even the shipping batch
 
     def test_with_ver_ganancia_the_product_shows_its_cost(self, client, rows, analyst, pricing) -> None:
-        product = body_of(client, analyst, "MLA11")["product"]
+        body = body_of(client, analyst, "MLA11")
+        product = body["product"]
         assert (product["costo"], product["moneda_costo"], product["iva"]) == (COST[70], "ARS", 10.5)
+        assert body["row"]["costo"] == {"amount": COST[70], "currency": "ARS"}  # the list row's cost block
+
+    def test_the_row_cost_block_is_null_without_a_product_cost(self, client, pg, analyst, pricing) -> None:
+        with pg.begin() as conn:
+            seed.add_item(conn, "MLA77")
+            seed.add_product(conn, 77, "C77", "Sin costo")
+            seed.add_link(conn, "MLA77", 77)
+        row = body_of(client, analyst, "MLA77")["row"]
+        assert "costo" in row and row["costo"] is None
 
     def test_the_breakdown_is_the_unit_markup_of_the_stored_inputs(self, client, rows, analyst, pricing) -> None:
         got = body_of(client, analyst, "MLA11")["markup_breakdown"]

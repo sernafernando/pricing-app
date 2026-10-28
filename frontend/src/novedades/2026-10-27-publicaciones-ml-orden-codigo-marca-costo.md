@@ -17,3 +17,7 @@ Las publicaciones sin producto vinculado van al final, en cualquier dirección. 
 1. Abrir **Reportes → Publicaciones ML**.
 2. En **Columnas**, prender **Código**, **Marca** o **Costo**.
 3. Tocar el encabezado para ordenar. Otro toque invierte el orden.
+
+## Para tener en cuenta
+
+- Si no hay ninguna cotización cargada, los costos en dólares van después de los costos en pesos, ordenados por su monto en dólares, y antes de las publicaciones sin costo.
