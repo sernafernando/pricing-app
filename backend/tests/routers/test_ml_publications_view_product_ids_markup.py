@@ -58,6 +58,15 @@ def listed(client, headers, **params) -> list[dict]:
             return rows
 
 
+# The products a publication linked per variation only is linked to (`fill`): `/items`' `link` is the item-level one.
+VARIATION_PRODUCTS = {"MLA4": {70, 71}}
+
+
+def products_of(row: dict) -> set[int]:
+    item_level = row["link"]["producto_item_id"]
+    return {item_level} if item_level is not None else VARIATION_PRODUCTS.get(row["item_id"], set())
+
+
 MARKUP_PARAMS = [
     {"markup_neg": "true"},
     {"markup_min": "0"},
@@ -70,18 +79,18 @@ class TestMarkupFilter:
     @pytest.mark.parametrize("params", MARKUP_PARAMS, ids=lambda p: "&".join(f"{k}={v}" for k, v in p.items()))
     def test_the_products_are_those_of_the_publications_items_lists(self, client, analyst, pricing, params) -> None:
         rows = listed(client, analyst, **params)
-        linked = sorted({r["link"]["producto_item_id"] for r in rows if r["link"]["producto_item_id"] is not None})
+        linked = sorted(set().union(*(products_of(r) for r in rows)))
         got = resolve(client, analyst, **params)
         assert (got["item_ids"], got["count"]) == (linked, len(linked))
-        assert got["sin_producto"] == sum(1 for r in rows if r["link"]["producto_item_id"] is None)
+        assert got["sin_producto"] == sum(1 for r in rows if not products_of(r))
 
     def test_markup_neg_keeps_only_the_negative_products(self, client, analyst, pricing) -> None:
-        # 71 (MLA2) and 72 (MLA5) are negative; MLA4 is negative too, through variations of 70 and 71, but it has no
-        # item-level link: it is a publication without product, as the Producto view groups it.
+        # 71 (MLA2) and 72 (MLA5) are negative; MLA4 is negative too, linked per variation to 70 and 71: it belongs
+        # to both products, as the Producto view groups it (S12g), so no publication is without product.
         assert resolve(client, analyst, markup_neg="true") == {
-            "item_ids": [71, 72],
-            "count": 2,
-            "sin_producto": 1,
+            "item_ids": [70, 71, 72],
+            "count": 3,
+            "sin_producto": 0,
             "fuera_de_catalogo": 0,
         }
 

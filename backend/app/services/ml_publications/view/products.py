@@ -33,7 +33,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Iterator, Optional, Sequence
 
-from sqlalchemy import ARRAY, Date, Integer, String, Text, and_, any_, case, cast, func, literal, select
+from sqlalchemy import ARRAY, Date, String, Text, and_, any_, case, cast, false, func, literal, or_, select
 from sqlalchemy.orm import Session
 
 from app.services.ml_daily_metrics import board
@@ -41,12 +41,12 @@ from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services.ml_publications.view import row_metrics
 from app.services.ml_publications.view.caps import MAX_EXPLICIT_PRODUCT_IDS
 from app.services.ml_publications.view.filters import (
-    LINK_ITEM_LEVEL,
     FilterError,
     PublicationFilter,
     T,
     build_base_select,
-    erp_stock,
+    has_product,
+    product_links,
 )
 from app.services.ml_publications.view.listing import markup_accepted, resolve_pm_pairs
 from app.services.ml_publications.view.markup_service import MarkupQuery
@@ -94,22 +94,25 @@ class ProductsPage:
 
 
 def _members(mla_set: Any) -> Any:
-    """Each MLA of the set with its linked product -- the LINK's product id, even when the product is gone from the
-    catalog (its name then reads "Producto #<id>") -- through the base select's own item-level link join
-    (`filters.joined`), so the grouping is exactly what `/items?producto=` and `sin_producto` filter on."""
+    """Each MLA of the set once per linked product (`filters.product_links`: its item-level link or its live
+    variations' links) -- the LINK's product id, even when the product is gone from the catalog (its name then reads
+    "Producto #<id>") -- so the grouping is exactly what `/items?producto=` and `sin_producto` filter on. An MLA with
+    no linked product is one `NO_PRODUCT` row."""
+    pl = product_links("pl_members")
     return (
         select(
             mla_set.c.mla,
             # NO_PRODUCT (0) is the Board's own "no product" sentinel; ERP item ids are positive.
-            func.coalesce(T.l.producto_item_id, NO_PRODUCT).label("product"),
+            func.coalesce(pl.c.producto_item_id, NO_PRODUCT).label("product"),
             T.p.descripcion,
             T.p.codigo,
             T.p.marca,
-            erp_stock().label("stock"),  # `/items`' own rule: only a `linked` link gives the ERP stock
+            # `/items`' own rule (`filters.erp_stock`): only a `linked` link gives the ERP stock
+            case((pl.c.linked, T.p.stock), else_=None).label("stock"),
         )
         .select_from(mla_set)
-        .outerjoin(T.l, and_(T.l.item_id == mla_set.c.mla, T.l.variation_id == LINK_ITEM_LEVEL))
-        .outerjoin(T.p, T.p.item_id == T.l.producto_item_id)
+        .outerjoin(pl, pl.c.item_id == mla_set.c.mla)
+        .outerjoin(T.p, T.p.item_id == pl.c.producto_item_id)
         .subquery("members")
     )
 
@@ -230,8 +233,11 @@ def _product_rows(db: Session, f: PublicationFilter, only: Optional[Sequence[int
     first, last = row_metrics.window(board.today_business())
     mla_source = build_base_select(f, T.i.item_id)
     if only is not None:
-        product = func.coalesce(T.l.producto_item_id, NO_PRODUCT)
-        mla_source = mla_source.where(product == any_(literal(list(only), ARRAY(Integer))))
+        linked = [k for k in only if k != NO_PRODUCT]
+        wanted = [has_product(linked)] if linked else []
+        if NO_PRODUCT in only:
+            wanted.append(~has_product())
+        mla_source = mla_source.where(or_(false(), *wanted))
     board_filter = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
     with board.Board(db, board_filter, scope_pairs=None) as b:
         members = _members(b.mla_set)
@@ -244,8 +250,12 @@ def list_products(
     """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` names."""
     key = parse_sort(orden)
     with _product_rows(db, f) as (b, members, rows):
+        # The publications are counted once: one linked to two products is a member of both rows.
         total, mla_count = db.execute(
-            select(func.count(), func.coalesce(func.sum(rows.c.pubs), 0)).select_from(rows)
+            select(
+                select(func.count()).select_from(rows).scalar_subquery(),
+                select(func.count(func.distinct(members.c.mla))).scalar_subquery(),
+            )
         ).one()
         found: list[Any] = []
         if offset < total:
@@ -300,8 +310,8 @@ class ProductIds:
 
 
 def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery] = None) -> ProductIds:
-    """The linked products of the MLAs `f` selects -- the very grouping `list_products` makes (the base select's
-    item-level link), so their count is its product rows. Unlike `list_products`, mejor oferta is asked the way the
+    """The linked products of the MLAs `f` selects -- the very grouping `list_products` makes
+    (`filters.product_links`), so their count is its product rows. Unlike `list_products`, mejor oferta is asked the way the
     caller asks it (`oferta_por_producto`): in the publication view a product is in the set when one of ITS matching
     publications is, which is what the operator sees.
 
@@ -310,13 +320,18 @@ def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery]
     out and counted (`fuera_de_catalogo`): the bulk endpoints cannot price it. Raises `TooManyProducts` over
     `MAX_PRODUCT_IDS`."""
     f = resolve_pm_pairs(db, f)
-    base = build_base_select(
-        f, T.i.item_id.label("mla"), T.l.producto_item_id.label("product"), T.p.item_id.label("in_catalog")
-    )
+    base = build_base_select(f, T.i.item_id.label("mla"))
     if markup is not None and markup.filter.active:
         _, kept = markup_accepted(db, f, markup)
         base = base.where(T.i.item_id == any_(literal(sorted(kept), ARRAY(Text))))
-    members = base.subquery("m")
+    mlas, pl = base.subquery("mlas"), product_links("pl_ids")
+    members = (
+        select(mlas.c.mla, pl.c.producto_item_id.label("product"), T.p.item_id.label("in_catalog"))
+        .select_from(mlas)
+        .outerjoin(pl, pl.c.item_id == mlas.c.mla)
+        .outerjoin(T.p, T.p.item_id == pl.c.producto_item_id)
+        .subquery("m")
+    )
     linked = members.c.product.isnot(None) & (members.c.product != NO_PRODUCT)
     priceable = linked & members.c.in_catalog.isnot(None)
     # The ids and their total come from ONE statement (a window over the distinct ids, evaluated before the LIMIT):

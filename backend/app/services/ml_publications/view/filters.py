@@ -557,6 +557,37 @@ def joined() -> Any:
     return orm_join(products, T.st, T.st.user_product_id == T.i.user_product_id, isouter=True)
 
 
+def product_links(name: str = "product_links") -> Any:
+    """Each publication's linked products, one row per (item, product): its item-level link, or -- an item with
+    variations is linked per variation only (`links.units_for_item`) -- its live variations' links (the rule
+    `producto_propio_service.linked_skus` reads them by). `linked`: one of those links is `linked`, the state that
+    gives the ERP stock (`erp_stock`). The Producto view and the `producto` / `sin_producto` filters read this, so a
+    product's rows are what opening it lists."""
+    link, var = aliased(MlItemProductLink, name=f"{name}_l"), aliased(MlItemVariation, name=f"{name}_v")
+    live = or_(link.variation_id == LINK_ITEM_LEVEL, and_(var.variation_id.isnot(None), var.gone_at.is_(None)))
+    return (
+        select(
+            link.item_id,
+            link.producto_item_id,
+            func.bool_or(link.match_status == LINK_LINKED).label("linked"),
+        )
+        .select_from(link)
+        .outerjoin(var, and_(var.item_id == link.item_id, var.variation_id == link.variation_id))
+        .where(link.producto_item_id.isnot(None), live)
+        .group_by(link.item_id, link.producto_item_id)
+        .subquery(name)
+    )
+
+
+def has_product(products: Optional[list[int]] = None) -> ColumnElement:
+    """The row's publication is linked (`product_links`) to one of `products`, or to any product when None."""
+    pl = product_links("pl_filter")
+    found = select(1).select_from(pl).where(pl.c.item_id == T.i.item_id)
+    if products is not None:
+        found = found.where(pl.c.producto_item_id == any_(literal(products, ARRAY(Integer))))
+    return exists(found)
+
+
 def price_amount() -> ColumnElement:
     """The ML price of the row: the sale price when there is one, else the item price (spec PRC-1)."""
     return func.coalesce(T.sp.amount, T.i.price)
@@ -913,9 +944,9 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     if f.subcategorias or f.no_subcategoria:
         where.append(_subcategorias_in(f))
     if f.producto is not None:
-        where.append(T.l.producto_item_id == f.producto)
+        where.append(has_product([f.producto]))
     if f.sin_producto:
-        where.append(T.l.producto_item_id.is_(None))
+        where.append(~has_product())
     if f.pms:
         where.append(_pm(f))
     if f.pm_group is not None:

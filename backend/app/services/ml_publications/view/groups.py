@@ -47,9 +47,10 @@ from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from sqlalchemy import String, case, cast, func, literal, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.models.producto import ProductoERP
 from app.services.ml_daily_metrics.groups import (
     CLAVE_KEY_PREFIX,
     HIERARCHIES,
@@ -69,6 +70,7 @@ from app.services.ml_publications.view.filters import (
     build_base_select,
     decode_key,
     encode_key,
+    product_links,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
 from app.services.ml_publications.view.markup_service import MarkupQuery, aggregate_nodes, compute_markups, gc_paused
@@ -176,10 +178,16 @@ def _total(db: Session, page: list[Any], key: Any) -> int:
     return db.execute(select(func.count(func.distinct(key)))).scalar_one()
 
 
+# The product level's own joins (`_scoped(products=True)`): a publication sits under each of its linked products
+# (`filters.product_links`: item-level link or live variations' links), the set `producto=` / `sin_producto` filter on.
+PL = product_links("pl_tree")
+PP = aliased(ProductoERP, name="pp")
+
+
 def product_key() -> Any:
-    """The product a publication sits under: its item-level LINK's product id (the one `producto=` filters on), even
-    when that product is gone from the catalog; `NO_GROUP` when the link names none."""
-    return case((T.l.producto_item_id.is_(None), literal(NO_GROUP)), else_=cast(T.l.producto_item_id, String))
+    """The product a publication sits under: a linked product's id (the one `producto=` filters on), even when that
+    product is gone from the catalog; `NO_GROUP` when it has none. Needs `_scoped(products=True)`."""
+    return case((PL.c.producto_item_id.is_(None), literal(NO_GROUP)), else_=cast(PL.c.producto_item_id, String))
 
 
 def family_key() -> Any:
@@ -236,12 +244,15 @@ def _check_path(tree: Tree, path: list[str]) -> None:
             raise FilterError("path", f"{key!r} is not a {tree.levels[depth]} key")
 
 
-def _scoped(f: PublicationFilter, path: list[str], tree: Tree, *columns: Any) -> Any:
-    """The base select with the dimensions' lookup tables joined and the ancestors' keys applied."""
+def _scoped(f: PublicationFilter, path: list[str], tree: Tree, *columns: Any, products: bool = False) -> Any:
+    """The base select with the dimensions' lookup tables joined and the ancestors' keys applied. With the product
+    level (`products`, or a path through it) a publication is one row per linked product (`PL`)."""
     query = build_base_select(f, *columns)
     for dimension in tree.dimensions.values():
         for target, onclause in dimension.joins:
             query = query.join(target, onclause, isouter=True)
+    if products or len(path) > len(tree.group_levels):
+        query = query.outerjoin(PL, PL.c.item_id == T.i.item_id).outerjoin(PP, PP.item_id == PL.c.producto_item_id)
     keys = [tree.dimensions[name].key for name in tree.group_levels] + [product_key()]
     return query.where(*(keys[depth] == _raw_key(tree.levels[depth], key) for depth, key in enumerate(path)))
 
@@ -336,16 +347,16 @@ def _with_store_ids(db: Session, f: PublicationFilter, page: GroupsPage) -> Grou
 
 def _product_columns() -> list[Any]:
     label = case(
-        (T.l.producto_item_id.is_(None), literal(NO_PRODUCT_LABEL)),
-        else_=func.coalesce(T.p.descripcion, T.p.codigo, literal("Producto #") + cast(T.l.producto_item_id, String)),
+        (PL.c.producto_item_id.is_(None), literal(NO_PRODUCT_LABEL)),
+        else_=func.coalesce(PP.descripcion, PP.codigo, literal("Producto #") + cast(PL.c.producto_item_id, String)),
     )
-    return [product_key().label("k"), label.label("t"), T.p.codigo.label("codigo"), T.l.producto_item_id.label("pid")]
+    return [product_key().label("k"), label.label("t"), PP.codigo.label("codigo"), PL.c.producto_item_id.label("pid")]
 
 
 def _products(
     db: Session, f: PublicationFilter, tree: Tree, path: list[str], familias: bool, limit: int, offset: int
 ) -> GroupsPage:
-    rows = _scoped(f, path, tree, *_product_columns(), family_key().label("fk")).subquery("rows")
+    rows = _scoped(f, path, tree, *_product_columns(), family_key().label("fk"), products=True).subquery("rows")
     if familias:
         # one row per (product, family key) first: a product is a leaf unless some family has two or more members
         per_family = (
@@ -447,10 +458,11 @@ def _members(db: Session, f: PublicationFilter, tree: Tree, path: list[str], pag
     """`(item_id, node key)` of every publication of the page's nodes, the key written as the node's own."""
     if page.level == KIND_FAMILY:
         return _family_members(db, f, tree, path, page)
-    key = tree.dimensions[page.level].key if page.level in tree.dimensions else product_key()
+    is_product = page.level not in tree.dimensions
+    key = product_key() if is_product else tree.dimensions[page.level].key
     raw = {_raw_key(page.level, node.key): node.key for node in page.nodes}
     # Plain columns, straight through the connection: the ORM loading layer costs more than the rows on a big set.
-    query = _scoped(f, path, tree, T.i.item_id, key.label("k")).where(key.in_(list(raw)))
+    query = _scoped(f, path, tree, T.i.item_id, key.label("k"), products=is_product).where(key.in_(list(raw)))
     return [(item_id, raw[k]) for item_id, k in db.connection().execute(query).all()]
 
 
