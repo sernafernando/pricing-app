@@ -118,7 +118,7 @@ class ProductsPage:
     # key -> the product's cost in its own currency (`{amount, currency}`, None without one); only when asked
     costs: dict[str, Optional[dict[str, Any]]] = field(default_factory=dict)
     # key -> the PPP and sell in lines under that cost (`cost_lines.cost_lines`); only when asked
-    lines: dict[str, dict[str, Any]] = field(default_factory=dict)
+    lines: Optional[dict[str, dict[str, Any]]] = field(default_factory=dict)  # None: they could not be built
 
 
 def product_pairs(f: PublicationFilter, mlas: Any, *columns: Any) -> Any:
@@ -333,7 +333,7 @@ def _product_rows(db: Session, f: PublicationFilter, only: Optional[Sequence[int
 
 def _costs(
     db: Session, rows: Sequence[board.Row], pricing_db: Optional[Session] = None
-) -> tuple[dict[str, Optional[dict[str, Any]]], dict[str, dict[str, Any]]]:
+) -> tuple[dict[str, Optional[dict[str, Any]]], Optional[dict[str, dict[str, Any]]]]:
     """Each row's product cost in its own currency, as the publication rows carry it (`listing.attach_cost`): one
     statement over the page's products; "Sin producto" and a product with no cost read None. With `pricing_db`, the
     lines under each cost too (`cost_lines.cost_lines`, null on "Sin producto")."""
@@ -352,6 +352,8 @@ def _costs(
     if pricing_db is None:
         return out, {}
     by_id = cost_lines(pricing_db, {i: (r.costo, r.moneda_costo, r.iva) for i, r in found.items()})
+    if by_id is None:  # the lines could not be built (logged): the rows keep their cost, without them
+        return out, None
     return out, {row.key: by_id.get(row.product_item_id, NO_COST_LINES) for row in rows}
 
 
