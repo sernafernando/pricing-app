@@ -12,7 +12,8 @@ query filters on it.
 
 The existing counters are copied over (Postgres), so a shipment that already gave up stays given up and one halfway
 through its attempts keeps its count; values are clamped at 5 like the code does. The legacy rows are left in place:
-the table is dropped by a later revision. Downgrade copies the counters back and drops the column.
+the table is dropped by a later revision. Downgrade rewrites the legacy counters from the column (stale ones
+removed) and drops the column.
 
 LOCK NOTE: ADD COLUMN with a constant default is a catalog-only change in Postgres 11+ (no rewrite), but it takes an
 ACCESS EXCLUSIVE lock on `ml_shipments_ops`. Behind an open writer it would queue and block every new reader, so
@@ -44,6 +45,13 @@ WHERE d.order_id = 0
   AND d.field ~ '^cost_sync:[0-9]{{1,18}}$'
   AND d.ml_value ~ '^[0-9]{{1,4}}$'
   AND s.shipment_id = substr(d.field, 11)::bigint
+"""
+
+# Downgrade rewrites every legacy counter from the column: a counter the new code reset to 0 (the shipment settled)
+# must not come back from its pre-upgrade row, which the old code would read as a live count or a give-up.
+DELETE_LEGACY_COUNTERS = """
+DELETE FROM ml_ops_divergence
+WHERE order_id = 0 AND kind = 'unknown' AND field LIKE 'cost_sync:%'
 """
 
 COPY_TO_DIVERGENCE = f"""
@@ -82,6 +90,7 @@ def downgrade() -> None:
     postgres = _is_postgres()
     if postgres:
         _set_lock_timeout()
+        op.execute(DELETE_LEGACY_COUNTERS)
         op.execute(COPY_TO_DIVERGENCE)
     op.drop_column(TABLE, COLUMN)
     if postgres:
