@@ -21,6 +21,10 @@ export const BONO_VACIO = {
   fechaDesde: '',
   fechaHasta: '',
   descripcion: '',
+  // One cap shared by every product and purchase of the bonus (T24): invoiced units and/or money in its currency;
+  // '' is no cap.
+  topeUnidades: '',
+  topeMonto: '',
 };
 
 /** The label of a model chip: code and description, or the bare item when the catalog lost it. */
@@ -42,6 +46,8 @@ export const valoresDeBono = (bono) => ({
   fechaDesde: bono.fecha_desde,
   fechaHasta: bono.fecha_hasta,
   descripcion: bono.descripcion ?? '',
+  topeUnidades: bono.tope_unidades != null ? String(bono.tope_unidades) : '',
+  topeMonto: texto(bono.tope_monto),
 });
 
 /** The key of the bonus's kind in the API and in a model's form values. */
@@ -66,7 +72,9 @@ const CAMPO_DEL_ALCANCE = {
   factura: (v) => ({ pedido_id: v.pedido?.id ?? null }),
 };
 
-/** The create/edit body (`SellInBonoIn`): a full replace on edit. */
+const tope = (valor) => String(valor ?? '').trim() || null;
+
+/** The create/edit body (`SellInBonoIn`): a full replace on edit; an empty cap is sent as null (no cap). */
 export const bodyDeBono = (valores) => ({
   alcance: valores.alcance,
   ...CAMPO_DEL_ALCANCE[valores.alcance](valores),
@@ -76,6 +84,8 @@ export const bodyDeBono = (valores) => ({
   fecha_desde: valores.fechaDesde,
   fecha_hasta: valores.fechaHasta,
   descripcion: valores.descripcion.trim() || null,
+  tope_unidades: tope(valores.topeUnidades),
+  tope_monto: tope(valores.topeMonto),
 });
 
 const ALCANCE_COMPLETO = {
@@ -102,6 +112,23 @@ export const errorDeModelos = (v) => {
     if (porcentaje && Number(valor) > 100) return `El porcentaje de ${modelo.label} no puede superar 100.`;
   }
   return null;
+};
+
+/** Why the shared cap cannot be saved (units not a whole number above zero, money zero or less), or null. */
+export const errorDeTope = (v) => {
+  const unidades = String(v.topeUnidades ?? '').trim();
+  if (unidades !== '' && !(Number.isInteger(Number(unidades)) && Number(unidades) > 0)) return 'El tope de unidades debe ser un número entero mayor que cero.';
+  const monto = String(v.topeMonto ?? '').trim();
+  if (monto !== '' && !(Number(monto) > 0)) return 'El tope de monto debe ser mayor que cero.';
+  return null;
+};
+
+/** What is left of the bonus's cap ("20 u de 100 · USD 500,00 de USD 3.000,00"), or null without a cap. */
+export const restanteDeTope = (bono, formatEntero, formatMonto) => {
+  const partes = [];
+  if (bono.tope_unidades != null) partes.push(`${formatEntero(bono.tope_unidades_restantes)} u de ${formatEntero(bono.tope_unidades)}`);
+  if (bono.tope_monto != null) partes.push(`${formatMonto(bono.tope_monto_restante, bono.moneda)} de ${formatMonto(bono.tope_monto, bono.moneda)}`);
+  return partes.length ? partes.join(' · ') : null;
 };
 
 const FALTA_ALCANCE = { marca: 'marca', categoria: 'categoría', modelos: 'al menos un modelo', factura: 'pedido de compra' };

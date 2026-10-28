@@ -5,7 +5,17 @@ import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
 import SellInBonoAlcance from './SellInBonoAlcance';
 import SellInBonoForm from './SellInBonoForm';
-import { BONO_VACIO, alcanceDeBono, bodyDeBono, bonoCompleto, errorDeModelos, faltanDatos, valoresDeBono } from './sellInBonoValores';
+import {
+  BONO_VACIO,
+  alcanceDeBono,
+  bodyDeBono,
+  bonoCompleto,
+  errorDeModelos,
+  errorDeTope,
+  faltanDatos,
+  restanteDeTope,
+  valoresDeBono,
+} from './sellInBonoValores';
 import { apiMessage, formatEntero, formatMonto } from './sellInFormat';
 import styles from './SellInPanel.module.css';
 
@@ -79,8 +89,9 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
       setError(faltanDatos(valores));
       return;
     }
-    if (errorDeModelos(valores)) {
-      setError(errorDeModelos(valores));
+    const invalido = errorDeModelos(valores) ?? errorDeTope(valores);
+    if (invalido) {
+      setError(invalido);
       return;
     }
     setBusy(true);
@@ -158,6 +169,9 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
               <p className={styles.hint}>
                 <strong>{`${formatEntero(bono.compras_activas)} compras · ${formatEntero(bono.unidades)} u · ${formatMonto(bono.monto_generado, bono.moneda)} aplicados`}</strong>
               </p>
+            )}
+            {bono && restanteDeTope(bono, formatEntero, formatMonto) && (
+              <p className={styles.hint}>{`Tope: quedan ${restanteDeTope(bono, formatEntero, formatMonto)}`}</p>
             )}
             {bono && otrasMonedas(bono).length > 0 && (
               <p className={styles.hint}>{`Además ${otrasMonedas(bono)

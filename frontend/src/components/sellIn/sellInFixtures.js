@@ -243,6 +243,10 @@ export const BONO = {
   unidades: 1040,
   monto_generado: '3120.00',
   montos_generados: [{ moneda: 'USD', monto: '3120.00' }],
+  tope_unidades: null,
+  tope_monto: null,
+  tope_unidades_restantes: null,
+  tope_monto_restante: null,
 };
 
 export const BONO_ANULADO = { ...BONO, id: 4, estado: 'anulada', descripcion: 'Bono anulado', compras_activas: 0, unidades: 0, monto_generado: '0.00', montos_generados: [] };

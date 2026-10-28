@@ -1,6 +1,6 @@
 import { StatusPill } from '../kit';
 import { formatDateOnly } from '../../utils/dateUtils';
-import { alcanceDeBono } from './sellInBonoValores';
+import { alcanceDeBono, restanteDeTope } from './sellInBonoValores';
 import { formatEntero, formatMonto, formatPorcentaje } from './sellInFormat';
 import styles from './SellInTable.module.css';
 
@@ -43,6 +43,9 @@ export default function SellInBonosTable({ bonos, selectedId, onSelect }) {
               <td className={styles.num}>
                 <div>{`${formatEntero(bono.compras_activas)} compras · ${formatEntero(bono.unidades)} u`}</div>
                 <div className={styles.sub}>{formatMonto(bono.monto_generado, bono.moneda)}</div>
+                {restanteDeTope(bono, formatEntero, formatMonto) && (
+                  <div className={styles.sub}>{`Tope: quedan ${restanteDeTope(bono, formatEntero, formatMonto)}`}</div>
+                )}
               </td>
               <td>
                 <StatusPill tone={bono.estado === 'activa' ? 'success' : 'danger'}>{bono.estado === 'activa' ? 'Activo' : 'Anulado'}</StatusPill>

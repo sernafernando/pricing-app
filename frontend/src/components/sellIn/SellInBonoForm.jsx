@@ -181,7 +181,13 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
           {disabled ? (
             <span>{valores.moneda}</span>
           ) : (
-            <SegmentedControl label="Moneda" options={MONEDAS} value={valores.moneda} onChange={(moneda) => set({ moneda })} />
+            <SegmentedControl
+              label="Moneda"
+              options={MONEDAS}
+              value={valores.moneda}
+              // The money cap is in the bonus's currency: another currency needs it entered again.
+              onChange={(moneda) => set(moneda === valores.moneda ? { moneda } : { moneda, topeMonto: '' })}
+            />
           )}
         </div>
       </div>
@@ -195,6 +201,34 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
           <input id={`${id}-hasta`} type="date" className={styles.input} value={valores.fechaHasta} disabled={disabled} onChange={(e) => set({ fechaHasta: e.target.value })} />
         </label>
       </div>
+      <div className={styles.grid2}>
+        <label className={styles.field} htmlFor={`${id}-tope-u`}>
+          <span className={styles.label}>Tope de unidades (opcional)</span>
+          <input
+            id={`${id}-tope-u`}
+            type="number"
+            min="1"
+            step="1"
+            className={styles.input}
+            value={valores.topeUnidades}
+            disabled={disabled}
+            onChange={(e) => set({ topeUnidades: e.target.value })}
+          />
+        </label>
+        <label className={styles.field} htmlFor={`${id}-tope-m`}>
+          <span className={styles.label}>{`Tope de monto en ${valores.moneda} (opcional)`}</span>
+          <input
+            id={`${id}-tope-m`}
+            type="number"
+            min="0"
+            step="0.01"
+            className={styles.input}
+            value={valores.topeMonto}
+            disabled={disabled}
+            onChange={(e) => set({ topeMonto: e.target.value })}
+          />
+        </label>
+      </div>
       <label className={styles.field} htmlFor={`${id}-desc`}>
         <span className={styles.label}>Descripción</span>
         <input id={`${id}-desc`} type="text" className={styles.input} value={valores.descripcion} disabled={disabled} onChange={(e) => set({ descripcion: e.target.value })} />
@@ -205,6 +239,12 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
           ? 'Paga el porcentaje de lo facturado de cada producto, neto de notas de crédito; si se facturó en la otra moneda, se convierte al tipo de cambio de la operación.'
           : 'Cuenta las unidades facturadas, netas de notas de crédito.'}
       </p>
+      {(valores.topeUnidades !== '' || valores.topeMonto !== '') && (
+        <p className={styles.hint}>
+          El tope es uno solo para todos los productos y compras del bono: se reparte por fecha de factura, la compra que lo
+          alcanza cobra lo que queda y las siguientes no cobran.
+        </p>
+      )}
     </>
   );
 }
