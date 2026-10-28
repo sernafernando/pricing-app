@@ -21,6 +21,7 @@ export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [suscriptoFilter, setSuscriptoFilter] = useState(null); // null | true | false
+  const [mlasNuevosFilter, setMlasNuevosFilter] = useState(null); // null | true
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState(null);
 
@@ -54,6 +55,7 @@ export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
           ...(suscriptoFilter === true || suscriptoFilter === false
             ? { suscripto: suscriptoFilter }
             : {}),
+          ...(mlasNuevosFilter === true ? { mlas_nuevos: true } : {}),
         },
       });
       setItems(data.items || []);
@@ -75,11 +77,11 @@ export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
     }
     // catalogScope content tracked via scopeKey
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey
-  }, [canView, page, pageSize, scopeKey, suscriptoFilter]);
+  }, [canView, page, pageSize, scopeKey, suscriptoFilter, mlasNuevosFilter]);
 
   useEffect(() => {
     setPage(1);
-  }, [scopeKey, suscriptoFilter]);
+  }, [scopeKey, suscriptoFilter, mlasNuevosFilter]);
 
   useEffect(() => {
     loadList();
@@ -238,6 +240,14 @@ export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
           onClick={() => setSuscriptoFilter(false)}
         >
           Sin suscribir
+        </button>
+        <button
+          type="button"
+          className={`${styles.chip} ${mlasNuevosFilter === true ? styles.chipActive : ''}`}
+          onClick={() => setMlasNuevosFilter((prev) => (prev === true ? null : true))}
+          title="EANs con lista explícita que tienen MLA activos fuera de la suscripción"
+        >
+          Con MLA nuevos
         </button>
         <span className={styles.toolbarHint}>
           {total.toLocaleString('es-AR')} EAN{total === 1 ? '' : 's'} en alcance

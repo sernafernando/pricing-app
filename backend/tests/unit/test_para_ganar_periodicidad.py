@@ -263,3 +263,62 @@ def test_periodicidad_catalogo_filtra_ean_por_criterios(client: TestClient, rma_
     )
     assert without_crit.status_code == 200, without_crit.text
     assert {row["ean"] for row in without_crit.json()["items"]} == {ean_without}
+
+
+def test_periodicidad_catalogo_detecta_mlas_nuevos(client: TestClient, rma_superadmin_user, db) -> None:
+    """P3.3: scope_mode=mlas with an active MLA outside the saved list → nuevos."""
+    from app.models.ml_publication_link import MlPublicationLink
+    from app.models.producto import ProductoERP
+    from app.models.publicacion_ml import PublicacionML
+
+    catalog_id = "MLA-PG-PER-NEW-995"
+    ean = "779000PERNEW01"
+    db.add(ProductoERP(item_id=99501, codigo=ean, descripcion="nuevos", marca="Acme", costo=10))
+    db.flush()
+    for mla in ("MLA99501A", "MLA99501B"):
+        db.add(
+            PublicacionML(
+                mla=mla,
+                item_id=99501,
+                codigo=ean,
+                activo=True,
+                pricelist_id=4,
+            )
+        )
+        db.add(
+            MlPublicationLink(
+                mla=mla,
+                catalog_product_id=catalog_id,
+                catalog_listing=True,
+            )
+        )
+    db.commit()
+
+    headers = _auth(rma_superadmin_user)
+    put = client.put(
+        f"/api/para-ganar/periodicidad/{ean}",
+        headers=headers,
+        json={"enabled": True, "scope_mode": "mlas", "mlas": ["MLA99501A"]},
+    )
+    assert put.status_code == 200, put.text
+
+    cat = client.get(
+        "/api/para-ganar/periodicidad/catalogo",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "mlas_nuevos": True},
+    )
+    assert cat.status_code == 200, cat.text
+    rows = cat.json()["items"]
+    assert len(rows) == 1
+    assert rows[0]["ean"] == ean
+    assert rows[0]["tiene_mlas_nuevos"] is True
+
+    mlas = client.get(
+        f"/api/para-ganar/periodicidad/catalogo/{ean}/mlas",
+        headers=headers,
+        params={"catalog_product_id": catalog_id},
+    )
+    assert mlas.status_code == 200, mlas.text
+    by_mla = {row["mla"]: row for row in mlas.json()["mlas"]}
+    assert by_mla["MLA99501A"]["es_nuevo"] is False
+    assert by_mla["MLA99501B"]["es_nuevo"] is True

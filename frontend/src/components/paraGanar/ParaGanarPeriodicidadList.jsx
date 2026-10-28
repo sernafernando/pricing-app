@@ -74,6 +74,9 @@ export default function ParaGanarPeriodicidadList({
                             ? 'Suscripto · pausada'
                             : 'Suscripto'
                           : 'Sin suscribir'}
+                        {row.tiene_mlas_nuevos ? (
+                          <span className={styles.periodicidadNuevoBadge}> · MLA nuevos</span>
+                        ) : null}
                       </span>
                     </div>
                     <div className={styles.queueRowTitle}>

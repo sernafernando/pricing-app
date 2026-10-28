@@ -303,9 +303,11 @@ export default function ParaGanarPeriodicidadDetail({
                       key={mla}
                       role="listitem"
                       className={`${styles.criteriaCheck} ${
-                        opt.criterios_aplicados
-                          ? styles.periodicidadMlaConCriterio
-                          : styles.periodicidadMlaSinCriterio
+                        opt.es_nuevo
+                          ? styles.periodicidadMlaNuevo
+                          : opt.criterios_aplicados
+                            ? styles.periodicidadMlaConCriterio
+                            : styles.periodicidadMlaSinCriterio
                       }`}
                     >
                       <input
@@ -333,6 +335,12 @@ export default function ParaGanarPeriodicidadDetail({
                         >
                           {opt.criterios_aplicados ? 'Con criterio' : 'Sin criterio'}
                         </span>
+                        {opt.es_nuevo ? (
+                          <>
+                            {' · '}
+                            <span className={styles.periodicidadNuevoBadge}>Nuevo</span>
+                          </>
+                        ) : null}
                       </span>
                     </label>
                   );

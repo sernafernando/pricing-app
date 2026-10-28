@@ -59,7 +59,8 @@ Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por ML
 | **P2** | Modelo + API: suscripción periódica por EAN (alcance: todo el EAN / MLAs elegidos / match lista+tipo+tienda) | P1 | Done |
 | **P3** | UI gestión: cola por EAN, abrir detalle, elegir MLAs o reglas de alcance, guardar | P2 | Done |
 | **P3.1** | Catálogo filtrado: listar **todos** los EAN del alcance (suscriptos y no), chips Todos/Suscriptos/Sin; MLAs por checkbox desde el mismo filtro | P3 | Done |
-| **P3.2** | Criterios Sin/Con filtran EANs (≥1 MLA con criterio); detalle = checkboxes MLA + filtros tipo/lista/tienda; Todo el EAN; sin modo rules en UI. Aviso MLAs nuevos → siguiente | P3.1 | Done |
+| **P3.2** | Criterios Sin/Con filtran EANs (≥1 MLA con criterio); detalle = checkboxes MLA + filtros tipo/lista/tienda; Todo el EAN; sin modo rules en UI | P3.1 | Done |
+| **P3.3** | Aviso/filtro **MLA nuevos** (`scope_mode=mlas` con MLA activo fuera de la lista); badge en cola + highlight en detalle | P3.2 | Done |
 | **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Planned |
 | **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Planned |
 | **A1** | Advisor **Consultar filtrados**: misma pipeline que el periódico, pero a demanda sobre el alcance del filtro (manual; lo no suscripto a Periodicidad) | P5 | Planned |
@@ -137,7 +138,7 @@ Newest first. Use for “why did we…” archaeology.
   - `GET /para-ganar/periodicidad/catalogo/{ean}/mlas` — MLAs of that EAN inside the current filters (checkbox picker)
   - `GET/PUT/DELETE /para-ganar/periodicidad/{ean}`
 - `scope_mode`: `all` (todo el EAN) | `mlas` (lista explícita) | `rules` (`tipos_publicacion` / `pricelist_ids` / `tienda_oficial_ids`).
-- UI (P3.2): ScopeFilters (incl. Sin/Con criterio a nivel EAN); catálogo de EANs; detalle con **Todo el EAN** o checkboxes MLA (columnas tipo/lista/tienda); filtros locales tipo/lista/tienda solo achican el listado. `scope_mode=rules` legado: API sigue leyendo; UI pide migrar a all/mlas. **Siguiente:** aviso/filtro de MLAs nuevos en suscripciones explícitas.
+- UI (P3.2–P3.3): ScopeFilters (Sin/Con criterio a nivel EAN); catálogo; **Todo el EAN** o checkboxes MLA; chip **Con MLA nuevos** (`mlas_nuevos`, solo `scope_mode=mlas` con huecos); badge en fila + `es_nuevo` en detalle. `rules` legado: migrar al guardar.
 
 ---
 

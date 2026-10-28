@@ -73,6 +73,8 @@ class PeriodicidadCatalogoEanItem(BaseModel):
     mla_count: int = 0
     suscripto: bool = False
     enabled: Optional[bool] = None
+    # True when scope_mode=mlas and ≥1 active in-scope MLA is not in the saved list.
+    tiene_mlas_nuevos: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -96,6 +98,7 @@ class PeriodicidadCatalogoMlaItem(BaseModel):
     tienda_oficial_id: Optional[int] = None
     catalog_listing: Optional[bool] = None
     criterios_aplicados: bool = False
+    es_nuevo: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -171,6 +174,46 @@ def _scope_from_query(
     )
 
 
+def _sql_tiene_mlas_nuevos(*, incluir_tradicionales: bool) -> str:
+    """EAN subscribed with scope_mode=mlas and ≥1 active MLA not in the saved list.
+
+    Respects catalog vs traditional-sync the same way as alcance default, but does
+    not re-apply marca/tipo/etc. (safeguard is per-EAN publication growth).
+    """
+    if incluir_tradicionales:
+        catalog_clause = """
+                  AND EXISTS (
+                    SELECT 1 FROM ml_publication_links lx
+                    WHERE lx.mla = p_new.mla
+                      AND lx.catalog_product_id IS NOT NULL
+                  )
+        """
+    else:
+        catalog_clause = """
+                  AND EXISTS (
+                    SELECT 1 FROM ml_publication_links lx
+                    WHERE lx.mla = p_new.mla
+                      AND lx.catalog_listing IS TRUE
+                  )
+        """
+    return f"""
+              pe.ean IS NOT NULL
+              AND pe.scope_mode = 'mlas'
+              AND EXISTS (
+                SELECT 1
+                FROM publicaciones_ml p_new
+                JOIN productos_erp e_new ON e_new.item_id = p_new.item_id
+                WHERE e_new.codigo = e.codigo
+                  AND p_new.activo = true
+                  AND NOT EXISTS (
+                    SELECT 1 FROM para_ganar_periodicidad_ean_mla pm
+                    WHERE pm.ean = pe.ean AND pm.mla = p_new.mla
+                  )
+                  {catalog_clause}
+              )
+    """
+
+
 @router.get(
     "/periodicidad/catalogo",
     response_model=PeriodicidadCatalogoEanListResponse,
@@ -200,6 +243,13 @@ def listar_catalogo_eans_periodicidad(
         description=(
             "EAN-level: true = at least one active MLA of the EAN has criterios; "
             "false = no MLA of the EAN has criterios; omit = all"
+        ),
+    ),
+    mlas_nuevos: Optional[bool] = Query(
+        None,
+        description=(
+            "True = only EANs with scope_mode=mlas that have ≥1 active MLA "
+            "not in the saved list; false = subscribed mlas without gaps; omit = all"
         ),
     ),
     db: Session = Depends(get_db),
@@ -250,6 +300,12 @@ def listar_catalogo_eans_periodicidad(
     elif criterios_aplicados is False:
         where_extra += f" AND NOT {ean_criterio_exists}"
 
+    mlas_nuevos_pred = _sql_tiene_mlas_nuevos(incluir_tradicionales=incluir_tradicionales_sincronizadas)
+    if mlas_nuevos is True:
+        where_extra += f" AND ({mlas_nuevos_pred})"
+    elif mlas_nuevos is False:
+        where_extra += f" AND pe.ean IS NOT NULL AND pe.scope_mode = 'mlas' AND NOT ({mlas_nuevos_pred})"
+
     total = db.execute(
         text(
             f"""
@@ -277,14 +333,17 @@ def listar_catalogo_eans_periodicidad(
               MAX(e.descripcion) AS descripcion,
               COUNT(DISTINCT p.mla) AS mla_count,
               CASE WHEN pe.ean IS NOT NULL THEN 1 ELSE 0 END AS suscripto,
-              pe.enabled AS enabled
+              pe.enabled AS enabled,
+              CASE WHEN ({mlas_nuevos_pred}) THEN 1 ELSE 0 END AS tiene_mlas_nuevos
             FROM publicaciones_ml p
             JOIN productos_erp e ON e.item_id = p.item_id
             LEFT JOIN para_ganar_periodicidad_ean pe ON pe.ean = e.codigo
             WHERE p.activo = true
             {where_extra}
-            GROUP BY e.codigo, pe.ean, pe.enabled
-            ORDER BY e.codigo
+            GROUP BY e.codigo, pe.ean, pe.enabled, pe.scope_mode
+            ORDER BY
+              CASE WHEN ({mlas_nuevos_pred}) THEN 0 ELSE 1 END,
+              e.codigo
             LIMIT :limit OFFSET :offset
             """
             ),
@@ -302,6 +361,7 @@ def listar_catalogo_eans_periodicidad(
             mla_count=int(row["mla_count"] or 0),
             suscripto=bool(row["suscripto"]),
             enabled=bool(row["enabled"]) if row["enabled"] is not None else None,
+            tiene_mlas_nuevos=bool(row["tiene_mlas_nuevos"]),
         )
         for row in rows
     ]
@@ -380,14 +440,33 @@ def listar_mlas_de_ean_periodicidad(
                   AND m.mlp_official_store_id IS NOT NULL
                 LIMIT 1
               ) AS tienda_oficial_id,
-              CASE WHEN cg.mla IS NOT NULL THEN 1 ELSE 0 END AS criterios_aplicados
+              CASE WHEN cg.mla IS NOT NULL THEN 1 ELSE 0 END AS criterios_aplicados,
+              CASE
+                WHEN pe.scope_mode = 'mlas'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM para_ganar_periodicidad_ean_mla pm
+                   WHERE pm.ean = pe.ean AND pm.mla = p.mla
+                 )
+                THEN 1 ELSE 0
+              END AS es_nuevo
             FROM publicaciones_ml p
             JOIN productos_erp e ON e.item_id = p.item_id
             LEFT JOIN ml_publication_links l ON l.mla = p.mla
             LEFT JOIN para_ganar_criterios_mla cg ON cg.mla = p.mla
+            LEFT JOIN para_ganar_periodicidad_ean pe ON pe.ean = e.codigo
             WHERE p.activo = true
             {where_extra}
-            ORDER BY p.lista_nombre NULLS LAST, p.mla
+            ORDER BY
+              CASE
+                WHEN pe.scope_mode = 'mlas'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM para_ganar_periodicidad_ean_mla pm
+                   WHERE pm.ean = pe.ean AND pm.mla = p.mla
+                 )
+                THEN 0 ELSE 1
+              END,
+              p.lista_nombre NULLS LAST,
+              p.mla
             """
             ),
             params,
@@ -417,6 +496,7 @@ def listar_mlas_de_ean_periodicidad(
                 tienda_oficial_id=int(row["tienda_oficial_id"]) if row["tienda_oficial_id"] is not None else None,
                 catalog_listing=bool(row["catalog_listing"]) if row["catalog_listing"] is not None else None,
                 criterios_aplicados=bool(row["criterios_aplicados"]),
+                es_nuevo=bool(row["es_nuevo"]),
             )
         )
     return PeriodicidadCatalogoMlasResponse(ean=ean_norm, mlas=items)

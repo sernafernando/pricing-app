@@ -865,6 +865,18 @@
   letter-spacing: 0.01em;
 }
 
+.periodicidadNuevoBadge {
+  font-weight: 700;
+  color: var(--cf-accent-yellow);
+  letter-spacing: 0.01em;
+}
+
+.periodicidadMlaNuevo {
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--cf-accent-yellow) 14%, transparent);
+  padding: 2px 4px;
+}
+
 .periodicidadFieldset {
   margin: 0;
   padding: var(--spacing-sm);
