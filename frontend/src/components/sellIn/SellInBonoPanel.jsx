@@ -5,7 +5,17 @@ import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
 import SellInBonoAlcance from './SellInBonoAlcance';
 import SellInBonoForm from './SellInBonoForm';
-import { BONO_VACIO, alcanceDeBono, bodyDeBono, bonoCompleto, errorDeModelos, faltanDatos, valoresDeBono } from './sellInBonoValores';
+import {
+  BONO_VACIO,
+  alcanceDeBono,
+  bodyDeBono,
+  bonoCompleto,
+  errorDeModelos,
+  errorDeTope,
+  faltanDatos,
+  restanteDeTope,
+  valoresDeBono,
+} from './sellInBonoValores';
 import { apiMessage, formatEntero, formatMonto } from './sellInFormat';
 import styles from './SellInPanel.module.css';
 
@@ -79,8 +89,14 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
       setError(faltanDatos(valores));
       return;
     }
-    if (errorDeModelos(valores)) {
-      setError(errorDeModelos(valores));
+    // Changing the currency empties the money cap: removing a stored cap must not be a side effect of that.
+    const topeSinMoneda =
+      !nuevo && bono?.tope_monto != null && valores.moneda !== bono.moneda && valores.topeMonto.trim() === ''
+        ? 'Al cambiar la moneda hay que volver a indicar el tope de monto.'
+        : null;
+    const invalido = errorDeModelos(valores) ?? errorDeTope(valores) ?? topeSinMoneda;
+    if (invalido) {
+      setError(invalido);
       return;
     }
     setBusy(true);
@@ -118,6 +134,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
   };
 
   const activo = bono?.estado === 'activa';
+  const restante = bono ? restanteDeTope(bono, formatEntero, formatMonto) : null;
   const editable = puedeGestionar && (nuevo || activo);
   const titulo = nuevo ? 'Nuevo sell in · Bono de marca' : bono ? bono.descripcion || `Bono · ${alcanceDeBono(bono)}` : 'Bono de marca';
 
@@ -159,6 +176,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
                 <strong>{`${formatEntero(bono.compras_activas)} compras · ${formatEntero(bono.unidades)} u · ${formatMonto(bono.monto_generado, bono.moneda)} aplicados`}</strong>
               </p>
             )}
+            {restante && <p className={styles.hint}>{`Tope: quedan ${restante}`}</p>}
             {bono && otrasMonedas(bono).length > 0 && (
               <p className={styles.hint}>{`Además ${otrasMonedas(bono)
                 .map((m) => formatMonto(m.monto, m.moneda))

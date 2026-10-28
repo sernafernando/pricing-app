@@ -82,3 +82,16 @@
 .more {
   align-self: flex-start;
 }
+
+/* Productos' publication tree, in the panel's width: its own table never widens the panel. A node's label cell is
+   one flex row in Productos' wide table; in the panel its badges wrap under the title instead of squeezing it into a
+   narrow column. Scoped here, so Productos keeps its layout. */
+.tree {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.tree td {
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}

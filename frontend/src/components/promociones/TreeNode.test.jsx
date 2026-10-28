@@ -1217,3 +1217,58 @@ describe('TreeNode — a leftover global expand mode stays self-consistent', () 
     expect(screen.getByTestId('mla-promos-MLA_LEFT').dataset.pullOnOpen).toBe('true');
   });
 });
+
+describe('TreeNode — opening a publication (onOpenPublication)', () => {
+  const PUBLICATION = { level: 1, kind: 'publicacion', mla: 'MLA_OPEN', label: 'Router abierto', publication_status: 'active', children: [] };
+  const FAMILY = {
+    level: 1,
+    kind: 'familia',
+    family_id: 'FAM_OPEN',
+    label: 'Familia abierta',
+    children: [{ level: 2, kind: 'vinculada', mla: 'MLA_CHILD', label: 'Vinculada abierta', children: [] }],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useTreeViewStore.setState({ showFamilia: true, collapseEpoch: 0, collapseMode: 'manual' });
+  });
+
+  // Productos passes no `onOpenPublication`: its rows must stay exactly as they were.
+  it('without it, a publication row renders as before: same DOM, its only buttons expand and refresh', async () => {
+    const { container } = renderNode(PUBLICATION);
+    expect(container.innerHTML).toMatchInlineSnapshot(`"<table><tbody><tr><td class="_spoilerToggleCell_03bd49"><button type="button" class="_spoilerToggle_03bd49" aria-label="Expandir Router abierto" aria-expanded="false"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button></td><td class="_treeNodeLabelCell_03bd49"><span class="_badge_03bd49 _badgeKindPublicacion_03bd49">Publicación</span><span class="_treeNodeLabel_03bd49">Router abierto</span><span class="_badge_03bd49 _badgeStatusActive_03bd49"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-check" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>Activa</span><span class="_badge_03bd49 _badgeReadonly_03bd49">Sin tienda</span><button type="button" class="btn-tesla outline-subtle-primary icon-only sm" aria-label="Refrescar promociones de Router abierto"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg></button></td></tr></tbody></table>"`);
+    expect(screen.getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Expandir Router abierto',
+      'Refrescar promociones de Router abierto',
+    ]);
+    await userEvent.click(screen.getByText('Router abierto'));
+    expect(screen.getByRole('button', { name: 'Expandir Router abierto' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('without it, a familia row and its children render as before', async () => {
+    const { container } = renderNode(FAMILY);
+    await userEvent.click(screen.getByRole('button', { name: 'Expandir Familia abierta' }));
+    expect(container.innerHTML).toMatchInlineSnapshot(`"<table><tbody><tr class="_rowTintFamilia_03bd49"><td class="_spoilerToggleCell_03bd49"><button type="button" class="_spoilerToggle_03bd49" aria-label="Colapsar Familia abierta" aria-expanded="true"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-down" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></td><td class="_treeNodeLabelCell_03bd49"><span class="_badge_03bd49 _badgeKindFamilia_03bd49">Familia</span><span class="_treeNodeLabel_03bd49">Familia abierta</span><span class="_treeNodeChildKindCount_03bd49">1 vinculada</span></td></tr><tr class="_filaDetalle_03bd49"><td colspan="5"><div class="_filaDetalleContent_03bd49"><div class="_treeNodeChildrenSection_03bd49"><table class="_innerTable_03bd49"><tbody><tr class="_rowTintVinculada_03bd49"><td class="_spoilerToggleCell_03bd49"><button type="button" class="_spoilerToggle_03bd49" aria-label="Expandir Vinculada abierta" aria-expanded="false"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-chevron-right" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button></td><td class="_treeNodeLabelCell_03bd49"><span class="_badge_03bd49 _badgeKindVinculada_03bd49">Vinculada</span><span class="_treeNodeLabel_03bd49">Vinculada abierta</span><span class="_badge_03bd49 _badgeReadonly_03bd49">Sin tienda</span><button type="button" class="btn-tesla outline-subtle-primary icon-only sm" aria-label="Refrescar promociones de Vinculada abierta"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path><path d="M8 16H3v5"></path></svg></button></td></tr></tbody></table></div></div></td></tr></tbody></table>"`);
+    expect(screen.queryByRole('button', { name: /^Abrir / })).not.toBeInTheDocument();
+  });
+
+  it('with it, a publication row offers "Abrir <mla>", which opens it without expanding the row', async () => {
+    const onOpenPublication = vi.fn();
+    renderNode(PUBLICATION, { onOpenPublication });
+    await userEvent.click(screen.getByRole('button', { name: 'Abrir MLA_OPEN' }));
+    expect(onOpenPublication).toHaveBeenCalledWith('MLA_OPEN');
+    expect(screen.getByRole('button', { name: 'Expandir Router abierto' })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('with it, a familia (no publication of its own) offers nothing, its publications do, hoisted or nested', async () => {
+    const onOpenPublication = vi.fn();
+    renderNode(FAMILY, { onOpenPublication });
+    expect(screen.queryByRole('button', { name: /^Abrir / })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Expandir Familia abierta' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Abrir MLA_CHILD' }));
+    expect(onOpenPublication).toHaveBeenCalledWith('MLA_CHILD');
+
+    act(() => useTreeViewStore.setState({ showFamilia: false }));
+    expect(screen.getByRole('button', { name: 'Abrir MLA_CHILD' })).toBeInTheDocument();
+  });
+});

@@ -1,7 +1,8 @@
 """
-GET /productos/{id}/mercadolibre/tree requires productos.ver, the permission of
-the only screen that reads it: Productos, whose expandable publication rows
-(ProductoMLAsPanel) load this tree.
+GET /productos/{id}/mercadolibre/tree requires any of PERMISOS_PUBLICACIONES_ML
+(productos.ver or ml_ops.ver): the permission of each screen that reads it.
+Productos' expandable publication rows and the Publicaciones ML product panel
+both mount ProductoMLAsPanel, which loads this tree.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from app.models.publicacion_ml import PublicacionML
 from tests.conftest import make_access_token
 
 VER = "productos.ver"
+ML_OPS_VER = "ml_ops.ver"
 
 
 @pytest.fixture()
@@ -44,11 +46,20 @@ def _assert_forbidden(response) -> None:
     assert "MLA9301" not in response.text
 
 
-def test_without_productos_ver_is_forbidden(client, active_user, publicacion) -> None:
+def test_without_either_permission_is_forbidden(client, active_user, publicacion) -> None:
     _assert_forbidden(_get(client, active_user))
 
 
-def test_role_with_productos_ver_gets_the_tree(client, active_user, rol_ventas, grant_permiso, publicacion) -> None:
+def test_role_with_ml_ops_ver_only_gets_the_tree(client, active_user, rol_ventas, grant_permiso, publicacion) -> None:
+    # Publicaciones ML's product panel shows the tree to whoever opens that screen, ml_ops.ver included.
+    grant_permiso(rol_ventas, ML_OPS_VER)
+
+    _assert_tree(_get(client, active_user))
+
+
+def test_role_with_productos_ver_only_gets_the_tree(
+    client, active_user, rol_ventas, grant_permiso, publicacion
+) -> None:
     grant_permiso(rol_ventas, VER)
 
     _assert_tree(_get(client, active_user))

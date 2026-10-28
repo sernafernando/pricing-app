@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
+import ProductoMLAsPanel from '../promociones/ProductoMLAsPanel';
 import ProductPrices from '../pricing/ProductPrices';
+import ListPriceGroup from './panel/ListPriceGroup';
 import { canViewProductPrices, pricePermissions } from '../pricing/productPricePermissions';
 import { buildColumns } from './columns';
 import { PRODUCT_FIGURES } from './productFigures';
@@ -36,6 +38,20 @@ const describeError = (error) =>
 
 const publicationsLabel = (n) => `${n} ${n === 1 ? 'publicación' : 'publicaciones'}`;
 
+/**
+ * The page's filters the publication tree understands, as Productos hands them to it (`filtroPromoTipos`,
+ * `filtroPromoEstado`, `filtroTiendaOficial`, `filtroPxq`). The stores go in the URL's vocabulary (`sin_tienda`), which
+ * is the tree endpoint's too. The tree knows no other filter: it marks the publications these leave out (behind
+ * "ver todos") and shows the rest, whatever the page's other filters say.
+ */
+const NO_PROMO_TYPES = [];
+const treeFilters = (filters) => ({
+  promoTipos: filters.promo_tipos ?? NO_PROMO_TYPES,
+  promoEstado: filters.promo_estado || undefined,
+  tiendaOficial: filters.tiendas?.length > 0 ? filters.tiendas.join(',') : undefined,
+  conPxq: filters.pxq === 'con_pxq',
+});
+
 const RESUMEN = { key: 'resumen', label: 'Resumen' };
 const PRECIOS = { key: 'precios', label: 'Precios' };
 const CAMBIOS = { key: 'cambios', label: 'Cambios' };
@@ -43,7 +59,11 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
 /**
  * The panel of one product of the Producto view, beside the table: the product (its code, brand, prearmadas badge
  * and publication count), the sum of its publications' Métricas ML figures under the page's filters, and those
- * publications, each one opening its own panel (`onSelectItem`). The prearmadas badge is the one Productos shows
+ * publications: a product's as Productos' publication tree (`ProductoMLAsPanel`: familias, catálogo, vinculadas and
+ * promos, with its own controls, each publication opening its own panel from its "Abrir" button), under the page's
+ * promo, store and wholesale filters (`treeFilters`); the "Sin producto" row's, having no product to read a tree of,
+ * as a list, each one opening its own panel (`onSelectItem`).
+ * The prearmadas badge is the one Productos shows
  * (`ProductPrearmadas`, `produccion.ver_prearmadas_stats`). The "Sin producto" row (`productKey` '0') has no code
  * or brand, only its figures and publications.
  *
@@ -56,7 +76,8 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * `promos.ver`) and the wholesale prices of each (`ProductPxq`, `pxq.ver`), for "Sin producto" too since both belong
  * to each publication, and last the product's ban (`ProductBanAction`, gated by itself).
  * Precios mounts the product's prices (the same `ProductPrices` a publication's Precios tab mounts), and under them
- * its instalment settings (`ProductCuotasConfig`), for whoever may see them, and Cambios the changes made to the
+ * its instalment settings (`ProductCuotasConfig`, whose save recalculates the instalments: the prices are read
+ * again and the list reloaded), for whoever may see them, and Cambios the changes made to the
  * product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. Opening another
  * product goes back to
  * Resumen. A price write reloads the page's list (`onListReload`).
@@ -78,11 +99,24 @@ export default function ProductPanel({
   canSeeSales = false,
   canSeeMargin = false,
   onListReload,
+  priceGroup = null,
 }) {
   const { summary, items, loading, error, reload, loadMore, hasMore } = useProductPanel(filters, productKey);
   const { tienePermiso } = usePermisos();
+  // The tree's caches, as Productos keeps them: per panel, keyed by product and filters.
+  const mlasCacheRef = useRef(new Map());
+  const promosCacheRef = useRef(new Map());
+  const catalogCompetitionCacheRef = useRef(new Map());
+  const pxqCacheRef = useRef(new Map());
   // The open tab belongs to the product it was opened on: another product starts on Resumen.
   const [openTab, setOpenTab] = useState({ productKey, key: RESUMEN.key });
+  // Bumped when the instalment settings recalculated the instalments: `ProductPrices` reads its prices again (an open
+  // price edit stays as typed).
+  const [pricesReadAgain, setPricesReadAgain] = useState(0);
+  const onCuotasRecalculated = () => {
+    setPricesReadAgain((n) => n + 1);
+    onListReload?.();
+  };
   const withoutProduct = productKey === NO_PRODUCT_KEY;
   const productItemId = summary?.productoItemId;
   const tabs =
@@ -124,13 +158,17 @@ export default function ProductPanel({
             <ProductChangesTab key={productItemId} productItemId={productItemId} />
           ) : activeKey === PRECIOS.key ? (
             <>
+              <ListPriceGroup productItemId={productItemId} canSeeMargin={canSeeMargin} priceGroup={priceGroup} />
               <ProductPrices
                 productItemId={productItemId}
+                // Read again after the instalment settings or after a list write (the group above): both counters only
+                // ever go up, so their sum changes whenever either does.
+                readAgain={pricesReadAgain + (priceGroup?.version ?? 0)}
                 permissions={pricePermissions(tienePermiso)}
                 onWritten={onListReload}
                 showCost={canSeeMargin}
               />
-              <ProductCuotasConfig key={productItemId} productItemId={productItemId} />
+              <ProductCuotasConfig key={productItemId} productItemId={productItemId} onRecalculated={onCuotasRecalculated} />
             </>
           ) : (
             <>
@@ -150,52 +188,68 @@ export default function ProductPanel({
               )}
 
               <Section title="Publicaciones">
-                {items.length > 0 && (
-                  <ul className={styles.items}>
-                    {items.map((item) => (
-                      <li key={item.item_id}>
-                        <button type="button" className={styles.item} onClick={() => onSelectItem(item.item_id)}>
-                          <span className={styles.itemHead}>
-                            <span className={panelStyles.itemId}>{item.item_id}</span>
-                            <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />
-                            <ChevronRight size={14} aria-hidden="true" className={styles.chevron} />
-                          </span>
-                          <span className={styles.itemTitle}>{item.title ?? 'Sin título'}</span>
-                          <span className={styles.figures}>
-                            <span className={styles.figure}>
-                              <span className={styles.figureLabel}>Precio</span>
-                              {amount(item.price?.amount) ?? '—'}
+                {productItemId != null ? (
+                  <div className={styles.tree}>
+                    <ProductoMLAsPanel
+                      itemId={productItemId}
+                      mlasCacheRef={mlasCacheRef}
+                      promosCacheRef={promosCacheRef}
+                      catalogCompetitionCacheRef={catalogCompetitionCacheRef}
+                      pxqCacheRef={pxqCacheRef}
+                      {...treeFilters(filters)}
+                      onOpenPublication={onSelectItem}
+                    />
+                  </div>
+                ) : (
+                  <>
+                  {items.length > 0 && (
+                    <ul className={styles.items}>
+                      {items.map((item) => (
+                        <li key={item.item_id}>
+                          <button type="button" className={styles.item} onClick={() => onSelectItem(item.item_id)}>
+                            <span className={styles.itemHead}>
+                              <span className={panelStyles.itemId}>{item.item_id}</span>
+                              <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />
+                              <ChevronRight size={14} aria-hidden="true" className={styles.chevron} />
                             </span>
-                            <span className={styles.figure}>
-                              <span className={styles.figureLabel}>Stock</span>
-                              {count(item.stock?.available) ?? '—'}
+                            <span className={styles.itemTitle}>{item.title ?? 'Sin título'}</span>
+                            <span className={styles.figures}>
+                              <span className={styles.figure}>
+                                <span className={styles.figureLabel}>Precio</span>
+                                {amount(item.price?.amount) ?? '—'}
+                              </span>
+                              <span className={styles.figure}>
+                                <span className={styles.figureLabel}>Stock</span>
+                                {count(item.stock?.available) ?? '—'}
+                              </span>
+                              {canSeeSales && (
+                                <span className={styles.figure}>
+                                  <span className={styles.figureLabel}>Ventas 30D</span>
+                                  <UnitsCell value={item.metrics?.units_30d} />
+                                </span>
+                              )}
+                              {canSeeMargin && (
+                                <span className={styles.figure}>
+                                  <span className={styles.figureLabel}>Markup</span>
+                                  <MarkupCell markup={item.markup} />
+                                </span>
+                              )}
                             </span>
-                            {canSeeSales && (
-                              <span className={styles.figure}>
-                                <span className={styles.figureLabel}>Ventas 30D</span>
-                                <UnitsCell value={item.metrics?.units_30d} />
-                              </span>
-                            )}
-                            {canSeeMargin && (
-                              <span className={styles.figure}>
-                                <span className={styles.figureLabel}>Markup</span>
-                                <MarkupCell markup={item.markup} />
-                              </span>
-                            )}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {loading && <p className={panelStyles.note}>Cargando publicaciones…</p>}
-                {!loading && !error && items.length === 0 && (
-                  <p className={panelStyles.note}>Ninguna publicación coincide con los filtros.</p>
-                )}
-                {hasMore && !loading && (
-                  <button type="button" className={`btn-tesla outline sm ${styles.more}`} onClick={loadMore}>
-                    Ver más
-                  </button>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {loading && <p className={panelStyles.note}>Cargando publicaciones…</p>}
+                  {!loading && !error && items.length === 0 && (
+                    <p className={panelStyles.note}>Ninguna publicación coincide con los filtros.</p>
+                  )}
+                  {hasMore && !loading && (
+                    <button type="button" className={`btn-tesla outline sm ${styles.more}`} onClick={loadMore}>
+                      Ver más
+                    </button>
+                  )}
+                  </>
                 )}
               </Section>
               <ProductCatalogCompetition key={`catalog-${productKey}`} publications={items} />

@@ -256,6 +256,14 @@
   white-space: nowrap;
 }
 
+/* Total Gauss' "C/ sell in/out" flags (⚠ n, ≈ n) wrap as one block, so "≈ n" never wraps alone. */
+.sellFlags {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  white-space: nowrap;
+}
+
 /* The sell in / sell out card: one small line per figure, label left and amount right. */
 .sellFigures {
   display: flex;

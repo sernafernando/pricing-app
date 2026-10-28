@@ -48,6 +48,7 @@ export default function PresenceFilters({ filters, setFilters, labelClassName, c
         <button
           type="button"
           className="btn-tesla outline sm"
+          data-filter="presencia"
           aria-expanded={open}
           aria-label={label}
           title={label}

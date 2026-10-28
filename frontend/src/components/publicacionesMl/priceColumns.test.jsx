@@ -174,6 +174,17 @@ describe('priceColumns', () => {
     expect(cell(clasica, item(null))).toBe('—');
   });
 
+  it("sorts by the markup the Clásica, Rebate, Mejor Oferta and Web Transf. headers, like Productos, with the margin permission", () => {
+    const sortable = (mode, canSeeMargin) =>
+      priceColumns(mode, { prices: prices(), canSeeMargin })
+        .filter((column) => column.sortable)
+        .map((column) => column.key);
+    expect(sortable('normal', true)).toEqual(['lista_clasica', 'lista_rebate', 'lista_oferta', 'lista_web']);
+    expect(sortable('cuotas', true)).toEqual(['lista_clasica']); // the cuotas headers do not sort in Productos
+    expect(sortable('pvp', true)).toEqual([]);
+    expect(sortable('normal', false)).toEqual([]);
+  });
+
   it("draws a product row from the product's own id", () => {
     const [pvp] = priceColumns('pvp', { prices: prices() });
     expect(textOf(pvp.renderProduct(7))).toContain('1.500,00');
@@ -344,6 +355,53 @@ describe('priceColumns', () => {
 
     it('without onCalculate (no price edit permission) there is no such column', () => {
       expect(priceColumns('normal', { prices: prices() }).map((column) => column.header)).not.toContain('Calcular');
+    });
+  });
+  describe("Productos' markup con offsets (the clásica markup over the cost the offsets discount)", () => {
+    const TP = { ...PRODUCT, costo: 800, moneda_costo: 'ARS', marca: 'TP-LINK' };
+    const tenPercent = { id: 1, tipo_offset: 'porcentaje_costo', porcentaje: 10, marca: 'TP-LINK' };
+    const offsets = (list = [tenPercent], tipoCambio = null) => ({ offsets: list, grupoFiltros: {}, canal: 'ml', tipoCambio });
+    const clasicaOf = (product, options = {}) =>
+      priceColumns(options.mode ?? 'normal', { prices: prices(new Map([[7, product]])), canSeeMargin: true, offsets: offsets(), ...options })[0];
+
+    it('adds "→ x%" under the clásica markup, as Productos does: the same net price over the discounted cost', () => {
+      // cost 800 less 10 % = 720; the price at 25 % over 800 is 1000, which is 38,89 % over 720
+      render(<div>{clasicaOf(TP).render(item())}</div>);
+      expect(screen.getByTitle('Markup con offsets aplicados')).toHaveTextContent('→ 38,9%');
+      expect(cell(clasicaOf(TP, { mode: 'cuotas' }))).toContain('→ 38,9%');
+    });
+
+    it('a markup still negative after the offsets takes the danger tone, a positive one does not', () => {
+      // -50 % over 800 is 400, which is -44,44 % over 720
+      const { unmount } = render(<div>{clasicaOf({ ...TP, markup: -50 }).render(item())}</div>);
+      const negative = screen.getByTitle('Markup con offsets aplicados');
+      expect(negative).toHaveTextContent('→ -44,4%');
+      expect(negative).toHaveAttribute('data-negative');
+      unmount();
+      render(<div>{clasicaOf(TP).render(item())}</div>);
+      expect(screen.getByTitle('Markup con offsets aplicados')).not.toHaveAttribute('data-negative');
+    });
+
+    it('only on the clásica price: not on the other lists nor in the PVP mode', () => {
+      const columns = priceColumns('normal', { prices: prices(new Map([[7, TP]])), canSeeMargin: true, offsets: offsets() });
+      columns.slice(1).forEach((column) => expect(cell(column)).not.toContain('→'));
+      expect(cell(clasicaOf(TP, { mode: 'pvp' }))).not.toContain('→');
+    });
+
+    it('none without the margin permission, without offsets that reach the product, or while they load', () => {
+      expect(cell(clasicaOf(TP, { canSeeMargin: false }))).not.toContain('→');
+      expect(cell(clasicaOf({ ...TP, marca: 'OTRA' }))).not.toContain('→');
+      expect(cell(clasicaOf(TP, { offsets: null }))).not.toContain('→');
+    });
+
+    it('like the Precios tab: an offset that does not apply to Mercado Libre is left out', () => {
+      expect(cell(clasicaOf(TP, { offsets: offsets([{ ...tenPercent, aplica_ml: false }]) }))).not.toContain('→');
+    });
+
+    it('a USD cost needs the USD rate: none without it, never an assumed one', () => {
+      const usd = { ...TP, costo: 1, moneda_costo: 'USD' };
+      expect(cell(clasicaOf(usd))).not.toContain('→');
+      expect(cell(clasicaOf(usd, { offsets: offsets([tenPercent], 800) }))).toContain('→ 38,9%');
     });
   });
 });

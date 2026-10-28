@@ -23,6 +23,7 @@ from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
 from app.services.ml_publications.view.display import round_display
+from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines
 from app.services.ml_publications.view.filters import (
     AXES,
     FULFILLMENT,
@@ -41,6 +42,8 @@ from app.services.ml_publications.view.filters import (
     normalized_text,
     price_amount,
     product_links,
+    product_pricing,
+    promo_clauses,
     status_value,
     stock_clauses,
 )
@@ -72,7 +75,27 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "marca": (lambda: func.nullif(normalized_text(T.p.marca), ""), False),
     "costo": (lambda: cost_in_pesos(), False),
 }
-MARGIN_SORTS = frozenset({"costo"})  # the cost is shown only with `ml_metricas.ver_ganancia`
+# Productos' price headers sort by the stored markup of that list (`productos_listing`), never by the price: the key is
+# the price column's (`priceColumns.jsx`), the worst markup first like `markup`
+PRICE_MARKUP_SORTS = {
+    "lista_clasica": "markup_calculado",
+    "lista_rebate": "markup_rebate",
+    "lista_oferta": "markup_oferta",
+    "lista_web": "markup_web_real",
+}
+
+
+def pricing_markup(column: str) -> Any:
+    """The linked product's stored markup `column` (`productos_pricing`, one row per product: no row is multiplied)."""
+    pp = product_pricing("pp_sort")
+    return select(getattr(pp, column)).where(pp.item_id == T.p.item_id).scalar_subquery()
+
+
+SORT_COLUMNS.update(
+    {key: ((lambda column=column: pricing_markup(column)), False) for key, column in PRICE_MARKUP_SORTS.items()}
+)
+# the cost and the markups are shown only with `ml_metricas.ver_ganancia`
+MARGIN_SORTS = frozenset({"costo", *PRICE_MARKUP_SORTS})
 DIRECTIONS = ("asc", "desc")
 FACET_AXES = AXES
 FACET_MAX_BRANDS = 100
@@ -230,10 +253,15 @@ def row_columns(*, cost: bool = False) -> list[Any]:
         l.producto_item_id,
         # the LINK's product: `T.p` also names a publication linked per variation only (`filters.primary_product`),
         # which has no item-level product, so its link shows none, as its `producto_item_id` and state do; the
-        # product's cost only for who sees the margin: without it, not even selected
+        # product's cost (and the VAT its sell in lines use) only for who sees the margin: without it, not even selected
         *(
-            case((l.producto_item_id.isnot(None), column), else_=None).label(column.key)
-            for column in (p.codigo, p.descripcion, p.marca, *((p.costo, p.moneda_costo) if cost else ()))
+            case((l.producto_item_id.isnot(None), column), else_=None).label(label)
+            for column, label in (
+                (p.codigo, "codigo"),
+                (p.descripcion, "descripcion"),
+                (p.marca, "marca"),
+                *(((p.costo, "costo"), (p.moneda_costo, "moneda_costo"), (p.iva, "costo_iva")) if cost else ()),
+            )
         ),
         link_divergence().label("sku_divergence_kind"),
         l.suggested_producto_item_id,
@@ -488,11 +516,19 @@ def _attach_markup(items: list[dict[str, Any]], computed: Mapping[str, ItemMarku
             item["markup"] = markup_out(computed[item["item_id"]])
 
 
-def attach_cost(items: list[dict[str, Any]], rows: list[Any]) -> None:
-    """Each row's linked product cost, as the panel shows it (only for who sees the margin, as the markup)."""
+def attach_cost(items: list[dict[str, Any]], rows: list[Any], pricing_db: Optional[Session] = None) -> None:
+    """Each row's linked product cost, as the panel shows it (only for who sees the margin, as the markup). With
+    `pricing_db`, also the PPP and sell in lines under it (`cost_lines`); null on a row without a product, absent
+    when they could not be built."""
+    lines: Optional[dict[int, dict[str, Any]]] = None
+    if pricing_db is not None:
+        linked = {r.producto_item_id: (r.costo, r.moneda_costo, r.costo_iva) for r in rows if r.producto_item_id}
+        lines = cost_lines(pricing_db, linked)
     for item, row in zip(items, rows):
         currency = getattr(row.moneda_costo, "value", row.moneda_costo)
         item["costo"] = None if row.costo is None else {"amount": row.costo, "currency": currency}
+        if lines is not None:
+            item.update(lines.get(row.producto_item_id, NO_COST_LINES))
 
 
 def _worst_first(computed: Mapping[str, ItemMarkup], descending: bool) -> list[str]:
@@ -561,7 +597,14 @@ def _rows_for_ids(db: Session, f: PublicationFilter, ids: list[str], *, cost: bo
 
 
 def _list_by_markup(
-    db: Session, f: PublicationFilter, sort: Sort, limit: int, offset: int, events: bool, markup: MarkupQuery
+    db: Session,
+    f: PublicationFilter,
+    sort: Sort,
+    limit: int,
+    offset: int,
+    events: bool,
+    markup: MarkupQuery,
+    lines_db: Optional[Session] = None,
 ) -> ItemsPage:
     """The page of a markup sort or filter (`_markup_ids`), then only the page's rows (by id), with the markup
     computed for the whole set. A fixed number of statements."""
@@ -571,7 +614,7 @@ def _list_by_markup(
     rows = _rows_for_ids(db, f, page_ids, cost=True)
     items = _assemble(db, rows, events)
     _attach_markup(items, result.items)
-    attach_cost(items, rows)
+    attach_cost(items, rows, lines_db)
     return ItemsPage(items, total, result.stats, result.ads_failed)
 
 
@@ -603,15 +646,17 @@ def list_items(
     events: bool,
     markup: Optional[MarkupQuery] = None,
     can_see_margin: bool = False,
+    lines_db: Optional[Session] = None,
 ) -> ItemsPage:
     """One page of publications. `events` is the `events.enabled` flag: the event filter needs it and the last
     event is only read while it is on. `markup` (the caller may see margins) adds each row's markup; sorting by
     it or filtering on it prices the whole filtered set first. A Métricas sort (`METRIC_SORTS`) ranks the whole
-    filtered set by the Board's figures; the margin ones need `can_see_margin` (fail closed: it defaults to no)."""
+    filtered set by the Board's figures; the margin ones need `can_see_margin` (fail closed: it defaults to no).
+    `lines_db` (the pricing database) adds, next to each row's cost, the lines under it (`cost_lines`)."""
     _check(f, sort, events, can_see_margin)
     f = resolve_pm_pairs(db, f)
     if _by_markup(sort, markup):
-        return _list_by_markup(db, f, sort, limit, offset, events, markup)
+        return _list_by_markup(db, f, sort, limit, offset, events, markup, lines_db)
     total = db.execute(build_base_select(f, func.count())).scalar_one()
     if total == 0 or offset >= total:
         return ItemsPage([], total, None if markup is None else MarkupStats(0, {}, 0.0))
@@ -630,7 +675,7 @@ def list_items(
         return ItemsPage(items, total)
     result = compute_markups(db, markup.pricing_db, item_ids=[row.item_id for row in rows], ads=markup.ads)
     _attach_markup(items, result.items)
-    attach_cost(items, rows)
+    attach_cost(items, rows, lines_db)
     return ItemsPage(items, total, result.stats, result.ads_failed)
 
 
@@ -701,7 +746,7 @@ def _brand_counts(db: Session, f: PublicationFilter) -> dict:
     return {name: n for name, n in db.execute(query)}
 
 
-def _flags(db: Session, f: PublicationFilter, axis: str, clauses: dict) -> dict[str, int]:
+def _flags(db: Session, f: PublicationFilter, axis: Optional[str], clauses: dict) -> dict[str, int]:
     counts = [func.count().filter(clause).label(name) for name, clause in clauses.items()]
     return dict(db.execute(build_base_select(f, *counts, skip=axis)).one()._mapping)
 
@@ -718,10 +763,19 @@ def _link_counts(db: Session, f: PublicationFilter) -> dict[str, int]:
     return {**counts, LINK_SKU_DIVERGENT: divergent_total} if divergent_total else counts
 
 
-def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
+def _promo_counts(db: Session, f: PublicationFilter, started: frozenset[str]) -> dict[str, int]:
+    """The promo axis without its own selection: the promo filter's MLAs are left out of the scope, the PxQ ones stay."""
+    own = replace(f, mla_scope=f.pxq_scope) if f.promo_filter else f
+    return _flags(db, own, None, promo_clauses(started))
+
+
+def facets(db: Session, f: PublicationFilter, promo_mlas: Optional[frozenset[str]] = None) -> dict[str, dict[str, int]]:
     """Counts per value of each facet axis: one grouped COUNT per axis over the base select, each axis with its
     own selection left out (so choosing a value never makes its siblings read zero). The brand values are keys as
-    the tree writes them (`encode_key`): a screen shows the decoded name and sends the key back unchanged."""
+    the tree writes them (`encode_key`): a screen shows the decoded name and sends the key back unchanged.
+    `promo_mlas` (the MLAs with a started promotion, read from another database by the caller) adds the `promo`
+    axis, with and without one, leaving out its own selection like the others; without it there is no such axis,
+    never a made-up zero."""
     f = resolve_pm_pairs(db, f)
     by_status = _grouped(db, f, "status", status_value())
     by_store = _grouped(db, f, "stores", func.coalesce(cast(T.i.official_store_id, Text), NO_STORE))
@@ -733,4 +787,5 @@ def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
         "listing": _flags(db, f, "listing", listing_clauses()),
         "link": _link_counts(db, f),
         "stock": _flags(db, f, "stock", stock_clauses()),
+        **({"promo": _promo_counts(db, f, promo_mlas)} if promo_mlas is not None else {}),
     }

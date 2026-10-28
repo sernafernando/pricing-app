@@ -592,6 +592,17 @@ export const makeProductRow = (overrides = {}) => ({
   ...overrides,
 });
 
+/** The lines under a product's cost (`ppp`, `sell_in_out`), as `/view/products` sends them with ver_ganancia. */
+export const COST_LINES = {
+  ppp: { costo: 41.2, moneda: 'USD', fecha: '2026-09-30', markups: {} },
+  sell_in_out: {
+    sell_in: { compra_item_id: 7, descuento_unit: 3250, costo: 63000, unidades_restantes: 140 },
+    sell_out: null,
+    markups_sell_in: {},
+    markups_sell_in_out: {},
+  },
+};
+
 export const PRODUCT_ROWS = [
   makeProductRow(),
   makeProductRow({
@@ -600,6 +611,9 @@ export const PRODUCT_ROWS = [
     codigo: 'DECO-X20-3PACK-CON-UN-CODIGO-LARGO',
     descripcion: 'Sistema Mesh Deco X20 pack x3 con una descripción bastante larga para ver cómo corta',
     publications_count: 12,
+    // Productos' wholesale quick view beside the long name: the badge wraps with it, never out of the cell.
+    pxq_tramos: 3,
+    pxq_precio_desde: 37800,
     metrics: productMetrics({ units_7d: 0, units_30d: 3, gross_30d: 45000, total_gauss_30d: -1500, markup_30d: -6.5, ageing_days: 24 }),
   }),
   makeProductRow({

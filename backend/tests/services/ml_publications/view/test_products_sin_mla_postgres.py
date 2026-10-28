@@ -118,6 +118,11 @@ class TestFilters:
         assert listed(q="codigo:c72") == [72]
         assert listed(q="hdmi") == [73]  # the product name
         assert listed(q="*73") == [73]  # the code
+        assert listed(q="72") == []  # digits are an exact code, never a fragment of "C72"
+        assert listed(q="desc:cable-hdmi") == [73]  # the description, `-` and spaces folded
+        assert listed(q="ant*") == [72]  # starts with
+        assert listed(q="ubiquiti") == [72]  # the brand
+        assert listed(q="cablehdmi") == [73]  # the name without its spaces
         assert listed(stock="erp_con_stock") == [72]
         assert listed(stock="erp_sin_stock") == [73]  # 77 has no stock figure: unknown, never "sin stock"
         assert listed(producto="73") == [73]  # one product: the product panel asks its row this way

@@ -15,3 +15,20 @@ describe('ProductSection SKU', () => {
     expect(screen.queryByText(/^ex /)).not.toBeInTheDocument();
   });
 });
+
+describe('ProductSection photo', () => {
+  it("shows the MLA's stored photo, and the placeholder for an item without one", () => {
+    const { container } = render(
+      <ProductSection
+        items={[
+          { item_id: 'MLA1', title: 'Con foto', thumbnail_url: 'https://http2.mlstatic.com/1.jpg' },
+          { item_id: 'MLA2', title: 'Sin foto', thumbnail_url: null },
+        ]}
+      />,
+    );
+    const imgs = container.querySelectorAll('img');
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0]).toHaveAttribute('src', 'https://http2.mlstatic.com/1.jpg');
+    expect(container.querySelectorAll('[data-sale-item-placeholder]')).toHaveLength(1);
+  });
+});

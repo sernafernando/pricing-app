@@ -559,4 +559,23 @@ describe('ProductoMLAsPanel — wholesale (PxQ) filter forwarding', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Ver eliminadas (1)' })).toBeInTheDocument());
     expect(screen.queryByText(/quedan ocultas por estar eliminadas/)).not.toBeInTheDocument();
   });
+
+  it('hands onOpenPublication to its rows: each publication offers "Abrir <mla>"', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([{ level: 1, kind: 'publicacion', mla: 'MLA001', label: 'MLA001', matches_filter: true, children: [] }]),
+    );
+    const onOpenPublication = vi.fn();
+    renderPanel({ onOpenPublication });
+    await userEvent.click(await screen.findByRole('button', { name: 'Abrir MLA001' }));
+    expect(onOpenPublication).toHaveBeenCalledWith('MLA001');
+  });
+
+  it('offers no "Abrir" without onOpenPublication, as Productos mounts it', async () => {
+    productosAPI.getProductoTree.mockResolvedValue(
+      treeResponse([{ level: 1, kind: 'publicacion', mla: 'MLA001', label: 'MLA001', matches_filter: true, children: [] }]),
+    );
+    renderPanel();
+    await screen.findByText('MLA001');
+    expect(screen.queryByRole('button', { name: /^Abrir / })).not.toBeInTheDocument();
+  });
 });

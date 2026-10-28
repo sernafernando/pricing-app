@@ -128,3 +128,12 @@
 .error {
   composes: error from './PublicationKpiStrip.module.css';
 }
+
+/* A figure with no filter of its own (Sin promo): the card's look, not a button's. */
+.single.figureOnly {
+  cursor: default;
+}
+
+.single.figureOnly:hover {
+  background: transparent;
+}

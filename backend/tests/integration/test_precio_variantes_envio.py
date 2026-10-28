@@ -100,6 +100,7 @@ def add_sale(db, mla: str, qty: int, days_ago: int, product: int = ITEM) -> None
             qty=qty,
             gross=1,
             tg=1,
+            tg_known=True,
             mtg=1,
             mcosto=1,
         )

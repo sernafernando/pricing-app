@@ -1,6 +1,6 @@
 import { StatusPill } from '../kit';
 import { formatDateOnly } from '../../utils/dateUtils';
-import { alcanceDeBono } from './sellInBonoValores';
+import { alcanceDeBono, restanteDeTope } from './sellInBonoValores';
 import { formatEntero, formatMonto, formatPorcentaje } from './sellInFormat';
 import styles from './SellInTable.module.css';
 
@@ -9,6 +9,12 @@ const DIA = { day: '2-digit', month: '2-digit', year: 'numeric' };
 /** How a bonus pays: "USD 3,00 / u" or "2,5 % de lo facturado". */
 const montoDeBono = (bono) =>
   bono.tipo === 'porcentaje' ? `${formatPorcentaje(bono.porcentaje)} de lo facturado` : `${formatMonto(bono.monto_unit, bono.moneda)} / u`;
+
+/** What is left of the bonus's shared cap, or nothing without one. */
+function TopeRestante({ bono }) {
+  const restante = restanteDeTope(bono, formatEntero, formatMonto);
+  return restante ? <div className={styles.sub}>{`Tope: quedan ${restante}`}</div> : null;
+}
 
 /** The bonuses (`GET /sell-in/bonos`): what each reaches, how it pays and what it generated; "Ver bono" opens it (`onSelect`). */
 export default function SellInBonosTable({ bonos, selectedId, onSelect }) {
@@ -43,6 +49,7 @@ export default function SellInBonosTable({ bonos, selectedId, onSelect }) {
               <td className={styles.num}>
                 <div>{`${formatEntero(bono.compras_activas)} compras · ${formatEntero(bono.unidades)} u`}</div>
                 <div className={styles.sub}>{formatMonto(bono.monto_generado, bono.moneda)}</div>
+                <TopeRestante bono={bono} />
               </td>
               <td>
                 <StatusPill tone={bono.estado === 'activa' ? 'success' : 'danger'}>{bono.estado === 'activa' ? 'Activo' : 'Anulado'}</StatusPill>

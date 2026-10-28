@@ -67,7 +67,24 @@ class TestSearchTerm:
     def test_a_leading_asterisk_is_an_ends_with(self) -> None:
         assert normalize_q("*domo") == SearchTerm("ends_with", "domo")
 
-    @pytest.mark.parametrize("raw", ["color:rojo", "codigo:", "*", "marca:*hik"])
+    @pytest.mark.parametrize("raw", ["desc:Hikvision Domo", "DESCRIPCION: Hikvision Domo"])
+    def test_desc_and_descripcion_search_the_product_description(self, raw: str) -> None:
+        assert normalize_q(raw) == SearchTerm("descripcion", "Hikvision Domo")
+
+    def test_a_trailing_asterisk_is_a_starts_with(self) -> None:
+        assert normalize_q("rout*") == SearchTerm("starts_with", "rout")
+
+    def test_an_operator_with_a_trailing_asterisk_is_a_starts_with_of_the_whole_term_as_in_productos(self) -> None:
+        assert normalize_q("marca:hik*") == SearchTerm("starts_with", "marca:hik")
+
+    def test_mla_is_an_exact_item_id_in_canonical_case(self) -> None:
+        assert normalize_q("mla: mla900100 ") == SearchTerm("item_id", "MLA900100")
+
+    def test_promo_is_a_promotion_still_to_be_resolved(self) -> None:
+        assert normalize_q("promo: Hot Sale ") == SearchTerm("promo", "Hot Sale")
+        assert normalize_q("promo:x").mlas is None
+
+    @pytest.mark.parametrize("raw", ["color:rojo", "codigo:", "*", "marca:*hik", "desc:", "mla:", "promo:"])
     def test_an_unknown_field_an_empty_value_or_a_bare_asterisk_is_plain_text(self, raw: str) -> None:
         assert normalize_q(raw) == SearchTerm("text", raw)
 

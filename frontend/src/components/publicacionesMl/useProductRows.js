@@ -40,9 +40,14 @@ export function readProduct(raw) {
     marca: raw.marca ?? null,
     stock: raw.stock ?? null,
     costo: raw.costo ?? null, // the product's cost, only with ml_metricas.ver_ganancia
+    ppp: raw.ppp, // the lines under the cost, same gate; undefined (absent) without it
+    sellInOut: raw.sell_in_out,
     metrics: raw.metrics ?? null,
     colorMarcado: raw.color_marcado ?? null,
     colorHintGlobal: raw.color_hint_global ?? null,
+    // Productos' wholesale quick view (`PxqTramosBadge`); absent when the product has no tiers.
+    pxqTramos: raw.pxq_tramos ?? null,
+    pxqPrecioDesde: raw.pxq_precio_desde ?? null,
   };
 }
 

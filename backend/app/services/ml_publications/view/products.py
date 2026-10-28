@@ -52,6 +52,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session
 
+from app.models.ml_publications import MlItemProductLink
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services.ml_publications.view import row_metrics
@@ -68,6 +69,7 @@ from app.services.ml_publications.view.filters import (
     product_select,
     publication_filter_in,
 )
+from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines
 from app.services.ml_publications.view.listing import markup_accepted, resolve_pm_pairs
 from app.services.ml_publications.view.markup_service import MarkupQuery, MarkupResult, product_markup
 
@@ -116,6 +118,8 @@ class ProductsPage:
     without_figures: frozenset[str] = field(default_factory=frozenset)  # keys of rows with no Board row at all
     # key -> the product's cost in its own currency (`{amount, currency}`, None without one); only when asked
     costs: dict[str, Optional[dict[str, Any]]] = field(default_factory=dict)
+    # key -> the PPP and sell in lines under that cost (`cost_lines.cost_lines`); only when asked
+    lines: Optional[dict[str, dict[str, Any]]] = field(default_factory=dict)  # None: they could not be built
 
 
 def product_pairs(f: PublicationFilter, mlas: Any, *columns: Any) -> Any:
@@ -328,13 +332,16 @@ def _product_rows(db: Session, f: PublicationFilter, only: Optional[Sequence[int
         yield b, members, _summed(members, b.rows())
 
 
-def _costs(db: Session, rows: Sequence[board.Row]) -> dict[str, Optional[dict[str, Any]]]:
+def _costs(
+    db: Session, rows: Sequence[board.Row], pricing_db: Optional[Session] = None
+) -> tuple[dict[str, Optional[dict[str, Any]]], Optional[dict[str, dict[str, Any]]]]:
     """Each row's product cost in its own currency, as the publication rows carry it (`listing.attach_cost`): one
-    statement over the page's products; "Sin producto" and a product with no cost read None."""
+    statement over the page's products; "Sin producto" and a product with no cost read None. With `pricing_db`, the
+    lines under each cost too (`cost_lines.cost_lines`, null on "Sin producto")."""
     ids = [row.product_item_id for row in rows if row.product_item_id != NO_PRODUCT]
     found = {}
     if ids:
-        query = select(T.p.item_id, T.p.costo, T.p.moneda_costo).where(
+        query = select(T.p.item_id, T.p.costo, T.p.moneda_costo, T.p.iva).where(
             T.p.item_id == any_(literal(ids, ARRAY(Integer)))
         )
         found = {int(r.item_id): r for r in db.execute(query)}
@@ -343,7 +350,12 @@ def _costs(db: Session, rows: Sequence[board.Row]) -> dict[str, Optional[dict[st
         r = found.get(row.product_item_id)
         currency = getattr(r.moneda_costo, "value", r.moneda_costo) if r is not None else None
         out[row.key] = None if r is None or r.costo is None else {"amount": float(r.costo), "currency": currency}
-    return out
+    if pricing_db is None:
+        return out, {}
+    by_id = cost_lines(pricing_db, {i: (r.costo, r.moneda_costo, r.iva) for i, r in found.items()})
+    if by_id is None:  # the lines could not be built (logged): the rows keep their cost, without them
+        return out, None
+    return out, {row.key: by_id.get(row.product_item_id, NO_COST_LINES) for row in rows}
 
 
 def list_products(
@@ -356,9 +368,11 @@ def list_products(
     then: SortKeys = (),
     *,
     cost: bool = False,
+    pricing_db: Optional[Session] = None,
 ) -> ProductsPage:
     """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` (then
-    `then`) names. With `cost` (only for who sees the margin) each row's product cost too; without it, not even read."""
+    `then`) names. With `cost` (only for who sees the margin) each row's product cost too, and with `pricing_db` the
+    PPP and sell in lines under it; without `cost`, none of them is even read."""
     key = parse_sort(orden, then)
     if f.sin_mla:
         rows = _sin_mla_rows(db, f)
@@ -385,7 +399,8 @@ def list_products(
         out = [_row(r, b.today) for r in found]
         _series(b, members, {row.key: row for row in out})
     without = frozenset(str(r["product"]) for r in found if not r["board_rows"])
-    return ProductsPage(out, int(total), int(mla_count), without, _costs(db, out) if cost else {})
+    costs, lines = _costs(db, out, pricing_db) if cost else ({}, {})
+    return ProductsPage(out, int(total), int(mla_count), without, costs, lines)
 
 
 def ordered_product_keys(
@@ -530,3 +545,22 @@ def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery]
         ).select_from(members)
     ).one()
     return ProductIds([int(row.product) for row in found], int(sin_producto), int(gone))
+
+
+def mlas_by_product(db: Session, product_ids: Sequence[int]) -> dict[int, list[str]]:
+    """Every publication linked to each product (the store's own links, `ml_item_product_links`; a link names a product
+    only when linked), whatever the filter shows: what Productos' PxQ quick view counts. Each MLA once per product,
+    sorted."""
+    if not product_ids:
+        return {}
+    link = MlItemProductLink.__table__.c
+    query = (
+        select(link.producto_item_id, link.item_id)
+        .where(link.producto_item_id.in_(list(product_ids)))
+        .distinct()
+        .order_by(link.producto_item_id, link.item_id)
+    )
+    out: dict[int, list[str]] = {}
+    for product_id, mla in db.execute(query):
+        out.setdefault(int(product_id), []).append(mla)
+    return out

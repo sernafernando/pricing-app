@@ -11,7 +11,7 @@ import ProductoTable from './ProductoTable';
 import useProductRows from './useProductRows';
 import { buildColumns } from './columns';
 import { publicacionesMlAPI } from '../../services/api';
-import { PRODUCT_ROWS, makeItem, productsResponse } from '../../test/visual/publicacionesMlFixtures';
+import { COST_LINES, PRODUCT_ROWS, makeItem, makeProductRow, productsResponse } from '../../test/visual/publicacionesMlFixtures';
 
 vi.mock('../../services/api', () => ({
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn() },
@@ -64,6 +64,7 @@ function Harness({
   onSort = () => {},
   selection,
   prices,
+  prearmadasStats,
 }) {
   const [expandedIds] = useState(() => new Set());
   const tree = useProductRows({ filters, pageSize: 50, canSeeSales, canSeeMargin });
@@ -80,6 +81,8 @@ function Harness({
         onSelectProduct={onSelectProduct}
         selectedKey={filters.sel || undefined}
         selectedProductKey={filters.prod || undefined}
+        prearmadasStats={prearmadasStats}
+        listingById={prices?.byId}
         sort={tree.sort}
         onSort={onSort}
         selection={selection}
@@ -101,6 +104,46 @@ beforeEach(() => {
 });
 
 describe('the product rows', () => {
+  it("carry Productos' prearmadas and wholesale (PxQ) badges beside the product's name", async () => {
+    publicacionesMlAPI.products.mockResolvedValue({
+      data: productsResponse([makeProductRow({ pxq_tramos: 3, pxq_precio_desde: 37800 }), ...PRODUCT_ROWS.slice(1)]),
+    });
+    render(<Harness prearmadasStats={{ 4101: { exact: 2, upgrade: 0 }, 4102: { exact: 0, upgrade: 0 } }} />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).getByText('3 tramos · desde $37.800')).toBeInTheDocument();
+    expect(within(row).getByText('2 listas')).toBeInTheDocument();
+    const none = rowOf('Sin producto');
+    expect(within(none).queryByText(/tramo/)).not.toBeInTheDocument(); // no tiers, no stats: no badges
+    expect(within(none).queryByText(/lista/)).not.toBeInTheDocument();
+  });
+
+  it("carry Productos' catalog-competition badge beside the name, from the product's own listing", async () => {
+    const prices = {
+      byId: new Map([[4101, { item_id: 4101, has_catalog: true, catalog_status: 'competing', catalog_price_to_win: 870.1 }]]),
+      loading: false,
+      error: false,
+    };
+    render(<Harness prices={prices} />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).getByRole('img', { name: /^Catálogo: compitiendo/ })).toHaveAttribute('title', 'Precio para ganar: $870.10');
+    // A product the listing has no catalog for (or no listing at all) has none.
+    expect(within(rowOf('Sin producto')).queryByRole('img', { name: /^Catálogo/ })).not.toBeInTheDocument();
+  });
+
+  it('finds the listing of a product whose id arrives as text (the listing is keyed by number)', async () => {
+    publicacionesMlAPI.products.mockResolvedValue({
+      data: productsResponse([makeProductRow({ product_item_id: '4101' })]),
+    });
+    const prices = {
+      byId: new Map([[4101, { item_id: 4101, has_catalog: true, catalog_status: 'winning', catalog_winner_price: 900 }]]),
+      loading: false,
+      error: false,
+    };
+    render(<Harness prices={prices} />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).getByRole('img', { name: /^Catálogo: ganando/ })).toBeInTheDocument();
+  });
+
   it('asks /products once with the filters, the sort and the page -- never the markup filters', async () => {
     render(<Harness />);
     await screen.findByText('Router Archer AX55');
@@ -128,10 +171,19 @@ describe('the product rows', () => {
     expect(within(none).queryByText(/USD/)).not.toBeInTheDocument();
   });
 
+  it("shows the product's PPP and cost with sell in under its cost", async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse([{ ...PRODUCT_ROWS[0], ...COST_LINES }, PRODUCT_ROWS[2]]) });
+    render(<Harness />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).getByText(/^ppp: USD \$41\.20/)).toBeInTheDocument();
+    expect(within(row).getByText('c/ sell in: ARS $63000.00')).toBeInTheDocument();
+  });
+
   it('has no cost on a product row without ver_ganancia', async () => {
     render(<Harness canSeeMargin={false} />);
     const row = (await screen.findByText('Router Archer AX55')).closest('tr');
     expect(within(row).queryByText(/USD/)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/PPP|ppp|sell in/)).not.toBeInTheDocument();
     expect(within(row).getByText('TP-LINK')).toBeInTheDocument();
   });
 
@@ -150,6 +202,13 @@ describe('the product rows', () => {
     await userEvent.click(screen.getByRole('button', { name: /^30D/ }));
     expect(onSort).toHaveBeenCalledWith('unidades_30d', expect.anything());
     expect(screen.queryByRole('button', { name: /^Precio/ })).not.toBeInTheDocument();
+  });
+
+  it("does not sort by Productos' price markups: /products has no such sort (the publications list does)", async () => {
+    const prices = { byId: new Map([[4101, { item_id: 4101, precio_lista_ml: 2500, markup: 10 }]]), loading: false, error: false };
+    render(<Harness prices={prices} canSeeMargin />);
+    expect(await screen.findByRole('columnheader', { name: /Precio Clásica/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Precio Clásica/ })).not.toBeInTheDocument();
   });
 });
 

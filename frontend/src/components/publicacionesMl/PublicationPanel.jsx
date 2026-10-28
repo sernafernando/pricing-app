@@ -39,6 +39,7 @@ const describeError = (error) =>
  * @param {Array} [props.tabs] The tab registry (tests inject their own).
  * @param {() => void} [props.onBack] Shows "Volver a <producto>": the publication was opened from a product's panel.
  * @param {string} [props.backLabel] The product's name for that link ("Volver al producto" without it).
+ * @param {object} [props.priceGroup] The list's price cells' handlers, for the Precios tab (`ListPriceGroup`).
  */
 export default function PublicationPanel({
   itemId,
@@ -50,6 +51,7 @@ export default function PublicationPanel({
   tabs = PANEL_TABS,
   onBack,
   backLabel,
+  priceGroup = null,
 }) {
   const { tienePermiso } = usePermisos();
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
@@ -103,7 +105,7 @@ export default function PublicationPanel({
     >
       {status === 'ready' && active && (
         <PanelTabs tabs={available} activeKey={active.key} onTabChange={onTabChange} label="Secciones de la publicación">
-          <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} />
+          <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} priceGroup={priceGroup} />
         </PanelTabs>
       )}
 

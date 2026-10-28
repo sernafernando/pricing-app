@@ -12,9 +12,10 @@ import StatCard from '../components/StatCard';
 import SearchInput from '../components/SearchInput';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
-import { usePrearmadasStats } from '../hooks/usePrearmadasStats';
+import { usePrearmadasStats, PREARMADAS_LIMITE } from '../hooks/usePrearmadasStats';
 import PrearmadaBadge from '../components/PrearmadaBadge';
 import PxqTramosBadge from '../components/PxqTramosBadge';
+import { NEUTRAL_TONE, catalogState, catalogTooltip } from '../components/catalogStatus';
 import { ChevronDown, ChevronRight, Users } from 'lucide-react';
 import { useExpandedSet } from '../hooks/useExpandedSet';
 import ProductoMLAsPanel from '../components/promociones/ProductoMLAsPanel';
@@ -179,7 +180,7 @@ export default function Productos() {
   const puedeEditar = puedeEditarPrecioClasica || puedeEditarCuotas || puedeToggleRebate || puedeToggleWebTransf;
 
   const prearmadasItemIds = useMemo(
-    () => productos.slice(0, 100).map((p) => p.item_id),
+    () => productos.slice(0, PREARMADAS_LIMITE).map((p) => p.item_id),
     [productos],
   );
   const { statsById: prearmadasStats } = usePrearmadasStats(prearmadasItemIds);
@@ -1721,28 +1722,13 @@ export default function Productos() {
                             fontSize: '10px',
                             fontWeight: '600',
                             marginLeft: '6px',
-                            backgroundColor:
-                              p.catalog_status === 'winning' ? 'var(--success)' :
-                              p.catalog_status === 'sharing_first_place' ? 'var(--info)' :
-                              p.catalog_status === 'competing' ? 'var(--warning)' :
-                              'var(--text-tertiary)',
+                            backgroundColor: catalogState(p.catalog_status)?.tone ?? NEUTRAL_TONE,
                             color: 'var(--text-inverse)',
                             whiteSpace: 'nowrap'
                           }}
-                          title={
-                            p.catalog_status === 'winning' && p.catalog_winner_price ?
-                              `Ganando a $${p.catalog_winner_price.toFixed(2)}` :
-                            p.catalog_status === 'competing' && p.catalog_price_to_win ?
-                              `Precio para ganar: $${p.catalog_price_to_win.toFixed(2)}` :
-                            p.catalog_status === 'sharing_first_place' && p.catalog_winner_price ?
-                              `Empatando a $${p.catalog_winner_price.toFixed(2)}` :
-                            ''
-                          }
+                          title={catalogTooltip(p) ?? ''}
                         >
-                          {p.catalog_status === 'winning' ? '🏆' :
-                           p.catalog_status === 'sharing_first_place' ? '🤝' :
-                           p.catalog_status === 'competing' ? '!' :
-                           ''}
+                          {catalogState(p.catalog_status)?.mark ?? ''}
                         </span>
                       )}
                     </td>
