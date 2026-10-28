@@ -402,8 +402,8 @@ export default function PublicacionesML() {
   // outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page there.
   const productSelection = useProductSelection(agrupado ? EMPTY_ROWS : listedProductIds);
   const { checked: checkedIds, clear: clearChecked } = productSelection;
-  // A price typed in a cell (S11c) is saved as Productos does; the list is reloaded after it, as after a panel write
-  // (its prices with it).
+  // A price typed in a cell (S11c), and the rebate / web transfer edited in theirs (S1), are saved as Productos does;
+  // the list is reloaded after it, as after a panel write (its prices with it).
   const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
   const { message: priceMessage } = priceEditor;
   useEffect(() => {
@@ -418,8 +418,8 @@ export default function PublicacionesML() {
   const autoRecalc = useRecalcularCuotasAuto();
   const [pricingProduct, setPricingProduct] = useState(null);
   const priceEdit = useMemo(
-    () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, saving: priceEditor.saving }),
-    [priceWritePermissions, priceEditor.save, priceEditor.saving],
+    () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, onToggle: priceEditor.editToggle, saving: priceEditor.saving }),
+    [priceWritePermissions, priceEditor.save, priceEditor.editToggle, priceEditor.saving],
   );
   const cyclePriceMode = () => {
     const next = PRICE_MODES[(PRICE_MODES.indexOf(filters.modo) + 1) % PRICE_MODES.length];

@@ -1832,6 +1832,39 @@ describe('row colors and the color layer (S8)', () => {
   }
 
   for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the rebate and web transfer editors open inside their cell, every control in view`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      for (const [button, group] of [
+        [/^Editar Precio Rebate/, 'Rebate'],
+        [/^Editar Web Transf\./, 'Web transferencia'],
+      ]) {
+        const edit = screen.getByRole('button', { name: button }).first();
+        await expect.element(edit).toBeVisible();
+        // The filters have a "Rebate" group of their own: the editor is the one in this cell.
+        const cell = edit.element().closest('td');
+        await edit.click();
+        await expect.poll(() => cell.querySelector(`form[aria-label="${group}"]`)).not.toBeNull();
+        const editor = cell.querySelector(`form[aria-label="${group}"]`);
+        const cellBox = cell.getBoundingClientRect();
+        for (const control of editor.querySelectorAll('input, button, label')) {
+          const box = control.getBoundingClientRect();
+          expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
+          expect(box.right).toBeLessThanOrEqual(cellBox.right);
+        }
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+        // The first row is painted: the typed % reads on its input in both themes.
+        const percent = getComputedStyle(editor.querySelector('input[type="text"]'));
+        expect(contrastRatio(percent.color, percent.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+        cell.scrollIntoView({ block: 'center', inline: 'center' });
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/toggle-edit-${group.split(' ')[0].toLowerCase()}-1366-${theme}.png` });
+        editor.querySelector('button[type="button"]').click();
+        await expect.poll(() => cell.querySelector('form')).toBeNull();
+      }
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: Calcular fits its cell and opens Productos' pricing modal inside the screen`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme });
       const calculate = screen.getByRole('button', { name: 'Calcular el precio de Router Archer AX55' }).first();

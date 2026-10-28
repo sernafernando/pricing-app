@@ -2,11 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { preciosAPI } from '../../services/api';
 import { parsePrecioInput } from '../../utils/precioInput';
 import { errorText, warningText, writePrice } from '../pricing/priceWrites';
-import { isBlank } from '../pricing/priceFormat';
-
-// Productos' defaults for a product that never had them (useProductosToggles, ProductToggles).
-const REBATE_DEFAULT = 3.8;
-const WEB_TRANSF_DEFAULT = 6.0;
+import { WEB_TRANSF_DEFAULT, storedRebate, rebateWrite, webTransfWrite } from '../pricing/toggleWrites';
 
 /**
  * The r / w / o toggles (S9): each flips one flag of the product as the panel's ProductToggles writes it, keeping
@@ -15,9 +11,8 @@ const WEB_TRANSF_DEFAULT = 6.0;
 const TOGGLES = {
   rebate: (product, flag) => {
     const on = !flag;
-    const porcentaje = isBlank(product.porcentaje_rebate) ? REBATE_DEFAULT : product.porcentaje_rebate;
     return {
-      write: () => preciosAPI.setRebate(product.item_id, { participa_rebate: on, porcentaje_rebate: porcentaje }),
+      write: () => preciosAPI.setRebate(product.item_id, { participa_rebate: on, porcentaje_rebate: storedRebate(product) }),
       saved: on ? 'Rebate activado' : 'Rebate desactivado',
       fallback: 'No se pudo cambiar el rebate.',
     };
@@ -46,6 +41,8 @@ const TOGGLES = {
   },
 };
 const FLAGS = { rebate: 'participa_rebate', web: 'participa_web_transferencia', tarjetas: 'out_of_cards' };
+// The rebate and web transfer as their editors save them (S1): the panel's ProductToggles' writes.
+const EDITS = { rebate: rebateWrite, web: webTransfWrite };
 
 /**
  * Saves a price typed in a Publicaciones ML table cell (S11c) with the flow of the product panel and Productos:
@@ -54,9 +51,11 @@ const FLAGS = { rebate: 'participa_rebate', web: 'participa_web_transferencia', 
  * `recalcular_cuotas_auto`). `onWritten` runs after every write, for the caller to read the prices again.
  *
  * `toggle(kind, product)` flips the product's rebate ('rebate'), web transfer ('web') or "fuera de tarjetas"
- * ('tarjetas'), the r / w / o shortcuts, with the same report and re-read.
+ * ('tarjetas'), the r / w / o shortcuts, with the same report and re-read. `editToggle(kind, product, draft)` saves
+ * the rebate ('rebate') or web transfer ('web') as its row editor left it (S1): takes part, its typed % and, for the
+ * web transfer, "preservar porcentaje"; a % that is not sent is an error.
  *
- * `save`, `confirm` and `toggle` resolve true when the price was written. `save` stays the same function between
+ * `save`, `confirm`, `toggle` and `editToggle` resolve true when the price was written. `save` stays the same function between
  * renders (the table's columns hold it) as long as `onWritten` does.
  */
 export default function useInlinePriceEdit({ onWritten } = {}) {
@@ -118,6 +117,22 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
     [run],
   );
 
+  const editToggle = useCallback(
+    async (kind, product, draft) => {
+      if (refuseWhileBusy()) return false;
+      const built = EDITS[kind](product, draft);
+      if (built.error) {
+        setMessage({ tone: 'error', text: built.error });
+        return false;
+      }
+      const done = await run({ ...built, write: () => built.write(product.item_id) });
+      // As a toggle: an r / w pressed before the re-read flips from what was saved.
+      if (done) written.current.set(`${kind}:${product.item_id}`, { over: product, on: Boolean(draft.participa) });
+      return done;
+    },
+    [refuseWhileBusy, run],
+  );
+
   const save = useCallback(
     async (row, product, value) => {
       if (refuseWhileBusy()) return false;
@@ -149,5 +164,5 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
   const confirm = () => (pending ? commit(pending.row, pending.product, pending.precio) : Promise.resolve(false));
   const cancel = () => setPending(null);
 
-  return { saving, pending, warning: pending ? warningText(pending) : null, message, save, confirm, cancel, toggle };
+  return { saving, pending, warning: pending ? warningText(pending) : null, message, save, confirm, cancel, toggle, editToggle };
 }
