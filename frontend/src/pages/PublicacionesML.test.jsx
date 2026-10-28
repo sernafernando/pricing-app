@@ -2233,6 +2233,24 @@ describe('bulk actions and filters from the keyboard (S9b)', () => {
   });
 });
 
+describe("Productos' Alt+A / Alt+C / Alt+F filter keys", () => {
+  it('Alt+A opens and closes the Auditoría filters, Alt+C and Alt+F the presence ones', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.keyboard('{Alt>}a{/Alt}');
+    expect(await screen.findByRole('group', { name: 'Filtros de auditoría' })).toBeInTheDocument();
+    await user.keyboard('{Alt>}a{/Alt}');
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Filtros de auditoría' })).not.toBeInTheDocument());
+    await user.keyboard('{Alt>}c{/Alt}');
+    expect(await screen.findByRole('group', { name: 'Filtros de presencia' })).toBeInTheDocument();
+    await user.keyboard('{Alt>}f{/Alt}');
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Filtros de presencia' })).not.toBeInTheDocument());
+    // Alt+F opens them from closed too.
+    await user.keyboard('{Alt>}f{/Alt}');
+    expect(await screen.findByRole('group', { name: 'Filtros de presencia' })).toBeInTheDocument();
+  });
+});
+
 describe('keyboard export', () => {
   it('Ctrl+E while an export runs starts no second one and is not left to the browser', async () => {
     let finish;
