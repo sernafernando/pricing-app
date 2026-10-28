@@ -12,7 +12,8 @@ const VIEW_PERMISSION = 'pxq.ver';
  * read is kept while the panel shows this product, so reopening reads nothing.
  *
  * Only with `pxq.ver`, the permission `PxqPanel` reads with. Self-contained so the panel can place it anywhere; mount
- * it with the product row's key (`key={productKey}`) so another product starts closed and reads afresh.
+ * it with a key unique to the product and to this section (`key={`pxq-${productKey}`}`, since its sibling sections
+ * key on the same product) so another product starts closed and reads afresh.
  *
  * @param {object} props
  * @param {Array<{item_id: string, title?: string}>} props.publications The product's publications the panel lists.
