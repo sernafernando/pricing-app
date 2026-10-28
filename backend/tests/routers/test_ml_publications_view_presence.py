@@ -149,3 +149,25 @@ def test_the_audit_filter_reaches_the_view_and_a_bad_date_is_a_422(client, reade
     assert products(client, reader, audit_usuarios=str(ana)) == ["78"]
     response = client.get(ITEMS_URL, headers=reader, params={"audit_fecha_desde": "ayer"})
     assert response.status_code == 422
+
+
+def fill_paused(conn) -> None:
+    fill(conn)
+    seed.add_item(conn, "MLA4", status="paused")
+    seed.add_link(conn, "MLA4", 78)  # 78: MLA2 active, MLA4 paused -- not "Pausadas"
+    seed.add_product(conn, 79, "R79", "Switch", marca="TP-Link", stock=1)
+    seed.add_item(conn, "MLA5", status="paused")
+    seed.add_link(conn, "MLA5", 79)
+
+
+def test_estado_mla_pausada_filters_the_publications_and_the_products(client, pg, db, rol_admin, admin_auth_headers):
+    seed_rows(pg, fill_paused)
+    grant(db, rol_admin, VER)
+    assert items(client, admin_auth_headers, estado_mla="pausada") == ["MLA5"]
+    assert products(client, admin_auth_headers, estado_mla="pausada") == ["79"]
+
+
+@pytest.mark.parametrize("value", ["activa", "paused"])
+def test_estado_mla_refuses_any_other_value(client, reader, value) -> None:
+    response = client.get(ITEMS_URL, headers=reader, params={"estado_mla": value})
+    assert response.status_code == 422, response.text

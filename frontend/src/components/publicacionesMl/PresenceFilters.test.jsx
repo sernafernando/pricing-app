@@ -16,6 +16,7 @@ describe('presenceFilters', () => {
       outofcards: '',
       precio: '',
       nuevos: '',
+      estado_mla: '',
       mkclasica: '',
       mkrebate: '',
       mkoferta: '',
@@ -27,6 +28,9 @@ describe('presenceFilters', () => {
     expect(activePresenceChips(filters({ rebate: 'sin_rebate', outofcards: 'con_out_of_cards' }))).toEqual([
       { id: 'rebate', label: 'Rebate: Sin Rebate', remove: { rebate: '' } },
       { id: 'outofcards', label: 'Out of Cards: Marcados', remove: { outofcards: '' } },
+    ]);
+    expect(activePresenceChips(filters({ estado_mla: 'pausada' }))).toEqual([
+      { id: 'estado_mla', label: 'Estado MLA: Pausadas', remove: { estado_mla: '' } },
     ]);
     expect(activePresenceChips(filters())).toEqual([]);
   });
@@ -43,7 +47,7 @@ describe('PresenceFilters', () => {
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     await openPanel();
     expect(button).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getAllByRole('combobox')).toHaveLength(7);
+    expect(screen.getAllByRole('combobox')).toHaveLength(8);
   });
 
   it("adds Productos' four markup selects only for a user who may see margins (P6b)", async () => {
@@ -90,6 +94,7 @@ describe('PresenceFilters', () => {
     expect(options('Out of Cards')).toEqual(['Todos', 'Marcados', 'No Marcados']);
     expect(options('Precio')).toEqual(['Todos', 'Con precio', 'Sin precio']);
     expect(options('Productos Nuevos')).toEqual(['Todos', 'Últimos 7 días']);
+    expect(options('Estado MLA')).toEqual(['Todos', 'Pausadas']);
   });
 
   it('writes the picked value to the URL and "Todos" clears it', async () => {
@@ -122,7 +127,7 @@ describe('PresenceFilters', () => {
     await openPanel();
     expect(container.textContent).not.toMatch(/\p{Extended_Pictographic}/u);
     const icons = container.querySelectorAll('label svg');
-    expect(icons).toHaveLength(4); // Rebate, Web Transferencia, Tienda Nube, Productos Nuevos, as in Productos
+    expect(icons).toHaveLength(5); // Rebate, Web Transferencia, Tienda Nube, Productos Nuevos, Estado MLA, as in Productos
     icons.forEach((icon) => expect(icon).toHaveAttribute('aria-hidden', 'true'));
   });
 
