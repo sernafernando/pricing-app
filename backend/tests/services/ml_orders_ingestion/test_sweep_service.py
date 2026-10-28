@@ -1422,6 +1422,29 @@ class TestTheWholeCostsPayloadIsKept:
 
 
 class TestSweepPassClearsShipmentIdDebts:
+    def test_a_kept_legacy_debt_does_not_come_back_once_its_payload_row_settles(self, db, monkeypatch):
+        """An order quarantined with its payload keeps its legacy debt. Once the replay lands it (the payload row is
+        deleted, the order is in `ml_orders_ops`), the next pass adopts that debt and the clear right after it settles
+        it in the same session: nothing reopens."""
+        from app.models.ml_orders_ops import MlOrdersOpsCuarentena
+
+        db.add(MlOrdersOps(order_id=2000018126384170, seller_id=999, ml_last_updated=datetime.now(timezone.utc)))
+        db.add(
+            MlOpsDivergence(
+                order_id=2000018126384170,
+                kind="unknown",
+                field="activity_unresolved",
+                detected_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+        monkeypatch.setattr(ml_webhook_client, "search_orders", AsyncMock(return_value=_page([])))
+
+        assert sweep_service.run_sweep(seller_id=999, window_days=90).error is None
+
+        assert db.query(MlOrdersOpsCuarentena).count() == 0
+        assert db.query(MlOpsDivergence).count() == 0
+
     def test_an_open_legacy_debt_is_adopted_by_the_pass(self, db, monkeypatch):
         """A debt the old receiver recorded during D2b's deploy lands in the quarantine on the next sweep pass."""
         from app.models.ml_orders_ops import MlOrdersOpsCuarentena
