@@ -150,6 +150,13 @@ function ListSkeleton() {
   );
 }
 
+// The r / w / o toggles (S9): the `pricePermissions` flag each needs, and its name in the messages.
+const TOGGLE_PERMISSION = {
+  rebate: ['canToggleRebate', 'el rebate'],
+  web: ['canToggleWebTransf', 'web transferencia'],
+  tarjetas: ['canToggleOutOfCards', 'fuera de tarjetas'],
+};
+
 export default function PublicacionesML() {
   const { filters, filterKey, setFilters, resetFilters } = usePublicacionesMLFilters();
   const { tiendas, getLabel } = useTiendasOficiales();
@@ -508,11 +515,6 @@ export default function PublicacionesML() {
   };
   // r / w / o (S9): flip the focused row's product rebate, web transfer or "fuera de tarjetas", as in Productos. They
   // write from the product's own figures (its stored percentages), so they wait for its prices.
-  const TOGGLE_PERMISSION = {
-    rebate: ['canToggleRebate', 'el rebate'],
-    web: ['canToggleWebTransf', 'web transferencia'],
-    tarjetas: ['canToggleOutOfCards', 'fuera de tarjetas'],
-  };
   const toggleRow = (key, kind) => {
     const [permission, name] = TOGGLE_PERMISSION[kind];
     if (!priceWritePermissions[permission]) {

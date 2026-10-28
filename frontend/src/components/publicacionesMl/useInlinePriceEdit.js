@@ -75,7 +75,10 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
 
   // One write: reported, and the caller re-reads after it.
   const run = useCallback(async ({ write, saved, fallback }) => {
-    if (busy.current) return false;
+    if (busy.current) {
+      setMessage({ tone: 'error', text: 'Esperá a que termine el cambio anterior.' });
+      return false;
+    }
     busy.current = true;
     setSaving(true);
     setMessage(null);

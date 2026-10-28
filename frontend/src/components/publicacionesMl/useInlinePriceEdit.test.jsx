@@ -212,6 +212,8 @@ describe('useInlinePriceEdit', () => {
         second = await result.current.toggle('tarjetas', { item_id: 7, out_of_cards: false });
       });
       expect(second).toBe(false);
+      // Said, never dropped in silence (a price typed meanwhile would not be saved either).
+      expect(result.current.message).toEqual({ tone: 'error', text: 'Esperá a que termine el cambio anterior.' });
       await act(async () => {
         finish({ data: {} });
         await first;
