@@ -204,3 +204,11 @@ class TestColorFilter:
     def test_without_it_nothing_changes(self, client, pg, reader, layers) -> None:
         seed_rows(pg, fill)
         assert set(items(client, reader)) == {"MLA1", "MLA2", "MLA3"}
+
+
+def test_the_filter_colors_are_exactly_productos_colors() -> None:
+    """The view package may not import Productos (the ERP guard), so its list is a copy: this keeps it one."""
+    from app.api.endpoints.productos_colors import COLORES_VALIDOS
+    from app.services.ml_publications.view.filters import COLOR_VALUES
+
+    assert set(COLOR_VALUES) == {c for c in COLORES_VALIDOS if c is not None}
