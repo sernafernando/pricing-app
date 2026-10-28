@@ -388,9 +388,10 @@ class TestProducts:
             seed.add_item(conn, "MLA6", status="active")
             seed.add_link(conn, "MLA6", 79)
         grant(db, rol_admin, VER, METRICAS)
-        params = {"orden": "unidades_30d,titulo", "dir": "desc,desc"}
-        header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers, params=params))
-        assert column(header, rows, "Producto") == ["Router AX", "Antena", "Zeta", "Sin producto"]
+        for direction in ("desc,desc", "desc,asc"):  # "Sin producto" is not a name: last among its ties either way
+            params = {"orden": "unidades_30d,titulo", "dir": direction}
+            header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers, params=params))
+            assert column(header, rows, "Producto") == ["Router AX", "Antena", "Zeta", "Sin producto"], direction
 
     def test_a_product_without_board_rows_has_blank_figures(
         self, client, sold, db, rol_admin, admin_auth_headers

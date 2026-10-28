@@ -194,20 +194,20 @@ def sin_mla_count(db: Session, f: PublicationFilter) -> Optional[int]:
     return int(db.execute(select(func.count()).select_from(rows)).scalar_one())
 
 
-def _by(rows: Any, key: str, descending: bool) -> Any:
+def _by(rows: Any, key: str, descending: bool) -> tuple[Any, ...]:
     column = rows.c[PRODUCT_SORTS[key][0]]
-    if key == NEUTRAL_SORT:  # by the name the row shows, case-insensitively
+    if key == NEUTRAL_SORT:
+        # By the name the row shows, case-insensitively; "Sin producto" is not a name: last either way (among the
+        # ties of the keys before it when the name is not the first key).
         name = func.lower(column)
-        return name.desc() if descending else name.asc()
+        return (rows.c.product == NO_PRODUCT).asc(), name.desc() if descending else name.asc()
     figure = case((rows.c.units > 0, column), else_=None)  # no sale in the 30 days: no figure, last
-    return (figure.desc() if descending else figure.asc()).nulls_last()
+    return ((figure.desc() if descending else figure.asc()).nulls_last(),)
 
 
 def _ordered(rows: Any, key: str, descending: bool, then: SortKeys = ()) -> tuple[Any, ...]:
-    # By name first, "Sin producto" is not a name: pinned last either way. The product id closes the order.
-    pinned = ((rows.c.product == NO_PRODUCT).asc(),) if key == NEUTRAL_SORT else ()
     keys = ((key, descending), *then)
-    return (*pinned, *(_by(rows, name, desc) for name, desc in keys), rows.c.product.asc())
+    return (*(clause for name, desc in keys for clause in _by(rows, name, desc)), rows.c.product.asc())
 
 
 def _row(r: Any, today: date) -> board.Row:
