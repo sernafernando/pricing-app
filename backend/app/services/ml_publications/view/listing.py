@@ -42,6 +42,7 @@ from app.services.ml_publications.view.filters import (
     normalized_text,
     price_amount,
     product_links,
+    product_pricing,
     status_value,
     stock_clauses,
 )
@@ -73,7 +74,27 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "marca": (lambda: func.nullif(normalized_text(T.p.marca), ""), False),
     "costo": (lambda: cost_in_pesos(), False),
 }
-MARGIN_SORTS = frozenset({"costo"})  # the cost is shown only with `ml_metricas.ver_ganancia`
+# Productos' price headers sort by the stored markup of that list (`productos_listing`), never by the price: the key is
+# the price column's (`priceColumns.jsx`), the worst markup first like `markup`
+PRICE_MARKUP_SORTS = {
+    "lista_clasica": "markup_calculado",
+    "lista_rebate": "markup_rebate",
+    "lista_oferta": "markup_oferta",
+    "lista_web": "markup_web_real",
+}
+
+
+def pricing_markup(column: str) -> Any:
+    """The linked product's stored markup `column` (`productos_pricing`, one row per product: no row is multiplied)."""
+    pp = product_pricing("pp_sort")
+    return select(getattr(pp, column)).where(pp.item_id == T.p.item_id).scalar_subquery()
+
+
+SORT_COLUMNS.update(
+    {key: ((lambda column=column: pricing_markup(column)), False) for key, column in PRICE_MARKUP_SORTS.items()}
+)
+# the cost and the markups are shown only with `ml_metricas.ver_ganancia`
+MARGIN_SORTS = frozenset({"costo", *PRICE_MARKUP_SORTS})
 DIRECTIONS = ("asc", "desc")
 FACET_AXES = AXES
 FACET_MAX_BRANDS = 100
