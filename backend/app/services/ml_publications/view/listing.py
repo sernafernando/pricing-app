@@ -125,7 +125,15 @@ def csv_values(raw: Optional[str]) -> list[str]:
 def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
     """`orden` and `dir` as csv, one direction per key (a missing one is the key's default): Productos'
     multi-column sort. The markup and the Métricas figures are not database columns, so they only lead."""
-    keys = [key for key in csv_values(orden) if key] or [SORT_ACTIVITY]
+    raw = csv_values(orden)
+    wanted = [value.lower() for value in csv_values(direction)]
+    if len(wanted) > max(len(raw), 1):
+        raise FilterError("dir", "more directions than sort keys")
+    wanted += [""] * (len(raw) - len(wanted))
+    pairs = [(key, value) for key, value in zip(raw, wanted) if key]  # a blank key takes its direction with it
+    if not pairs:
+        pairs = [(SORT_ACTIVITY, wanted[0] if wanted else "")]
+    keys = [key for key, _ in pairs]
     known = [*SORT_COLUMNS, SORT_MARKUP, *METRIC_SORTS]
     for key in keys:
         if key not in known:
@@ -135,14 +143,10 @@ def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
     for key in keys[1:]:
         if key not in SORT_COLUMNS:
             raise FilterError("orden", f"{key} can be used only as the first sort key")
-    wanted = [value.lower() for value in csv_values(direction)]
-    if len(wanted) > len(keys):
-        raise FilterError("dir", "more directions than sort keys")
-    for value in wanted:
+    for _, value in pairs:
         if value and value not in DIRECTIONS:
             raise FilterError("dir", f"unknown value {value!r}; known: {', '.join(DIRECTIONS)}")
-    wanted += [""] * (len(keys) - len(wanted))
-    descending = [(value == "desc") if value else _default_descending(key) for key, value in zip(keys, wanted)]
+    descending = [(value == "desc") if value else _default_descending(key) for key, value in pairs]
     return Sort(keys[0], descending[0], tuple(zip(keys[1:], descending[1:])))
 
 

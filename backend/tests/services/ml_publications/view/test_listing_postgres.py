@@ -1022,6 +1022,10 @@ class TestSortKeys:
         sort = listing.parse_sort("facturado_30d,titulo", "desc")
         assert (sort.key, sort.descending, sort.then) == ("facturado_30d", True, (("titulo", False),))
 
+    def test_a_blank_key_takes_its_direction_with_it(self) -> None:
+        sort = listing.parse_sort("precio,,titulo", "asc,,desc")
+        assert (sort.key, sort.descending, sort.then) == ("precio", False, (("titulo", True),))
+
     @pytest.mark.parametrize(
         ("orden", "direction", "field"),
         [("precio,precio", None, "orden"), ("precio", "asc,desc", "dir"), ("precio,titulo", "asc,sideways", "dir")],

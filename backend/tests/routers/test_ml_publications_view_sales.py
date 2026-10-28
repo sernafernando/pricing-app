@@ -233,8 +233,15 @@ class TestSeveralSortKeys:
         assert response.status_code == 422
         assert "only as the first sort key" in response.json()["error"]["message"]
 
-    def test_column_keys_combine(self, client, pg, db, rol_admin, admin_auth_headers):
-        seed_rows(pg, fill)
+    def test_column_keys_combine_each_with_its_direction(self, client, pg, db, rol_admin, admin_auth_headers):
+        def titled(conn) -> None:
+            seed.add_item(conn, "MLA1", title="Beta", price=100)
+            seed.add_item(conn, "MLA2", title="Alfa", price=300)
+            seed.add_item(conn, "MLA3", title="Alfa", price=200)
+
+        seed_rows(pg, titled)
         grant(db, rol_admin, VER)
-        response = self.page(client, admin_auth_headers, orden="titulo,precio", dir="desc,asc")
-        assert response.status_code == 200, response.text
+        for direction, expected in (("desc,asc", ["MLA1", "MLA3", "MLA2"]), ("asc,desc", ["MLA2", "MLA3", "MLA1"])):
+            response = self.page(client, admin_auth_headers, orden="titulo,precio", dir=direction)
+            assert response.status_code == 200, response.text
+            assert [row["item_id"] for row in response.json()["items"]] == expected

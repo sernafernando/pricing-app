@@ -129,5 +129,7 @@ class TestMarkupFirstThenAColumn:
         titles = dict(db.execute(text("SELECT item_id, lower(title) FROM ml_items")).all())
         expected = sorted(worst, key=lambda i: (worst[i] is None, worst[i] or 0, titles[i], i))
         assert got == expected
+        pages = [page(db, MarkupFilter(), "markup,titulo", "asc,asc", limit=4, offset=o)[1] for o in range(0, 40, 4)]
+        assert [item_id for chunk in pages for item_id in chunk] == expected  # the database cuts stable pages
         tied = len(worst) - len(set(worst.values()))
         assert tied > 0  # real ties (the unpriced ones at least), broken by the title, which runs against the ids
