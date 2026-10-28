@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
 import { mlItemOverridesAPI } from '../../../services/api';
 import styles from './panel.module.css';
@@ -19,9 +19,13 @@ const ESTADO_TONES = { submitted: styles.pushSubmitted, rejected: styles.pushRej
 
 const UNANSWERED = 'No se sabe si llegó a Mercado Libre. Revisá la publicación antes de volver a enviar.';
 
+/** The push's own body (`{ status, message, partes }`), as opposed to a gateway's page or the app's error envelope. */
+const isPushBody = (data) => Boolean(data) && typeof data.status === 'string' && Array.isArray(data.partes);
+
 /**
  * What the push answered, as `{ ok, message, partes, mayHaveLanded }`. The push answers its own body on every status
- * (404, 409, 503 included); a 403 is the app's error envelope; no answer at all may have reached ML.
+ * (404, 409, 503 included); a 403 is the app's error envelope. No answer at all, or a 5xx without the push's body (a
+ * gateway, a crash after the proxy forwarded the write), may have reached ML: it is unknown, never "retry".
  */
 function outcomeOf(response, error) {
   if (response) {
@@ -31,8 +35,9 @@ function outcomeOf(response, error) {
   const failed = error?.response;
   if (!failed) return { ok: false, message: UNANSWERED, partes: [], mayHaveLanded: true };
   if (failed.status === 403) return { ok: false, message: 'No tenés permiso para actualizar la publicación en Mercado Libre.', partes: [] };
-  const body = failed.data ?? {};
-  return { ok: false, message: body.message ?? 'No se pudo enviar a Mercado Libre. Probá de nuevo.', partes: body.partes ?? [] };
+  if (isPushBody(failed.data)) return { ok: false, message: failed.data.message, partes: failed.data.partes };
+  if (failed.status >= 500) return { ok: false, message: UNANSWERED, partes: [], mayHaveLanded: true };
+  return { ok: false, message: 'No se pudo enviar a Mercado Libre. Probá de nuevo.', partes: [] };
 }
 
 function Parte({ parte }) {
@@ -55,6 +60,14 @@ export default function PushToMl({ itemId, onPushed }) {
   const [phase, setPhase] = useState('idle'); // idle | confirming | sending
   const [outcome, setOutcome] = useState(null);
   const resultId = useId();
+  // A push still out when the panel moves on answers into nothing: it must not re-read another publication.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const send = async () => {
     if (phase === 'sending') return; // a second click before the re-render
@@ -66,6 +79,7 @@ export default function PushToMl({ itemId, onPushed }) {
     } catch (error) {
       next = outcomeOf(null, error);
     }
+    if (!mounted.current) return;
     setOutcome(next);
     setPhase('idle');
     if (next.mayHaveLanded) onPushed();

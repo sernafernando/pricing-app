@@ -135,6 +135,29 @@ describe('nothing reached ML', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('No tenés permiso para actualizar la publicación en Mercado Libre.');
   });
 
+  it('a 5xx without the push body (gateway, crash after forwarding) may have landed: check first, read again', async () => {
+    mlItemOverridesAPI.pushToMl.mockRejectedValue(httpFailure(502, '<html>Bad Gateway</html>'));
+    const onPushed = renderPush();
+    await confirmPush();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se sabe si llegó a Mercado Libre. Revisá la publicación antes de volver a enviar.');
+    expect(onPushed).toHaveBeenCalledTimes(1);
+  });
+
+  it('a push still out when the panel moves to another publication does not read that one again', async () => {
+    let answer;
+    mlItemOverridesAPI.pushToMl.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const onPushed = vi.fn();
+    const { unmount } = render(<PushToMl itemId="MLA1" onPushed={onPushed} />);
+    await confirmPush();
+
+    unmount();
+    answer({ data: { status: 'sent', message: null, partes: [{ campo: 'titulo', estado: 'submitted', motivo: null }] } });
+    await Promise.resolve();
+
+    expect(onPushed).not.toHaveBeenCalled();
+  });
+
   it('no answer at all is not a failure: it may have reached ML, so it says to check first', async () => {
     mlItemOverridesAPI.pushToMl.mockRejectedValue(new Error('timeout'));
     const onPushed = renderPush();
