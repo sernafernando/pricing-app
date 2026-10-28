@@ -78,7 +78,7 @@ vi.mock('../../services/api', () => ({
     saveDatos: vi.fn(),
   },
   mlItemOverridesAPI: { get: vi.fn(), save: vi.fn(), pushToMl: vi.fn() },
-  promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
+  promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn(), getCompetenciaCatalogo: vi.fn(), refreshCompetenciaCatalogo: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
@@ -904,6 +904,40 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-compras-${width}-${theme}.png` });
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the catalog competition of a product's publication fits inside the panel`, async () => {
+        promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+          data: {
+            fetch_status: 'ok',
+            fecha_consulta: '2026-10-27T15:00:00Z',
+            our_price: 98500,
+            competitor_count: 2,
+            undercutting: [
+              { item_id: 'MLA1999000001', seller_nickname: 'DISTRIBUIDORA DE REDES DEL LITORAL SRL', price: 96999, markup: 10.42 },
+              { item_id: 'MLA1999000002', seller_nickname: 'OTRO VENDEDOR', price: 95500, markup: -2.1 },
+            ],
+          },
+        });
+        const screen = await renderProducts({ width, height, theme });
+        publicacionesMlAPI.items.mockResolvedValue({
+          data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3).map((item, i) => ({ ...item, catalog_listing: i === 0 })), total: 3 },
+        });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+        await aside.getByRole('button', { name: /^Competencia de catálogo de / }).click();
+        await expect.element(aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        const section = aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL').element().closest('section');
+        section.scrollIntoView();
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const el of section.querySelectorAll('li, li span, button')) {
+          expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-catalogo-${width}-${theme}.png` });
         screen.unmount();
       });
     }
