@@ -43,6 +43,7 @@ import { withProductSelection } from '../components/publicacionesMl/productSelec
 import useProductSelection from '../components/publicacionesMl/useProductSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';
+import useTnCardPercent from '../components/publicacionesMl/useTnCardPercent';
 import { useListOffsets } from '../hooks/useListOffsets';
 import PriceModeSelect from '../components/publicacionesMl/PriceModeSelect';
 import { canViewProductPrices, pricePermissions } from '../components/pricing/productPricePermissions';
@@ -423,6 +424,8 @@ export default function PublicacionesML() {
   // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it. Read in every list
   // view, not only Precios: the r / w / o shortcuts toggle the focused row's product from these prices.
   const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
+  // Productos' Tienda Nube card surcharge, for the Web Transf. column's transfer hint (S3).
+  const tnCardPercent = useTnCardPercent(canSeePrices);
   // Productos' "markup con offsets" under the clásica markup: the offsets are about the cost, so only with the margin.
   // Also for the panels' Precios tab: in the tree, which has no price columns, only while a panel is open.
   const listOffsets = useListOffsets(canSeePrices && canSeeMargin && (!agrupado || Boolean(filters.sel || filters.prod)));
@@ -456,9 +459,10 @@ export default function PublicacionesML() {
       edit: priceEdit,
       onCalculate: canCalculatePrice ? setPricingProduct : null,
       offsets: listOffsets,
+      tnCardPercent,
       version: reloadToken,
     }),
-    [priceEdit, canCalculatePrice, listOffsets, reloadToken],
+    [priceEdit, canCalculatePrice, listOffsets, tnCardPercent, reloadToken],
   );
   const cyclePriceMode = () => {
     const next = PRICE_MODES[(PRICE_MODES.indexOf(filters.modo) + 1) % PRICE_MODES.length];
@@ -487,6 +491,7 @@ export default function PublicacionesML() {
         priceEdit,
         onCalculatePrice: canCalculatePrice ? setPricingProduct : null,
         priceOffsets: listOffsets,
+        tnCardPercent,
       }),
     [
       eventsEnabled,
@@ -506,6 +511,7 @@ export default function PublicacionesML() {
       priceEdit,
       canCalculatePrice,
       listOffsets,
+      tnCardPercent,
     ],
   );
 

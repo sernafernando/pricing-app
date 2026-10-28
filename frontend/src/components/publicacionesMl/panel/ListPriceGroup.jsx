@@ -18,12 +18,13 @@ const MODES = [
  * after a write).
  *
  * `priceGroup` is what the page hands the list's columns: `edit` (the list's write handlers and permissions),
- * `onCalculate` (the pricing modal), `offsets` (markup con offsets) and `version`. Without it the prices read only.
+ * `onCalculate` (the pricing modal), `offsets` (markup con offsets), `tnCardPercent` (the Web Transf. transfer hint)
+ * and `version`. Without it the prices read only.
  */
 export default function ListPriceGroup({ productItemId, canSeeMargin = false, priceGroup = null }) {
   const ids = useMemo(() => [productItemId], [productItemId]);
   const prices = useListPrices(ids, productItemId != null, priceGroup?.version ?? 0);
-  const options = { prices, canSeeMargin, edit: priceGroup?.edit ?? null, offsets: priceGroup?.offsets ?? null };
+  const options = { prices, canSeeMargin, edit: priceGroup?.edit ?? null, offsets: priceGroup?.offsets ?? null, tnCardPercent: priceGroup?.tnCardPercent ?? null };
 
   return (
     <section className={styles.group} aria-label="Precios de la lista">

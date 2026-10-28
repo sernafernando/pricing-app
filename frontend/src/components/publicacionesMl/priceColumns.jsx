@@ -4,6 +4,8 @@ import { LISTS } from '../pricing/priceWrites';
 import { PRICE_MARKUP_SORTS } from '../../hooks/usePublicacionesMLFilters';
 import ListPriceCell from './ListPriceCell';
 import PriceEditCell from './PriceEditCell';
+import TnPriceLine from './TnPriceLine';
+import { tnShownPrice } from './tnPrice';
 import ToggleEditCell from './ToggleEditCell';
 import styles from './cells.module.css';
 
@@ -22,7 +24,7 @@ const GROUP = 'Precios de Productos';
 
 const LIST_ROWS = new Map(LISTS.flatMap((group) => group.rows).map((row) => [row.id, row]));
 
-const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, toggles, details } = {}) => ({
+const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, toggles, details, showTnPrice = false } = {}) => ({
   key,
   header,
   price,
@@ -32,6 +34,7 @@ const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, t
   list: edits,
   toggles,
   details,
+  showTnPrice,
 });
 // The permission of each flag's editor (`pricePermissions`).
 const TOGGLE_PERMS = { rebate: 'canToggleRebate', web: 'canToggleWebTransf' };
@@ -45,7 +48,8 @@ const MODES = {
     // The listing sends the best offer's markup as a fraction (every other one as a percentage); Productos scales it.
     // Under its price, its details as in Productos (S2).
     list('lista_oferta', 'Mejor Oferta', 'mejor_oferta_precio', 'mejor_oferta_markup', { markupScale: 100, details: offerDetails }),
-    list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', { takesPart: 'participa_web_transferencia', toggles: 'web' }),
+    // Over it, the Tienda Nube price with its transfer price, as Productos (S3).
+    list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', { takesPart: 'participa_web_transferencia', toggles: 'web', showTnPrice: true }),
   ],
   cuotas: [CLASICA, ...CUOTAS.map((n) => list(`lista_${n}_cuotas`, `${n} Cuotas`, `precio_${n}_cuotas`, `markup_${n}_cuotas`, { edits: `ml-${n}` }))],
   pvp: [
@@ -61,14 +65,26 @@ const MODES = {
  * the rebate and web transfer: `onToggle(kind, product, draft)`, resolving true when saved.
  * `onCalculate(product)` (P3c, for whoever may edit prices) closes the group with Productos' Calcular button, which
  * opens its pricing modal on the row's product. `offsets` (`useListOffsets`) adds Productos' "markup con offsets"
- * under the clásica markup.
+ * under the clásica markup. `tnCardPercent` (`useTnCardPercent`) is the Tienda Nube card surcharge the Web Transf.
+ * column takes off its TN price for the transfer hint.
  */
-export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, onCalculate = null, offsets = null }) {
+export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, onCalculate = null, offsets = null, tnCardPercent = null }) {
   const columns = (MODES[mode] ?? MODES.normal).map((column) => {
     const listRow = column.list ? LIST_ROWS.get(column.list) : null;
     const editable = Boolean(edit && listRow && edit.permissions[listRow.perm]);
     const togglable = Boolean(edit?.onToggle && column.toggles && edit.permissions[TOGGLE_PERMS[column.toggles]]);
     const renderProduct = (productId) => {
+      const content = renderCell(productId);
+      const product = productId == null || prices.error ? null : prices.byId.get(productId);
+      if (!column.showTnPrice || !product || !tnShownPrice(product)) return content;
+      return (
+        <div className={`${styles.stack} ${styles.stackEnd}`}>
+          <TnPriceLine product={product} percent={tnCardPercent} />
+          {content}
+        </div>
+      );
+    };
+    const renderCell = (productId) => {
       const product = productId == null ? null : prices.byId.get(productId);
       const failed = productId != null && prices.error;
       const cell = (
@@ -100,7 +116,8 @@ export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, 
       key: column.key,
       group: GROUP,
       header: column.header,
-      width: 130,
+      // The Web Transf. column holds the Tienda Nube price and its transfer hint on one line, as Productos (S3).
+      width: column.showTnPrice ? 240 : 130,
       align: 'right',
       list: column.list,
       sortable: canSeeMargin && PRICE_MARKUP_SORTS.has(column.key), // by its markup, as Productos

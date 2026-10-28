@@ -85,7 +85,8 @@ const DEFAULT_TREE = vi.hoisted(() => ({
 }));
 vi.mock('../../services/api', () => ({
   default: {
-    get: vi.fn(() => Promise.resolve({ data: [] })),
+    // Productos' Tienda Nube card surcharge (the Web Transf. hint); every other read, an empty list.
+    get: vi.fn((url) => Promise.resolve({ data: url === '/markups-tienda/config/porcentaje_tarjeta_tn' ? { valor: 25 } : [] })),
     // Only the prearmadas badge posts here: two ready for every product asked.
     post: vi.fn((url, body) =>
       Promise.resolve({ data: { stats: Object.fromEntries((body?.items ?? []).map(({ item_id }) => [item_id, { exact: 2, upgrade: 0 }])) } }),
@@ -121,10 +122,11 @@ vi.mock('../../services/api', () => ({
             { item_id: 4101, descripcion: 'Router Archer AX55', marca: 'TP-LINK', categoria: 'REDES', stock: 12, costo: 95.5, moneda_costo: 'USD',
               precio_lista_ml: 189999, markup: 24.3, participa_rebate: true, precio_rebate: 197911, markup_rebate: 21.1,
               precio_3_cuotas: 209999, markup_3_cuotas: 18.2, precio_6_cuotas: 229999, markup_6_cuotas: 15.4,
-              precio_pvp: 239999, markup_pvp: 31.9, has_catalog: true, catalog_status: 'winning', catalog_winner_price: 189999 },
+              precio_pvp: 239999, markup_pvp: 31.9, has_catalog: true, catalog_status: 'winning', catalog_winner_price: 189999,
+              tn_price: 249999, tn_promotional_price: 229999, tn_has_promotion: true },
             { item_id: 4102, precio_lista_ml: 45999, markup: -3.2, mejor_oferta_precio: 41399, mejor_oferta_markup: -0.098,
               mejor_oferta_porcentaje_rebate: 12.5, mejor_oferta_monto_rebate: 5174.88, mejor_oferta_fecha_hasta: '2026-11-30',
-              mejor_oferta_pvp_seller: 47999 },
+              mejor_oferta_pvp_seller: 47999, tn_price: 52999 },
           ],
           total: 2,
         },
@@ -2094,6 +2096,33 @@ describe('row colors and the color layer (S8)', () => {
       expect(contrastRatio(style.color, getComputedStyle(cell).backgroundColor)).toBeGreaterThanOrEqual(4.5);
       cell.scrollIntoView({ block: 'center', inline: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/offer-details-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the Tienda Nube price and its transfer hint sit over the web transfer, inside the cell`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });
+      await expect.element(screen.getByText('$183.999,20 transf.').first()).toBeVisible();
+      const lines = [...document.querySelectorAll('[data-tn-price]')];
+      // The fixture's products repeat down the page.
+      expect(new Set(lines.map((line) => line.textContent))).toEqual(new Set(['$ 229.999,00$183.999,20 transf.$ 249.999,00', '$ 52.999,00$42.399,20 transf.']));
+      for (const line of lines) {
+        const cell = line.closest('td');
+        const cellBox = cell.getBoundingClientRect();
+        // As `overflowingCells`: half a pixel of rounding, never more.
+        for (const part of line.querySelectorAll('span, s')) {
+          const box = part.getBoundingClientRect();
+          expect(box.left).toBeGreaterThanOrEqual(cellBox.left - 0.5);
+          expect(box.right).toBeLessThanOrEqual(cellBox.right + 0.5);
+        }
+        const hint = getComputedStyle(line.querySelector('div span:last-child'));
+        expect(contrastRatio(hint.color, getComputedStyle(cell).backgroundColor)).toBeGreaterThanOrEqual(4.5);
+      }
+      // The amounts never wrap; the hint may put "transf." on its own line.
+      expect(wrapped(document.querySelectorAll('[data-tn-price] > div > span:first-child, [data-tn-price] s'))).toEqual([]);
+      lines[1].closest('td').scrollIntoView({ block: 'center', inline: 'center' });
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tn-price-1366-${theme}.png` });
       screen.unmount();
     });
   }
