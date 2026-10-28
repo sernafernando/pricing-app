@@ -39,4 +39,21 @@ describe('SaleItemThumbnail', () => {
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByTestId('placeholder')).toBeInTheDocument();
   });
+
+  it('after a failed load, a new url tries the photo again', () => {
+    const OTHER = 'https://http2.mlstatic.com/D_NQ_NP_2-O.jpg';
+    const { container, rerender } = render(
+      <SaleItemThumbnail url={PHOTO}>
+        <Package data-testid="placeholder" />
+      </SaleItemThumbnail>,
+    );
+    fireEvent.error(container.querySelector('img'));
+    rerender(
+      <SaleItemThumbnail url={OTHER}>
+        <Package data-testid="placeholder" />
+      </SaleItemThumbnail>,
+    );
+    expect(container.querySelector('img')).toHaveAttribute('src', OTHER);
+    expect(screen.queryByTestId('placeholder')).not.toBeInTheDocument();
+  });
 });

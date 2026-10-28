@@ -129,6 +129,28 @@ class TestOrderDetail:
 
         assert [i["thumbnail_url"] for i in body["items"]] == [PHOTO, None]
 
+    def test_the_breakdown_lines_carry_the_same_photos(self, db, client, admin_auth_headers, rol_admin) -> None:
+        # One line model for every breakdown: its `thumbnail_url` means the same in the order's breakdown as in a pack's.
+        order_id = 97021
+        db.add(
+            MlOrdersOps(
+                order_id=order_id,
+                status="paid",
+                ml_last_updated=datetime(2026, 8, 20, tzinfo=timezone.utc),
+                seller_id=999,
+            )
+        )
+        _item(db, order_id, "MLA970211")
+        _item(db, order_id, "MLA970212")
+        _publication(db, "MLA970211", pictures=[{"secure_url": PHOTO}])
+        db.commit()
+        _grant_ml_ops_ver(db, rol_admin)
+
+        body = client.get(f"/api/ml-ventas-ops/orders/{order_id}", headers=admin_auth_headers).json()
+
+        lines = {line["item_id"]: line["thumbnail_url"] for line in body["breakdown"]["item_lines"]}
+        assert lines == {"MLA970211": PHOTO, "MLA970212": None}
+
 
 class TestPack:
     def test_the_pack_item_lines_carry_the_photo(self, db, client, admin_auth_headers, rol_admin) -> None:

@@ -374,8 +374,7 @@ class ItemDesgloseLineSummary(BaseModel):
     title: Optional[str] = None
     quantity: Optional[int] = None
     monto: Optional[float] = None
-    # The first stored photo of the MLA (`_thumbnails_by_mla`). Filled by `GET /packs/{id}`, whose lines are its only
-    # list of the items sold; an order's own items carry it in `items`.
+    # The first stored photo of the MLA (`_thumbnails_by_mla`), in every breakdown: null is no stored photo.
     thumbnail_url: Optional[str] = None
 
 
@@ -428,7 +427,8 @@ class OperationBreakdownSummary(BaseModel):
     bonificacion_envio: Optional[float] = None
 
     @classmethod
-    def from_domain(cls, breakdown) -> "OperationBreakdownSummary":
+    def from_domain(cls, breakdown, photos: Optional[Dict[str, str]] = None) -> "OperationBreakdownSummary":
+        """`photos`: the MLAs' stored photos (`_thumbnails_by_mla`), for the item lines; none given, no line has one."""
         return cls(
             lines=[
                 BreakdownLineSummary(concepto=line.concepto, monto=float(line.monto), origen=line.origen)
@@ -443,18 +443,7 @@ class OperationBreakdownSummary(BaseModel):
                 float(breakdown.retenciones_recuperables) if breakdown.neto is not None else None
             ),
             bonificacion_envio=float(breakdown.bonificacion_envio) if breakdown.neto is not None else None,
-            item_lines=[
-                ItemDesgloseLineSummary(
-                    item_id=item.item_id,
-                    variation_id=item.variation_id,
-                    seller_sku=item.seller_sku,
-                    seller_sku_anterior=item.seller_sku_anterior,
-                    title=item.title,
-                    quantity=item.quantity,
-                    monto=float(item.monto) if item.monto is not None else None,
-                )
-                for item in breakdown.item_lines
-            ],
+            item_lines=_desglose_lines(breakdown.item_lines, photos or {}),
             item_lines_reconcilia=breakdown.item_lines_reconcilia,
             item_lines_razon=breakdown.item_lines_razon,
         )
@@ -1202,6 +1191,23 @@ def _thumbnails_by_mla(db: Session, mlas: Iterable[Optional[str]]) -> Dict[str, 
     )
     rows = db.query(MlItem.item_id, photo).filter(MlItem.item_id.in_(wanted)).all()
     return {item_id: url for item_id, url in rows if url}
+
+
+def _desglose_lines(item_lines, photos: Dict[str, str]) -> List[ItemDesgloseLineSummary]:
+    """The breakdown's product lines, each with its MLA's photo from `photos` (`_thumbnails_by_mla`)."""
+    return [
+        ItemDesgloseLineSummary(
+            item_id=item.item_id,
+            variation_id=item.variation_id,
+            seller_sku=item.seller_sku,
+            seller_sku_anterior=item.seller_sku_anterior,
+            title=item.title,
+            quantity=item.quantity,
+            monto=float(item.monto) if item.monto is not None else None,
+            thumbnail_url=photos.get(item.item_id),
+        )
+        for item in item_lines
+    ]
 
 
 def _item_summaries(items: Iterable[MlOrderItemOps], photos: Dict[str, str]) -> List[OrderItemOpsSummary]:
@@ -2794,6 +2800,8 @@ def obtener_operacion(
         )
         envio_flex_prorateado = sibling_sharing_shipment is not None
 
+    # One lookup for the items and the breakdown's lines: both name the MLAs sold.
+    photos = _thumbnails_by_mla(db, [item.item_id for item in items] + [line.item_id for line in breakdown.item_lines])
     response = SaleCentricOperation(
         order=OrderOpsSummary.from_order(
             order,
@@ -2802,12 +2810,14 @@ def obtener_operacion(
             payment_date_approved=payment_date_approved,
             coupon_amount=float(order_coupon) if order_coupon is not None else None,
         ),
-        items=_item_summaries(items, _thumbnails_by_mla(db, (item.item_id for item in items))),
+        items=_item_summaries(items, photos),
         shipment=ShipmentOpsSummary.from_shipment(shipment) if shipment else None,
         claim=ClaimSummary.model_validate(claim) if claim else None,
         questions=[QuestionSummary.model_validate(q) for q in questions],
         messages=[MessageSummary.model_validate(m) for m in messages],
-        breakdown=_con_importe_fuera_del_pago(OperationBreakdownSummary.from_domain(breakdown), order_descomposicion),
+        breakdown=_con_importe_fuera_del_pago(
+            OperationBreakdownSummary.from_domain(breakdown, photos), order_descomposicion
+        ),
         total_gauss=float(order_metrics.total_gauss) if order_metrics.total_gauss is not None else None,
         iva_decomposicion=DescomposicionIvaSummary.from_domain(order_descomposicion),
         cadena_total_gauss=CadenaTotalGaussSummary.from_stored(
@@ -2924,19 +2934,7 @@ def obtener_pack(
     response = PackOperationSummary(
         pack_id=pack_id,
         monto_operacion=(float(breakdown.monto_operacion) if breakdown.monto_operacion is not None else None),
-        item_lines=[
-            ItemDesgloseLineSummary(
-                item_id=item.item_id,
-                variation_id=item.variation_id,
-                seller_sku=item.seller_sku,
-                seller_sku_anterior=item.seller_sku_anterior,
-                title=item.title,
-                quantity=item.quantity,
-                monto=float(item.monto) if item.monto is not None else None,
-                thumbnail_url=photos.get(item.item_id),
-            )
-            for item in breakdown.item_lines
-        ],
+        item_lines=_desglose_lines(breakdown.item_lines, photos),
         item_lines_reconcilia=breakdown.item_lines_reconcilia,
         item_lines_razon=breakdown.item_lines_razon,
         total_gauss=(float(grupo.total_gauss) if grupo is not None and grupo.total_gauss is not None else None),
