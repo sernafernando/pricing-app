@@ -1656,6 +1656,20 @@ describe('the color layer (S8)', () => {
   });
 });
 
+describe('the color filter (P6)', () => {
+  it('asks the list for the picked colors on the layer on show, from page 1, and "Limpiar filtros" clears them', async () => {
+    const user = userEvent.setup();
+    await page('/ml-publicaciones?pagina=2&equipo=12');
+    await screen.findByRole('option', { name: 'Ventas' });
+    const colores = screen.getByRole('group', { name: 'Filtrar por color' });
+    await user.click(within(colores).getByRole('button', { name: 'Urgente' }));
+    await user.click(within(colores).getByRole('button', { name: 'Sin color' }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ colores: 'rojo,sin_color', equipo_id: '12', offset: 0 }));
+    await user.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('colores'));
+  });
+});
+
 describe('painting colors (S8)', () => {
   const firstRow = () => screen.getByText('MLA1100000001').closest('tr');
 

@@ -14,6 +14,7 @@ import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import ProductPanel from '../components/publicacionesMl/ProductPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
 import AgrupadoTable from '../components/publicacionesMl/AgrupadoTable';
+import ColorFilterChips from '../components/publicacionesMl/ColorFilterChips';
 import ColorLayerSelect from '../components/publicacionesMl/ColorLayerSelect';
 import PaintColorMenu from '../components/publicacionesMl/PaintColorMenu';
 import { itemRowTone } from '../components/publicacionesMl/rowColor';
@@ -640,6 +641,11 @@ export default function PublicacionesML() {
               total={facets?.total}
               onChange={csvChange('tiendas')}
             />
+          </div>
+          {/* Productos' color filter, on the layer on show (Capa). */}
+          <div className={styles.filterGroup}>
+            <span className={styles.filterLabel}>Color:</span>
+            <ColorFilterChips value={filters.colores} onChange={(colores) => setFilters({ colores })} />
           </div>
         </div>
         <div className={styles.filterBand}>
