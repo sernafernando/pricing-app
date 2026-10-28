@@ -93,6 +93,11 @@ def test_a_value_outside_a_filter_vocabulary_is_422_naming_it(client, viewer) ->
     assert response.status_code == 422 and response.json()["error"]["field"] == "estado"
 
 
+def test_the_event_filter_with_the_events_flag_off_is_422(client, viewer) -> None:
+    response = get(client, viewer, evento="price_changed")
+    assert response.status_code == 422 and response.json()["error"]["field"] == "evento"
+
+
 def test_a_statement_timeout_is_a_controlled_503(client, viewer, pg, monkeypatch) -> None:
     real = stats_service.build_base_select
 
@@ -101,7 +106,9 @@ def test_a_statement_timeout_is_a_controlled_503(client, viewer, pg, monkeypatch
 
     monkeypatch.setattr(listing, "STATEMENT_TIMEOUT", "50ms")
     monkeypatch.setattr(stats_service, "build_base_select", slow)
-    response = get(client, viewer)
-    assert response.status_code == 503 and response.json()["error"]["code"] == "consulta_lenta"
-    assert pg.pool.checkedout() == 0
-    status_block.REPORT.reset()
+    try:
+        response = get(client, viewer)
+        assert response.status_code == 503 and response.json()["error"]["code"] == "consulta_lenta"
+        assert pg.pool.checkedout() == 0
+    finally:
+        status_block.REPORT.reset()  # the slow-query report never leaks into the next test
