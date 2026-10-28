@@ -38,6 +38,36 @@ describe('MetricasKpiStrip with sell in / sell out', () => {
     expect(screen.queryByTestId('kpi-sell-in-out')).not.toBeInTheDocument();
   });
 
+  it('shows the sell in and sell out totals and the cost without and with sell in in their own card', () => {
+    strip({ ...OFF, sell_in_out: SELL });
+
+    const card = cardOf('Sell in / Sell out');
+    expect(within(card).getByTestId('kpi-sell-in')).toHaveTextContent('Sell in$ 120.000,00');
+    expect(within(card).getByTestId('kpi-sell-out')).toHaveTextContent('Sell out$ 30.000,00');
+    expect(within(card).getByTestId('kpi-costo')).toHaveTextContent('Costo$ 1.000.000,00');
+    expect(within(card).getByTestId('kpi-costo-sell-in')).toHaveTextContent('Costo c/ sell in$ 880.000,00');
+  });
+
+  it('leaves out of the card the figures that do not apply', () => {
+    // Only a sell out in the period; with "Costos TP" on there is no cost with sell in either.
+    strip({ ...OFF, sell_in_out: { ...SELL, sell_in: null, costo: null, costo_sell_in: null, sell_out_pendientes: 2 } });
+
+    const card = cardOf('Sell in / Sell out');
+    expect(within(card).getByTestId('kpi-sell-out')).toHaveTextContent('Sell out$ 30.000,00');
+    expect(within(card).getByTitle('2 ventas con sell out en dólares sin tipo de cambio: no se suman')).toBeInTheDocument();
+    expect(within(card).queryByTestId('kpi-sell-in')).not.toBeInTheDocument();
+    expect(within(card).queryByTestId('kpi-costo')).not.toBeInTheDocument();
+    expect(within(card).queryByTestId('kpi-costo-sell-in')).not.toBeInTheDocument();
+  });
+
+  it('has no sell in / sell out card when no sale in the period has one, nor without the profit view', () => {
+    strip({ ...OFF, sell_in_out: { ...SELL, sell_in: null, sell_out: null, costo_sell_in: null, total_gauss: null, markup_pct: null } });
+    expect(screen.queryByText('Sell in / Sell out')).not.toBeInTheDocument();
+
+    strip({ ...OFF, sell_in_out: SELL }, false);
+    expect(screen.queryByText('Sell in / Sell out')).not.toBeInTheDocument();
+  });
+
   it('shows nothing of it without the figures', () => {
     strip({ ...OFF, sell_in_out: null });
 

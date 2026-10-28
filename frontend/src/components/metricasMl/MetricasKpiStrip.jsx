@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  ArrowLeftRight,
   Boxes,
   Coins,
   Hourglass,
@@ -111,6 +112,40 @@ function WithSellInOut({ children, pendientes = 0 }) {
   );
 }
 
+/** One figure of the sell in / sell out card; a figure that does not apply (null) leaves no line at all. */
+function SellFigure({ label, value, testId, pendientes = 0 }) {
+  if (value == null) return null;
+  return (
+    <div className={styles.sellFigure} data-testid={testId}>
+      <span className={styles.subtitle}>{label}</span>
+      <span className={styles.sellValue}>
+        <strong data-money>{formatSignedMoney(value)}</strong>
+        {pendientes > 0 && (
+          <span className={styles.warn} title={sellOutPendingTitle(pendientes)}>
+            <AlertTriangle size={12} aria-hidden="true" />
+            {formatUnits(pendientes)}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** The period's sell in and sell out, and the cost without and with sell in (sell-in-sell-out T20): only while
+ * some sale in the period has a sell in or a sell out. */
+function SellInOutCard({ sell }) {
+  return (
+    <Card label="Sell in / Sell out" icon={ArrowLeftRight}>
+      <div className={styles.sellFigures}>
+        <SellFigure label="Sell in" value={sell.sell_in} testId="kpi-sell-in" />
+        <SellFigure label="Sell out" value={sell.sell_out} testId="kpi-sell-out" pendientes={sell.sell_out_pendientes} />
+        <SellFigure label="Costo" value={sell.costo} testId="kpi-costo" />
+        <SellFigure label="Costo c/ sell in" value={sell.costo_sell_in} testId="kpi-costo-sell-in" />
+      </div>
+    </Card>
+  );
+}
+
 /** `tpSolo`: a `tplink.solo` user's board, which has no Total Gauss (the key is absent) and carries Markup TP. */
 export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading, tpSolo = false }) {
   if (!kpis) return <div className={styles.cards} aria-busy={loading} />;
@@ -122,11 +157,12 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
   const tp = canSeeMargin ? (kpis.total_tp ?? null) : null;
   // `kpis.sell_in_out` exists only with the profit view (never for `tplink.solo`).
   const sell = canSeeMargin ? (kpis.sell_in_out ?? null) : null;
+  const sellCard = sell && (sell.sell_in != null || sell.sell_out != null || sell.costo_sell_in != null);
   const ageingTotal = ageing.up_to_30 + ageing.from_31_to_60 + ageing.over_60;
   const activePct = pctOf(withSales.value, withSales.of_total);
 
   return (
-    <section className={styles.cards} aria-label="Indicadores del período" aria-busy={loading} data-tp={tp ? '' : undefined}>
+    <section className={styles.cards} aria-label="Indicadores del período" aria-busy={loading} data-tp={tp ? '' : undefined} data-sell={sellCard ? '' : undefined}>
       <Card label="Unidades vendidas" icon={ShoppingBag}>
         <div className={styles.valueRow}>
           <span className={styles.value} data-kpi-value>
@@ -193,6 +229,8 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
           <span className={styles.locked}>Sin permiso para ver ganancia</span>
         )}
       </Card>
+
+      {sellCard && <SellInOutCard sell={sell} />}
 
       <Card label={`${noun} con ventas`} icon={Boxes}>
         <div className={styles.valueRow}>
