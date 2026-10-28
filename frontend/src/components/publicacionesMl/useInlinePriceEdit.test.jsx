@@ -220,5 +220,28 @@ describe('useInlinePriceEdit', () => {
       });
       expect(preciosAPI.setOutOfCards).toHaveBeenCalledTimes(1);
     });
+
+    it('a price typed while a toggle is on its way is not checked nor saved, and says why', async () => {
+      let finish;
+      preciosAPI.setOutOfCards.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+      const { result } = setup();
+      let first;
+      act(() => {
+        first = result.current.toggle('tarjetas', { item_id: 7, out_of_cards: false });
+      });
+      let saved;
+      await act(async () => {
+        saved = await result.current.save(CLASICA, PRODUCT, '500');
+      });
+      expect(saved).toBe(false);
+      expect(preciosAPI.calcularMarkup).not.toHaveBeenCalled();
+      expect(result.current.message).toEqual({ tone: 'error', text: 'Esperá a que termine el cambio anterior.' });
+      await act(async () => {
+        finish({ data: {} });
+        await first;
+      });
+      expect(result.current.saving).toBe(false);
+      expect(preciosAPI.setRapido).not.toHaveBeenCalled();
+    });
   });
 });

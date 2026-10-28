@@ -74,11 +74,14 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
   });
 
   // One write: reported, and the caller re-reads after it.
+  const refuseWhileBusy = () => {
+    if (!busy.current) return false;
+    setMessage({ tone: 'error', text: 'Esperá a que termine el cambio anterior.' });
+    return true;
+  };
+
   const run = useCallback(async ({ write, saved, fallback }) => {
-    if (busy.current) {
-      setMessage({ tone: 'error', text: 'Esperá a que termine el cambio anterior.' });
-      return false;
-    }
+    if (refuseWhileBusy()) return false;
     busy.current = true;
     setSaving(true);
     setMessage(null);
@@ -116,6 +119,7 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
   );
 
   const save = useCallback(async (row, product, value) => {
+    if (refuseWhileBusy()) return false;
     const precio = parsePrecioInput(value);
     if (precio === null) {
       setMessage({ tone: 'error', text: 'El precio debe ser un número válido mayor o igual a 0 (ej. 120.000,50).' });
