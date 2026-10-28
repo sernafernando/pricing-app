@@ -913,6 +913,12 @@ def _event(f: PublicationFilter) -> ColumnElement:
 # the Producto view (`oferta_per_product`) of the product, any of its publications, as Productos does.
 
 
+def product_pricing(name: str) -> Any:
+    """Productos' pricing row of a product (`productos_pricing`) aliased `name`, for a view module that joins it
+    itself (`stats`): the catalog models are named here only (`test_static_guards`)."""
+    return aliased(ProductoPricing, name=name)
+
+
 def _pricing_flag(flag: Any, on: bool, p: Any) -> ColumnElement:
     pp = aliased(ProductoPricing, name="pp")
     flagged = exists(select(1).where(pp.item_id == p.item_id, flag(pp).is_(True)))
@@ -947,13 +953,13 @@ def _audited(f: PublicationFilter, p: Any) -> ColumnElement:
     return exists(select(1).where(*where))
 
 
-def _current_offer(o: Any) -> list[ColumnElement]:
+def current_offer(o: Any) -> list[ColumnElement]:
     return [o.fecha_desde <= func.current_date(), o.fecha_hasta >= func.current_date(), o.pvp_seller.isnot(None)]
 
 
 def _oferta(on: bool, per_product: bool) -> ColumnElement:
     o = aliased(OfertaML, name="o")
-    own = exists(select(1).where(o.mla == T.i.item_id, *_current_offer(o)))
+    own = exists(select(1).where(o.mla == T.i.item_id, *current_offer(o)))
     if per_product:
         # one of the row's products (`product_links`) has an offer; a row with no product has only itself
         mine = product_links("pl_oferta")
@@ -972,7 +978,7 @@ def product_has_offer(product_id: Any) -> ColumnElement:
         select(1)
         .select_from(sibling)
         .join(o, o.mla == sibling.c.item_id)
-        .where(sibling.c.producto_item_id == product_id, *_current_offer(o))
+        .where(sibling.c.producto_item_id == product_id, *current_offer(o))
     )
 
 

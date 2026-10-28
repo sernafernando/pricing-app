@@ -53,6 +53,9 @@ const order = (overrides) => ({
   alert_level: 'ok',
   markup: 21.6,
   items: [item({})],
+  sell_in_ars: 14210.5,
+  sell_out_ars: 1875.25,
+  sell_out_estimado: false,
   ...overrides,
 });
 
@@ -76,6 +79,9 @@ const lone = (o) => ({
   total_gauss_provisional_falta: o.total_gauss_provisional_falta,
   neto_depositado: o.neto_depositado,
   retenciones_recuperables: o.retenciones_recuperables,
+  sell_in_ars: o.sell_in_ars,
+  sell_out_ars: o.sell_out_ars,
+  sell_out_estimado: o.sell_out_estimado,
 });
 
 const sum = (orders, key) =>
@@ -101,6 +107,9 @@ const pack = (packId, orders, overrides = {}) => ({
   total_gauss_provisional_falta: orders.some((o) => o.total_gauss_provisional) ? 'Envío Flex' : null,
   neto_depositado: sum(orders, 'neto_depositado'),
   retenciones_recuperables: sum(orders, 'retenciones_recuperables'),
+  sell_in_ars: sum(orders, 'sell_in_ars'),
+  sell_out_ars: sum(orders, 'sell_out_ars'),
+  sell_out_estimado: orders.some((o) => o.sell_out_estimado),
   ...overrides,
 });
 
@@ -203,6 +212,8 @@ const PACK_ORDERS = [
 ];
 
 const TV = order({
+  sell_out_ars: null,
+  sell_out_estimado: true,
   order_id: 2000018567320042,
   buyer_nickname: 'marisa_gomez',
   total_amount: 489999,
@@ -352,6 +363,9 @@ const ALERTA = order({
 });
 
 const RECALC = order({
+  sell_in_ars: null,
+  sell_out_ars: null,
+  sell_out_estimado: null,
   order_id: 2000018567318402,
   buyer_nickname: 'ferreteria_el_tornillo',
   total_amount: 132500,
