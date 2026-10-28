@@ -18,4 +18,4 @@ En **Publicaciones ML**, los precios de Productos se pueden editar directamente 
 1. Abrir **Reportes → Publicaciones ML**, en la vista Producto o en la vista Publicaciones.
 2. Hacer clic sobre el precio que querés cambiar.
 3. Escribir el precio nuevo (por ejemplo 120.000,50) y apretar **Enter**. Con **Escape** se cancela.
-4. Si aparece una confirmación, elegir **Guardar igual** o **Cancelar**.
+4. Si aparece una confirmación, elegir **Borrar el precio** (para un 0), **Guardar igual** (para un markup negativo) o **Cancelar**.

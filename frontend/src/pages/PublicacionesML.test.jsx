@@ -1769,6 +1769,8 @@ describe("editing Productos' prices in the table (S11c)", () => {
     const user = userEvent.setup();
     await page();
     await editClasica(user, '15000');
+    // Editing a price is not opening its row.
+    expect(table().querySelector('tr[aria-current]')).toBeNull();
     await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 15000 })));
     expect(await screen.findByText('Precio guardado.')).toBeInTheDocument();
     await waitFor(() => expect(productosAPI.listar).toHaveBeenCalledTimes(2));
@@ -1784,7 +1786,7 @@ describe("editing Productos' prices in the table (S11c)", () => {
     await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
     expect(preciosAPI.setRapido).not.toHaveBeenCalled();
     await editClasica(user, '0');
-    await user.click(await screen.findByRole('button', { name: 'Guardar igual' }));
+    await user.click(await screen.findByRole('button', { name: 'Borrar el precio' }));
     await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 0 })));
   });
 

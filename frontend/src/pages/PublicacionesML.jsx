@@ -861,9 +861,10 @@ export default function PublicacionesML() {
           size="sm"
           footer={
             <ModalFooterButtons
-              onCancel={priceEditor.cancel}
+              // A write on its way finishes anyway: the confirmation stays until it does.
+              onCancel={priceEditor.saving ? () => {} : priceEditor.cancel}
               onConfirm={priceEditor.confirm}
-              confirmText="Guardar igual"
+              confirmText={priceEditor.pending.kind === 'zero' ? 'Borrar el precio' : 'Guardar igual'}
               confirmLoading={priceEditor.saving}
             />
           }
