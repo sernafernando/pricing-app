@@ -1,4 +1,5 @@
-/* Productos' stat cards on Publicaciones ML: the KPI strip's card look, every figure a button. Tokens only. */
+/* Productos' stat cards on Publicaciones ML: the KPI strip's card look, every figure a button. Colors and radii from
+   the theme tokens; the sizes are the KPI strip's own. */
 
 .strip {
   composes: strip from './PublicationKpiStrip.module.css';
