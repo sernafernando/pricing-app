@@ -128,6 +128,15 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
     assert response.json()["our_rank"] == 2
     assert response.json()["precio_sugerido"] == 105.0
 
+    from app.services.para_ganar_sugerencia import compute_sugerencia_mla, compute_sugerencia_mlas_bulk
+
+    single = compute_sugerencia_mla(db, "MLA88201")
+    bulk = compute_sugerencia_mlas_bulk(db, ["MLA88201", "MLA-MISSING"])
+    assert "MLA-MISSING" not in bulk
+    assert bulk["MLA88201"].our_rank == single.our_rank
+    assert bulk["MLA88201"].suggestion_status == single.suggestion_status
+    assert bulk["MLA88201"].precio_sugerido == single.precio_sugerido
+
 
 def test_sugerencia_flags_needs_refresh_without_snapshot(client: TestClient, rma_superadmin_user, db) -> None:
     from app.models.ml_publication_link import MlPublicationLink
