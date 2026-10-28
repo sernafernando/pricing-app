@@ -402,7 +402,7 @@ def parse_filter(
         precio=con_precio,
         nuevos=bool(nuevos_ultimos_7_dias),
         sin_mla=con_mla is False,  # `true` is every row of this screen already: no filter
-        paused=_vocabulary("estado_mla", estado_mla, ESTADO_MLA) == ("pausada",),
+        paused="pausada" in _vocabulary("estado_mla", estado_mla, ESTADO_MLA),
         markup_signs=tuple(
             (column, positive)
             for column, positive in (
