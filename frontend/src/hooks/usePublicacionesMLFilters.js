@@ -183,11 +183,13 @@ const resolved = ({ key, dir }) => ({ key, dir: dir || DEFAULT_DIRECTION[key] ||
  */
 function askedSort(filters) {
   const dirs = (filters.dir ?? '').split(',');
-  const seen = new Set();
-  return (filters.orden ?? '')
-    .split(',')
-    .map((key, index) => ({ key: key.trim(), dir: DIRECTIONS.includes(dirs[index]) ? dirs[index] : '' }))
-    .filter(({ key }) => key && !seen.has(key) && seen.add(key));
+  const sort = [];
+  (filters.orden ?? '').split(',').forEach((raw, index) => {
+    const key = raw.trim();
+    if (!key || sort.some((entry) => entry.key === key)) return; // a repeated key counts once
+    sort.push({ key, dir: DIRECTIONS.includes(dirs[index]) ? dirs[index] : '' });
+  });
+  return sort;
 }
 
 /** The URL's sort keys the user may ask for the publication list; a key that only leads is dropped elsewhere. */
@@ -229,6 +231,9 @@ export function nextSort(current, key, { shift = false, leadOnly = () => false }
   if (found.dir === fallback) return current.map((entry) => (entry.key === key ? { key, dir: flip(fallback) } : entry));
   return current.filter((entry) => entry.key !== key);
 }
+
+/** What the table header draws for `keys` (`[{key, dir}]`): the first key leads, `keys` numbers every column. */
+export const headerSort = (keys) => ({ ...keys[0], keys });
 
 /** `orden` / `dir` for `sort` (`[{key, dir}]`): '' for both when it is empty (the default sort). */
 export function sortParams(sort) {
