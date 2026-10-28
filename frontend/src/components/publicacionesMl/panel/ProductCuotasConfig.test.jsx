@@ -51,15 +51,15 @@ beforeEach(() => {
 describe('what it shows', () => {
   it("reads the product's settings, an empty one following the global", async () => {
     renderConfig();
-    expect(await screen.findByText('Usa la configuración global')).toBeInTheDocument();
+    expect(await screen.findByText('Usar la configuración global')).toBeInTheDocument();
     expect(preciosAPI.obtenerProducto).toHaveBeenCalledWith(4101);
     expect(field('Markup adicional cuotas Web')).toHaveTextContent('6,5 %');
     expect(field('Markup adicional cuotas PVP')).toHaveTextContent('Global');
   });
 
   it.each([
-    [true, 'Siempre'],
-    [false, 'Nunca'],
+    [true, 'Siempre recalcular'],
+    [false, 'Nunca recalcular'],
   ])('recalcular %s reads %s', async (value, text) => {
     preciosAPI.obtenerProducto.mockResolvedValue(product({ recalcular_cuotas_auto: value }));
     renderConfig();
@@ -69,7 +69,7 @@ describe('what it shows', () => {
   it('without the permission it only reads', async () => {
     granted = new Set();
     renderConfig();
-    await screen.findByText('Usa la configuración global');
+    await screen.findByText('Usar la configuración global');
     expect(screen.queryByRole('button', { name: 'Editar cuotas' })).not.toBeInTheDocument();
   });
 
@@ -79,7 +79,7 @@ describe('what it shows', () => {
     renderConfig();
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar la configuración de cuotas.');
     await user.click(screen.getByRole('button', { name: 'Reintentar' }));
-    expect(await screen.findByText('Usa la configuración global')).toBeInTheDocument();
+    expect(await screen.findByText('Usar la configuración global')).toBeInTheDocument();
   });
 });
 
@@ -111,9 +111,27 @@ describe('editing', () => {
     });
     expect(await screen.findByRole('status')).toHaveTextContent('Guardado.');
     // What is shown after saving is the stored setting, read again.
-    expect(await screen.findByText('Nunca')).toBeInTheDocument();
+    expect(await screen.findByText('Nunca recalcular')).toBeInTheDocument();
     expect(field('Markup adicional cuotas PVP')).toHaveTextContent('3 %');
     expect(preciosAPI.obtenerProducto).toHaveBeenCalledTimes(2);
+  });
+
+  it('a saved 0 markup reads "0 %", starts the field at 0 and is sent back as 0, never as the global', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue(product({ markup_adicional_cuotas_custom: 0, markup_adicional_cuotas_pvp_custom: 0 }));
+    const user = userEvent.setup();
+    renderConfig();
+    expect(await screen.findByText('Markup adicional cuotas Web')).toBeInTheDocument();
+    expect(field('Markup adicional cuotas Web')).toHaveTextContent('0 %');
+    expect(field('Markup adicional cuotas PVP')).toHaveTextContent('0 %');
+    await user.click(screen.getByRole('button', { name: 'Editar cuotas' }));
+    expect(screen.getByLabelText('Markup adicional cuotas Web (%)')).toHaveValue('0');
+    await user.selectOptions(screen.getByLabelText('Recalcular cuotas'), 'always');
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    expect(productosAPI.configCuotas).toHaveBeenCalledWith(4101, {
+      recalcular_cuotas_auto: true,
+      markup_adicional_cuotas_custom: 0,
+      markup_adicional_cuotas_pvp_custom: 0,
+    });
   });
 
   it('"Siempre" sends true', async () => {

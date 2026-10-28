@@ -9,7 +9,8 @@ const EDIT_PERMISSION = 'productos.editar_precio_cuotas';
 // `recalcular_cuotas_auto` as the select's value and back: null follows the global setting.
 const RECALC_VALUE = (stored) => (stored === true ? 'always' : stored === false ? 'never' : 'global');
 const RECALC_STORED = { global: null, always: true, never: false };
-const RECALC_LABELS = { global: 'Usa la configuración global', always: 'Siempre', never: 'Nunca' };
+// The read view and the select say the same.
+const RECALC_LABELS = { global: 'Usar la configuración global', always: 'Siempre recalcular', never: 'Nunca recalcular' };
 
 const PERCENT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
 
@@ -140,9 +141,11 @@ export default function ProductCuotasConfig({ productItemId }) {
             disabled={saving}
             onChange={(event) => setForm({ ...form, recalc: event.target.value })}
           >
-            <option value="global">Usar la configuración global</option>
-            <option value="always">Siempre recalcular</option>
-            <option value="never">Nunca recalcular</option>
+            {Object.entries(RECALC_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </label>
         <label className={styles.identityField}>

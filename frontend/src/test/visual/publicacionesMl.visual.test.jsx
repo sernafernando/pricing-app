@@ -891,9 +891,9 @@ describe('Publicaciones ML Producto view (visual)', () => {
           await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           await aside.getByRole('tab', { name: 'Precios' }).click();
-          await expect.element(aside.getByText('Nunca')).toBeVisible();
+          await expect.element(aside.getByText('Nunca recalcular')).toBeVisible();
           const panel = document.querySelector('[data-split-panel]');
-          const section = aside.getByText('Nunca').element().closest('section');
+          const section = aside.getByText('Nunca recalcular').element().closest('section');
           section.scrollIntoView();
           if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cuotas-${width}-${theme}.png` });
           await aside.getByRole('button', { name: 'Editar cuotas' }).click();
