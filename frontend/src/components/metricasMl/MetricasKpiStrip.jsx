@@ -167,7 +167,11 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
   const tp = canSeeMargin ? (kpis.total_tp ?? null) : null;
   // `kpis.sell_in_out` exists only with the profit view (never for `tplink.solo`).
   const sell = canSeeMargin ? (kpis.sell_in_out ?? null) : null;
-  const sellCard = sell && (sell.sell_in != null || sell.sell_out != null || sell.costo_sell_in != null);
+  // The card shows while some sold line has a sell in or a sell out (the backend's `SellInOut.applies`: `sell_in`
+  // and `sell_out` are null otherwise). `costo` never decides it: it is the cost WITHOUT sell in, there for any
+  // sale; the cost with sell in only exists with a sell in. The "C/ sell in/out" lines follow the same rule
+  // through `total_gauss`, which the backend leaves null when neither applies.
+  const sellCard = sell && (sell.sell_in != null || sell.sell_out != null);
   const ageingTotal = ageing.up_to_30 + ageing.from_31_to_60 + ageing.over_60;
   const activePct = pctOf(withSales.value, withSales.of_total);
 
