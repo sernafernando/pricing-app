@@ -35,6 +35,7 @@ export default function useParaGanarAlcanceOpciones({
   costoUsdMin = '',
   costoUsdMax = '',
   incluirTradicionalSync = false,
+  criteriosAplicados = null,
   onMarcasChange,
   onSubcategoriasChange,
   onPmsChange,
@@ -74,6 +75,9 @@ export default function useParaGanarAlcanceOpciones({
               : {}),
             ...(incluirTradicionalSync
               ? { incluir_tradicionales_sincronizadas: true }
+              : {}),
+            ...(criteriosAplicados === true || criteriosAplicados === false
+              ? { criterios_aplicados: criteriosAplicados }
               : {}),
           },
         });
@@ -143,6 +147,7 @@ export default function useParaGanarAlcanceOpciones({
     costoMinDebounced,
     costoMaxDebounced,
     incluirTradicionalSync,
+    criteriosAplicados,
     reloadToken,
   ]);
 

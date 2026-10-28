@@ -26,6 +26,8 @@ export default function useParaGanarCola(pageSize = 50) {
   const [costoUsdMinInput, setCostoUsdMinInput] = useState('');
   const [costoUsdMaxInput, setCostoUsdMaxInput] = useState('');
   const [incluirTradicionalSync, setIncluirTradicionalSync] = useState(false);
+  /** null = all; true = row in para_ganar_criterios_mla; false = no row yet */
+  const [criteriosAplicados, setCriteriosAplicados] = useState(null);
   const ean = useDebounce(eanInput.trim(), 300);
   const catalogProductId = useDebounce(catalogInput.trim(), 300);
   const costoUsdMin = useDebounce(costoUsdMinInput.trim(), 300);
@@ -63,6 +65,9 @@ export default function useParaGanarCola(pageSize = 50) {
               : {}),
             ...(incluirTradicionalSync
               ? { incluir_tradicionales_sincronizadas: true }
+              : {}),
+            ...(criteriosAplicados === true || criteriosAplicados === false
+              ? { criterios_aplicados: criteriosAplicados }
               : {}),
           },
         });
@@ -106,6 +111,7 @@ export default function useParaGanarCola(pageSize = 50) {
     costoUsdMin,
     costoUsdMax,
     incluirTradicionalSync,
+    criteriosAplicados,
     reloadToken,
   ]);
 
@@ -127,6 +133,7 @@ export default function useParaGanarCola(pageSize = 50) {
     setCostoUsdMinInput('');
     setCostoUsdMaxInput('');
     setIncluirTradicionalSync(false);
+    setCriteriosAplicados(null);
   };
 
   const applySearch = (event) => {
@@ -176,6 +183,8 @@ export default function useParaGanarCola(pageSize = 50) {
     setCostoUsdMaxInput: resetPage(setCostoUsdMaxInput),
     incluirTradicionalSync,
     setIncluirTradicionalSync: resetPage(setIncluirTradicionalSync),
+    criteriosAplicados,
+    setCriteriosAplicados: resetPage(setCriteriosAplicados),
     reload: () => setReloadToken((n) => n + 1),
   };
 }

@@ -81,6 +81,8 @@ class ParaGanarColaItem(BaseModel):
     catalog_listing: Optional[bool] = None
     catalog_product_id: Optional[str] = None
     sync_partner_mla: Optional[str] = None
+    # True when a row exists in para_ganar_criterios_mla (PM assigned defaults or custom).
+    criterios_aplicados: bool = False
     # Placeholder until criteria produce real suggestion states.
     suggestion_status: str = "none"
 
@@ -175,6 +177,7 @@ def _parse_scope_query(
     costo_usd_min: Optional[float] = None,
     costo_usd_max: Optional[float] = None,
     incluir_tradicionales_sincronizadas: bool = False,
+    criterios_aplicados: Optional[bool] = None,
 ) -> dict:
     """Normalize cola/alcance query params into filter lists."""
     parsed_tiendas = parsear_tiendas_oficiales_mla(tiendas)
@@ -203,6 +206,7 @@ def _parse_scope_query(
         "costo_usd_min": min_usd,
         "costo_usd_max": max_usd,
         "incluir_tradicionales_sincronizadas": bool(incluir_tradicionales_sincronizadas),
+        "criterios_aplicados": criterios_aplicados,
     }
 
 
@@ -221,6 +225,7 @@ def _build_alcance_where(
     costo_usd_min: Optional[float],
     costo_usd_max: Optional[float],
     incluir_tradicionales_sincronizadas: bool = False,
+    criterios_aplicados: Optional[bool] = None,
     params: dict,
     skip: Optional[set[str]] = None,
     tipo_cambio_usd: Optional[float] = None,
@@ -253,6 +258,27 @@ def _build_alcance_where(
                 SELECT 1 FROM ml_publication_links lx
                 WHERE lx.mla = p.mla
                   AND lx.catalog_listing IS TRUE
+              )
+                """
+            )
+
+    # PM assignment: row in para_ganar_criterios_mla = criteria applied.
+    if "criterios_aplicados" not in omit and criterios_aplicados is not None:
+        if criterios_aplicados:
+            clauses.append(
+                """
+              AND EXISTS (
+                SELECT 1 FROM para_ganar_criterios_mla cg
+                WHERE cg.mla = p.mla
+              )
+                """
+            )
+        else:
+            clauses.append(
+                """
+              AND NOT EXISTS (
+                SELECT 1 FROM para_ganar_criterios_mla cg
+                WHERE cg.mla = p.mla
               )
                 """
             )
@@ -433,6 +459,10 @@ def listar_alcance_opciones(
         False,
         description="When false (default), only catalog_listing publications; when true, also traditional sync partners with a catalog id",
     ),
+    criterios_aplicados: Optional[bool] = Query(
+        None,
+        description="True = only MLAs with saved criteria; false = only without; omit = all",
+    ),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarAlcanceOpciones:
@@ -450,6 +480,7 @@ def listar_alcance_opciones(
         costo_usd_min=costo_usd_min,
         costo_usd_max=costo_usd_max,
         incluir_tradicionales_sincronizadas=incluir_tradicionales_sincronizadas,
+        criterios_aplicados=criterios_aplicados,
     )
     tipo_cambio_usd = (
         obtener_tipo_cambio_actual(db, "USD")
@@ -601,6 +632,10 @@ def listar_cola(
         False,
         description="When false (default), only catalog listings; when true, also traditional sync partners",
     ),
+    criterios_aplicados: Optional[bool] = Query(
+        None,
+        description="True = only MLAs with saved criteria; false = only without; omit = all",
+    ),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarColaResponse:
@@ -619,6 +654,7 @@ def listar_cola(
         costo_usd_min=costo_usd_min,
         costo_usd_max=costo_usd_max,
         incluir_tradicionales_sincronizadas=incluir_tradicionales_sincronizadas,
+        criterios_aplicados=criterios_aplicados,
     )
 
     params: dict = {"limit": page_size, "offset": offset}
@@ -671,13 +707,15 @@ def listar_cola(
               pm.precio,
               l.catalog_listing,
               l.catalog_product_id,
-              l.inventory_id
+              l.inventory_id,
+              CASE WHEN cg.mla IS NOT NULL THEN 1 ELSE 0 END AS criterios_aplicados
             FROM publicaciones_ml p
             JOIN productos_erp e ON e.item_id = p.item_id
             LEFT JOIN precios_ml pm
               ON pm.item_id = p.item_id
              AND pm.pricelist_id = p.pricelist_id
             LEFT JOIN ml_publication_links l ON l.mla = p.mla
+            LEFT JOIN para_ganar_criterios_mla cg ON cg.mla = p.mla
             WHERE p.activo = true
             {where_extra}
             ORDER BY p.codigo NULLS LAST, p.lista_nombre NULLS LAST, p.mla
@@ -737,6 +775,7 @@ def listar_cola(
                 catalog_listing=row["catalog_listing"],
                 catalog_product_id=row["catalog_product_id"],
                 sync_partner_mla=partner,
+                criterios_aplicados=bool(row["criterios_aplicados"]),
                 suggestion_status="none",
             )
         )
@@ -936,6 +975,52 @@ def upsert_criterios_mla(
     row.updated_by_id = current_user.id
     row.updated_at = datetime.now(UTC)
 
+    db.commit()
+    db.refresh(row)
+    return _criterios_from_row(row, costo_ars=_costo_ars_for_mla(db, mla_norm))
+
+
+@router.post(
+    "/criterios/{mla}/aplicar-defaults",
+    response_model=ParaGanarCriteriosMla,
+    dependencies=[Depends(require_permiso("productos.editar_precios"))],
+)
+def aplicar_criterios_defaults_mla(
+    mla: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ParaGanarCriteriosMla:
+    """Persist system defaults for this MLA (marks criteria as applied).
+
+    Idempotent if a row already exists: returns the saved criteria unchanged.
+    """
+    mla_norm = mla.strip().upper()
+    if not mla_norm:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MLA inválida")
+    if not _mla_exists(db, mla_norm):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MLA no encontrada")
+
+    row = db.get(ParaGanarCriterioMla, mla_norm)
+    if row is not None:
+        return _criterios_from_row(row, costo_ars=_costo_ars_for_mla(db, mla_norm))
+
+    defaults = _criterios_defaults(mla_norm)
+    row = ParaGanarCriterioMla(
+        mla=mla_norm,
+        markup_min=defaults.markup_min,
+        markup_max=defaults.markup_max,
+        top_sellers=defaults.top_sellers,
+        precio_min=defaults.precio_min,
+        precio_max=defaults.precio_max,
+        ganar_catalogo=defaults.ganar_catalogo,
+        ignorar_internacionales=defaults.ignorar_internacionales,
+        descartar_stock_residual=defaults.descartar_stock_residual,
+        descartar_reputacion_baja=defaults.descartar_reputacion_baja,
+        techo_monopolio=defaults.techo_monopolio,
+        updated_by_id=current_user.id,
+        updated_at=datetime.now(UTC),
+    )
+    db.add(row)
     db.commit()
     db.refresh(row)
     return _criterios_from_row(row, costo_ars=_costo_ars_for_mla(db, mla_norm))

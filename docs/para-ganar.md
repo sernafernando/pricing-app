@@ -37,6 +37,7 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D13 | **Cola default = solo catálogo** (`catalog_listing`); opt-in “Incluir tradicionales sincronizadas” | Operators want catalog winners first; sync partners clutter the queue | Done (`incluir_tradicionales_sincronizadas`) |
 | D14 | **TOP same_bucket = listing_type \| cuotas**; bare int installments normalize correctly; synthesize our bucket from web pricelist when snapshot omits it | Bare ints used to collapse to `\|0` → “estamos solos” on 6 cuotas while ML shows peers | Done (read-time recompute) |
 | D15 | **Precio sugerido** = referent peer in same bucket (cheapest; skip peers with markup &lt; `markup_min` when known); clamp to precio min/max if set. Delta: losing ⇒ sugerido−ours; winning ⇒ air to next peer | Pro algorithm; first Advisor slice without promo apply | Done (compute + UI; apply TBD) |
+| D16 | **Criterio aplicado** = fila en `para_ganar_criterios_mla` (defaults o custom). Sin fila = sin aplicado. Cola badge + filtro Sin/Con + `POST …/aplicar-defaults` | PM assignment UX; “defaults en pantalla” ≠ asignado hasta persistir | Done |
 
 ---
 
@@ -76,8 +77,9 @@ Newest first. Use for “why did we…” archaeology.
 
 ### Criterios
 
-- **Sin override MLA:** UI shows system defaults (`Origen: default`). System defaults are **markup + TOP + flags** only — no mass price caps (D10).
-- **Con override:** `Origen: MLA` after save. Precio min/max ↔ markup min/max sync via Pricing endpoints (D11), not a generic cost×markup formula.
+- **Sin criterio aplicado (D16):** no row in `para_ganar_criterios_mla`. UI still shows system defaults for editing (`Origen: default`), but the queue badge says **Sin criterio aplicado**. Filter chips: Todos / Sin / Con.
+- **Con criterio aplicado:** a saved row exists (defaults via **Aplicar defaults**, or custom via **Guardar**). Badge **Con criterio aplicado**; `Origen: MLA`.
+- System defaults are **markup + TOP + flags** only — no mass price caps (D10). Precio min/max ↔ markup min/max sync via Pricing endpoints (D11).
 - Mass “apply to filtered” button: still disabled until product/PM layers; when built, only `MASS_CRITERIA_NUMBER_KEYS` + flags.
 
 ### TOP (posiciones)
@@ -106,7 +108,8 @@ Newest first. Use for “why did we…” archaeology.
 5. ~~Suggestion/TOP engine (rank board D12 + Activo/Excluido)~~.
 6. ~~Cola solo catálogo + check tradicionales (D13); fix bucket 6 cuotas (D14)~~.
 7. ~~Precio sugerido D15 (referent + delta; no promo apply)~~.
-8. Next: promo apply; product/PM criteria inheritance; suggestion states queue.
+8. ~~Criterio aplicado D16 (badge + filtro + Aplicar defaults)~~.
+9. Next: promo apply; product/PM criteria inheritance; suggestion states queue.
 
 ---
 

@@ -274,7 +274,8 @@
   color: var(--cf-accent-blue);
 }
 
-.criteriaBadge {
+.criteriaBadge,
+.criteriaBadgeApplied {
   display: inline-flex;
   align-items: center;
   font-size: 10px;
@@ -284,6 +285,11 @@
   border-radius: var(--radius-sm);
   border: 1px solid var(--cf-border-subtle);
   color: var(--cf-text-tertiary);
+}
+
+.criteriaBadgeApplied {
+  border-color: color-mix(in srgb, var(--cf-accent-blue) 40%, var(--cf-border-subtle));
+  color: var(--cf-accent-blue);
 }
 
 .queueRowTitle {
@@ -460,6 +466,15 @@
   color: var(--cf-text-secondary);
   border: 1px solid var(--cf-border-subtle);
   margin-top: var(--spacing-sm);
+}
+
+.applyDefaultsBtn {
+  composes: secondaryActionBtn;
+}
+
+.applyDefaultsBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .sellersNotice {

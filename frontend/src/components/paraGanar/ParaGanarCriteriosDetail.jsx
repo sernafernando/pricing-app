@@ -14,14 +14,16 @@ import { MARKUP_PRICE_LINKS, resolveLinkedCriteriaValue } from './criteriaMarkup
 import ParaGanarCatalogSellers from './ParaGanarCatalogSellers';
 import styles from '../../pages/ParaGanarAdvisor.module.css';
 
-export default function ParaGanarCriteriosDetail({ selected }) {
+export default function ParaGanarCriteriosDetail({ selected, onCriteriaChanged }) {
   const { tienePermiso } = usePermisos();
   const canWrite = tienePermiso('productos.editar_precios');
+  const hasApplied = Boolean(selected?.criterios_aplicados);
 
   const [form, setForm] = useState(EMPTY_CRITERIA_FORM);
   const [source, setSource] = useState('default');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [applyingDefaults, setApplyingDefaults] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
@@ -148,6 +150,7 @@ export default function ParaGanarCriteriosDetail({ selected }) {
       setForm(criteriaToForm(data));
       setSource(data.source || 'mla');
       setSaveOk(true);
+      onCriteriaChanged?.();
     } catch (err) {
       const detail = err.response?.data?.detail;
       if (typeof detail === 'string') {
@@ -161,6 +164,31 @@ export default function ParaGanarCriteriosDetail({ selected }) {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const onApplyDefaults = async () => {
+    if (!selected?.mla || !canWrite || applyingDefaults || hasApplied) return;
+
+    setApplyingDefaults(true);
+    setSaveError(null);
+    setSaveOk(false);
+    try {
+      const { data } = await api.post(
+        `/para-ganar/criterios/${encodeURIComponent(selected.mla)}/aplicar-defaults`,
+      );
+      setForm(criteriaToForm(data));
+      setSource(data.source || 'mla');
+      setSaveOk(true);
+      onCriteriaChanged?.();
+    } catch (err) {
+      if (err.response?.status === 403) {
+        setSaveError('No tenés permiso para aplicar defaults (productos.editar_precios).');
+      } else {
+        setSaveError('No se pudieron aplicar los criterios por defecto.');
+      }
+    } finally {
+      setApplyingDefaults(false);
     }
   };
 
@@ -185,6 +213,8 @@ export default function ParaGanarCriteriosDetail({ selected }) {
             </div>
             <div className={styles.criteriaSource}>
               Origen efectivo: <strong>{sourceLabel(source)}</strong>
+              {' · '}
+              {hasApplied ? 'criterio aplicado' : 'sin criterio aplicado'}
               {loading ? ' · cargando…' : ''}
               {syncing ? ' · sync Pricing…' : ''}
             </div>
@@ -247,10 +277,25 @@ export default function ParaGanarCriteriosDetail({ selected }) {
                 Criterios guardados.
               </p>
             )}
+            {!hasApplied && (
+              <button
+                type="button"
+                className={styles.applyDefaultsBtn}
+                disabled={loading || applyingDefaults || !canWrite}
+                title={
+                  canWrite
+                    ? 'Guarda los defaults del sistema como criterio aplicado'
+                    : 'Requiere productos.editar_precios'
+                }
+                onClick={onApplyDefaults}
+              >
+                {applyingDefaults ? 'Aplicando…' : 'Aplicar defaults'}
+              </button>
+            )}
             <button
               type="submit"
               className={styles.saveCriteriaBtn}
-              disabled={loading || saving || !canWrite}
+              disabled={loading || saving || applyingDefaults || !canWrite}
               title={canWrite ? undefined : 'Requiere productos.editar_precios'}
             >
               {saving ? 'Guardando…' : 'Guardar criterios de esta MLA'}

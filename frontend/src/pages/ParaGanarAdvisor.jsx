@@ -110,6 +110,8 @@ export default function ParaGanarAdvisor() {
           costoUsdMax={cola.costoUsdMaxInput}
           incluirTradicionalSync={cola.incluirTradicionalSync}
           onIncluirTradicionalSyncChange={cola.setIncluirTradicionalSync}
+          criteriosAplicados={cola.criteriosAplicados}
+          onCriteriosAplicadosChange={cola.setCriteriosAplicados}
           onMarcasChange={cola.setMarcas}
           onSubcategoriasChange={cola.setSubcategorias}
           onPmsChange={cola.setPms}
@@ -172,7 +174,10 @@ export default function ParaGanarAdvisor() {
             onNextPage={() => cola.setPage((p) => p + 1)}
           />
           {isCriterios ? (
-            <ParaGanarCriteriosDetail selected={cola.selected} />
+            <ParaGanarCriteriosDetail
+              selected={cola.selected}
+              onCriteriaChanged={cola.reload}
+            />
           ) : (
             <ParaGanarAdvisorDetail selected={cola.selected} />
           )}

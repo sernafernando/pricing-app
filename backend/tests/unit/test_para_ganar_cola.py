@@ -214,3 +214,77 @@ def test_cola_default_catalog_only_opt_in_traditional(client: TestClient, rma_su
     assert with_trad.status_code == 200, with_trad.text
     mlas_trad = {row["mla"] for row in with_trad.json()["items"]}
     assert mlas_trad == {"MLA99101", "MLA99102"}
+
+
+def test_cola_criterios_aplicados_flag_and_filter(client: TestClient, rma_superadmin_user, db) -> None:
+    """Cola exposes criterios_aplicados and filters by saved criteria row presence."""
+    from app.models.ml_publication_link import MlPublicationLink
+    from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
+    from app.models.producto import ProductoERP
+    from app.models.publicacion_ml import PublicacionML
+
+    catalog_id = "MLA-PG-CRIT-APPL-992"
+    producto = ProductoERP(item_id=99201, codigo="SKU-PG-CA", descripcion="criteria applied", costo=10)
+    db.add(producto)
+    db.flush()
+    for mla in ("MLA99201", "MLA99202"):
+        db.add(
+            PublicacionML(
+                mla=mla,
+                item_id=producto.item_id,
+                codigo="SKU-PG-CA",
+                activo=True,
+                pricelist_id=4,
+            )
+        )
+        db.add(
+            MlPublicationLink(
+                mla=mla,
+                catalog_product_id=catalog_id,
+                catalog_listing=True,
+            )
+        )
+    db.add(
+        ParaGanarCriterioMla(
+            mla="MLA99201",
+            markup_min=5,
+            markup_max=15,
+            top_sellers=5,
+        )
+    )
+    db.commit()
+
+    headers = {"Authorization": f"Bearer {make_access_token(rma_superadmin_user)}"}
+    all_rows = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "page_size": 20},
+    )
+    assert all_rows.status_code == 200, all_rows.text
+    by_mla = {row["mla"]: row for row in all_rows.json()["items"]}
+    assert by_mla["MLA99201"]["criterios_aplicados"] is True
+    assert by_mla["MLA99202"]["criterios_aplicados"] is False
+
+    with_applied = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={
+            "catalog_product_id": catalog_id,
+            "criterios_aplicados": True,
+            "page_size": 20,
+        },
+    )
+    assert with_applied.status_code == 200, with_applied.text
+    assert {row["mla"] for row in with_applied.json()["items"]} == {"MLA99201"}
+
+    without = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={
+            "catalog_product_id": catalog_id,
+            "criterios_aplicados": False,
+            "page_size": 20,
+        },
+    )
+    assert without.status_code == 200, without.text
+    assert {row["mla"] for row in without.json()["items"]} == {"MLA99202"}

@@ -109,3 +109,45 @@ def test_criterios_put_and_get_roundtrip(client: TestClient, rma_superadmin_user
     assert body["markup_max"] == 22
     assert body["top_sellers"] == 5
     assert body["descartar_reputacion_baja"] is True
+
+
+def test_aplicar_defaults_creates_row_and_is_idempotent(
+    client: TestClient, rma_superadmin_user, db
+) -> None:
+    from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
+
+    producto = ProductoERP(item_id=88004, codigo="SKU-PG-DEF", descripcion="Aplicar defaults", costo=10)
+    db.add(producto)
+    db.flush()
+    db.add(PublicacionML(mla="MLA88004", item_id=producto.item_id, codigo="SKU-PG-DEF", activo=True))
+    db.commit()
+
+    headers = _auth(rma_superadmin_user)
+    first = client.post("/api/para-ganar/criterios/MLA88004/aplicar-defaults", headers=headers)
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["source"] == "mla"
+    assert body["markup_min"] == 5.0
+    assert body["markup_max"] == 15.0
+    assert body["top_sellers"] == 5
+    assert db.get(ParaGanarCriterioMla, "MLA88004") is not None
+
+    custom = client.put(
+        "/api/para-ganar/criterios/MLA88004",
+        headers=headers,
+        json={"markup_min": 9, "markup_max": 18, "top_sellers": 3},
+    )
+    assert custom.status_code == 200, custom.text
+
+    second = client.post("/api/para-ganar/criterios/MLA88004/aplicar-defaults", headers=headers)
+    assert second.status_code == 200, second.text
+    assert second.json()["markup_min"] == 9
+    assert second.json()["top_sellers"] == 3
+
+
+def test_aplicar_defaults_unknown_mla_404(client: TestClient, rma_superadmin_user) -> None:
+    response = client.post(
+        "/api/para-ganar/criterios/MLA_NO_EXISTE/aplicar-defaults",
+        headers=_auth(rma_superadmin_user),
+    )
+    assert response.status_code == 404

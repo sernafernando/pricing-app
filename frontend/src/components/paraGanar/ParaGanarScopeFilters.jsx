@@ -25,6 +25,8 @@ export default function ParaGanarScopeFilters({
   costoUsdMax,
   incluirTradicionalSync = false,
   onIncluirTradicionalSyncChange,
+  criteriosAplicados = null,
+  onCriteriosAplicadosChange,
   onMarcasChange,
   onSubcategoriasChange,
   onPmsChange,
@@ -49,6 +51,7 @@ export default function ParaGanarScopeFilters({
     costoUsdMin,
     costoUsdMax,
     incluirTradicionalSync,
+    criteriosAplicados,
     onMarcasChange,
     onSubcategoriasChange,
     onPmsChange,
@@ -72,7 +75,9 @@ export default function ParaGanarScopeFilters({
     Boolean(catalogProductId.trim()) ||
     Boolean(String(costoUsdMin || '').trim()) ||
     Boolean(String(costoUsdMax || '').trim()) ||
-    Boolean(incluirTradicionalSync);
+    Boolean(incluirTradicionalSync) ||
+    criteriosAplicados === true ||
+    criteriosAplicados === false;
 
   const emptyHint = (emptyLabel) => {
     if (loading) return 'Cargando…';
@@ -181,6 +186,32 @@ export default function ParaGanarScopeFilters({
         />
         Incluir tradicionales sincronizadas
       </label>
+      <div className={styles.criteriaFilter} role="group" aria-label="Criterio aplicado">
+        <button
+          type="button"
+          className={`${styles.criteriaChip} ${criteriosAplicados == null ? styles.criteriaChipActive : ''}`}
+          aria-pressed={criteriosAplicados == null}
+          onClick={() => onCriteriosAplicadosChange?.(null)}
+        >
+          Todos
+        </button>
+        <button
+          type="button"
+          className={`${styles.criteriaChip} ${criteriosAplicados === false ? styles.criteriaChipActive : ''}`}
+          aria-pressed={criteriosAplicados === false}
+          onClick={() => onCriteriosAplicadosChange?.(false)}
+        >
+          Sin criterio aplicado
+        </button>
+        <button
+          type="button"
+          className={`${styles.criteriaChip} ${criteriosAplicados === true ? styles.criteriaChipActive : ''}`}
+          aria-pressed={criteriosAplicados === true}
+          onClick={() => onCriteriosAplicadosChange?.(true)}
+        >
+          Con criterio aplicado
+        </button>
+      </div>
       {hasActive && (
         <button type="button" className={styles.clearAll} onClick={onClear}>
           <X size={14} aria-hidden />

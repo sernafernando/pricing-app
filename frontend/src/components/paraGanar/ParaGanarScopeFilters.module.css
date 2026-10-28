@@ -226,6 +226,40 @@
   cursor: pointer;
 }
 
+.criteriaFilter {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--cf-bg-app);
+}
+
+.criteriaChip {
+  appearance: none;
+  border: 0;
+  border-right: 1px solid var(--cf-border-subtle);
+  background: transparent;
+  color: var(--cf-text-secondary);
+  font-size: 12px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.criteriaChip:last-child {
+  border-right: 0;
+}
+
+.criteriaChip:hover {
+  color: var(--cf-text-primary);
+}
+
+.criteriaChipActive {
+  color: var(--cf-text-primary);
+  background: color-mix(in srgb, var(--cf-accent-blue) 14%, transparent);
+}
+
 .srOnly {
   position: absolute;
   width: 1px;

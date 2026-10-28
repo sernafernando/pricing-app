@@ -82,7 +82,17 @@ export default function ParaGanarQueue({
                         <span className={styles.catalogBadge}>Catálogo</span>
                       )}
                       {isCriterios && (
-                        <span className={styles.criteriaBadge}>Sin criterios</span>
+                        <span
+                          className={
+                            row.criterios_aplicados
+                              ? styles.criteriaBadgeApplied
+                              : styles.criteriaBadge
+                          }
+                        >
+                          {row.criterios_aplicados
+                            ? 'Con criterio aplicado'
+                            : 'Sin criterio aplicado'}
+                        </span>
                       )}
                     </div>
                     <div className={styles.queueRowTitle}>
