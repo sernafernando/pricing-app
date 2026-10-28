@@ -17,6 +17,8 @@ from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- f
     bg_sessions,
     board_data,
 )
+from tests.integration.test_ml_metricas_board_scope_router import _headers, people  # noqa: F401 -- fixtures
+from tests.integration.test_ml_metricas_board_tplink_solo_router import tienda, tp_solo  # noqa: F401 -- fixtures
 
 ENVIOS = f"{URL}/envios"
 
@@ -54,6 +56,23 @@ def test_no_profit_permission_needed(client, admin_auth_headers, db, rol_admin) 
     rows = _get(client, admin_auth_headers)
 
     assert [(r["modo"], r["units"], r["gross"]) for r in rows] == [("desconocido", 2, 200)]
+
+
+def test_a_pm_sees_only_the_sales_of_their_pairs(client, people) -> None:
+    # `people`: ana is PM of Epson, beto of Lenovo plus TP-Link as sub-PM, nadie holds no pair.
+    def shipped(user):
+        return [(r["modo"], r["units"], r["gross"]) for r in _get(client, _headers(user))]
+
+    assert shipped(people["ana"]) == [("desconocido", 6, 600)]
+    assert shipped(people["beto"]) == [("desconocido", 1, 150)]
+    assert shipped(people["nadie"]) == []
+
+
+def test_a_tp_only_user_sees_only_the_tp_store_sales(client, admin_auth_headers, tp_solo) -> None:
+    # `tienda`: one sale per publication; the Gauss one (MLA1, $200) stays out, the two TP-store ones count.
+    rows = _get(client, admin_auth_headers)
+
+    assert [(r["modo"], r["operations"], r["units"], r["gross"]) for r in rows] == [("desconocido", 2, 2, 400)]
 
 
 def test_without_the_view_permission_it_is_forbidden(client, admin_auth_headers) -> None:
