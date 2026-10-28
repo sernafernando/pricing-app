@@ -9,6 +9,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TableShell from '../kit/TableShell';
 import ModalTesla from '../ModalTesla';
+import PriceEditCell from './PriceEditCell';
 import usePublicacionesMLKeyboard from './usePublicacionesMLKeyboard';
 
 const ROWS = Array.from({ length: 15 }, (_, index) => ({
@@ -390,5 +391,151 @@ describe("Productos' bulk and filter shortcuts (S9b)", () => {
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'Buscar' }), { key: 'm', code: 'KeyM', altKey: true });
     expect(onBulkAction).not.toHaveBeenCalled();
     expect(onOpenFilter).not.toHaveBeenCalled();
+  });
+});
+
+// Price columns like `priceColumns`: an editable price is a PriceEditCell, the rebate here reads only (no editor), and
+// the fourth row (a publication with no product) has no price at all.
+const PRICE_COLUMNS = [
+  { key: 'titulo', label: 'Título', render: (item) => item.titulo },
+  ...['Clásica', 'Rebate', '3 Cuotas', '6 Cuotas'].map((name) => ({
+    key: name,
+    header: name,
+    render: (item) =>
+      name === 'Rebate' || item.item_id === 'MLA4' ? (
+        <span>{`${name} ${item.item_id}`}</span>
+      ) : (
+        <PriceEditCell label={`${name} ${item.item_id}`} value={100} onSave={() => {}}>
+          <span>100</span>
+        </PriceEditCell>
+      ),
+  })),
+];
+
+function PriceHarness({ onOpen = () => {}, onExtendRow }) {
+  const searchRef = useRef(null);
+  usePublicacionesMLKeyboard({ searchRef, findRow: () => undefined, onExtendRow });
+  return (
+    <TableShell
+      columns={PRICE_COLUMNS}
+      rows={ROWS.slice(0, 4)}
+      getRowKey={(item) => item.item_id}
+      onRowClick={onOpen}
+      ariaLabel="Publicaciones"
+    />
+  );
+}
+
+const cell = (name, n) => screen.getByRole('button', { name: new RegExp(`^Editar ${name} MLA${n}:`) });
+
+describe('price cells, as in Productos: ←/→ across the prices, Home/End, Enter/Space edit, Tab inside, Esc out', () => {
+  it("→ enters the focused row's first editable price; ←/→ walk the editable prices in order, never past the ends", async () => {
+    const user = userEvent.setup();
+    render(<PriceHarness />);
+    await user.keyboard('{ArrowDown}{ArrowRight}');
+    expect(cell('Clásica', 1)).toHaveFocus();
+    // The rebate has no editor: → skips it.
+    await user.keyboard('{ArrowRight}');
+    expect(cell('3 Cuotas', 1)).toHaveFocus();
+    await user.keyboard('{ArrowRight}{ArrowRight}');
+    expect(cell('6 Cuotas', 1)).toHaveFocus();
+    await user.keyboard('{ArrowLeft}{ArrowLeft}{ArrowLeft}');
+    expect(cell('Clásica', 1)).toHaveFocus();
+  });
+
+  it('↑/↓ keep the price column on the row moved to, and Shift+↓ still checks that row', async () => {
+    const onExtendRow = vi.fn();
+    const user = userEvent.setup();
+    render(<PriceHarness onExtendRow={onExtendRow} />);
+    await user.keyboard('{ArrowDown}{ArrowRight}{ArrowRight}{ArrowDown}');
+    expect(cell('3 Cuotas', 2)).toHaveFocus();
+    await user.keyboard('{Shift>}{ArrowDown}{/Shift}');
+    expect(cell('3 Cuotas', 3)).toHaveFocus();
+    expect(onExtendRow).toHaveBeenCalledWith('MLA3');
+    await user.keyboard('{ArrowUp}');
+    expect(cell('3 Cuotas', 2)).toHaveFocus();
+  });
+
+  it('a row without that price keeps the row focused and the column for the next move', async () => {
+    const user = userEvent.setup();
+    render(<PriceHarness />);
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}{ArrowRight}{ArrowDown}');
+    expect(row(4)).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(cell('3 Cuotas', 3)).toHaveFocus();
+  });
+
+  it('with a price active, Home/End go to the first/last price of the row', async () => {
+    const user = userEvent.setup();
+    render(<PriceHarness />);
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowRight}{End}');
+    expect(cell('6 Cuotas', 2)).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(cell('Clásica', 2)).toHaveFocus();
+  });
+
+  it('with no price active, Home/End still go to the first/last row', async () => {
+    const user = userEvent.setup();
+    render(<PriceHarness />);
+    await user.keyboard('{ArrowDown}{End}');
+    expect(row(4)).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(row(1)).toHaveFocus();
+  });
+
+  it('Enter and Space open the active price, and the row stays closed', async () => {
+    const onOpen = vi.fn();
+    const user = userEvent.setup();
+    render(<PriceHarness onOpen={onOpen} />);
+    await user.keyboard('{ArrowDown}{ArrowRight}{Enter}');
+    expect(screen.getByRole('textbox', { name: 'Clásica MLA1' })).toHaveFocus();
+    await user.keyboard('{Escape}{ArrowRight} ');
+    expect(screen.getByRole('textbox', { name: '3 Cuotas MLA1' })).toHaveFocus();
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it('Enter with no price active still opens the focused row', async () => {
+    const onOpen = vi.fn();
+    const user = userEvent.setup();
+    render(<PriceHarness onOpen={onOpen} />);
+    await user.keyboard('{ArrowDown}{Enter}');
+    expect(onOpen).toHaveBeenCalledWith(ROWS[0], expect.anything());
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+
+  it('Tab and Shift+Tab in an open editor stay in it', async () => {
+    const user = userEvent.setup();
+    render(<PriceHarness />);
+    await user.keyboard('{ArrowDown}{ArrowRight}{Enter}{Tab}');
+    expect(screen.getByRole('textbox', { name: 'Clásica MLA1' })).toHaveFocus();
+    await user.keyboard('{Shift>}{Tab}{/Shift}');
+    expect(screen.getByRole('textbox', { name: 'Clásica MLA1' })).toHaveFocus();
+  });
+
+  it('the arrows in an open editor stay in its input', async () => {
+    const user = userEvent.setup();
+    render(<PriceHarness />);
+    await user.keyboard('{ArrowDown}{ArrowRight}{Enter}{ArrowRight}{ArrowDown}{End}');
+    expect(screen.getByRole('textbox', { name: 'Clásica MLA1' })).toHaveFocus();
+  });
+
+  it('Esc closes the editor back on its price, and a second Esc leaves the prices for the row', async () => {
+    const user = userEvent.setup();
+    render(<PriceHarness />);
+    await user.keyboard('{ArrowDown}{ArrowRight}{ArrowRight}{Enter}{Escape}');
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(cell('3 Cuotas', 1)).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(row(1)).toHaveFocus();
+    // Back on the row, the arrows move rows again.
+    await user.keyboard('{ArrowDown}');
+    expect(row(2)).toHaveFocus();
+  });
+
+  it('Esc with no price active leaves the focused row where it is', async () => {
+    const user = userEvent.setup();
+    render(<PriceHarness />);
+    await user.keyboard('{ArrowDown}{Escape}');
+    expect(row(1)).toHaveFocus();
   });
 });

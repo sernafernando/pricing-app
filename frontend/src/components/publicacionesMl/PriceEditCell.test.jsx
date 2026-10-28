@@ -75,4 +75,21 @@ describe('PriceEditCell', () => {
     setup({ saving: true });
     expect(screen.getByRole('button', { name: /^Editar Precio Clásica/ })).toBeDisabled();
   });
+
+  it('Tab and Shift+Tab keep the focus in the open editor, which stays open', async () => {
+    const { onSave } = setup();
+    await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Clásica/ }));
+    await userEvent.tab();
+    expect(screen.getByRole('textbox', { name: 'Precio Clásica' })).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    expect(screen.getByRole('textbox', { name: 'Precio Clásica' })).toHaveFocus();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('Escape puts the focus back on the price it closed', async () => {
+    setup();
+    await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Clásica/ }));
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: /^Editar Precio Clásica/ })).toHaveFocus();
+  });
 });
