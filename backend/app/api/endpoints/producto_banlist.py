@@ -8,9 +8,15 @@ from app.core.database import get_db
 from app.models.usuario import Usuario, RolUsuario
 from app.models.producto_banlist import ProductoBanlist
 from app.models.producto import ProductoERP
+from app.services.permisos_service import PermisosService
 import re
 
 router = APIRouter()
+
+# Who may add a product: the roles the Productos and Tienda screens offer "Agregar a banlist" to, or the permission
+# that opens the Banlist page (its products tab adds too).
+ROLES_BANEAR = (RolUsuario.ADMIN, RolUsuario.SUPERADMIN)
+PERMISO_BANEAR = "admin.gestionar_mla_banlist"
 
 
 class ProductoBanlistCreate(BaseModel):
@@ -75,7 +81,12 @@ def listar_banlist(db: Session = Depends(get_db), current_user: Usuario = Depend
 def agregar_a_banlist(
     datos: ProductoBanlistCreate, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
-    """Agrega uno o múltiples productos a la banlist por item_id o EAN"""
+    """Agrega uno o múltiples productos a la banlist por item_id o EAN.
+
+    Solo ADMIN/SUPERADMIN o quien tenga `admin.gestionar_mla_banlist`; cualquier otro recibe 403 y no se escribe nada.
+    """
+    if current_user.rol not in ROLES_BANEAR and not PermisosService(db).tiene_permiso(current_user, PERMISO_BANEAR):
+        raise HTTPException(403, "No tenés permiso para agregar productos a la banlist")
 
     agregados = []
     duplicados = []
