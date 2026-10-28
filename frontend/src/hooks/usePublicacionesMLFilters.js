@@ -108,7 +108,9 @@ export const FILTER_KEYS = [
   ...PROMO_KEYS,
   MLA_KEY,
 ];
-// What a product without a publication has nothing to answer: turning Sin MLA on clears them.
+// What a product without a publication has nothing to answer: turning Sin MLA on clears them. The audit and the
+// markup sign filters stay: they read the product, and the backend applies them to Sin MLA too. The markup ranges
+// never reach `/products`.
 const PUBLICATION_ONLY_KEYS = ['estado', 'estado_excluir', 'tiendas', 'tipo', 'vinculo', 'evento', 'evento_desde',
   'familia', 'oferta', ...PROMO_KEYS];
 // The ERP stock values ask the product; the others ask its publications.
