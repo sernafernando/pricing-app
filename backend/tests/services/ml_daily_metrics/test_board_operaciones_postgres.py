@@ -133,6 +133,39 @@ def test_the_strip_adds_ticket_and_units_per_sale() -> None:
     assert strip.units_per_sale.model_dump() == {"value": 4.33, "delta_pct": 333.3}
 
 
+def test_without_operations_before_the_changes_are_unknown() -> None:
+    k = board.Kpis(
+        units=4,
+        gross=400,
+        tg=0,
+        mtg=0,
+        costo=0,
+        prev_units=0,
+        prev_gross=0,
+        prev_tg=0,
+        prev_mtg=0,
+        prev_costo=0,
+        rows=1,
+        with_sales=1,
+        ageing_avg=None,
+        up_to_30=0,
+        from_31_to_60=0,
+        over_60=0,
+        series_units=[4],
+        series_gross=[400],
+        series_tg=[0],
+        series_markup=[None],
+        operations=2,
+        prev_operations=0,
+        series_operations=[2],
+    )
+
+    strip = build_board_kpis(k, can_see_margin=True)
+
+    assert (strip.operations.delta_pct, strip.ticket.delta_pct, strip.units_per_sale.delta_pct) == (None, None, None)
+    assert (strip.ticket.value, strip.units_per_sale.value) == (200.0, 2.0)
+
+
 def test_without_operations_ticket_and_units_per_sale_are_unknown_never_zero() -> None:
     k = board.Kpis(
         units=0,

@@ -1020,16 +1020,7 @@ class Board:
         # kept ones. The LIVE derivation is never narrowed by MLA: it computes those shares and that rule, so it
         # needs every member of each group, and only the touched (whole) groups bound it. Pinned by
         # `test_row_metrics_postgres.TestAPackPartlyInsideTheMlaSet`.
-        pushdown = self.use_lines and self.mla_set is not None
-        lines = lines_source(
-            sqlite=self.sqlite,
-            ranges=self._ranges(),
-            product=self.product_item_id,
-            groups=self._touched(),
-            mlas=select(self.mla_set.c.mla) if pushdown else None,
-            tp=self.tp,
-            keyed=self.sell,
-        )
+        lines = self._read_lines(self._ranges(), tp=self.tp, keyed=self.sell)
         markup = [func.sum(lines.c.mtg).label("mtg"), func.sum(lines.c.mcosto).label("mcosto")]
         if self.tp:
             markup = self._tp_line_sums(lines)
@@ -1051,6 +1042,19 @@ class Board:
             ).select_from(source),
             lines.c.mla,
         ).group_by(lines.c.product, lines.c.mla, lines.c.day)
+
+    def _read_lines(self, ranges: List[Any], *, tp: bool = False, keyed: bool = False) -> Any:
+        """The sold lines of `ranges` from the request's line source, bounded as `_lines_source` explains."""
+        pushdown = self.use_lines and self.mla_set is not None
+        return lines_source(
+            sqlite=self.sqlite,
+            ranges=ranges,
+            product=self.product_item_id,
+            groups=self._touched(),
+            mlas=select(self.mla_set.c.mla) if pushdown else None,
+            tp=tp,
+            keyed=keyed,
+        )
 
     def _sell_line_sums(self, lines: Any) -> Tuple[Any, List[Any]]:
         """Sell in / sell out per sold line (`venta_ref` = its `item_row_id`, channel 'ml'): `(the lines joined to
@@ -2409,14 +2413,8 @@ class Board:
         statement over the keyed lines of both periods (the board's per-day lines drop the key). Every line of a
         group shares its `group_date`, so a group falls on one day and the per-day counts add up to the period's."""
         f = self.f
-        pushdown = self.use_lines and self.mla_set is not None
-        lines = lines_source(
-            sqlite=self.sqlite,
-            ranges=[day_bounds(f.date_from, f.date_to), day_bounds(self.prev_from, self.prev_to)],
-            product=self.product_item_id,
-            groups=self._touched(),
-            mlas=select(self.mla_set.c.mla) if pushdown else None,
-            keyed=True,
+        lines = self._read_lines(
+            [day_bounds(f.date_from, f.date_to), day_bounds(self.prev_from, self.prev_to)], keyed=True
         )
         per_day = self._in_mla_set(
             select(lines.c.day, func.count(func.distinct(lines.c.group_key)).label("n"))
