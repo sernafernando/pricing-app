@@ -133,3 +133,25 @@ class TestMarkupFirstThenAColumn:
         assert [item_id for chunk in pages for item_id in chunk] == expected  # the database cuts stable pages
         tied = len(worst) - len(set(worst.values()))
         assert tied > 0  # real ties (the unpriced ones at least), broken by the title, which runs against the ids
+
+
+class TestMarkupAsALaterKey:
+    def test_the_worst_markup_breaks_the_ties_of_a_column(self, conn, db) -> None:
+        titled(conn)
+        conn.execute(text("UPDATE ml_items SET title = 'Grupo ' || (CAST(substr(item_id, 4) AS int) % 3)"))
+        _, got = page(db, MarkupFilter(), "titulo,markup", "desc,asc")
+        result, _ = listing.markup_accepted(db, parse_filter(), MarkupQuery(db, MarkupFilter()))
+        worst = {item_id: item.markup.worst for item_id, item in result.items.items()}
+        titles = dict(db.execute(text("SELECT item_id, lower(title) FROM ml_items")).all())
+        by_title = sorted(worst, key=lambda i: (worst[i] is None, worst[i] or 0, i))
+        expected = sorted(by_title, key=lambda i: titles[i], reverse=True)  # stable: each title keeps the markup order
+        assert got == expected
+        pages = [page(db, MarkupFilter(), "titulo,markup", "desc,asc", limit=4, offset=o)[1] for o in range(0, 40, 4)]
+        assert [item_id for chunk in pages for item_id in chunk] == expected
+        by_id = sorted(sorted(worst), key=lambda i: titles[i], reverse=True)
+        assert got != by_id  # the markup, not the item id, breaks the ties
+
+    def test_a_markup_filter_with_a_later_markup_key_keeps_only_what_passed(self, conn, db) -> None:
+        titled(conn)
+        total, got = page(db, MarkupFilter(negative=True), "titulo,markup")
+        assert total == 8 and got == NEGATIVE_BY_TITLE  # distinct titles: the title alone decides

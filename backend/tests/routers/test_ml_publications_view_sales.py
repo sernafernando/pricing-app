@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import text, update
 
 from app.models.ml_order_metrics import MlOrderMetrics
 from app.services.ml_daily_metrics import board as board_module, kpi_strip
@@ -226,12 +226,17 @@ class TestSeveralSortKeys:
         response = self.page(client, admin_auth_headers, orden=orden)
         assert response.status_code == 403 and GANANCIA in response.json()["error"]["message"]
 
-    def test_a_figure_after_the_first_key_is_a_422_saying_why(self, client, pg, db, rol_admin, admin_auth_headers):
+    def test_a_figure_after_the_first_key_breaks_its_ties(self, client, pg, db, rol_admin, admin_auth_headers):
         seed_rows(pg, fill)
-        grant(db, rol_admin, VER, METRICAS, GANANCIA)
-        response = self.page(client, admin_auth_headers, orden="titulo,facturado_30d")
-        assert response.status_code == 422
-        assert "only as the first sort key" in response.json()["error"]["message"]
+        sell(pg, (1, [("MLA2", None, 4)]), (2, [("MLA1", None, 1)]), accredited=seed.real_hours_ago(1))
+        with pg.begin() as conn:
+            conn.execute(text("UPDATE ml_items SET title = 'Igual'"))  # one title: the gross decides
+        grant(db, rol_admin, VER, METRICAS)
+        ranked = self.page(client, admin_auth_headers, orden="titulo,facturado_30d", dir="asc,desc")
+        assert ranked.status_code == 200, ranked.text
+        assert [item["item_id"] for item in ranked.json()["items"]] == ["MLA2", "MLA1", "MLA3"]  # unsold MLA3 last
+        lowest = self.page(client, admin_auth_headers, orden="titulo,facturado_30d", dir="asc,asc")
+        assert [item["item_id"] for item in lowest.json()["items"]] == ["MLA1", "MLA2", "MLA3"]
 
     def test_column_keys_combine_each_with_its_direction(self, client, pg, db, rol_admin, admin_auth_headers):
         def titled(conn) -> None:

@@ -1073,12 +1073,11 @@ class TestSortKeys:
         sort = listing.parse_sort("precio", "desc")
         assert (sort.key, sort.descending, sort.then) == ("precio", True, ())
 
-    def test_markup_and_the_metricas_figures_only_lead(self) -> None:
-        for orden in ("precio,markup", "titulo,facturado_30d"):
-            with pytest.raises(FilterError) as raised:
-                listing.parse_sort(orden, None)
-            assert raised.value.field == "orden"
-            assert "only as the first sort key" in raised.value.message
+    def test_markup_and_the_metricas_figures_combine_at_any_position(self) -> None:
+        sort = listing.parse_sort("precio,markup", None)
+        assert (sort.key, sort.descending, sort.then) == ("precio", False, (("markup", False),))
+        sort = listing.parse_sort("titulo,facturado_30d,markup", "asc")
+        assert (sort.key, sort.descending, sort.then) == ("titulo", False, (("facturado_30d", True), ("markup", False)))
         sort = listing.parse_sort("facturado_30d,titulo", "desc")
         assert (sort.key, sort.descending, sort.then) == ("facturado_30d", True, (("titulo", False),))
 

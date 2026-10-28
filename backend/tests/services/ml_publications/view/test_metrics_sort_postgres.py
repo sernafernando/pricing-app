@@ -133,6 +133,29 @@ class TestOrder:
         )
         assert keys == expected
 
+    def test_a_figure_after_a_column_breaks_the_column_ties(self, store) -> None:
+        for mla, title in (("MLA1", "Alfa"), ("MLA2", "Alfa"), ("MLA3", "Alfa"), ("MLA4", "Beta"), ("MLA5", "Beta")):
+            store.execute(text("UPDATE ml_items SET title = :t WHERE item_id = :i"), {"t": title, "i": mla})
+        store.execute(text("UPDATE ml_items SET title = 'Alfa' WHERE item_id = 'MLA6'"))
+        # the Alfa ones by gross, lowest first (MLA2 and MLA3 tie at 30: item_id); the unsold Beta ones by item_id
+        expected = ["MLA6", "MLA2", "MLA3", "MLA1", "MLA4", "MLA5"]
+        assert ids(store, "titulo,facturado_30d", "asc,asc", estado="active") == expected
+        assert every_page(store, "titulo,facturado_30d", "asc,asc", estado="active") == expected
+        keys = listing.ordered_keys(
+            store,
+            parse_filter(estado="active"),
+            listing.parse_sort("titulo,facturado_30d", "asc,asc"),
+            None,
+            events=False,
+        )
+        assert keys == expected
+
+    def test_two_figures_each_with_its_direction(self, store) -> None:
+        # 7 days: MLA2 and MLA6 tie at 1 unit; the gross, lowest first, puts MLA6 (10) before MLA2 (30)
+        expected = ["MLA1", "MLA6", "MLA2", "MLA3", *UNSOLD]
+        assert ids(store, "unidades_7d,facturado_30d", "desc,asc", estado="active") == expected
+        assert every_page(store, "unidades_7d,facturado_30d", "desc,asc", estado="active") == expected
+
     def test_pages_cut_the_ranked_set_never_rank_the_page(self, store) -> None:
         whole = ids(store, "facturado_30d", "desc", estado="active")
         assert every_page(store, "facturado_30d", "desc", estado="active") == whole

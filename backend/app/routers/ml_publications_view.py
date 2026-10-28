@@ -1002,7 +1002,7 @@ def items_ask(
             "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, markup "
             "(ver_ganancia); Métricas ML's figures over the whole filtered set (ml_metricas.ver): facturado_30d, "
             "unidades_7d, unidades_30d, markup_30d and total_gauss_30d (also ver_ganancia). Several keys as csv "
-            "(multi-column sort): the markup and the Métricas figures only as the first one"
+            "(multi-column sort), any combination"
         ),
     ),
     direction: Optional[str] = Query(None, alias="dir", description="asc or desc; csv, one per `orden` key"),
