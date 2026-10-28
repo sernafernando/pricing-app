@@ -28,6 +28,13 @@ shared cap, which a campaign linked to the group would not), no scope, no user (
 An offset already migrated is reported as such with its campaign: a re-run
 creates nothing.
 
+Under `--apply`, every offset left out is also kept, with its own detail and the
+reason, in `offsets_migracion_pendientes` for the owner's review (T22a, owner:
+"lo que no se pueda migrar directo haceme un detalle y guardamelo en una
+tabla"): one row per offset, updated by a re-run, and removed once the offset
+migrates. The dry run leaves the table as it is; its summary counts what
+`--apply` would keep there (`pendientes`).
+
 Dry run is the DEFAULT: it only validates (`validar` / `validar_campos`) and
 writes nothing. `--apply` loads each offset in its own transaction (its new
 group and its campaign commit together, or neither does). Exits 1 when a
@@ -50,12 +57,15 @@ from typing import Callable, Optional
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
+from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
 from app.models.sell_out import SellOutCampana
 from app.schemas.sell_out import NOMBRE_MAX, SellOutCampanaIn
 from app.services.sell_out import campanas
@@ -225,6 +235,50 @@ def _fila(offset: OffsetGanancia, resultado: str, campana_id=None, motivo=None, 
     }
 
 
+# The offset's own columns copied to the review table, as they are.
+_DETALLE = (
+    "tipo_offset",
+    "descripcion",
+    "marca",
+    "categoria",
+    "subcategoria_id",
+    "item_id",
+    "grupo_id",
+    "monto",
+    "porcentaje",
+    "moneda",
+    "tipo_cambio",
+    "fecha_desde",
+    "fecha_hasta",
+    "max_unidades",
+    "max_monto_usd",
+    "aplica_ml",
+    "aplica_fuera",
+    "aplica_tienda_nube",
+    "usuario_id",
+)
+
+
+def _guardar_pendiente(db: Session, offset: OffsetGanancia, motivo: str, avisos: list[str]) -> None:
+    """Keeps the offset for review, or refreshes its row: a re-run stores the offset as it is now."""
+    values = {
+        "offset_id": offset.id,
+        **{col: getattr(offset, col) for col in _DETALLE},
+        "motivo": motivo,
+        "avisos": " | ".join(avisos) or None,
+    }
+    stmt = insert(OffsetMigracionPendiente).values(**values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[OffsetMigracionPendiente.offset_id],
+        set_={**{k: stmt.excluded[k] for k in values if k != "offset_id"}, "registrado_en": func.now()},
+    )
+    db.execute(stmt)
+
+
+def _quitar_pendiente(db: Session, offset_id: int) -> None:
+    db.query(OffsetMigracionPendiente).filter(OffsetMigracionPendiente.offset_id == offset_id).delete()
+
+
 def _ya_migrada(db: Session, offset_id: int) -> Optional[int]:
     return db.query(SellOutCampana.id).filter(SellOutCampana.offset_origen_id == offset_id).scalar()
 
@@ -269,14 +323,18 @@ def run_migracion(
         "no_migrados": 0,
         "con_error": [],
         "campana_ids": [],
+        "pendientes": 0,
     }
     contador = {MIGRADO: "migrados", MIGRARIA: "migrarian", YA_MIGRADO: "ya_migrados", NO_MIGRADO: "no_migrados"}
     filas = []
     for offset_id in ids:
         with session_factory() as db:
+            offset = fila = error = None
+            pendiente = None  # (reason, warnings) of an offset left out, for the review table
+            guardado = False  # kept for review (or, in a dry run, would be)
             try:
                 offset = db.get(OffsetGanancia, offset_id)
-                if offset is None:  # deleted after the ids were read
+                if offset is None:  # deleted after the ids were read: no detail left to keep
                     filas.append(
                         {
                             **dict.fromkeys(COLUMNAS, ""),
@@ -296,19 +354,43 @@ def run_migracion(
                     if plan.data is None:
                         fila = _fila(offset, NO_MIGRADO, motivo=plan.motivo, avisos=plan.avisos)
                         error = plan.motivo if plan.error else None
+                        pendiente = (plan.motivo, plan.avisos)
                     else:
                         fila, error = _uno(db, offset, plan, apply)
+                        if fila["resultado"] == NO_MIGRADO:
+                            pendiente = (error or "No migrado", plan.avisos)
+                if apply:
+                    # `_uno` already rolled a failed campaign back: what commits here is the review row alone.
+                    if pendiente is not None:
+                        _guardar_pendiente(db, offset, *pendiente)
+                    else:
+                        _quitar_pendiente(db, offset_id)
+                    db.commit()
+                guardado = pendiente is not None
             except SQLAlchemyError as exc:
-                # Reading the offset failed: reported with its id alone, the run and the report go on.
                 db.rollback()
                 logger.exception("Offset #%s: database error", offset_id)
-                error = f"Error de base de datos: {type(exc).__name__}"
-                fila = {**dict.fromkeys(COLUMNAS, ""), "offset_id": offset_id, "resultado": NO_MIGRADO, "motivo": error}
+                motivo = f"Error de base de datos: {type(exc).__name__}"
+                error = error or motivo
+                if fila is None:
+                    # Reading the offset failed: reported with its id alone, the run and the report go on.
+                    fila = {
+                        **dict.fromkeys(COLUMNAS, ""),
+                        "offset_id": offset_id,
+                        "resultado": NO_MIGRADO,
+                        "motivo": motivo,
+                    }
+                else:
+                    # Updating the review table failed: the CSV keeps its row and says the table missed it.
+                    aviso = f"No se actualizó la tabla de revisión ({motivo})"
+                    fila["avisos"] = csv_text(" | ".join(filter(None, [fila["avisos"], aviso])))
             finally:
                 if not apply:
                     db.rollback()
         filas.append(fila)
         summary[contador[fila["resultado"]]] += 1
+        if guardado:
+            summary["pendientes"] += 1
         if error is not None:
             summary["con_error"].append(offset_id)
         if fila["resultado"] == MIGRADO:

@@ -12,6 +12,7 @@ import { UnitsCell } from './MetricsCells';
 import PublicationStatusPill from './PublicationStatusPill';
 import PanelShell from './panel/PanelShell';
 import PanelTabs from './panel/PanelTabs';
+import ProductBanAction from './panel/ProductBanAction';
 import ProductCatalogCompetition from './panel/ProductCatalogCompetition';
 import ProductChangesTab from './panel/ProductChangesTab';
 import ProductCuotasConfig from './panel/ProductCuotasConfig';
@@ -52,7 +53,7 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * `ml_publicaciones.editar_producto`) and its last purchases (`ProductPurchases`, `productos.ver_info_compras`), and
  * after the publications comes the catalog competition of those in a catalog (`ProductCatalogCompetition`,
  * `promos.ver`) and the wholesale prices of each (`ProductPxq`, `pxq.ver`), for "Sin producto" too since both belong
- * to each publication.
+ * to each publication, and last the product's ban (`ProductBanAction`, gated by itself).
  * Precios mounts the product's prices (the same `ProductPrices` a publication's Precios tab mounts), and under them
  * its instalment settings (`ProductCuotasConfig`), for whoever may see them, and Cambios the changes made to the
  * product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. Opening another
@@ -198,6 +199,10 @@ export default function ProductPanel({
               </Section>
               <ProductCatalogCompetition key={`catalog-${productKey}`} publications={items} />
               <ProductPxq key={`pxq-${productKey}`} publications={items} />
+
+              {productItemId != null && (
+                <ProductBanAction key={`ban-${productItemId}`} productItemId={productItemId} description={summary.label} />
+              )}
             </>
           )}
         </PanelTabs>

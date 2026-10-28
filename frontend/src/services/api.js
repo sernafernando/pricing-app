@@ -901,6 +901,11 @@ export const productosPropiosAPI = {
   saveDatos: (itemId, body) => api.put(`/productos-propios/${itemId}/datos`, body),
 };
 
+export const productoBanlistAPI = {
+  // `{ agregados, duplicados, no_encontrados, total_agregados }`: each list names what happened to each product.
+  add: (itemId, motivo) => api.post('/producto-banlist', { item_ids: String(itemId), motivo }),
+};
+
 // A publication's data overridden locally (saving never writes ML; only pushToMl does): `{ original, override, aplicado, editable, can_edit }`.
 export const mlItemOverridesAPI = {
   get: (mla) => api.get(`/ml-item-overrides/${mla}`),

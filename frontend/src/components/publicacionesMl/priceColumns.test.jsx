@@ -2,8 +2,9 @@
  * priceColumns (S11): Productos' price columns in Publicaciones ML, one set per mode (Normal / Cuotas / PVP), with
  * Productos' headers and its own display rules, read from `useListPrices`.
  */
-import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { priceColumns } from './priceColumns';
 
 const PRODUCT = {
@@ -92,5 +93,74 @@ describe('priceColumns', () => {
   it("draws a product row from the product's own id", () => {
     const [pvp] = priceColumns('pvp', { prices: prices() });
     expect(textOf(pvp.renderProduct(7))).toContain('1.500,00');
+  });
+
+  describe('editing (S11c)', () => {
+    const ALL = { canEditClasica: true, canEditMlCuotas: true, canEditPvp: true };
+    const edit = (permissions = ALL) => ({ permissions, onSave: vi.fn().mockResolvedValue(true), saving: false });
+    const mount = (node) => render(<div>{node}</div>);
+
+    it("each list's price is edited in place, saved as Productos' list of that column", async () => {
+      const options = edit();
+      const [clasica] = priceColumns('normal', { prices: prices(), edit: options });
+      mount(clasica.render(item()));
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Clásica/ }));
+      await userEvent.type(screen.getByRole('textbox', { name: 'Precio Clásica' }), '{Control>}a{/Control}1500{Enter}');
+      expect(options.onSave).toHaveBeenCalledWith(expect.objectContaining({ id: 'ml-clasica' }), PRODUCT, '1500');
+    });
+
+    it('maps every cuota and PVP column to its list', () => {
+      const lists = (mode) => priceColumns(mode, { prices: prices(), edit: edit() }).map((column) => column.list);
+      expect(lists('cuotas')).toEqual(['ml-clasica', 'ml-3', 'ml-6', 'ml-9', 'ml-12']);
+      expect(lists('pvp')).toEqual(['pvp-clasica', 'pvp-3', 'pvp-6', 'pvp-9', 'pvp-12']);
+      // Rebate, best offer and web transfer are not prices of a list Productos edits from its grid.
+      expect(lists('normal')).toEqual(['ml-clasica', undefined, undefined, undefined]);
+    });
+
+    it('only with the permission of that list', () => {
+      const [clasica, cuota3] = priceColumns('cuotas', { prices: prices(), edit: edit({ canEditClasica: false, canEditMlCuotas: true }) });
+      mount(clasica.render(item()));
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+      mount(cuota3.render(item()));
+      expect(screen.getByRole('button', { name: /^Editar 3 Cuotas/ })).toBeInTheDocument();
+    });
+
+    it('never with no product, a request on its way or a failed one', () => {
+      const [clasica] = priceColumns('normal', { prices: prices(), edit: edit() });
+      mount(clasica.render(item(null)));
+      const [pending] = priceColumns('normal', { prices: prices(new Map(), true), edit: edit() });
+      mount(pending.render(item()));
+      const [failed] = priceColumns('normal', { prices: { byId: new Map(), loading: false, error: true }, edit: edit() });
+      mount(failed.render(item()));
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Productos' pricing modal (P3c)", () => {
+    it("closes the group with a Calcular column whose button hands over the row's product", async () => {
+      const onCalculate = vi.fn();
+      const columns = priceColumns('cuotas', { prices: prices(), onCalculate });
+      const last = columns.at(-1);
+      expect(last).toMatchObject({ header: 'Calcular', group: 'Precios de Productos' });
+      render(<div>{last.render(item())}</div>);
+      await userEvent.click(screen.getByRole('button', { name: 'Calcular el precio del producto 7' }));
+      expect(onCalculate).toHaveBeenCalledWith(PRODUCT);
+    });
+
+    it('a product row opens it too; no product or a price on its way has no button', () => {
+      const onCalculate = vi.fn();
+      const [last] = priceColumns('normal', { prices: prices(), onCalculate }).slice(-1);
+      render(<div>{last.renderProduct(7)}</div>);
+      expect(screen.getByRole('button', { name: 'Calcular el precio del producto 7' })).toBeInTheDocument();
+      const { container } = render(<div>{last.render(item(null))}</div>);
+      expect(container.querySelector('button')).toBeNull();
+      const [pending] = priceColumns('normal', { prices: prices(new Map(), true), onCalculate }).slice(-1);
+      const other = render(<div>{pending.render(item())}</div>);
+      expect(other.container.querySelector('button')).toBeNull();
+    });
+
+    it('without onCalculate (no price edit permission) there is no such column', () => {
+      expect(priceColumns('normal', { prices: prices() }).map((column) => column.header)).not.toContain('Calcular');
+    });
   });
 });

@@ -137,3 +137,46 @@
 .divergenceName {
   color: var(--cf-text-tertiary);
 }
+
+/* A price edited in place (S11c): the cell reads as before, and shows it can be edited on hover and focus. */
+.editable {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  padding: 2px var(--spacing-xs);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  cursor: text;
+}
+
+.editable:hover,
+.editable:focus-visible {
+  border-color: var(--cf-border-strong);
+}
+
+.editable:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.priceInput {
+  composes: input inputSm from '../../styles/forms-tesla.css';
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* On a painted row the theme's text tokens are the tone's text (TableShell): the input takes the tone's surface too,
+   so what is typed reads in both themes. */
+:global([data-tone]) .priceInput {
+  --cf-bg-card: var(--row-tone-bg);
+  --cf-bg-hover: var(--row-tone-bg);
+}
+
+/* Productos' Calcular button (P3c): opens its pricing modal on the row's product. */
+.calculate {
+  composes: btn-tesla outline-subtle-primary icon-only sm from '../../styles/buttons-tesla.css';
+}
