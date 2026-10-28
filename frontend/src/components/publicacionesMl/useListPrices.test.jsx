@@ -3,7 +3,7 @@
  * (`GET /productos?item_ids=`), so every figure is the one Productos shows.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import useListPrices from './useListPrices';
 import { productosAPI } from '../../services/api';
 
@@ -65,5 +65,18 @@ describe('useListPrices', () => {
     const first = result.current;
     rerender({ ids: [7] });
     expect(result.current).toBe(first);
+  });
+
+  it('reload reads the same products again after a write, keeping the shown prices until the new ones arrive', async () => {
+    const { result } = renderHook(() => useListPrices([7], true));
+    await waitFor(() => expect(result.current.byId.get(7)?.precio_lista_ml).toBe(1000));
+    let fresh;
+    productosAPI.listar.mockReturnValueOnce(new Promise((resolve) => (fresh = resolve)));
+    act(() => result.current.reload());
+    expect(productosAPI.listar).toHaveBeenCalledTimes(2);
+    expect(result.current.byId.get(7)?.precio_lista_ml).toBe(1000);
+    expect(result.current.loading).toBe(false);
+    await act(async () => fresh(listed({ item_id: 7, precio_lista_ml: 1500 })));
+    expect(result.current.byId.get(7)?.precio_lista_ml).toBe(1500);
   });
 });

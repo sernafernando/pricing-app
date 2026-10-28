@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { productosAPI } from '../../services/api';
 
 const NONE = new Map();
@@ -8,7 +8,9 @@ const NONE = new Map();
  * the page, so the prices and markups are the very ones Productos lists (its cuota and PVP markups are computed per
  * product by that listing, not stored). `productIds` may repeat and hold nulls (publications with no product).
  *
- * @returns {{ byId: Map<number, object>, loading: boolean, error: boolean }}
+ * `reload()` reads the same products again (after a price write); the shown prices stay until the new ones arrive.
+ *
+ * @returns {{ byId: Map<number, object>, loading: boolean, error: boolean, reload: () => void }}
  */
 export default function useListPrices(productIds, enabled) {
   const key = useMemo(
@@ -16,6 +18,8 @@ export default function useListPrices(productIds, enabled) {
     [productIds, enabled],
   );
   const [state, setState] = useState({ key: '', byId: NONE, error: false });
+  const [round, setRound] = useState(0);
+  const reload = useCallback(() => setRound((n) => n + 1), []);
 
   useEffect(() => {
     if (!key) return undefined;
@@ -33,12 +37,12 @@ export default function useListPrices(productIds, enabled) {
     return () => {
       current = false;
     };
-  }, [key]);
+  }, [key, round]);
 
   const answered = Boolean(key) && state.key === key;
   // The same object while nothing changed: the page's columns depend on it.
   return useMemo(
-    () => ({ byId: answered ? state.byId : NONE, loading: Boolean(key) && !answered, error: answered && state.error }),
-    [answered, key, state],
+    () => ({ byId: answered ? state.byId : NONE, loading: Boolean(key) && !answered, error: answered && state.error, reload }),
+    [answered, key, state, reload],
   );
 }
