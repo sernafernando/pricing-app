@@ -159,6 +159,14 @@ class TestRead:
     def test_reading_needs_the_view_permission(self, client, pg, admin_auth_headers):
         assert client.get(f"{BASE}/70", headers=admin_auth_headers).status_code == 403
 
+    def test_productos_ver_alone_reads_it_as_the_screen_does(self, client, pg, db, rol_ventas, auth_headers):
+        # S12f1: the Publicaciones ML product panel always reads the SKU and EAN, with Productos' permission too.
+        grant(db, rol_ventas, "productos.ver")
+        with pg.begin() as conn:
+            product(conn)
+
+        assert client.get(f"{BASE}/70", headers=auth_headers).status_code == 200
+
     def test_the_editor_is_told_it_can_edit(self, client, pg, editor):
         with pg.begin() as conn:
             product(conn)

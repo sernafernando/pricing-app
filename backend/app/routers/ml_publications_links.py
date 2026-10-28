@@ -4,9 +4,9 @@ Every publication unit `(item_id, variation_id)` is linked to one of our product
 these endpoints are the operator's manual backup: look at a link and its suggestion, fix it by hand,
 mark "no product", hand it back to the automatic rule, and review what needs attention.
 
-- Reads (`ml_ops.ver`): one item's units, the lists by class, the coverage report. They never depend on
-  `links.enabled`: looking at the state is always allowed. One item's units are also the Publicaciones ML screen's
-  (its panel), so they take the screen's permission: `productos.ver` OR `ml_ops.ver` (`PERMISOS_PUBLICACIONES_ML`).
+- Reads: one item's units (the Publicaciones ML screen's panel reads them, so they take the screen's permission:
+  `productos.ver` OR `ml_ops.ver`, `PERMISOS_PUBLICACIONES_ML`), the lists by class and the coverage report
+  (`ml_ops.ver`). They never depend on `links.enabled`: looking at the state is always allowed.
 - Writes (`ml_publicaciones.vincular`, migration `20261007_ml_publicaciones_vincular_perm`): refused with
   409 while `links.enabled` is off. The flag is the operator's kill switch for everything that moves a
   link; honouring it here means "linking off" really freezes the table. Permission is checked before the
