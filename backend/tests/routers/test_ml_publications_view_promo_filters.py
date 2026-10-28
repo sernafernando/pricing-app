@@ -129,11 +129,15 @@ def test_mla_search_asks_no_resolver(client, reader, calls) -> None:
     assert calls == []
 
 
-def test_a_promo_search_that_cannot_be_resolved_is_a_503(client, reader, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("resolver", "q"),
+    [("fetch_mlas_by_promo_name", "promo:hot sale"), ("fetch_mlas_with_active_promo_type", "promo:deal")],
+)
+def test_a_promo_search_that_cannot_be_resolved_is_a_503(client, reader, monkeypatch, resolver, q) -> None:
     def down(*args, **kwargs):
         raise OperationalError("select", {}, Exception("mlwebhook down"))
 
-    monkeypatch.setattr(ml_publications_view, "fetch_mlas_by_promo_name", down)
-    response = client.get(ITEMS_URL, headers=reader, params={"q": "promo:hot sale"})
+    monkeypatch.setattr(ml_publications_view, resolver, down)
+    response = client.get(ITEMS_URL, headers=reader, params={"q": q})
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "filtro_no_disponible"
