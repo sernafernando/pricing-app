@@ -118,7 +118,7 @@ const pack = (packId, orders, overrides = {}) => ({
 
 const EPSON = order({});
 
-const PACK_ID = 2000014907031737;
+export const PACK_ID = 2000014907031737;
 const PACK_ORDERS = [
   order({
     order_id: 2000018567320911,

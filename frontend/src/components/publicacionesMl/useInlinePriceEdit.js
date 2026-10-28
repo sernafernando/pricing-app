@@ -2,50 +2,42 @@ import { useCallback, useRef, useState } from 'react';
 import { preciosAPI } from '../../services/api';
 import { parsePrecioInput } from '../../utils/precioInput';
 import { errorText, warningText, writePrice } from '../pricing/priceWrites';
-import { isBlank } from '../pricing/priceFormat';
-
-// Productos' defaults for a product that never had them (useProductosToggles, ProductToggles).
-const REBATE_DEFAULT = 3.8;
-const WEB_TRANSF_DEFAULT = 6.0;
+import { WEB_TRANSF_DEFAULT, storedRebate, rebateWrite, webTransfWrite } from '../pricing/toggleWrites';
 
 /**
  * The r / w / o toggles (S9): each flips one flag of the product as the panel's ProductToggles writes it, keeping
- * its stored percentage. `flag` is the flag as it stands now; `on`, the state the flip leads to.
+ * its stored percentage (the rebate and web transfer through the same writes as their editors). `flag` is the flag
+ * as it stands now; `on`, the state the flip leads to. `write(itemId)` as in `toggleWrites`.
  */
 const TOGGLES = {
   rebate: (product, flag) => {
     const on = !flag;
-    const porcentaje = isBlank(product.porcentaje_rebate) ? REBATE_DEFAULT : product.porcentaje_rebate;
-    return {
-      write: () => preciosAPI.setRebate(product.item_id, { participa_rebate: on, porcentaje_rebate: porcentaje }),
-      saved: on ? 'Rebate activado' : 'Rebate desactivado',
-      fallback: 'No se pudo cambiar el rebate.',
-    };
+    // A stored % out of 0-100 comes back as `error`, as in the editor.
+    const built = rebateWrite(product, { participa: on, porcentaje: String(storedRebate(product)) });
+    return { ...built, saved: on ? 'Rebate activado' : 'Rebate desactivado', fallback: 'No se pudo cambiar el rebate.' };
   },
   web: (product, flag) => {
     const on = !flag;
-    const params = {
+    const { write } = webTransfWrite(product, {
       participa: on,
-      porcentaje_markup: product.porcentaje_markup_web || WEB_TRANSF_DEFAULT,
+      porcentaje: String(product.porcentaje_markup_web || WEB_TRANSF_DEFAULT),
       // Omitting it resets it to false in the backend.
-      preservar_porcentaje: Boolean(product.preservar_porcentaje_web),
-    };
-    return {
-      write: () => preciosAPI.setWebTransferencia(product.item_id, params),
-      saved: on ? 'Web transferencia activada' : 'Web transferencia desactivada',
-      fallback: 'No se pudo cambiar web transferencia.',
-    };
+      preservar: Boolean(product.preservar_porcentaje_web),
+    });
+    return { write, saved: on ? 'Web transferencia activada' : 'Web transferencia desactivada', fallback: 'No se pudo cambiar web transferencia.' };
   },
   tarjetas: (product, flag) => {
     const on = !flag;
     return {
-      write: () => preciosAPI.setOutOfCards(product.item_id, on),
+      write: (itemId) => preciosAPI.setOutOfCards(itemId, on),
       saved: on ? 'Fuera de tarjetas activado' : 'Fuera de tarjetas desactivado',
       fallback: 'No se pudo cambiar fuera de tarjetas.',
     };
   },
 };
 const FLAGS = { rebate: 'participa_rebate', web: 'participa_web_transferencia', tarjetas: 'out_of_cards' };
+// The rebate and web transfer as their editors save them (S1): the panel's ProductToggles' writes.
+const EDITS = { rebate: rebateWrite, web: webTransfWrite };
 
 /**
  * Saves a price typed in a Publicaciones ML table cell (S11c) with the flow of the product panel and Productos:
@@ -54,9 +46,11 @@ const FLAGS = { rebate: 'participa_rebate', web: 'participa_web_transferencia', 
  * `recalcular_cuotas_auto`). `onWritten` runs after every write, for the caller to read the prices again.
  *
  * `toggle(kind, product)` flips the product's rebate ('rebate'), web transfer ('web') or "fuera de tarjetas"
- * ('tarjetas'), the r / w / o shortcuts, with the same report and re-read.
+ * ('tarjetas'), the r / w / o shortcuts, with the same report and re-read. `editToggle(kind, product, draft)` saves
+ * the rebate ('rebate') or web transfer ('web') as its row editor left it (S1): takes part, its typed % and, for the
+ * web transfer, "preservar porcentaje"; a % that is not sent is an error.
  *
- * `save`, `confirm` and `toggle` resolve true when the price was written. `save` stays the same function between
+ * `save`, `confirm`, `toggle` and `editToggle` resolve true when the price was written. `save` stays the same function between
  * renders (the table's columns hold it) as long as `onWritten` does.
  */
 export default function useInlinePriceEdit({ onWritten } = {}) {
@@ -111,11 +105,32 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
       const key = `${kind}:${product.item_id}`;
       const last = written.current.get(key);
       const flag = last?.over === product ? last.on : Boolean(product[FLAGS[kind]]);
-      const done = await run(TOGGLES[kind](product, flag));
+      const built = TOGGLES[kind](product, flag);
+      if (built.error) {
+        setMessage({ tone: 'error', text: built.error });
+        return false;
+      }
+      const done = await run({ ...built, write: () => built.write(product.item_id) });
       if (done) written.current.set(key, { over: product, on: !flag });
       return done;
     },
     [run],
+  );
+
+  const editToggle = useCallback(
+    async (kind, product, draft) => {
+      if (refuseWhileBusy()) return false;
+      const built = EDITS[kind](product, draft);
+      if (built.error) {
+        setMessage({ tone: 'error', text: built.error });
+        return false;
+      }
+      const done = await run({ ...built, write: () => built.write(product.item_id) });
+      // As a toggle: an r / w pressed before the re-read flips from what was saved.
+      if (done) written.current.set(`${kind}:${product.item_id}`, { over: product, on: Boolean(draft.participa) });
+      return done;
+    },
+    [refuseWhileBusy, run],
   );
 
   const save = useCallback(
@@ -149,5 +164,5 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
   const confirm = () => (pending ? commit(pending.row, pending.product, pending.precio) : Promise.resolve(false));
   const cancel = () => setPending(null);
 
-  return { saving, pending, warning: pending ? warningText(pending) : null, message, save, confirm, cancel, toggle };
+  return { saving, pending, warning: pending ? warningText(pending) : null, message, save, confirm, cancel, toggle, editToggle };
 }

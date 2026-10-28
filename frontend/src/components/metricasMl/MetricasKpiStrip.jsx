@@ -121,7 +121,11 @@ function WithSellInOut({ children, pendientes = 0, estimados = 0 }) {
       <span>C/ sell in/out:</span>{' '}
       <span className={styles.sellValue}>
         <strong data-money>{children}</strong>
-        <SellOutFlags pendientes={pendientes} estimados={estimados} />
+        {(pendientes > 0 || estimados > 0) && (
+          <span className={styles.sellFlags}>
+            <SellOutFlags pendientes={pendientes} estimados={estimados} />
+          </span>
+        )}
       </span>
     </span>
   );

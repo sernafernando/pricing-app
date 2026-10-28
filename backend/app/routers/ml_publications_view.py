@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace
+from functools import partial
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Literal, Optional, Sequence
 
@@ -97,6 +98,7 @@ from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, needs_m
 from app.services.ml_publications.view.timing import Timer
 from app.services.ml_promotions_service import (
     KNOWN_PROMOTION_TYPES,
+    fetch_mlas_by_promo_name,
     fetch_mlas_with_active_promo_type,
     fetch_mlas_with_candidate_only,
     fetch_mlas_with_candidate_only_for_types,
@@ -840,6 +842,11 @@ def filter_query(
     con_mla: Optional[bool] = Query(
         None, description="false: the products no publication is linked to (Productos' Sin MLA, Producto view)"
     ),
+    estado_mla: Optional[str] = Query(
+        None,
+        description="Productos' Estado MLA: activa (a product with an active publication) or pausada (publications,"
+        " none active)",
+    ),
     # The caller and the application session, for the permission check of the markup filters (cached per request:
     # every endpoint already authenticates the same way).
     user: Usuario = Depends(get_current_user),
@@ -895,7 +902,9 @@ def filter_query(
             mla_scope=_mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq),
             colores=colores,
             con_mla=con_mla,
+            estado_mla=estado_mla,
         )
+        f = _resolve_promo_search(f)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     if not (f.colors or f.no_color):
@@ -955,6 +964,28 @@ def _mla_scope(
             raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, FILTER_UNAVAILABLE_CODE, message) from exc
         scope = found if scope is None else scope & found
     return scope
+
+
+def _resolve_promo_search(f: PublicationFilter) -> PublicationFilter:
+    """A `promo:` search with its MLAs, resolved as Productos does: a known promotion type is its active promotions
+    (applied or not), any other text a substring of the promotion's name. A resolver that cannot answer is a 503."""
+    if f.q is None or f.q.kind != "promo":
+        return f
+    value = f.q.value
+    if value.upper() in KNOWN_PROMOTION_TYPES:
+        resolver = partial(fetch_mlas_with_active_promo_type, [value.upper()], applied_only=False)
+    else:
+        resolver = partial(fetch_mlas_by_promo_name, value)
+    try:
+        found = frozenset(resolver())
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("Operador promo: no disponible: %s", exc)
+        raise api_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            FILTER_UNAVAILABLE_CODE,
+            "Búsqueda por promoción no disponible temporalmente",
+        ) from exc
+    return replace(f, q=replace(f.q, mlas=found))
 
 
 def _ads_status(provider: AdsCostProvider, requested: bool, first: Optional[date], last: Optional[date]) -> AdsStatus:

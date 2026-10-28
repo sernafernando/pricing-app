@@ -57,6 +57,39 @@ describe('priceColumns', () => {
     expect(cell(rebate)).toContain('22,5%');
   });
 
+  it("shows the best offer's details under its price, in Productos' order: contribution %, rebate, end date, seller PVP (S2)", () => {
+    const product = {
+      ...PRODUCT,
+      mejor_oferta_precio: 990,
+      mejor_oferta_markup: 0.1,
+      mejor_oferta_porcentaje_rebate: 12.5,
+      mejor_oferta_monto_rebate: 1500,
+      mejor_oferta_fecha_hasta: '2026-11-30',
+      mejor_oferta_pvp_seller: 1200,
+    };
+    const [, , oferta] = priceColumns('normal', { prices: prices(new Map([[7, product]])) });
+    const { container, unmount } = render(<div>{oferta.render(item())}</div>);
+    const lines = [...container.querySelectorAll('[data-offer-detail]')].map((line) => line.textContent);
+    expect(lines).toEqual(['Aporte 12,50%', 'Rebate $ 1.500,00', 'Hasta 30/11', 'PVP $ 1.200,00']);
+    unmount();
+    // Only the details it has; none without an offer.
+    const partial = { ...PRODUCT, mejor_oferta_precio: 990, mejor_oferta_fecha_hasta: '2026-11-30' };
+    const [, , onlyDate] = priceColumns('normal', { prices: prices(new Map([[7, partial]])) });
+    expect(cell(onlyDate)).toContain('Hasta 30/11');
+    expect(cell(onlyDate)).not.toContain('Aporte');
+    const [, , none] = priceColumns('normal', { prices: prices(new Map([[7, { ...PRODUCT, mejor_oferta_fecha_hasta: '2026-11-30' }]])) });
+    expect(cell(none)).toBe('—');
+    // The other columns have no details.
+    const [clasica] = priceColumns('normal', { prices: prices(new Map([[7, product]])) });
+    expect(cell(clasica)).not.toContain('Hasta');
+    // They are not margin: shown with the markup and without it; prices on their way read "…", no details.
+    const [, , withMargin] = priceColumns('normal', { prices: prices(new Map([[7, product]])), canSeeMargin: true });
+    expect(cell(withMargin)).toContain('10,0%');
+    expect(cell(withMargin)).toContain('PVP $ 1.200,00');
+    const [, , loading] = priceColumns('normal', { prices: prices(new Map(), true) });
+    expect(cell(loading)).toBe('…');
+  });
+
   it('never shows a markup without the margin permission', () => {
     const [clasica] = priceColumns('normal', { prices: prices(), canSeeMargin: false });
     expect(cell(clasica)).toContain('1.000,00');
@@ -88,6 +121,17 @@ describe('priceColumns', () => {
     unmount();
     // A publication with no product has no price to fail.
     expect(cell(clasica, item(null))).toBe('—');
+  });
+
+  it("sorts by the markup the Clásica, Rebate, Mejor Oferta and Web Transf. headers, like Productos, with the margin permission", () => {
+    const sortable = (mode, canSeeMargin) =>
+      priceColumns(mode, { prices: prices(), canSeeMargin })
+        .filter((column) => column.sortable)
+        .map((column) => column.key);
+    expect(sortable('normal', true)).toEqual(['lista_clasica', 'lista_rebate', 'lista_oferta', 'lista_web']);
+    expect(sortable('cuotas', true)).toEqual(['lista_clasica']); // the cuotas headers do not sort in Productos
+    expect(sortable('pvp', true)).toEqual([]);
+    expect(sortable('normal', false)).toEqual([]);
   });
 
   it("draws a product row from the product's own id", () => {
@@ -132,6 +176,105 @@ describe('priceColumns', () => {
       mount(pending.render(item()));
       const [failed] = priceColumns('normal', { prices: { byId: new Map(), loading: false, error: true }, edit: edit() });
       mount(failed.render(item()));
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+  });
+
+  describe("the rebate and web transfer edited in the row (S1), as Productos' row and the panel's ProductToggles", () => {
+    const TOGGLES = { canToggleRebate: true, canToggleWebTransf: true };
+    const edit = (permissions = TOGGLES) => ({ permissions, onSave: vi.fn(), onToggle: vi.fn().mockResolvedValue(true), saving: false });
+    const PRICED = { ...PRODUCT, porcentaje_rebate: 4.5, porcentaje_markup_web: 7, preservar_porcentaje_web: true };
+    const columnsWith = (options, product = PRICED) => priceColumns('normal', { prices: prices(new Map([[7, product]])), edit: options });
+
+    it('the rebate opens Productos\' editor (takes part and its %) and saves what was typed', async () => {
+      const options = edit();
+      const [, rebate] = columnsWith(options);
+      render(<div>{rebate.render(item())}</div>);
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      const editor = screen.getByRole('group', { name: 'Rebate' });
+      expect(editor).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: 'Participa' })).toBeChecked();
+      const percent = screen.getByRole('textbox', { name: '% de rebate' });
+      expect(percent).toHaveValue('4,5');
+      await userEvent.clear(percent);
+      await userEvent.type(percent, '5,2{Enter}');
+      expect(options.onToggle).toHaveBeenCalledWith('rebate', PRICED, { participa: true, porcentaje: '5,2' });
+      // Saved: the cell is back.
+      expect(await screen.findByRole('button', { name: /^Editar Precio Rebate/ })).toBeInTheDocument();
+    });
+
+    it("a product with no rebate opens with Productos' default and can be turned on from its '—'", async () => {
+      const options = edit();
+      const [, rebate] = columnsWith(options, { ...PRODUCT, participa_rebate: false, porcentaje_rebate: null });
+      render(<div>{rebate.render(item())}</div>);
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      expect(screen.getByRole('checkbox', { name: 'Participa' })).not.toBeChecked();
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Participa' }));
+      expect(screen.getByRole('textbox', { name: '% de rebate' })).toHaveValue('3,8');
+    });
+
+    it('the web transfer opens with its %, "preservar porcentaje" included, and saves all three', async () => {
+      const options = edit();
+      const [, , , web] = columnsWith(options);
+      render(<div>{web.render(item())}</div>);
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Web Transf\./ }));
+      expect(screen.getByRole('group', { name: 'Web transferencia' })).toBeInTheDocument();
+      expect(screen.getByRole('textbox', { name: '% sobre la clásica' })).toHaveValue('7');
+      const preservar = screen.getByRole('checkbox', { name: 'Conservar el % en cambios masivos' });
+      expect(preservar).toBeChecked();
+      await userEvent.click(preservar);
+      await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+      expect(options.onToggle).toHaveBeenCalledWith('web', PRICED, { participa: false, porcentaje: '7', preservar: false });
+    });
+
+    it('Cancelar or Escape closes it without saving; a failed save keeps it open', async () => {
+      const options = edit();
+      options.onToggle.mockResolvedValue(false);
+      const [, rebate] = columnsWith(options);
+      render(<div>{rebate.render(item())}</div>);
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+      expect(screen.queryByRole('group', { name: 'Rebate' })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      await userEvent.keyboard('{Escape}');
+      expect(screen.queryByRole('group', { name: 'Rebate' })).not.toBeInTheDocument();
+      expect(options.onToggle).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+      expect(options.onToggle).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('group', { name: 'Rebate' })).toBeInTheDocument();
+    });
+
+    it("the editor's keys and clicks stay in it: the row and its shortcuts never see them", async () => {
+      const row = { onKeyDown: vi.fn(), onClick: vi.fn() };
+      const [, rebate] = columnsWith(edit());
+      render(<div {...row}>{rebate.render(item())}</div>);
+      // The click that opens it is a button's: TableShell's row ignores those (as with PriceEditCell).
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      row.onClick.mockClear();
+      await userEvent.type(screen.getByRole('textbox', { name: '% de rebate' }), 'rw');
+      await userEvent.click(screen.getByRole('group', { name: 'Rebate' }));
+      expect(row.onKeyDown).not.toHaveBeenCalled();
+      expect(row.onClick).not.toHaveBeenCalled();
+    });
+
+    it('only with the permission of each: toggle_rebate and toggle_web_transf', () => {
+      const [, rebate, , web] = columnsWith(edit({ canToggleRebate: false, canToggleWebTransf: true }));
+      render(<div>{rebate.render(item())}</div>);
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+      render(<div>{web.render(item())}</div>);
+      expect(screen.getByRole('button', { name: /^Editar Web Transf\./ })).toBeInTheDocument();
+    });
+
+    it('never with no product, a request on its way or a failed one; the best offer never', () => {
+      const [, rebate] = columnsWith(edit());
+      render(<div>{rebate.render(item(null))}</div>);
+      const [, pending] = priceColumns('normal', { prices: prices(new Map(), true), edit: edit() });
+      render(<div>{pending.render(item())}</div>);
+      const [, failed] = priceColumns('normal', { prices: { byId: new Map(), loading: false, error: true }, edit: edit() });
+      render(<div>{failed.render(item())}</div>);
+      const [, , oferta] = columnsWith(edit());
+      render(<div>{oferta.render(item())}</div>);
       expect(screen.queryByRole('button')).not.toBeInTheDocument();
     });
   });

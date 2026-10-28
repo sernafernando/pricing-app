@@ -77,6 +77,10 @@ function buildPxqParams(conPxq) {
  * Deleted publications (`isDeletedNode`: gone, or `deleted` in ML's
  * sub_status) are hidden by default, filter or not, with a "Ver eliminadas
  * (N)" toggle; "ver todos" never reveals them.
+ *
+ * `onOpenPublication(mla)` (optional) reaches every row: with it, each
+ * publication offers "Abrir <mla>" (Publicaciones ML opens its panel);
+ * Productos passes none and its rows stay as they were.
  */
 function ProductoMLAsPanel({
   itemId,
@@ -88,6 +92,7 @@ function ProductoMLAsPanel({
   promoEstado,
   tiendaOficial,
   conPxq,
+  onOpenPublication,
 }) {
   // `tiendaOficial` participates in filterParams, and therefore in the cache
   // key below: without it, switching stores would replay the previous
@@ -223,6 +228,7 @@ function ProductoMLAsPanel({
               conPxq={conPxq}
               revealAll={verTodos}
               showDeleted={showDeleted}
+              onOpenPublication={onOpenPublication}
             />
           ))}
         </tbody>

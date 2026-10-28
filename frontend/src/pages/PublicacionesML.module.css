@@ -155,3 +155,33 @@
     animation: none;
   }
 }
+
+/* Productos' "Modo Navegación" banner (`.navigation-indicator`): shown while a list row has the focus. */
+.navigationBanner {
+  position: fixed;
+  bottom: var(--space-5);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-fixed);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--spacing-lg);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  pointer-events: none;
+}
+
+.navigationBanner kbd {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-hover);
+  font-family: monospace;
+  font-size: var(--font-xs);
+}

@@ -1,0 +1,143 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { productosAPI } from '../../services/api';
+import { sellInBonosAPI } from '../../services/sellInAPI';
+import { ALCANCE, BONO } from './sellInFixtures';
+import SellInBonoPanel from './SellInBonoPanel';
+import SellInBonosTable from './SellInBonosTable';
+
+vi.mock('../../services/sellInAPI', () => ({
+  sellInBonosAPI: { detalle: vi.fn(), alcance: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn() },
+  sellInAPI: { operaciones: vi.fn(), operacionProductos: vi.fn() },
+}));
+
+vi.mock('../../services/api', () => ({
+  productosAPI: { categorias: vi.fn(), listar: vi.fn() },
+}));
+
+// Owner, 2026-10-28: "tablets y notebooks lenovo que aplica hasta 3000 USD entre los dos".
+const BONO_TOPE = {
+  ...BONO,
+  tope_unidades: 1200,
+  tope_monto: '3000.00',
+  tope_unidades_restantes: 160,
+  tope_monto_restante: '0.00',
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  sellInBonosAPI.detalle.mockResolvedValue({ data: BONO_TOPE });
+  sellInBonosAPI.alcance.mockResolvedValue({ data: ALCANCE });
+  sellInBonosAPI.crear.mockResolvedValue({ data: { ...BONO_TOPE, id: 9 } });
+  sellInBonosAPI.editar.mockResolvedValue({ data: BONO_TOPE });
+  productosAPI.categorias.mockResolvedValue({ data: { categorias: [] } });
+});
+
+const renderPanel = (props = {}) =>
+  render(<SellInBonoPanel bonoId={3} marcas={['TP-LINK']} puedeGestionar onSaved={vi.fn()} onClose={vi.fn()} onVerCompra={vi.fn()} {...props} />);
+
+const nuevo = async (user) => {
+  renderPanel({ bonoId: null });
+  await user.selectOptions(screen.getByLabelText('Marca'), 'TP-LINK');
+  await user.type(screen.getByLabelText('Monto por unidad'), '3');
+  await user.type(screen.getByLabelText('Factura desde'), '2026-09-01');
+  await user.type(screen.getByLabelText('Factura hasta'), '2026-11-30');
+};
+
+const guardar = (user, name = 'Guardar bono') => user.click(screen.getByRole('button', { name }));
+
+describe('SellInBonoForm — the shared cap (T24d)', () => {
+  it('sends both caps, and no cap as null', async () => {
+    const user = userEvent.setup();
+    await nuevo(user);
+    await guardar(user);
+    expect(sellInBonosAPI.crear).toHaveBeenLastCalledWith(expect.objectContaining({ tope_unidades: null, tope_monto: null }));
+
+    await user.type(screen.getByLabelText('Tope de unidades (opcional)'), '500');
+    await user.type(screen.getByLabelText('Tope de monto en USD (opcional)'), '3000');
+    expect(screen.getByText(/El tope es uno solo para todos los productos y compras del bono/)).toBeInTheDocument();
+    await guardar(user);
+    expect(sellInBonosAPI.crear).toHaveBeenLastCalledWith(expect.objectContaining({ tope_unidades: '500', tope_monto: '3000' }));
+  });
+
+  it.each([
+    ['Tope de unidades (opcional)', '0', 'El tope de unidades debe ser un número entero mayor que cero.'],
+    ['Tope de unidades (opcional)', '2.5', 'El tope de unidades debe ser un número entero mayor que cero.'],
+    ['Tope de monto en USD (opcional)', '0', 'El tope de monto debe ser mayor que cero.'],
+    ['Tope de monto en USD (opcional)', '10.005', 'El tope de monto admite hasta 2 decimales.'],
+  ])('refuses %s = %s before sending it', async (campo, valor, mensaje) => {
+    const user = userEvent.setup();
+    await nuevo(user);
+    await user.type(screen.getByLabelText(campo), valor);
+    await guardar(user);
+    expect(screen.getByRole('alert')).toHaveTextContent(mensaje);
+    expect(sellInBonosAPI.crear).not.toHaveBeenCalled();
+  });
+
+  it('loads the stored caps and shows what is left of them', async () => {
+    renderPanel();
+    expect(await screen.findByLabelText('Tope de unidades (opcional)')).toHaveValue(1200);
+    expect(screen.getByLabelText('Tope de monto en USD (opcional)')).toHaveValue(3000);
+    expect(screen.getByText('Tope: quedan 160 u de 1.200 · USD 0,00 de USD 3.000,00')).toBeInTheDocument();
+  });
+
+  it('empties the money cap when the currency changes, so it is entered again in the new one', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByLabelText('Tope de monto en USD (opcional)');
+    await user.click(screen.getByRole('button', { name: 'ARS' }));
+    expect(screen.getByLabelText('Tope de monto en ARS (opcional)')).toHaveValue(null);
+    // Saving without it would drop the cap silently: refused until it is entered again.
+    await guardar(user, 'Guardar cambios');
+    expect(screen.getByRole('alert')).toHaveTextContent('Al cambiar la moneda hay que volver a indicar el tope de monto.');
+    expect(sellInBonosAPI.editar).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText('Tope de monto en ARS (opcional)'), '4500000');
+    await guardar(user, 'Guardar cambios');
+    await waitFor(() => expect(sellInBonosAPI.editar).toHaveBeenCalledWith(3, expect.objectContaining({ moneda: 'ARS', tope_unidades: '1200', tope_monto: '4500000' })));
+  });
+
+  it('lists what is left of each cap in the bonuses table, and nothing without one', () => {
+    render(<SellInBonosTable bonos={[BONO_TOPE, { ...BONO, id: 4 }]} selectedId={null} onSelect={vi.fn()} />);
+    expect(screen.getAllByText(/^Tope: quedan/)).toHaveLength(1);
+    expect(screen.getByText('Tope: quedan 160 u de 1.200 · USD 0,00 de USD 3.000,00')).toBeInTheDocument();
+  });
+
+  it('keeps the money cap when the same currency is picked again', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByLabelText('Tope de monto en USD (opcional)');
+    await user.click(screen.getByRole('button', { name: 'USD' }));
+    expect(screen.getByLabelText('Tope de monto en USD (opcional)')).toHaveValue(3000);
+  });
+
+  it('shows only the cap the bonus has', () => {
+    const soloUnidades = { ...BONO, id: 5, tope_unidades: 100, tope_unidades_restantes: 40 };
+    const soloMonto = { ...BONO, id: 6, tope_monto: '500.00', tope_monto_restante: '125.50' };
+    render(<SellInBonosTable bonos={[soloUnidades, soloMonto]} selectedId={null} onSelect={vi.fn()} />);
+    expect(screen.getByText('Tope: quedan 40 u de 100')).toBeInTheDocument();
+    expect(screen.getByText('Tope: quedan USD 125,50 de USD 500,00')).toBeInTheDocument();
+  });
+
+  // T24 verifier, B2: a currency round trip must not drop the stored money cap.
+  it('keeps the stored money cap when the currency goes away and comes back', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByLabelText('Tope de monto en USD (opcional)');
+    await user.click(screen.getByRole('button', { name: 'ARS' }));
+    await user.click(screen.getByRole('button', { name: 'USD' }));
+    await guardar(user, 'Guardar cambios');
+    // The stored 3000.00 comes back as the form loads it ('3000', the same amount).
+    await waitFor(() => expect(sellInBonosAPI.editar).toHaveBeenCalledWith(3, expect.objectContaining({ moneda: 'USD', tope_monto: '3000' })));
+  });
+
+  it('brings back the stored cap, not a value typed in another currency in between', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByLabelText('Tope de monto en USD (opcional)');
+    await user.click(screen.getByRole('button', { name: 'ARS' }));
+    await user.type(screen.getByLabelText('Tope de monto en ARS (opcional)'), '4500000');
+    await user.click(screen.getByRole('button', { name: 'USD' }));
+    expect(screen.getByLabelText('Tope de monto en USD (opcional)')).toHaveValue(3000);
+  });
+});

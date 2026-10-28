@@ -19,7 +19,8 @@ import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
-import { equiposAPI, mlItemOverridesAPI, offsetsGananciaAPI, preciosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI, pxqAPI } from '../../services/api';
+import { useTreeViewStore } from '../../store/treeViewStore';
+import { equiposAPI, mlItemOverridesAPI, offsetsGananciaAPI, preciosAPI, productosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI, pxqAPI } from '../../services/api';
 import { PRODUCTO_CON_REBATE_Y_OFERTA, SELL_IN_OUT } from '../../components/pricing/ProductPrices.fixtures';
 import {
   BRAND_NODES,
@@ -66,6 +67,22 @@ vi.mock('../../contexts/PermisosContext', () => ({
 }));
 
 vi.mock('../../hooks/useSSEChannel', () => ({ useSSEChannel: vi.fn() }));
+// The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication, collapsed.
+const DEFAULT_TREE = vi.hoisted(() => ({
+  data: {
+    item_id: 4101,
+    tree: {
+      level: 0,
+      kind: 'producto',
+      label: 'Router Archer AX55',
+      children: [
+        { level: 1, kind: 'publicacion', mla: 'MLA1100000005', label: 'Router TP-Link Archer AX55 por color', pricelist_id: 4, publication_status: 'active', children: [] },
+      ],
+    },
+    skipped_anomalous_edges: 0,
+    skipped_edges: [],
+  },
+}));
 vi.mock('../../services/api', () => ({
   default: {
     get: vi.fn(() => Promise.resolve({ data: [] })),
@@ -91,6 +108,7 @@ vi.mock('../../services/api', () => ({
   productoBanlistAPI: { add: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn(), getCompetenciaCatalogo: vi.fn(), refreshCompetenciaCatalogo: vi.fn() },
   productosAPI: {
+    getProductoTree: vi.fn(() => Promise.resolve(DEFAULT_TREE)),
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
@@ -104,7 +122,9 @@ vi.mock('../../services/api', () => ({
               precio_lista_ml: 189999, markup: 24.3, participa_rebate: true, precio_rebate: 197911, markup_rebate: 21.1,
               precio_3_cuotas: 209999, markup_3_cuotas: 18.2, precio_6_cuotas: 229999, markup_6_cuotas: 15.4,
               precio_pvp: 239999, markup_pvp: 31.9, has_catalog: true, catalog_status: 'winning', catalog_winner_price: 189999 },
-            { item_id: 4102, precio_lista_ml: 45999, markup: -3.2, mejor_oferta_precio: 41399, mejor_oferta_markup: -0.098 },
+            { item_id: 4102, precio_lista_ml: 45999, markup: -3.2, mejor_oferta_precio: 41399, mejor_oferta_markup: -0.098,
+              mejor_oferta_porcentaje_rebate: 12.5, mejor_oferta_monto_rebate: 5174.88, mejor_oferta_fecha_hasta: '2026-11-30',
+              mejor_oferta_pvp_seller: 47999 },
           ],
           total: 2,
         },
@@ -896,7 +916,8 @@ describe('Publicaciones ML Producto view (visual)', () => {
         await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
         await expect.element(screen.getByRole('complementary', { name: 'Detalle del producto' }).getByText('Cifras')).toBeVisible();
         const panel = document.querySelector('[data-split-panel]');
-        await expect.element(screen.getByRole('button', { name: /Router TP-Link Archer AX55 por color/ })).toBeVisible();
+        // The product's publications are Productos' tree: its row opens with "Expandir <title>".
+        await expect.element(screen.getByRole('button', { name: 'Expandir Router TP-Link Archer AX55 por color' })).toBeVisible();
         const box = rect(panel);
         const scroller = scrollerOf();
         // Side by side: the table ends where the panel starts, and nothing scrolls the page sideways.
@@ -1241,6 +1262,84 @@ describe('Publicaciones ML Producto view (visual)', () => {
         } finally {
           preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
           offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
+        }
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product's publication tree fits inside the panel, collapsed and expanded`, async () => {
+        const publication = (mla, label, extra = {}) => ({
+          level: 2, kind: 'publicacion', mla, label, pricelist_id: 4, lista_nombre: 'Clásica', publication_status: 'active',
+          official_store_id: null, children: [], ...extra,
+        });
+        productosAPI.getProductoTree.mockResolvedValue({
+          data: {
+            item_id: 4101,
+            tree: {
+              level: 0,
+              kind: 'producto',
+              label: 'Router Archer AX55',
+              children: [
+                {
+                  level: 1, kind: 'familia', family_id: 'FAM-ARCHER-AX55', label: 'Familia Router Archer AX55 Wi-Fi 6 doble banda',
+                  children: [
+                    publication('MLA1100000001', 'Router Archer AX55 Wi-Fi 6 negro, con una descripción bastante larga para ver cómo corta'),
+                    publication('MLA1100000002', 'Router Archer AX55 Wi-Fi 6 blanco', { publication_status: 'paused', publication_sub_status: ['paused_by_seller'] }),
+                  ],
+                },
+                publication('MLA1100000003', 'Router Archer AX55 (catálogo)', { level: 1, kind: 'catalogo', catalog_product_id: 'MLA23456789' }),
+                publication('MLA1100000009', 'Router Archer AX55 eliminado', { level: 1, publication_status: 'closed', publication_sub_status: ['deleted'] }),
+              ],
+            },
+            skipped_anomalous_edges: 0,
+            skipped_edges: [],
+          },
+        });
+        // "Expandir todo" opens each publication's promos, catalog competition and wholesale prices too.
+        promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+        promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+        promocionesAPI.confirmarSinPromosML.mockResolvedValue({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } });
+        promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({ data: { fetch_status: 'ok', fecha_consulta: '2026-10-27T15:00:00Z', our_price: 98500, competitor_count: 0, undercutting: [] } });
+        pxqAPI.getLive.mockResolvedValue({ data: { item_id: 'MLA1100000001', live_status: 'ok', live_tiers: [], mirror_tiers: [] } });
+        pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA1100000001', tiers: [] } });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          const section = aside.getByRole('region', { name: 'Publicaciones' });
+          await expect.element(section.getByRole('button', { name: 'Expandir todo' })).toBeVisible();
+          await expect.element(section.getByRole('button', { name: 'Ver eliminadas (1)' })).toBeVisible();
+          const panel = document.querySelector('[data-split-panel]');
+          const fits = () => {
+            expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+            expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+            const right = rect(panel).right;
+            for (const el of section.element().querySelectorAll('*')) {
+              const r = rect(el);
+              if (r.width === 0) continue;
+              expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(right + 0.5);
+            }
+          };
+          section.element().scrollIntoView();
+          fits();
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-arbol-colapsado-${width}-${theme}.png` });
+
+          await section.getByRole('button', { name: 'Ver familias' }).click();
+          await section.getByRole('button', { name: 'Ver eliminadas (1)' }).click();
+          await section.getByRole('button', { name: 'Expandir todo' }).click();
+          await expect.element(section.getByText('Router Archer AX55 Wi-Fi 6 blanco')).toBeVisible();
+          await expect.element(section.getByText('Router Archer AX55 eliminado')).toBeVisible();
+          // Each publication opens its own panel from its "Abrir" button, inside the panel too.
+          await expect.element(section.getByRole('button', { name: 'Abrir MLA1100000002' })).toBeVisible();
+          section.element().scrollIntoView();
+          fits();
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-arbol-expandido-${width}-${theme}.png` });
+          screen.unmount();
+        } finally {
+          productosAPI.getProductoTree.mockResolvedValue(DEFAULT_TREE);
+          for (const fn of [promocionesAPI.getPromocionesItem, promocionesAPI.refreshItemPromociones, promocionesAPI.confirmarSinPromosML, promocionesAPI.getCompetenciaCatalogo, pxqAPI.getLive, pxqAPI.getMarkup]) fn.mockReset();
+          // The tree's view is a shared store: the next test starts closed, families hidden.
+          useTreeViewStore.setState({ showFamilia: false, collapseEpoch: 0, collapseMode: 'manual' });
         }
       });
     }
@@ -1893,6 +1992,61 @@ describe('row colors and the color layer (S8)', () => {
       expect(contrastRatio(style.color, style.backgroundColor)).toBeGreaterThanOrEqual(4.5);
       input.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/price-edit-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the best offer's details sit under its price, each on one line inside the cell`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      await expect.element(screen.getByText('Hasta 30/11').first()).toBeVisible();
+      const lines = [...document.querySelectorAll('[data-offer-detail]')];
+      expect(lines.map((line) => line.textContent).slice(0, 4)).toEqual(['Aporte 12,50%', 'Rebate $ 5.174,88', 'Hasta 30/11', 'PVP $ 47.999,00']);
+      const cell = lines[0].closest('td');
+      const cellBox = cell.getBoundingClientRect();
+      for (const line of lines.slice(0, 4)) {
+        const box = line.getBoundingClientRect();
+        expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
+        expect(box.right).toBeLessThanOrEqual(cellBox.right);
+      }
+      expect(wrapped(lines)).toEqual([]);
+      const style = getComputedStyle(lines[0]);
+      expect(contrastRatio(style.color, getComputedStyle(cell).backgroundColor)).toBeGreaterThanOrEqual(4.5);
+      cell.scrollIntoView({ block: 'center', inline: 'center' });
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/offer-details-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the rebate and web transfer editors open inside their cell, every control in view`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      for (const [button, group] of [
+        [/^Editar Precio Rebate/, 'Rebate'],
+        [/^Editar Web Transf\./, 'Web transferencia'],
+      ]) {
+        const edit = screen.getByRole('button', { name: button }).first();
+        await expect.element(edit).toBeVisible();
+        // The filters have a "Rebate" group of their own: the editor is the one in this cell.
+        const cell = edit.element().closest('td');
+        await edit.click();
+        await expect.poll(() => cell.querySelector(`form[aria-label="${group}"]`)).not.toBeNull();
+        const editor = cell.querySelector(`form[aria-label="${group}"]`);
+        const cellBox = cell.getBoundingClientRect();
+        for (const control of editor.querySelectorAll('input, button, label')) {
+          const box = control.getBoundingClientRect();
+          expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
+          expect(box.right).toBeLessThanOrEqual(cellBox.right);
+        }
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+        // The first row is painted: the typed % reads on its input in both themes.
+        const percent = getComputedStyle(editor.querySelector('input[type="text"]'));
+        expect(contrastRatio(percent.color, percent.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+        cell.scrollIntoView({ block: 'center', inline: 'center' });
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/toggle-edit-${group.split(' ')[0].toLowerCase()}-1366-${theme}.png` });
+        editor.querySelector('button[type="button"]').click();
+        await expect.poll(() => cell.querySelector('form')).toBeNull();
+      }
       screen.unmount();
     });
   }

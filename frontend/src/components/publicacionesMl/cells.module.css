@@ -177,6 +177,17 @@
   border-color: var(--cf-border-strong);
 }
 
+/* The active price of the keyboard (←/→ over a row's prices): the ring of the row's toggles. */
+.editable:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+/* The open editor: only a frame for Tab / Shift+Tab to cycle in, it draws nothing. */
+.priceEditor {
+  display: contents;
+}
+
 .editable:disabled {
   cursor: progress;
   opacity: 0.6;
@@ -198,4 +209,37 @@
 /* Productos' Calcular button (P3c): opens its pricing modal on the row's product. */
 .calculate {
   composes: btn-tesla outline-subtle-primary icon-only sm from '../../styles/buttons-tesla.css';
+}
+
+/* Productos' rebate / web transfer editor in a price cell (S1): stacked to the cell's width, its buttons wrapping. */
+.toggleEditor {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-xs);
+  margin: 0;
+  text-align: left;
+  white-space: normal;
+}
+
+.toggleEditor [data-editor-actions] {
+  flex-wrap: wrap;
+}
+
+.toggleEditor input[type='text'] {
+  max-width: none;
+}
+
+/* On a painted row, its % input takes the tone's surface too, as `.priceInput`. */
+:global([data-tone]) .toggleEditor input[type='text'] {
+  --cf-bg-card: var(--row-tone-bg);
+  --cf-bg-hover: var(--row-tone-bg);
+}
+
+/* A detail line under a price (the best offer's contribution, rebate, end date and seller PVP, S2). */
+.priceDetail {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }

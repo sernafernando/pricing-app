@@ -41,6 +41,15 @@ vi.mock('../services/api', () => ({
   productosPropiosAPI: { get: vi.fn(() => new Promise(() => {})), save: vi.fn() },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn() },
   productosAPI: {
+    // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
+    getProductoTree: vi.fn(() =>
+      Promise.resolve({
+        data: {
+          item_id: 4101,
+          tree: { level: 0, kind: 'producto', label: 'Router Archer AX55', children: [{ level: 1, kind: 'publicacion', mla: 'MLA1100000001', label: 'Router Archer AX55', children: [] }] },
+        },
+      }),
+    ),
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: ['TP,LINK', 'EPSON'] } })),
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: ['REDES'] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
@@ -1432,7 +1441,7 @@ describe('the product panel', () => {
     const user = userEvent.setup();
     await products('/ml-publicaciones?vista=producto&prod=4101');
     const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
-    await user.click(await within(opened).findByRole('button', { name: /^MLA1100000001/ }));
+    await user.click(await within(opened).findByRole('button', { name: 'Abrir MLA1100000001' }));
 
     const detail = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
     expect(productPanel()).not.toBeInTheDocument();
@@ -1985,6 +1994,20 @@ describe("Productos' price columns (S11)", () => {
     expect(productosAPI.listar).toHaveBeenCalledTimes(1);
   });
 
+  it("with ver_ganancia, Precio Clásica sorts the whole list by its markup, the worst first, as Productos", async () => {
+    canSeeMargin = true;
+    await page();
+    const header = within(table()).getByRole('columnheader', { name: /Precio Clásica/ });
+    await userEvent.click(within(header).getByRole('button'));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'lista_clasica', dir: 'asc' }));
+  });
+
+  it('without ver_ganancia the price headers do not sort', async () => {
+    await page();
+    const header = within(table()).getByRole('columnheader', { name: /Precio Clásica/ });
+    expect(within(header).queryByRole('button')).not.toBeInTheDocument();
+  });
+
   it("without Productos' prices there are no price columns, no mode and nothing asked", async () => {
     canSeePrices = false;
     await page();
@@ -2237,6 +2260,93 @@ describe('bulk actions and filters from the keyboard (S9b)', () => {
     expect(await screen.findByLabelText('Ana')).toBeInTheDocument();
     await user.keyboard('{Alt>}s{/Alt}');
     await waitFor(() => expect(screen.queryByLabelText('Ana')).not.toBeInTheDocument());
+  });
+});
+
+describe("Ctrl+I: Productos' product information", () => {
+  let plainGet;
+  beforeEach(() => {
+    plainGet = api.get.getMockImplementation();
+    api.get.mockClear();
+    // The modal's own read stays pending: what it shows is ModalInfoProducto's business, opening it is this screen's.
+    api.get.mockImplementation((url, ...rest) => (url.endsWith('/detalle') ? new Promise(() => {}) : plainGet(url, ...rest)));
+  });
+  afterEach(() => api.get.mockImplementation(plainGet));
+
+  it("opens Productos' information of the focused publication's product, and Escape closes it", async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findAllByRole('row');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByRole('heading', { name: 'Información Detallada' })).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith(`/productos/${ITEMS[0].link.producto_item_id}/detalle`);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Información Detallada' })).not.toBeInTheDocument());
+    // Closed, the modal gives the keyboard back to the list.
+    const focused = document.activeElement;
+    await user.keyboard('{ArrowDown}');
+    expect(document.activeElement).not.toBe(focused);
+    expect(document.activeElement.closest('tr')).not.toBeNull();
+  });
+
+  it("in the Producto view it opens the focused product's information", async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    const user = userEvent.setup();
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto'] });
+    await within(await screen.findByRole('table', { name: /por producto/ })).findByText('Router Archer AX55');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByRole('heading', { name: 'Información Detallada' })).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith('/productos/4101/detalle');
+  });
+
+  it('in the Agrupado view it says where it works and opens nothing', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await screen.findByText('EPSON');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByText('La información del producto funciona en las vistas Publicaciones y Producto')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Información Detallada' })).not.toBeInTheDocument();
+  });
+
+  it('a publication with no linked product says so and opens nothing', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: FACETS, items: [{ ...ITEMS[0], link: null }], total: 1 });
+    const user = userEvent.setup();
+    await page();
+    await screen.findAllByRole('row');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByText('La publicación no tiene producto vinculado')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Información Detallada' })).not.toBeInTheDocument();
+  });
+});
+
+describe("Productos' navigation mode banner", () => {
+  const banner = () => screen.queryByText(/Modo Navegación Activo/);
+
+  it('shows while a row has the focus, and Escape leaves the row and hides it', async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findAllByRole('row');
+    expect(banner()).not.toBeInTheDocument();
+    await user.keyboard('{ArrowDown}');
+    expect(banner()).toHaveTextContent('Modo Navegación Activo - Presiona Esc para salir o ? para ayuda');
+    await user.keyboard('{Escape}');
+    expect(banner()).not.toBeInTheDocument();
+    expect(document.activeElement.closest('tr')).toBeNull();
+  });
+
+  it('with the detail open, Escape first closes the detail and the row stays focused', async () => {
+    const user = userEvent.setup();
+    await page();
+    const row = screen.getByText('MLA1100000001').closest('tr');
+    await user.click(row);
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('heading', { name: /Router TP-Link Archer AX55/ })).not.toBeInTheDocument());
+    expect(row).toHaveFocus();
+    expect(banner()).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(row).not.toHaveFocus();
+    expect(banner()).not.toBeInTheDocument();
   });
 });
 

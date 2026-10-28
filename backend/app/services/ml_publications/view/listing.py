@@ -42,6 +42,7 @@ from app.services.ml_publications.view.filters import (
     normalized_text,
     price_amount,
     product_links,
+    product_pricing,
     status_value,
     stock_clauses,
 )
@@ -73,7 +74,27 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "marca": (lambda: func.nullif(normalized_text(T.p.marca), ""), False),
     "costo": (lambda: cost_in_pesos(), False),
 }
-MARGIN_SORTS = frozenset({"costo"})  # the cost is shown only with `ml_metricas.ver_ganancia`
+# Productos' price headers sort by the stored markup of that list (`productos_listing`), never by the price: the key is
+# the price column's (`priceColumns.jsx`), the worst markup first like `markup`
+PRICE_MARKUP_SORTS = {
+    "lista_clasica": "markup_calculado",
+    "lista_rebate": "markup_rebate",
+    "lista_oferta": "markup_oferta",
+    "lista_web": "markup_web_real",
+}
+
+
+def pricing_markup(column: str) -> Any:
+    """The linked product's stored markup `column` (`productos_pricing`, one row per product: no row is multiplied)."""
+    pp = product_pricing("pp_sort")
+    return select(getattr(pp, column)).where(pp.item_id == T.p.item_id).scalar_subquery()
+
+
+SORT_COLUMNS.update(
+    {key: ((lambda column=column: pricing_markup(column)), False) for key, column in PRICE_MARKUP_SORTS.items()}
+)
+# the cost and the markups are shown only with `ml_metricas.ver_ganancia`
+MARGIN_SORTS = frozenset({"costo", *PRICE_MARKUP_SORTS})
 DIRECTIONS = ("asc", "desc")
 FACET_AXES = AXES
 FACET_MAX_BRANDS = 100
@@ -496,15 +517,16 @@ def _attach_markup(items: list[dict[str, Any]], computed: Mapping[str, ItemMarku
 
 def attach_cost(items: list[dict[str, Any]], rows: list[Any], pricing_db: Optional[Session] = None) -> None:
     """Each row's linked product cost, as the panel shows it (only for who sees the margin, as the markup). With
-    `pricing_db`, also the PPP and sell in lines under it (`cost_lines`); null on a row without a product."""
-    lines: dict[int, dict[str, Any]] = {}
+    `pricing_db`, also the PPP and sell in lines under it (`cost_lines`); null on a row without a product, absent
+    when they could not be built."""
+    lines: Optional[dict[int, dict[str, Any]]] = None
     if pricing_db is not None:
         linked = {r.producto_item_id: (r.costo, r.moneda_costo, r.costo_iva) for r in rows if r.producto_item_id}
         lines = cost_lines(pricing_db, linked)
     for item, row in zip(items, rows):
         currency = getattr(row.moneda_costo, "value", row.moneda_costo)
         item["costo"] = None if row.costo is None else {"amount": row.costo, "currency": currency}
-        if pricing_db is not None:
+        if lines is not None:
             item.update(lines.get(row.producto_item_id, NO_COST_LINES))
 
 

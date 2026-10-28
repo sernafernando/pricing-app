@@ -33,3 +33,14 @@
   font-size: var(--font-sm);
   color: var(--cf-text-primary);
 }
+
+.section {
+  margin-top: var(--spacing-lg);
+}
+
+.heading {
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--cf-text-secondary);
+}

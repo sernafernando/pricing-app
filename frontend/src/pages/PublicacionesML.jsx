@@ -32,6 +32,7 @@ import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
 import { resolverParams } from '../components/publicacionesMl/bulkParams';
 import ExportModal from '../components/ExportModal';
+import ModalInfoProducto from '../components/ModalInfoProducto';
 import ShortcutsHelp from '../components/publicacionesMl/ShortcutsHelp';
 import useRecalcularCuotasAuto from '../components/publicacionesMl/useRecalcularCuotasAuto';
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
@@ -419,8 +420,8 @@ export default function PublicacionesML() {
   // outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page there.
   const productSelection = useProductSelection(agrupado ? EMPTY_ROWS : listedProductIds);
   const { checked: checkedIds, clear: clearChecked } = productSelection;
-  // A price typed in a cell (S11c) is saved as Productos does; the list is reloaded after it, as after a panel write
-  // (its prices with it).
+  // A price typed in a cell (S11c), and the rebate / web transfer edited in theirs (S1), are saved as Productos does;
+  // the list is reloaded after it, as after a panel write (its prices with it).
   const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
   const { message: priceMessage } = priceEditor;
   useEffect(() => {
@@ -435,8 +436,8 @@ export default function PublicacionesML() {
   const autoRecalc = useRecalcularCuotasAuto();
   const [pricingProduct, setPricingProduct] = useState(null);
   const priceEdit = useMemo(
-    () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, saving: priceEditor.saving }),
-    [priceWritePermissions, priceEditor.save, priceEditor.saving],
+    () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, onToggle: priceEditor.editToggle, saving: priceEditor.saving }),
+    [priceWritePermissions, priceEditor.save, priceEditor.editToggle, priceEditor.saving],
   );
   const cyclePriceMode = () => {
     const next = PRICE_MODES[(PRICE_MODES.indexOf(filters.modo) + 1) % PRICE_MODES.length];
@@ -575,6 +576,20 @@ export default function PublicacionesML() {
         : row?.item?.link?.producto_item_id
       : items.find((item) => item.item_id === key)?.link?.producto_item_id;
   };
+  // Ctrl+I: Productos' information modal of the focused row's product.
+  const [infoProductId, setInfoProductId] = useState(null);
+  const showInfo = (key) => {
+    if (agrupado) {
+      showToast('La información del producto funciona en las vistas Publicaciones y Producto', 'error');
+      return;
+    }
+    const productId = productIdOfRow(key);
+    if (productId == null) {
+      showToast('La publicación no tiene producto vinculado', 'error');
+      return;
+    }
+    setInfoProductId(productId);
+  };
   const paintRow = (key, color) => {
     if (agrupado) {
       showToast('Pintar con el teclado funciona en las vistas Publicaciones y Producto', 'error');
@@ -624,7 +639,7 @@ export default function PublicacionesML() {
   const [bulkRequest, setBulkRequest] = useState(null);
   const filterCardRef = useRef(null);
   const openFilter = (name) => filterCardRef.current?.querySelector(`[data-filter="${name}"]`)?.click();
-  usePublicacionesMLKeyboard({
+  const { navigating } = usePublicacionesMLKeyboard({
     searchRef,
     onBulkAction: (key) => setBulkRequest({ key, at: performance.now() }),
     onOpenFilter: openFilter,
@@ -638,7 +653,10 @@ export default function PublicacionesML() {
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
     onToggleAutoRecalc: canCalculatePrice ? autoRecalc.toggle : undefined,
+    onShowInfo: showInfo,
     onToggleHelp: () => setShowShortcuts((open) => !open),
+    // The open side panel takes Escape first (closing it gives its row the focus back).
+    keepRowOnEscape: Boolean(filters.sel || filters.prod),
     showToast,
   });
   const total = producto ? productRows.total : (data?.total ?? 0);
@@ -1023,6 +1041,12 @@ export default function PublicacionesML() {
         </div>
       )}
       {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+      {navigating && (
+        <div className={styles.navigationBanner} role="status">
+          Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
+        </div>
+      )}
+      <ModalInfoProducto isOpen={infoProductId != null} itemId={infoProductId} onClose={() => setInfoProductId(null)} />
       {priceEditor.pending && (
         <ModalTesla
           isOpen

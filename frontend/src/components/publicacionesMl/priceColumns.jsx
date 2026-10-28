@@ -1,7 +1,10 @@
 import { Calculator } from 'lucide-react';
+import { offerDetails } from '../pricing/offerDetails';
 import { LISTS } from '../pricing/priceWrites';
+import { PRICE_MARKUP_SORTS } from '../../hooks/usePublicacionesMLFilters';
 import ListPriceCell from './ListPriceCell';
 import PriceEditCell from './PriceEditCell';
+import ToggleEditCell from './ToggleEditCell';
 import styles from './cells.module.css';
 
 /**
@@ -11,23 +14,38 @@ import styles from './cells.module.css';
  * transfer read only when the product takes part. No product, no price or a request on its way never read 0.
  *
  * A column with a `list` (the id of its row in `LISTS`, how Productos writes that price) is edited in place (S11c)
- * when `edit.permissions` allows that row's `perm`; the rebate, the best offer and the web transfer have none.
+ * when `edit.permissions` allows that row's `perm`. The rebate and the web transfer (`toggles`) open Productos' editor
+ * of that flag and its % instead (S1), with `productos.toggle_rebate` / `productos.toggle_web_transf`; the best offer
+ * is not edited.
  */
 const GROUP = 'Precios de Productos';
 
 const LIST_ROWS = new Map(LISTS.flatMap((group) => group.rows).map((row) => [row.id, row]));
 
-const list = (key, header, price, markup, { takesPart, markupScale = 1, edits } = {}) => ({ key, header, price, markup, takesPart, markupScale, list: edits });
+const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, toggles, details } = {}) => ({
+  key,
+  header,
+  price,
+  markup,
+  takesPart,
+  markupScale,
+  list: edits,
+  toggles,
+  details,
+});
+// The permission of each flag's editor (`pricePermissions`).
+const TOGGLE_PERMS = { rebate: 'canToggleRebate', web: 'canToggleWebTransf' };
 const CLASICA = list('lista_clasica', 'Precio Clásica', 'precio_lista_ml', 'markup', { edits: 'ml-clasica' });
 const CUOTAS = [3, 6, 9, 12];
 
 const MODES = {
   normal: [
     CLASICA,
-    list('lista_rebate', 'Precio Rebate', 'precio_rebate', 'markup_rebate', { takesPart: 'participa_rebate' }),
+    list('lista_rebate', 'Precio Rebate', 'precio_rebate', 'markup_rebate', { takesPart: 'participa_rebate', toggles: 'rebate' }),
     // The listing sends the best offer's markup as a fraction (every other one as a percentage); Productos scales it.
-    list('lista_oferta', 'Mejor Oferta', 'mejor_oferta_precio', 'mejor_oferta_markup', { markupScale: 100 }),
-    list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', { takesPart: 'participa_web_transferencia' }),
+    // Under its price, its details as in Productos (S2).
+    list('lista_oferta', 'Mejor Oferta', 'mejor_oferta_precio', 'mejor_oferta_markup', { markupScale: 100, details: offerDetails }),
+    list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', { takesPart: 'participa_web_transferencia', toggles: 'web' }),
   ],
   cuotas: [CLASICA, ...CUOTAS.map((n) => list(`lista_${n}_cuotas`, `${n} Cuotas`, `precio_${n}_cuotas`, `markup_${n}_cuotas`, { edits: `ml-${n}` }))],
   pvp: [
@@ -39,7 +57,8 @@ const MODES = {
 /**
  * The columns of `mode` ('normal' | 'cuotas' | 'pvp'). `render(item)` draws a publication with its linked product;
  * `renderProduct(productId)` draws a product row (the Producto view). `edit` (`{ permissions, onSave, saving }`, from
- * `pricePermissions` and `useInlinePriceEdit`) makes the list prices editable: `onSave(listRow, product, text)`.
+ * `pricePermissions` and `useInlinePriceEdit`) makes the list prices editable: `onSave(listRow, product, text)`; and
+ * the rebate and web transfer: `onToggle(kind, product, draft)`, resolving true when saved.
  * `onCalculate(product)` (P3c, for whoever may edit prices) closes the group with Productos' Calcular button, which
  * opens its pricing modal on the row's product.
  */
@@ -47,13 +66,22 @@ export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, 
   const columns = (MODES[mode] ?? MODES.normal).map((column) => {
     const listRow = column.list ? LIST_ROWS.get(column.list) : null;
     const editable = Boolean(edit && listRow && edit.permissions[listRow.perm]);
+    const togglable = Boolean(edit?.onToggle && column.toggles && edit.permissions[TOGGLE_PERMS[column.toggles]]);
     const renderProduct = (productId) => {
       const product = productId == null ? null : prices.byId.get(productId);
       const failed = productId != null && prices.error;
       const cell = (
         <ListPriceCell product={product} column={column} loading={productId != null && prices.loading} failed={failed} canSeeMargin={canSeeMargin} />
       );
-      if (!editable || !product || failed) return cell;
+      if (!product || failed) return cell;
+      if (togglable) {
+        return (
+          <ToggleEditCell kind={column.toggles} label={column.header} product={product} saving={edit.saving} onSave={(draft) => edit.onToggle(column.toggles, product, draft)}>
+            {cell}
+          </ToggleEditCell>
+        );
+      }
+      if (!editable) return cell;
       return (
         <PriceEditCell label={column.header} value={product[column.price]} saving={edit.saving} onSave={(text) => edit.onSave(listRow, product, text)}>
           {cell}
@@ -67,6 +95,7 @@ export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, 
       width: 130,
       align: 'right',
       list: column.list,
+      sortable: canSeeMargin && PRICE_MARKUP_SORTS.has(column.key), // by its markup, as Productos
       render: (item) => renderProduct(item.link?.producto_item_id ?? null),
       renderProduct,
     };

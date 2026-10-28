@@ -421,6 +421,7 @@ describe("Productos' presence filters (S5)", () => {
       outofcards: ['con_out_of_cards', 'sin_out_of_cards'],
       precio: ['con_precio', 'sin_precio'],
       nuevos: ['ultimos_7_dias'],
+      estado_mla: ['activa', 'pausada'],
     });
     expect(FILTER_KEYS).toEqual(expect.arrayContaining(Object.keys(PRESENCE_VALUES)));
   });
@@ -472,6 +473,17 @@ describe("Productos' presence filters (S5)", () => {
     });
     expect(buildItemsParams({ ...base, precio: 'sin_precio' }, 50).con_precio).toBe(false);
     expect(buildProductIdsParams({ ...base, precio: 'sin_precio' }).con_precio).toBe(false);
+  });
+
+  it("sends Productos' Estado MLA (`estado_mla=activa` / `pausada`) from its URL key", () => {
+    const f = setup('/?estado_mla=pausada').result.current.hook.filters;
+    expect(f.estado_mla).toBe('pausada');
+    expect(setup('/?estado_mla=inactiva').result.current.hook.filters.estado_mla).toBe('');
+    expect(buildItemsParams(setup('/?estado_mla=activa').result.current.hook.filters, 50).estado_mla).toBe('activa');
+    expect(buildItemsParams(f, 50)).toEqual({ estado_mla: 'pausada', limit: 50, offset: 0 });
+    expect(buildProductsParams(f, 50)).toMatchObject({ estado_mla: 'pausada' });
+    expect(buildKpiParams(f, '30d')).toEqual({ estado_mla: 'pausada', periodo: '30d' });
+    expect(buildProductIdsParams(f).estado_mla).toBe('pausada');
   });
 
   it('in the Producto view, the KPI strip asks mejor oferta of the product, as the product rows do', () => {
@@ -733,6 +745,20 @@ describe('sorting by several columns (S12e, Shift+click like Productos)', () => 
       { key: 'facturado_30d', dir: 'desc' },
     ]);
     expect(buildItemsParams(filters, 50, ALL)).toMatchObject({ orden: 'precio,markup,facturado_30d' });
+  });
+
+  it("sorts Productos' price headers by their markup, worst first, only with the margin permission", () => {
+    const filters = { ...base, orden: 'lista_clasica,lista_rebate,lista_oferta,lista_web', dir: '' };
+    expect(effectiveSortKeys(filters, ALL)).toEqual([
+      { key: 'lista_clasica', dir: 'asc' },
+      { key: 'lista_rebate', dir: 'asc' },
+      { key: 'lista_oferta', dir: 'asc' },
+      { key: 'lista_web', dir: 'asc' },
+    ]);
+    // without ver_ganancia they are left out, as the markup is
+    expect(effectiveSortKeys({ ...filters, orden: 'lista_clasica,titulo' }, SALES)).toEqual([{ key: 'titulo', dir: 'asc' }]);
+    // the Producto view has no such sort: a shared link falls back to its default
+    expect(effectiveProductSortKeys({ ...filters, vista: 'producto' }, ALL)).toEqual([{ key: 'facturado_30d', dir: 'desc' }]);
   });
 
   it('combines every figure in the Producto view, and asks /products for all of them', () => {

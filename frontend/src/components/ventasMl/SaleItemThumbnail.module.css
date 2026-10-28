@@ -1,0 +1,12 @@
+/* The photo fills the caller's box and keeps its rounded corners. */
+.box {
+  overflow: hidden;
+}
+
+.photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--cf-bg-card);
+}
