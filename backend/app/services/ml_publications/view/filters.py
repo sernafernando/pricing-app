@@ -560,21 +560,17 @@ def joined() -> Any:
 def product_links(name: str = "product_links") -> Any:
     """Each publication's linked products, one row per (item, product): its item-level link, or -- an item with
     variations is linked per variation only (`links.units_for_item`) -- its live variations' links (the rule
-    `producto_propio_service.linked_skus` reads them by). `linked`: one of those links is `linked`, the state that
-    gives the ERP stock (`erp_stock`). The Producto view and the `producto` / `sin_producto` filters read this, so a
-    product's rows are what opening it lists."""
+    `producto_propio_service.linked_skus` reads them by). A link names a product only in state `linked` (the table's
+    CHECK), the state that gives the ERP stock (`erp_stock`). The Producto view and the `producto` / `sin_producto`
+    filters read this, so a product's rows are what opening it lists."""
     link, var = aliased(MlItemProductLink, name=f"{name}_l"), aliased(MlItemVariation, name=f"{name}_v")
     live = or_(link.variation_id == LINK_ITEM_LEVEL, and_(var.variation_id.isnot(None), var.gone_at.is_(None)))
     return (
-        select(
-            link.item_id,
-            link.producto_item_id,
-            func.bool_or(link.match_status == LINK_LINKED).label("linked"),
-        )
+        select(link.item_id, link.producto_item_id)
         .select_from(link)
         .outerjoin(var, and_(var.item_id == link.item_id, var.variation_id == link.variation_id))
         .where(link.producto_item_id.isnot(None), live)
-        .group_by(link.item_id, link.producto_item_id)
+        .distinct()
         .subquery(name)
     )
 
@@ -716,11 +712,12 @@ def listing_clauses() -> dict[str, ColumnElement]:
     }
 
 
-def erp_stock() -> ColumnElement:
+def erp_stock(linked: Optional[ColumnElement] = None) -> ColumnElement:
     """The ERP stock of the row (depósito 1 on hand, `productos_erp.stock`, the figure Productos shows): only an
     item-level link in state `linked` gives the row a product, so a conflict, no product or a dangling link read
-    NULL (unknown), never 0. A source apart from the ML stock (`ml_items` / `ml_user_product_stock`)."""
-    return case((T.l.match_status == LINK_LINKED, T.p.stock), else_=None)
+    NULL (unknown), never 0. A source apart from the ML stock (`ml_items` / `ml_user_product_stock`). `linked`: the
+    caller's own "the link is linked" test (a `product_links` row is one), item-level by default."""
+    return case((T.l.match_status == LINK_LINKED if linked is None else linked, T.p.stock), else_=None)
 
 
 def stock_clauses() -> dict[str, ColumnElement]:

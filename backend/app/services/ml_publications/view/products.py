@@ -45,6 +45,7 @@ from app.services.ml_publications.view.filters import (
     PublicationFilter,
     T,
     build_base_select,
+    erp_stock,
     has_product,
     product_links,
 )
@@ -107,8 +108,9 @@ def _members(mla_set: Any) -> Any:
             T.p.descripcion,
             T.p.codigo,
             T.p.marca,
-            # `/items`' own rule (`filters.erp_stock`): only a `linked` link gives the ERP stock
-            case((pl.c.linked, T.p.stock), else_=None).label("stock"),
+            erp_stock(pl.c.producto_item_id.isnot(None)).label(
+                "stock"
+            ),  # `/items`' own rule: only a `linked` link gives the ERP stock
         )
         .select_from(mla_set)
         .outerjoin(pl, pl.c.item_id == mla_set.c.mla)

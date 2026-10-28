@@ -157,6 +157,21 @@ class TestProductKeys:
         ]
         assert page.without_figures == frozenset({"0", "77"})  # no sale: the cells are blank, not zero
 
+    def test_a_page_by_keys_counts_a_publication_linked_per_variation_under_each_product(self, linked, db) -> None:
+        # MLA5 is linked per variation only (S12g): one variation to 77, one to 78; never "Sin producto"
+        seed.add_item(linked, "MLA5", status="active")
+        for variation_id, product in ((51, 77), (52, 78)):
+            seed.add_variation(linked, "MLA5", variation_id)
+            seed.add_link(linked, "MLA5", product, variation_id=variation_id)
+
+        counts = {
+            row.product_item_id: row.publications_count
+            for row in products.products_for_keys(db, parse_filter(), [0, 77, 78]).rows
+        }
+        assert counts == {0: 1, 77: 3, 78: 2}
+        assert [r.publications_count for r in products.products_for_keys(db, parse_filter(), [0]).rows] == [1]
+        assert products.products_for_keys(db, parse_filter(), []).rows == []
+
     def test_a_product_that_stopped_matching_is_skipped(self, linked, db) -> None:
         page = products.products_for_keys(db, parse_filter(estado="paused"), [78, 77])
         assert [(row.product_item_id, row.publications_count) for row in page.rows] == [(77, 1)]
