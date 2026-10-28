@@ -20,7 +20,8 @@ import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
  * publication fills them all, exactly like the list. Only the product figures
  * are sortable (`PRODUCT_SORTS`): the backend sorts the products, not their
  * publications. With `selection` (`{ checked, onToggle }`) a product row leads
- * with its product's checkbox, for the bulk pricing actions.
+ * with its product's checkbox, for the bulk pricing actions. A column with `renderProduct` (Productos' prices, S11)
+ * draws a product row from the product's id.
  *
  * A click (or Enter/Space) on a product row opens its panel (`onSelectProduct(key)`); its chevron opens it into
  * its publications. The highlighted row is the selected publication (`selectedKey`) or, with none, the product
@@ -61,6 +62,7 @@ export default function ProductoTable({
             }
             if (column.key === 'publicaciones') return <NodeCount node={row.node} />;
             if (PRODUCT_FIGURES.has(column.key)) return column.render({ metrics: row.node.metrics });
+            if (column.renderProduct) return column.renderProduct(row.node.productoItemId);
             return null;
           }
           // "Ver más" and the states of a product's publications live in the pinned cell.
