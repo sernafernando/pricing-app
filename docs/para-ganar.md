@@ -60,6 +60,7 @@ Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por ML
 | **P3** | UI gestión: cola por EAN, abrir detalle, elegir MLAs o reglas de alcance, guardar | P2 | Planned |
 | **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Planned |
 | **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Planned |
+| **A1** | Advisor **Consultar filtrados**: misma pipeline que el periódico, pero a demanda sobre el alcance del filtro (manual; lo no suscripto a Periodicidad) | P5 | Planned |
 | **P6** | Trigger periódico: job que pide/refresca competencia de catálogo solo para inclusiones y dispara P5 | P5 | Planned |
 | **P7** | Vista flotante de cola “por revisar” (después; por ahora solo Advisor) | P4+P5 | Later |
 
@@ -118,6 +119,7 @@ Newest first. Use for “why did we…” archaeology.
 - **Precio sugerido (D15):** cheapest same-bucket peer as referent; if `markup_min` is set and peer markups exist, skip peers below that floor. Caps `precio_min`/`precio_max` when set. **Perdiendo:** delta = sugerido − nuestro (negativo = bajar). **Ganando:** holgura hasta el siguiente peer. TOP rows show `referent_note` (D22): who is Referente vs discarded by markup/price criteria. Disposition **Excluido** sellers never appear on the board.
 - **Pool promos (D20–D23):** under the TOP board, up to **3** slots: **one** SMART-like, **one** other DEAL/campaña, **one** Premium (name contains `premium`). Markup band + DEAL range vs `precio_sugerido` for candidates. If Premium is already `started`, still show it with **Aplicada**. Seller-priced rows show **aplicar a $sugerido** (clamped to min/max). **Aplicar** (permiso `promos.escribir`) → Confirmar → same `POST /promociones/item/{mla}` as Productos (`deal_price` or `precio_visto`).
 - Missing snapshot: `POST /para-ganar/criterios/{mla}/competencia/refresh` (permiso `productos.editar_precios`) fetches via the same `refrescar_competencia_catalogo` path as Promociones — **per MLA only** (ML throttle).
+- **Consultar filtrados (A1, planned):** from Advisor, run the evaluation pipeline on-demand for MLAs in the current filter (manual path for non–Periodicidad subscriptions). Button stub in toolbar until P5 exists.
 
 ### Sellers del catálogo
 
@@ -141,10 +143,12 @@ Newest first. Use for “why did we…” archaeology.
 11. ~~Show deal at `precio_sugerido` (clamped) + wire enroll from Advisor (D23)~~.
 12. ~~**Periodicidad P1** shell tab~~ → **P2→P3** modelo + UI por EAN.
 13. **P4** — estados Advisor Pendiente de revisión / Sin novedades.
-14. **P5→P6** — motor de evaluación + trigger periódico de catálogo.
-15. **P7** — vista flotante (después).
-16. ~~Herencia producto/PM~~ — **deprecado:** filtro EAN + aplicar masivo cubre el caso.
-17. ~~Heurística campañas de marca (A PVP…)~~ — **deprecado:** no aporta.
+14. **P5** — motor de evaluación.
+15. **A1** — Advisor **Consultar filtrados** (manual sobre el filtro; UI stub ya visible, cableado tras P5).
+16. **P6** — trigger periódico de catálogo.
+17. **P7** — vista flotante (después).
+18. ~~Herencia producto/PM~~ — **deprecado:** filtro EAN + aplicar masivo cubre el caso.
+19. ~~Heurística campañas de marca (A PVP…)~~ — **deprecado:** no aporta.
 
 ---
 

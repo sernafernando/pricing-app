@@ -165,17 +165,22 @@ export default function ParaGanarAdvisor() {
         >
           {isAdvisor && canAdvisor && (
             <>
+              <button
+                type="button"
+                className={styles.bulkBtn}
+                disabled
+                title="Actualización manual del filtro — se cablea con el motor de evaluación (A1 tras P5)"
+              >
+                Consultar filtrados
+              </button>
               <button type="button" className={`${styles.chip} ${styles.chipActive}`} disabled>
-                Pendientes
+                Pendiente de revisión
               </button>
               <button type="button" className={styles.chip} disabled>
-                Aceptadas
-              </button>
-              <button type="button" className={styles.chip} disabled>
-                Descartadas
+                Sin novedades
               </button>
               <span className={styles.toolbarHint}>
-                {cola.total.toLocaleString('es-AR')} publicaciones · sugerencias aún no calculadas
+                {cola.total.toLocaleString('es-AR')} publicaciones · consulta manual y estados tras P4/P5
               </span>
             </>
           )}
