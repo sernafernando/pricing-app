@@ -40,10 +40,13 @@ class QuarantineRetryHandler:
     def run(self, ctx: WorkerContext) -> JobResult:
         # First the orders ML never gave back (no payload to replay): asked
         # again, and the ones that come back are written in that same pass.
-        # A failure there (the pool, the proxy) must not hold back the replay
-        # of the orders whose write failed: logged, and the next run retries.
+        # Neither a failure there (the pool, the proxy) nor a slow proxy may
+        # hold back the replay of the orders whose write failed: an exception
+        # is logged, and the re-fetch gets at most half of the run's time.
+        now = datetime.now(timezone.utc)
+        refetch_deadline = now + max(ctx.deadline - now, timedelta(0)) / 2
         try:
-            refetch = activity_receiver_service.refetch_unresolved_orders(deadline=ctx.deadline)
+            refetch = activity_receiver_service.refetch_unresolved_orders(deadline=refetch_deadline)
         except Exception:
             logger.exception("ml_orders.quarantine_retry: re-fetch of the payload-less orders failed")
             refetch = activity_receiver_service.RefetchResult()

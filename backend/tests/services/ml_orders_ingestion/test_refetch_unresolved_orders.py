@@ -193,7 +193,7 @@ class TestTheRefetch:
 
         monkeypatch.setattr(ml_webhook_client, "fetch_order", _meanwhile)
 
-        service.refetch_unresolved_orders()
+        assert service.refetch_unresolved_orders().attempted == 0
 
         row = _row(db, 507)
         assert row.raw_order == {"id": 507}
@@ -215,7 +215,7 @@ class TestTheRefetch:
 
         result = service.refetch_unresolved_orders()
 
-        assert (result.landed, result.failed) == (0, 0)
+        assert (result.attempted, result.landed, result.failed) == (0, 0, 0)
         assert _row(db, 510).raw_order == {"id": 510}
         assert db.query(MlOrdersOps).filter_by(order_id=510).count() == 0
 

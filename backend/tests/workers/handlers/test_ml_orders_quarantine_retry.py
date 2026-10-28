@@ -188,7 +188,8 @@ class TestTheRefetchRunsBeforeTheReplay:
         result = quarantine_retry.run(WorkerContext(deadline=deadline, worker_name="w"))
 
         assert [c[0] for c in calls] == ["refetch", "replay"]
-        assert calls[0][1] == deadline
+        # At most half of the run's time, so a slow proxy cannot leave the replay none.
+        assert datetime.now(timezone.utc) < calls[0][1] <= deadline - timedelta(seconds=14)
         assert result.detail["refetched"] == 3
         assert result.detail["refetch_landed"] == 1
         assert result.detail["dropped"] == 1

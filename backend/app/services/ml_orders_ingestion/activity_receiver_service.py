@@ -433,8 +433,10 @@ MAX_REFETCHES_PER_PASS = 20
 
 @dataclass
 class RefetchResult:
-    """Outcome of one `refetch_unresolved_orders` pass. `failed` counts both
-    a fetch that failed and an order that came back but did not land."""
+    """Outcome of one `refetch_unresolved_orders` pass. `attempted` counts the
+    rows an answer was applied to (not one that took a payload meanwhile);
+    `failed` counts both a fetch that failed and an order that came back but
+    did not land."""
 
     attempted: int = 0
     landed: int = 0
@@ -495,7 +497,6 @@ def refetch_unresolved_orders(
 
     with get_background_db() as db:
         for order_id, answer in answers.items():
-            result.attempted += 1
             row = (
                 db.query(MlOrdersOpsCuarentena.intentos)
                 .filter(has_no_payload(), MlOrdersOpsCuarentena.order_id == order_id)
@@ -504,6 +505,7 @@ def refetch_unresolved_orders(
             )
             if row is None:
                 continue
+            result.attempted += 1
             if answer.status == "ok":
                 if replay_quarantined_order(db, order_id, answer.payload, row.intentos):
                     result.landed += 1
