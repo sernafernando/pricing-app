@@ -4,6 +4,9 @@ import { usePermisos } from '../contexts/PermisosContext';
 
 const EMPTY = {};
 
+/** How many listed products a screen asks prearmadas for, at most (Productos and Publicaciones ML alike). */
+export const PREARMADAS_LIMITE = 100;
+
 /**
  * Fetches prearmadas availability stats for a batch of item_ids.
  *
