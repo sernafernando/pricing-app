@@ -18,7 +18,7 @@ const ROWS = Array.from({ length: 15 }, (_, index) => ({
 }));
 const COLUMNS = [{ key: 'titulo', label: 'Título', render: (row) => row.titulo }];
 
-function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, showToast = () => {}, rows = ROWS }) {
+function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, showToast = () => {}, rows = ROWS }) {
   const searchRef = useRef(null);
   const [help, setHelp] = useState(false);
   usePublicacionesMLKeyboard({
@@ -27,6 +27,7 @@ function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onCycle
     onExport,
     onPaintRow,
     onToggleRow,
+    onExtendRow,
     onCycleLayer,
     onCycleMode,
     onBulkAction,
@@ -244,6 +245,33 @@ describe("r / w / o (S9): the focused row's product rebate, web transfer and fue
     render(<Harness showToast={showToast} />);
     await user.keyboard('{ArrowDown}r');
     expect(showToast).not.toHaveBeenCalled();
+  });
+});
+
+describe("Shift+Up / Shift+Down (S12d): move and check the row moved to, as in Productos", () => {
+  it('moves the focus like the plain arrow and hands the new row to onExtendRow', async () => {
+    const onExtendRow = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onExtendRow={onExtendRow} />);
+    await user.keyboard('{ArrowDown}{Shift>}{ArrowDown}{ArrowDown}{/Shift}');
+    expect(row(3)).toHaveFocus();
+    expect(onExtendRow.mock.calls).toEqual([['MLA2'], ['MLA3']]);
+    await user.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    expect(row(2)).toHaveFocus();
+    expect(onExtendRow).toHaveBeenLastCalledWith('MLA2');
+  });
+
+  it('checks nothing with the plain arrows, past the last row, or where not offered', async () => {
+    const onExtendRow = vi.fn();
+    const user = userEvent.setup();
+    const { unmount } = render(<Harness onExtendRow={onExtendRow} />);
+    await user.keyboard('{ArrowDown}{ArrowDown}{End}{Shift>}{ArrowDown}{/Shift}');
+    expect(row(15)).toHaveFocus();
+    expect(onExtendRow).not.toHaveBeenCalled();
+    unmount();
+    render(<Harness />);
+    await user.keyboard('{ArrowDown}{Shift>}{ArrowDown}{/Shift}');
+    expect(row(2)).toHaveFocus();
   });
 });
 

@@ -34,7 +34,22 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any, Iterator, Optional, Sequence
 
-from sqlalchemy import ARRAY, Date, Integer, String, and_, any_, case, cast, false, func, literal, or_, select
+from sqlalchemy import (
+    ARRAY,
+    Date,
+    Integer,
+    String,
+    and_,
+    any_,
+    case,
+    cast,
+    false,
+    func,
+    literal,
+    null,
+    or_,
+    select,
+)
 from sqlalchemy.orm import Session
 
 from app.services.ml_daily_metrics import board
@@ -50,6 +65,8 @@ from app.services.ml_publications.view.filters import (
     has_product,
     linked_product_conditions,
     product_links,
+    product_select,
+    publication_filter_in,
 )
 from app.services.ml_publications.view.listing import markup_accepted, resolve_pm_pairs
 from app.services.ml_publications.view.markup_service import MarkupQuery, MarkupResult, product_markup
@@ -170,6 +187,45 @@ def _summed(members: Any, rows: Any) -> Any:
     return select(*g.c, markup.label("markup"), name.label("name")).subquery("product_rows")
 
 
+def _sin_mla_rows(db: Session, f: PublicationFilter) -> Any:
+    """The "Sin MLA" products (`filters.product_select`) shaped as `_summed`'s rows: no publication, so no Board and
+    no figure -- what the row shows is the product's own name, code, brand and ERP stock."""
+    f = resolve_pm_pairs(db, f)
+    name = func.coalesce(
+        func.nullif(T.p.descripcion, ""), func.nullif(T.p.codigo, ""), literal("Producto #") + cast(T.p.item_id, String)
+    )
+    nothing = (*SUMMED, *WINDOW_COLUMNS.values(), "u24", "last_day", "last_at", "start_day", "markup")
+    return product_select(
+        f,
+        T.p.item_id.label("product"),
+        T.p.descripcion,
+        T.p.codigo,
+        T.p.marca,
+        T.p.stock,
+        literal(0).label("pubs"),
+        literal(0).label("board_rows"),
+        *(null().label(column) for column in nothing),
+        name.label("name"),
+    ).subquery("product_rows")
+
+
+def applied_sort(f: PublicationFilter, key: str, descending: bool) -> tuple[str, bool]:
+    """The sort the rows of `f` really come in: a "Sin MLA" product has no publication, so no Métricas figure, and
+    a figure sort falls back to the name, A to Z (the response says so, never the sort that was asked)."""
+    if not f.sin_mla or key == NEUTRAL_SORT:
+        return key, descending
+    return NEUTRAL_SORT, False
+
+
+def sin_mla_count(db: Session, f: PublicationFilter) -> Optional[int]:
+    """How many "Sin MLA" products the product filters of `f` select (the card of Productos); None when `f` asks
+    something of the publications, which a product without any cannot answer."""
+    if publication_filter_in(f) is not None:
+        return None
+    rows = _sin_mla_rows(db, replace(f, sin_mla=True))
+    return int(db.execute(select(func.count()).select_from(rows)).scalar_one())
+
+
 def _ordered(rows: Any, key: str, descending: bool) -> tuple[Any, ...]:
     column = rows.c[PRODUCT_SORTS[key][0]]
     if key == NEUTRAL_SORT:
@@ -268,6 +324,15 @@ def list_products(
 ) -> ProductsPage:
     """The linked-product rows of the MLAs `f` selects at `[offset, offset + limit)`, in the order `orden` names."""
     key = parse_sort(orden)
+    if f.sin_mla:
+        rows = _sin_mla_rows(db, f)
+        total = db.execute(select(func.count()).select_from(rows)).scalar_one()
+        found = []
+        if offset < total:
+            page = select(rows).order_by(*_ordered(rows, *applied_sort(f, key, descending))).limit(limit).offset(offset)
+            found = list(db.execute(page).mappings())
+        today = board.today_business()
+        return ProductsPage([_row(r, today) for r in found], int(total), 0, frozenset(str(r["product"]) for r in found))
     with _product_rows(db, f) as (b, members, rows):
         # The publications are counted once: one linked to two products is a member of both rows.
         total, mla_count = db.execute(
@@ -292,6 +357,10 @@ def ordered_product_keys(
     """The product ids (`NO_PRODUCT` for "Sin producto") of every row of the Producto view, at most `cap` (every
     one when None), in the very order `list_products` pages them: the keys an export fixes before reading its pages."""
     key = parse_sort(orden)
+    if f.sin_mla:
+        rows = _sin_mla_rows(db, f)
+        query = select(rows.c.product).order_by(*_ordered(rows, *applied_sort(f, key, descending))).limit(cap)
+        return [int(product) for product in db.execute(query).scalars()]
     with _product_rows(db, f) as (_, _, rows):
         query = select(rows.c.product).order_by(*_ordered(rows, key, descending)).limit(cap)
         return [int(product) for product in db.execute(query).scalars()]
@@ -302,6 +371,13 @@ def products_for_keys(db: Session, f: PublicationFilter, keys: Sequence[int]) ->
     not draw them). A product with no publication left under `f` is skipped."""
     if not keys:
         return ProductsPage([], 0, 0)
+    if f.sin_mla:
+        rows = _sin_mla_rows(db, f)
+        query = select(rows).where(rows.c.product == any_(literal(list(keys), ARRAY(Integer))))
+        by_key = {int(r["product"]): r for r in db.execute(query).mappings()}
+        found = [by_key[k] for k in keys if k in by_key]
+        today = board.today_business()
+        return ProductsPage([_row(r, today) for r in found], len(found), 0, frozenset(str(k) for k in by_key))
     with _product_rows(db, f, only=keys) as (b, members, rows):
         by_product = {int(r["product"]): r for r in db.execute(select(rows)).mappings()}
         # the publications of the rows returned, counted once (as `list_products` does): the set also holds sibling
@@ -368,7 +444,22 @@ def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery]
     `markup` (its filter active) narrows the MLAs as `/items` does, with the same post-query step
     (`listing.markup_accepted`) over the whole filtered set. A linked product the ERP catalog no longer has is left
     out and counted (`fuera_de_catalogo`): the bulk endpoints cannot price it. Raises `TooManyProducts` over
-    `MAX_PRODUCT_IDS`."""
+    `MAX_PRODUCT_IDS`. With `sin_mla`, the "Sin MLA" products: no publication, so nothing left out to count."""
+    if f.sin_mla:
+        if markup is not None and markup.filter.active:
+            active = markup.filter
+            param = "markup_neg" if active.negative else "markup_min" if active.minimum is not None else "markup_max"
+            raise FilterError(param, "the markup filters do not apply to the products without MLA (con_mla=false)")
+        rows = _sin_mla_rows(db, f)
+        found = db.execute(
+            select(rows.c.product, func.count().over().label("total"))
+            .order_by(rows.c.product)
+            .limit(MAX_PRODUCT_IDS + 1)
+        ).all()
+        count = found[0].total if found else 0
+        if count > MAX_PRODUCT_IDS:
+            raise TooManyProducts(int(count), MAX_PRODUCT_IDS)
+        return ProductIds([int(row.product) for row in found], 0, 0)
     f = resolve_pm_pairs(db, f)
     base = build_base_select(f, T.i.item_id.label("mla"))
     markup_on = markup is not None and markup.filter.active

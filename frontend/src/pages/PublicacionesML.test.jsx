@@ -1460,13 +1460,65 @@ describe('bulk actions over products (S6)', () => {
     expect(pick('MLA1100000004')).toBeDisabled();
   });
 
-  it('a filter change clears the checked products', async () => {
+  // S12d: as in Productos, the selection outlives the list it was picked from.
+  it('a filter change keeps the checked products', async () => {
     await page();
     await userEvent.click(pick('MLA1100000001'));
     await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' });
     const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
     await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
-    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' })).toBeInTheDocument();
+    await waitFor(() => expect(lastParams().estado).toBe('active'));
+    expect(screen.getByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeInTheDocument();
+    expect(pick('MLA1100000001')).toBeChecked();
+  });
+
+  // Three publications, three products, one with none in the middle of the range.
+  const THREE = () =>
+    respond({
+      ...ITEMS_RESPONSE,
+      items: [
+        ITEMS[0],
+        { ...ITEMS[3], item_id: 'MLA1100000007' },
+        { ...ITEMS[1], item_id: 'MLA1100000008' },
+        { ...ITEMS[0], item_id: 'MLA1100000009', link: { ...ITEMS[0].link, producto_item_id: 4109 } },
+      ],
+      total: 4,
+    });
+
+  it('Shift+click checks every product between the last one checked and this one, as in Productos', async () => {
+    THREE();
+    await page();
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000001'));
+    await user.keyboard('{Shift>}');
+    await user.click(pick('MLA1100000009'));
+    await user.keyboard('{/Shift}');
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (3 productos seleccionados)' })).toBeEnabled();
+    expect(pick('MLA1100000008')).toBeChecked();
+    expect(pick('MLA1100000007')).not.toBeChecked();
+  });
+
+  it("the title header's checkbox checks the page's products, and unchecks them when they all are", async () => {
+    THREE();
+    await page();
+    const all = screen.getByRole('checkbox', { name: 'Seleccionar los productos de la página' });
+    await userEvent.click(all);
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (3 productos seleccionados)' })).toBeEnabled();
+    expect(all).toBeChecked();
+    await userEvent.click(all);
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' })).toBeEnabled();
+    expect(pick('MLA1100000001')).not.toBeChecked();
+  });
+
+  it('Shift+Down checks the product of the row it moves to', async () => {
+    THREE();
+    await page();
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000001'));
+    pick('MLA1100000001').closest('tr').focus();
+    await user.keyboard('{Shift>}{ArrowDown}{ArrowDown}{/Shift}');
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos seleccionados)' })).toBeEnabled();
+    expect(pick('MLA1100000008')).toBeChecked();
   });
 
   it('in the Producto view a product row checks the product; "Sin producto" cannot be checked', async () => {

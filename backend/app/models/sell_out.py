@@ -30,6 +30,11 @@ each sale's amount is divided by its own product's VAT rate (T7,
 Campaigns on the same product and dates stack unless one of them is not
 `acumulable`. A campaign is never deleted: it is voided (`anulada`).
 
+Per-product amounts (`SellOutCampanaItem`, T22b; legacy grouped offsets): a
+`por_unidad` campaign may give a product of its reach its own `monto_unit`
+(same currency and VAT flag); the other products get the campaign's. The cap
+stays one for all of them.
+
 `offset_origen_id` is the legacy offset (`offsets_ganancia`) a campaign was
 migrated from (T15, `app.scripts.migrar_offsets_a_sell_out`), NULL for one
 loaded by hand; UNIQUE, so each offset is migrated once. Deleting the offset
@@ -150,6 +155,23 @@ class SellOutCampanaGrupo(Base):
         ForeignKey("offset_grupos.id", ondelete="RESTRICT", name=FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID),
         nullable=False,
     )
+
+
+class SellOutCampanaItem(Base):
+    """A product's own amount per unit in a `por_unidad` campaign (T22b, legacy grouped offsets): it replaces
+    the campaign's `monto_unit` for that product, under the campaign's one cap. No FK on `item_id`, like
+    `SellOutConsumo.item_id`: the campaigns service checks the product is in the campaign's reach."""
+
+    __tablename__ = "sell_out_campana_items"
+    __table_args__ = (
+        UniqueConstraint("campana_id", "item_id", name="uq_sell_out_campana_items_campana_item"),
+        CheckConstraint("monto_unit > 0", name="ck_sell_out_campana_items_monto_positivo"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    campana_id = Column(BigInteger, ForeignKey("sell_out_campanas.id", ondelete="CASCADE"), nullable=False)
+    item_id = Column(Integer, nullable=False)
+    monto_unit = Column(Numeric(18, 2), nullable=False)  # per unit, in the campaign's `moneda`
 
 
 class SellOutConsumo(Base):
