@@ -121,3 +121,53 @@ class TestDetailRow:
         assert response.status_code == 200, response.text
         row = response.json()["row"]
         assert {k: row[k] for k in ("ppp", "sell_in_out")} == expected_lines(linea, 40000.0)
+
+
+# A failing PPP, sell in or exchange-rate read: the list answers as before the lines existed (each row with its cost,
+# no line keys) and logs the failure; it never turns the whole page into a 500.
+FALLAS = ["resolver_ppp_batch", "resolver_sell_in_out_batch", "obtener_tipo_cambio_actual"]
+
+
+def falla(monkeypatch, nombre: str) -> None:
+    """Makes one of the reads behind the cost lines raise, as a database error would."""
+    from sqlalchemy.exc import OperationalError
+
+    from app.services.ml_publications.view import cost_lines as module
+
+    def roto(*args, **kwargs):
+        raise OperationalError("SELECT", {}, Exception(f"{nombre} down"))
+
+    monkeypatch.setattr(module, nombre, roto)
+
+
+class TestAFailingLineRead:
+    @pytest.mark.parametrize("nombre", FALLAS)
+    def test_the_list_keeps_each_cost_without_the_lines(
+        self, client, pg, analyst, pricing, db, admin_user, monkeypatch, caplog, nombre
+    ) -> None:
+        seed_rows(pg, fill)
+        seed_lines(db, admin_user, 70, 40000.0)
+        falla(monkeypatch, nombre)
+
+        with caplog.at_level("ERROR"):
+            response = get(client, analyst)
+
+        assert response.status_code == 200, response.text
+        rows = {row["item_id"]: row for row in response.json()["items"]}
+        assert rows["MLA1"]["costo"] == {"amount": 40000.0, "currency": "ARS"}
+        assert all("ppp" not in row and "sell_in_out" not in row for row in rows.values())
+        assert any(r.exc_info and f"{nombre} down" in str(r.exc_info[1]) for r in caplog.records)
+
+    def test_the_detail_keeps_its_cost_without_the_lines(
+        self, client, pg, analyst, pricing, db, admin_user, monkeypatch
+    ) -> None:
+        seed_rows(pg, fill)
+        seed_lines(db, admin_user, 70, 40000.0)
+        falla(monkeypatch, "resolver_ppp_batch")
+
+        response = client.get(DETAIL.format("MLA1"), headers=analyst)
+
+        assert response.status_code == 200, response.text
+        row = response.json()["row"]
+        assert row["costo"] == {"amount": 40000.0, "currency": "ARS"}
+        assert "ppp" not in row and "sell_in_out" not in row

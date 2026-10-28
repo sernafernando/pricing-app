@@ -65,6 +65,8 @@ const PRESENCE_PARAMS = {
   outofcards: { con_out_of_cards: { out_of_cards: true }, sin_out_of_cards: { out_of_cards: false } },
   precio: { con_precio: { con_precio: true }, sin_precio: { con_precio: false } },
   nuevos: { ultimos_7_dias: { nuevos_ultimos_7_dias: true } },
+  // Productos' "Estado MLA": Activas (a product with an active publication) or Pausadas (publications, none active).
+  estado_mla: { activa: { estado_mla: 'activa' }, pausada: { estado_mla: 'pausada' } },
 };
 export const PRESENCE_VALUES = Object.fromEntries(
   Object.entries(PRESENCE_PARAMS).map(([key, values]) => [key, Object.keys(values)]),

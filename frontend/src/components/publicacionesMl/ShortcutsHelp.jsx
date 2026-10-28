@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import ModalTesla from '../ModalTesla';
 import styles from './ShortcutsHelp.module.css';
 import { HELP_CLASS } from './usePublicacionesMLKeyboard';
@@ -37,25 +38,55 @@ const SHORTCUTS = [
   { keys: ['?'], what: 'Mostrar u ocultar esta ayuda' },
 ];
 
-/** The keyboard shortcuts of Publicaciones ML, opened with `?` or the header's button. */
+// What the backend's `normalize_q` reads in the search box (pinned by `test_filters.py`, `TestSearchTerm`), the same
+// operators Productos documents.
+const SEARCH_OPERATORS = [
+  { keys: ['MLA123456', 'mla:MLA123456'], what: 'Una publicación por su número (exacto)' },
+  { keys: ['ean:123456'], what: 'Búsqueda exacta por EAN' },
+  { keys: ['codigo:ABC123'], what: 'Búsqueda exacta por código' },
+  { keys: ['marca:Samsung'], what: 'Búsqueda exacta por marca' },
+  { keys: ['desc:texto', 'descripcion:texto'], what: 'Búsqueda en la descripción del producto (contiene, sin guiones ni espacios)' },
+  {
+    keys: ['promo:DEAL', 'promo:texto'],
+    what: 'Publicaciones con una promoción activa de ese tipo (DEAL, SMART, ...) o cuyo nombre contiene el texto',
+  },
+  { keys: ['*123'], what: 'Termina en "123" (título, descripción, marca o código)' },
+  { keys: ['123*'], what: 'Comienza con "123" (título, descripción, marca o código)' },
+  { keys: ['texto'], what: 'Búsqueda normal: título y SKU, o descripción, marca y código del producto (sin guiones ni espacios)' },
+];
+
+function Entries({ entries }) {
+  return (
+    <dl className={styles.list}>
+      {entries.map(({ keys, what }) => (
+        <div key={what} className={styles.entry}>
+          <dt className={styles.keys}>
+            {keys.map((key, index) => (
+              <span key={key}>
+                {index > 0 && ' o '}
+                <kbd className={styles.kbd}>{key}</kbd>
+              </span>
+            ))}
+          </dt>
+          <dd className={styles.what}>{what}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** The keyboard shortcuts and the search operators of Publicaciones ML, opened with `?` or the header's button. */
 export default function ShortcutsHelp({ onClose }) {
+  const searchId = useId();
   return (
     <ModalTesla isOpen onClose={onClose} title="Atajos de teclado" size="sm" className={HELP_CLASS}>
-      <dl className={styles.list}>
-        {SHORTCUTS.map(({ keys, what }) => (
-          <div key={what} className={styles.entry}>
-            <dt className={styles.keys}>
-              {keys.map((key, index) => (
-                <span key={key}>
-                  {index > 0 && ' o '}
-                  <kbd className={styles.kbd}>{key}</kbd>
-                </span>
-              ))}
-            </dt>
-            <dd className={styles.what}>{what}</dd>
-          </div>
-        ))}
-      </dl>
+      <Entries entries={SHORTCUTS} />
+      <section aria-labelledby={searchId} className={styles.section}>
+        <h3 id={searchId} className={styles.heading}>
+          Operadores de búsqueda
+        </h3>
+        <Entries entries={SEARCH_OPERATORS} />
+      </section>
     </ModalTesla>
   );
 }

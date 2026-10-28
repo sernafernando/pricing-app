@@ -15,7 +15,7 @@ from tests.services.ml_ventas_desglose._flex_receiver_capture import ORDER_5990,
 def _summary(db):
     breakdown = compute_breakdown(db, [ORDER_5990])
     desc = descomponer_neto(db, [ORDER_5990])[ORDER_5990]
-    return _con_importe_fuera_del_pago(OperationBreakdownSummary.from_domain(breakdown), desc)
+    return _con_importe_fuera_del_pago(OperationBreakdownSummary.from_domain(breakdown, {}), desc)
 
 
 def test_the_flex_buyer_shipping_line_carries_its_importe(db) -> None:

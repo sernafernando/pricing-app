@@ -1,5 +1,6 @@
 import { CornerDownRight, Package } from 'lucide-react';
 import { getCategoryIcon } from '../../utils/categoryIcon';
+import SaleItemThumbnail from './SaleItemThumbnail';
 import styles from './ProductCell.module.css';
 
 /**
@@ -27,9 +28,10 @@ import styles from './ProductCell.module.css';
  * thumbnail, a "↳" lead, title and meta on one flowing line (design
  * `listado.html`, "Pack Sub-row").
  *
- * Thumbnails are a PLACEHOLDER by product decision — real images arrive
- * later with the publicaciones module. The placeholder box doubles as the
- * category icon host (`item_category`, LISTING R28).
+ * The thumbnail box shows the first stored photo of the first item's MLA
+ * (`thumbnail_url`, `SaleItemThumbnail`); without one it stays the category
+ * icon host (`item_category`, LISTING R28), as before the photos.
+ * Pack member sub-rows keep no thumbnail.
  */
 export default function ProductCell({ items, category, variant = 'row', isPack = false }) {
   const list = items || [];
@@ -86,7 +88,13 @@ export default function ProductCell({ items, category, variant = 'row', isPack =
 
   return (
     <div className={styles.cell}>
-      <div className={`${styles.thumbnail} ${isPack ? styles.thumbnailPack : ''}`} title={category || undefined}>
+      <SaleItemThumbnail
+        url={primary.thumbnail_url}
+        // The category icon announced the category; a photo in its place keeps announcing it.
+        alt={category || ''}
+        className={`${styles.thumbnail} ${isPack ? styles.thumbnailPack : ''}`}
+        title={category || undefined}
+      >
         {category ? (
           <CategoryIcon size={16} role="img" aria-label={category} />
         ) : (
@@ -94,7 +102,7 @@ export default function ProductCell({ items, category, variant = 'row', isPack =
           // out of the accessibility tree instead of reading "Sin categoría".
           <CategoryIcon size={16} aria-hidden="true" />
         )}
-      </div>
+      </SaleItemThumbnail>
       <div className={styles.info}>
         <span
           className={`${styles.title} ${!primary.title ? styles.titleEmpty : ''}`}

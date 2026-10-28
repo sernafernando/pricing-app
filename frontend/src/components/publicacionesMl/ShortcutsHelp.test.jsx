@@ -1,7 +1,7 @@
 /**
  * The `?` help of Publicaciones ML lists every shortcut the screen answers (usePublicacionesMLKeyboard).
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import ShortcutsHelp from './ShortcutsHelp';
 
@@ -23,5 +23,33 @@ describe('ShortcutsHelp', () => {
   it("lists Productos' Esc, leaving the navigation mode", () => {
     render(<ShortcutsHelp onClose={() => {}} />);
     expect(keysOf('Salir del modo navegación (deja la fila)')).toEqual(['Esc']);
+  });
+
+  it('lists the search operators, as Productos does', () => {
+    render(<ShortcutsHelp onClose={() => {}} />);
+    const section = screen.getByRole('region', { name: 'Operadores de búsqueda' });
+    const operators = within(section)
+      .getAllByRole('term')
+      .map((term) => term.textContent);
+    expect(operators).toEqual([
+      'MLA123456 o mla:MLA123456',
+      'ean:123456',
+      'codigo:ABC123',
+      'marca:Samsung',
+      'desc:texto o descripcion:texto',
+      'promo:DEAL o promo:texto',
+      '*123',
+      '123*',
+      'texto',
+    ]);
+    expect(
+      within(section).getByText('Búsqueda en la descripción del producto (contiene, sin guiones ni espacios)'),
+    ).toBeInTheDocument();
+    expect(
+      within(section).getByText(
+        'Publicaciones con una promoción activa de ese tipo (DEAL, SMART, ...) o cuyo nombre contiene el texto',
+      ),
+    ).toBeInTheDocument();
+    expect(within(section).getByText('Comienza con "123" (título, descripción, marca o código)')).toBeInTheDocument();
   });
 });

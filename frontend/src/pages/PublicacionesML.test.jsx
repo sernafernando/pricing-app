@@ -1349,6 +1349,13 @@ describe('the Producto view', () => {
     expect(screen.getByText(/de 120 productos/)).toBeInTheDocument();
   });
 
+  it("asks the listed products' prearmadas once, as Productos does beside each product", async () => {
+    await products();
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/prearmados/stats/batch', { items: [{ item_id: 4101 }, { item_id: 4102 }] }, undefined),
+    );
+  });
+
   it('asks /items only for the state and the facet counts', async () => {
     await products();
     await waitFor(() => expect(publicacionesMlAPI.items).toHaveBeenCalled());

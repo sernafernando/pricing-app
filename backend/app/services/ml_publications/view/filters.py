@@ -21,7 +21,7 @@ import math
 import re
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
@@ -82,6 +82,9 @@ COLOR_VALUES = ("rojo", "naranja", "amarillo", "verde", "azul", "purpura", "gris
 NO_COLOR = "sin_color"
 NO_STORE = "none"
 NO_STATUS = "sin_estado"
+# Productos' "Estado MLA" values (`estado_mla`): a product with an active publication, or with publications and none
+# active
+ESTADO_MLA = ("activa", "pausada")
 
 # The event types the store really writes (`events.EVENT_TYPES`, the one list); anything else is a typo.
 EVENT_TYPES = frozenset(real_event_types)
@@ -104,11 +107,14 @@ class FilterError(ValueError):
 @dataclass(frozen=True)
 class SearchTerm:
     """`kind`: `item_id` (canonical `MLA123`), `digits` (exact key), `text` (substring), or one of Productos'
-    operators: `codigo` (`codigo:` / `ean:`, the exact product code), `marca` (`marca:`, the exact brand) and
-    `ends_with` (`*X`)."""
+    operators: `codigo` (`codigo:` / `ean:`, the exact product code), `marca` (`marca:`, the exact brand),
+    `descripcion` (`desc:` / `descripcion:`, the product description), `ends_with` (`*X`), `starts_with` (`X*`) and
+    `promo` (`promo:`, a promotion type or name). `mla:` is an `item_id`. A `promo` matches the publications in
+    `mlas`, the set the router reads from the mlwebhook database; unresolved (`None`) it matches nothing."""
 
     kind: str
     value: str
+    mlas: Optional[frozenset[str]] = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +159,8 @@ class PublicationFilter:
     tienda_nube: Optional[str] = None  # one of `TIENDA_NUBE_STATES`
     precio: Optional[bool] = None  # Productos' "con precio": the product has a `precio_lista_ml`
     nuevos: bool = False  # Productos' "Nuevos (7 días)": the product was synced from the ERP in the last 7 days
+    # Productos' "Estado MLA" (`estado_mla`): one of `ESTADO_MLA`, or `None` for no filter
+    estado_mla: Optional[str] = None
     # Productos' markup filters: (stored `productos_pricing` markup column, positive?) of the linked product. A margin
     # figure: the router asks `ml_metricas.ver_ganancia` before parsing them.
     markup_signs: tuple[tuple[str, bool], ...] = ()
@@ -205,15 +213,48 @@ def normalize_q(raw: Optional[str]) -> Optional[SearchTerm]:
         return SearchTerm("digits", term)
     field, sep, value = term.partition(":")
     value = value.strip()
-    if sep and value and not value.startswith("*") and field.strip().lower() in _OPERATORS:
-        return SearchTerm(_OPERATORS[field.strip().lower()], value)
+    if sep and value and not value.startswith("*") and not value.endswith("*") and field.strip().lower() in _OPERATORS:
+        kind = _OPERATORS[field.strip().lower()]
+        return SearchTerm(kind, value.upper() if kind == "item_id" else value)
     if term.startswith("*") and term[1:].strip():
         return SearchTerm("ends_with", term[1:].strip())
+    if term.endswith("*") and term[:-1].strip():
+        return SearchTerm("starts_with", term[:-1].strip())
     return SearchTerm("text", term)
 
 
 # Productos' search operators (`productos_listing.py`): `ean:` is the same code column there too
-_OPERATORS = {"codigo": "codigo", "ean": "codigo", "marca": "marca"}
+_OPERATORS = {
+    "codigo": "codigo",
+    "ean": "codigo",
+    "marca": "marca",
+    "desc": "descripcion",
+    "descripcion": "descripcion",
+    "mla": "item_id",
+    "promo": "promo",
+}
+
+
+def _folded(column: Any, chars: str = "- ") -> ColumnElement:
+    """`column` upper-cased without dashes and spaces, as Productos compares its plain and `desc:` searches."""
+    folded = func.upper(column)
+    for char in chars:
+        folded = func.replace(folded, char, "")
+    return folded
+
+
+def _folded_contains(value: str) -> Callable[..., ColumnElement]:
+    """A test that `column`, folded by `chars` (`_folded`), holds `value` without dashes and spaces; nothing matches
+    when no character is left to look for (a lone `-` must not match every product). The value is always folded by
+    both, even where the column is folded by dashes only (the code): Productos' plain search does the same."""
+    folded = value.replace("-", "").replace(" ", "")
+    # upper-cased by the database on both sides, as `_text_in`: Python and Postgres disagree on some letters
+    pattern = func.upper(literal(f"%{escape_like(folded)}%"))
+
+    def contains(column: Any, chars: str = "- ") -> ColumnElement:
+        return _folded(column, chars).like(pattern, escape=LIKE_ESCAPE) if folded else false()
+
+    return contains
 
 
 def escape_like(text: str) -> str:
@@ -288,6 +329,13 @@ def _pm_group(raw: Optional[str]) -> Optional[str]:
     return str(_integer("pm_grupo", tokens[0]))
 
 
+def _estado_mla(raw: Optional[str]) -> Optional[str]:
+    tokens = _vocabulary("estado_mla", raw, ESTADO_MLA)
+    if len(tokens) > 1:
+        raise FilterError("estado_mla", "a single value")
+    return tokens[0] if tokens else None
+
+
 def _family(raw: Optional[str]) -> Optional[int]:
     tokens = _tokens(raw, "familia")
     if not tokens:
@@ -351,6 +399,7 @@ def parse_filter(
     con_precio: Optional[bool] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     con_mla: Optional[bool] = None,
+    estado_mla: Optional[str] = None,
     markup_clasica_positivo: Optional[bool] = None,
     markup_rebate_positivo: Optional[bool] = None,
     markup_oferta_positivo: Optional[bool] = None,
@@ -397,6 +446,7 @@ def parse_filter(
         precio=con_precio,
         nuevos=bool(nuevos_ultimos_7_dias),
         sin_mla=con_mla is False,  # `true` is every row of this screen already: no filter
+        estado_mla=_estado_mla(estado_mla),
         markup_signs=tuple(
             (column, positive)
             for column, positive in (
@@ -677,11 +727,11 @@ def price_amount() -> ColumnElement:
     return func.coalesce(T.sp.amount, T.i.price)
 
 
-def deleted() -> ColumnElement:
+def deleted(i: Any = T.i) -> ColumnElement:
     """A deleted item, the `gone` status token: it vanished from ML (`gone_at` set), or ML marks it deleted in its
     `sub_status` (ML keeps a deleted item as `inactive`/`closed` with `deleted` there, and never sets our `gone_at`)."""
     # IS TRUE: on a NULL sub_status `= ANY` is NULL, and NOT of it would hide every live item without a sub_status
-    return or_(T.i.gone_at.isnot(None), T.i.sub_status.any("deleted").is_(true()))
+    return or_(i.gone_at.isnot(None), i.sub_status.any("deleted").is_(true()))
 
 
 def status_value() -> ColumnElement:
@@ -753,6 +803,8 @@ def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElemen
     when either matches, and its linked products whose own fields match (or all of them, when the publication's do)."""
     if term.kind == "item_id":
         return T.i.item_id == term.value, false()
+    if term.kind == "promo":
+        return _item_in(term.mlas or frozenset()), false()
     if term.kind == "digits":
 
         def same(column: Any) -> ColumnElement:
@@ -777,6 +829,15 @@ def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElemen
             return column.ilike(suffix, escape=LIKE_ESCAPE)
 
         return ends(T.i.title), or_(ends(p.descripcion), ends(p.marca), ends(p.codigo))
+    if term.kind == "starts_with":
+        prefix = f"{escape_like(term.value)}%"
+
+        def starts(column: Any) -> ColumnElement:
+            return column.ilike(prefix, escape=LIKE_ESCAPE)
+
+        return starts(T.i.title), or_(starts(p.descripcion), starts(p.marca), starts(p.codigo))
+    if term.kind == "descripcion":
+        return false(), _folded_contains(term.value)(p.descripcion)
     # ponytail: case-insensitive but accent-sensitive; `unaccent` is not installed on the test DB and its presence
     # on production is unverified (`scripts/measure_pubml_p5.py --database-url` reports it)
     pattern = f"%{escape_like(term.value)}%"
@@ -787,7 +848,16 @@ def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElemen
     own = or_(
         contains(T.i.title), contains(T.i.seller_sku), contains(T.i.seller_custom_field), _variation_sku(contains)
     )
-    return own, or_(contains(p.codigo), contains(p.descripcion))
+    # Productos' plain search: name and brand without dashes and spaces, the code without dashes (`productos_listing`)
+    folded = _folded_contains(term.value)
+    product = or_(
+        contains(p.codigo),
+        contains(p.descripcion),
+        folded(p.descripcion),
+        folded(p.marca),
+        folded(p.codigo, "-"),
+    )
+    return own, product
 
 
 def _matching_products(term: SearchTerm) -> Select:
@@ -802,7 +872,7 @@ def _search(term: SearchTerm) -> ColumnElement:
     """The publication's own fields, or any of its linked products' (`product_links`), so a publication with
     variations in several products is found by each one's name or code."""
     own, _ = _search_parts(term, T.p)
-    if term.kind == "item_id":  # no product side
+    if term.kind in ("item_id", "promo"):  # no product side
         return own
     return or_(own, has_product(_matching_products(term)))
 
@@ -1011,6 +1081,21 @@ def _tienda_nube_in(state: str, p: Any) -> ColumnElement:
     return and_(p.stock > 0, ~exists(active))
 
 
+def _estado_mla_in(state: str, p: Any) -> ColumnElement:
+    """Productos' "Estado MLA" of the product, over its linked publications (`product_links`): "activa" has at least
+    one active, "pausada" has some and none active. As Productos reads the ERP status, a publication with no status
+    counts as active; a deleted one (`deleted`) as not active, whatever status it kept."""
+    pl, pi = product_links("pl_estado_mla"), aliased(MlItem, name="pi_estado_mla")
+    publications = (
+        select(1)
+        .select_from(pl)
+        .join(pi, pi.item_id == pl.c.item_id)
+        .where(pl.c.producto_item_id == p.item_id, pi.never_existed.isnot(True))
+    )
+    active = exists(publications.where(not_(deleted(pi)), or_(pi.status == "active", pi.status.is_(None))))
+    return active if state == "activa" else and_(exists(publications), ~active)
+
+
 def product_flag_conditions(f: PublicationFilter, p: Any) -> list[ColumnElement]:
     """The presence toggles that are the PRODUCT's (its pricing flags, list price, Tienda Nube, sync date, Productos'
     markup signs, its audit trail), on the catalog row `p`."""
@@ -1027,6 +1112,8 @@ def product_flag_conditions(f: PublicationFilter, p: Any) -> list[ColumnElement]
         where.append(_precio(f.precio, p))
     if f.nuevos:
         where.append(p.fecha_sync >= func.now() - timedelta(days=7))
+    if f.estado_mla is not None:
+        where.append(_estado_mla_in(f.estado_mla, p))
     where.extend(_markup_sign(column, positive, p) for column, positive in f.markup_signs)
     if f.audits:
         where.append(_audited(f, p))
@@ -1041,10 +1128,13 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     if f.oferta is not None:
         where.append(_oferta(f.oferta, f.oferta_per_product))
     if f.mla_scope is not None:
-        # one array parameter, as `_colors`: a promo scope can hold thousands of MLAs
-        scope = literal(sorted(f.mla_scope), ARRAY(String))
-        where.append(T.i.item_id == any_(scope) if f.mla_scope else false())
+        where.append(_item_in(f.mla_scope))
     return where
+
+
+def _item_in(mlas: frozenset[str]) -> ColumnElement:
+    """The publication is one of `mlas`: one array parameter, as `_colors` (a promo can hold thousands of MLAs)."""
+    return T.i.item_id == any_(literal(sorted(mlas), ARRAY(String))) if mlas else false()
 
 
 def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnElement]:
@@ -1140,16 +1230,11 @@ def publication_filter_in(f: PublicationFilter) -> Optional[str]:
 
 
 def _product_search(term: SearchTerm) -> ColumnElement:
-    """`_search` without the publication's columns: the product's code, name and brand."""
-    if term.kind in ("codigo", "marca"):
-        return _search_parts(term, T.p)[1]
-    if term.kind == "digits":
-        return T.p.codigo == term.value
-    if term.kind == "ends_with":
-        suffix = f"%{escape_like(term.value)}"
-        return or_(*(column.ilike(suffix, escape=LIKE_ESCAPE) for column in (T.p.descripcion, T.p.marca, T.p.codigo)))
-    pattern = f"%{escape_like(term.value)}%"
-    return or_(T.p.codigo.ilike(pattern, escape=LIKE_ESCAPE), T.p.descripcion.ilike(pattern, escape=LIKE_ESCAPE))
+    """`_search` without the publication's columns: the product's code, name and brand. An MLA id has no product
+    side, so it is looked for as plain text there."""
+    if term.kind == "item_id":
+        term = SearchTerm("text", term.value)
+    return _search_parts(term, T.p)[1]
 
 
 def _without_mla() -> list[ColumnElement]:

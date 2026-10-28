@@ -35,7 +35,11 @@ from app.services.ml_promotions_service import (
     fetch_mlas_with_candidate_only_for_types,
     fetch_mlas_with_started,
 )
-from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers, fetch_pxq_tiers_by_mla
+from app.services.ml_pxq_tiers_read_service import (
+    fetch_mlas_with_pxq_tiers,
+    fetch_pxq_tiers_by_mla,
+    resumen_por_producto,
+)
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
 from app.services.pricing_columns import (
     CUOTAS_BY_PRICELIST,
@@ -1381,18 +1385,12 @@ def listar_productos(
                 logger.warning("Vista rápida PxQ no disponible: %s", exc)
                 tiers_by_mla = {}
 
+            # Escalera más profunda de una publicación y precio mínimo de todas (resumen_por_producto).
+            resumen = resumen_por_producto(item_to_mlas, tiers_by_mla)
             for producto in productos:
-                tier_lists = [
-                    tiers_by_mla[mla] for mla in item_to_mlas.get(producto.item_id, []) if mla in tiers_by_mla
-                ]
-                if not tier_lists:
-                    continue
-                # Escalera MÁS PROFUNDA de una sola publicación, no la suma:
-                # dos MLAs del mismo producto suelen replicar los mismos
-                # tramos, y sumarlos mostraría "6 tramos" donde el comprador
-                # ve 3. El precio "desde" sí es el mínimo global.
-                producto.pxq_tramos = max(len(tiers) for tiers in tier_lists)
-                producto.pxq_precio_desde = min(tier.amount for tiers in tier_lists for tier in tiers)
+                if producto.item_id in resumen:
+                    producto.pxq_tramos = resumen[producto.item_id].tramos
+                    producto.pxq_precio_desde = resumen[producto.item_id].precio_desde
 
         # Consultar catalog status de estos MLAs
         if all_mla_list:

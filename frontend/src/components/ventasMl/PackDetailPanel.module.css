@@ -43,3 +43,17 @@
 .memberButton:hover {
   background: var(--bg-hover);
 }
+
+/* An item line's photo (or its placeholder), small beside the title. */
+.itemLineThumb {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  color: var(--cf-text-tertiary);
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-sm);
+}

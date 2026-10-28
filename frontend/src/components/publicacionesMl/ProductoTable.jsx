@@ -6,6 +6,8 @@ import { treeRowTone } from './rowColor';
 import { BranchState, NodeCount, NodeTitle } from './NodeCells';
 import { SelectionCheckbox } from './ProductCheckbox';
 import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
+import PrearmadaBadge from '../PrearmadaBadge';
+import PxqTramosBadge from '../PxqTramosBadge';
 
 /**
  * Producto view of Publicaciones ML, like Métricas ML's: one row per product
@@ -27,10 +29,16 @@ import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
  * A click (or Enter/Space) on a product row opens its panel (`onSelectProduct(key)`); its chevron opens it into
  * its publications. The highlighted row is the selected publication (`selectedKey`) or, with none, the product
  * whose panel is open (`selectedProductKey`).
+ *
+ * Beside a product's name, Productos' badges: its prearmadas (`prearmadasStats`, by product id, from the page) and its
+ * wholesale (PxQ) tiers (the row's `pxq_tramos` / `pxq_precio_desde`).
  */
 // The columns a product row fills from its own product, as Productos' rows carry it: drawn by the publications' own
 // cells over the product read in their shape (`productAsItem`).
 const PRODUCT_FIELDS = new Set(['codigo', 'marca', 'costo', 'stock_erp']);
+
+// No prearmadas stats given: one stable object, so the columns are not rebuilt on every render.
+const NO_PREARMADAS = {};
 
 /** A product node in the shape the publication cells read: its code and brand as a link's, its ERP stock, its cost
  * and the lines under it. */
@@ -59,6 +67,7 @@ export default function ProductoTable({
   colorOverlay,
   emptyMessage = 'Ningún producto coincide con los filtros',
   selection,
+  prearmadasStats = NO_PREARMADAS,
 }) {
   const { rows, toggle, loadMore } = tree;
 
@@ -75,7 +84,14 @@ export default function ProductoTable({
               const after = selection ? (
                 <SelectionCheckbox productId={row.node.productoItemId} label={row.node.label} selection={selection} />
               ) : null;
-              return <NodeTitle row={row} onToggle={toggle} after={after} />;
+              const { node } = row;
+              const badges = (
+                <>
+                  <PrearmadaBadge stats={prearmadasStats[node.productoItemId]} />
+                  <PxqTramosBadge tramos={node.pxqTramos} precioDesde={node.pxqPrecioDesde} />
+                </>
+              );
+              return <NodeTitle row={row} onToggle={toggle} after={after} badges={badges} />;
             }
             if (column.key === 'publicaciones') return <NodeCount node={row.node} />;
             if (PRODUCT_FIGURES.has(column.key)) return column.render({ metrics: row.node.metrics });
@@ -87,7 +103,7 @@ export default function ProductoTable({
           return index === 0 ? <BranchState row={row} onMore={loadMore} onRetry={loadMore} /> : null;
         },
       })),
-    [columns, toggle, loadMore, selection],
+    [columns, toggle, loadMore, selection, prearmadasStats],
   );
 
   // The page selects by MLA; the table by row, so only one row is highlighted.

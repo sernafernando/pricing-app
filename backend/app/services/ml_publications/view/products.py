@@ -52,6 +52,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session
 
+from app.models.ml_publications import MlItemProductLink
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services.ml_publications.view import row_metrics
@@ -118,7 +119,7 @@ class ProductsPage:
     # key -> the product's cost in its own currency (`{amount, currency}`, None without one); only when asked
     costs: dict[str, Optional[dict[str, Any]]] = field(default_factory=dict)
     # key -> the PPP and sell in lines under that cost (`cost_lines.cost_lines`); only when asked
-    lines: dict[str, dict[str, Any]] = field(default_factory=dict)
+    lines: Optional[dict[str, dict[str, Any]]] = field(default_factory=dict)  # None: they could not be built
 
 
 def product_pairs(f: PublicationFilter, mlas: Any, *columns: Any) -> Any:
@@ -333,7 +334,7 @@ def _product_rows(db: Session, f: PublicationFilter, only: Optional[Sequence[int
 
 def _costs(
     db: Session, rows: Sequence[board.Row], pricing_db: Optional[Session] = None
-) -> tuple[dict[str, Optional[dict[str, Any]]], dict[str, dict[str, Any]]]:
+) -> tuple[dict[str, Optional[dict[str, Any]]], Optional[dict[str, dict[str, Any]]]]:
     """Each row's product cost in its own currency, as the publication rows carry it (`listing.attach_cost`): one
     statement over the page's products; "Sin producto" and a product with no cost read None. With `pricing_db`, the
     lines under each cost too (`cost_lines.cost_lines`, null on "Sin producto")."""
@@ -352,6 +353,8 @@ def _costs(
     if pricing_db is None:
         return out, {}
     by_id = cost_lines(pricing_db, {i: (r.costo, r.moneda_costo, r.iva) for i, r in found.items()})
+    if by_id is None:  # the lines could not be built (logged): the rows keep their cost, without them
+        return out, None
     return out, {row.key: by_id.get(row.product_item_id, NO_COST_LINES) for row in rows}
 
 
@@ -542,3 +545,22 @@ def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery]
         ).select_from(members)
     ).one()
     return ProductIds([int(row.product) for row in found], int(sin_producto), int(gone))
+
+
+def mlas_by_product(db: Session, product_ids: Sequence[int]) -> dict[int, list[str]]:
+    """Every publication linked to each product (the store's own links, `ml_item_product_links`; a link names a product
+    only when linked), whatever the filter shows: what Productos' PxQ quick view counts. Each MLA once per product,
+    sorted."""
+    if not product_ids:
+        return {}
+    link = MlItemProductLink.__table__.c
+    query = (
+        select(link.producto_item_id, link.item_id)
+        .where(link.producto_item_id.in_(list(product_ids)))
+        .distinct()
+        .order_by(link.producto_item_id, link.item_id)
+    )
+    out: dict[int, list[str]] = {}
+    for product_id, mla in db.execute(query):
+        out.setdefault(int(product_id), []).append(mla)
+    return out

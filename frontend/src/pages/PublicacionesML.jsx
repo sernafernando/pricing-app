@@ -23,6 +23,7 @@ import PaintColorMenu from '../components/publicacionesMl/PaintColorMenu';
 import { itemRowTone } from '../components/publicacionesMl/rowColor';
 import useColorOverlay from '../components/publicacionesMl/useColorOverlay';
 import { useSSEChannel } from '../hooks/useSSEChannel';
+import { PREARMADAS_LIMITE, usePrearmadasStats } from '../hooks/usePrearmadasStats';
 import { useEquipos } from '../hooks/useEquipos';
 import EquiposModal from '../components/EquiposModal';
 import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
@@ -387,6 +388,19 @@ export default function PublicacionesML() {
     canSeeMargin,
     enabled: producto && !layerPending,
   });
+
+  // Productos' prearmadas badge beside each product row: the first PREARMADAS_LIMITE products, as Productos asks them.
+  const prearmadasItemIds = useMemo(
+    () =>
+      producto
+        ? productRows.rows
+            .filter((row) => row.type === 'node' && row.node.productoItemId != null)
+            .slice(0, PREARMADAS_LIMITE)
+            .map((row) => row.node.productoItemId)
+        : EMPTY_ROWS,
+    [producto, productRows.rows],
+  );
+  const { statsById: prearmadasStats } = usePrearmadasStats(prearmadasItemIds);
 
   // Productos' prices of the products on show: the publications' linked products, or the product rows themselves.
   // The tree loads its rows by itself and has no price columns.
@@ -955,6 +969,7 @@ export default function PublicacionesML() {
                 columns={selectableColumns}
                 selection={selection}
                 colorOverlay={colorOverlay.colors}
+                prearmadasStats={prearmadasStats}
                 canSeeMargin={canSeeMargin}
                 expandedIds={expandedIds}
                 onSelectItem={handleRowClick}
