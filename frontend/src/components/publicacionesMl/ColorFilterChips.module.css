@@ -1,0 +1,24 @@
+.row {
+  composes: row from '../kit/FacetChips.module.css';
+}
+
+.chip {
+  composes: chip from '../kit/FacetChips.module.css';
+  padding: 0 7px;
+}
+
+.chipActive {
+  composes: chip chipActive from '../kit/FacetChips.module.css';
+  padding: 0 7px;
+}
+
+.swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-full);
+}
+
+.swatch[data-empty] {
+  background: var(--cf-bg-card);
+}

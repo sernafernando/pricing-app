@@ -573,3 +573,40 @@ describe('the color layer (`equipo`, S8)', () => {
     expect(result.current.search).toBe('?equipo=3');
   });
 });
+
+describe("the color filter (`colores`, P6): Productos' colors on the layer on show", () => {
+  const base = setup('/').result.current.hook.filters;
+
+  it('reads the colors from the URL, Productos\' values and `sin_color`, dropping unknown ones', () => {
+    expect(base.colores).toEqual([]);
+    expect(setup('/?colores=rojo,sin_color,fucsia').result.current.hook.filters.colores).toEqual(['rojo', 'sin_color']);
+  });
+
+  it('is a filter: every list asks it, a change goes back to page 1 and "Limpiar filtros" clears it', () => {
+    expect(buildItemsParams({ ...base, colores: ['rojo', 'sin_color'] })).toMatchObject({ colores: 'rojo,sin_color' });
+    expect(buildProductsParams({ ...base, colores: ['azul'] })).toMatchObject({ colores: 'azul' });
+    const { result } = setup('/?pagina=3&equipo=12');
+    act(() => result.current.hook.setFilters({ colores: ['verde'] }));
+    expect(new URLSearchParams(result.current.search).get('pagina')).toBeNull();
+    act(() => result.current.hook.resetFilters());
+    expect(result.current.search).toBe('?equipo=12');
+  });
+
+  it('takes the layer wherever it goes: the strip, the bulk set and the export count the same products', () => {
+    const colored = { ...base, colores: ['verde'], equipo: '12' };
+    expect(buildKpiParams(colored, '30d')).toEqual({ colores: 'verde', equipo_id: '12', periodo: '30d' });
+    expect(buildProductIdsParams(colored)).toEqual({ colores: 'verde', equipo_id: '12' });
+    expect(buildExportParams(colored)).toMatchObject({ colores: 'verde', equipo_id: '12' });
+  });
+
+  it('with a color filter on, another layer is another set: the filter key changes', () => {
+    const { result } = setup('/?colores=verde');
+    const before = result.current.hook.filterKey;
+    act(() => result.current.hook.setFilters({ equipo: '12' }));
+    expect(result.current.hook.filterKey).not.toBe(before);
+    const plain = setup('/');
+    const plainBefore = plain.result.current.hook.filterKey;
+    act(() => plain.result.current.hook.setFilters({ equipo: '12' }));
+    expect(plain.result.current.hook.filterKey).toBe(plainBefore);
+  });
+});

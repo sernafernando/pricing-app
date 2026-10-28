@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { COLORES_DISPONIBLES } from '../utils/productosConstants';
 
 /**
  * usePublicacionesMLFilters -- URL state of the Publicaciones ML screen
@@ -37,7 +38,10 @@ const CSV_KEYS = [
   'vinculo',
   'stock',
   'evento',
+  'colores',
 ];
+// Productos' color filter (`?colores=`): its colors and `sin_color`, on the layer on show (`equipo`).
+export const COLOR_FILTER_VALUES = [...COLORES_DISPONIBLES.filter((c) => c.id).map((c) => c.id), 'sin_color'];
 // `markup_neg` is '1' or '' (a text key, so an inactive toggle reads as empty);
 // the three markup params only exist for users with `ml_metricas.ver_ganancia`.
 const TEXT_KEYS = ['q', 'familia', 'evento_desde', 'markup_neg', 'markup_min', 'markup_max'];
@@ -169,6 +173,7 @@ function readFilters(params, { canSeeMargin = false } = {}) {
   for (const key of TEXT_KEYS) filters[key] = params.get(key) ?? '';
   for (const key of CSV_KEYS) filters[key] = csv(params.get(key));
   filters.stock = currentStockValues(filters.stock);
+  filters.colores = filters.colores.filter((value) => COLOR_FILTER_VALUES.includes(value));
   for (const key of PRESENCE_KEYS) {
     const value = params.get(key);
     filters[key] = PRESENCE_VALUES[key].includes(value) ? value : '';
@@ -243,7 +248,9 @@ export function buildItemsParams(
     }
   }
   for (const key of CSV_KEYS) {
-    const values = key === 'tiendas' ? filters[key].map((v) => (v === 'sin_tienda' ? 'none' : v)) : filters[key];
+    // A filter set built before `colores` existed (a caller's own object) has no such key: nothing to send.
+    const raw = filters[key] ?? [];
+    const values = key === 'tiendas' ? raw.map((v) => (v === 'sin_tienda' ? 'none' : v)) : raw;
     if (values.length > 0) params[key] = values.join(',');
   }
   for (const key of PRESENCE_KEYS) {
@@ -281,13 +288,23 @@ export function buildProductsParams(filters, pageSize = filters.limite ?? PAGE_S
  */
 export function buildExportParams(filters, permissions = {}) {
   const build = filters.vista === 'producto' ? buildProductsParams : buildItemsParams;
-  // The file carries no row colors, so the color layer is not asked either.
-  const { limit, offset, equipo_id, ...params } = build(filters, undefined, permissions);
-  void limit, offset, equipo_id;
-  return params;
+  const { limit, offset, ...params } = build(filters, undefined, permissions);
+  void limit, offset;
+  return withLayerOnlyForColors(params);
 }
 
 const MARKUP_KEYS = ['markup_neg', 'markup_min', 'markup_max'];
+
+/**
+ * The strip, the bulk set and the export show no row color, so they never ask the layer -- unless the color filter
+ * is on: then the layer says which products it keeps, and they must count the very products the list shows.
+ */
+function withLayerOnlyForColors(params) {
+  if (params.colores) return params;
+  const { equipo_id, ...rest } = params;
+  void equipo_id;
+  return rest;
+}
 
 /** True when a markup filter narrows the list. The list applies it after the query, so the KPIs cannot. */
 export const hasMarkupFilter = (filters) => MARKUP_KEYS.some((key) => filters[key] !== '');
@@ -297,9 +314,10 @@ export const hasMarkupFilter = (filters) => MARKUP_KEYS.some((key) => filters[ke
  * sort, and never the markup filters (the backend computes the strip before them): the strip says so instead.
  */
 export function buildKpiParams(filters, periodo) {
-  // The strip (and the bulk set built from it) shows no color: never the layer.
-  const { orden, dir, limit, offset, equipo_id, ...params } = buildItemsParams(filters, 1, { canSeeMargin: false });
-  void orden, dir, limit, offset, equipo_id;
+  const { orden, dir, limit, offset, ...params } = withLayerOnlyForColors(
+    buildItemsParams(filters, 1, { canSeeMargin: false }),
+  );
+  void orden, dir, limit, offset;
   // The Producto view's rows ask mejor oferta of the product (any of its publications); its strip asks it the same
   // way, so the strip counts the publications the rows hold.
   if (filters.vista === 'producto' && filters.oferta) params.oferta_por_producto = true;
@@ -324,8 +342,9 @@ export function usePublicacionesMLFilters({ canSeeMargin = false } = {}) {
 
   // Stable while only the page / sort / selection change: the page compares
   // it to know when the facet counts must be asked for again.
+  // With a color filter on, the layer chooses the colored products, so it is part of the set.
   const filterKey = useMemo(
-    () => JSON.stringify(FILTER_KEYS.map((key) => filters[key])),
+    () => JSON.stringify([...FILTER_KEYS.map((key) => filters[key]), filters.colores?.length ? filters.equipo : '']),
     [filters],
   );
 
