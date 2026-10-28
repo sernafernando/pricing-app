@@ -214,8 +214,9 @@
   white-space: nowrap;
 }
 
-/* Tienda Nube's price over the web transfer (S3): its amount with the transfer hint under it (both on one line do not
-   fit the column), the regular price struck through under a promotion, a divider before the web transfer's figure. */
+/* Tienda Nube's price over the web transfer (S3): its amount with the transfer hint beside it on one line, as Productos;
+   where a wider font does not leave room, the hint drops whole to the next line instead of poking out. The regular
+   price struck through under a promotion, a divider before the web transfer's figure. */
 .tnPrice {
   display: flex;
   flex-direction: column;
@@ -228,18 +229,14 @@
 
 .tnAmount {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  column-gap: 8px;
+  align-items: baseline;
 }
 
 .tnHint,
 .tnRegular {
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
-}
-
-/* The hint ("$183.999,20 transf.") is about the column's width: "transf." drops to its own line rather than poke out. */
-.tnHint {
-  white-space: normal;
-  text-align: right;
 }
