@@ -703,7 +703,7 @@ const renderProducts = async ({ width, height, theme }) => {
   canSeeMargin = true;
   publicacionesMlAPI.items.mockResolvedValue({ data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 130 } });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
-  publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 1234 }) });
+  publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 1234, sin_mla_count: 12345 }) });
   await page.viewport(width, height);
   setTheme(theme);
   document.body.style.background = 'var(--cf-bg-app)';
@@ -741,6 +741,11 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(rect(control).right, control.textContent).toBeLessThanOrEqual(width);
         }
         await expect.element(screen.getByText(/de 1234 productos/)).toBeVisible();
+        // Productos' Sin MLA card, with a five-digit count, stays in the header on one line.
+        const sinMla = screen.getByRole('button', { name: /Sin MLA/ }).element();
+        expect(sinMla.textContent).toContain('12.345');
+        expect(wrapped([sinMla])).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/products-header-${width}-${theme}.png` });
         expect(document.body.textContent).not.toContain('Markup:');
         screen.unmount();
       });
