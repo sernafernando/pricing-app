@@ -41,7 +41,7 @@ class SellInBonoMontoOut(BaseModel):
 class SellInBonoModeloIn(BaseModel):
     """A model with its own value (T23a); neither: the bonus's."""
 
-    item_id: int
+    item_id: int = Field(ge=-(2**31), le=2**31 - 1)  # INTEGER, like a sell-out campaign's product
     monto_unit: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=2)
     porcentaje: Optional[Decimal] = Field(default=None, max_digits=7, decimal_places=4)
 

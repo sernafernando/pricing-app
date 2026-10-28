@@ -189,6 +189,14 @@ def test_per_model_values_beyond_the_columns_decimals_are_422(client, gestor, pr
     assert client.post(BASE, json=_body(modelos=[modelo]), headers=gestor).status_code == 422
 
 
+def test_a_model_id_beyond_an_integer_is_refused_by_the_schema(client, gestor, productos):
+    # Same bounds as a sell-out campaign's product: rejected before reaching the database.
+    resp = client.post(BASE, json=_body(modelos=[{"item_id": 2**31, "monto_unit": "5"}]), headers=gestor)
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["loc"][-1] == "item_id"
+
+
 def test_the_audit_rows_carry_each_models_own_value(client, gestor, productos, db):
     data = _crear(client, gestor)
     client.put(f"{BASE}/{data['id']}", json=_body(modelos=[{"item_id": 4512, "monto_unit": "4"}]), headers=gestor)
