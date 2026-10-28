@@ -82,6 +82,12 @@ describe('priceColumns', () => {
     // The other columns have no details.
     const [clasica] = priceColumns('normal', { prices: prices(new Map([[7, product]])) });
     expect(cell(clasica)).not.toContain('Hasta');
+    // They are not margin: shown with the markup and without it; prices on their way read "…", no details.
+    const [, , withMargin] = priceColumns('normal', { prices: prices(new Map([[7, product]])), canSeeMargin: true });
+    expect(cell(withMargin)).toContain('10,0%');
+    expect(cell(withMargin)).toContain('PVP $ 1.200,00');
+    const [, , loading] = priceColumns('normal', { prices: prices(new Map(), true) });
+    expect(cell(loading)).toBe('…');
   });
 
   it('never shows a markup without the margin permission', () => {
