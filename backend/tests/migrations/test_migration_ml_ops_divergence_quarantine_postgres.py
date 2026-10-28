@@ -60,7 +60,8 @@ _STUBS = [
         (14, 'unknown', 'activity_unresolved', NULL, 'open', '2026-10-05 10:00+00'),
         (0, 'unknown', 'cost_sync:700', '5', 'open', '2026-10-06 10:00+00'),
         (15, 'out_of_window_update', NULL, NULL, 'open', '2026-10-07 10:00+00'),
-        (16, 'unknown', 'other_field', NULL, 'open', '2026-10-08 10:00+00')""",
+        (16, 'unknown', 'other_field', NULL, 'open', '2026-10-08 10:00+00'),
+        (31, 'unknown', 'activity_unresolved', NULL, 'open', '2026-10-09 10:00+00')""",
 ]
 
 
@@ -138,6 +139,7 @@ def test_upgrade_carries_every_open_debt_over_to_the_quarantine(engine) -> None:
         # tried now: the replay of a worker still on the old code (deploy window) does not see them for its backoff.
         10: (None, UNRESOLVED_ERROR, 1, True, "2026-10-01"),
         11: (None, UNRESOLVED_ERROR, 1, True, "2026-10-02"),
+        31: (None, UNRESOLVED_ERROR, 1, True, "2026-10-09"),
         # An order quarantined with its payload keeps its row.
         14: ({"id": 14}, "[permanent] boom", 3, True, _quarantine_day(engine, 14)),
         20: ({"id": 20}, "[transient] pool", 2, True, _quarantine_day(engine, 20)),
@@ -163,12 +165,12 @@ def test_downgrade_copies_the_debts_back_and_restores_not_null(engine) -> None:
     with engine.begin() as conn:
         # 10 landed after the upgrade: its pre-upgrade legacy row must not come back.
         conn.execute(text("DELETE FROM ml_orders_ops_cuarentena WHERE order_id = 10"))
-        # 31 was re-quarantined by the old replay during the deploy window: JSON null, still no payload.
+        # 31 was re-quarantined by the old replay during the deploy window: JSON null, still no payload, so its
+        # legacy debt is rewritten like any other.
         conn.execute(
             text(
-                "INSERT INTO ml_orders_ops_cuarentena (order_id, raw_order, error, primera_falla_at, ultimo_intento_at) "
-                "VALUES (31, 'null'::jsonb, '[permanent] mapping error on retry', '2026-10-22 10:00+00', "
-                "'2026-10-22 10:00+00')"
+                "UPDATE ml_orders_ops_cuarentena SET raw_order = 'null'::jsonb, "
+                "error = '[permanent] mapping error on retry' WHERE order_id = 31"
             )
         )
         # New misses after the upgrade: 30 is new, 12 has an ignored legacy row.
@@ -195,7 +197,7 @@ def test_downgrade_copies_the_debts_back_and_restores_not_null(engine) -> None:
         (15, "out_of_window_update", None, "open", "2026-10-07"),
         (16, "unknown", "other_field", "open", "2026-10-08"),
         (30, "unknown", "activity_unresolved", "open", "2026-10-20"),
-        (31, "unknown", "activity_unresolved", "open", "2026-10-22"),
+        (31, "unknown", "activity_unresolved", "open", "2026-10-09"),
     ]
 
 

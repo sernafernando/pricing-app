@@ -70,6 +70,8 @@ ON CONFLICT (order_id, kind, field) DO UPDATE SET detected_at = EXCLUDED.detecte
 """
 
 DELETE_UNRESOLVED = f"DELETE FROM {TABLE} q WHERE {NO_PAYLOAD}"
+# Elsewhere (no JSONB, no debts copied back) only SQL NULL blocks the NOT NULL.
+DELETE_UNRESOLVED_PORTABLE = f"DELETE FROM {TABLE} WHERE raw_order IS NULL"
 
 
 def _is_postgres() -> bool:
@@ -109,7 +111,7 @@ def downgrade() -> None:
         _set_lock_timeout()
         op.execute(DELETE_LEGACY_DEBTS)
         op.execute(COPY_TO_DIVERGENCE)
-        op.execute(DELETE_UNRESOLVED)
+    op.execute(DELETE_UNRESOLVED if postgres else DELETE_UNRESOLVED_PORTABLE)
     _raw_order_nullable(False)
     if postgres:
         _restore_lock_timeout()
