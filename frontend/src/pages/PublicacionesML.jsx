@@ -132,7 +132,12 @@ const AGRUPAR_OPTIONS = DIMENSION_OPTIONS.filter((option) => AGRUPAR_DIMENSIONS.
 /** What to tell the operator when a request fails (S69.1). */
 function describeError(error) {
   const status = error?.response?.status;
-  if (status === 503) return 'La consulta tardó demasiado. Probá con filtros más acotados o reintentá.';
+  if (status === 503) {
+    // A promo or wholesale-price filter whose source is down is not a slow query: say which one failed.
+    const body = error.response.data?.error;
+    if (body?.code === 'filtro_no_disponible' && body.message) return body.message;
+    return 'La consulta tardó demasiado. Probá con filtros más acotados o reintentá.';
+  }
   if (status === 403) return 'No tenés permiso para ver las publicaciones.';
   if (status === 422) {
     const detail = error.response.data?.error?.message;

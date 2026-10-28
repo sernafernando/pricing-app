@@ -28,6 +28,7 @@ from sqlalchemy import (
     ARRAY,
     Integer,
     Interval,
+    String,
     all_,
     and_,
     any_,
@@ -862,7 +863,9 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     if f.audits:
         where.append(_audited(f))
     if f.mla_scope is not None:
-        where.append(T.i.item_id.in_(sorted(f.mla_scope)) if f.mla_scope else false())
+        # one array parameter, as `_colors`: a promo scope can hold thousands of MLAs
+        scope = literal(sorted(f.mla_scope), ARRAY(String))
+        where.append(T.i.item_id == any_(scope) if f.mla_scope else false())
     return where
 
 

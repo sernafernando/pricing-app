@@ -545,6 +545,19 @@ describe('loading and errors', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('a 503 filtro_no_disponible shows the backend\'s message, not the slow-query text', async () => {
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockRejectedValue(
+      httpError(503, {
+        error: { code: 'filtro_no_disponible', message: 'Filtro de promociones no disponible temporalmente' },
+      }),
+    );
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?promo_tipos=DEAL'] });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Filtro de promociones no disponible temporalmente');
+    expect(alert).not.toHaveTextContent('La consulta tardó demasiado');
+  });
+
   it('says so when the filter is invalid (422), with the backend\'s message', async () => {
     publicacionesMlAPI.items.mockReset();
     publicacionesMlAPI.items.mockRejectedValue(
