@@ -3,7 +3,7 @@
  * each product with its own amount under the campaign's one cap.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { productosAPI } from '../../services/api';
 import { sellOutAPI } from '../../services/sellOutAPI';
@@ -157,6 +157,24 @@ describe('SellOutCampanaPanel — per-product amounts (T22c)', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('El producto 4172 no está en los grupos de la campaña');
+  });
+
+  it('a stored amount whose product left the groups can be removed after the 422 and the campaign saved', async () => {
+    const user = userEvent.setup();
+    sellOutAPI.detalle.mockResolvedValue({ data: CON_ITEMS });
+    sellOutAPI.editar
+      .mockRejectedValueOnce({ response: { status: 422, data: { detail: 'El producto 4172 no está en los grupos de la campaña' } } })
+      .mockResolvedValueOnce({ data: { ...CON_ITEMS, items: [] } });
+    abrirEdicion();
+    await screen.findByLabelText('Monto de C13T00R120');
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('El producto 4172');
+
+    await user.click(screen.getByRole('button', { name: 'Quitar C13T00R120' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+
+    await waitFor(() => expect(sellOutAPI.editar).toHaveBeenCalledTimes(2));
+    expect(sellOutAPI.editar).toHaveBeenLastCalledWith(55, expect.objectContaining({ items: [] }));
   });
 
   it('the read-only view lists the per-product amounts; one without them shows no such section', async () => {
