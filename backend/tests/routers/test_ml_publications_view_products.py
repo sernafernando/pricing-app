@@ -141,6 +141,24 @@ class TestRows:
         metrics = by_key(got["rows"])["77"]["metrics"]
         assert MARGIN <= set(metrics) and metrics["markup_30d"] == 100.0  # every seeded order: TG 1 over cost 1
 
+    def test_the_product_cost_comes_with_ver_ganancia_in_its_own_currency(
+        self, client, sold, db, rol_admin, admin_auth_headers
+    ):
+        with sold.begin() as conn:
+            seed.add_cost(conn, 77, 50.0, moneda_costo="USD")
+        grant(db, rol_admin, VER, GANANCIA)
+        rows = by_key(body(client, admin_auth_headers, estado="active")["rows"])
+        assert rows["77"]["costo"] == {"amount": 50.0, "currency": "USD"}
+        assert rows["78"]["costo"] is None  # a product with no cost on record
+        assert rows["0"]["costo"] is None  # "Sin producto" has no product, so no cost
+
+    def test_without_ver_ganancia_a_product_row_has_no_cost(self, client, sold, db, rol_admin, admin_auth_headers):
+        with sold.begin() as conn:
+            seed.add_cost(conn, 77, 50.0, moneda_costo="USD")
+        grant(db, rol_admin, VER, METRICAS)
+        rows = body(client, admin_auth_headers, estado="active")["rows"]
+        assert all("costo" not in row for row in rows)
+
 
 class TestPaging:
     def test_sorted_by_a_figure_paged_and_counted(self, client, sold, db, rol_admin, admin_auth_headers):

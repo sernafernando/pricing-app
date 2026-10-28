@@ -117,7 +117,7 @@ from app.models.ml_ads import (
     MlAdsItemDay,
 )
 from app.models.ml_order_item_costo import MlOrderItemCosto
-from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps
+from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
@@ -138,6 +138,7 @@ from app.services.ml_daily_metrics.sales import (
     persisted_last_sales,
     reads_persisted_lines,
 )
+from app.services.ml_orders_ingestion.mode_resolution import modo_logistico_expr
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
 from app.services.ml_sales_query.filters import NO_STORE, SalesFilter, _resolve_pm_pairs, build_scope
 from app.services.product_facets import (
@@ -673,6 +674,16 @@ class Kpis:
     costo_sell_in = property(lambda self: SellInOut.costo_sell_in(self))
     total_gauss_sell = property(lambda self: SellInOut.total_gauss_sell(self))
     markup_sell = property(lambda self: SellInOut.markup_sell(self))
+
+
+@dataclass
+class ShippingRow:
+    """The period's sales of one shipping type (`Board.by_shipping`)."""
+
+    modo: str
+    operations: int
+    units: int
+    gross: Decimal
 
 
 @dataclass
@@ -2438,6 +2449,36 @@ class Board:
             elif self.prev_from <= day <= self.prev_to:
                 before += n
         return now, before, series
+
+    def by_shipping(self) -> List[ShippingRow]:
+        """The period's sales per shipping type, most billed first: every sold line of a row's pair (the lines
+        the KPI strip sums) under its order's logistic mode (`mode_resolution`'s rule, in SQL). Shipping is a
+        property of the sale, not of the product, so the type is read per order through its shipment, never from
+        the publication. A pack whose orders ship differently is one operation in each of its types. A line
+        whose order row is missing still counts, as "desconocido", so the types always add up to Facturado. ONE
+        statement."""
+        f = self.f
+        joined, fp = self._members("", narrow=True)
+        lines = self._read_lines([day_bounds(f.date_from, f.date_to)], keyed=True)
+        O, S = aliased(MlOrdersOps), aliased(MlShipmentOps)
+        modo = modo_logistico_expr(S.shipment_id, S.logistic_type, O.has_no_shipping_tag).label("modo")
+        gross = func.sum(lines.c.gross)
+        query = self._in_mla_set(
+            select(
+                modo,
+                func.count(func.distinct(lines.c.group_key)).label("operations"),
+                func.sum(lines.c.qty).label("units"),
+                gross.label("gross"),
+            )
+            .select_from(joined)
+            .join(lines, and_(lines.c.product == fp.c.product, lines.c.mla == fp.c.mla))
+            .outerjoin(O, O.order_id == lines.c.order_id)
+            .outerjoin(S, S.shipment_id == O.shipping_id)
+            .where(lines.c.day.between(self._day(f.date_from), self._day(f.date_to))),
+            lines.c.mla,
+        )
+        rows = self.db.execute(query.group_by(modo).order_by(gross.desc(), modo)).all()
+        return [ShippingRow(modo=m, operations=int(n), units=int(u), gross=cents(g)) for m, n, u, g in rows]
 
     def _ads_kpis(self) -> AdsKpis:
         """ONE statement. The unfiltered view sums every ad line of the period (the MLAs whose rows a sort or a

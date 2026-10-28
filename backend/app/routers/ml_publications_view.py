@@ -643,6 +643,7 @@ class ProductRowOut(BaseModel):
     marca: Optional[str] = None
     publications_count: int
     stock: Optional[int] = None
+    costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
     params: dict[str, str]
     metrics: Optional[MetricsOut] = None
 
@@ -1227,7 +1228,12 @@ def get_groups(
 
 
 def _product_out(
-    row: board.Row, with_metrics: bool, with_margin: bool, has_figures: bool, offer_filter: bool
+    row: board.Row,
+    with_metrics: bool,
+    with_margin: bool,
+    has_figures: bool,
+    offer_filter: bool,
+    costs: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     no_product = row.product_item_id == NO_PRODUCT
     params = {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
@@ -1243,6 +1249,8 @@ def _product_out(
         "stock": row.stock,
         "params": params,
     }
+    if with_margin and costs is not None:
+        out["costo"] = costs.get(row.key)  # the product's cost, as a publication row carries it
     if with_metrics:
         out["metrics"] = _metrics_out(row, with_margin) if has_figures else None
     return out
@@ -1323,7 +1331,7 @@ def get_products(
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         with timer.stage("products"):
-            page = products.list_products(db, f, sort_name, sort_dir == "desc", limit, offset)
+            page = products.list_products(db, f, sort_name, sort_dir == "desc", limit, offset, cost=can_see_margin)
         if f.sin_mla:  # the rows are the Sin MLA products: their total is the count
             sin_mla_count = page.total
         else:
@@ -1340,7 +1348,14 @@ def get_products(
     response.headers["Server-Timing"] = timer.server_timing()
     timer.emit(rows=len(page.rows), total=page.total)
     rows = [
-        _product_out(row, can_see_sales, can_see_margin, row.key not in page.without_figures, f.oferta is not None)
+        _product_out(
+            row,
+            can_see_sales,
+            can_see_margin,
+            row.key not in page.without_figures,
+            f.oferta is not None,
+            page.costs,
+        )
         for row in page.rows
     ]
     _attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])
@@ -1854,11 +1869,15 @@ def get_stats(
     response: Response,
     user: Usuario = Depends(require_permiso(PERMISO_VER)),  # first: who may ask comes before what is asked
     f: PublicationFilter = Depends(filter_query),
+    tarjetas_sin_mla: bool = Query(
+        False, description="true: also the Sin MLA card (Producto view), absent while a publication filter is on"
+    ),
     db: Session = Depends(get_view_db),
     auth_db: Session = Depends(get_db),  # the permission checks (see `get_items`)
 ) -> dict[str, Any]:
     """Productos' stat cards (`/stats-dinamicos`) over the MLAs the filters select: each card counts the linked
-    products its click lists. The markup cards are margin figures: only with `ml_metricas.ver_ganancia`."""
+    products its click lists. The markup cards are margin figures: only with `ml_metricas.ver_ganancia`. The Sin MLA
+    card (`tarjetas_sin_mla`) counts the products no publication is linked to, under the product filters."""
     timer = Timer("stats")
     can_see_margin = PermisosService(auth_db).tiene_permiso(user, PERMISO_GANANCIA)
     try:
@@ -1866,7 +1885,7 @@ def get_stats(
             raise FilterError("evento", "requires the events flag (events.enabled) to be on")
         listing.bound(db)
         with timer.stage("stats"):
-            cards = stats.compute(db, f, markups=can_see_margin)
+            cards = stats.compute(db, f, markups=can_see_margin, sin_mla=tarjetas_sin_mla)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:

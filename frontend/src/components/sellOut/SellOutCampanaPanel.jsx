@@ -7,7 +7,7 @@ import { apiMessage, formatEntero, formatMonto } from '../sellIn/sellInFormat';
 import SellOutCampanaForm from './SellOutCampanaForm';
 import SellOutConsumos from './SellOutConsumos';
 import SellOutTipoCambio from './SellOutTipoCambio';
-import { CANAL_LABELS, TC_MODO_LABELS, beneficio, recalculo } from './sellOutFormat';
+import { CANAL_LABELS, TC_MODO_LABELS, beneficio, nombreDeItem, recalculo } from './sellOutFormat';
 import { CAMPANA_VACIA, bodyDeCampana, faltantes, valoresDeCampana } from './sellOutValores';
 import panelStyles from '../sellIn/SellInPanel.module.css';
 import tableStyles from '../sellIn/SellInTable.module.css';
@@ -125,6 +125,8 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
   const conTipoCambio = editable && !nuevo && campana?.moneda === 'USD' && campana?.tc_modo === 'al_cobro';
   const visibles = editable ? campos.filter(([label]) => soloLectura.has(label)) : campos;
   const canales = campana?.resumen?.por_canal ?? [];
+  // Editing, the form holds them; read-only, they are listed when the campaign has any.
+  const montosPorProducto = !editable && campana?.items?.length ? campana.items : [];
 
   return (
     <div className={panelStyles.panel}>
@@ -174,6 +176,31 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
                 </div>
               ))}
             </dl>
+            {montosPorProducto.length > 0 && (
+              <section className={panelStyles.section} aria-label="Montos por producto">
+                <h3>Montos por producto</h3>
+                <p className={panelStyles.hint}>Los demás productos usan el monto por unidad de la campaña; todos comparten el tope.</p>
+                <table className={tableStyles.table}>
+                  <thead>
+                    <tr>
+                      <th>Producto</th>
+                      <th className={tableStyles.num}>Monto por unidad</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {montosPorProducto.map((item) => (
+                      <tr key={item.item_id}>
+                        <td>
+                          <span className={panelStyles.mono}>{nombreDeItem({ itemId: item.item_id, codigo: item.codigo })}</span>{' '}
+                          {item.descripcion}
+                        </td>
+                        <td className={tableStyles.num}>{formatMonto(item.monto_unit, campana.moneda)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            )}
             <section className={panelStyles.section} aria-label="Acreditado por canal">
               <h3>Acreditado por canal</h3>
               {canales.length === 0 ? (

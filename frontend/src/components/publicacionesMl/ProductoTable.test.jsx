@@ -111,10 +111,28 @@ describe('the product rows', () => {
   it('shows each product with its code, its publication count and its Métricas figures', async () => {
     render(<Harness />);
     const row = (await screen.findByText('Router Archer AX55')).closest('tr');
-    expect(within(row).getByText(/ARCHER-AX55/)).toBeInTheDocument();
+    expect(within(row).getAllByText(/ARCHER-AX55/).length).toBeGreaterThan(0); // the title cell, and the Código column
     expect(within(row).getByText('3')).toBeInTheDocument();
     expect(within(row).getByText('12.345')).toBeInTheDocument(); // units 30d
     expect(screen.getByText('Sin producto')).toBeInTheDocument();
+  });
+
+  it("fills the product's brand, ERP stock and cost columns, as Productos' rows carry them", async () => {
+    render(<Harness />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).getByText('TP-LINK')).toBeInTheDocument();
+    expect(within(row).getByText('12')).toBeInTheDocument(); // ERP stock
+    expect(within(row).getByText('USD 45,50')).toBeInTheDocument();
+    const none = rowOf('Sin producto');
+    expect(within(none).queryByText('TP-LINK')).not.toBeInTheDocument();
+    expect(within(none).queryByText(/USD/)).not.toBeInTheDocument();
+  });
+
+  it('has no cost on a product row without ver_ganancia', async () => {
+    render(<Harness canSeeMargin={false} />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).queryByText(/USD/)).not.toBeInTheDocument();
+    expect(within(row).getByText('TP-LINK')).toBeInTheDocument();
   });
 
   it('a product with no figures reads "—", never a made-up 0', async () => {

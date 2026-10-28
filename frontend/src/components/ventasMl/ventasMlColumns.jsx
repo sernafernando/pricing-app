@@ -375,6 +375,11 @@ export const COLUMNS = [
               {entity.total_gauss_provisional && <ProvisionalPill falta={entity.total_gauss_provisional_falta} />}
             </span>
           )}
+          {/* Métricas audit B9: the old operations tab's Costo, the stored
+              IVA-free cost the markup above divides by (a pack: its sum). */}
+          {entity.costo_mercaderia != null && (
+            <span className={styles.subline}>costo $ {formatAmount(entity.costo_mercaderia)}</span>
+          )}
         </>
       );
     },

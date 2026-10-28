@@ -41,6 +41,13 @@ MARKUP_CARDS = {
     "markup_negativo_oferta": {"markup_oferta_positivo": False},
     "markup_negativo_web": {"markup_web_transf_positivo": False},
 }
+# Productos' "Sin MLA" card (S12d4c): the products no publication is linked to, under the product filters.
+SIN_MLA_CARDS = {
+    "sin_mla": {},
+    "sin_mla_con_stock": {"stock": "erp_con_stock"},
+    "sin_mla_sin_stock": {"stock": "erp_sin_stock"},
+    "sin_mla_nuevos": {"nuevos_ultimos_7_dias": True},
+}
 
 
 @pytest.fixture(autouse=True)
@@ -51,6 +58,8 @@ def rows(conn) -> None:
     seed.add_product(conn, 71, "B1", "Camara", marca="Hikvision", stock=0)
     seed.add_product(conn, 72, "C1", "Switch", marca="TP-Link", stock=3)  # no pricing row: "sin precio"
     seed.add_product(conn, 73, "D1", "Antena", marca="TP-Link", stock=2)
+    seed.add_product(conn, 74, "E1", "Cable", marca="TP-Link", stock=4)  # no publication: Sin MLA, new
+    seed.add_product(conn, 75, "F1", "Fuente", marca="Kabel", stock=0)  # no publication: Sin MLA, not new
     for mla in ("MLA1", "MLA2", "MLA3", "MLA4", "MLA5", "MLA6", "MLA7"):
         seed.add_item(conn, mla, status="active")
     seed.add_link(conn, "MLA1", 70)
@@ -64,7 +73,7 @@ def rows(conn) -> None:
     seed.add_pricing(conn, 73, precio_lista_ml=None, participa_rebate=False, markup_web_real=-4)
     for mla in ("MLA1", "MLA2"):  # current offers with a seller price: 70 (rebate) and 71 (no rebate)
         seed.add_oferta(conn, mla, TODAY - timedelta(days=5), TODAY + timedelta(days=5), pvp_seller=86486)
-    conn.execute(text("UPDATE productos_erp SET fecha_sync = now() - interval '8 days' WHERE item_id IN (70, 71)"))
+    conn.execute(text("UPDATE productos_erp SET fecha_sync = now() - interval '8 days' WHERE item_id IN (70, 71, 75)"))
 
 
 def listed_products(db, **params) -> int:
@@ -116,14 +125,48 @@ class TestEmpty:
         assert set(got.values()) == {0}
 
 
+class TestSinMla:
+    @pytest.mark.parametrize("current", [{}, {"marcas": "TP-Link"}, {"oferta_por_producto": True}])
+    def test_each_sin_mla_card_matches_its_list(self, db, current) -> None:
+        got = stats.compute(db, parse_filter(**current), markups=False, sin_mla=True)
+        for card, extra in SIN_MLA_CARDS.items():
+            assert got[card] == listed_products(db, con_mla=False, **current, **extra), card
+
+    def test_the_sin_mla_counts_of_the_seed(self, db) -> None:
+        got = stats.compute(db, parse_filter(), markups=False, sin_mla=True)
+        assert {card: got[card] for card in SIN_MLA_CARDS} == {
+            "sin_mla": 2,  # 74 and 75; the linked products are not "sin MLA"
+            "sin_mla_con_stock": 1,
+            "sin_mla_sin_stock": 1,
+            "sin_mla_nuevos": 1,
+        }
+
+    def test_only_asked_and_never_with_a_publication_filter(self, db) -> None:
+        assert set(stats.compute(db, parse_filter(), markups=False)) == set(CARDS)
+        assert set(stats.compute(db, parse_filter(estado="active"), markups=False, sin_mla=True)) == set(CARDS)
+
+    def test_with_sin_mla_on_the_cards_count_the_sin_mla_products(self, db) -> None:
+        got = stats.compute(db, parse_filter(con_mla=False), markups=True, sin_mla=True)
+        assert got["total"] == 2 and got["oferta_sin_rebate"] == 0
+        assert {card: got[card] for card in SIN_MLA_CARDS} == {
+            "sin_mla": 2,
+            "sin_mla_con_stock": 1,
+            "sin_mla_sin_stock": 1,
+            "sin_mla_nuevos": 1,
+        }
+        for card, extra in {**CARDS, **MARKUP_CARDS}.items():
+            if card != "oferta_sin_rebate":  # an offer is a publication's: refused with Sin MLA
+                assert got[card] == listed_products(db, con_mla=False, **extra), card
+
+
 class TestVariationLinkedPublications:
     def test_a_publication_of_two_products_counts_each_one(self, db, conn) -> None:
-        # linked per variation only, to 74 and 75: the Producto view lists both, so the cards count both
-        seed.add_product(conn, 74, "E1", "Modem", marca="TP-Link", stock=4)
-        seed.add_product(conn, 75, "F1", "Repetidor", marca="TP-Link", stock=0)
-        seed.add_pricing(conn, 75, precio_lista_ml=500, participa_rebate=False)
+        # linked per variation only, to 84 and 85: the Producto view lists both, so the cards count both
+        seed.add_product(conn, 84, "E1", "Modem", marca="TP-Link", stock=4)
+        seed.add_product(conn, 85, "F1", "Repetidor", marca="TP-Link", stock=0)
+        seed.add_pricing(conn, 85, precio_lista_ml=500, participa_rebate=False)
         seed.add_item(conn, "MLA8", status="active")
-        for variation, product in ((81, 74), (82, 75)):
+        for variation, product in ((81, 84), (82, 85)):
             seed.add_variation(conn, "MLA8", variation)
             seed.add_link(conn, "MLA8", product, variation_id=variation)
         for current in ({}, {"marcas": "TP-Link"}, {"q": "Repetidor"}):

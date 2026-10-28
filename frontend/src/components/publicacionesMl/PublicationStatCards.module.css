@@ -1,0 +1,130 @@
+/* Productos' stat cards on Publicaciones ML: the KPI strip's card look, every figure a button. Colors and radii from
+   the theme tokens; the sizes are the KPI strip's own. */
+
+.strip {
+  composes: strip from './PublicationKpiStrip.module.css';
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+@media (min-width: 768px) {
+  .cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .cards {
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  }
+}
+
+.card {
+  composes: card from './PublicationKpiStrip.module.css';
+  justify-content: center;
+  gap: 2px;
+  padding: 10px 12px;
+}
+
+.cardLabel {
+  padding: 0 5px; /* in line with the figures' buttons (their padding and border) */
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+/* A card with one figure: the label on top, the figure under it, the whole card the button. */
+.single {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  min-height: 52px;
+  padding: 2px 4px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-base);
+  cursor: pointer;
+}
+
+.single .itemLabel {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+/* A card with several figures: one row per figure, label left and figure right. */
+.subItem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: var(--font-sm);
+  text-align: left;
+  color: var(--cf-text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-base);
+  cursor: pointer;
+}
+
+.single:hover,
+.subItem:hover {
+  background: var(--bg-hover);
+}
+
+.single:focus-visible,
+.subItem:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+.single[aria-pressed='true'],
+.subItem[aria-pressed='true'] {
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-accent-blue-light);
+}
+
+.itemLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.value {
+  font-family: var(--font-mono);
+  font-weight: var(--font-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+.single .value {
+  font-size: clamp(14px, 1.05vw, 20px);
+}
+
+.notice {
+  composes: notice from './PublicationKpiStrip.module.css';
+  align-self: flex-start;
+  margin: 0;
+}
+
+.error {
+  composes: error from './PublicationKpiStrip.module.css';
+}
