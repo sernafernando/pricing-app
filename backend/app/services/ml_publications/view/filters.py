@@ -800,6 +800,12 @@ def _event(f: PublicationFilter) -> ColumnElement:
 # the Producto view (`oferta_per_product`) of the product, any of its publications, as Productos does.
 
 
+def product_pricing(name: str) -> Any:
+    """Productos' pricing row of a product (`productos_pricing`) aliased `name`, for a view module that joins it
+    itself (`stats`): the catalog models are named here only (`test_static_guards`)."""
+    return aliased(ProductoPricing, name=name)
+
+
 def _pricing_flag(flag: Any, on: bool) -> ColumnElement:
     pp = aliased(ProductoPricing, name="pp")
     flagged = exists(select(1).where(pp.item_id == T.p.item_id, flag(pp).is_(True)))
