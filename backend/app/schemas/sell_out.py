@@ -52,6 +52,8 @@ class SellOutCampanaItemIn(BaseModel):
 class SellOutCampanaItemOut(BaseModel):
     item_id: int
     monto_unit: Decimal
+    codigo: Optional[str] = None  # the product, for the screen; None if it left the ERP catalog
+    descripcion: Optional[str] = None
 
 
 class SellOutCampanaIn(BaseModel):

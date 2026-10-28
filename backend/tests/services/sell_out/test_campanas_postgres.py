@@ -256,7 +256,9 @@ def test_a_campaign_stores_returns_audits_and_queues_its_product_amounts(Session
     with Session() as db:
         assert _guardados(db, campana_id) == [(SWITCH, Decimal("7.50")), (ROUTER, Decimal("25.00"))]
         esperado = [{"item_id": SWITCH, "monto_unit": "7.50"}, {"item_id": ROUTER, "monto_unit": "25.00"}]
-        assert _api(db, campana_id)["items"] == esperado
+        # The response names each product (code and description); the audit keeps id and amount.
+        assert [{k: i[k] for k in ("item_id", "monto_unit")} for i in _api(db, campana_id)["items"]] == esperado
+        assert [i["codigo"] for i in _api(db, campana_id)["items"]] == [f"C{SWITCH}", f"C{ROUTER}"]
         assert _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA).valores_nuevos["items"] == esperado
         assert db.execute(text("SELECT campana_id FROM sell_out_dirty")).scalars().all() == [campana_id]
 

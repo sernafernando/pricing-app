@@ -18,7 +18,7 @@ export const CAMPANA_VACIA = {
   montoIncluyeIva: false,
   grupoIds: [],
   // Products with their own amount per unit (`por_unidad` only): `{ itemId, codigo, descripcion, monto }`.
-  // The API returns only `item_id` for stored ones, so `codigo`/`descripcion` are null until picked again.
+  // The API names each stored product (`codigo`/`descripcion`); null when it left the ERP catalog.
   items: [],
 };
 
@@ -45,7 +45,12 @@ export function valoresDeCampana(campana) {
     acumulable: campana.acumulable,
     montoIncluyeIva: campana.monto_incluye_iva,
     grupoIds: (campana.grupos ?? []).map((g) => g.id),
-    items: (campana.items ?? []).map((i) => ({ itemId: i.item_id, codigo: null, descripcion: null, monto: texto(i.monto_unit) })),
+    items: (campana.items ?? []).map((i) => ({
+      itemId: i.item_id,
+      codigo: i.codigo ?? null,
+      descripcion: i.descripcion ?? null,
+      monto: texto(i.monto_unit),
+    })),
   };
 }
 

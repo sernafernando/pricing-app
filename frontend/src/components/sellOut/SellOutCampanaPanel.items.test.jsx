@@ -24,7 +24,10 @@ const PRODUCTOS = [
   { item_id: 4172, codigo: 'C13T00R120', descripcion: 'Epson EcoTank L8180', marca: 'EPSON' },
   { item_id: 4173, codigo: 'C11CJ21301', descripcion: 'Epson EcoTank L3250', marca: 'EPSON' },
 ];
-const CON_ITEMS = { ...CAMPANA_MIGRADA, items: [{ item_id: 4172, monto_unit: '30.00' }] };
+const CON_ITEMS = {
+  ...CAMPANA_MIGRADA,
+  items: [{ item_id: 4172, monto_unit: '30.00', codigo: 'C13T00R120', descripcion: 'Epson EcoTank L8180' }],
+};
 
 const abrirNueva = () =>
   render(<SellOutCampanaPanel campanaId={null} grupos={GRUPOS} puedeGestionar onSaved={() => {}} onClose={() => {}} />);
@@ -120,7 +123,7 @@ describe('SellOutCampanaPanel — per-product amounts (T22c)', () => {
     sellOutAPI.editar.mockResolvedValue({ data: { ...CON_ITEMS, items: [{ item_id: 4172, monto_unit: '28.00' }] } });
     abrirEdicion();
 
-    const monto = await screen.findByLabelText('Monto de #4172');
+    const monto = await screen.findByLabelText('Monto de C13T00R120');
     expect(monto).toHaveValue(30);
     await user.clear(monto);
     await user.type(monto, '28');
@@ -134,7 +137,7 @@ describe('SellOutCampanaPanel — per-product amounts (T22c)', () => {
     sellOutAPI.detalle.mockResolvedValue({ data: CON_ITEMS });
     sellOutAPI.editar.mockResolvedValue({ data: CON_ITEMS });
     abrirEdicion();
-    await screen.findByLabelText('Monto de #4172');
+    await screen.findByLabelText('Monto de C13T00R120');
 
     await user.click(screen.getByRole('button', { name: 'Porcentaje' }));
     await user.type(screen.getByLabelText('Porcentaje'), '2');
@@ -150,7 +153,7 @@ describe('SellOutCampanaPanel — per-product amounts (T22c)', () => {
     sellOutAPI.detalle.mockResolvedValue({ data: CON_ITEMS });
     sellOutAPI.editar.mockRejectedValue({ response: { status: 422, data: { detail: 'El producto 4172 no está en los grupos de la campaña' } } });
     abrirEdicion();
-    await screen.findByLabelText('Monto de #4172');
+    await screen.findByLabelText('Monto de C13T00R120');
     await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('El producto 4172 no está en los grupos de la campaña');
@@ -160,7 +163,8 @@ describe('SellOutCampanaPanel — per-product amounts (T22c)', () => {
     sellOutAPI.detalle.mockResolvedValue({ data: CON_ITEMS });
     const { unmount } = render(<SellOutCampanaPanel campanaId={55} onClose={() => {}} />);
     const seccion = await screen.findByRole('region', { name: 'Montos por producto' });
-    expect(within(seccion).getByText('#4172').closest('tr')).toHaveTextContent('USD 30,00');
+    expect(within(seccion).getByText('C13T00R120').closest('tr')).toHaveTextContent('Epson EcoTank L8180');
+    expect(within(seccion).getByText('C13T00R120').closest('tr')).toHaveTextContent('USD 30,00');
     expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
     unmount();
 
@@ -168,6 +172,16 @@ describe('SellOutCampanaPanel — per-product amounts (T22c)', () => {
     render(<SellOutCampanaPanel campanaId={55} onClose={() => {}} />);
     await screen.findByText('Activa');
     expect(screen.queryByRole('region', { name: 'Montos por producto' })).not.toBeInTheDocument();
+  });
+});
+
+describe('SellOutCampanaPanel — a product that left the catalog', () => {
+  it('is shown by its id', async () => {
+    const sinCatalogo = { ...CAMPANA_MIGRADA, items: [{ item_id: 4172, monto_unit: '30.00', codigo: null, descripcion: null }] };
+    sellOutAPI.detalle.mockResolvedValue({ data: sinCatalogo });
+    render(<SellOutCampanaPanel campanaId={55} onClose={() => {}} />);
+    const seccion = await screen.findByRole('region', { name: 'Montos por producto' });
+    expect(within(seccion).getByText('#4172').closest('tr')).toHaveTextContent('USD 30,00');
   });
 });
 

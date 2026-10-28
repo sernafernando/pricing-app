@@ -190,7 +190,10 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
                   <tbody>
                     {montosPorProducto.map((item) => (
                       <tr key={item.item_id}>
-                        <td className={panelStyles.mono}>{nombreDeItem({ itemId: item.item_id, codigo: null })}</td>
+                        <td>
+                          <span className={panelStyles.mono}>{nombreDeItem({ itemId: item.item_id, codigo: item.codigo })}</span>{' '}
+                          {item.descripcion}
+                        </td>
                         <td className={tableStyles.num}>{formatMonto(item.monto_unit, campana.moneda)}</td>
                       </tr>
                     ))}
