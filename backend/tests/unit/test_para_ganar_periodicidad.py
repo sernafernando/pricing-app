@@ -112,9 +112,7 @@ def test_periodicidad_put_rejects_bad_rules(client: TestClient, rma_superadmin_u
     assert response.status_code == 422
 
 
-def test_periodicidad_catalogo_lists_subscribed_and_not(
-    client: TestClient, rma_superadmin_user, db
-) -> None:
+def test_periodicidad_catalogo_lists_subscribed_and_not(client: TestClient, rma_superadmin_user, db) -> None:
     """P3.1: catalog lists EANs in scope; suscripto filter; MLA checkboxes from filters."""
     from app.models.ml_publication_link import MlPublicationLink
     from app.models.producto import ProductoERP
@@ -123,12 +121,8 @@ def test_periodicidad_catalogo_lists_subscribed_and_not(
     catalog_id = "MLA-PG-PER-CAT-993"
     ean_sub = "779000PERCAT01"
     ean_plain = "779000PERCAT02"
-    p_sub = ProductoERP(
-        item_id=99301, codigo=ean_sub, descripcion="periodicidad sub", marca="Acme", costo=10
-    )
-    p_plain = ProductoERP(
-        item_id=99302, codigo=ean_plain, descripcion="periodicidad plain", marca="Acme", costo=10
-    )
+    p_sub = ProductoERP(item_id=99301, codigo=ean_sub, descripcion="periodicidad sub", marca="Acme", costo=10)
+    p_plain = ProductoERP(item_id=99302, codigo=ean_plain, descripcion="periodicidad plain", marca="Acme", costo=10)
     db.add_all([p_sub, p_plain])
     db.flush()
     for mla, item_id, codigo in (

@@ -359,9 +359,7 @@ def listar_mlas_de_ean_periodicidad(
                 titulo=row["titulo"],
                 lista_nombre=row["lista_nombre"],
                 pricelist_id=int(row["pricelist_id"]) if row["pricelist_id"] is not None else None,
-                catalog_listing=bool(row["catalog_listing"])
-                if row["catalog_listing"] is not None
-                else None,
+                catalog_listing=bool(row["catalog_listing"]) if row["catalog_listing"] is not None else None,
             )
             for row in rows
         ],
