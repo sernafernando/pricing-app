@@ -80,7 +80,10 @@ def test_this_revision_chains_on_the_offsets_review_table_revision() -> None:
     revision = script.get_revision(_REVISION)
     assert revision is not None
     assert revision.down_revision == "20261206_offsets_migracion_pendientes"
-    assert script.get_heads() == [_REVISION]
+    # One head, with this revision on its line: later migrations stack on top of it.
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert any(rev.revision == _REVISION for rev in script.walk_revisions("base", heads[0]))
 
 
 @pytest.mark.postgres
