@@ -84,7 +84,9 @@ class ParaGanarColaItem(BaseModel):
     sync_partner_mla: Optional[str] = None
     # True when a row exists in para_ganar_criterios_mla (PM assigned defaults or custom).
     criterios_aplicados: bool = False
-    # Placeholder until criteria produce real suggestion states.
+    # Advisor work-queue state from para_ganar_revision_mla (P4); null until P5 evaluates.
+    revision_estado: Optional[str] = None
+    # Legacy placeholder (TOP board uses winning/losing separately).
     suggestion_status: str = "none"
 
     model_config = ConfigDict(from_attributes=True)
@@ -637,6 +639,10 @@ def listar_cola(
         None,
         description="True = only MLAs with saved criteria; false = only without; omit = all",
     ),
+    revision_estado: Optional[str] = Query(
+        None,
+        description="Advisor P4: pendiente | sin_novedades — filter by persisted revision row",
+    ),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarColaResponse:
@@ -658,6 +664,16 @@ def listar_cola(
         criterios_aplicados=criterios_aplicados,
     )
 
+    revision_filter: Optional[str] = None
+    if revision_estado is not None and str(revision_estado).strip():
+        token = str(revision_estado).strip().lower()
+        if token not in ("pendiente", "sin_novedades"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="revision_estado debe ser pendiente o sin_novedades",
+            )
+        revision_filter = token
+
     params: dict = {"limit": page_size, "offset": offset}
     tipo_cambio_usd = (
         obtener_tipo_cambio_actual(db, "USD")
@@ -665,6 +681,14 @@ def listar_cola(
         else None
     )
     where_extra = _build_alcance_where(**scope, params=params, tipo_cambio_usd=tipo_cambio_usd)
+    if revision_filter is not None:
+        params["revision_estado"] = revision_filter
+        where_extra += """
+              AND EXISTS (
+                SELECT 1 FROM para_ganar_revision_mla rv
+                WHERE rv.mla = p.mla AND rv.estado = :revision_estado
+              )
+        """
 
     # PM filter with no marcas_pm rows → empty universe (same as /productos).
     if scope["pms"]:
@@ -709,7 +733,8 @@ def listar_cola(
               l.catalog_listing,
               l.catalog_product_id,
               l.inventory_id,
-              CASE WHEN cg.mla IS NOT NULL THEN 1 ELSE 0 END AS criterios_aplicados
+              CASE WHEN cg.mla IS NOT NULL THEN 1 ELSE 0 END AS criterios_aplicados,
+              rv.estado AS revision_estado
             FROM publicaciones_ml p
             JOIN productos_erp e ON e.item_id = p.item_id
             LEFT JOIN precios_ml pm
@@ -717,9 +742,18 @@ def listar_cola(
              AND pm.pricelist_id = p.pricelist_id
             LEFT JOIN ml_publication_links l ON l.mla = p.mla
             LEFT JOIN para_ganar_criterios_mla cg ON cg.mla = p.mla
+            LEFT JOIN para_ganar_revision_mla rv ON rv.mla = p.mla
             WHERE p.activo = true
             {where_extra}
-            ORDER BY p.codigo NULLS LAST, p.lista_nombre NULLS LAST, p.mla
+            ORDER BY
+              CASE rv.estado
+                WHEN 'pendiente' THEN 0
+                WHEN 'sin_novedades' THEN 1
+                ELSE 2
+              END,
+              p.codigo NULLS LAST,
+              p.lista_nombre NULLS LAST,
+              p.mla
             LIMIT :limit OFFSET :offset
             """
             ),
@@ -777,6 +811,7 @@ def listar_cola(
                 catalog_product_id=row["catalog_product_id"],
                 sync_partner_mla=partner,
                 criterios_aplicados=bool(row["criterios_aplicados"]),
+                revision_estado=str(row["revision_estado"]) if row["revision_estado"] else None,
                 suggestion_status="none",
             )
         )

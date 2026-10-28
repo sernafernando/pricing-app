@@ -173,14 +173,33 @@ export default function ParaGanarAdvisor() {
               >
                 Consultar filtrados
               </button>
-              <button type="button" className={`${styles.chip} ${styles.chipActive}`} disabled>
+              <button
+                type="button"
+                className={`${styles.chip} ${cola.revisionEstado == null ? styles.chipActive : ''}`}
+                onClick={() => cola.setRevisionEstado(null)}
+              >
+                Todos
+              </button>
+              <button
+                type="button"
+                className={`${styles.chip} ${
+                  cola.revisionEstado === 'pendiente' ? styles.chipActive : ''
+                }`}
+                onClick={() => cola.setRevisionEstado('pendiente')}
+              >
                 Pendiente de revisión
               </button>
-              <button type="button" className={styles.chip} disabled>
+              <button
+                type="button"
+                className={`${styles.chip} ${
+                  cola.revisionEstado === 'sin_novedades' ? styles.chipActive : ''
+                }`}
+                onClick={() => cola.setRevisionEstado('sin_novedades')}
+              >
                 Sin novedades
               </button>
               <span className={styles.toolbarHint}>
-                {cola.total.toLocaleString('es-AR')} publicaciones · consulta manual y estados tras P4/P5
+                {cola.total.toLocaleString('es-AR')} publicaciones · estados los marca el motor (P5)
               </span>
             </>
           )}

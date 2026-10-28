@@ -115,4 +115,4 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 
 ## Suggested next step
 
-See backlog + modules in [`para-ganar.md`](./para-ganar.md). **P1–P3** done. Next: **P4** estados Pendiente de revisión / Sin novedades en Advisor.
+See backlog + modules in [`para-ganar.md`](./para-ganar.md). **P1–P4** done (P4 = estados Advisor). Next: **P5** motor de evaluación.

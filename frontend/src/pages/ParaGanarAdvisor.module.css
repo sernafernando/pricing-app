@@ -339,6 +339,29 @@
   color: var(--cf-accent-blue);
 }
 
+.revisionBadgePendiente,
+.revisionBadgeSinNovedades {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--cf-border-subtle);
+}
+
+.revisionBadgePendiente {
+  border-color: color-mix(in srgb, var(--cf-accent-yellow) 45%, var(--cf-border-subtle));
+  color: var(--cf-accent-yellow);
+  background: color-mix(in srgb, var(--cf-accent-yellow) 12%, transparent);
+}
+
+.revisionBadgeSinNovedades {
+  border-color: var(--cf-border-subtle);
+  color: var(--cf-text-tertiary);
+  background: color-mix(in srgb, var(--cf-text-tertiary) 8%, transparent);
+}
+
 .queueRowTitle {
   font-size: 13px;
   color: var(--cf-text-primary);

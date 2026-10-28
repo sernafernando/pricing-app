@@ -28,6 +28,8 @@ export default function useParaGanarCola(pageSize = 50) {
   const [incluirTradicionalSync, setIncluirTradicionalSync] = useState(false);
   /** null = all; true = row in para_ganar_criterios_mla; false = no row yet */
   const [criteriosAplicados, setCriteriosAplicados] = useState(null);
+  /** null = all; 'pendiente' | 'sin_novedades' = Advisor revision filter (P4) */
+  const [revisionEstado, setRevisionEstado] = useState(null);
   const ean = useDebounce(eanInput.trim(), 300);
   const catalogProductId = useDebounce(catalogInput.trim(), 300);
   const costoUsdMin = useDebounce(costoUsdMinInput.trim(), 300);
@@ -69,6 +71,7 @@ export default function useParaGanarCola(pageSize = 50) {
             ...(criteriosAplicados === true || criteriosAplicados === false
               ? { criterios_aplicados: criteriosAplicados }
               : {}),
+            ...(revisionEstado ? { revision_estado: revisionEstado } : {}),
           },
         });
         if (cancelled) return;
@@ -112,6 +115,7 @@ export default function useParaGanarCola(pageSize = 50) {
     costoUsdMax,
     incluirTradicionalSync,
     criteriosAplicados,
+    revisionEstado,
     reloadToken,
   ]);
 
@@ -208,6 +212,8 @@ export default function useParaGanarCola(pageSize = 50) {
     setIncluirTradicionalSync: resetPage(setIncluirTradicionalSync),
     criteriosAplicados,
     setCriteriosAplicados: resetPage(setCriteriosAplicados),
+    revisionEstado,
+    setRevisionEstado: resetPage(setRevisionEstado),
     reload: () => setReloadToken((n) => n + 1),
   };
 }

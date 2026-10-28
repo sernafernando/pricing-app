@@ -288,3 +288,71 @@ def test_cola_criterios_aplicados_flag_and_filter(client: TestClient, rma_supera
     )
     assert without.status_code == 200, without.text
     assert {row["mla"] for row in without.json()["items"]} == {"MLA99202"}
+
+
+def test_cola_revision_estado_flag_and_filter(client: TestClient, rma_superadmin_user, db) -> None:
+    """P4: cola exposes revision_estado and filters pendiente / sin_novedades."""
+    from app.models.ml_publication_link import MlPublicationLink
+    from app.models.producto import ProductoERP
+    from app.models.publicacion_ml import PublicacionML
+    from app.services.para_ganar_revision import upsert_revision_estado
+
+    catalog_id = "MLA-PG-REV-996"
+    producto = ProductoERP(item_id=99601, codigo="SKU-PG-REV", descripcion="revision", costo=10)
+    db.add(producto)
+    db.flush()
+    for mla in ("MLA99601", "MLA99602", "MLA99603"):
+        db.add(
+            PublicacionML(
+                mla=mla,
+                item_id=producto.item_id,
+                codigo="SKU-PG-REV",
+                activo=True,
+                pricelist_id=4,
+            )
+        )
+        db.add(
+            MlPublicationLink(
+                mla=mla,
+                catalog_product_id=catalog_id,
+                catalog_listing=True,
+            )
+        )
+    upsert_revision_estado(db, mla="MLA99601", estado="pendiente")
+    upsert_revision_estado(db, mla="MLA99602", estado="sin_novedades")
+    db.commit()
+
+    headers = {"Authorization": f"Bearer {make_access_token(rma_superadmin_user)}"}
+    all_rows = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "page_size": 20},
+    )
+    assert all_rows.status_code == 200, all_rows.text
+    by_mla = {row["mla"]: row for row in all_rows.json()["items"]}
+    assert by_mla["MLA99601"]["revision_estado"] == "pendiente"
+    assert by_mla["MLA99602"]["revision_estado"] == "sin_novedades"
+    assert by_mla["MLA99603"]["revision_estado"] is None
+
+    pending = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "revision_estado": "pendiente"},
+    )
+    assert pending.status_code == 200, pending.text
+    assert {row["mla"] for row in pending.json()["items"]} == {"MLA99601"}
+
+    quiet = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "revision_estado": "sin_novedades"},
+    )
+    assert quiet.status_code == 200, quiet.text
+    assert {row["mla"] for row in quiet.json()["items"]} == {"MLA99602"}
+
+    bad = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={"revision_estado": "winning"},
+    )
+    assert bad.status_code == 422

@@ -47,7 +47,7 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D23 | Pool: DEAL/campaña muestran `aplicar a $sugerido` (clamp); **Aplicar** → confirmar → `POST /promociones/item/{mla}` (mismo enroll que Productos). SMART manda `precio_visto`. Permiso `promos.escribir`. Sin smoke de activación ML en CI | Cerrar bridge sugerido→promo | Done |
 | — | Herencia producto/PM | Cubierto por filtro EAN + masivo | Deprecated |
 | — | Heurística campañas de marca | No aporta | Deprecated |
-| D24 | Cola: **Pendiente de revisión** / **Sin novedades** (badge + filtro). No Perdiendo/Ganando en cola. Lo marca el motor periódico (P5) cuando hay espacio para ganar más o para pasar a ganar el catálogo | Work-queue feeling del Pro | Planned (módulo P4/P5) |
+| D24 | Cola Advisor: **Pendiente de revisión** / **Sin novedades** (badge + filtro). No Perdiendo/Ganando en cola. Persistido en `para_ganar_revision_mla`; lo escribe el motor (P5) | Work-queue feeling del Pro | Done (P4 UI/API; escritura P5) |
 
 ### Periodicidad (roadmap — módulos)
 
@@ -61,7 +61,7 @@ Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por ML
 | **P3.1** | Catálogo filtrado: listar **todos** los EAN del alcance (suscriptos y no), chips Todos/Suscriptos/Sin; MLAs por checkbox desde el mismo filtro | P3 | Done |
 | **P3.2** | Criterios Sin/Con filtran EANs (≥1 MLA con criterio); detalle = checkboxes MLA + filtros tipo/lista/tienda; Todo el EAN; sin modo rules en UI | P3.1 | Done |
 | **P3.3** | Aviso/filtro **MLA nuevos** (`scope_mode=mlas` con MLA activo fuera de la lista); badge en cola + highlight en detalle | P3.2 | Done |
-| **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Planned |
+| **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Done |
 | **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Planned |
 | **A1** | Advisor **Consultar filtrados**: misma pipeline que el periódico, pero a demanda sobre el alcance del filtro (manual; lo no suscripto a Periodicidad) | P5 | Planned |
 | **P6** | Trigger periódico: job que pide/refresca competencia de catálogo solo para inclusiones y dispara P5 | P5 | Planned |
@@ -156,7 +156,7 @@ Newest first. Use for “why did we…” archaeology.
 10. ~~Show promo pool (D18→D19→D20 one-per-type)~~.
 11. ~~Show deal at `precio_sugerido` (clamped) + wire enroll from Advisor (D23)~~.
 12. ~~**Periodicidad P1–P3**~~ (shell + API + UI por EAN).
-13. **P4** — estados Advisor Pendiente de revisión / Sin novedades.
+13. ~~**P4** — estados Advisor Pendiente / Sin novedades~~ (tabla + cola + chips; escritura = P5).
 14. **P5** — motor de evaluación.
 15. **A1** — Advisor **Consultar filtrados** (manual sobre el filtro; UI stub ya visible, cableado tras P5).
 16. **P6** — trigger periódico de catálogo.

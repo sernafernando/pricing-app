@@ -102,6 +102,14 @@ export default function ParaGanarQueue({
                             : 'Sin criterio aplicado'}
                         </span>
                       )}
+                      {!isCriterios && row.revision_estado === 'pendiente' && (
+                        <span className={styles.revisionBadgePendiente}>
+                          Pendiente de revisión
+                        </span>
+                      )}
+                      {!isCriterios && row.revision_estado === 'sin_novedades' && (
+                        <span className={styles.revisionBadgeSinNovedades}>Sin novedades</span>
+                      )}
                     </div>
                     <div className={styles.queueRowTitle}>
                       {row.titulo || row.producto_descripcion || 'Sin título'}
