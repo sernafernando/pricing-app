@@ -15,11 +15,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional
 
-from sqlalchemy import ARRAY, Text, any_, cast, func, literal, select, text, true
+from sqlalchemy import ARRAY, Text, any_, case, cast, func, literal, select, text, true
 from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.models.tipo_cambio import TipoCambio
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
 from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.filters import (
@@ -62,12 +63,30 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "stock_propio": (lambda: T.st.own_quantity, True),
     "stock_erp": (erp_stock, True),
     "actualizado": (lambda: T.i.ml_last_updated, True),
+    # the linked product's, as Productos sorts them; blank is no value, last like a missing product
+    "codigo": (lambda: func.nullif(func.upper(T.p.codigo), ""), False),
+    "marca": (lambda: func.nullif(normalized_text(T.p.marca), ""), False),
+    "costo": (lambda: cost_in_pesos(), False),
 }
+MARGIN_SORTS = frozenset({"costo"})  # the cost is shown only with `ml_metricas.ver_ganancia`
 DIRECTIONS = ("asc", "desc")
 FACET_AXES = AXES
 FACET_MAX_BRANDS = 100
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 100
+
+
+def cost_in_pesos() -> Any:
+    """The linked product's cost in pesos: a USD cost at the latest USD rate (null without one), so USD 50 and
+    ARS 60000 compare as money. Productos sorts the raw number, which puts every USD cost first."""
+    latest_usd = (
+        select(TipoCambio.venta)
+        .where(TipoCambio.moneda == "USD")
+        .order_by(TipoCambio.fecha.desc(), TipoCambio.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    return case((T.p.moneda_costo == "USD", T.p.costo * latest_usd), else_=T.p.costo)
 
 
 @dataclass(frozen=True)
@@ -121,7 +140,7 @@ def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
     return replace(f, pm_pairs=tuple(sorted(pairs)))
 
 
-def row_columns() -> list[Any]:
+def row_columns(*, cost: bool = False) -> list[Any]:
     i, sp, l, p, st = T.i, T.sp, T.l, T.p, T.st  # noqa: E741
     return [
         i.item_id,
@@ -153,6 +172,8 @@ def row_columns() -> list[Any]:
         p.codigo,
         p.descripcion,
         p.marca,
+        # the product's cost only for who sees the margin: without it, not even selected
+        *((p.costo, p.moneda_costo) if cost else ()),
         link_divergence().label("sku_divergence_kind"),
         l.suggested_producto_item_id,
         T.ps.codigo.label("suggested_codigo"),
@@ -340,6 +361,13 @@ def _attach_markup(items: list[dict[str, Any]], computed: Mapping[str, ItemMarku
             item["markup"] = markup_out(computed[item["item_id"]])
 
 
+def attach_cost(items: list[dict[str, Any]], rows: list[Any]) -> None:
+    """Each row's linked product cost, as the panel shows it (only for who sees the margin, as the markup)."""
+    for item, row in zip(items, rows):
+        currency = getattr(row.moneda_costo, "value", row.moneda_costo)
+        item["costo"] = None if row.costo is None else {"amount": row.costo, "currency": currency}
+
+
 def _worst_first(computed: Mapping[str, ItemMarkup], descending: bool) -> list[str]:
     """Item ids by the worst variation's markup; publications without a value last in either direction, and
     `item_id` closes every tie so paging is stable."""
@@ -387,11 +415,13 @@ def _markup_ids(
     return list(page), total, result
 
 
-def _rows_for_ids(db: Session, f: PublicationFilter, ids: list[str]) -> list[Any]:
+def _rows_for_ids(db: Session, f: PublicationFilter, ids: list[str], *, cost: bool = False) -> list[Any]:
     """The `row_columns()` of `ids` that still match `f`, in the order of `ids` (one statement)."""
     if not ids:
         return []
-    found = db.execute(build_base_select(f, *row_columns()).where(T.i.item_id == any_(literal(ids, ARRAY(Text)))))
+    found = db.execute(
+        build_base_select(f, *row_columns(cost=cost)).where(T.i.item_id == any_(literal(ids, ARRAY(Text))))
+    )
     by_id = {row.item_id: row for row in found}
     return [by_id[i] for i in ids if i in by_id]
 
@@ -404,8 +434,10 @@ def _list_by_markup(
     page_ids, total, result = _markup_ids(db, f, sort, limit, offset, markup)
     if not page_ids:
         return ItemsPage([], total, result.stats, result.ads_failed)
-    items = _assemble(db, _rows_for_ids(db, f, page_ids), events)
+    rows = _rows_for_ids(db, f, page_ids, cost=True)
+    items = _assemble(db, rows, events)
     _attach_markup(items, result.items)
+    attach_cost(items, rows)
     return ItemsPage(items, total, result.stats, result.ads_failed)
 
 
@@ -413,6 +445,8 @@ def _check(f: PublicationFilter, sort: Sort, events: bool, can_see_margin: bool)
     if f.needs_events and not events:
         raise FilterError("evento", "requires the events flag (events.enabled) to be on")
     if sort.key in METRIC_SORTS and needs_margin(sort.key) and not can_see_margin:
+        raise FilterError("orden", f"{sort.key} requires the ml_metricas.ver_ganancia permission")
+    if sort.key in MARGIN_SORTS and not can_see_margin:
         raise FilterError("orden", f"{sort.key} requires the ml_metricas.ver_ganancia permission")
 
 
@@ -449,16 +483,20 @@ def list_items(
         return ItemsPage([], total, None if markup is None else MarkupStats(0, {}, 0.0))
     if sort.key in METRIC_SORTS:
         page_ids = ranked_page(db, build_base_select(f, T.i.item_id), sort.key, sort.descending, limit, offset)
-        rows = _rows_for_ids(db, f, page_ids)
+        rows = _rows_for_ids(db, f, page_ids, cost=markup is not None)
     else:
         rows = db.execute(
-            build_base_select(f, *row_columns()).order_by(*_order_by(sort)).limit(limit).offset(offset)
+            build_base_select(f, *row_columns(cost=markup is not None))
+            .order_by(*_order_by(sort))
+            .limit(limit)
+            .offset(offset)
         ).all()
     items = _assemble(db, rows, events)
     if markup is None:
         return ItemsPage(items, total)
     result = compute_markups(db, markup.pricing_db, item_ids=[row.item_id for row in rows], ads=markup.ads)
     _attach_markup(items, result.items)
+    attach_cost(items, rows)
     return ItemsPage(items, total, result.stats, result.ads_failed)
 
 
@@ -491,7 +529,7 @@ def items_for_keys(
     ids) when `markup` is given. A key whose row stopped matching `f` is skipped. The markup FILTER is not applied
     again: the keys already passed it."""
     f = resolve_pm_pairs(db, f)
-    rows = _rows_for_ids(db, f, list(ids))
+    rows = _rows_for_ids(db, f, list(ids), cost=markup is not None)
     if not rows:
         return ItemsPage([], 0)
     items = _assemble(db, rows, events)
@@ -499,6 +537,7 @@ def items_for_keys(
         return ItemsPage(items, len(items))
     result = compute_markups(db, markup.pricing_db, item_ids=[row.item_id for row in rows], ads=markup.ads)
     _attach_markup(items, result.items)
+    attach_cost(items, rows)
     return ItemsPage(items, len(items), result.stats, result.ads_failed)
 
 

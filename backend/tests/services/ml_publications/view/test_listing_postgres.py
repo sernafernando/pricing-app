@@ -703,6 +703,14 @@ class TestInvalidFilters:
         assert caught.value.field == "evento"
 
 
+def test_the_cost_columns_are_not_even_selected_without_the_margin() -> None:
+    def names(columns) -> set[str]:
+        return {getattr(column, "key", None) or getattr(column, "name", None) for column in columns}
+
+    assert not {"costo", "moneda_costo"} & names(listing.row_columns())
+    assert {"costo", "moneda_costo"} <= names(listing.row_columns(cost=True))
+
+
 class TestSorting:
     def test_the_default_is_recent_activity_newest_first_with_events_off(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", last_trigger_received_at=seed.hours_ago(5))
@@ -729,6 +737,42 @@ class TestSorting:
         seed.add_item(conn, "MLA4")
         assert ids(run(db, orden="precio", direction="asc")) == ["MLA2", "MLA1", "MLA3", "MLA4"]
         assert ids(run(db, orden="precio", direction="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
+
+    def test_codigo_and_brand_sort_ignore_case_and_put_publications_without_product_last(self, conn, db) -> None:
+        for product_id, codigo, marca in ((70, "b-200", "tp-link"), (71, "A-100", "Zeta"), (72, "C-300", "Hikvision")):
+            seed.add_product(conn, product_id, codigo, "P", marca=marca)
+        for item_id, product_id in (("MLA1", 70), ("MLA2", 71), ("MLA3", 72)):
+            seed.add_item(conn, item_id)
+            seed.add_link(conn, item_id, product_id)
+        seed.add_item(conn, "MLA4")  # no product
+        assert ids(run(db, orden="codigo")) == ["MLA2", "MLA1", "MLA3", "MLA4"]  # ascending by default
+        assert ids(run(db, orden="codigo", direction="desc")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
+        assert ids(run(db, orden="marca")) == ["MLA3", "MLA1", "MLA2", "MLA4"]
+
+    def test_cost_sort_compares_in_pesos_at_the_latest_usd_rate_and_needs_the_margin(self, conn, db) -> None:
+        seed.add_usd_rate(conn, 900.0, "2026-10-26")
+        seed.add_usd_rate(conn, 1000.0, "2026-10-27")  # the latest wins
+        for product_id, costo, moneda in ((70, 60000.0, "ARS"), (71, 50.0, "USD"), (72, 40000.0, "ARS")):
+            seed.add_product(conn, product_id, f"C{product_id}", "P")
+            seed.add_cost(conn, product_id, costo, moneda_costo=moneda)
+        for item_id, product_id in (("MLA1", 70), ("MLA2", 71), ("MLA3", 72)):
+            seed.add_item(conn, item_id)
+            seed.add_link(conn, item_id, product_id)
+        seed.add_item(conn, "MLA4")  # no product, no cost
+        sort = listing.parse_sort("costo", None)
+
+        def by_cost(direction=None) -> list[str]:
+            page = listing.list_items(
+                db, parse_filter(), listing.parse_sort("costo", direction), 50, 0, events=True, can_see_margin=True
+            )
+            return ids(page)
+
+        # USD 50 at 1000 is 50000 pesos: between the two ARS costs, not the cheapest
+        assert by_cost() == ["MLA3", "MLA2", "MLA1", "MLA4"]
+        assert by_cost("desc") == ["MLA1", "MLA2", "MLA3", "MLA4"]
+        with pytest.raises(FilterError) as raised:
+            listing.list_items(db, parse_filter(), sort, 50, 0, events=True)
+        assert raised.value.field == "orden"
 
     def test_title_ignores_case_and_puts_missing_titles_last(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", title="banana")
