@@ -372,7 +372,9 @@ def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery]
     `MAX_PRODUCT_IDS`. With `sin_mla`, the "Sin MLA" products: no publication, so nothing left out to count."""
     if f.sin_mla:
         if markup is not None and markup.filter.active:
-            raise FilterError("markup", "the markup filters do not apply to the products without MLA (con_mla=false)")
+            active = markup.filter
+            param = "markup_neg" if active.negative else "markup_min" if active.minimum is not None else "markup_max"
+            raise FilterError(param, "the markup filters do not apply to the products without MLA (con_mla=false)")
         rows = _sin_mla_rows(db, f)
         found = db.execute(
             select(rows.c.product, func.count().over().label("total"))

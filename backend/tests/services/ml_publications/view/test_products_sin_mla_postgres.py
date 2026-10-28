@@ -12,6 +12,8 @@ none and is refused (422), never silently ignored. The publication views list no
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
@@ -19,7 +21,7 @@ from sqlalchemy.orm import sessionmaker
 from app.models.producto import ProductoERP
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services.ml_publications.view import listing, products
-from app.services.ml_publications.view.filters import FilterError, parse_filter
+from app.services.ml_publications.view.filters import FilterError, MarkupFilter, parse_filter
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
 
@@ -151,6 +153,19 @@ class TestBulkAndExport:
     def test_product_ids_are_the_products_without_mla(self, db) -> None:
         found = products.product_ids(db, sin_mla())
         assert (found.item_ids, found.sin_producto, found.fuera_de_catalogo) == ([72, 73, 77], 0, 0)
+
+    @pytest.mark.parametrize(
+        ("markup", "param"),
+        [
+            (MarkupFilter(negative=True), "markup_neg"),
+            (MarkupFilter(minimum=5.0), "markup_min"),
+            (MarkupFilter(maximum=9.0), "markup_max"),
+        ],
+    )
+    def test_a_markup_filter_is_refused_naming_its_parameter(self, db, markup, param) -> None:
+        with pytest.raises(FilterError) as raised:
+            products.product_ids(db, sin_mla(), SimpleNamespace(filter=markup))
+        assert raised.value.field == param
 
     def test_product_ids_over_the_cap_are_refused(self, db, monkeypatch) -> None:
         monkeypatch.setattr(products, "MAX_PRODUCT_IDS", 2)
