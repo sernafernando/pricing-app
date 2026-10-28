@@ -93,7 +93,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, literal, not_, null, select
+from sqlalchemy import func, literal, null, select
 
 from app.core.config import settings
 from app.core.database import get_background_db
@@ -434,9 +434,8 @@ MAX_REFETCHES_PER_PASS = 20
 class RefetchResult:
     """Outcome of one `refetch_unresolved_orders` pass. `attempted` counts the
     rows an answer was applied to (not one that took a payload meanwhile).
-    `dropped`: ML has no such order, or it came back but `process_batch` left
-    it out (outside the window, a mapping error). `failed`: a fetch that
-    failed, or a write that failed (now quarantined with its payload)."""
+    `dropped`: ML has no such order. `failed`: a fetch that failed, or an
+    order that came back but did not land (it keeps its row)."""
 
     attempted: int = 0
     landed: int = 0
@@ -467,9 +466,8 @@ def refetch_unresolved_orders(
     has passed. Then, per order:
       - ML gives it back: it goes through `process_batch`, exactly as the
         receiver handles an order it did get (window floor, shipment, cost and
-        payment fetches), and then its row is deleted like the receiver's own
-        debts. A write that fails there is quarantined WITH its payload, so
-        its row is the replay's;
+        payment fetches). Its row is deleted only if the order then is in
+        `ml_orders_ops`; any other outcome keeps it for the next backoff;
       - ML says it does not exist (`not_found`): the row is deleted, with one
         log line;
       - anything else: the attempt is counted, the row goes back to
@@ -538,21 +536,20 @@ def refetch_unresolved_orders(
         now,
         [MAX_PAYMENT_FETCHES_PER_PASS],
     )
-    # Settled like the receiver's own resolved orders (`_clear_unresolved_orders`): the row goes whether the order
-    # landed or `process_batch` left it out (outside the window, a mapping error, both logged there). Only a write
-    # that failed keeps a row, now with its payload.
+    # Fail-safe: a row without payload is deleted only once its order is known to be final, i.e. found in
+    # `ml_orders_ops`. `process_batch` reports no per-order outcome, so an order it left out -- outside the window, a
+    # mapping error, a per-pass budget that ran out, a write that failed together with its quarantine -- keeps its
+    # row, attempt already counted, and is asked again after the backoff. A write that failed and was quarantined now
+    # carries its payload and is the replay's.
     ids = list(returned)
     with get_background_db() as db:
-        landed = db.query(MlOrdersOps.order_id).filter(MlOrdersOps.order_id.in_(ids)).count()
-        failed = (
-            db.query(MlOrdersOpsCuarentena.order_id)
-            .filter(MlOrdersOpsCuarentena.order_id.in_(ids), not_(has_no_payload()))
-            .count()
-        )
-        _unresolved_debts(db).filter(MlOrdersOpsCuarentena.order_id.in_(ids)).delete(synchronize_session=False)
-    result.landed += landed
-    result.failed += failed
-    result.dropped += max(len(ids) - landed - failed, 0)
+        landed_ids = [oid for (oid,) in db.query(MlOrdersOps.order_id).filter(MlOrdersOps.order_id.in_(ids))]
+        if landed_ids:
+            _unresolved_debts(db).filter(MlOrdersOpsCuarentena.order_id.in_(landed_ids)).delete(
+                synchronize_session=False
+            )
+    result.landed += len(landed_ids)
+    result.failed += len(ids) - len(landed_ids)
     return result
 
 

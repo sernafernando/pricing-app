@@ -145,15 +145,31 @@ class TestTheRefetch:
         assert row.intentos == 2
         assert service.refetch_unresolved_orders().attempted == 0
 
-    def test_an_order_that_comes_back_outside_the_window_is_dropped(self, db, monkeypatch):
-        """As the receiver does: an order before the window floor is never ingested, and its debt goes."""
+    def test_an_order_process_batch_skips_keeps_its_row_and_waits_for_the_backoff(self, db, monkeypatch):
+        """An order `process_batch` neither wrote nor quarantined (a per-pass budget ran out, or the write AND its
+        quarantine both failed) has no known final outcome: its row stays, so it is asked again after the backoff."""
+        _miss(db, 516)
+        _ml_answers(monkeypatch, {516: OrderFetch("ok", _order(516))})
+        monkeypatch.setattr(service, "process_batch", lambda *args, **kwargs: None)
+
+        result = service.refetch_unresolved_orders()
+
+        assert (result.attempted, result.landed, result.dropped, result.failed) == (1, 0, 0, 1)
+        row = _row(db, 516)
+        assert row.raw_order is None
+        assert row.intentos == 2
+        assert service.refetch_unresolved_orders().attempted == 0
+
+    def test_an_order_that_comes_back_outside_the_window_keeps_its_row(self, db, monkeypatch):
+        """`process_batch` reports no per-order outcome, so only an order found in `ml_orders_ops` is known to be
+        final. One before the window floor is asked again after each backoff (at most every 6 h)."""
         _miss(db, 513)
         _ml_answers(monkeypatch, {513: OrderFetch("ok", _order(513, age=timedelta(days=200)))})
 
         result = service.refetch_unresolved_orders()
 
-        assert (result.attempted, result.landed, result.dropped, result.failed) == (1, 0, 1, 0)
-        assert _row(db, 513) is None
+        assert (result.attempted, result.landed, result.dropped, result.failed) == (1, 0, 0, 1)
+        assert _row(db, 513).intentos == 2
         assert db.query(MlOrdersOps).filter_by(order_id=513).count() == 0
 
     def test_an_order_that_comes_back_but_fails_to_write_keeps_its_payload_for_the_replay(self, db, monkeypatch):

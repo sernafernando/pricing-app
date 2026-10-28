@@ -123,8 +123,11 @@ quoted text:
   `ml_orders_ops` (the sweep, the drain or the backfill ingesting it). An order
   already quarantined with its payload keeps that row. The
   `ml_orders.quarantine_retry` worker also asks ML for it again, past the same
-  backoff and with no attempt cap: an order ML gives back is written (or
-  quarantined with its write error, like any replay); one ML answers
+  backoff and with no attempt cap: an order ML gives back goes through the
+  receiver's `process_batch`, and its row is deleted only once the order is in
+  `ml_orders_ops` (a write error is quarantined with its payload for the
+  replay; an order left out for any other reason, such as outside the window,
+  keeps its row and is asked again after each backoff, at most every 6 h); one ML answers
   `not_found` for is deleted (`activity_receiver: ML has no order_id=...;
   dropped from the quarantine` WARNING); any other answer counts the attempt
   and waits. Its job detail reports `refetched`, `refetch_landed`, `dropped`
