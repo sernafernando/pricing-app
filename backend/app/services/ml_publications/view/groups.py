@@ -518,10 +518,12 @@ def _with_markup(
     with gc_paused():  # tens of thousands of small objects, none in a cycle (see `gc_paused`)
         members = _members(db, f, tree, path, page)
     # `compute_markups` pauses the collector itself around the inputs and the pricing, never around the Ads provider.
-    if len(members) > ITEM_IDS_MAX:
+    # the product level holds a publication once per linked product: price each publication once
+    item_ids = list(dict.fromkeys(item for item, _key in members))
+    if len(item_ids) > ITEM_IDS_MAX:
         result = compute_markups(db, markup.pricing_db, f=f, ads=markup.ads)
     else:
-        result = compute_markups(db, markup.pricing_db, item_ids=[item for item, _key in members], ads=markup.ads)
+        result = compute_markups(db, markup.pricing_db, item_ids=item_ids, ads=markup.ads)
     with gc_paused():
         figures = aggregate_nodes(result.items, members, products=page.level == KIND_PRODUCT)
     nodes = []

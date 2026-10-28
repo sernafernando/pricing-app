@@ -612,8 +612,7 @@ def _any_linked_product(test: Any) -> ColumnElement:
 def linked_product_conditions(f: PublicationFilter, product_id: Any, p: Any) -> list[ColumnElement]:
     """The conditions of `f` that are about the PRODUCT, on one linked product (`product_id`, `p` its catalog row,
     outer-joined): color, mejor oferta of the product, brand, category, subcategory, the product's presence toggles
-    (`product_flag_conditions`), PM and `q` (the product's own name
-    or code, unless the publication's own fields match). A publication `f` keeps is expanded to its linked products
+    (`product_flag_conditions`), PM and `q` (the product's own name or code, unless the publication's own fields match). A publication `f` keeps is expanded to its linked products
     that pass them -- the Producto view, its export, `/product-ids` and the tree's product level -- so a filter about
     the product never brings in another product of the same publication (variations of different products)."""
     conditions: list[ColumnElement] = []
@@ -988,8 +987,7 @@ def product_flag_conditions(f: PublicationFilter, p: Any) -> list[ColumnElement]
 
 def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     where = []
-    flags = product_flag_conditions(f, T.p)
-    if flags:
+    if product_flag_conditions(f, T.p):  # built only to know whether `f` asks any; one list, no copy to drift
         # one of the publication's linked products has them all (variations of different products: any of them)
         where.append(_any_linked_product(lambda p: and_(*product_flag_conditions(f, p))))
     if f.oferta is not None:
