@@ -49,11 +49,11 @@ export function isStatActive(filters, filter) {
 
 /**
  * The cards in Productos' order and wording, each item `{ label, value, filter }` (`reset` for Total, which clears
- * the filters). `value` is null while there is no answer: an unknown figure, never 0; undefined when the answer
- * leaves it out (the Sin MLA card with a publication filter on). `sinMla`: the Producto view's Sin MLA card.
+ * the filters). `value` is null while there is no answer: an unknown figure, never 0; `UNAVAILABLE` when the
+ * answer leaves the Sin MLA card out (a publication filter is on). `sinMla`: the Producto view's Sin MLA card.
  */
 export function statCardGroups(stats, { canSeeMargin = false, sinMla = false } = {}) {
-  const value = (key) => (stats ? stats[key] : null);
+  const value = (key) => stats?.[key] ?? null;
   const groups = [
     { label: 'Total Productos', items: [{ label: 'Total Productos', value: value('total'), reset: true }] },
     {
@@ -75,7 +75,7 @@ export function statCardGroups(stats, { canSeeMargin = false, sinMla = false } =
         { label: 'Sin Precio', value: value('nuevos_sin_precio'), filter: { nuevos: 'ultimos_7_dias', precio: 'sin_precio' } },
       ],
     },
-    ...(sinMla ? [sinMlaGroup(value)] : []),
+    ...(sinMla ? [sinMlaGroup(stats)] : []),
     {
       label: 'Oferta sin Rebate',
       items: [
@@ -97,8 +97,15 @@ export function statCardGroups(stats, { canSeeMargin = false, sinMla = false } =
   return groups;
 }
 
+/** A figure the answer leaves out on purpose: the Sin MLA card while a publication filter is on. */
+export const UNAVAILABLE = 'unavailable';
+
 // Productos' "Sin MLA" card: the products no publication is linked to (`?mla=sin_mla`, the Producto view).
-function sinMlaGroup(value) {
+function sinMlaGroup(stats) {
+  const value = (key) => {
+    if (!stats) return null;
+    return key in stats ? stats[key] : UNAVAILABLE;
+  };
   const filter = (extra = {}) => ({ mla: SIN_MLA, ...extra });
   return {
     label: 'Sin MLA',

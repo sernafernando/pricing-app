@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
-import { cardUpdates, isStatActive, statCardGroups } from './statCards';
+import { UNAVAILABLE, cardUpdates, isStatActive, statCardGroups } from './statCards';
 import styles from './PublicationStatCards.module.css';
 
 const number = new Intl.NumberFormat('es-AR');
@@ -17,7 +17,7 @@ const number = new Intl.NumberFormat('es-AR');
 // card with a publication filter on, which a product without publications cannot answer).
 const figure = (value, pending, missing) => {
   if (value === null) return pending;
-  return value === undefined ? missing : number.format(value);
+  return value === UNAVAILABLE ? missing : number.format(value);
 };
 
 export default function PublicationStatCards({

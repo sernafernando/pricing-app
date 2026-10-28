@@ -3,7 +3,7 @@
  * own filter, with every other filter a card sets cleared, and the rest of the screen's filters kept.
  */
 import { describe, expect, it } from 'vitest';
-import { STAT_FILTER_KEYS, cardUpdates, isStatActive, statCardGroups, statUpdates } from './statCards';
+import { STAT_FILTER_KEYS, UNAVAILABLE, cardUpdates, isStatActive, statCardGroups, statUpdates } from './statCards';
 
 const NO_STAT_FILTER = Object.fromEntries(STAT_FILTER_KEYS.map((key) => [key, key === 'stock' ? [] : '']));
 const filters = (overrides = {}) => ({ ...NO_STAT_FILTER, marcas: ['TP-Link'], q: 'router', ...overrides });
@@ -106,8 +106,9 @@ describe("the Sin MLA card (S12d4c, Productos')", () => {
     expect(statCardGroups(sinMla, {}).map((group) => group.label)).not.toContain('Sin MLA');
   });
 
-  it('is unknown (undefined) when the answer leaves it out, a publication filter being on; null while loading', () => {
-    expect(sinMlaGroup({ total: 40 }).items[0].value).toBeUndefined();
+  it('is UNAVAILABLE when the answer leaves it out, a publication filter being on; null while loading', () => {
+    expect(sinMlaGroup({ total: 40 }).items[0].value).toBe(UNAVAILABLE);
+    expect(item(statCardGroups({ total: 40 }, {}), 'Con Stock').value).toBeNull(); // the other cards: still unknown
     expect(sinMlaGroup(null).items[0].value).toBeNull();
   });
 

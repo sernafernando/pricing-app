@@ -99,6 +99,8 @@ def _sin_mla_members(f: PublicationFilter) -> Any:
     return product_select(
         f,
         T.p.item_id.label("product"),
+        # `linked` gates the ERP stock of a publication row (`con_stock`); a Sin MLA row IS the product, so its stock
+        # always counts (`filters.PRODUCT_STOCK`): true here, never "has a linked publication"
         true().label("linked"),
         false().label("own_offer"),
         T.p.stock.label("stock"),

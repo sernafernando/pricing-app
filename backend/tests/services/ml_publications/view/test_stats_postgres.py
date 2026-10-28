@@ -148,6 +148,12 @@ class TestSinMla:
     def test_with_sin_mla_on_the_cards_count_the_sin_mla_products(self, db) -> None:
         got = stats.compute(db, parse_filter(con_mla=False), markups=True, sin_mla=True)
         assert got["total"] == 2 and got["oferta_sin_rebate"] == 0
+        assert {card: got[card] for card in SIN_MLA_CARDS} == {
+            "sin_mla": 2,
+            "sin_mla_con_stock": 1,
+            "sin_mla_sin_stock": 1,
+            "sin_mla_nuevos": 1,
+        }
         for card, extra in {**CARDS, **MARKUP_CARDS}.items():
             if card != "oferta_sin_rebate":  # an offer is a publication's: refused with Sin MLA
                 assert got[card] == listed_products(db, con_mla=False, **extra), card
