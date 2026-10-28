@@ -20,6 +20,7 @@ import {
   ITEMS,
   ITEMS_RESPONSE,
   DETAIL_RESPONSE,
+  DETAIL_LINKED,
   ITEMS_RESPONSE_EVENTS_OFF,
   groupsResponse,
   itemsResponse,
@@ -71,6 +72,8 @@ vi.mock('../services/api', () => ({
     setWebTransferencia: vi.fn(() => Promise.resolve({ data: {} })),
     setOutOfCards: vi.fn(() => Promise.resolve({ data: {} })),
     tipoCambioActual: vi.fn(() => Promise.resolve({ data: { venta: 1000 } })),
+    // The panel's Precios tab (`ProductPrices`) reads the product on its own.
+    obtenerProducto: vi.fn(() => Promise.resolve({ data: { item_id: 4101, codigo: 'ARCHER-AX55', descripcion: 'Router Archer AX55' } })),
   },
   // No current offset unless a test says so: Productos' "markup con offsets" stays out of the cells.
   offsetsGananciaAPI: { vigentes: vi.fn(() => Promise.resolve({ data: [] })), grupoFiltros: vi.fn(() => Promise.resolve({ data: [] })) },
@@ -2525,5 +2528,71 @@ describe("Productos' Sin MLA in the Producto view", () => {
     await user.click(screen.getByRole('button', { name: 'Producto' }));
     await screen.findByText('Router Archer AX55');
     await waitFor(() => expect(productCalls().at(-1).con_mla).toBeUndefined());
+  });
+});
+
+describe("the panels' Precios tab shows the list's price group (owner, 2026-10-28)", () => {
+  const PRICED = [
+    {
+      item_id: 4101,
+      descripcion: 'Router Archer AX55',
+      precio_lista_ml: 12345.5,
+      markup: 21.5,
+      precio_3_cuotas: 13000,
+      precio_pvp: 15000,
+      mejor_oferta_precio: 11999,
+      participa_rebate: true,
+      precio_rebate: 12500,
+    },
+  ];
+  beforeEach(() => {
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+    preciosAPI.setRapido.mockClear();
+    publicacionesMlAPI.detail.mockImplementation(() => Promise.resolve({ data: { ...DETAIL_LINKED, row: ITEMS[0] } }));
+  });
+  const group = async () => {
+    const panel = await screen.findByRole('complementary', { name: /Detalle de/ });
+    return within(panel).findByRole('region', { name: 'Precios de la lista' });
+  };
+
+  it("a publication's Precios tab has every list price of the Precios view: Normal, Cuotas and PVP", async () => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
+    const prices = await group();
+    for (const header of ['Precio Clásica', 'Precio Rebate', 'Mejor Oferta', 'Web Transf.', '3 Cuotas', '12 Cuotas', 'Precio PVP', 'PVP 3 Cuotas']) {
+      expect(within(prices).getAllByRole('columnheader', { name: header }).length).toBeGreaterThan(0);
+    }
+    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
+    expect(within(prices).getByText('15.000,00')).toBeInTheDocument();
+  });
+
+  it("edits a price with the list's own editor and handlers, and reads it again", async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
+    const prices = await group();
+    await user.click((await within(prices).findAllByRole('button', { name: /^Editar Precio Clásica/ }))[0]);
+    const input = within(prices).getByRole('textbox', { name: 'Precio Clásica' });
+    await user.clear(input);
+    await user.type(input, '15000{Enter}');
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 15000 })));
+    expect(await screen.findByText('Precio guardado.')).toBeInTheDocument();
+  });
+
+  it("Calcular opens Productos' pricing modal on the product", async () => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
+    const prices = await group();
+    await userEvent.click(await within(prices).findByRole('button', { name: 'Calcular el precio de Router Archer AX55' }));
+    // PricingModalTesla, titled with the product as in Productos.
+    await waitFor(() => expect(document.querySelector('.modal-tesla')).toHaveTextContent('Router Archer AX55'));
+  });
+
+  it("a product's Precios tab has the same group", async () => {
+    publicacionesMlAPI.products.mockReset();
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto&prod=4101'] });
+    const panel = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    await userEvent.click(await within(panel).findByRole('tab', { name: 'Precios' }));
+    const prices = await within(panel).findByRole('region', { name: 'Precios de la lista' });
+    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
   });
 });

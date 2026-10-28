@@ -417,7 +417,8 @@ export default function PublicacionesML() {
   // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it.
   const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
   // Productos' "markup con offsets" under the clásica markup: the offsets are about the cost, so only with the margin.
-  const listOffsets = useListOffsets(canSeePrices && canSeeMargin && !agrupado);
+  // Also for the panels' Precios tab, which opens from the tree too.
+  const listOffsets = useListOffsets(canSeePrices && canSeeMargin);
   // The products checked for the bulk pricing actions (a publication checks its linked product), as in Productos
   // (S12d): Shift+click checks a range of the rows on show, the title header checks the page, and the selection
   // outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page there.
@@ -441,6 +442,16 @@ export default function PublicacionesML() {
   const priceEdit = useMemo(
     () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, onToggle: priceEditor.editToggle, saving: priceEditor.saving }),
     [priceWritePermissions, priceEditor.save, priceEditor.editToggle, priceEditor.saving],
+  );
+  // The list's price cells' handlers, for the panels' Precios tab (the same group, the same writes and modals).
+  const priceGroup = useMemo(
+    () => ({
+      edit: priceEdit,
+      onCalculate: canCalculatePrice ? setPricingProduct : null,
+      offsets: listOffsets,
+      version: reloadToken,
+    }),
+    [priceEdit, canCalculatePrice, listOffsets, reloadToken],
   );
   const cyclePriceMode = () => {
     const next = PRICE_MODES[(PRICE_MODES.indexOf(filters.modo) + 1) % PRICE_MODES.length];
@@ -954,6 +965,7 @@ export default function PublicacionesML() {
                   dataState={data?.data_state}
                   onBack={filters.prod ? backToProduct : undefined}
                   backLabel={backLabel}
+                  priceGroup={canSeePrices ? priceGroup : null}
                 />
               ) : filters.prod ? (
                 <ProductPanel
@@ -964,6 +976,7 @@ export default function PublicacionesML() {
                   canSeeSales={canSeeSales}
                   canSeeMargin={canSeeMargin}
                   onListReload={reloadList}
+                  priceGroup={canSeePrices ? priceGroup : null}
                 />
               ) : null
             }

@@ -4,6 +4,7 @@ import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
 import ProductoMLAsPanel from '../promociones/ProductoMLAsPanel';
 import ProductPrices from '../pricing/ProductPrices';
+import ListPriceGroup from './panel/ListPriceGroup';
 import { canViewProductPrices, pricePermissions } from '../pricing/productPricePermissions';
 import { buildColumns } from './columns';
 import { PRODUCT_FIGURES } from './productFigures';
@@ -98,6 +99,7 @@ export default function ProductPanel({
   canSeeSales = false,
   canSeeMargin = false,
   onListReload,
+  priceGroup = null,
 }) {
   const { summary, items, loading, error, reload, loadMore, hasMore } = useProductPanel(filters, productKey);
   const { tienePermiso } = usePermisos();
@@ -156,9 +158,10 @@ export default function ProductPanel({
             <ProductChangesTab key={productItemId} productItemId={productItemId} />
           ) : activeKey === PRECIOS.key ? (
             <>
+              <ListPriceGroup productItemId={productItemId} canSeeMargin={canSeeMargin} group={priceGroup} />
               <ProductPrices
                 productItemId={productItemId}
-                readAgain={pricesReadAgain}
+                readAgain={pricesReadAgain + (priceGroup?.version ?? 0)}
                 permissions={pricePermissions(tienePermiso)}
                 onWritten={onListReload}
                 showCost={canSeeMargin}

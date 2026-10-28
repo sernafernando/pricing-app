@@ -1714,6 +1714,37 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     }
   }
 
+  // Precios: the Precios view's own price group on top (owner, 2026-10-28), the list's cells inside the panel.
+  for (const { width, height } of PANEL_VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the Precios tab opens with the list's price group, Normal, Cuotas and PVP inside the panel`, async () => {
+        preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
+        offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
+        try {
+          const screen = await renderWithPanel({ width, height, theme, tab: 'precios', linked: true, margin: true });
+          const group = screen.getByRole('region', { name: 'Precios de la lista' });
+          await expect.element(group.getByText('189.999,00').first()).toBeVisible();
+          const panel = panelOf();
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          const tables = [...group.element().querySelectorAll('table')];
+          expect(tables.map((table) => table.querySelector('caption').textContent)).toEqual(['Normal', 'Cuotas', 'PVP']);
+          for (const table of tables) expect(rect(table).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          // Each cell's content stays inside its own cell, as in the list.
+          expect(overflowingCells(group.element())).toEqual([]);
+          await expect.element(group.getByRole('button', { name: 'Calcular el precio de Router Archer AX55' })).toBeVisible();
+          if (PRODUCT_SHOTS_DIR) {
+            group.element().scrollIntoView({ block: 'start' });
+            await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-precios-lista-${width}-${theme}.png`, element: panel });
+          }
+          screen.unmount();
+        } finally {
+          preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
+          offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
+        }
+      });
+    }
+  }
+
   // Precios: cost card, one accented card per list, markup chips by the app scale (markupTone).
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
@@ -1738,7 +1769,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
             tokenColor('--tone-warning-fg'),
           ]);
 
-          const row = (label) => [...panel.querySelectorAll('tbody tr')].find((tr) => (tr.querySelector('th').getAttribute('aria-label') ?? tr.querySelector('th').textContent) === label);
+          const row = (label) => [...panel.querySelectorAll('section[data-list] tbody tr')].find((tr) => (tr.querySelector('th').getAttribute('aria-label') ?? tr.querySelector('th').textContent) === label);
           const chip = (label, col) => row(label).querySelector(`[data-col="${col}"] [data-tone]`);
           expect(getComputedStyle(chip('Clásica', 'markup')).color).toBe(tokenColor('--tone-success-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).color).toBe(tokenColor('--tone-danger-fg'));
@@ -1755,7 +1786,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           // Figures on one line. Whether every list fits the panel's width depends on the typeface the host
           // resolves (the suite loads none, see pxqPanel.visual.test.jsx): the CI runner's fallback is about a
           // quarter wider than a desktop's, so that fit is checked by hand on a screenshot, not here.
-          const figures = [...panel.querySelectorAll('tbody td')].filter((td) => /\d/.test(td.textContent));
+          const figures = [...panel.querySelectorAll('section[data-list] tbody td')].filter((td) => /\d/.test(td.textContent));
           expect(figures.filter((td) => getComputedStyle(td).whiteSpace !== 'nowrap').map((td) => td.textContent)).toEqual([]);
           expect(wrapped(panel.querySelectorAll('section[data-list] [data-tone]'))).toEqual([]);
           // Rebate, best offer and web transferencia: chips by the same scale, details wrap under the label.
