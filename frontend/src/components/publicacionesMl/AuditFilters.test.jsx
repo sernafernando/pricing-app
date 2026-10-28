@@ -69,6 +69,23 @@ describe('AuditFilters', () => {
     expect(setFilters).toHaveBeenLastCalledWith(EMPTY_AUDIT_FILTERS);
   });
 
+  it("shows a bare date from a link in its input, as the whole day the backend reads", async () => {
+    render(<AuditFilters filters={filters({ audit_desde: '2026-10-20', audit_hasta: '2026-10-21' })} setFilters={vi.fn()} />);
+    await openPanel();
+    expect(screen.getByLabelText('Desde')).toHaveValue('2026-10-20T00:00');
+    expect(screen.getByLabelText('Hasta')).toHaveValue('2026-10-21T23:59');
+  });
+
+  it('asks the users and kinds again when the panel reopens after a failed load', async () => {
+    api.get.mockRejectedValueOnce(new Error('offline'));
+    render(<AuditFilters filters={filters()} setFilters={vi.fn()} />);
+    await openPanel();
+    expect(await screen.findByText(/No se pudieron cargar/)).toBeInTheDocument();
+    await openPanel(); // closes
+    await openPanel();
+    expect(await screen.findByRole('checkbox', { name: 'Ana' })).toBeInTheDocument();
+  });
+
   it('shows no chips and asks nothing while no audit filter is active', () => {
     render(<AuditFilters filters={filters()} setFilters={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /Limpiar auditoría/ })).not.toBeInTheDocument();

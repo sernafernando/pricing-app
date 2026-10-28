@@ -13,6 +13,13 @@ import styles from './AuditFilters.module.css';
  *
  * @param {{filters: object, setFilters: (updates: object) => void, labelClassName?: string}} props
  */
+/** The URL's moment as a `datetime-local` value: a bare date is the whole day (from 00:00, or until 23:59). */
+const inputMoment = (value, endOfDay) => {
+  const moment = value.replace(' ', 'T');
+  if (!moment || moment.includes('T')) return moment;
+  return `${moment}T${endOfDay ? '23:59' : '00:00'}`;
+};
+
 export default function AuditFilters({ filters, setFilters, labelClassName }) {
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState(null);
@@ -66,7 +73,11 @@ export default function AuditFilters({ filters, setFilters, labelClassName }) {
           aria-expanded={open}
           aria-label={label}
           title={label}
-          onClick={() => setOpen((was) => !was)}
+          onClick={() => {
+            // a failed load is asked again on the next opening
+            if (options?.failed) setOptions(null);
+            setOpen((was) => !was);
+          }}
         >
           <History size={14} aria-hidden="true" />
           Auditoría
@@ -117,7 +128,7 @@ export default function AuditFilters({ filters, setFilters, labelClassName }) {
                 <input
                   type="datetime-local"
                   className={styles.input}
-                  value={filters.audit_desde.replace(' ', 'T')}
+                  value={inputMoment(filters.audit_desde, false)}
                   onChange={(event) => setFilters({ audit_desde: event.target.value })}
                 />
               </label>
@@ -126,7 +137,7 @@ export default function AuditFilters({ filters, setFilters, labelClassName }) {
                 <input
                   type="datetime-local"
                   className={styles.input}
-                  value={filters.audit_hasta.replace(' ', 'T')}
+                  value={inputMoment(filters.audit_hasta, true)}
                   onChange={(event) => setFilters({ audit_hasta: event.target.value })}
                 />
               </label>
