@@ -244,7 +244,7 @@ export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
         </span>
       </section>
 
-      <div className={styles.layout}>
+      <div className={`${styles.layout} ${styles.periodicidadLayout}`}>
         <ParaGanarPeriodicidadList
           items={items}
           loading={loading}

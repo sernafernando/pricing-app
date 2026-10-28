@@ -126,6 +126,39 @@ export default function ParaGanarPeriodicidadDetail({
     });
   };
 
+  const visibleIds = filteredMlas.map((opt) => String(opt.mla).toUpperCase());
+  const allVisibleSelected =
+    visibleIds.length > 0 && visibleIds.every((mla) => selectedSet.has(mla));
+
+  const selectAllVisible = () => {
+    setForm((prev) => {
+      const next = new Set((prev.mlas || []).map((m) => String(m).toUpperCase()));
+      visibleIds.forEach((mla) => next.add(mla));
+      return {
+        ...prev,
+        scope_mode: SCOPE_MLAS,
+        mlas: [...next],
+        tipos_publicacion: [],
+        pricelist_ids: [],
+        tienda_oficial_ids: [],
+      };
+    });
+  };
+
+  const deselectAllVisible = () => {
+    const drop = new Set(visibleIds);
+    setForm((prev) => ({
+      ...prev,
+      scope_mode: SCOPE_MLAS,
+      mlas: (prev.mlas || [])
+        .map((m) => String(m).toUpperCase())
+        .filter((mla) => !drop.has(mla)),
+      tipos_publicacion: [],
+      pricelist_ids: [],
+      tienda_oficial_ids: [],
+    }));
+  };
+
   return (
     <aside className={styles.detail} aria-label="Detalle de suscripción">
       <div className={styles.panelTitle}>Detalle</div>
@@ -138,7 +171,7 @@ export default function ParaGanarPeriodicidadDetail({
         </div>
 
         <form
-          className={styles.criteriaForm}
+          className={`${styles.criteriaForm} ${styles.periodicidadForm}`}
           onSubmit={(event) => {
             event.preventDefault();
             onSave();
@@ -229,7 +262,7 @@ export default function ParaGanarPeriodicidadDetail({
             </div>
           </fieldset>
 
-          <fieldset className={styles.periodicidadFieldset}>
+          <fieldset className={`${styles.periodicidadFieldset} ${styles.periodicidadMlaFieldset}`}>
             <legend>
               MLAs ({filteredMlas.length}
               {filteredMlas.length !== (mlaOptions || []).length
@@ -237,59 +270,75 @@ export default function ParaGanarPeriodicidadDetail({
                 : ''}
               )
             </legend>
+            <div className={styles.periodicidadMlaToolbar}>
+              <button
+                type="button"
+                className={styles.pagerBtn}
+                disabled={!canWrite || todoElEan || mlasLoading || visibleIds.length === 0}
+                onClick={allVisibleSelected ? deselectAllVisible : selectAllVisible}
+              >
+                {allVisibleSelected ? 'Deseleccionar todos' : 'Seleccionar todos'}
+              </button>
+              <span className={styles.toolbarHint}>
+                Solo los visibles (filtros); no cubre MLAs futuros
+              </span>
+            </div>
             {mlasLoading && <p className={styles.emptyBody}>Cargando MLAs…</p>}
             {!mlasLoading && filteredMlas.length === 0 && (
               <p className={styles.emptyBody}>
                 No hay MLAs con el alcance / filtros actuales.
               </p>
             )}
-            {!mlasLoading &&
-              filteredMlas.map((opt) => {
-                const mla = String(opt.mla).toUpperCase();
-                const checked = todoElEan || selectedSet.has(mla);
-                const tiendaLabel =
-                  opt.tienda_oficial_id != null
-                    ? getLabel(opt.tienda_oficial_id) || `Tienda ${opt.tienda_oficial_id}`
-                    : 'Sin tienda';
-                return (
-                  <label
-                    key={mla}
-                    className={`${styles.criteriaCheck} ${
-                      opt.criterios_aplicados
-                        ? styles.periodicidadMlaConCriterio
-                        : styles.periodicidadMlaSinCriterio
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      disabled={!canWrite || todoElEan}
-                      checked={checked}
-                      onChange={() => toggleMla(mla)}
-                    />
-                    <span>
-                      <strong>{mla}</strong>
-                      {' · '}
-                      {opt.tipo_nombre || opt.tipo_publicacion || 'Tipo —'}
-                      {' · '}
-                      {opt.lista_nombre ||
-                        (opt.pricelist_id != null ? `Lista ${opt.pricelist_id}` : 'Lista —')}
-                      {' · '}
-                      {tiendaLabel}
-                      {' · '}
-                      <span
-                        className={
-                          opt.criterios_aplicados
-                            ? styles.periodicidadCriterioBadge
-                            : styles.periodicidadSinCriterioBadge
-                        }
-                      >
-                        {opt.criterios_aplicados ? 'Con criterio' : 'Sin criterio'}
+            {!mlasLoading && filteredMlas.length > 0 && (
+              <div className={styles.periodicidadMlaList} role="list">
+                {filteredMlas.map((opt) => {
+                  const mla = String(opt.mla).toUpperCase();
+                  const checked = todoElEan || selectedSet.has(mla);
+                  const tiendaLabel =
+                    opt.tienda_oficial_id != null
+                      ? getLabel(opt.tienda_oficial_id) || `Tienda ${opt.tienda_oficial_id}`
+                      : 'Sin tienda';
+                  return (
+                    <label
+                      key={mla}
+                      role="listitem"
+                      className={`${styles.criteriaCheck} ${
+                        opt.criterios_aplicados
+                          ? styles.periodicidadMlaConCriterio
+                          : styles.periodicidadMlaSinCriterio
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={!canWrite || todoElEan}
+                        checked={checked}
+                        onChange={() => toggleMla(mla)}
+                      />
+                      <span>
+                        <strong>{mla}</strong>
+                        {' · '}
+                        {opt.tipo_nombre || opt.tipo_publicacion || 'Tipo —'}
+                        {' · '}
+                        {opt.lista_nombre ||
+                          (opt.pricelist_id != null ? `Lista ${opt.pricelist_id}` : 'Lista —')}
+                        {' · '}
+                        {tiendaLabel}
+                        {' · '}
+                        <span
+                          className={
+                            opt.criterios_aplicados
+                              ? styles.periodicidadCriterioBadge
+                              : styles.periodicidadSinCriterioBadge
+                          }
+                        >
+                          {opt.criterios_aplicados ? 'Con criterio' : 'Sin criterio'}
+                        </span>
                       </span>
-                      {opt.titulo ? ` — ${opt.titulo}` : ''}
-                    </span>
-                  </label>
-                );
-              })}
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </fieldset>
 
           {formError && (

@@ -769,6 +769,51 @@
   min-height: 0;
 }
 
+/* Cap list+detail to the viewport; each pane scrolls inside. */
+.periodicidadLayout {
+  align-items: stretch;
+  min-height: 360px;
+  max-height: calc(100vh - 56px - var(--spacing-md) - 12rem);
+}
+
+.periodicidadLayout .queue,
+.periodicidadLayout .detail {
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.periodicidadForm {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.periodicidadMlaFieldset {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.periodicidadMlaToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.periodicidadMlaList {
+  flex: 1;
+  min-height: 8rem;
+  max-height: min(40vh, 22rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  padding-right: 2px;
+}
+
 .periodicidadShell {
   flex: 1;
   min-height: 280px;
