@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { preciosAPI } from '../../services/api';
 import { parsePrecioInput } from '../../utils/precioInput';
 import { errorText, warningText, writePrice } from '../pricing/priceWrites';
@@ -56,49 +56,49 @@ const FLAGS = { rebate: 'participa_rebate', web: 'participa_web_transferencia', 
  * `toggle(kind, product)` flips the product's rebate ('rebate'), web transfer ('web') or "fuera de tarjetas"
  * ('tarjetas'), the r / w / o shortcuts, with the same report and re-read.
  *
- * `save`, `confirm` and `toggle` resolve true when the price was written. `save` is the same function between renders (the
- * table's columns hold it).
+ * `save`, `confirm` and `toggle` resolve true when the price was written. `save` stays the same function between
+ * renders (the table's columns hold it) as long as `onWritten` does.
  */
 export default function useInlinePriceEdit({ onWritten } = {}) {
   const [saving, setSaving] = useState(false);
   const [pending, setPending] = useState(null);
   const [message, setMessage] = useState(null);
-  const onWrittenRef = useRef(onWritten);
-  // One write at a time: a second one started on the same figures would write the same thing again.
+  // One write at a time (a typed price's markup check included): a second one started on the same figures would
+  // write the same thing again.
   const busy = useRef(false);
   // The flags just written, until the prices are read again: `over` is the product object they were written over, so
   // a press before the re-read flips from what was written and a fresh read of the product wins again.
   const written = useRef(new Map());
-  useEffect(() => {
-    onWrittenRef.current = onWritten;
-  });
 
-  // One write: reported, and the caller re-reads after it.
-  const refuseWhileBusy = () => {
+  const refuseWhileBusy = useCallback(() => {
     if (!busy.current) return false;
     setMessage({ tone: 'error', text: 'Esperá a que termine el cambio anterior.' });
     return true;
-  };
-
-  const run = useCallback(async ({ write, saved, fallback }) => {
-    if (refuseWhileBusy()) return false;
-    busy.current = true;
-    setSaving(true);
-    setMessage(null);
-    try {
-      await write();
-      setPending(null);
-      setMessage({ tone: 'ok', text: `${saved}.` });
-      onWrittenRef.current?.();
-      return true;
-    } catch (error) {
-      setMessage({ tone: 'error', text: errorText(error, fallback) });
-      return false;
-    } finally {
-      busy.current = false;
-      setSaving(false);
-    }
   }, []);
+
+  // One write: reported, and the caller re-reads after it.
+  const run = useCallback(
+    async ({ write, saved, fallback }) => {
+      if (refuseWhileBusy()) return false;
+      busy.current = true;
+      setSaving(true);
+      setMessage(null);
+      try {
+        await write();
+        setPending(null);
+        setMessage({ tone: 'ok', text: `${saved}.` });
+        onWritten?.();
+        return true;
+      } catch (error) {
+        setMessage({ tone: 'error', text: errorText(error, fallback) });
+        return false;
+      } finally {
+        busy.current = false;
+        setSaving(false);
+      }
+    },
+    [refuseWhileBusy, onWritten],
+  );
 
   const commit = useCallback(
     (row, product, precio) =>
@@ -118,28 +118,33 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
     [run],
   );
 
-  const save = useCallback(async (row, product, value) => {
-    if (refuseWhileBusy()) return false;
-    const precio = parsePrecioInput(value);
-    if (precio === null) {
-      setMessage({ tone: 'error', text: 'El precio debe ser un número válido mayor o igual a 0 (ej. 120.000,50).' });
-      return false;
-    }
-    if (precio === 0) {
-      setPending({ kind: 'zero', row, product, precio });
-      return false;
-    }
-    setSaving(true);
-    // Productos asks before saving a price under cost + fees; a failed check does not block the save.
-    const check = await preciosAPI.calcularMarkup({ item_id: product.item_id, precio, pricelist_id: row.pricelist }).catch(() => null);
-    const markup = check?.data?.markup;
-    if (typeof markup === 'number' && markup < 0) {
-      setSaving(false);
-      setPending({ kind: 'negative', row, product, precio, markup });
-      return false;
-    }
-    return commit(row, product, precio);
-  }, [commit]);
+  const save = useCallback(
+    async (row, product, value) => {
+      if (refuseWhileBusy()) return false;
+      const precio = parsePrecioInput(value);
+      if (precio === null) {
+        setMessage({ tone: 'error', text: 'El precio debe ser un número válido mayor o igual a 0 (ej. 120.000,50).' });
+        return false;
+      }
+      if (precio === 0) {
+        setPending({ kind: 'zero', row, product, precio });
+        return false;
+      }
+      busy.current = true;
+      setSaving(true);
+      // Productos asks before saving a price under cost + fees; a failed check does not block the save.
+      const check = await preciosAPI.calcularMarkup({ item_id: product.item_id, precio, pricelist_id: row.pricelist }).catch(() => null);
+      busy.current = false;
+      const markup = check?.data?.markup;
+      if (typeof markup === 'number' && markup < 0) {
+        setSaving(false);
+        setPending({ kind: 'negative', row, product, precio, markup });
+        return false;
+      }
+      return commit(row, product, precio);
+    },
+    [refuseWhileBusy, commit],
+  );
 
   const confirm = () => (pending ? commit(pending.row, pending.product, pending.precio) : Promise.resolve(false));
   const cancel = () => setPending(null);

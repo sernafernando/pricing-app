@@ -221,6 +221,29 @@ describe('useInlinePriceEdit', () => {
       expect(preciosAPI.setOutOfCards).toHaveBeenCalledTimes(1);
     });
 
+    it("a toggle pressed while a typed price's markup is being checked waits its turn: the price is saved", async () => {
+      let checked;
+      preciosAPI.calcularMarkup.mockReturnValueOnce(new Promise((resolve) => (checked = resolve)));
+      const { result } = setup();
+      let saving;
+      act(() => {
+        saving = result.current.save(CLASICA, PRODUCT, '500');
+      });
+      let toggled;
+      await act(async () => {
+        toggled = await result.current.toggle('rebate', { item_id: 7, participa_rebate: false });
+      });
+      expect(toggled).toBe(false);
+      expect(preciosAPI.setRebate).not.toHaveBeenCalled();
+      let saved;
+      await act(async () => {
+        checked({ data: { markup: 12 } });
+        saved = await saving;
+      });
+      expect(saved).toBe(true);
+      expect(preciosAPI.setRapido).toHaveBeenCalledWith({ item_id: 7, precio: 500, recalcular_cuotas: false });
+    });
+
     it('a price typed while a toggle is on its way is not checked nor saved, and says why', async () => {
       let finish;
       preciosAPI.setOutOfCards.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
