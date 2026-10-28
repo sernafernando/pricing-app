@@ -826,6 +826,24 @@ def test_an_offset_added_to_a_migrated_group_goes_to_review_not_already_migrated
     assert (summary["ya_migrados"], summary["pendientes"]) == (3, 1)
 
 
+def test_a_group_with_more_products_than_a_campaign_holds_says_so(engine, correr) -> None:
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO productos_erp (item_id, codigo, descripcion) VALUES (:i, :c, 'P')"),
+            [{"i": 10000 + i, "c": f"X{i}"} for i in range(501)],
+        )
+    ids = [_offset(engine, grupo_id=grupo_id)] + [
+        _offset(engine, grupo_id=grupo_id, item_id=10000 + i) for i in range(501)
+    ]
+
+    _, summary, filas = correr("--apply")
+
+    motivo = f"Grupo #{grupo_id}: tiene 501 productos con monto propio y una campaña admite hasta 500; revisar a mano"
+    assert {filas[i]["motivo"] for i in ids} == {motivo}
+    assert _campanas(engine) == [] and summary["pendientes"] == 502
+
+
 def test_a_group_dry_run_writes_nothing_and_reports_every_offset(engine, correr) -> None:
     _, ids = _grupo_tplink(engine)
     antes = {table: _count(engine, table) for table in _ESCRITAS}

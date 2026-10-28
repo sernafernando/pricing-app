@@ -78,7 +78,7 @@ from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem
-from app.schemas.sell_out import NOMBRE_MAX, SellOutCampanaIn
+from app.schemas.sell_out import ITEMS_MAX, NOMBRE_MAX, SellOutCampanaIn
 from app.services.sell_out import campanas
 from app.utils.csv_cells import csv_money, csv_text
 
@@ -241,6 +241,11 @@ def _planear_grupo(
         if o.item_id in vistos:
             return _Plan(f"{g}: el producto {o.item_id} tiene más de un offset")
         vistos.add(o.item_id)
+    if len(con_item) > ITEMS_MAX:
+        return _Plan(
+            f"{g}: tiene {len(con_item)} productos con monto propio y una campaña admite hasta {ITEMS_MAX}; "
+            "revisar a mano"
+        )
     if len({(o.fecha_desde, o.fecha_hasta) for o in offsets}) > 1:
         # Each legacy offset applies only within its own dates: one campaign period would credit outside them.
         return _Plan(f"{g}: sus offsets tienen períodos distintos y una campaña tiene uno solo; revisar a mano")
