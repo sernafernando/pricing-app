@@ -184,21 +184,6 @@ def test_p2c_deleted_operation_frees_its_share(engine) -> None:
     assert _activas(engine, bono) == {y: (2, Decimal("20.00")), w: (1, Decimal("5.00"))}, queued
 
 
-def _migration_trigger(engine: Engine) -> None:
-    """The world installs `bono_queue.UPGRADE_SQL` (the module's "live definition"), which #1875 did not update;
-    production gets the update trigger from migration 20261211. Install that one, as production has it."""
-    import importlib.util
-    from pathlib import Path
-
-    path = Path(__file__).resolve().parents[3] / "alembic/versions/20261211_sell_in_bono_tope.py"
-    spec = importlib.util.spec_from_file_location("m20261211", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    with engine.begin() as conn:
-        conn.execute(text(mod.DROP_TRIGGER))
-        conn.execute(text(mod._trigger(con_tope=True)))
-
-
 def test_p2d0_the_live_definition_queues_a_cap_change(engine) -> None:
     """A1: `bono_queue.UPGRADE_SQL` (what the test world installs) queues a cap change, as migration 20261211 does."""
     bono = _capped(engine, monto="10.00", tope_monto="25.00")
@@ -224,7 +209,6 @@ def test_p2d00_the_live_update_trigger_is_the_migrations() -> None:
 
 
 def test_p2d_raise_lower_remove_cap_and_void_bonus(engine) -> None:
-    _migration_trigger(engine)
     bono = _capped(engine, monto="10.00", tope_monto="25.00")
     x = b.pedido(engine, {2964: 2}, D(2026, 10, 10))
     y = b.pedido(engine, {2964: 2}, D(2026, 10, 12))
