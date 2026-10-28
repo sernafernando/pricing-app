@@ -40,8 +40,14 @@ from app.models.precio_gremio_override import PrecioGremioOverride  # noqa: F401
 
 @pytest.fixture(autouse=True)
 def _ventas_ve_productos(grant_permiso, rol_ventas):
-    """GET /productos/{item_id} requires productos.ver (or a price-edit code)."""
+    """GET /productos/{item_id} requires productos.ver (or a price-edit code); each export, its own code."""
     grant_permiso(rol_ventas, "productos.ver")
+    for codigo in (
+        "productos.exportar_vista_actual",
+        "productos.exportar_web_transferencia",
+        "productos.exportar_rebate",
+    ):
+        grant_permiso(rol_ventas, codigo)
 
 
 def _make_usuario(db, username: str, rol_id: int) -> Usuario:

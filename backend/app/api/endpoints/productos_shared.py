@@ -289,6 +289,49 @@ class ExportRebateRequest(BaseModel):
             "Distinto de 'tienda_oficial' (filtro a nivel producto)."
         ),
     )
+    # The explicit product set Publicaciones ML exports (`ExportItemIdsBody`); `filtros` alongside is a 422.
+    item_ids: Optional[List[int]] = Field(default=None, min_length=1)
+
+    @field_validator("item_ids")
+    @classmethod
+    def _distinct_within_cap(cls, item_ids: Optional[List[int]]) -> Optional[List[int]]:
+        return distinct_export_item_ids(item_ids)
+
+    @model_validator(mode="after")
+    def _one_product_set(self):
+        if self.item_ids is not None and self.filtros:
+            raise ValueError("item_ids y filtros son excluyentes: mandá uno solo")
+        return self
+
+
+def distinct_export_item_ids(item_ids: Optional[List[int]]) -> Optional[List[int]]:
+    """An export's explicit product set: duplicates collapse, then the cap (Publicaciones ML's resolver's own)."""
+    if item_ids is None:
+        return None
+    unique = list(dict.fromkeys(item_ids))
+    if len(unique) > MAX_EXPLICIT_PRODUCT_IDS:
+        raise ValueError(f"{len(unique)} productos superan el máximo de {MAX_EXPLICIT_PRODUCT_IDS} por exportación")
+    return unique
+
+
+class ExportItemIdsBody(BaseModel):
+    """The optional body of the GET exports, sent as POST: export exactly these products (Publicaciones ML resolves
+    them from its own filters with `/ml-publications/view/product-ids`). They combine with the query filters. An empty
+    list is refused: it must never read as "all"."""
+
+    item_ids: List[int] = Field(min_length=1)
+
+    @field_validator("item_ids")
+    @classmethod
+    def _distinct_within_cap(cls, item_ids: List[int]) -> List[int]:
+        return distinct_export_item_ids(item_ids)
+
+
+def solo_item_ids(query: Query, item_ids: Optional[List[int]]) -> Query:
+    """Narrows an export's product query to its explicit set, when it has one."""
+    from app.models.producto import ProductoERP
+
+    return query if item_ids is None else query.filter(ProductoERP.item_id.in_(item_ids))
 
 
 class ExplicitItemIdsRequest(BaseModel):
