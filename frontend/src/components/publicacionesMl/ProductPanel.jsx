@@ -130,8 +130,8 @@ export default function ProductPanel({
             </>
           ) : (
             <>
-              {productItemId != null && <ProductIdentity key={productItemId} productItemId={productItemId} publications={items} />}
-              {productItemId != null && <ProductPurchases key={productItemId} productItemId={productItemId} />}
+              {productItemId != null && <ProductIdentity key={`identity-${productItemId}`} productItemId={productItemId} publications={items} />}
+              {productItemId != null && <ProductPurchases key={`purchases-${productItemId}`} productItemId={productItemId} />}
               {figures.length > 0 && (
                 <Section title="Cifras">
                   <p className={panelStyles.note}>Con los filtros actuales</p>
@@ -194,7 +194,7 @@ export default function ProductPanel({
                   </button>
                 )}
               </Section>
-              <ProductCatalogCompetition key={productKey} publications={items} />
+              <ProductCatalogCompetition key={`catalog-${productKey}`} publications={items} />
               <ProductPxq key={`pxq-${productKey}`} publications={items} />
             </>
           )}
