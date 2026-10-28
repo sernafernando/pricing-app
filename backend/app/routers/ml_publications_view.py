@@ -52,7 +52,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permiso
+from app.api.deps import get_current_user, require_permiso
 from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
@@ -721,11 +721,17 @@ def filter_query(
     oferta_por_producto: Optional[bool] = Query(
         None, description="ask con_oferta of the product (any of its publications), as the Producto view does"
     ),
+    colores: Optional[str] = Query(
+        None, description="csv of Productos' colors and/or `sin_color`, on the layer of `equipo_id` (the global one)"
+    ),
+    equipo_id: Optional[int] = Query(None, description="color layer (Productos' teams); omitted = the global one"),
+    user: Usuario = Depends(get_current_user),
+    auth_db: Session = Depends(get_db),
 ) -> PublicationFilter:
     """The filters every read of the screen shares (`/items` and `/groups`): one declaration, so a filter added here
     reaches both. A value outside its vocabulary is a 422 naming the parameter."""
     try:
-        return parse_filter(
+        f = parse_filter(
             q=q,
             estado=estado,
             estado_excluir=estado_excluir,
@@ -751,9 +757,15 @@ def filter_query(
             tn_no_publicado=tn_no_publicado,
             out_of_cards=out_of_cards,
             oferta_por_producto=oferta_por_producto,
+            colores=colores,
         )
     except FilterError as exc:
         raise _unprocessable(exc) from exc
+    if not (f.colors or f.no_color):
+        return f
+    # The colors are the layer's (a team the user is not in is a 403, as everywhere): resolved once, here, so the
+    # filter means the same products on every read it reaches.
+    return colors.resolve_color_filter(auth_db, colors.resolve_layer(auth_db, user, equipo_id), f)
 
 
 def _ads_status(provider: AdsCostProvider, requested: bool, first: Optional[date], last: Optional[date]) -> AdsStatus:
