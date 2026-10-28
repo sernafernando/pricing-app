@@ -114,3 +114,21 @@ class TestEmpty:
     def test_an_empty_selection_counts_zero_everywhere(self, db) -> None:
         got = stats.compute(db, parse_filter(q="nothing like this"), markups=True)
         assert set(got.values()) == {0}
+
+
+class TestVariationLinkedPublications:
+    def test_a_publication_of_two_products_counts_each_one(self, db, conn) -> None:
+        # linked per variation only, to 74 and 75: the Producto view lists both, so the cards count both
+        seed.add_product(conn, 74, "E1", "Modem", marca="TP-Link", stock=4)
+        seed.add_product(conn, 75, "F1", "Repetidor", marca="TP-Link", stock=0)
+        seed.add_pricing(conn, 75, precio_lista_ml=500, participa_rebate=False)
+        seed.add_item(conn, "MLA8", status="active")
+        for variation, product in ((81, 74), (82, 75)):
+            seed.add_variation(conn, "MLA8", variation)
+            seed.add_link(conn, "MLA8", product, variation_id=variation)
+        for current in ({}, {"marcas": "TP-Link"}, {"q": "Repetidor"}):
+            got = stats.compute(db, parse_filter(**current), markups=True)
+            expected = {
+                card: listed_products(db, **current, **extra) for card, extra in {**CARDS, **MARKUP_CARDS}.items()
+            }
+            assert (current, got) == (current, expected)

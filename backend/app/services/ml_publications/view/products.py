@@ -113,7 +113,7 @@ class ProductsPage:
     without_figures: frozenset[str] = field(default_factory=frozenset)  # keys of rows with no Board row at all
 
 
-def _pairs(f: PublicationFilter, mlas: Any, *columns: Any) -> Any:
+def product_pairs(f: PublicationFilter, mlas: Any, *columns: Any) -> Any:
     """`columns` over each MLA of `mlas` once per linked product (`filters.product_links`: its item-level link or its
     live variations' links; `T.p` the product's catalog row), keeping only the products that pass `f`'s conditions
     about the product (`filters.linked_product_conditions`): a publication with variations in several products is in
@@ -135,10 +135,10 @@ def _pairs(f: PublicationFilter, mlas: Any, *columns: Any) -> Any:
 
 
 def _members(f: PublicationFilter, mla_set: Any) -> Any:
-    """Each MLA of the set once per linked product that passes `f` (`_pairs`) -- the LINK's product id, even when the
-    product is gone from the catalog (its name then reads "Producto #<id>") -- so the grouping is exactly what
-    `/items?producto=` and `sin_producto` filter on. An MLA with no linked product is one `NO_PRODUCT` row."""
-    return _pairs(
+    """Each MLA of the set once per linked product that passes `f` (`product_pairs`) -- the LINK's product id, even
+    when the product is gone from the catalog (its name then reads "Producto #<id>") -- so the grouping is exactly
+    what `/items?producto=` and `sin_producto` filter on. An MLA with no linked product is one `NO_PRODUCT` row."""
+    return product_pairs(
         f,
         mla_set,
         mla_set.c.mla,
@@ -467,7 +467,7 @@ def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery]
         # the whole set priced once; each (publication, product) pair is judged on its own units below
         result, _ = markup_accepted(db, f, markup)
     mlas = base.subquery("mlas")
-    members = _pairs(
+    members = product_pairs(
         f, mlas, mlas.c.mla, lambda pl: pl.c.producto_item_id.label("product"), T.p.item_id.label("in_catalog")
     ).subquery("m")
     if markup_on:
