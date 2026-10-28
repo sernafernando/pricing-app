@@ -122,6 +122,10 @@ export const DEFAULT_DIRECTION = {
   stock_propio: 'desc',
   stock_full: 'desc',
   stock_erp: 'desc',
+  // The linked product's, as Productos sorts them: A to Z, the cheapest first.
+  codigo: 'asc',
+  marca: 'asc',
+  costo: 'asc',
   // Worst variation first: the most negative markup on top.
   markup: 'asc',
   // Métricas' figures: highest first, as Métricas orders them.
@@ -133,7 +137,7 @@ export const DEFAULT_DIRECTION = {
 };
 
 const SALES_SORTS = new Set(['unidades_7d', 'unidades_30d', 'facturado_30d', 'markup_30d', 'total_gauss_30d']);
-const MARGIN_SORTS = new Set(['markup', 'markup_30d', 'total_gauss_30d']);
+const MARGIN_SORTS = new Set(['markup', 'markup_30d', 'total_gauss_30d', 'costo']);
 
 /** Métricas' default (Facturado 30D) for who sees the sales; the activity otherwise. */
 export const defaultSortFor = ({ canSeeSales = false } = {}) => (canSeeSales ? 'facturado_30d' : 'actividad');

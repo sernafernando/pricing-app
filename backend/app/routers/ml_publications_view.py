@@ -153,6 +153,13 @@ class ErpStockOut(BaseModel):
     quantity: Optional[int] = None
 
 
+class ItemCostOut(BaseModel):
+    """The linked product's cost in its own currency, as the panel shows it."""
+
+    amount: Optional[float] = None
+    currency: Optional[str] = None
+
+
 class LinkOut(BaseModel):
     state: str
     producto_item_id: Optional[int] = None
@@ -283,6 +290,7 @@ class ItemRowOut(BaseModel):
     last_activity_at: Optional[datetime] = None
     last_event: Optional[LastEventOut] = None  # present only while events.enabled
     markup: Optional[MarkupOut] = None  # present only with ml_metricas.ver_ganancia
+    costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
     sales_30d: Optional[Sales30dOut] = None  # present only with ml_metricas.ver
     metrics: Optional[MetricsOut] = None  # present only with ml_metricas.ver; null when Métricas has no row
 
@@ -1000,6 +1008,7 @@ def items_ask(
         or (markup_min or "").strip()
         or (markup_max or "").strip()
         or sort_name == "markup"
+        or sort_name in listing.MARGIN_SORTS
         or (sort_name in METRIC_SORTS and needs_margin(sort_name))
     )  # blank values are absent parameters and the sort name is trimmed, here as in the parsers
     if not can_see_margin and asks_for_margin:
