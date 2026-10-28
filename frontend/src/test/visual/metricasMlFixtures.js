@@ -255,6 +255,9 @@ export const BOARD_RESPONSE = {
     markup: { value: 21.6, delta_pp: -1.4, series: series(23, -1.5, 0.6).slice(-30) },
     rows_with_sales: { value: 318, of_total: 471 },
     ageing: { avg_days: 18, up_to_30: 402, from_31_to_60: 46, over_60: 23 },
+    operations: { value: 2900, delta_pct: 9.6, series: unitSeries(95, 20).slice(-30) },
+    ticket: { value: 29282.91, delta_pct: -1.4, series: unitSeries(29000, 300).slice(-30) },
+    units_per_sale: { value: 1.18, delta_pct: 2.6 },
     sell_in_out: {
       sell_in: 3240000,
       sell_out: 1180000.5,

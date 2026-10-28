@@ -56,7 +56,7 @@ def _pub_row() -> SimpleNamespace:
 class TestMercadolibreLiteParam:
     def test_lite_true_skips_live_batch_call(self) -> None:
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with patch(
             "app.services.ml_webhook_client.ml_webhook_client.get_items_batch",
@@ -77,7 +77,7 @@ class TestMercadolibreLiteParam:
         (`ml_items`, owner's source of truth), through the same batch
         function as the tree — never the ERP mirror."""
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
         statuses = {"MLA9101": MlPublicationStatus("paused", ["paused_by_seller"])}
 
         with patch(
@@ -92,7 +92,7 @@ class TestMercadolibreLiteParam:
 
     def test_publication_status_read_failure_leaves_the_fields_absent(self) -> None:
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with patch("app.api.endpoints.productos_detail.fetch_publication_status_by_mla", return_value={}):
             result = asyncio.run(obtener_datos_ml_producto(item_id=9101, db=db, current_user=current_user, lite=True))
@@ -103,7 +103,7 @@ class TestMercadolibreLiteParam:
 
     def test_lite_absent_still_calls_live_batch(self) -> None:
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with patch(
             "app.services.ml_webhook_client.ml_webhook_client.get_items_batch",
@@ -116,7 +116,7 @@ class TestMercadolibreLiteParam:
 
     def test_lite_false_still_calls_live_batch(self) -> None:
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with patch(
             "app.services.ml_webhook_client.ml_webhook_client.get_items_batch",
@@ -137,7 +137,7 @@ class TestPromoSummaryEnrichment:
 
     def test_success_path_adds_promo_fields_per_mla(self) -> None:
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with (
             patch(
@@ -165,7 +165,7 @@ class TestPromoSummaryEnrichment:
 
     def test_mla_absent_from_summary_leaves_fields_absent(self) -> None:
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with (
             patch(
@@ -188,7 +188,7 @@ class TestPromoSummaryEnrichment:
         """ML_WEBHOOK_DB_URL unset -> RuntimeError -> endpoint still 200
         with full publicaciones list, no promo fields."""
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with (
             patch(
@@ -209,7 +209,7 @@ class TestPromoSummaryEnrichment:
 
     def test_summary_generic_exception_degrades_gracefully(self) -> None:
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with (
             patch(
@@ -247,7 +247,7 @@ class TestMatchesFilter:
 
     def test_no_filter_active_matches_filter_absent_for_all(self) -> None:
         db = self._make_db_two_pubs()
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with (
             patch(
@@ -264,7 +264,7 @@ class TestMatchesFilter:
 
     def test_filter_active_bounded_to_product_mla_ids_and_per_pub_membership(self) -> None:
         db = self._make_db_two_pubs()
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with (
             patch(
@@ -294,7 +294,7 @@ class TestMatchesFilter:
 
     def test_cross_db_unavailable_fails_open_no_503_no_hiding(self) -> None:
         db = self._make_db_two_pubs()
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with (
             patch(
@@ -327,7 +327,7 @@ class TestMatchesFilter:
         the resolver's own SQL (status='started'), never by
         promo_active_count/promo_has_applied hints."""
         db = self._make_db_two_pubs()
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with (
             patch(
@@ -358,7 +358,7 @@ class TestExistingFieldsUnchangedOnSuccess:
     def test_existing_fields_unchanged_on_success(self) -> None:
         """R7 — pre-existing fields/values unchanged, only new keys added."""
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with (
             patch(
@@ -387,7 +387,7 @@ class TestPromoEstadoValidation:
 
     def test_invalid_promo_estado_raises_422(self) -> None:
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(
@@ -406,7 +406,7 @@ class TestPromoEstadoValidation:
     @pytest.mark.parametrize("estado", ["disponible", "aplicada", "sin_aplicar", None])
     def test_valid_promo_estado_does_not_raise(self, estado) -> None:
         db = _make_db(_pub_row())
-        current_user = SimpleNamespace(id=1)
+        current_user = SimpleNamespace(id=1, es_superadmin=True)
 
         with (
             patch(

@@ -198,6 +198,15 @@ class TestSellOut:
 
         assert _payload(engine).sell_out.monto_unit == 5.0
 
+    def test_a_product_with_its_own_amount_shows_it_and_the_others_the_campaign_one(self, engine):
+        # T22b S25: a grouped campaign, the router with its own amount, the switch with the campaign's.
+        gid = so.grupo(engine, [{"marca": "TP-LINK"}])
+        cid = so.campana(engine, [gid], monto_unit="10.00")
+        so.monto_item(engine, cid, ROUTER, "35.00")
+
+        assert _payload(engine).sell_out.monto_unit == 35.0
+        assert _payload(engine, SWITCH).sell_out.monto_unit == 10.0
+
     def test_campaign_outside_today_or_voided_does_not_apply(self, engine):
         gid = so.grupo(engine, [{"item_id": ROUTER}])
         so.campana(engine, [gid], D(2026, 10, 1), D(2026, 10, 31))
@@ -227,7 +236,8 @@ class TestNoData:
     def test_batch_reads_a_bounded_number_of_queries(self, engine):
         si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))
         gid = so.grupo(engine, [{"marca": "TP-LINK"}])
-        so.campana(engine, [gid], moneda="USD", monto_unit="1.00", tc_modo="dia_venta")
+        cid = so.campana(engine, [gid], moneda="USD", monto_unit="1.00", tc_modo="dia_venta")
+        so.monto_item(engine, cid, ROUTER, "2.00")
         so.tipo_cambio(engine, D(2026, 11, 9), 1000)
         statements = []
         with sessionmaker(bind=engine)() as db:

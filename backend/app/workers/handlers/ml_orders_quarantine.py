@@ -10,17 +10,23 @@ not-yet-due quarantine that costs one indexed query.
 
 `retry_quarantined_orders` owns the policy (backoff, transient vs permanent,
 attempt cap); this handler only runs it in short `get_background_db()` passes
-until nothing due is left or `ctx.deadline` is reached.
+until nothing due is left or `ctx.deadline` is reached. Before that, the rows
+with no payload (orders ML never gave the activity receiver) are asked again
+of ML (`activity_receiver_service.refetch_unresolved_orders`): an order ML
+gives back is written, one ML has no longer is dropped.
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, time, timedelta, timezone
 from typing import Optional, Tuple
 
 from app.core.database import get_background_db
-from app.services.ml_orders_ingestion import ingestion_service
+from app.services.ml_orders_ingestion import activity_receiver_service, ingestion_service
 from app.workers.context import JobResult, WorkerContext
+
+logger = logging.getLogger(__name__)
 
 
 class QuarantineRetryHandler:
@@ -32,7 +38,30 @@ class QuarantineRetryHandler:
     run_at_local: Optional[time] = None
 
     def run(self, ctx: WorkerContext) -> JobResult:
-        detail = {"attempted": 0, "recovered": 0, "still_failed": 0, "passes": 0}
+        # First the orders ML never gave back (no payload to replay): asked
+        # again, and the ones that come back are written in that same pass.
+        # Neither a failure there (the pool, the proxy) nor a slow proxy may
+        # hold back the replay of the orders whose write failed: an exception
+        # is logged, and no order fetch starts past half of the run's time.
+        # The orders ML gave back then go through `process_batch`, whose own
+        # shipment/cost/payment fetches are bounded by its pass budget.
+        now = datetime.now(timezone.utc)
+        refetch_deadline = now + max(ctx.deadline - now, timedelta(0)) / 2
+        try:
+            refetch = activity_receiver_service.refetch_unresolved_orders(deadline=refetch_deadline)
+        except Exception:
+            logger.exception("ml_orders.quarantine_retry: re-fetch of the payload-less orders failed")
+            refetch = activity_receiver_service.RefetchResult()
+        detail = {
+            "refetched": refetch.attempted,
+            "refetch_landed": refetch.landed,
+            "dropped": refetch.dropped,
+            "refetch_failed": refetch.failed,
+            "attempted": 0,
+            "recovered": 0,
+            "still_failed": 0,
+            "passes": 0,
+        }
         limit = ingestion_service.MAX_QUARANTINE_RETRIES_PER_PASS
         seen: set[int] = set()
         while datetime.now(timezone.utc) < ctx.deadline:

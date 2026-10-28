@@ -21,9 +21,78 @@ describe('useListPrices', () => {
     const { result } = renderHook(() => useListPrices([9, 7, null, 9], true));
     await waitFor(() => expect(result.current.byId.get(7)).toEqual({ item_id: 7, precio_lista_ml: 1000 }));
     expect(productosAPI.listar).toHaveBeenCalledTimes(1);
-    expect(productosAPI.listar).toHaveBeenCalledWith({ item_ids: '7,9', page: 1, page_size: 2 });
+    expect(productosAPI.listar).toHaveBeenCalledWith({ item_ids: '7,9', page: 1, page_size: 2 }, { signal: expect.any(AbortSignal) });
     expect(result.current.byId.get(9).precio_lista_ml).toBe(2000);
     expect(result.current.loading).toBe(false);
+  });
+
+  it('splits a long page (Todos) into requests of at most 200 products, under the listing cap, and merges them', async () => {
+    const ids = Array.from({ length: 450 }, (_, n) => n + 1);
+    productosAPI.listar.mockImplementation(({ item_ids }) =>
+      Promise.resolve(listed(...item_ids.split(',').map((id) => ({ item_id: Number(id), precio_lista_ml: Number(id) * 10 })))),
+    );
+    const { result } = renderHook(() => useListPrices(ids, true));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const sizes = productosAPI.listar.mock.calls.map(([params]) => params.item_ids.split(',').length);
+    expect(sizes).toEqual([200, 200, 50]);
+    expect(productosAPI.listar.mock.calls.map(([params]) => params.page_size)).toEqual([200, 200, 50]);
+    expect(result.current.byId.size).toBe(450);
+    expect(result.current.byId.get(450).precio_lista_ml).toBe(4500);
+  });
+
+  it('keeps at most 3 parts in flight, so a huge page never floods the server', async () => {
+    const ids = Array.from({ length: 2000 }, (_, n) => n + 1);
+    let inFlight = 0;
+    let most = 0;
+    productosAPI.listar.mockImplementation(async ({ item_ids }) => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight -= 1;
+      return listed(...item_ids.split(',').map((id) => ({ item_id: Number(id) })));
+    });
+    const { result } = renderHook(() => useListPrices(ids, true));
+    await waitFor(() => expect(result.current.byId.size).toBe(2000));
+    expect(productosAPI.listar).toHaveBeenCalledTimes(10);
+    expect(most).toBe(3);
+  });
+
+  it('one failed part of a long page leaves no prices and says so', async () => {
+    const ids = Array.from({ length: 250 }, (_, n) => n + 1);
+    productosAPI.listar.mockResolvedValueOnce(listed({ item_id: 1, precio_lista_ml: 10 }));
+    productosAPI.listar.mockRejectedValueOnce(new Error('HTTP 500'));
+    const { result } = renderHook(() => useListPrices(ids, true));
+    await waitFor(() => expect(result.current.error).toBe(true));
+    expect(result.current.byId.size).toBe(0);
+  });
+
+  it('stops asking for the rest of a long page once a part fails, or once the page moves on', async () => {
+    const ids = Array.from({ length: 1000 }, (_, n) => n + 1);
+    const slowAnswer = ({ item_ids }) => new Promise((resolve) => setTimeout(() => resolve(listed({ item_id: Number(item_ids.split(',')[0]) })), 1));
+    productosAPI.listar.mockImplementation(slowAnswer);
+    productosAPI.listar.mockRejectedValueOnce(new Error('HTTP 500'));
+    const failing = renderHook(() => useListPrices(ids, true));
+    await waitFor(() => expect(failing.result.current.error).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // The first 3 parts were already asked; the other 2 of the 5 never are.
+    expect(productosAPI.listar).toHaveBeenCalledTimes(3);
+
+    productosAPI.listar.mockClear();
+    const leaving = renderHook(() => useListPrices(ids, true));
+    leaving.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(productosAPI.listar).toHaveBeenCalledTimes(3);
+  });
+
+  it('cancels the parts already asked once the page moves on, so the server drops them too', async () => {
+    const ids = Array.from({ length: 1000 }, (_, n) => n + 1);
+    productosAPI.listar.mockImplementation(() => new Promise(() => {})); // never answers
+    const { unmount } = renderHook(() => useListPrices(ids, true));
+    await waitFor(() => expect(productosAPI.listar).toHaveBeenCalledTimes(3));
+    const signals = productosAPI.listar.mock.calls.map(([, config]) => config?.signal);
+    expect(signals.every((signal) => signal && !signal.aborted)).toBe(true);
+    unmount();
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
   });
 
   it('asks nothing when disabled or with no product on show', () => {

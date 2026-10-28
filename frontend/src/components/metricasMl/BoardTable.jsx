@@ -41,6 +41,7 @@ const INDENT_PX = 18;
 // Column id -> the backend `sort` value it orders by.
 const SORT_BY = {
   producto: 'title',
+  units: 'units',
   units_24h: 'units_24h',
   units_3d: 'units_3d',
   units_7d: 'units_7d',
@@ -60,6 +61,8 @@ const SORT_BY = {
   ageing: 'ageing',
   stock: 'stock',
 };
+// What a link may ask the board to sort by (`readMetricasUrl`).
+export const BOARD_SORT_KEYS = new Set(Object.values(SORT_BY));
 
 /** The row's ERP stock: "—" ONLY when unknown; a known 0 reads "0" and a
  * negative stock (oversold in the ERP) its number in the danger tone, so
@@ -330,8 +333,9 @@ function renderCell(colId, row, ctx) {
     case 'units_7d':
     case 'units_15d':
       return <UnitsCell value={row[colId]} />;
+    case 'units':
     case 'units_30d':
-      return <UnitsCell value={row.units_30d} strong />;
+      return <UnitsCell value={row[colId]} strong />;
     case 'units_trend': {
       const weeks = weeklySums(row.series_units_90d);
       const tone = weeks.length > 1 ? deltaTone(weeks.at(-1) - weeks.at(-2)) : null;
@@ -436,6 +440,7 @@ function renderCell(colId, row, ctx) {
 }
 
 const NUMERIC = new Set([
+  'units',
   'units_24h',
   'units_3d',
   'units_7d',

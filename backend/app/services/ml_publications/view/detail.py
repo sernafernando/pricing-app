@@ -254,7 +254,7 @@ def _last_event_columns(item_id: str) -> list[Any]:
     ]
 
 
-def _item_select(item_id: str, events: bool = False) -> Select:
+def _item_select(item_id: str, events: bool = False, margin: bool = False) -> Select:
     """The one statement of the item: the list's row columns and the extras, over the list's joins."""
     replenishment = aliased(MlUserProductReplenishment, name="rp")
     store = aliased(MlTiendaOficial, name="so")
@@ -262,7 +262,7 @@ def _item_select(item_id: str, events: bool = False) -> Select:
     source = joined().outerjoin(replenishment, replenishment.user_product_id == T.i.user_product_id)
     source = source.outerjoin(store, store.store_id == T.i.official_store_id)
     columns = [
-        *listing.row_columns(),
+        *listing.row_columns(cost=margin),
         live_variations.label("variations_count"),
         store.nombre.label("store_label"),
         *(getattr(T.i, name).label(f"x_{name}") for name in ITEM_COLUMNS),
@@ -490,10 +490,10 @@ def get_detail(db: Session, item_id: str, *, events: bool, markup: Optional[Mark
     `markup` (its presence means the caller may see margins) adds the cost of the product, the row's markup and the
     breakdown of the worst unit. `can_resync` is the router's: it is a permission, not data."""
     listing.bound(db, STATEMENT_TIMEOUT)
-    row = db.connection().execute(_item_select(item_id, events)).first()
+    margin = markup is not None
+    row = db.connection().execute(_item_select(item_id, events, margin)).first()
     if row is None:
         return None
-    margin = markup is not None
     is_full = row.logistic_type == FULFILLMENT
     last_event = {"event_type": row.le_type, "observed_at": row.le_at} if events and row.le_type is not None else None
     out_row = listing.row_of(
@@ -528,6 +528,7 @@ def get_detail(db: Session, item_id: str, *, events: bool, markup: Optional[Mark
         found = markup_service.compute_detail(db, markup.pricing_db, item_id)
         if found is not None:
             out_row["markup"] = listing.markup_out(found.item)
+        listing.attach_cost([out_row], [row])  # the same cost block the list row carries
         body["markup_breakdown"] = None if found is None else _breakdown_out(found)
         body["sell_in_out"] = _sell_in_out(markup.pricing_db, links, found)
     return body

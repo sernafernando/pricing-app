@@ -97,6 +97,20 @@ def add_cost(
     )
 
 
+def add_usd_rate(conn, venta: float, fecha: str) -> None:
+    """A `tipo_cambio` USD row (the table is built on first use, as the store schema does not hold it)."""
+    conn.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS tipo_cambio (id serial PRIMARY KEY, fecha date, moneda varchar(10), "
+            "compra double precision, venta double precision, timestamp_actualizacion timestamptz DEFAULT now())"
+        )
+    )
+    conn.execute(
+        text("INSERT INTO tipo_cambio (fecha, moneda, compra, venta) VALUES (:f, 'USD', :v, :v)"),
+        {"f": fecha, "v": venta},
+    )
+
+
 def add_pricing(conn, item_id: int, **prices: Any) -> None:
     """The Productos list prices (`precio_lista_ml`, `precio_6_cuotas`, ...) of a product."""
     _insert(conn, "productos_pricing", {"item_id": item_id, **prices})
