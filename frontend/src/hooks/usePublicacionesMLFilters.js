@@ -24,8 +24,10 @@ import { COLORES_DISPONIBLES } from '../utils/productosConstants';
  *    the dimension the tree is grouped by (`AGRUPAR_DIMENSIONS`, default marca).
  */
 export const PAGE_SIZE = 50;
-// The backend caps `limit` at 100.
-export const PAGE_SIZES = [25, 50, 100];
+// Productos' sizes, 9999 being its "Todos" (the backend caps `limit` at 10000).
+export const ALL_ROWS = 9999;
+export const PAGE_SIZES = [25, 50, 100, 200, 500, ALL_ROWS];
+export const pageSizeLabel = (size) => (size === ALL_ROWS ? 'Todos' : String(size));
 
 const CSV_KEYS = [
   'estado',
@@ -132,7 +134,11 @@ const SHAPE_KEYS = ['vista', 'familias', 'agrupar'];
 // The team whose color layer paints the rows ('' = the global layer, as in Productos): how the rows are looked at,
 // so it neither resets the page nor goes away with "Limpiar filtros".
 const LAYER_KEY = 'equipo';
-const KEPT_ON_RESET = [...SHAPE_KEYS, LAYER_KEY];
+// Which of Productos' price columns show (S11): Normal (clásica, rebate, oferta, web), Cuotas or PVP. Like the
+// layer, how the rows are looked at: no request, no page reset, kept by "Limpiar filtros".
+export const PRICE_MODES = ['normal', 'cuotas', 'pvp'];
+const MODE_KEY = 'modo';
+const KEPT_ON_RESET = [...SHAPE_KEYS, LAYER_KEY, MODE_KEY];
 const DIRECTIONS = ['asc', 'desc'];
 const SORT_KEYS = ['orden', 'dir', 'limite'];
 const VIEW_KEYS = ['pagina', 'sel', 'tab', 'prod'];
@@ -249,6 +255,8 @@ function readFilters(params, { canSeeMargin = false } = {}) {
   filters.tab = params.get('tab') ?? '';
   filters.prod = params.get('prod') ?? '';
   filters.equipo = params.get(LAYER_KEY) ?? '';
+  const modo = params.get(MODE_KEY);
+  filters.modo = PRICE_MODES.includes(modo) ? modo : PRICE_MODES[0];
   return filters;
 }
 
@@ -392,6 +400,18 @@ export function buildProductIdsParams(filters) {
   const { periodo, ...params } = buildKpiParams(filters);
   void periodo;
   return { ...params, ...sinMlaParam(filters) };
+}
+
+/**
+ * The `GET /ml-publications/view/stats` query (Productos' stat cards, S12d4): they count the linked products of the
+ * very set a bulk action takes, so they ask as `/product-ids` does. In the Producto view the "Oferta sin Rebate" card
+ * counts the offer of the product, as the list it opens does, even before the offer filter is set.
+ */
+export function buildStatsParams(filters) {
+  const params = buildProductIdsParams(filters);
+  // The Producto view also asks Productos' Sin MLA card (S12d4c).
+  if (filters.vista === 'producto') Object.assign(params, { oferta_por_producto: true, tarjetas_sin_mla: true });
+  return params;
 }
 
 export function usePublicacionesMLFilters({ canSeeMargin = false } = {}) {

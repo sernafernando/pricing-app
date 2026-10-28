@@ -31,8 +31,10 @@ free frees nothing. A sale whose units all go back leaves no row.
 
 Amount per unit, in the campaign currency (VAT: owner, 2026-10-20; sell out
 applies against the net without VAT):
-- `por_unidad`: `monto_unit`, divided by `1 + iva_pct / 100` of the line's own
-  product when the campaign was loaded with VAT (`monto_incluye_iva`);
+- `por_unidad`: the line's product's own amount (`montos_item`, T22b: legacy
+  grouped offsets) or else `monto_unit`, divided by `1 + iva_pct / 100` of the
+  line's own product when the campaign was loaded with VAT (`monto_incluye_iva`).
+  Every product shares the one cap, whatever its amount;
 - `porcentaje`: `base_unit * porcentaje / 100`. The caller passes the base
   without VAT already (the cost, or the net sale price) converted to the
   campaign currency, so `monto_incluye_iva` does not apply to it.
@@ -56,10 +58,10 @@ Inputs are checked, never repaired: anything inconsistent raises `ValueError`.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 CENT = Decimal("0.01")
 CIEN = Decimal(100)
@@ -78,6 +80,8 @@ class Campana:
     monto_incluye_iva: bool = False
     tope_unidades: Optional[int] = None
     tope_monto: Optional[Decimal] = None
+    # `por_unidad` only: item_id -> that product's own amount per unit, instead of `monto_unit`
+    montos_item: Mapping[int, Decimal] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -117,15 +121,19 @@ def credito_unitario(campana: Campana, linea: Linea) -> Decimal:
         if linea.base_unit is None:
             raise ValueError(f"sale {(linea.canal, linea.venta_ref)} has no percentage base")
         return linea.base_unit * campana.porcentaje / CIEN
+    monto = campana.montos_item.get(linea.item_id, campana.monto_unit)
     if campana.monto_incluye_iva:
-        return campana.monto_unit / (1 + linea.iva_pct / CIEN)
-    return campana.monto_unit
+        return monto / (1 + linea.iva_pct / CIEN)
+    return monto
 
 
 def _validar(campana: Campana, lineas: List[Linea]) -> None:
     if campana.tipo == "por_unidad":
         if campana.monto_unit is None or campana.monto_unit < 0:
             raise ValueError("a per-unit campaign needs a non-negative monto_unit")
+        for item_id, monto in campana.montos_item.items():
+            if monto is None or monto <= 0:
+                raise ValueError(f"product {item_id} needs a positive amount")
     elif campana.tipo == "porcentaje":
         if campana.porcentaje is None or campana.porcentaje < 0:
             raise ValueError("a percentage campaign needs a non-negative porcentaje")

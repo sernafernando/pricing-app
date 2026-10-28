@@ -91,6 +91,28 @@ describe('BulkActions', () => {
     expect(nativeConfirm).not.toHaveBeenCalled();
   });
 
+  // S12d: the selection outlives a filter change, so it may hold products the list no longer shows.
+  it('says how many checked products are not on the page, in the menu and in the modal', async () => {
+    resolved({ item_ids: [4101], count: 1, sin_producto: 0 });
+    const user = userEvent.setup();
+    renderBulk({ checkedIds: new Set([4101, 4102, 4103]), offPageCount: 2 });
+    expect(await screen.findByRole('button', { name: /acciones masivas \(3 productos seleccionados\)/i })).toBeEnabled();
+    await openMenu(user);
+    const note = '2 productos seleccionados no están en esta página (se eligieron con otros filtros o en otra página)';
+    expect(screen.getByText(note)).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: /calcular pvp/i }));
+    expect(screen.getByText(note)).toBeInTheDocument();
+  });
+
+  it('adds no note when every checked product is on the page', async () => {
+    resolved({ item_ids: [4101], count: 1, sin_producto: 0 });
+    const user = userEvent.setup();
+    renderBulk({ checkedIds: new Set([4101]), offPageCount: 0 });
+    await screen.findByRole('button', { name: /acciones masivas \(1 producto seleccionado\)/i });
+    await openMenu(user);
+    expect(screen.queryByText(/no están en esta página/)).not.toBeInTheDocument();
+  });
+
   it('fails closed when the resolver refuses (over the cap)', async () => {
     publicacionesMlAPI.productIds.mockRejectedValue({
       response: { status: 422, data: { error: { code: 'demasiados_productos', message: 'El filtro selecciona 12000 productos' } } },

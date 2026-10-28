@@ -78,28 +78,43 @@ def _numero(columna, producto):
     return or_(func.coalesce(columna, 0) == 0, producto == columna)
 
 
-def _alcanzados(db: Session, *columnas):
-    """`columnas` over every (campaign, product) pair a filter row of the campaign's groups reaches."""
-    f, p = OffsetGrupoFiltro, ProductoERP
+def filtro_alcanza(f=OffsetGrupoFiltro, p=ProductoERP):
+    """A group filter row reaches a product: every field the row sets matches it (an empty row reaches nothing)."""
     algo = or_(
         func.coalesce(f.marca, "") != "",
         func.coalesce(f.categoria, "") != "",
         func.coalesce(f.subcategoria_id, 0) != 0,
         func.coalesce(f.item_id, 0) != 0,
     )
-    coincide = and_(
+    return and_(
         algo,
         _texto(f.marca, p.marca),
         _texto(f.categoria, p.categoria),
         _numero(f.subcategoria_id, p.subcategoria_id),
         _numero(f.item_id, p.item_id),
     )
+
+
+def _alcanzados(db: Session, *columnas):
+    """`columnas` over every (campaign, product) pair a filter row of the campaign's groups reaches."""
+    f, p = OffsetGrupoFiltro, ProductoERP
     return (
         db.query(*columnas)
         .select_from(SellOutCampanaGrupo)
         .join(f, f.grupo_id == SellOutCampanaGrupo.grupo_id)
-        .join(p, coincide)
+        .join(p, filtro_alcanza(f, p))
     )
+
+
+def productos_de_grupo(db: Session, grupo_id: int, item_ids: Iterable[int]) -> set[int]:
+    """Which of `item_ids` an existing group reaches, with the same rule as a campaign linked to it (read-only: the
+    offsets migration's dry run checks a group before any campaign exists)."""
+    ids = list(item_ids)
+    if not ids:
+        return set()
+    f, p = OffsetGrupoFiltro, ProductoERP
+    rows = db.query(p.item_id).join(f, filtro_alcanza(f, p)).filter(f.grupo_id == grupo_id, p.item_id.in_(ids))
+    return {i for (i,) in rows.distinct()}
 
 
 def productos(db: Session, campana_ids: Iterable[int]) -> Dict[int, Dict[int, Optional[Decimal]]]:
