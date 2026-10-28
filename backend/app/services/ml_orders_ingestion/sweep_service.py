@@ -1792,11 +1792,15 @@ def run_sweep(seller_id: Optional[int] = None, window_days: Optional[int] = None
             # `run_sweep` actually executes, both modules are already
             # fully loaded, so a deferred import here is safe.
             from app.services.ml_orders_ingestion.activity_receiver_service import (
+                _adopt_legacy_unresolved_debts,
                 _clear_resolved_unresolved_debts,
                 _clear_shipment_id_unresolved_debts,
             )
 
             with get_background_db() as debt_db:
+                # Debts the old receiver recorded in `ml_ops_divergence` during D2b's deploy; first, so the clears
+                # below settle them too.
+                _adopt_legacy_unresolved_debts(debt_db)
                 _clear_resolved_unresolved_debts(debt_db)
                 # Debts recorded before activity events were classified by
                 # `resource`: the id is a SHIPMENT id of an order we hold.

@@ -56,6 +56,13 @@ describe('Pagination', () => {
     expect(onPageSizeChange).toHaveBeenCalledWith(100);
   });
 
+  it('a caller can name a page size, as Productos names 9999 "Todos"', async () => {
+    const { onPageSizeChange } = setup({ pageSizeOptions: [50, 9999], pageSizeLabel: (n) => (n === 9999 ? 'Todos' : String(n)) });
+    await userEvent.selectOptions(screen.getByLabelText('Filas por página'), 'Todos');
+    expect(onPageSizeChange).toHaveBeenCalledWith(9999);
+    expect(screen.getByRole('option', { name: '50' })).toBeInTheDocument();
+  });
+
   it('renders no numbered pages for an empty set', () => {
     setup({ total: 0 });
     expect(screen.getByText('mostrando 0-0 de 0 ventas')).toBeInTheDocument();

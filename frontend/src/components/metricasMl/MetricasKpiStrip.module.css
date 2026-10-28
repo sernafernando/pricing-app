@@ -19,9 +19,14 @@
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
-  /* "Costos TP" on: the Total TP card joins the row. */
-  .cards[data-tp] {
+  /* "Costos TP" on, or the sell in / sell out card: one more card joins the row; both: two more. */
+  .cards[data-tp],
+  .cards[data-sell] {
     grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .cards[data-tp][data-sell] {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
   }
 }
 
@@ -203,12 +208,26 @@
   color: var(--cf-text-tertiary);
 }
 
+/* A narrow card (a seventh or eighth card in the row) breaks after "Original:", never mid-amount. */
+.original s {
+  white-space: nowrap;
+}
+
 /* "Costos TP": an unknown Total TP (a dash, never 0) and the line under a figure. */
 .unknown {
   color: var(--cf-text-tertiary);
 }
 
 .unknownHint {
+  font-size: var(--font-xs);
+  font-weight: var(--font-medium);
+  color: var(--tone-warning-fg);
+}
+
+/* "≈ n": sell outs added on an estimated rate (the rows' hint). */
+.estimatedHint {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
   font-size: var(--font-xs);
   font-weight: var(--font-medium);
   color: var(--tone-warning-fg);
@@ -235,4 +254,26 @@
 
 .sellValue strong {
   white-space: nowrap;
+}
+
+/* The sell in / sell out card: one small line per figure, label left and amount right. */
+.sellFigures {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.sellFigure {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: var(--spacing-xs);
+}
+
+.sellFigure strong {
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
 }

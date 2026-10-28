@@ -10,11 +10,16 @@ import { withProductSelection } from './productSelection';
 import { buildColumns } from './columns';
 
 describe('ProductCheckbox', () => {
-  it('toggles the product it names', async () => {
+  it('toggles the product it names; with Shift it asks for a range (S12d)', async () => {
     const onToggle = vi.fn();
+    const user = userEvent.setup();
     render(<ProductCheckbox productId={4101} checked={false} onToggle={onToggle} label="MLA1" />);
-    await userEvent.setup().click(screen.getByRole('checkbox', { name: /seleccionar el producto de MLA1/i }));
-    expect(onToggle).toHaveBeenCalledWith(4101);
+    await user.click(screen.getByRole('checkbox', { name: /seleccionar el producto de MLA1/i }));
+    expect(onToggle).toHaveBeenLastCalledWith(4101, false);
+    await user.keyboard('{Shift>}');
+    await user.click(screen.getByRole('checkbox', { name: /seleccionar el producto de MLA1/i }));
+    await user.keyboard('{/Shift}');
+    expect(onToggle).toHaveBeenLastCalledWith(4101, true);
   });
 
   it('is disabled, with the reason, when there is no product', () => {
@@ -39,7 +44,7 @@ describe('withProductSelection', () => {
     const { rerender } = render(wrapped[0].render({ item_id: 'MLA1', title: 'Router', link: { producto_item_id: 4101 } }));
     expect(screen.getByText('Router')).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole('checkbox'));
-    expect(onToggle).toHaveBeenCalledWith(4101);
+    expect(onToggle).toHaveBeenCalledWith(4101, false);
     rerender(wrapped[0].render({ item_id: 'MLA2', title: 'Tinta', link: { producto_item_id: 4102 } }));
     expect(screen.getByRole('checkbox')).toBeChecked();
   });

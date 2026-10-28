@@ -492,6 +492,16 @@ class TestSearch:
         assert ids(run(db, q="ean:7790001234567")) == ["MLA900300"]
         assert ids(run(db, q="codigo:kb-hdmi")) == []  # exact, not a fragment
 
+    def test_codigo_operator_upper_cases_like_the_database_on_letters_python_upper_cases_differently(
+        self, conn, db
+    ) -> None:
+        # Python upper-cases "ß" to "SS"; Postgres keeps it. Upper-cased in Python, "codigo:straße-1" asked for
+        # "STRASSE-1" and missed the very code typed.
+        seed.add_product(conn, 73, "STRAßE-1", "Soporte")
+        seed.add_item(conn, "MLA900800", title="Soporte de pared")
+        seed.add_link(conn, "MLA900800", 73)
+        assert ids(run(db, q="codigo:straße-1")) == ["MLA900800"]
+
     def test_marca_operator_is_the_exact_brand(self, db) -> None:
         assert ids(run(db, q="marca:hikvision")) == ["MLA900300"]
         assert ids(run(db, q="marca:hik")) == []

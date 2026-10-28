@@ -12,7 +12,8 @@ existing cost and markup fields are never touched.
   used up (units or money left after the allocator's `sell_out_consumos`),
   taken in id order with the allocator's precedence (a non-`acumulable`
   campaign does not stack with an earlier one), credited per unit by
-  `asignacion.credito_unitario` and turned into ARS at the campaign's rate.
+  `asignacion.credito_unitario` (with the product's own amount in the
+  campaign, when it has one, T22b) and turned into ARS at the campaign's rate.
   With money left under the unit credit, the unit gets what is left, as
   `tope.asignar` would. A percentage base is, per unit, the product's current
   cost in ARS (`costo`) or its ML list price without VAT (`precio_neto`). A
@@ -34,10 +35,10 @@ from datetime import date
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional
 
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from app.models.sell_out import SellOutCampana, SellOutConsumo
+from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
 from app.schemas.sell_in_out_producto import SellInOutProducto, SellInProducto, SellOutProducto
 from app.services.pricing_calculator import calcular_markup, convertir_a_pesos
 from app.services.sell_in.bonos import tasas_bna_por_fecha
@@ -50,6 +51,7 @@ from app.services.sell_out.tope import cents
 class _Campana:
     campana: SellOutCampana
     monto_libre: Optional[Decimal]  # money cap left, campaign currency; None: no money cap
+    montos_item: Dict[int, Decimal]  # item_id -> its own amount per unit in the campaign (T22b)
 
 
 class SellInOutMarkups:
@@ -125,10 +127,12 @@ class SellInOutBatch:
         if precio_lista_ml and iva is not None:
             neto = Decimal(str(precio_lista_ml)) / (1 + iva / 100)
         base = {"costo": None if costo is None else Decimal(str(costo)), "precio_neto": neto}
-        sell_out = self._sell_out(self.campanas.get(producto.item_id, []), iva, base)
+        sell_out = self._sell_out(producto.item_id, self.campanas.get(producto.item_id, []), iva, base)
         return SellInOutMarkups(sell_in, sell_out, costo)
 
-    def _sell_out(self, campanas: List[_Campana], iva: Optional[Decimal], base: dict) -> Optional[SellOutProducto]:
+    def _sell_out(
+        self, item_id: int, campanas: List[_Campana], iva: Optional[Decimal], base: dict
+    ) -> Optional[SellOutProducto]:
         tomadas: List[SellOutCampana] = []
         total: Optional[Decimal] = Decimal(0)
         for x in campanas:
@@ -137,7 +141,9 @@ class SellInOutBatch:
                 continue  # an earlier non-stackable campaign holds the unit (asignacion module docstring)
             tomadas.append(c)
             try:
-                credito = asignacion.credito_unitario(c, self.hoy, iva, base.get(c.base_porcentaje), self.bna)
+                credito = asignacion.credito_unitario(
+                    c, self.hoy, iva, base.get(c.base_porcentaje), self.bna, monto_item=x.montos_item.get(item_id)
+                )
             except asignacion.SellOutAsignacionError:
                 credito = None
             if credito is None or total is None:
@@ -167,12 +173,22 @@ def resolver_sell_in_out_batch(db: Session, item_ids: Iterable[int], hoy: date) 
             .filter(t.campana_id.in_(cids))
             .group_by(t.campana_id)
         }
-        for c in db.query(SellOutCampana).filter(SellOutCampana.id.in_(cids)):
-            unidades, monto = usado.get(c.id, (0, Decimal(0)))
-            libre = None if c.tope_monto is None else Decimal(c.tope_monto) - monto
-            if (c.tope_unidades is not None and c.tope_unidades <= unidades) or (libre is not None and libre <= 0):
-                continue  # the cap is used up: this campaign credits nothing more
-            vigentes[c.id] = _Campana(c, libre)
+        # Each campaign with this page's products' own amounts in it (T22b), in the same query.
+        i = SellOutCampanaItem
+        filas = db.query(SellOutCampana, i.item_id, i.monto_unit).outerjoin(
+            i, and_(i.campana_id == SellOutCampana.id, i.item_id.in_(ids))
+        )
+        agotadas = set()
+        for c, item_id, monto_item in filas.filter(SellOutCampana.id.in_(cids)):
+            if c.id not in vigentes and c.id not in agotadas:
+                unidades, monto = usado.get(c.id, (0, Decimal(0)))
+                libre = None if c.tope_monto is None else Decimal(c.tope_monto) - monto
+                if (c.tope_unidades is not None and c.tope_unidades <= unidades) or (libre is not None and libre <= 0):
+                    agotadas.add(c.id)  # the cap is used up: this campaign credits nothing more
+                    continue
+                vigentes[c.id] = _Campana(c, libre, {})
+            if c.id in vigentes and item_id is not None:
+                vigentes[c.id].montos_item[item_id] = Decimal(monto_item)
         if any(x.campana.moneda == "USD" for x in vigentes.values()):
             bna = tasas_bna_por_fecha(db, {hoy})[hoy]
     campanas = {item: [vigentes[c] for c in sorted(cs) if c in vigentes] for item, cs in por_item.items()}

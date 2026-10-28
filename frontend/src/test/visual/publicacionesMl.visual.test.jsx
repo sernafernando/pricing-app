@@ -66,7 +66,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), stats: vi.fn(() => Promise.resolve({ data: { stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 }, can_see_margin: false } })), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
   productosPropiosAPI: {
     get: vi.fn(() =>
       Promise.resolve({
@@ -78,12 +78,28 @@ vi.mock('../../services/api', () => ({
     saveDatos: vi.fn(),
   },
   mlItemOverridesAPI: { get: vi.fn(), save: vi.fn(), pushToMl: vi.fn() },
-  promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
+  productoBanlistAPI: { add: vi.fn() },
+  promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn(), getCompetenciaCatalogo: vi.fn(), refreshCompetenciaCatalogo: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     pms: vi.fn(() => Promise.resolve({ data: [] })),
+    // Productos' prices of the products on show (S11): Normal, Cuotas and PVP columns.
+    listar: vi.fn(() =>
+      Promise.resolve({
+        data: {
+          productos: [
+            { item_id: 4101, descripcion: 'Router Archer AX55', marca: 'TP-LINK', categoria: 'REDES', stock: 12, costo: 95.5, moneda_costo: 'USD',
+              precio_lista_ml: 189999, markup: 24.3, participa_rebate: true, precio_rebate: 197911, markup_rebate: 21.1,
+              precio_3_cuotas: 209999, markup_3_cuotas: 18.2, precio_6_cuotas: 229999, markup_6_cuotas: 15.4,
+              precio_pvp: 239999, markup_pvp: 31.9 },
+            { item_id: 4102, precio_lista_ml: 45999, markup: -3.2, mejor_oferta_precio: 41399, mejor_oferta_markup: -0.098 },
+          ],
+          total: 2,
+        },
+      }),
+    ),
     auditoria: vi.fn(() =>
       Promise.resolve({
         data: [
@@ -110,6 +126,17 @@ vi.mock('../../services/api', () => ({
             comentario: null,
           },
         ],
+      }),
+    ),
+    configCuotas: vi.fn(),
+    detalle: vi.fn(() =>
+      Promise.resolve({
+        data: {
+          ultimas_compras: [
+            { proveedor: 'TP-Link Argentina S.A. con una razón social bastante larga', fecha: '2026-10-14T00:00:00', cantidad: 120, precio_unitario: 45.5, moneda_id: 2 },
+            { proveedor: 'Distribuidora Norte', fecha: '2026-09-02T00:00:00', cantidad: 1.5, precio_unitario: 98500, moneda_id: 1 },
+          ],
+        },
       }),
     ),
   },
@@ -285,6 +312,8 @@ describe('Publicaciones ML (visual)', () => {
       it(`${width}x${height} ${theme}: the header stays on top and the Publicación column stays pinned while scrolling both axes`, async () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
+        // The filters above can push the table below a short window, and elementFromPoint sees only the viewport.
+        scroller.scrollIntoView({ block: 'start' });
         scroller.scrollTo({ top: 300, left: 120 });
         await frame();
         const scrollerBox = rect(scroller);
@@ -322,6 +351,23 @@ describe('Publicaciones ML (visual)', () => {
         screen.unmount();
       });
 
+      it(`${width}x${height} ${theme}: the stat cards keep every label and figure on one line, inside their card`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        await expect.element(screen.getByRole('button', { name: 'Stock sin $: 3' })).toBeVisible();
+        const strip = document.querySelector('section[aria-label="Totales de productos"]');
+        const cards = [...strip.querySelectorAll('[role="group"]')];
+        expect(cards.length).toBe(4);
+        for (const card of cards) {
+          expect(rect(card).right, card.getAttribute('aria-label')).toBeLessThanOrEqual(width);
+          for (const button of card.querySelectorAll('button')) {
+            expect(rect(button).right, button.getAttribute('aria-label')).toBeLessThanOrEqual(rect(card).right + 0.5);
+          }
+        }
+        expect(wrapped([...strip.querySelectorAll('button span')])).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/stat-cards-${width}-${theme}.png` });
+        screen.unmount();
+      });
+
       it(`${width}x${height} ${theme}: our own, Full and ERP stock sit in three columns under STOCK, headers and figures on one line`, async () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
@@ -347,7 +393,8 @@ describe('Publicaciones ML (visual)', () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
         const groups = [...scroller.querySelectorAll('thead th[scope="colgroup"]')];
-        expect(groups.map((th) => th.textContent)).toEqual(['Ventas (unidades)', 'Resultado financiero', 'Rotación', 'Stock']);
+        // Productos' price columns (S11) lead, right after Precio.
+        expect(groups.map((th) => th.textContent)).toEqual(['Precios de Productos', 'Ventas (unidades)', 'Resultado financiero', 'Rotación', 'Stock']);
         for (const th of groups) {
           expect(getComputedStyle(th).textAlign).toBe('center');
           expect(getComputedStyle(th).textTransform).toBe('uppercase');
@@ -361,7 +408,7 @@ describe('Publicaciones ML (visual)', () => {
         // Scrolled down, the group row and the leaf row both stay on top, in that order.
         scroller.scrollTo({ top: 400, left: 0 });
         await frame();
-        const ventas = rect(groups[0]);
+        const ventas = rect(groups[1]);
         const leaf = rect(scroller.querySelector('thead th[data-column="unidades_7d"]'));
         expect(Math.abs(ventas.top - rect(scroller).top)).toBeLessThanOrEqual(2);
         expect(Math.abs(leaf.top - ventas.bottom)).toBeLessThanOrEqual(2);
@@ -704,6 +751,16 @@ const renderProducts = async ({ width, height, theme, entry = '/ml-publicaciones
   publicacionesMlAPI.items.mockResolvedValue({ data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 130 } });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
   publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 1234, sin_mla_count: 12345 }) });
+  publicacionesMlAPI.stats.mockResolvedValueOnce({
+    data: {
+      stats: {
+        total: 1234, con_stock: 900, con_precio: 1100, con_stock_sin_precio: 30, nuevos: 12, nuevos_sin_precio: 4, oferta_sin_rebate: 9,
+        sin_mla: 12345, sin_mla_con_stock: 10234, sin_mla_sin_stock: 2111, sin_mla_nuevos: 87,
+        markup_negativo_clasica: 15, markup_negativo_rebate: 2, markup_negativo_oferta: 0, markup_negativo_web: 7,
+      },
+      can_see_margin: true,
+    },
+  });
   await page.viewport(width, height);
   setTheme(theme);
   document.body.style.background = 'var(--cf-bg-app)';
@@ -741,10 +798,14 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(rect(control).right, control.textContent).toBeLessThanOrEqual(width);
         }
         await expect.element(screen.getByText(/de 1234 productos/)).toBeVisible();
-        // Productos' Sin MLA card, with a five-digit count, stays in the header on one line.
-        const sinMla = screen.getByRole('button', { name: /Sin MLA/ }).element();
-        expect(sinMla.textContent).toContain('12.345');
-        expect(wrapped([sinMla])).toEqual([]);
+        // Productos' Sin MLA card (S12d4c), with five-digit counts, keeps each figure on one line inside its card.
+        const sinMla = screen.getByRole('group', { name: 'Sin MLA' }).element();
+        await expect.element(screen.getByRole('button', { name: 'Total: 12.345' })).toBeVisible();
+        expect(rect(sinMla).right).toBeLessThanOrEqual(width);
+        expect(wrapped([...sinMla.querySelectorAll('button span')])).toEqual([]);
+        for (const button of sinMla.querySelectorAll('button')) {
+          expect(rect(button).right, button.getAttribute('aria-label')).toBeLessThanOrEqual(rect(sinMla).right + 0.5);
+        }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/products-header-${width}-${theme}.png` });
         expect(document.body.textContent).not.toContain('Markup:');
         screen.unmount();
@@ -776,6 +837,24 @@ describe('Publicaciones ML Producto view (visual)', () => {
         expect(figures.length).toBeGreaterThan(0);
         expect(wrapped(figures)).toEqual([]);
         expect(overflowingCells(scroller)).toEqual([]);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: a product row fills its code, brand, cost and ERP stock inside their cells`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('button', { name: 'Columnas' }).click();
+        for (const name of ['Código', 'Marca', 'Costo']) await screen.getByRole('checkbox', { name }).click();
+        await screen.getByRole('button', { name: 'Columnas' }).click();
+        const row = rowWith(scrollerOf(), 'Router Archer AX55');
+        for (const text of ['TP-LINK', 'USD 45,50', '12']) {
+          expect([...row.querySelectorAll('td')].some((cell) => cell.textContent.trim() === text), text).toBe(true);
+        }
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          [...row.querySelectorAll('td')].find((cell) => cell.textContent.trim() === 'USD 45,50').scrollIntoView({ inline: 'center' });
+          await frame();
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-rows-fields-${width}-${theme}.png` });
+        }
         screen.unmount();
       });
     }
@@ -899,6 +978,114 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cambios-${width}-${theme}.png` });
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product's last purchases fit inside the panel`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+        await expect.element(aside.getByText('Distribuidora Norte')).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        const section = aside.getByText('Distribuidora Norte').element().closest('section');
+        section.scrollIntoView();
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const el of section.querySelectorAll('li, li span')) {
+          expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-compras-${width}-${theme}.png` });
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the catalog competition of a product's publication fits inside the panel`, async () => {
+        promocionesAPI.getCompetenciaCatalogo.mockResolvedValue({
+          data: {
+            fetch_status: 'ok',
+            fecha_consulta: '2026-10-27T15:00:00Z',
+            our_price: 98500,
+            competitor_count: 2,
+            undercutting: [
+              { item_id: 'MLA1999000001', seller_nickname: 'DISTRIBUIDORA DE REDES DEL LITORAL SRL', price: 96999, markup: 10.42 },
+              { item_id: 'MLA1999000002', seller_nickname: 'OTRO VENDEDOR', price: 95500, markup: -2.1 },
+            ],
+          },
+        });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          // renderProducts sets the list's items; the product panel fetches its own after the click, with these
+          publicacionesMlAPI.items.mockResolvedValue({
+            data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3).map((item, i) => ({ ...item, catalog_listing: i === 0 })), total: 3 },
+          });
+          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('button', { name: /^Competencia de catálogo de / }).click();
+          await expect.element(aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
+          const panel = document.querySelector('[data-split-panel]');
+          const section = aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL').element().closest('section');
+          section.scrollIntoView();
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          for (const el of section.querySelectorAll('li, li span, button')) {
+            expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          }
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-catalogo-${width}-${theme}.png` });
+          screen.unmount();
+        } finally {
+          // the next tests read the page's own items and no stored snapshot
+          promocionesAPI.getCompetenciaCatalogo.mockReset();
+          publicacionesMlAPI.items.mockReset();
+        }
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product's instalment settings and their edit fit under its prices`, async () => {
+        preciosAPI.obtenerProducto.mockResolvedValue({
+          data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT, recalcular_cuotas_auto: false, markup_adicional_cuotas_custom: 6.5, markup_adicional_cuotas_pvp_custom: null },
+        });
+        offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('tab', { name: 'Precios' }).click();
+          await expect.element(aside.getByText('Nunca recalcular')).toBeVisible();
+          const panel = document.querySelector('[data-split-panel]');
+          const section = aside.getByText('Nunca recalcular').element().closest('section');
+          section.scrollIntoView();
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cuotas-${width}-${theme}.png` });
+          await aside.getByRole('button', { name: 'Editar cuotas' }).click();
+          await expect.element(aside.getByLabelText('Recalcular cuotas')).toBeVisible();
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          for (const control of section.querySelectorAll('select, input, button')) {
+            expect(rect(control).right, control.textContent || control.tagName).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          }
+          section.scrollIntoView({ block: 'end' });
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cuotas-edit-${width}-${theme}.png` });
+          screen.unmount();
+        } finally {
+          preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
+          offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
+        }
+      });
+
+      it(`${width}x${height} ${theme}: the product's ban and its confirmation fit inside the panel`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+        await aside.getByRole('button', { name: 'Agregar a la banlist' }).click();
+        await expect.element(aside.getByLabelText('Palabra de verificación')).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        const confirm = aside.getByLabelText('Palabra de verificación').element().closest('section');
+        confirm.scrollIntoView({ block: 'end' });
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const control of confirm.querySelectorAll('input, textarea, button, strong')) {
+          expect(rect(control).right, control.textContent || control.tagName).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-ban-${width}-${theme}.png` });
         screen.unmount();
       });
     }
@@ -1556,6 +1743,72 @@ describe('row colors and the color layer (S8)', () => {
         window.scrollTo(0, 0);
         await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/paint-menu-1366-${theme}.png` });
       }
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: a price edited in place keeps its input inside the cell`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const edit = screen.getByRole('button', { name: /^Editar Precio Clásica/ }).first();
+      await expect.element(edit).toBeVisible();
+      await edit.click();
+      const input = screen.getByRole('textbox', { name: 'Precio Clásica' });
+      await expect.element(input).toBeVisible();
+      const box = input.element().getBoundingClientRect();
+      const cellBox = input.element().closest('td').getBoundingClientRect();
+      expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
+      expect(box.right).toBeLessThanOrEqual(cellBox.right);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+      // The first row is painted: what is typed reads on the input in both themes.
+      const style = getComputedStyle(input.element());
+      expect(contrastRatio(style.color, style.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+      input.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/price-edit-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: Calcular fits its cell and opens Productos' pricing modal inside the screen`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const calculate = screen.getByRole('button', { name: 'Calcular el precio de Router Archer AX55' }).first();
+      await expect.element(calculate).toBeVisible();
+      const box = calculate.element().getBoundingClientRect();
+      const cellBox = calculate.element().closest('td').getBoundingClientRect();
+      expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
+      expect(box.right).toBeLessThanOrEqual(cellBox.right);
+      calculate.element().scrollIntoView({ block: 'center', inline: 'center' });
+      // Nothing covers it (the pinned title column, the sticky header): the point at its center is the button.
+      const center = calculate.element().getBoundingClientRect();
+      expect(document.elementFromPoint(center.left + center.width / 2, center.top + center.height / 2)?.closest('button')).toBe(calculate.element());
+      calculate.element().click();
+      const modal = screen.getByText(/TP-LINK \| REDES \| Stock: 12/);
+      await expect.element(modal).toBeVisible();
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/pricing-modal-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the page's checkbox sits on the title header's line, before its sort button, and is clickable`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const all = screen.getByRole('checkbox', { name: 'Seleccionar los productos de la página' });
+      await expect.element(all).toBeVisible();
+      all.element().scrollIntoView({ block: 'center', inline: 'nearest' });
+      const header = all.element().closest('th');
+      const sort = header.querySelector('button');
+      const box = all.element().getBoundingClientRect();
+      const sortBox = sort.getBoundingClientRect();
+      const headerBox = header.getBoundingClientRect();
+      // One line: the checkbox and the sort button share a vertical band, the checkbox first, both inside the cell.
+      expect(Math.abs(box.top + box.height / 2 - (sortBox.top + sortBox.height / 2))).toBeLessThanOrEqual(3);
+      expect(box.right).toBeLessThanOrEqual(sortBox.left);
+      expect(box.left).toBeGreaterThanOrEqual(headerBox.left);
+      expect(sortBox.right).toBeLessThanOrEqual(headerBox.right);
+      expect(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)).toBe(all.element());
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/select-page-1366-${theme}.png` });
       screen.unmount();
     });
   }

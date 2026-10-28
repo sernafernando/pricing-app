@@ -26,8 +26,10 @@ import app.models.tb_supplier  # noqa: F401
 
 
 @pytest.fixture()
-def producto_base(db) -> ProductoERP:
-    """Minimal ProductoERP with ERP envio set to a known value."""
+def producto_base(db, rol_ventas, grant_permiso) -> ProductoERP:
+    """Minimal ProductoERP with ERP envio set to a known value. The user's role
+    gets productos.ver_info_pricing, the permission that unlocks costo_envio."""
+    grant_permiso(rol_ventas, "productos.ver_info_pricing")
     p = ProductoERP(
         item_id=9001,
         codigo="TEST-ENVIO-001",

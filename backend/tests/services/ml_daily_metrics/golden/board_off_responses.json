@@ -132,9 +132,81 @@
     ],
     "value": 22.0
    },
+   "operations": {
+    "delta_pct": 100.0,
+    "series": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1
+    ],
+    "value": 4
+   },
    "rows_with_sales": {
     "of_total": 4,
     "value": 2
+   },
+   "ticket": {
+    "delta_pct": 50.0,
+    "series": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     150.0,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     300.0,
+     null,
+     null,
+     null,
+     null,
+     100.0,
+     null,
+     null,
+     null,
+     null,
+     200.0
+    ],
+    "value": 187.5
    },
    "total_gauss": {
     "delta_pct": 175.0,
@@ -207,6 +279,10 @@
      2
     ],
     "value": 7
+   },
+   "units_per_sale": {
+    "delta_pct": 75.0,
+    "value": 1.75
    }
   },
   "levels": [
@@ -1238,9 +1314,81 @@
     ],
     "value": 22.0
    },
+   "operations": {
+    "delta_pct": 100.0,
+    "series": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1
+    ],
+    "value": 4
+   },
    "rows_with_sales": {
     "of_total": 2,
     "value": 2
+   },
+   "ticket": {
+    "delta_pct": 50.0,
+    "series": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     150.0,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     300.0,
+     null,
+     null,
+     null,
+     null,
+     100.0,
+     null,
+     null,
+     null,
+     null,
+     200.0
+    ],
+    "value": 187.5
    },
    "total_gauss": {
     "delta_pct": 175.0,
@@ -1313,6 +1461,10 @@
      2
     ],
     "value": 7
+   },
+   "units_per_sale": {
+    "delta_pct": 75.0,
+    "value": 1.75
    }
   },
   "levels": [
@@ -1908,9 +2060,81 @@
     ],
     "value": 22.0
    },
+   "operations": {
+    "delta_pct": 100.0,
+    "series": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1
+    ],
+    "value": 4
+   },
    "rows_with_sales": {
     "of_total": 4,
     "value": 2
+   },
+   "ticket": {
+    "delta_pct": 50.0,
+    "series": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     150.0,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     300.0,
+     null,
+     null,
+     null,
+     null,
+     100.0,
+     null,
+     null,
+     null,
+     null,
+     200.0
+    ],
+    "value": 187.5
    },
    "total_gauss": {
     "delta_pct": 175.0,
@@ -1983,6 +2207,10 @@
      2
     ],
     "value": 7
+   },
+   "units_per_sale": {
+    "delta_pct": 75.0,
+    "value": 1.75
    }
   },
   "levels": null,
@@ -3017,9 +3245,81 @@
     ],
     "value": 22.0
    },
+   "operations": {
+    "delta_pct": 100.0,
+    "series": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1
+    ],
+    "value": 4
+   },
    "rows_with_sales": {
     "of_total": 2,
     "value": 2
+   },
+   "ticket": {
+    "delta_pct": 50.0,
+    "series": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     150.0,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     300.0,
+     null,
+     null,
+     null,
+     null,
+     100.0,
+     null,
+     null,
+     null,
+     null,
+     200.0
+    ],
+    "value": 187.5
    },
    "total_gauss": {
     "delta_pct": 175.0,
@@ -3092,6 +3392,10 @@
      2
     ],
     "value": 7
+   },
+   "units_per_sale": {
+    "delta_pct": 75.0,
+    "value": 1.75
    }
   },
   "levels": null,
@@ -3684,9 +3988,81 @@
     ],
     "value": 22.0
    },
+   "operations": {
+    "delta_pct": 100.0,
+    "series": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1
+    ],
+    "value": 4
+   },
    "rows_with_sales": {
     "of_total": 5,
     "value": 3
+   },
+   "ticket": {
+    "delta_pct": 50.0,
+    "series": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     150.0,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     300.0,
+     null,
+     null,
+     null,
+     null,
+     100.0,
+     null,
+     null,
+     null,
+     null,
+     200.0
+    ],
+    "value": 187.5
    },
    "total_gauss": {
     "delta_pct": 175.0,
@@ -3759,6 +4135,10 @@
      2
     ],
     "value": 7
+   },
+   "units_per_sale": {
+    "delta_pct": 75.0,
+    "value": 1.75
    }
   },
   "levels": null,
@@ -5013,9 +5393,81 @@
     ],
     "value": 22.0
    },
+   "operations": {
+    "delta_pct": 100.0,
+    "series": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1
+    ],
+    "value": 4
+   },
    "rows_with_sales": {
     "of_total": 3,
     "value": 3
+   },
+   "ticket": {
+    "delta_pct": 50.0,
+    "series": [
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     150.0,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     300.0,
+     null,
+     null,
+     null,
+     null,
+     100.0,
+     null,
+     null,
+     null,
+     null,
+     200.0
+    ],
+    "value": 187.5
    },
    "total_gauss": {
     "delta_pct": 175.0,
@@ -5088,6 +5540,10 @@
      2
     ],
     "value": 7
+   },
+   "units_per_sale": {
+    "delta_pct": 75.0,
+    "value": 1.75
    }
   },
   "levels": null,

@@ -18,7 +18,7 @@ const ROWS = Array.from({ length: 15 }, (_, index) => ({
 }));
 const COLUMNS = [{ key: 'titulo', label: 'Título', render: (row) => row.titulo }];
 
-function Harness({ onOpen = () => {}, onExport, onPaintRow, onCycleLayer, onBulkAction, onOpenFilter, showToast = () => {}, rows = ROWS }) {
+function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, showToast = () => {}, rows = ROWS }) {
   const searchRef = useRef(null);
   const [help, setHelp] = useState(false);
   usePublicacionesMLKeyboard({
@@ -26,7 +26,10 @@ function Harness({ onOpen = () => {}, onExport, onPaintRow, onCycleLayer, onBulk
     findRow: (key) => rows.find((row) => row.item_id === key),
     onExport,
     onPaintRow,
+    onToggleRow,
+    onExtendRow,
     onCycleLayer,
+    onCycleMode,
     onBulkAction,
     onOpenFilter,
     onToggleHelp: () => setHelp((open) => !open),
@@ -209,6 +212,69 @@ describe('usePublicacionesMLKeyboard', () => {
   });
 });
 
+describe("r / w / o (S9): the focused row's product rebate, web transfer and fuera de tarjetas, as in Productos", () => {
+  it('each key flips its toggle on the focused row', async () => {
+    const onToggleRow = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onToggleRow={onToggleRow} />);
+    await user.keyboard('{ArrowDown}r');
+    expect(onToggleRow).toHaveBeenLastCalledWith('MLA1', 'rebate');
+    await user.keyboard('{ArrowDown}w');
+    expect(onToggleRow).toHaveBeenLastCalledWith('MLA2', 'web');
+    await user.keyboard('o');
+    expect(onToggleRow).toHaveBeenLastCalledWith('MLA2', 'tarjetas');
+    // A held key repeats: only its first press flips.
+    fireEvent.keyDown(document.activeElement, { key: 'r', code: 'KeyR', repeat: true });
+    expect(onToggleRow).toHaveBeenCalledTimes(3);
+  });
+
+  it('says where to stand without a focused row, and never runs while typing, with a modifier or where not offered', async () => {
+    const onToggleRow = vi.fn();
+    const showToast = vi.fn();
+    const user = userEvent.setup();
+    const { unmount } = render(<Harness onToggleRow={onToggleRow} showToast={showToast} />);
+    await user.keyboard('r');
+    expect(showToast).toHaveBeenCalledWith('Posicionate sobre una publicación (flecha abajo) para usar este atajo', 'error');
+    await user.click(screen.getByRole('textbox', { name: 'Buscar' }));
+    await user.keyboard('rwo');
+    screen.getByRole('textbox', { name: 'Buscar' }).blur();
+    await user.keyboard('{ArrowDown}{Shift>}r{/Shift}');
+    expect(onToggleRow).not.toHaveBeenCalled();
+    unmount();
+    showToast.mockClear();
+    render(<Harness showToast={showToast} />);
+    await user.keyboard('{ArrowDown}r');
+    expect(showToast).not.toHaveBeenCalled();
+  });
+});
+
+describe("Shift+Up / Shift+Down (S12d): move and check the row moved to, as in Productos", () => {
+  it('moves the focus like the plain arrow and hands the new row to onExtendRow', async () => {
+    const onExtendRow = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onExtendRow={onExtendRow} />);
+    await user.keyboard('{ArrowDown}{Shift>}{ArrowDown}{ArrowDown}{/Shift}');
+    expect(row(3)).toHaveFocus();
+    expect(onExtendRow.mock.calls).toEqual([['MLA2'], ['MLA3']]);
+    await user.keyboard('{Shift>}{ArrowUp}{/Shift}');
+    expect(row(2)).toHaveFocus();
+    expect(onExtendRow).toHaveBeenLastCalledWith('MLA2');
+  });
+
+  it('checks nothing with the plain arrows, past the last row, or where not offered', async () => {
+    const onExtendRow = vi.fn();
+    const user = userEvent.setup();
+    const { unmount } = render(<Harness onExtendRow={onExtendRow} />);
+    await user.keyboard('{ArrowDown}{ArrowDown}{End}{Shift>}{ArrowDown}{/Shift}');
+    expect(row(15)).toHaveFocus();
+    expect(onExtendRow).not.toHaveBeenCalled();
+    unmount();
+    render(<Harness />);
+    await user.keyboard('{ArrowDown}{Shift>}{ArrowDown}{/Shift}');
+    expect(row(2)).toHaveFocus();
+  });
+});
+
 describe('colors (S8): 0-7 paint the focused row, F6/F7 change the layer, as in Productos', () => {
   it("0-7 paint the focused row's product with Productos' colors in Productos' order (0 = no color)", async () => {
     const onPaintRow = vi.fn();
@@ -281,6 +347,17 @@ describe("Productos' bulk and filter shortcuts (S9b)", () => {
     expect(onOpenFilter).toHaveBeenLastCalledWith('subcategorias');
     fireEvent.keyDown(document.body, { key: 'p', code: 'KeyP', altKey: true });
     expect(onOpenFilter).toHaveBeenLastCalledWith('pms');
+  });
+
+  it("Alt+V steps through the price columns' modes (the key, not the character a Mac types), not while typing", async () => {
+    const onCycleMode = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onCycleMode={onCycleMode} />);
+    expect(fireEvent.keyDown(document.body, { key: '√', code: 'KeyV', altKey: true })).toBe(false);
+    expect(onCycleMode).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('textbox', { name: 'Buscar' }));
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Buscar' }), { key: 'v', code: 'KeyV', altKey: true });
+    expect(onCycleMode).toHaveBeenCalledTimes(1);
   });
 
   it('none of them runs while typing in a field', async () => {

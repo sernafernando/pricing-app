@@ -88,6 +88,7 @@ function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className 
       data-group-start={groupStart ? '' : undefined}
       aria-sort={active ? ARIA_SORT[sort.dir] : undefined}
     >
+      {column.headerControl}
       {column.sortable ? (
         <button type="button" className={styles.sortButton} onClick={(event) => onSort?.(column.key, event)}>
           {column.header}
@@ -115,7 +116,8 @@ function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className 
 
 /**
  * @param {object} props
- * @param {Array<object>} props.columns
+ * @param {Array<object>} props.columns `headerControl` (optional) is a control placed in the header cell before the
+ *   column's title, outside its sort button (e.g. a select-all checkbox).
  * @param {Array<object>} props.rows
  * @param {(row: object) => string|number} props.getRowKey
  * @param {{key: string, dir: 'asc'|'desc', keys?: Array<{key: string, dir: 'asc'|'desc'}>}} [props.sort] `key`/`dir`
