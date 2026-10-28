@@ -328,8 +328,8 @@ export default function Productos() {
     setProductoConfig(producto);
     setConfigTemp({
       recalcular_cuotas_auto: producto.recalcular_cuotas_auto,
-      markup_adicional_cuotas_custom: producto.markup_adicional_cuotas_custom || '',
-      markup_adicional_cuotas_pvp_custom: producto.markup_adicional_cuotas_pvp_custom || ''
+      markup_adicional_cuotas_custom: producto.markup_adicional_cuotas_custom ?? '',
+      markup_adicional_cuotas_pvp_custom: producto.markup_adicional_cuotas_pvp_custom ?? ''
     });
     setMostrarModalConfig(true);
   };

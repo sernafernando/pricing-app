@@ -1200,3 +1200,38 @@ describe('CS-13: sell in / sell out companion lines', () => {
     expect(document.querySelector('.sell-in-out-line')).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Per-product instalment config: a saved 0 extra markup is a value, not "use
+// the global one". The modal must show it and send it back unchanged.
+// ---------------------------------------------------------------------------
+describe('per-product instalment config', () => {
+  it('shows a saved 0 extra markup as 0 and saves it back as 0, not null', async () => {
+    const producto = makeProducto({ item_id: 'Z1', markup_adicional_cuotas_custom: 0, markup_adicional_cuotas_pvp_custom: 0 });
+    setupApiMocks({ productos: [producto], total: 1 });
+    api.patch.mockResolvedValue({ data: { markup_adicional_cuotas_custom: 0, markup_adicional_cuotas_pvp_custom: 0 } });
+    const user = userEvent.setup();
+
+    await act(async () => {
+      renderWithRouter(<Productos />);
+    });
+    await waitFor(() => expect(screen.getByText('Producto Test')).toBeInTheDocument());
+
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Configuración de cuotas' }));
+    });
+
+    expect(screen.getByPlaceholderText('Dejar vacío para usar configuración global')).toHaveValue(0);
+
+    await act(async () => {
+      await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    });
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith(
+        '/productos/Z1/config-cuotas',
+        expect.objectContaining({ markup_adicional_cuotas_custom: 0, markup_adicional_cuotas_pvp_custom: 0 }),
+      );
+    });
+  });
+});

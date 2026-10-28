@@ -1325,10 +1325,10 @@ def listar_productos(
             markup_12_cuotas=markup_12_cuotas,
             recalcular_cuotas_auto=producto_pricing.recalcular_cuotas_auto if producto_pricing else None,
             markup_adicional_cuotas_custom=float(producto_pricing.markup_adicional_cuotas_custom)
-            if producto_pricing and producto_pricing.markup_adicional_cuotas_custom
+            if producto_pricing and producto_pricing.markup_adicional_cuotas_custom is not None
             else None,
             markup_adicional_cuotas_pvp_custom=float(producto_pricing.markup_adicional_cuotas_pvp_custom)
-            if producto_pricing and producto_pricing.markup_adicional_cuotas_pvp_custom
+            if producto_pricing and producto_pricing.markup_adicional_cuotas_pvp_custom is not None
             else None,
             # Campos PVP
             precio_pvp=float(producto_pricing.precio_pvp) if producto_pricing and producto_pricing.precio_pvp else None,
@@ -2640,10 +2640,10 @@ def listar_productos_tienda(
                 markup_12_cuotas=markup_12_cuotas,
                 recalcular_cuotas_auto=producto_pricing.recalcular_cuotas_auto if producto_pricing else None,
                 markup_adicional_cuotas_custom=float(producto_pricing.markup_adicional_cuotas_custom)
-                if producto_pricing and producto_pricing.markup_adicional_cuotas_custom
+                if producto_pricing and producto_pricing.markup_adicional_cuotas_custom is not None
                 else None,
                 markup_adicional_cuotas_pvp_custom=float(producto_pricing.markup_adicional_cuotas_pvp_custom)
-                if producto_pricing and producto_pricing.markup_adicional_cuotas_pvp_custom
+                if producto_pricing and producto_pricing.markup_adicional_cuotas_pvp_custom is not None
                 else None,
                 catalog_status=None,
                 has_catalog=None,
@@ -2958,10 +2958,10 @@ def obtener_producto(
         markup_12_cuotas=markups_cuotas_ml["12"],
         recalcular_cuotas_auto=producto_pricing.recalcular_cuotas_auto if producto_pricing else None,
         markup_adicional_cuotas_custom=float(producto_pricing.markup_adicional_cuotas_custom)
-        if producto_pricing and producto_pricing.markup_adicional_cuotas_custom
+        if producto_pricing and producto_pricing.markup_adicional_cuotas_custom is not None
         else None,
         markup_adicional_cuotas_pvp_custom=float(producto_pricing.markup_adicional_cuotas_pvp_custom)
-        if producto_pricing and producto_pricing.markup_adicional_cuotas_pvp_custom
+        if producto_pricing and producto_pricing.markup_adicional_cuotas_pvp_custom is not None
         else None,
         # Campos PVP
         precio_pvp=float(precios_pvp_mostrados[12]) if precios_pvp_mostrados[12] else None,
