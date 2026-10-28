@@ -577,12 +577,15 @@ def product_links(name: str = "product_links") -> Any:
     )
 
 
-def has_product(products: Optional[list[int]] = None) -> ColumnElement:
-    """The row's publication is linked (`product_links`) to one of `products`, or to any product when None."""
+def has_product(products: Optional[list[int]] = None, *, outside: Optional[list[int]] = None) -> ColumnElement:
+    """The row's publication is linked (`product_links`) to one of `products` (any product when None), or, with
+    `outside`, to a product that is not one of those."""
     pl = product_links("pl_filter")
     found = select(1).select_from(pl).where(pl.c.item_id == T.i.item_id)
     if products is not None:
         found = found.where(pl.c.producto_item_id == any_(literal(products, ARRAY(Integer))))
+    if outside is not None:
+        found = found.where(pl.c.producto_item_id != all_(literal(outside, ARRAY(Integer))))
     return exists(found)
 
 
@@ -872,20 +875,17 @@ def _oferta(on: bool, per_product: bool) -> ColumnElement:
     o = aliased(OfertaML, name="o")
     own = exists(select(1).where(o.mla == T.i.item_id, *_current_offer(o)))
     if per_product:
-        # any publication linked (item level) to the row's product; a row with no product has only itself
-        sibling = aliased(MlItemProductLink, name="l_oferta")
+        # any publication linked (`product_links`) to one of the row's products; a row with no product has only itself
+        mine, sibling = product_links("pl_oferta"), product_links("pl_oferta_sibling")
         of_product = exists(
             select(1)
-            .select_from(sibling)
-            .join(o, o.mla == sibling.item_id)
-            .where(
-                sibling.variation_id == LINK_ITEM_LEVEL,
-                sibling.producto_item_id == T.l.producto_item_id,
-                *_current_offer(o),
-            )
+            .select_from(mine)
+            .join(sibling, sibling.c.producto_item_id == mine.c.producto_item_id)
+            .join(o, o.mla == sibling.c.item_id)
+            .where(mine.c.item_id == T.i.item_id, *_current_offer(o))
         )
-        has_product = T.l.producto_item_id.isnot(None)
-        return or_(and_(has_product, of_product if on else ~of_product), and_(~has_product, own if on else ~own))
+        linked = has_product()
+        return or_(and_(linked, of_product if on else ~of_product), and_(~linked, own if on else ~own))
     return own if on else ~own
 
 
@@ -966,19 +966,16 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     return where
 
 
-# ponytail: the color, the per-product mejor oferta (`_oferta`) and the brand/category filters still read the
-# item-level link (`T.l` / `T.p`), so a publication linked per variation only is "without product" to them while the
-# Producto view groups it under its variations' products (`product_links`, S12g). Extend them to `product_links` if
-# the operators filter those publications by color, offer or brand.
 def _colors(f: PublicationFilter) -> ColumnElement:
+    """A color is the PRODUCT's: one of the publication's linked products (`product_links`) is painted one of
+    `colors`; `sin_color`, it has no linked product or one that is not painted."""
     if f.color_ids is None or f.colored_ids is None:
         raise RuntimeError("`colores` must be resolved (ml_publication_colors.resolve_color_filter) before the query")
-    product = T.l.producto_item_id
     clauses = []
     if f.colors:
-        clauses.append(product == any_(literal(list(f.color_ids), ARRAY(Integer))))
+        clauses.append(has_product(list(f.color_ids)))
     if f.no_color:
-        clauses.append(or_(product.is_(None), product != all_(literal(list(f.colored_ids), ARRAY(Integer)))))
+        clauses.append(or_(~has_product(), has_product(outside=list(f.colored_ids))))
     return or_(*clauses)
 
 
