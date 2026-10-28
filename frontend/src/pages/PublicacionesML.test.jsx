@@ -8,7 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
-import api, { publicacionesMlAPI } from '../services/api';
+import api, { equiposAPI, publicacionesMlAPI } from '../services/api';
 import { openInMlPanel } from '../utils/mlSidePanel';
 import { exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
 import { loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -54,6 +54,18 @@ vi.mock('../services/api', () => ({
     ),
   },
   registerAuthFailureHandler: vi.fn(),
+}));
+
+// Team management has its own tests; here only that the page opens it and reloads its teams after.
+vi.mock('../components/EquiposModal', () => ({
+  default: ({ isOpen, onClose }) =>
+    isOpen ? (
+      <div role="dialog" aria-label="Gestión de equipos">
+        <button type="button" onClick={onClose}>
+          Cerrar equipos
+        </button>
+      </div>
+    ) : null,
 }));
 
 // The color events (`producto_color:changed`) are pushed by each test through the captured listener.
@@ -1663,6 +1675,37 @@ describe('Exportar a Sheets', () => {
 });
 
 describe('the color layer (S8)', () => {
+  it('opens team management from beside the layer, as Productos does', async () => {
+    await page();
+    await screen.findByRole('combobox', { name: 'Capa de color' });
+    expect(screen.queryByRole('dialog', { name: 'Gestión de equipos' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+
+    expect(screen.getByRole('dialog', { name: 'Gestión de equipos' })).toBeInTheDocument();
+  });
+
+  it('closing team management reloads the teams, so the layer offers a team just created', async () => {
+    await page();
+    await screen.findByRole('combobox', { name: 'Capa de color' });
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+    equiposAPI.listar.mockResolvedValueOnce({
+      data: [
+        { id: 1, nombre: 'U', es_global: true },
+        { id: 12, nombre: 'Ventas', es_global: false },
+        { id: 13, nombre: 'Compras', es_global: false },
+      ],
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar equipos' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Gestión de equipos' })).not.toBeInTheDocument();
+    const capa = screen.getByRole('combobox', { name: 'Capa de color' });
+    await waitFor(() =>
+      expect(within(capa).getAllByRole('option').map((o) => o.textContent)).toEqual(['Global', 'Ventas', 'Compras']),
+    );
+  });
+
   it('lists the global layer and the teams, and asks the rows on the chosen one', async () => {
     await page();
     const capa = await screen.findByRole('combobox', { name: 'Capa de color' });
