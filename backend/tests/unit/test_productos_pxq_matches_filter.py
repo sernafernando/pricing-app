@@ -42,7 +42,11 @@ def _run_flat(**kwargs):
     with patch("app.services.ml_webhook_client.ml_webhook_client.get_items_batch", new_callable=AsyncMock):
         return asyncio.run(
             obtener_datos_ml_producto(
-                item_id=9101, db=_make_db_two_pubs(), current_user=SimpleNamespace(id=1), lite=True, **kwargs
+                item_id=9101,
+                db=_make_db_two_pubs(),
+                current_user=SimpleNamespace(id=1, es_superadmin=True),
+                lite=True,
+                **kwargs,
             )
         )
 

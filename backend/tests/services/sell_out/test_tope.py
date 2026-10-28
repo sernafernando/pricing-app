@@ -316,3 +316,59 @@ def test_por_linea_counts_the_units_not_given_back_to_an_exclusive_campaign() ->
     por_linea: dict = {}
     asignar(_campana(), lineas, por_linea=por_linea)
     assert por_linea == {("ml", 1): 3, ("ml", 2): 2}
+
+
+# ── Per-product amounts (T22b S25: legacy grouped offsets) ──────────
+
+
+def test_a_product_with_its_own_amount_gets_it_and_the_others_get_the_campaign_one() -> None:
+    campana = _campana(montos_item={2: D("25")})
+    lineas = [_linea(1, 2, item=1), _linea(2, 2, item=2)]
+    assert _filas(asignar(campana, lineas)) == [("ml", 1, 2, D("20.00")), ("ml", 2, 2, D("50.00"))]
+
+
+def test_a_campaign_without_product_amounts_keeps_its_single_amount() -> None:
+    assert _filas(asignar(_campana(), [_linea(1, 2, item=1), _linea(2, 1, item=2)])) == [
+        ("ml", 1, 2, D("20.00")),
+        ("ml", 2, 1, D("10.00")),
+    ]
+
+
+def test_a_product_amount_loaded_with_vat_is_divided_by_its_own_product_vat() -> None:
+    campana = _campana(monto_unit=D("121"), monto_incluye_iva=True, montos_item={2: D("221")})
+    lineas = [_linea(1, 1, item=1, iva_pct=D("21")), _linea(2, 1, item=2, iva_pct=D("10.5"))]
+    assert _filas(asignar(campana, lineas)) == [("ml", 1, 1, D("100.00")), ("ml", 2, 1, D("200.00"))]
+
+
+def test_products_with_different_amounts_share_one_unit_cap() -> None:
+    campana = _campana(tope_unidades=3, montos_item={2: D("25")})
+    lineas = [_linea(1, 2, dia=1, item=2), _linea(2, 5, dia=2, item=1), _linea(3, 1, dia=3, item=2)]
+    assert _filas(asignar(campana, lineas)) == [("ml", 1, 2, D("50.00")), ("ml", 2, 1, D("10.00"))]
+
+
+def test_products_with_different_amounts_share_one_money_cap() -> None:
+    # 60 of money: the item-2 sale takes 50, the item-1 sale the 10 left, the last one nothing.
+    campana = _campana(tope_monto=D("60"), montos_item={2: D("25")})
+    lineas = [_linea(1, 2, dia=1, item=2), _linea(2, 3, dia=2, item=1), _linea(3, 1, dia=3, item=2)]
+    assert _filas(asignar(campana, lineas)) == [("ml", 1, 2, D("50.00")), ("ml", 2, 1, D("10.00"))]
+
+
+def test_a_return_reprices_with_the_product_amount_and_frees_its_money_for_the_next_sale() -> None:
+    campana = _campana(tope_monto=D("50"), montos_item={2: D("25")})
+    lineas = [
+        _linea(1, 2, dia=1, item=2),
+        _linea(2, -1, dia=2, item=2, objetivo=("ml", 1)),
+        _linea(3, 5, dia=3, item=1),
+    ]
+    assert _filas(asignar(campana, lineas)) == [("ml", 1, 1, D("25.00")), ("ml", 3, 3, D("25.00"))]
+
+
+def test_a_percentage_campaign_never_uses_product_amounts() -> None:
+    campana = _campana(tipo="porcentaje", monto_unit=None, porcentaje=D("10"), montos_item={1: D("99")})
+    assert _filas(asignar(campana, [_linea(1, 2, item=1, base_unit=D("100"))])) == [("ml", 1, 2, D("20.00"))]
+
+
+@pytest.mark.parametrize("monto", [D("0"), D("-1")])
+def test_a_non_positive_product_amount_is_rejected(monto) -> None:
+    with pytest.raises(ValueError):
+        asignar(_campana(montos_item={1: monto}), [_linea(1, 1)])

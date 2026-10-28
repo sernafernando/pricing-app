@@ -77,7 +77,11 @@ describe('reading the URL', () => {
 
   it('reads the page size from `limite`, only the sizes the backend allows', () => {
     expect(setup('/?limite=100').result.current.hook.filters.limite).toBe(100);
-    expect(setup('/?limite=200').result.current.hook.filters.limite).toBe(PAGE_SIZE);
+    expect(setup('/?limite=200').result.current.hook.filters.limite).toBe(200);
+    expect(setup('/?limite=500').result.current.hook.filters.limite).toBe(500);
+    // Productos' "Todos".
+    expect(setup('/?limite=9999').result.current.hook.filters.limite).toBe(9999);
+    expect(setup('/?limite=1000').result.current.hook.filters.limite).toBe(PAGE_SIZE);
     expect(setup('/').result.current.hook.filters.limite).toBe(PAGE_SIZE);
   });
 

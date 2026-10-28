@@ -2,7 +2,7 @@
 
 Only the shape is validated here (types and closed choices), like the sell-in
 schemas. The rules that mirror the database CHECKs (amount by type, percentage
-range, dates, FX rate, caps, at least one existing group) live in
+range, dates, FX rate, caps, at least one existing group, per-product amounts) live in
 `app.services.sell_out.campanas.validar`, so they come back as a 422 with one
 readable Spanish message.
 
@@ -32,12 +32,28 @@ EstadoRecalculo = Literal["al_dia", "en_cola", "recalculando", "fallida"]
 NOMBRE_MAX = 200
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
 GRUPOS_MAX = 50
+ITEMS_MAX = 500
 INT_MIN, INT_MAX = -(2**31), 2**31 - 1  # INTEGER
 
 # Each NUMERIC(precision, scale) column as (max_digits, decimal_places).
 MONTO = {"max_digits": 18, "decimal_places": 2}  # monto_unit, tope_monto: NUMERIC(18, 2)
 PORCENTAJE = {"max_digits": 7, "decimal_places": 4}  # NUMERIC(7, 4)
 TIPO_CAMBIO = {"max_digits": 18, "decimal_places": 6}  # NUMERIC(18, 6)
+
+
+class SellOutCampanaItemIn(BaseModel):
+    """A product's own amount per unit in a `por_unidad` campaign (T22b: legacy grouped offsets), in `moneda`,
+    loaded with VAT or not like `monto_unit`. It replaces `monto_unit` for that product only; the cap is shared."""
+
+    item_id: int = Field(ge=INT_MIN, le=INT_MAX)
+    monto_unit: Decimal = Field(**MONTO)
+
+
+class SellOutCampanaItemOut(BaseModel):
+    item_id: int
+    monto_unit: Decimal
+    codigo: Optional[str] = None  # the product, for the screen; None if it left the ERP catalog
+    descripcion: Optional[str] = None
 
 
 class SellOutCampanaIn(BaseModel):
@@ -63,6 +79,9 @@ class SellOutCampanaIn(BaseModel):
     # Whether `monto_unit` includes VAT: each sale then gets it net of its product's own VAT.
     monto_incluye_iva: bool = False
     grupo_ids: list[int] = Field(default_factory=list, max_length=GRUPOS_MAX)
+    # Products of the groups with their own amount (`por_unidad` only); the rest get `monto_unit`. Absent (None)
+    # keeps the stored ones, so a client that does not send them never wipes them; `[]` clears them.
+    items: Optional[list[SellOutCampanaItemIn]] = Field(default=None, max_length=ITEMS_MAX)
 
 
 class SellOutAnularIn(BaseModel):
@@ -136,6 +155,7 @@ class SellOutCampanaOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     grupos: list[SellOutGrupoOut]
+    items: list[SellOutCampanaItemOut] = []  # the products with their own amount, by item_id
     resumen: SellOutResumenOut
 
 

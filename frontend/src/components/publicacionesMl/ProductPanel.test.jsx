@@ -37,6 +37,20 @@ vi.mock('./panel/ProductChangesTab', () => ({
   default: ({ productItemId }) => <div data-testid="product-changes">{`changes of ${productItemId}`}</div>,
 }));
 
+vi.mock('./panel/ProductCuotasConfig', () => ({
+  default: ({ productItemId }) => <div data-testid="product-cuotas">{`cuotas of ${productItemId}`}</div>,
+}));
+
+vi.mock('./panel/ProductCatalogCompetition', () => ({
+  default: ({ publications }) => (
+    <div data-testid="product-catalog-competition">{`competition of ${publications.map((p) => p.item_id).join(',')}`}</div>
+  ),
+}));
+
+vi.mock('./panel/ProductPurchases', () => ({
+  default: ({ productItemId }) => <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div>,
+}));
+
 vi.mock('./panel/ProductBanAction', () => ({
   default: ({ productItemId, description }) => <div data-testid="product-ban">{`ban ${productItemId}: ${description}`}</div>,
 }));
@@ -173,6 +187,43 @@ describe('ProductPanel', () => {
     expect(screen.getByTestId('product-identity')).toHaveTextContent(`identity of ${SUMMARY.productoItemId}`);
   });
 
+  it('shows the last purchases under Resumen, after the SKU and EAN', () => {
+    renderPanel();
+    const identity = screen.getByTestId('product-identity');
+    const purchases = screen.getByTestId('product-purchases');
+    expect(purchases).toHaveTextContent(`purchases of ${SUMMARY.productoItemId}`);
+    expect(identity.compareDocumentPosition(purchases) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows the catalog competition of the listed publications under Resumen, after them', () => {
+    renderPanel();
+    const competition = screen.getByTestId('product-catalog-competition');
+    expect(competition).toHaveTextContent(`competition of ${ITEMS.map((item) => item.item_id).join(',')}`);
+    const publications = screen.getByRole('heading', { name: 'Publicaciones' });
+    expect(publications.compareDocumentPosition(competition) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows the catalog competition for "Sin producto" too: it belongs to each publication', () => {
+    renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
+    expect(screen.getByTestId('product-catalog-competition')).toBeInTheDocument();
+  });
+
+  it("gives each Resumen section its own key, so switching products restarts every one of them", () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      renderPanel();
+      const duplicated = errors.mock.calls.filter((args) => String(args[0]).includes('same key'));
+      expect(duplicated).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it('has no last purchases for "Sin producto"', () => {
+    renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
+    expect(screen.queryByTestId('product-purchases')).not.toBeInTheDocument();
+  });
+
   it('has no SKU and EAN for "Sin producto"', () => {
     renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
     expect(screen.queryByTestId('product-identity')).not.toBeInTheDocument();
@@ -234,6 +285,15 @@ describe('ProductPanel', () => {
       expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByRole('tabpanel')).toHaveTextContent('prices of 4101, cost shown, clasica editable');
       expect(figures()).not.toBeInTheDocument();
+    });
+
+    it("shows the product's instalment settings on Precios, under its prices", async () => {
+      renderPanel();
+      await userEvent.click(tab('Precios'));
+      const prices = screen.getByTestId('product-prices');
+      const cuotas = screen.getByTestId('product-cuotas');
+      expect(cuotas).toHaveTextContent('cuotas of 4101');
+      expect(prices.compareDocumentPosition(cuotas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('hides the cost on Precios without the margin permission', async () => {

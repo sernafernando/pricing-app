@@ -245,9 +245,14 @@ export const authAPI = {
 };
 
 export const productosAPI = {
-  listar: (params) => api.get('/productos', { params }),
+  // `config.signal` aborts it (Publicaciones ML's price parts of a page that moved on).
+  listar: (params, config = {}) => api.get('/productos', { ...config, params }),
   // The product's changes made in the app, newest first (the Productos "Historial de Cambios" log).
   auditoria: (itemId) => api.get(`/productos/${itemId}/auditoria`),
+  // `{ recalcular_cuotas_auto, markup_adicional_cuotas_custom, markup_adicional_cuotas_pvp_custom }`: replaces all three; null follows the global.
+  configCuotas: (itemId, body) => api.patch(`/productos/${itemId}/config-cuotas`, body),
+  // The product's detail for Productos' info modal; `ultimas_compras` are its last five purchases.
+  detalle: (itemId) => api.get(`/productos/${itemId}/detalle`),
   listarTienda: (params) => api.get('/productos/tienda', { params }),
   stats: (params) => api.get('/stats', { params }),
   statsDinamicos: (params) => api.get('/stats-dinamicos', { params }),
@@ -944,6 +949,7 @@ export const publicacionesMlAPI = {
   statusBulk: (body) => api.post('/ml-publications/items/status-bulk', body),
   // The KPI strip over the MLAs the filters select (`ml_metricas.ver`). `config.signal` aborts a stale request.
   kpis: (params, config) => api.get('/ml-publications/view/kpis', { params, ...config }),
+  stats: (params, config) => api.get('/ml-publications/view/stats', { params, ...config }),
   // The linked products of the publications the filters select, for a bulk pricing action (see
   // `buildProductIdsParams`): `{ item_ids, count, sin_producto }`; a 422 over the cap. `config.signal` aborts it.
   productIds: (params, config) => api.get('/ml-publications/view/product-ids', { params, ...config }),

@@ -14,7 +14,8 @@ from datetime import UTC, datetime, date, timedelta
 from app.core.database import get_db, get_async_db
 from app.models.producto import ProductoERP, ProductoPricing
 from app.models.usuario import Usuario
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_permiso
+from app.services.permisos_service import PermisosService
 from app.services.envio_real_service import resolver_costo_envio
 from app.services.ml_promotions_service import (
     fetch_mlas_with_active_promo_type,
@@ -80,45 +81,154 @@ def _resolve_pxq_matches(mla_ids: list, log_context: str) -> Optional[dict]:
 def obtener_detalle_producto(
     item_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
-    """Obtiene información detallada de un producto (sin datos de ML - se cargan lazy)"""
+    """Obtiene información detallada de un producto (sin datos de ML - se cargan lazy).
+
+    Each block of fields is returned only to users holding the permission the
+    product info modal uses to show it; any other field comes back as None
+    (and `ultimas_compras` as []). The response is still 200 and keeps its
+    shape, because the modal fetches on open for every user that can reach it.
+    """
     from app.services.pricing_calculator import (
         obtener_tipo_cambio_actual,
         obtener_comision_base,
         obtener_grupo_subcategoria,
     )
 
-    # Producto base
     producto = db.query(ProductoERP).filter(ProductoERP.item_id == item_id).first()
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
-    # Pricing
-    pricing = db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+    permisos = PermisosService(db)
+    ver_basica = permisos.tiene_permiso(current_user, "productos.ver_info_basica")
+    ver_pricing = permisos.tiene_permiso(current_user, "productos.ver_info_pricing")
+    ver_compras = permisos.tiene_permiso(current_user, "productos.ver_info_compras")
 
-    # Obtener tipo de cambio
-    tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+    producto_out: dict = {"item_id": producto.item_id}
+    pricing_out: dict = {}
 
-    # Costo en ARS
-    costo_ars = (
-        float(producto.costo) * tipo_cambio if producto.moneda_costo == "USD" and tipo_cambio else float(producto.costo)
+    pricing = (
+        db.query(ProductoPricing).filter(ProductoPricing.item_id == item_id).first()
+        if (ver_basica or ver_pricing)
+        else None
     )
 
-    # Obtener comisión ML para lista clásica
-    grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
-    comision_clasica = obtener_comision_base(db, 1, grupo_id) if grupo_id else None
+    if ver_basica:
+        producto_out.update(
+            {
+                "codigo": producto.codigo,
+                "descripcion": producto.descripcion,
+                "marca": producto.marca,
+                "categoria": producto.categoria,
+                "subcategoria_id": producto.subcategoria_id,
+                "stock": producto.stock,
+            }
+        )
+        pricing_out.update(
+            {
+                "usuario_modifico": pricing.usuario.nombre if pricing and pricing.usuario else None,
+                "fecha_modificacion": pricing.fecha_modificacion if pricing else None,
+            }
+        )
 
-    # Costo de envío — resolved from mlwebhook DB (falls back to ERP on any error)
-    costo_envio = resolver_costo_envio(db, producto)
+    if ver_pricing:
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+        costo_ars = (
+            float(producto.costo) * tipo_cambio
+            if producto.moneda_costo == "USD" and tipo_cambio
+            else float(producto.costo)
+        )
+        # Comisión ML para lista clásica
+        grupo_id = obtener_grupo_subcategoria(db, producto.subcategoria_id)
+        comision_clasica = obtener_comision_base(db, 1, grupo_id) if grupo_id else None
+        # Costo de envío — resolved from mlwebhook DB (falls back to ERP on any error)
+        costo_envio = resolver_costo_envio(db, producto)
 
-    # ML data ahora se carga de forma lazy en el endpoint separado /mercadolibre
-    # Esto mejora significativamente el tiempo de carga del modal
+        producto_out.update(
+            {
+                "moneda_costo": producto.moneda_costo,
+                "costo": float(producto.costo),
+                "costo_ars": costo_ars,
+                "iva": float(producto.iva),
+                "costo_envio": costo_envio,
+                "tipo_cambio_usado": tipo_cambio,
+            }
+        )
+        pricing_out.update(
+            {
+                "precio_lista_ml": float(pricing.precio_lista_ml) if pricing and pricing.precio_lista_ml else None,
+                "markup": float(pricing.markup_calculado) if pricing and pricing.markup_calculado else None,
+                "comision_ml_porcentaje": comision_clasica,
+                "participa_rebate": pricing.participa_rebate if pricing else False,
+                "porcentaje_rebate": float(pricing.porcentaje_rebate)
+                if pricing and pricing.porcentaje_rebate
+                else None,
+                "out_of_cards": pricing.out_of_cards if pricing else False,
+                "participa_web_transferencia": pricing.participa_web_transferencia if pricing else False,
+                "porcentaje_markup_web": float(pricing.porcentaje_markup_web)
+                if pricing and pricing.porcentaje_markup_web
+                else None,
+                "precio_web_transferencia": float(pricing.precio_web_transferencia)
+                if pricing and pricing.precio_web_transferencia
+                else None,
+                "markup_web_real": float(pricing.markup_web_real) if pricing and pricing.markup_web_real else None,
+                "precio_3_cuotas": float(pricing.precio_3_cuotas) if pricing and pricing.precio_3_cuotas else None,
+                "precio_6_cuotas": float(pricing.precio_6_cuotas) if pricing and pricing.precio_6_cuotas else None,
+                "precio_9_cuotas": float(pricing.precio_9_cuotas) if pricing and pricing.precio_9_cuotas else None,
+                "precio_12_cuotas": float(pricing.precio_12_cuotas) if pricing and pricing.precio_12_cuotas else None,
+            }
+        )
 
-    # Obtener últimas 5 compras del producto (puco_id = 10)
+    return {
+        "producto": {field: producto_out.get(field) for field in _DETALLE_PRODUCTO_FIELDS},
+        "pricing": {field: pricing_out.get(field) for field in _DETALLE_PRICING_FIELDS},
+        "ultimas_compras": _ultimas_compras(db, item_id) if ver_compras else [],
+        # ventas, precios_ml, y publicaciones_ml ahora se cargan de forma lazy en /mercadolibre endpoint
+    }
+
+
+_DETALLE_PRODUCTO_FIELDS = (
+    "item_id",
+    "codigo",
+    "descripcion",
+    "marca",
+    "categoria",
+    "subcategoria_id",
+    "stock",
+    "moneda_costo",
+    "costo",
+    "costo_ars",
+    "iva",
+    "costo_envio",
+    "tipo_cambio_usado",
+)
+
+_DETALLE_PRICING_FIELDS = (
+    "precio_lista_ml",
+    "markup",
+    "comision_ml_porcentaje",
+    "participa_rebate",
+    "porcentaje_rebate",
+    "out_of_cards",
+    "participa_web_transferencia",
+    "porcentaje_markup_web",
+    "precio_web_transferencia",
+    "markup_web_real",
+    "precio_3_cuotas",
+    "precio_6_cuotas",
+    "precio_9_cuotas",
+    "precio_12_cuotas",
+    "usuario_modifico",
+    "fecha_modificacion",
+)
+
+
+def _ultimas_compras(db: Session, item_id: int) -> list[dict]:
+    """Últimas 5 compras del producto (puco_id = 10)."""
     from app.models.tb_supplier import TBSupplier
     from app.models.commercial_transaction import CommercialTransaction
     from app.models.item_transaction import ItemTransaction
 
-    ultimas_compras_query = (
+    filas = (
         db.query(
             TBSupplier.supp_name,
             ItemTransaction.it_cd,
@@ -150,60 +260,16 @@ def obtener_detalle_producto(
         .limit(5)
         .all()
     )
-
-    ultimas_compras = []
-    for compra in ultimas_compras_query:
-        ultimas_compras.append(
-            {
-                "proveedor": compra.supp_name,
-                "fecha": compra.it_cd.isoformat() if compra.it_cd else None,
-                "cantidad": float(compra.it_qty) if compra.it_qty else 0,
-                "precio_unitario": float(compra.it_price) if compra.it_price else 0,
-                "moneda_id": compra.curr_id,
-            }
-        )
-
-    return {
-        "producto": {
-            "item_id": producto.item_id,
-            "codigo": producto.codigo,
-            "descripcion": producto.descripcion,
-            "marca": producto.marca,
-            "categoria": producto.categoria,
-            "subcategoria_id": producto.subcategoria_id,
-            "stock": producto.stock,
-            "moneda_costo": producto.moneda_costo,
-            "costo": float(producto.costo),
-            "costo_ars": costo_ars,
-            "iva": float(producto.iva),
-            "costo_envio": costo_envio,
-            "tipo_cambio_usado": tipo_cambio,
-        },
-        "pricing": {
-            "precio_lista_ml": float(pricing.precio_lista_ml) if pricing and pricing.precio_lista_ml else None,
-            "markup": float(pricing.markup_calculado) if pricing and pricing.markup_calculado else None,
-            "comision_ml_porcentaje": comision_clasica,
-            "participa_rebate": pricing.participa_rebate if pricing else False,
-            "porcentaje_rebate": float(pricing.porcentaje_rebate) if pricing and pricing.porcentaje_rebate else None,
-            "out_of_cards": pricing.out_of_cards if pricing else False,
-            "participa_web_transferencia": pricing.participa_web_transferencia if pricing else False,
-            "porcentaje_markup_web": float(pricing.porcentaje_markup_web)
-            if pricing and pricing.porcentaje_markup_web
-            else None,
-            "precio_web_transferencia": float(pricing.precio_web_transferencia)
-            if pricing and pricing.precio_web_transferencia
-            else None,
-            "markup_web_real": float(pricing.markup_web_real) if pricing and pricing.markup_web_real else None,
-            "precio_3_cuotas": float(pricing.precio_3_cuotas) if pricing and pricing.precio_3_cuotas else None,
-            "precio_6_cuotas": float(pricing.precio_6_cuotas) if pricing and pricing.precio_6_cuotas else None,
-            "precio_9_cuotas": float(pricing.precio_9_cuotas) if pricing and pricing.precio_9_cuotas else None,
-            "precio_12_cuotas": float(pricing.precio_12_cuotas) if pricing and pricing.precio_12_cuotas else None,
-            "usuario_modifico": pricing.usuario.nombre if pricing and pricing.usuario else None,
-            "fecha_modificacion": pricing.fecha_modificacion if pricing else None,
-        },
-        "ultimas_compras": ultimas_compras,
-        # ventas, precios_ml, y publicaciones_ml ahora se cargan de forma lazy en /mercadolibre endpoint
-    }
+    return [
+        {
+            "proveedor": compra.supp_name,
+            "fecha": compra.it_cd.isoformat() if compra.it_cd else None,
+            "cantidad": float(compra.it_qty) if compra.it_qty else 0,
+            "precio_unitario": float(compra.it_price) if compra.it_price else 0,
+            "moneda_id": compra.curr_id,
+        }
+        for compra in filas
+    ]
 
 
 @router.get("/productos/{item_id}/mercadolibre")
@@ -245,6 +311,13 @@ async def obtener_datos_ml_producto(
     fail-closed): `matches_filter` is left absent (shows all, degrades
     gracefully) — consistent with this endpoint's existing enrichment
     degradation pattern (e.g. `fetch_promo_summary_by_mla` above).
+
+    Each block is returned only to users holding the permission the product
+    info modal uses to show it: `publicaciones_ml` needs
+    productos.ver_info_mercadolibre (otherwise []) and `ventas` needs
+    productos.ver_info_ventas (otherwise None). Nothing is read for a hidden
+    block, and the response stays 200 because the modal loads it when either
+    tab opens.
     """
     # Validate promo_estado identically to the LISTADO endpoint so both call
     # sites of select_promo_resolver reject the same inputs (single source of
@@ -260,9 +333,16 @@ async def obtener_datos_ml_producto(
     from app.services.ml_webhook_client import ml_webhook_client
     from sqlalchemy import text
 
-    # Obtener todas las publicaciones ML del item
+    permisos = PermisosService(db)
+    ver_ml = permisos.tiene_permiso(current_user, "productos.ver_info_mercadolibre")
+    ver_ventas = permisos.tiene_permiso(current_user, "productos.ver_info_ventas")
+
+    # Obtener todas las publicaciones ML del item. Without the ML permission
+    # there are no mla_ids, so every enrichment below is skipped.
     publicaciones_ml_query = (
         db.query(PublicacionML).filter(PublicacionML.item_id == item_id, PublicacionML.activo == True).all()
+        if ver_ml
+        else []
     )
 
     # Crear diccionario base de publicaciones
@@ -395,8 +475,17 @@ async def obtener_datos_ml_producto(
                 publicaciones_dict[mla]["publication_status"] = found.status
                 publicaciones_dict[mla]["publication_sub_status"] = found.sub_status
 
-    # Calcular ventas de los últimos 7, 15 y 30 días
-    # Usamos MLVentaMetrica (misma fuente que el dashboard)
+    return {
+        "publicaciones_ml": sorted(
+            publicaciones_dict.values(),
+            key=lambda x: ({4: 0, 17: 1, 14: 2, 13: 3, 23: 4}.get(x.get("pricelist_id"), 999), x.get("mla", "")),
+        ),
+        "ventas": _ventas_ml_stats(db, item_id) if ver_ventas else None,
+    }
+
+
+def _ventas_ml_stats(db: Session, item_id: int) -> dict:
+    """Ventas ML de los últimos 7, 15 y 30 días, desde MLVentaMetrica (misma fuente que el dashboard)."""
     from app.models.ml_venta_metrica import MLVentaMetrica
 
     fecha_actual = datetime.now(UTC).date()
@@ -428,20 +517,15 @@ async def obtener_datos_ml_producto(
             "numero_ventas": int(ventas_ml.numero_ventas or 0),
         }
 
-    return {
-        "publicaciones_ml": sorted(
-            publicaciones_dict.values(),
-            key=lambda x: ({4: 0, 17: 1, 14: 2, 13: 3, 23: 4}.get(x.get("pricelist_id"), 999), x.get("mla", "")),
-        ),
-        "ventas": ventas_stats,
-    }
+    return ventas_stats
 
 
 @router.get("/productos/{item_id}/mercadolibre/tree", response_model=ProductTreeResponse)
 def obtener_arbol_ml_producto(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    # The tree is read only by Productos' expandable publication rows, a screen behind productos.ver.
+    current_user: Usuario = Depends(require_permiso("productos.ver")),
     promo_tipos: Optional[str] = None,
     promo_estado: Optional[str] = None,
     con_promo_aplicada: Optional[bool] = None,
