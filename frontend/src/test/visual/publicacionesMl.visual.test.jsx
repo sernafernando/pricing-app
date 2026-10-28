@@ -877,7 +877,6 @@ describe('Publicaciones ML Producto view (visual)', () => {
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cambios-${width}-${theme}.png` });
         screen.unmount();
-        screen.unmount();
       });
     }
 
