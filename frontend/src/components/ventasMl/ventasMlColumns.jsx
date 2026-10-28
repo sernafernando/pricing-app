@@ -28,6 +28,7 @@ import {
   GOODS_STATUS_TONE,
   MODO_LOGISTICO_TONE,
 } from '../../utils/ventasMlTone';
+import { partesSellInOut } from '../../utils/sellInOutOperacion';
 
 // Single source of truth for the Ventas ML table's columns
 // (ventas-ml-columnas): both the header (via `@tanstack/react-table`, used
@@ -379,6 +380,36 @@ export const COLUMNS = [
       const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
       const metricsState = ctx.kind === 'group' ? ctx.metricsState : ctx.order.metrics_state;
       return { title: moneyTitle(entity.total_gauss, entity.currency_id, metricsState) };
+    },
+  },
+  {
+    // Métricas audit A7: what the allocators credited to the sale (a pack
+    // row shows its members' sum), so a Métricas ML sell figure can be traced
+    // to its sales. Always ARS; null when nothing applies.
+    id: 'sell_in_out',
+    header: 'Sell in / out',
+    size: 125,
+    minSize: 100,
+    numeric: true,
+    cell: (ctx) => {
+      const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
+      let sellOut = null;
+      if (entity.sell_out_ars != null) {
+        sellOut = `out ${entity.sell_out_estimado ? '≈ ' : ''}$ ${formatAmount(entity.sell_out_ars)}`;
+      } else if (entity.sell_out_estimado) {
+        sellOut = 'out a definir';
+      }
+      return (
+        <>
+          <Money value={entity.sell_in_ars} currencyId="ARS" />
+          {sellOut && <span className={styles.subline}>{sellOut}</span>}
+        </>
+      );
+    },
+    cellProps: (ctx) => {
+      const entity = ctx.kind === 'group' ? ctx.group : ctx.order;
+      const partes = partesSellInOut(entity, (v) => `$ ${formatAmount(v)}`);
+      return { title: partes.join(' · ') || undefined };
     },
   },
 ];

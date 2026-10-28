@@ -43,3 +43,44 @@ describe('Importe cell: ML coupon sub-line', () => {
     expect(cell).toHaveTextContent('cupón ML $ 75,00');
   });
 });
+
+describe('Sell in / out cell (Métricas audit A7)', () => {
+  const sell = COLUMNS.find((c) => c.id === 'sell_in_out');
+  const renderSell = (ctx) => {
+    const view = render(<div data-testid="sell">{sell.cell(ctx)}</div>);
+    return Object.assign(screen.getByTestId('sell'), { unmount: view.unmount, tooltip: sell.cellProps(ctx).title });
+  };
+
+  it('shows the sell in with the sell out on the sub-line, and names both in the tooltip', () => {
+    const cell = renderSell({ kind: 'member', order: order({ sell_in_ars: 1200.5, sell_out_ars: 300, sell_out_estimado: false }) });
+    expect(cell).toHaveTextContent('1.200,50');
+    expect(cell).toHaveTextContent('out $ 300,00');
+    expect(cell.tooltip).toBe('Sell in: $ 1.200,50 · Sell out: $ 300,00');
+  });
+
+  it('a pack row reads the pack sums', () => {
+    const cell = renderSell({ kind: 'group', group: { sell_in_ars: 10, sell_out_ars: null, sell_out_estimado: null }, orders: [] });
+    expect(cell).toHaveTextContent('10,00');
+    expect(cell).not.toHaveTextContent('out');
+  });
+
+  it('an estimated sell out is marked, an unknown one says it is not defined yet', () => {
+    let cell = renderSell({ kind: 'member', order: order({ sell_out_ars: 50, sell_out_estimado: true }) });
+    expect(cell).toHaveTextContent('out ≈ $ 50,00');
+    cell.unmount();
+    cell = renderSell({ kind: 'member', order: order({ sell_out_ars: null, sell_out_estimado: true }) });
+    expect(cell).toHaveTextContent('out a definir');
+    expect(cell.tooltip).toBe('Sell out en USD sin tipo de cambio');
+  });
+
+  it('a sale with nothing applied shows a dash and no tooltip', () => {
+    const cell = renderSell({ kind: 'member', order: order() });
+    expect(cell).toHaveTextContent('—');
+    expect(cell).not.toHaveTextContent('out');
+    expect(cell.tooltip).toBeUndefined();
+  });
+
+  it('can be hidden', () => {
+    expect(sell.enableHiding).not.toBe(false);
+  });
+});
