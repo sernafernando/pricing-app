@@ -77,7 +77,7 @@ from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
-from app.models.sell_out import SellOutCampana
+from app.models.sell_out import SellOutCampana, SellOutCampanaItem
 from app.schemas.sell_out import NOMBRE_MAX, SellOutCampanaIn
 from app.services.sell_out import campanas
 from app.utils.csv_cells import csv_money, csv_text
@@ -241,6 +241,9 @@ def _planear_grupo(
         if o.item_id in vistos:
             return _Plan(f"{g}: el producto {o.item_id} tiene más de un offset")
         vistos.add(o.item_id)
+    if len({(o.fecha_desde, o.fecha_hasta) for o in offsets}) > 1:
+        # Each legacy offset applies only within its own dates: one campaign period would credit outside them.
+        return _Plan(f"{g}: sus offsets tienen períodos distintos y una campaña tiene uno solo; revisar a mano")
     usuario = next((o.usuario_id for o in offsets if o.usuario_id is not None), usuario_id)
     if usuario is None:
         return _Plan(f"{g}: sin usuario; indicar --usuario-id")
@@ -401,6 +404,25 @@ def _suelto(db: Session, offset: OffsetGanancia, hoy, default, usuario_id, apply
     return [_Resultado(fila, offset, vencido=plan.vencido, nueva=True)]
 
 
+def _grupo_migrado(db: Session, grupo_id: int, offsets: list[OffsetGanancia], campana_id: int) -> list[_Resultado]:
+    """A re-run over a group already migrated: an offset the campaign holds (its origin, or its product's amount) is
+    "ya migrado"; one added to the group afterwards is not in the campaign, so it goes to review instead."""
+    origen = db.get(SellOutCampana, campana_id).offset_origen_id
+    t = SellOutCampanaItem
+    con_monto = {i for (i,) in db.query(t.item_id).filter(t.campana_id == campana_id)}
+    salida = []
+    for o in offsets:
+        if o.id == origen or (o.item_id is not None and o.item_id in con_monto):
+            salida.append(_Resultado(_fila(o, YA_MIGRADO, campana_id), o))
+        else:
+            motivo = (
+                f"Grupo #{grupo_id}: el offset se agregó después de migrar el grupo a la campaña #{campana_id}; "
+                "revisar a mano"
+            )
+            salida.append(_Resultado(_fila(o, NO_MIGRADO, motivo=motivo), o, None, (motivo, [])))
+    return salida
+
+
 def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool) -> list[_Resultado]:
     """Every offset of one group (by id): one campaign, loaded in ONE transaction, or none of them migrates."""
     grupo_id = offsets[0].grupo_id
@@ -411,7 +433,7 @@ def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id,
         .first()
     )
     if ya is not None:
-        return [_Resultado(_fila(o, YA_MIGRADO, ya[0]), o) for o in offsets]
+        return _grupo_migrado(db, grupo_id, offsets, ya[0])
     plan = _planear_grupo(grupo_id, offsets, hoy, default, usuario_id)
     error = plan.motivo if plan.error else None
     if plan.data is None:

@@ -730,10 +730,10 @@ def _grupo_tplink(engine: Engine, **ref) -> tuple[int, list[int]]:
             monto=3.5,
             max_unidades=100,
             max_monto_usd=500,
-            fecha_desde=date(2026, 8, 15),
-            fecha_hasta=date(2026, 12, 15),
+            fecha_desde=date(2026, 9, 1),
+            fecha_hasta=date(2026, 11, 30),
         ),
-        _offset(engine, **base, item_id=2270, monto=4, max_unidades=999, fecha_hasta=date(2026, 10, 31)),
+        _offset(engine, **base, item_id=2270, monto=4, max_unidades=999, fecha_hasta=date(2026, 11, 30)),
     ]
     return grupo_id, ids
 
@@ -748,7 +748,7 @@ def test_a_group_becomes_one_campaign_linked_to_its_group_with_per_product_amoun
     assert c["offset_origen_id"] == ref
     assert (c["tipo"], c["monto_unit"], c["moneda"]) == ("por_unidad", Decimal("2.00"), "USD")
     assert (c["tope_unidades"], c["tope_monto"]) == (100, Decimal("500.00"))
-    assert (c["fecha_desde"], c["fecha_hasta"]) == (date(2026, 8, 15), date(2026, 12, 15))
+    assert (c["fecha_desde"], c["fecha_hasta"]) == (date(2026, 9, 1), date(2026, 11, 30))
     assert [g for g, _ in _grupos_de(engine, c["id"])] == [grupo_id]  # the existing group, no new one
     assert _count(engine, "offset_grupos") == 1
     assert _filtros(engine, grupo_id) == [("TP-LINK", None, None, None)]
@@ -780,7 +780,7 @@ def test_a_group_reference_with_a_product_also_gets_its_own_amount(engine, corre
 def test_a_group_without_end_date_ends_on_the_default_with_a_warning(engine, correr) -> None:
     grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
     ref = _offset(engine, grupo_id=grupo_id, fecha_hasta=None, moneda="ARS", monto=100, max_monto_usd=50)
-    otro = _offset(engine, grupo_id=grupo_id, item_id=2964, moneda="ARS", monto=150)
+    otro = _offset(engine, grupo_id=grupo_id, item_id=2964, moneda="ARS", monto=150, fecha_hasta=None)
 
     _, _, filas = correr("--apply")
 
@@ -807,6 +807,25 @@ def test_a_group_rerun_reports_every_offset_as_already_migrated(engine, correr) 
     assert (summary["ya_migrados"], summary["migrados"], summary["campana_ids"]) == (3, 0, [])
 
 
+def test_an_offset_added_to_a_migrated_group_goes_to_review_not_already_migrated(engine, correr) -> None:
+    grupo_id, ids = _grupo_tplink(engine)
+    correr("--apply")
+    [c] = _campanas(engine)
+    nuevo = _offset(engine, grupo_id=grupo_id, monto=9, fecha_hasta=date(2026, 11, 30))
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert _campanas(engine) == [c]
+    assert {i: filas[i]["resultado"] for i in ids} == dict.fromkeys(ids, "ya migrado")
+    motivo = (
+        f"Grupo #{grupo_id}: el offset se agregó después de migrar el grupo a la campaña #{c['id']}; revisar a mano"
+    )
+    assert (filas[nuevo]["resultado"], filas[nuevo]["motivo"]) == ("no migrado", motivo)
+    assert _pendientes(engine)[nuevo]["motivo"] == motivo
+    assert (summary["ya_migrados"], summary["pendientes"]) == (3, 1)
+
+
 def test_a_group_dry_run_writes_nothing_and_reports_every_offset(engine, correr) -> None:
     _, ids = _grupo_tplink(engine)
     antes = {table: _count(engine, table) for table in _ESCRITAS}
@@ -823,22 +842,27 @@ def test_an_expired_group_migrates_with_its_real_dates_and_a_warning_on_each_off
     grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
     ids = [
         _offset(engine, grupo_id=grupo_id, fecha_desde=date(2026, 5, 1), fecha_hasta=date(2026, 6, 30)),
-        _offset(engine, grupo_id=grupo_id, item_id=2964, fecha_desde=date(2026, 6, 1), fecha_hasta=date(2026, 7, 31)),
+        _offset(engine, grupo_id=grupo_id, item_id=2964, fecha_desde=date(2026, 5, 1), fecha_hasta=date(2026, 6, 30)),
     ]
 
     code, summary, filas = correr("--apply")
 
     assert code == 0
     [c] = _campanas(engine)
-    assert (c["fecha_desde"], c["fecha_hasta"]) == (date(2026, 5, 1), date(2026, 7, 31))
-    assert filas[ids[0]]["avisos"] == VENCIDO.format("2026-07-31")
+    assert (c["fecha_desde"], c["fecha_hasta"]) == (date(2026, 5, 1), date(2026, 6, 30))
+    assert filas[ids[0]]["avisos"] == VENCIDO.format("2026-06-30")
     assert filas[ids[1]]["avisos"] == (
-        f"migrado en la campaña #{c['id']} del grupo #{grupo_id} | " + VENCIDO.format("2026-07-31")
+        f"migrado en la campaña #{c['id']} del grupo #{grupo_id} | " + VENCIDO.format("2026-06-30")
     )
     assert summary["vencidos_migrados"] == ids
 
 
 _RECHAZOS = {
+    "fechas": (
+        [{"fecha_hasta": date(2026, 11, 30)}, {"item_id": 2964, "fecha_hasta": date(2026, 12, 15)}],
+        "Grupo #{g}: sus offsets tienen períodos distintos y una campaña tiene uno solo; revisar a mano",
+        0,
+    ),
     "tipos": (
         [{"tipo_offset": "monto_fijo", "monto": 100}, {"item_id": 2964}],
         "Grupo #{g}: no todos sus offsets son monto por unidad (monto_fijo, monto_por_unidad); revisar a mano",
