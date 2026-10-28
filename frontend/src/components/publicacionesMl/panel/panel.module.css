@@ -740,6 +740,11 @@
 /* A row that opens what sits under it (a catalog publication's competition): reads left to right like the rest. */
 .disclosure {
   justify-content: flex-start;
+  flex-wrap: wrap;
   width: 100%;
+  min-width: 0;
+  height: auto;
   text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
