@@ -31,7 +31,7 @@ import logging
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -98,7 +98,7 @@ from app.services.ml_sales_query.filters import (
 )
 from app.services.product_facets import ProductFacetOptions
 from app.services.sell_in_out_ventas import MontosVenta, montos_por_venta, sumar
-from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
+from app.services.ml_ventas_desglose.deducciones import CostoItemDetalle, resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.pack_aggregation import aggregate_pack_metrics, sum_all_or_nothing
 from app.services.ml_ventas_desglose.iva import descomponer_neto
 from app.models.ml_order_item_costo import MlOrderItemCosto
@@ -237,6 +237,8 @@ class OrderItemOpsSummary(BaseModel):
     title: Optional[str] = None
     quantity: Optional[int] = None
     unit_price: Optional[float] = None
+    # ML's listing type (`gold_special`, `gold_pro`, ...), as ingested.
+    listing_type_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -815,6 +817,10 @@ class SaleListItem(BaseModel):
     sell_in_ars: Optional[float] = None
     sell_out_ars: Optional[float] = None
     sell_out_estimado: Optional[bool] = None
+    # Métricas audit B9: the old operations tab's Costo Total and Limpio,
+    # read from the same stored `ml_order_metrics` row as `total_gauss`.
+    costo_mercaderia: Optional[float] = None
+    neto_sin_iva: Optional[float] = None
 
 
 class SaleGroup(BaseModel):
@@ -876,6 +882,9 @@ class SaleGroup(BaseModel):
     sell_in_ars: Optional[float] = None
     sell_out_ars: Optional[float] = None
     sell_out_estimado: Optional[bool] = None
+    # Métricas audit B9: the members' sums, all-or-nothing like `total_gauss` / `neto`.
+    costo_mercaderia: Optional[float] = None
+    neto_sin_iva: Optional[float] = None
 
 
 class SaleFacetCounts(BaseModel):
@@ -1634,6 +1643,8 @@ def _sales_page(
                     markup=float(order_markup) if order_markup is not None else None,
                     items=[OrderItemOpsSummary.model_validate(item) for item in items_by_order.get(order.order_id, [])],
                     **_sell_in_out_fields(sell_by_order.get(order.order_id)),
+                    costo_mercaderia=_float(stored.costo_mercaderia if stored is not None else None),
+                    neto_sin_iva=_float(stored.neto_sin_iva if stored is not None else None),
                 )
             )
 
@@ -1713,6 +1724,13 @@ def _sales_page(
                 retenciones_recuperables=group_retenciones_recuperables,
                 bonificacion_envio=group_bonificacion,
                 **_sell_in_out_fields(sumar(sell_by_order.get(m.order_id) for m in members)),
+                # The cost is always ARS, so unlike `neto_sin_iva` it needs no currency gate.
+                costo_mercaderia=_float(sum_all_or_nothing([_decimal(m.costo_mercaderia) for m in members])),
+                neto_sin_iva=(
+                    None
+                    if single_currency is None
+                    else _float(sum_all_or_nothing([_decimal(m.neto_sin_iva) for m in members]))
+                ),
                 # The earliest member's `date_created` -- DISPLAYED to the
                 # user, but NOT what the row is filtered or sorted by. ODD
                 # `ventas-ml-dia-por-acreditacion`: the default sort/filter
@@ -1889,6 +1907,10 @@ EXPORT_HEADER = [
     "alerta",
 ]
 
+# Métricas audit B9: the old operations tab's figures, appended to the Gauss
+# export only (never to `EXPORT_HEADER_TP`). Per-item cells are joined like `producto`.
+EXPORT_HEADER_GAUSS_EXTRA = ["costo_unitario", "costo_total", "neto_sin_iva", "bonificacion_envio", "tipo_publicacion"]
+
 
 def _csv_money(value: Optional[float]) -> str:
     # Excel es-AR reads a decimal COMMA (and `;` as the delimiter).
@@ -1911,6 +1933,9 @@ def _csv_items(order: SaleListItem) -> "tuple[str, str, str]":
 # `tplink.solo` export: the sale columns, then the TP figures where the
 # Gauss ones go (`total_gauss`/`markup_pct`), then the rest.
 EXPORT_HEADER_TP = EXPORT_HEADER[:17] + ["costo_tp", "total_tp", "markup_tp", "tp_incompleto"] + EXPORT_HEADER[19:]
+
+# ML's own names for its listing types; any other id is exported as is.
+_LISTING_TYPE_LABELS = {"gold_special": "Clásica", "gold_pro": "Premium"}
 
 
 def _csv_sale_cells(order: "SaleListItem | SaleListItemTP", accreditation_date: Optional[datetime]) -> List[str]:
@@ -1937,13 +1962,26 @@ def _csv_sale_cells(order: "SaleListItem | SaleListItemTP", accreditation_date: 
     ]
 
 
-def _csv_order_row(order: SaleListItem, accreditation_date: Optional[datetime]) -> List[str]:
+def _csv_order_row(
+    order: SaleListItem, accreditation_date: Optional[datetime], costos: Sequence[CostoItemDetalle] = ()
+) -> List[str]:
+    """`costos`: the order's per-item frozen costs (`resolve_costo_mercaderia_detalle`):
+    one per item, an unknown one included, ordered by item row id exactly like
+    `order.items` (`_items_by_order`), so the per-item cells line up with
+    `producto`. An item without a cost is a blank cell, never zero."""
     return _csv_sale_cells(order, accreditation_date) + [
         _csv_money(order.total_gauss),
         _csv_money(order.markup),
         "si" if order.total_gauss_provisional else "no",
         order.metrics_state or "",
         order.alert_level,
+        _CSV_ITEM_SEPARATOR.join(_csv_money(_float(c.costo_unitario_ars)) for c in costos),
+        _csv_money(order.costo_mercaderia),
+        _csv_money(order.neto_sin_iva),
+        _csv_money(order.bonificacion_envio),
+        _CSV_ITEM_SEPARATOR.join(
+            _LISTING_TYPE_LABELS.get(i.listing_type_id, i.listing_type_id or "") for i in order.items or []
+        ),
     ]
 
 
@@ -1990,7 +2028,6 @@ def exportar_ventas(
 
     A `tplink.solo` user gets the TP store group only, with `EXPORT_HEADER_TP`."""
     tp_solo = tplink_solo.es_tplink_solo(db, current_user)
-    row_of = _csv_order_row_tp if tp_solo else _csv_order_row
 
     filters = dict(
         operation_status_filter=operation_status_filter,
@@ -2034,12 +2071,17 @@ def exportar_ventas(
         # The sale's day is its ACCREDITATION day (#1368), resolved by the
         # same `member_accreditation_dates` the list's day rule is built on;
         # a pack's day is its LAST member's (MAX), repeated on each of its rows.
-        per_order = member_accreditation_dates(page_db, [o.order_id for g in response.sales for o in g.orders])
+        order_ids = [o.order_id for g in response.sales for o in g.orders]
+        per_order = member_accreditation_dates(page_db, order_ids)
+        costos = {} if tp_solo else resolve_costo_mercaderia_detalle(page_db, order_ids)
         for group in response.sales:
             dates = [per_order[o.order_id] for o in group.orders if o.order_id in per_order]
             day = max(dates) if dates else None
             for order in group.orders:
-                writer.writerow(row_of(order, day))
+                if tp_solo:
+                    writer.writerow(_csv_order_row_tp(order, day))
+                else:
+                    writer.writerow(_csv_order_row(order, day, costos.get(order.order_id, [])))
         return buffer.getvalue()
 
     # The FIRST short transaction fixes the ORDERED list of group keys (and
@@ -2066,7 +2108,9 @@ def exportar_ventas(
 
     def stream():
         header = io.StringIO()
-        csv.writer(header, delimiter=";").writerow(EXPORT_HEADER_TP if tp_solo else EXPORT_HEADER)
+        csv.writer(header, delimiter=";").writerow(
+            EXPORT_HEADER_TP if tp_solo else EXPORT_HEADER + EXPORT_HEADER_GAUSS_EXTRA
+        )
         # BOM so Excel reads the accents as UTF-8.
         yield "\ufeff" + header.getvalue()
         current_rows, exported = first_rows, 0
