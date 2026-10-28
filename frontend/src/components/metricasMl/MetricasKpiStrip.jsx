@@ -150,6 +150,7 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
           <DeltaChip value={gross.delta_pct} format={formatDeltaPct} />
         </div>
         {ticket && (
+          // Same line layout as "C/ sell in/out": label, then the amount kept whole on one line.
           <span className={`${styles.subtitle} ${styles.sellLine}`}>
             <span>Ticket promedio:</span>{' '}
             <span className={styles.sellValue}>

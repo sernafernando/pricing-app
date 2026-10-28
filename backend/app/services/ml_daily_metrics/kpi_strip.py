@@ -217,8 +217,8 @@ class BoardKpisWithAds(BoardKpis):
     ads: Optional[KpiAds] = None
     total_tp: Optional[KpiTp] = None
     sell_in_out: Optional[SellInOutFigures] = None
-    # Packs or lone orders with a sale (`board.Board._operations`), Facturado per operation and units per
-    # operation: null (never 0) without operations.
+    # Always present: packs or lone orders with a sale (`board.Board._operations`), Facturado per operation and
+    # units per operation, whose values (and deltas) are null, never 0, when there is nothing to divide by.
     operations: KpiUnits
     ticket: KpiTicket
     units_per_sale: KpiRatio
