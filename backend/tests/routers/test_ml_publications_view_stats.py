@@ -84,6 +84,11 @@ def test_with_ver_ganancia_the_markup_cards_come_too(client, viewer, db, rol_adm
     assert MARKUP_CARDS <= set(body["stats"])
 
 
+def test_a_markup_filter_without_ver_ganancia_is_403(client, viewer) -> None:
+    response = get(client, viewer, markup_clasica_positivo="false")
+    assert response.status_code == 403 and GANANCIA in response.json()["error"]["message"]
+
+
 def test_the_screens_filters_apply(client, viewer) -> None:
     assert get(client, viewer, marcas="Ubiquiti").json()["stats"]["total"] == 1
 
