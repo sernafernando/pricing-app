@@ -382,6 +382,16 @@ class TestProducts:
         assert METRIC_COLUMNS <= set(header) and not {"Markup real 30D", "Total Gauss 30D"} & set(header)
         assert column(header, rows, "Ventas 30D")[0] == "2"  # the default sort: facturado_30d, Router AX first
 
+    def test_several_sort_keys_keep_the_screen_order(self, client, sold, pg, db, rol_admin, admin_auth_headers):
+        with pg.begin() as conn:  # a second product with no figures: it ties with "Sin producto"
+            seed.add_product(conn, 79, "R79", "Zeta")
+            seed.add_item(conn, "MLA6", status="active")
+            seed.add_link(conn, "MLA6", 79)
+        grant(db, rol_admin, VER, METRICAS)
+        params = {"orden": "unidades_30d,titulo", "dir": "desc,desc"}
+        header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers, params=params))
+        assert column(header, rows, "Producto") == ["Router AX", "Antena", "Zeta", "Sin producto"]
+
     def test_a_product_without_board_rows_has_blank_figures(
         self, client, sold, db, rol_admin, admin_auth_headers
     ) -> None:
@@ -445,9 +455,9 @@ class TestProducts:
         expected = [name or "Sin producto" for name in listed(client, admin_auth_headers, PRODUCTS, "descripcion")]
         real, bounds = products_service.ordered_product_keys, []
 
-        def spy(session, f, orden, descending, cap):
+        def spy(session, f, orden, descending, cap, then=()):
             bounds.append(cap)
-            return real(session, f, orden, descending, cap)
+            return real(session, f, orden, descending, cap, then=then)
 
         monkeypatch.setattr(products_service, "ordered_product_keys", spy)
         header, rows = read_csv(client.get(PRODUCTS_CSV, headers=admin_auth_headers))

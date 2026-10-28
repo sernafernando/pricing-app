@@ -122,17 +122,22 @@ def csv_values(raw: Optional[str]) -> list[str]:
     return [value.strip() for value in raw.split(",")] if (raw or "").strip() else []
 
 
-def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
-    """`orden` and `dir` as csv, one direction per key (a missing one is the key's default): Productos'
-    multi-column sort. The markup and the Métricas figures are not database columns, so they only lead."""
+def sort_pairs(orden: Optional[str], direction: Optional[str], default: str) -> list[tuple[str, str]]:
+    """`orden` and `dir` as csv paired by position, each direction lower-cased ("" when missing: the key's
+    default). A blank key takes its direction with it; no key at all is `default`, with the first direction."""
     raw = csv_values(orden)
     wanted = [value.lower() for value in csv_values(direction)]
     if len(wanted) > max(len(raw), 1):
         raise FilterError("dir", "more directions than sort keys")
     wanted += [""] * (len(raw) - len(wanted))
-    pairs = [(key, value) for key, value in zip(raw, wanted) if key]  # a blank key takes its direction with it
-    if not pairs:
-        pairs = [(SORT_ACTIVITY, wanted[0] if wanted else "")]
+    pairs = [(key, value) for key, value in zip(raw, wanted) if key]
+    return pairs or [(default, wanted[0] if wanted else "")]
+
+
+def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
+    """`orden` and `dir` as csv, one direction per key (a missing one is the key's default): Productos'
+    multi-column sort. The markup and the Métricas figures are not database columns, so they only lead."""
+    pairs = sort_pairs(orden, direction, SORT_ACTIVITY)
     keys = [key for key, _ in pairs]
     known = [*SORT_COLUMNS, SORT_MARKUP, *METRIC_SORTS]
     for key in keys:
