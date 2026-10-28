@@ -725,14 +725,14 @@ describe('sorting by several columns (S12e, Shift+click like Productos)', () => 
     ]);
   });
 
-  it('keeps the markup and the Métricas figures only as the first key of the publications list', () => {
-    expect(effectiveSortKeys({ ...base, orden: 'precio,markup,facturado_30d', dir: '' }, ALL)).toEqual([
+  it('combines the markup and the Métricas figures at any position of the publications list', () => {
+    const filters = { ...base, orden: 'precio,markup,facturado_30d', dir: '' };
+    expect(effectiveSortKeys(filters, ALL)).toEqual([
       { key: 'precio', dir: 'asc' },
-    ]);
-    expect(effectiveSortKeys({ ...base, orden: 'facturado_30d,precio', dir: 'desc,asc' }, ALL)).toEqual([
+      { key: 'markup', dir: 'asc' },
       { key: 'facturado_30d', dir: 'desc' },
-      { key: 'precio', dir: 'asc' },
     ]);
+    expect(buildItemsParams(filters, 50, ALL)).toMatchObject({ orden: 'precio,markup,facturado_30d' });
   });
 
   it('combines every figure in the Producto view, and asks /products for all of them', () => {
@@ -768,10 +768,13 @@ describe('sorting by several columns (S12e, Shift+click like Productos)', () => 
       expect(nextSort([{ key: 'precio', dir: 'desc' }], 'precio', { shift: true })).toEqual([]);
     });
 
-    it('Shift+click on a key that only leads (or over one) replaces the sort', () => {
-      const leadOnly = (key) => key === 'markup' || key === 'facturado_30d';
-      expect(nextSort(precio, 'facturado_30d', { shift: true, leadOnly })).toEqual([{ key: 'facturado_30d', dir: 'desc' }]);
-      expect(nextSort([{ key: 'facturado_30d', dir: 'desc' }], 'precio', { shift: true, leadOnly })).toEqual(precio);
+    it('Shift+click adds a figure like any column, and a column after a figure', () => {
+      const added = nextSort(precio, 'facturado_30d', { shift: true });
+      expect(added).toEqual([...precio, { key: 'facturado_30d', dir: 'desc' }]);
+      expect(nextSort([{ key: 'markup', dir: 'asc' }], 'precio', { shift: true })).toEqual([
+        { key: 'markup', dir: 'asc' },
+        ...precio,
+      ]);
     });
   });
 });

@@ -337,7 +337,7 @@ describe('sorting and paging', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio', dir: 'desc' }));
   });
 
-  it('Shift+click adds a column to the sort, numbered in the header; a figure replaces it', async () => {
+  it('Shift+click adds any column to the sort, a figure included, numbered in the header', async () => {
     await page('/ml-publicaciones?orden=precio&dir=asc');
     const header = (name) => screen.getByRole('columnheader', { name });
     const shiftClick = (name) => fireEvent.click(within(header(name)).getByRole('button'), { shiftKey: true });
@@ -348,7 +348,10 @@ describe('sorting and paging', () => {
     shiftClick(/^Propio/);
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio,stock_propio', dir: 'asc,asc' }));
     shiftClick(/^Facturado 30D/);
-    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'facturado_30d', dir: 'desc' }));
+    await waitFor(() =>
+      expect(lastParams()).toMatchObject({ orden: 'precio,stock_propio,facturado_30d', dir: 'asc,asc,desc' }),
+    );
+    expect(within(header(/^Facturado 30D/)).getByTestId('sort-order')).toHaveTextContent('3');
   });
 
   it('defaults to Facturado 30D, highest first, like Métricas: the whole set ranked by the backend', async () => {

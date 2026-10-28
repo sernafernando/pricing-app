@@ -106,8 +106,8 @@ SORT_TIES: dict[str, Any] = {"costo": unconverted_usd_cost}
 
 @dataclass(frozen=True)
 class Sort:
-    """The first key, which may be the markup or a Métricas figure, then the next keys (Productos' multi-column
-    sort): database columns only, each with its direction. `item_id` always closes the order."""
+    """The first key, then the next keys (Productos' multi-column sort), each with its direction: any combination of
+    database columns, the markup and the Métricas figures. `item_id` always closes the order."""
 
     key: str
     descending: bool
@@ -116,6 +116,16 @@ class Sort:
     @property
     def keys(self) -> tuple[str, ...]:
         return (self.key, *(key for key, _ in self.then))
+
+    @property
+    def pairs(self) -> tuple[tuple[str, bool], ...]:
+        """Every `(key, descending)`, the first one included, in order."""
+        return ((self.key, self.descending), *self.then)
+
+    @property
+    def figure_keys(self) -> tuple[str, ...]:
+        """The keys that are not database columns (the markup, the Métricas figures), in order."""
+        return tuple(key for key in self.keys if key not in SORT_COLUMNS)
 
 
 @dataclass(frozen=True)
@@ -151,7 +161,7 @@ def sort_pairs(orden: Optional[str], direction: Optional[str], default: str) -> 
 
 def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
     """`orden` and `dir` as csv, one direction per key (a missing one is the key's default): Productos'
-    multi-column sort. The markup and the Métricas figures are not database columns, so they only lead."""
+    multi-column sort, any combination of the known keys."""
     pairs = sort_pairs(orden, direction, SORT_ACTIVITY)
     keys = [key for key, _ in pairs]
     known = [*SORT_COLUMNS, SORT_MARKUP, *METRIC_SORTS]
@@ -160,9 +170,6 @@ def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
             raise FilterError("orden", f"unknown value {key!r}; known: {', '.join(known)}")
     if len(set(keys)) < len(keys):
         raise FilterError("orden", "a sort key appears more than once")
-    for key in keys[1:]:
-        if key not in SORT_COLUMNS:
-            raise FilterError("orden", f"{key} can be used only as the first sort key")
     for _, value in pairs:
         if value and value not in DIRECTIONS:
             raise FilterError("dir", f"unknown value {value!r}; known: {', '.join(DIRECTIONS)}")
@@ -252,35 +259,64 @@ def _columns_order(keys: Any) -> list[Any]:
 
 def _order_by(sort: Sort) -> list[Any]:
     """The sort keys, then `item_id`, which makes the order total."""
-    return [*_columns_order(((sort.key, sort.descending), *sort.then)), T.i.item_id]
+    return [*_columns_order(sort.pairs), T.i.item_id]
 
 
 def _by_figures(
-    db: Session, source: Any, figures: Mapping[str, Any], sort: Sort, limit: Optional[int], offset: int
+    db: Session,
+    source: Any,
+    figures: Mapping[str, Mapping[str, Any]],
+    sort: Sort,
+    limit: Optional[int],
+    offset: int,
 ) -> list[str]:
-    """The ids of `source` (a one-column select of the set) at `[offset, offset + limit)`, ordered by a figure
-    computed outside the query (the worst markup, a Métricas figure; missing values last), then by the next keys and
-    `item_id`. The figures reach the database as two arrays, so the next keys are its own columns."""
-    keys = list(figures)
+    """The ids of `source` (a one-column select of the set) at `[offset, offset + limit)`, ordered by `sort`'s keys in
+    their order, then `item_id`. `figures` holds, per key that is not a database column (the worst markup, a Métricas
+    figure), each id's figure computed outside the query. They reach the database as arrays of the same length,
+    unnested side by side and joined to `source` from its side, so a column key before or after a figure is the
+    database's own column, and an id a figure leaves out keeps its row with no value (last, like a missing figure)."""
+    ids = sorted({item_id for values in figures.values() for item_id in values})
+    names = {key: f"figure_{index}" for index, key in enumerate(figures)}
     figured = select(
-        func.unnest(literal(keys, ARRAY(Text))).label("item_id"),
-        func.unnest(literal([figures[key] for key in keys], ARRAY(Numeric))).label("figure"),
+        func.unnest(literal(ids, ARRAY(Text))).label("item_id"),
+        *(
+            func.unnest(literal([values.get(item_id) for item_id in ids], ARRAY(Numeric))).label(names[key])
+            for key, values in figures.items()
+        ),
     ).subquery("figured")
-    first = figured.c.figure.desc() if sort.descending else figured.c.figure.asc()
+    order: list[Any] = []
+    for key, descending in sort.pairs:
+        if key in figures:
+            column = figured.c[names[key]]
+            order.append((column.desc() if descending else column.asc()).nulls_last())
+        else:
+            order.extend(_column_order(key, descending))
     query = (
-        source.where(figured.c.item_id == T.i.item_id)
-        .order_by(first.nulls_last(), *_columns_order(sort.then), T.i.item_id)
+        source.outerjoin(figured, figured.c.item_id == T.i.item_id)
+        .order_by(*order, T.i.item_id)
         .limit(limit)
         .offset(offset)
     )
     return list(db.execute(query).scalars())
 
 
-def _metric_ids(db: Session, source: Any, sort: Sort, limit: Optional[int], offset: int) -> list[str]:
-    """A Métricas sort over `source`: the Board's ranking alone, or its figures then the next keys."""
-    if not sort.then:
+def _figured_ids(
+    db: Session,
+    source: Any,
+    sort: Sort,
+    limit: Optional[int],
+    offset: int,
+    worst: Optional[Mapping[str, Any]] = None,
+) -> list[str]:
+    """A sort with figure keys over `source`: a Métricas figure alone is the Board's ranking; any other combination
+    takes each figure (`worst`, the markup's, priced by the caller; the Métricas ones from one Board run) then
+    orders."""
+    if len(sort.keys) == 1 and sort.key in METRIC_SORTS:
         return ranked_page(db, source, sort.key, sort.descending, limit, offset)
-    return _by_figures(db, source, metric_figures(db, source, sort.key), sort, limit, offset)
+    metric_keys = [key for key in sort.figure_keys if key in METRIC_SORTS]
+    metrics = metric_figures(db, source, metric_keys) if metric_keys else {}
+    figures = {key: (worst or {}) if key == SORT_MARKUP else metrics[key] for key in sort.figure_keys}
+    return _by_figures(db, source, figures, sort, limit, offset)
 
 
 def _price(row: Any) -> dict[str, Any]:
@@ -495,11 +531,7 @@ def _markup_ids(
     WHOLE filtered set (design §4.4): price it once and filter it in Python. The markup order is applied in Python
     too; a column order is applied by the database over the accepted ids only, which also cuts the page."""
     result, kept = markup_accepted(db, f, markup)
-    if sort.key == SORT_MARKUP and sort.then:
-        only_kept = build_base_select(f, T.i.item_id).where(T.i.item_id == any_(literal(list(kept), ARRAY(Text))))
-        worst = {item_id: result.items[item_id].markup.worst for item_id in kept}
-        return _by_figures(db, only_kept, worst, sort, limit, offset), len(kept), result
-    if sort.key == SORT_MARKUP:
+    if sort.keys == (SORT_MARKUP,):
         wanted = [item_id for item_id in _worst_first(result.items, sort.descending) if item_id in kept]
         end = None if limit is None else offset + limit
         return wanted[offset:end], len(wanted), result
@@ -510,8 +542,9 @@ def _markup_ids(
     if offset >= total:
         return [], total, result
     only_accepted = build_base_select(f, T.i.item_id).where(T.i.item_id == any_(literal(accepted, ARRAY(Text))))
-    if sort.key in METRIC_SORTS:
-        return _metric_ids(db, only_accepted, sort, limit, offset), total, result
+    if sort.figure_keys:
+        worst = {item_id: result.items[item_id].markup.worst for item_id in accepted}
+        return _figured_ids(db, only_accepted, sort, limit, offset, worst), total, result
     page = db.execute(only_accepted.order_by(*_order_by(sort)).limit(limit).offset(offset)).scalars()
     return list(page), total, result
 
@@ -553,9 +586,9 @@ def _check(f: PublicationFilter, sort: Sort, events: bool, can_see_margin: bool)
 
 def _by_markup(sort: Sort, markup: Optional[MarkupQuery]) -> bool:
     """Whether the order (or the selection) is the markup's, computed in Python over the whole set."""
-    if markup is not None and (sort.key == SORT_MARKUP or markup.filter.active):
+    if markup is not None and (SORT_MARKUP in sort.keys or markup.filter.active):
         return True
-    if sort.key == SORT_MARKUP:
+    if SORT_MARKUP in sort.keys:
         raise FilterError("orden", "markup requires the ml_metricas.ver_ganancia permission")
     return False
 
@@ -582,8 +615,8 @@ def list_items(
     total = db.execute(build_base_select(f, func.count())).scalar_one()
     if total == 0 or offset >= total:
         return ItemsPage([], total, None if markup is None else MarkupStats(0, {}, 0.0))
-    if sort.key in METRIC_SORTS:
-        page_ids = _metric_ids(db, build_base_select(f, T.i.item_id), sort, limit, offset)
+    if sort.figure_keys:  # Métricas figures (the markup's went through `_list_by_markup`)
+        page_ids = _figured_ids(db, build_base_select(f, T.i.item_id), sort, limit, offset)
         rows = _rows_for_ids(db, f, page_ids, cost=markup is not None)
     else:
         rows = db.execute(
@@ -618,8 +651,8 @@ def ordered_keys(
     f = resolve_pm_pairs(db, f)
     if _by_markup(sort, markup):
         return _markup_ids(db, f, sort, cap, 0, markup)[0]
-    if sort.key in METRIC_SORTS:
-        return _metric_ids(db, build_base_select(f, T.i.item_id), sort, cap, 0)
+    if sort.figure_keys:
+        return _figured_ids(db, build_base_select(f, T.i.item_id), sort, cap, 0)
     return list(db.execute(build_base_select(f, T.i.item_id).order_by(*_order_by(sort)).limit(cap)).scalars())
 
 

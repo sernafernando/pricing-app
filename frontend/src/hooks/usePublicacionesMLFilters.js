@@ -178,9 +178,6 @@ export const defaultSortFor = ({ canSeeSales = false } = {}) => (canSeeSales ? '
 const mayAsk = (orden, { canSeeSales = false, canSeeMargin = false }) =>
   (!SALES_SORTS.has(orden) || canSeeSales) && (!MARGIN_SORTS.has(orden) || canSeeMargin);
 
-/** The markup and Métricas' figures are not database columns: they only lead the publication list's sort. */
-export const isLeadOnlySort = (key) => key === 'markup' || SALES_SORTS.has(key);
-
 const resolved = ({ key, dir }) => ({ key, dir: dir || DEFAULT_DIRECTION[key] || 'desc' });
 
 /**
@@ -198,11 +195,9 @@ function askedSort(filters) {
   return sort;
 }
 
-/** The URL's sort keys the user may ask for the publication list; a key that only leads is dropped elsewhere. */
+/** The URL's sort keys the user may ask for the publication list: any combination, figures included. */
 function listSort(filters, permissions) {
-  return askedSort(filters)
-    .filter(({ key }) => mayAsk(key, permissions))
-    .filter(({ key }, index) => index === 0 || !isLeadOnlySort(key));
+  return askedSort(filters).filter(({ key }) => mayAsk(key, permissions));
 }
 
 /**
@@ -223,13 +218,12 @@ export function effectiveSort(filters, permissions = {}) {
 /**
  * What a header click asks of the sort `current` (`[{key, dir}]`): a plain click sorts by `key` alone (its default
  * direction first, the other way when it already leads alone or first); Shift+click, like Productos, adds `key` with
- * its default direction, flips it, then takes it out. A key that only leads (`leadOnly`), or a sort one leads, is
- * replaced instead.
+ * its default direction, flips it, then takes it out.
  */
-export function nextSort(current, key, { shift = false, leadOnly = () => false } = {}) {
+export function nextSort(current, key, { shift = false } = {}) {
   const fallback = DEFAULT_DIRECTION[key] ?? 'desc';
   const flip = (dir) => (dir === 'asc' ? 'desc' : 'asc');
-  if (!shift || leadOnly(key) || (current.length > 0 && leadOnly(current[0].key))) {
+  if (!shift) {
     return current[0]?.key === key ? [{ key, dir: flip(current[0].dir) }] : [{ key, dir: fallback }];
   }
   const found = current.find((entry) => entry.key === key);

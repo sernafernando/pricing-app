@@ -62,7 +62,6 @@ import {
   effectiveSortKeys,
   hasMarkupFilter,
   headerSort,
-  isLeadOnlySort,
   nextSort,
   sortParams,
   usePublicacionesMLFilters,
@@ -503,12 +502,10 @@ export default function PublicacionesML() {
     ? productRows.rows.find((row) => row.type === 'node' && row.node.key === filters.prod)?.node.label
     : undefined;
   const changeTab = (tab) => setFilters({ tab });
-  // Shift+click adds a column to the sort, like Productos. In the publication list the markup and Métricas' figures
-  // only lead it (they are not database columns): Shift+click on one, or over one, replaces the sort.
+  // Shift+click adds a column to the sort, like Productos: any column, the markup and Métricas' figures included.
   const handleSort = (key, event) => {
     if (event?.shiftKey) window.getSelection()?.removeAllRanges(); // Shift+click also extends the text selection
-    const leadOnly = producto ? () => false : isLeadOnlySort;
-    setFilters(sortParams(nextSort(sort.keys, key, { shift: Boolean(event?.shiftKey), leadOnly })));
+    setFilters(sortParams(nextSort(sort.keys, key, { shift: Boolean(event?.shiftKey) })));
   };
 
   // Ctrl/Cmd+click opens the publication in ML (side panel when the extension
