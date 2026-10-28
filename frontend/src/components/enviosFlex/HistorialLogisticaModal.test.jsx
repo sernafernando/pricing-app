@@ -88,6 +88,17 @@ describe('HistorialLogisticaModal', () => {
     expect(within(tercera).getByText('—')).toBeInTheDocument();
   });
 
+  it('shows an em dash, not the epoch, when the change has no date', async () => {
+    api.get.mockResolvedValue({
+      data: { ...HISTORIAL, cambios: [{ ...HISTORIAL.cambios[0], cambiado_en: null }] },
+    });
+    renderModal();
+
+    const [fila] = await screen.findAllByRole('listitem');
+    expect(within(fila).getByText('—')).toBeInTheDocument();
+    expect(within(fila).queryByText(/^01\/01/)).toBeNull();
+  });
+
   it('shows the empty state when there are no changes', async () => {
     api.get.mockResolvedValue({
       data: { ...HISTORIAL, puede_deshacer: false, deshacer_a: null, cambios: [] },

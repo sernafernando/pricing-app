@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { History, ArrowRight, Loader2 } from 'lucide-react';
 import ModalTesla from '../ModalTesla';
 import api from '../../services/api';
@@ -16,6 +16,7 @@ const pad = (n) => String(n).padStart(2, '0');
 
 // dd/mm HH:MM in the browser's local time.
 const formatFecha = (isoString) => {
+  if (!isoString) return '—';
   const d = new Date(isoString);
   if (Number.isNaN(d.getTime())) return '—';
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -49,22 +50,26 @@ export default function HistorialLogisticaModal({ shippingId, onClose }) {
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState(false);
 
-  const cargar = useCallback(async () => {
-    setCargando(true);
-    try {
-      const { data } = await api.get(`/etiquetas-envio/${shippingId}/logistica/historial`);
-      setHistorial(data);
-      setErrorCarga(false);
-    } catch {
-      setErrorCarga(true);
-    } finally {
-      setCargando(false);
-    }
-  }, [shippingId]);
-
   useEffect(() => {
-    cargar();
-  }, [cargar]);
+    let vigente = true;
+    setCargando(true);
+    api
+      .get(`/etiquetas-envio/${shippingId}/logistica/historial`)
+      .then(({ data }) => {
+        if (!vigente) return;
+        setHistorial(data);
+        setErrorCarga(false);
+      })
+      .catch(() => {
+        if (vigente) setErrorCarga(true);
+      })
+      .finally(() => {
+        if (vigente) setCargando(false);
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [shippingId]);
 
   const cambios = historial?.cambios ?? [];
   const title = (
@@ -131,7 +136,7 @@ export default function HistorialLogisticaModal({ shippingId, onClose }) {
                 <span className={styles.fecha}>{formatFecha(cambio.cambiado_en)}</span>
                 <span className={styles.transicion}>
                   <LogisticaChip logistica={cambio.anterior} />
-                  <ArrowRight size={14} className={styles.flecha} aria-label="a" />
+                  <ArrowRight size={14} className={styles.flecha} aria-hidden="true" />
                   <LogisticaChip logistica={cambio.nueva} />
                   {cambio.origen && (
                     <span className={`${styles.origen} ${ORIGEN_CLASS[cambio.origen] || ''}`}>

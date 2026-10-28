@@ -2815,7 +2815,7 @@ export default function TabEnviosFlex({ operador = null }) {
                         className={styles.btnPrint}
                         onClick={() => setHistorialShippingId(e.shipping_id)}
                         title="Historial de logística"
-                        aria-label="Historial de logística"
+                        aria-label={`Historial de logística ${e.shipping_id}`}
                       >
                         <History size={14} />
                       </button>
