@@ -2001,8 +2001,10 @@ describe('the Precios view and the publication counts (owner, 2026-10-28)', () =
     expect(await screen.findByRole('button', { name: 'Activas: 180' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Pausadas: 40' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Con promo: 70' })).toBeInTheDocument();
-    expect(screen.getByText('Sin promo')).toBeInTheDocument();
-    expect(screen.getByText('165')).toBeInTheDocument();
+    // Sin promo has no filter of its own: a figure, not a button.
+    const sinPromo = within(screen.getByRole('region', { name: 'Totales de publicaciones' })).getByRole('group', { name: 'Sin promo' });
+    expect(sinPromo).toHaveTextContent('165');
+    expect(within(sinPromo).queryByRole('button')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Total Productos/ })).not.toBeInTheDocument();
   });
 
@@ -2015,6 +2017,24 @@ describe('the Precios view and the publication counts (owner, 2026-10-28)', () =
     expect(screen.getByRole('button', { name: 'Activas: 180' })).toHaveAttribute('aria-pressed', 'true');
     await user.click(screen.getByRole('button', { name: 'Con promo: 70' }));
     await waitFor(() => expect(lastParams()).toMatchObject({ con_promo_aplicada: true }));
+  });
+
+  it('a second click takes its filter off', async () => {
+    const user = userEvent.setup();
+    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, promo: { con_promo: 70, sin_promo: 165 } } });
+    await page('/ml-publicaciones?estado=paused&promo_estado=aplicada');
+    await user.click(await screen.findByRole('button', { name: 'Pausadas: 40', pressed: true }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('estado'));
+    await user.click(screen.getByRole('button', { name: 'Con promo: 70', pressed: true }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('con_promo_aplicada'));
+  });
+
+  it('reads "…" until the counts arrive, never 0', async () => {
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockReturnValue(new Promise(() => {}));
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones'] });
+    expect(await screen.findByRole('button', { name: 'Activas: cargando' })).toHaveTextContent('…');
+    expect(screen.getByRole('button', { name: 'Con promo: cargando' })).toBeInTheDocument();
   });
 
   it('promotions the backend could not read are a dash, never 0', async () => {

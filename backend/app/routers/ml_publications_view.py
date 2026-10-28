@@ -47,10 +47,11 @@ joins it).
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, replace
 from functools import partial
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Literal, Optional, Sequence
+from typing import Any, Callable, Literal, NamedTuple, Optional, Sequence
 
 from fastapi import APIRouter, Depends, Path, Query, Response, status
 from fastapi.responses import StreamingResponse
@@ -863,6 +864,7 @@ def filter_query(
             f"Se requiere el permiso {PERMISO_GANANCIA} para filtrar por markup",
         )
     try:
+        scope = _mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq)
         f = parse_filter(
             q=q,
             estado=estado,
@@ -899,12 +901,13 @@ def filter_query(
             audit_tipos_accion=audit_tipos_accion,
             audit_fecha_desde=audit_fecha_desde,
             audit_fecha_hasta=audit_fecha_hasta,
-            mla_scope=_mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq),
+            mla_scope=scope.scope,
             colores=colores,
             con_mla=con_mla,
             estado_mla=estado_mla,
         )
-        f = _resolve_promo_search(f)
+        # The facets' promo axis leaves its own filter out, as every axis does: it needs the PxQ part alone.
+        f = replace(_resolve_promo_search(f), pxq_scope=scope.pxq, promo_filter=scope.promo_filter)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     if not (f.colors or f.no_color):
@@ -924,10 +927,10 @@ def _mla_scope(
     con_promo_aplicada: Optional[bool],
     con_promo_sin_aplicar: Optional[bool],
     con_pxq: Optional[bool],
-) -> Optional[frozenset[str]]:
+) -> MlaScope:
     """Productos' promo filter (the same `select_promo_resolver` dispatch) and its PxQ toggle as the MLAs that match,
-    read from the mlwebhook database, ANDed; `None` when neither is asked. A resolver that cannot answer is a 503:
-    never the unfiltered list."""
+    read from the mlwebhook database, ANDed (`scope`, `None` when neither is asked), with the PxQ part apart (`pxq`)
+    for the facets' promo axis. A resolver that cannot answer is a 503: never the unfiltered list."""
     tipos = [t.strip() for t in (promo_tipos or "").split(",") if t.strip()]
     unknown = [t for t in tipos if t not in KNOWN_PROMOTION_TYPES]
     if unknown:
@@ -956,21 +959,53 @@ def _mla_scope(
             (fetch_mlas_with_pxq_tiers, "Filtro PxQ", "Filtro de precios mayoristas no disponible temporalmente")
         )
     scope: Optional[frozenset[str]] = None
+    pxq: Optional[frozenset[str]] = None
     for resolver, context, message in asked:
         try:
             found = frozenset(resolver())
         except (RuntimeError, SQLAlchemyError) as exc:
             logger.warning("%s no disponible: %s", context, exc)
             raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, FILTER_UNAVAILABLE_CODE, message) from exc
+        if resolver is fetch_mlas_with_pxq_tiers:
+            pxq = found
         scope = found if scope is None else scope & found
-    return scope
+    return MlaScope(scope=scope, pxq=pxq, promo_filter=promo is not None)
+
+
+class MlaScope(NamedTuple):
+    scope: Optional[frozenset[str]]
+    pxq: Optional[frozenset[str]]
+    promo_filter: bool
+
+
+class _RecentSet:
+    """A set read from another database, kept `ttl` seconds: the facets ask for it on every filter change, and a
+    started promotion that shows up a minute late in a count is fine. Only an answer is kept, never a failure."""
+
+    def __init__(self, ttl: float) -> None:
+        self.ttl = ttl
+        self.reset()
+
+    def reset(self) -> None:
+        self.value: Optional[frozenset[str]] = None
+        self.at = 0.0
+
+    def get(self, read: Callable[[], Any]) -> frozenset[str]:
+        now = time.monotonic()
+        if self.value is None or now - self.at >= self.ttl:
+            self.value, self.at = frozenset(read()), now
+        return self.value
+
+
+STARTED_PROMOTIONS = _RecentSet(ttl=60)
 
 
 def _started_promotions() -> Optional[frozenset[str]]:
-    """The MLAs with a started promotion, for the facets' with / without promo counts; `None` (no such facet, the
-    list still answers) when the mlwebhook database cannot be read."""
+    """The MLAs with a started promotion, for the facets' with / without promo counts: the very set the Con promo
+    filter (`con_promo_aplicada`, `select_promo_resolver`'s `started`) lists, so a count is what its click shows.
+    `None` (no such facet, the list still answers) when the mlwebhook database cannot be read."""
     try:
-        return frozenset(fetch_mlas_with_started())
+        return STARTED_PROMOTIONS.get(fetch_mlas_with_started)
     except (RuntimeError, SQLAlchemyError) as exc:
         logger.warning("Conteo con/sin promo no disponible en Publicaciones ML: %s", exc)
         return None

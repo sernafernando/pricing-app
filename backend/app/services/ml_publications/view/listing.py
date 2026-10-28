@@ -763,12 +763,19 @@ def _link_counts(db: Session, f: PublicationFilter) -> dict[str, int]:
     return {**counts, LINK_SKU_DIVERGENT: divergent_total} if divergent_total else counts
 
 
+def _promo_counts(db: Session, f: PublicationFilter, started: frozenset[str]) -> dict[str, int]:
+    """The promo axis without its own selection: the promo filter's MLAs are left out of the scope, the PxQ ones stay."""
+    own = replace(f, mla_scope=f.pxq_scope) if f.promo_filter else f
+    return _flags(db, own, None, promo_clauses(started))
+
+
 def facets(db: Session, f: PublicationFilter, promo_mlas: Optional[frozenset[str]] = None) -> dict[str, dict[str, int]]:
     """Counts per value of each facet axis: one grouped COUNT per axis over the base select, each axis with its
     own selection left out (so choosing a value never makes its siblings read zero). The brand values are keys as
     the tree writes them (`encode_key`): a screen shows the decoded name and sends the key back unchanged.
     `promo_mlas` (the MLAs with a started promotion, read from another database by the caller) adds the `promo`
-    axis, with and without one, over the whole filter; without it there is no such axis, never a made-up zero."""
+    axis, with and without one, leaving out its own selection like the others; without it there is no such axis,
+    never a made-up zero."""
     f = resolve_pm_pairs(db, f)
     by_status = _grouped(db, f, "status", status_value())
     by_store = _grouped(db, f, "stores", func.coalesce(cast(T.i.official_store_id, Text), NO_STORE))
@@ -780,5 +787,5 @@ def facets(db: Session, f: PublicationFilter, promo_mlas: Optional[frozenset[str
         "listing": _flags(db, f, "listing", listing_clauses()),
         "link": _link_counts(db, f),
         "stock": _flags(db, f, "stock", stock_clauses()),
-        **({"promo": _flags(db, f, None, promo_clauses(promo_mlas))} if promo_mlas is not None else {}),
+        **({"promo": _promo_counts(db, f, promo_mlas)} if promo_mlas is not None else {}),
     }

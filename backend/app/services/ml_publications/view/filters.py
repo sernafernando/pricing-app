@@ -174,6 +174,10 @@ class PublicationFilter:
     # The promo and PxQ filters, resolved by the router to the matching MLAs (mlwebhook database): `None` = no such
     # filter, an empty set lists nothing.
     mla_scope: Optional[frozenset[str]] = None
+    # Which part of it is the PxQ toggle's (`pxq_scope`), and whether a promo filter is in it (`promo_filter`): the
+    # facets' promo axis counts without its own filter, as every axis does.
+    pxq_scope: Optional[frozenset[str]] = None
+    promo_filter: bool = False
 
     @property
     def audits(self) -> bool:
