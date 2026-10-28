@@ -253,9 +253,11 @@ def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo
 
 
 def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn) -> None:
-    """Replace the per-product amounts with `data.items`, refusing (and rolling back) one outside the reach of
-    the groups just stored: an amount that would never apply must not be stored as if it did. `data.items` None
-    keeps the stored ones, unless the campaign is no longer per unit: those must be cleared explicitly (`[]`)."""
+    """Replace the per-product amounts with `data.items`, refusing (and rolling back) one SENT outside the reach of
+    the groups just stored. `data.items` None keeps the stored ones as they are, unless the campaign is no longer
+    per unit (they must be cleared explicitly with `[]`). A kept amount whose product left the reach (a group or
+    filter change) is credited nothing: the allocator only reaches the groups' products; re-sending it is refused
+    until the user removes it, which the panel shows."""
     t = SellOutCampanaItem
     if data.items is None:
         if data.tipo != "por_unidad" and db.query(t.id).filter(t.campana_id == campana.id).first() is not None:
