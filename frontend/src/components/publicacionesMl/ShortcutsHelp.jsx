@@ -22,6 +22,8 @@ const SHORTCUTS = [
   { keys: ['Ctrl+K'], what: 'Calcular Web Transf. sobre los productos marcados o filtrados' },
   { keys: ['Ctrl+Shift+P'], what: 'Calcular PVP sobre los productos marcados o filtrados' },
   { keys: ['Alt+M', 'Alt+S', 'Alt+P'], what: 'Abrir el filtro de Marca, Subcategoría o PM' },
+  { keys: ['Alt+A'], what: 'Abrir los filtros de Auditoría' },
+  { keys: ['Alt+C', 'Alt+F'], what: 'Abrir los filtros de Presencia (rebate, oferta, web transferencia, Tienda Nube, fuera de tarjetas, precio, nuevos)' },
   { keys: ['Alt+V'], what: 'Cambiar los precios de Productos: Normal, Cuotas o PVP' },
   { keys: ['Alt+R'], what: 'Activar o desactivar Auto-recalcular cuotas al guardar un precio' },
   { keys: ['Ctrl+F'], what: 'Ir a la búsqueda' },
