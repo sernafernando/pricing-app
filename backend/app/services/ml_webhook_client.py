@@ -269,16 +269,23 @@ def _billing_fetch_from_response(response: httpx.Response, what: str) -> Billing
     return BillingFetch(status=response.status_code, body=body, error=f"HTTP {response.status_code}")
 
 
+# ML's error code for an order that does not exist (its items say `not_found`).
+ML_ORDER_NOT_FOUND = "order_not_found"
+
+
 @dataclass(frozen=True)
 class OrderFetch:
     """Outcome of one `fetch_order` (remove-ml-divergences D2c).
 
     `status` is "ok" (with `payload`), "not_found" or "error". "not_found" is
     ML's own answer that the order does not exist -- a 404 whose JSON body
-    names `error: not_found`, which the proxy passes through. A 404 without
-    that body (a proxy route not deployed, a non-JSON answer from ML) is an
-    "error": the caller deletes data on "not_found", so it must be the one
-    answer that cannot be a failed read in disguise.
+    names `error: order_not_found` (captured 2026-10-28,
+    tests/fixtures/ml_orders/order_errors_capture_20261028.json), which the
+    proxy passes through. A 404 without that body (a proxy route not
+    deployed, a non-JSON answer from ML, the items' `not_found`) is an
+    "error", and so is another seller's order (403 `not_owned_order`): the
+    caller deletes data on "not_found", so it must be the one answer that
+    cannot be a failed read in disguise.
     """
 
     status: str
@@ -592,7 +599,7 @@ class MLWebhookClient:
             body = None
         if response.status_code == 200 and isinstance(body, dict):
             return OrderFetch("ok", body)
-        if response.status_code == 404 and isinstance(body, dict) and body.get("error") == "not_found":
+        if response.status_code == 404 and isinstance(body, dict) and body.get("error") == ML_ORDER_NOT_FOUND:
             return OrderFetch("not_found")
         logger.warning(f"Orden {order_id_int}: respuesta inesperada de ML (HTTP {response.status_code})")
         return OrderFetch("error")
