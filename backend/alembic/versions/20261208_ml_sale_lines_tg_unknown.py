@@ -1,7 +1,7 @@
 """ml_sale_lines.tg_known: an unknown Total Gauss is told apart from a real 0
 
 Revision ID: 20261208_ml_sale_lines_tg_unknown
-Revises: 20261204_ml_cost_sync_give_up_column
+Revises: 20261206_offsets_migracion_pendientes
 Create Date: 2026-10-28
 
 Métricas ML audit A3. A stored line's `tg` is 0 both when its order's Total Gauss is not resolved yet and when it
@@ -38,7 +38,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261208_ml_sale_lines_tg_unknown"
-down_revision: Union[str, None] = "20261204_ml_cost_sync_give_up_column"
+down_revision: Union[str, None] = "20261206_offsets_migracion_pendientes"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
