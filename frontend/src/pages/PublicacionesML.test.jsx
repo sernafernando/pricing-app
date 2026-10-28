@@ -56,6 +56,9 @@ vi.mock('../services/api', () => ({
     calcularMarkup: vi.fn(() => Promise.resolve({ data: { markup: 10 } })),
     setRapido: vi.fn(() => Promise.resolve({ data: {} })),
     setCuota: vi.fn(() => Promise.resolve({ data: {} })),
+    setRebate: vi.fn(() => Promise.resolve({ data: {} })),
+    setWebTransferencia: vi.fn(() => Promise.resolve({ data: {} })),
+    setOutOfCards: vi.fn(() => Promise.resolve({ data: {} })),
   },
   registerAuthFailureHandler: vi.fn(),
 }));
@@ -1819,6 +1822,46 @@ describe("editing Productos' prices in the table (S11c)", () => {
     await page();
     expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
     expect(within(table()).queryByRole('button', { name: /^Editar Precio/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("r / w / o on the focused row's product (S9)", () => {
+  const PRICED = [{ item_id: 4101, precio_lista_ml: 12345.5, participa_rebate: false, porcentaje_rebate: 4, out_of_cards: false }];
+  beforeEach(() => {
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+    preciosAPI.setRebate.mockClear();
+    preciosAPI.setOutOfCards.mockClear();
+  });
+
+  it("r turns the rebate of the focused publication's product on as Productos does, says so and re-reads the prices", async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findByText('12.345,50');
+    await user.keyboard('{ArrowDown}r');
+    await waitFor(() => expect(preciosAPI.setRebate).toHaveBeenCalledWith(4101, { participa_rebate: true, porcentaje_rebate: 4 }));
+    expect(await screen.findByText('Rebate activado.')).toBeInTheDocument();
+    await waitFor(() => expect(productosAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
+  it('a publication with no product says so and writes nothing', async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findByText('12.345,50');
+    // The third publication has no product.
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}r');
+    expect(await screen.findByText('La publicación no tiene producto vinculado')).toBeInTheDocument();
+    expect(preciosAPI.setRebate).not.toHaveBeenCalled();
+  });
+
+  it('without the permission of that toggle it says so and writes nothing', async () => {
+    const user = userEvent.setup();
+    canEditPrices = false;
+    await page();
+    await screen.findByText('12.345,50');
+    await user.keyboard('{ArrowDown}o');
+    expect(await screen.findByText('No tenés permiso para cambiar fuera de tarjetas')).toBeInTheDocument();
+    expect(preciosAPI.setOutOfCards).not.toHaveBeenCalled();
   });
 });
 
