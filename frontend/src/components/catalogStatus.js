@@ -1,13 +1,22 @@
+import { AlertCircle, Handshake, Trophy } from 'lucide-react';
+
 /**
  * The catalog competition states ML reports, one table for Productos' row badge and Publicaciones ML's
- * `CatalogStatusBadge`: the state in words, Productos' emoji mark and the tone of the badge. A status missing here is
- * shown as a neutral badge with no mark (`CatalogStatusBadge.module.css` keys its tones by these same statuses).
+ * `CatalogStatusBadge`. Each state has its words, Productos' emoji mark, Publicaciones ML's icon and the badge's tone.
  */
 export const CATALOG_STATES = {
-  winning: { label: 'ganando', mark: '🏆', tone: 'var(--success)' },
-  sharing_first_place: { label: 'compartiendo el primer lugar', mark: '🤝', tone: 'var(--info)' },
-  competing: { label: 'compitiendo', mark: '!', tone: 'var(--warning)' },
+  winning: { label: 'ganando', mark: '🏆', Icon: Trophy, tone: 'var(--success)' },
+  sharing_first_place: { label: 'compartiendo el primer lugar', mark: '🤝', Icon: Handshake, tone: 'var(--info)' },
+  competing: { label: 'compitiendo', mark: '!', Icon: AlertCircle, tone: 'var(--warning)' },
 };
+
+/**
+ * The state of a catalog status, or undefined for a status the table does not have. Only the table's own keys count,
+ * so a status named like an object member (`constructor`) is unknown too.
+ *
+ * @param {string | null | undefined} status
+ */
+export const catalogState = (status) => (Object.hasOwn(CATALOG_STATES, status ?? '') ? CATALOG_STATES[status] : undefined);
 
 // A price as the catalog tooltip writes it; null when it is not a usable number (no tooltip, never a crash). A price
 // of 0 counts as none: Productos always read it that way (its check was the price's truthiness).

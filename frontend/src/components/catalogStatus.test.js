@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CATALOG_STATES, catalogTooltip } from './catalogStatus';
+import { catalogState, catalogTooltip } from './catalogStatus';
 
 // The tooltip Productos wrote inline before it shared this one: same text for every price it could render.
 const productosBefore = (p) =>
@@ -29,7 +29,7 @@ describe('catalogTooltip', () => {
   });
 });
 
-describe('CATALOG_STATES', () => {
+describe('catalogState', () => {
   // Productos' badge before it shared the table: mark and tone per status, a neutral badge for any other.
   const markBefore = (status) =>
     status === 'winning' ? '🏆' : status === 'sharing_first_place' ? '🤝' : status === 'competing' ? '!' : '';
@@ -42,8 +42,8 @@ describe('CATALOG_STATES', () => {
           ? 'var(--warning)'
           : 'var(--text-tertiary)';
 
-  it.each(['winning', 'sharing_first_place', 'competing', 'listed'])("keeps Productos' mark and tone: %s", (status) => {
-    expect(CATALOG_STATES[status]?.mark ?? '').toBe(markBefore(status));
-    expect(CATALOG_STATES[status]?.tone ?? 'var(--text-tertiary)').toBe(toneBefore(status));
+  it.each(['winning', 'sharing_first_place', 'competing', 'listed', 'constructor', null])("keeps Productos' mark and tone: %s", (status) => {
+    expect(catalogState(status)?.mark ?? '').toBe(markBefore(status));
+    expect(catalogState(status)?.tone ?? 'var(--text-tertiary)').toBe(toneBefore(status));
   });
 });

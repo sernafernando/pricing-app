@@ -1,5 +1,5 @@
-/* Publicaciones ML's catalog-competition badge, mirroring Productos' (its tones are CATALOG_STATES' `tone`, keyed by
-   the same statuses in catalogStatus.js): one tone per status, inverse text. */
+/* Publicaciones ML's catalog-competition badge, mirroring Productos': its state's tone (CATALOG_STATES' `tone`, set
+   as --catalog-tone by the component), the neutral one for any other status; inverse text. */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -12,17 +12,5 @@
   vertical-align: middle;
   cursor: default;
   color: var(--text-inverse);
-  background-color: var(--text-tertiary);
-}
-
-.badge[data-status='winning'] {
-  background-color: var(--success);
-}
-
-.badge[data-status='sharing_first_place'] {
-  background-color: var(--info);
-}
-
-.badge[data-status='competing'] {
-  background-color: var(--warning);
+  background-color: var(--catalog-tone, var(--text-tertiary));
 }

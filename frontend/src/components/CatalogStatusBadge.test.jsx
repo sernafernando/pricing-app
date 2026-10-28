@@ -45,6 +45,24 @@ describe('CatalogStatusBadge', () => {
     expect(screen.getByRole('img', { name: `Catálogo: ${label}` }).querySelector('svg')).toBeInTheDocument();
   });
 
+  it('a status named like an object member is still just an unknown status: a neutral badge', () => {
+    for (const status of ['constructor', 'toString']) {
+      const { container, unmount } = render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: status }} />);
+      expect(container.firstChild.querySelector('svg')).toBeNull();
+      expect(container.firstChild).toHaveTextContent('');
+      expect(container.firstChild).toHaveAttribute('aria-label', `Catálogo: ${status}`);
+      unmount();
+    }
+  });
+
+  it("each state's tone comes from the shared table; an unknown status has none (the neutral tone)", () => {
+    const { container, unmount } = render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: 'winning' }} />);
+    expect(container.firstChild.style.getPropertyValue('--catalog-tone')).toBe(CATALOG_STATES.winning.tone);
+    unmount();
+    const other = render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: 'listed' }} />);
+    expect(other.container.firstChild.style.getPropertyValue('--catalog-tone')).toBe('');
+  });
+
   it('a price of 0 is no price, as in Productos: no tooltip', () => {
     const { container } = render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: 'winning', catalog_winner_price: 0 }} />);
     expect(container.firstChild).not.toHaveAttribute('title');
