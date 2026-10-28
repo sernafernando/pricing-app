@@ -895,7 +895,7 @@ export const productosPropiosAPI = {
   saveDatos: (itemId, body) => api.put(`/productos-propios/${itemId}/datos`, body),
 };
 
-// A publication's data overridden locally (never written to ML): `{ original, override, aplicado, editable, can_edit }`.
+// A publication's data overridden locally (saving never writes ML; only pushToMl does): `{ original, override, aplicado, editable, can_edit }`.
 export const mlItemOverridesAPI = {
   get: (mla) => api.get(`/ml-item-overrides/${mla}`),
   // `{ titulo, descripcion, fotos: [id], atributos: [{ id, value_name }] }`: null follows ML; every field null drops it.

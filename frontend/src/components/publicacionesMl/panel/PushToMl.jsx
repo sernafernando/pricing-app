@@ -63,8 +63,10 @@ function Parte({ parte }) {
  * @param {() => void} props.onPushed Something may have landed in ML: the caller reads the publication again.
  * @param {boolean} [props.canPush] Offers the button (an override to send); the last result stays without it.
  * @param {boolean} [props.replacesPictures] The override has pictures: ML takes the saved list as a whole.
+ * @param {(sending: boolean) => void} [props.onSendingChange] A push went out (true) or answered (false): the caller
+ *   keeps what would unmount this (the edit form) away meanwhile, or the answer is lost.
  */
-export default function PushToMl({ itemId, onPushed, canPush = true, replacesPictures = false }) {
+export default function PushToMl({ itemId, onPushed, canPush = true, replacesPictures = false, onSendingChange }) {
   const [phase, setPhase] = useState('idle'); // idle | confirming | sending
   const [outcome, setOutcome] = useState(null);
   const resultId = useId();
@@ -81,6 +83,7 @@ export default function PushToMl({ itemId, onPushed, canPush = true, replacesPic
     if (phase === 'sending') return; // a second click before the re-render
     setPhase('sending');
     setOutcome(null);
+    onSendingChange?.(true);
     let next;
     try {
       next = outcomeOf(await mlItemOverridesAPI.pushToMl(itemId));
@@ -88,6 +91,7 @@ export default function PushToMl({ itemId, onPushed, canPush = true, replacesPic
       next = outcomeOf(null, error);
     }
     if (!mounted.current) return;
+    onSendingChange?.(false);
     setOutcome(next);
     setPhase('idle');
     if (next.mayHaveLanded) onPushed();

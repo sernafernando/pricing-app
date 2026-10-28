@@ -265,4 +265,21 @@ describe('Actualizar en ML', () => {
 
     expect(screen.getByText(/Las fotos se reemplazan por la lista guardada/)).toBeInTheDocument();
   });
+
+  it('while a push is out, Editar datos is not offered (it would drop the result)', async () => {
+    let answer;
+    mlItemOverridesAPI.get.mockResolvedValue({ data: { ...OVERRIDDEN, can_edit: true } });
+    mlItemOverridesAPI.pushToMl.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    render(<DatosTab itemId="MLA1" />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Actualizar en ML' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+    expect(screen.getByText('Enviando a Mercado Libre…')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Editar datos' })).not.toBeInTheDocument();
+    answer({ data: { status: 'sent', message: null, partes: [{ campo: 'titulo', estado: 'submitted', motivo: null }] } });
+
+    expect(await screen.findByText('Título: enviado a Mercado Libre.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Editar datos' })).toBeInTheDocument();
+  });
 });

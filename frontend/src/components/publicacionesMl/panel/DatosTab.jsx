@@ -41,6 +41,7 @@ export default function DatosTab({ itemId }) {
   const [attempt, setAttempt] = useState(0); // bumped by Reintentar: loads again
   const [editingFor, setEditingFor] = useState(null); // the MLA whose form is open
   const [savedFor, setSavedFor] = useState(null); // the MLA just saved
+  const [pushingFor, setPushingFor] = useState(null); // the MLA whose push is out: no edit until it answers
 
   useEffect(() => {
     let current = true;
@@ -103,7 +104,7 @@ export default function DatosTab({ itemId }) {
   const actions = (
     <>
       {read.can_edit && !read.editable && <p className={styles.note}>La publicación está eliminada: sus datos no se pueden editar.</p>}
-      {read.can_edit && read.editable && (
+      {read.can_edit && read.editable && pushingFor !== itemId && (
         <div className={styles.statusConfirm}>
           <button
             type="button"
@@ -120,9 +121,14 @@ export default function DatosTab({ itemId }) {
       )}
       {read.can_edit && read.editable && (
         // Mounted without an override too, so a result stays when the re-read after a push finds the override gone.
-        <PushToMl key={itemId} itemId={itemId} canPush={Boolean(read.override)}
+        <PushToMl
+          key={itemId}
+          itemId={itemId}
+          canPush={Boolean(read.override)}
           replacesPictures={read.override?.fotos != null}
-          onPushed={() => setAttempt((n) => n + 1)} />
+          onSendingChange={(sending) => setPushingFor(sending ? itemId : null)}
+          onPushed={() => setAttempt((n) => n + 1)}
+        />
       )}
       {savedFor === itemId && (
         <p className={styles.feedback} role="status">
