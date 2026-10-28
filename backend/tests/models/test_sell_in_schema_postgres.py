@@ -34,6 +34,7 @@ _MIGRATIONS = [
         "20261112_sell_in_compras_porcentaje",
         "20261114_sell_in_bonos_alcance",
         "20261115_sell_in_bono_queue_alcance",
+        "20261210_sell_in_bono_items_montos",
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos"}

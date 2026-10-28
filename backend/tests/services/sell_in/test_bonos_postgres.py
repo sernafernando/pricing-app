@@ -747,3 +747,43 @@ class TestPorcentaje:
         with engine.connect() as conn:
             comentario = conn.execute(text("SELECT comentario FROM auditoria ORDER BY id DESC LIMIT 1")).scalar_one()
         assert comentario == "Bono de categoría: el pedido ya no está alcanzado por el bono"
+
+
+@pytest.mark.postgres
+class TestValorPorModelo:
+    """T23a: a model of a 'modelos' bonus may carry its own `monto_unit` (per-unit bonus) or `porcentaje`
+    (percentage bonus), which replaces the bonus's for that model; the others keep the bonus's value."""
+
+    def test_a_models_own_amount_per_unit_replaces_the_bonus_amount(self, engine: Engine) -> None:
+        bono = b.bono_alcance(engine, "modelos", modelos=(2964, 2270), monto="2.00")
+        b.valor_de_modelo(engine, bono, 2964, monto="3.50")
+        pedido = b.pedido(engine, {2964: 4, 2270: 5})
+
+        _reconciliar(engine, bono_ids=[bono])
+
+        assert b.items_de(engine, bono, pedido) == [(2270, 5, Decimal("10.00")), (2964, 4, Decimal("14.00"))]
+        assert b.generadas(engine)[0][4] == Decimal("24.00")
+
+    def test_a_models_own_percentage_replaces_the_bonus_percentage(self, engine: Engine) -> None:
+        bono = b.bono_alcance(engine, "modelos", modelos=(2964, 2270), tipo="porcentaje", porcentaje="2")
+        b.valor_de_modelo(engine, bono, 2270, porcentaje="10")
+        pedido = b.pedido(engine, {2964: 4, 2270: 5})
+        b.set_importe(engine, pedido, 2964, "1000.00", "USD")
+        b.set_importe(engine, pedido, 2270, "100.05", "USD")  # 10.005 -> 10.01 (half up)
+
+        _reconciliar(engine, bono_ids=[bono])
+
+        assert b.items_de(engine, bono, pedido) == [(2270, 5, Decimal("10.01")), (2964, 4, Decimal("20.00"))]
+
+    def test_changing_a_models_own_amount_updates_the_purchase_in_place(self, engine: Engine) -> None:
+        bono = b.bono_alcance(engine, "modelos", modelos=(2964, 2270), monto="2.00")
+        pedido = b.pedido(engine, {2964: 4, 2270: 5})
+        _reconciliar(engine, bono_ids=[bono])
+        compra = b.compra_id(engine, bono, pedido)
+
+        b.valor_de_modelo(engine, bono, 2270, monto="1.00")
+        result = _reconciliar(engine, bono_ids=[bono])
+
+        assert _counts(result) == (0, 1, 0)
+        assert b.compra_id(engine, bono, pedido) == compra
+        assert b.items_de(engine, bono, pedido) == [(2270, 5, Decimal("5.00")), (2964, 4, Decimal("8.00"))]

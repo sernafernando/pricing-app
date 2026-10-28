@@ -80,7 +80,7 @@ def test_this_revision_chains_on_the_offsets_review_table_revision() -> None:
     revision = script.get_revision(_REVISION)
     assert revision is not None
     assert revision.down_revision == "20261206_offsets_migracion_pendientes"
-    assert script.get_heads() == [_REVISION]
+    assert len(script.get_heads()) == 1  # no divergent heads; a later revision may sit on top of this one
 
 
 @pytest.mark.postgres
