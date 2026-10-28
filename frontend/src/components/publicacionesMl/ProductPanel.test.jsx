@@ -21,19 +21,19 @@ vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({ tienePermiso: (permiso) => granted.has(permiso) }),
 }));
 
-// Each mount of the prices is a fresh read of them.
+// Each mount of the prices is a fresh read of them; `readAgain` asks one more without remounting.
 const pricesMounts = vi.hoisted(() => ({ count: 0 }));
 vi.mock('../pricing/ProductPrices', async () => {
   const { useEffect } = await import('react');
   return {
-    default: function ProductPricesMock({ productItemId, permissions, showCost }) {
+    default: function ProductPricesMock({ productItemId, permissions, showCost, readAgain }) {
       useEffect(() => {
         pricesMounts.count += 1;
       }, []);
       return (
-    <div data-testid="product-prices">
-      {`prices of ${productItemId}, cost ${showCost ? 'shown' : 'hidden'}, clasica ${permissions.canEditClasica ? 'editable' : 'read-only'}`}
-    </div>
+        <div data-testid="product-prices" data-read-again={readAgain}>
+          {`prices of ${productItemId}, cost ${showCost ? 'shown' : 'hidden'}, clasica ${permissions.canEditClasica ? 'editable' : 'read-only'}`}
+        </div>
       );
     },
   };
@@ -344,15 +344,18 @@ describe('ProductPanel', () => {
       expect(prices.compareDocumentPosition(cuotas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    it("a recalculation from the instalment settings reads the product's prices again and reloads the list", async () => {
+    it("a recalculation from the instalment settings reads the product's prices again, without remounting them, and reloads the list", async () => {
       const onListReload = vi.fn();
       renderPanel({ onListReload });
       await userEvent.click(tab('Precios'));
       const before = pricesMounts.count;
+      expect(screen.getByTestId('product-prices')).toHaveAttribute('data-read-again', '0');
 
       await userEvent.click(screen.getByRole('button', { name: 'Simular recálculo' }));
 
-      expect(pricesMounts.count).toBe(before + 1);
+      expect(screen.getByTestId('product-prices')).toHaveAttribute('data-read-again', '1');
+      // A remount would drop a price edit the user has open beside the settings.
+      expect(pricesMounts.count).toBe(before);
       expect(onListReload).toHaveBeenCalledTimes(1);
     });
 

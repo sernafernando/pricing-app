@@ -339,8 +339,10 @@ function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, s
  * @param {ReturnType<typeof import('./productPricePermissions').pricePermissions>} [props.permissions]
  * @param {() => void} [props.onWritten] Called after every successful write.
  * @param {boolean} [props.showCost] Show the product cost (ml_metricas.ver_ganancia).
+ * @param {number} [props.readAgain] Changing it reads the prices again (something else wrote them), keeping an open
+ *   edit as it was typed.
  */
-export default function ProductPrices({ productItemId, permissions, onWritten, showCost = false }) {
+export default function ProductPrices({ productItemId, permissions, onWritten, showCost = false, readAgain = 0 }) {
   const [state, setState] = useState({ status: 'loading', product: null, error: null });
   const [editing, setEditing] = useState(null);
   const [pending, setPending] = useState(null);
@@ -373,6 +375,19 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
       active = false;
     };
   }, [load, productItemId]);
+
+  // A read asked from outside: only the prices change, the editor and its message stay.
+  useEffect(() => {
+    if (!readAgain) return undefined;
+    let active = true;
+    load()
+      .then((product) => active && setState({ status: 'ready', product, error: null }))
+      // A failed re-read keeps the prices on screen: the caller's own write already succeeded.
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [load, readAgain]);
 
   const { status, product } = state;
   const editable = LISTS.some((list) => list.rows.some((row) => permissions?.[row.perm]));

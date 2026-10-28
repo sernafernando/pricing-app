@@ -31,9 +31,10 @@ const settingsOf = (product) => ({
   web: product.markup_adicional_cuotas_custom ?? null,
   pvp: product.markup_adicional_cuotas_pvp_custom ?? null,
   complete: STORED_FIELDS.every((field) => field in product),
-  // The lists whose instalments a save recalculates (Productos' "recalcular cuotas desde clásica"): those with a price.
-  lists: LISTS.filter(({ priceField }) => Number(product[priceField]) > 0).map(({ key }) => key),
 });
+
+// The lists whose instalments a save recalculates (Productos' "recalcular cuotas desde clásica"): those with a price.
+const listsOf = (product) => LISTS.filter(({ priceField }) => Number(product[priceField]) > 0).map(({ key }) => key);
 
 const inputOf = (value) => (value == null ? '' : String(value));
 
@@ -50,6 +51,22 @@ function markupOf(text) {
   return Number.isFinite(value) && value >= 0 && value <= 100 ? value : undefined;
 }
 
+/** A sentence: the server's details may come without a final period. */
+const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
+
+/** Why a request failed, for the user: a 403 names what was refused, else the server's reason or `fallback`. */
+function reasonOf(error, { forbidden, fallback }) {
+  if (error?.response?.status === 403) return forbidden;
+  const detail = error?.response?.data?.detail;
+  return sentence(typeof detail === 'string' && detail ? detail : fallback);
+}
+
+const describeError = (error) =>
+  reasonOf(error, {
+    forbidden: 'No tenés permiso para editar la configuración de cuotas.',
+    fallback: 'No se pudo guardar la configuración de cuotas. Probá de nuevo.',
+  });
+
 /** Recalculates the instalments of each list from its clásica price, as Productos does after saving; says how it went. */
 async function recalculate(productItemId, lists) {
   if (lists.length === 0) return { note: 'Guardado. Sin precio Web ni PVP, no hay cuotas para recalcular.', done: false };
@@ -60,22 +77,16 @@ async function recalculate(productItemId, lists) {
       await preciosAPI.recalcularCuotas(productItemId, list);
       results.push({ list, ok: true });
     } catch (error) {
-      const detail = error?.response?.data?.detail;
-      results.push({ list, ok: false, reason: typeof detail === 'string' && detail ? detail : 'probá de nuevo' });
+      const reason = reasonOf(error, { forbidden: 'No tenés permiso para recalcular las cuotas.', fallback: 'Probá de nuevo.' });
+      results.push({ list, ok: false, reason });
     }
   }
   const done = results.filter((r) => r.ok).map((r) => LIST_LABELS[r.list]);
   const failed = results.filter((r) => !r.ok);
-  let note = 'Guardado.';
-  if (done.length > 0) note += ` Cuotas ${done.join(' y ')} recalculadas desde la clásica.`;
-  for (const { list, reason } of failed) note += ` No se pudieron recalcular las ${LIST_LABELS[list]}: ${reason}`;
-  return { note, done: done.length > 0 };
-}
-
-function describeError(error) {
-  if (error?.response?.status === 403) return 'No tenés permiso para editar la configuración de cuotas.';
-  const detail = error?.response?.data?.detail;
-  return typeof detail === 'string' && detail ? detail : 'No se pudo guardar la configuración de cuotas. Probá de nuevo.';
+  const parts = ['Guardado.'];
+  if (done.length > 0) parts.push(`Cuotas ${done.join(' y ')} recalculadas desde la clásica.`);
+  for (const { list, reason } of failed) parts.push(`No se pudieron recalcular las ${LIST_LABELS[list]}: ${reason}`);
+  return { note: parts.join(' '), done: done.length > 0 };
 }
 
 /**
@@ -96,7 +107,7 @@ export default function ProductCuotasConfig({ productItemId, onRecalculated }) {
   const [attempt, setAttempt] = useState(0);
   const [form, setForm] = useState(null);
   // What the last save says (saved, and how the recalculation went), or null.
-  const [saved, setSaved] = useState(null);
+  const [saveNote, setSaveNote] = useState(null);
 
   useEffect(() => {
     let current = true;
@@ -118,7 +129,7 @@ export default function ProductCuotasConfig({ productItemId, onRecalculated }) {
     // A read missing a setting would PATCH defaults over values never shown: only a complete read is editable.
     if (!read.settings?.complete) return;
     const { recalc, web, pvp } = read.settings;
-    setSaved(null);
+    setSaveNote(null);
     setForm({ recalc, web: inputOf(web), pvp: inputOf(pvp), status: 'editing', error: null });
   };
 
@@ -139,15 +150,26 @@ export default function ProductCuotasConfig({ productItemId, onRecalculated }) {
         markup_adicional_cuotas_custom: web,
         markup_adicional_cuotas_pvp_custom: pvp,
       });
-      const { note, done } = await recalculate(productItemId, read.settings.lists);
-      if (done) onRecalculated?.();
-      setForm(null);
-      setSaved(note);
-      // Show what is stored, not what was typed.
-      reload();
     } catch (error) {
       setForm((current) => current && { ...current, status: 'editing', error: describeError(error) });
+      return;
     }
+    // Which lists have a price now, not when this was read: the prices beside it may have been written since.
+    let lists = null;
+    try {
+      lists = listsOf((await preciosAPI.obtenerProducto(productItemId)).data);
+    } catch {
+      // Said below; the settings are saved either way.
+    }
+    const { note, done } = lists
+      ? await recalculate(productItemId, lists)
+      : { note: 'Guardado. No se pudieron leer los precios para recalcular las cuotas.', done: false };
+    setForm(null);
+    setSaveNote(note);
+    // Show what is stored, not what was typed.
+    reload();
+    // Last: whatever the panel does with it cannot turn a save that worked into an error here.
+    if (done) onRecalculated?.();
   };
 
   let body;
@@ -247,9 +269,9 @@ export default function ProductCuotasConfig({ productItemId, onRecalculated }) {
   return (
     <Section title="Configuración de cuotas">
       {body}
-      {saved && !form && read.status === 'ready' && (
+      {saveNote && !form && read.status === 'ready' && (
         <p className={styles.feedback} role="status">
-          {saved}
+          {saveNote}
         </p>
       )}
     </Section>

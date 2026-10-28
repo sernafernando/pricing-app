@@ -84,10 +84,11 @@ export default function ProductPanel({
   const { tienePermiso } = usePermisos();
   // The open tab belongs to the product it was opened on: another product starts on Resumen.
   const [openTab, setOpenTab] = useState({ productKey, key: RESUMEN.key });
-  // Bumped when the instalment settings recalculated the instalments: the prices are mounted, so read, again.
-  const [pricesRead, setPricesRead] = useState(0);
+  // Bumped when the instalment settings recalculated the instalments: `ProductPrices` reads its prices again (an open
+  // price edit stays as typed).
+  const [pricesReadAgain, setPricesReadAgain] = useState(0);
   const onCuotasRecalculated = () => {
-    setPricesRead((n) => n + 1);
+    setPricesReadAgain((n) => n + 1);
     onListReload?.();
   };
   const withoutProduct = productKey === NO_PRODUCT_KEY;
@@ -132,8 +133,8 @@ export default function ProductPanel({
           ) : activeKey === PRECIOS.key ? (
             <>
               <ProductPrices
-                key={`prices-${productItemId}-${pricesRead}`}
                 productItemId={productItemId}
+                readAgain={pricesReadAgain}
                 permissions={pricePermissions(tienePermiso)}
                 onWritten={onListReload}
                 showCost={canSeeMargin}

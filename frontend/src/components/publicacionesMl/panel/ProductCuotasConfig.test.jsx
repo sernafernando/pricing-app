@@ -138,9 +138,54 @@ describe('recalculating the instalments after saving (as Productos does)', () =>
     await save(user);
 
     expect(
-      await screen.findByText('Guardado. Cuotas Web recalculadas desde la clásica. No se pudieron recalcular las PVP: No hay comisión configurada'),
+      await screen.findByText('Guardado. Cuotas Web recalculadas desde la clásica. No se pudieron recalcular las PVP: No hay comisión configurada.'),
     ).toHaveAttribute('role', 'status');
     expect(onRecalculated).toHaveBeenCalledTimes(1);
+  });
+
+  it('every list failing says each one, with its reason, and tells the panel nothing', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue(product({ precio_lista_ml: 1000, precio_pvp: 1200 }));
+    preciosAPI.recalcularCuotas.mockImplementation((_, lista) =>
+      Promise.reject(lista === 'web' ? httpError(403, 'Forbidden') : httpError(400, 'No hay comisión configurada')),
+    );
+    const user = userEvent.setup();
+    await save(user);
+
+    expect(
+      await screen.findByText(
+        'Guardado. No se pudieron recalcular las Web: No tenés permiso para recalcular las cuotas. No se pudieron recalcular las PVP: No hay comisión configurada.',
+      ),
+    ).toBeInTheDocument();
+    expect(onRecalculated).not.toHaveBeenCalled();
+  });
+
+  it('takes the prices as they are when saving, so a price written after the read is recalculated too', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValue(product({ precio_lista_ml: 1000, precio_pvp: null }));
+    const user = userEvent.setup();
+    renderConfig();
+    await user.click(await screen.findByRole('button', { name: 'Editar cuotas' }));
+    // Meanwhile the PVP price is set in the prices above.
+    preciosAPI.obtenerProducto.mockResolvedValue(product({ precio_lista_ml: 1000, precio_pvp: 1200 }));
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect(await screen.findByText('Guardado. Cuotas Web y PVP recalculadas desde la clásica.')).toBeInTheDocument();
+    expect(preciosAPI.recalcularCuotas.mock.calls).toEqual([
+      [4101, 'web'],
+      [4101, 'pvp'],
+    ]);
+  });
+
+  it('a failed read of the prices recalculates nothing, the settings staying saved', async () => {
+    preciosAPI.obtenerProducto.mockResolvedValueOnce(product({ precio_lista_ml: 1000, precio_pvp: 1200 }));
+    const user = userEvent.setup();
+    renderConfig();
+    await user.click(await screen.findByRole('button', { name: 'Editar cuotas' }));
+    preciosAPI.obtenerProducto.mockRejectedValueOnce(httpError(500, 'boom')).mockResolvedValue(product());
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+
+    expect(await screen.findByText('Guardado. No se pudieron leer los precios para recalcular las cuotas.')).toBeInTheDocument();
+    expect(preciosAPI.recalcularCuotas).not.toHaveBeenCalled();
+    expect(onRecalculated).not.toHaveBeenCalled();
   });
 
   it('a failed save recalculates nothing', async () => {
@@ -149,7 +194,7 @@ describe('recalculating the instalments after saving (as Productos does)', () =>
     const user = userEvent.setup();
     await save(user);
 
-    expect(await screen.findByText('boom')).toBeInTheDocument();
+    expect(await screen.findByText('boom.')).toBeInTheDocument();
     expect(preciosAPI.recalcularCuotas).not.toHaveBeenCalled();
     expect(onRecalculated).not.toHaveBeenCalled();
   });
@@ -186,7 +231,8 @@ describe('editing', () => {
     // What is shown after saving is the stored setting, read again.
     expect(await screen.findByText('Nunca recalcular')).toBeInTheDocument();
     expect(field('Markup adicional cuotas PVP')).toHaveTextContent('3 %');
-    expect(preciosAPI.obtenerProducto).toHaveBeenCalledTimes(2);
+    // Read on mount, for the prices to recalculate, and after saving.
+    expect(preciosAPI.obtenerProducto).toHaveBeenCalledTimes(3);
   });
 
   it('a saved 0 markup reads "0 %", starts the field at 0 and is sent back as 0, never as the global', async () => {
