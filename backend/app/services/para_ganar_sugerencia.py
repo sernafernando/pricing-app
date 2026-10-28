@@ -51,6 +51,8 @@ class SugerenciaMla:
     excluded_count: int = 0
     bucket_label: Optional[str] = None
     positions: list[dict[str, Any]] = field(default_factory=list)
+    # Full bucket peers for P5 R4 re-rank (not trimmed to TOP N).
+    rank_peers: list[dict[str, Any]] = field(default_factory=list)
     suggestion_status: str = "none"
     precio_sugerido: Optional[float] = None
     delta_ars: Optional[float] = None
@@ -322,6 +324,17 @@ def _sugerencia_from_preloaded(
             snapshot_at = datetime.fromisoformat(snapshot_at.replace("Z", "+00:00"))
         except ValueError:
             snapshot_at = None
+    rank_peers = [
+        {
+            "seller_id": c.seller_id,
+            "nickname": c.nickname,
+            "item_id": c.item_id,
+            "price_ars": c.price_ars,
+            "is_us": c.is_us,
+            "listing_label": c.listing_label,
+        }
+        for c in ranked
+    ]
     return SugerenciaMla(
         mla=mla,
         catalog_product_id=payload["catalog_product_id"],
@@ -333,6 +346,7 @@ def _sugerencia_from_preloaded(
         excluded_count=payload["excluded_count"],
         bucket_label=payload.get("bucket_label"),
         positions=list(payload["positions"]),
+        rank_peers=rank_peers,
         suggestion_status=suggestion_status,
         precio_sugerido=suggested.precio_sugerido if suggested else None,
         delta_ars=suggested.delta_ars if suggested else None,

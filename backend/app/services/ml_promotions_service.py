@@ -331,6 +331,57 @@ def fetch_item_promotions(mla_id: str, active_only: bool = False) -> List[Dict[s
     return result
 
 
+def fetch_item_promotions_bulk(
+    mla_ids: List[str],
+    *,
+    active_only: bool = True,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Batch read of ml_item_promotions for many MLAs (one query).
+
+    Same row shape as `fetch_item_promotions`. Missing MLAs map to [].
+    Never raises for empty input; RuntimeError if mlwebhook URL missing
+    (same as the single-MLA reader).
+    """
+    if not mla_ids:
+        return {}
+    status_clause = "AND ip.status IN ('candidate', 'started', 'pending')" if active_only else ""
+    engine = get_mlwebhook_engine()
+    params = {f"mla_{i}": mla for i, mla in enumerate(mla_ids)}
+    placeholders = ", ".join(f":mla_{i}" for i in range(len(mla_ids)))
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                f"""
+                SELECT {_ITEM_PROMOTIONS_SELECT_COLUMNS_JOINED}
+                FROM ml_item_promotions AS ip
+                LEFT JOIN ml_promotions AS p ON p.promotion_id = ip.promotion_id
+                WHERE ip.mla IN ({placeholders})
+                {status_clause}
+                ORDER BY ip.mla, ip.updated_at DESC, ip.promotion_id
+                """
+            ),
+            params,
+        ).fetchall()
+
+    now = datetime.now(timezone.utc)
+    out: Dict[str, List[Dict[str, Any]]] = {str(mla).strip().upper(): [] for mla in mla_ids}
+    for row in rows:
+        item = _item_promotion_row_to_dict(row)
+        catalog_name = row[12]
+        item["name"] = catalog_name or item["name"]
+        catalog_start = row[13]
+        catalog_finish = row[14]
+        item["start_date"] = catalog_start.isoformat() if catalog_start else item["start_date"]
+        item["finish_date"] = catalog_finish.isoformat() if catalog_finish else item["finish_date"]
+        if active_only and _is_expired_finish_date(item["finish_date"], now):
+            continue
+        mla = str(item.get("mla") or "").strip().upper()
+        if not mla:
+            continue
+        out.setdefault(mla, []).append(item)
+    return out
+
+
 def fetch_promo_summary_by_mla(mla_ids: List[str]) -> Dict[str, Dict[str, Any]]:
     """Lee un resumen batcheado de promos activas por MLA (una sola query).
 

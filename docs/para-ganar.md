@@ -62,7 +62,7 @@ Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por ML
 | **P3.2** | Criterios Sin/Con filtran EANs (≥1 MLA con criterio); detalle = checkboxes MLA + filtros tipo/lista/tienda; Todo el EAN; sin modo rules en UI | P3.1 | Done |
 | **P3.3** | Aviso/filtro **MLA nuevos** (`scope_mode=mlas` con MLA activo fuera de la lista); badge en cola + highlight en detalle | P3.2 | Done |
 | **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Done |
-| **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Slice A done (R1–R3 + baseline + first-run). Slice B (R4 promos) pending |
+| **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Slice A done (R1–R3). Slice B R4: promo opportunity (X,Y,Z)→(X′,Y′,Z′) |
 | **A1** | Advisor **Consultar filtrados**: misma pipeline que el periódico, pero a demanda sobre el alcance del filtro (manual; lo no suscripto a Periodicidad) | P5 | Planned |
 | **P6** | Trigger periódico: job que pide/refresca competencia de catálogo solo para inclusiones y dispara P5 | P5 | Planned |
 | **P7** | Vista flotante de cola “por revisar” (después; por ahora solo Advisor) | P4+P5 | Later |
@@ -142,10 +142,10 @@ Newest first. Use for “why did we…” archaeology.
 - `scope_mode`: `all` (todo el EAN) | `mlas` (lista explícita) | `rules` (`tipos_publicacion` / `pricelist_ids` / `tienda_oficial_ids`).
 - UI (P3.2–P3.3): ScopeFilters (Sin/Con criterio a nivel EAN); catálogo; **Todo el EAN** o checkboxes MLA; chip **Con MLA nuevos**; badge en fila + `es_nuevo` en detalle; **Descartar avisos nuevos** (detalle) y **Descartar todos los avisos nuevos** (toolbar). Aviso ≠ suscribir: solo limpia el badge hasta que aparezcan MLAs nuevos distintos. `rules` legado: migrar al guardar.
 
-### Motor P5 (Slice A — R1–R3)
+### Motor P5 (R1–R4)
 
 - `POST /para-ganar/periodicidad/evaluar` (`productos.editar_precios`) evaluates **enabled** Periodicidad MLAs (`all|mlas|rules`, `catalog_listing=true`).
-- First usable snapshot → `pendiente` and stores `competition_baseline` (rank, price, `suggestion_status`, `in_top`, `fecha_consulta`). Later runs compare current vs that baseline: R1 rank/`in_top` worsened; R2 catalog win lost (`suggestion_status` not losing → `losing`); R3 winning with `delta_ars > 0.01` without a worse rank. Any R → `pendiente`, else `sin_novedades`. Re-run overwrites `estado`. Missing snapshot / `needs_competition_refresh` / no catalog → skip (no write). R4 (promo superadora) is Slice B.
+- First usable snapshot → `pendiente` and stores `competition_baseline` (rank, price, `suggestion_status`, `in_top`, `fecha_consulta`). Later runs: R1 rank/`in_top` worsened; R2 catalog win lost; R3 winning with raise room; **R4** if any **candidate** promo projects better `(X′,Y′,Z′)` (price/markup/rank) than current `(X,Y,Z)` without clearly worsening another dimension (co-funding markup included for SMART-like). Any R → `pendiente`, else `sin_novedades`. Re-run overwrites `estado`. Missing snapshot → skip.
 
 ---
 
@@ -164,7 +164,7 @@ Newest first. Use for “why did we…” archaeology.
 11. ~~Show deal at `precio_sugerido` (clamped) + wire enroll from Advisor (D23)~~.
 12. ~~**Periodicidad P1–P3**~~ (shell + API + UI por EAN).
 13. ~~**P4** — estados Advisor Pendiente / Sin novedades~~ (tabla + cola + chips; escritura = P5).
-14. **P5** — motor de evaluación. Slice A done (`POST /para-ganar/periodicidad/evaluar`, R1–R3, `competition_baseline`). Slice B (R4 promo superadora) pending.
+14. ~~**P5** — motor de evaluación~~ (R1–R4; `POST /para-ganar/periodicidad/evaluar`).
 15. **A1** — Advisor **Consultar filtrados** (manual sobre el filtro; UI stub ya visible, cableado tras P5).
 16. **P6** — trigger periódico de catálogo.
 17. **P7** — vista flotante (después).

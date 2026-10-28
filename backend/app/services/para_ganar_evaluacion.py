@@ -1,4 +1,4 @@
-"""PARA GANAR P5 Slice A — evaluate Periodicidad MLAs (R1–R3, no R4)."""
+"""PARA GANAR P5 — evaluate Periodicidad MLAs (R1–R3 + R4 promo opportunity)."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from app.models.para_ganar_revision_mla import (
     REVISION_SIN_NOVEDADES,
     ParaGanarRevisionMla,
 )
+from app.services.para_ganar_evaluacion_r4 import has_promo_opportunity, load_promos_for_mlas
 from app.services.para_ganar_revision import upsert_revision_estado
 from app.services.para_ganar_sugerencia import (
     SugerenciaMla,
@@ -120,6 +121,13 @@ def evaluar_mla(db: Session, mla: str, *, updated_by_id: Optional[int]) -> Optio
     row = db.get(ParaGanarRevisionMla, mla_norm)
     stored = row.competition_baseline if row is not None else None
     estado = _decide_estado(stored, sug)
+    if (
+        estado == REVISION_SIN_NOVEDADES
+        and isinstance(stored, dict)
+        and stored
+        and has_promo_opportunity(db, sug, load_promos_for_mlas([mla_norm]).get(mla_norm, []))
+    ):
+        estado = REVISION_PENDIENTE
 
     saved = upsert_revision_estado(
         db,
@@ -153,6 +161,7 @@ def evaluar_periodicidad(db: Session, *, updated_by_id: Optional[int]) -> dict[s
         row.mla: row.competition_baseline
         for row in db.query(ParaGanarRevisionMla).filter(ParaGanarRevisionMla.mla.in_(mlas)).all()
     }
+    pending_r4: list[tuple[str, SugerenciaMla]] = []
     writes: list[tuple[str, str, dict[str, Any]]] = []
     for mla in mlas:
         sug = sugs.get(mla)
@@ -160,12 +169,26 @@ def evaluar_periodicidad(db: Session, *, updated_by_id: Optional[int]) -> dict[s
             counts["skipped"] += 1
             continue
         estado = _decide_estado(existing.get(mla), sug)
+        if estado == REVISION_SIN_NOVEDADES and isinstance(existing.get(mla), dict) and existing.get(mla):
+            pending_r4.append((mla, sug))
         writes.append((mla, estado, baseline_from_sugerencia(sug)))
         counts["evaluated"] += 1
         if estado == REVISION_PENDIENTE:
             counts["pendiente"] += 1
         elif estado == REVISION_SIN_NOVEDADES:
             counts["sin_novedades"] += 1
+
+    if pending_r4:
+        promos_by_mla = load_promos_for_mlas([mla for mla, _ in pending_r4])
+        write_by_mla = {mla: idx for idx, (mla, _, _) in enumerate(writes)}
+        for mla, sug in pending_r4:
+            if has_promo_opportunity(db, sug, promos_by_mla.get(mla, [])):
+                idx = write_by_mla[mla]
+                _m, _estado, baseline = writes[idx]
+                writes[idx] = (mla, REVISION_PENDIENTE, baseline)
+                counts["pendiente"] += 1
+                counts["sin_novedades"] = max(0, counts["sin_novedades"] - 1)
+
     _bulk_upsert_revision_estados(db, writes, updated_by_id=updated_by_id)
     return counts
 
