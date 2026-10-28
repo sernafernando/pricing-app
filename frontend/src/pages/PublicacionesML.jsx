@@ -12,6 +12,7 @@ import AuditFilters from '../components/publicacionesMl/AuditFilters';
 import PromoFilters from '../components/publicacionesMl/PromoFilters';
 import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
+import PublicationStatCards from '../components/publicacionesMl/PublicationStatCards';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import ProductPanel from '../components/publicacionesMl/ProductPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
@@ -56,11 +57,12 @@ import {
   buildExportParams,
   buildItemsParams,
   buildKpiParams,
+  buildStatsParams,
   effectiveSort,
   hasMarkupFilter,
   usePublicacionesMLFilters,
 } from '../hooks/usePublicacionesMLFilters';
-import { usePublicacionesMLKpis } from '../hooks/usePublicacionesMLKpis';
+import { usePublicacionesMLKpis, usePublicationStats } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
 import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../utils/mlSellerPanel';
 import {
@@ -367,6 +369,7 @@ export default function PublicacionesML() {
 
   // Like the rows, the strip and the bulk sets ask only a layer known to be the user's (it matters with `colores`).
   const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending);
+  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending);
   const productRows = useProductRows({
     filters: rowFilters,
     pageSize,
@@ -714,6 +717,16 @@ export default function PublicacionesML() {
           markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
         />
       )}
+
+      <PublicationStatCards
+        state={stats}
+        filters={filters}
+        canSeeMargin={canSeeMargin}
+        onApply={setFilters}
+        onReset={resetFilters}
+        onRetry={stats.reload}
+        markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
+      />
 
       <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>

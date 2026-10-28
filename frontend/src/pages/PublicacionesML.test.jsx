@@ -39,7 +39,7 @@ vi.mock('../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   productosPropiosAPI: { get: vi.fn(() => new Promise(() => {})), save: vi.fn() },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: ['TP,LINK', 'EPSON'] } })),
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: ['REDES'] } })),
@@ -115,6 +115,11 @@ const calls = () => publicacionesMlAPI.items.mock.calls.map(([params]) => params
 const lastParams = () => calls().at(-1);
 const httpError = (status, data = {}) => Object.assign(new Error(`HTTP ${status}`), { response: { status, data } });
 
+const STATS_RESPONSE = {
+  stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 },
+  can_see_margin: false,
+};
+
 const page = async (entry = '/ml-publicaciones') => {
   renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
   await screen.findByText('MLA1100000001');
@@ -128,6 +133,8 @@ beforeEach(() => {
   denied = new Set();
   publicacionesMlAPI.kpis.mockReset();
   publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE });
+  publicacionesMlAPI.stats.mockReset();
+  publicacionesMlAPI.stats.mockResolvedValue({ data: STATS_RESPONSE });
   seedTiendasOficiales([
     { store_id: 471846, nombre: 'TP-Link', clave: null, orden: 0, activa: true },
     { store_id: 57997, nombre: 'Gauss', clave: null, orden: 1, activa: true },
@@ -273,6 +280,40 @@ describe('filters', () => {
     await page('/ml-publicaciones?estado=active');
     await userEvent.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
     await waitFor(() => expect(lastParams()).not.toHaveProperty('estado'));
+  });
+});
+
+describe('stat cards (S12d4, Productos)', () => {
+  const statsParams = () => publicacionesMlAPI.stats.mock.calls.at(-1)[0];
+
+  it("count over the list's filters, without paging or sort", async () => {
+    await page('/ml-publicaciones?marcas=TP-Link&q=router');
+    await waitFor(() => expect(publicacionesMlAPI.stats).toHaveBeenCalled());
+    expect(statsParams()).toMatchObject({ marcas: 'TP-Link', q: 'router' });
+    expect(statsParams()).not.toHaveProperty('limit');
+    expect(statsParams()).not.toHaveProperty('orden');
+    expect(await screen.findByRole('button', { name: 'Stock sin $: 3' })).toBeInTheDocument();
+  });
+
+  it("a card applies its filter and clears the other card filters, keeping the search and brands", async () => {
+    await page('/ml-publicaciones?marcas=TP-Link&q=router&oferta=con_oferta');
+    await userEvent.click(await screen.findByRole('button', { name: 'Stock sin $: 3' }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ stock: 'erp_con_stock', con_precio: false, marcas: 'TP-Link', q: 'router' }));
+    expect(lastParams()).not.toHaveProperty('con_oferta');
+    expect(screen.getByRole('button', { name: 'Stock sin $: 3' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('Total Productos clears the filters', async () => {
+    await page('/ml-publicaciones?estado=active&precio=sin_precio');
+    await userEvent.click(await screen.findByRole('button', { name: 'Total Productos: 40' }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('estado'));
+    expect(lastParams()).not.toHaveProperty('con_precio');
+  });
+
+  it('the Producto view asks mejor oferta of the product, as its rows', async () => {
+    await page('/ml-publicaciones?vista=producto&oferta=con_oferta').catch(() => {});
+    await waitFor(() => expect(publicacionesMlAPI.stats).toHaveBeenCalled());
+    expect(statsParams()).toMatchObject({ con_oferta: true, oferta_por_producto: true });
   });
 });
 

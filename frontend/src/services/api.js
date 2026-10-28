@@ -939,6 +939,7 @@ export const publicacionesMlAPI = {
   statusBulk: (body) => api.post('/ml-publications/items/status-bulk', body),
   // The KPI strip over the MLAs the filters select (`ml_metricas.ver`). `config.signal` aborts a stale request.
   kpis: (params, config) => api.get('/ml-publications/view/kpis', { params, ...config }),
+  stats: (params, config) => api.get('/ml-publications/view/stats', { params, ...config }),
   // The linked products of the publications the filters select, for a bulk pricing action (see
   // `buildProductIdsParams`): `{ item_ids, count, sin_producto }`; a 422 over the cap. `config.signal` aborts it.
   productIds: (params, config) => api.get('/ml-publications/view/product-ids', { params, ...config }),

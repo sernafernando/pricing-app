@@ -365,6 +365,12 @@ export function buildProductIdsParams(filters) {
   return params;
 }
 
+/**
+ * The `GET /ml-publications/view/stats` query (Productos' stat cards, S12d4): they count the linked products of the
+ * very set a bulk action takes, so they ask exactly as `/product-ids` does.
+ */
+export const buildStatsParams = buildProductIdsParams;
+
 export function usePublicacionesMLFilters({ canSeeMargin = false } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = useMemo(() => readFilters(searchParams, { canSeeMargin }), [searchParams, canSeeMargin]);
