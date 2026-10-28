@@ -39,7 +39,8 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D15 | **Precio sugerido** = referent peer in same bucket (cheapest; skip peers with markup &lt; `markup_min` when known); clamp to precio min/max if set. Delta: losing ⇒ sugerido−ours; winning ⇒ air to next peer | Pro algorithm; first Advisor slice without promo apply | Done (compute + UI; apply TBD) |
 | D16 | **Criterio aplicado** = fila en `para_ganar_criterios_mla` (defaults o custom). Sin fila = sin aplicado. Cola badge + filtro Sin/Con + `POST …/aplicar-defaults` | PM assignment UX; “defaults en pantalla” ≠ asignado hasta persistir | Done |
 | D17 | **Masivo pisa todo el alcance filtrado** (con y sin fila). Cola tint + `POST /criterios/aplicar-masivo` (markup/TOP/flags; precio caps intactos). Modal Tesla en Criterios | Overwrite explícito; D10 mass keys | Done |
-| D18 | **Pool promos Advisor:** prefer SMART-like `candidate`; else DEAL/SELLER_CAMPAIGN cuyo rango cubra `precio_sugerido`. `GET /promociones/item/{mla}` (`promos.ver`). Aplicar gris (enroll después) | “Premium” ≠ tipo ML; bridge = rango vs sugerido | Show done; enroll TBD |
+| D18 | **Pool promos Advisor:** prefer SMART-like `candidate`; else DEAL/SELLER_CAMPAIGN cuyo rango cubra `precio_sugerido`. `GET /promociones/item/{mla}` (`promos.ver`). Aplicar gris (enroll después) | “Premium” ≠ tipo ML; bridge = rango vs sugerido | Superseded by D19 |
+| D19 | **Hasta 3 sugeridas** que entren en criterios: Mejor / Intermedia / Tercera. Orden: SMART → otra DEAL/campaña → Premium (nombre contiene `premium`, ej. PREMIUM JULIO) al final. Markup band + rango vs sugerido | Requester: no inundar con el mirror completo | Done; enroll TBD |
 
 ---
 
@@ -92,7 +93,7 @@ Newest first. Use for “why did we…” archaeology.
 - TOP board shows **Competís en** + per-row `listing_label` from the competition API (e.g. `Premium · 3 cuotas`) so it is not confused with the website financing copy (“Mismo precio en 6 cuotas”).
 - If the bucket has fewer price positions than TOP N, a discreet notice says the TOP is incomplete (not enough competitors).
 - **Precio sugerido (D15):** cheapest same-bucket peer as referent; if `markup_min` is set and peer markups exist, skip peers below that floor. Caps `precio_min`/`precio_max` when set. **Perdiendo:** delta = sugerido − nuestro (negativo = bajar). **Ganando:** holgura hasta el siguiente peer.
-- **Pool promos (D18):** under the TOP board, list candidates from `GET /promociones/item/{mla}`. Prefer SMART / PRE_NEGOTIATED / PRICE_MATCHING; else DEAL / SELLER_CAMPAIGN whose `[min,max]` covers `precio_sugerido`. **Aplicar** is disabled until enroll is wired (same `POST /promociones/item/{mla}` as Productos).
+- **Pool promos (D19):** under the TOP board, up to **3** candidates from `GET /promociones/item/{mla}` that fit MLA criteria (`markup_min`/`max` when `nuestro_markup` exists; DEAL/campaña range vs `precio_sugerido`). Order: SMART-like → other DEAL/campaña → **Premium last** (name/payload contains `premium`, e.g. PREMIUM JULIO). Slots: Mejor / Intermedia / Tercera. **Aplicar** stays disabled until enroll.
 - Missing snapshot: `POST /para-ganar/criterios/{mla}/competencia/refresh` (permiso `productos.editar_precios`) fetches via the same `refrescar_competencia_catalogo` path as Promociones — **per MLA only** (ML throttle).
 
 ### Sellers del catálogo
@@ -113,7 +114,7 @@ Newest first. Use for “why did we…” archaeology.
 7. ~~Precio sugerido D15 (referent + delta; no promo apply)~~.
 8. ~~Criterio aplicado D16 (badge + filtro + Aplicar defaults)~~.
 9. ~~Mass criteria apply to filtered scope (D17)~~.
-10. ~~Show promo pool (D18; apply greyed)~~.
+10. ~~Show promo pool (D18) → top-3 ranking (D19)~~.
 11. Wire enroll from Advisor (reuse Productos `POST /promociones/item/{mla}`).
 12. Later: product/PM inheritance; suggestion states queue.
 

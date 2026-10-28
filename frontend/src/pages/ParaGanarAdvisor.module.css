@@ -565,9 +565,24 @@
 }
 
 .promoPoolName {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-xs);
   font-size: 13px;
   color: var(--cf-text-primary);
   font-weight: var(--font-semibold, 600);
+}
+
+.promoPoolSlot {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-weight: var(--font-normal, 400);
 }
 
 .promoPoolMeta {

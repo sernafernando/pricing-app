@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { promocionesAPI } from '../../services/api';
+import api, { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { ML_PRICED_TYPES, promoDisplayPrice } from '../promociones/promoDisplayPrice';
 import { formatPrice } from './formatPrice';
@@ -45,10 +45,20 @@ export default function ParaGanarPromoPool({ mla, precioSugerido }) {
       setLoading(true);
       setError(null);
       try {
-        const { data } = await promocionesAPI.getPromocionesItem(mla);
+        const [promosRes, criteriosRes] = await Promise.all([
+          promocionesAPI.getPromocionesItem(mla),
+          api.get(`/para-ganar/criterios/${encodeURIComponent(mla)}`).catch(() => ({ data: null })),
+        ]);
         if (cancelled) return;
-        const promotions = data?.promotions || [];
-        setPool(selectParaGanarPromoPool(promotions, { precioSugerido }));
+        const promotions = promosRes.data?.promotions || [];
+        const criterios = criteriosRes.data;
+        setPool(
+          selectParaGanarPromoPool(promotions, {
+            precioSugerido,
+            markupMin: criterios?.markup_min ?? null,
+            markupMax: criterios?.markup_max ?? null,
+          }),
+        );
       } catch (err) {
         if (cancelled) return;
         setPool([]);
@@ -71,7 +81,7 @@ export default function ParaGanarPromoPool({ mla, precioSugerido }) {
   if (!canView) {
     return (
       <section className={styles.promoPool} aria-label="Pool de promociones">
-        <h3 className={styles.sellersTitle}>Promociones candidatas</h3>
+        <h3 className={styles.sellersTitle}>Hasta 3 sugeridas</h3>
         <p className={styles.emptyBody} role="status">
           Requiere permiso promos.ver para listar el mirror de promociones.
         </p>
@@ -81,10 +91,10 @@ export default function ParaGanarPromoPool({ mla, precioSugerido }) {
 
   return (
     <section className={styles.promoPool} aria-label="Pool de promociones">
-      <h3 className={styles.sellersTitle}>Promociones candidatas</h3>
+      <h3 className={styles.sellersTitle}>Hasta 3 sugeridas</h3>
       <p className={styles.promoPoolLead}>
-        Preferimos SMART; si no hay, DEAL/campaña cuyo rango cubra el precio sugerido. Aplicar
-        desde Advisor llega después.
+        Entran en criterios: SMART primero, después otra campaña/DEAL, Premium (nombre) al final.
+        Aplicar desde Advisor llega después.
       </p>
       {loading && <p className={styles.emptyBody}>Cargando promociones…</p>}
       {error && (
@@ -93,14 +103,19 @@ export default function ParaGanarPromoPool({ mla, precioSugerido }) {
         </p>
       )}
       {!loading && !error && pool.length === 0 && (
-        <p className={styles.emptyBody}>Sin candidatas SMART ni DEAL/campaña en rango.</p>
+        <p className={styles.emptyBody}>
+          Ninguna candidata encaja con markup/rango del precio sugerido.
+        </p>
       )}
       {!loading && pool.length > 0 && (
         <ul className={styles.promoPoolList}>
           {pool.map((promo) => (
             <li key={`${promo.promotion_type}-${promo.promotion_id}`} className={styles.promoPoolRow}>
               <div className={styles.promoPoolBody}>
-                <div className={styles.promoPoolName}>{promoLabel(promo)}</div>
+                <div className={styles.promoPoolName}>
+                  <span className={styles.promoPoolSlot}>{promo.pool_slot}</span>
+                  {promoLabel(promo)}
+                </div>
                 <div className={styles.promoPoolMeta}>
                   {promo.promotion_type}
                   {' · '}
