@@ -140,7 +140,7 @@ def resolve_pm_pairs(db: Session, f: PublicationFilter) -> PublicationFilter:
     return replace(f, pm_pairs=tuple(sorted(pairs)))
 
 
-def row_columns() -> list[Any]:
+def row_columns(*, cost: bool = False) -> list[Any]:
     i, sp, l, p, st = T.i, T.sp, T.l, T.p, T.st  # noqa: E741
     return [
         i.item_id,
@@ -172,8 +172,8 @@ def row_columns() -> list[Any]:
         p.codigo,
         p.descripcion,
         p.marca,
-        p.costo,
-        p.moneda_costo,
+        # the product's cost only for who sees the margin: without it, not even selected
+        *((p.costo, p.moneda_costo) if cost else ()),
         link_divergence().label("sku_divergence_kind"),
         l.suggested_producto_item_id,
         T.ps.codigo.label("suggested_codigo"),
@@ -415,11 +415,13 @@ def _markup_ids(
     return list(page), total, result
 
 
-def _rows_for_ids(db: Session, f: PublicationFilter, ids: list[str]) -> list[Any]:
+def _rows_for_ids(db: Session, f: PublicationFilter, ids: list[str], *, cost: bool = False) -> list[Any]:
     """The `row_columns()` of `ids` that still match `f`, in the order of `ids` (one statement)."""
     if not ids:
         return []
-    found = db.execute(build_base_select(f, *row_columns()).where(T.i.item_id == any_(literal(ids, ARRAY(Text)))))
+    found = db.execute(
+        build_base_select(f, *row_columns(cost=cost)).where(T.i.item_id == any_(literal(ids, ARRAY(Text))))
+    )
     by_id = {row.item_id: row for row in found}
     return [by_id[i] for i in ids if i in by_id]
 
@@ -432,7 +434,7 @@ def _list_by_markup(
     page_ids, total, result = _markup_ids(db, f, sort, limit, offset, markup)
     if not page_ids:
         return ItemsPage([], total, result.stats, result.ads_failed)
-    rows = _rows_for_ids(db, f, page_ids)
+    rows = _rows_for_ids(db, f, page_ids, cost=True)
     items = _assemble(db, rows, events)
     _attach_markup(items, result.items)
     attach_cost(items, rows)
@@ -481,10 +483,13 @@ def list_items(
         return ItemsPage([], total, None if markup is None else MarkupStats(0, {}, 0.0))
     if sort.key in METRIC_SORTS:
         page_ids = ranked_page(db, build_base_select(f, T.i.item_id), sort.key, sort.descending, limit, offset)
-        rows = _rows_for_ids(db, f, page_ids)
+        rows = _rows_for_ids(db, f, page_ids, cost=markup is not None)
     else:
         rows = db.execute(
-            build_base_select(f, *row_columns()).order_by(*_order_by(sort)).limit(limit).offset(offset)
+            build_base_select(f, *row_columns(cost=markup is not None))
+            .order_by(*_order_by(sort))
+            .limit(limit)
+            .offset(offset)
         ).all()
     items = _assemble(db, rows, events)
     if markup is None:
@@ -524,7 +529,7 @@ def items_for_keys(
     ids) when `markup` is given. A key whose row stopped matching `f` is skipped. The markup FILTER is not applied
     again: the keys already passed it."""
     f = resolve_pm_pairs(db, f)
-    rows = _rows_for_ids(db, f, list(ids))
+    rows = _rows_for_ids(db, f, list(ids), cost=markup is not None)
     if not rows:
         return ItemsPage([], 0)
     items = _assemble(db, rows, events)

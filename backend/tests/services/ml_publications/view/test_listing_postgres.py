@@ -703,6 +703,14 @@ class TestInvalidFilters:
         assert caught.value.field == "evento"
 
 
+def test_the_cost_columns_are_not_even_selected_without_the_margin() -> None:
+    def names(columns) -> set[str]:
+        return {getattr(column, "key", None) or getattr(column, "name", None) for column in columns}
+
+    assert not {"costo", "moneda_costo"} & names(listing.row_columns())
+    assert {"costo", "moneda_costo"} <= names(listing.row_columns(cost=True))
+
+
 class TestSorting:
     def test_the_default_is_recent_activity_newest_first_with_events_off(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", last_trigger_received_at=seed.hours_ago(5))
