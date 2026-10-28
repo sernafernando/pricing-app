@@ -47,6 +47,10 @@ vi.mock('./panel/ProductCatalogCompetition', () => ({
   ),
 }));
 
+vi.mock('./panel/ProductPrearmadas', () => ({
+  default: ({ productItemId }) => <span data-testid="product-prearmadas">{`prearmadas of ${productItemId}`}</span>,
+}));
+
 vi.mock('./panel/ProductPxq', () => ({
   default: ({ publications }) => <div data-testid="product-pxq">{`pxq of ${publications.map((p) => p.item_id).join(',')}`}</div>,
 }));
@@ -229,6 +233,16 @@ describe('ProductPanel', () => {
     } finally {
       errors.mockRestore();
     }
+  });
+
+  it("shows the product's prearmadas in the header, beside its brand", () => {
+    renderPanel();
+    expect(screen.getByTestId('product-prearmadas')).toHaveTextContent(`prearmadas of ${SUMMARY.productoItemId}`);
+  });
+
+  it('has no prearmadas for "Sin producto"', () => {
+    renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
+    expect(screen.queryByTestId('product-prearmadas')).not.toBeInTheDocument();
   });
 
   it('shows the wholesale prices for "Sin producto" too', () => {
