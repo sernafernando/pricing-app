@@ -524,6 +524,29 @@ describe("Productos' audit filter (P6c)", () => {
   });
 });
 
+describe("Productos' promo and wholesale filters (P6d)", () => {
+  it("reads Productos' URL keys and drops values outside the vocabulary", () => {
+    const f = setup('/?promo_tipos=DEAL,REGALO&promo_estado=aplicada&pxq=con_pxq').result.current.hook.filters;
+    expect([f.promo_tipos, f.promo_estado, f.pxq]).toEqual([['DEAL'], 'aplicada', 'con_pxq']);
+    const bad = setup('/?promo_estado=x&pxq=sin').result.current.hook.filters;
+    expect([bad.promo_estado, bad.pxq]).toEqual(['', '']);
+  });
+
+  it('sends what GET /productos takes: types with their state, else the legacy booleans, and con_pxq', () => {
+    const base = setup('/').result.current.hook.filters;
+    expect(buildItemsParams({ ...base, promo_tipos: ['DEAL', 'SMART'], promo_estado: '' }, 50)).toEqual({
+      promo_tipos: 'DEAL,SMART',
+      promo_estado: 'disponible',
+      limit: 50,
+      offset: 0,
+    });
+    expect(buildItemsParams({ ...base, promo_estado: 'aplicada' }, 50).con_promo_aplicada).toBe(true);
+    expect(buildItemsParams({ ...base, promo_estado: 'sin_aplicar' }, 50).con_promo_sin_aplicar).toBe(true);
+    expect(buildKpiParams({ ...base, pxq: 'con_pxq' }, '30d')).toEqual({ con_pxq: true, periodo: '30d' });
+    expect(FILTER_KEYS).toEqual(expect.arrayContaining(['promo_tipos', 'promo_estado', 'pxq']));
+  });
+});
+
 describe('buildProductIdsParams (the products a bulk action acts on)', () => {
   const base = setup('/').result.current.hook.filters;
 

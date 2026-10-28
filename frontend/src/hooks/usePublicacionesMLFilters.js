@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { PROMO_TYPES } from '../constants/promoTypes';
 import { COLORES_DISPONIBLES } from '../utils/productosConstants';
 
 /**
@@ -84,7 +85,15 @@ const MARKUP_SIGNS = ['positivo', 'negativo'];
 const AUDIT_CSV_PARAMS = { audit_usuarios: 'audit_usuarios', audit_tipos: 'audit_tipos_accion' };
 const AUDIT_TEXT_PARAMS = { audit_desde: 'audit_fecha_desde', audit_hasta: 'audit_fecha_hasta' };
 const AUDIT_KEYS = [...Object.keys(AUDIT_CSV_PARAMS), ...Object.keys(AUDIT_TEXT_PARAMS)];
-export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS, ...PRESENCE_KEYS, ...MARKUP_SIGN_KEYS, ...AUDIT_KEYS];
+/**
+ * Productos' promo filter and its "Precios mayoristas" (`useProductosFilters`): `promo_tipos` (csv of
+ * `PROMO_TYPES`), `promo_estado` ('' = disponible) and `pxq` ('con_pxq' or ''). Sent as `GET /productos` sends them
+ * (`construirFiltrosParams`): the types with their state, else the state alone as the legacy booleans.
+ */
+const PROMO_TYPE_VALUES = PROMO_TYPES.map(({ type }) => type);
+export const PROMO_STATES = ['aplicada', 'sin_aplicar'];
+const PROMO_KEYS = ['promo_tipos', 'promo_estado', 'pxq'];
+export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS, ...PRESENCE_KEYS, ...MARKUP_SIGN_KEYS, ...AUDIT_KEYS, ...PROMO_KEYS];
 
 // `producto` = one row per product, opening into its publications (`/view/products`).
 const VISTAS = ['publicacion', 'producto', 'agrupado'];
@@ -184,6 +193,9 @@ function readFilters(params, { canSeeMargin = false } = {}) {
   }
   for (const key of Object.keys(AUDIT_CSV_PARAMS)) filters[key] = csv(params.get(key));
   for (const key of Object.keys(AUDIT_TEXT_PARAMS)) filters[key] = params.get(key) ?? '';
+  filters.promo_tipos = csv(params.get('promo_tipos')).filter((type) => PROMO_TYPE_VALUES.includes(type));
+  filters.promo_estado = PROMO_STATES.includes(params.get('promo_estado')) ? params.get('promo_estado') : '';
+  filters.pxq = params.get('pxq') === 'con_pxq' ? 'con_pxq' : '';
   // One reading for the switch and the request: only `1` / `true` mean on.
   filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
   const vista = params.get('vista');
@@ -265,6 +277,15 @@ export function buildItemsParams(
   for (const [key, param] of Object.entries(AUDIT_TEXT_PARAMS)) {
     if (filters[key]) params[param] = filters[key];
   }
+  if (filters.promo_tipos?.length > 0) {
+    params.promo_tipos = filters.promo_tipos.join(',');
+    params.promo_estado = filters.promo_estado || 'disponible';
+  } else if (filters.promo_estado === 'aplicada') {
+    params.con_promo_aplicada = true;
+  } else if (filters.promo_estado === 'sin_aplicar') {
+    params.con_promo_sin_aplicar = true;
+  }
+  if (filters.pxq === 'con_pxq') params.con_pxq = true;
   if (filters.equipo) params.equipo_id = filters.equipo;
   params.limit = pageSize;
   params.offset = (filters.pagina - 1) * pageSize;

@@ -28,6 +28,7 @@ from sqlalchemy import (
     ARRAY,
     Integer,
     Interval,
+    String,
     all_,
     and_,
     any_,
@@ -153,6 +154,10 @@ class PublicationFilter:
     audit_kinds: tuple[str, ...] = ()
     audit_since: Optional[datetime] = None
     audit_until: Optional[datetime] = None
+
+    # The promo and PxQ filters, resolved by the router to the matching MLAs (mlwebhook database): `None` = no such
+    # filter, an empty set lists nothing.
+    mla_scope: Optional[frozenset[str]] = None
 
     @property
     def audits(self) -> bool:
@@ -335,6 +340,7 @@ def parse_filter(
     audit_tipos_accion: Optional[str] = None,
     audit_fecha_desde: Optional[str] = None,
     audit_fecha_hasta: Optional[str] = None,
+    mla_scope: Optional[frozenset[str]] = None,
     colores: Optional[str] = None,
 ) -> PublicationFilter:
     """Query-string values (csv text, `None` when absent) -> `PublicationFilter`; `FilterError` when invalid."""
@@ -385,6 +391,7 @@ def parse_filter(
         audit_kinds=_vocabulary("audit_tipos_accion", audit_tipos_accion, AUDIT_KINDS),
         audit_since=_audit_moment("audit_fecha_desde", audit_fecha_desde, end_of_day=False),
         audit_until=_audit_moment("audit_fecha_hasta", audit_fecha_hasta, end_of_day=True),
+        mla_scope=mla_scope,
         colors=tuple(c for c in colores_ if c != NO_COLOR),
         no_color=NO_COLOR in colores_,
     )
@@ -858,6 +865,10 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     where.extend(_markup_sign(column, positive) for column, positive in f.markup_signs)
     if f.audits:
         where.append(_audited(f))
+    if f.mla_scope is not None:
+        # one array parameter, as `_colors`: a promo scope can hold thousands of MLAs
+        scope = literal(sorted(f.mla_scope), ARRAY(String))
+        where.append(T.i.item_id == any_(scope) if f.mla_scope else false())
     return where
 
 
