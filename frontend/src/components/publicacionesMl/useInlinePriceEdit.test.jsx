@@ -181,7 +181,7 @@ describe('useInlinePriceEdit', () => {
       expect(result.current.message).toEqual({ tone: 'error', text: 'El producto no tiene pricing' });
       expect(onWritten).not.toHaveBeenCalled();
     });
-  
+
     it('a second press before the prices are read again flips back, from what was just written', async () => {
       const { result } = setup();
       const stale = { item_id: 7, participa_rebate: false, porcentaje_rebate: 4 };
