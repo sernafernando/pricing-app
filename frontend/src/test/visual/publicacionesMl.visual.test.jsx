@@ -1476,6 +1476,9 @@ describe('row colors and the color layer (S8)', () => {
       expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
       expect(box.right).toBeLessThanOrEqual(cellBox.right);
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+      // The first row is painted: what is typed reads on the input in both themes.
+      const style = getComputedStyle(input.element());
+      expect(contrastRatio(style.color, style.backgroundColor)).toBeGreaterThanOrEqual(4.5);
       input.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/price-edit-1366-${theme}.png` });
       screen.unmount();
