@@ -715,10 +715,10 @@ def listing_clauses() -> dict[str, ColumnElement]:
 
 
 def erp_stock(linked: Optional[ColumnElement] = None) -> ColumnElement:
-    """The ERP stock of the row (depósito 1 on hand, `productos_erp.stock`, the figure Productos shows): only an
-    item-level link in state `linked` gives the row a product, so a conflict, no product or a dangling link read
-    NULL (unknown), never 0. A source apart from the ML stock (`ml_items` / `ml_user_product_stock`). `linked`: the
-    caller's own "the link is linked" test (a `product_links` row is one), item-level by default."""
+    """The ERP stock of the row (depósito 1 on hand, `productos_erp.stock`, the figure Productos shows): only a link
+    in state `linked` gives the row a product -- by default the item-level one (`/items`), or the caller's own test
+    (`linked`: a `product_links` row's, for a Producto row) -- so a conflict, no product or a dangling link read NULL
+    (unknown), never 0. A source apart from the ML stock (`ml_items` / `ml_user_product_stock`)."""
     return case((T.l.match_status == LINK_LINKED if linked is None else linked, T.p.stock), else_=None)
 
 

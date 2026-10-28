@@ -91,7 +91,7 @@ class TestVariationLinks:
         assert (got["item_ids"], got["sin_producto"]) == ([77, 78], 3)
 
     def test_the_groups_tree_puts_a_publication_under_each_of_its_products(self, client, admin_auth_headers):
-        # MLA5..MLA7 and MLA2 have no item-level link, so no brand/category: the tree's "__none__" branch.
+        # MLA5..MLA8 and MLA2 have no item-level link, so no brand/category: the tree's "__none__" branch.
         got = _json(client, admin_auth_headers, "groups", path="__none__,__none__,__none__")
 
         leaves = {node["key"]: (node["count"], node["params"]) for node in got["nodes"]}
