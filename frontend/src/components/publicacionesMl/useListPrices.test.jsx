@@ -1,0 +1,61 @@
+/**
+ * useListPrices (S11): Productos' prices of the products on show, asked to Productos' own listing by id
+ * (`GET /productos?item_ids=`), so every figure is the one Productos shows.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook, waitFor } from '@testing-library/react';
+import useListPrices from './useListPrices';
+import { productosAPI } from '../../services/api';
+
+vi.mock('../../services/api', () => ({ productosAPI: { listar: vi.fn() } }));
+
+const listed = (...products) => ({ data: { productos: products, total: products.length } });
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  productosAPI.listar.mockResolvedValue(listed({ item_id: 7, precio_lista_ml: 1000 }, { item_id: 9, precio_lista_ml: 2000 }));
+});
+
+describe('useListPrices', () => {
+  it('asks the listing once for the distinct products on show, and keys the answer by product', async () => {
+    const { result } = renderHook(() => useListPrices([9, 7, null, 9], true));
+    await waitFor(() => expect(result.current.byId.get(7)).toEqual({ item_id: 7, precio_lista_ml: 1000 }));
+    expect(productosAPI.listar).toHaveBeenCalledTimes(1);
+    expect(productosAPI.listar).toHaveBeenCalledWith({ item_ids: '7,9', page: 1, page_size: 2 });
+    expect(result.current.byId.get(9).precio_lista_ml).toBe(2000);
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('asks nothing when disabled or with no product on show', () => {
+    renderHook(() => useListPrices([7], false));
+    renderHook(() => useListPrices([null], true));
+    expect(productosAPI.listar).not.toHaveBeenCalled();
+  });
+
+  it('does not ask again for the same products in another order', async () => {
+    const { result, rerender } = renderHook(({ ids }) => useListPrices(ids, true), { initialProps: { ids: [7, 9] } });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    rerender({ ids: [9, 7] });
+    expect(productosAPI.listar).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a late answer about the products it showed before', async () => {
+    let first;
+    productosAPI.listar.mockReturnValueOnce(new Promise((resolve) => (first = resolve)));
+    productosAPI.listar.mockResolvedValueOnce(listed({ item_id: 9, precio_lista_ml: 2000 }));
+    const { result, rerender } = renderHook(({ ids }) => useListPrices(ids, true), { initialProps: { ids: [7] } });
+    rerender({ ids: [9] });
+    await waitFor(() => expect(result.current.byId.get(9)?.precio_lista_ml).toBe(2000));
+    first(listed({ item_id: 7, precio_lista_ml: 1000 }));
+    await Promise.resolve();
+    expect(result.current.byId.has(7)).toBe(false);
+  });
+
+  it('a failed request leaves no prices and says so, never stale ones', async () => {
+    productosAPI.listar.mockRejectedValue(new Error('HTTP 500'));
+    const { result } = renderHook(() => useListPrices([7], true));
+    await waitFor(() => expect(result.current.error).toBe(true));
+    expect(result.current.byId.size).toBe(0);
+    expect(result.current.loading).toBe(false);
+  });
+});
