@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { Download, FileDown, FileSpreadsheet, FilterX, Keyboard, ShieldAlert } from 'lucide-react';
+import { Download, FileDown, FileSpreadsheet, FilterX, Keyboard, ShieldAlert, Users } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
@@ -24,6 +24,7 @@ import { itemRowTone } from '../components/publicacionesMl/rowColor';
 import useColorOverlay from '../components/publicacionesMl/useColorOverlay';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { useEquipos } from '../hooks/useEquipos';
+import EquiposModal from '../components/EquiposModal';
 import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
@@ -63,7 +64,6 @@ import {
   effectiveSortKeys,
   hasMarkupFilter,
   headerSort,
-  isLeadOnlySort,
   nextSort,
   sortParams,
   usePublicacionesMLFilters,
@@ -261,7 +261,9 @@ export default function PublicacionesML() {
     [],
   );
 
-  const { equipos, loaded: equiposLoaded } = useEquipos();
+  const { equipos, loaded: equiposLoaded, recargar: recargarEquipos } = useEquipos();
+  // Team management, as in Productos: any user may create and run their own teams, so no permission gates it.
+  const [equiposOpen, setEquiposOpen] = useState(false);
   // The rows are asked on a team layer only once the teams say it is the user's: a link to another team's layer
   // would answer 403 and flash a false error before ColorLayerSelect drops it. Until then nothing is asked.
   const layerPending = filters.equipo !== '' && !equiposLoaded;
@@ -404,8 +406,8 @@ export default function PublicacionesML() {
   // outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page there.
   const productSelection = useProductSelection(agrupado ? EMPTY_ROWS : listedProductIds);
   const { checked: checkedIds, clear: clearChecked } = productSelection;
-  // A price typed in a cell (S11c) is saved as Productos does; the list is reloaded after it, as after a panel write
-  // (its prices with it).
+  // A price typed in a cell (S11c), and the rebate / web transfer edited in theirs (S1), are saved as Productos does;
+  // the list is reloaded after it, as after a panel write (its prices with it).
   const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
   const { message: priceMessage } = priceEditor;
   useEffect(() => {
@@ -420,8 +422,8 @@ export default function PublicacionesML() {
   const autoRecalc = useRecalcularCuotasAuto();
   const [pricingProduct, setPricingProduct] = useState(null);
   const priceEdit = useMemo(
-    () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, saving: priceEditor.saving }),
-    [priceWritePermissions, priceEditor.save, priceEditor.saving],
+    () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, onToggle: priceEditor.editToggle, saving: priceEditor.saving }),
+    [priceWritePermissions, priceEditor.save, priceEditor.editToggle, priceEditor.saving],
   );
   const cyclePriceMode = () => {
     const next = PRICE_MODES[(PRICE_MODES.indexOf(filters.modo) + 1) % PRICE_MODES.length];
@@ -504,12 +506,10 @@ export default function PublicacionesML() {
     ? productRows.rows.find((row) => row.type === 'node' && row.node.key === filters.prod)?.node.label
     : undefined;
   const changeTab = (tab) => setFilters({ tab });
-  // Shift+click adds a column to the sort, like Productos. In the publication list the markup and Métricas' figures
-  // only lead it (they are not database columns): Shift+click on one, or over one, replaces the sort.
+  // Shift+click adds a column to the sort, like Productos: any column, the markup and Métricas' figures included.
   const handleSort = (key, event) => {
     if (event?.shiftKey) window.getSelection()?.removeAllRanges(); // Shift+click also extends the text selection
-    const leadOnly = producto ? () => false : isLeadOnlySort;
-    setFilters(sortParams(nextSort(sort.keys, key, { shift: Boolean(event?.shiftKey), leadOnly })));
+    setFilters(sortParams(nextSort(sort.keys, key, { shift: Boolean(event?.shiftKey) })));
   };
 
   // Ctrl/Cmd+click opens the publication in ML (side panel when the extension
@@ -790,6 +790,24 @@ export default function PublicacionesML() {
               equipo={rowFilters.equipo}
               onPainted={colorOverlay.apply}
               onClearChecked={clearChecked}
+            />
+            {/* Icon-only: the toolbar's first row has no room for a label at 1366 px. */}
+            <button
+              type="button"
+              className="btn-tesla outline-subtle-primary icon-only sm"
+              onClick={() => setEquiposOpen(true)}
+              aria-label="Equipos"
+              title="Equipos: crear y administrar tus equipos"
+            >
+              <Users size={14} aria-hidden="true" />
+            </button>
+            {/* Closing reloads the teams, so the layer offers what was just created, renamed or deleted. */}
+            <EquiposModal
+              isOpen={equiposOpen}
+              onClose={() => {
+                setEquiposOpen(false);
+                recargarEquipos();
+              }}
             />
           </div>
           <span className={styles.spacer} />

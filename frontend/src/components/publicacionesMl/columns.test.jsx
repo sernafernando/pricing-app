@@ -104,6 +104,14 @@ describe('layout', () => {
   });
 });
 
+const PPP = { costo: 850, moneda: 'ARS', fecha: '2026-02-14', markups: {} };
+const SELL_IN = {
+  sell_in: { compra_item_id: 1, descuento_unit: 100, costo: 39900, unidades_restantes: 2 },
+  sell_out: null,
+  markups_sell_in: {},
+  markups_sell_in_out: {},
+};
+
 describe('product columns', () => {
   it('shows the linked product code and brand, and the cost in its own currency, as the panel shows it', () => {
     const columns = byKey({ canSeeMargin: true });
@@ -125,6 +133,27 @@ describe('product columns', () => {
     const columns = byKey({ canSeeMargin: true });
     render(<>{columns.codigo.render({ link: {} })}{columns.costo.render({ costo: null })}</>);
     expect(screen.getAllByText('—')).toHaveLength(2);
+  });
+
+  it('shows the PPP and the cost with sell in under the cost, as Productos does', () => {
+    const columns = byKey({ canSeeMargin: true });
+    render(columns.costo.render({ costo: { amount: 40000, currency: 'ARS' }, ppp: PPP, sell_in_out: SELL_IN }));
+    expect(screen.getByText('ARS 40.000,00')).toBeInTheDocument();
+    expect(screen.getByText(/^ppp: ARS \$850\.00/)).toBeInTheDocument();
+    expect(screen.getByText('c/ sell in: ARS $39900.00')).toBeInTheDocument();
+  });
+
+  it('a product without a PPP row reads "sin PPP", and no sell in line without one', () => {
+    const columns = byKey({ canSeeMargin: true });
+    render(columns.costo.render({ costo: { amount: 40000, currency: 'ARS' }, ppp: null, sell_in_out: null }));
+    expect(screen.getByText('sin PPP')).toBeInTheDocument();
+    expect(screen.queryByText(/sell in/)).not.toBeInTheDocument();
+  });
+
+  it('without the margin fields the cell is the cost alone', () => {
+    const columns = byKey({ canSeeMargin: true });
+    const { container } = render(columns.costo.render({ costo: { amount: 50, currency: 'USD' } }));
+    expect(container.textContent).toBe('USD 50,00');
   });
 
   it('sorts code and brand ascending and the cost cheapest first by default', () => {

@@ -15,7 +15,7 @@ tables).
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
@@ -63,11 +63,15 @@ def _figure(rows: Any, key: str) -> Any:
     return case((rows.c.units > 0, rows.c[METRIC_SORTS[key][0]]), else_=None)
 
 
-def metric_figures(db: Session, mla_source: Any, key: str) -> dict[str, Any]:
-    """Every MLA of `mla_source` with the figure `key` names (None when it has none), for a sort with more keys."""
+def metric_figures(db: Session, mla_source: Any, keys: Sequence[str]) -> dict[str, dict[str, Any]]:
+    """For each key of `keys`, every MLA of `mla_source` with the figure it names (None when it has none), for a
+    sort with more keys: one Board run however many figures the sort names."""
     first, last = row_metrics.window(board.today_business())
     f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
     with board.Board(db, f, scope_pairs=None) as b:
         rows = b.rows()
-        query = select(b.mla_set.c.mla, _figure(rows, key)).outerjoin(rows, rows.c.rk == b.mla_set.c.mla)
-        return dict(db.execute(query).all())
+        query = select(b.mla_set.c.mla, *(_figure(rows, key) for key in keys)).outerjoin(
+            rows, rows.c.rk == b.mla_set.c.mla
+        )
+        found = db.execute(query).all()
+    return {key: {row[0]: row[index + 1] for row in found} for index, key in enumerate(keys)}

@@ -32,12 +32,15 @@ import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
 // cells over the product read in their shape (`productAsItem`).
 const PRODUCT_FIELDS = new Set(['codigo', 'marca', 'costo', 'stock_erp']);
 
-/** A product node in the shape the publication cells read: its code and brand as a link's, its ERP stock, its cost. */
+/** A product node in the shape the publication cells read: its code and brand as a link's, its ERP stock, its cost
+ * and the lines under it. */
 function productAsItem(node) {
   return {
     link: { codigo: node.codigo, marca: node.marca },
     erp_stock: node.stock == null ? null : { quantity: node.stock },
     costo: node.costo,
+    ppp: node.ppp,
+    sell_in_out: node.sellInOut,
   };
 }
 

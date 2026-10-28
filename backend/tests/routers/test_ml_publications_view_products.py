@@ -16,6 +16,7 @@ from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.services.ml_publications.view import listing, products as products_service, status_block
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import GANANCIA, VER, seed_rows
+from tests.routers.test_ml_publications_view_cost_lines import expected_lines, seed_lines
 from tests.routers.test_ml_publications_view_kpis import METRICAS, _seller, pg, sell, view_pg  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
@@ -167,7 +168,18 @@ class TestRows:
             seed.add_cost(conn, 77, 50.0, moneda_costo="USD")
         grant(db, rol_admin, VER, METRICAS)
         rows = body(client, admin_auth_headers, estado="active")["rows"]
-        assert all("costo" not in row for row in rows)
+        assert all(not {"costo", "ppp", "sell_in_out"} & set(row) for row in rows)
+
+    def test_with_ver_ganancia_a_product_row_carries_the_ppp_and_sell_in_lines(
+        self, client, sold, db, rol_admin, admin_auth_headers, admin_user
+    ):
+        with sold.begin() as conn:
+            seed.add_cost(conn, 77, 40000.0)
+        linea = seed_lines(db, admin_user, 77, 40000.0)
+        grant(db, rol_admin, VER, GANANCIA)
+        rows = by_key(body(client, admin_auth_headers, estado="active")["rows"])
+        assert {k: rows["77"][k] for k in ("ppp", "sell_in_out")} == expected_lines(linea, 40000.0)
+        assert rows["0"]["ppp"] is None and rows["0"]["sell_in_out"] is None  # "Sin producto"
 
 
 class TestPaging:

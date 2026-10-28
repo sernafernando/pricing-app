@@ -66,6 +66,7 @@ COLUMNS = (
     "qty",
     "gross",
     "tg",
+    "tg_known",
     "mtg",
     "mcosto",
 )
@@ -83,7 +84,9 @@ TP_FORMULA_VERSION = 7
 STORED_COLUMNS = COLUMNS + TP_COLUMNS
 
 # What the sell-in / sell-out allocators read from a line (product first): a
-# line whose values here change is queued in `sell_dirty`.
+# line whose values here change is queued in `sell_dirty`. `tg_known` is not
+# among them: only the board reads it, so a line whose flag alone changes has
+# nothing to reallocate.
 SELL_COLUMNS = ("product", "qty", "day", "group_date", "gross", "tg", "mcosto")
 
 

@@ -136,6 +136,105 @@ describe('priceColumns', () => {
     });
   });
 
+  describe("the rebate and web transfer edited in the row (S1), as Productos' row and the panel's ProductToggles", () => {
+    const TOGGLES = { canToggleRebate: true, canToggleWebTransf: true };
+    const edit = (permissions = TOGGLES) => ({ permissions, onSave: vi.fn(), onToggle: vi.fn().mockResolvedValue(true), saving: false });
+    const PRICED = { ...PRODUCT, porcentaje_rebate: 4.5, porcentaje_markup_web: 7, preservar_porcentaje_web: true };
+    const columnsWith = (options, product = PRICED) => priceColumns('normal', { prices: prices(new Map([[7, product]])), edit: options });
+
+    it('the rebate opens Productos\' editor (takes part and its %) and saves what was typed', async () => {
+      const options = edit();
+      const [, rebate] = columnsWith(options);
+      render(<div>{rebate.render(item())}</div>);
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      const editor = screen.getByRole('group', { name: 'Rebate' });
+      expect(editor).toBeInTheDocument();
+      expect(screen.getByRole('checkbox', { name: 'Participa' })).toBeChecked();
+      const percent = screen.getByRole('textbox', { name: '% de rebate' });
+      expect(percent).toHaveValue('4,5');
+      await userEvent.clear(percent);
+      await userEvent.type(percent, '5,2{Enter}');
+      expect(options.onToggle).toHaveBeenCalledWith('rebate', PRICED, { participa: true, porcentaje: '5,2' });
+      // Saved: the cell is back.
+      expect(await screen.findByRole('button', { name: /^Editar Precio Rebate/ })).toBeInTheDocument();
+    });
+
+    it("a product with no rebate opens with Productos' default and can be turned on from its '—'", async () => {
+      const options = edit();
+      const [, rebate] = columnsWith(options, { ...PRODUCT, participa_rebate: false, porcentaje_rebate: null });
+      render(<div>{rebate.render(item())}</div>);
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      expect(screen.getByRole('checkbox', { name: 'Participa' })).not.toBeChecked();
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Participa' }));
+      expect(screen.getByRole('textbox', { name: '% de rebate' })).toHaveValue('3,8');
+    });
+
+    it('the web transfer opens with its %, "preservar porcentaje" included, and saves all three', async () => {
+      const options = edit();
+      const [, , , web] = columnsWith(options);
+      render(<div>{web.render(item())}</div>);
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Web Transf\./ }));
+      expect(screen.getByRole('group', { name: 'Web transferencia' })).toBeInTheDocument();
+      expect(screen.getByRole('textbox', { name: '% sobre la clásica' })).toHaveValue('7');
+      const preservar = screen.getByRole('checkbox', { name: 'Conservar el % en cambios masivos' });
+      expect(preservar).toBeChecked();
+      await userEvent.click(preservar);
+      await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+      expect(options.onToggle).toHaveBeenCalledWith('web', PRICED, { participa: false, porcentaje: '7', preservar: false });
+    });
+
+    it('Cancelar or Escape closes it without saving; a failed save keeps it open', async () => {
+      const options = edit();
+      options.onToggle.mockResolvedValue(false);
+      const [, rebate] = columnsWith(options);
+      render(<div>{rebate.render(item())}</div>);
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+      expect(screen.queryByRole('group', { name: 'Rebate' })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      await userEvent.keyboard('{Escape}');
+      expect(screen.queryByRole('group', { name: 'Rebate' })).not.toBeInTheDocument();
+      expect(options.onToggle).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+      expect(options.onToggle).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('group', { name: 'Rebate' })).toBeInTheDocument();
+    });
+
+    it("the editor's keys and clicks stay in it: the row and its shortcuts never see them", async () => {
+      const row = { onKeyDown: vi.fn(), onClick: vi.fn() };
+      const [, rebate] = columnsWith(edit());
+      render(<div {...row}>{rebate.render(item())}</div>);
+      // The click that opens it is a button's: TableShell's row ignores those (as with PriceEditCell).
+      await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
+      row.onClick.mockClear();
+      await userEvent.type(screen.getByRole('textbox', { name: '% de rebate' }), 'rw');
+      await userEvent.click(screen.getByRole('group', { name: 'Rebate' }));
+      expect(row.onKeyDown).not.toHaveBeenCalled();
+      expect(row.onClick).not.toHaveBeenCalled();
+    });
+
+    it('only with the permission of each: toggle_rebate and toggle_web_transf', () => {
+      const [, rebate, , web] = columnsWith(edit({ canToggleRebate: false, canToggleWebTransf: true }));
+      render(<div>{rebate.render(item())}</div>);
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+      render(<div>{web.render(item())}</div>);
+      expect(screen.getByRole('button', { name: /^Editar Web Transf\./ })).toBeInTheDocument();
+    });
+
+    it('never with no product, a request on its way or a failed one; the best offer never', () => {
+      const [, rebate] = columnsWith(edit());
+      render(<div>{rebate.render(item(null))}</div>);
+      const [, pending] = priceColumns('normal', { prices: prices(new Map(), true), edit: edit() });
+      render(<div>{pending.render(item())}</div>);
+      const [, failed] = priceColumns('normal', { prices: { byId: new Map(), loading: false, error: true }, edit: edit() });
+      render(<div>{failed.render(item())}</div>);
+      const [, , oferta] = columnsWith(edit());
+      render(<div>{oferta.render(item())}</div>);
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+  });
+
   describe("Productos' pricing modal (P3c)", () => {
     it("closes the group with a Calcular column whose button hands over the row's product", async () => {
       const onCalculate = vi.fn();

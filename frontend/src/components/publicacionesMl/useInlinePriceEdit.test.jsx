@@ -163,6 +163,18 @@ describe('useInlinePriceEdit', () => {
       expect(result.current.message.text).toBe('Web transferencia activada.');
     });
 
+    it("r on a product whose stored rebate % is out of 0-100 says so, as the editor does, and writes nothing", async () => {
+      const { result, onWritten } = setup();
+      let done;
+      await act(async () => {
+        done = await result.current.toggle('rebate', { item_id: 7, participa_rebate: false, porcentaje_rebate: 150 });
+      });
+      expect(done).toBe(false);
+      expect(result.current.message).toEqual({ tone: 'error', text: 'El porcentaje de rebate debe ser un número entre 0 y 100.' });
+      expect(preciosAPI.setRebate).not.toHaveBeenCalled();
+      expect(onWritten).not.toHaveBeenCalled();
+    });
+
     it('o flips "fuera de tarjetas"', async () => {
       const { result } = setup();
       await act(async () => {
@@ -265,6 +277,83 @@ describe('useInlinePriceEdit', () => {
       });
       expect(result.current.saving).toBe(false);
       expect(preciosAPI.setRapido).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("the row's rebate and web transfer editors (S1), written as the panel's ProductToggles writes them", () => {
+    it('saves the typed rebate percentage, a comma as the decimal separator', async () => {
+      const { result, onWritten } = setup();
+      let done;
+      await act(async () => {
+        done = await result.current.editToggle('rebate', { item_id: 7, participa_rebate: false }, { participa: true, porcentaje: '4,5' });
+      });
+      expect(done).toBe(true);
+      expect(preciosAPI.setRebate).toHaveBeenCalledWith(7, { participa_rebate: true, porcentaje_rebate: 4.5 });
+      expect(result.current.message).toEqual({ tone: 'ok', text: 'Rebate guardado.' });
+      expect(onWritten).toHaveBeenCalledTimes(1);
+    });
+
+    it("turning the rebate off sends the stored percentage (3.8 when it has none), whatever the field holds", async () => {
+      const { result } = setup();
+      await act(async () => {
+        await result.current.editToggle('rebate', { item_id: 7, participa_rebate: true, porcentaje_rebate: 4 }, { participa: false, porcentaje: 'x' });
+      });
+      expect(preciosAPI.setRebate).toHaveBeenLastCalledWith(7, { participa_rebate: false, porcentaje_rebate: 4 });
+      await act(async () => {
+        await result.current.editToggle('rebate', { item_id: 7, participa_rebate: true, porcentaje_rebate: null }, { participa: false, porcentaje: '' });
+      });
+      expect(preciosAPI.setRebate).toHaveBeenLastCalledWith(7, { participa_rebate: false, porcentaje_rebate: 3.8 });
+    });
+
+    it('a rebate percentage outside 0-100 or unreadable is an error and writes nothing', async () => {
+      const { result, onWritten } = setup();
+      for (const porcentaje of ['150', '-1', 'abc']) {
+        let done;
+        await act(async () => {
+          done = await result.current.editToggle('rebate', { item_id: 7 }, { participa: true, porcentaje });
+        });
+        expect(done).toBe(false);
+        expect(result.current.message).toEqual({ tone: 'error', text: 'El porcentaje de rebate debe ser un número entre 0 y 100.' });
+      }
+      expect(preciosAPI.setRebate).not.toHaveBeenCalled();
+      expect(onWritten).not.toHaveBeenCalled();
+    });
+
+    it('saves the web transfer with its percentage and "preservar porcentaje"; an unreadable percentage goes as 0', async () => {
+      const { result } = setup();
+      await act(async () => {
+        await result.current.editToggle('web', { item_id: 7 }, { participa: true, porcentaje: '7,5', preservar: true });
+      });
+      expect(preciosAPI.setWebTransferencia).toHaveBeenCalledWith(7, { participa: true, porcentaje_markup: 7.5, preservar_porcentaje: true });
+      expect(result.current.message).toEqual({ tone: 'ok', text: 'Web transferencia guardada.' });
+      await act(async () => {
+        await result.current.editToggle('web', { item_id: 7 }, { participa: false, porcentaje: '', preservar: false });
+      });
+      expect(preciosAPI.setWebTransferencia).toHaveBeenLastCalledWith(7, { participa: false, porcentaje_markup: 0, preservar_porcentaje: false });
+    });
+
+    it("a failed save shows the backend's reason and reports nothing written", async () => {
+      preciosAPI.setWebTransferencia.mockRejectedValue({ response: { data: { detail: 'El producto no tiene pricing' } } });
+      const { result, onWritten } = setup();
+      let done;
+      await act(async () => {
+        done = await result.current.editToggle('web', { item_id: 7 }, { participa: true, porcentaje: '6', preservar: false });
+      });
+      expect(done).toBe(false);
+      expect(result.current.message).toEqual({ tone: 'error', text: 'El producto no tiene pricing' });
+      expect(onWritten).not.toHaveBeenCalled();
+    });
+
+    it('r pressed before the prices are read again flips from what the editor just saved', async () => {
+      const { result } = setup();
+      const stale = { item_id: 7, participa_rebate: false, porcentaje_rebate: 4 };
+      await act(async () => {
+        await result.current.editToggle('rebate', stale, { participa: true, porcentaje: '4' });
+      });
+      await act(async () => {
+        await result.current.toggle('rebate', stale);
+      });
+      expect(preciosAPI.setRebate.mock.calls.map(([, body]) => body.participa_rebate)).toEqual([true, false]);
     });
   });
 });

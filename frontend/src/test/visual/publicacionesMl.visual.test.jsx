@@ -42,6 +42,8 @@ import {
   groupsResponse,
   makeNode,
   productsResponse,
+  COST_LINES,
+  PRODUCT_ROWS,
 } from './publicacionesMlFixtures';
 
 // The markup column, its filters and the sub-rows' cost are for `ver_ganancia` only.
@@ -754,11 +756,11 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
   }
 });
 
-const renderProducts = async ({ width, height, theme, entry = '/ml-publicaciones?vista=producto' }) => {
+const renderProducts = async ({ width, height, theme, rows, entry = '/ml-publicaciones?vista=producto' }) => {
   canSeeMargin = true;
   publicacionesMlAPI.items.mockResolvedValue({ data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 130 } });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
-  publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 1234, sin_mla_count: 12345 }) });
+  publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(rows, { total: 1234, sin_mla_count: 12345 }) });
   publicacionesMlAPI.stats.mockResolvedValueOnce({
     data: {
       stats: {
@@ -862,6 +864,27 @@ describe('Publicaciones ML Producto view (visual)', () => {
           [...row.querySelectorAll('td')].find((cell) => cell.textContent.trim() === 'USD 45,50').scrollIntoView({ inline: 'center' });
           await frame();
           await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-rows-fields-${width}-${theme}.png` });
+        }
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the PPP and sell in lines stay inside the cost cell of a product row`, async () => {
+        const rows = [{ ...PRODUCT_ROWS[0], ...COST_LINES }, ...PRODUCT_ROWS.slice(1)];
+        const screen = await renderProducts({ width, height, theme, rows });
+        await screen.getByRole('button', { name: 'Columnas' }).click();
+        await screen.getByRole('checkbox', { name: 'Costo' }).click();
+        await screen.getByRole('button', { name: 'Columnas' }).click();
+        const row = rowWith(scrollerOf(), 'Router Archer AX55');
+        const cell = [...row.querySelectorAll('td')].find((td) => td.textContent.includes('USD 45,50'));
+        expect(cell.textContent).toContain('ppp: USD $41.20');
+        expect(cell.textContent).toContain('c/ sell in: ARS $63000.00');
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          cell.scrollIntoView({ inline: 'center' });
+          await frame();
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-rows-cost-lines-${width}-${theme}.png` });
         }
         screen.unmount();
       });
@@ -1827,6 +1850,39 @@ describe('row colors and the color layer (S8)', () => {
       expect(contrastRatio(style.color, style.backgroundColor)).toBeGreaterThanOrEqual(4.5);
       input.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/price-edit-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the rebate and web transfer editors open inside their cell, every control in view`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      for (const [button, group] of [
+        [/^Editar Precio Rebate/, 'Rebate'],
+        [/^Editar Web Transf\./, 'Web transferencia'],
+      ]) {
+        const edit = screen.getByRole('button', { name: button }).first();
+        await expect.element(edit).toBeVisible();
+        // The filters have a "Rebate" group of their own: the editor is the one in this cell.
+        const cell = edit.element().closest('td');
+        await edit.click();
+        await expect.poll(() => cell.querySelector(`form[aria-label="${group}"]`)).not.toBeNull();
+        const editor = cell.querySelector(`form[aria-label="${group}"]`);
+        const cellBox = cell.getBoundingClientRect();
+        for (const control of editor.querySelectorAll('input, button, label')) {
+          const box = control.getBoundingClientRect();
+          expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
+          expect(box.right).toBeLessThanOrEqual(cellBox.right);
+        }
+        expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+        // The first row is painted: the typed % reads on its input in both themes.
+        const percent = getComputedStyle(editor.querySelector('input[type="text"]'));
+        expect(contrastRatio(percent.color, percent.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+        cell.scrollIntoView({ block: 'center', inline: 'center' });
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/toggle-edit-${group.split(' ')[0].toLowerCase()}-1366-${theme}.png` });
+        editor.querySelector('button[type="button"]').click();
+        await expect.poll(() => cell.querySelector('form')).toBeNull();
+      }
       screen.unmount();
     });
   }

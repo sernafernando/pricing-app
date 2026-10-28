@@ -11,7 +11,7 @@ import ProductoTable from './ProductoTable';
 import useProductRows from './useProductRows';
 import { buildColumns } from './columns';
 import { publicacionesMlAPI } from '../../services/api';
-import { PRODUCT_ROWS, makeItem, productsResponse } from '../../test/visual/publicacionesMlFixtures';
+import { COST_LINES, PRODUCT_ROWS, makeItem, productsResponse } from '../../test/visual/publicacionesMlFixtures';
 
 vi.mock('../../services/api', () => ({
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn() },
@@ -128,10 +128,19 @@ describe('the product rows', () => {
     expect(within(none).queryByText(/USD/)).not.toBeInTheDocument();
   });
 
+  it("shows the product's PPP and cost with sell in under its cost", async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse([{ ...PRODUCT_ROWS[0], ...COST_LINES }, PRODUCT_ROWS[2]]) });
+    render(<Harness />);
+    const row = (await screen.findByText('Router Archer AX55')).closest('tr');
+    expect(within(row).getByText(/^ppp: USD \$41\.20/)).toBeInTheDocument();
+    expect(within(row).getByText('c/ sell in: ARS $63000.00')).toBeInTheDocument();
+  });
+
   it('has no cost on a product row without ver_ganancia', async () => {
     render(<Harness canSeeMargin={false} />);
     const row = (await screen.findByText('Router Archer AX55')).closest('tr');
     expect(within(row).queryByText(/USD/)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/PPP|ppp|sell in/)).not.toBeInTheDocument();
     expect(within(row).getByText('TP-LINK')).toBeInTheDocument();
   });
 
