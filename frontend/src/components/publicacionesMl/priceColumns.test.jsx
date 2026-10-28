@@ -116,9 +116,12 @@ describe('priceColumns', () => {
     });
 
     it('without the surcharge (not loaded, or failed) the TN price shows alone, never a wrong transfer price', () => {
-      const web = tn({ tn_price: 1000 }, null);
-      expect(cell(web)).toContain('$ 1.000,00');
-      expect(cell(web)).not.toContain('transf.');
+      // Not read yet or failed (null), and an unusable config value (0, not a number) alike.
+      for (const percent of [null, 0, 'abc']) {
+        const web = tn({ tn_price: 1000 }, percent);
+        expect(cell(web)).toContain('$ 1.000,00');
+        expect(cell(web)).not.toContain('transf.');
+      }
     });
 
     it('no TN price: the cell is as before; the other columns never show it', () => {
