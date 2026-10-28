@@ -199,12 +199,12 @@ export default function usePublicacionesMLKeyboard({
         return;
       }
       if (isTyping(event.target)) return;
-      if (event.key === 'Escape' && !keepRow && !event.defaultPrevented) {
-        const current = focusedRow();
-        if (current) {
-          event.preventDefault();
-          current.blur();
-        }
+      // Escape is taken only when it leaves a row: with no row focused, or with a modifier, it stays for the others.
+      const current = focusedRow();
+      const plain = !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
+      if (event.key === 'Escape' && plain && current && !keepRow && !event.defaultPrevented) {
+        event.preventDefault();
+        current.blur();
         return;
       }
       // Cmd+I too, as Productos accepts it (`e.ctrlKey || e.metaKey`), unlike the Alt keys below.
@@ -299,6 +299,17 @@ export default function usePublicacionesMLKeyboard({
       document.removeEventListener('focusout', onFocusOut);
     };
   }, []);
+
+  // A focused row taken out of the list (another page, a refetch) may leave without a `focusout`: while navigating,
+  // each change to the page checks the row is still there.
+  useEffect(() => {
+    if (!navigating) return undefined;
+    const observer = new MutationObserver(() => {
+      if (!focusedRow()) setNavigating(false);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [navigating]);
 
   return { navigating: navigating && !disabled };
 }

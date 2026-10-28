@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { useRef, useState } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TableShell from '../kit/TableShell';
 import ModalTesla from '../ModalTesla';
@@ -400,6 +400,24 @@ describe("Productos' navigation mode: a focused row is navigating, Escape leaves
     render(<Harness keepRowOnEscape />);
     await user.keyboard('{ArrowDown}');
     expect(fireEvent.keyDown(row(1), { key: 'Escape' })).toBe(true);
+    expect(row(1)).toHaveFocus();
+  });
+
+  it('a focused row that leaves the list (another page, a refetch) ends navigating', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByText('Navegando')).toBeInTheDocument();
+    row(1).remove();
+    await waitFor(() => expect(screen.queryByText('Navegando')).not.toBeInTheDocument());
+  });
+
+  it('Escape with no row focused, or with a modifier, is left to the others', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(true);
+    await user.keyboard('{ArrowDown}');
+    expect(fireEvent.keyDown(row(1), { key: 'Escape', shiftKey: true })).toBe(true);
     expect(row(1)).toHaveFocus();
   });
 
