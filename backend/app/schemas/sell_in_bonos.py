@@ -27,7 +27,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Moneda = Literal["ARS", "USD"]
 Estado = Literal["activa", "anulada"]
@@ -101,6 +101,14 @@ class SellInBonoIn(BaseModel):
     # One cap shared by everything the bonus reaches (T24); left out on an edit: the stored one stays.
     tope_unidades: Optional[int] = Field(default=None, le=2**31 - 1)  # invoiced units, INTEGER
     tope_monto: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=2)  # in `moneda`
+
+    @field_validator("tope_unidades", mode="before")
+    @classmethod
+    def _unidades_no_booleano(cls, valor):
+        """Lax mode would read `true` as 1 unit: a cap must be a number."""
+        if isinstance(valor, bool):
+            raise ValueError("El tope de unidades tiene que ser un número entero")
+        return valor
 
 
 class SellInBonoAnularIn(BaseModel):
