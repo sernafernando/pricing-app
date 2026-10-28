@@ -353,12 +353,14 @@ describe("Ctrl+I: the focused row's product information, as in Productos", () =>
     expect(onShowInfo).not.toHaveBeenCalled();
   });
 
-  it("Productos' info modal (`.modal-overlay`) owns the keyboard while open: the arrows do not move the list", async () => {
+  it("Productos' info modal (`.modal-info-producto`) owns the keyboard while open: the arrows do not move the list", async () => {
     const user = userEvent.setup();
     render(
       <>
         <Harness />
-        <div className="modal-overlay" />
+        <div className="modal-overlay">
+          <div className="modal-info-producto" />
+        </div>
       </>,
     );
     await user.click(row(1));

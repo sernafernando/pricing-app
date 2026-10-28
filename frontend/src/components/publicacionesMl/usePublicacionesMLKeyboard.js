@@ -171,8 +171,9 @@ export default function usePublicacionesMLKeyboard({
         showToast: toast,
       } = props.current;
       // Another dialog (a bulk action, a confirmation, Productos' info modal) owns the keyboard, as in Productos; the
-      // help only lets `?` close it.
-      const dialog = document.querySelector('.modal-overlay-tesla, .modal-overlay');
+      // help only lets `?` close it. The info modal is matched by its own class: `.modal-overlay` alone is shared by
+      // unrelated components.
+      const dialog = document.querySelector('.modal-overlay-tesla, .modal-info-producto');
       if (dialog) {
         if (event.key === '?' && toggleHelp && dialog.querySelector(`.${HELP_CLASS}`) && !isTyping(event.target)) {
           event.preventDefault();
@@ -193,6 +194,7 @@ export default function usePublicacionesMLKeyboard({
         return;
       }
       if (isTyping(event.target)) return;
+      // Cmd+I too, as Productos accepts it (`e.ctrlKey || e.metaKey`), unlike the Alt keys below.
       if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.code === 'KeyI' && showInfo) {
         event.preventDefault();
         const key = focusedRow()?.dataset.rowKey;

@@ -2173,6 +2173,30 @@ describe("Ctrl+I: Productos' product information", () => {
     expect(api.get).toHaveBeenCalledWith(`/productos/${ITEMS[0].link.producto_item_id}/detalle`);
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Información Detallada' })).not.toBeInTheDocument());
+    // Closed, the modal gives the keyboard back to the list.
+    const focused = document.activeElement;
+    await user.keyboard('{ArrowDown}');
+    expect(document.activeElement).not.toBe(focused);
+    expect(document.activeElement.closest('tr')).not.toBeNull();
+  });
+
+  it("in the Producto view it opens the focused product's information", async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    const user = userEvent.setup();
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto'] });
+    await within(await screen.findByRole('table', { name: /por producto/ })).findByText('Router Archer AX55');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByRole('heading', { name: 'Información Detallada' })).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith('/productos/4101/detalle');
+  });
+
+  it('in the Agrupado view it says where it works and opens nothing', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await screen.findByText('EPSON');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByText('La información del producto funciona en las vistas Publicaciones y Producto')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Información Detallada' })).not.toBeInTheDocument();
   });
 
   it('a publication with no linked product says so and opens nothing', async () => {
