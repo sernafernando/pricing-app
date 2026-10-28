@@ -10,6 +10,7 @@ import {
 import DocumentGeneratorModal from './DocumentGeneratorModal';
 import ModalRemitoManual from './ModalRemitoManual';
 import HistorialLogisticaModal from './enviosFlex/HistorialLogisticaModal';
+import { aplicarDeshacer, useRecargarAlCerrar } from './enviosFlex/historialLogisticaTab';
 import MapaEnviosFlex from './MapaEnviosFlex';
 import CalendarioEnvios from './CalendarioEnvios';
 import api from '../services/api';
@@ -505,6 +506,7 @@ export default function TabEnviosFlex({ operador = null }) {
   ]);
 
   useSSEChannel('etiquetas:changed', silentReload);
+  useRecargarAlCerrar(Boolean(historialShippingId), silentReload);
   useSSEChannel('shipments:webhook', silentReload);
 
   // Fallback polling: re-activate 10s polling when SSE is degraded
@@ -4383,7 +4385,7 @@ export default function TabEnviosFlex({ operador = null }) {
           onClose={() => setHistorialShippingId(null)}
           onDeshecho={(cambio) => {
             setEtiquetas(prev =>
-              prev.map(et => (et.shipping_id === historialShippingId ? { ...et, ...cambio } : et))
+              aplicarDeshacer(prev, historialShippingId, cambio.logistica_id, logisticas)
             );
           }}
         />
