@@ -762,7 +762,7 @@ export default function MetricasML() {
 
       <MetricasKpiStrip kpis={board?.kpis} canSeeMargin={canSeeMargin} groupBy={groupBy} loading={loading} tpSolo={tpSolo} />
 
-      {board && <MetricasEnviosPanel params={filterParams} />}
+      <MetricasEnviosPanel params={filterParams} />
 
       {adsOn && <AdsKpiBlock ads={ads} />}
 

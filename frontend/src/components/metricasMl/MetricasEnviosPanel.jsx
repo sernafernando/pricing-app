@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import api from '../../services/api';
 import { MODO_LOGISTICO_LABELS } from '../../utils/ventasMlFormat';
@@ -16,19 +16,22 @@ const URL = '/ml-metricas/board/envios';
 export default function MetricasEnviosPanel({ params }) {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState({ rows: null, error: false });
+  // Read again when the filters change, not when the page hands over an equal object.
+  const key = JSON.stringify(params);
+  const request = useMemo(() => JSON.parse(key), [key]);
 
   useEffect(() => {
     if (!open) return undefined;
     let current = true;
     setState({ rows: null, error: false });
     api
-      .get(URL, { params })
+      .get(URL, { params: request })
       .then(({ data }) => current && setState({ rows: data.rows, error: false }))
       .catch(() => current && setState({ rows: null, error: true }));
     return () => {
       current = false;
     };
-  }, [open, params]);
+  }, [open, request]);
 
   const total = (state.rows ?? []).reduce((sum, row) => sum + row.gross, 0);
 

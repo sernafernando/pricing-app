@@ -5,10 +5,15 @@ filters. Same data, clock and permissions as the board's router tests (`board_da
 # ruff: noqa: F811 -- the imported fixtures are re-named by the tests that use them
 from __future__ import annotations
 
+from datetime import date
+
 from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- fixtures
     URL,
+    _day,
     _frozen_clock,
     _grant,
+    _producto,
+    _pub,
     bg_sessions,
     board_data,
 )
@@ -39,10 +44,16 @@ def test_the_board_filters_apply(client, admin_auth_headers, board_data) -> None
 
 
 def test_no_profit_permission_needed(client, admin_auth_headers, db, rol_admin) -> None:
+    # Only "ver": the sales by shipping type are sales figures, no profit in them.
     _grant(db, rol_admin, "ml_metricas.ver")
-    db.flush()
+    _producto(db, 11, "Impresora", "Epson")
+    _pub(db, 1, "MLA1", 11, 57997)
+    _day(db, 11, "MLA1", date(2026, 9, 30), 2, "200", "30", "100")
+    db.commit()
 
-    assert _get(client, admin_auth_headers) == []
+    rows = _get(client, admin_auth_headers)
+
+    assert [(r["modo"], r["units"], r["gross"]) for r in rows] == [("desconocido", 2, 200)]
 
 
 def test_without_the_view_permission_it_is_forbidden(client, admin_auth_headers) -> None:

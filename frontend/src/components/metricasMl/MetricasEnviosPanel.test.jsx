@@ -56,6 +56,16 @@ describe('MetricasEnviosPanel (audit B8)', () => {
     await vi.waitFor(() => expect(api.get).toHaveBeenLastCalledWith('/ml-metricas/board/envios', { params: { ...PARAMS, marcas: 'Lenovo' } }));
   });
 
+  it('an equal filter object does not read again', async () => {
+    const { rerender } = render(<MetricasEnviosPanel params={PARAMS} />);
+    await open();
+    await screen.findByRole('row', { name: /Flex/ });
+
+    rerender(<MetricasEnviosPanel params={{ ...PARAMS }} />);
+
+    expect(api.get).toHaveBeenCalledTimes(1);
+  });
+
   it('says so when there are no sales, and when the request fails', async () => {
     api.get.mockResolvedValueOnce({ data: { rows: [] } });
     const { unmount } = render(<MetricasEnviosPanel params={PARAMS} />);
