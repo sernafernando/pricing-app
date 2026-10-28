@@ -20,7 +20,8 @@ const editorKeys = (onSave, onCancel) => (event) => {
 
 function EditorActions({ saving, onCancel }) {
   return (
-    <div className={styles.warningActions}>
+    // `data-editor-actions`: a narrower layout (a table cell) wraps this row.
+    <div className={styles.warningActions} data-editor-actions="">
       <button type="button" className="btn-tesla outline sm" onClick={onCancel} disabled={saving}>
         Cancelar
       </button>

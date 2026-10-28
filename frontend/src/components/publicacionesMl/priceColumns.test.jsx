@@ -205,6 +205,7 @@ describe('priceColumns', () => {
       const row = { onKeyDown: vi.fn(), onClick: vi.fn() };
       const [, rebate] = columnsWith(edit());
       render(<div {...row}>{rebate.render(item())}</div>);
+      // The click that opens it is a button's: TableShell's row ignores those (as with PriceEditCell).
       await userEvent.click(screen.getByRole('button', { name: /^Editar Precio Rebate/ }));
       row.onClick.mockClear();
       await userEvent.type(screen.getByRole('textbox', { name: '% de rebate' }), 'rw');

@@ -6,35 +6,29 @@ import { WEB_TRANSF_DEFAULT, storedRebate, rebateWrite, webTransfWrite } from '.
 
 /**
  * The r / w / o toggles (S9): each flips one flag of the product as the panel's ProductToggles writes it, keeping
- * its stored percentage. `flag` is the flag as it stands now; `on`, the state the flip leads to.
+ * its stored percentage (the rebate and web transfer through the same writes as their editors). `flag` is the flag
+ * as it stands now; `on`, the state the flip leads to. `write(itemId)` as in `toggleWrites`.
  */
 const TOGGLES = {
   rebate: (product, flag) => {
     const on = !flag;
-    return {
-      write: () => preciosAPI.setRebate(product.item_id, { participa_rebate: on, porcentaje_rebate: storedRebate(product) }),
-      saved: on ? 'Rebate activado' : 'Rebate desactivado',
-      fallback: 'No se pudo cambiar el rebate.',
-    };
+    const { write } = rebateWrite(product, { participa: on, porcentaje: String(storedRebate(product)) });
+    return { write, saved: on ? 'Rebate activado' : 'Rebate desactivado', fallback: 'No se pudo cambiar el rebate.' };
   },
   web: (product, flag) => {
     const on = !flag;
-    const params = {
+    const { write } = webTransfWrite(product, {
       participa: on,
-      porcentaje_markup: product.porcentaje_markup_web || WEB_TRANSF_DEFAULT,
+      porcentaje: String(product.porcentaje_markup_web || WEB_TRANSF_DEFAULT),
       // Omitting it resets it to false in the backend.
-      preservar_porcentaje: Boolean(product.preservar_porcentaje_web),
-    };
-    return {
-      write: () => preciosAPI.setWebTransferencia(product.item_id, params),
-      saved: on ? 'Web transferencia activada' : 'Web transferencia desactivada',
-      fallback: 'No se pudo cambiar web transferencia.',
-    };
+      preservar: Boolean(product.preservar_porcentaje_web),
+    });
+    return { write, saved: on ? 'Web transferencia activada' : 'Web transferencia desactivada', fallback: 'No se pudo cambiar web transferencia.' };
   },
   tarjetas: (product, flag) => {
     const on = !flag;
     return {
-      write: () => preciosAPI.setOutOfCards(product.item_id, on),
+      write: (itemId) => preciosAPI.setOutOfCards(itemId, on),
       saved: on ? 'Fuera de tarjetas activado' : 'Fuera de tarjetas desactivado',
       fallback: 'No se pudo cambiar fuera de tarjetas.',
     };
@@ -110,7 +104,8 @@ export default function useInlinePriceEdit({ onWritten } = {}) {
       const key = `${kind}:${product.item_id}`;
       const last = written.current.get(key);
       const flag = last?.over === product ? last.on : Boolean(product[FLAGS[kind]]);
-      const done = await run(TOGGLES[kind](product, flag));
+      const built = TOGGLES[kind](product, flag);
+      const done = await run({ ...built, write: () => built.write(product.item_id) });
       if (done) written.current.set(key, { over: product, on: !flag });
       return done;
     },
