@@ -78,14 +78,22 @@
   top: calc(100% + 4px);
   left: 0;
   z-index: 20;
+  display: flex;
+  flex-direction: column;
   min-width: 220px;
   max-width: 320px;
   max-height: 280px;
-  overflow: auto;
   border: 1px solid var(--cf-border-subtle);
   border-radius: var(--radius-md);
   background: var(--cf-bg-card);
   box-shadow: 0 8px 24px color-mix(in srgb, var(--cf-text-primary) 12%, transparent);
+  overflow: hidden;
+}
+
+.dropdownBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 .optionList {
@@ -155,9 +163,11 @@
 }
 
 .clearLocal {
+  flex: 0 0 auto;
   width: 100%;
   text-align: left;
   border-top: 1px solid var(--cf-border-subtle);
+  background: var(--cf-bg-card);
 }
 
 .clearAll {

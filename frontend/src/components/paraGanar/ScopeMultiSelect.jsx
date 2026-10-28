@@ -74,29 +74,31 @@ export default function ScopeMultiSelect({
         )}
       </div>
       {open && (
-        <div className={styles.dropdown} id={listId} role="listbox" aria-label={label}>
-          {options.length === 0 ? (
-            <p className={styles.emptyHint}>{emptyHint}</p>
-          ) : (
-            <ul className={styles.optionList}>
-              {options.map((option) => {
-                const key = getKey(option);
-                const checked = selected.some((item) => sameKey(item, key));
-                return (
-                  <li key={String(key)}>
-                    <label className={`${styles.option} ${checked ? styles.optionSelected : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggle(key)}
-                      />
-                      <span>{getLabel(option)}</span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+        <div className={styles.dropdown} id={listId} aria-label={label}>
+          <div className={styles.dropdownBody} role="listbox">
+            {options.length === 0 ? (
+              <p className={styles.emptyHint}>{emptyHint}</p>
+            ) : (
+              <ul className={styles.optionList}>
+                {options.map((option) => {
+                  const key = getKey(option);
+                  const checked = selected.some((item) => sameKey(item, key));
+                  return (
+                    <li key={String(key)}>
+                      <label className={`${styles.option} ${checked ? styles.optionSelected : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggle(key)}
+                        />
+                        <span>{getLabel(option)}</span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
           {count > 0 && (
             <button type="button" className={styles.clearLocal} onClick={clear}>
               Limpiar {label.toLowerCase()}
