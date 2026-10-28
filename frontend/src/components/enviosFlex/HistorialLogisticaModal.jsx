@@ -82,19 +82,13 @@ export default function HistorialLogisticaModal({
   }, [shippingId, recarga]);
 
   const confirmarDeshacer = async () => {
-    const destino = historial?.deshacer_a ?? null;
     setDeshaciendo(true);
     setErrorDeshacer(null);
     try {
       const { data } = await api.post(`/etiquetas-envio/${shippingId}/logistica/deshacer`, {
         operador_id: operadorId,
       });
-      const mismoDestino = (destino?.id ?? null) === data.logistica_id;
-      onDeshecho?.({
-        logistica_id: data.logistica_id,
-        logistica_nombre: mismoDestino ? destino?.nombre ?? null : null,
-        logistica_color: mismoDestino ? destino?.color ?? null : null,
-      });
+      onDeshecho?.({ logistica_id: data.logistica_id });
     } catch (err) {
       const detail = err?.response?.data?.detail;
       setErrorDeshacer(typeof detail === 'string' ? detail : 'No se pudo deshacer el cambio.');
@@ -166,7 +160,7 @@ export default function HistorialLogisticaModal({
         {puedeDeshacer && (
           <span className={styles.pista}>
             <Info size={14} aria-hidden="true" />
-            Deshacer vuelve a la logística anterior al último cambio.
+            {motivoDeshabilitado ?? 'Deshacer vuelve a la logística anterior al último cambio.'}
           </span>
         )}
         <div className={styles.pieAcciones}>

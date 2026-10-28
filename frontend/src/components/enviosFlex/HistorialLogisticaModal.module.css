@@ -243,7 +243,7 @@
 .pista {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--spacing-xs);
   min-width: 0;
   font-size: var(--font-xs);
   color: var(--text-secondary);

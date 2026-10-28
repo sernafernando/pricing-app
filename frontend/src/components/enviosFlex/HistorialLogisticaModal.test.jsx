@@ -144,6 +144,8 @@ describe('HistorialLogisticaModal', () => {
     const boton = await screen.findByRole('button', { name: /Deshacer último cambio/ });
     await waitFor(() => expect(boton).toBeDisabled());
     expect(boton).toHaveAttribute('title', 'El último cambio no se puede deshacer');
+    // Visible too: a disabled button's tooltip may not show.
+    expect(screen.getByText('El último cambio no se puede deshacer')).toBeInTheDocument();
   });
 
   it('explains the disabled undo when there is nothing to undo', async () => {
@@ -155,6 +157,7 @@ describe('HistorialLogisticaModal', () => {
     const boton = await screen.findByRole('button', { name: /Deshacer último cambio/ });
     await waitFor(() => expect(boton).toBeDisabled());
     expect(boton).toHaveAttribute('title', 'No hay un cambio para deshacer');
+    expect(screen.getByText('No hay un cambio para deshacer')).toBeInTheDocument();
   });
 
   it('confirms, posts the undo with the operator and reloads the history', async () => {
@@ -197,11 +200,7 @@ describe('HistorialLogisticaModal', () => {
     );
     expect(await screen.findByText('DESHACER')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledTimes(2);
-    expect(onDeshecho).toHaveBeenCalledWith({
-      logistica_id: 2,
-      logistica_nombre: 'Moto Sur',
-      logistica_color: '#16a34a',
-    });
+    expect(onDeshecho).toHaveBeenCalledWith({ logistica_id: 2 });
     expect(screen.queryByRole('group', { name: 'Confirmar deshacer' })).toBeNull();
   });
 
