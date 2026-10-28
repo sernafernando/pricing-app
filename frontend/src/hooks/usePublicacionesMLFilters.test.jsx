@@ -17,14 +17,15 @@ import {
   buildProductsParams,
   buildKpiParams,
   buildProductIdsParams,
+  hasMarkupFilter,
   PRESENCE_VALUES,
 } from './usePublicacionesMLFilters';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 
-const setup = (url = '/') => {
+const setup = (url = '/', permissions = undefined) => {
   const wrapper = ({ children }) => <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>;
   return renderHook(
-    () => ({ hook: usePublicacionesMLFilters(), search: useLocation().search }),
+    () => ({ hook: usePublicacionesMLFilters(permissions), search: useLocation().search }),
     { wrapper },
   );
 };
@@ -409,6 +410,8 @@ describe("Productos' presence filters (S5)", () => {
       webtransf: ['con_web_transf', 'sin_web_transf'],
       tiendanube: ['con_descuento', 'sin_descuento', 'no_publicado'],
       outofcards: ['con_out_of_cards', 'sin_out_of_cards'],
+      precio: ['con_precio', 'sin_precio'],
+      nuevos: ['ultimos_7_dias'],
     });
     expect(FILTER_KEYS).toEqual(expect.arrayContaining(Object.keys(PRESENCE_VALUES)));
   });
@@ -451,6 +454,17 @@ describe("Productos' presence filters (S5)", () => {
     expect(buildItemsParams({ ...base, tiendanube: 'no_publicado' }, 50).tn_no_publicado).toBe(true);
   });
 
+  it("sends Productos' precio and nuevos params (P6)", () => {
+    expect(buildItemsParams({ ...base, precio: 'con_precio', nuevos: 'ultimos_7_dias' }, 50)).toEqual({
+      con_precio: true,
+      nuevos_ultimos_7_dias: true,
+      limit: 50,
+      offset: 0,
+    });
+    expect(buildItemsParams({ ...base, precio: 'sin_precio' }, 50).con_precio).toBe(false);
+    expect(buildProductIdsParams({ ...base, precio: 'sin_precio' }).con_precio).toBe(false);
+  });
+
   it('in the Producto view, the KPI strip asks mejor oferta of the product, as the product rows do', () => {
     const oferta = { ...base, oferta: 'sin_oferta' };
     expect(buildKpiParams({ ...oferta, vista: 'producto' }, '30d')).toEqual({
@@ -463,6 +477,27 @@ describe("Productos' presence filters (S5)", () => {
       con_rebate: true,
       periodo: '30d',
     });
+  });
+});
+
+describe("Productos' markup sign filters (P6b)", () => {
+  const url = '/?mkclasica=positivo&mkrebate=negativo&mkoferta=quizas';
+
+  it("reads Productos' URL keys only for a user who may see margins", () => {
+    const f = setup(url, { canSeeMargin: true }).result.current.hook.filters;
+    expect([f.mkclasica, f.mkrebate, f.mkoferta, f.mkwebtransf]).toEqual(['positivo', 'negativo', '', '']);
+    const hidden = setup(url).result.current.hook.filters;
+    expect([hidden.mkclasica, hidden.mkrebate]).toEqual(['', '']); // a shared link never asks a 403
+  });
+
+  it('sends the params GET /productos takes, to every view: they are a filter of the query, not of the page', () => {
+    const f = setup(url, { canSeeMargin: true }).result.current.hook.filters;
+    const signs = { markup_clasica_positivo: true, markup_rebate_positivo: false };
+    expect(buildItemsParams(f, 50)).toMatchObject(signs);
+    expect(buildProductsParams(f, 50)).toMatchObject(signs);
+    expect(buildKpiParams(f, '30d')).toMatchObject(signs);
+    expect(buildProductIdsParams(f)).toMatchObject(signs);
+    expect(hasMarkupFilter(f)).toBe(false); // the KPI strip applies them too
   });
 });
 

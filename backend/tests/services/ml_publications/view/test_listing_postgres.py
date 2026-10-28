@@ -851,7 +851,13 @@ class TestFacets:
             "marcas": {"TP-LINK": 1, "HIKVISION": 1},
             "listing": {"clasica": 1, "premium": 1, "catalogo": 1, "full": 1},
             "link": {"auto": 1, "manual": 1, "conflicto": 1, "no_evaluado": 2},
-            "stock": {"sin_stock": 1, "full_sin_stock": 1, "erp_sin_stock": 0, "propio_sin_stock": 0},
+            "stock": {
+                "sin_stock": 1,
+                "full_sin_stock": 1,
+                "erp_sin_stock": 0,
+                "erp_con_stock": 0,
+                "propio_sin_stock": 0,
+            },
         }
 
     def test_the_erp_without_stock_count_is_what_selecting_it_lists(self, conn, db) -> None:
@@ -899,7 +905,13 @@ class TestFacets:
             "marcas": {},
             "listing": {"clasica": 0, "premium": 0, "catalogo": 0, "full": 0},
             "link": {},
-            "stock": {"sin_stock": 0, "full_sin_stock": 0, "erp_sin_stock": 0, "propio_sin_stock": 0},
+            "stock": {
+                "sin_stock": 0,
+                "full_sin_stock": 0,
+                "erp_sin_stock": 0,
+                "erp_con_stock": 0,
+                "propio_sin_stock": 0,
+            },
         }
 
     def test_one_statement_per_axis_whatever_the_data(self, db) -> None:

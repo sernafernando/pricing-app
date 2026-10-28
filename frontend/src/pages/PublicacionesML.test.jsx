@@ -349,6 +349,14 @@ describe('stock: our own, Full and the ERP, three columns never summed', () => {
     await waitFor(() => expect(lastParams().stock).toBe('propio_sin_stock'));
   });
 
+  it('offers "Con stock ERP" (Productos\' "Con stock") with its count and asks for it (P6)', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, stock: { ...FACETS.stock, erp_con_stock: 4 } } });
+    await page();
+    const stock = screen.getByRole('group', { name: 'Filtrar por stock' });
+    await userEvent.click(within(stock).getByRole('button', { name: /Con stock ERP.*4/ }));
+    await waitFor(() => expect(lastParams().stock).toBe('erp_con_stock'));
+  });
+
   it('an old link with the "Sin stock ML" value opens with "Sin stock propio" active and asks for it', async () => {
     await page('/ml-publicaciones?stock=sin_stock');
     expect(lastParams().stock).toBe('propio_sin_stock');

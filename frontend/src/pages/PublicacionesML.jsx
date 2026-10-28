@@ -106,8 +106,13 @@ const VINCULO_LABELS = {
   sku_divergente: 'SKU distinto del producto',
 };
 // One chip per stock column, each filtering its own source: our own stock at ML, Full and the ERP's -- never a sum.
-const STOCK_OPTIONS = ['propio_sin_stock', 'full_sin_stock', 'erp_sin_stock'];
-const STOCK_LABELS = { propio_sin_stock: 'Sin stock propio', full_sin_stock: 'Full sin stock', erp_sin_stock: 'Sin stock ERP' };
+const STOCK_OPTIONS = ['propio_sin_stock', 'full_sin_stock', 'erp_sin_stock', 'erp_con_stock'];
+const STOCK_LABELS = {
+  propio_sin_stock: 'Sin stock propio',
+  full_sin_stock: 'Full sin stock',
+  erp_sin_stock: 'Sin stock ERP',
+  erp_con_stock: 'Con stock ERP',
+};
 
 const EMPTY_ROWS = [];
 
@@ -145,11 +150,11 @@ function ListSkeleton() {
 }
 
 export default function PublicacionesML() {
-  const { filters, filterKey, setFilters, resetFilters } = usePublicacionesMLFilters();
-  const { tiendas, getLabel } = useTiendasOficiales();
   const { tienePermiso } = usePermisos();
   // The markup column, filters and sort exist only for this permission (S68.1).
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
+  const { filters, filterKey, setFilters, resetFilters } = usePublicacionesMLFilters({ canSeeMargin });
+  const { tiendas, getLabel } = useTiendasOficiales();
   // The strip is Métricas' numbers: it needs `ml_metricas.ver`; the table does not.
   const canSeeKpis = tienePermiso('ml_metricas.ver');
   // The rows' Métricas figures (`metrics`) are Métricas' numbers too: same permission as the strip.
@@ -653,7 +658,12 @@ export default function PublicacionesML() {
           <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
           {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
               the fold at 1366x768. */}
-          <PresenceFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
+          <PresenceFilters
+            filters={filters}
+            setFilters={setFilters}
+            labelClassName={styles.filterLabel}
+            canSeeMargin={canSeeMargin}
+          />
         </div>
         {showMarkupFilters && (
           <div className={styles.filterBand}>

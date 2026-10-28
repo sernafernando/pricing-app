@@ -60,12 +60,27 @@ const PRESENCE_PARAMS = {
     no_publicado: { tn_no_publicado: true },
   },
   outofcards: { con_out_of_cards: { out_of_cards: true }, sin_out_of_cards: { out_of_cards: false } },
+  precio: { con_precio: { con_precio: true }, sin_precio: { con_precio: false } },
+  nuevos: { ultimos_7_dias: { nuevos_ultimos_7_dias: true } },
 };
 export const PRESENCE_VALUES = Object.fromEntries(
   Object.entries(PRESENCE_PARAMS).map(([key, values]) => [key, Object.keys(values)]),
 );
 const PRESENCE_KEYS = Object.keys(PRESENCE_PARAMS);
-export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS, ...PRESENCE_KEYS];
+/**
+ * Productos' markup filters (`mkclasica` ... with `positivo` / `negativo`), its stored markups of the linked product:
+ * a filter of the query (every view, the KPIs and the bulk set apply it), but a margin figure, so they are read from
+ * the URL only for a user with `ml_metricas.ver_ganancia` -- the backend refuses them otherwise.
+ */
+const MARKUP_SIGN_PARAMS = {
+  mkclasica: 'markup_clasica_positivo',
+  mkrebate: 'markup_rebate_positivo',
+  mkoferta: 'markup_oferta_positivo',
+  mkwebtransf: 'markup_web_transf_positivo',
+};
+const MARKUP_SIGN_KEYS = Object.keys(MARKUP_SIGN_PARAMS);
+const MARKUP_SIGNS = ['positivo', 'negativo'];
+export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS, ...PRESENCE_KEYS, ...MARKUP_SIGN_KEYS];
 
 // `producto` = one row per product, opening into its publications (`/view/products`).
 const VISTAS = ['publicacion', 'producto', 'agrupado'];
@@ -149,7 +164,7 @@ function currentStockValues(values) {
   return [...new Set(values.map((value) => LEGACY_STOCK[value] ?? value))];
 }
 
-function readFilters(params) {
+function readFilters(params, { canSeeMargin = false } = {}) {
   const filters = {};
   for (const key of TEXT_KEYS) filters[key] = params.get(key) ?? '';
   for (const key of CSV_KEYS) filters[key] = csv(params.get(key));
@@ -158,6 +173,10 @@ function readFilters(params) {
   for (const key of PRESENCE_KEYS) {
     const value = params.get(key);
     filters[key] = PRESENCE_VALUES[key].includes(value) ? value : '';
+  }
+  for (const key of MARKUP_SIGN_KEYS) {
+    const value = params.get(key);
+    filters[key] = canSeeMargin && MARKUP_SIGNS.includes(value) ? value : '';
   }
   // One reading for the switch and the request: only `1` / `true` mean on.
   filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
@@ -231,6 +250,9 @@ export function buildItemsParams(
   for (const key of PRESENCE_KEYS) {
     if (filters[key]) Object.assign(params, PRESENCE_PARAMS[key][filters[key]]);
   }
+  for (const key of MARKUP_SIGN_KEYS) {
+    if (filters[key]) params[MARKUP_SIGN_PARAMS[key]] = filters[key] === 'positivo';
+  }
   if (filters.equipo) params.equipo_id = filters.equipo;
   params.limit = pageSize;
   params.offset = (filters.pagina - 1) * pageSize;
@@ -302,9 +324,9 @@ export function buildProductIdsParams(filters) {
   return params;
 }
 
-export function usePublicacionesMLFilters() {
+export function usePublicacionesMLFilters({ canSeeMargin = false } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const filters = useMemo(() => readFilters(searchParams), [searchParams]);
+  const filters = useMemo(() => readFilters(searchParams, { canSeeMargin }), [searchParams, canSeeMargin]);
 
   // Stable while only the page / sort / selection change: the page compares
   // it to know when the facet counts must be asked for again.
