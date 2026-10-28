@@ -7,7 +7,8 @@ import styles from './cells.module.css';
  * without which Productos shows no price). The markup only with `canSeeMargin`. No product reads "—" ("…" while
  * its prices are on their way), and so does a price that is not there: never 0. `markupScale` turns the markup the
  * listing sends into a percentage (the best offer's comes as a fraction). A failed request (`failed`) reads
- * "sin datos", never "—", so it is not taken for a product with no price.
+ * "sin datos", never "—", so it is not taken for a product with no price. `column.details(product)`, when the
+ * column has it, lists lines drawn under the price (the best offer's, as Productos).
  */
 export default function ListPriceCell({ product, column, loading, failed, canSeeMargin }) {
   if (failed) {
@@ -32,6 +33,11 @@ export default function ListPriceCell({ product, column, loading, failed, canSee
           {formatPct(markup)}
         </span>
       )}
+      {column.details?.(product).map((line) => (
+        <span key={line} className={styles.priceDetail} data-offer-detail="">
+          {line}
+        </span>
+      ))}
     </div>
   );
 }

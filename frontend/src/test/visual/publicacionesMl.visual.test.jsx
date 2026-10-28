@@ -104,7 +104,9 @@ vi.mock('../../services/api', () => ({
               precio_lista_ml: 189999, markup: 24.3, participa_rebate: true, precio_rebate: 197911, markup_rebate: 21.1,
               precio_3_cuotas: 209999, markup_3_cuotas: 18.2, precio_6_cuotas: 229999, markup_6_cuotas: 15.4,
               precio_pvp: 239999, markup_pvp: 31.9 },
-            { item_id: 4102, precio_lista_ml: 45999, markup: -3.2, mejor_oferta_precio: 41399, mejor_oferta_markup: -0.098 },
+            { item_id: 4102, precio_lista_ml: 45999, markup: -3.2, mejor_oferta_precio: 41399, mejor_oferta_markup: -0.098,
+              mejor_oferta_porcentaje_rebate: 12.5, mejor_oferta_monto_rebate: 5174.88, mejor_oferta_fecha_hasta: '2026-11-30',
+              mejor_oferta_pvp_seller: 47999 },
           ],
           total: 2,
         },
@@ -1850,6 +1852,28 @@ describe('row colors and the color layer (S8)', () => {
       expect(contrastRatio(style.color, style.backgroundColor)).toBeGreaterThanOrEqual(4.5);
       input.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/price-edit-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the best offer's details sit under its price, each on one line inside the cell`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      await expect.element(screen.getByText('Hasta 30/11').first()).toBeVisible();
+      const lines = [...document.querySelectorAll('[data-offer-detail]')];
+      expect(lines.map((line) => line.textContent).slice(0, 4)).toEqual(['Aporte 12,50%', 'Rebate $ 5.174,88', 'Hasta 30/11', 'PVP $ 47.999,00']);
+      const cell = lines[0].closest('td');
+      const cellBox = cell.getBoundingClientRect();
+      for (const line of lines.slice(0, 4)) {
+        const box = line.getBoundingClientRect();
+        expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
+        expect(box.right).toBeLessThanOrEqual(cellBox.right);
+      }
+      expect(wrapped(lines)).toEqual([]);
+      const style = getComputedStyle(lines[0]);
+      expect(contrastRatio(style.color, getComputedStyle(cell).backgroundColor)).toBeGreaterThanOrEqual(4.5);
+      cell.scrollIntoView({ block: 'center', inline: 'center' });
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/offer-details-1366-${theme}.png` });
       screen.unmount();
     });
   }
