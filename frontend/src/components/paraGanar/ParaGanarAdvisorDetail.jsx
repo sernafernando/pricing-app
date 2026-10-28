@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import api from '../../services/api';
+import { usePermisos } from '../../contexts/PermisosContext';
 import { formatPrice } from './formatPrice';
 import styles from '../../pages/ParaGanarAdvisor.module.css';
 
 export default function ParaGanarAdvisorDetail({ selected }) {
+  const { tienePermiso } = usePermisos();
+  const canRefresh = tienePermiso('productos.editar_precios');
+
   const [board, setBoard] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -45,6 +50,34 @@ export default function ParaGanarAdvisorDetail({ selected }) {
     };
   }, [selected?.mla]);
 
+  const onRefreshCompetition = async () => {
+    if (!selected?.mla || !canRefresh || refreshing) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      const { data } = await api.post(
+        `/para-ganar/criterios/${encodeURIComponent(selected.mla)}/competencia/refresh`,
+      );
+      setBoard(data);
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      if (typeof detail === 'string') {
+        setError(detail);
+      } else if (err.response?.status === 403) {
+        setError('No tenés permiso para actualizar competencia (productos.editar_precios).');
+      } else {
+        setError('No se pudo actualizar la competencia de catálogo.');
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const showRefresh =
+    Boolean(selected?.mla) &&
+    Boolean(board) &&
+    (board.needs_competition_refresh || Boolean(board.catalog_product_id));
+
   return (
     <aside className={styles.detail} aria-label="Detalle de sugerencia">
       <div className={styles.panelTitle}>Detalle</div>
@@ -78,7 +111,31 @@ export default function ParaGanarAdvisorDetail({ selected }) {
             </p>
           )}
 
-          {board && !loading && (
+          {showRefresh && (
+            <button
+              type="button"
+              className={
+                board.needs_competition_refresh
+                  ? styles.saveCriteriaBtn
+                  : styles.secondaryActionBtn
+              }
+              disabled={!canRefresh || refreshing || loading}
+              onClick={onRefreshCompetition}
+              title={
+                canRefresh
+                  ? 'Trae precios de sellers del catálogo vía ML (una MLA por vez)'
+                  : 'Requiere productos.editar_precios'
+              }
+            >
+              {refreshing
+                ? 'Actualizando competencia…'
+                : board.needs_competition_refresh
+                  ? 'Actualizar competencia de catálogo'
+                  : 'Refrescar snapshot de competencia'}
+            </button>
+          )}
+
+          {board && !loading && !board.needs_competition_refresh && (
             <>
               <dl className={styles.detailList}>
                 <div>
@@ -91,7 +148,11 @@ export default function ParaGanarAdvisorDetail({ selected }) {
                     {board.our_rank != null
                       ? `#${board.our_rank} de TOP ${board.top_sellers}`
                       : '—'}
-                    {board.in_top ? ' · dentro del TOP' : board.our_rank != null ? ' · fuera del TOP' : ''}
+                    {board.in_top
+                      ? ' · dentro del TOP'
+                      : board.our_rank != null
+                        ? ' · fuera del TOP'
+                        : ''}
                   </dd>
                 </div>
                 <div>

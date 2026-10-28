@@ -454,6 +454,14 @@
   color: var(--cf-text-tertiary);
 }
 
+.secondaryActionBtn {
+  composes: saveCriteriaBtn;
+  background: transparent;
+  color: var(--cf-text-secondary);
+  border: 1px solid var(--cf-border-subtle);
+  margin-top: var(--spacing-sm);
+}
+
 .sellersNotice {
   margin: 0 0 var(--spacing-sm);
   font-size: 12px;

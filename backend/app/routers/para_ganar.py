@@ -28,6 +28,7 @@ from app.models.para_ganar_catalog_seller import (
 )
 from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
 from app.models.usuario import Usuario
+from app.services.ml_catalog_competition_service import refrescar_competencia_catalogo
 from app.services.para_ganar_top import (
     RankCompetitor,
     board_to_dict,
@@ -40,6 +41,7 @@ from app.services.pricing_columns import (
     PVP_PRICELIST_TO_CAMPO,
     resolve_pvp_to_web,
 )
+from app.utils.async_bridge import resolve_maybe_async
 
 router = APIRouter(prefix="/para-ganar", tags=["PARA GANAR"])
 
@@ -940,6 +942,7 @@ class ParaGanarSugerenciaResponse(BaseModel):
     positions: List[ParaGanarSugerenciaPosition] = Field(default_factory=list)
     suggestion_status: str = "none"
     message: Optional[str] = None
+    needs_competition_refresh: bool = False
 
 
 class ParaGanarCatalogSellerDispositionUpdate(BaseModel):
@@ -1375,6 +1378,7 @@ def obtener_sugerencia_mla(
             mla=mla_norm,
             top_sellers=top_n,
             message="Sin catálogo vinculado: no hay snapshot de competencia para rankear.",
+            needs_competition_refresh=False,
         )
 
     snap = _competition_snapshot_for_rank(db, mla=mla_norm, catalog_product_id=catalog_product_id)
@@ -1383,7 +1387,8 @@ def obtener_sugerencia_mla(
             mla=mla_norm,
             catalog_product_id=catalog_product_id,
             top_sellers=top_n,
-            message="Sin snapshot de competencia OK para este catálogo.",
+            message="Sin snapshot de competencia OK para este catálogo. Actualizá la competencia para traer precios de sellers.",
+            needs_competition_refresh=True,
         )
 
     dispositions = {
@@ -1498,4 +1503,44 @@ def obtener_sugerencia_mla(
         positions=[ParaGanarSugerenciaPosition(**p) for p in payload["positions"]],
         suggestion_status=payload["suggestion_status"],
         message=message,
+        needs_competition_refresh=False,
     )
+
+
+@router.post(
+    "/criterios/{mla}/competencia/refresh",
+    response_model=ParaGanarSugerenciaResponse,
+    dependencies=[Depends(require_permiso("productos.editar_precios"))],
+)
+def refrescar_competencia_para_ganar(
+    mla: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ParaGanarSugerenciaResponse:
+    """Fetch+persist catalog-competition snapshot for this MLA, then return the TOP board.
+
+    Reuses `refrescar_competencia_catalogo` (same path as Promociones). Per-MLA only —
+    no bulk refresh (ML throttle). Also upserts the sellers roster when a catalog id exists.
+    """
+    mla_norm = mla.strip().upper()
+    if not mla_norm:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MLA inválida")
+    if not _mla_exists(db, mla_norm):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MLA no encontrada")
+
+    rows = resolve_maybe_async(refrescar_competencia_catalogo(db, [mla_norm]))
+    row = rows[0] if rows else None
+    if row is None or row.fetch_status != "ok":
+        detail = None
+        if row is not None:
+            detail = row.error_detail or row.fetch_status
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"No se pudo obtener competencia de catálogo ({detail or 'sin respuesta'}).",
+        )
+
+    catalog_product_id = _catalog_product_id_for_mla(db, mla_norm)
+    if catalog_product_id:
+        _persist_roster_from_competition(db, catalog_product_id, user_id=current_user.id)
+
+    return obtener_sugerencia_mla(mla=mla_norm, db=db, _user=current_user)

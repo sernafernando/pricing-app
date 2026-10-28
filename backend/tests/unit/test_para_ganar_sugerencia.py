@@ -89,3 +89,83 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
     )
     assert response.status_code == 200, response.text
     assert response.json()["our_rank"] == 2
+
+
+def test_sugerencia_flags_needs_refresh_without_snapshot(
+    client: TestClient, rma_superadmin_user, db
+) -> None:
+    from app.models.ml_publication_link import MlPublicationLink
+
+    producto = ProductoERP(item_id=88202, codigo="SKU-PG-NEED", descripcion="need snap", costo=10)
+    db.add(producto)
+    db.flush()
+    db.add(PublicacionML(mla="MLA88202", item_id=producto.item_id, codigo="SKU-PG-NEED", activo=True))
+    db.add(MlPublicationLink(mla="MLA88202", catalog_product_id="MLA999883", catalog_listing=True))
+    db.commit()
+
+    response = client.get(
+        "/api/para-ganar/criterios/MLA88202/sugerencia",
+        headers=_auth(rma_superadmin_user),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["needs_competition_refresh"] is True
+    assert body["catalog_product_id"] == "MLA999883"
+
+
+def test_competencia_refresh_persists_and_returns_board(
+    client: TestClient, rma_superadmin_user, db, monkeypatch
+) -> None:
+    from app.models.ml_catalog_competition import MLCatalogCompetition
+    from app.models.ml_publication_link import MlPublicationLink
+    import app.routers.para_ganar as pg
+
+    producto = ProductoERP(item_id=88203, codigo="SKU-PG-REF", descripcion="refresh", costo=10)
+    db.add(producto)
+    db.flush()
+    db.add(PublicacionML(mla="MLA88203", item_id=producto.item_id, codigo="SKU-PG-REF", activo=True))
+    db.add(MlPublicationLink(mla="MLA88203", catalog_product_id="MLA999884", catalog_listing=True))
+    db.commit()
+
+    def _fake_refresh(session, mlas):
+        row = MLCatalogCompetition(
+            mla=mlas[0],
+            fecha_consulta=datetime.now(UTC),
+            catalog_product_id="MLA999884",
+            fetch_status="ok",
+            our_item_id=mlas[0],
+            our_seller_id="999",
+            our_price=200.0,
+            competitors=[
+                {
+                    "seller_id": "999",
+                    "seller_nickname": "US",
+                    "item_id": mlas[0],
+                    "price_ars": 200.0,
+                },
+                {
+                    "seller_id": "111",
+                    "seller_nickname": "OTRO",
+                    "item_id": "MLA_X",
+                    "price_ars": 180.0,
+                },
+            ],
+            competitor_count=2,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return [row]
+
+    monkeypatch.setattr(pg, "refrescar_competencia_catalogo", _fake_refresh)
+    monkeypatch.setattr(pg, "resolve_maybe_async", lambda value: value)
+
+    response = client.post(
+        "/api/para-ganar/criterios/MLA88203/competencia/refresh",
+        headers=_auth(rma_superadmin_user),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["needs_competition_refresh"] is False
+    assert body["our_rank"] == 2
+    assert body["positions"][0]["sellers"][0]["nickname"] == "OTRO"
