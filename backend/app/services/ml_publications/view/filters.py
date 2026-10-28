@@ -984,7 +984,6 @@ def publication_filter_in(f: PublicationFilter) -> Optional[str]:
         ("estado_excluir", bool(f.status_exclude)),
         ("tiendas", bool(f.stores or f.no_store)),
         ("familia", f.family_id is not None),
-        ("producto", f.producto is not None),
         ("sin_producto", f.sin_producto),
         ("tipo", bool(f.listing)),
         ("vinculo", bool(f.link)),
@@ -1028,6 +1027,8 @@ def product_conditions(f: PublicationFilter) -> list[ColumnElement]:
     if refused is not None:
         raise FilterError(refused, "does not apply to the products without MLA (con_mla=false)")
     where = _without_mla()
+    if f.producto is not None:  # one product (the product panel asks its row this way)
+        where.append(T.p.item_id == f.producto)
     if f.q is not None:
         where.append(_product_search(f.q))
     if f.marcas:

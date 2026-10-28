@@ -111,6 +111,8 @@ class TestFilters:
         assert listed(q="*73") == [73]  # the code
         assert listed(stock="erp_con_stock") == [72]
         assert listed(stock="erp_sin_stock") == [73]  # 77 has no stock figure: unknown, never "sin stock"
+        assert listed(producto="73") == [73]  # one product: the product panel asks its row this way
+        assert listed(producto="70") == []  # it has an MLA
 
     @pytest.mark.parametrize(
         ("param", "params"),
@@ -123,7 +125,6 @@ class TestFilters:
             ("stock", {"stock": "sin_stock"}),
             ("evento", {"evento": "price_changed"}),
             ("familia", {"familia": "123"}),
-            ("producto", {"producto": "70"}),
             ("sin_producto", {"sin_producto": True}),
             ("con_oferta", {"con_oferta": True}),
             ("promo_tipos", {"mla_scope": frozenset({"MLA1"})}),
