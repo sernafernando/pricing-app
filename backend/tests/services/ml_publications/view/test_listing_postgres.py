@@ -774,6 +774,36 @@ class TestSorting:
             listing.list_items(db, parse_filter(), sort, 50, 0, events=True)
         assert raised.value.field == "orden"
 
+    def test_without_a_usd_rate_usd_costs_follow_the_peso_costs_before_the_missing_ones(self, conn, db) -> None:
+        """No USD rate on record: a USD cost cannot be compared with a peso cost, but it is still a cost. It goes
+        after the peso costs, sorted by its dollar amount in the same direction, and before the rows with no cost."""
+        seed.add_usd_rate(conn, 1000.0, "2026-10-27")  # builds the table; then no rate is left
+        conn.execute(text("DELETE FROM tipo_cambio"))
+        costs = ((70, 60000.0, "ARS"), (71, 50.0, "USD"), (72, 40000.0, "ARS"), (73, 80.0, "USD"), (74, None, "ARS"))
+        for product_id, costo, moneda in costs:
+            seed.add_product(conn, product_id, f"C{product_id}", "P")
+            seed.add_cost(conn, product_id, costo, moneda_costo=moneda)
+        for item_id, product_id in (("MLA1", 70), ("MLA2", 71), ("MLA3", 72), ("MLA6", 73), ("MLA5", 74)):
+            seed.add_item(conn, item_id)
+            seed.add_link(conn, item_id, product_id)
+        seed.add_item(conn, "MLA4")  # no product, no cost
+
+        def by_cost(direction=None) -> list[str]:
+            page = listing.list_items(
+                db, parse_filter(), listing.parse_sort("costo", direction), 50, 0, events=True, can_see_margin=True
+            )
+            return ids(page)
+
+        assert by_cost() == ["MLA3", "MLA1", "MLA2", "MLA6", "MLA4", "MLA5"]
+        assert by_cost("desc") == ["MLA1", "MLA3", "MLA6", "MLA2", "MLA4", "MLA5"]
+        first = listing.list_items(
+            db, parse_filter(), listing.parse_sort("costo", None), 3, 0, events=True, can_see_margin=True
+        )
+        second = listing.list_items(
+            db, parse_filter(), listing.parse_sort("costo", None), 3, 3, events=True, can_see_margin=True
+        )
+        assert ids(first) + ids(second) == by_cost()  # the same order page by page
+
     def test_title_ignores_case_and_puts_missing_titles_last(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", title="banana")
         seed.add_item(conn, "MLA2", title="Apple")

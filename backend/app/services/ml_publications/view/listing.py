@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional
 
-from sqlalchemy import ARRAY, Text, any_, case, cast, func, literal, select, text, true
+from sqlalchemy import ARRAY, Text, and_, any_, case, cast, func, literal, select, text, true
 from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
@@ -87,6 +87,16 @@ def cost_in_pesos() -> Any:
         .scalar_subquery()
     )
     return case((T.p.moneda_costo == "USD", T.p.costo * latest_usd), else_=T.p.costo)
+
+
+def unconverted_usd_cost() -> Any:
+    """A USD cost `cost_in_pesos` has no rate for, in dollars (null otherwise): with no USD rate on record, the USD
+    costs still sort, after the peso costs, by their own amount, and before the rows with no cost at all."""
+    return case((and_(T.p.moneda_costo == "USD", cost_in_pesos().is_(None)), T.p.costo), else_=None)
+
+
+# sort key -> the ordering column that breaks its ties, missing values last like the key's own
+SORT_TIES: dict[str, Any] = {"costo": unconverted_usd_cost}
 
 
 @dataclass(frozen=True)
@@ -186,10 +196,12 @@ def row_columns(*, cost: bool = False) -> list[Any]:
 
 
 def _order_by(sort: Sort) -> list[Any]:
-    """The sort key (missing values last in either direction), then `item_id`, which makes the order total."""
-    expression = SORT_COLUMNS[sort.key][0]()
-    primary = expression.desc() if sort.descending else expression.asc()
-    return [primary.nulls_last(), T.i.item_id]
+    """The sort key and its tie-break, if any (missing values last in either direction), then `item_id`, which makes
+    the order total."""
+    keys = [SORT_COLUMNS[sort.key][0]()]
+    if sort.key in SORT_TIES:
+        keys.append(SORT_TIES[sort.key]())
+    return [(key.desc() if sort.descending else key.asc()).nulls_last() for key in keys] + [T.i.item_id]
 
 
 def _price(row: Any) -> dict[str, Any]:
