@@ -315,6 +315,13 @@ describe('stat cards (S12d4, Productos)', () => {
     await waitFor(() => expect(publicacionesMlAPI.stats).toHaveBeenCalled());
     expect(statsParams()).toMatchObject({ con_oferta: true, oferta_por_producto: true });
   });
+
+  it("in the Producto view the Oferta sin Rebate card counts a product's offer on any of its publications, with no offer filter set", async () => {
+    await page('/ml-publicaciones?vista=producto').catch(() => {});
+    await waitFor(() => expect(publicacionesMlAPI.stats).toHaveBeenCalled());
+    expect(statsParams()).toMatchObject({ oferta_por_producto: true });
+    expect(statsParams()).not.toHaveProperty('con_oferta');
+  });
 });
 
 describe('sorting and paging', () => {

@@ -367,9 +367,14 @@ export function buildProductIdsParams(filters) {
 
 /**
  * The `GET /ml-publications/view/stats` query (Productos' stat cards, S12d4): they count the linked products of the
- * very set a bulk action takes, so they ask exactly as `/product-ids` does.
+ * very set a bulk action takes, so they ask as `/product-ids` does. In the Producto view the "Oferta sin Rebate" card
+ * counts the offer of the product, as the list it opens does, even before the offer filter is set.
  */
-export const buildStatsParams = buildProductIdsParams;
+export function buildStatsParams(filters) {
+  const params = buildProductIdsParams(filters);
+  if (filters.vista === 'producto') params.oferta_por_producto = true;
+  return params;
+}
 
 export function usePublicacionesMLFilters({ canSeeMargin = false } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
