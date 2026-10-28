@@ -67,7 +67,11 @@ function closenessScore(promo, precioSugerido) {
     promo.max_discounted_price != null && Number.isFinite(Number(promo.max_discounted_price))
       ? Number(promo.max_discounted_price)
       : target;
-  return Math.abs((min + max) / 2 - target);
+  // Prefer tighter bands that still contain the suggested price (A PVP… are often wide).
+  if (target >= min && target <= max) {
+    return max - min;
+  }
+  return Math.min(Math.abs(target - min), Math.abs(target - max)) + (max - min);
 }
 
 function sortByCloseness(list, precioSugerido) {
