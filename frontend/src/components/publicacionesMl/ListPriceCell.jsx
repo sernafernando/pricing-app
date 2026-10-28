@@ -4,6 +4,17 @@ import { costoConOffset, markupConOffset, requiereTipoCambio } from '../../utils
 import styles from './cells.module.css';
 
 /**
+ * Productos' "markup con offsets": `markup` (percent) over the cost the `offsets` discount, or null while they load,
+ * when none reaches the product, or when the cost needs a USD rate there is not.
+ */
+function markupWithOffsets(product, markup, offsets) {
+  if (!offsets) return null;
+  const needsRate = requiereTipoCambio(product, offsets);
+  if (needsRate && !offsets.tipoCambio) return null;
+  return markupConOffset(markup, costoConOffset(product, { ...offsets, tipoCambio: needsRate ? offsets.tipoCambio : null }));
+}
+
+/**
  * One of Productos' prices of a row's product (`column`: its `price` and `markup` fields, and `takesPart`, the flag
  * without which Productos shows no price). The markup only with `canSeeMargin`. No product reads "—" ("…" while
  * its prices are on their way), and so does a price that is not there: never 0. `markupScale` turns the markup the
@@ -15,13 +26,6 @@ import styles from './cells.module.css';
  * same net price over the cost the offsets discount. None while they load, when none reaches the product, or when
  * the cost needs a USD rate there is not.
  */
-function markupWithOffsets(product, markup, offsets) {
-  if (!offsets) return null;
-  const needsRate = requiereTipoCambio(product, offsets);
-  if (needsRate && !offsets.tipoCambio) return null;
-  return markupConOffset(markup, costoConOffset(product, { ...offsets, tipoCambio: needsRate ? offsets.tipoCambio : null }));
-}
-
 export default function ListPriceCell({ product, column, loading, failed, canSeeMargin, offsets = null }) {
   if (failed) {
     return (

@@ -320,6 +320,17 @@ describe('priceColumns', () => {
       expect(cell(clasicaOf(TP, { mode: 'cuotas' }))).toContain('→ 38,9%');
     });
 
+    it('a markup still negative after the offsets takes the danger tone, a positive one does not', () => {
+      // -50 % over 800 is 400, which is -44,44 % over 720
+      const { unmount } = render(<div>{clasicaOf({ ...TP, markup: -50 }).render(item())}</div>);
+      const negative = screen.getByTitle('Markup con offsets aplicados');
+      expect(negative).toHaveTextContent('→ -44,4%');
+      expect(negative).toHaveAttribute('data-negative');
+      unmount();
+      render(<div>{clasicaOf(TP).render(item())}</div>);
+      expect(screen.getByTitle('Markup con offsets aplicados')).not.toHaveAttribute('data-negative');
+    });
+
     it('only on the clásica price: not on the other lists nor in the PVP mode', () => {
       const columns = priceColumns('normal', { prices: prices(new Map([[7, TP]])), canSeeMargin: true, offsets: offsets() });
       columns.slice(1).forEach((column) => expect(cell(column)).not.toContain('→'));
