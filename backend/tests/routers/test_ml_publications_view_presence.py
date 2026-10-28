@@ -160,14 +160,16 @@ def fill_paused(conn) -> None:
     seed.add_link(conn, "MLA5", 79)
 
 
-def test_estado_mla_pausada_filters_the_publications_and_the_products(client, pg, db, rol_admin, admin_auth_headers):
+def test_estado_mla_filters_the_publications_and_the_products(client, pg, db, rol_admin, admin_auth_headers):
     seed_rows(pg, fill_paused)
     grant(db, rol_admin, VER)
     assert items(client, admin_auth_headers, estado_mla="pausada") == ["MLA5"]
     assert products(client, admin_auth_headers, estado_mla="pausada") == ["79"]
+    assert items(client, admin_auth_headers, estado_mla="activa") == ["MLA1", "MLA2", "MLA4"]
+    assert products(client, admin_auth_headers, estado_mla="activa") == ["77", "78"]
 
 
-@pytest.mark.parametrize("value", ["activa", "paused"])
+@pytest.mark.parametrize("value", ["inactiva", "paused", "activa,pausada"])
 def test_estado_mla_refuses_any_other_value(client, reader, value) -> None:
     response = client.get(ITEMS_URL, headers=reader, params={"estado_mla": value})
     assert response.status_code == 422, response.text

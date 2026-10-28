@@ -806,7 +806,9 @@ def filter_query(
         None, description="false: the products no publication is linked to (Productos' Sin MLA, Producto view)"
     ),
     estado_mla: Optional[str] = Query(
-        None, description="pausada: the products with publications and none active (Productos' Estado MLA)"
+        None,
+        description="Productos' Estado MLA: activa (a product with an active publication) or pausada (publications,"
+        " none active)",
     ),
     # The caller and the application session, for the permission check of the markup filters (cached per request:
     # every endpoint already authenticates the same way).

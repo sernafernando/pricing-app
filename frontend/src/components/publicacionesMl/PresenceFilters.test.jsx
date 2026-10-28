@@ -32,6 +32,9 @@ describe('presenceFilters', () => {
     expect(activePresenceChips(filters({ estado_mla: 'pausada' }))).toEqual([
       { id: 'estado_mla', label: 'Estado MLA: Pausadas', remove: { estado_mla: '' } },
     ]);
+    expect(activePresenceChips(filters({ estado_mla: 'activa' }))).toEqual([
+      { id: 'estado_mla', label: 'Estado MLA: Activas', remove: { estado_mla: '' } },
+    ]);
     expect(activePresenceChips(filters())).toEqual([]);
   });
 });
@@ -94,7 +97,7 @@ describe('PresenceFilters', () => {
     expect(options('Out of Cards')).toEqual(['Todos', 'Marcados', 'No Marcados']);
     expect(options('Precio')).toEqual(['Todos', 'Con precio', 'Sin precio']);
     expect(options('Productos Nuevos')).toEqual(['Todos', 'Últimos 7 días']);
-    expect(options('Estado MLA')).toEqual(['Todos', 'Pausadas']);
+    expect(options('Estado MLA')).toEqual(['Todos', 'Activas', 'Pausadas']);
   });
 
   it('writes the picked value to the URL and "Todos" clears it', async () => {
