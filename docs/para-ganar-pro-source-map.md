@@ -103,8 +103,8 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 
 ## Pricing shell (started)
 
-- Route: `/para-ganar` (`productos.ver`); subvistas `?vista=advisor` (default), `?vista=criterios`, planned `?vista=periodicidad`
-- Page: `frontend/src/pages/ParaGanarAdvisor.jsx` — tabs Advisor | Criterios (| Periodicidad TBD); Advisor/Criterios comparten cola MLA; Periodicidad será cola por EAN
+- Route: `/para-ganar` (`productos.ver`); subvistas `?vista=advisor` (default), `?vista=criterios`, `?vista=periodicidad` (P1 shell)
+- Page: `frontend/src/pages/ParaGanarAdvisor.jsx` — tabs Advisor | Criterios | Periodicidad; Advisor/Criterios comparten cola MLA; Periodicidad aún shell (cola EAN en P2/P3)
 - Scope filters (shared): tipo (Clásica/3/6/9/12 cuotas), lista de precios, tienda oficial, marca, subcategoría, PM, EAN/código, MLA catálogo, **costo USD desde/hasta** + search — `ParaGanarScopeFilters`; faceted `GET /api/para-ganar/alcance-opciones` (same params as cola; each facet skips itself); tienda names from `ml_tiendas_oficiales` via `useTiendasOficiales` (seed `backend/scripts/seed_ml_tiendas_oficiales.py`); sandbox MLA→store link via minimal `tb_mercadolibre_items_publicados` rows (`backend/scripts/seed_para_ganar_publicados_stores.py`: TP-LINK→471846, else Gauss 57997); “Sin tienda” also matches MLAs without that row
 - API: `GET /api/para-ganar/cola` — active MLAs (precio, catálogo, par sync por `inventory_id`) with Productos-like scope params
 - Nav: Sidebar → Productos → PARA GANAR (badge WIP)
@@ -115,4 +115,4 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 
 ## Suggested next step
 
-See backlog + Periodicidad modules (P1–P7) in [`para-ganar.md`](./para-ganar.md). Next likely: **P1** shell tab Periodicidad.
+See backlog + Periodicidad modules (P1–P7) in [`para-ganar.md`](./para-ganar.md). **P1** done → next **P2** modelo/API de suscripción por EAN.

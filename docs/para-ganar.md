@@ -53,15 +53,15 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 
 Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por MLA sueltos y/o por criterios (lista de precios, tipo de publicación, tienda). Solo lo incluido entra en la **revisión periódica** (trigger → datos de catálogo → evaluación → marca por revisar). Lo no incluido se consulta **a mano** desde Advisor con filtros.
 
-| Módulo | Qué | Depende de |
-|--------|-----|------------|
-| **P1** | Shell: tab **Periodicidad** (`?vista=periodicidad`) | — |
-| **P2** | Modelo + API: suscripción periódica por EAN (alcance: todo el EAN / MLAs elegidos / match lista+tipo+tienda) | P1 |
-| **P3** | UI gestión: cola por EAN, abrir detalle, elegir MLAs o reglas de alcance, guardar | P2 |
-| **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 |
-| **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 |
-| **P6** | Trigger periódico: job que pide/refresca competencia de catálogo solo para inclusiones y dispara P5 | P5 |
-| **P7** | Vista flotante de cola “por revisar” (después; por ahora solo Advisor) | P4+P5 |
+| Módulo | Qué | Depende de | Status |
+|--------|-----|------------|--------|
+| **P1** | Shell: tab **Periodicidad** (`?vista=periodicidad`) | — | Done |
+| **P2** | Modelo + API: suscripción periódica por EAN (alcance: todo el EAN / MLAs elegidos / match lista+tipo+tienda) | P1 | Planned |
+| **P3** | UI gestión: cola por EAN, abrir detalle, elegir MLAs o reglas de alcance, guardar | P2 | Planned |
+| **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Planned |
+| **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Planned |
+| **P6** | Trigger periódico: job que pide/refresca competencia de catálogo solo para inclusiones y dispara P5 | P5 | Planned |
+| **P7** | Vista flotante de cola “por revisar” (después; por ahora solo Advisor) | P4+P5 | Later |
 
 **Deprecado (confirmado):** herencia producto/PM; heurística campañas de marca.
 
@@ -139,7 +139,7 @@ Newest first. Use for “why did we…” archaeology.
 9. ~~Mass criteria apply to filtered scope (D17)~~.
 10. ~~Show promo pool (D18→D19→D20 one-per-type)~~.
 11. ~~Show deal at `precio_sugerido` (clamped) + wire enroll from Advisor (D23)~~.
-12. **Periodicidad P1→P3** — vista + modelo + UI por EAN (ver tabla de módulos arriba).
+12. ~~**Periodicidad P1** shell tab~~ → **P2→P3** modelo + UI por EAN.
 13. **P4** — estados Advisor Pendiente de revisión / Sin novedades.
 14. **P5→P6** — motor de evaluación + trigger periódico de catálogo.
 15. **P7** — vista flotante (después).

@@ -1,26 +1,37 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Target, ListChecks, SlidersHorizontal } from 'lucide-react';
+import { Target, ListChecks, SlidersHorizontal, CalendarClock } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import useParaGanarCola from '../hooks/useParaGanarCola';
 import ParaGanarQueue from '../components/paraGanar/ParaGanarQueue';
 import ParaGanarAdvisorDetail from '../components/paraGanar/ParaGanarAdvisorDetail';
 import ParaGanarCriteriosDetail from '../components/paraGanar/ParaGanarCriteriosDetail';
 import ParaGanarMassApplyModal from '../components/paraGanar/ParaGanarMassApplyModal';
+import ParaGanarPeriodicidadShell from '../components/paraGanar/ParaGanarPeriodicidadShell';
 import ParaGanarScopeFilters from '../components/paraGanar/ParaGanarScopeFilters';
+import {
+  parseVista,
+  VISTA_ADVISOR,
+  VISTA_CRITERIOS,
+  VISTA_PERIODICIDAD,
+} from '../components/paraGanar/paraGanarVistas';
 import styles from './ParaGanarAdvisor.module.css';
 
 /**
- * PARA GANAR shell — tabs Advisor | Criterios share the sandbox MLA queue.
+ * PARA GANAR shell — tabs Advisor | Criterios | Periodicidad.
  * Intent: docs/para-ganar-pro-source-map.md
  */
 
-const VISTA_ADVISOR = 'advisor';
-const VISTA_CRITERIOS = 'criterios';
 const PERMISO_PARA_GANAR = 'productos.ver';
 
-function parseVista(raw) {
-  return raw === VISTA_CRITERIOS ? VISTA_CRITERIOS : VISTA_ADVISOR;
+function subtitleForVista(vista) {
+  if (vista === VISTA_CRITERIOS) {
+    return 'Criterios por MLA — individual y masivo al filtro';
+  }
+  if (vista === VISTA_PERIODICIDAD) {
+    return 'Gestionar periodicidad — suscripción por EAN (próximos slices)';
+  }
+  return 'Advisor de sugerencias — cola sandbox (solo lectura)';
 }
 
 export default function ParaGanarAdvisor() {
@@ -29,13 +40,20 @@ export default function ParaGanarAdvisor() {
   const { tienePermiso } = usePermisos();
   const canAdvisor = tienePermiso(PERMISO_PARA_GANAR);
   const canCriterios = tienePermiso(PERMISO_PARA_GANAR);
+  const canPeriodicidad = tienePermiso(PERMISO_PARA_GANAR);
   const canWriteCriteria = tienePermiso('productos.editar_precios');
   const cola = useParaGanarCola(50);
   const [massOpen, setMassOpen] = useState(false);
   const [massFeedback, setMassFeedback] = useState(null);
 
+  const isAdvisor = vista === VISTA_ADVISOR;
   const isCriterios = vista === VISTA_CRITERIOS;
-  const canCurrent = isCriterios ? canCriterios : canAdvisor;
+  const isPeriodicidad = vista === VISTA_PERIODICIDAD;
+  const canCurrent = isCriterios
+    ? canCriterios
+    : isPeriodicidad
+      ? canPeriodicidad
+      : canAdvisor;
 
   const setVista = (next) => {
     const params = new URLSearchParams(searchParams);
@@ -54,34 +72,32 @@ export default function ParaGanarAdvisor() {
           <Target className={styles.headerIcon} size={28} aria-hidden />
           <div>
             <h1 className={styles.title}>PARA GANAR</h1>
-            <p className={styles.subtitle}>
-              {isCriterios
-                ? 'Criterios por MLA — individual y masivo al filtro'
-                : 'Advisor de sugerencias — cola sandbox (solo lectura)'}
-            </p>
+            <p className={styles.subtitle}>{subtitleForVista(vista)}</p>
           </div>
         </div>
-        <form className={styles.searchForm} onSubmit={cola.applySearch}>
-          <input
-            className={styles.searchInput}
-            type="search"
-            value={cola.qInput}
-            onChange={(e) => cola.setQInput(e.target.value)}
-            placeholder="Buscar MLA, código, título o marca"
-            aria-label="Buscar en la cola"
-          />
-          <button type="submit" className={styles.searchBtn}>
-            Buscar
-          </button>
-        </form>
+        {!isPeriodicidad && (
+          <form className={styles.searchForm} onSubmit={cola.applySearch}>
+            <input
+              className={styles.searchInput}
+              type="search"
+              value={cola.qInput}
+              onChange={(e) => cola.setQInput(e.target.value)}
+              placeholder="Buscar MLA, código, título o marca"
+              aria-label="Buscar en la cola"
+            />
+            <button type="submit" className={styles.searchBtn}>
+              Buscar
+            </button>
+          </form>
+        )}
       </header>
 
       <nav className={styles.tabs} aria-label="Secciones PARA GANAR">
         {canAdvisor && (
           <button
             type="button"
-            className={`${styles.tab} ${!isCriterios ? styles.tabActive : ''}`}
-            aria-current={!isCriterios ? 'page' : undefined}
+            className={`${styles.tab} ${isAdvisor ? styles.tabActive : ''}`}
+            aria-current={isAdvisor ? 'page' : undefined}
             onClick={() => setVista(VISTA_ADVISOR)}
           >
             <ListChecks size={14} aria-hidden />
@@ -99,9 +115,20 @@ export default function ParaGanarAdvisor() {
             Criterios
           </button>
         )}
+        {canPeriodicidad && (
+          <button
+            type="button"
+            className={`${styles.tab} ${isPeriodicidad ? styles.tabActive : ''}`}
+            aria-current={isPeriodicidad ? 'page' : undefined}
+            onClick={() => setVista(VISTA_PERIODICIDAD)}
+          >
+            <CalendarClock size={14} aria-hidden />
+            Periodicidad
+          </button>
+        )}
       </nav>
 
-      {canCurrent && (
+      {canCurrent && !isPeriodicidad && (
         <ParaGanarScopeFilters
           marcas={cola.marcas}
           subcategorias={cola.subcategorias}
@@ -131,55 +158,57 @@ export default function ParaGanarAdvisor() {
         />
       )}
 
-      <section
-        className={styles.toolbar}
-        aria-label={isCriterios ? 'Acciones de criterios' : 'Filtros de sugerencias'}
-      >
-        {!isCriterios && canAdvisor && (
-          <>
-            <button type="button" className={`${styles.chip} ${styles.chipActive}`} disabled>
-              Pendientes
-            </button>
-            <button type="button" className={styles.chip} disabled>
-              Aceptadas
-            </button>
-            <button type="button" className={styles.chip} disabled>
-              Descartadas
-            </button>
-            <span className={styles.toolbarHint}>
-              {cola.total.toLocaleString('es-AR')} publicaciones · sugerencias aún no calculadas
-            </span>
-          </>
-        )}
-        {isCriterios && canCriterios && (
-          <>
-            <button
-              type="button"
-              className={styles.bulkBtn}
-              disabled={cola.loading || cola.total <= 0 || !canWriteCriteria}
-              title={
-                !canWriteCriteria
-                  ? 'Requiere productos.editar_precios'
-                  : cola.total <= 0
-                    ? 'No hay MLAs en el alcance'
-                    : 'Pisa markup/TOP/flags en todas las MLAs del filtro'
-              }
-              onClick={() => {
-                setMassFeedback(null);
-                setMassOpen(true);
-              }}
-            >
-              Aplicar criterios al filtro
-            </button>
-            <span className={styles.toolbarHint}>
-              {cola.total.toLocaleString('es-AR')} MLAs en alcance
-              {massFeedback
-                ? ` · aplicadas ${massFeedback.applied.toLocaleString('es-AR')} (${massFeedback.created} nuevas, ${massFeedback.updated} actualizadas)`
-                : ''}
-            </span>
-          </>
-        )}
-      </section>
+      {!isPeriodicidad && (
+        <section
+          className={styles.toolbar}
+          aria-label={isCriterios ? 'Acciones de criterios' : 'Filtros de sugerencias'}
+        >
+          {isAdvisor && canAdvisor && (
+            <>
+              <button type="button" className={`${styles.chip} ${styles.chipActive}`} disabled>
+                Pendientes
+              </button>
+              <button type="button" className={styles.chip} disabled>
+                Aceptadas
+              </button>
+              <button type="button" className={styles.chip} disabled>
+                Descartadas
+              </button>
+              <span className={styles.toolbarHint}>
+                {cola.total.toLocaleString('es-AR')} publicaciones · sugerencias aún no calculadas
+              </span>
+            </>
+          )}
+          {isCriterios && canCriterios && (
+            <>
+              <button
+                type="button"
+                className={styles.bulkBtn}
+                disabled={cola.loading || cola.total <= 0 || !canWriteCriteria}
+                title={
+                  !canWriteCriteria
+                    ? 'Requiere productos.editar_precios'
+                    : cola.total <= 0
+                      ? 'No hay MLAs en el alcance'
+                      : 'Pisa markup/TOP/flags en todas las MLAs del filtro'
+                }
+                onClick={() => {
+                  setMassFeedback(null);
+                  setMassOpen(true);
+                }}
+              >
+                Aplicar criterios al filtro
+              </button>
+              <span className={styles.toolbarHint}>
+                {cola.total.toLocaleString('es-AR')} MLAs en alcance
+                {massFeedback
+                  ? ` · aplicadas ${massFeedback.applied.toLocaleString('es-AR')} (${massFeedback.created} nuevas, ${massFeedback.updated} actualizadas)`
+                  : ''}
+              </span>
+            </>
+          )}
+        </section>
+      )}
 
       {isCriterios && (
         <ParaGanarMassApplyModal
@@ -194,7 +223,9 @@ export default function ParaGanarAdvisor() {
         />
       )}
 
-      {canCurrent && (
+      {canCurrent && isPeriodicidad && <ParaGanarPeriodicidadShell />}
+
+      {canCurrent && !isPeriodicidad && (
         <div className={styles.layout}>
           <ParaGanarQueue
             mode={isCriterios ? 'criterios' : 'advisor'}

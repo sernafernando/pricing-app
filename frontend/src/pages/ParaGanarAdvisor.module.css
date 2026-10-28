@@ -762,6 +762,27 @@
   border: 0;
 }
 
+.periodicidadShell {
+  flex: 1;
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.periodicidadShell .emptyState {
+  align-items: center;
+  text-align: center;
+}
+
+.periodicidadShellIcon {
+  color: var(--cf-text-tertiary);
+}
+
 .emptyState {
   flex: 1;
   min-height: 0;
