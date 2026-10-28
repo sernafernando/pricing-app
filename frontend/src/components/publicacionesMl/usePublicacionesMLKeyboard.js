@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const ROW = 'tr[data-clickable][data-row-key]';
 // An editable price of a row (PriceEditCell's button), in the order the columns show.
@@ -156,7 +156,9 @@ function moveFocus(event) {
  *   it, Escape closes it back on the price: PriceEditCell's), and Escape on the price goes back to the row.
  *   Home/End go to the row's first / last price only while a price is active: with none they keep going to the first /
  *   last row, so nobody's Home/End changes. Likewise Enter with no price active opens the row, and Escape with none is
- *   left to the page (it closes the detail).
+ *   the navigation mode's (below): the open detail closes first, then the row is left.
+ * - A focused row is Productos' navigation mode (the returned `navigating`, for its banner) and Escape leaves it,
+ *   taking the focus off the row; while the side panel is open Escape is the panel's (`keepRowOnEscape`).
  *
  * While the operator types in a field only Ctrl+F and the copy shortcuts run (as in Productos, which copies while
  * editing too); nothing runs while a dialog is open (the help only takes `?`, to close it). `findRow(key)` maps a focused row's key to
@@ -176,14 +178,16 @@ export default function usePublicacionesMLKeyboard({
   onToggleAutoRecalc,
   onShowInfo,
   onToggleHelp,
+  keepRowOnEscape,
   showToast,
   disabled,
 }) {
+  const [navigating, setNavigating] = useState(false);
   // The latest props, so the one listener never reads stale ones (updated after each render, never during it).
   // No dependency array on purpose (the latest-ref pattern): it copies the values after every render.
   const props = useRef({});
   useLayoutEffect(() => {
-    props.current = { searchRef, findRow, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleAutoRecalc, onShowInfo, onToggleHelp, showToast };
+    props.current = { searchRef, findRow, onExport, onPaintRow, onToggleRow, onExtendRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleAutoRecalc, onShowInfo, onToggleHelp, keepRowOnEscape, showToast };
   });
 
   useEffect(() => {
@@ -228,6 +232,7 @@ export default function usePublicacionesMLKeyboard({
         onOpenFilter: openFilter,
         onToggleAutoRecalc: toggleAutoRecalc,
         onShowInfo: showInfo,
+        keepRowOnEscape: keepRow,
         showToast: toast,
       } = props.current;
       // Another dialog (a bulk action, a confirmation, Productos' info modal) owns the keyboard, as in Productos; the
@@ -254,6 +259,16 @@ export default function usePublicacionesMLKeyboard({
         return;
       }
       if (isTyping(event.target)) return;
+      // Escape is taken only when it leaves a row: with no row focused, or with a modifier, it stays for the others,
+      // and with a price active it is the price's (back to its row, `cellKey`).
+      const current = focusedRow();
+      const plain = !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
+      const onRow = current && document.activeElement === current;
+      if (event.key === 'Escape' && plain && onRow && !keepRow && !event.defaultPrevented) {
+        event.preventDefault();
+        current.blur();
+        return;
+      }
       // Cmd+I too, as Productos accepts it (`e.ctrlKey || e.metaKey`), unlike the Alt keys below.
       if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.code === 'KeyI' && showInfo) {
         event.preventDefault();
@@ -351,4 +366,30 @@ export default function usePublicacionesMLKeyboard({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [disabled]);
+
+  // Navigating = a list row has the focus. On `focusout` the next element is `relatedTarget` (null when the focus
+  // leaves to nowhere), since `document.activeElement` is still the row being left.
+  useEffect(() => {
+    const onFocusIn = (event) => setNavigating(Boolean(event.target?.closest?.(ROW)));
+    const onFocusOut = (event) => setNavigating(Boolean(event.relatedTarget?.closest?.(ROW)));
+    document.addEventListener('focusin', onFocusIn);
+    document.addEventListener('focusout', onFocusOut);
+    return () => {
+      document.removeEventListener('focusin', onFocusIn);
+      document.removeEventListener('focusout', onFocusOut);
+    };
+  }, []);
+
+  // A focused row taken out of the list (another page, a refetch) may leave without a `focusout`: while navigating,
+  // each change to the page checks the row is still there.
+  useEffect(() => {
+    if (!navigating) return undefined;
+    const observer = new MutationObserver(() => {
+      if (!focusedRow()) setNavigating(false);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [navigating]);
+
+  return { navigating: navigating && !disabled };
 }

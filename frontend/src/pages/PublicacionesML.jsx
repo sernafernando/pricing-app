@@ -639,7 +639,7 @@ export default function PublicacionesML() {
   const [bulkRequest, setBulkRequest] = useState(null);
   const filterCardRef = useRef(null);
   const openFilter = (name) => filterCardRef.current?.querySelector(`[data-filter="${name}"]`)?.click();
-  usePublicacionesMLKeyboard({
+  const { navigating } = usePublicacionesMLKeyboard({
     searchRef,
     onBulkAction: (key) => setBulkRequest({ key, at: performance.now() }),
     onOpenFilter: openFilter,
@@ -655,6 +655,8 @@ export default function PublicacionesML() {
     onToggleAutoRecalc: canCalculatePrice ? autoRecalc.toggle : undefined,
     onShowInfo: showInfo,
     onToggleHelp: () => setShowShortcuts((open) => !open),
+    // The open side panel takes Escape first (closing it gives its row the focus back).
+    keepRowOnEscape: Boolean(filters.sel || filters.prod),
     showToast,
   });
   const total = producto ? productRows.total : (data?.total ?? 0);
@@ -1038,6 +1040,11 @@ export default function PublicacionesML() {
         </div>
       )}
       {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+      {navigating && (
+        <div className={styles.navigationBanner} role="status">
+          Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
+        </div>
+      )}
       <ModalInfoProducto isOpen={infoProductId != null} itemId={infoProductId} onClose={() => setInfoProductId(null)} />
       {priceEditor.pending && (
         <ModalTesla

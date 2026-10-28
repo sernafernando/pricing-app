@@ -16,6 +16,7 @@ const SHORTCUTS = [
   { keys: ['Esc'], what: 'Cerrar el editor del precio; con el editor cerrado, volver a la fila' },
   { keys: ['Ctrl+Enter'], what: 'Abrir la publicación en Mercado Libre' },
   { keys: ['Ctrl+I'], what: 'Ver la información del producto de la fila' },
+  { keys: ['Esc'], what: 'Salir del modo navegación (deja la fila)' },
   { keys: ['Ctrl+F1', 'Ctrl+Shift+1'], what: 'Copiar el código del producto' },
   { keys: ['Ctrl+F2', 'Ctrl+Shift+2'], what: 'Copiar el enlace 1 (listado por precio)' },
   { keys: ['Ctrl+F3', 'Ctrl+Shift+3'], what: 'Copiar el enlace 2 (promociones)' },

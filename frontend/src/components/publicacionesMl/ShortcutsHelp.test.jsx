@@ -20,6 +20,11 @@ describe('ShortcutsHelp', () => {
     expect(keysOf('Ver la información del producto de la fila')).toEqual(['Ctrl+I']);
   });
 
+  it("lists Productos' Esc, leaving the navigation mode", () => {
+    render(<ShortcutsHelp onClose={() => {}} />);
+    expect(keysOf('Salir del modo navegación (deja la fila)')).toEqual(['Esc']);
+  });
+
   it('lists the search operators, as Productos does', () => {
     render(<ShortcutsHelp onClose={() => {}} />);
     const section = screen.getByRole('region', { name: 'Operadores de búsqueda' });
