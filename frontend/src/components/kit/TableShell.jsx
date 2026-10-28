@@ -73,6 +73,10 @@ function startsGroup(columns, index) {
 
 function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className }) {
   const active = sort?.key === column.key;
+  // A sort by several keys (`sort.keys`) numbers its columns, each with its own arrow.
+  const keys = sort?.keys ?? (sort ? [sort] : []);
+  const position = keys.findIndex((entry) => entry.key === column.key);
+  const entry = position >= 0 ? keys[position] : null;
   return (
     <th
       scope="col"
@@ -85,11 +89,20 @@ function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className 
       aria-sort={active ? ARIA_SORT[sort.dir] : undefined}
     >
       {column.sortable ? (
-        <button type="button" className={styles.sortButton} onClick={() => onSort?.(column.key)}>
+        <button type="button" className={styles.sortButton} onClick={(event) => onSort?.(column.key, event)}>
           {column.header}
-          {active && (
+          {entry && (
             <span aria-hidden="true" className={styles.sortMark}>
-              {sort.dir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              {entry.dir === 'asc' ? (
+                <ChevronUp size={12} data-testid="sort-arrow-asc" />
+              ) : (
+                <ChevronDown size={12} data-testid="sort-arrow-desc" />
+              )}
+              {keys.length > 1 && (
+                <span className={styles.sortOrder} data-testid="sort-order">
+                  {position + 1}
+                </span>
+              )}
             </span>
           )}
         </button>
@@ -105,8 +118,10 @@ function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className 
  * @param {Array<object>} props.columns
  * @param {Array<object>} props.rows
  * @param {(row: object) => string|number} props.getRowKey
- * @param {{key: string, dir: 'asc'|'desc'}} [props.sort]
- * @param {(key: string) => void} [props.onSort]
+ * @param {{key: string, dir: 'asc'|'desc', keys?: Array<{key: string, dir: 'asc'|'desc'}>}} [props.sort] `key`/`dir`
+ *   lead (the column `aria-sort` marks); `keys`, when the sort has several, numbers each column in the header.
+ * @param {(key: string, event: import('react').MouseEvent) => void} [props.onSort] The click lets a page tell
+ *   Shift+click (add a sort key) from a plain click.
  * @param {(row: object) => number} [props.getRowDepth] Tree depth, default 0.
  * @param {(row: object) => ({background?: string, text?: string, marker?: string, label?: string} | null)} [props.getRowTone]
  *   A row's color: `background`/`text` paint it, `marker` only edges its first cell; `label` names it (tooltip).

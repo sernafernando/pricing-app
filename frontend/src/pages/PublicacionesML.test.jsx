@@ -268,6 +268,20 @@ describe('sorting and paging', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio', dir: 'desc' }));
   });
 
+  it('Shift+click adds a column to the sort, numbered in the header; a figure replaces it', async () => {
+    await page('/ml-publicaciones?orden=precio&dir=asc');
+    const header = (name) => screen.getByRole('columnheader', { name });
+    const shiftClick = (name) => fireEvent.click(within(header(name)).getByRole('button'), { shiftKey: true });
+    shiftClick(/^Propio/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio,stock_propio', dir: 'asc,desc' }));
+    expect(within(header(/^Propio/)).getByTestId('sort-order')).toHaveTextContent('2');
+    expect(within(header(/^Precio/)).getByTestId('sort-order')).toHaveTextContent('1');
+    shiftClick(/^Propio/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio,stock_propio', dir: 'asc,asc' }));
+    shiftClick(/^Facturado 30D/);
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'facturado_30d', dir: 'desc' }));
+  });
+
   it('defaults to Facturado 30D, highest first, like Métricas: the whole set ranked by the backend', async () => {
     await page();
     expect(lastParams()).toMatchObject({ orden: 'facturado_30d' });
@@ -1264,6 +1278,14 @@ describe('the Producto view', () => {
     await products();
     await user.click(screen.getByRole('button', { name: /^7D/ }));
     await waitFor(() => expect(productCalls().at(-1)).toMatchObject({ orden: 'unidades_7d', dir: 'desc' }));
+  });
+
+  it('Shift+click combines the figures of the products', async () => {
+    await products();
+    fireEvent.click(screen.getByRole('button', { name: /^7D/ }), { shiftKey: true });
+    await waitFor(() =>
+      expect(productCalls().at(-1)).toMatchObject({ orden: 'facturado_30d,unidades_7d', dir: 'desc,desc' }),
+    );
   });
 
   it('opens a publication of a product in the side panel, as the list does', async () => {

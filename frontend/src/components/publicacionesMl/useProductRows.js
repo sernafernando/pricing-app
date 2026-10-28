@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { publicacionesMlAPI } from '../../services/api';
-import { buildProductsParams, effectiveProductSort } from '../../hooks/usePublicacionesMLFilters';
+import { buildProductsParams, effectiveProductSortKeys } from '../../hooks/usePublicacionesMLFilters';
 import { buildLeafParams } from './groupNodes';
 import { flattenTree } from './groupTree';
 
@@ -62,7 +62,8 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
     latest.current = { filters, pageSize, permissions };
   }, [filters, pageSize, permissions]);
 
-  const sort = effectiveProductSort(filters, permissions);
+  const sortKeys = effectiveProductSortKeys(filters, permissions);
+  const sort = { ...sortKeys[0], keys: sortKeys };
   // What the products are asked with: the selection does not restart the list.
   const listKey = enabled ? JSON.stringify(buildProductsParams(filters, pageSize, permissions)) : '';
 

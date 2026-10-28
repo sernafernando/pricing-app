@@ -106,7 +106,7 @@ describe('column groups', () => {
     expect(container.querySelectorAll('thead [data-pinned]')).toHaveLength(1);
     expect(screen.getByRole('columnheader', { name: /Precio/ })).toHaveAttribute('aria-sort', 'ascending');
     await userEvent.click(screen.getByRole('button', { name: /Precio/ }));
-    expect(onSort).toHaveBeenCalledWith('price');
+    expect(onSort).toHaveBeenCalledWith('price', expect.objectContaining({ shiftKey: false }));
   });
 
   it('marks where each group starts, in the header and in every body row, for its divider', () => {
@@ -138,7 +138,34 @@ describe('sorting', () => {
     const onSort = vi.fn();
     renderShell({ onSort });
     await userEvent.click(screen.getByRole('button', { name: /Precio/ }));
-    expect(onSort).toHaveBeenCalledWith('price');
+    expect(onSort).toHaveBeenCalledWith('price', expect.objectContaining({ shiftKey: false }));
+  });
+
+  it('passes the click so a page can tell Shift+click (add a sort key) from a plain click', () => {
+    const onSort = vi.fn();
+    renderShell({ onSort });
+    fireEvent.click(screen.getByRole('button', { name: /Stock/ }), { shiftKey: true });
+    expect(onSort).toHaveBeenCalledWith('stock', expect.objectContaining({ shiftKey: true }));
+  });
+
+  it('numbers the columns of a sort by several keys, each with its own arrow', () => {
+    const keys = [
+      { key: 'stock', dir: 'desc' },
+      { key: 'price', dir: 'asc' },
+    ];
+    renderShell({ sort: { ...keys[0], keys } });
+    const [, price, stock] = screen.getAllByRole('columnheader');
+    expect(within(stock).getByTestId('sort-order')).toHaveTextContent('1');
+    expect(within(price).getByTestId('sort-order')).toHaveTextContent('2');
+    expect(within(stock).getByTestId('sort-arrow-desc')).toBeInTheDocument();
+    expect(within(price).getByTestId('sort-arrow-asc')).toBeInTheDocument();
+    expect(stock).toHaveAttribute('aria-sort', 'descending'); // the first key only
+    expect(price).not.toHaveAttribute('aria-sort');
+  });
+
+  it('shows no number for a sort by one key', () => {
+    renderShell({ sort: { key: 'price', dir: 'asc', keys: [{ key: 'price', dir: 'asc' }] } });
+    expect(screen.queryByTestId('sort-order')).not.toBeInTheDocument();
   });
 
   it('exposes aria-sort on the active column only', () => {
