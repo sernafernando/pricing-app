@@ -104,6 +104,7 @@ from app.services.ml_promotions_service import (
     fetch_mlas_with_candidate_only_for_types,
     fetch_mlas_with_started,
 )
+from app.services import ml_pxq_tiers_read_service
 from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.permisos_service import PermisosService
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
@@ -657,6 +658,10 @@ class ProductRowOut(BaseModel):
     sell_in_out: Optional[SellInOutProducto] = None
     params: dict[str, str]
     metrics: Optional[MetricsOut] = None
+    # Productos' wholesale quick view ("3 tramos · desde $37.800"): the deepest tier ladder of one of the product's
+    # publications and the lowest tier price of any; present only when the product has tiers (fail-open).
+    pxq_tramos: Optional[int] = None
+    pxq_precio_desde: Optional[float] = None
 
 
 class ProductsResponse(BaseModel):
@@ -739,6 +744,36 @@ def _attach_colors(
         if (slow := _database_error(exc)) is not None:
             raise slow from exc
         raise
+
+
+def _attach_pxq(db: Session, rows: list[dict[str, Any]]) -> None:
+    """Productos' PxQ quick view on each product row, over every publication linked to the product
+    (`products.mlas_by_product`, whatever the filter shows): one tier read for the page. FAIL-OPEN like Productos: the
+    list answers without the badge when mlwebhook does not."""
+    item_ids = {row["product_item_id"] for row in rows if row["product_item_id"] is not None}
+    if not item_ids:
+        return
+    try:
+        listing.bound(db)  # the list's own `statement_timeout`: the page's rollback already ended its SET LOCAL
+        mlas = products.mlas_by_product(db, sorted(item_ids))
+    except DBAPIError as exc:  # over `statement_timeout`: the list's own controlled 503, as `_attach_colors`
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # read-only, as the page's own work
+    if not mlas:
+        return
+    try:
+        tiers = ml_pxq_tiers_read_service.fetch_pxq_tiers_by_mla(sorted(m for ms in mlas.values() for m in ms))
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("Vista rápida PxQ no disponible en Publicaciones ML: %s", exc)
+        return
+    resumen = ml_pxq_tiers_read_service.resumen_por_producto(mlas, tiers)
+    for row in rows:
+        if row["product_item_id"] in resumen:
+            row["pxq_tramos"] = resumen[row["product_item_id"]].tramos
+            row["pxq_precio_desde"] = resumen[row["product_item_id"]].precio_desde
 
 
 def filter_query(
@@ -1439,6 +1474,7 @@ def get_products(
         for row in page.rows
     ]
     _attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])
+    _attach_pxq(db, rows)
     applied = products.applied_sort(f, sort_name, sort_dir == "desc", ask.then)
     applied_keys = ((applied[0], applied[1]), *applied[2])
     return {

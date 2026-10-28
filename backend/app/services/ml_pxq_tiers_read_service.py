@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Set
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set
 
 from sqlalchemy import text
 
@@ -155,3 +155,31 @@ def fetch_pxq_tiers_by_mla(mla_ids: Sequence[str]) -> Dict[str, List[PxqTier]]:
 
     logger.info("ml_pxq_price_tiers: tiers read for %d of %d mlas", len(result), len(mla_ids))
     return result
+
+
+@dataclass(frozen=True)
+class PxqResumen:
+    """A product's wholesale quick view ("3 tramos · desde $37.800", `PxqTramosBadge`)."""
+
+    tramos: int
+    precio_desde: float
+
+
+def resumen_por_producto(
+    mlas_por_producto: Mapping[int, Iterable[str]], tiers_by_mla: Mapping[str, List[PxqTier]]
+) -> Dict[int, PxqResumen]:
+    """Each product's quick view from its publications' tiers (`fetch_pxq_tiers_by_mla`); a product with no tiers is
+    absent. Shared by Productos and Publicaciones ML so both show the same badge.
+
+    `tramos` is the DEEPEST ladder of a single publication, not the sum: two publications of one product usually
+    repeat the same tiers, and adding them would show "6 tramos" where the buyer sees 3. `precio_desde` is the lowest
+    tier price of any of them."""
+    resumen: Dict[int, PxqResumen] = {}
+    for item_id, mlas in mlas_por_producto.items():
+        ladders = [tiers_by_mla[mla] for mla in mlas if mla in tiers_by_mla]
+        if ladders:
+            resumen[item_id] = PxqResumen(
+                tramos=max(len(tiers) for tiers in ladders),
+                precio_desde=min(tier.amount for tiers in ladders for tier in tiers),
+            )
+    return resumen

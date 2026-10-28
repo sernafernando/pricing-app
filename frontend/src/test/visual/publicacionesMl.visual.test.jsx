@@ -1075,6 +1075,28 @@ describe('Publicaciones ML Producto view (visual)', () => {
     }
 
     for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: a product row's prearmadas and PxQ badges stay inside its name cell`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        const table = screen.getByRole('table', { name: /por producto/ });
+        await expect.element(table.getByText('3 tramos · desde $37.800')).toBeVisible();
+        const row = rowWith(scrollerOf(), 'Sistema Mesh Deco X20');
+        const cell = row.querySelector('td');
+        for (const text of ['3 tramos · desde $37.800', '2 listas']) {
+          const badge = [...row.querySelectorAll('span')].find((el) => el.textContent.trim() === text);
+          expect(badge, text).toBeTruthy();
+          expect(rect(badge).right, text).toBeLessThanOrEqual(rect(cell).right + 0.5);
+        }
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          row.scrollIntoView({ block: 'center' });
+          await frame();
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-row-badges-${width}-${theme}.png` });
+        }
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: the product's prearmadas badge fits in the panel header`, async () => {
         const screen = await renderProducts({ width, height, theme });
         await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();

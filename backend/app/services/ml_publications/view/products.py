@@ -52,6 +52,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session
 
+from app.models.ml_publications import MlItemProductLink
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
 from app.services.ml_publications.view import row_metrics
@@ -544,3 +545,22 @@ def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery]
         ).select_from(members)
     ).one()
     return ProductIds([int(row.product) for row in found], int(sin_producto), int(gone))
+
+
+def mlas_by_product(db: Session, product_ids: Sequence[int]) -> dict[int, list[str]]:
+    """Every publication linked to each product (the store's own links, `ml_item_product_links`; a link names a product
+    only when linked), whatever the filter shows: what Productos' PxQ quick view counts. Each MLA once per product,
+    sorted."""
+    if not product_ids:
+        return {}
+    link = MlItemProductLink.__table__.c
+    query = (
+        select(link.producto_item_id, link.item_id)
+        .where(link.producto_item_id.in_(list(product_ids)))
+        .distinct()
+        .order_by(link.producto_item_id, link.item_id)
+    )
+    out: dict[int, list[str]] = {}
+    for product_id, mla in db.execute(query):
+        out.setdefault(int(product_id), []).append(mla)
+    return out

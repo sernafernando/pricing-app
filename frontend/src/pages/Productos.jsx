@@ -12,7 +12,7 @@ import StatCard from '../components/StatCard';
 import SearchInput from '../components/SearchInput';
 import { useToast } from '../hooks/useToast';
 import Toast from '../components/Toast';
-import { usePrearmadasStats } from '../hooks/usePrearmadasStats';
+import { usePrearmadasStats, PREARMADAS_LIMITE } from '../hooks/usePrearmadasStats';
 import PrearmadaBadge from '../components/PrearmadaBadge';
 import PxqTramosBadge from '../components/PxqTramosBadge';
 import { ChevronDown, ChevronRight, Users } from 'lucide-react';
@@ -179,7 +179,7 @@ export default function Productos() {
   const puedeEditar = puedeEditarPrecioClasica || puedeEditarCuotas || puedeToggleRebate || puedeToggleWebTransf;
 
   const prearmadasItemIds = useMemo(
-    () => productos.slice(0, 100).map((p) => p.item_id),
+    () => productos.slice(0, PREARMADAS_LIMITE).map((p) => p.item_id),
     [productos],
   );
   const { statsById: prearmadasStats } = usePrearmadasStats(prearmadasItemIds);
