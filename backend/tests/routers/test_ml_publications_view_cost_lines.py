@@ -91,6 +91,17 @@ class TestListRow:
         assert rows["MLA1"]["costo"] == {"amount": 40000.0, "currency": "ARS"}  # the cost stays as it was
         assert rows["MLA3"]["ppp"] is None and rows["MLA3"]["sell_in_out"] is None  # no product
 
+    def test_a_product_with_no_ppp_row_and_no_sell_in_carries_both_lines_as_null(
+        self, client, pg, analyst, pricing, db, admin_user
+    ) -> None:
+        seed_rows(pg, fill)
+        seed_lines(db, admin_user, 70, 40000.0)  # only product 70 has a PPP row and a sell in
+
+        rows = {row["item_id"]: row for row in get(client, analyst).json()["items"]}
+
+        assert rows["MLA2"]["costo"] is not None  # a linked product with a cost: the frontend reads "sin PPP"
+        assert rows["MLA2"]["ppp"] is None and rows["MLA2"]["sell_in_out"] is None
+
     def test_without_ver_ganancia_neither_key_is_present(self, client, pg, reader, pricing, db, admin_user) -> None:
         seed_rows(pg, fill)
         seed_lines(db, admin_user, 70, 40000.0)
