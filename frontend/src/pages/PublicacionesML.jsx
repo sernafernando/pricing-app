@@ -28,7 +28,6 @@ import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
-import SinMlaCard from '../components/publicacionesMl/SinMlaCard';
 import { resolverParams } from '../components/publicacionesMl/bulkParams';
 import ExportModal from '../components/ExportModal';
 import ShortcutsHelp from '../components/publicacionesMl/ShortcutsHelp';
@@ -62,7 +61,6 @@ import {
   buildStatsParams,
   effectiveSort,
   hasMarkupFilter,
-  sinMlaUpdates,
   usePublicacionesMLFilters,
 } from '../hooks/usePublicacionesMLFilters';
 import { usePublicacionesMLKpis, usePublicationStats } from '../hooks/usePublicacionesMLKpis';
@@ -656,13 +654,6 @@ export default function PublicacionesML() {
             value={filters.vista}
             onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
           />
-          {producto && (
-            <SinMlaCard
-              count={productRows.sinMlaCount}
-              active={sinMla}
-              onChange={(on) => setFilters(on ? sinMlaUpdates(filters) : { mla: '' })}
-            />
-          )}
           {agrupado && (
             <SegmentedControl
               label="Agrupar por"
@@ -734,6 +725,7 @@ export default function PublicacionesML() {
         state={stats}
         filters={filters}
         canSeeMargin={canSeeMargin}
+        sinMla={producto}
         onApply={setFilters}
         onReset={resetFilters}
         onRetry={stats.reload}

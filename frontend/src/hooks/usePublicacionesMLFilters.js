@@ -405,7 +405,8 @@ export function buildProductIdsParams(filters) {
  */
 export function buildStatsParams(filters) {
   const params = buildProductIdsParams(filters);
-  if (filters.vista === 'producto') params.oferta_por_producto = true;
+  // The Producto view also asks Productos' Sin MLA card (S12d4c).
+  if (filters.vista === 'producto') Object.assign(params, { oferta_por_producto: true, tarjetas_sin_mla: true });
   return params;
 }
 

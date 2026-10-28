@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
-import { isStatActive, statCardGroups, statUpdates } from './statCards';
+import { cardUpdates, isStatActive, statCardGroups } from './statCards';
 import styles from './PublicationStatCards.module.css';
 
 const number = new Intl.NumberFormat('es-AR');
@@ -10,14 +10,28 @@ const number = new Intl.NumberFormat('es-AR');
  * the filters. The figure of the card on show is marked (`aria-pressed`). The last figures stay while new ones load.
  *
  * `state` is `{ data, loading, error }` of `GET /view/stats`; `markupNotice` says a publication markup filter is on
- * (Markup < 0 / min / max), which the cards cannot apply, as the KPI strip says it.
+ * (Markup < 0 / min / max), which the cards cannot apply, as the KPI strip says it. `sinMla` adds Productos' Sin MLA
+ * card (the Producto view).
  */
-// A card's figure, or `pending` while its count has not come yet.
-const figure = (value, pending) => (value === null ? pending : number.format(value));
+// A card's figure: `pending` while its count has not come yet, `missing` when the answer leaves it out (the Sin MLA
+// card with a publication filter on, which a product without publications cannot answer).
+const figure = (value, pending, missing) => {
+  if (value === null) return pending;
+  return value === undefined ? missing : number.format(value);
+};
 
-export default function PublicationStatCards({ state, filters, canSeeMargin, onApply, onReset, onRetry, markupNotice = false }) {
+export default function PublicationStatCards({
+  state,
+  filters,
+  canSeeMargin,
+  sinMla = false,
+  onApply,
+  onReset,
+  onRetry,
+  markupNotice = false,
+}) {
   const stats = state.data?.stats ?? null;
-  const groups = statCardGroups(stats, { canSeeMargin });
+  const groups = statCardGroups(stats, { canSeeMargin, sinMla });
 
   return (
     <section className={styles.strip} aria-label="Totales de productos" aria-busy={state.loading}>
@@ -45,11 +59,11 @@ export default function PublicationStatCards({ state, filters, canSeeMargin, onA
                   type="button"
                   className={group.items.length > 1 ? styles.subItem : styles.single}
                   aria-pressed={item.reset ? undefined : active}
-                  aria-label={`${item.label}: ${figure(item.value, 'cargando')}`}
-                  onClick={() => (item.reset ? onReset() : onApply(statUpdates(item.filter)))}
+                  aria-label={`${item.label}: ${figure(item.value, 'cargando', 'no disponible')}`}
+                  onClick={() => (item.reset ? onReset() : onApply(cardUpdates(item, filters)))}
                 >
                   <span className={styles.itemLabel}>{item.label}</span>
-                  <span className={styles.value}>{figure(item.value, '…')}</span>
+                  <span className={styles.value}>{figure(item.value, '…', '–')}</span>
                 </button>
               );
             })}

@@ -3,7 +3,7 @@
  * own filter, with every other filter a card sets cleared, and the rest of the screen's filters kept.
  */
 import { describe, expect, it } from 'vitest';
-import { STAT_FILTER_KEYS, isStatActive, statCardGroups, statUpdates } from './statCards';
+import { STAT_FILTER_KEYS, cardUpdates, isStatActive, statCardGroups, statUpdates } from './statCards';
 
 const NO_STAT_FILTER = Object.fromEntries(STAT_FILTER_KEYS.map((key) => [key, key === 'stock' ? [] : '']));
 const filters = (overrides = {}) => ({ ...NO_STAT_FILTER, marcas: ['TP-Link'], q: 'router', ...overrides });
@@ -87,5 +87,39 @@ describe('isStatActive', () => {
     expect(isStatActive(filters({ stock: ['erp_con_stock'], precio: 'sin_precio', rebate: 'con_rebate' }), card)).toBe(false);
     // a second stock value: not this card either
     expect(isStatActive(filters({ stock: ['erp_con_stock', 'full_sin_stock'], precio: 'sin_precio' }), card)).toBe(false);
+  });
+});
+
+describe("the Sin MLA card (S12d4c, Productos')", () => {
+  const sinMla = { total: 40, sin_mla: 12, sin_mla_con_stock: 7, sin_mla_sin_stock: 5, sin_mla_nuevos: 2 };
+  const sinMlaGroup = (stats) => statCardGroups(stats, { sinMla: true }).find((group) => group.label === 'Sin MLA');
+
+  it("comes after Nuevos, with Productos' sub-counts and filters, only when asked (the Producto view)", () => {
+    const groups = statCardGroups(sinMla, { sinMla: true }).map((group) => group.label);
+    expect(groups.indexOf('Sin MLA')).toBe(groups.indexOf('Nuevos (7 días)') + 1);
+    expect(sinMlaGroup(sinMla).items).toEqual([
+      { label: 'Total', value: 12, filter: { mla: 'sin_mla' } },
+      { label: 'Con Stock', value: 7, filter: { mla: 'sin_mla', stock: ['erp_con_stock'] } },
+      { label: 'Sin Stock', value: 5, filter: { mla: 'sin_mla', stock: ['erp_sin_stock'] } },
+      { label: 'Nuevos', value: 2, filter: { mla: 'sin_mla', nuevos: 'ultimos_7_dias' } },
+    ]);
+    expect(statCardGroups(sinMla, {}).map((group) => group.label)).not.toContain('Sin MLA');
+  });
+
+  it('is unknown (undefined) when the answer leaves it out, a publication filter being on; null while loading', () => {
+    expect(sinMlaGroup({ total: 40 }).items[0].value).toBeUndefined();
+    expect(sinMlaGroup(null).items[0].value).toBeNull();
+  });
+
+  it('every other card leaves Sin MLA, as Productos clears `mla`', () => {
+    expect(STAT_FILTER_KEYS).toContain('mla');
+    expect(statUpdates({ precio: 'con_precio' }).mla).toBe('');
+  });
+
+  it("a Sin MLA figure turns it on clearing the publication filters, then sets its own", () => {
+    const current = filters({ estado: ['active'], tiendas: ['57997'], stock: ['erp_con_stock', 'full_sin_stock'], precio: 'sin_precio' });
+    const updates = cardUpdates({ filter: { mla: 'sin_mla', nuevos: 'ultimos_7_dias' } }, current);
+    expect(updates).toMatchObject({ mla: 'sin_mla', nuevos: 'ultimos_7_dias', estado: '', tiendas: '', stock: '', precio: '' });
+    expect(cardUpdates({ filter: { precio: 'con_precio' } }, current)).toEqual(statUpdates({ precio: 'con_precio' }));
   });
 });

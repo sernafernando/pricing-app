@@ -2173,7 +2173,7 @@ describe("Productos' price-list exports (S12c)", () => {
 
 describe("Productos' Sin MLA in the Producto view", () => {
   const productCalls = () => publicacionesMlAPI.products.mock.calls.map(([params]) => params);
-  const card = () => screen.findByRole('button', { name: /Sin MLA/ });
+  const sinMlaGroup = () => screen.findByRole('group', { name: 'Sin MLA' });
   const products = async (entry) => {
     renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
     await screen.findByText('Router Archer AX55');
@@ -2182,19 +2182,23 @@ describe("Productos' Sin MLA in the Producto view", () => {
   beforeEach(() => {
     publicacionesMlAPI.products.mockReset();
     publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120, sin_mla_count: 37 }) });
+    publicacionesMlAPI.stats.mockResolvedValue({
+      data: { ...STATS_RESPONSE, stats: { ...STATS_RESPONSE.stats, sin_mla: 37, sin_mla_con_stock: 20, sin_mla_sin_stock: 17, sin_mla_nuevos: 3 } },
+    });
   });
 
-  it('shows how many products have no MLA, and lists them on click, clearing the publication filters', async () => {
+  it('a stat card counts them and lists them on click, clearing the publication filters (S12d4c)', async () => {
     const user = userEvent.setup();
     await products('/ml-publicaciones?vista=producto&estado=active&marcas=TP-Link');
-    expect(await card()).toHaveTextContent('37');
-    expect(await card()).toHaveAttribute('aria-pressed', 'false');
-    await user.click(await card());
+    expect(publicacionesMlAPI.stats.mock.calls.at(-1)[0]).toMatchObject({ tarjetas_sin_mla: true });
+    const total = within(await sinMlaGroup()).getByRole('button', { name: 'Total: 37' });
+    expect(total).toHaveAttribute('aria-pressed', 'false');
+    await user.click(total);
     await waitFor(() =>
       expect(productCalls().at(-1)).toEqual({ marcas: 'TP-Link', con_mla: false, orden: 'titulo', dir: 'asc', limit: 50, offset: 0 }),
     );
-    expect(await card()).toHaveAttribute('aria-pressed', 'true');
-    await user.click(await card()); // again: back to the products with MLA
+    expect(within(await sinMlaGroup()).getByRole('button', { name: 'Total: 37' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Con Precio: 35' })); // any other card leaves Sin MLA
     await waitFor(() => expect(productCalls().at(-1).con_mla).toBeUndefined());
   });
 
@@ -2208,7 +2212,7 @@ describe("Productos' Sin MLA in the Producto view", () => {
     const user = userEvent.setup();
     await products('/ml-publicaciones?vista=producto&mla=sin_mla');
     await user.click(screen.getByRole('button', { name: 'Publicaciones' }));
-    expect(screen.queryByRole('button', { name: /Sin MLA/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Sin MLA' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Producto' }));
     await screen.findByText('Router Archer AX55');
     await waitFor(() => expect(productCalls().at(-1).con_mla).toBeUndefined());
