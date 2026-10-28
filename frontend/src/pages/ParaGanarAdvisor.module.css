@@ -216,6 +216,8 @@
   padding: 0;
   overflow-y: auto;
   flex: 1;
+  /* Base negra/app: sin eso, fila “con criterio” = mismo token que el panel card. */
+  background: var(--cf-bg-app);
 }
 
 .queueRow {
@@ -224,7 +226,7 @@
   appearance: none;
   border: 0;
   border-bottom: 1px solid var(--cf-border-subtle);
-  /* Sin criterio: fondo del panel (oscuro ≈ app black; claro ≈ card). */
+  /* Sin criterio: transparente sobre cf-bg-app. */
   background: transparent;
   color: inherit;
   padding: var(--spacing-sm) var(--spacing-md);
@@ -238,7 +240,7 @@
   background: var(--cf-bg-hover);
 }
 
-/* Con criterio aplicado: gris de superficie (tokens; no hex). */
+/* Con criterio: gris card sobre base app (contraste real en dark/light). */
 .queueRowCriteriaApplied {
   background: var(--cf-bg-card);
 }
@@ -248,11 +250,11 @@
 }
 
 .queueRowSelected {
-  background: color-mix(in srgb, var(--cf-accent-blue) 12%, transparent);
+  background: color-mix(in srgb, var(--cf-accent-blue) 12%, var(--cf-bg-app));
 }
 
 .queueRowCriteriaApplied.queueRowSelected {
-  background: color-mix(in srgb, var(--cf-accent-blue) 12%, var(--cf-bg-card));
+  background: color-mix(in srgb, var(--cf-accent-blue) 14%, var(--cf-bg-card));
 }
 
 .queueRowTop {

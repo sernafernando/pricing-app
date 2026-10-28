@@ -38,7 +38,7 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D14 | **TOP same_bucket = listing_type \| cuotas**; bare int installments normalize correctly; synthesize our bucket from web pricelist when snapshot omits it | Bare ints used to collapse to `\|0` → “estamos solos” on 6 cuotas while ML shows peers | Done (read-time recompute) |
 | D15 | **Precio sugerido** = referent peer in same bucket (cheapest; skip peers with markup &lt; `markup_min` when known); clamp to precio min/max if set. Delta: losing ⇒ sugerido−ours; winning ⇒ air to next peer | Pro algorithm; first Advisor slice without promo apply | Done (compute + UI; apply TBD) |
 | D16 | **Criterio aplicado** = fila en `para_ganar_criterios_mla` (defaults o custom). Sin fila = sin aplicado. Cola badge + filtro Sin/Con + `POST …/aplicar-defaults` | PM assignment UX; “defaults en pantalla” ≠ asignado hasta persistir | Done |
-| D17 | **Masivo pisa todo el alcance filtrado** (con y sin fila). Cola Criterios: fila con criterio = fondo `cf-bg-card` (gris); sin criterio = transparente (app). Luego: pool SMART→Premium (apply gris) | Evitar sorpresas al overwrite; contraste sin hex | Row tint done; mass apply TBD |
+| D17 | **Masivo pisa todo el alcance filtrado** (con y sin fila). Cola: lista base `cf-bg-app`; con criterio = `cf-bg-card`; sin = transparente. Advisor + Criterios. Luego: pool SMART→Premium | Contraste real (antes card≡card); tokens | Row tint fix; mass apply TBD |
 
 ---
 

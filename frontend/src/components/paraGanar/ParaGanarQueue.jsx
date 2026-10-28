@@ -65,7 +65,7 @@ export default function ParaGanarQueue({
               const hasCriteria = Boolean(row.criterios_aplicados);
               const rowClass = [
                 styles.queueRow,
-                isCriterios && hasCriteria ? styles.queueRowCriteriaApplied : '',
+                hasCriteria ? styles.queueRowCriteriaApplied : '',
                 isSelected ? styles.queueRowSelected : '',
               ]
                 .filter(Boolean)
