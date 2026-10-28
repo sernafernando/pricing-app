@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { FilterX, SlidersHorizontal, X } from 'lucide-react';
-import { EMPTY_PRESENCE_FILTERS, PRESENCE_FILTERS, activePresenceChips } from './presenceFilters';
+import { EMPTY_PRESENCE_FILTERS, MARKUP_SIGN_FILTERS, PRESENCE_FILTERS, activePresenceChips } from './presenceFilters';
 import chipStyles from './ProductFilters.module.css';
 import styles from './PresenceFilters.module.css';
 
@@ -12,10 +12,13 @@ import styles from './PresenceFilters.module.css';
  * toggle and a control that clears them all stay in the row. The values live in the URL
  * (`usePublicacionesMLFilters`), so every view asks its endpoint with them.
  *
- * @param {{filters: object, setFilters: (updates: object) => void, labelClassName?: string}} props
+ * With `canSeeMargin` the panel also offers Productos' four markup selects.
+ *
+ * @param {{filters: object, setFilters: (updates: object) => void, labelClassName?: string, canSeeMargin?: boolean}} props
  */
-export default function PresenceFilters({ filters, setFilters, labelClassName }) {
+export default function PresenceFilters({ filters, setFilters, labelClassName, canSeeMargin = false }) {
   const [open, setOpen] = useState(false);
+  const offered = canSeeMargin ? [...PRESENCE_FILTERS, ...MARKUP_SIGN_FILTERS] : PRESENCE_FILTERS;
   const containerRef = useRef(null);
   const chips = activePresenceChips(filters);
 
@@ -56,7 +59,7 @@ export default function PresenceFilters({ filters, setFilters, labelClassName })
         </button>
         {open && (
           <div className={styles.panel} role="group" aria-label="Filtros de presencia">
-            {PRESENCE_FILTERS.map(({ key, icon: Icon, name, options }) => (
+            {offered.map(({ key, icon: Icon, name, options }) => (
               <label key={key} className={styles.item}>
                 <span aria-hidden="true" className={styles.name}>
                   {Icon && <Icon size={12} aria-hidden="true" />}

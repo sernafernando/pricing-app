@@ -122,6 +122,9 @@ class PublicationFilter:
     tienda_nube: Optional[str] = None  # one of `TIENDA_NUBE_STATES`
     precio: Optional[bool] = None  # Productos' "con precio": the product has a `precio_lista_ml`
     nuevos: bool = False  # Productos' "Nuevos (7 días)": the product was synced from the ERP in the last 7 days
+    # Productos' markup filters: (stored `productos_pricing` markup column, positive?) of the linked product. A margin
+    # figure: the router asks `ml_metricas.ver_ganancia` before parsing them.
+    markup_signs: tuple[tuple[str, bool], ...] = ()
     # The Producto view asks mejor oferta of the PRODUCT (any of its publications, as Productos does); the
     # publication list asks it of each publication. `oferta_por_producto` asks it of the product elsewhere too: the
     # Producto view's rows carry it in their `params` and its KPI strip sends it, so both agree with the rows.
@@ -283,6 +286,10 @@ def parse_filter(
     oferta_por_producto: Optional[bool] = None,
     con_precio: Optional[bool] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
+    markup_clasica_positivo: Optional[bool] = None,
+    markup_rebate_positivo: Optional[bool] = None,
+    markup_oferta_positivo: Optional[bool] = None,
+    markup_web_transf_positivo: Optional[bool] = None,
 ) -> PublicationFilter:
     """Query-string values (csv text, `None` when absent) -> `PublicationFilter`; `FilterError` when invalid."""
     status_vocabulary = (*STATUS_VALUES, STATUS_GONE, NO_STATUS)
@@ -317,6 +324,16 @@ def parse_filter(
         oferta_per_product=bool(oferta_por_producto),
         precio=con_precio,
         nuevos=bool(nuevos_ultimos_7_dias),
+        markup_signs=tuple(
+            (column, positive)
+            for column, positive in (
+                ("markup_calculado", markup_clasica_positivo),
+                ("markup_rebate", markup_rebate_positivo),
+                ("markup_oferta", markup_oferta_positivo),
+                ("markup_web_real", markup_web_transf_positivo),
+            )
+            if positive is not None
+        ),
     )
 
 
@@ -682,6 +699,13 @@ def _precio(on: bool) -> ColumnElement:
     return priced if on else and_(T.p.item_id.isnot(None), ~priced)
 
 
+def _markup_sign(column: str, positive: bool) -> ColumnElement:
+    """Productos' rule: positive is > 0, negative < 0; zero, NULL or no pricing row match neither side."""
+    pp = aliased(ProductoPricing, name="pp")
+    markup = getattr(pp, column)
+    return exists(select(1).where(pp.item_id == T.p.item_id, markup > 0 if positive else markup < 0))
+
+
 def _current_offer(o: Any) -> list[ColumnElement]:
     return [o.fecha_desde <= func.current_date(), o.fecha_hasta >= func.current_date(), o.pvp_seller.isnot(None)]
 
@@ -733,6 +757,7 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
         where.append(_precio(f.precio))
     if f.nuevos:
         where.append(T.p.fecha_sync >= func.now() - timedelta(days=7))
+    where.extend(_markup_sign(column, positive) for column, positive in f.markup_signs)
     return where
 
 

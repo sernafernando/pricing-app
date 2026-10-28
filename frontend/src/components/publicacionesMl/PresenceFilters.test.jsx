@@ -16,6 +16,10 @@ describe('presenceFilters', () => {
       outofcards: '',
       precio: '',
       nuevos: '',
+      mkclasica: '',
+      mkrebate: '',
+      mkoferta: '',
+      mkwebtransf: '',
     });
   });
 
@@ -40,6 +44,19 @@ describe('PresenceFilters', () => {
     await openPanel();
     expect(button).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getAllByRole('combobox')).toHaveLength(7);
+  });
+
+  it("adds Productos' four markup selects only for a user who may see margins (P6b)", async () => {
+    const { unmount } = render(<PresenceFilters filters={filters()} setFilters={vi.fn()} canSeeMargin />);
+    await openPanel();
+    const options = (name) => [...screen.getByRole('combobox', { name }).options].map((o) => o.textContent);
+    for (const name of ['Markup Clásica', 'Markup Rebate', 'Markup Oferta', 'Markup Web Transf.']) {
+      expect(options(name)).toEqual(['Todos', 'Positivo', 'Negativo']);
+    }
+    unmount();
+    render(<PresenceFilters filters={filters()} setFilters={vi.fn()} />);
+    await openPanel();
+    expect(screen.queryByRole('combobox', { name: 'Markup Clásica' })).not.toBeInTheDocument();
   });
 
   it('closes the panel on Escape and on a click outside it', async () => {

@@ -31,11 +31,22 @@ export const PRESENCE_FILTERS = [
   { key: 'nuevos', icon: Sparkles, name: 'Productos Nuevos', options: [['ultimos_7_dias', 'Últimos 7 días']] },
 ];
 
-export const EMPTY_PRESENCE_FILTERS = Object.fromEntries(PRESENCE_FILTERS.map(({ key }) => [key, '']));
+/** Productos' four markup selects: only for a user with `ml_metricas.ver_ganancia` (`usePublicacionesMLFilters`). */
+const SIGNS = [['positivo', 'Positivo'], ['negativo', 'Negativo']];
+export const MARKUP_SIGN_FILTERS = [
+  { key: 'mkclasica', name: 'Markup Clásica', options: SIGNS },
+  { key: 'mkrebate', name: 'Markup Rebate', options: SIGNS },
+  { key: 'mkoferta', name: 'Markup Oferta', options: SIGNS },
+  { key: 'mkwebtransf', name: 'Markup Web Transf.', options: SIGNS },
+];
+
+export const EMPTY_PRESENCE_FILTERS = Object.fromEntries(
+  [...PRESENCE_FILTERS, ...MARKUP_SIGN_FILTERS].map(({ key }) => [key, '']),
+);
 
 /** One chip per active toggle: "<toggle>: <value>", and the `setFilters` update that clears it. */
 export function activePresenceChips(filters) {
-  return PRESENCE_FILTERS.flatMap(({ key, name, options }) => {
+  return [...PRESENCE_FILTERS, ...MARKUP_SIGN_FILTERS].flatMap(({ key, name, options }) => {
     const option = options.find(([value]) => value === filters[key]);
     return option ? [{ id: key, label: `${name}: ${option[1]}`, remove: { [key]: '' } }] : [];
   });
