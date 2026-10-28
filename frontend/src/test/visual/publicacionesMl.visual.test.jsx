@@ -884,7 +884,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: the product's instalment settings and their edit fit under its prices`, async () => {
         preciosAPI.obtenerProducto.mockResolvedValue({
-          data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT, recalcular_cuotas_auto: false, markup_adicional_cuotas_custom: 6.5 },
+          data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT, recalcular_cuotas_auto: false, markup_adicional_cuotas_custom: 6.5, markup_adicional_cuotas_pvp_custom: null },
         });
         offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
         try {
