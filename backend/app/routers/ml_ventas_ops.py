@@ -1215,14 +1215,6 @@ def _sell_in_out_by_order(db: Session, items_by_order: Dict[int, List[MlOrderIte
     return result
 
 
-def _float_or_none(value: Optional[Decimal]) -> Optional[float]:
-    return float(value) if value is not None else None
-
-
-def _decimal_or_none(value: Optional[float]) -> Optional[Decimal]:
-    return Decimal(str(value)) if value is not None else None
-
-
 def _sell_in_out_fields(montos: Optional[MontosVenta]) -> Dict[str, Any]:
     if montos is None:
         return {}
@@ -1651,8 +1643,8 @@ def _sales_page(
                     markup=float(order_markup) if order_markup is not None else None,
                     items=[OrderItemOpsSummary.model_validate(item) for item in items_by_order.get(order.order_id, [])],
                     **_sell_in_out_fields(sell_by_order.get(order.order_id)),
-                    costo_mercaderia=_float_or_none(stored.costo_mercaderia if stored is not None else None),
-                    neto_sin_iva=_float_or_none(stored.neto_sin_iva if stored is not None else None),
+                    costo_mercaderia=_float(stored.costo_mercaderia if stored is not None else None),
+                    neto_sin_iva=_float(stored.neto_sin_iva if stored is not None else None),
                 )
             )
 
@@ -1733,13 +1725,11 @@ def _sales_page(
                 bonificacion_envio=group_bonificacion,
                 **_sell_in_out_fields(sumar(sell_by_order.get(m.order_id) for m in members)),
                 # The cost is always ARS, so unlike `neto_sin_iva` it needs no currency gate.
-                costo_mercaderia=_float_or_none(
-                    sum_all_or_nothing([_decimal_or_none(m.costo_mercaderia) for m in members])
-                ),
+                costo_mercaderia=_float(sum_all_or_nothing([_decimal(m.costo_mercaderia) for m in members])),
                 neto_sin_iva=(
                     None
                     if single_currency is None
-                    else _float_or_none(sum_all_or_nothing([_decimal_or_none(m.neto_sin_iva) for m in members]))
+                    else _float(sum_all_or_nothing([_decimal(m.neto_sin_iva) for m in members]))
                 ),
                 # The earliest member's `date_created` -- DISPLAYED to the
                 # user, but NOT what the row is filtered or sorted by. ODD
@@ -1985,7 +1975,7 @@ def _csv_order_row(
         "si" if order.total_gauss_provisional else "no",
         order.metrics_state or "",
         order.alert_level,
-        _CSV_ITEM_SEPARATOR.join(_csv_money(_float_or_none(c.costo_unitario_ars)) for c in costos),
+        _CSV_ITEM_SEPARATOR.join(_csv_money(_float(c.costo_unitario_ars)) for c in costos),
         _csv_money(order.costo_mercaderia),
         _csv_money(order.neto_sin_iva),
         _csv_money(order.bonificacion_envio),
