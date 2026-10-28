@@ -127,6 +127,48 @@ def _pricelists_for_tipos(tipos: list[str]) -> list[int]:
     return sorted(pl for pl in known if resolve_pvp_to_web(pl) in web_ids)
 
 
+def _parse_int_csv(raw: Optional[str]) -> list[int]:
+    values: list[int] = []
+    for part in _split_csv(raw):
+        try:
+            values.append(int(part))
+        except ValueError:
+            continue
+    return values
+
+
+def _parse_scope_query(
+    *,
+    q: Optional[str] = None,
+    marcas: Optional[str] = None,
+    subcategorias: Optional[str] = None,
+    pms: Optional[str] = None,
+    tipos_publicacion: Optional[str] = None,
+    pricelists: Optional[str] = None,
+    tiendas: Optional[str] = None,
+    ean: Optional[str] = None,
+    catalog_product_id: Optional[str] = None,
+) -> dict:
+    """Normalize cola/alcance query params into filter lists."""
+    parsed_tiendas = parsear_tiendas_oficiales_mla(tiendas)
+    tienda_ids: list[int] = []
+    incluir_sin_tienda = False
+    if parsed_tiendas is not None:
+        tienda_ids, incluir_sin_tienda = parsed_tiendas
+    return {
+        "q_norm": (q or "").strip(),
+        "marcas": _split_csv(marcas),
+        "subcategorias": _parse_int_csv(subcategorias),
+        "pms": _parse_int_csv(pms),
+        "tipos_publicacion": [t.lower() for t in _split_csv(tipos_publicacion) if t.lower() in TIPO_TO_WEB_PRICELIST],
+        "pricelist_ids": _parse_int_csv(pricelists),
+        "tienda_ids": tienda_ids,
+        "incluir_sin_tienda": incluir_sin_tienda,
+        "ean_norm": (ean or "").strip(),
+        "catalog_product_id_norm": (catalog_product_id or "").strip(),
+    }
+
+
 def _build_alcance_where(
     *,
     q_norm: str,
@@ -140,25 +182,32 @@ def _build_alcance_where(
     ean_norm: str,
     catalog_product_id_norm: str,
     params: dict,
+    skip: Optional[set[str]] = None,
 ) -> str:
-    """Append scope filters shared by count + page queries. Mutates `params`."""
+    """Append scope filters shared by count + page + facet queries. Mutates `params`.
+
+    `skip` omits facets when computing cascading option lists (e.g. skip marcas
+    while listing available marcas under the other active filters).
+    """
+    omit = skip or set()
     clauses: list[str] = []
 
-    if q_norm:
-        params["q"] = f"%{q_norm}%"
+    if q_norm and "q" not in omit:
+        # LOWER/LIKE keeps SQLite unit tests and Postgres in sync (no ILIKE).
+        params["q"] = f"%{q_norm.lower()}%"
         clauses.append(
             """
           AND (
-            p.mla ILIKE :q
-            OR COALESCE(p.codigo, '') ILIKE :q
-            OR COALESCE(p.item_title, '') ILIKE :q
-            OR COALESCE(e.descripcion, '') ILIKE :q
-            OR COALESCE(e.marca, '') ILIKE :q
+            LOWER(p.mla) LIKE :q
+            OR LOWER(COALESCE(p.codigo, '')) LIKE :q
+            OR LOWER(COALESCE(p.item_title, '')) LIKE :q
+            OR LOWER(COALESCE(e.descripcion, '')) LIKE :q
+            OR LOWER(COALESCE(e.marca, '')) LIKE :q
           )
             """
         )
 
-    if marcas:
+    if marcas and "marcas" not in omit:
         placeholders = []
         for i, marca in enumerate(marcas):
             key = f"marca_{i}"
@@ -166,7 +215,7 @@ def _build_alcance_where(
             placeholders.append(f":{key}")
         clauses.append(f" AND UPPER(e.marca) IN ({', '.join(placeholders)})")
 
-    if subcategorias:
+    if subcategorias and "subcategorias" not in omit:
         placeholders = []
         for i, subcat_id in enumerate(subcategorias):
             key = f"subcat_{i}"
@@ -174,7 +223,7 @@ def _build_alcance_where(
             placeholders.append(f":{key}")
         clauses.append(f" AND e.subcategoria_id IN ({', '.join(placeholders)})")
 
-    if pms:
+    if pms and "pms" not in omit:
         # Same semantics as /productos: marca+categoria pairs from marcas_pm.
         placeholders = []
         for i, pm_id in enumerate(pms):
@@ -192,20 +241,24 @@ def _build_alcance_where(
             """
         )
 
+    apply_tipos = "tipos_publicacion" not in omit
+    apply_pricelists = "pricelists" not in omit
+    tipos_for_where = tipos_publicacion if apply_tipos else []
+    pricelists_for_where = pricelist_ids if apply_pricelists else []
+
     # Tipo (Clásica / N cuotas) and explicit pricelist intersect when both set.
-    tipo_pricelists = _pricelists_for_tipos(tipos_publicacion)
+    tipo_pricelists = _pricelists_for_tipos(tipos_for_where)
     effective_pricelists: list[int]
-    if tipo_pricelists and pricelist_ids:
+    if tipo_pricelists and pricelists_for_where:
         tipo_set = set(tipo_pricelists)
-        effective_pricelists = [pid for pid in pricelist_ids if pid in tipo_set]
+        effective_pricelists = [pid for pid in pricelists_for_where if pid in tipo_set]
         if not effective_pricelists:
-            # Impossible intersection → force empty result.
             clauses.append(" AND 1=0")
             return "".join(clauses)
     elif tipo_pricelists:
         effective_pricelists = tipo_pricelists
     else:
-        effective_pricelists = pricelist_ids
+        effective_pricelists = pricelists_for_where
 
     if effective_pricelists:
         placeholders = []
@@ -215,35 +268,44 @@ def _build_alcance_where(
             placeholders.append(f":{key}")
         clauses.append(f" AND p.pricelist_id IN ({', '.join(placeholders)})")
 
-    if tienda_ids or incluir_sin_tienda:
-        store_parts: list[str] = []
+    if ("tiendas" not in omit) and (tienda_ids or incluir_sin_tienda):
+        # Named stores require a publicados row. "Sin tienda" also matches MLAs
+        # with no publicados row yet (common in local sandbox).
+        parts: list[str] = []
         if tienda_ids:
             placeholders = []
             for i, store_id in enumerate(tienda_ids):
                 key = f"tienda_{i}"
                 params[key] = store_id
                 placeholders.append(f":{key}")
-            store_parts.append(f"m.mlp_official_store_id IN ({', '.join(placeholders)})")
+            parts.append(
+                f"""
+              EXISTS (
+                SELECT 1 FROM tb_mercadolibre_items_publicados m
+                WHERE m.mlp_publicationid = p.mla
+                  AND m.mlp_official_store_id IN ({", ".join(placeholders)})
+              )
+                """
+            )
         if incluir_sin_tienda:
-            store_parts.append("m.mlp_official_store_id IS NULL")
-        store_pred = " OR ".join(store_parts)
-        clauses.append(
-            f"""
-          AND EXISTS (
-            SELECT 1 FROM tb_mercadolibre_items_publicados m
-            WHERE m.mlp_publicationid = p.mla
-              AND ({store_pred})
-          )
-            """
-        )
+            parts.append(
+                """
+              NOT EXISTS (
+                SELECT 1 FROM tb_mercadolibre_items_publicados m
+                WHERE m.mlp_publicationid = p.mla
+                  AND m.mlp_official_store_id IS NOT NULL
+              )
+                """
+            )
+        clauses.append(f" AND ({' OR '.join(parts)})")
 
-    if ean_norm:
+    if ean_norm and "ean" not in omit:
         # Sandbox ERP uses `codigo` as the operator-facing EAN/barcode key
         # (same as Productos `ean:` search → codigo).
-        params["ean"] = f"%{ean_norm}%"
-        clauses.append(" AND COALESCE(e.codigo, '') ILIKE :ean")
+        params["ean"] = f"%{ean_norm.lower()}%"
+        clauses.append(" AND LOWER(COALESCE(e.codigo, '')) LIKE :ean")
 
-    if catalog_product_id_norm:
+    if catalog_product_id_norm and "catalog_product_id" not in omit:
         params["catalog_product_id"] = catalog_product_id_norm.upper()
         clauses.append(
             """
@@ -258,77 +320,144 @@ def _build_alcance_where(
     return "".join(clauses)
 
 
+def _tipo_ids_for_pricelists(pricelist_ids: list[int]) -> list[str]:
+    """Internal tipo tokens present among the given pricelist ids (stable order)."""
+    present_web = {resolve_pvp_to_web(pid) for pid in pricelist_ids}
+    return [tipo_id for tipo_id, _nombre in TIPO_PUBLICACION_OPCIONES if TIPO_TO_WEB_PRICELIST[tipo_id] in present_web]
+
+
 @router.get(
     "/alcance-opciones",
     response_model=ParaGanarAlcanceOpciones,
     dependencies=[Depends(require_permiso("productos.ver"))],
 )
 def listar_alcance_opciones(
+    q: Optional[str] = Query(None, max_length=120),
+    marcas: Optional[str] = Query(None),
+    subcategorias: Optional[str] = Query(None),
+    pms: Optional[str] = Query(None),
+    tipos_publicacion: Optional[str] = Query(None),
+    pricelists: Optional[str] = Query(None),
+    tiendas: Optional[str] = Query(None),
+    ean: Optional[str] = Query(None, max_length=80),
+    catalog_product_id: Optional[str] = Query(None, max_length=64),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarAlcanceOpciones:
-    """Distinct marcas/subcats/PMs for the PARA GANAR scope filter bar."""
+    """Facet options for the scope bar, cascading from the other active filters."""
+    scope = _parse_scope_query(
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        tipos_publicacion=tipos_publicacion,
+        pricelists=pricelists,
+        tiendas=tiendas,
+        ean=ean,
+        catalog_product_id=catalog_product_id,
+    )
+
+    def where_skip(*facets: str) -> tuple[str, dict]:
+        params: dict = {}
+        clause = _build_alcance_where(**scope, params=params, skip=set(facets))
+        return clause, params
+
+    marcas_where, marcas_params = where_skip("marcas")
     marcas_rows = db.execute(
         text(
-            """
+            f"""
             SELECT DISTINCT e.marca
             FROM productos_erp e
             JOIN publicaciones_ml p ON p.item_id = e.item_id AND p.activo = true
             WHERE e.marca IS NOT NULL AND e.marca <> ''
+            {marcas_where}
             ORDER BY e.marca
             """
-        )
+        ),
+        marcas_params,
     ).all()
 
+    subcat_where, subcat_params = where_skip("subcategorias")
     subcat_rows = (
         db.execute(
             text(
-                """
+                f"""
             SELECT DISTINCT e.subcategoria_id AS id,
               COALESCE(sg.nombre_subcategoria, CAST(e.subcategoria_id AS TEXT)) AS nombre
             FROM productos_erp e
             JOIN publicaciones_ml p ON p.item_id = e.item_id AND p.activo = true
             LEFT JOIN subcategorias_grupos sg ON sg.subcat_id = e.subcategoria_id
             WHERE e.subcategoria_id IS NOT NULL
+            {subcat_where}
             ORDER BY nombre
             """
-            )
+            ),
+            subcat_params,
         )
         .mappings()
         .all()
     )
 
+    pm_where, pm_params = where_skip("pms")
     pm_rows = (
         db.execute(
             text(
-                """
+                f"""
             SELECT DISTINCT u.id, COALESCE(u.nombre, u.username) AS nombre
             FROM usuarios u
             JOIN marcas_pm mp ON mp.usuario_id = u.id
             WHERE u.activo = true
+              AND EXISTS (
+                SELECT 1
+                FROM productos_erp e
+                JOIN publicaciones_ml p ON p.item_id = e.item_id AND p.activo = true
+                WHERE UPPER(mp.marca) = UPPER(e.marca)
+                  AND UPPER(mp.categoria) = UPPER(e.categoria)
+                  {pm_where}
+              )
             ORDER BY nombre
             """
-            )
+            ),
+            pm_params,
         )
         .mappings()
         .all()
     )
 
+    lista_where, lista_params = where_skip("pricelists", "tipos_publicacion")
     lista_rows = (
         db.execute(
             text(
-                """
+                f"""
             SELECT DISTINCT p.pricelist_id AS id,
               COALESCE(NULLIF(p.lista_nombre, ''), CAST(p.pricelist_id AS TEXT)) AS nombre
             FROM publicaciones_ml p
+            JOIN productos_erp e ON e.item_id = p.item_id
             WHERE p.activo = true AND p.pricelist_id IS NOT NULL
+            {lista_where}
             ORDER BY nombre
             """
-            )
+            ),
+            lista_params,
         )
         .mappings()
         .all()
     )
+
+    tipo_where, tipo_params = where_skip("tipos_publicacion", "pricelists")
+    tipo_pricelist_rows = db.execute(
+        text(
+            f"""
+            SELECT DISTINCT p.pricelist_id
+            FROM publicaciones_ml p
+            JOIN productos_erp e ON e.item_id = p.item_id
+            WHERE p.activo = true AND p.pricelist_id IS NOT NULL
+            {tipo_where}
+            """
+        ),
+        tipo_params,
+    ).all()
+    tipo_ids = set(_tipo_ids_for_pricelists([int(row[0]) for row in tipo_pricelist_rows]))
 
     return ParaGanarAlcanceOpciones(
         marcas=[row[0] for row in marcas_rows],
@@ -337,7 +466,9 @@ def listar_alcance_opciones(
         ],
         pms=[ParaGanarPmOpcion(id=int(row["id"]), nombre=str(row["nombre"])) for row in pm_rows],
         tipos_publicacion=[
-            ParaGanarTipoPublicacionOpcion(id=tipo_id, nombre=nombre) for tipo_id, nombre in TIPO_PUBLICACION_OPCIONES
+            ParaGanarTipoPublicacionOpcion(id=tipo_id, nombre=nombre)
+            for tipo_id, nombre in TIPO_PUBLICACION_OPCIONES
+            if tipo_id in tipo_ids
         ],
         listas_precios=[ParaGanarListaPrecioOpcion(id=int(row["id"]), nombre=str(row["nombre"])) for row in lista_rows],
     )
@@ -367,60 +498,31 @@ def listar_cola(
 ) -> ParaGanarColaResponse:
     """Paginated active MLAs from the local sandbox (joined with ERP + price + sync)."""
     offset = (page - 1) * page_size
-    q_norm = (q or "").strip()
-    marcas_list = _split_csv(marcas)
-    subcat_list: list[int] = []
-    for raw in _split_csv(subcategorias):
-        try:
-            subcat_list.append(int(raw))
-        except ValueError:
-            continue
-    pm_list: list[int] = []
-    for raw in _split_csv(pms):
-        try:
-            pm_list.append(int(raw))
-        except ValueError:
-            continue
-    tipos_list = [t.lower() for t in _split_csv(tipos_publicacion) if t.lower() in TIPO_TO_WEB_PRICELIST]
-    pricelist_list: list[int] = []
-    for raw in _split_csv(pricelists):
-        try:
-            pricelist_list.append(int(raw))
-        except ValueError:
-            continue
-    parsed_tiendas = parsear_tiendas_oficiales_mla(tiendas)
-    tienda_ids: list[int] = []
-    incluir_sin_tienda = False
-    if parsed_tiendas is not None:
-        tienda_ids, incluir_sin_tienda = parsed_tiendas
-    ean_norm = (ean or "").strip()
-    catalog_norm = (catalog_product_id or "").strip()
-
-    params: dict = {"limit": page_size, "offset": offset}
-    where_extra = _build_alcance_where(
-        q_norm=q_norm,
-        marcas=marcas_list,
-        subcategorias=subcat_list,
-        pms=pm_list,
-        tipos_publicacion=tipos_list,
-        pricelist_ids=pricelist_list,
-        tienda_ids=tienda_ids,
-        incluir_sin_tienda=incluir_sin_tienda,
-        ean_norm=ean_norm,
-        catalog_product_id_norm=catalog_norm,
-        params=params,
+    scope = _parse_scope_query(
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        tipos_publicacion=tipos_publicacion,
+        pricelists=pricelists,
+        tiendas=tiendas,
+        ean=ean,
+        catalog_product_id=catalog_product_id,
     )
 
+    params: dict = {"limit": page_size, "offset": offset}
+    where_extra = _build_alcance_where(**scope, params=params)
+
     # PM filter with no marcas_pm rows → empty universe (same as /productos).
-    if pm_list:
+    if scope["pms"]:
         pm_pair_count = db.execute(
             text(
                 """
                 SELECT COUNT(*) FROM marcas_pm
                 WHERE usuario_id IN ({})
-                """.format(", ".join(f":pm_check_{i}" for i in range(len(pm_list))))
+                """.format(", ".join(f":pm_check_{i}" for i in range(len(scope["pms"]))))
             ),
-            {f"pm_check_{i}": pm_id for i, pm_id in enumerate(pm_list)},
+            {f"pm_check_{i}": pm_id for i, pm_id in enumerate(scope["pms"])},
         ).scalar_one()
         if int(pm_pair_count) == 0:
             return ParaGanarColaResponse(total=0, page=page, page_size=page_size, items=[])

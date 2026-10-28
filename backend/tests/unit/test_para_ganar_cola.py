@@ -38,8 +38,9 @@ def test_alcance_opciones_shape(client: TestClient, rma_superadmin_user) -> None
     assert isinstance(body["pms"], list)
     assert isinstance(body["tipos_publicacion"], list)
     assert isinstance(body["listas_precios"], list)
+    known_tipos = {"clasica", "3", "6", "9", "12"}
     tipo_ids = {row["id"] for row in body["tipos_publicacion"]}
-    assert tipo_ids == {"clasica", "3", "6", "9", "12"}
+    assert tipo_ids <= known_tipos
 
 
 def test_cola_accepts_scope_filter_params(client: TestClient, rma_superadmin_user) -> None:
@@ -89,3 +90,18 @@ def test_cola_tipo_and_pricelist_intersection(client: TestClient, rma_superadmin
     body = response.json()
     assert body["total"] == 0
     assert body["items"] == []
+
+
+def test_alcance_opciones_cascades_on_impossible_ean(client: TestClient, rma_superadmin_user) -> None:
+    headers = {"Authorization": f"Bearer {make_access_token(rma_superadmin_user)}"}
+    response = client.get(
+        "/api/para-ganar/alcance-opciones",
+        headers=headers,
+        params={"ean": "ZZZ-NO-SUCH-CODIGO-PARA-GANAR"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["marcas"] == []
+    assert body["subcategorias"] == []
+    assert body["listas_precios"] == []
+    assert body["tipos_publicacion"] == []
