@@ -111,9 +111,9 @@ describe('the product rows', () => {
     const row = (await screen.findByText('Router Archer AX55')).closest('tr');
     expect(within(row).getByText('3 tramos · desde $37.800')).toBeInTheDocument();
     expect(within(row).getByText('2 listas')).toBeInTheDocument();
-    const otra = rowOf('Sistema Mesh Deco X20 pack x3 con una descripción bastante larga para ver cómo corta');
-    expect(within(otra).queryByText(/tramo/)).not.toBeInTheDocument(); // no tiers, no stats: no badges
-    expect(within(otra).queryByText(/lista/)).not.toBeInTheDocument();
+    const none = rowOf('Sin producto');
+    expect(within(none).queryByText(/tramo/)).not.toBeInTheDocument(); // no tiers, no stats: no badges
+    expect(within(none).queryByText(/lista/)).not.toBeInTheDocument();
   });
 
   it('asks /products once with the filters, the sort and the page -- never the markup filters', async () => {
