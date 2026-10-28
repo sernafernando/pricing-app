@@ -2154,6 +2154,38 @@ describe('bulk actions and filters from the keyboard (S9b)', () => {
   });
 });
 
+describe("Ctrl+I: Productos' product information", () => {
+  let plainGet;
+  beforeEach(() => {
+    plainGet = api.get.getMockImplementation();
+    api.get.mockClear();
+    // The modal's own read stays pending: what it shows is ModalInfoProducto's business, opening it is this screen's.
+    api.get.mockImplementation((url, ...rest) => (url.endsWith('/detalle') ? new Promise(() => {}) : plainGet(url, ...rest)));
+  });
+  afterEach(() => api.get.mockImplementation(plainGet));
+
+  it("opens Productos' information of the focused publication's product, and Escape closes it", async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findAllByRole('row');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByRole('heading', { name: 'Información Detallada' })).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith(`/productos/${ITEMS[0].link.producto_item_id}/detalle`);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Información Detallada' })).not.toBeInTheDocument());
+  });
+
+  it('a publication with no linked product says so and opens nothing', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: FACETS, items: [{ ...ITEMS[0], link: null }], total: 1 });
+    const user = userEvent.setup();
+    await page();
+    await screen.findAllByRole('row');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByText('La publicación no tiene producto vinculado')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Información Detallada' })).not.toBeInTheDocument();
+  });
+});
+
 describe("Productos' Alt+A / Alt+C / Alt+F filter keys", () => {
   it('Alt+A opens and closes the Auditoría filters, Alt+C and Alt+F the presence ones', async () => {
     const user = userEvent.setup();

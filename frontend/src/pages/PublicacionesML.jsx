@@ -30,6 +30,7 @@ import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
 import { resolverParams } from '../components/publicacionesMl/bulkParams';
 import ExportModal from '../components/ExportModal';
+import ModalInfoProducto from '../components/ModalInfoProducto';
 import ShortcutsHelp from '../components/publicacionesMl/ShortcutsHelp';
 import useRecalcularCuotasAuto from '../components/publicacionesMl/useRecalcularCuotasAuto';
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
@@ -561,6 +562,20 @@ export default function PublicacionesML() {
         : row?.item?.link?.producto_item_id
       : items.find((item) => item.item_id === key)?.link?.producto_item_id;
   };
+  // Ctrl+I: Productos' information modal of the focused row's product.
+  const [infoProductId, setInfoProductId] = useState(null);
+  const showInfo = (key) => {
+    if (agrupado) {
+      showToast('La información del producto funciona en las vistas Publicaciones y Producto', 'error');
+      return;
+    }
+    const productId = productIdOfRow(key);
+    if (productId == null) {
+      showToast('La publicación no tiene producto vinculado', 'error');
+      return;
+    }
+    setInfoProductId(productId);
+  };
   const paintRow = (key, color) => {
     if (agrupado) {
       showToast('Pintar con el teclado funciona en las vistas Publicaciones y Producto', 'error');
@@ -624,6 +639,7 @@ export default function PublicacionesML() {
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
     onToggleAutoRecalc: canCalculatePrice ? autoRecalc.toggle : undefined,
+    onShowInfo: showInfo,
     onToggleHelp: () => setShowShortcuts((open) => !open),
     showToast,
   });
@@ -989,6 +1005,7 @@ export default function PublicacionesML() {
         </div>
       )}
       {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+      <ModalInfoProducto isOpen={infoProductId != null} itemId={infoProductId} onClose={() => setInfoProductId(null)} />
       {priceEditor.pending && (
         <ModalTesla
           isOpen
