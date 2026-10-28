@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional
 
-from sqlalchemy import ARRAY, Text, and_, any_, case, cast, func, literal, select, text, true
+from sqlalchemy import ARRAY, Numeric, Text, and_, any_, case, cast, func, literal, select, text, true
 from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
@@ -51,7 +51,7 @@ from app.services.ml_publications.view.markup_service import (
     compute_markups,
     product_markup,
 )
-from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, needs_margin, ranked_page
+from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, metric_figures, needs_margin, ranked_page
 
 STATEMENT_TIMEOUT = "8s"
 SORT_ACTIVITY = "actividad"
@@ -104,8 +104,16 @@ SORT_TIES: dict[str, Any] = {"costo": unconverted_usd_cost}
 
 @dataclass(frozen=True)
 class Sort:
+    """The first key, which may be the markup or a Métricas figure, then the next keys (Productos' multi-column
+    sort): database columns only, each with its direction. `item_id` always closes the order."""
+
     key: str
     descending: bool
+    then: tuple[tuple[str, bool], ...] = ()
+
+    @property
+    def keys(self) -> tuple[str, ...]:
+        return (self.key, *(key for key, _ in self.then))
 
 
 @dataclass(frozen=True)
@@ -116,19 +124,43 @@ class ItemsPage:
     ads_failed: bool = False  # the Ads provider raised while pricing this page: the figures are the plain markup
 
 
-def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
-    key = (orden or "").strip() or SORT_ACTIVITY
-    known = [*SORT_COLUMNS, SORT_MARKUP, *METRIC_SORTS]
-    if key not in known:
-        raise FilterError("orden", f"unknown value {key!r}; known: {', '.join(known)}")
-    wanted = (direction or "").strip().lower()
-    if wanted and wanted not in DIRECTIONS:
-        raise FilterError("dir", f"unknown value {wanted!r}; known: {', '.join(DIRECTIONS)}")
+def _default_descending(key: str) -> bool:
     if key in METRIC_SORTS:
-        default_descending = True  # Métricas' figures: highest first, as Métricas orders them
-    else:
-        default_descending = False if key == SORT_MARKUP else SORT_COLUMNS[key][1]  # markup: the worst first
-    return Sort(key, descending=(wanted == "desc") if wanted else default_descending)
+        return True  # Métricas' figures: highest first, as Métricas orders them
+    return False if key == SORT_MARKUP else SORT_COLUMNS[key][1]  # markup: the worst first
+
+
+def csv_values(raw: Optional[str]) -> list[str]:
+    """`orden` / `dir` as csv, trimmed; an empty `dir` entry is that key's default direction."""
+    return [value.strip() for value in raw.split(",")] if (raw or "").strip() else []
+
+
+def parse_sort(orden: Optional[str], direction: Optional[str]) -> Sort:
+    """`orden` and `dir` as csv, one direction per key (a missing one is the key's default): Productos'
+    multi-column sort. The markup and the Métricas figures are not database columns, so they only lead."""
+    raw = csv_values(orden)
+    wanted = [value.lower() for value in csv_values(direction)]
+    if len(wanted) > max(len(raw), 1):
+        raise FilterError("dir", "more directions than sort keys")
+    wanted += [""] * (len(raw) - len(wanted))
+    pairs = [(key, value) for key, value in zip(raw, wanted) if key]  # a blank key takes its direction with it
+    if not pairs:
+        pairs = [(SORT_ACTIVITY, wanted[0] if wanted else "")]
+    keys = [key for key, _ in pairs]
+    known = [*SORT_COLUMNS, SORT_MARKUP, *METRIC_SORTS]
+    for key in keys:
+        if key not in known:
+            raise FilterError("orden", f"unknown value {key!r}; known: {', '.join(known)}")
+    if len(set(keys)) < len(keys):
+        raise FilterError("orden", "a sort key appears more than once")
+    for key in keys[1:]:
+        if key not in SORT_COLUMNS:
+            raise FilterError("orden", f"{key} can be used only as the first sort key")
+    for _, value in pairs:
+        if value and value not in DIRECTIONS:
+            raise FilterError("dir", f"unknown value {value!r}; known: {', '.join(DIRECTIONS)}")
+    descending = [(value == "desc") if value else _default_descending(key) for key, value in pairs]
+    return Sort(keys[0], descending[0], tuple(zip(keys[1:], descending[1:])))
 
 
 def bound(db: Session, timeout: Optional[str] = None) -> None:
@@ -200,13 +232,48 @@ def row_columns(*, cost: bool = False) -> list[Any]:
     ]
 
 
+def _column_order(key: str, descending: bool) -> tuple[Any, ...]:
+    """One column key and its tie-break, if any (`SORT_TIES`), missing values last in either direction."""
+    expressions = [SORT_COLUMNS[key][0](), *((SORT_TIES[key](),) if key in SORT_TIES else ())]
+    return tuple((expression.desc() if descending else expression.asc()).nulls_last() for expression in expressions)
+
+
+def _columns_order(keys: Any) -> list[Any]:
+    """`_column_order` of each `(key, descending)` of `keys`, in order."""
+    return [clause for key, descending in keys for clause in _column_order(key, descending)]
+
+
 def _order_by(sort: Sort) -> list[Any]:
-    """The sort key and its tie-break, if any (missing values last in either direction), then `item_id`, which makes
-    the order total."""
-    keys = [SORT_COLUMNS[sort.key][0]()]
-    if sort.key in SORT_TIES:
-        keys.append(SORT_TIES[sort.key]())
-    return [(key.desc() if sort.descending else key.asc()).nulls_last() for key in keys] + [T.i.item_id]
+    """The sort keys, then `item_id`, which makes the order total."""
+    return [*_columns_order(((sort.key, sort.descending), *sort.then)), T.i.item_id]
+
+
+def _by_figures(
+    db: Session, source: Any, figures: Mapping[str, Any], sort: Sort, limit: Optional[int], offset: int
+) -> list[str]:
+    """The ids of `source` (a one-column select of the set) at `[offset, offset + limit)`, ordered by a figure
+    computed outside the query (the worst markup, a Métricas figure; missing values last), then by the next keys and
+    `item_id`. The figures reach the database as two arrays, so the next keys are its own columns."""
+    keys = list(figures)
+    figured = select(
+        func.unnest(literal(keys, ARRAY(Text))).label("item_id"),
+        func.unnest(literal([figures[key] for key in keys], ARRAY(Numeric))).label("figure"),
+    ).subquery("figured")
+    first = figured.c.figure.desc() if sort.descending else figured.c.figure.asc()
+    query = (
+        source.where(figured.c.item_id == T.i.item_id)
+        .order_by(first.nulls_last(), *_columns_order(sort.then), T.i.item_id)
+        .limit(limit)
+        .offset(offset)
+    )
+    return list(db.execute(query).scalars())
+
+
+def _metric_ids(db: Session, source: Any, sort: Sort, limit: Optional[int], offset: int) -> list[str]:
+    """A Métricas sort over `source`: the Board's ranking alone, or its figures then the next keys."""
+    if not sort.then:
+        return ranked_page(db, source, sort.key, sort.descending, limit, offset)
+    return _by_figures(db, source, metric_figures(db, source, sort.key), sort, limit, offset)
 
 
 def _price(row: Any) -> dict[str, Any]:
@@ -421,6 +488,10 @@ def _markup_ids(
     WHOLE filtered set (design §4.4): price it once and filter it in Python. The markup order is applied in Python
     too; a column order is applied by the database over the accepted ids only, which also cuts the page."""
     result, kept = markup_accepted(db, f, markup)
+    if sort.key == SORT_MARKUP and sort.then:
+        only_kept = build_base_select(f, T.i.item_id).where(T.i.item_id == any_(literal(list(kept), ARRAY(Text))))
+        worst = {item_id: result.items[item_id].markup.worst for item_id in kept}
+        return _by_figures(db, only_kept, worst, sort, limit, offset), len(kept), result
     if sort.key == SORT_MARKUP:
         wanted = [item_id for item_id in _worst_first(result.items, sort.descending) if item_id in kept]
         end = None if limit is None else offset + limit
@@ -433,7 +504,7 @@ def _markup_ids(
         return [], total, result
     only_accepted = build_base_select(f, T.i.item_id).where(T.i.item_id == any_(literal(accepted, ARRAY(Text))))
     if sort.key in METRIC_SORTS:
-        return ranked_page(db, only_accepted, sort.key, sort.descending, limit, offset), total, result
+        return _metric_ids(db, only_accepted, sort, limit, offset), total, result
     page = db.execute(only_accepted.order_by(*_order_by(sort)).limit(limit).offset(offset)).scalars()
     return list(page), total, result
 
@@ -467,10 +538,10 @@ def _list_by_markup(
 def _check(f: PublicationFilter, sort: Sort, events: bool, can_see_margin: bool) -> None:
     if f.needs_events and not events:
         raise FilterError("evento", "requires the events flag (events.enabled) to be on")
-    if sort.key in METRIC_SORTS and needs_margin(sort.key) and not can_see_margin:
-        raise FilterError("orden", f"{sort.key} requires the ml_metricas.ver_ganancia permission")
-    if sort.key in MARGIN_SORTS and not can_see_margin:
-        raise FilterError("orden", f"{sort.key} requires the ml_metricas.ver_ganancia permission")
+    for key in sort.keys:
+        margin = key in MARGIN_SORTS or (key in METRIC_SORTS and needs_margin(key))
+        if margin and not can_see_margin:
+            raise FilterError("orden", f"{key} requires the ml_metricas.ver_ganancia permission")
 
 
 def _by_markup(sort: Sort, markup: Optional[MarkupQuery]) -> bool:
@@ -505,7 +576,7 @@ def list_items(
     if total == 0 or offset >= total:
         return ItemsPage([], total, None if markup is None else MarkupStats(0, {}, 0.0))
     if sort.key in METRIC_SORTS:
-        page_ids = ranked_page(db, build_base_select(f, T.i.item_id), sort.key, sort.descending, limit, offset)
+        page_ids = _metric_ids(db, build_base_select(f, T.i.item_id), sort, limit, offset)
         rows = _rows_for_ids(db, f, page_ids, cost=markup is not None)
     else:
         rows = db.execute(
@@ -541,7 +612,7 @@ def ordered_keys(
     if _by_markup(sort, markup):
         return _markup_ids(db, f, sort, cap, 0, markup)[0]
     if sort.key in METRIC_SORTS:
-        return ranked_page(db, build_base_select(f, T.i.item_id), sort.key, sort.descending, cap, 0)
+        return _metric_ids(db, build_base_select(f, T.i.item_id), sort, cap, 0)
     return list(db.execute(build_base_select(f, T.i.item_id).order_by(*_order_by(sort)).limit(cap)).scalars())
 
 

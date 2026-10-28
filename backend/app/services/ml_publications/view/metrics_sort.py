@@ -46,7 +46,7 @@ def ranked_page(
     f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
     with board.Board(db, f, scope_pairs=None) as b:
         rows = b.rows()
-        figure = case((rows.c.units > 0, rows.c[METRIC_SORTS[key][0]]), else_=None)
+        figure = _figure(rows, key)
         ordered = figure.desc() if descending else figure.asc()
         query = (
             select(b.mla_set.c.mla)
@@ -56,3 +56,18 @@ def ranked_page(
             .offset(offset)
         )
         return [mla for (mla,) in db.execute(query)]
+
+
+def _figure(rows: Any, key: str) -> Any:
+    """The figure `key` names, only for a publication that sold in the window (null otherwise: last in either way)."""
+    return case((rows.c.units > 0, rows.c[METRIC_SORTS[key][0]]), else_=None)
+
+
+def metric_figures(db: Session, mla_source: Any, key: str) -> dict[str, Any]:
+    """Every MLA of `mla_source` with the figure `key` names (None when it has none), for a sort with more keys."""
+    first, last = row_metrics.window(board.today_business())
+    f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
+    with board.Board(db, f, scope_pairs=None) as b:
+        rows = b.rows()
+        query = select(b.mla_set.c.mla, _figure(rows, key)).outerjoin(rows, rows.c.rk == b.mla_set.c.mla)
+        return dict(db.execute(query).all())
