@@ -26,6 +26,12 @@ describe('resolverProductosExport', () => {
     );
   });
 
+  it('an answer without a product list is refused, never read as a set', async () => {
+    publicacionesMlAPI.productIds.mockResolvedValue({ data: {} });
+
+    await expect(resolverProductosExport({})).rejects.toThrow('No se pudieron obtener los productos de los filtros.');
+  });
+
   it('over the cap names the count and the cap of an export', async () => {
     publicacionesMlAPI.productIds.mockRejectedValue(
       refused(422, { code: 'demasiados_productos', message: 'una acción masiva admite hasta 10000', count: 12000, max: 10000 }),

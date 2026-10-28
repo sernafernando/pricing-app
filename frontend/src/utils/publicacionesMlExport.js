@@ -49,7 +49,8 @@ export async function resolverProductosExport(params) {
   } catch (error) {
     throw new Error(productIdsErrorMessage(error));
   }
-  const itemIds = response.data.item_ids;
+  const itemIds = response?.data?.item_ids;
+  if (!Array.isArray(itemIds)) throw new Error(productIdsErrorMessage(null));
   if (itemIds.length === 0) throw new Error('Las publicaciones filtradas no tienen productos vinculados para exportar.');
   return itemIds;
 }
