@@ -98,14 +98,27 @@ class SellInBonoMarca(Base):
 
 class SellInBonoItem(Base):
     """A model (`item_id`) reached by a 'modelos' bonus. No FK to `productos_erp`: the ERP may hold an item
-    the catalog sync has not brought yet (like `pedido_compra_lineas_facturadas`)."""
+    the catalog sync has not brought yet (like `pedido_compra_lineas_facturadas`).
+
+    A model may carry its own value (T23a, legacy grouped offsets): `monto_unit` on a 'por_unidad' bonus or
+    `porcentaje` on a 'porcentaje' one replaces the bonus's for that model; NULL takes the bonus's."""
 
     __tablename__ = "sell_in_bono_items"
-    __table_args__ = (UniqueConstraint("bono_id", "item_id", name="uq_sell_in_bono_items_bono_item"),)
+    __table_args__ = (
+        UniqueConstraint("bono_id", "item_id", name="uq_sell_in_bono_items_bono_item"),
+        CheckConstraint("monto_unit IS NULL OR monto_unit > 0", name="ck_sell_in_bono_items_monto_positivo"),
+        CheckConstraint(
+            "porcentaje IS NULL OR (porcentaje > 0 AND porcentaje <= 100)",
+            name="ck_sell_in_bono_items_porcentaje_rango",
+        ),
+        CheckConstraint("monto_unit IS NULL OR porcentaje IS NULL", name="ck_sell_in_bono_items_un_valor"),
+    )
 
     id = Column(BigInteger, primary_key=True)
     bono_id = Column(BigInteger, ForeignKey("sell_in_bonos_marca.id", ondelete="CASCADE"), nullable=False)
     item_id = Column(Integer, nullable=False, index=True)
+    monto_unit = Column(Numeric(18, 2), nullable=True)  # like SellInBonoMarca.monto_unit
+    porcentaje = Column(Numeric(7, 4), nullable=True)  # like SellInBonoMarca.porcentaje
 
 
 class SellInBonoDirty(Base):
