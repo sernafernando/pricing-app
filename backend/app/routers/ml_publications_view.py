@@ -1295,8 +1295,11 @@ def get_products(
         listing.bound(db)
         with timer.stage("products"):
             page = products.list_products(db, f, sort_name, sort_dir == "desc", limit, offset)
-        with timer.stage("sin_mla"):
-            sin_mla_count = products.sin_mla_count(db, f)
+        if f.sin_mla:  # the rows are the Sin MLA products: their total is the count
+            sin_mla_count = page.total
+        else:
+            with timer.stage("sin_mla"):
+                sin_mla_count = products.sin_mla_count(db, f)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
@@ -1312,14 +1315,15 @@ def get_products(
         for row in page.rows
     ]
     _attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])
+    applied_name, applied_desc = products.applied_sort(f, sort_name, sort_dir == "desc")
     return {
         "rows": rows,
         "total": page.total,
         "mla_count": page.mla_count,
         "limit": limit,
         "offset": offset,
-        "orden": sort_name,
-        "dir": sort_dir,
+        "orden": applied_name,
+        "dir": "desc" if applied_desc else "asc",
         "can_see_margin": can_see_margin,
         **({} if sin_mla_count is None else {"sin_mla_count": sin_mla_count}),
     }

@@ -172,9 +172,12 @@ def _sin_mla_rows(db: Session, f: PublicationFilter) -> Any:
     ).subquery("product_rows")
 
 
-def _sin_mla_sort(key: str, descending: bool) -> tuple[str, bool]:
-    """A product with no publication has no Métricas figure: a figure sort falls back to the name, A to Z."""
-    return (key, descending) if key == NEUTRAL_SORT else (NEUTRAL_SORT, False)
+def applied_sort(f: PublicationFilter, key: str, descending: bool) -> tuple[str, bool]:
+    """The sort the rows of `f` really come in: a "Sin MLA" product has no publication, so no Métricas figure, and
+    a figure sort falls back to the name, A to Z (the response says so, never the sort that was asked)."""
+    if not f.sin_mla or key == NEUTRAL_SORT:
+        return key, descending
+    return NEUTRAL_SORT, False
 
 
 def sin_mla_count(db: Session, f: PublicationFilter) -> Optional[int]:
@@ -286,7 +289,7 @@ def list_products(
         total = db.execute(select(func.count()).select_from(rows)).scalar_one()
         found = []
         if offset < total:
-            page = select(rows).order_by(*_ordered(rows, *_sin_mla_sort(key, descending))).limit(limit).offset(offset)
+            page = select(rows).order_by(*_ordered(rows, *applied_sort(f, key, descending))).limit(limit).offset(offset)
             found = list(db.execute(page).mappings())
         today = board.today_business()
         return ProductsPage([_row(r, today) for r in found], int(total), 0, frozenset(str(r["product"]) for r in found))
@@ -312,7 +315,7 @@ def ordered_product_keys(
     key = parse_sort(orden)
     if f.sin_mla:
         rows = _sin_mla_rows(db, f)
-        query = select(rows.c.product).order_by(*_ordered(rows, *_sin_mla_sort(key, descending))).limit(cap)
+        query = select(rows.c.product).order_by(*_ordered(rows, *applied_sort(f, key, descending))).limit(cap)
         return [int(product) for product in db.execute(query).scalars()]
     with _product_rows(db, f) as (_, _, rows):
         query = select(rows.c.product).order_by(*_ordered(rows, key, descending)).limit(cap)

@@ -240,6 +240,13 @@ class TestSinMla:
             assert response.status_code == 422, (url, response.text)
             assert "estado" in response.text
 
+    def test_a_figure_sort_answers_the_name_sort_it_falls_back_to(
+        self, client, unlinked, db, rol_admin, admin_auth_headers
+    ) -> None:
+        grant(db, rol_admin, VER, METRICAS)
+        got = body(client, admin_auth_headers, con_mla="false", orden="facturado_30d", dir="desc")
+        assert (got["orden"], got["dir"]) == ("titulo", "asc")  # what the rows are sorted by, not what was asked
+
     def test_con_mla_true_is_the_usual_view(self, client, unlinked, db, rol_admin, admin_auth_headers) -> None:
         grant(db, rol_admin, VER)
         usual = body(client, admin_auth_headers)
