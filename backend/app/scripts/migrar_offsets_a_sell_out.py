@@ -33,9 +33,9 @@ stamped with `offset_origen_id`:
 
 Everything else is reported in the CSV and NOT migrated, each with its reason:
 `porcentaje_costo` (never a new bono: when an active sell-in % brand bonus of
-the same brand exists it was loaded by hand, and the reason names it, "ya cargado
-a mano como bono #N", warning when its percentage differs; otherwise it waits for
-a person), `monto_fijo` (no campaign type holds a fixed total), a non-positive
+the same brand whose dates overlap the offset's exists it was loaded by hand, and
+the reason names it, "ya cargado a mano como bono #N", warning when its
+percentage differs; otherwise it waits for a person), `monto_fijo` (no campaign type holds a fixed total), a non-positive
 amount, no scope, no user (offset without `usuario_id` and no `--usuario-id`),
 what a campaign cannot represent (active or expired, single or any offset of a
 group: an ARS offset capped in USD, since a campaign in pesos holds no USD cap; an
@@ -197,7 +197,8 @@ def _irrepresentable(offsets: list[OffsetGanancia], tope_de: Optional[OffsetGana
     return " | ".join(motivos) or None
 
 
-_Bonos = dict[str, list[tuple[int, Decimal]]]  # brand (trimmed, lower case) -> its active % bonuses, by id
+# brand (trimmed, lower case) -> its active % bonuses as (id, percentage, fecha_desde, fecha_hasta), by id
+_Bonos = dict[str, list[tuple[int, Decimal, date, date]]]
 
 
 def _clave(marca: str) -> str:
@@ -208,12 +209,12 @@ def _bonos(db: Session) -> _Bonos:
     """The active sell-in brand bonuses of `porcentaje` type: the 4 brand % offsets were loaded BY HAND as these
     (2026-10-23), with no link back to the offset."""
     b = SellInBonoMarca
-    rows = db.query(b.id, b.marca, b.porcentaje).filter(
+    rows = db.query(b.id, b.marca, b.porcentaje, b.fecha_desde, b.fecha_hasta).filter(
         b.tipo == "porcentaje", b.alcance == "marca", b.estado == "activa"
     )
     salida: _Bonos = {}
-    for bono_id, marca, porcentaje in rows.order_by(b.id):
-        salida.setdefault(_clave(marca), []).append((bono_id, Decimal(porcentaje)))
+    for bono_id, marca, porcentaje, desde, hasta in rows.order_by(b.id):
+        salida.setdefault(_clave(marca), []).append((bono_id, Decimal(porcentaje), desde, hasta))
     return salida
 
 
@@ -223,9 +224,14 @@ def _pct(valor) -> str:
 
 def _porcentaje(offset: OffsetGanancia, bonos: _Bonos) -> _Plan:
     """Never a new bono (decision 2026-10-27): the equivalent one loaded by hand is named, or the offset waits for a
-    person. Only a brand-alone scope has an equivalent (a brand bonus)."""
+    person. Only a brand-alone scope has an equivalent (a brand bonus), and only a bonus whose dates overlap the
+    offset's (both inclusive; an offset without end is open) can be the one loaded for it."""
     solo_marca = offset.marca is not None and all(getattr(offset, c) is None for c, _ in _ALCANCE if c != "marca")
-    iguales = bonos.get(_clave(offset.marca), []) if solo_marca else []
+    iguales = [
+        (bono_id, porcentaje)
+        for bono_id, porcentaje, desde, hasta in (bonos.get(_clave(offset.marca), []) if solo_marca else [])
+        if desde <= (offset.fecha_hasta or desde) and offset.fecha_desde <= hasta
+    ]
     if not iguales:
         return _Plan("Porcentaje sobre costo: no hay un bono de sell in equivalente; cargarlo a mano")
     nombres = ", ".join(f"#{bono_id}" for bono_id, _ in iguales)

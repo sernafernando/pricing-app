@@ -1165,6 +1165,38 @@ def test_a_cost_percentage_not_scoped_to_a_brand_alone_has_no_equivalent_bono(en
     assert fila["motivo"] == SIN_BONO
 
 
+@pytest.mark.parametrize(
+    "fechas,coincide",
+    [
+        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": date(2026, 6, 30)}, False),  # expired before the bono
+        ({"fecha_desde": date(2027, 1, 1), "fecha_hasta": None}, False),  # open-ended, after the bono
+        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": None}, True),  # open-ended, reaching the bono
+        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": date(2026, 10, 1)}, True),  # ends on its first day
+        ({"fecha_desde": date(2026, 12, 31), "fecha_hasta": date(2027, 2, 28)}, True),  # starts on its last day
+    ],
+    ids=["vencido", "abierto_despues", "abierto_cubre", "termina_el_primer_dia", "empieza_el_ultimo_dia"],
+)
+def test_a_cost_percentage_matches_only_a_bono_covering_its_dates(engine, correr, fechas, coincide) -> None:
+    # A4: a bono of another period is not the one loaded by hand for this offset.
+    bono = _bono(engine)  # 2026-10-01..2026-12-31
+
+    _, code, fila, pendiente = _porcentaje(engine, correr, **fechas)
+
+    assert code == 0
+    motivo = f"ya cargado a mano como bono #{bono}" if coincide else SIN_BONO
+    assert (fila["motivo"], fila["avisos"]) == (motivo, "")
+    assert (pendiente["motivo"], pendiente["avisos"]) == (motivo, None)
+
+
+def test_only_the_bonos_covering_the_offset_dates_are_named(engine, correr) -> None:
+    _bono(engine, porcentaje="5", fecha_desde=date(2026, 1, 1), fecha_hasta=date(2026, 2, 28))
+    cubre = _bono(engine)
+
+    _, _, fila, _ = _porcentaje(engine, correr)
+
+    assert (fila["motivo"], fila["avisos"]) == (f"ya cargado a mano como bono #{cubre}", "")
+
+
 def test_a_fixed_amount_offset_is_stored_for_review(engine, correr) -> None:
     offset_id = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=10000)
 
