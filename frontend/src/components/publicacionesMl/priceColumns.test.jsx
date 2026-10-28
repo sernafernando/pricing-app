@@ -90,6 +90,17 @@ describe('priceColumns', () => {
     expect(cell(clasica, item(null))).toBe('—');
   });
 
+  it("sorts by the markup the Clásica, Rebate, Mejor Oferta and Web Transf. headers, like Productos, with the margin permission", () => {
+    const sortable = (mode, canSeeMargin) =>
+      priceColumns(mode, { prices: prices(), canSeeMargin })
+        .filter((column) => column.sortable)
+        .map((column) => column.key);
+    expect(sortable('normal', true)).toEqual(['lista_clasica', 'lista_rebate', 'lista_oferta', 'lista_web']);
+    expect(sortable('cuotas', true)).toEqual(['lista_clasica']); // the cuotas headers do not sort in Productos
+    expect(sortable('pvp', true)).toEqual([]);
+    expect(sortable('normal', false)).toEqual([]);
+  });
+
   it("draws a product row from the product's own id", () => {
     const [pvp] = priceColumns('pvp', { prices: prices() });
     expect(textOf(pvp.renderProduct(7))).toContain('1.500,00');

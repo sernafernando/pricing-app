@@ -1978,6 +1978,20 @@ describe("Productos' price columns (S11)", () => {
     expect(productosAPI.listar).toHaveBeenCalledTimes(1);
   });
 
+  it("with ver_ganancia, Precio Clásica sorts the whole list by its markup, the worst first, as Productos", async () => {
+    canSeeMargin = true;
+    await page();
+    const header = within(table()).getByRole('columnheader', { name: /Precio Clásica/ });
+    await userEvent.click(within(header).getByRole('button'));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'lista_clasica', dir: 'asc' }));
+  });
+
+  it('without ver_ganancia the price headers do not sort', async () => {
+    await page();
+    const header = within(table()).getByRole('columnheader', { name: /Precio Clásica/ });
+    expect(within(header).queryByRole('button')).not.toBeInTheDocument();
+  });
+
   it("without Productos' prices there are no price columns, no mode and nothing asked", async () => {
     canSeePrices = false;
     await page();

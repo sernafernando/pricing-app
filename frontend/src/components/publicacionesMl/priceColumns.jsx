@@ -1,5 +1,6 @@
 import { Calculator } from 'lucide-react';
 import { LISTS } from '../pricing/priceWrites';
+import { PRICE_MARKUP_SORTS } from '../../hooks/usePublicacionesMLFilters';
 import ListPriceCell from './ListPriceCell';
 import PriceEditCell from './PriceEditCell';
 import ToggleEditCell from './ToggleEditCell';
@@ -91,6 +92,7 @@ export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, 
       width: 130,
       align: 'right',
       list: column.list,
+      sortable: canSeeMargin && PRICE_MARKUP_SORTS.has(column.key), // by its markup, as Productos
       render: (item) => renderProduct(item.link?.producto_item_id ?? null),
       renderProduct,
     };

@@ -148,6 +148,9 @@ const VIEW_KEYS = ['pagina', 'sel', 'tab', 'prod'];
  * default per sort. The Métricas ML sorts rank the whole filtered set by Métricas' figures and are the backend's
  * too: `ml_metricas.ver` for all of them, `ml_metricas.ver_ganancia` also for the margin ones (403 otherwise).
  */
+/** The price columns (`priceColumns.jsx`) the list sorts by, by their markup like Productos: the backend's keys. */
+export const PRICE_MARKUP_SORTS = new Set(['lista_clasica', 'lista_rebate', 'lista_oferta', 'lista_web']);
+
 export const DEFAULT_DIRECTION = {
   actividad: 'desc',
   titulo: 'asc',
@@ -161,6 +164,8 @@ export const DEFAULT_DIRECTION = {
   costo: 'asc',
   // Worst variation first: the most negative markup on top.
   markup: 'asc',
+  // Productos' price headers sort by that list's markup, the worst first like the markup.
+  ...Object.fromEntries([...PRICE_MARKUP_SORTS].map((key) => [key, 'asc'])),
   // Métricas' figures: highest first, as Métricas orders them.
   unidades_7d: 'desc',
   unidades_30d: 'desc',
@@ -170,7 +175,7 @@ export const DEFAULT_DIRECTION = {
 };
 
 const SALES_SORTS = new Set(['unidades_7d', 'unidades_30d', 'facturado_30d', 'markup_30d', 'total_gauss_30d']);
-const MARGIN_SORTS = new Set(['markup', 'markup_30d', 'total_gauss_30d', 'costo']);
+const MARGIN_SORTS = new Set(['markup', 'markup_30d', 'total_gauss_30d', 'costo', ...PRICE_MARKUP_SORTS]);
 
 /** Métricas' default (Facturado 30D) for who sees the sales; the activity otherwise. */
 export const defaultSortFor = ({ canSeeSales = false } = {}) => (canSeeSales ? 'facturado_30d' : 'actividad');
