@@ -8,6 +8,7 @@ En **Publicaciones ML**, **Filas por página** ofrece los mismos tamaños que **
 
 - **Todos** muestra todas las filas del filtro en una sola página, en la vista Publicaciones y en la vista Producto.
 - Con muchas filas la página tarda más en cargar, sobre todo con miles de publicaciones. Si tarda demasiado o la pantalla avisa que la consulta tardó demasiado, achicá el filtro o elegí un tamaño menor.
+- Quien ve las columnas de Métricas o de markup carga mucho más por fila: con miles de publicaciones, **Todos** puede no llegar a cargar y mostrar el aviso de que la consulta tardó demasiado. Para revisar márgenes de todo el catálogo conviene filtrar primero (por marca, categoría o estado) o usar 500 por página.
 - En la vista Agrupado no cambia nada.
 
 ## Cómo se usa

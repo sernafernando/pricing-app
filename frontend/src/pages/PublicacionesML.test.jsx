@@ -1852,7 +1852,7 @@ describe("Productos' price columns (S11)", () => {
     expect(within(table()).getByRole('columnheader', { name: /Precio Clásica/ })).toBeInTheDocument();
     expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
     expect(productosAPI.listar).toHaveBeenCalledTimes(1);
-    expect(productosAPI.listar).toHaveBeenCalledWith({ item_ids: '4101,4102', page: 1, page_size: 2 });
+    expect(productosAPI.listar).toHaveBeenCalledWith({ item_ids: '4101,4102', page: 1, page_size: 2 }, { signal: expect.any(AbortSignal) });
     // The markup only with ver_ganancia, as every markup of this screen.
     expect(within(table()).queryByText('21,5%')).not.toBeInTheDocument();
   });

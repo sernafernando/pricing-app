@@ -245,7 +245,8 @@ export const authAPI = {
 };
 
 export const productosAPI = {
-  listar: (params) => api.get('/productos', { params }),
+  // `config.signal` aborts it (Publicaciones ML's price parts of a page that moved on).
+  listar: (params, config = {}) => api.get('/productos', { ...config, params }),
   // The product's changes made in the app, newest first (the Productos "Historial de Cambios" log).
   auditoria: (itemId) => api.get(`/productos/${itemId}/auditoria`),
   listarTienda: (params) => api.get('/productos/tienda', { params }),

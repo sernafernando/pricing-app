@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Dict, Sequence, Tuple
 
-from sqlalchemy import String, literal, select, union_all
+from sqlalchemy import ARRAY, String, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.services.ml_daily_metrics import board
@@ -35,8 +35,9 @@ def window(today: date) -> Tuple[date, date]:
 
 
 def _mla_source(mlas: Sequence[str]):
-    """The page's MLAs as the one-column SELECT the Board materializes as its MLA set."""
-    return union_all(*(select(literal(mla, String).label("mla")) for mla in mlas))
+    """The page's MLAs as the one-column SELECT the Board materializes as its MLA set: ONE array parameter, unnested
+    (as `listing._by_figures`). A SELECT per MLA joined by UNION ALL blows Postgres' stack depth on a "Todos" page."""
+    return select(func.unnest(literal(list(mlas), ARRAY(String))).label("mla"))
 
 
 def metrics_by_mla(db: Session, mlas: Sequence[str]) -> Dict[str, board.Row]:
