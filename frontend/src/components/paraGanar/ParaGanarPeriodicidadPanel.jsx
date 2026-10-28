@@ -35,8 +35,12 @@ export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
   const [pricelists, setPricelists] = useState([]);
   const [mlaOptions, setMlaOptions] = useState([]);
   const [mlasLoading, setMlasLoading] = useState(false);
+  const [discardingNuevos, setDiscardingNuevos] = useState(false);
+  const [discardingAllNuevos, setDiscardingAllNuevos] = useState(false);
 
   const pageSize = 50;
+  const hasNuevosEnLista =
+    mlasNuevosFilter === true || items.some((row) => Boolean(row.tiene_mlas_nuevos));
   const totalPages = Math.max(1, Math.ceil(total / pageSize) || 1);
   // Stable key: parent rebuilds scopeQueryParams every render.
   const scopeKey = JSON.stringify(scopeQueryParams);
@@ -207,6 +211,53 @@ export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
     }
   };
 
+  const handleDiscardNuevosEan = async () => {
+    if (!selectedEan || !canWrite || isNew) return;
+    setDiscardingNuevos(true);
+    setFormError(null);
+    setFormOk(false);
+    try {
+      await api.post(
+        `/para-ganar/periodicidad/${encodeURIComponent(selectedEan)}/descartar-mlas-nuevos`,
+        null,
+        { params: catalogScope },
+      );
+      await loadMlasForEan(selectedEan);
+      await loadList();
+    } catch (err) {
+      if (err.response?.status === 403) {
+        setFormError('No tenés permiso para descartar (productos.editar_precios).');
+      } else if (typeof err.response?.data?.detail === 'string') {
+        setFormError(err.response.data.detail);
+      } else {
+        setFormError('No se pudieron descartar los avisos nuevos.');
+      }
+    } finally {
+      setDiscardingNuevos(false);
+    }
+  };
+
+  const handleDiscardAllNuevos = async () => {
+    if (!canWrite) return;
+    setDiscardingAllNuevos(true);
+    setListError(null);
+    try {
+      await api.post('/para-ganar/periodicidad/catalogo/descartar-mlas-nuevos', null, {
+        params: catalogScope,
+      });
+      if (selectedEan) await loadMlasForEan(selectedEan);
+      await loadList();
+    } catch (err) {
+      if (err.response?.status === 403) {
+        setListError('No tenés permiso para descartar (productos.editar_precios).');
+      } else {
+        setListError('No se pudieron descartar los avisos nuevos del alcance.');
+      }
+    } finally {
+      setDiscardingAllNuevos(false);
+    }
+  };
+
   if (!canView) {
     return (
       <section className={styles.periodicidadShell} aria-label="Gestionar periodicidad">
@@ -249,6 +300,17 @@ export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
         >
           Con MLA nuevos
         </button>
+        {canWrite && hasNuevosEnLista && (
+          <button
+            type="button"
+            className={styles.bulkBtn}
+            disabled={discardingAllNuevos || loading}
+            onClick={handleDiscardAllNuevos}
+            title="Quita el aviso Nuevo de todos los EANs del alcance actual, sin agregarlos a la lista"
+          >
+            {discardingAllNuevos ? 'Descartando…' : 'Descartar todos los avisos nuevos'}
+          </button>
+        )}
         <span className={styles.toolbarHint}>
           {total.toLocaleString('es-AR')} EAN{total === 1 ? '' : 's'} en alcance
         </span>
@@ -282,6 +344,8 @@ export default function ParaGanarPeriodicidadPanel({ scopeQueryParams = {} }) {
           getLabel={getLabel}
           mlaOptions={mlaOptions}
           mlasLoading={mlasLoading}
+          discardingNuevos={discardingNuevos}
+          onDiscardNuevos={handleDiscardNuevosEan}
           onSave={handleSave}
           onDelete={handleDelete}
         />

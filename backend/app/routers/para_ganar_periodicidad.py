@@ -25,6 +25,10 @@ from app.routers.para_ganar import (
     _tipo_ids_for_pricelists,
 )
 from app.services.para_ganar_periodicidad import normalize_ean, validate_scope_payload
+from app.services.para_ganar_periodicidad_descartes import (
+    descartar_mlas_nuevos_alcance,
+    descartar_mlas_nuevos_ean,
+)
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
 
 _TIPO_NOMBRE = {tipo_id: nombre for tipo_id, nombre in TIPO_PUBLICACION_OPCIONES}
@@ -106,6 +110,13 @@ class PeriodicidadCatalogoMlaItem(BaseModel):
 class PeriodicidadCatalogoMlasResponse(BaseModel):
     ean: str
     mlas: List[PeriodicidadCatalogoMlaItem]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PeriodicidadDescartarNuevosResponse(BaseModel):
+    eans_afectados: int = 0
+    mlas_descartados: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -208,6 +219,10 @@ def _sql_tiene_mlas_nuevos(*, incluir_tradicionales: bool) -> str:
                   AND NOT EXISTS (
                     SELECT 1 FROM para_ganar_periodicidad_ean_mla pm
                     WHERE pm.ean = pe.ean AND pm.mla = p_new.mla
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM para_ganar_periodicidad_ean_mla_descartado d
+                    WHERE d.ean = pe.ean AND d.mla = p_new.mla
                   )
                   {catalog_clause}
               )
@@ -447,6 +462,10 @@ def listar_mlas_de_ean_periodicidad(
                    SELECT 1 FROM para_ganar_periodicidad_ean_mla pm
                    WHERE pm.ean = pe.ean AND pm.mla = p.mla
                  )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM para_ganar_periodicidad_ean_mla_descartado d
+                   WHERE d.ean = pe.ean AND d.mla = p.mla
+                 )
                 THEN 1 ELSE 0
               END AS es_nuevo
             FROM publicaciones_ml p
@@ -462,6 +481,10 @@ def listar_mlas_de_ean_periodicidad(
                  AND NOT EXISTS (
                    SELECT 1 FROM para_ganar_periodicidad_ean_mla pm
                    WHERE pm.ean = pe.ean AND pm.mla = p.mla
+                 )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM para_ganar_periodicidad_ean_mla_descartado d
+                   WHERE d.ean = pe.ean AND d.mla = p.mla
                  )
                 THEN 0 ELSE 1
               END,
@@ -500,6 +523,94 @@ def listar_mlas_de_ean_periodicidad(
             )
         )
     return PeriodicidadCatalogoMlasResponse(ean=ean_norm, mlas=items)
+
+
+@router.post(
+    "/periodicidad/catalogo/descartar-mlas-nuevos",
+    response_model=PeriodicidadDescartarNuevosResponse,
+    dependencies=[Depends(require_permiso("productos.editar_precios"))],
+)
+def descartar_mlas_nuevos_en_alcance(
+    q: Optional[str] = Query(None, max_length=120),
+    marcas: Optional[str] = Query(None),
+    subcategorias: Optional[str] = Query(None),
+    pms: Optional[str] = Query(None),
+    tipos_publicacion: Optional[str] = Query(None),
+    pricelists: Optional[str] = Query(None),
+    tiendas: Optional[str] = Query(None),
+    ean: Optional[str] = Query(None, max_length=80),
+    catalog_product_id: Optional[str] = Query(None, max_length=64),
+    costo_usd_min: Optional[float] = Query(None, ge=0),
+    costo_usd_max: Optional[float] = Query(None, ge=0),
+    incluir_tradicionales_sincronizadas: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> PeriodicidadDescartarNuevosResponse:
+    """Dismiss new-MLA alerts for every EAN with gaps inside the current alcance filters."""
+    scope = _scope_from_query(
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        tipos_publicacion=tipos_publicacion,
+        pricelists=pricelists,
+        tiendas=tiendas,
+        ean=ean,
+        catalog_product_id=catalog_product_id,
+        costo_usd_min=costo_usd_min,
+        costo_usd_max=costo_usd_max,
+        incluir_tradicionales_sincronizadas=incluir_tradicionales_sincronizadas,
+    )
+    params: dict = {}
+    tipo_cambio_usd = (
+        obtener_tipo_cambio_actual(db, "USD")
+        if scope["costo_usd_min"] is not None or scope["costo_usd_max"] is not None
+        else None
+    )
+    where_extra = _build_alcance_where(**scope, params=params, tipo_cambio_usd=tipo_cambio_usd)
+    where_extra += " AND e.codigo IS NOT NULL AND TRIM(e.codigo) <> ''"
+    eans_afectados, mlas_descartados = descartar_mlas_nuevos_alcance(
+        db,
+        where_extra=where_extra,
+        params=params,
+        user_id=current_user.id,
+        incluir_tradicionales=incluir_tradicionales_sincronizadas,
+    )
+    db.commit()
+    return PeriodicidadDescartarNuevosResponse(
+        eans_afectados=eans_afectados,
+        mlas_descartados=mlas_descartados,
+    )
+
+
+@router.post(
+    "/periodicidad/{ean}/descartar-mlas-nuevos",
+    response_model=PeriodicidadDescartarNuevosResponse,
+    dependencies=[Depends(require_permiso("productos.editar_precios"))],
+)
+def descartar_mlas_nuevos_de_ean(
+    ean: str,
+    incluir_tradicionales_sincronizadas: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> PeriodicidadDescartarNuevosResponse:
+    """Acknowledge current new MLAs for one EAN without adding them to the list."""
+    try:
+        count = descartar_mlas_nuevos_ean(
+            db,
+            ean=ean,
+            user_id=current_user.id,
+            incluir_tradicionales=incluir_tradicionales_sincronizadas,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    db.commit()
+    return PeriodicidadDescartarNuevosResponse(
+        eans_afectados=1 if count else 0,
+        mlas_descartados=count,
+    )
 
 
 @router.get(

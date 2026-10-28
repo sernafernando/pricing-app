@@ -131,14 +131,16 @@ Newest first. Use for “why did we…” archaeology.
 
 ### Periodicidad (P2 + P3.1)
 
-- Tables: `para_ganar_periodicidad_ean` (+ `…_ean_mla` for explicit MLA lists).
+- Tables: `para_ganar_periodicidad_ean` (+ `…_ean_mla` for explicit MLA lists; `…_ean_mla_descartado` for dismissed new-MLA alerts).
 - API (`productos.ver` read / `productos.editar_precios` write):
   - `GET /para-ganar/periodicidad` — list of **subscriptions only** (q, page)
-  - `GET /para-ganar/periodicidad/catalogo` — EANs in the **same alcance filters** as Advisor (subscribed + not); optional `suscripto=true|false`
-  - `GET /para-ganar/periodicidad/catalogo/{ean}/mlas` — MLAs of that EAN inside the current filters (checkbox picker)
+  - `GET /para-ganar/periodicidad/catalogo` — EANs in the **same alcance filters** as Advisor (subscribed + not); optional `suscripto=true|false`; `mlas_nuevos=true` for gaps
+  - `GET /para-ganar/periodicidad/catalogo/{ean}/mlas` — MLAs of that EAN inside the current filters (checkbox picker; `es_nuevo`)
+  - `POST /para-ganar/periodicidad/catalogo/descartar-mlas-nuevos` — dismiss current new-MLA alerts in alcance (does **not** subscribe)
+  - `POST /para-ganar/periodicidad/{ean}/descartar-mlas-nuevos` — same for one EAN
   - `GET/PUT/DELETE /para-ganar/periodicidad/{ean}`
 - `scope_mode`: `all` (todo el EAN) | `mlas` (lista explícita) | `rules` (`tipos_publicacion` / `pricelist_ids` / `tienda_oficial_ids`).
-- UI (P3.2–P3.3): ScopeFilters (Sin/Con criterio a nivel EAN); catálogo; **Todo el EAN** o checkboxes MLA; chip **Con MLA nuevos** (`mlas_nuevos`, solo `scope_mode=mlas` con huecos); badge en fila + `es_nuevo` en detalle. `rules` legado: migrar al guardar.
+- UI (P3.2–P3.3): ScopeFilters (Sin/Con criterio a nivel EAN); catálogo; **Todo el EAN** o checkboxes MLA; chip **Con MLA nuevos**; badge en fila + `es_nuevo` en detalle; **Descartar avisos nuevos** (detalle) y **Descartar todos los avisos nuevos** (toolbar). Aviso ≠ suscribir: solo limpia el badge hasta que aparezcan MLAs nuevos distintos. `rules` legado: migrar al guardar.
 
 ---
 

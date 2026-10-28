@@ -55,6 +55,12 @@ class ParaGanarPeriodicidadEan(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+    mlas_descartados = relationship(
+        "ParaGanarPeriodicidadEanMlaDescartado",
+        back_populates="subscription",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
 
 class ParaGanarPeriodicidadEanMla(Base):
@@ -70,3 +76,26 @@ class ParaGanarPeriodicidadEanMla(Base):
     mla = Column(String(32), primary_key=True)
 
     subscription = relationship("ParaGanarPeriodicidadEan", back_populates="mlas")
+
+
+class ParaGanarPeriodicidadEanMlaDescartado(Base):
+    """Active MLA acknowledged as 'new' without adding it to the subscription."""
+
+    __tablename__ = "para_ganar_periodicidad_ean_mla_descartado"
+
+    ean = Column(
+        String(64),
+        ForeignKey("para_ganar_periodicidad_ean.ean", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    mla = Column(String(32), primary_key=True)
+    discarded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    discarded_by_id = Column(
+        Integer,
+        ForeignKey("usuarios.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    subscription = relationship("ParaGanarPeriodicidadEan", back_populates="mlas_descartados")
+

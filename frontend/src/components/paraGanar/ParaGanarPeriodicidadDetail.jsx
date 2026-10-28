@@ -43,6 +43,8 @@ export default function ParaGanarPeriodicidadDetail({
   getLabel,
   mlaOptions,
   mlasLoading,
+  discardingNuevos = false,
+  onDiscardNuevos,
   onSave,
   onDelete,
 }) {
@@ -60,6 +62,8 @@ export default function ParaGanarPeriodicidadDetail({
 
   const isLegacyRules = form.scope_mode === SCOPE_RULES;
   const todoElEan = form.scope_mode === SCOPE_ALL;
+  const hasNuevosAvisos =
+    !todoElEan && (mlaOptions || []).some((opt) => Boolean(opt.es_nuevo));
   const selectedSet = new Set((form.mlas || []).map((m) => String(m).toUpperCase()));
 
   const filteredMlas = useMemo(() => {
@@ -168,6 +172,17 @@ export default function ParaGanarPeriodicidadDetail({
           <div className={styles.criteriaIdentityMeta}>
             {isNew ? 'Sin suscribir — al guardar entra a periodicidad' : 'Suscripción guardada'}
           </div>
+          {canWrite && hasNuevosAvisos && typeof onDiscardNuevos === 'function' && (
+            <button
+              type="button"
+              className={styles.secondaryActionBtn}
+              disabled={discardingNuevos || saving || deleting}
+              onClick={onDiscardNuevos}
+              title="Quita el aviso Nuevo de los MLAs actuales sin agregarlos a la lista"
+            >
+              {discardingNuevos ? 'Descartando…' : 'Descartar avisos nuevos'}
+            </button>
+          )}
         </div>
 
         <form

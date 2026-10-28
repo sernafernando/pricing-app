@@ -322,3 +322,116 @@ def test_periodicidad_catalogo_detecta_mlas_nuevos(client: TestClient, rma_super
     by_mla = {row["mla"]: row for row in mlas.json()["mlas"]}
     assert by_mla["MLA99501A"]["es_nuevo"] is False
     assert by_mla["MLA99501B"]["es_nuevo"] is True
+
+
+def test_periodicidad_descartar_mlas_nuevos_por_ean_y_masivo(
+    client: TestClient, rma_superadmin_user, db
+) -> None:
+    """Dismiss clears Nuevo without adding the MLA to the subscription list."""
+    from app.models.ml_publication_link import MlPublicationLink
+    from app.models.producto import ProductoERP
+    from app.models.publicacion_ml import PublicacionML
+
+    catalog_id = "MLA-PG-PER-DISC-996"
+    ean = "779000PERDISC01"
+    db.add(ProductoERP(item_id=99601, codigo=ean, descripcion="descartar", marca="Acme", costo=10))
+    db.flush()
+    for mla in ("MLA99601A", "MLA99601B"):
+        db.add(
+            PublicacionML(
+                mla=mla,
+                item_id=99601,
+                codigo=ean,
+                activo=True,
+                pricelist_id=4,
+            )
+        )
+        db.add(
+            MlPublicationLink(
+                mla=mla,
+                catalog_product_id=catalog_id,
+                catalog_listing=True,
+            )
+        )
+    db.commit()
+
+    headers = _auth(rma_superadmin_user)
+    put = client.put(
+        f"/api/para-ganar/periodicidad/{ean}",
+        headers=headers,
+        json={"enabled": True, "scope_mode": "mlas", "mlas": ["MLA99601A"]},
+    )
+    assert put.status_code == 200, put.text
+
+    discard = client.post(
+        f"/api/para-ganar/periodicidad/{ean}/descartar-mlas-nuevos",
+        headers=headers,
+    )
+    assert discard.status_code == 200, discard.text
+    body = discard.json()
+    assert body["eans_afectados"] == 1
+    assert body["mlas_descartados"] == 1
+
+    cat = client.get(
+        "/api/para-ganar/periodicidad/catalogo",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "mlas_nuevos": True},
+    )
+    assert cat.status_code == 200, cat.text
+    assert cat.json()["items"] == []
+
+    mlas = client.get(
+        f"/api/para-ganar/periodicidad/catalogo/{ean}/mlas",
+        headers=headers,
+        params={"catalog_product_id": catalog_id},
+    )
+    assert mlas.status_code == 200, mlas.text
+    by_mla = {row["mla"]: row for row in mlas.json()["mlas"]}
+    assert by_mla["MLA99601B"]["es_nuevo"] is False
+
+    sub = client.get(f"/api/para-ganar/periodicidad/{ean}", headers=headers)
+    assert sub.status_code == 200, sub.text
+    assert sub.json()["mlas"] == ["MLA99601A"]
+
+    # Re-seed a second gap and clear via bulk alcance endpoint.
+    db.add(
+        PublicacionML(
+            mla="MLA99601C",
+            item_id=99601,
+            codigo=ean,
+            activo=True,
+            pricelist_id=4,
+        )
+    )
+    db.add(
+        MlPublicationLink(
+            mla="MLA99601C",
+            catalog_product_id=catalog_id,
+            catalog_listing=True,
+        )
+    )
+    db.commit()
+
+    cat2 = client.get(
+        "/api/para-ganar/periodicidad/catalogo",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "mlas_nuevos": True},
+    )
+    assert cat2.status_code == 200, cat2.text
+    assert len(cat2.json()["items"]) == 1
+
+    bulk = client.post(
+        "/api/para-ganar/periodicidad/catalogo/descartar-mlas-nuevos",
+        headers=headers,
+        params={"catalog_product_id": catalog_id},
+    )
+    assert bulk.status_code == 200, bulk.text
+    assert bulk.json()["mlas_descartados"] == 1
+
+    cat3 = client.get(
+        "/api/para-ganar/periodicidad/catalogo",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "mlas_nuevos": True},
+    )
+    assert cat3.status_code == 200, cat3.text
+    assert cat3.json()["items"] == []

@@ -79,6 +79,7 @@ from app.models.para_ganar_revision_mla import ParaGanarRevisionMla  # noqa: F40
 from app.models.para_ganar_periodicidad import (  # noqa: F401 — registers tables for create_all
     ParaGanarPeriodicidadEan,
     ParaGanarPeriodicidadEanMla,
+    ParaGanarPeriodicidadEanMlaDescartado,
 )
 from app.models.ml_publication_link import MlPublicationLink  # noqa: F401 — registers table for create_all
 from app.models.ml_orders_ops import (  # noqa: F401 — registers tables for create_all
