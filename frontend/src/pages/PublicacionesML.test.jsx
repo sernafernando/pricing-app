@@ -8,7 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
-import api, { preciosAPI, productosAPI, publicacionesMlAPI } from '../services/api';
+import api, { equiposAPI, preciosAPI, productosAPI, publicacionesMlAPI } from '../services/api';
 import { openInMlPanel } from '../utils/mlSidePanel';
 import { exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
 import { loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -63,6 +63,18 @@ vi.mock('../services/api', () => ({
     setOutOfCards: vi.fn(() => Promise.resolve({ data: {} })),
   },
   registerAuthFailureHandler: vi.fn(),
+}));
+
+// Team management has its own tests; here only that the page opens it and reloads its teams after.
+vi.mock('../components/EquiposModal', () => ({
+  default: ({ isOpen, onClose }) =>
+    isOpen ? (
+      <div role="dialog" aria-label="Gestión de equipos">
+        <button type="button" onClick={onClose}>
+          Cerrar equipos
+        </button>
+      </div>
+    ) : null,
 }));
 
 // The color events (`producto_color:changed`) are pushed by each test through the captured listener.
@@ -1813,6 +1825,70 @@ describe('Exportar a Sheets', () => {
 });
 
 describe('the color layer (S8)', () => {
+  it('opens team management from beside the layer, as Productos does', async () => {
+    await page();
+    await screen.findByRole('combobox', { name: 'Capa de color' });
+    expect(screen.queryByRole('dialog', { name: 'Gestión de equipos' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+
+    expect(screen.getByRole('dialog', { name: 'Gestión de equipos' })).toBeInTheDocument();
+  });
+
+  it('closing team management reloads the teams, so the layer offers a team just created', async () => {
+    await page();
+    await screen.findByRole('combobox', { name: 'Capa de color' });
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+    equiposAPI.listar.mockResolvedValueOnce({
+      data: [
+        { id: 1, nombre: 'U', es_global: true },
+        { id: 12, nombre: 'Ventas', es_global: false },
+        { id: 13, nombre: 'Compras', es_global: false },
+      ],
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar equipos' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Gestión de equipos' })).not.toBeInTheDocument();
+    const capa = screen.getByRole('combobox', { name: 'Capa de color' });
+    await waitFor(() =>
+      expect(within(capa).getAllByRole('option').map((o) => o.textContent)).toEqual(['Global', 'Ventas', 'Compras']),
+    );
+  });
+
+  it('closing team management after deleting the chosen layer\'s team drops it: the rows go back to the global one', async () => {
+    await page('/ml-publicaciones?equipo=12');
+    await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
+    const asked = calls().length;
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+    equiposAPI.listar.mockResolvedValueOnce({ data: [{ id: 1, nombre: 'U', es_global: true }] });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar equipos' }));
+
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('equipo_id'));
+    // With no team left there is no layer to choose: the selector goes away with it.
+    expect(screen.queryByRole('combobox', { name: 'Capa de color' })).not.toBeInTheDocument();
+    // Never asked again on the deleted team: it would answer 403.
+    expect(calls().slice(asked).map((params) => params.equipo_id)).not.toContain('12');
+  });
+
+  it('closing team management with nothing changed keeps the rows of a team layer, asking nothing again', async () => {
+    await page('/ml-publicaciones?equipo=12');
+    await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+    const asked = calls().length;
+    const reloads = equiposAPI.listar.mock.calls.length;
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar equipos' }));
+
+    await waitFor(() => expect(equiposAPI.listar.mock.calls.length).toBe(reloads + 1));
+    await act(async () => {
+      await equiposAPI.listar.mock.results.at(-1).value;
+    });
+    expect(calls().length).toBe(asked);
+    expect(screen.getByRole('combobox', { name: 'Capa de color' })).toHaveValue('12');
+  });
+
   it('lists the global layer and the teams, and asks the rows on the chosen one', async () => {
     await page();
     const capa = await screen.findByRole('combobox', { name: 'Capa de color' });
@@ -2154,6 +2230,24 @@ describe('bulk actions and filters from the keyboard (S9b)', () => {
     expect(await screen.findByLabelText('Ana')).toBeInTheDocument();
     await user.keyboard('{Alt>}s{/Alt}');
     await waitFor(() => expect(screen.queryByLabelText('Ana')).not.toBeInTheDocument());
+  });
+});
+
+describe("Productos' Alt+A / Alt+C / Alt+F filter keys", () => {
+  it('Alt+A opens and closes the Auditoría filters, Alt+C and Alt+F the presence ones', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.keyboard('{Alt>}a{/Alt}');
+    expect(await screen.findByRole('group', { name: 'Filtros de auditoría' })).toBeInTheDocument();
+    await user.keyboard('{Alt>}a{/Alt}');
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Filtros de auditoría' })).not.toBeInTheDocument());
+    await user.keyboard('{Alt>}c{/Alt}');
+    expect(await screen.findByRole('group', { name: 'Filtros de presencia' })).toBeInTheDocument();
+    await user.keyboard('{Alt>}f{/Alt}');
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Filtros de presencia' })).not.toBeInTheDocument());
+    // Alt+F opens them from closed too.
+    await user.keyboard('{Alt>}f{/Alt}');
+    expect(await screen.findByRole('group', { name: 'Filtros de presencia' })).toBeInTheDocument();
   });
 });
 

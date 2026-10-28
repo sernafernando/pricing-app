@@ -19,8 +19,18 @@ const COPIES = {
 
 // Productos' quick colors (`useProductosKeyboard`): the digit is the index, 0 clears the color.
 const PAINT_COLORS = [null, 'rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
-// Alt+letter opens a product filter, by the key (`code`): a Mac types another character with Alt.
-const FILTER_KEYS = { KeyM: 'marcas', KeyS: 'subcategorias', KeyP: 'pms' };
+// Alt+letter opens a filter, by the key (`code`): a Mac types another character with Alt. Productos' Alt+C and Alt+F
+// both open its Avanzados (rebate, oferta, web transf., fuera de tarjetas): here those are the presence filters.
+// Each value is the `data-filter` of a filter button the page clicks (ProductFiltersPanel, AuditFilters,
+// PresenceFilters): renaming one side breaks the key.
+const FILTER_KEYS = {
+  KeyM: 'marcas',
+  KeyS: 'subcategorias',
+  KeyP: 'pms',
+  KeyA: 'auditoria',
+  KeyC: 'presencia',
+  KeyF: 'presencia',
+};
 const NO_ROW = 'Posicionate sobre una publicación (flecha abajo) para usar este atajo';
 
 function copyAction(event) {
@@ -81,7 +91,8 @@ function moveFocus(event) {
  * - 0-7 paint the focused row's product (`onPaintRow(key, color)`, 0 = no color) and F6/F7 step to the previous /
  *   next color layer (`onCycleLayer(-1 | 1)`), as in Productos; each only where the page offers it.
  * - Ctrl+K / Ctrl+Shift+P open the bulk Calcular Web Transf. / Calcular PVP (`onBulkAction('web' | 'pvp')`), and
- *   Alt+M / Alt+S / Alt+P the Marca / Subcategoría / PM filters (`onOpenFilter(name)`), as in Productos.
+ *   Alt+M / Alt+S / Alt+P the Marca / Subcategoría / PM filters, Alt+A the Auditoría ones and Alt+C / Alt+F the
+ *   presence ones (Productos' Avanzados) (`onOpenFilter(name)`), as in Productos.
  * - r / w / o flip the focused row's product rebate, web transfer and "fuera de tarjetas" (`onToggleRow(key, 'rebate' |
  *   'web' | 'tarjetas')`), as in Productos.
  * - Alt+V steps to the next mode of Productos' price columns (`onCycleMode()`: Normal, Cuotas, PVP), and Alt+R flips

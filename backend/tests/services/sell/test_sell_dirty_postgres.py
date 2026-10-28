@@ -217,7 +217,7 @@ def _ml_line(engine: Engine, row_id: int, order_id: int, product: int) -> None:
         conn.execute(
             text(
                 "INSERT INTO ml_sale_lines (item_row_id, order_id, group_key, product, mla, group_date, day, qty, "
-                "gross, tg, mtg, mcosto) VALUES (:id, :o, :g, :p, :mla, now(), current_date, 1, 100, 50, 50, 30)"
+                "gross, tg, tg_known, mtg, mcosto) VALUES (:id, :o, :g, :p, :mla, now(), current_date, 1, 100, 50, true, 50, 30)"
             ),
             {"id": row_id, "o": order_id, "g": f"o:{order_id}", "p": product, "mla": f"MLA{row_id}"},
         )

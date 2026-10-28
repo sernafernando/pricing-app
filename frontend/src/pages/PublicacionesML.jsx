@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { Download, FileDown, FileSpreadsheet, FilterX, Keyboard, ShieldAlert } from 'lucide-react';
+import { Download, FileDown, FileSpreadsheet, FilterX, Keyboard, ShieldAlert, Users } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
@@ -24,6 +24,7 @@ import { itemRowTone } from '../components/publicacionesMl/rowColor';
 import useColorOverlay from '../components/publicacionesMl/useColorOverlay';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import { useEquipos } from '../hooks/useEquipos';
+import EquiposModal from '../components/EquiposModal';
 import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
@@ -259,7 +260,9 @@ export default function PublicacionesML() {
     [],
   );
 
-  const { equipos, loaded: equiposLoaded } = useEquipos();
+  const { equipos, loaded: equiposLoaded, recargar: recargarEquipos } = useEquipos();
+  // Team management, as in Productos: any user may create and run their own teams, so no permission gates it.
+  const [equiposOpen, setEquiposOpen] = useState(false);
   // The rows are asked on a team layer only once the teams say it is the user's: a link to another team's layer
   // would answer 403 and flash a false error before ColorLayerSelect drops it. Until then nothing is asked.
   const layerPending = filters.equipo !== '' && !equiposLoaded;
@@ -769,6 +772,24 @@ export default function PublicacionesML() {
               equipo={rowFilters.equipo}
               onPainted={colorOverlay.apply}
               onClearChecked={clearChecked}
+            />
+            {/* Icon-only: the toolbar's first row has no room for a label at 1366 px. */}
+            <button
+              type="button"
+              className="btn-tesla outline-subtle-primary icon-only sm"
+              onClick={() => setEquiposOpen(true)}
+              aria-label="Equipos"
+              title="Equipos: crear y administrar tus equipos"
+            >
+              <Users size={14} aria-hidden="true" />
+            </button>
+            {/* Closing reloads the teams, so the layer offers what was just created, renamed or deleted. */}
+            <EquiposModal
+              isOpen={equiposOpen}
+              onClose={() => {
+                setEquiposOpen(false);
+                recargarEquipos();
+              }}
             />
           </div>
           <span className={styles.spacer} />

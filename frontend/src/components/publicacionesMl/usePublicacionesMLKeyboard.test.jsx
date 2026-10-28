@@ -350,6 +350,19 @@ describe("Productos' bulk and filter shortcuts (S9b)", () => {
     expect(onOpenFilter).toHaveBeenLastCalledWith('pms');
   });
 
+  it("Alt+A opens the Auditoría filters and Alt+C / Alt+F the presence ones (Productos' Avanzados), by the key", () => {
+    const onOpenFilter = vi.fn();
+    render(<Harness onOpenFilter={onOpenFilter} />);
+    expect(fireEvent.keyDown(document.body, { key: 'å', code: 'KeyA', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('auditoria');
+    expect(fireEvent.keyDown(document.body, { key: 'ç', code: 'KeyC', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('presencia');
+    // Alt+F is the browsers' menu key: taken from them too.
+    expect(fireEvent.keyDown(document.body, { key: 'ƒ', code: 'KeyF', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('presencia');
+    expect(onOpenFilter).toHaveBeenCalledTimes(3);
+  });
+
   it("Alt+V steps through the price columns' modes (the key, not the character a Mac types), not while typing", async () => {
     const onCycleMode = vi.fn();
     const user = userEvent.setup();
