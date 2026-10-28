@@ -27,17 +27,23 @@ describe('ShortcutsHelp', () => {
       .getAllByRole('term')
       .map((term) => term.textContent);
     expect(operators).toEqual([
-      'MLA123456',
+      'MLA123456 o mla:MLA123456',
       'ean:123456',
       'codigo:ABC123',
       'marca:Samsung',
       'desc:texto o descripcion:texto',
+      'promo:DEAL o promo:texto',
       '*123',
       '123*',
       'texto',
     ]);
     expect(
       within(section).getByText('Búsqueda en la descripción del producto (contiene, sin guiones ni espacios)'),
+    ).toBeInTheDocument();
+    expect(
+      within(section).getByText(
+        'Publicaciones con una promoción activa de ese tipo (DEAL, SMART, ...) o cuyo nombre contiene el texto',
+      ),
     ).toBeInTheDocument();
     expect(within(section).getByText('Comienza con "123" (título, descripción, marca o código)')).toBeInTheDocument();
   });
