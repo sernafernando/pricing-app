@@ -41,6 +41,7 @@ from app.services.ml_publications.view.filters import (
     status_value,
     stock_clauses,
 )
+from app.services.ml_publications.view.markup import PublicationMarkup
 from app.services.ml_publications.view.markup_service import (
     ItemMarkup,
     MarkupQuery,
@@ -49,7 +50,6 @@ from app.services.ml_publications.view.markup_service import (
     compute_markups,
     product_markup,
 )
-from app.services.ml_publications.view.markup import PublicationMarkup
 from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, needs_margin, ranked_page
 
 STATEMENT_TIMEOUT = "8s"
@@ -368,7 +368,7 @@ def markup_accepted(db: Session, f: PublicationFilter, markup: MarkupQuery) -> t
     accepted = frozenset(
         item_id
         for item_id, item in result.items.items()
-        if (own := judged(item)) is not None and markup.filter.accepts(own.worst, own.any_negative)
+        if markup.filter.accepts((own := judged(item)).worst, own.any_negative)
     )
     return result, accepted
 

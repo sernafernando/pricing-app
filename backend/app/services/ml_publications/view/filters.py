@@ -611,7 +611,8 @@ def _any_linked_product(test: Any) -> ColumnElement:
 
 def linked_product_conditions(f: PublicationFilter, product_id: Any, p: Any) -> list[ColumnElement]:
     """The conditions of `f` that are about the PRODUCT, on one linked product (`product_id`, `p` its catalog row,
-    outer-joined): color, mejor oferta of the product, brand, category, subcategory, PM and `q` (the product's own name
+    outer-joined): color, mejor oferta of the product, brand, category, subcategory, the product's presence toggles
+    (`product_flag_conditions`), PM and `q` (the product's own name
     or code, unless the publication's own fields match). A publication `f` keeps is expanded to its linked products
     that pass them -- the Producto view, its export, `/product-ids` and the tree's product level -- so a filter about
     the product never brings in another product of the same publication (variations of different products)."""
@@ -631,6 +632,7 @@ def linked_product_conditions(f: PublicationFilter, product_id: Any, p: Any) -> 
         conditions.append(_text_in(p.categoria, f.categorias))
     if f.subcategorias or f.no_subcategoria:
         conditions.append(_subcategorias_in(f, p))
+    conditions.extend(product_flag_conditions(f, p))
     if f.pms:
         conditions.append(_pm(f, p))
     if f.pm_group is not None:
@@ -889,28 +891,28 @@ def _event(f: PublicationFilter) -> ColumnElement:
 # the Producto view (`oferta_per_product`) of the product, any of its publications, as Productos does.
 
 
-def _pricing_flag(flag: Any, on: bool) -> ColumnElement:
+def _pricing_flag(flag: Any, on: bool, p: Any) -> ColumnElement:
     pp = aliased(ProductoPricing, name="pp")
-    flagged = exists(select(1).where(pp.item_id == T.p.item_id, flag(pp).is_(True)))
-    return flagged if on else and_(T.p.item_id.isnot(None), ~flagged)
+    flagged = exists(select(1).where(pp.item_id == p.item_id, flag(pp).is_(True)))
+    return flagged if on else and_(p.item_id.isnot(None), ~flagged)
 
 
-def _precio(on: bool) -> ColumnElement:
+def _precio(on: bool, p: Any) -> ColumnElement:
     pp = aliased(ProductoPricing, name="pp")
-    priced = exists(select(1).where(pp.item_id == T.p.item_id, pp.precio_lista_ml.isnot(None)))
-    return priced if on else and_(T.p.item_id.isnot(None), ~priced)
+    priced = exists(select(1).where(pp.item_id == p.item_id, pp.precio_lista_ml.isnot(None)))
+    return priced if on else and_(p.item_id.isnot(None), ~priced)
 
 
-def _markup_sign(column: str, positive: bool) -> ColumnElement:
+def _markup_sign(column: str, positive: bool, p: Any) -> ColumnElement:
     """Productos' rule: positive is > 0, negative < 0; zero, NULL or no pricing row match neither side."""
     pp = aliased(ProductoPricing, name="pp")
     markup = getattr(pp, column)
-    return exists(select(1).where(pp.item_id == T.p.item_id, markup > 0 if positive else markup < 0))
+    return exists(select(1).where(pp.item_id == p.item_id, markup > 0 if positive else markup < 0))
 
 
-def _audited(f: PublicationFilter) -> ColumnElement:
+def _audited(f: PublicationFilter, p: Any) -> ColumnElement:
     a = aliased(Auditoria, name="a")
-    where = [a.item_id == T.p.item_id]
+    where = [a.item_id == p.item_id]
     if f.audit_users:
         where.append(a.usuario_id.in_(f.audit_users))
     if f.audit_kinds:
@@ -952,35 +954,46 @@ def product_has_offer(product_id: Any) -> ColumnElement:
     )
 
 
-def _tienda_nube_in(state: str) -> ColumnElement:
+def _tienda_nube_in(state: str, p: Any) -> ColumnElement:
     tn = aliased(TiendaNubeProducto, name="tn")
-    active = select(1).where(tn.item_id == T.p.item_id, tn.activo.is_(True))
+    active = select(1).where(tn.item_id == p.item_id, tn.activo.is_(True))
     if state == "con_descuento":
         return exists(active.where(tn.promotional_price > 0))
     if state == "sin_descuento":
         return exists(active.where(or_(tn.promotional_price.is_(None), tn.promotional_price == 0)))
-    return and_(T.p.stock > 0, ~exists(active))
+    return and_(p.stock > 0, ~exists(active))
+
+
+def product_flag_conditions(f: PublicationFilter, p: Any) -> list[ColumnElement]:
+    """The presence toggles that are the PRODUCT's (its pricing flags, list price, Tienda Nube, sync date, Productos'
+    markup signs, its audit trail), on the catalog row `p`."""
+    where = []
+    if f.rebate is not None:
+        where.append(_pricing_flag(lambda pp: pp.participa_rebate, f.rebate, p))
+    if f.web_transf is not None:
+        where.append(_pricing_flag(lambda pp: pp.participa_web_transferencia, f.web_transf, p))
+    if f.out_of_cards is not None:
+        where.append(_pricing_flag(lambda pp: pp.out_of_cards, f.out_of_cards, p))
+    if f.tienda_nube is not None:
+        where.append(_tienda_nube_in(f.tienda_nube, p))
+    if f.precio is not None:
+        where.append(_precio(f.precio, p))
+    if f.nuevos:
+        where.append(p.fecha_sync >= func.now() - timedelta(days=7))
+    where.extend(_markup_sign(column, positive, p) for column, positive in f.markup_signs)
+    if f.audits:
+        where.append(_audited(f, p))
+    return where
 
 
 def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     where = []
-    if f.rebate is not None:
-        where.append(_pricing_flag(lambda pp: pp.participa_rebate, f.rebate))
-    if f.web_transf is not None:
-        where.append(_pricing_flag(lambda pp: pp.participa_web_transferencia, f.web_transf))
-    if f.out_of_cards is not None:
-        where.append(_pricing_flag(lambda pp: pp.out_of_cards, f.out_of_cards))
-    if f.tienda_nube is not None:
-        where.append(_tienda_nube_in(f.tienda_nube))
+    flags = product_flag_conditions(f, T.p)
+    if flags:
+        # one of the publication's linked products has them all (variations of different products: any of them)
+        where.append(_any_linked_product(lambda p: and_(*product_flag_conditions(f, p))))
     if f.oferta is not None:
         where.append(_oferta(f.oferta, f.oferta_per_product))
-    if f.precio is not None:
-        where.append(_precio(f.precio))
-    if f.nuevos:
-        where.append(T.p.fecha_sync >= func.now() - timedelta(days=7))
-    where.extend(_markup_sign(column, positive) for column, positive in f.markup_signs)
-    if f.audits:
-        where.append(_audited(f))
     if f.mla_scope is not None:
         # one array parameter, as `_colors`: a promo scope can hold thousands of MLAs
         scope = literal(sorted(f.mla_scope), ARRAY(String))

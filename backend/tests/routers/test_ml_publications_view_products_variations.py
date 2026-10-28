@@ -238,6 +238,17 @@ class TestAProductFilterNeverBringsASiblingProduct:
         assert _rows(client, admin_auth_headers, pm_grupo="7") == {"77": 2}
         assert _json(client, admin_auth_headers, "product-ids", pm_grupo="7")["item_ids"] == [77]
 
+    def test_the_product_s_pricing_flags(self, siblings, client, admin_auth_headers):
+        # only 78 takes part in the rebate; only 77 has a list price: each row keeps its own product's publications
+        def flags(conn) -> None:
+            seed.add_pricing(conn, 78, participa_rebate=True)
+            seed.add_pricing(conn, 77, precio_lista_ml=100.0)
+
+        seed_rows(siblings, flags)
+        assert _rows(client, admin_auth_headers, con_rebate="true") == {"78": 3}  # VA6 too, not only by its 77
+        assert _json(client, admin_auth_headers, "product-ids", con_rebate="true")["item_ids"] == [78]
+        assert _rows(client, admin_auth_headers, con_precio="true") == {"77": 2}  # VA1, VA6 -- never VA6's 78
+
     def test_product_name_or_code_search(self, client, admin_auth_headers):
         assert _rows(client, admin_auth_headers, q="R78") == {"78": 3}  # VA6, VA10, VA12 -- not VA12's 79
 
