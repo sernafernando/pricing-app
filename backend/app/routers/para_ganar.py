@@ -6,10 +6,9 @@ surfaced via inventory_id when present). TOP engine: dense rank by price (D12).
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -28,26 +27,19 @@ from app.models.para_ganar_catalog_seller import (
 )
 from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
 from app.models.usuario import Usuario
-from app.services.ml_catalog_competition_service import (
-    bucket_key_for_web_pricelist,
-    competitor_bucket_key,
-    refrescar_competencia_catalogo,
+from app.services.ml_catalog_competition_service import refrescar_competencia_catalogo
+from app.services.para_ganar_sugerencia import (
+    SugerenciaMla,
+    catalog_product_id_for_mla,
+    compute_sugerencia_mla,
+    mla_exists,
 )
-from app.services.para_ganar_top import (
-    RankCompetitor,
-    board_to_dict,
-    bucket_display_label,
-    compute_suggested_price,
-    dense_rank_positions,
-    our_rank_from_positions,
-    peer_referent_notes,
+from app.services.para_ganar_tipos_publicacion import (
+    TIPO_TO_WEB_PRICELIST,
+    pricelists_for_tipos,
 )
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
-from app.services.pricing_columns import (
-    PRICELIST_TO_CAMPO,
-    PVP_PRICELIST_TO_CAMPO,
-    resolve_pvp_to_web,
-)
+from app.services.pricing_columns import resolve_pvp_to_web
 from app.utils.async_bridge import resolve_maybe_async
 
 router = APIRouter(prefix="/para-ganar", tags=["PARA GANAR"])
@@ -60,14 +52,6 @@ TIPO_PUBLICACION_OPCIONES: list[tuple[str, str]] = [
     ("9", "9 cuotas"),
     ("12", "12 cuotas"),
 ]
-# Web pricelist_id that represents each internal tipo.
-TIPO_TO_WEB_PRICELIST: dict[str, int] = {
-    "clasica": 4,
-    "3": 17,
-    "6": 14,
-    "9": 13,
-    "12": 23,
-}
 
 
 class ParaGanarColaItem(BaseModel):
@@ -142,12 +126,8 @@ def _split_csv(raw: Optional[str]) -> list[str]:
 
 
 def _pricelists_for_tipos(tipos: list[str]) -> list[int]:
-    """Map internal tipo tokens → web + PVP pricelist ids that share that bucket."""
-    web_ids = {TIPO_TO_WEB_PRICELIST[t] for t in tipos if t in TIPO_TO_WEB_PRICELIST}
-    if not web_ids:
-        return []
-    known = set(PRICELIST_TO_CAMPO) | set(PVP_PRICELIST_TO_CAMPO)
-    return sorted(pl for pl in known if resolve_pvp_to_web(pl) in web_ids)
+    """Adapter kept for callers inside this module."""
+    return pricelists_for_tipos(tipos)
 
 
 def _parse_int_csv(raw: Optional[str]) -> list[int]:
@@ -980,11 +960,7 @@ def _criterios_from_row(row: ParaGanarCriterioMla, *, costo_ars: Optional[float]
 
 
 def _mla_exists(db: Session, mla: str) -> bool:
-    found = db.execute(
-        text("SELECT 1 FROM publicaciones_ml WHERE mla = :mla AND activo = true LIMIT 1"),
-        {"mla": mla},
-    ).first()
-    return found is not None
+    return mla_exists(db, mla)
 
 
 def _list_scope_mlas(db: Session, scope: dict) -> list[str]:
@@ -1296,45 +1272,7 @@ class ParaGanarCatalogSellersUpsert(BaseModel):
 
 
 def _catalog_product_id_for_mla(db: Session, mla: str) -> Optional[str]:
-    # Prefer publication links; fall back to any competition snapshot for this MLA.
-    # Avoid the Postgres-only latest view so SQLite unit tests stay portable.
-    from sqlalchemy.exc import OperationalError, ProgrammingError
-
-    try:
-        link = db.execute(
-            text(
-                """
-                SELECT catalog_product_id
-                FROM ml_publication_links
-                WHERE mla = :mla AND catalog_product_id IS NOT NULL
-                LIMIT 1
-                """
-            ),
-            {"mla": mla},
-        ).first()
-        if link and link[0]:
-            return str(link[0])
-    except (OperationalError, ProgrammingError):
-        db.rollback()
-
-    try:
-        snap = db.execute(
-            text(
-                """
-                SELECT catalog_product_id
-                FROM ml_catalog_competition
-                WHERE mla = :mla AND catalog_product_id IS NOT NULL
-                ORDER BY fecha_consulta DESC
-                LIMIT 1
-                """
-            ),
-            {"mla": mla},
-        ).first()
-        if snap and snap[0]:
-            return str(snap[0])
-    except (OperationalError, ProgrammingError):
-        db.rollback()
-    return None
+    return catalog_product_id_for_mla(db, mla)
 
 
 def _competition_sellers_by_id(db: Session, catalog_product_id: str) -> tuple[dict[str, dict], Optional[datetime]]:
@@ -1612,106 +1550,26 @@ def actualizar_sellers_catalogo(
     )
 
 
-def _positive_price(value: Any) -> Optional[float]:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    if number != number or number <= 0:
-        return None
-    return number
-
-
-def _competition_snapshot_for_rank(db: Session, *, mla: str) -> Optional[dict[str, Any]]:
-    """Newest OK competition snapshot for THIS MLA only (same listing/cuotas bucket).
-
-    Do not fall back to a sibling MLA of the same catalog: a clásica snapshot
-    would rank 3-cuotas against cash prices.
-    """
-    from sqlalchemy.exc import OperationalError, ProgrammingError
-
-    try:
-        snap = (
-            db.execute(
-                text(
-                    """
-                SELECT mla, competitors, fecha_consulta, our_price, our_seller_id,
-                       our_item_id, our_bucket_key
-                FROM ml_catalog_competition
-                WHERE mla = :mla
-                  AND fetch_status = 'ok'
-                  AND competitors IS NOT NULL
-                ORDER BY fecha_consulta DESC
-                LIMIT 1
-                """
-                ),
-                {"mla": mla},
-            )
-            .mappings()
-            .first()
-        )
-    except (OperationalError, ProgrammingError):
-        db.rollback()
-        return None
-    return dict(snap) if snap else None
-
-
-def _competitor_in_our_bucket(competitor: dict[str, Any], our_bucket_key: Optional[str]) -> bool:
-    """True when the competitor shares our listing_type|cuotas bucket.
-
-    Recomputes the bucket at read time so stored snapshots that collapsed bare
-    installment ints to `|0` still rank correctly after the normalizer fix.
-    """
-    if not our_bucket_key:
-        return False
-    if competitor_bucket_key(competitor) == our_bucket_key:
-        return True
-    if competitor.get("same_bucket") is True and competitor.get("bucket_key") == our_bucket_key:
-        return True
-    return False
-
-
-def _pricelist_id_for_mla(db: Session, mla: str) -> Optional[int]:
-    row = db.execute(
-        text("SELECT pricelist_id FROM publicaciones_ml WHERE mla = :mla LIMIT 1"),
-        {"mla": mla},
-    ).first()
-    if not row or row[0] is None:
-        return None
-    return int(row[0])
-
-
-def _cola_precio_for_mla(db: Session, mla: str) -> Optional[float]:
-    row = (
-        db.execute(
-            text(
-                """
-                SELECT pm.precio
-                FROM publicaciones_ml p
-                LEFT JOIN precios_ml pm
-                  ON pm.item_id = p.item_id AND pm.pricelist_id = p.pricelist_id
-                WHERE p.mla = :mla
-                LIMIT 1
-                """
-            ),
-            {"mla": mla},
-        )
-        .mappings()
-        .first()
+def _sugerencia_to_response(sug: SugerenciaMla) -> ParaGanarSugerenciaResponse:
+    return ParaGanarSugerenciaResponse(
+        mla=sug.mla,
+        catalog_product_id=sug.catalog_product_id,
+        snapshot_at=sug.snapshot_at,
+        our_price=sug.our_price,
+        our_rank=sug.our_rank,
+        top_sellers=sug.top_sellers,
+        in_top=sug.in_top,
+        excluded_count=sug.excluded_count,
+        bucket_label=sug.bucket_label,
+        positions=[ParaGanarSugerenciaPosition(**p) for p in sug.positions],
+        suggestion_status=sug.suggestion_status,
+        precio_sugerido=sug.precio_sugerido,
+        delta_ars=sug.delta_ars,
+        referent_nickname=sug.referent_nickname,
+        referent_reason=sug.referent_reason,
+        message=sug.message,
+        needs_competition_refresh=sug.needs_competition_refresh,
     )
-    if not row:
-        return None
-    return _positive_price(row["precio"])
-
-
-def _effective_criterios_for_sugerencia(db: Session, mla: str) -> ParaGanarCriteriosMla:
-    """Defaults or MLA override — TOP N, markup floor, price caps for suggested price."""
-    row = db.query(ParaGanarCriterioMla).filter(ParaGanarCriterioMla.mla == mla).first()
-    if row is None:
-        return _criterios_defaults(mla)
-    return _criterios_from_row(row)
 
 
 @router.get(
@@ -1725,220 +1583,13 @@ def obtener_sugerencia_mla(
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarSugerenciaResponse:
     """TOP board (D12) + suggested price vs same-bucket peers (Pro-style referent)."""
-    mla_norm = mla.strip().upper()
-    if not mla_norm:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MLA inválida")
-    if not _mla_exists(db, mla_norm):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MLA no encontrada")
-
-    criterios = _effective_criterios_for_sugerencia(db, mla_norm)
-    top_n = int(criterios.top_sellers) if criterios.top_sellers is not None else int(CRITERIOS_DEFAULT_TOP_SELLERS)
-    catalog_product_id = _catalog_product_id_for_mla(db, mla_norm)
-    if not catalog_product_id:
-        return ParaGanarSugerenciaResponse(
-            mla=mla_norm,
-            top_sellers=top_n,
-            message="Sin catálogo vinculado: no hay snapshot de competencia para rankear.",
-            needs_competition_refresh=False,
-        )
-
-    snap = _competition_snapshot_for_rank(db, mla=mla_norm)
-    if not snap:
-        return ParaGanarSugerenciaResponse(
-            mla=mla_norm,
-            catalog_product_id=catalog_product_id,
-            top_sellers=top_n,
-            message=(
-                "Sin snapshot de competencia OK para esta MLA. "
-                "Actualizá la competencia de esta publicación (no alcanza el snapshot de otra lista/cuotas del mismo catálogo)."
-            ),
-            needs_competition_refresh=True,
-        )
-
-    dispositions = {
-        row.seller_id: normalize_disposition(row.disposition) for row in _list_persisted_sellers(db, catalog_product_id)
-    }
-    excluded_count = sum(1 for d in dispositions.values() if d != DISPOSITION_ACTIVE)
-
-    our_seller_id = str(snap["our_seller_id"]).strip() if snap.get("our_seller_id") else None
-    our_item_id = str(snap["our_item_id"]).strip() if snap.get("our_item_id") else mla_norm
-    our_price = _positive_price(snap.get("our_price")) or _cola_precio_for_mla(db, mla_norm)
-    our_bucket_key = snap.get("our_bucket_key")
-    if isinstance(our_bucket_key, str):
-        our_bucket_key = our_bucket_key.strip() or None
-    else:
-        our_bucket_key = None
-    if not our_bucket_key:
-        # Snapshot often omits us from competitors → our_bucket_key null; synthesize
-        # from this MLA's pricelist (3/6/9/12 vs clásica).
-        our_bucket_key = bucket_key_for_web_pricelist(_pricelist_id_for_mla(db, mla_norm))
-
-    competitors_raw = snap.get("competitors") or []
-    if isinstance(competitors_raw, str):
-        try:
-            competitors_raw = json.loads(competitors_raw)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            competitors_raw = []
-    if not isinstance(competitors_raw, list):
-        competitors_raw = []
-
-    # Same seller may have several listings; keep the cheapest in OUR bucket.
-    best_by_seller: dict[str, RankCompetitor] = {}
-    for competitor in competitors_raw:
-        if not isinstance(competitor, dict):
-            continue
-        raw_id = competitor.get("seller_id")
-        if raw_id is None:
-            continue
-        seller_id = str(raw_id).strip()
-        if not seller_id:
-            continue
-        price_ars = _positive_price(competitor.get("price_ars"))
-        if price_ars is None:
-            continue
-        # Ourselves always participate even if accidentally marked excluded.
-        is_us = (our_seller_id and seller_id == our_seller_id) or (
-            competitor.get("item_id") is not None and str(competitor.get("item_id")).strip() == mla_norm
-        )
-        if not is_us and not _competitor_in_our_bucket(competitor, our_bucket_key):
-            continue
-        if not is_us and is_excluded(dispositions.get(seller_id)):
-            continue
-        nickname = competitor.get("seller_nickname")
-        nickname_s = str(nickname).strip()[:128] if nickname else None
-        item_raw = competitor.get("item_id")
-        item_id = str(item_raw).strip()[:32] if item_raw else None
-        label_raw = competitor.get("listing_label")
-        listing_label = str(label_raw).strip()[:64] if label_raw else None
-        markup_val = competitor.get("markup")
-        markup_f: Optional[float] = None
-        if markup_val is not None:
-            try:
-                markup_f = float(markup_val)
-            except (TypeError, ValueError):
-                markup_f = None
-        candidate = RankCompetitor(
-            seller_id=seller_id,
-            nickname=nickname_s,
-            item_id=item_id,
-            price_ars=price_ars,
-            is_us=bool(is_us),
-            listing_label=listing_label,
-            markup=markup_f,
-        )
-        previous = best_by_seller.get(seller_id)
-        if previous is None or candidate.price_ars < previous.price_ars or (candidate.is_us and not previous.is_us):
-            best_by_seller[seller_id] = candidate
-
-    ranked: list[RankCompetitor] = list(best_by_seller.values())
-    seen_sellers = set(best_by_seller.keys())
-    our_listing_label = bucket_display_label(our_bucket_key)
-
-    if our_price is not None and our_seller_id and our_seller_id not in seen_sellers:
-        ranked.append(
-            RankCompetitor(
-                seller_id=our_seller_id,
-                nickname="Nosotros",
-                item_id=our_item_id,
-                price_ars=our_price,
-                is_us=True,
-                listing_label=our_listing_label,
-            )
-        )
-    elif our_price is not None and not any(c.is_us for c in ranked):
-        ranked.append(
-            RankCompetitor(
-                seller_id=our_seller_id or "us",
-                nickname="Nosotros",
-                item_id=our_item_id,
-                price_ars=our_price,
-                is_us=True,
-                listing_label=our_listing_label,
-            )
-        )
-
-    peer_label = next((c.listing_label for c in ranked if c.listing_label and not c.is_us), None)
-    bucket_label = bucket_display_label(our_bucket_key, listing_label=peer_label)
-
-    positions = dense_rank_positions(ranked)
-    our_rank = our_rank_from_positions(positions)
-    payload = board_to_dict(
-        positions=positions,
-        top_n=top_n,
-        our_price=our_price,
-        our_rank=our_rank,
-        excluded_count=excluded_count,
-        catalog_product_id=catalog_product_id,
-        snapshot_at=None,
-        bucket_label=bucket_label,
-    )
-    message_parts: list[str] = []
-    if excluded_count > 0:
-        noun = "seller" if excluded_count == 1 else "sellers"
-        adj = "excluido" if excluded_count == 1 else "excluidos"
-        message_parts.append(
-            f"Hay {excluded_count} {noun} {adj} del ranking (siguen en la lista de Criterios para reactivarlos)."
-        )
-    # D12 TOP N = price positions; if the bucket has fewer ranks than N, say so.
-    positions_available = len(positions)
-    if positions_available < top_n:
-        if positions_available == 0:
-            message_parts.append(f"No hay posiciones de precio en este bucket para armar el TOP {top_n}.")
-        else:
-            pos_word = "posición" if positions_available == 1 else "posiciones"
-            message_parts.append(
-                f"En este bucket solo hay {positions_available} {pos_word} de precio; "
-                f"el TOP pide {top_n} (faltan competidores)."
-            )
-    suggested = compute_suggested_price(
-        ranked,
-        markup_min=criterios.markup_min,
-        precio_min=criterios.precio_min,
-        precio_max=criterios.precio_max,
-    )
-    suggestion_status = suggested.suggestion_status if suggested else "alone"
-    if suggested is None and not any(not c.is_us for c in ranked):
-        suggestion_status = "alone"
-    elif suggested is None:
-        suggestion_status = "none"
-
-    notes = peer_referent_notes(
-        ranked,
-        markup_min=criterios.markup_min,
-        precio_min=criterios.precio_min,
-        precio_max=criterios.precio_max,
-        referent_seller_id=suggested.referent_seller_id if suggested else None,
-    )
-    for position in payload["positions"]:
-        for seller in position["sellers"]:
-            seller["referent_note"] = notes.get(seller["seller_id"])
-
-    message = " ".join(message_parts) if message_parts else None
-    snapshot_at = snap.get("fecha_consulta")
-    if isinstance(snapshot_at, str):
-        try:
-            snapshot_at = datetime.fromisoformat(snapshot_at.replace("Z", "+00:00"))
-        except ValueError:
-            snapshot_at = None
-    return ParaGanarSugerenciaResponse(
-        mla=mla_norm,
-        catalog_product_id=payload["catalog_product_id"],
-        snapshot_at=snapshot_at,
-        our_price=payload["our_price"],
-        our_rank=payload["our_rank"],
-        top_sellers=payload["top_sellers"],
-        in_top=payload["in_top"],
-        excluded_count=payload["excluded_count"],
-        bucket_label=payload.get("bucket_label"),
-        positions=[ParaGanarSugerenciaPosition(**p) for p in payload["positions"]],
-        suggestion_status=suggestion_status,
-        precio_sugerido=suggested.precio_sugerido if suggested else None,
-        delta_ars=suggested.delta_ars if suggested else None,
-        referent_nickname=suggested.referent_nickname if suggested else None,
-        referent_reason=suggested.referent_reason if suggested else None,
-        message=message,
-        needs_competition_refresh=False,
-    )
+    try:
+        sug = compute_sugerencia_mla(db, mla)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return _sugerencia_to_response(sug)
 
 
 @router.post(

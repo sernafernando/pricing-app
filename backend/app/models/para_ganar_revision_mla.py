@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -36,5 +37,7 @@ class ParaGanarRevisionMla(Base):
         nullable=True,
         index=True,
     )
+    # Last usable competition snapshot used by P5 (R1–R3). Null until first eval.
+    competition_baseline = Column(JSONB, nullable=True)
 
     updated_by = relationship("Usuario", foreign_keys=[updated_by_id])

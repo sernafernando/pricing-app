@@ -24,6 +24,7 @@ from app.routers.para_ganar import (
     _parse_scope_query,
     _tipo_ids_for_pricelists,
 )
+from app.services.para_ganar_evaluacion import evaluar_periodicidad
 from app.services.para_ganar_periodicidad import normalize_ean, validate_scope_payload
 from app.services.para_ganar_periodicidad_descartes import (
     descartar_mlas_nuevos_alcance,
@@ -117,6 +118,15 @@ class PeriodicidadCatalogoMlasResponse(BaseModel):
 class PeriodicidadDescartarNuevosResponse(BaseModel):
     eans_afectados: int = 0
     mlas_descartados: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PeriodicidadEvaluarResponse(BaseModel):
+    evaluated: int = 0
+    pendiente: int = 0
+    sin_novedades: int = 0
+    skipped: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -610,6 +620,26 @@ def descartar_mlas_nuevos_de_ean(
     return PeriodicidadDescartarNuevosResponse(
         eans_afectados=1 if count else 0,
         mlas_descartados=count,
+    )
+
+
+@router.post(
+    "/periodicidad/evaluar",
+    response_model=PeriodicidadEvaluarResponse,
+    dependencies=[Depends(require_permiso("productos.editar_precios"))],
+)
+def evaluar_periodicidad_habilitada(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> PeriodicidadEvaluarResponse:
+    """P5 Slice A: evaluate enabled Periodicidad MLAs (R1–R3) and persist revision states."""
+    counts = evaluar_periodicidad(db, updated_by_id=current_user.id)
+    db.commit()
+    return PeriodicidadEvaluarResponse(
+        evaluated=counts["evaluated"],
+        pendiente=counts["pendiente"],
+        sin_novedades=counts["sin_novedades"],
+        skipped=counts["skipped"],
     )
 
 
