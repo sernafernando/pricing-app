@@ -66,7 +66,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), stats: vi.fn(() => Promise.resolve({ data: { stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 }, can_see_margin: false } })), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
   productosPropiosAPI: {
     get: vi.fn(() =>
       Promise.resolve({
@@ -338,6 +338,23 @@ describe('Publicaciones ML (visual)', () => {
         for (const band of document.querySelectorAll('div[class*="filterBand"]')) {
           expect(band.scrollWidth).toBeLessThanOrEqual(band.clientWidth + 1);
         }
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the stat cards keep every label and figure on one line, inside their card`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        await expect.element(screen.getByRole('button', { name: 'Stock sin $: 3' })).toBeVisible();
+        const strip = document.querySelector('section[aria-label="Totales de productos"]');
+        const cards = [...strip.querySelectorAll('[role="group"]')];
+        expect(cards.length).toBe(4);
+        for (const card of cards) {
+          expect(rect(card).right, card.getAttribute('aria-label')).toBeLessThanOrEqual(width);
+          for (const button of card.querySelectorAll('button')) {
+            expect(rect(button).right, button.getAttribute('aria-label')).toBeLessThanOrEqual(rect(card).right + 0.5);
+          }
+        }
+        expect(wrapped([...strip.querySelectorAll('button span')])).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/stat-cards-${width}-${theme}.png` });
         screen.unmount();
       });
 
