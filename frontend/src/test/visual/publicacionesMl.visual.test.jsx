@@ -84,6 +84,20 @@ vi.mock('../../services/api', () => ({
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     pms: vi.fn(() => Promise.resolve({ data: [] })),
+    // Productos' prices of the products on show (S11): Normal, Cuotas and PVP columns.
+    listar: vi.fn(() =>
+      Promise.resolve({
+        data: {
+          productos: [
+            { item_id: 4101, precio_lista_ml: 189999, markup: 24.3, participa_rebate: true, precio_rebate: 197911, markup_rebate: 21.1,
+              precio_3_cuotas: 209999, markup_3_cuotas: 18.2, precio_6_cuotas: 229999, markup_6_cuotas: 15.4,
+              precio_pvp: 239999, markup_pvp: 31.9 },
+            { item_id: 4102, precio_lista_ml: 45999, markup: -3.2, mejor_oferta_precio: 41399, mejor_oferta_markup: -9.8 },
+          ],
+          total: 2,
+        },
+      }),
+    ),
   },
   preciosAPI: {
     obtenerProducto: vi.fn(() => new Promise(() => {})),
@@ -319,7 +333,8 @@ describe('Publicaciones ML (visual)', () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
         const groups = [...scroller.querySelectorAll('thead th[scope="colgroup"]')];
-        expect(groups.map((th) => th.textContent)).toEqual(['Ventas (unidades)', 'Resultado financiero', 'Rotación', 'Stock']);
+        // Productos' price columns (S11) lead, right after Precio.
+        expect(groups.map((th) => th.textContent)).toEqual(['Precios de Productos', 'Ventas (unidades)', 'Resultado financiero', 'Rotación', 'Stock']);
         for (const th of groups) {
           expect(getComputedStyle(th).textAlign).toBe('center');
           expect(getComputedStyle(th).textTransform).toBe('uppercase');
@@ -333,7 +348,7 @@ describe('Publicaciones ML (visual)', () => {
         // Scrolled down, the group row and the leaf row both stay on top, in that order.
         scroller.scrollTo({ top: 400, left: 0 });
         await frame();
-        const ventas = rect(groups[0]);
+        const ventas = rect(groups[1]);
         const leaf = rect(scroller.querySelector('thead th[data-column="unidades_7d"]'));
         expect(Math.abs(ventas.top - rect(scroller).top)).toBeLessThanOrEqual(2);
         expect(Math.abs(leaf.top - ventas.bottom)).toBeLessThanOrEqual(2);

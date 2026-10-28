@@ -31,6 +31,9 @@ import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { withProductSelection } from '../components/publicacionesMl/productSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
+import useListPrices from '../components/publicacionesMl/useListPrices';
+import PriceModeSelect from '../components/publicacionesMl/PriceModeSelect';
+import { canViewProductPrices } from '../components/pricing/productPricePermissions';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
@@ -40,6 +43,7 @@ import {
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
+  PRICE_MODES,
   buildExportParams,
   buildItemsParams,
   buildKpiParams,
@@ -154,6 +158,8 @@ export default function PublicacionesML() {
   const canSeeKpis = tienePermiso('ml_metricas.ver');
   // The rows' Métricas figures (`metrics`) are Métricas' numbers too: same permission as the strip.
   const canSeeSales = canSeeKpis;
+  // Productos' price columns (S11): for who sees Productos' prices, as Productos and the panel's Precios tab.
+  const canSeePrices = canViewProductPrices(tienePermiso);
   // The period belongs to the strip alone: it is not a filter and never reaches `/items`.
   const [periodo, setPeriodo] = useState(30);
 
@@ -332,6 +338,23 @@ export default function PublicacionesML() {
     enabled: producto && !layerPending,
   });
 
+  // Productos' prices of the products on show: the publications' linked products, or the product rows themselves.
+  // The tree loads its rows by itself and has no price columns.
+  const listedProductIds = useMemo(
+    () =>
+      producto
+        ? productRows.rows.map((row) =>
+            row.type === 'node' ? row.node.productoItemId : row.type === 'item' ? row.item.link?.producto_item_id : null,
+          )
+        : (data?.items ?? EMPTY_ROWS).map((item) => item.link?.producto_item_id),
+    [producto, productRows.rows, data],
+  );
+  const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado);
+  const cyclePriceMode = () => {
+    const next = PRICE_MODES[(PRICE_MODES.indexOf(filters.modo) + 1) % PRICE_MODES.length];
+    setFilters({ modo: next === PRICE_MODES[0] ? '' : next });
+  };
+
   const eventsEnabled = data?.events_enabled ?? false;
   // The divergence filter brings its own column: the SKU next to the product it names and the linked one.
   const skuDivergence = filters.vinculo.includes('sku_divergente');
@@ -348,8 +371,24 @@ export default function PublicacionesML() {
         dimension: filters.agrupar,
         familias: filters.familias === '1',
         skuDivergence,
+        priceMode: filters.modo,
+        prices: canSeePrices ? listPrices : null,
       }),
-    [eventsEnabled, canSeeMargin, canSeeSales, expandedIds, toggleVariations, agrupado, producto, filters.agrupar, filters.familias, skuDivergence],
+    [
+      eventsEnabled,
+      canSeeMargin,
+      canSeeSales,
+      expandedIds,
+      toggleVariations,
+      agrupado,
+      producto,
+      filters.agrupar,
+      filters.familias,
+      skuDivergence,
+      filters.modo,
+      canSeePrices,
+      listPrices,
+    ],
   );
 
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
@@ -468,6 +507,7 @@ export default function PublicacionesML() {
     onOpenFilter: openFilter,
     onPaintRow: paintRow,
     onCycleLayer: cycleLayer,
+    onCycleMode: canSeePrices && !agrupado ? cyclePriceMode : undefined,
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
@@ -654,6 +694,14 @@ export default function PublicacionesML() {
           {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
               the fold at 1366x768. */}
           <PresenceFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
+          {/* Productos' price columns (S11): how the rows are looked at, like the Capa; the header has no room left. */}
+          {canSeePrices && !agrupado && (
+            <PriceModeSelect
+              value={filters.modo}
+              onChange={(value) => setFilters({ modo: value === PRICE_MODES[0] ? '' : value })}
+              labelClassName={styles.filterLabel}
+            />
+          )}
         </div>
         {showMarkupFilters && (
           <div className={styles.filterBand}>

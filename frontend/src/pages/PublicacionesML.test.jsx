@@ -8,7 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
-import api, { publicacionesMlAPI } from '../services/api';
+import api, { productosAPI, publicacionesMlAPI } from '../services/api';
 import { openInMlPanel } from '../utils/mlSidePanel';
 import { exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
 import { loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -45,6 +45,7 @@ vi.mock('../services/api', () => ({
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: ['REDES'] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     pms: vi.fn(() => Promise.resolve({ data: [{ id: 7, nombre: 'Ana' }] })),
+    listar: vi.fn(() => Promise.resolve({ data: { productos: [], total: 0 } })),
   },
   equiposAPI: {
     listar: vi.fn(() =>
@@ -80,12 +81,15 @@ vi.mock('../utils/googleSheetsExport', async (importOriginal) => ({
 // Everything is allowed except the margin, which each test grants on purpose.
 let canSeeMargin = false;
 let canSeeKpis = true;
+// Productos' prices (S11): `productos.ver` or a price-edit code (`canViewProductPrices`).
+let canSeePrices = true;
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
     tienePermiso: (permiso) => {
       if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
       if (permiso === 'ml_metricas.ver') return canSeeKpis;
+      if (permiso.startsWith('productos.') || permiso.startsWith('tienda.')) return canSeePrices;
       return true;
     },
     cargandoPermisos: false,
@@ -106,6 +110,7 @@ const page = async (entry = '/ml-publicaciones') => {
 beforeEach(() => {
   canSeeMargin = false;
   canSeeKpis = true;
+  canSeePrices = true;
   publicacionesMlAPI.kpis.mockReset();
   publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE });
   seedTiendasOficiales([
@@ -1685,6 +1690,53 @@ describe('the color filter (P6)', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ colores: 'rojo,sin_color', equipo_id: '12', offset: 0 }));
     await user.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
     await waitFor(() => expect(lastParams()).not.toHaveProperty('colores'));
+  });
+});
+
+describe("Productos' price columns (S11)", () => {
+  const PRICED = [
+    { item_id: 4101, precio_lista_ml: 12345.5, markup: 21.5, precio_3_cuotas: 13000, markup_3_cuotas: 18, precio_pvp: 15000, markup_pvp: 30 },
+  ];
+  beforeEach(() => {
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+  });
+  const table = () => screen.getByRole('table', { name: /Publicaciones de Mercado Libre/ });
+
+  it("shows each publication's product prices, asked once to Productos for the page's products", async () => {
+    await page();
+    expect(within(table()).getByRole('columnheader', { name: /Precio Clásica/ })).toBeInTheDocument();
+    expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
+    expect(productosAPI.listar).toHaveBeenCalledTimes(1);
+    expect(productosAPI.listar).toHaveBeenCalledWith({ item_ids: '4101,4102', page: 1, page_size: 2 });
+    // The markup only with ver_ganancia, as every markup of this screen.
+    expect(within(table()).queryByText('21,5%')).not.toBeInTheDocument();
+  });
+
+  it('Cuotas and PVP switch the columns without asking the list again; Alt+V steps through them', async () => {
+    const user = userEvent.setup();
+    await page();
+    const asked = calls().length;
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Precios' }), 'cuotas');
+    expect(await within(table()).findByRole('columnheader', { name: /3 Cuotas/ })).toBeInTheDocument();
+    expect(within(table()).queryByRole('columnheader', { name: /Precio Rebate/ })).not.toBeInTheDocument();
+    // Like every shortcut, not while a field (the select itself) has the focus.
+    screen.getByRole('combobox', { name: 'Precios' }).blur();
+    await user.keyboard('{Alt>}v{/Alt}');
+    expect(await within(table()).findByRole('columnheader', { name: /Precio PVP/ })).toBeInTheDocument();
+    expect(within(table()).getByText('15.000,00')).toBeInTheDocument();
+    await user.keyboard('{Alt>}v{/Alt}');
+    expect(await within(table()).findByRole('columnheader', { name: /Precio Rebate/ })).toBeInTheDocument();
+    expect(calls().length).toBe(asked);
+    expect(productosAPI.listar).toHaveBeenCalledTimes(1);
+  });
+
+  it("without Productos' prices there are no price columns, no mode and nothing asked", async () => {
+    canSeePrices = false;
+    await page();
+    expect(within(table()).queryByRole('columnheader', { name: /Precio Clásica/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Precios' })).not.toBeInTheDocument();
+    expect(productosAPI.listar).not.toHaveBeenCalled();
   });
 });
 

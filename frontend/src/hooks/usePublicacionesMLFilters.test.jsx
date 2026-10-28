@@ -18,6 +18,7 @@ import {
   buildKpiParams,
   buildProductIdsParams,
   PRESENCE_VALUES,
+  PRICE_MODES,
 } from './usePublicacionesMLFilters';
 import { DIMENSION_OPTIONS } from '../utils/metricasMlLevels';
 
@@ -550,5 +551,24 @@ describe("the color filter (`colores`, P6): Productos' colors on the layer on sh
     const plainBefore = plain.result.current.hook.filterKey;
     act(() => plain.result.current.hook.setFilters({ equipo: '12' }));
     expect(plain.result.current.hook.filterKey).toBe(plainBefore);
+  });
+});
+
+describe("the price columns' mode (`modo`, S11): Productos' Normal / Cuotas / PVP", () => {
+  it('reads the mode from the URL, Normal by default and for an unknown value', () => {
+    expect(PRICE_MODES).toEqual(['normal', 'cuotas', 'pvp']);
+    expect(setup('/').result.current.hook.filters.modo).toBe('normal');
+    expect(setup('/?modo=pvp').result.current.hook.filters.modo).toBe('pvp');
+    expect(setup('/?modo=otro').result.current.hook.filters.modo).toBe('normal');
+  });
+
+  it('is how the rows are looked at, not a filter: it never reaches the backend, resets no page and survives "Limpiar filtros"', () => {
+    const { result } = setup('/?modo=cuotas&estado=active&pagina=2');
+    expect(FILTER_KEYS).not.toContain('modo');
+    expect(buildItemsParams(result.current.hook.filters)).not.toHaveProperty('modo');
+    act(() => result.current.hook.setFilters({ modo: 'pvp' }));
+    expect(new URLSearchParams(result.current.search).get('pagina')).toBe('2');
+    act(() => result.current.hook.resetFilters());
+    expect(result.current.search).toBe('?modo=pvp');
   });
 });

@@ -79,6 +79,7 @@ function moveFocus(event) {
  *   next color layer (`onCycleLayer(-1 | 1)`), as in Productos; each only where the page offers it.
  * - Ctrl+K / Ctrl+Shift+P open the bulk Calcular Web Transf. / Calcular PVP (`onBulkAction('web' | 'pvp')`), and
  *   Alt+M / Alt+S / Alt+P the Marca / Subcategoría / PM filters (`onOpenFilter(name)`), as in Productos.
+ * - Alt+V steps to the next mode of Productos' price columns (`onCycleMode()`: Normal, Cuotas, PVP), as in Productos.
  *
  * While the operator types in a field only Ctrl+F and the copy shortcuts run (as in Productos, which copies while
  * editing too); nothing runs while a dialog is open (the help only takes `?`, to close it). `findRow(key)` maps a focused row's key to
@@ -90,6 +91,7 @@ export default function usePublicacionesMLKeyboard({
   onExport,
   onPaintRow,
   onCycleLayer,
+  onCycleMode,
   onBulkAction,
   onOpenFilter,
   onToggleHelp,
@@ -100,7 +102,7 @@ export default function usePublicacionesMLKeyboard({
   // No dependency array on purpose (the latest-ref pattern): it copies the values after every render.
   const props = useRef({});
   useLayoutEffect(() => {
-    props.current = { searchRef, findRow, onExport, onPaintRow, onCycleLayer, onBulkAction, onOpenFilter, onToggleHelp, showToast };
+    props.current = { searchRef, findRow, onExport, onPaintRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, onToggleHelp, showToast };
   });
 
   useEffect(() => {
@@ -136,6 +138,7 @@ export default function usePublicacionesMLKeyboard({
         onToggleHelp: toggleHelp,
         onPaintRow: paintRow,
         onCycleLayer: cycleLayer,
+        onCycleMode: cycleMode,
         onBulkAction: bulkAction,
         onOpenFilter: openFilter,
         showToast: toast,
@@ -178,6 +181,11 @@ export default function usePublicacionesMLKeyboard({
       if (event.altKey && !event.ctrlKey && !event.metaKey && FILTER_KEYS[event.code] && openFilter) {
         event.preventDefault();
         openFilter(FILTER_KEYS[event.code]);
+        return;
+      }
+      if (event.altKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyV' && cycleMode) {
+        event.preventDefault();
+        cycleMode();
         return;
       }
       if (event.ctrlKey || event.altKey || event.metaKey) return;

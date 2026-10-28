@@ -18,6 +18,7 @@ const SHORTCUTS = [
   { keys: ['Ctrl+K'], what: 'Calcular Web Transf. sobre los productos marcados o filtrados' },
   { keys: ['Ctrl+Shift+P'], what: 'Calcular PVP sobre los productos marcados o filtrados' },
   { keys: ['Alt+M', 'Alt+S', 'Alt+P'], what: 'Abrir el filtro de Marca, Subcategoría o PM' },
+  { keys: ['Alt+V'], what: 'Cambiar los precios de Productos: Normal, Cuotas o PVP' },
   { keys: ['Ctrl+F'], what: 'Ir a la búsqueda' },
   { keys: ['Ctrl+E'], what: 'Exportar la vista a CSV' },
   { keys: ['?'], what: 'Mostrar u ocultar esta ayuda' },

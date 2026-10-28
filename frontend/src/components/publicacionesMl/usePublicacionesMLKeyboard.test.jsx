@@ -18,7 +18,7 @@ const ROWS = Array.from({ length: 15 }, (_, index) => ({
 }));
 const COLUMNS = [{ key: 'titulo', label: 'Título', render: (row) => row.titulo }];
 
-function Harness({ onOpen = () => {}, onExport, onPaintRow, onCycleLayer, onBulkAction, onOpenFilter, showToast = () => {}, rows = ROWS }) {
+function Harness({ onOpen = () => {}, onExport, onPaintRow, onCycleLayer, onCycleMode, onBulkAction, onOpenFilter, showToast = () => {}, rows = ROWS }) {
   const searchRef = useRef(null);
   const [help, setHelp] = useState(false);
   usePublicacionesMLKeyboard({
@@ -27,6 +27,7 @@ function Harness({ onOpen = () => {}, onExport, onPaintRow, onCycleLayer, onBulk
     onExport,
     onPaintRow,
     onCycleLayer,
+    onCycleMode,
     onBulkAction,
     onOpenFilter,
     onToggleHelp: () => setHelp((open) => !open),
@@ -281,6 +282,17 @@ describe("Productos' bulk and filter shortcuts (S9b)", () => {
     expect(onOpenFilter).toHaveBeenLastCalledWith('subcategorias');
     fireEvent.keyDown(document.body, { key: 'p', code: 'KeyP', altKey: true });
     expect(onOpenFilter).toHaveBeenLastCalledWith('pms');
+  });
+
+  it("Alt+V steps through the price columns' modes (the key, not the character a Mac types), not while typing", async () => {
+    const onCycleMode = vi.fn();
+    const user = userEvent.setup();
+    render(<Harness onCycleMode={onCycleMode} />);
+    expect(fireEvent.keyDown(document.body, { key: '√', code: 'KeyV', altKey: true })).toBe(false);
+    expect(onCycleMode).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('textbox', { name: 'Buscar' }));
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Buscar' }), { key: 'v', code: 'KeyV', altKey: true });
+    expect(onCycleMode).toHaveBeenCalledTimes(1);
   });
 
   it('none of them runs while typing in a field', async () => {
