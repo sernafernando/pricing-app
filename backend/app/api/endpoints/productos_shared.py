@@ -304,14 +304,20 @@ class ExportRebateRequest(BaseModel):
         return self
 
 
-def distinct_export_item_ids(item_ids: Optional[List[int]]) -> Optional[List[int]]:
-    """An export's explicit product set: duplicates collapse, then the cap (Publicaciones ML's resolver's own)."""
+def distinct_item_ids(item_ids: Optional[List[int]], uso: str) -> Optional[List[int]]:
+    """An explicit product set: duplicates collapse (first-seen order), then the cap (Publicaciones ML's resolver's
+    own), its error naming what the set is for (`uso`)."""
     if item_ids is None:
         return None
     unique = list(dict.fromkeys(item_ids))
     if len(unique) > MAX_EXPLICIT_PRODUCT_IDS:
-        raise ValueError(f"{len(unique)} productos superan el máximo de {MAX_EXPLICIT_PRODUCT_IDS} por exportación")
+        raise ValueError(f"{len(unique)} productos superan el máximo de {MAX_EXPLICIT_PRODUCT_IDS} por {uso}")
     return unique
+
+
+def distinct_export_item_ids(item_ids: Optional[List[int]]) -> Optional[List[int]]:
+    """An export's explicit product set (`distinct_item_ids`)."""
+    return distinct_item_ids(item_ids, "exportación")
 
 
 class ExportItemIdsBody(BaseModel):
@@ -346,14 +352,7 @@ class ExplicitItemIdsRequest(BaseModel):
     @field_validator("item_ids")
     @classmethod
     def _distinct_within_cap(cls, item_ids: Optional[List[int]]) -> Optional[List[int]]:
-        if item_ids is None:
-            return None
-        unique = list(dict.fromkeys(item_ids))
-        if len(unique) > MAX_EXPLICIT_PRODUCT_IDS:
-            raise ValueError(
-                f"{len(unique)} productos superan el máximo de {MAX_EXPLICIT_PRODUCT_IDS} por acción masiva"
-            )
-        return unique
+        return distinct_item_ids(item_ids, "acción masiva")
 
     @model_validator(mode="after")
     def _one_write_set(self):
