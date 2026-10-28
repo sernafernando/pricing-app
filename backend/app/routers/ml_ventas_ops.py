@@ -97,6 +97,7 @@ from app.services.ml_sales_query.filters import (
     store_facet_counts,
 )
 from app.services.product_facets import ProductFacetOptions
+from app.services.sell_in_out_ventas import MontosVenta, montos_por_venta, sumar
 from app.services.ml_ventas_desglose.deducciones import resolve_costo_mercaderia_detalle
 from app.services.ml_ventas_desglose.pack_aggregation import aggregate_pack_metrics, sum_all_or_nothing
 from app.services.ml_ventas_desglose.iva import descomponer_neto
@@ -808,6 +809,12 @@ class SaleListItem(BaseModel):
     # pair here would silently pick one and lie about the rest. Empty list
     # (never `None`) when the order has no synced item row yet.
     items: List[OrderItemOpsSummary] = Field(default_factory=list)
+    # Métricas audit A7: the sell in / sell out the allocators credited to
+    # this order's item rows (`_sell_in_out_by_order`), so a Métricas ML sell
+    # figure can be traced to its sales. `None` when nothing applies.
+    sell_in_ars: Optional[float] = None
+    sell_out_ars: Optional[float] = None
+    sell_out_estimado: Optional[bool] = None
 
 
 class SaleGroup(BaseModel):
@@ -865,6 +872,10 @@ class SaleGroup(BaseModel):
     neto_depositado: Optional[float] = None
     retenciones_recuperables: Optional[float] = None
     bonificacion_envio: Optional[float] = None
+    # Métricas audit A7: the members' sell in / sell out, `sell_in_out_ventas.sumar`'s rule.
+    sell_in_ars: Optional[float] = None
+    sell_out_ars: Optional[float] = None
+    sell_out_estimado: Optional[bool] = None
 
 
 class SaleFacetCounts(BaseModel):
@@ -1181,6 +1192,30 @@ def _items_by_order(db: Session, order_ids: List[int]) -> Dict[int, List[MlOrder
     return result
 
 
+def _sell_in_out_by_order(db: Session, items_by_order: Dict[int, List[MlOrderItemOps]]) -> Dict[int, MontosVenta]:
+    """Métricas audit A7: each order's sell in / sell out, the sum of what the
+    allocators credited to its item rows (canal 'ml', `venta_ref` =
+    `ml_order_items_ops.id`). Two queries for the page; an order with nothing
+    applied is absent."""
+    by_row = montos_por_venta(db, "ml", [item.id for items in items_by_order.values() for item in items])
+    result: Dict[int, MontosVenta] = {}
+    for order_id, items in items_by_order.items():
+        montos = sumar(by_row.get(item.id) for item in items)
+        if montos is not None:
+            result[order_id] = montos
+    return result
+
+
+def _sell_in_out_fields(montos: Optional[MontosVenta]) -> Dict[str, Any]:
+    if montos is None:
+        return {}
+    return {
+        "sell_in_ars": float(montos.sell_in_ars) if montos.sell_in_ars is not None else None,
+        "sell_out_ars": float(montos.sell_out_ars) if montos.sell_out_ars is not None else None,
+        "sell_out_estimado": montos.sell_out_estimado,
+    }
+
+
 def _alert_level(
     *,
     metrics_state: Optional[str],
@@ -1446,6 +1481,7 @@ def _sales_page(
         total = listing_query.with_entities(func.count(func.distinct(group_key))).scalar() or 0
 
     members_by_key: Dict[str, List[SaleListItem]] = {}
+    sell_by_order: Dict[int, MontosVenta] = {}
     if page_keys:
         # Deliberately NOT `listing_query`, and NOT `base` either: a filter
         # -- status OR month -- selects which GROUPS to show, never which of
@@ -1509,6 +1545,7 @@ def _sales_page(
         # ventas-ml-producto-listado-pr10b: same ONE-bulk-query-for-the-page
         # discipline as the two lookups above.
         items_by_order = _items_by_order(db, page_order_ids)
+        sell_by_order = _sell_in_out_by_order(db, items_by_order)
         for order, shipment, key, operation_status_value, goods_status_value in member_rows:
             stored = stored_metrics_by_order.get(order.order_id)
             order_neto = stored.neto if stored is not None else None
@@ -1596,6 +1633,7 @@ def _sales_page(
                     alert_level=order_alert_level,
                     markup=float(order_markup) if order_markup is not None else None,
                     items=[OrderItemOpsSummary.model_validate(item) for item in items_by_order.get(order.order_id, [])],
+                    **_sell_in_out_fields(sell_by_order.get(order.order_id)),
                 )
             )
 
@@ -1674,6 +1712,7 @@ def _sales_page(
                 neto_depositado=group_neto_depositado,
                 retenciones_recuperables=group_retenciones_recuperables,
                 bonificacion_envio=group_bonificacion,
+                **_sell_in_out_fields(sumar(sell_by_order.get(m.order_id) for m in members)),
                 # The earliest member's `date_created` -- DISPLAYED to the
                 # user, but NOT what the row is filtered or sorted by. ODD
                 # `ventas-ml-dia-por-acreditacion`: the default sort/filter
