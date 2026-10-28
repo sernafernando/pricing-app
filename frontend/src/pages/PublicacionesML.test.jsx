@@ -2166,6 +2166,9 @@ describe("Productos' Alt+A / Alt+C / Alt+F filter keys", () => {
     expect(await screen.findByRole('group', { name: 'Filtros de presencia' })).toBeInTheDocument();
     await user.keyboard('{Alt>}f{/Alt}');
     await waitFor(() => expect(screen.queryByRole('group', { name: 'Filtros de presencia' })).not.toBeInTheDocument());
+    // Alt+F opens them from closed too.
+    await user.keyboard('{Alt>}f{/Alt}');
+    expect(await screen.findByRole('group', { name: 'Filtros de presencia' })).toBeInTheDocument();
   });
 });
 

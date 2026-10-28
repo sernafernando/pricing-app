@@ -21,6 +21,8 @@ const COPIES = {
 const PAINT_COLORS = [null, 'rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
 // Alt+letter opens a filter, by the key (`code`): a Mac types another character with Alt. Productos' Alt+C and Alt+F
 // both open its Avanzados (rebate, oferta, web transf., fuera de tarjetas): here those are the presence filters.
+// Each value is the `data-filter` of a filter button the page clicks (ProductFiltersPanel, AuditFilters,
+// PresenceFilters): renaming one side breaks the key.
 const FILTER_KEYS = {
   KeyM: 'marcas',
   KeyS: 'subcategorias',

@@ -357,7 +357,8 @@ describe("Productos' bulk and filter shortcuts (S9b)", () => {
     expect(onOpenFilter).toHaveBeenLastCalledWith('auditoria');
     expect(fireEvent.keyDown(document.body, { key: 'ç', code: 'KeyC', altKey: true })).toBe(false);
     expect(onOpenFilter).toHaveBeenLastCalledWith('presencia');
-    fireEvent.keyDown(document.body, { key: 'ƒ', code: 'KeyF', altKey: true });
+    // Alt+F is the browsers' menu key: taken from them too.
+    expect(fireEvent.keyDown(document.body, { key: 'ƒ', code: 'KeyF', altKey: true })).toBe(false);
     expect(onOpenFilter).toHaveBeenLastCalledWith('presencia');
     expect(onOpenFilter).toHaveBeenCalledTimes(3);
   });
