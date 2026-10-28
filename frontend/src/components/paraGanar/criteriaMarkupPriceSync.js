@@ -1,28 +1,10 @@
-/** Bidirectional criteria sync: markup % ↔ precio using ERP cost in ARS.
+/** Bidirectional criteria sync via Pricing endpoints (D11).
  *
- * Simple commercial floor: precio = costo_ars * (1 + markup/100).
- * Not commission-adjusted “limpio” markup — criteria thresholds only (D11).
+ * Markup → price: POST /precios/calcular-por-markup (adicional_markup=0).
+ * Price → markup: GET /precios/calcular-markup.
+ * Same commission/shipping/cost chain as Productos — not costo*(1+markup).
  */
 
-function round2(value) {
-  return Math.round(value * 100) / 100;
-}
-
-export function priceFromMarkup(costoArs, markupPct) {
-  const cost = Number(costoArs);
-  const markup = Number(markupPct);
-  if (!(cost > 0) || !Number.isFinite(markup)) return null;
-  return round2(cost * (1 + markup / 100));
-}
-
-export function markupFromPrice(costoArs, precio) {
-  const cost = Number(costoArs);
-  const price = Number(precio);
-  if (!(cost > 0) || !Number.isFinite(price)) return null;
-  return round2((price / cost - 1) * 100);
-}
-
-/** Map which sibling field to update when the operator edits one side. */
 export const MARKUP_PRICE_LINKS = {
   markup_min: 'precio_min',
   markup_max: 'precio_max',
@@ -30,25 +12,49 @@ export const MARKUP_PRICE_LINKS = {
   precio_max: 'markup_max',
 };
 
-export function syncLinkedCriteriaField(form, key, rawValue, costoArs) {
-  const next = { ...form, [key]: rawValue };
+function round2(value) {
+  return Math.round(Number(value) * 100) / 100;
+}
+
+/**
+ * Resolve the peer field for a markup/precio edit using Pricing calculators.
+ * @returns {{ peer: string, peerValue: string } | { peer: string, peerValue: '' } | null}
+ */
+export async function resolveLinkedCriteriaValue({
+  key,
+  rawValue,
+  itemId,
+  pricelistId,
+  calcularPorMarkup,
+  calcularMarkup,
+}) {
   const peer = MARKUP_PRICE_LINKS[key];
-  if (!peer || !(Number(costoArs) > 0)) return next;
+  if (!peer) return null;
+  if (itemId == null || pricelistId == null) return null;
 
   const trimmed = String(rawValue ?? '').trim();
   if (!trimmed) {
-    next[peer] = '';
-    return next;
+    return { peer, peerValue: '' };
   }
   const numeric = Number(trimmed);
-  if (!Number.isFinite(numeric)) return next;
+  if (!Number.isFinite(numeric)) return null;
 
   if (key.startsWith('markup_')) {
-    const price = priceFromMarkup(costoArs, numeric);
-    if (price != null) next[peer] = String(price);
-  } else {
-    const markup = markupFromPrice(costoArs, numeric);
-    if (markup != null) next[peer] = String(markup);
+    const { data } = await calcularPorMarkup({
+      item_id: itemId,
+      pricelist_id: pricelistId,
+      markup_objetivo: numeric,
+      adicional_markup: 0,
+    });
+    if (data?.precio == null || !Number.isFinite(Number(data.precio))) return null;
+    return { peer, peerValue: String(round2(data.precio)) };
   }
-  return next;
+
+  const { data } = await calcularMarkup({
+    item_id: itemId,
+    pricelist_id: pricelistId,
+    precio: numeric,
+  });
+  if (data?.markup == null || !Number.isFinite(Number(data.markup))) return null;
+  return { peer, peerValue: String(round2(data.markup)) };
 }

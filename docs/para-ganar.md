@@ -32,7 +32,7 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D8 | Tienda filter via `ml_tiendas_oficiales` + `tb_mercadolibre_items_publicados`; “Sin tienda” = no row | Named stores need seed in empty sandbox | Done (+ seeds) |
 | D9 | **Cost USD from–to** = scope filter (not criteria) | Different cost bands need different criteria later | Done (`costo_usd_min` / `costo_usd_max`; ARS→USD via TC venta) |
 | D10 | **Mass / system criteria = markup only** (no mass price caps) | No single cost → price caps as mass criteria are meaningless | Done (defaults + `MASS_CRITERIA_NUMBER_KEYS`; mass apply UI still disabled) |
-| D11 | **Per MLA:** precio ↔ markup stay in sync (edit either; other derives from that MLA’s cost in ARS) | Deterministic floor: `precio = costo_ars * (1 + markup/100)` — not limpio/comisiones | Done (UI sync + `costo_ars` on GET/PUT) |
+| D11 | **Per MLA:** precio ↔ markup stay in sync (edit either; other derives via Pricing calc) | Same chain as Productos: `POST /precios/calcular-por-markup` (`adicional_markup: 0`) and `GET /precios/calcular-markup` with cola `item_id` + `pricelist_id` | Done (debounced UI sync) |
 | D12 | **TOP N = price positions** (ties share a rank), not “N sellers” | Two at #1 + three at #2 = top **2** positions, five sellers | Label done; engine when TOP logic lands |
 
 ---
@@ -73,7 +73,7 @@ Newest first. Use for “why did we…” archaeology.
 ### Criterios
 
 - **Sin override MLA:** UI shows system defaults (`Origen: default`). System defaults are **markup + TOP + flags** only — no mass price caps (D10).
-- **Con override:** `Origen: MLA` after save. Precio min/max ↔ markup min/max sync using ERP cost in ARS (D11).
+- **Con override:** `Origen: MLA` after save. Precio min/max ↔ markup min/max sync via Pricing endpoints (D11), not a generic cost×markup formula.
 - Mass “apply to filtered” button: still disabled until product/PM layers; when built, only `MASS_CRITERIA_NUMBER_KEYS` + flags.
 
 ### TOP (posiciones)

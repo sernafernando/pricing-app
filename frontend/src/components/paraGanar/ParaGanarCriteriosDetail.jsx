@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
-import api from '../../services/api';
+import { useEffect, useRef, useState } from 'react';
+import api, { preciosAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
+import { useDebounce } from '../../hooks/useDebounce';
 import {
   CRITERIA_FLAG_FIELDS,
   CRITERIA_NUMBER_FIELDS,
@@ -9,7 +10,7 @@ import {
   formToPayload,
   sourceLabel,
 } from './criteriaFields';
-import { syncLinkedCriteriaField } from './criteriaMarkupPriceSync';
+import { MARKUP_PRICE_LINKS, resolveLinkedCriteriaValue } from './criteriaMarkupPriceSync';
 import ParaGanarCatalogSellers from './ParaGanarCatalogSellers';
 import styles from '../../pages/ParaGanarAdvisor.module.css';
 
@@ -19,21 +20,31 @@ export default function ParaGanarCriteriosDetail({ selected }) {
 
   const [form, setForm] = useState(EMPTY_CRITERIA_FORM);
   const [source, setSource] = useState('default');
-  const [costoArs, setCostoArs] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [syncError, setSyncError] = useState(null);
   const [saveOk, setSaveOk] = useState(false);
+  const [pendingSync, setPendingSync] = useState(null);
+  const syncSeq = useRef(0);
+  const latestSyncToken = useRef(null);
+
+  const debouncedSync = useDebounce(pendingSync, 350);
+  const itemId = selected?.item_id ?? null;
+  const pricelistId = selected?.pricelist_id ?? null;
+  const canPriceSync = itemId != null && pricelistId != null;
 
   useEffect(() => {
     if (!selected?.mla) {
       setForm(EMPTY_CRITERIA_FORM);
       setSource('default');
-      setCostoArs(null);
       setLoadError(null);
       setSaveError(null);
+      setSyncError(null);
       setSaveOk(false);
+      setPendingSync(null);
       return undefined;
     }
 
@@ -42,18 +53,18 @@ export default function ParaGanarCriteriosDetail({ selected }) {
       setLoading(true);
       setLoadError(null);
       setSaveError(null);
+      setSyncError(null);
       setSaveOk(false);
+      setPendingSync(null);
       try {
         const { data } = await api.get(`/para-ganar/criterios/${encodeURIComponent(selected.mla)}`);
         if (cancelled) return;
         setForm(criteriaToForm(data));
         setSource(data.source || 'default');
-        setCostoArs(data.costo_ars != null ? Number(data.costo_ars) : null);
       } catch (err) {
         if (cancelled) return;
         setForm(EMPTY_CRITERIA_FORM);
         setSource('default');
-        setCostoArs(null);
         if (err.response?.status === 403) {
           setLoadError('No tenés permiso para ver criterios.');
         } else {
@@ -70,10 +81,55 @@ export default function ParaGanarCriteriosDetail({ selected }) {
     };
   }, [selected?.mla]);
 
+  useEffect(() => {
+    if (!debouncedSync || !canPriceSync) return undefined;
+
+    const { key, value, token } = debouncedSync;
+    if (!MARKUP_PRICE_LINKS[key]) return undefined;
+
+    let cancelled = false;
+    const seq = ++syncSeq.current;
+
+    async function run() {
+      setSyncing(true);
+      setSyncError(null);
+      try {
+        const result = await resolveLinkedCriteriaValue({
+          key,
+          rawValue: value,
+          itemId,
+          pricelistId,
+          calcularPorMarkup: preciosAPI.calcularPorMarkup,
+          calcularMarkup: preciosAPI.calcularMarkup,
+        });
+        if (cancelled || seq !== syncSeq.current) return;
+        if (token !== latestSyncToken.current) return;
+        if (!result) return;
+        setForm((prev) => ({ ...prev, [result.peer]: result.peerValue }));
+      } catch {
+        if (cancelled || seq !== syncSeq.current) return;
+        setSyncError('No se pudo sincronizar markup ↔ precio con la cuenta de Pricing.');
+      } finally {
+        if (!cancelled && seq === syncSeq.current) setSyncing(false);
+      }
+    }
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSync, canPriceSync, itemId, pricelistId]);
+
   const setField = (key, value) => {
     setSaveOk(false);
     setSaveError(null);
-    setForm((prev) => syncLinkedCriteriaField(prev, key, value, costoArs));
+    setSyncError(null);
+    setForm((prev) => ({ ...prev, [key]: value }));
+    if (MARKUP_PRICE_LINKS[key] && canPriceSync) {
+      const token = Date.now();
+      latestSyncToken.current = token;
+      setPendingSync({ key, value, token });
+    }
   };
 
   const onSubmit = async (event) => {
@@ -91,7 +147,6 @@ export default function ParaGanarCriteriosDetail({ selected }) {
       );
       setForm(criteriaToForm(data));
       setSource(data.source || 'mla');
-      setCostoArs(data.costo_ars != null ? Number(data.costo_ars) : null);
       setSaveOk(true);
     } catch (err) {
       const detail = err.response?.data?.detail;
@@ -131,12 +186,7 @@ export default function ParaGanarCriteriosDetail({ selected }) {
             <div className={styles.criteriaSource}>
               Origen efectivo: <strong>{sourceLabel(source)}</strong>
               {loading ? ' · cargando…' : ''}
-              {costoArs != null && Number.isFinite(costoArs) ? (
-                <>
-                  {' '}
-                  · costo ERP ~ ${costoArs.toLocaleString('es-AR', { maximumFractionDigits: 2 })} ARS
-                </>
-              ) : null}
+              {syncing ? ' · sync Pricing…' : ''}
             </div>
           </div>
 
@@ -145,9 +195,14 @@ export default function ParaGanarCriteriosDetail({ selected }) {
               {loadError}
             </p>
           )}
-          {!loading && (costoArs == null || !Number.isFinite(costoArs) || !(costoArs > 0)) && (
+          {!loading && !canPriceSync && (
             <p className={styles.emptyBody} role="status">
-              Sin costo ERP en ARS: markup y precio no se sincronizan (faltan costo o tipo de cambio).
+              Sin item_id o pricelist_id en la cola: markup y precio no se sincronizan con Pricing.
+            </p>
+          )}
+          {syncError && (
+            <p className={styles.criteriaFeedbackError} role="alert">
+              {syncError}
             </p>
           )}
 
