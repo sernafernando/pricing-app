@@ -88,6 +88,13 @@ function hookState(overrides = {}) {
     reload: vi.fn(),
     loadMore: vi.fn(),
     hasMore: false,
+    verTodos: false,
+    showDeleted: false,
+    hiddenCount: 0,
+    deletedCount: 0,
+    onlyDeleted: false,
+    showAll: vi.fn(),
+    toggleDeleted: vi.fn(),
     ...overrides,
   };
 }
@@ -378,5 +385,61 @@ describe('ProductPanel', () => {
       expect(tab('Resumen')).toHaveAttribute('aria-selected', 'true');
       expect(figures()).toBeInTheDocument();
     });
+  });
+});
+
+describe("ProductPanel's escapes: ver todos and Ver eliminadas", () => {
+  beforeEach(() => {
+    useProductPanel.mockReset();
+    granted = new Set(['productos.ver']);
+  });
+
+  const publications = () => screen.getByRole('region', { name: 'Publicaciones' });
+
+  it('with no filter hiding anything and nothing deleted, looks as before', () => {
+    renderPanel();
+    const section = publications();
+    expect(within(section).getAllByRole('button').map((button) => button.textContent)).toEqual(
+      ITEMS.map((item) => expect.stringContaining(item.item_id)),
+    );
+    expect(within(section).queryByText(/filtros/)).not.toBeInTheDocument();
+  });
+
+  it('offers "ver todos (N)" when the filters hide some, and it asks the hook for them', async () => {
+    const { state } = renderPanel({ state: hookState({ hiddenCount: 3 }) });
+    await userEvent.click(within(publications()).getByRole('button', { name: 'ver todos (3)' }));
+    expect(state.showAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('has no "ver todos" once on, and says the list is without the filters', () => {
+    renderPanel({ state: hookState({ verTodos: true }) });
+    const section = publications();
+    expect(within(section).queryByRole('button', { name: /ver todos/ })).not.toBeInTheDocument();
+    expect(within(section).getByText('Sin los filtros actuales')).toBeInTheDocument();
+  });
+
+  it('offers "Ver eliminadas (N)", which asks the hook to add them', async () => {
+    const { state } = renderPanel({ state: hookState({ deletedCount: 2 }) });
+    await userEvent.click(within(publications()).getByRole('button', { name: 'Ver eliminadas (2)' }));
+    expect(state.toggleDeleted).toHaveBeenCalledTimes(1);
+  });
+
+  it('says "Ocultar eliminadas", pressed, while the deleted ones are shown', () => {
+    renderPanel({ state: hookState({ deletedCount: 2, showDeleted: true }) });
+    expect(within(publications()).getByRole('button', { name: 'Ocultar eliminadas' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('says the publications are hidden for being deleted when only deleted ones exist', () => {
+    renderPanel({ state: hookState({ items: [], deletedCount: 1, onlyDeleted: true }) });
+    const section = publications();
+    expect(within(section).getByText('Las publicaciones de este producto quedan ocultas por estar eliminadas.')).toBeInTheDocument();
+    expect(within(section).queryByText('Ninguna publicación coincide con los filtros.')).not.toBeInTheDocument();
+  });
+
+  it('the catalog competition and the wholesale prices follow the list shown', () => {
+    const all = [...ITEMS, makeItem({ item_id: 'MLA1100000003' })];
+    renderPanel({ state: hookState({ items: all, verTodos: true }) });
+    expect(screen.getByTestId('product-catalog-competition')).toHaveTextContent('MLA1100000001,MLA1100000002,MLA1100000003');
+    expect(screen.getByTestId('product-pxq')).toHaveTextContent('MLA1100000001,MLA1100000002,MLA1100000003');
   });
 });

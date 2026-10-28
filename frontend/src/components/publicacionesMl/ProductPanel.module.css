@@ -10,6 +10,13 @@
   padding: var(--spacing-md);
 }
 
+.escapes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
 .items {
   display: flex;
   flex-direction: column;

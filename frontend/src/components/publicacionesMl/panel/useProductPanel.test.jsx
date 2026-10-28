@@ -41,6 +41,12 @@ const [PRODUCT, , WITHOUT_PRODUCT] = PRODUCT_ROWS;
 
 const itemsPage = (ids, total) => ({ data: { items: ids.map((item_id) => ({ item_id })), total } });
 const ids = (from, count) => Array.from({ length: count }, (_, i) => `MLA${from + i}`);
+/** The list's pages, in order; the escapes' counts (`limit: 1`) find nothing. */
+const listPages = (...pages) => {
+  const queue = [...pages];
+  publicacionesMlAPI.items.mockImplementation((params) => Promise.resolve(params.limit === 1 ? itemsPage([], 0) : queue.shift()));
+};
+const listCalls = () => publicacionesMlAPI.items.mock.calls.filter(([params]) => params.limit !== 1);
 
 function deferred() {
   let resolve;
@@ -92,9 +98,7 @@ describe('useProductPanel', () => {
 
   it('pages the publications 100 at a time and "loadMore" asks from where it is', async () => {
     publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse([PRODUCT]) });
-    publicacionesMlAPI.items
-      .mockResolvedValueOnce(itemsPage(ids(0, 100), 150))
-      .mockResolvedValueOnce(itemsPage(ids(100, 50), 150));
+    listPages(itemsPage(ids(0, 100), 150), itemsPage(ids(100, 50), 150));
     const { result } = setup(PRODUCT.key);
 
     await waitFor(() => expect(result.current.items).toHaveLength(100));
@@ -107,9 +111,7 @@ describe('useProductPanel', () => {
 
   it('two "loadMore" calls in the same tick ask for the next page once', async () => {
     publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse([PRODUCT]) });
-    publicacionesMlAPI.items
-      .mockResolvedValueOnce(itemsPage(ids(0, 100), 150))
-      .mockResolvedValueOnce(itemsPage(ids(100, 50), 150));
+    listPages(itemsPage(ids(0, 100), 150), itemsPage(ids(100, 50), 150));
     const { result } = setup(PRODUCT.key);
 
     await waitFor(() => expect(result.current.items).toHaveLength(100));
@@ -118,7 +120,7 @@ describe('useProductPanel', () => {
       result.current.loadMore();
     });
     await waitFor(() => expect(result.current.items).toHaveLength(150));
-    expect(publicacionesMlAPI.items).toHaveBeenCalledTimes(2);
+    expect(listCalls()).toHaveLength(2);
   });
 
   it("drops a late answer about the product it showed before", async () => {
@@ -131,7 +133,7 @@ describe('useProductPanel', () => {
     await waitFor(() => expect(result.current.summary?.key).toBe(WITHOUT_PRODUCT.key));
     await act(async () => old.resolve({ data: productsResponse([PRODUCT]) }));
     expect(result.current.summary.key).toBe(WITHOUT_PRODUCT.key);
-    expect(publicacionesMlAPI.items).toHaveBeenCalledTimes(1);
+    expect(listCalls()).toHaveLength(1);
   });
 
   it('a filter change asks again; a change of the selection does not', async () => {
@@ -199,5 +201,159 @@ describe("a Sin MLA product (Productos' Sin MLA)", () => {
       limit: 1,
       offset: 0,
     });
+  });
+});
+
+/**
+ * The panel's escapes, Productos' own: "ver todos" lists the product's publications without the page's filters and
+ * "Ver eliminadas" adds the deleted ones (`estado=gone`), each count asked as a `total` with `limit: 1`.
+ */
+describe('ver todos and Ver eliminadas', () => {
+  // A filter that is not `estado`, so each of the four scopes is its own request.
+  const FILTERED = { ...FILTERS, q: 'archer', estado: [] };
+  const NONE = { ...FILTERS, estado: [] };
+  const scopeOf = (params) => `${params.q ? 'filtered' : 'all'}${params.estado === 'gone' ? 'Gone' : ''}`;
+
+  /** Serves `/view/items` by scope: `ids` per scope, its `total` the length of its ids. */
+  function serve(byScope) {
+    publicacionesMlAPI.items.mockImplementation((params) => {
+      const all = byScope[scopeOf(params)] ?? [];
+      const page = params.limit === 1 ? all.slice(0, 1) : all.slice(params.offset, params.offset + params.limit);
+      return Promise.resolve(itemsPage(page, all.length));
+    });
+  }
+
+  const counts = () => publicacionesMlAPI.items.mock.calls.map(([params]) => params).filter((params) => params.limit === 1);
+
+  beforeEach(() => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse([PRODUCT]) });
+  });
+
+  it('counts what the filters hide: all the live ones minus the filtered ones, with limit 1', async () => {
+    serve({ filtered: ['MLA1'], all: ['MLA1', 'MLA2', 'MLA3'], filteredGone: [], allGone: [] });
+    const { result } = setup(PRODUCT.key, FILTERED);
+
+    await waitFor(() => expect(result.current.hiddenCount).toBe(2));
+    expect(counts()).toContainEqual({ ...PRODUCT.params, limit: 1, offset: 0 });
+    expect(result.current.verTodos).toBe(false);
+  });
+
+  it('"ver todos" lists the publications with only the product params', async () => {
+    serve({ filtered: ['MLA1'], all: ['MLA1', 'MLA2', 'MLA3'], filteredGone: [], allGone: [] });
+    const { result } = setup(PRODUCT.key, FILTERED);
+    await waitFor(() => expect(result.current.hiddenCount).toBe(2));
+
+    act(() => result.current.showAll());
+    await waitFor(() => expect(result.current.items.map((row) => row.item_id)).toEqual(['MLA1', 'MLA2', 'MLA3']));
+    expect(publicacionesMlAPI.items).toHaveBeenLastCalledWith({ ...PRODUCT.params, limit: 100, offset: 0 });
+    expect(result.current.verTodos).toBe(true);
+    expect(result.current.hiddenCount).toBe(0);
+  });
+
+  it('counts the deleted ones of the scope and "Ver eliminadas" adds them after the live ones', async () => {
+    serve({ filtered: ['MLA1'], all: ['MLA1', 'MLA2'], filteredGone: ['MLA8'], allGone: ['MLA8', 'MLA9'] });
+    const { result } = setup(PRODUCT.key, FILTERED);
+    await waitFor(() => expect(result.current.deletedCount).toBe(1));
+    expect(counts()).toContainEqual({ q: 'archer', estado: 'gone', ...PRODUCT.params, limit: 1, offset: 0 });
+
+    act(() => result.current.toggleDeleted());
+    await waitFor(() => expect(result.current.items.map((row) => row.item_id)).toEqual(['MLA1', 'MLA8']));
+    expect(publicacionesMlAPI.items).toHaveBeenLastCalledWith({ q: 'archer', estado: 'gone', ...PRODUCT.params, limit: 100, offset: 0 });
+    expect(result.current.showDeleted).toBe(true);
+    expect(result.current.hasMore).toBe(false);
+
+    act(() => result.current.toggleDeleted());
+    await waitFor(() => expect(result.current.items.map((row) => row.item_id)).toEqual(['MLA1']));
+  });
+
+  it('with "Ver eliminadas" on, both counts of "ver todos" take the deleted ones in', async () => {
+    serve({ filtered: ['MLA1'], all: ['MLA1', 'MLA2'], filteredGone: ['MLA8'], allGone: ['MLA8', 'MLA9', 'MLA10'] });
+    const { result } = setup(PRODUCT.key, FILTERED);
+    await waitFor(() => expect(result.current.hiddenCount).toBe(1));
+
+    act(() => result.current.toggleDeleted());
+    await waitFor(() => expect(result.current.hiddenCount).toBe(3));
+  });
+
+  it('under "ver todos" the deleted count is that of the product without the filters', async () => {
+    serve({ filtered: ['MLA1'], all: ['MLA1', 'MLA2'], filteredGone: [], allGone: ['MLA8', 'MLA9'] });
+    const { result } = setup(PRODUCT.key, FILTERED);
+    await waitFor(() => expect(result.current.hiddenCount).toBe(1));
+    expect(result.current.deletedCount).toBe(0);
+
+    act(() => result.current.showAll());
+    await waitFor(() => expect(result.current.deletedCount).toBe(2));
+  });
+
+  it('says when the scope has only deleted ones', async () => {
+    serve({ all: [], allGone: ['MLA8'] });
+    const { result } = setup(PRODUCT.key, NONE);
+    await waitFor(() => expect(result.current.onlyDeleted).toBe(true));
+    expect(result.current.deletedCount).toBe(1);
+
+    act(() => result.current.toggleDeleted());
+    await waitFor(() => expect(result.current.items.map((row) => row.item_id)).toEqual(['MLA8']));
+    expect(result.current.onlyDeleted).toBe(false);
+  });
+
+  it('with no filter and nothing deleted asks the same list and offers nothing', async () => {
+    serve({ all: ['MLA1', 'MLA2'], allGone: [] });
+    const { result } = setup(PRODUCT.key, NONE);
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+    await waitFor(() => expect(counts()).toHaveLength(1));
+
+    expect(publicacionesMlAPI.items.mock.calls[0][0]).toEqual({ ...PRODUCT.params, limit: 100, offset: 0 });
+    expect(counts()).toEqual([{ estado: 'gone', ...PRODUCT.params, limit: 1, offset: 0 }]);
+    expect(result.current).toMatchObject({ hiddenCount: 0, deletedCount: 0, onlyDeleted: false, verTodos: false, showDeleted: false });
+  });
+
+  it('a new product or a new filter set turns both escapes off', async () => {
+    serve({ filtered: ['MLA1'], all: ['MLA1', 'MLA2'], filteredGone: ['MLA8'], allGone: ['MLA8'] });
+    const { result, rerender } = setup(PRODUCT.key, FILTERED);
+    await waitFor(() => expect(result.current.hiddenCount).toBe(1));
+    act(() => result.current.showAll());
+    act(() => result.current.toggleDeleted());
+    await waitFor(() => expect(result.current.items).toHaveLength(3));
+
+    rerender({ filters: { ...FILTERED, q: 'router' }, productKey: PRODUCT.key });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current).toMatchObject({ verTodos: false, showDeleted: false });
+
+    act(() => result.current.showAll());
+    rerender({ filters: { ...FILTERED, q: 'router' }, productKey: WITHOUT_PRODUCT.key });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.verTodos).toBe(false);
+  });
+
+  it("drops the list and the counts asked before a toggle or for another product", async () => {
+    const lateList = deferred();
+    serve({ filtered: ['MLA1'], all: ['MLA1', 'MLA2'], filteredGone: [], allGone: [] });
+    publicacionesMlAPI.items.mockReturnValueOnce(lateList.promise);
+    const { result, rerender } = setup(PRODUCT.key, FILTERED);
+    await waitFor(() => expect(result.current.summary?.key).toBe(PRODUCT.key));
+
+    act(() => result.current.showAll());
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+    await act(async () => lateList.resolve(itemsPage(['MLA1'], 1)));
+    expect(result.current.items.map((row) => row.item_id)).toEqual(['MLA1', 'MLA2']);
+
+    // The next filter set asks its count of the publications without filters, which answers only after another one.
+    const oldCount = deferred();
+    serve({ filtered: ['MLA1'], all: ['MLA1', 'MLA2'], filteredGone: [], allGone: [] });
+    const answer = publicacionesMlAPI.items.getMockImplementation();
+    let held = false;
+    publicacionesMlAPI.items.mockImplementation((params) => {
+      if (!held && params.limit === 1 && !params.q && !params.estado) {
+        held = true;
+        return oldCount.promise;
+      }
+      return answer(params);
+    });
+    rerender({ filters: { ...FILTERED, q: 'router' }, productKey: PRODUCT.key });
+    await waitFor(() => expect(held).toBe(true));
+    rerender({ filters: { ...FILTERED, q: 'otro' }, productKey: PRODUCT.key });
+    await waitFor(() => expect(result.current.hiddenCount).toBe(1));
+    await act(async () => oldCount.resolve(itemsPage(['MLA1'], 0)));
+    expect(result.current.hiddenCount).toBe(1);
   });
 });

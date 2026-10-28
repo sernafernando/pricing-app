@@ -8,6 +8,7 @@ import {
   GROUPS_PAGE,
   buildGroupsParams,
   buildLeafParams,
+  leafScope,
   readGroupsPage,
   readNode,
 } from './groupNodes';
@@ -205,6 +206,53 @@ describe('buildLeafParams', () => {
       offset: 0,
     });
     expect(buildLeafParams(filters, { params: { tiendas: 'none', producto: '4101' } }, 0).tiendas).toBe('none');
+  });
+
+  // The product panel's escapes: "ver todos" drops the user's filters (the color layer is not one), "Ver eliminadas"
+  // asks the deleted ones, which the backend hides unless `estado` has its `gone` token.
+  it('without the filters keeps only the node params and the color layer', () => {
+    expect(buildLeafParams({ ...filters, equipo: '3' }, node, 0, { unfiltered: true })).toEqual({
+      equipo_id: '3',
+      marcas: 'TP%2CLINK',
+      producto: '4101',
+      limit: GROUPS_PAGE,
+      offset: 0,
+    });
+  });
+
+  it("asks only the deleted ones with estado=gone, over the scope's other params", () => {
+    expect(buildLeafParams({ ...filters, estado_excluir: ['paused'] }, node, 0, { onlyDeleted: true, limit: 1 })).toEqual({
+      q: 'router',
+      estado: 'gone',
+      estado_excluir: 'paused',
+      tiendas: '57997',
+      marcas: 'TP%2CLINK',
+      producto: '4101',
+      limit: 1,
+      offset: 0,
+    });
+    expect(buildLeafParams(filters, node, 0, { unfiltered: true, onlyDeleted: true })).toEqual({
+      estado: 'gone',
+      marcas: 'TP%2CLINK',
+      producto: '4101',
+      limit: GROUPS_PAGE,
+      offset: 0,
+    });
+  });
+});
+
+describe('leafScope', () => {
+  const none = { q: '', familia: '', evento_desde: '', estado: [], estado_excluir: [], marcas: [], equipo: '7', pagina: 2, limite: 50 };
+
+  it('a filter narrows the scope; the page, the sort and the color layer do not', () => {
+    expect(leafScope(none)).toEqual({ filtered: false, listsDeleted: false });
+    expect(leafScope({ ...none, orden: 'titulo', dir: 'asc' }).filtered).toBe(false);
+    expect(leafScope({ ...none, q: 'router' }).filtered).toBe(true);
+    expect(leafScope({ ...none, marcas: ['EPSON'] }).filtered).toBe(true);
+  });
+
+  it('the deleted ones are listed already when estado asks for gone', () => {
+    expect(leafScope({ ...none, estado: ['active', 'gone'] })).toEqual({ filtered: true, listsDeleted: true });
   });
 });
 

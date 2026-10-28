@@ -82,7 +82,28 @@ export function buildGroupsParams(filters, { path, familias, dimension, offset }
   return params;
 }
 
-/** The publications of a leaf node: its params over the user's, one page of 100. */
-export function buildLeafParams(filters, node, offset) {
-  return { ...filterParams(filters), ...node.params, limit: GROUPS_PAGE, offset };
+// The color layer (`equipo_id`) picks which team's colors the rows carry: it narrows nothing on its own.
+const LAYER_PARAM = 'equipo_id';
+// The backend's status token for a deleted publication, hidden unless `estado` asks for it (`filters._status`).
+const STATUS_GONE = 'gone';
+
+/**
+ * What the user's filters do to a leaf's publications: `filtered` when one narrows them, `listsDeleted` when
+ * `estado` asks for the deleted ones (otherwise the backend hides them).
+ */
+export function leafScope(filters) {
+  const { [LAYER_PARAM]: layer, ...narrowing } = filterParams(filters);
+  void layer;
+  return { filtered: Object.keys(narrowing).length > 0, listsDeleted: (filters.estado ?? []).includes(STATUS_GONE) };
+}
+
+/**
+ * The publications of a leaf node: its params over the user's, one page of 100. `unfiltered` drops the user's
+ * filters (the color layer stays: it is not one), `onlyDeleted` asks just the deleted ones of that scope (`estado`
+ * becomes `gone`, the rest of the scope applies), `limit` is the page (1 to read only the `total`).
+ */
+export function buildLeafParams(filters, node, offset, { unfiltered = false, onlyDeleted = false, limit = GROUPS_PAGE } = {}) {
+  const own = filterParams(filters);
+  const scope = unfiltered ? (own[LAYER_PARAM] ? { [LAYER_PARAM]: own[LAYER_PARAM] } : {}) : own;
+  return { ...scope, ...(onlyDeleted && { estado: STATUS_GONE }), ...node.params, limit, offset };
 }

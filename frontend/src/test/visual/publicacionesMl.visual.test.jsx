@@ -756,7 +756,15 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
 
 const renderProducts = async ({ width, height, theme, entry = '/ml-publicaciones?vista=producto' }) => {
   canSeeMargin = true;
-  publicacionesMlAPI.items.mockResolvedValue({ data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 130 } });
+  // The product panel's "Ver eliminadas" count asks `estado=gone` with `limit: 1`: two deleted publications.
+  publicacionesMlAPI.items.mockImplementation((params) =>
+    Promise.resolve({
+      data:
+        params.estado === 'gone'
+          ? { ...MARGIN_RESPONSE, items: [], total: 2 }
+          : { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 130 },
+    }),
+  );
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
   publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 1234, sin_mla_count: 12345 }) });
   publicacionesMlAPI.stats.mockResolvedValueOnce({
@@ -874,6 +882,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
         await expect.element(screen.getByRole('complementary', { name: 'Detalle del producto' }).getByText('Cifras')).toBeVisible();
         const panel = document.querySelector('[data-split-panel]');
         await expect.element(screen.getByRole('button', { name: /Router TP-Link Archer AX55 por color/ })).toBeVisible();
+        await expect.element(screen.getByRole('button', { name: 'Ver eliminadas (2)' })).toBeVisible();
         const box = rect(panel);
         const scroller = scrollerOf();
         // Side by side: the table ends where the panel starts, and nothing scrolls the page sideways.

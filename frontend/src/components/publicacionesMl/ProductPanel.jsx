@@ -61,6 +61,11 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * product goes back to
  * Resumen. A price write reloads the page's list (`onListReload`).
  *
+ * Above the publications, Productos' escapes of its panel (`useProductPanel`): "ver todos (N)" while the filters hide
+ * some, which lists them all without the filters (the Cifras stay the filtered ones), and "Ver eliminadas (N)" /
+ * "Ocultar eliminadas" while the scope has deleted ones. The catalog competition and the wholesale prices follow the
+ * list shown.
+ *
  * @param {object} props
  * @param {object} props.filters The page's filters.
  * @param {string} props.productKey The product row's `key` (the URL's `prod`).
@@ -79,7 +84,22 @@ export default function ProductPanel({
   canSeeMargin = false,
   onListReload,
 }) {
-  const { summary, items, loading, error, reload, loadMore, hasMore } = useProductPanel(filters, productKey);
+  const {
+    summary,
+    items,
+    loading,
+    error,
+    reload,
+    loadMore,
+    hasMore,
+    verTodos,
+    showDeleted,
+    hiddenCount,
+    deletedCount,
+    onlyDeleted,
+    showAll,
+    toggleDeleted,
+  } = useProductPanel(filters, productKey);
   const { tienePermiso } = usePermisos();
   // The open tab belongs to the product it was opened on: another product starts on Resumen.
   const [openTab, setOpenTab] = useState({ productKey, key: RESUMEN.key });
@@ -150,6 +170,26 @@ export default function ProductPanel({
               )}
 
               <Section title="Publicaciones">
+                {verTodos && <p className={panelStyles.note}>Sin los filtros actuales</p>}
+                {(deletedCount > 0 || (hiddenCount > 0 && !verTodos)) && (
+                  <div className={styles.escapes}>
+                    {deletedCount > 0 && (
+                      <button
+                        type="button"
+                        className={`btn-tesla outline-subtle-primary sm ${showDeleted ? 'toggle-active' : ''}`}
+                        onClick={toggleDeleted}
+                        aria-pressed={showDeleted}
+                      >
+                        {showDeleted ? 'Ocultar eliminadas' : `Ver eliminadas (${deletedCount})`}
+                      </button>
+                    )}
+                    {hiddenCount > 0 && !verTodos && (
+                      <button type="button" className="btn-tesla ghost sm" onClick={showAll}>
+                        ver todos ({hiddenCount})
+                      </button>
+                    )}
+                  </div>
+                )}
                 {items.length > 0 && (
                   <ul className={styles.items}>
                     {items.map((item) => (
@@ -190,7 +230,11 @@ export default function ProductPanel({
                 )}
                 {loading && <p className={panelStyles.note}>Cargando publicaciones…</p>}
                 {!loading && !error && items.length === 0 && (
-                  <p className={panelStyles.note}>Ninguna publicación coincide con los filtros.</p>
+                  <p className={panelStyles.note}>
+                    {onlyDeleted
+                      ? 'Las publicaciones de este producto quedan ocultas por estar eliminadas.'
+                      : 'Ninguna publicación coincide con los filtros.'}
+                  </p>
                 )}
                 {hasMore && !loading && (
                   <button type="button" className={`btn-tesla outline sm ${styles.more}`} onClick={loadMore}>
