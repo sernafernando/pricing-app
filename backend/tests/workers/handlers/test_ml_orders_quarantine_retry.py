@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.models.ml_orders_ops import MlOrderItemOps, MlOrdersOps, MlOrdersOpsCuarentena
-from app.services.ml_orders_ingestion import ingestion_service
+from app.services.ml_orders_ingestion import activity_receiver_service, ingestion_service
 from app.workers.context import WorkerContext
 from app.workers.handlers import ml_orders_quarantine as handler_module
 from app.workers.handlers.ml_orders_quarantine import quarantine_retry
@@ -160,3 +160,37 @@ class TestTheHandlerNeverSpins:
         # Both passes replayed the rows, so both count.
         assert result.detail["attempted"] == 2 * limit
         assert result.detail["passes"] == 2
+
+
+class TestTheRefetchRunsBeforeTheReplay:
+    def test_orders_ml_gave_back_are_replayed_in_the_same_run(self, monkeypatch) -> None:
+        """remove-ml-divergences D2c: a run first asks ML again for the payload-less rows (bounded by the run's
+        deadline), then replays, so an order ML gave back lands in that same run."""
+        calls = []
+
+        def _refetch(deadline):
+            calls.append(("refetch", deadline))
+            return activity_receiver_service.RefetchResult(attempted=3, landed=1, dropped=1, failed=1)
+
+        def _retry(db, limit):
+            calls.append(("replay", limit))
+            return ingestion_service.QuarantineRetryResult(attempted=1, recovered=1, order_ids=[1])
+
+        @contextmanager
+        def _no_db():
+            yield None
+
+        monkeypatch.setattr(activity_receiver_service, "refetch_unresolved_orders", _refetch)
+        monkeypatch.setattr(ingestion_service, "retry_quarantined_orders", _retry)
+        monkeypatch.setattr(handler_module, "get_background_db", _no_db)
+        deadline = datetime.now(timezone.utc) + timedelta(seconds=30)
+
+        result = quarantine_retry.run(WorkerContext(deadline=deadline, worker_name="w"))
+
+        assert [c[0] for c in calls] == ["refetch", "replay"]
+        assert calls[0][1] == deadline
+        assert result.detail["refetched"] == 3
+        assert result.detail["refetch_landed"] == 1
+        assert result.detail["dropped"] == 1
+        assert result.detail["refetch_failed"] == 1
+        assert result.detail["recovered"] == 1

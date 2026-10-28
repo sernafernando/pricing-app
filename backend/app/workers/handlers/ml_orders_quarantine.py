@@ -10,7 +10,10 @@ not-yet-due quarantine that costs one indexed query.
 
 `retry_quarantined_orders` owns the policy (backoff, transient vs permanent,
 attempt cap); this handler only runs it in short `get_background_db()` passes
-until nothing due is left or `ctx.deadline` is reached.
+until nothing due is left or `ctx.deadline` is reached. Before that, the rows
+with no payload (orders ML never gave the activity receiver) are asked again
+of ML (`activity_receiver_service.refetch_unresolved_orders`): an order ML
+gives back is written, one ML has no longer is dropped.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from datetime import datetime, time, timedelta, timezone
 from typing import Optional, Tuple
 
 from app.core.database import get_background_db
-from app.services.ml_orders_ingestion import ingestion_service
+from app.services.ml_orders_ingestion import activity_receiver_service, ingestion_service
 from app.workers.context import JobResult, WorkerContext
 
 
@@ -32,7 +35,19 @@ class QuarantineRetryHandler:
     run_at_local: Optional[time] = None
 
     def run(self, ctx: WorkerContext) -> JobResult:
-        detail = {"attempted": 0, "recovered": 0, "still_failed": 0, "passes": 0}
+        # First the orders ML never gave back (no payload to replay): asked
+        # again, and the ones that come back are written in that same pass.
+        refetch = activity_receiver_service.refetch_unresolved_orders(deadline=ctx.deadline)
+        detail = {
+            "refetched": refetch.attempted,
+            "refetch_landed": refetch.landed,
+            "dropped": refetch.dropped,
+            "refetch_failed": refetch.failed,
+            "attempted": 0,
+            "recovered": 0,
+            "still_failed": 0,
+            "passes": 0,
+        }
         limit = ingestion_service.MAX_QUARANTINE_RETRIES_PER_PASS
         seen: set[int] = set()
         while datetime.now(timezone.utc) < ctx.deadline:
