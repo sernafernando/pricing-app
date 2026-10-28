@@ -19,7 +19,6 @@
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
-  /* "Costos TP" on: the Total TP card joins the row. */
   /* "Costos TP" on, or the sell in / sell out card: one more card joins the row; both: two more. */
   .cards[data-tp],
   .cards[data-sell] {
