@@ -128,6 +128,25 @@ def _resolve_and_fold_mlas(
     return query.filter(ProductoERP.item_id.in_(items_subquery))
 
 
+MAX_LISTING_ITEM_IDS = 500
+
+
+def parse_listing_item_ids(value: Optional[str]) -> Optional[list[int]]:
+    """`item_ids` of `GET /productos`: a csv of product ids, or None (no filter).
+
+    Another screen (Publicaciones ML) asks the listing for the products of the page it shows, so their prices and
+    markups are exactly Productos'. Anything but a non-empty list of at most MAX_LISTING_ITEM_IDS ids is a 422.
+    """
+    if value is None:
+        return None
+    parts = [part.strip() for part in value.split(",")]
+    if not parts or any(not part.isdigit() for part in parts):
+        raise HTTPException(status_code=422, detail="item_ids inválido: debe ser una lista de ids separados por coma")
+    if len(parts) > MAX_LISTING_ITEM_IDS:
+        raise HTTPException(status_code=422, detail=f"item_ids: como máximo {MAX_LISTING_ITEM_IDS} ids")
+    return [int(part) for part in parts]
+
+
 def construir_orden_precios_derivados(varios_porcentaje: float, tipo_cambio_usd: Optional[float]):
     """Build the LEFT JOIN plan and the ORDER BY expressions that reproduce, in
     SQL, the `precio_gremio_sin_iva` / `precio_sugerido_sin_iva` values that
@@ -336,9 +355,14 @@ def listar_productos(
     con_promo_sin_aplicar: Optional[bool] = None,
     con_pxq: Optional[bool] = None,
     equipo_id: Optional[int] = None,
+    item_ids: Optional[str] = Query(
+        None,
+        description=f"csv of product item_ids (at most {MAX_LISTING_ITEM_IDS}): only those products",
+    ),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
+    only_item_ids = parse_listing_item_ids(item_ids)
     if promo_estado is not None and promo_estado not in ("disponible", "aplicada", "sin_aplicar"):
         raise HTTPException(
             status_code=422,
@@ -356,6 +380,8 @@ def listar_productos(
     # isn't worth the branch. The active-layer color and `color_hint_global` come
     # from `batch_colores` (further down), not from this join.
     query = join_color_layer(query, layer_activo)
+    if only_item_ids is not None:
+        query = query.filter(ProductoERP.item_id.in_(only_item_ids))
 
     # EXCLUIR PRODUCTOS BANEADOS
     from app.models.producto_banlist import ProductoBanlist
