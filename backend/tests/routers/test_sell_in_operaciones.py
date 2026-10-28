@@ -139,6 +139,19 @@ def test_create_links_every_operation_once_and_shows_the_first(
     assert fila["pedido_compra_ids"] == sorted([p1.id, p2.id])
 
 
+def test_the_single_operation_shown_is_the_first_one_sent_not_the_lowest_id(
+    client, gestor, productos, proveedores, nuevo_pedido, db
+):
+    p1, p2 = nuevo_pedido(proveedores[0]), nuevo_pedido(proveedores[0])
+    assert p1.id < p2.id
+
+    data = client.post(BASE, json=_body(pedido_compra_ids=[p2.id, p1.id]), headers=gestor).json()
+
+    assert data["pedido_compra_id"] == p2.id
+    assert client.get(f"{BASE}/{data['id']}", headers=gestor).json()["pedido_compra_id"] == p2.id
+    assert data["pedido_compra_ids"] == sorted([p1.id, p2.id])
+
+
 def test_create_takes_the_operations_supplier_when_none_is_sent(
     client, gestor, productos, proveedores, nuevo_pedido, db
 ):
@@ -217,8 +230,8 @@ def test_create_accepts_the_operations_own_supplier(client, gestor, productos, p
 
 
 def test_an_operation_only_in_the_legacy_column_is_not_read(client, gestor, productos, proveedores, nuevo_pedido, db):
-    """The link table is the only source (T3b-4): the column the 2026-11-02 backfill copied into it is
-    no longer read, and the release that drops it first recreates any link it still lacks."""
+    """The link table is the only source (T3b-4): the column that revision `20261102_sell_in_compra_pedidos`
+    backfilled into it is no longer read, and the release that drops it first recreates any link it lacks."""
     p1 = nuevo_pedido(proveedores[0])
     data = client.post(BASE, json=_body(pedido_compra_ids=[p1.id]), headers=gestor).json()
     db.query(SellInCompraPedido).filter(SellInCompraPedido.compra_id == data["id"]).delete()
