@@ -191,7 +191,9 @@ def test_downgrade_copies_the_debts_back_and_restores_not_null(engine) -> None:
     assert _divergence(engine) == [
         (0, "unknown", "cost_sync:700", "open", "2026-10-06"),
         (11, "unknown", "activity_unresolved", "open", "2026-10-02"),
-        (12, "unknown", "activity_unresolved", "ignored", "2026-10-21"),
+        # A miss after the upgrade reopens the order's closed legacy row: an ignored debt would be skipped by a
+        # re-upgrade and lost.
+        (12, "unknown", "activity_unresolved", "open", "2026-10-21"),
         (13, "unknown", "activity_unresolved", "resolved", "2026-10-04"),
         # Quarantined with its payload: its legacy debt was never moved, so it is left as it was.
         (14, "unknown", "activity_unresolved", "open", "2026-10-05"),
@@ -200,6 +202,22 @@ def test_downgrade_copies_the_debts_back_and_restores_not_null(engine) -> None:
         (30, "unknown", "activity_unresolved", "open", "2026-10-20"),
         (31, "unknown", "activity_unresolved", "open", "2026-10-09"),
     ]
+
+
+def test_a_debt_survives_a_downgrade_and_a_re_upgrade(engine) -> None:
+    """Verifier repro (#1818 A1): a miss after the upgrade, for an order whose legacy row is closed, must still be a
+    debt once the migration is downgraded and applied again."""
+    _step(engine, "upgrade")
+    with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO ml_orders_ops_cuarentena (order_id, raw_order, error) VALUES (12, NULL, :e)"),
+            {"e": UNRESOLVED_ERROR},
+        )
+
+    _step(engine, "downgrade")
+    _step(engine, "upgrade")
+
+    assert _quarantine(engine)[12][:3] == (None, UNRESOLVED_ERROR, 1)
 
 
 def test_the_lock_timeout_is_restored_after_each_step(engine) -> None:

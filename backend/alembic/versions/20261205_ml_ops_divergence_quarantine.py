@@ -70,14 +70,14 @@ WHERE {UNRESOLVED_DEBT}
   AND NOT EXISTS (SELECT 1 FROM {TABLE} q WHERE q.order_id = d.order_id AND NOT {NO_PAYLOAD})
 """
 
-# Detected when the order first failed. A closed (resolved, ignored) legacy row of the same order is refreshed, the way
-# the old writer refreshed any row.
+# Detected when the order first failed. A closed (resolved, ignored) legacy row of the same order is refreshed and
+# reopened: it is a debt again, and a closed one would be skipped by a later re-upgrade and lost.
 COPY_TO_DIVERGENCE = f"""
 INSERT INTO ml_ops_divergence (order_id, kind, field, detected_at)
 SELECT q.order_id, 'unknown', 'activity_unresolved', q.primera_falla_at
 FROM {TABLE} q
 WHERE {NO_PAYLOAD}
-ON CONFLICT (order_id, kind, field) DO UPDATE SET detected_at = EXCLUDED.detected_at
+ON CONFLICT (order_id, kind, field) DO UPDATE SET detected_at = EXCLUDED.detected_at, state = 'open'
 """
 
 DELETE_UNRESOLVED = f"DELETE FROM {TABLE} q WHERE {NO_PAYLOAD}"
