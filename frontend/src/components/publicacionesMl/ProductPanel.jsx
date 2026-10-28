@@ -12,6 +12,7 @@ import { UnitsCell } from './MetricsCells';
 import PublicationStatusPill from './PublicationStatusPill';
 import PanelShell from './panel/PanelShell';
 import PanelTabs from './panel/PanelTabs';
+import ProductChangesTab from './panel/ProductChangesTab';
 import ProductIdentity from './panel/ProductIdentity';
 import { Field, Fields, Section } from './panel/PanelParts';
 import { amount, count } from './panel/format';
@@ -31,6 +32,7 @@ const publicationsLabel = (n) => `${n} ${n === 1 ? 'publicación' : 'publicacion
 
 const RESUMEN = { key: 'resumen', label: 'Resumen' };
 const PRECIOS = { key: 'precios', label: 'Precios' };
+const CAMBIOS = { key: 'cambios', label: 'Cambios' };
 
 /**
  * The panel of one product of the Producto view, beside the table: the product (its code, brand and publication
@@ -43,7 +45,8 @@ const PRECIOS = { key: 'precios', label: 'Precios' };
  *
  * Those go under the Resumen tab, after the product's SKU and EAN (`ProductIdentity`, editable with
  * `ml_publicaciones.editar_producto`). Precios mounts the product's prices (the same `ProductPrices` a publication's
- * Precios tab mounts) for whoever may see them; "Sin producto" has none. Opening another product goes back to
+ * Precios tab mounts) for whoever may see them, and Cambios the changes made to the product in the app, with who made
+ * each one (`ProductChangesTab`); "Sin producto" has neither. Opening another product goes back to
  * Resumen. A price write reloads the page's list (`onListReload`).
  *
  * @param {object} props
@@ -70,7 +73,8 @@ export default function ProductPanel({
   const [openTab, setOpenTab] = useState({ productKey, key: RESUMEN.key });
   const withoutProduct = productKey === NO_PRODUCT_KEY;
   const productItemId = summary?.productoItemId;
-  const tabs = productItemId != null && canViewProductPrices(tienePermiso) ? [RESUMEN, PRECIOS] : [RESUMEN];
+  const tabs =
+    productItemId == null ? [RESUMEN] : canViewProductPrices(tienePermiso) ? [RESUMEN, PRECIOS, CAMBIOS] : [RESUMEN, CAMBIOS];
   const activeKey = (openTab.productKey === productKey && tabs.find((tab) => tab.key === openTab.key)?.key) || RESUMEN.key;
   const figures = buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin, producto: true }).filter((column) =>
     PRODUCT_FIGURES.has(column.key),
@@ -103,7 +107,9 @@ export default function ProductPanel({
 
       {summary && (
         <PanelTabs tabs={tabs} activeKey={activeKey} onTabChange={(key) => setOpenTab({ productKey, key })} label="Secciones del producto">
-          {activeKey === PRECIOS.key ? (
+          {activeKey === CAMBIOS.key ? (
+            <ProductChangesTab key={productItemId} productItemId={productItemId} />
+          ) : activeKey === PRECIOS.key ? (
             <ProductPrices
               productItemId={productItemId}
               permissions={pricePermissions(tienePermiso)}

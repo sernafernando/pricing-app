@@ -246,6 +246,8 @@ export const authAPI = {
 
 export const productosAPI = {
   listar: (params) => api.get('/productos', { params }),
+  // The product's changes made in the app, newest first (the Productos "Historial de Cambios" log).
+  auditoria: (itemId) => api.get(`/productos/${itemId}/auditoria`),
   listarTienda: (params) => api.get('/productos/tienda', { params }),
   stats: (params) => api.get('/stats', { params }),
   statsDinamicos: (params) => api.get('/stats-dinamicos', { params }),
