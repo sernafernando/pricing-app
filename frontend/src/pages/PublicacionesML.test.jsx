@@ -2170,3 +2170,47 @@ describe("Productos' price-list exports (S12c)", () => {
     expect(screen.queryByRole('button', { name: /Listas de precios/ })).not.toBeInTheDocument();
   });
 });
+
+describe("Productos' Sin MLA in the Producto view", () => {
+  const productCalls = () => publicacionesMlAPI.products.mock.calls.map(([params]) => params);
+  const card = () => screen.findByRole('button', { name: /Sin MLA/ });
+  const products = async (entry) => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: [entry] });
+    await screen.findByText('Router Archer AX55');
+  };
+
+  beforeEach(() => {
+    publicacionesMlAPI.products.mockReset();
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120, sin_mla_count: 37 }) });
+  });
+
+  it('shows how many products have no MLA, and lists them on click, clearing the publication filters', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&estado=active&marcas=TP-Link');
+    expect(await card()).toHaveTextContent('37');
+    expect(await card()).toHaveAttribute('aria-pressed', 'false');
+    await user.click(await card());
+    await waitFor(() =>
+      expect(productCalls().at(-1)).toEqual({ marcas: 'TP-Link', con_mla: false, orden: 'titulo', dir: 'asc', limit: 50, offset: 0 }),
+    );
+    expect(await card()).toHaveAttribute('aria-pressed', 'true');
+    await user.click(await card()); // again: back to the products with MLA
+    await waitFor(() => expect(productCalls().at(-1).con_mla).toBeUndefined());
+  });
+
+  it('hides what counts or changes publications: the KPI strip and "Pausar / activar"', async () => {
+    await products('/ml-publicaciones?vista=producto&mla=sin_mla');
+    expect(screen.queryByRole('region', { name: 'Indicadores de las publicaciones' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Pausar \/ activar/ })).not.toBeInTheDocument();
+  });
+
+  it('is only the Producto view: leaving it drops the filter', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&mla=sin_mla');
+    await user.click(screen.getByRole('button', { name: 'Publicaciones' }));
+    expect(screen.queryByRole('button', { name: /Sin MLA/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Producto' }));
+    await screen.findByText('Router Archer AX55');
+    await waitFor(() => expect(productCalls().at(-1).con_mla).toBeUndefined());
+  });
+});

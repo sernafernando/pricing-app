@@ -17,7 +17,9 @@ joins it).
   publication -> product link; "Sin producto" = no link) over the MLAs the same filters select, its figures the sum of
   its publications' own (one Board, publication view, over the last 30 business days), sorted (`orden`/`dir`) and
   paged. Each row's `params` select exactly its `publications_count` publications in `/items`. Figures and figure
-  sorts need `ml_metricas.ver`, the margin also `ml_metricas.ver_ganancia`.
+  sorts need `ml_metricas.ver`, the margin also `ml_metricas.ver_ganancia`. `sin_mla_count` counts Productos' "Sin
+  MLA" products under the product filters (absent with a publication filter); `con_mla=false` lists them instead,
+  refusing a publication filter (422), while the publication reads (`/items`, `/groups`, `/kpis`) select nothing.
 - `GET /ml-publications/view/items/{item_id}` (`ml_ops.ver`): the Resumen of one publication, all its data; the cost of
   the product and the markup breakdown only with `ml_metricas.ver_ganancia`, `can_resync` from `ml_ops.gestionar`,
   `can_change_status` from `ml_publicaciones.pausar`.
@@ -646,6 +648,9 @@ class ProductsResponse(BaseModel):
     orden: str
     dir: str
     can_see_margin: bool
+    # Productos' "Sin MLA" card: the products the product filters keep that no publication is linked to; absent
+    # when a publication filter is on (it has nothing to ask of a product with no publication)
+    sin_mla_count: Optional[int] = None
 
 
 class KpiStripOut(BaseModel):
@@ -690,6 +695,18 @@ def _database_error(exc: DBAPIError) -> Optional[Exception]:
     if not _timed_out(exc):
         return None
     return api_error(status.HTTP_503_SERVICE_UNAVAILABLE, SLOW_QUERY_CODE, "La consulta tardó demasiado; reintentá.")
+
+
+def _sin_mla_count_or_none(db: Session, f: PublicationFilter) -> Optional[int]:
+    """The Sin MLA card's count, or None (the card shows it as unknown) when it goes over `statement_timeout`: an
+    extra figure of the page never fails the rows already read. Any other database error is raised."""
+    try:
+        return products.sin_mla_count(db, f)
+    except DBAPIError as exc:
+        if not _timed_out(exc):
+            raise
+        logger.warning("ml_publications products: sin_mla_count over statement_timeout; answered without it")
+        return None
 
 
 def _attach_colors(
@@ -767,6 +784,9 @@ def filter_query(
         None, description="csv of Productos' colors and/or `sin_color`, on the layer of `equipo_id` (the global one)"
     ),
     equipo_id: Optional[int] = Query(None, description="color layer (Productos' teams); omitted = the global one"),
+    con_mla: Optional[bool] = Query(
+        None, description="false: the products no publication is linked to (Productos' Sin MLA, Producto view)"
+    ),
     # The caller and the application session, for the permission check of the markup filters (cached per request:
     # every endpoint already authenticates the same way).
     user: Usuario = Depends(get_current_user),
@@ -821,6 +841,7 @@ def filter_query(
             audit_fecha_hasta=audit_fecha_hasta,
             mla_scope=_mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq),
             colores=colores,
+            con_mla=con_mla,
         )
     except FilterError as exc:
         raise _unprocessable(exc) from exc
@@ -1294,6 +1315,11 @@ def get_products(
         listing.bound(db)
         with timer.stage("products"):
             page = products.list_products(db, f, sort_name, sort_dir == "desc", limit, offset)
+        if f.sin_mla:  # the rows are the Sin MLA products: their total is the count
+            sin_mla_count = page.total
+        else:
+            with timer.stage("sin_mla"):
+                sin_mla_count = _sin_mla_count_or_none(db, f)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
@@ -1309,15 +1335,17 @@ def get_products(
         for row in page.rows
     ]
     _attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])
+    applied_name, applied_desc = products.applied_sort(f, sort_name, sort_dir == "desc")
     return {
         "rows": rows,
         "total": page.total,
         "mla_count": page.mla_count,
         "limit": limit,
         "offset": offset,
-        "orden": sort_name,
-        "dir": sort_dir,
+        "orden": applied_name,
+        "dir": "desc" if applied_desc else "asc",
         "can_see_margin": can_see_margin,
+        **({} if sin_mla_count is None else {"sin_mla_count": sin_mla_count}),
     }
 
 
