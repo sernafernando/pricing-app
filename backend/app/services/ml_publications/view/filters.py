@@ -586,12 +586,15 @@ def primary_product() -> ColumnElement:
     return func.coalesce(T.l.producto_item_id, first)
 
 
-def has_product(products: Optional[list[int]] = None, *, outside: Optional[list[int]] = None) -> ColumnElement:
-    """The row's publication is linked (`product_links`) to one of `products` (any product when None), or, with
+def has_product(products: Any = None, *, outside: Optional[list[int]] = None) -> ColumnElement:
+    """The row's publication is linked (`product_links`) to one of `products` (any product when None): a list of ids,
+    or an uncorrelated select of them (`_matching_products`, resolved once per query, not per row), or, with
     `outside`, to a product that is not one of those."""
     pl = product_links("pl_filter")
     found = select(1).select_from(pl).where(pl.c.item_id == T.i.item_id)
-    if products is not None:
+    if isinstance(products, Select):
+        found = found.where(pl.c.producto_item_id.in_(products))
+    elif products is not None:
         found = found.where(pl.c.producto_item_id == any_(literal(products, ARRAY(Integer))))
     if outside is not None:
         found = found.where(pl.c.producto_item_id != all_(literal(outside, ARRAY(Integer))))
@@ -637,7 +640,8 @@ def linked_product_conditions(f: PublicationFilter, product_id: Any, p: Any) -> 
     if f.pm_group is not None:
         conditions.append(pm_group_in(f.pm_group, p))
     if f.q is not None:
-        conditions.append(or_(*_search_parts(f.q, p)))
+        own, _ = _search_parts(f.q, p)
+        conditions.append(or_(own, product_id.in_(_matching_products(f.q))))
     return conditions
 
 
@@ -758,11 +762,21 @@ def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElemen
     return own, or_(contains(p.codigo), contains(p.descripcion))
 
 
+def _matching_products(term: SearchTerm) -> Select:
+    """The catalog products whose own fields match `term`: one uncorrelated select, so the catalog is scanned once
+    per query and each row only tests its links against the set (never an ILIKE per row and linked product)."""
+    pp = aliased(ProductoERP, name="pp_q")
+    _, product = _search_parts(term, pp)
+    return select(pp.item_id).where(product).correlate(None)
+
+
 def _search(term: SearchTerm) -> ColumnElement:
     """The publication's own fields, or any of its linked products' (`product_links`), so a publication with
     variations in several products is found by each one's name or code."""
     own, _ = _search_parts(term, T.p)
-    return or_(own, _any_linked_product(lambda p: _search_parts(term, p)[1]))
+    if term.kind == "item_id":  # no product side
+        return own
+    return or_(own, has_product(_matching_products(term)))
 
 
 def listing_clauses() -> dict[str, ColumnElement]:
