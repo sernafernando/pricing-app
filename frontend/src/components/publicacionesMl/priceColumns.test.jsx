@@ -306,4 +306,40 @@ describe('priceColumns', () => {
       expect(priceColumns('normal', { prices: prices() }).map((column) => column.header)).not.toContain('Calcular');
     });
   });
+  describe("Productos' markup con offsets (the clásica markup over the cost the offsets discount)", () => {
+    const TP = { ...PRODUCT, costo: 800, moneda_costo: 'ARS', marca: 'TP-LINK' };
+    const tenPercent = { id: 1, tipo_offset: 'porcentaje_costo', porcentaje: 10, marca: 'TP-LINK' };
+    const offsets = (list = [tenPercent], tipoCambio = null) => ({ offsets: list, grupoFiltros: {}, canal: 'ml', tipoCambio });
+    const clasicaOf = (product, options = {}) =>
+      priceColumns(options.mode ?? 'normal', { prices: prices(new Map([[7, product]])), canSeeMargin: true, offsets: offsets(), ...options })[0];
+
+    it('adds "→ x%" under the clásica markup, as Productos does: the same net price over the discounted cost', () => {
+      // cost 800 less 10 % = 720; the price at 25 % over 800 is 1000, which is 38,89 % over 720
+      render(<div>{clasicaOf(TP).render(item())}</div>);
+      expect(screen.getByTitle('Markup con offsets aplicados')).toHaveTextContent('→ 38,9%');
+      expect(cell(clasicaOf(TP, { mode: 'cuotas' }))).toContain('→ 38,9%');
+    });
+
+    it('only on the clásica price: not on the other lists nor in the PVP mode', () => {
+      const columns = priceColumns('normal', { prices: prices(new Map([[7, TP]])), canSeeMargin: true, offsets: offsets() });
+      columns.slice(1).forEach((column) => expect(cell(column)).not.toContain('→'));
+      expect(cell(clasicaOf(TP, { mode: 'pvp' }))).not.toContain('→');
+    });
+
+    it('none without the margin permission, without offsets that reach the product, or while they load', () => {
+      expect(cell(clasicaOf(TP, { canSeeMargin: false }))).not.toContain('→');
+      expect(cell(clasicaOf({ ...TP, marca: 'OTRA' }))).not.toContain('→');
+      expect(cell(clasicaOf(TP, { offsets: null }))).not.toContain('→');
+    });
+
+    it('like the Precios tab: an offset that does not apply to Mercado Libre is left out', () => {
+      expect(cell(clasicaOf(TP, { offsets: offsets([{ ...tenPercent, aplica_ml: false }]) }))).not.toContain('→');
+    });
+
+    it('a USD cost needs the USD rate: none without it, never an assumed one', () => {
+      const usd = { ...TP, costo: 1, moneda_costo: 'USD' };
+      expect(cell(clasicaOf(usd))).not.toContain('→');
+      expect(cell(clasicaOf(usd, { offsets: offsets([tenPercent], 800) }))).toContain('→ 38,9%');
+    });
+  });
 });

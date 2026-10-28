@@ -8,7 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
-import api, { equiposAPI, preciosAPI, productosAPI, publicacionesMlAPI } from '../services/api';
+import api, { equiposAPI, offsetsGananciaAPI, preciosAPI, productosAPI, publicacionesMlAPI } from '../services/api';
 import { openInMlPanel } from '../utils/mlSidePanel';
 import { exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
 import { loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -70,7 +70,10 @@ vi.mock('../services/api', () => ({
     setRebate: vi.fn(() => Promise.resolve({ data: {} })),
     setWebTransferencia: vi.fn(() => Promise.resolve({ data: {} })),
     setOutOfCards: vi.fn(() => Promise.resolve({ data: {} })),
+    tipoCambioActual: vi.fn(() => Promise.resolve({ data: { venta: 1000 } })),
   },
+  // No current offset unless a test says so: Productos' "markup con offsets" stays out of the cells.
+  offsetsGananciaAPI: { vigentes: vi.fn(() => Promise.resolve({ data: [] })), grupoFiltros: vi.fn(() => Promise.resolve({ data: [] })) },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -2006,6 +2009,19 @@ describe("Productos' price columns (S11)", () => {
     await page();
     const header = within(table()).getByRole('columnheader', { name: /Precio Clásica/ });
     expect(within(header).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('with the margin permission the clásica markup carries Productos\' "markup con offsets" (Mercado Libre offsets)', async () => {
+    canSeeMargin = true;
+    productosAPI.listar.mockResolvedValue({
+      data: { productos: [{ ...PRICED[0], costo: 800, moneda_costo: 'ARS', marca: 'TP-LINK', markup: 25 }], total: 1 },
+    });
+    offsetsGananciaAPI.vigentes.mockResolvedValueOnce({
+      data: [{ id: 1, tipo_offset: 'porcentaje_costo', porcentaje: 10, marca: 'TP-LINK' }],
+    });
+    await page();
+    // 25 % over 800 is 1000, which is 38,89 % over the 720 the offset leaves
+    expect(await within(table()).findByTitle('Markup con offsets aplicados')).toHaveTextContent('→ 38,9%');
   });
 
   it("without Productos' prices there are no price columns, no mode and nothing asked", async () => {
