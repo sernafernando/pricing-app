@@ -138,6 +138,8 @@ def test_downgrade_copies_the_counters_back_and_drops_the_column(engine) -> None
     assert rows[(704, "activity_unresolved")] is None
     # A legacy row for a shipment we do not hold was never migrated, so the round trip keeps it as it was.
     assert rows[(0, "cost_sync:999")] == "3"
+    # A held shipment's unusable legacy value is dropped (the old code reset it to 1 on its next attempt anyway).
+    assert (0, "cost_sync:703") not in rows
     # Only the exact prefix is a counter (no LIKE wildcard).
     assert rows[(0, "costXsync:700")] == "1"
 

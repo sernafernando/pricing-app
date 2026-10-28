@@ -49,7 +49,8 @@ WHERE d.order_id = 0
 
 # Downgrade rewrites the legacy counter of every shipment the column holds: a counter the new code reset to 0 (the
 # shipment settled) must not come back from its pre-upgrade row, which the old code would read as a live count or a
-# give-up. Rows for shipments the upgrade never matched are left alone, exactly as the upgrade left them.
+# give-up. Rows for shipments missing from the table are left alone. A held shipment's unusable legacy value (not a
+# number, so the upgrade skipped it) is dropped: the old code reset such a value to 1 on its next attempt anyway.
 DELETE_LEGACY_COUNTERS = f"""
 DELETE FROM ml_ops_divergence d
 USING {TABLE} s
