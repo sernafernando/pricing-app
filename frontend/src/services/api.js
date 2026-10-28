@@ -251,6 +251,8 @@ export const productosAPI = {
   auditoria: (itemId) => api.get(`/productos/${itemId}/auditoria`),
   // `{ recalcular_cuotas_auto, markup_adicional_cuotas_custom, markup_adicional_cuotas_pvp_custom }`: replaces all three; null follows the global.
   configCuotas: (itemId, body) => api.patch(`/productos/${itemId}/config-cuotas`, body),
+  // The product's detail for Productos' info modal; `ultimas_compras` are its last five purchases.
+  detalle: (itemId) => api.get(`/productos/${itemId}/detalle`),
   listarTienda: (params) => api.get('/productos/tienda', { params }),
   stats: (params) => api.get('/stats', { params }),
   statsDinamicos: (params) => api.get('/stats-dinamicos', { params }),

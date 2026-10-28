@@ -129,6 +129,16 @@ vi.mock('../../services/api', () => ({
       }),
     ),
     configCuotas: vi.fn(),
+    detalle: vi.fn(() =>
+      Promise.resolve({
+        data: {
+          ultimas_compras: [
+            { proveedor: 'TP-Link Argentina S.A. con una razón social bastante larga', fecha: '2026-10-14T00:00:00', cantidad: 120, precio_unitario: 45.5, moneda_id: 2 },
+            { proveedor: 'Distribuidora Norte', fecha: '2026-09-02T00:00:00', cantidad: 1.5, precio_unitario: 98500, moneda_id: 1 },
+          ],
+        },
+      }),
+    ),
   },
   preciosAPI: {
     obtenerProducto: vi.fn(() => new Promise(() => {})),
@@ -931,6 +941,24 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cambios-${width}-${theme}.png` });
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product's last purchases fit inside the panel`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+        await expect.element(aside.getByText('Distribuidora Norte')).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        const section = aside.getByText('Distribuidora Norte').element().closest('section');
+        section.scrollIntoView();
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const el of section.querySelectorAll('li, li span')) {
+          expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-compras-${width}-${theme}.png` });
         screen.unmount();
       });
     }
