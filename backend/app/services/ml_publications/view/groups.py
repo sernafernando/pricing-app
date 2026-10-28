@@ -73,6 +73,7 @@ from app.services.ml_publications.view.filters import (
     decode_key,
     encode_key,
     linked_product_conditions,
+    pm_group_in,
     product_links,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
@@ -184,7 +185,7 @@ def _total(db: Session, page: list[Any], key: Any) -> int:
 # The product level's own joins (`_scoped(products=True)`): a publication sits under each of its linked products
 # (`filters.product_links`: item-level link or live variations' links), the set `producto=` / `sin_producto` filter on.
 PL = product_links("pl_tree")
-PP = T.pp
+PP = T.pl_p
 
 
 def product_key() -> Any:
@@ -274,7 +275,9 @@ def _product_path(tree: Tree, path: list[str]) -> list[Any]:
     conditions = []
     for depth, key in enumerate(path[: len(tree.group_levels)]):
         level = tree.levels[depth]
-        if level in PRODUCT_LEVELS:
+        if level == "pm":  # the tree's own PM rule over the expanded product (`pm_grupo`)
+            conditions.append(pm_group_in(key, PP))
+        elif level in PRODUCT_LEVELS:
             own = dimension_of(
                 level, marca=PP.marca, categoria=PP.categoria, subcategoria_id=PP.subcategoria_id, store_id=None
             )

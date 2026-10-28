@@ -20,6 +20,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import text
 
 from app.models.equipo import Equipo, ProductoColor
 from app.models.producto import ProductoERP
@@ -28,6 +29,7 @@ from tests.routers.test_ml_publications_view import VER, seed_rows
 from tests.routers.test_ml_publications_view_kpis import METRICAS, _seller, pg, view_pg  # noqa: F401
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 from tests.services.ml_publications.view import seed
+from tests.services.ml_publications.view.test_groups_dimensions_postgres import PM_DDL
 
 GONE = datetime(2026, 9, 1, tzinfo=timezone.utc)
 CURRENT = (date.today() - timedelta(days=5), date.today() + timedelta(days=5))
@@ -191,6 +193,11 @@ def fill_siblings(conn) -> None:
         seed.add_variation(conn, mla, variation_id)
         seed.add_link(conn, mla, product, variation_id=variation_id)
     seed.add_oferta(conn, "VA10", *CURRENT, precio_final=900, pvp_seller=950)
+    for ddl in PM_DDL:
+        conn.execute(text(ddl))
+    conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES ('TP-Link', 'Redes', 7)"))
+    conn.execute(text("INSERT INTO marcas_pm (marca, categoria, usuario_id) VALUES ('Ubiquiti', 'Antenas', 5)"))
+    conn.execute(text("INSERT INTO usuarios (id, nombre) VALUES (5, 'Ana'), (7, 'Beto')"))
 
 
 @pytest.fixture()
@@ -225,6 +232,11 @@ class TestAProductFilterNeverBringsASiblingProduct:
 
     def test_brand(self, client, admin_auth_headers):
         assert _rows(client, admin_auth_headers, marcas="TP-LINK") == {"77": 2}  # VA1, VA6 -- not VA6's 78
+
+    def test_pm(self, client, admin_auth_headers):
+        # PM 7 owns TP-Link/Redes: VA6 is its (primary 77), but VA6's 78 is PM 5's
+        assert _rows(client, admin_auth_headers, pm_grupo="7") == {"77": 2}
+        assert _json(client, admin_auth_headers, "product-ids", pm_grupo="7")["item_ids"] == [77]
 
     def test_product_name_or_code_search(self, client, admin_auth_headers):
         assert _rows(client, admin_auth_headers, q="R78") == {"78": 3}  # VA6, VA10, VA12 -- not VA12's 79

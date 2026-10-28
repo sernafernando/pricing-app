@@ -536,7 +536,7 @@ class T:
     l = aliased(MlItemProductLink, name="l")  # noqa: E741 -- the design names the link table `l`
     p = aliased(ProductoERP, name="p")
     ps = aliased(ProductoERP, name="ps")  # the product the link's seller SKU names (the stored suggestion)
-    pp = aliased(ProductoERP, name="pp")  # a `product_links` row's product (the groups tree's product level)
+    pl_p = aliased(ProductoERP, name="pl_p")  # a `product_links` row's product (the groups tree's product level)
     st = aliased(MlUserProductStock, name="st")
     v = aliased(MlItemVariation, name="v")
     e = aliased(MlItemEvent, name="e")
@@ -611,7 +611,7 @@ def _any_linked_product(test: Any) -> ColumnElement:
 
 def linked_product_conditions(f: PublicationFilter, product_id: Any, p: Any) -> list[ColumnElement]:
     """The conditions of `f` that are about the PRODUCT, on one linked product (`product_id`, `p` its catalog row,
-    outer-joined): color, mejor oferta of the product, brand, category, subcategory and `q` (the product's own name
+    outer-joined): color, mejor oferta of the product, brand, category, subcategory, PM and `q` (the product's own name
     or code, unless the publication's own fields match). A publication `f` keeps is expanded to its linked products
     that pass them -- the Producto view, its export, `/product-ids` and the tree's product level -- so a filter about
     the product never brings in another product of the same publication (variations of different products)."""
@@ -631,6 +631,10 @@ def linked_product_conditions(f: PublicationFilter, product_id: Any, p: Any) -> 
         conditions.append(_text_in(p.categoria, f.categorias))
     if f.subcategorias or f.no_subcategoria:
         conditions.append(_subcategorias_in(f, p))
+    if f.pms:
+        conditions.append(_pm(f, p))
+    if f.pm_group is not None:
+        conditions.append(pm_group_in(f.pm_group, p))
     if f.q is not None:
         conditions.append(or_(*_search_parts(f.q, p)))
     return conditions
@@ -847,21 +851,21 @@ def _subcategorias_in(f: PublicationFilter, p: Any = T.p) -> ColumnElement:
     return or_(*parts)
 
 
-def _pm(f: PublicationFilter) -> ColumnElement:
+def _pm(f: PublicationFilter, p: Any = T.p) -> ColumnElement:
     if f.pm_pairs is None:
         raise RuntimeError("`pms` must be resolved to pairs (listing.resolve_pm_pairs) before building the query")
     if not f.pm_pairs:
         return false()  # a PM that owns no (marca, categoria) pair matches nothing, never everything
-    return tuple_(normalized_text(T.p.marca), normalized_text(T.p.categoria)).in_(list(f.pm_pairs))
+    return tuple_(normalized_text(p.marca), normalized_text(p.categoria)).in_(list(f.pm_pairs))
 
 
-def _pm_group_in(group: str) -> ColumnElement:
+def pm_group_in(group: str, p: Any = T.p) -> ColumnElement:
     """`pm_grupo`: the rule of the tree's PM level (`ml_daily_metrics.groups.pm_pairs`, the very same subquery), so
     a PM node's filter selects exactly the publications the node counts."""
     pairs = pm_pairs("pm_group_pairs")
     owns = select(1).where(
-        pairs.c.marca == func.upper(T.p.marca),
-        pairs.c.categoria == func.upper(T.p.categoria),
+        pairs.c.marca == func.upper(p.marca),
+        pairs.c.categoria == func.upper(p.categoria),
     )
     if group == NO_GROUP:
         return ~exists(owns)
@@ -1008,7 +1012,7 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
     if f.pms:
         where.append(_pm(f))
     if f.pm_group is not None:
-        where.append(_pm_group_in(f.pm_group))
+        where.append(pm_group_in(f.pm_group))
     if f.family_id is not None:
         where.append(T.i.family_id == f.family_id)
     if f.listing and skip != "listing":

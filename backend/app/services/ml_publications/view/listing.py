@@ -368,7 +368,7 @@ def markup_accepted(db: Session, f: PublicationFilter, markup: MarkupQuery) -> t
     accepted = frozenset(
         item_id
         for item_id, item in result.items.items()
-        if markup.filter.accepts(judged(item).worst, judged(item).any_negative)
+        if (own := judged(item)) is not None and markup.filter.accepts(own.worst, own.any_negative)
     )
     return result, accepted
 

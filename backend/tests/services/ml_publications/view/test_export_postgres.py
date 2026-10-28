@@ -173,6 +173,19 @@ class TestProductKeys:
         assert [r.publications_count for r in products.products_for_keys(db, parse_filter(), [0]).rows] == [1]
         assert products.products_for_keys(db, parse_filter(), []).rows == []
 
+    def test_a_page_by_keys_counts_only_the_publications_of_its_rows(self, linked, db) -> None:
+        # MLA5's variations are 77 and 78; `q` matches 78's name, not MLA5's title nor 77: MLA5 is in 78's row only,
+        # so a page of 77 alone does not count it (#1870)
+        seed.add_item(linked, "MLA5", status="active", title="Kit")
+        for variation_id, product in ((51, 77), (52, 78)):
+            seed.add_variation(linked, "MLA5", variation_id)
+            seed.add_link(linked, "MLA5", product, variation_id=variation_id)
+        linked.execute(text("UPDATE ml_items SET title = 'Antena y router' WHERE item_id = 'MLA1'"))
+
+        page = products.products_for_keys(db, parse_filter(q="Antena"), [77])
+        assert [(row.product_item_id, row.publications_count) for row in page.rows] == [(77, 1)]
+        assert page.mla_count == 1
+
     def test_a_product_that_stopped_matching_is_skipped(self, linked, db) -> None:
         page = products.products_for_keys(db, parse_filter(estado="paused"), [78, 77])
         assert [(row.product_item_id, row.publications_count) for row in page.rows] == [(77, 1)]

@@ -304,10 +304,12 @@ def products_for_keys(db: Session, f: PublicationFilter, keys: Sequence[int]) ->
         return ProductsPage([], 0, 0)
     with _product_rows(db, f, only=keys) as (b, members, rows):
         by_product = {int(r["product"]): r for r in db.execute(select(rows)).mappings()}
-        # the publications counted once, as `list_products` does: one linked to two of `keys` is in both rows
+        # the publications of the rows returned, counted once (as `list_products` does): the set also holds sibling
+        # products of `keys`' publications, which this page does not show
+        shown = [k for k in keys if k in by_product]
         mla_count = db.execute(
             select(func.count(func.distinct(members.c.mla))).where(
-                members.c.product == any_(literal(list(by_product), ARRAY(Integer)))
+                members.c.product == any_(literal(shown, ARRAY(Integer)))
             )
         ).scalar_one()
     found = [by_product[k] for k in keys if k in by_product]
