@@ -78,6 +78,7 @@ vi.mock('../../services/api', () => ({
     saveDatos: vi.fn(),
   },
   mlItemOverridesAPI: { get: vi.fn(), save: vi.fn(), pushToMl: vi.fn() },
+  productoBanlistAPI: { add: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
@@ -892,6 +893,25 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cambios-${width}-${theme}.png` });
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product's ban and its confirmation fit inside the panel`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+        await aside.getByRole('button', { name: 'Agregar a la banlist' }).click();
+        await expect.element(aside.getByLabelText('Palabra de verificación')).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        const confirm = aside.getByLabelText('Palabra de verificación').element().closest('section');
+        confirm.scrollIntoView({ block: 'end' });
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const control of confirm.querySelectorAll('input, textarea, button, strong')) {
+          expect(rect(control).right, control.textContent || control.tagName).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-ban-${width}-${theme}.png` });
         screen.unmount();
       });
     }
