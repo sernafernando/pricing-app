@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.services.para_ganar_top import (
     RankCompetitor,
+    bucket_display_label,
     dense_rank_positions,
     our_rank_from_positions,
     positions_within_top,
@@ -36,3 +37,10 @@ def test_dense_rank_ties_share_position_d12_example() -> None:
 def test_empty_competitors() -> None:
     assert dense_rank_positions([]) == []
     assert our_rank_from_positions([]) is None
+
+
+def test_bucket_display_label() -> None:
+    assert bucket_display_label("gold_pro|3", listing_label="Premium · 3 cuotas") == "Premium · 3 cuotas"
+    assert bucket_display_label("gold_pro|6") == "Premium · 6 cuotas"
+    assert bucket_display_label("gold_special|0") == "Clásica"
+    assert bucket_display_label(None) is None

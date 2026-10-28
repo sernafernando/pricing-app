@@ -56,6 +56,9 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
                     "price_ars": 100.0,
                     "same_bucket": True,
                     "bucket_key": "gold_special|3",
+                    "listing_type_id": "gold_special",
+                    "installments": 3,
+                    "listing_label": "Premium · 3 cuotas",
                 },
                 {
                     "seller_id": "200",
@@ -64,6 +67,9 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
                     "price_ars": 105.0,
                     "same_bucket": True,
                     "bucket_key": "gold_special|3",
+                    "listing_type_id": "gold_special",
+                    "installments": 3,
+                    "listing_label": "Premium · 3 cuotas",
                 },
                 {
                     "seller_id": "300",
@@ -72,6 +78,9 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
                     "price_ars": 90.0,
                     "same_bucket": False,
                     "bucket_key": "gold_special|0",
+                    "listing_type_id": "gold_special",
+                    "installments": None,
+                    "listing_label": "Clásica",
                 },
                 {
                     "seller_id": "999",
@@ -80,6 +89,9 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
                     "price_ars": 108.0,
                     "same_bucket": True,
                     "bucket_key": "gold_special|3",
+                    "listing_type_id": "gold_special",
+                    "installments": 3,
+                    "listing_label": "Premium · 3 cuotas",
                 },
             ],
             competitor_count=4,
@@ -94,8 +106,10 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
     assert body.our_rank == 2  # CHEAP excluded → MID #1, us #2 (classic ignored)
     assert body.in_top is True
     assert body.top_sellers == 5
+    assert body.bucket_label == "Premium · 3 cuotas"
     assert body.positions[0].rank == 1
     assert body.positions[0].sellers[0].nickname == "MID"
+    assert body.positions[0].sellers[0].listing_label == "Premium · 3 cuotas"
     assert all(s.nickname != "CLASSIC_CHEAP" for p in body.positions for s in p.sellers)
     assert body.message
 

@@ -159,6 +159,12 @@ export default function ParaGanarAdvisorDetail({ selected }) {
                   <dt>Catálogo</dt>
                   <dd>{board.catalog_product_id || '—'}</dd>
                 </div>
+                {board.bucket_label ? (
+                  <div>
+                    <dt>Competís en</dt>
+                    <dd>{board.bucket_label}</dd>
+                  </div>
+                ) : null}
               </dl>
 
               {board.positions?.length > 0 ? (
@@ -178,6 +184,12 @@ export default function ParaGanarAdvisorDetail({ selected }) {
                                 <strong>Nosotros</strong>
                               ) : (
                                 s.nickname || `Seller ${s.seller_id}`
+                              )}
+                              {(s.listing_label || board.bucket_label) && (
+                                <span className={styles.topBoardTipo}>
+                                  {' '}
+                                  · {s.listing_label || board.bucket_label}
+                                </span>
                               )}
                             </li>
                           ))}

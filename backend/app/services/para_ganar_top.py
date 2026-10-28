@@ -17,6 +17,7 @@ class RankCompetitor:
     item_id: Optional[str]
     price_ars: float
     is_us: bool = False
+    listing_label: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class RankPositionSeller:
     nickname: Optional[str]
     item_id: Optional[str]
     is_us: bool
+    listing_label: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,31 @@ class RankPosition:
     price_ars: float
     seller_count: int
     sellers: tuple[RankPositionSeller, ...]
+
+
+def bucket_display_label(
+    bucket_key: Optional[str],
+    *,
+    listing_label: Optional[str] = None,
+) -> Optional[str]:
+    """Human label for the TOP board (API listing_label, else key → Premium · N cuotas)."""
+    if listing_label:
+        text = str(listing_label).strip()
+        if text:
+            return text[:64]
+    if not bucket_key or not isinstance(bucket_key, str):
+        return None
+    parts = bucket_key.split("|", 1)
+    if len(parts) != 2:
+        return None
+    listing, cuotas = parts[0].strip().lower(), parts[1].strip()
+    if cuotas.endswith("c") and cuotas[:-1].isdigit():
+        return f"Premium · {cuotas[:-1]} cuotas"
+    if cuotas.isdigit() and cuotas != "0":
+        return f"Premium · {cuotas} cuotas"
+    if listing == "gold_special" or cuotas in ("0", ""):
+        return "Clásica"
+    return None
 
 
 def dense_rank_positions(competitors: list[RankCompetitor]) -> list[RankPosition]:
@@ -60,6 +87,7 @@ def dense_rank_positions(competitors: list[RankCompetitor]) -> list[RankPosition
                 nickname=c.nickname,
                 item_id=c.item_id,
                 is_us=c.is_us,
+                listing_label=c.listing_label,
             )
             for c in bucket
         )
@@ -105,6 +133,7 @@ def board_to_dict(
     excluded_count: int,
     catalog_product_id: Optional[str],
     snapshot_at: Optional[str],
+    bucket_label: Optional[str] = None,
 ) -> dict[str, Any]:
     top = positions_within_top(positions, top_n)
     in_top = our_rank is not None and our_rank <= top_n
@@ -116,6 +145,7 @@ def board_to_dict(
         "top_sellers": top_n,
         "in_top": in_top,
         "excluded_count": excluded_count,
+        "bucket_label": bucket_label,
         "positions": [
             {
                 "rank": p.rank,
@@ -127,6 +157,7 @@ def board_to_dict(
                         "nickname": s.nickname,
                         "item_id": s.item_id,
                         "is_us": s.is_us,
+                        "listing_label": s.listing_label,
                     }
                     for s in p.sellers
                 ],

@@ -36,6 +36,7 @@ from app.services.ml_catalog_competition_service import (
 from app.services.para_ganar_top import (
     RankCompetitor,
     board_to_dict,
+    bucket_display_label,
     dense_rank_positions,
     our_rank_from_positions,
 )
@@ -962,6 +963,7 @@ class ParaGanarSugerenciaPositionSeller(BaseModel):
     nickname: Optional[str] = None
     item_id: Optional[str] = None
     is_us: bool = False
+    listing_label: Optional[str] = None
 
 
 class ParaGanarSugerenciaPosition(BaseModel):
@@ -980,6 +982,7 @@ class ParaGanarSugerenciaResponse(BaseModel):
     top_sellers: int
     in_top: bool = False
     excluded_count: int = 0
+    bucket_label: Optional[str] = None
     positions: List[ParaGanarSugerenciaPosition] = Field(default_factory=list)
     suggestion_status: str = "none"
     message: Optional[str] = None
@@ -1514,12 +1517,15 @@ def obtener_sugerencia_mla(
         nickname_s = str(nickname).strip()[:128] if nickname else None
         item_raw = competitor.get("item_id")
         item_id = str(item_raw).strip()[:32] if item_raw else None
+        label_raw = competitor.get("listing_label")
+        listing_label = str(label_raw).strip()[:64] if label_raw else None
         candidate = RankCompetitor(
             seller_id=seller_id,
             nickname=nickname_s,
             item_id=item_id,
             price_ars=price_ars,
             is_us=bool(is_us),
+            listing_label=listing_label,
         )
         previous = best_by_seller.get(seller_id)
         if previous is None or candidate.price_ars < previous.price_ars or (candidate.is_us and not previous.is_us):
@@ -1527,6 +1533,7 @@ def obtener_sugerencia_mla(
 
     ranked: list[RankCompetitor] = list(best_by_seller.values())
     seen_sellers = set(best_by_seller.keys())
+    our_listing_label = bucket_display_label(our_bucket_key)
 
     if our_price is not None and our_seller_id and our_seller_id not in seen_sellers:
         ranked.append(
@@ -1536,6 +1543,7 @@ def obtener_sugerencia_mla(
                 item_id=our_item_id,
                 price_ars=our_price,
                 is_us=True,
+                listing_label=our_listing_label,
             )
         )
     elif our_price is not None and not any(c.is_us for c in ranked):
@@ -1546,8 +1554,12 @@ def obtener_sugerencia_mla(
                 item_id=our_item_id,
                 price_ars=our_price,
                 is_us=True,
+                listing_label=our_listing_label,
             )
         )
+
+    peer_label = next((c.listing_label for c in ranked if c.listing_label and not c.is_us), None)
+    bucket_label = bucket_display_label(our_bucket_key, listing_label=peer_label)
 
     positions = dense_rank_positions(ranked)
     our_rank = our_rank_from_positions(positions)
@@ -1559,6 +1571,7 @@ def obtener_sugerencia_mla(
         excluded_count=excluded_count,
         catalog_product_id=catalog_product_id,
         snapshot_at=None,
+        bucket_label=bucket_label,
     )
     message = None
     if excluded_count > 0:
@@ -1580,6 +1593,7 @@ def obtener_sugerencia_mla(
         top_sellers=payload["top_sellers"],
         in_top=payload["in_top"],
         excluded_count=payload["excluded_count"],
+        bucket_label=payload.get("bucket_label"),
         positions=[ParaGanarSugerenciaPosition(**p) for p in payload["positions"]],
         suggestion_status=payload["suggestion_status"],
         message=message,

@@ -514,6 +514,11 @@
   color: var(--cf-text-secondary);
 }
 
+.topBoardTipo {
+  color: var(--cf-text-tertiary);
+  font-weight: 400;
+}
+
 .sellersHint {
   margin: 0;
   font-size: 12px;
