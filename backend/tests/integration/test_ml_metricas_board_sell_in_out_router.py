@@ -194,6 +194,21 @@ class TestWithTheProfitView:
         row = dict(zip(header, next(line for line in lines if "Switch" in line)))
         assert (row["Sell in"], row["Costo c/ sell in"], row["Total Gauss c/ sell in/out"]) == ("", "", "40,00")
 
+    def test_the_pending_sell_out_count_is_empty_in_the_csv_where_no_sell_out_applies(
+        self, client, admin_auth_headers, db
+    ) -> None:
+        # A sale with neither sell in nor sell out: the screen leaves the sell out (and its pending count) empty.
+        _producto(db, 13, "Hub", "TP-Link")
+        _sale(db, 13, "MLA3", "20", "100")
+        db.commit()
+
+        resp = client.get(URL + "/export", headers=admin_auth_headers)
+        header, *lines = list(csv.reader(io.StringIO(resp.text.lstrip("﻿")), delimiter=";"))
+        rows = {name: dict(zip(header, next(line for line in lines if name in line))) for name in ("Hub", "Switch")}
+        assert (rows["Hub"]["Sell out"], rows["Hub"]["Sell out pendientes"]) == ("", "")
+        # Where a sell out applies, its pending count stays a number.
+        assert rows["Switch"]["Sell out pendientes"] == "1"
+
 
 class TestWithoutTheProfitView:
     @pytest.fixture(autouse=True)
