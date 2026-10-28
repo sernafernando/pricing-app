@@ -38,8 +38,8 @@ Rules worth knowing before reading the code:
 * With a `MarkupQuery` (the caller may see margins) each node also carries `negative_count`, `markup_min` and
   `markup_max` (owner decision 7: no average, no Ads sum). They are aggregated in Python from P6's
   computation (`compute_markups`: one inputs pass and one shipping batch, Ads applied when asked) over the
-  publications of the page's nodes, which one query names (the node of each publication), so the statements stay fixed and `negative_count` equals the `/items`
-  total with `markup_neg` under the node's `params`.
+  publications of the page's nodes, which one query names (the node of each publication), so the statements stay
+  fixed and `negative_count` equals the `/items` total with `markup_neg` under the node's `params`.
 
 Postgres only (`bool_or`); its tests are `@pytest.mark.postgres`.
 """
