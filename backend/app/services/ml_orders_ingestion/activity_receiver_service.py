@@ -104,7 +104,6 @@ from app.services.ml_orders_ingestion.ingestion_service import (
     _insert_stmt,
     has_no_payload,
     past_backoff,
-    replay_quarantined_order,
     retry_quarantined_orders,
 )
 from app.services.ml_orders_ingestion.sweep_service import (
@@ -434,9 +433,10 @@ MAX_REFETCHES_PER_PASS = 20
 @dataclass
 class RefetchResult:
     """Outcome of one `refetch_unresolved_orders` pass. `attempted` counts the
-    rows an answer was applied to (not one that took a payload meanwhile);
-    `failed` counts both a fetch that failed and an order that came back but
-    did not land."""
+    rows an answer was applied to (not one that took a payload meanwhile).
+    `dropped`: ML has no such order, or it came back but `process_batch` left
+    it out (outside the window, a mapping error). `failed`: a fetch that
+    failed, or a write that failed (now quarantined with its payload)."""
 
     attempted: int = 0
     landed: int = 0
@@ -462,28 +462,30 @@ def refetch_unresolved_orders(
     Every row with no payload is asked once past the replay's backoff
     (`past_backoff`), selected by `has_no_payload` alone and never capped: a
     row the replay of a worker still on the old code re-quarantined during the
-    deploy carries a `[permanent]` tag but is still a miss. A failed fetch puts
-    it back on `UNRESOLVED_ERROR`.
-    The HTTP runs between two short sessions (DB pool rule), and no new fetch
-    starts once `deadline` has passed. Then, per order:
-      - ML gives it back: it is written right away from that payload, through
-        the replay's own path (`replay_quarantined_order`), so it lands or is
-        quarantined with its write error exactly like any replayed order;
+    deploy carries a `[permanent]` tag but is still a miss. HTTP never runs
+    inside a session (DB pool rule), and no new fetch starts once `deadline`
+    has passed. Then, per order:
+      - ML gives it back: it goes through `process_batch`, exactly as the
+        receiver handles an order it did get (window floor, shipment, cost and
+        payment fetches), and then its row is deleted like the receiver's own
+        debts. A write that fails there is quarantined WITH its payload, so
+        its row is the replay's;
       - ML says it does not exist (`not_found`): the row is deleted, with one
         log line;
-      - anything else: the attempt is counted and the row waits for its next
-        backoff.
+      - anything else: the attempt is counted, the row goes back to
+        `UNRESOLVED_ERROR` and waits for its next backoff.
     A row that took a payload in the meantime (another writer quarantined the
     order's write error) is left to the replay.
     """
     result = RefetchResult()
     if not settings.ML_ORDERS_OPS_ENABLED:
         return result
+    now = datetime.now(timezone.utc)
     with get_background_db() as db:
         due = [
             order_id
             for (order_id,) in db.query(MlOrdersOpsCuarentena.order_id)
-            .filter(has_no_payload(), past_backoff(datetime.now(timezone.utc)))
+            .filter(has_no_payload(), past_backoff(now))
             .order_by(MlOrdersOpsCuarentena.ultimo_intento_at.asc())
             .limit(limit)
         ]
@@ -495,30 +497,21 @@ def refetch_unresolved_orders(
     if not answers:
         return result
 
+    returned: Dict[int, Dict[str, Any]] = {}
     with get_background_db() as db:
         for order_id, answer in answers.items():
-            row = (
-                db.query(MlOrdersOpsCuarentena.intentos)
-                .filter(has_no_payload(), MlOrdersOpsCuarentena.order_id == order_id)
-                .with_for_update(skip_locked=True)
-                .one_or_none()
-            )
-            if row is None:
+            row = _unresolved_debts(db).filter(MlOrdersOpsCuarentena.order_id == order_id)
+            if row.with_for_update(skip_locked=True).first() is None:
                 continue
             result.attempted += 1
             if answer.status == "ok":
-                if replay_quarantined_order(db, order_id, answer.payload, row.intentos):
-                    result.landed += 1
-                else:
-                    result.failed += 1
+                returned[order_id] = answer.payload
             elif answer.status == "not_found":
-                _unresolved_debts(db).filter(MlOrdersOpsCuarentena.order_id == order_id).delete(
-                    synchronize_session=False
-                )
+                row.delete(synchronize_session=False)
                 logger.warning("activity_receiver: ML has no order_id=%s; dropped from the quarantine", order_id)
                 result.dropped += 1
             else:
-                _unresolved_debts(db).filter(MlOrdersOpsCuarentena.order_id == order_id).update(
+                row.update(
                     {
                         "intentos": MlOrdersOpsCuarentena.intentos + 1,
                         "ultimo_intento_at": func.now(),
@@ -527,6 +520,32 @@ def refetch_unresolved_orders(
                     synchronize_session=False,
                 )
                 result.failed += 1
+    if not returned:
+        return result
+
+    # Identical to `drain_activity`'s floor and per-pass budgets.
+    process_batch(
+        list(returned.values()),
+        now - timedelta(days=settings.ML_ORDERS_OPS_WINDOW_DAYS),
+        SweepResult(ran=True),
+        [MAX_WINDOW_FETCHES_PER_PASS],
+        [MAX_COST_FETCHES_PER_PASS],
+        now,
+        [MAX_PAYMENT_FETCHES_PER_PASS],
+    )
+    # Settled like the receiver's own resolved orders (`_clear_unresolved_orders`): the row goes whether the order
+    # landed or `process_batch` left it out (outside the window, a mapping error, both logged there). Only a write
+    # that failed keeps a row, now with its payload.
+    with get_background_db() as db:
+        landed = db.query(MlOrdersOps.order_id).filter(MlOrdersOps.order_id.in_(list(returned))).count()
+        cleared = (
+            _unresolved_debts(db)
+            .filter(MlOrdersOpsCuarentena.order_id.in_(list(returned)))
+            .delete(synchronize_session=False)
+        )
+    result.landed += landed
+    result.dropped += max(cleared - landed, 0)
+    result.failed += len(returned) - cleared
     return result
 
 

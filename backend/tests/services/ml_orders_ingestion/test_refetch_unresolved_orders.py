@@ -18,7 +18,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.models.ml_orders_ops import MlOrdersOps, MlOrdersOpsCuarentena
 from app.services.ml_orders_ingestion import activity_receiver_service as service
-from app.services.ml_orders_ingestion import ingestion_service
+from app.services.ml_orders_ingestion import ingestion_service, sweep_service
 from app.services.ml_webhook_client import OrderFetch, ml_webhook_client
 
 LONG_AGO = timedelta(days=2)
@@ -37,18 +37,29 @@ def _fake_ctx(db):
 
 @pytest.fixture(autouse=True)
 def _background_db(db, monkeypatch):
+    # `process_batch` opens its own session from `sweep_service`: both land in the same test session.
     monkeypatch.setattr(service, "get_background_db", _fake_ctx(db))
+    monkeypatch.setattr(sweep_service, "get_background_db", _fake_ctx(db))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_side_fetch(monkeypatch):
+    """`process_batch` fetches shipments, costs and payments; the orders built here carry no shipping id."""
+    monkeypatch.setattr(ml_webhook_client, "get_shipment_costs", AsyncMock(return_value=None))
+    monkeypatch.setattr(ml_webhook_client, "get_shipment", AsyncMock(return_value=None))
+    monkeypatch.setattr(ml_webhook_client, "get_payment", AsyncMock(return_value=None))
 
 
 @pytest.fixture(autouse=True)
 def _flag_on(monkeypatch):
     monkeypatch.setattr(settings, "ML_ORDERS_OPS_ENABLED", True)
+    monkeypatch.setattr(settings, "ML_ORDERS_OPS_WINDOW_DAYS", 90)
     monkeypatch.setattr(ingestion_service, "congelar", lambda db, order_id, items: None)
 
 
-def _order(order_id: int) -> dict:
+def _order(order_id: int, age: timedelta = timedelta(days=1)) -> dict:
     """The `/orders/<id>` shape (`last_updated`, not `date_last_updated`; see test_activity_receiver_service)."""
-    when = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    when = (datetime.now(timezone.utc) - age).isoformat()
     return {
         "id": order_id,
         "status": "paid",
@@ -97,19 +108,53 @@ class TestTheRefetch:
         assert _row(db, 501) is None
         assert db.query(MlOrdersOps).filter_by(order_id=501).count() == 1
 
-    def test_an_order_that_comes_back_but_does_not_map_is_quarantined_with_its_payload(self, db, monkeypatch):
-        """The replay's own path: a payload that does not map is a permanent failure, kept for the replay."""
-        _miss(db, 508)
-        broken = {"id": 508, "status": "paid"}
-        _ml_answers(monkeypatch, {508: OrderFetch("ok", broken)})
+    def test_an_order_that_comes_back_goes_through_the_receivers_own_path(self, db, monkeypatch):
+        """Same `process_batch` as an order the receiver did get: shipment, cost and payment included."""
+        _miss(db, 512)
+        _ml_answers(monkeypatch, {512: OrderFetch("ok", _order(512))})
+        seen = []
+        real = sweep_service.process_batch
+
+        def _spy(raw_orders, window_from_floor, *args, **kwargs):
+            seen.append(([r["id"] for r in raw_orders], window_from_floor))
+            return real(raw_orders, window_from_floor, *args, **kwargs)
+
+        monkeypatch.setattr(service, "process_batch", _spy)
+
+        service.refetch_unresolved_orders()
+
+        assert [ids for ids, _ in seen] == [[512]]
+        floor = seen[0][1]
+        assert timedelta(days=89) < datetime.now(timezone.utc) - floor < timedelta(days=91)
+
+    def test_an_order_that_comes_back_outside_the_window_is_dropped(self, db, monkeypatch):
+        """As the receiver does: an order before the window floor is never ingested, and its debt goes."""
+        _miss(db, 513)
+        _ml_answers(monkeypatch, {513: OrderFetch("ok", _order(513, age=timedelta(days=200)))})
 
         result = service.refetch_unresolved_orders()
 
-        assert (result.landed, result.failed) == (0, 1)
-        row = _row(db, 508)
-        assert row.raw_order == broken
-        assert row.error.startswith(ingestion_service.PERMANENT_TAG + "mapping error on retry")
-        assert row.intentos == 2
+        assert (result.attempted, result.landed, result.dropped, result.failed) == (1, 0, 1, 0)
+        assert _row(db, 513) is None
+        assert db.query(MlOrdersOps).filter_by(order_id=513).count() == 0
+
+    def test_an_order_that_comes_back_but_fails_to_write_keeps_its_payload_for_the_replay(self, db, monkeypatch):
+        _miss(db, 514)
+        payload = _order(514)
+        _ml_answers(monkeypatch, {514: OrderFetch("ok", payload)})
+
+        def _write_fails(db_, raw_order, mapped=None):
+            ingestion_service._quarantine_order(db_, raw_order["id"], raw_order, "QueuePool limit", transient=True)
+            return ingestion_service.UpsertOutcome.WRITE_ERROR
+
+        monkeypatch.setattr(sweep_service, "upsert_order", _write_fails)
+
+        result = service.refetch_unresolved_orders()
+
+        assert (result.attempted, result.landed, result.dropped, result.failed) == (1, 0, 0, 1)
+        row = _row(db, 514)
+        assert row.raw_order == payload
+        assert row.error == ingestion_service.TRANSIENT_TAG + "QueuePool limit"
 
     def test_an_order_ml_does_not_have_is_deleted_with_one_log_line(self, db, monkeypatch, caplog):
         _miss(db, 502)
