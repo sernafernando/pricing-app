@@ -162,6 +162,7 @@ class SellInCompra(Base):
 
     id = Column(BigInteger, primary_key=True)
     proveedor_id = Column(Integer, ForeignKey("proveedores.id", ondelete="RESTRICT"), nullable=True, index=True)
+    # LEGACY: no longer read or written (operations live in `sell_in_compra_pedidos`); dropped by a later release.
     pedido_compra_id = Column(BigInteger, ForeignKey("pedidos_compra.id", ondelete="SET NULL"), nullable=True)
     fecha_compra = Column(Date, nullable=False)
     fecha_ingreso = Column(Date, nullable=True)
@@ -192,8 +193,9 @@ class SellInCompraPedido(Base):
 
     A purchase can link several operations (same supplier and currency, checked
     by the service), and one operation can serve several purchases, so there is
-    no unique on `pedido_compra_id` alone. The old `SellInCompra.pedido_compra_id`
-    column still holds the first operation until it is dropped. Deleting an
+    no unique on `pedido_compra_id` alone. It is the only source of a purchase's
+    operations: the old `SellInCompra.pedido_compra_id` column is no longer read
+    or written and is dropped by a later release. Deleting an
     operation removes its link only; the purchase keeps its items.
     """
 
