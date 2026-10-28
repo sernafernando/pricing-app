@@ -19,25 +19,30 @@ stamped with `offset_origen_id`:
   dates span the group's. The first offset is the campaign's origin; the others
   are reported migrated in it. The group migrates whole or not at all: mixed
   types or currencies, a non-positive amount, a product given twice, an offset
-  other than the first without a product, a product outside the group's reach
-  or no user keep every offset of the group in the review table;
+  other than the first without a product, a product outside the group's reach,
+  no user or a cap or channel a campaign cannot hold (below) keep every offset of
+  the group in the review table;
 - `monto` -> `monto_unit` in the offset's `moneda`; a USD campaign gets the
   service's default FX mode (`al_cobro`), the offset's rate is not kept;
-- `max_unidades` -> `tope_unidades`; `max_monto_usd` -> `tope_monto` only for a
-  USD offset (an ARS campaign keeps no money cap, with a warning);
+- `max_unidades` -> `tope_unidades`; `max_monto_usd` -> `tope_monto` (USD);
 - an EXPIRED offset (`fecha_hasta` before `--hoy`) migrates with its real dates:
   that changes the historical sell-out figures in Métricas ML, so its CSV row
   warns, the summary lists it (`vencidos_migrados`) and the run says so on stderr;
 - a NULL `fecha_hasta` ends on `--fecha-hasta-default` (2026-12-31), with a
-  warning so someone adjusts it; a campaign covers every channel, so an offset
-  that skipped some is migrated with a warning.
+  warning so someone adjusts it.
 
 Everything else is reported in the CSV and NOT migrated, each with its reason:
 `porcentaje_costo` (waits for the sell-in percentage, T3g), `monto_fijo` (no
 campaign type holds a fixed total), a non-positive amount, no scope, no user
-(offset without `usuario_id` and no `--usuario-id`) and the service's validation
-errors. An offset already migrated is reported as such with its campaign (a
-group's, through any of its offsets): a re-run creates nothing.
+(offset without `usuario_id` and no `--usuario-id`), what a campaign cannot
+represent (active or expired, single or any offset of a group: an ARS offset
+capped in USD, since a campaign in pesos holds no USD cap; an offset that skipped
+some channel, since a campaign covers every channel: migrating either would
+credit more than the offset did) and the service's validation errors. An offset
+already migrated is reported as such with its campaign (a group's, through any of
+its offsets): a re-run creates nothing. On a re-run over a migrated group, an
+offset the campaign does not hold as it is now (added to the group afterwards, or
+its amount changed) goes to review instead.
 
 Under `--apply`, every offset left out is also kept, with its own detail and the
 reason, in `offsets_migracion_pendientes` for the owner's review (T22a): one row
@@ -46,8 +51,10 @@ run leaves the table as it is; its summary counts what `--apply` would keep ther
 (`pendientes`).
 
 Dry run is the DEFAULT: it only validates (`validar_campos`, `validar` for a
-group) and writes nothing; a product outside a group's reach is only found by
-`--apply`. `--apply` loads each offset, or each group, in its own transaction
+group, plus each per-product amount against the existing group's reach, as
+`--apply` does when it stores them) and writes nothing. A single offset's new
+group is built from its own scope and carries no per-product amount, so its reach
+holds by construction. `--apply` loads each offset, or each group, in its own transaction
 (its campaign and a new group commit together, or nothing does). Exits 1 when a
 validation or database error left an offset out, 0 otherwise. Run from `backend/` with `-m`:
     cd /var/www/html/pricing-app/backend && venv/bin/python -m app.scripts.migrar_offsets_a_sell_out --csv /tmp/offsets.csv
@@ -68,6 +75,7 @@ from typing import Callable, Optional
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
+from sqlalchemy import and_, or_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -77,9 +85,10 @@ from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
+from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem
 from app.schemas.sell_out import ITEMS_MAX, NOMBRE_MAX, SellOutCampanaIn
-from app.services.sell_out import campanas
+from app.services.sell_out import alcance, campanas
 from app.utils.csv_cells import csv_money, csv_text
 
 logger = logging.getLogger(__name__)
@@ -149,12 +158,7 @@ def _condiciones(
     latest end (an open-ended offset ends on `default`). An expired end is kept as it is, with its warning."""
     tope_monto = None
     if tope_de is not None and tope_de.max_monto_usd is not None:
-        if moneda == "USD":
-            tope_monto = _monto(tope_de.max_monto_usd)
-        else:
-            plan.avisos.append(
-                f"El tope en USD ({csv_money(tope_de.max_monto_usd)}) no se migró: la campaña es en pesos"
-            )
+        tope_monto = _monto(tope_de.max_monto_usd)  # USD: `_irrepresentable` refused it in pesos
     con_tc = next((o for o in offsets if o.tipo_cambio is not None), None)
     if moneda == "USD" and con_tc is not None:
         plan.avisos.append(
@@ -168,9 +172,6 @@ def _condiciones(
         fecha_hasta = max(o.fecha_hasta for o in offsets)
         if fecha_hasta < hoy:
             plan.vencido = True
-    sin_canal = [label for col, label in _CANALES if any(getattr(o, col) is False for o in offsets)]
-    if sin_canal:
-        plan.avisos.append(f"El offset no aplicaba a: {', '.join(sin_canal)}; la campaña aplica a todos los canales")
     if plan.vencido:
         plan.avisos.append(VENCIDO.format(fecha_hasta.isoformat()))
     return {
@@ -179,6 +180,20 @@ def _condiciones(
         "tope_unidades": tope_de.max_unidades if tope_de is not None else None,
         "tope_monto": tope_monto,
     }
+
+
+def _irrepresentable(offsets: list[OffsetGanancia], tope_de: Optional[OffsetGanancia], moneda: str) -> Optional[str]:
+    """Why a campaign cannot credit what these offsets credited, or None: a campaign in pesos holds no USD cap, and a
+    campaign covers every channel. Migrating them anyway would credit more than the legacy offsets did."""
+    motivos = []
+    if moneda != "USD" and tope_de is not None and tope_de.max_monto_usd is not None:
+        motivos.append(
+            f"El tope en USD ({csv_money(tope_de.max_monto_usd)}) no se puede guardar en una campaña en pesos"
+        )
+    sin_canal = [label for col, label in _CANALES if any(getattr(o, col) is False for o in offsets)]
+    if sin_canal:
+        motivos.append(f"No aplicaba a: {', '.join(sin_canal)}; una campaña aplica a todos los canales")
+    return " | ".join(motivos) or None
 
 
 def _planear(offset: OffsetGanancia, hoy: date, fecha_hasta_default: date, usuario_id: Optional[int]) -> _Plan:
@@ -196,8 +211,11 @@ def _planear(offset: OffsetGanancia, hoy: date, fecha_hasta_default: date, usuar
     if not any(getattr(offset, col) is not None for col, _ in _ALCANCE):
         return _Plan("Sin alcance: no indica marca, categoría, subcategoría, producto ni grupo")
 
-    plan = _Plan(usuario_id=usuario)
     moneda = offset.moneda or "ARS"
+    motivo = _irrepresentable([offset], offset, moneda)
+    if motivo is not None:
+        return _Plan(motivo)
+    plan = _Plan(usuario_id=usuario)
     condiciones = _condiciones(plan, [offset], offset, moneda, hoy, fecha_hasta_default)
     texto = _texto(offset)
     try:
@@ -253,9 +271,12 @@ def _planear_grupo(
     if usuario is None:
         return _Plan(f"{g}: sin usuario; indicar --usuario-id")
 
-    plan = _Plan(usuario_id=usuario)
     moneda = monedas[0]
     tope_de = next((o for o in offsets if o.max_unidades or o.max_monto_usd), None)
+    motivo = _irrepresentable(offsets, tope_de, moneda)
+    if motivo is not None:
+        return _Plan(f"{g}: {motivo}")
+    plan = _Plan(usuario_id=usuario)
     condiciones = _condiciones(plan, offsets, tope_de, moneda, hoy, fecha_hasta_default)
     texto = _texto(ref)
     origen = ", ".join(f"#{o.id}" for o in offsets)
@@ -410,22 +431,66 @@ def _suelto(db: Session, offset: OffsetGanancia, hoy, default, usuario_id, apply
 
 
 def _grupo_migrado(db: Session, grupo_id: int, offsets: list[OffsetGanancia], campana_id: int) -> list[_Resultado]:
-    """A re-run over a group already migrated: an offset the campaign holds (its origin, or its product's amount) is
-    "ya migrado"; one added to the group afterwards is not in the campaign, so it goes to review instead."""
-    origen = db.get(SellOutCampana, campana_id).offset_origen_id
+    """A re-run over a group already migrated: an offset the campaign holds as it is now (its origin with the
+    campaign's amount, or its product with that amount) is "ya migrado". One added to the group afterwards, or whose
+    amount changed since, is not what the campaign credits, so it goes to review instead."""
+    campana = db.get(SellOutCampana, campana_id)
     t = SellOutCampanaItem
-    con_monto = {i for (i,) in db.query(t.item_id).filter(t.campana_id == campana_id)}
+    montos = {i: m for i, m in db.query(t.item_id, t.monto_unit).filter(t.campana_id == campana_id)}
+    g = f"Grupo #{grupo_id}"
     salida = []
     for o in offsets:
-        if o.id == origen or (o.item_id is not None and o.item_id in con_monto):
-            salida.append(_Resultado(_fila(o, YA_MIGRADO, campana_id), o))
+        if o.id == campana.offset_origen_id:
+            tenido = campana.monto_unit
+        elif o.item_id is not None and o.item_id in montos:
+            tenido = montos[o.item_id]
         else:
-            motivo = (
-                f"Grupo #{grupo_id}: el offset se agregó después de migrar el grupo a la campaña #{campana_id}; "
-                "revisar a mano"
-            )
+            motivo = f"{g}: el offset se agregó después de migrar el grupo a la campaña #{campana_id}; revisar a mano"
             salida.append(_Resultado(_fila(o, NO_MIGRADO, motivo=motivo), o, None, (motivo, [])))
+            continue
+        if o.monto is not None and _monto(o.monto) == tenido:
+            salida.append(_Resultado(_fila(o, YA_MIGRADO, campana_id), o))
+            continue
+        motivo = (
+            f"{g}: el monto del offset cambió después de migrar el grupo a la campaña #{campana_id} "
+            f"(campaña {csv_money(tenido)}, offset {csv_money(o.monto)}); revisar a mano"
+        )
+        salida.append(_Resultado(_fila(o, NO_MIGRADO, motivo=motivo), o, None, (motivo, [])))
     return salida
+
+
+def _comprobar_alcance(db: Session, grupo_id: int, items) -> None:
+    """Dry run: refuses a per-product amount outside the EXISTING group's reach with the error `--apply` gets from the
+    service (`campanas._asignar_items`). It resolves the group's filter rows to products the way `alcance._alcanzados`
+    does (a row's set fields must all match, a product matching any row is reached, an empty row reaches nothing),
+    read-only: that one starts from a stored campaign, which a dry run does not create."""
+    if not items:
+        return
+    f, p = OffsetGrupoFiltro, ProductoERP
+    algo = or_(
+        func.coalesce(f.marca, "") != "",
+        func.coalesce(f.categoria, "") != "",
+        func.coalesce(f.subcategoria_id, 0) != 0,
+        func.coalesce(f.item_id, 0) != 0,
+    )
+    coincide = and_(
+        algo,
+        alcance._texto(f.marca, p.marca),
+        alcance._texto(f.categoria, p.categoria),
+        alcance._numero(f.subcategoria_id, p.subcategoria_id),
+        alcance._numero(f.item_id, p.item_id),
+    )
+    pedidos = [item.item_id for item in items]
+    alcanzados = {
+        i
+        for (i,) in db.query(p.item_id)
+        .join(f, coincide)
+        .filter(f.grupo_id == grupo_id, p.item_id.in_(pedidos))
+        .distinct()
+    }
+    for item_id in pedidos:
+        if item_id not in alcanzados:
+            raise campanas.SellOutError(f"El producto {item_id} no está en los grupos de la campaña")
 
 
 def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool) -> list[_Resultado]:
@@ -454,6 +519,7 @@ def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id,
             campana_id = campanas.crear_campana(db, plan.data, plan.usuario_id, offset_origen_id=offsets[0].id).id
         else:
             campanas.validar(db, plan.data)  # the group exists: its id is checked too
+            _comprobar_alcance(db, grupo_id, plan.data.items)
     except (campanas.SellOutError, SQLAlchemyError) as exc:
         db.rollback()
         if isinstance(exc, SQLAlchemyError):

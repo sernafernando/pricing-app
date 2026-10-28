@@ -268,15 +268,58 @@ def test_an_offset_without_a_group_gets_a_new_group_with_one_filter_per_scope_fi
     assert filas[offset_id]["alcance"] == "marca TP-LINK o categoría Routers o subcategoría 12 o producto 950"
 
 
-def test_an_ars_offset_keeps_no_money_cap_and_warns(engine, correr) -> None:
-    offset_id = _offset(engine, item_id=2964, moneda="ARS", monto=1500, max_unidades=10, max_monto_usd=300)
+# B1: a campaign in pesos holds no USD cap and a campaign covers every channel. Migrating such an offset (active or
+# expired) would credit beyond what the legacy offset credited, so it goes to the review table instead.
+_VENCIDO = {"fecha_desde": date(2026, 3, 1), "fecha_hasta": date(2026, 6, 30)}
+_IRREPRESENTABLES = {
+    "tope_usd_en_pesos": (
+        {"marca": "MERCUSYS", "moneda": "ARS", "monto": 50, "max_unidades": 10, "max_monto_usd": 300},
+        "El tope en USD (300,00) no se puede guardar en una campaña en pesos",
+    ),
+    "canales": (
+        {"item_id": 2964, "aplica_fuera": False, "aplica_tienda_nube": False},
+        "No aplicaba a: fuera de ML, Tienda Nube; una campaña aplica a todos los canales",
+    ),
+    "ambos": (
+        {"item_id": 950, "moneda": "ARS", "monto": 50, "max_monto_usd": 100, "aplica_ml": False},
+        "El tope en USD (100,00) no se puede guardar en una campaña en pesos | "
+        "No aplicaba a: ML; una campaña aplica a todos los canales",
+    ),
+}
 
-    _, summary, filas = correr("--apply")
 
+@pytest.mark.parametrize("vencido", [False, True], ids=["activo", "vencido"])
+@pytest.mark.parametrize("caso", list(_IRREPRESENTABLES))
+def test_an_offset_a_campaign_cannot_represent_goes_to_review_not_to_a_wider_campaign(
+    engine, correr, caso, vencido
+) -> None:
+    valores, motivo = _IRREPRESENTABLES[caso]
+    otro = _offset(engine, item_id=2270)  # an unrelated offset still migrates
+
+    offset_id = _offset(engine, **valores, **(_VENCIDO if vencido else {}))
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"], filas[offset_id]["campana_id"]) == (
+        "no migrado",
+        motivo,
+        "",
+    )
+    assert filas[offset_id]["avisos"] == ""
     [c] = _campanas(engine)
-    assert (c["moneda"], c["tc_modo"], c["tope_unidades"], c["tope_monto"]) == ("ARS", None, 10, None)
-    assert filas[offset_id]["avisos"] == "El tope en USD (300,00) no se migró: la campaña es en pesos"
-    assert (filas[offset_id]["resultado"], summary["migrados"]) == ("migrado", 1)
+    assert c["offset_origen_id"] == otro
+    assert _count(engine, "offset_grupos") == 1  # only the unrelated offset's
+    pendientes = _pendientes(engine)
+    assert list(pendientes) == [offset_id]
+    assert (pendientes[offset_id]["motivo"], pendientes[offset_id]["avisos"]) == (motivo, None)
+    assert (summary["migrados"], summary["no_migrados"], summary["pendientes"]) == (1, 1, 1)
+    assert (summary["campana_ids"], summary["vencidos_migrados"], summary["con_error"]) == ([c["id"]], [], [])
+
+    # The dry run says the same.
+    code, summary, filas = correr()
+    assert code == 0
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == ("no migrado", motivo)
+    assert summary["pendientes"] == 1
 
 
 @pytest.mark.parametrize("default,esperado", [(None, date(2026, 12, 31)), ("2027-03-31", date(2027, 3, 31))])
@@ -290,18 +333,6 @@ def test_an_open_ended_offset_ends_on_the_default_date_and_warns(engine, correr,
     assert filas[offset_id]["hasta"] == ""
     assert filas[offset_id]["avisos"] == f"Sin fecha hasta: se usó {esperado.isoformat()}, revisar"
     assert summary["migrados"] == 1
-
-
-def test_an_offset_not_on_every_channel_is_migrated_with_a_warning(engine, correr) -> None:
-    offset_id = _offset(engine, item_id=2964, aplica_fuera=False, aplica_tienda_nube=False)
-
-    _, _, filas = correr("--apply")
-
-    assert len(_campanas(engine)) == 1
-    assert filas[offset_id]["resultado"] == "migrado"
-    assert filas[offset_id]["avisos"] == (
-        "El offset no aplicaba a: fuera de ML, Tienda Nube; la campaña aplica a todos los canales"
-    )
 
 
 def test_an_offset_ending_today_is_still_active(engine, correr) -> None:
@@ -779,16 +810,14 @@ def test_a_group_reference_with_a_product_also_gets_its_own_amount(engine, corre
 
 def test_a_group_without_end_date_ends_on_the_default_with_a_warning(engine, correr) -> None:
     grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
-    ref = _offset(engine, grupo_id=grupo_id, fecha_hasta=None, moneda="ARS", monto=100, max_monto_usd=50)
+    ref = _offset(engine, grupo_id=grupo_id, fecha_hasta=None, moneda="ARS", monto=100, max_unidades=50)
     otro = _offset(engine, grupo_id=grupo_id, item_id=2964, moneda="ARS", monto=150, fecha_hasta=None)
 
     _, _, filas = correr("--apply")
 
     [c] = _campanas(engine)
-    assert (c["fecha_hasta"], c["moneda"], c["tope_monto"]) == (date(2026, 12, 31), "ARS", None)
-    assert filas[ref]["avisos"] == (
-        "El tope en USD (50,00) no se migró: la campaña es en pesos | Sin fecha hasta: se usó 2026-12-31, revisar"
-    )
+    assert (c["fecha_hasta"], c["moneda"], c["tope_unidades"]) == (date(2026, 12, 31), "ARS", 50)
+    assert filas[ref]["avisos"] == "Sin fecha hasta: se usó 2026-12-31, revisar"
     assert filas[otro]["avisos"].startswith(f"migrado en la campaña #{c['id']} del grupo #{grupo_id}")
 
 
@@ -912,6 +941,21 @@ _RECHAZOS = {
         "Grupo #{g}: sin usuario; indicar --usuario-id",
         0,
     ),
+    # B1: the legacy capped the group in USD; a campaign in pesos would be uncapped.
+    "tope_usd_en_pesos_vencido": (
+        [
+            {"moneda": "ARS", "monto": 100, "max_monto_usd": 50, **_VENCIDO},
+            {"item_id": 2964, "moneda": "ARS", "monto": 150, **_VENCIDO},
+        ],
+        "Grupo #{g}: El tope en USD (50,00) no se puede guardar en una campaña en pesos",
+        0,
+    ),
+    # B1: one offset of the group skipped ML; a campaign covers every channel.
+    "canales": (
+        [{}, {"item_id": 2964, "aplica_ml": False}],
+        "Grupo #{g}: No aplicaba a: ML; una campaña aplica a todos los canales",
+        0,
+    ),
 }
 
 
@@ -938,3 +982,73 @@ def test_a_group_that_cannot_be_modeled_stores_every_offset_for_review_and_creat
     )
     assert (summary["no_migrados"], summary["pendientes"], summary["migrados"]) == (len(ids), len(ids), 0)
     assert summary["con_error"] == (ids if codigo else [])
+
+
+def test_the_dry_run_reports_a_group_with_a_product_outside_its_reach_as_apply_does(engine, correr) -> None:
+    # A1: the dry run's `pendientes` is what `--apply` keeps for review.
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ids = [_offset(engine, grupo_id=grupo_id), _offset(engine, grupo_id=grupo_id, item_id=950)]  # 950: MERCUSYS
+    motivo = f"Grupo #{grupo_id}: El producto 950 no está en los grupos de la campaña"
+    antes = {table: _count(engine, table) for table in _ESCRITAS}
+
+    code, summary, filas = correr()
+
+    assert {table: _count(engine, table) for table in _ESCRITAS} == antes
+    assert code == 1
+    assert {i: (filas[i]["resultado"], filas[i]["motivo"]) for i in ids} == dict.fromkeys(ids, ("no migrado", motivo))
+    assert (summary["pendientes"], summary["migrarian"], summary["no_migrados"], summary["con_error"]) == (
+        2,
+        0,
+        2,
+        ids,
+    )
+
+    code_apply, summary_apply, filas_apply = correr("--apply")
+
+    assert code_apply == code
+    assert {i: (filas_apply[i]["resultado"], filas_apply[i]["motivo"]) for i in ids} == {
+        i: (filas[i]["resultado"], filas[i]["motivo"]) for i in ids
+    }
+    assert summary_apply["pendientes"] == summary["pendientes"] == len(_pendientes(engine))
+    assert _campanas(engine) == []
+
+
+@pytest.mark.parametrize("cual,campana,nuevo", [(0, "2,00", 5), (1, "3,50", 9)], ids=["referencia", "producto"])
+def test_an_offset_whose_amount_changed_after_its_group_migrated_goes_to_review(
+    engine, correr, cual, campana, nuevo
+) -> None:
+    # A2: the campaign keeps the old amount; reporting it "ya migrado" would hide the difference.
+    grupo_id, ids = _grupo_tplink(engine)
+    correr("--apply")
+    [c] = _campanas(engine)
+    items = _items_de(engine, c["id"])
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE offsets_ganancia SET monto = :m WHERE id = :i"), {"m": nuevo, "i": ids[cual]})
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert _campanas(engine) == [c] and _items_de(engine, c["id"]) == items
+    motivo = (
+        f"Grupo #{grupo_id}: el monto del offset cambió después de migrar el grupo a la campaña #{c['id']} "
+        f"(campaña {campana}, offset {nuevo},00); revisar a mano"
+    )
+    cambiado = ids[cual]
+    assert (filas[cambiado]["resultado"], filas[cambiado]["motivo"], filas[cambiado]["campana_id"]) == (
+        "no migrado",
+        motivo,
+        "",
+    )
+    otros = [i for i in ids if i != cambiado]
+    assert {i: (filas[i]["resultado"], filas[i]["campana_id"]) for i in otros} == dict.fromkeys(
+        otros, ("ya migrado", str(c["id"]))
+    )
+    pendientes = _pendientes(engine)
+    assert list(pendientes) == [cambiado] and pendientes[cambiado]["motivo"] == motivo
+    assert pendientes[cambiado]["monto"] == nuevo
+    assert (summary["ya_migrados"], summary["no_migrados"], summary["pendientes"], summary["migrados"]) == (
+        2,
+        1,
+        1,
+        0,
+    )
