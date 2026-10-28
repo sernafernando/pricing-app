@@ -103,16 +103,16 @@ Hardcoded “own” seller nicknames: `GAUSSONLINE` / `GAUSS ONLINE`. Paused / o
 
 ## Pricing shell (started)
 
-- Route: `/para-ganar` (`productos.ver`); subvistas `?vista=advisor` (default) y `?vista=criterios`
-- Page: `frontend/src/pages/ParaGanarAdvisor.jsx` — tabs Advisor | Criterios; misma cola MLA; detail distinto
+- Route: `/para-ganar` (`productos.ver`); subvistas `?vista=advisor` (default), `?vista=criterios`, planned `?vista=periodicidad`
+- Page: `frontend/src/pages/ParaGanarAdvisor.jsx` — tabs Advisor | Criterios (| Periodicidad TBD); Advisor/Criterios comparten cola MLA; Periodicidad será cola por EAN
 - Scope filters (shared): tipo (Clásica/3/6/9/12 cuotas), lista de precios, tienda oficial, marca, subcategoría, PM, EAN/código, MLA catálogo, **costo USD desde/hasta** + search — `ParaGanarScopeFilters`; faceted `GET /api/para-ganar/alcance-opciones` (same params as cola; each facet skips itself); tienda names from `ml_tiendas_oficiales` via `useTiendasOficiales` (seed `backend/scripts/seed_ml_tiendas_oficiales.py`); sandbox MLA→store link via minimal `tb_mercadolibre_items_publicados` rows (`backend/scripts/seed_para_ganar_publicados_stores.py`: TP-LINK→471846, else Gauss 57997); “Sin tienda” also matches MLAs without that row
 - API: `GET /api/para-ganar/cola` — active MLAs (precio, catálogo, par sync por `inventory_id`) with Productos-like scope params
 - Nav: Sidebar → Productos → PARA GANAR (badge WIP)
 - Catalog: `frontend/src/registry/screenCatalog.js`
-- Criterios: override por MLA; masivo `POST /criterios/aplicar-masivo`; Advisor pool D20–D23 (1 SMART + 1 DEAL + 1 Premium; deal@sugerido + enroll via POST Productos). Herencia producto/PM y heurística marca: deprecados (EAN + masivo). Next: cola Pendiente de revisión / Sin novedades (no Perdiendo/Ganando).
+- Criterios: override por MLA; masivo `POST /criterios/aplicar-masivo`; Advisor pool D20–D23. Herencia producto/PM y heurística marca: deprecados. Roadmap Periodicidad P1–P7 + estados Pendiente/Sin novedades: ver `para-ganar.md`.
 - System defaults (source=`default`): markup 5–15%, top sellers 5, precio min/max unset, all flags off
 - Catalog sellers: `para_ganar_catalog_sellers` + `GET/PUT /criterios/{mla}/sellers` (dispositions: active / ignore_participant / hide / exclude_from_top); members synced from latest `ml_catalog_competition` snapshot
 
 ## Suggested next step
 
-See backlog in [`para-ganar.md`](./para-ganar.md): cost USD scope filter; mass criteria = markup only + per-MLA precio↔markup sync; TOP = price positions; then product/PM inheritance and suggestion engine.
+See backlog + Periodicidad modules (P1–P7) in [`para-ganar.md`](./para-ganar.md). Next likely: **P1** shell tab Periodicidad.
