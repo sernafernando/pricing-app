@@ -115,6 +115,16 @@ describe('priceColumns', () => {
       expect(container).toHaveTextContent('—');
     });
 
+    it('a promotion with no regular price (0 or missing) shows no struck line and no stray figure', () => {
+      for (const tn_price of [0, null]) {
+        const web = tn({ tn_price, tn_promotional_price: 900, tn_has_promotion: true });
+        const { container, unmount } = render(<div>{web.render(item())}</div>);
+        expect(container.querySelector('s')).toBeNull();
+        expect(container.querySelector('[data-tn-price]')).toHaveTextContent(/^\$ 900,00\$720,00 transf\.$/);
+        unmount();
+      }
+    });
+
     it('without the surcharge (not loaded, or failed) the TN price shows alone, never a wrong transfer price', () => {
       // Not read yet or failed (null), and an unusable config value (0, not a number) alike.
       for (const percent of [null, 0, 'abc']) {
