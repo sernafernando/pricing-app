@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import and_, func, not_, nullsfirst, or_, text
+from sqlalchemy import Text, and_, cast, func, not_, nullsfirst, or_, text
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.exc import DisconnectionError, OperationalError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
@@ -442,6 +442,14 @@ def upsert_order(db: Session, payload: Dict[str, Any], mapped: Optional[OrderOps
     return UpsertOutcome.OK
 
 
+def has_no_payload():
+    """A quarantine row with nothing to replay: an order ML did not give back to the activity receiver. SQL NULL, or
+    the JSON `null` literal, which the replay of a worker still on the code before remove-ml-divergences D2b stores
+    when it re-quarantines such a row (its column had no `none_as_null`) during a deploy."""
+    raw_order = MlOrdersOpsCuarentena.raw_order
+    return or_(raw_order.is_(None), cast(raw_order, Text) == "null")
+
+
 def _due_for_retry(now: datetime):
     """Past its backoff and, if tagged permanent, under the attempt cap. The
     backoff is spelled out per attempt count (it only has ten distinct
@@ -538,7 +546,7 @@ def retry_quarantined_orders(db: Session, limit: int = MAX_QUARANTINE_RETRIES_PE
     # replay the same order at once.
     rows = (
         db.query(MlOrdersOpsCuarentena.order_id, MlOrdersOpsCuarentena.raw_order, MlOrdersOpsCuarentena.intentos)
-        .filter(MlOrdersOpsCuarentena.raw_order.isnot(None), _due_for_retry(datetime.now(timezone.utc)))
+        .filter(not_(has_no_payload()), _due_for_retry(datetime.now(timezone.utc)))
         .order_by(nullsfirst(MlOrdersOpsCuarentena.ultimo_intento_at.asc()))
         .limit(limit)
         .with_for_update(skip_locked=True)

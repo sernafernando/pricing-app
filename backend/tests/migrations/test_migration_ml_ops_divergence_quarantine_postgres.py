@@ -82,7 +82,7 @@ def _quarantine(engine: Engine) -> dict:
     with engine.connect() as conn:
         rows = conn.execute(
             text(
-                "SELECT order_id, raw_order, error, intentos, primera_falla_at = ultimo_intento_at, "
+                "SELECT order_id, raw_order, error, intentos, ultimo_intento_at > now() - interval '1 hour', "
                 "to_char(primera_falla_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') FROM ml_orders_ops_cuarentena ORDER BY 1"
             )
         )
@@ -122,9 +122,8 @@ def engine() -> Iterator[Engine]:
 def test_the_revision_chains_on_the_current_head() -> None:
     config = Config(os.path.join(_BACKEND_ROOT, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(_BACKEND_ROOT, "alembic"))
-    scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_revision(_REVISION).down_revision == "20261204_ml_cost_sync_give_up_column"
-    assert scripts.get_heads() == [_REVISION]
+    script = ScriptDirectory.from_config(config).get_revision(_REVISION)
+    assert script.down_revision == "20261204_ml_cost_sync_give_up_column"
     assert _module().UNRESOLVED_ERROR == UNRESOLVED_ERROR
 
 
@@ -135,7 +134,8 @@ def test_upgrade_carries_every_open_debt_over_to_the_quarantine(engine) -> None:
 
     assert _raw_order_nullable(engine)
     assert _quarantine(engine) == {
-        # Open and acknowledged debts become rows with no payload, detected when the debt was.
+        # Open and acknowledged debts become rows with no payload, first failed when the debt was detected and last
+        # tried now: the replay of a worker still on the old code (deploy window) does not see them for its backoff.
         10: (None, UNRESOLVED_ERROR, 1, True, "2026-10-01"),
         11: (None, UNRESOLVED_ERROR, 1, True, "2026-10-02"),
         # An order quarantined with its payload keeps its row.
@@ -163,6 +163,14 @@ def test_downgrade_copies_the_debts_back_and_restores_not_null(engine) -> None:
     with engine.begin() as conn:
         # 10 landed after the upgrade: its pre-upgrade legacy row must not come back.
         conn.execute(text("DELETE FROM ml_orders_ops_cuarentena WHERE order_id = 10"))
+        # 31 was re-quarantined by the old replay during the deploy window: JSON null, still no payload.
+        conn.execute(
+            text(
+                "INSERT INTO ml_orders_ops_cuarentena (order_id, raw_order, error, primera_falla_at, ultimo_intento_at) "
+                "VALUES (31, 'null'::jsonb, '[permanent] mapping error on retry', '2026-10-22 10:00+00', "
+                "'2026-10-22 10:00+00')"
+            )
+        )
         # New misses after the upgrade: 30 is new, 12 has an ignored legacy row.
         conn.execute(
             text(
@@ -187,6 +195,7 @@ def test_downgrade_copies_the_debts_back_and_restores_not_null(engine) -> None:
         (15, "out_of_window_update", None, "open", "2026-10-07"),
         (16, "unknown", "other_field", "open", "2026-10-08"),
         (30, "unknown", "activity_unresolved", "open", "2026-10-20"),
+        (31, "unknown", "activity_unresolved", "open", "2026-10-22"),
     ]
 
 

@@ -102,6 +102,7 @@ from app.services.ml_orders_ingestion.ingestion_service import (
     TRANSIENT_TAG,
     QuarantineRetryResult,
     _insert_stmt,
+    has_no_payload,
     retry_quarantined_orders,
 )
 from app.services.ml_orders_ingestion.sweep_service import (
@@ -323,9 +324,9 @@ def _record_unresolved_order(db, order_id: int) -> None:
 
 
 def _unresolved_debts(db):
-    """The quarantine rows with no payload. A row WITH one is a write that failed: only the replay settles it, so
-    none of the clears below may touch it."""
-    return db.query(MlOrdersOpsCuarentena).filter(MlOrdersOpsCuarentena.raw_order.is_(None))
+    """The quarantine rows with no payload (`has_no_payload`). A row WITH one is a write that failed: only the
+    replay settles it, so none of the clears below may touch it."""
+    return db.query(MlOrdersOpsCuarentena).filter(has_no_payload())
 
 
 def _clear_unresolved_orders(db, order_ids) -> None:

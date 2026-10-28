@@ -24,6 +24,7 @@ from contextlib import contextmanager
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from sqlalchemy import JSON
 
 from app.core.config import settings
 from app.models.ml_orders_ops import MlOpsDivergence, MlOpsSyncCursor, MlOrdersOps, MlOrdersOpsCuarentena
@@ -599,6 +600,27 @@ class TestTheMissLivesInTheQuarantine:
         db.commit()
 
         assert db.get(MlOrdersOpsCuarentena, 1).raw_order == {"id": 1}
+
+    def test_a_json_null_payload_is_no_payload(self, db):
+        """Mixed-version deploy window: the old replay re-quarantines a copied row through a JSONB column without
+        `none_as_null`, storing the JSON `null` literal. It is still a debt: the replay skips it and it is settled
+        once its order lands."""
+        db.execute(
+            MlOrdersOpsCuarentena.__table__.insert().values(
+                order_id=6, raw_order=JSON.NULL, error=ingestion_service.PERMANENT_TAG + "mapping error on retry"
+            )
+        )
+        db.execute(
+            MlOrdersOpsCuarentena.__table__.update()
+            .where(MlOrdersOpsCuarentena.order_id == 6)
+            .values(ultimo_intento_at=datetime.now(timezone.utc) - timedelta(days=1))
+        )
+        db.commit()
+
+        assert ingestion_service.retry_quarantined_orders(db).attempted == 0
+        db.add(MlOrdersOps(order_id=6, seller_id=999, ml_last_updated=datetime.now(timezone.utc)))
+        db.commit()
+        assert service._clear_resolved_unresolved_debts(db) == 1
 
     def test_the_replay_skips_a_row_without_payload(self, db):
         miss = _quarantined_miss(5)
