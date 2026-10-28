@@ -146,3 +146,71 @@ def test_alcance_tipos_cascade_from_lista(client: TestClient, rma_superadmin_use
     assert response.status_code == 200, response.text
     tipo_ids = {row["id"] for row in response.json()["tipos_publicacion"]}
     assert tipo_ids <= {"3"}
+
+
+def test_cola_default_catalog_only_opt_in_traditional(client: TestClient, rma_superadmin_user, db) -> None:
+    """Default cola = catalog_listing; checkbox includes traditional sync with catalog id."""
+    from app.models.ml_publication_link import MlPublicationLink
+    from app.models.producto import ProductoERP
+    from app.models.publicacion_ml import PublicacionML
+
+    catalog_id = "MLA-PG-CAT-ONLY-991"
+    producto = ProductoERP(item_id=99101, codigo="SKU-PG-CATF", descripcion="catalog filter", costo=10)
+    db.add(producto)
+    db.flush()
+    db.add(
+        PublicacionML(
+            mla="MLA99101",
+            item_id=producto.item_id,
+            codigo="SKU-PG-CATF",
+            activo=True,
+            pricelist_id=4,
+        )
+    )
+    db.add(
+        PublicacionML(
+            mla="MLA99102",
+            item_id=producto.item_id,
+            codigo="SKU-PG-CATF",
+            activo=True,
+            pricelist_id=4,
+        )
+    )
+    db.add(
+        MlPublicationLink(
+            mla="MLA99101",
+            catalog_product_id=catalog_id,
+            catalog_listing=True,
+        )
+    )
+    db.add(
+        MlPublicationLink(
+            mla="MLA99102",
+            catalog_product_id=catalog_id,
+            catalog_listing=False,
+        )
+    )
+    db.commit()
+
+    headers = {"Authorization": f"Bearer {make_access_token(rma_superadmin_user)}"}
+    catalog_only = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={"catalog_product_id": catalog_id, "page_size": 20},
+    )
+    assert catalog_only.status_code == 200, catalog_only.text
+    mlas_default = {row["mla"] for row in catalog_only.json()["items"]}
+    assert mlas_default == {"MLA99101"}
+
+    with_trad = client.get(
+        "/api/para-ganar/cola",
+        headers=headers,
+        params={
+            "catalog_product_id": catalog_id,
+            "incluir_tradicionales_sincronizadas": True,
+            "page_size": 20,
+        },
+    )
+    assert with_trad.status_code == 200, with_trad.text
+    mlas_trad = {row["mla"] for row in with_trad.json()["items"]}
+    assert mlas_trad == {"MLA99101", "MLA99102"}

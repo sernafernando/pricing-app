@@ -210,6 +210,22 @@
   font-size: 12px;
 }
 
+.syncCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.syncCheck input {
+  margin: 0;
+  cursor: pointer;
+}
+
 .srOnly {
   position: absolute;
   width: 1px;

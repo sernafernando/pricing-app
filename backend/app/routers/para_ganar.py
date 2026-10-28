@@ -28,7 +28,11 @@ from app.models.para_ganar_catalog_seller import (
 )
 from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
 from app.models.usuario import Usuario
-from app.services.ml_catalog_competition_service import refrescar_competencia_catalogo
+from app.services.ml_catalog_competition_service import (
+    bucket_key_for_web_pricelist,
+    competitor_bucket_key,
+    refrescar_competencia_catalogo,
+)
 from app.services.para_ganar_top import (
     RankCompetitor,
     board_to_dict,
@@ -168,6 +172,7 @@ def _parse_scope_query(
     catalog_product_id: Optional[str] = None,
     costo_usd_min: Optional[float] = None,
     costo_usd_max: Optional[float] = None,
+    incluir_tradicionales_sincronizadas: bool = False,
 ) -> dict:
     """Normalize cola/alcance query params into filter lists."""
     parsed_tiendas = parsear_tiendas_oficiales_mla(tiendas)
@@ -195,6 +200,7 @@ def _parse_scope_query(
         "catalog_product_id_norm": (catalog_product_id or "").strip(),
         "costo_usd_min": min_usd,
         "costo_usd_max": max_usd,
+        "incluir_tradicionales_sincronizadas": bool(incluir_tradicionales_sincronizadas),
     }
 
 
@@ -212,6 +218,7 @@ def _build_alcance_where(
     catalog_product_id_norm: str,
     costo_usd_min: Optional[float],
     costo_usd_max: Optional[float],
+    incluir_tradicionales_sincronizadas: bool = False,
     params: dict,
     skip: Optional[set[str]] = None,
     tipo_cambio_usd: Optional[float] = None,
@@ -223,6 +230,30 @@ def _build_alcance_where(
     """
     omit = skip or set()
     clauses: list[str] = []
+
+    # Default: only true catalog listings. Opt-in: also traditional sync partners
+    # that share a catalog_product_id (catalog_listing = false).
+    if "catalog_mode" not in omit:
+        if incluir_tradicionales_sincronizadas:
+            clauses.append(
+                """
+              AND EXISTS (
+                SELECT 1 FROM ml_publication_links lx
+                WHERE lx.mla = p.mla
+                  AND lx.catalog_product_id IS NOT NULL
+              )
+                """
+            )
+        else:
+            clauses.append(
+                """
+              AND EXISTS (
+                SELECT 1 FROM ml_publication_links lx
+                WHERE lx.mla = p.mla
+                  AND lx.catalog_listing IS TRUE
+              )
+                """
+            )
 
     if q_norm and "q" not in omit:
         # LOWER/LIKE keeps SQLite unit tests and Postgres in sync (no ILIKE).
@@ -396,6 +427,10 @@ def listar_alcance_opciones(
     catalog_product_id: Optional[str] = Query(None, max_length=64),
     costo_usd_min: Optional[float] = Query(None, ge=0),
     costo_usd_max: Optional[float] = Query(None, ge=0),
+    incluir_tradicionales_sincronizadas: bool = Query(
+        False,
+        description="When false (default), only catalog_listing publications; when true, also traditional sync partners with a catalog id",
+    ),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarAlcanceOpciones:
@@ -412,6 +447,7 @@ def listar_alcance_opciones(
         catalog_product_id=catalog_product_id,
         costo_usd_min=costo_usd_min,
         costo_usd_max=costo_usd_max,
+        incluir_tradicionales_sincronizadas=incluir_tradicionales_sincronizadas,
     )
     tipo_cambio_usd = (
         obtener_tipo_cambio_actual(db, "USD")
@@ -559,6 +595,10 @@ def listar_cola(
     ),
     costo_usd_min: Optional[float] = Query(None, ge=0, description="Min ERP cost in USD (ARS converted via TC)"),
     costo_usd_max: Optional[float] = Query(None, ge=0, description="Max ERP cost in USD (ARS converted via TC)"),
+    incluir_tradicionales_sincronizadas: bool = Query(
+        False,
+        description="When false (default), only catalog listings; when true, also traditional sync partners",
+    ),
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarColaResponse:
@@ -576,6 +616,7 @@ def listar_cola(
         catalog_product_id=catalog_product_id,
         costo_usd_min=costo_usd_min,
         costo_usd_max=costo_usd_max,
+        incluir_tradicionales_sincronizadas=incluir_tradicionales_sincronizadas,
     )
 
     params: dict = {"limit": page_size, "offset": offset}
@@ -1326,13 +1367,28 @@ def _competition_snapshot_for_rank(db: Session, *, mla: str) -> Optional[dict[st
 
 
 def _competitor_in_our_bucket(competitor: dict[str, Any], our_bucket_key: Optional[str]) -> bool:
-    """True when the competitor shares our listing_type|cuotas bucket."""
-    if competitor.get("same_bucket") is True:
+    """True when the competitor shares our listing_type|cuotas bucket.
+
+    Recomputes the bucket at read time so stored snapshots that collapsed bare
+    installment ints to `|0` still rank correctly after the normalizer fix.
+    """
+    if not our_bucket_key:
+        return False
+    if competitor_bucket_key(competitor) == our_bucket_key:
         return True
-    if our_bucket_key and competitor.get("bucket_key") == our_bucket_key:
+    if competitor.get("same_bucket") is True and competitor.get("bucket_key") == our_bucket_key:
         return True
-    # No usable bucket on either side: refuse comparability (under-claim).
     return False
+
+
+def _pricelist_id_for_mla(db: Session, mla: str) -> Optional[int]:
+    row = db.execute(
+        text("SELECT pricelist_id FROM publicaciones_ml WHERE mla = :mla LIMIT 1"),
+        {"mla": mla},
+    ).first()
+    if not row or row[0] is None:
+        return None
+    return int(row[0])
 
 
 def _cola_precio_for_mla(db: Session, mla: str) -> Optional[float]:
@@ -1418,6 +1474,10 @@ def obtener_sugerencia_mla(
         our_bucket_key = our_bucket_key.strip() or None
     else:
         our_bucket_key = None
+    if not our_bucket_key:
+        # Snapshot often omits us from competitors → our_bucket_key null; synthesize
+        # from this MLA's pricelist (3/6/9/12 vs clásica).
+        our_bucket_key = bucket_key_for_web_pricelist(_pricelist_id_for_mla(db, mla_norm))
 
     competitors_raw = snap.get("competitors") or []
     if isinstance(competitors_raw, str):

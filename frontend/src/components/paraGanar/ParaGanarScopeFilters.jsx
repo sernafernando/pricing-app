@@ -23,6 +23,8 @@ export default function ParaGanarScopeFilters({
   catalogProductId,
   costoUsdMin,
   costoUsdMax,
+  incluirTradicionalSync = false,
+  onIncluirTradicionalSyncChange,
   onMarcasChange,
   onSubcategoriasChange,
   onPmsChange,
@@ -46,6 +48,7 @@ export default function ParaGanarScopeFilters({
     catalogProductId,
     costoUsdMin,
     costoUsdMax,
+    incluirTradicionalSync,
     onMarcasChange,
     onSubcategoriasChange,
     onPmsChange,
@@ -68,7 +71,8 @@ export default function ParaGanarScopeFilters({
     Boolean(ean.trim()) ||
     Boolean(catalogProductId.trim()) ||
     Boolean(String(costoUsdMin || '').trim()) ||
-    Boolean(String(costoUsdMax || '').trim());
+    Boolean(String(costoUsdMax || '').trim()) ||
+    Boolean(incluirTradicionalSync);
 
   const emptyHint = (emptyLabel) => {
     if (loading) return 'Cargando…';
@@ -169,6 +173,14 @@ export default function ParaGanarScopeFilters({
         onMaxChange={onCostoUsdMaxChange}
         disabled={false}
       />
+      <label className={styles.syncCheck} title="Por defecto solo publicaciones de catálogo">
+        <input
+          type="checkbox"
+          checked={Boolean(incluirTradicionalSync)}
+          onChange={(e) => onIncluirTradicionalSyncChange?.(e.target.checked)}
+        />
+        Incluir tradicionales sincronizadas
+      </label>
       {hasActive && (
         <button type="button" className={styles.clearAll} onClick={onClear}>
           <X size={14} aria-hidden />

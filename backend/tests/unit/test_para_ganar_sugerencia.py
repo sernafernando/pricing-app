@@ -107,9 +107,7 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
     assert response.json()["our_rank"] == 2
 
 
-def test_sugerencia_flags_needs_refresh_without_snapshot(
-    client: TestClient, rma_superadmin_user, db
-) -> None:
+def test_sugerencia_flags_needs_refresh_without_snapshot(client: TestClient, rma_superadmin_user, db) -> None:
     from app.models.ml_publication_link import MlPublicationLink
 
     producto = ProductoERP(item_id=88202, codigo="SKU-PG-NEED", descripcion="need snap", costo=10)
@@ -127,6 +125,81 @@ def test_sugerencia_flags_needs_refresh_without_snapshot(
     body = response.json()
     assert body["needs_competition_refresh"] is True
     assert body["catalog_product_id"] == "MLA999883"
+
+
+def test_sugerencia_ranks_peers_when_installments_are_bare_ints(client: TestClient, rma_superadmin_user, db) -> None:
+    """Stored snapshots often keep installments as int 6; old normalizer collapsed to |0."""
+    from app.models.ml_catalog_competition import MLCatalogCompetition
+    from app.models.ml_publication_link import MlPublicationLink
+
+    producto = ProductoERP(item_id=88204, codigo="SKU-PG-6C", descripcion="6c bucket", costo=10)
+    db.add(producto)
+    db.flush()
+    db.add(
+        PublicacionML(
+            mla="MLA88204",
+            item_id=producto.item_id,
+            codigo="SKU-PG-6C",
+            activo=True,
+            pricelist_id=14,
+        )
+    )
+    db.add(MlPublicationLink(mla="MLA88204", catalog_product_id="MLA999885", catalog_listing=True))
+    db.add(
+        MLCatalogCompetition(
+            mla="MLA88204",
+            fecha_consulta=datetime.now(UTC),
+            catalog_product_id="MLA999885",
+            fetch_status="ok",
+            our_item_id="MLA88204",
+            our_seller_id="999",
+            our_price=400.0,
+            our_bucket_key=None,
+            competitors=[
+                {
+                    "seller_id": "111",
+                    "seller_nickname": "A",
+                    "item_id": "MLA_A",
+                    "price_ars": 350.0,
+                    "listing_type_id": "gold_pro",
+                    "installments": 6,
+                    "same_bucket": False,
+                    "bucket_key": "gold_pro|0",
+                },
+                {
+                    "seller_id": "222",
+                    "seller_nickname": "B",
+                    "item_id": "MLA_B",
+                    "price_ars": 360.0,
+                    "listing_type_id": "gold_pro",
+                    "installments": 6,
+                    "same_bucket": False,
+                    "bucket_key": "gold_pro|0",
+                },
+                {
+                    "seller_id": "333",
+                    "seller_nickname": "CASH",
+                    "item_id": "MLA_CASH",
+                    "price_ars": 300.0,
+                    "listing_type_id": "gold_special",
+                    "installments": None,
+                    "same_bucket": False,
+                    "bucket_key": "gold_special|0",
+                },
+            ],
+            competitor_count=3,
+        )
+    )
+    db.commit()
+
+    from app.routers.para_ganar import obtener_sugerencia_mla
+
+    body = obtener_sugerencia_mla(mla="MLA88204", db=db, _user=rma_superadmin_user)
+    nicknames = {s.nickname for p in body.positions for s in p.sellers}
+    assert "A" in nicknames
+    assert "B" in nicknames
+    assert "CASH" not in nicknames
+    assert body.our_rank == 3
 
 
 def test_competencia_refresh_persists_and_returns_board(

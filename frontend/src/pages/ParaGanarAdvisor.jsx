@@ -108,6 +108,8 @@ export default function ParaGanarAdvisor() {
           catalogProductId={cola.catalogInput}
           costoUsdMin={cola.costoUsdMinInput}
           costoUsdMax={cola.costoUsdMaxInput}
+          incluirTradicionalSync={cola.incluirTradicionalSync}
+          onIncluirTradicionalSyncChange={cola.setIncluirTradicionalSync}
           onMarcasChange={cola.setMarcas}
           onSubcategoriasChange={cola.setSubcategorias}
           onPmsChange={cola.setPms}

@@ -25,6 +25,7 @@ export default function useParaGanarCola(pageSize = 50) {
   const [catalogInput, setCatalogInput] = useState('');
   const [costoUsdMinInput, setCostoUsdMinInput] = useState('');
   const [costoUsdMaxInput, setCostoUsdMaxInput] = useState('');
+  const [incluirTradicionalSync, setIncluirTradicionalSync] = useState(false);
   const ean = useDebounce(eanInput.trim(), 300);
   const catalogProductId = useDebounce(catalogInput.trim(), 300);
   const costoUsdMin = useDebounce(costoUsdMinInput.trim(), 300);
@@ -59,6 +60,9 @@ export default function useParaGanarCola(pageSize = 50) {
               : {}),
             ...(Number.isFinite(Number(costoUsdMax)) && costoUsdMax !== ''
               ? { costo_usd_max: Number(costoUsdMax) }
+              : {}),
+            ...(incluirTradicionalSync
+              ? { incluir_tradicionales_sincronizadas: true }
               : {}),
           },
         });
@@ -101,6 +105,7 @@ export default function useParaGanarCola(pageSize = 50) {
     catalogProductId,
     costoUsdMin,
     costoUsdMax,
+    incluirTradicionalSync,
     reloadToken,
   ]);
 
@@ -121,6 +126,7 @@ export default function useParaGanarCola(pageSize = 50) {
     setCatalogInput('');
     setCostoUsdMinInput('');
     setCostoUsdMaxInput('');
+    setIncluirTradicionalSync(false);
   };
 
   const applySearch = (event) => {
@@ -168,6 +174,8 @@ export default function useParaGanarCola(pageSize = 50) {
     setCatalogInput: resetPage(setCatalogInput),
     setCostoUsdMinInput: resetPage(setCostoUsdMinInput),
     setCostoUsdMaxInput: resetPage(setCostoUsdMaxInput),
+    incluirTradicionalSync,
+    setIncluirTradicionalSync: resetPage(setIncluirTradicionalSync),
     reload: () => setReloadToken((n) => n + 1),
   };
 }

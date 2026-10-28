@@ -23,3 +23,4 @@ Delivery: ask-on-risk. Runner: backend pytest unit; frontend vitest unit.
 - L1: User authorized TOP engine; clarified excluded = out of ranking, stay on list, discreet notice; rejected multi-label dispositions (“si no sirven no tienen que estar”); “probemos a ver” on Activo/Excluido.
 - L2: Implemented Activo/Excluido + D12 board endpoint + Advisor UI; tests green (7 unit).
 - L3: User: 3-cuotas MLA was ranking against clásicas — fix same_bucket filter + snapshot must be this MLA.
+- L4: User: #1 cola solo catálogo + check tradicionales; #2 6 cuotas “solos” vs varias ofertas ML — D13/D14 (normalize bare installments + synthesize our_bucket + default catalog_listing filter).

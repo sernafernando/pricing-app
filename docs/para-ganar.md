@@ -34,6 +34,8 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D10 | **Mass / system criteria = markup only** (no mass price caps) | No single cost → price caps as mass criteria are meaningless | Done (defaults + `MASS_CRITERIA_NUMBER_KEYS`; mass apply UI still disabled) |
 | D11 | **Per MLA:** precio ↔ markup stay in sync (edit either; other derives via Pricing calc) | Same chain as Productos: `POST /precios/calcular-por-markup` (`adicional_markup: 0`) and `GET /precios/calcular-markup` with cola `item_id` + `pricelist_id` | Done (debounced UI sync) |
 | D12 | **TOP N = price positions** (ties share a rank), not “N sellers” | Two at #1 + three at #2 = top **2** positions, five sellers | Done (GET `/criterios/{mla}/sugerencia` + Advisor board) |
+| D13 | **Cola default = solo catálogo** (`catalog_listing`); opt-in “Incluir tradicionales sincronizadas” | Operators want catalog winners first; sync partners clutter the queue | Done (`incluir_tradicionales_sincronizadas`) |
+| D14 | **TOP same_bucket = listing_type \| cuotas**; bare int installments normalize correctly; synthesize our bucket from web pricelist when snapshot omits it | Bare ints used to collapse to `\|0` → “estamos solos” on 6 cuotas while ML shows peers | Done (read-time recompute) |
 
 ---
 
@@ -69,6 +71,7 @@ Newest first. Use for “why did we…” archaeology.
 - Multi-select: open → check options → optional **X** on the chip or **Limpiar** at the bottom of the list.
 - Facets refresh from other active filters (e.g. marca narrows EAN options).
 - **Costo USD desde/hasta:** ERP `productos_erp.costo` normalized to USD (`moneda_costo=USD` as-is; ARS ÷ tipo de cambio venta). Rows without a convertible cost drop out of the band.
+- **Solo catálogo (default):** cola and facets require `ml_publication_links.catalog_listing = true`. Check **Incluir tradicionales sincronizadas** to also show traditional listings that share a `catalog_product_id` (D13).
 
 ### Criterios
 
@@ -79,7 +82,8 @@ Newest first. Use for “why did we…” archaeology.
 ### TOP (posiciones)
 
 - Field label: **TOP posiciones de precio**. Empates comparten puesto (D12).
-- Advisor: `GET /para-ganar/criterios/{mla}/sugerencia` ranks competition `price_ars` (dense rank) **only in the same bucket** as this MLA (`listing_type` + cuotas / `same_bucket`); excluded sellers omitted; ourselves always counted. Snapshot must be for **this MLA** (a clásica sibling of the same catalog is not reused).
+- Advisor: `GET /para-ganar/criterios/{mla}/sugerencia` ranks competition `price_ars` (dense rank) **only in the same bucket** as this MLA (`listing_type` + cuotas); excluded sellers omitted; ourselves always counted. Snapshot must be for **this MLA** (a clásica sibling of the same catalog is not reused).
+- Bucket key is recomputed at read time from competitor `installments` (int/str/dict). If the snapshot lacks `our_bucket_key`, it is synthesized from this MLA’s web pricelist (e.g. lista 14 → `gold_pro|6`) so 6-cuotas peers are not dropped (D14).
 - Missing snapshot: `POST /para-ganar/criterios/{mla}/competencia/refresh` (permiso `productos.editar_precios`) fetches via the same `refrescar_competencia_catalogo` path as Promociones — **per MLA only** (ML throttle).
 
 ### Sellers del catálogo
@@ -96,7 +100,8 @@ Newest first. Use for “why did we…” archaeology.
 3. ~~Scope: costo USD desde–hasta~~ (D9).
 4. ~~D10–D11 criteria markup/price~~ (mass keys + per-MLA sync).
 5. ~~Suggestion/TOP engine (rank board D12 + Activo/Excluido)~~.
-6. Next: suggested price / promo apply; product/PM criteria inheritance; suggestion states.
+6. ~~Cola solo catálogo + check tradicionales (D13); fix bucket 6 cuotas (D14)~~.
+7. Next: suggested price / promo apply; product/PM criteria inheritance; suggestion states.
 
 ---
 

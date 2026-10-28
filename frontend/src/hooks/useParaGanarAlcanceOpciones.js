@@ -34,6 +34,7 @@ export default function useParaGanarAlcanceOpciones({
   catalogProductId,
   costoUsdMin = '',
   costoUsdMax = '',
+  incluirTradicionalSync = false,
   onMarcasChange,
   onSubcategoriasChange,
   onPmsChange,
@@ -70,6 +71,9 @@ export default function useParaGanarAlcanceOpciones({
               : {}),
             ...(Number.isFinite(Number(costoMaxDebounced)) && costoMaxDebounced !== ''
               ? { costo_usd_max: Number(costoMaxDebounced) }
+              : {}),
+            ...(incluirTradicionalSync
+              ? { incluir_tradicionales_sincronizadas: true }
               : {}),
           },
         });
@@ -138,6 +142,7 @@ export default function useParaGanarAlcanceOpciones({
     catalogDebounced,
     costoMinDebounced,
     costoMaxDebounced,
+    incluirTradicionalSync,
     reloadToken,
   ]);
 

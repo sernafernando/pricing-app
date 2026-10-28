@@ -52,25 +52,68 @@ logger = get_logger(__name__)
 _SUSPICIOUS_ROUND_COUNTS = frozenset({10, 20, 50, 100})
 
 
-def _normalize_installments(entry: Dict[str, Any]) -> str:
-    """`"0"` when there are no installments (absent/None). Otherwise
-    `str(quantity)` when interest-free (`rate == 0`), or `f"{quantity}c"`
-    when interest-bearing (`rate > 0`) — an interest-bearing offer is NOT
-    the same offer as an interest-free one with the same installment
-    count, and they must not share a bucket. Never raises: any
-    unresolvable shape degrades to `"0"`.
+def normalize_installments_token(installments: Any) -> str:
+    """Installments token for bucket keys.
+
+    `"0"` when absent. `str(quantity)` when interest-free, `f"{quantity}c"` when
+    interest-bearing. Accepts the dict shape from ML (`quantity`/`rate`) and the
+    bare int/str counts that sometimes land in stored snapshots — those used to
+    AttributeError on `.get` and silently become `"0"`, collapsing 3/6/9/12 into
+    the cash bucket.
     """
-    installments = entry.get("installments")
-    if not installments:
+    if installments is None or installments is False or installments == "":
         return "0"
-    try:
-        quantity = int(installments.get("quantity") or 0)
-        rate = float(installments.get("rate") or 0)
-    except (AttributeError, TypeError, ValueError):
+    if isinstance(installments, bool):
         return "0"
-    if quantity <= 0:
+    if isinstance(installments, (int, float)):
+        quantity = int(installments)
+        return str(quantity) if quantity > 0 else "0"
+    if isinstance(installments, str):
+        try:
+            quantity = int(installments.strip())
+        except ValueError:
+            return "0"
+        return str(quantity) if quantity > 0 else "0"
+    if isinstance(installments, dict):
+        try:
+            quantity = int(installments.get("quantity") or 0)
+            rate = float(installments.get("rate") or 0)
+        except (TypeError, ValueError):
+            return "0"
+        if quantity <= 0:
+            return "0"
+        return f"{quantity}c" if rate > 0 else str(quantity)
+    return "0"
+
+
+def _normalize_installments(entry: Dict[str, Any]) -> str:
+    """Installments token from a competitor/entry dict. See `normalize_installments_token`."""
+    if not isinstance(entry, dict):
         return "0"
-    return f"{quantity}c" if rate > 0 else str(quantity)
+    return normalize_installments_token(entry.get("installments"))
+
+
+def competitor_bucket_key(entry: Dict[str, Any]) -> str:
+    """Public read-time bucket key (same rules as write-time `_bucket_key`)."""
+    return _bucket_key(entry)
+
+
+def bucket_key_for_web_pricelist(pricelist_id: Optional[int]) -> Optional[str]:
+    """Synthesize `listing|cuotas` for our publication when the snapshot lacks `our_bucket_key`.
+
+    Web lists: clásica → gold_special|0; N cuotas premium → gold_pro|N.
+    """
+    if pricelist_id is None:
+        return None
+    # Same web ids as para_ganar.TIPO_TO_WEB_PRICELIST; PVP cuota lists → web twin.
+    pvp_to_web = {16: 17, 15: 14, 11: 13, 24: 23, 12: 4}
+    cuotas_by_web = {4: "0", 17: "3", 14: "6", 13: "9", 23: "12"}
+    web_id = pvp_to_web.get(int(pricelist_id), int(pricelist_id))
+    cuotas = cuotas_by_web.get(web_id)
+    if cuotas is None:
+        return None
+    listing = "gold_special" if cuotas == "0" else "gold_pro"
+    return f"{listing}|{cuotas}"
 
 
 # Sentinel listing id for an entry whose listing_type_id cannot be resolved.
