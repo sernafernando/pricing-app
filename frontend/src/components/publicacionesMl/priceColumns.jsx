@@ -8,7 +8,7 @@ import ListPriceCell from './ListPriceCell';
  */
 const GROUP = 'Precios de Productos';
 
-const list = (key, header, price, markup, takesPart) => ({ key, header, price, markup, takesPart });
+const list = (key, header, price, markup, takesPart, markupScale = 1) => ({ key, header, price, markup, takesPart, markupScale });
 const CLASICA = list('lista_clasica', 'Precio Clásica', 'precio_lista_ml', 'markup');
 const CUOTAS = [3, 6, 9, 12];
 
@@ -16,7 +16,8 @@ const MODES = {
   normal: [
     CLASICA,
     list('lista_rebate', 'Precio Rebate', 'precio_rebate', 'markup_rebate', 'participa_rebate'),
-    list('lista_oferta', 'Mejor Oferta', 'mejor_oferta_precio', 'mejor_oferta_markup'),
+    // The listing sends the best offer's markup as a fraction (every other one as a percentage); Productos scales it.
+    list('lista_oferta', 'Mejor Oferta', 'mejor_oferta_precio', 'mejor_oferta_markup', undefined, 100),
     list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', 'participa_web_transferencia'),
   ],
   cuotas: [CLASICA, ...CUOTAS.map((n) => list(`lista_${n}_cuotas`, `${n} Cuotas`, `precio_${n}_cuotas`, `markup_${n}_cuotas`))],

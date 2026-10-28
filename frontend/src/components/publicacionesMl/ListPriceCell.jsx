@@ -5,7 +5,8 @@ import styles from './cells.module.css';
 /**
  * One of Productos' prices of a row's product (`column`: its `price` and `markup` fields, and `takesPart`, the flag
  * without which Productos shows no price). The markup only with `canSeeMargin`. No product reads "—" ("…" while
- * its prices are on their way), and so does a price that is not there: never 0.
+ * its prices are on their way), and so does a price that is not there: never 0. `markupScale` turns the markup the
+ * listing sends into a percentage (the best offer's comes as a fraction).
  */
 export default function ListPriceCell({ product, column, loading, canSeeMargin }) {
   if (!product) return <span className={styles.empty}>{loading ? '…' : '—'}</span>;
@@ -13,7 +14,8 @@ export default function ListPriceCell({ product, column, loading, canSeeMargin }
   if (amount == null || Number(amount) <= 0 || (column.takesPart && !product[column.takesPart])) {
     return <span className={styles.empty}>—</span>;
   }
-  const markup = product[column.markup];
+  const raw = product[column.markup];
+  const markup = raw == null ? null : Number(raw) * column.markupScale;
   return (
     <div className={`${styles.stack} ${styles.stackEnd}`}>
       <span className={styles.amount}>{formatAmount(amount)}</span>

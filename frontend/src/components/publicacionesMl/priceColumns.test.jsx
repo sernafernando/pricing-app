@@ -48,6 +48,14 @@ describe('priceColumns', () => {
     expect(cell(clasica)).toContain('25,0%');
   });
 
+  it("reads the best offer's markup as Productos does: the listing sends it as a fraction", () => {
+    const product = { ...PRODUCT, mejor_oferta_precio: 990, mejor_oferta_markup: 0.1234 };
+    const [, , oferta] = priceColumns('normal', { prices: prices(new Map([[7, product]])), canSeeMargin: true });
+    expect(cell(oferta)).toContain('12,3%');
+    const [, rebate] = priceColumns('normal', { prices: prices(), canSeeMargin: true });
+    expect(cell(rebate)).toContain('22,5%');
+  });
+
   it('never shows a markup without the margin permission', () => {
     const [clasica] = priceColumns('normal', { prices: prices(), canSeeMargin: false });
     expect(cell(clasica)).toContain('1.000,00');
