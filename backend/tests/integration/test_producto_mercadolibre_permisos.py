@@ -25,6 +25,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.api.endpoints.productos_detail import obtener_datos_ml_producto
 from app.models.ml_venta_metrica import MLVentaMetrica
+from app.models.producto import ProductoERP
+from app.models.publicacion_ml import PublicacionML
 from tests.conftest import make_access_token
 
 ML = "productos.ver_info_mercadolibre"
@@ -135,7 +137,17 @@ def _venta(db) -> None:
     db.commit()
 
 
+def _publicacion(db) -> None:
+    """An active publication of the product. Only safe on sqlite while the user
+    lacks the ML permission: with it, the endpoint runs Postgres-only SQL."""
+    db.add(ProductoERP(item_id=9201, codigo="ML-PERM", descripcion="Producto", costo=1, moneda_costo="ARS", iva=21))
+    db.flush()
+    db.add(PublicacionML(mla="MLA9201", item_id=9201, item_title="Pub", activo=True))
+    db.commit()
+
+
 def test_no_info_permission_gets_200_with_both_blocks_hidden(client, db, active_user) -> None:
+    _publicacion(db)
     _venta(db)
 
     data = _get(client, active_user)
@@ -145,6 +157,7 @@ def test_no_info_permission_gets_200_with_both_blocks_hidden(client, db, active_
 
 def test_ventas_permission_sees_sales(client, db, active_user, rol_ventas, grant_permiso) -> None:
     grant_permiso(rol_ventas, VENTAS)
+    _publicacion(db)
     _venta(db)
 
     data = _get(client, active_user)
