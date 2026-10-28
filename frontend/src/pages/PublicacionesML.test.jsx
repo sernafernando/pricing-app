@@ -8,7 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
-import api, { productosAPI, publicacionesMlAPI } from '../services/api';
+import api, { preciosAPI, productosAPI, publicacionesMlAPI } from '../services/api';
 import { openInMlPanel } from '../utils/mlSidePanel';
 import { exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
 import { loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -52,6 +52,11 @@ vi.mock('../services/api', () => ({
       Promise.resolve({ data: [{ id: 1, nombre: 'U', es_global: true }, { id: 12, nombre: 'Ventas', es_global: false }] }),
     ),
   },
+  preciosAPI: {
+    calcularMarkup: vi.fn(() => Promise.resolve({ data: { markup: 10 } })),
+    setRapido: vi.fn(() => Promise.resolve({ data: {} })),
+    setCuota: vi.fn(() => Promise.resolve({ data: {} })),
+  },
   registerAuthFailureHandler: vi.fn(),
 }));
 
@@ -83,12 +88,15 @@ let canSeeMargin = false;
 let canSeeKpis = true;
 // Productos' prices (S11): `productos.ver` or a price-edit code (`canViewProductPrices`).
 let canSeePrices = true;
+// Writing them (S11c): the Productos and Tienda edit codes (`pricePermissions`).
+let canEditPrices = true;
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     permisos: [],
     tienePermiso: (permiso) => {
       if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
       if (permiso === 'ml_metricas.ver') return canSeeKpis;
+      if (/^(productos\.(editar|toggle)|tienda\.editar)/.test(permiso)) return canSeePrices && canEditPrices;
       if (permiso.startsWith('productos.') || permiso.startsWith('tienda.')) return canSeePrices;
       return true;
     },
@@ -111,6 +119,7 @@ beforeEach(() => {
   canSeeMargin = false;
   canSeeKpis = true;
   canSeePrices = true;
+  canEditPrices = true;
   publicacionesMlAPI.kpis.mockReset();
   publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE });
   seedTiendasOficiales([
@@ -1737,6 +1746,55 @@ describe("Productos' price columns (S11)", () => {
     expect(within(table()).queryByRole('columnheader', { name: /Precio Clásica/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Precios' })).not.toBeInTheDocument();
     expect(productosAPI.listar).not.toHaveBeenCalled();
+  });
+});
+
+describe("editing Productos' prices in the table (S11c)", () => {
+  const PRICED = [{ item_id: 4101, precio_lista_ml: 12345.5, markup: 21.5 }];
+  beforeEach(() => {
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+    preciosAPI.calcularMarkup.mockClear();
+    preciosAPI.setRapido.mockClear();
+  });
+  const table = () => screen.getByRole('table', { name: /Publicaciones de Mercado Libre/ });
+  const editClasica = async (user, text) => {
+    await user.click((await within(table()).findAllByRole('button', { name: /^Editar Precio Clásica/ }))[0]);
+    const input = within(table()).getByRole('textbox', { name: 'Precio Clásica' });
+    await user.clear(input);
+    await user.type(input, `${text}{Enter}`);
+  };
+
+  it("saves the typed price as Productos does, says so and reads the page's prices again", async () => {
+    const user = userEvent.setup();
+    await page();
+    await editClasica(user, '15000');
+    // Editing a price is not opening its row.
+    expect(table().querySelector('tr[aria-current]')).toBeNull();
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 15000 })));
+    expect(await screen.findByText('Precio guardado.')).toBeInTheDocument();
+    await waitFor(() => expect(productosAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
+  it('a 0 clears the price: an in-app confirmation first, and nothing is written when cancelled', async () => {
+    const user = userEvent.setup();
+    await page();
+    await editClasica(user, '0');
+    // ModalTesla: the in-app confirmation, never window.confirm.
+    const dialog = (await screen.findByText('Esto borra el precio de la lista ML y todas sus cuotas.')).closest('.modal-tesla');
+    expect(within(dialog).getByText('Borrar precio')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    expect(preciosAPI.setRapido).not.toHaveBeenCalled();
+    await editClasica(user, '0');
+    await user.click(await screen.findByRole('button', { name: 'Borrar el precio' }));
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 0 })));
+  });
+
+  it('without a price edit permission the prices read only', async () => {
+    canEditPrices = false;
+    await page();
+    expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
+    expect(within(table()).queryByRole('button', { name: /^Editar Precio/ })).not.toBeInTheDocument();
   });
 });
 

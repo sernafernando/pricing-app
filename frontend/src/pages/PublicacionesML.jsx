@@ -33,7 +33,9 @@ import { withProductSelection } from '../components/publicacionesMl/productSelec
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';
 import PriceModeSelect from '../components/publicacionesMl/PriceModeSelect';
-import { canViewProductPrices } from '../components/pricing/productPricePermissions';
+import { canViewProductPrices, pricePermissions } from '../components/pricing/productPricePermissions';
+import useInlinePriceEdit from '../components/publicacionesMl/useInlinePriceEdit';
+import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
@@ -349,7 +351,20 @@ export default function PublicacionesML() {
         : (data?.items ?? EMPTY_ROWS).map((item) => item.link?.producto_item_id),
     [producto, productRows.rows, data],
   );
-  const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado);
+  // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it.
+  const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
+  // A price typed in a cell (S11c) is saved as Productos does; the list is reloaded after it, as after a panel write
+  // (its prices with it).
+  const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
+  const { message: priceMessage } = priceEditor;
+  useEffect(() => {
+    if (priceMessage) showToast(priceMessage.text, priceMessage.tone === 'ok' ? 'success' : 'error');
+  }, [priceMessage, showToast]);
+  const priceWritePermissions = useMemo(() => pricePermissions(tienePermiso), [tienePermiso]);
+  const priceEdit = useMemo(
+    () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, saving: priceEditor.saving }),
+    [priceWritePermissions, priceEditor.save, priceEditor.saving],
+  );
   const cyclePriceMode = () => {
     const next = PRICE_MODES[(PRICE_MODES.indexOf(filters.modo) + 1) % PRICE_MODES.length];
     setFilters({ modo: next === PRICE_MODES[0] ? '' : next });
@@ -373,6 +388,7 @@ export default function PublicacionesML() {
         skuDivergence,
         priceMode: filters.modo,
         prices: canSeePrices ? listPrices : null,
+        priceEdit,
       }),
     [
       eventsEnabled,
@@ -388,6 +404,7 @@ export default function PublicacionesML() {
       filters.modo,
       canSeePrices,
       listPrices,
+      priceEdit,
     ],
   );
 
@@ -838,6 +855,25 @@ export default function PublicacionesML() {
         </div>
       )}
       {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+      {priceEditor.pending && (
+        <ModalTesla
+          isOpen
+          onClose={priceEditor.saving ? () => {} : priceEditor.cancel}
+          title={priceEditor.pending.kind === 'zero' ? 'Borrar precio' : 'Markup negativo'}
+          size="sm"
+          footer={
+            <ModalFooterButtons
+              // A write on its way finishes anyway: the confirmation stays until it does.
+              onCancel={priceEditor.saving ? () => {} : priceEditor.cancel}
+              onConfirm={priceEditor.confirm}
+              confirmText={priceEditor.pending.kind === 'zero' ? 'Borrar el precio' : 'Guardar igual'}
+              confirmLoading={priceEditor.saving}
+            />
+          }
+        >
+          <p>{priceEditor.warning}</p>
+        </ModalTesla>
+      )}
       <Toast toast={toast} onClose={hideToast} />
     </div>
   );

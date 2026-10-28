@@ -1462,4 +1462,26 @@ describe('row colors and the color layer (S8)', () => {
       screen.unmount();
     });
   }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: a price edited in place keeps its input inside the cell`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const edit = screen.getByRole('button', { name: /^Editar Precio Clásica/ }).first();
+      await expect.element(edit).toBeVisible();
+      await edit.click();
+      const input = screen.getByRole('textbox', { name: 'Precio Clásica' });
+      await expect.element(input).toBeVisible();
+      const box = input.element().getBoundingClientRect();
+      const cellBox = input.element().closest('td').getBoundingClientRect();
+      expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
+      expect(box.right).toBeLessThanOrEqual(cellBox.right);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+      // The first row is painted: what is typed reads on the input in both themes.
+      const style = getComputedStyle(input.element());
+      expect(contrastRatio(style.color, style.backgroundColor)).toBeGreaterThanOrEqual(4.5);
+      input.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/price-edit-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
 });
