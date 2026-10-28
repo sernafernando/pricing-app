@@ -57,8 +57,19 @@ def test_existing_lines_keep_their_meaning_and_downgrade_drops_the_column() -> N
 
 
 @pytest.mark.postgres
-def test_a_new_line_must_say_whether_its_total_gauss_is_known() -> None:
-    # No default left behind: a writer that forgets the flag fails instead of storing a guess.
+def test_a_line_written_without_the_flag_reads_as_unknown() -> None:
+    # The deploy migrates before it restarts the drain: the old writer, which does not know the column, keeps
+    # storing lines in between. Failing them would retry each order until it is parked; an unknown flag only keeps
+    # the line out of sell in / sell out until the divergence check rewrites it.
+    with throwaway_schema(_lines_before_the_column) as eng:
+        with eng.begin() as conn:
+            conn.execute(text("INSERT INTO ml_sale_lines (item_row_id, tg) VALUES (5, 12.5)"))
+            flag = conn.execute(text("SELECT tg_known FROM ml_sale_lines WHERE item_row_id = 5")).scalar_one()
+        assert flag is False
+
+
+@pytest.mark.postgres
+def test_the_flag_is_never_null() -> None:
     with throwaway_schema(_lines_before_the_column) as eng:
         with pytest.raises(IntegrityError), eng.begin() as conn:
-            conn.execute(text("INSERT INTO ml_sale_lines (item_row_id, tg) VALUES (5, 0)"))
+            conn.execute(text("INSERT INTO ml_sale_lines (item_row_id, tg, tg_known) VALUES (5, 0, NULL)"))

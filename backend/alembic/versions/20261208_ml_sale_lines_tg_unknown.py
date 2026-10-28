@@ -15,13 +15,21 @@ the order's metrics, and the stored-vs-live divergence check (which compares it)
 No row's `tg` changes.
 
 How, without rewriting the table: ADD COLUMN with a constant default (true) is a catalog-only change in Postgres
-11+; the UPDATE then touches only the lines whose `tg` is 0; the default is dropped afterwards (also catalog-only,
-existing rows keep their value), so a writer that forgets the flag fails instead of storing a guess.
+11+; the UPDATE then touches only the lines whose `tg` is 0; the default then becomes false (also catalog-only,
+existing rows keep their value).
+
+Why false stays as the default: `deploy.sh` migrates before it restarts the drain, so the old writer, which does not
+know the column, keeps storing lines in between (the frontend build runs in that window). Without a default those
+inserts would fail, and the drain retries a failed order until it is parked (`POISON_THRESHOLD`). False is the
+board's "unknown": such a line only stays out of sell in / sell out until the divergence check rewrites it. The
+current writer always sets the flag (it is in `sale_lines_store.COLUMNS`).
 
 LOCK NOTE: ADD COLUMN takes an ACCESS EXCLUSIVE lock on `ml_sale_lines`, which the drain writes all day. Behind an
 open writer it would queue and block every reader of the board, so upgrade and downgrade run with
-`lock_timeout = '5s'` and fail fast (55P03) instead; the deploy is retried. The transaction-local setting is
-restored afterwards because `env.py` runs every pending revision in one transaction.
+`lock_timeout = '5s'` and fail fast (55P03) instead; the deploy is retried. The lock is held until the deploy's
+transaction commits, so the board also waits for the UPDATE: it rewrites only the `tg = 0` lines (orders whose Total
+Gauss was not resolved when stored), a small share of the table. The transaction-local setting is restored
+afterwards because `env.py` runs every pending revision in one transaction.
 """
 
 from typing import Sequence, Union
@@ -59,7 +67,7 @@ def upgrade() -> None:
     op.add_column(TABLE, sa.Column(COLUMN, sa.Boolean(), nullable=False, server_default=sa.true()))
     # The board's rule until now: a 0 is an unknown Total Gauss.
     op.execute(f"UPDATE {TABLE} SET {COLUMN} = false WHERE tg = 0")
-    op.alter_column(TABLE, COLUMN, server_default=None)
+    op.alter_column(TABLE, COLUMN, server_default=sa.false())
     if postgres:
         _restore_lock_timeout()
 

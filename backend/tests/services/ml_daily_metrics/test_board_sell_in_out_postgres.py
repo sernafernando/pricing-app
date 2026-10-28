@@ -22,6 +22,7 @@ import pytest
 from sqlalchemy import insert, select, text
 
 from app.core.config import settings
+from app.models.ml_order_metrics import MlOrderMetricsDirty
 from app.models.ml_sale_line import MlSaleLine
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.kpi_strip import sell_in_out_of
@@ -304,3 +305,14 @@ def test_a_sale_with_a_total_gauss_of_exactly_zero_adds_its_sell_in_out(zero_tg)
     assert row.tg == _d("0")
     assert (row.sell_in, row.sell_out, row.sell_in_lineas, row.sell_out_lineas) == (_d("4.00"), _d("2.00"), 1, 1)
     assert row.total_gauss_sell == _d("6.00")
+
+
+def test_a_known_zero_being_recalculated_takes_no_sell_in_out(zero_tg) -> None:
+    # Queued for a recompute, its stored Total Gauss is stale: unknown again until the drain rewrites it.
+    zero_tg.add(MlOrderMetricsDirty(order_id=2000012345679036, version=1, reason="test", attempts=0))
+    zero_tg.flush()
+
+    row = _rows(zero_tg, ON)["36"]
+
+    assert (row.tg, row.sell_in, row.sell_in_lineas) == (_d("0"), _d("0"), 0)
+    assert row.total_gauss_sell is None

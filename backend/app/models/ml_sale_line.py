@@ -31,7 +31,7 @@ Indexes, each with its plan:
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, Numeric, String
+from sqlalchemy import BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, false
 
 from app.core.database import Base
 
@@ -60,8 +60,9 @@ class MlSaleLine(Base):
     gross = Column(Numeric, nullable=False)
     tg = Column(Numeric, nullable=False)
     # Whether the order's Total Gauss is known (`sales.sale_lines`' `has_gauss`): `tg` is 0 both for an unknown
-    # Total Gauss and for a real 0, and only this tells them apart (Métricas ML audit A3).
-    tg_known = Column(Boolean, nullable=False)
+    # Total Gauss and for a real 0, and only this tells them apart (Métricas ML audit A3). The default (unknown) is
+    # for a writer that predates the column; see migration 20261208_ml_sale_lines_tg_unknown.
+    tg_known = Column(Boolean, nullable=False, server_default=false())
     mtg = Column(Numeric, nullable=False)
     mcosto = Column(Numeric, nullable=False)
     # TP-Link shares (metricas-ml-tplink-mode P3), split like `tg`/`mtg`/
