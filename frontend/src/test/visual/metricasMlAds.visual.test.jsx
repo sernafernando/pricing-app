@@ -18,6 +18,8 @@ import { BOARD_RESPONSE } from './metricasMlFixtures';
 import { ADS_KPIS } from '../../components/metricasMl/adsFixtures';
 
 vi.mock('react-router-dom', () => ({
+  // The page keeps its filters in the URL (U1); here there is no URL to read nor to write.
+  useSearchParams: () => [new URLSearchParams(), () => {}],
   Link: ({ to, children, ...rest }) => (
     <a href={to} {...rest}>
       {children}

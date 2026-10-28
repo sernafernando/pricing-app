@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
 import { AlertTriangle, Clock, Download, FileSpreadsheet, FilterX, ShieldAlert, TrendingDown } from 'lucide-react';
 import api from '../services/api';
@@ -17,7 +18,7 @@ import AdsKpiBlock from '../components/metricasMl/AdsKpiBlock';
 import AdsUnattributedPanel from '../components/metricasMl/AdsUnattributedPanel';
 import AdsModeControl from '../components/metricasMl/AdsModeControl';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
-import BoardTable from '../components/metricasMl/BoardTable';
+import BoardTable, { BOARD_SORT_KEYS } from '../components/metricasMl/BoardTable';
 import { adsRequestParams } from '../utils/metricasMlAds';
 import { TP_SOLO_DIMENSION, tpErrorMessage, tpRequestParams, tpSoloSortKey } from '../utils/metricasMlTp';
 import { isTpSolo } from '../components/ventasMl/tpMode';
@@ -26,6 +27,7 @@ import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { currentMonthRange } from '../utils/dateRangePresets';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
+import { readMetricasUrl, writeMetricasUrl } from '../utils/metricasMlUrl';
 import { nodeId } from '../utils/metricasMlLevels';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
 import { exportMetricasSheets, isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -143,35 +145,39 @@ export default function MetricasML() {
   // A `tplink.solo` user has the profit view without it (backend `_viewer`), so it gets the toggle too.
   const puedeVerGanancia = tpSolo || tienePermiso('ml_metricas.ver_ganancia');
   const latestRequestRef = useRef(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The view a link describes (period, grouping, filters, sort), read once: the URL then follows the state, so a
+  // reload keeps the view and a filtered view can be shared (U1). What the URL does not set keeps its default.
+  const [fromUrl] = useState(() => readMetricasUrl(searchParams, { sortKeys: BOARD_SORT_KEYS }));
 
-  const [range, setRange] = useState(() => ({ ...defaultRange(), filtro: DEFAULT_PRESET }));
-  const [compararCon, setCompararCon] = useState('periodo_anterior');
-  const [groupBy, setGroupBy] = useState('product');
+  const [range, setRange] = useState(() => fromUrl.range ?? { ...defaultRange(), filtro: DEFAULT_PRESET });
+  const [compararCon, setCompararCon] = useState(fromUrl.compararCon ?? 'periodo_anterior');
+  const [groupBy, setGroupBy] = useState(fromUrl.groupBy ?? 'product');
   // What the "Agrupado" view sums by (ignored by the other views).
-  const [dimension, setDimension] = useState('marca');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [productFilters, setProductFilters] = useState(EMPTY_PRODUCT_FILTERS);
-  const [storeFilter, setStoreFilter] = useState('');
+  const [dimension, setDimension] = useState(fromUrl.dimension ?? 'marca');
+  const [searchQuery, setSearchQuery] = useState(fromUrl.searchQuery ?? '');
+  const [productFilters, setProductFilters] = useState(fromUrl.productFilters);
+  const [storeFilter, setStoreFilter] = useState(fromUrl.storeFilter ?? '');
   const { tiendas, getLabel } = useTiendasOficiales();
-  const [pubStatus, setPubStatus] = useState([]);
-  const [pubType, setPubType] = useState([]);
-  const [pubStatusExclude, setPubStatusExclude] = useState([]);
-  const [pubTypeExclude, setPubTypeExclude] = useState([]);
-  const [alerts, setAlerts] = useState([]);
-  const [stock, setStock] = useState([]);
-  const [stockExclude, setStockExclude] = useState([]);
-  const [ageing, setAgeing] = useState([]);
-  const [ageingExclude, setAgeingExclude] = useState([]);
+  const [pubStatus, setPubStatus] = useState(fromUrl.pubStatus ?? []);
+  const [pubType, setPubType] = useState(fromUrl.pubType ?? []);
+  const [pubStatusExclude, setPubStatusExclude] = useState(fromUrl.pubStatusExclude ?? []);
+  const [pubTypeExclude, setPubTypeExclude] = useState(fromUrl.pubTypeExclude ?? []);
+  const [alerts, setAlerts] = useState(fromUrl.alerts ?? []);
+  const [stock, setStock] = useState(fromUrl.stock ?? []);
+  const [stockExclude, setStockExclude] = useState(fromUrl.stockExclude ?? []);
+  const [ageing, setAgeing] = useState(fromUrl.ageing ?? []);
+  const [ageingExclude, setAgeingExclude] = useState(fromUrl.ageingExclude ?? []);
   // "Solo con ventas en el período": on by default -- a short period shows
   // what sold in it, not the whole catalog (ODD "Período y stock" PS1).
-  const [soloConVentas, setSoloConVentas] = useState(true);
+  const [soloConVentas, setSoloConVentas] = useState(fromUrl.soloConVentas ?? true);
   // The ads toggle's position (`off | mla | todo`); a view mode, so "Limpiar filtros" leaves it alone.
   const [publicidad, setPublicidad] = useState('off');
   // "Costos TP" (TP cost on the TP store's operations, Total TP next to Total Gauss): off by default, a view mode
   // like the ads toggle. `tpError` says why the board turned it back off (403 / 503) until it is turned on again.
   const [costosTp, setCostosTp] = useState(false);
   const [tpError, setTpError] = useState(null);
-  const [sort, setSort] = useState({ key: 'gross', desc: true });
+  const [sort, setSort] = useState(fromUrl.sort ?? { key: 'gross', desc: true });
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
@@ -249,6 +255,52 @@ export default function MetricasML() {
       tpSolo,
     ],
   );
+
+  // The URL follows the view (replacing the entry: the filters are no navigation history).
+  useEffect(() => {
+    const next = writeMetricasUrl({
+      range,
+      compararCon,
+      groupBy,
+      dimension,
+      searchQuery,
+      productFilters,
+      storeFilter,
+      pubStatus,
+      pubType,
+      pubStatusExclude,
+      pubTypeExclude,
+      alerts,
+      stock,
+      stockExclude,
+      ageing,
+      ageingExclude,
+      soloConVentas,
+      sort,
+    });
+    if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true });
+  }, [
+    range,
+    compararCon,
+    groupBy,
+    dimension,
+    searchQuery,
+    productFilters,
+    storeFilter,
+    pubStatus,
+    pubType,
+    pubStatusExclude,
+    pubTypeExclude,
+    alerts,
+    stock,
+    stockExclude,
+    ageing,
+    ageingExclude,
+    soloConVentas,
+    sort,
+    searchParams,
+    setSearchParams,
+  ]);
 
   // Changing WHAT is filtered resets WHERE you are: page 1, nothing open.
   const withReset = (setter) => (...args) => {

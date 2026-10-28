@@ -60,6 +60,8 @@ const SORT_BY = {
   ageing: 'ageing',
   stock: 'stock',
 };
+// What a link may ask the board to sort by (`readMetricasUrl`).
+export const BOARD_SORT_KEYS = new Set(Object.values(SORT_BY));
 
 /** The row's ERP stock: "—" ONLY when unknown; a known 0 reads "0" and a
  * negative stock (oversold in the ERP) its number in the danger tone, so
