@@ -49,6 +49,7 @@ _STUBS = [
         (0, 'unknown', 'cost_sync:702', '9'),
         (0, 'unknown', 'cost_sync:703', 'garbage'),
         (0, 'unknown', 'cost_sync:999', '3'),
+        (0, 'unknown', 'costXsync:700', '1'),
         (704, 'unknown', 'activity_unresolved', NULL)""",
 ]
 
@@ -135,6 +136,10 @@ def test_downgrade_copies_the_counters_back_and_drops_the_column(engine) -> None
     assert rows[(0, "cost_sync:701")] == "3"
     assert rows[(0, "cost_sync:704")] == "1"
     assert rows[(704, "activity_unresolved")] is None
+    # A legacy row for a shipment we do not hold was never migrated, so the round trip keeps it as it was.
+    assert rows[(0, "cost_sync:999")] == "3"
+    # Only the exact prefix is a counter (no LIKE wildcard).
+    assert rows[(0, "costXsync:700")] == "1"
 
 
 def test_the_lock_timeout_is_restored_after_each_step(engine) -> None:

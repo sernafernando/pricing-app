@@ -47,11 +47,15 @@ WHERE d.order_id = 0
   AND s.shipment_id = substr(d.field, 11)::bigint
 """
 
-# Downgrade rewrites every legacy counter from the column: a counter the new code reset to 0 (the shipment settled)
-# must not come back from its pre-upgrade row, which the old code would read as a live count or a give-up.
-DELETE_LEGACY_COUNTERS = """
-DELETE FROM ml_ops_divergence
-WHERE order_id = 0 AND kind = 'unknown' AND field LIKE 'cost_sync:%'
+# Downgrade rewrites the legacy counter of every shipment the column holds: a counter the new code reset to 0 (the
+# shipment settled) must not come back from its pre-upgrade row, which the old code would read as a live count or a
+# give-up. Rows for shipments the upgrade never matched are left alone, exactly as the upgrade left them.
+DELETE_LEGACY_COUNTERS = f"""
+DELETE FROM ml_ops_divergence d
+USING {TABLE} s
+WHERE d.order_id = 0
+  AND d.kind = 'unknown'
+  AND d.field = 'cost_sync:' || s.shipment_id
 """
 
 COPY_TO_DIVERGENCE = f"""
