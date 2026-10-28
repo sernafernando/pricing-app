@@ -886,6 +886,14 @@ def listing_clauses() -> dict[str, ColumnElement]:
     }
 
 
+def promo_clauses(started: frozenset[str]) -> dict[str, ColumnElement]:
+    """With / without a started promotion (`fetch_mlas_with_started`, the mlwebhook database): the two halves of
+    the list, so they always add up to it."""
+    # `!= ALL`, not `not_(_item_in)`: SQLAlchemy negates `= ANY` into `!= ANY` (differs from SOME of them).
+    without = T.i.item_id != all_(literal(sorted(started), ARRAY(String))) if started else true()
+    return {"con_promo": _item_in(started), "sin_promo": without}
+
+
 def erp_stock(linked: Optional[ColumnElement] = None) -> ColumnElement:
     """The ERP stock of the row (depósito 1 on hand, `productos_erp.stock`, the figure Productos shows): only a link
     in state `linked` gives the row a product -- by default the item-level one (`/items`), or the caller's own test

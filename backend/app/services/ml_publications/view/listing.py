@@ -43,6 +43,7 @@ from app.services.ml_publications.view.filters import (
     price_amount,
     product_links,
     product_pricing,
+    promo_clauses,
     status_value,
     stock_clauses,
 )
@@ -745,7 +746,7 @@ def _brand_counts(db: Session, f: PublicationFilter) -> dict:
     return {name: n for name, n in db.execute(query)}
 
 
-def _flags(db: Session, f: PublicationFilter, axis: str, clauses: dict) -> dict[str, int]:
+def _flags(db: Session, f: PublicationFilter, axis: Optional[str], clauses: dict) -> dict[str, int]:
     counts = [func.count().filter(clause).label(name) for name, clause in clauses.items()]
     return dict(db.execute(build_base_select(f, *counts, skip=axis)).one()._mapping)
 
@@ -762,10 +763,12 @@ def _link_counts(db: Session, f: PublicationFilter) -> dict[str, int]:
     return {**counts, LINK_SKU_DIVERGENT: divergent_total} if divergent_total else counts
 
 
-def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
+def facets(db: Session, f: PublicationFilter, promo_mlas: Optional[frozenset[str]] = None) -> dict[str, dict[str, int]]:
     """Counts per value of each facet axis: one grouped COUNT per axis over the base select, each axis with its
     own selection left out (so choosing a value never makes its siblings read zero). The brand values are keys as
-    the tree writes them (`encode_key`): a screen shows the decoded name and sends the key back unchanged."""
+    the tree writes them (`encode_key`): a screen shows the decoded name and sends the key back unchanged.
+    `promo_mlas` (the MLAs with a started promotion, read from another database by the caller) adds the `promo`
+    axis, with and without one, over the whole filter; without it there is no such axis, never a made-up zero."""
     f = resolve_pm_pairs(db, f)
     by_status = _grouped(db, f, "status", status_value())
     by_store = _grouped(db, f, "stores", func.coalesce(cast(T.i.official_store_id, Text), NO_STORE))
@@ -777,4 +780,5 @@ def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
         "listing": _flags(db, f, "listing", listing_clauses()),
         "link": _link_counts(db, f),
         "stock": _flags(db, f, "stock", stock_clauses()),
+        **({"promo": _flags(db, f, None, promo_clauses(promo_mlas))} if promo_mlas is not None else {}),
     }

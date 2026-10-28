@@ -1071,6 +1071,21 @@ class TestFacets:
             },
         }
 
+    def test_the_promo_axis_counts_the_publications_with_a_started_promotion_and_the_rest(self, db) -> None:
+        # MLA6 is gone (hidden by default); MLA9 is a started promotion of a publication the store does not hold
+        facets = listing.facets(db, parse_filter(), promo_mlas=frozenset({"MLA1", "MLA3", "MLA6", "MLA9"}))
+        assert facets["promo"] == {"con_promo": 2, "sin_promo": 3}
+
+    def test_the_promo_axis_obeys_the_other_filters(self, db) -> None:
+        facets = listing.facets(db, parse_filter(estado="active"), promo_mlas=frozenset({"MLA1", "MLA3"}))
+        assert facets["promo"] == {"con_promo": 1, "sin_promo": 2}
+
+    def test_no_started_promotion_is_every_publication_without_promo(self, db) -> None:
+        assert listing.facets(db, parse_filter(), promo_mlas=frozenset())["promo"] == {"con_promo": 0, "sin_promo": 5}
+
+    def test_without_the_promotions_there_is_no_promo_axis(self, db) -> None:
+        assert "promo" not in listing.facets(db, parse_filter())
+
     def test_the_erp_without_stock_count_is_what_selecting_it_lists(self, conn, db) -> None:
         conn.execute(text("UPDATE productos_erp SET stock = 0 WHERE item_id = 70"))
         count = listing.facets(db, parse_filter())["stock"]["erp_sin_stock"]

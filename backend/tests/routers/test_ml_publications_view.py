@@ -225,6 +225,27 @@ class TestContract:
         assert facets["status"] == {"active": 1, "paused": 1}
         assert facets["total"] == 1  # the filtered list total, as the screen's counter
 
+    def test_the_facets_count_the_publications_with_and_without_a_started_promotion(
+        self, client, pg, reader, monkeypatch
+    ) -> None:
+        seed_rows(pg, self.fill)
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", lambda: {"MLA1", "MLA7"})
+        facets = get(client, reader, facets="true").json()["facets"]
+        assert facets["promo"] == {"con_promo": 1, "sin_promo": 1}
+
+    def test_promotions_that_cannot_be_read_leave_out_the_promo_facet_not_the_list(
+        self, client, pg, reader, monkeypatch
+    ) -> None:
+        seed_rows(pg, self.fill)
+
+        def unavailable():
+            raise RuntimeError("ML_WEBHOOK_DB_URL no configurada")
+
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", unavailable)
+        response = get(client, reader, facets="true")
+        assert response.status_code == 200
+        assert "promo" not in response.json()["facets"] and response.json()["facets"]["status"]
+
     def test_the_timing_is_reported_in_a_header_and_in_the_log(self, client, pg, reader, caplog) -> None:
         seed_rows(pg, self.fill)
         with caplog.at_level(logging.INFO, logger="pubml.view"):

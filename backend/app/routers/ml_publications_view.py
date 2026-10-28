@@ -966,6 +966,16 @@ def _mla_scope(
     return scope
 
 
+def _started_promotions() -> Optional[frozenset[str]]:
+    """The MLAs with a started promotion, for the facets' with / without promo counts; `None` (no such facet, the
+    list still answers) when the mlwebhook database cannot be read."""
+    try:
+        return frozenset(fetch_mlas_with_started())
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("Conteo con/sin promo no disponible en Publicaciones ML: %s", exc)
+        return None
+
+
 def _resolve_promo_search(f: PublicationFilter) -> PublicationFilter:
     """A `promo:` search with its MLAs, resolved as Productos does: a known promotion type is its active promotions
     (applied or not), any other text a substring of the promotion's name. A resolver that cannot answer is a 503."""
@@ -1185,7 +1195,7 @@ def get_items(
         facet_counts = None
         if facets:
             with timer.stage("facets"):
-                facet_counts = {**listing.facets(db, f), "total": page.total}
+                facet_counts = {**listing.facets(db, f, _started_promotions()), "total": page.total}
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
