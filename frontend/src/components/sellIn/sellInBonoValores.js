@@ -72,7 +72,8 @@ const CAMPO_DEL_ALCANCE = {
   factura: (v) => ({ pedido_id: v.pedido?.id ?? null }),
 };
 
-const tope = (valor) => String(valor ?? '').trim() || null;
+/** A cap field as sent: trimmed, or null when empty (empty means no cap). */
+const normalizarTope = (valor) => String(valor ?? '').trim() || null;
 
 /** The create/edit body (`SellInBonoIn`): a full replace on edit; an empty cap is sent as null (no cap). */
 export const bodyDeBono = (valores) => ({
@@ -84,8 +85,8 @@ export const bodyDeBono = (valores) => ({
   fecha_desde: valores.fechaDesde,
   fecha_hasta: valores.fechaHasta,
   descripcion: valores.descripcion.trim() || null,
-  tope_unidades: tope(valores.topeUnidades),
-  tope_monto: tope(valores.topeMonto),
+  tope_unidades: normalizarTope(valores.topeUnidades),
+  tope_monto: normalizarTope(valores.topeMonto),
 });
 
 const ALCANCE_COMPLETO = {
@@ -114,12 +115,18 @@ export const errorDeModelos = (v) => {
   return null;
 };
 
-/** Why the shared cap cannot be saved (units not a whole number above zero, money zero or less), or null. */
+/**
+ * Why the shared cap cannot be saved, or null: units must be plain digits above zero, money a plain decimal above
+ * zero with up to 2 decimals (the backend's NUMERIC(18, 2) refuses more instead of rounding). Plain notation only:
+ * "1e3" is refused here rather than by the backend.
+ */
 export const errorDeTope = (v) => {
-  const unidades = String(v.topeUnidades ?? '').trim();
-  if (unidades !== '' && !(Number.isInteger(Number(unidades)) && Number(unidades) > 0)) return 'El tope de unidades debe ser un número entero mayor que cero.';
-  const monto = String(v.topeMonto ?? '').trim();
-  if (monto !== '' && !(Number(monto) > 0)) return 'El tope de monto debe ser mayor que cero.';
+  const unidades = normalizarTope(v.topeUnidades);
+  if (unidades !== null && !(/^\d+$/.test(unidades) && Number(unidades) > 0)) return 'El tope de unidades debe ser un número entero mayor que cero.';
+  const monto = normalizarTope(v.topeMonto);
+  if (monto !== null && !/^\d+(\.\d+)?$/.test(monto)) return 'El tope de monto debe ser un número mayor que cero.';
+  if (monto !== null && !(Number(monto) > 0)) return 'El tope de monto debe ser mayor que cero.';
+  if (monto !== null && !/^\d+(\.\d{1,2})?$/.test(monto)) return 'El tope de monto admite hasta 2 decimales.';
   return null;
 };
 

@@ -220,7 +220,7 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
           <input
             id={`${id}-tope-m`}
             type="number"
-            min="0"
+            min="0.01"
             step="0.01"
             className={styles.input}
             value={valores.topeMonto}

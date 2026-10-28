@@ -65,6 +65,7 @@ describe('SellInBonoForm — the shared cap (T24d)', () => {
     ['Tope de unidades (opcional)', '0', 'El tope de unidades debe ser un número entero mayor que cero.'],
     ['Tope de unidades (opcional)', '2.5', 'El tope de unidades debe ser un número entero mayor que cero.'],
     ['Tope de monto en USD (opcional)', '0', 'El tope de monto debe ser mayor que cero.'],
+    ['Tope de monto en USD (opcional)', '10.005', 'El tope de monto admite hasta 2 decimales.'],
   ])('refuses %s = %s before sending it', async (campo, valor, mensaje) => {
     const user = userEvent.setup();
     await nuevo(user);
@@ -95,5 +96,21 @@ describe('SellInBonoForm — the shared cap (T24d)', () => {
     render(<SellInBonosTable bonos={[BONO_TOPE, { ...BONO, id: 4 }]} selectedId={null} onSelect={vi.fn()} />);
     expect(screen.getAllByText(/^Tope: quedan/)).toHaveLength(1);
     expect(screen.getByText('Tope: quedan 160 u de 1.200 · USD 0,00 de USD 3.000,00')).toBeInTheDocument();
+  });
+
+  it('keeps the money cap when the same currency is picked again', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByLabelText('Tope de monto en USD (opcional)');
+    await user.click(screen.getByRole('button', { name: 'USD' }));
+    expect(screen.getByLabelText('Tope de monto en USD (opcional)')).toHaveValue(3000);
+  });
+
+  it('shows only the cap the bonus has', () => {
+    const soloUnidades = { ...BONO, id: 5, tope_unidades: 100, tope_unidades_restantes: 40 };
+    const soloMonto = { ...BONO, id: 6, tope_monto: '500.00', tope_monto_restante: '125.50' };
+    render(<SellInBonosTable bonos={[soloUnidades, soloMonto]} selectedId={null} onSelect={vi.fn()} />);
+    expect(screen.getByText('Tope: quedan 40 u de 100')).toBeInTheDocument();
+    expect(screen.getByText('Tope: quedan USD 125,50 de USD 500,00')).toBeInTheDocument();
   });
 });

@@ -129,6 +129,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
   };
 
   const activo = bono?.estado === 'activa';
+  const restante = bono ? restanteDeTope(bono, formatEntero, formatMonto) : null;
   const editable = puedeGestionar && (nuevo || activo);
   const titulo = nuevo ? 'Nuevo sell in · Bono de marca' : bono ? bono.descripcion || `Bono · ${alcanceDeBono(bono)}` : 'Bono de marca';
 
@@ -170,9 +171,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
                 <strong>{`${formatEntero(bono.compras_activas)} compras · ${formatEntero(bono.unidades)} u · ${formatMonto(bono.monto_generado, bono.moneda)} aplicados`}</strong>
               </p>
             )}
-            {bono && restanteDeTope(bono, formatEntero, formatMonto) && (
-              <p className={styles.hint}>{`Tope: quedan ${restanteDeTope(bono, formatEntero, formatMonto)}`}</p>
-            )}
+            {restante && <p className={styles.hint}>{`Tope: quedan ${restante}`}</p>}
             {bono && otrasMonedas(bono).length > 0 && (
               <p className={styles.hint}>{`Además ${otrasMonedas(bono)
                 .map((m) => formatMonto(m.monto, m.moneda))
