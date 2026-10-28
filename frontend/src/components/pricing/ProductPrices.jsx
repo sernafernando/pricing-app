@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Info, Pencil, Percent, X } from 'lucide-react';
 import { preciosAPI } from '../../services/api';
 import { useOffsetsVigentes } from '../../hooks/useOffsetsVigentes';
+import { useUsdRate } from '../../hooks/useUsdRate';
 import { costoConOffset, markupConOffset, requiereTipoCambio } from '../../utils/offsetsGanancia';
 import { formatMarkupInput, formatPrecioInput, parseMarkupInput, parsePrecioInput } from '../../utils/precioInput';
 import { formatAmount } from '../../utils/ventasMlFormat';
@@ -14,31 +15,6 @@ import styles from './ProductPrices.module.css';
 /** The typed value as editable text again, for the editor's mode. */
 const editorValue = (row, product, mode) =>
   mode === 'markup' ? formatMarkupInput(product[row.markup]) : formatPrecioInput(product[row.precio]);
-
-/**
- * The current USD rate (`venta`, the one pricing converts costs with), read
- * only when the cost shown needs it (a USD cost or a USD per-unit offset):
- * undefined while it loads, null when there is none.
- */
-function useUsdRate(enabled) {
-  const [rate, setRate] = useState(undefined);
-  useEffect(() => {
-    if (!enabled) return undefined;
-    let active = true;
-    setRate(undefined);
-    preciosAPI
-      .tipoCambioActual()
-      .then((response) => {
-        const venta = Number(response?.data?.venta);
-        if (active) setRate(Number.isFinite(venta) && venta > 0 ? venta : null);
-      })
-      .catch(() => active && setRate(null));
-    return () => {
-      active = false;
-    };
-  }, [enabled]);
-  return rate;
-}
 
 /** "Rebate TP-Link" or, without a description, the offset's id. */
 const offsetLabel = (aplicado) => aplicado.descripcion || `Offset #${aplicado.id}`;
@@ -339,8 +315,10 @@ function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, s
  * @param {ReturnType<typeof import('./productPricePermissions').pricePermissions>} [props.permissions]
  * @param {() => void} [props.onWritten] Called after every successful write.
  * @param {boolean} [props.showCost] Show the product cost (ml_metricas.ver_ganancia).
+ * @param {number} [props.readAgain] Changing it reads the prices again (something else wrote them), keeping an open
+ *   edit as it was typed.
  */
-export default function ProductPrices({ productItemId, permissions, onWritten, showCost = false }) {
+export default function ProductPrices({ productItemId, permissions, onWritten, showCost = false, readAgain = 0 }) {
   const [state, setState] = useState({ status: 'loading', product: null, error: null });
   const [editing, setEditing] = useState(null);
   const [pending, setPending] = useState(null);
@@ -373,6 +351,23 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
       active = false;
     };
   }, [load, productItemId]);
+
+  // A read asked from outside: only the prices change, the editor and its message stay. Only a change of `readAgain`
+  // asks it: another product is read by the effect above, once.
+  const readAgainSeen = useRef(readAgain);
+  useEffect(() => {
+    if (readAgain === readAgainSeen.current) return undefined;
+    readAgainSeen.current = readAgain;
+    const itemId = productItemId;
+    let active = true;
+    load()
+      .then((product) => active && shownItemRef.current === itemId && setState({ status: 'ready', product, error: null }))
+      // A failed re-read keeps the prices on screen: the caller's own write already succeeded.
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [load, productItemId, readAgain]);
 
   const { status, product } = state;
   const editable = LISTS.some((list) => list.rows.some((row) => permissions?.[row.perm]));

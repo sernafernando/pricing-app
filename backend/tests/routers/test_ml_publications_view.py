@@ -50,6 +50,7 @@ def pg(client, request, monkeypatch):
     monkeypatch.setattr(settings, "ML_PUB_KILL_SWITCH", False)
     monkeypatch.setattr(MlHttpClient, "get", lambda *args, **kwargs: pytest.fail("the view endpoints must not call ML"))
     status_block.REPORT.reset()
+    ml_publications_view.STARTED_PROMOTIONS.reset()
     factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     sessions: list[Session] = []
 
@@ -65,6 +66,7 @@ def pg(client, request, monkeypatch):
     yield engine
     app.dependency_overrides.pop(ml_publications_view.get_view_db, None)
     status_block.REPORT.reset()
+    ml_publications_view.STARTED_PROMOTIONS.reset()  # a set kept for a minute must not reach the next test
 
 
 @pytest.fixture()
@@ -224,6 +226,74 @@ class TestContract:
         facets = get(client, reader, facets="true", estado="paused").json()["facets"]
         assert facets["status"] == {"active": 1, "paused": 1}
         assert facets["total"] == 1  # the filtered list total, as the screen's counter
+
+    def test_the_facets_count_the_publications_with_and_without_a_started_promotion(
+        self, client, pg, reader, monkeypatch
+    ) -> None:
+        seed_rows(pg, self.fill)
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", lambda mla_ids=None: {"MLA1", "MLA7"})
+        facets = get(client, reader, facets="true").json()["facets"]
+        assert facets["promo"] == {"con_promo": 1, "sin_promo": 1}
+
+    def test_with_the_promo_filter_on_the_promo_facet_still_counts_both_halves(
+        self, client, pg, reader, monkeypatch
+    ) -> None:
+        seed_rows(pg, self.fill)
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", lambda mla_ids=None: {"MLA1"})
+        response = get(client, reader, facets="true", con_promo_aplicada="true")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert [row["item_id"] for row in body["items"]] == ["MLA1"]
+        assert body["facets"]["promo"] == {"con_promo": 1, "sin_promo": 1}
+
+    def test_the_started_promotions_are_read_once_for_a_while_not_on_every_facets_request(
+        self, client, pg, reader, monkeypatch
+    ) -> None:
+        seed_rows(pg, self.fill)
+        reads = []
+        monkeypatch.setattr(
+            ml_publications_view, "fetch_mlas_with_started", lambda mla_ids=None: reads.append(1) or {"MLA1"}
+        )
+        get(client, reader, facets="true")
+        get(client, reader, facets="true", estado="active")
+        assert len(reads) == 1
+
+    def test_with_pxq_and_a_promo_filter_the_promo_facet_keeps_the_pxq_restriction(
+        self, client, pg, reader, monkeypatch
+    ) -> None:
+        seed_rows(pg, self.fill)
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", lambda mla_ids=None: {"MLA1"})
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_pxq_tiers", lambda mla_ids=None: {"MLA2"})
+        body = get(client, reader, facets="true", con_pxq="true", con_promo_aplicada="true").json()
+        assert body["items"] == []  # MLA1 has the promotion, only MLA2 has PxQ tiers
+        # without its own filter: of the PxQ publications (MLA2), none with promo and one without
+        assert body["facets"]["promo"] == {"con_promo": 0, "sin_promo": 1}
+
+    def test_the_kept_promotions_are_read_again_after_a_minute(self, client, pg, reader, monkeypatch) -> None:
+        seed_rows(pg, self.fill)
+        now = [1000.0]
+        monkeypatch.setattr(ml_publications_view.time, "monotonic", lambda: now[0])
+        started = [{"MLA1"}]
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", lambda mla_ids=None: started[0])
+        assert get(client, reader, facets="true").json()["facets"]["promo"]["con_promo"] == 1
+        started[0] = {"MLA1", "MLA2"}
+        now[0] += 59
+        assert get(client, reader, facets="true", estado="active").json()["facets"]["promo"]["con_promo"] == 1
+        now[0] += 2
+        assert get(client, reader, facets="true").json()["facets"]["promo"]["con_promo"] == 2
+
+    def test_promotions_that_cannot_be_read_leave_out_the_promo_facet_not_the_list(
+        self, client, pg, reader, monkeypatch
+    ) -> None:
+        seed_rows(pg, self.fill)
+
+        def unavailable():
+            raise RuntimeError("ML_WEBHOOK_DB_URL no configurada")
+
+        monkeypatch.setattr(ml_publications_view, "fetch_mlas_with_started", unavailable)
+        response = get(client, reader, facets="true")
+        assert response.status_code == 200
+        assert "promo" not in response.json()["facets"] and response.json()["facets"]["status"]
 
     def test_the_timing_is_reported_in_a_header_and_in_the_log(self, client, pg, reader, caplog) -> None:
         seed_rows(pg, self.fill)

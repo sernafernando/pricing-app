@@ -33,6 +33,24 @@ describe('MetricasKpiStrip with sell in / sell out', () => {
     expect(within(cardOf('Total Gauss')).getByTitle('3 ventas con sell out en dólares sin tipo de cambio: no se suman')).toBeInTheDocument();
   });
 
+  it("keeps Total Gauss' ⚠ and ≈ flags in one block apart from the amount, so ≈ never wraps alone", () => {
+    strip({ ...OFF, sell_in_out: { ...SELL, sell_out_pendientes: 12, sell_out_estimados: 3 } });
+
+    const card = within(cardOf('Total Gauss'));
+    const pending = card.getByTitle('12 ventas con sell out en dólares sin tipo de cambio: no se suman');
+    const estimated = card.getByTitle('3 ventas con tipo de cambio estimado');
+    const amount = card.getByTestId('kpi-sell-in-out').querySelector('strong');
+    expect(pending.parentElement).toBe(estimated.parentElement);
+    expect(estimated.parentElement).not.toBe(amount.parentElement);
+    expect(estimated.parentElement.className).toMatch(/sellFlags/);
+  });
+
+  it('with no flags, the Total Gauss line holds only the amount (no empty flags block)', () => {
+    strip({ ...OFF, sell_in_out: SELL });
+
+    expect(within(cardOf('Total Gauss')).getByTestId('kpi-sell-in-out').querySelector('[class*="sellFlags"]')).toBeNull();
+  });
+
   it('flags how many sales add a sell out on an estimated rate, like the rows do (audit A5)', () => {
     strip({ ...OFF, sell_in_out: { ...SELL, sell_out_estimados: 3 } });
 

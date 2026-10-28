@@ -6,6 +6,8 @@ stock locations, plus the `productos_erp` table built from the model). Rows are 
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
@@ -514,6 +516,36 @@ class TestSearch:
         assert ids(run(db, q="*router")) == []  # "Router Wifi AC1200" starts with it, does not end with it
         assert ids(run(db, q="*100%")) == []  # the wildcard is literal
 
+    def test_desc_operator_is_a_folded_substring_of_the_product_description(self, db) -> None:
+        assert ids(run(db, q="desc:hikvision-domo")) == ["MLA900300"]  # `-` and spaces folded away
+        assert ids(run(db, q="descripcion:CABLEHDMI")) == ["MLA900700"]
+        assert ids(run(db, q="desc:router")) == []  # the publication title is not the description
+        assert ids(run(db, q="desc:100%")) == []  # the wildcard is literal
+
+    def test_a_trailing_asterisk_matches_the_start_of_title_name_brand_or_code(self, db) -> None:
+        assert ids(run(db, q="router*")) == ["MLA900100"]  # title
+        assert ids(run(db, q="cámara hik*")) == ["MLA900300"]  # product name
+        assert ids(run(db, q="kab*")) == ["MLA900700"]  # brand
+        assert ids(run(db, q="kb-hd*")) == ["MLA900700"]  # code
+        assert ids(run(db, q="ac1200*")) == []  # "Router Wifi AC1200" ends with it, does not start with it
+        assert ids(run(db, q="100%*")) == []  # the wildcard is literal
+
+    def test_plain_text_matches_the_brand_and_folds_dashes_and_spaces_on_the_product(self, db) -> None:
+        assert ids(run(db, q="kabel")) == ["MLA900700"]  # brand
+        assert ids(run(db, q="kbhdmi")) == ["MLA900700"]  # code without its dashes
+        assert ids(run(db, q="cablehdmi")) == ["MLA900700"]  # name without its spaces
+        assert ids(run(db, q="hik vision")) == ["MLA900300"]  # brand typed with a space
+        # nothing left to fold: no product matches everything, only the fields that really hold a dash
+        assert sorted(ids(run(db, q="-"))) == ["MLA900100", "MLA900200", "MLA900500", "MLA900700"]
+
+    def test_mla_operator_is_the_exact_item_id(self, db) -> None:
+        assert ids(run(db, q="mla:mla900200")) == ["MLA900200"]
+        assert ids(run(db, q="mla:900200")) == []  # the id, not its digits: as Productos
+
+    def test_a_promo_search_the_router_did_not_resolve_matches_nothing(self, db) -> None:
+        # the MLAs of a promotion live in another database: unresolved, the search fails closed
+        assert ids(run(db, q="promo:deal")) == []
+
     def test_no_match_is_an_empty_page_with_total_zero(self, db) -> None:
         page = run(db, q="inexistente")
         assert (page.items, page.total) == ([], 0)
@@ -848,6 +880,52 @@ class TestSorting:
         assert by("asc,asc") == ["MLA2", "MLA4", "MLA1", "MLA3"]
         assert by("asc,desc") == ["MLA2", "MLA1", "MLA4", "MLA3"]
 
+    @pytest.mark.parametrize(
+        ("orden", "column"),
+        [
+            ("lista_clasica", "markup_calculado"),
+            ("lista_rebate", "markup_rebate"),
+            ("lista_oferta", "markup_oferta"),
+            ("lista_web", "markup_web_real"),
+        ],
+    )
+    def test_a_price_column_sorts_by_its_markup_like_productos_and_needs_the_margin(
+        self, conn, db, orden, column
+    ) -> None:
+        # Productos sorts these headers by the stored markup of the list (`productos_listing`), not by the price
+        seed.create_presence_tables(conn, with_pricing=True)
+        conn.execute(text(seed.MARKUP_DDL))
+        for product_id, markup in ((70, 12.5), (71, -3.0), (72, 40.0), (73, None)):
+            seed.add_product(conn, product_id, f"C{product_id}", "P")
+            seed.add_pricing(conn, product_id, **{column: markup})
+        for item_id, product_id in (("MLA1", 70), ("MLA2", 71), ("MLA3", 72), ("MLA5", 73)):
+            seed.add_item(conn, item_id)
+            seed.add_link(conn, item_id, product_id)
+        seed.add_item(conn, "MLA4")  # no product, no markup
+
+        def by(direction=None) -> list[str]:
+            sort = listing.parse_sort(orden, direction)
+            return ids(listing.list_items(db, parse_filter(), sort, 50, 0, events=True, can_see_margin=True))
+
+        assert by() == ["MLA2", "MLA1", "MLA3", "MLA4", "MLA5"]  # the worst markup first; none, last
+        assert by("desc") == ["MLA3", "MLA1", "MLA2", "MLA4", "MLA5"]
+        with pytest.raises(FilterError) as raised:
+            listing.list_items(db, parse_filter(), listing.parse_sort(orden, None), 50, 0, events=True)
+        assert raised.value.field == "orden"
+
+    def test_a_price_markup_combines_with_other_keys(self, conn, db) -> None:
+        seed.create_presence_tables(conn, with_pricing=True)
+        conn.execute(text(seed.MARKUP_DDL))
+        for product_id, marca, markup in ((70, "B", 5.0), (71, "A", 9.0), (72, "A", 1.0)):
+            seed.add_product(conn, product_id, f"C{product_id}", "P", marca=marca)
+            seed.add_pricing(conn, product_id, markup_calculado=markup)
+        for item_id, product_id in (("MLA1", 70), ("MLA2", 71), ("MLA3", 72)):
+            seed.add_item(conn, item_id)
+            seed.add_link(conn, item_id, product_id)
+        sort = listing.parse_sort("marca,lista_clasica", "asc,desc")
+        page = listing.list_items(db, parse_filter(), sort, 50, 0, events=True, can_see_margin=True)
+        assert ids(page) == ["MLA2", "MLA3", "MLA1"]
+
     def test_title_ignores_case_and_puts_missing_titles_last(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", title="banana")
         seed.add_item(conn, "MLA2", title="Apple")
@@ -994,6 +1072,32 @@ class TestFacets:
                 "propio_sin_stock": 0,
             },
         }
+
+    def test_the_promo_axis_counts_the_publications_with_a_started_promotion_and_the_rest(self, db) -> None:
+        # MLA6 is gone (hidden by default); MLA9 is a started promotion of a publication the store does not hold
+        facets = listing.facets(db, parse_filter(), promo_mlas=frozenset({"MLA1", "MLA3", "MLA6", "MLA9"}))
+        assert facets["promo"] == {"con_promo": 2, "sin_promo": 3}
+
+    def test_the_promo_axis_obeys_the_other_filters(self, db) -> None:
+        facets = listing.facets(db, parse_filter(estado="active"), promo_mlas=frozenset({"MLA1", "MLA3"}))
+        assert facets["promo"] == {"con_promo": 1, "sin_promo": 2}
+
+    def test_no_started_promotion_is_every_publication_without_promo(self, db) -> None:
+        assert listing.facets(db, parse_filter(), promo_mlas=frozenset())["promo"] == {"con_promo": 0, "sin_promo": 5}
+
+    def test_the_promo_axis_ignores_its_own_filter_and_keeps_the_pxq_one(self, db) -> None:
+        # the list is filtered to the promoted MLA1 (promo filter) among the PxQ ones (MLA1, MLA2, MLA3)
+        f = replace(parse_filter(), mla_scope=frozenset({"MLA1"}), pxq_scope=frozenset({"MLA1", "MLA2", "MLA3"}))
+        facets = listing.facets(db, replace(f, promo_filter=True), promo_mlas=frozenset({"MLA1"}))
+        assert facets["promo"] == {"con_promo": 1, "sin_promo": 2}
+        assert facets["status"] == {"active": 1}  # every other axis still obeys the promo filter
+
+    def test_without_a_promo_filter_the_scope_is_the_pxq_one_and_the_promo_axis_obeys_it(self, db) -> None:
+        f = replace(parse_filter(), mla_scope=frozenset({"MLA1", "MLA2"}), pxq_scope=frozenset({"MLA1", "MLA2"}))
+        assert listing.facets(db, f, promo_mlas=frozenset({"MLA1"}))["promo"] == {"con_promo": 1, "sin_promo": 1}
+
+    def test_without_the_promotions_there_is_no_promo_axis(self, db) -> None:
+        assert "promo" not in listing.facets(db, parse_filter())
 
     def test_the_erp_without_stock_count_is_what_selecting_it_lists(self, conn, db) -> None:
         conn.execute(text("UPDATE productos_erp SET stock = 0 WHERE item_id = 70"))

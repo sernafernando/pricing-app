@@ -156,3 +156,17 @@ class TestFetchPxqTiersByMla:
         with patch(_ENGINE_PATH, side_effect=SQLAlchemyError("down")):
             with pytest.raises(SQLAlchemyError):
                 fetch_pxq_tiers_by_mla(["MLA111"])
+
+
+class TestResumenPorProducto:
+    """The quick view's fold (`PxqTramosBadge`), shared by Productos and Publicaciones ML."""
+
+    def test_deepest_ladder_of_one_publication_and_lowest_price_of_all(self) -> None:
+        from app.services.ml_pxq_tiers_read_service import PxqResumen, resumen_por_producto
+
+        tiers = {
+            "A": [PxqTier(2, 990.0), PxqTier(5, 940.0)],
+            "B": [PxqTier(3, 900.0), PxqTier(6, 850.0), PxqTier(9, 800.0)],
+        }
+
+        assert resumen_por_producto({1: ["A", "B"], 2: ["C"], 3: []}, tiers) == {1: PxqResumen(3, 800.0)}

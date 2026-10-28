@@ -70,6 +70,7 @@ export default function AuditFilters({ filters, setFilters, labelClassName }) {
         <button
           type="button"
           className="btn-tesla outline sm"
+          data-filter="auditoria"
           aria-expanded={open}
           aria-label={label}
           title={label}

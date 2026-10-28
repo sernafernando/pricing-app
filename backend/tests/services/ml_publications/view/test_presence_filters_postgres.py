@@ -210,3 +210,58 @@ class TestMlaScope:
 
     def test_an_empty_scope_lists_nothing(self, db) -> None:
         assert listed(db, mla_scope=frozenset()) == []
+
+
+class TestEstadoMla:
+    """Productos' "Estado MLA" (`estado_mla`, `GET /productos`): "Pausadas" is a linked product with publications
+    and none of them active, "Activas" one with at least one active publication. As in Productos, a publication
+    with no status counts as active, and a closed or deleted one as not active."""
+
+    @pytest.fixture(autouse=True)
+    def statuses(self, conn) -> None:
+        conn.execute(text("UPDATE ml_items SET status = 'paused' WHERE item_id IN ('MLA5', 'MLA2')"))
+        conn.execute(text("UPDATE ml_items SET status = NULL WHERE item_id = 'MLA3'"))
+        seed.add_product(conn, 73, "D1", "Antena", marca="Ubiquiti", stock=1)
+        seed.add_item(conn, "MLA6", status="closed")
+        seed.add_item(conn, "MLA7", status="active", gone_at=datetime(2026, 10, 1, tzinfo=timezone.utc))
+        seed.add_link(conn, "MLA6", 73)
+        seed.add_link(conn, "MLA7", 73)
+
+    def test_lists_the_publications_of_products_with_no_active_publication(self, db) -> None:
+        # 70 still has MLA1 active; 72's MLA3 has no status (active, as in Productos); MLA4 has no product;
+        # 73's MLA7 is gone: not active, and hidden from the list as every gone publication is
+        assert listed(db, estado_mla="pausada") == ["MLA2", "MLA6"]
+        assert listed(db, estado_mla="pausada", estado="gone") == ["MLA7"]
+
+    def test_a_publication_ml_marks_deleted_is_not_active_whatever_status_it_kept(self, db, conn) -> None:
+        conn.execute(text("UPDATE ml_items SET sub_status = ARRAY['deleted'] WHERE item_id = 'MLA1'"))
+        # 70's MLA1 kept `active` but ML deleted it: 70 has none active, so its paused MLA5 is listed (MLA1 is gone)
+        assert listed(db, estado_mla="pausada") == ["MLA2", "MLA5", "MLA6"]
+
+    def test_a_publication_that_never_existed_is_not_one_of_the_products(self, db, conn) -> None:
+        seed.add_product(conn, 74, "E1", "Cable", marca="Ubiquiti", stock=1)
+        seed.add_item(conn, "MLA8", status="paused", never_existed=True)
+        seed.add_link(conn, "MLA8", 74)
+        seed.add_item(conn, "MLA9", status="paused")
+        seed.add_item(conn, "MLA10", status="active", never_existed=True)
+        seed.add_link(conn, "MLA9", 72)
+        seed.add_link(conn, "MLA10", 71)  # 71 keeps MLA2 paused: a never-existed active one does not count
+        conn.execute(text("UPDATE ml_items SET status = 'paused' WHERE item_id = 'MLA3'"))
+        listed_now = listed(db, estado_mla="pausada")
+        assert "MLA2" in listed_now and "MLA3" in listed_now and "MLA9" in listed_now
+        assert "MLA8" not in listed_now  # 74's only publication never existed: no publications, not "Pausadas"
+
+    def test_ands_with_the_other_filters(self, db) -> None:
+        assert listed(db, estado_mla="pausada", marcas="hikvision") == ["MLA2"]
+        assert listed(db, estado_mla="activa", marcas="tp-link") == ["MLA1", "MLA3", "MLA5"]
+
+    def test_activas_lists_the_publications_of_products_with_an_active_publication(self, db) -> None:
+        # Productos' "Activas": 70 has MLA1 active (so its paused MLA5 is listed too); 72's MLA3 has no status
+        # (active, as in Productos); 71's only one is paused, 73's are closed and gone; MLA4 has no product
+        assert listed(db, estado_mla="activa") == ["MLA1", "MLA3", "MLA5"]
+
+    def test_a_deleted_or_never_existed_active_publication_is_not_active(self, db, conn) -> None:
+        conn.execute(text("UPDATE ml_items SET sub_status = ARRAY['deleted'] WHERE item_id = 'MLA1'"))
+        seed.add_item(conn, "MLA10", status="active", never_existed=True)
+        seed.add_link(conn, "MLA10", 71)
+        assert listed(db, estado_mla="activa") == ["MLA3"]

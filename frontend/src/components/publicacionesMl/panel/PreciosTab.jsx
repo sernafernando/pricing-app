@@ -1,6 +1,7 @@
 import { usePermisos } from '../../../contexts/PermisosContext';
 import ProductPrices from '../../pricing/ProductPrices';
 import { pricePermissions } from '../../pricing/productPricePermissions';
+import ListPriceGroup from './ListPriceGroup';
 
 /**
  * Precios: the prices of the product the publication is linked to (the
@@ -8,8 +9,24 @@ import { pricePermissions } from '../../pricing/productPricePermissions';
  * permissions; a write refreshes the panel and the list (`onWritten`). The
  * product cost is shown with the same gate as the Producto tab
  * (`canSeeMargin`, ml_metricas.ver_ganancia).
+ *
+ * On top, the Precios view's own price group (`ListPriceGroup`, the list's cells and handlers from `priceGroup`), so
+ * the tab shows and edits what the list does; `ProductPrices` below keeps the cost, the markup editor and the rest.
  */
-export default function PreciosTab({ detail, canSeeMargin, onWritten }) {
+export default function PreciosTab({ detail, canSeeMargin, onWritten, priceGroup = null }) {
   const { tienePermiso } = usePermisos();
-  return <ProductPrices productItemId={detail.product.item_id} permissions={pricePermissions(tienePermiso)} onWritten={onWritten} showCost={Boolean(canSeeMargin)} />;
+  const productItemId = detail.product.item_id;
+  return (
+    <>
+      <ListPriceGroup productItemId={productItemId} canSeeMargin={Boolean(canSeeMargin)} priceGroup={priceGroup} />
+      <ProductPrices
+        productItemId={productItemId}
+        permissions={pricePermissions(tienePermiso)}
+        onWritten={onWritten}
+        showCost={Boolean(canSeeMargin)}
+        // A write from the group above reloads the list (`version`): these prices are read again with it.
+        readAgain={priceGroup?.version ?? 0}
+      />
+    </>
+  );
 }

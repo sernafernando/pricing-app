@@ -1,0 +1,49 @@
+/* The list's price group in a panel tab: one compact table per mode, the list's own cells inside. */
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.caption {
+  margin-bottom: var(--spacing-xs);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.head {
+  padding: var(--spacing-xs);
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+  border-bottom: 1px solid var(--cf-border-subtle);
+  overflow-wrap: anywhere;
+}
+
+.cell {
+  padding: var(--spacing-xs);
+  vertical-align: top;
+}
+
+.head[data-align='right'],
+.cell[data-align='right'] {
+  text-align: right;
+}
+
+.head[data-align='center'],
+.cell[data-align='center'] {
+  text-align: center;
+}

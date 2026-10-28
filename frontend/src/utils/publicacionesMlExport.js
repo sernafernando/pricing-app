@@ -5,6 +5,7 @@ import { exportarCsvASheets } from './googleSheetsExport';
 // The views with an export: the Agrupado tree has none.
 const EXPORT_URLS = {
   publicacion: '/ml-publications/view/items/export',
+  precios: '/ml-publications/view/items/export', // the same publication rows
   producto: '/ml-publications/view/products/export',
 };
 

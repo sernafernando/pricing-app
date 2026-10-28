@@ -1,4 +1,4 @@
-import { CreditCard, Gift, ShoppingCart, Sparkles } from 'lucide-react';
+import { BarChart3, CreditCard, Gift, ShoppingCart, Sparkles } from 'lucide-react';
 
 /**
  * Productos' "Filtros de Presencia" on Publicaciones ML, plus its Precio and Productos Nuevos selects: the same
@@ -29,6 +29,9 @@ export const PRESENCE_FILTERS = [
   // Productos' "Precio" select and its advanced "Productos Nuevos" one: both ask the linked product.
   { key: 'precio', name: 'Precio', options: [['con_precio', 'Con precio'], ['sin_precio', 'Sin precio']] },
   { key: 'nuevos', icon: Sparkles, name: 'Productos Nuevos', options: [['ultimos_7_dias', 'Últimos 7 días']] },
+  // Productos' "Estado MLA" select, product level: Activas have an active publication, Pausadas have publications
+  // and none active.
+  { key: 'estado_mla', icon: BarChart3, name: 'Estado MLA', options: [['activa', 'Activas'], ['pausada', 'Pausadas']] },
 ];
 
 /** Productos' four markup selects: only for a user with `ml_metricas.ver_ganancia` (`usePublicacionesMLFilters`). */

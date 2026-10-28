@@ -1,6 +1,7 @@
 import { Calculator } from 'lucide-react';
 import { offerDetails } from '../pricing/offerDetails';
 import { LISTS } from '../pricing/priceWrites';
+import { PRICE_MARKUP_SORTS } from '../../hooks/usePublicacionesMLFilters';
 import ListPriceCell from './ListPriceCell';
 import PriceEditCell from './PriceEditCell';
 import TnPriceLine from './TnPriceLine';
@@ -77,10 +78,11 @@ const MODES = {
  * `pricePermissions` and `useInlinePriceEdit`) makes the list prices editable: `onSave(listRow, product, text)`; and
  * the rebate and web transfer: `onToggle(kind, product, draft)`, resolving true when saved.
  * `onCalculate(product)` (P3c, for whoever may edit prices) closes the group with Productos' Calcular button, which
- * opens its pricing modal on the row's product. `tnCardPercent` (`useTnCardPercent`) is the Tienda Nube card surcharge
- * the Web Transf. column takes off its TN price for the transfer hint.
+ * opens its pricing modal on the row's product. `offsets` (`useListOffsets`) adds Productos' "markup con offsets"
+ * under the clásica markup. `tnCardPercent` (`useTnCardPercent`) is the Tienda Nube card surcharge the Web Transf.
+ * column takes off its TN price for the transfer hint.
  */
-export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, onCalculate = null, tnCardPercent = null }) {
+export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, onCalculate = null, offsets = null, tnCardPercent = null }) {
   const columns = (MODES[mode] ?? MODES.normal).map((column) => {
     const listRow = column.list ? LIST_ROWS.get(column.list) : null;
     const editable = Boolean(edit && listRow && edit.permissions[listRow.perm]);
@@ -100,7 +102,14 @@ export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, 
       const product = productId == null ? null : prices.byId.get(productId);
       const failed = productId != null && prices.error;
       const cell = (
-        <ListPriceCell product={product} column={column} loading={productId != null && prices.loading} failed={failed} canSeeMargin={canSeeMargin} />
+        <ListPriceCell
+          product={product}
+          column={column}
+          loading={productId != null && prices.loading}
+          failed={failed}
+          canSeeMargin={canSeeMargin}
+          offsets={column === CLASICA ? offsets : null}
+        />
       );
       if (!product || failed) return cell;
       if (togglable) {
@@ -125,6 +134,7 @@ export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, 
       width: column.showTnPrice ? 240 : 130,
       align: 'right',
       list: column.list,
+      sortable: canSeeMargin && PRICE_MARKUP_SORTS.has(column.key), // by its markup, as Productos
       render: (item) => renderProduct(item.link?.producto_item_id ?? null),
       renderProduct,
     };

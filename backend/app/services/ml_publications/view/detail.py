@@ -528,7 +528,7 @@ def get_detail(db: Session, item_id: str, *, events: bool, markup: Optional[Mark
         found = markup_service.compute_detail(db, markup.pricing_db, item_id)
         if found is not None:
             out_row["markup"] = listing.markup_out(found.item)
-        listing.attach_cost([out_row], [row])  # the same cost block the list row carries
+        listing.attach_cost([out_row], [row], markup.pricing_db)  # the same cost block the list row carries
         body["markup_breakdown"] = None if found is None else _breakdown_out(found)
         body["sell_in_out"] = _sell_in_out(markup.pricing_db, links, found)
     return body

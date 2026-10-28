@@ -47,9 +47,11 @@ joins it).
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, replace
+from functools import partial
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Literal, Optional, Sequence
+from typing import Any, Callable, Literal, NamedTuple, Optional, Sequence
 
 from fastapi import APIRouter, Depends, Path, Query, Response, status
 from fastapi.responses import StreamingResponse
@@ -62,6 +64,7 @@ from app.core.constants import PERMISOS_PUBLICACIONES_ML
 from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
+from app.schemas.costo_ppp import PppPayload
 from app.schemas.sell_in_out_producto import SellInOutProducto
 from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
@@ -96,11 +99,13 @@ from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, needs_m
 from app.services.ml_publications.view.timing import Timer
 from app.services.ml_promotions_service import (
     KNOWN_PROMOTION_TYPES,
+    fetch_mlas_by_promo_name,
     fetch_mlas_with_active_promo_type,
     fetch_mlas_with_candidate_only,
     fetch_mlas_with_candidate_only_for_types,
     fetch_mlas_with_started,
 )
+from app.services import ml_pxq_tiers_read_service
 from app.services.ml_pxq_tiers_read_service import fetch_mlas_with_pxq_tiers
 from app.services.permisos_service import PermisosService
 from app.services.promo_filter_resolver import PromoResolverFns, select_promo_resolver
@@ -297,6 +302,9 @@ class ItemRowOut(BaseModel):
     last_event: Optional[LastEventOut] = None  # present only while events.enabled
     markup: Optional[MarkupOut] = None  # present only with ml_metricas.ver_ganancia
     costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
+    # the lines Productos draws under the cost (same gate as `costo`): null without a product or a PPP row / sell in
+    ppp: Optional[PppPayload] = None
+    sell_in_out: Optional[SellInOutProducto] = None
     sales_30d: Optional[Sales30dOut] = None  # present only with ml_metricas.ver
     metrics: Optional[MetricsOut] = None  # present only with ml_metricas.ver; null when Métricas has no row
 
@@ -647,8 +655,14 @@ class ProductRowOut(BaseModel):
     publications_count: int
     stock: Optional[int] = None
     costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
+    ppp: Optional[PppPayload] = None  # the lines under the cost, as on a publication row (same gate)
+    sell_in_out: Optional[SellInOutProducto] = None
     params: dict[str, str]
     metrics: Optional[MetricsOut] = None
+    # Productos' wholesale quick view ("3 tramos · desde $37.800"): the deepest tier ladder of one of the product's
+    # publications and the lowest tier price of any; present only when the product has tiers (fail-open).
+    pxq_tramos: Optional[int] = None
+    pxq_precio_desde: Optional[float] = None
 
 
 class ProductsResponse(BaseModel):
@@ -733,6 +747,36 @@ def _attach_colors(
         raise
 
 
+def _attach_pxq(db: Session, rows: list[dict[str, Any]]) -> None:
+    """Productos' PxQ quick view on each product row, over every publication linked to the product
+    (`products.mlas_by_product`, whatever the filter shows): one tier read for the page. FAIL-OPEN like Productos: the
+    list answers without the badge when mlwebhook does not."""
+    item_ids = {row["product_item_id"] for row in rows if row["product_item_id"] is not None}
+    if not item_ids:
+        return
+    try:
+        listing.bound(db)  # the list's own `statement_timeout`: the page's rollback already ended its SET LOCAL
+        mlas = products.mlas_by_product(db, sorted(item_ids))
+    except DBAPIError as exc:  # over `statement_timeout`: the list's own controlled 503, as `_attach_colors`
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # read-only, as the page's own work
+    if not mlas:
+        return
+    try:
+        tiers = ml_pxq_tiers_read_service.fetch_pxq_tiers_by_mla(sorted(m for ms in mlas.values() for m in ms))
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("Vista rápida PxQ no disponible en Publicaciones ML: %s", exc)
+        return
+    resumen = ml_pxq_tiers_read_service.resumen_por_producto(mlas, tiers)
+    for row in rows:
+        if row["product_item_id"] in resumen:
+            row["pxq_tramos"] = resumen[row["product_item_id"]].tramos
+            row["pxq_precio_desde"] = resumen[row["product_item_id"]].precio_desde
+
+
 def filter_query(
     q: Optional[str] = Query(None, description="MLA id / digits (exact), else substring of title, SKU, product"),
     estado: Optional[str] = Query(None, description="csv of active,paused,closed,under_review,inactive,gone"),
@@ -799,6 +843,11 @@ def filter_query(
     con_mla: Optional[bool] = Query(
         None, description="false: the products no publication is linked to (Productos' Sin MLA, Producto view)"
     ),
+    estado_mla: Optional[str] = Query(
+        None,
+        description="Productos' Estado MLA: activa (a product with an active publication) or pausada (publications,"
+        " none active)",
+    ),
     # The caller and the application session, for the permission check of the markup filters (cached per request:
     # every endpoint already authenticates the same way).
     user: Usuario = Depends(get_current_user),
@@ -815,6 +864,7 @@ def filter_query(
             f"Se requiere el permiso {PERMISO_GANANCIA} para filtrar por markup",
         )
     try:
+        scope = _mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq)
         f = parse_filter(
             q=q,
             estado=estado,
@@ -851,10 +901,13 @@ def filter_query(
             audit_tipos_accion=audit_tipos_accion,
             audit_fecha_desde=audit_fecha_desde,
             audit_fecha_hasta=audit_fecha_hasta,
-            mla_scope=_mla_scope(promo_tipos, promo_estado, con_promo_aplicada, con_promo_sin_aplicar, con_pxq),
+            mla_scope=scope.scope,
             colores=colores,
             con_mla=con_mla,
+            estado_mla=estado_mla,
         )
+        # The facets' promo axis leaves its own filter out, as every axis does: it needs the PxQ part alone.
+        f = replace(_resolve_promo_search(f), pxq_scope=scope.pxq, promo_filter=scope.promo_filter)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     if not (f.colors or f.no_color):
@@ -868,16 +921,24 @@ PROMO_STATES = ("disponible", "aplicada", "sin_aplicar")
 FILTER_UNAVAILABLE_CODE = "filtro_no_disponible"
 
 
+class MlaScope(NamedTuple):
+    """The MLAs the promo and PxQ filters leave (`scope`), the PxQ ones alone (`pxq`) and whether a promo filter is on."""
+
+    scope: Optional[frozenset[str]]
+    pxq: Optional[frozenset[str]]
+    promo_filter: bool
+
+
 def _mla_scope(
     promo_tipos: Optional[str],
     promo_estado: Optional[str],
     con_promo_aplicada: Optional[bool],
     con_promo_sin_aplicar: Optional[bool],
     con_pxq: Optional[bool],
-) -> Optional[frozenset[str]]:
+) -> MlaScope:
     """Productos' promo filter (the same `select_promo_resolver` dispatch) and its PxQ toggle as the MLAs that match,
-    read from the mlwebhook database, ANDed; `None` when neither is asked. A resolver that cannot answer is a 503:
-    never the unfiltered list."""
+    read from the mlwebhook database, ANDed (`scope`, `None` when neither is asked), with the PxQ part apart (`pxq`)
+    for the facets' promo axis. A resolver that cannot answer is a 503: never the unfiltered list."""
     tipos = [t.strip() for t in (promo_tipos or "").split(",") if t.strip()]
     unknown = [t for t in tipos if t not in KNOWN_PROMOTION_TYPES]
     if unknown:
@@ -906,14 +967,73 @@ def _mla_scope(
             (fetch_mlas_with_pxq_tiers, "Filtro PxQ", "Filtro de precios mayoristas no disponible temporalmente")
         )
     scope: Optional[frozenset[str]] = None
+    pxq: Optional[frozenset[str]] = None
     for resolver, context, message in asked:
         try:
             found = frozenset(resolver())
         except (RuntimeError, SQLAlchemyError) as exc:
             logger.warning("%s no disponible: %s", context, exc)
             raise api_error(status.HTTP_503_SERVICE_UNAVAILABLE, FILTER_UNAVAILABLE_CODE, message) from exc
+        if resolver is fetch_mlas_with_pxq_tiers:
+            pxq = found
         scope = found if scope is None else scope & found
-    return scope
+    return MlaScope(scope=scope, pxq=pxq, promo_filter=promo is not None)
+
+
+class _RecentSet:
+    """A set read from another database, kept `ttl` seconds: the facets ask for it on every filter change, and a
+    started promotion that shows up a minute late in a count is fine. Only an answer is kept, never a failure."""
+
+    def __init__(self, ttl: float) -> None:
+        self.ttl = ttl
+        self.reset()
+
+    def reset(self) -> None:
+        self.value: Optional[frozenset[str]] = None
+        self.at = 0.0
+
+    def get(self, read: Callable[[], Any]) -> frozenset[str]:
+        now = time.monotonic()
+        if self.value is None or now - self.at >= self.ttl:
+            self.value, self.at = frozenset(read()), now
+        return self.value
+
+
+STARTED_PROMOTIONS = _RecentSet(ttl=60)
+
+
+def _started_promotions() -> Optional[frozenset[str]]:
+    """The MLAs with a started promotion, for the facets' with / without promo counts: the very set the Con promo
+    filter (`con_promo_aplicada`, `select_promo_resolver`'s `started`) lists, so a count is what its click shows --
+    up to `STARTED_PROMOTIONS.ttl` behind it, since the filter reads them fresh and the count reuses them a minute.
+    `None` (no such facet, the list still answers) when the mlwebhook database cannot be read."""
+    try:
+        return STARTED_PROMOTIONS.get(fetch_mlas_with_started)
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("Conteo con/sin promo no disponible en Publicaciones ML: %s", exc)
+        return None
+
+
+def _resolve_promo_search(f: PublicationFilter) -> PublicationFilter:
+    """A `promo:` search with its MLAs, resolved as Productos does: a known promotion type is its active promotions
+    (applied or not), any other text a substring of the promotion's name. A resolver that cannot answer is a 503."""
+    if f.q is None or f.q.kind != "promo":
+        return f
+    value = f.q.value
+    if value.upper() in KNOWN_PROMOTION_TYPES:
+        resolver = partial(fetch_mlas_with_active_promo_type, [value.upper()], applied_only=False)
+    else:
+        resolver = partial(fetch_mlas_by_promo_name, value)
+    try:
+        found = frozenset(resolver())
+    except (RuntimeError, SQLAlchemyError) as exc:
+        logger.warning("Operador promo: no disponible: %s", exc)
+        raise api_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            FILTER_UNAVAILABLE_CODE,
+            "Búsqueda por promoción no disponible temporalmente",
+        ) from exc
+    return replace(f, q=replace(f.q, mlas=found))
 
 
 def _ads_status(provider: AdsCostProvider, requested: bool, first: Optional[date], last: Optional[date]) -> AdsStatus:
@@ -1096,7 +1216,15 @@ def get_items(
         f = listing.resolve_pm_pairs(db, f)  # once: the list and the facets share the resolved pairs
         with timer.stage("list"):
             page = listing.list_items(
-                db, f, sort, limit, offset, events=events_enabled, markup=markup, can_see_margin=can_see_margin
+                db,
+                f,
+                sort,
+                limit,
+                offset,
+                events=events_enabled,
+                markup=markup,
+                can_see_margin=can_see_margin,
+                lines_db=auth_db,  # the PPP and sell in lines under the cost (only with the markup: same gate)
             )
         if can_see_sales:
             with timer.stage("metrics"):
@@ -1105,7 +1233,7 @@ def get_items(
         facet_counts = None
         if facets:
             with timer.stage("facets"):
-                facet_counts = {**listing.facets(db, f), "total": page.total}
+                facet_counts = {**listing.facets(db, f, _started_promotions()), "total": page.total}
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
@@ -1246,6 +1374,7 @@ def _product_out(
     has_figures: bool,
     offer_filter: bool,
     costs: Optional[dict[str, Any]] = None,
+    lines: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     no_product = row.product_item_id == NO_PRODUCT
     params = {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
@@ -1263,6 +1392,8 @@ def _product_out(
     }
     if with_margin and costs is not None:
         out["costo"] = costs.get(row.key)  # the product's cost, as a publication row carries it
+    if with_margin and lines is not None:
+        out.update(lines.get(row.key, listing.NO_COST_LINES))  # the PPP and sell in lines under that cost
     if with_metrics:
         out["metrics"] = _metrics_out(row, with_margin) if has_figures else None
     return out
@@ -1359,7 +1490,15 @@ def get_products(
         listing.bound(db)
         with timer.stage("products"):
             page = products.list_products(
-                db, f, sort_name, sort_dir == "desc", limit, offset, then=ask.then, cost=can_see_margin
+                db,
+                f,
+                sort_name,
+                sort_dir == "desc",
+                limit,
+                offset,
+                then=ask.then,
+                cost=can_see_margin,
+                pricing_db=auth_db,
             )
         if f.sin_mla:  # the rows are the Sin MLA products: their total is the count
             sin_mla_count = page.total
@@ -1384,10 +1523,12 @@ def get_products(
             row.key not in page.without_figures,
             f.oferta is not None,
             page.costs,
+            page.lines,
         )
         for row in page.rows
     ]
     _attach_colors(auth_db, layer, rows, lambda row: row["product_item_id"])
+    _attach_pxq(db, rows)
     applied = products.applied_sort(f, sort_name, sort_dir == "desc", ask.then)
     applied_keys = ((applied[0], applied[1]), *applied[2])
     return {

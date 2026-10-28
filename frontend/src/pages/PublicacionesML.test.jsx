@@ -8,7 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
-import api, { preciosAPI, productosAPI, publicacionesMlAPI } from '../services/api';
+import api, { equiposAPI, offsetsGananciaAPI, preciosAPI, productosAPI, publicacionesMlAPI } from '../services/api';
 import { openInMlPanel } from '../utils/mlSidePanel';
 import { exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
 import { loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -20,6 +20,7 @@ import {
   ITEMS,
   ITEMS_RESPONSE,
   DETAIL_RESPONSE,
+  DETAIL_LINKED,
   ITEMS_RESPONSE_EVENTS_OFF,
   groupsResponse,
   itemsResponse,
@@ -41,6 +42,15 @@ vi.mock('../services/api', () => ({
   productosPropiosAPI: { get: vi.fn(() => new Promise(() => {})), save: vi.fn() },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn() },
   productosAPI: {
+    // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
+    getProductoTree: vi.fn(() =>
+      Promise.resolve({
+        data: {
+          item_id: 4101,
+          tree: { level: 0, kind: 'producto', label: 'Router Archer AX55', children: [{ level: 1, kind: 'publicacion', mla: 'MLA1100000001', label: 'Router Archer AX55', children: [] }] },
+        },
+      }),
+    ),
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: ['TP,LINK', 'EPSON'] } })),
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: ['REDES'] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
@@ -61,8 +71,25 @@ vi.mock('../services/api', () => ({
     setRebate: vi.fn(() => Promise.resolve({ data: {} })),
     setWebTransferencia: vi.fn(() => Promise.resolve({ data: {} })),
     setOutOfCards: vi.fn(() => Promise.resolve({ data: {} })),
+    tipoCambioActual: vi.fn(() => Promise.resolve({ data: { venta: 1000 } })),
+    // The panel's Precios tab (`ProductPrices`) reads the product on its own.
+    obtenerProducto: vi.fn(() => Promise.resolve({ data: { item_id: 4101, codigo: 'ARCHER-AX55', descripcion: 'Router Archer AX55' } })),
   },
+  // No current offset unless a test says so: Productos' "markup con offsets" stays out of the cells.
+  offsetsGananciaAPI: { vigentes: vi.fn(() => Promise.resolve({ data: [] })), grupoFiltros: vi.fn(() => Promise.resolve({ data: [] })) },
   registerAuthFailureHandler: vi.fn(),
+}));
+
+// Team management has its own tests; here only that the page opens it and reloads its teams after.
+vi.mock('../components/EquiposModal', () => ({
+  default: ({ isOpen, onClose }) =>
+    isOpen ? (
+      <div role="dialog" aria-label="Gestión de equipos">
+        <button type="button" onClick={onClose}>
+          Cerrar equipos
+        </button>
+      </div>
+    ) : null,
 }));
 
 // The color events (`producto_color:changed`) are pushed by each test through the captured listener.
@@ -217,7 +244,7 @@ describe('facets', () => {
     await waitFor(() => expect(lastParams().offset).toBe(50));
     expect(lastParams()).not.toHaveProperty('facets');
 
-    await userEvent.click(screen.getByRole('button', { name: /^Precio/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^Precio(?!s)/ }));
     await waitFor(() => expect(lastParams().orden).toBe('precio'));
     expect(lastParams()).not.toHaveProperty('facets');
 
@@ -285,11 +312,11 @@ describe('filters', () => {
   });
 });
 
-describe('stat cards (S12d4, Productos)', () => {
+describe('stat cards (S12d4, Productos; the Precios view)', () => {
   const statsParams = () => publicacionesMlAPI.stats.mock.calls.at(-1)[0];
 
   it("count over the list's filters, without paging or sort", async () => {
-    await page('/ml-publicaciones?marcas=TP-Link&q=router');
+    await page('/ml-publicaciones?vista=precios&marcas=TP-Link&q=router');
     await waitFor(() => expect(publicacionesMlAPI.stats).toHaveBeenCalled());
     expect(statsParams()).toMatchObject({ marcas: 'TP-Link', q: 'router' });
     expect(statsParams()).not.toHaveProperty('limit');
@@ -298,7 +325,7 @@ describe('stat cards (S12d4, Productos)', () => {
   });
 
   it("a card applies its filter and clears the other card filters, keeping the search and brands", async () => {
-    await page('/ml-publicaciones?marcas=TP-Link&q=router&oferta=con_oferta');
+    await page('/ml-publicaciones?vista=precios&marcas=TP-Link&q=router&oferta=con_oferta');
     await userEvent.click(await screen.findByRole('button', { name: 'Stock sin $: 3' }));
     await waitFor(() => expect(lastParams()).toMatchObject({ stock: 'erp_con_stock', con_precio: false, marcas: 'TP-Link', q: 'router' }));
     expect(lastParams()).not.toHaveProperty('con_oferta');
@@ -306,7 +333,7 @@ describe('stat cards (S12d4, Productos)', () => {
   });
 
   it('Total Productos clears the filters', async () => {
-    await page('/ml-publicaciones?estado=active&precio=sin_precio');
+    await page('/ml-publicaciones?vista=precios&estado=active&precio=sin_precio');
     await userEvent.click(await screen.findByRole('button', { name: 'Total Productos: 40' }));
     await waitFor(() => expect(lastParams()).not.toHaveProperty('estado'));
     expect(lastParams()).not.toHaveProperty('con_precio');
@@ -331,9 +358,9 @@ describe('stat cards (S12d4, Productos)', () => {
 describe('sorting and paging', () => {
   it('clicking a sortable header sorts by it, its default direction first', async () => {
     await page();
-    await userEvent.click(screen.getByRole('button', { name: /^Precio/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^Precio(?!s)/ }));
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio', dir: 'asc' }));
-    await userEvent.click(screen.getByRole('button', { name: /^Precio/ }));
+    await userEvent.click(screen.getByRole('button', { name: /^Precio(?!s)/ }));
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'precio', dir: 'desc' }));
   });
 
@@ -676,7 +703,7 @@ describe('loading and errors', () => {
     renderWithRouter(<PublicacionesML />);
     await waitFor(() => expect(calls()).toHaveLength(1));
     respond({ ...ITEMS_RESPONSE, items: [ITEMS[3]], total: 1, facets: FACETS });
-    await userEvent.click(screen.getByRole('button', { name: /Activas/ }));
+    await userEvent.click(within(screen.getByRole('group', { name: 'Filtrar por estado' })).getByRole('button', { name: /Activas/ }));
     await screen.findByText('MLA1100000004');
     resolveOld({ data: { ...ITEMS_RESPONSE, facets: FACETS } });
     await new Promise((r) => setTimeout(r, 20));
@@ -1114,7 +1141,7 @@ describe('the Agrupado view (P12a)', () => {
     await tree();
     // A later /items failure (the facets of a changed filter) must not take the tree away.
     publicacionesMlAPI.items.mockRejectedValueOnce(httpError(503));
-    await user.click(screen.getByRole('button', { name: /Pausadas/ }));
+    await user.click(within(screen.getByRole('group', { name: 'Filtrar por estado' })).getByRole('button', { name: /Pausadas/ }));
     expect(await screen.findByText(/La consulta tardó demasiado/)).toBeInTheDocument();
     expect(screen.getByRole('table', { name: /agrupadas/ })).toBeInTheDocument();
     expect(screen.getByText('EPSON')).toBeInTheDocument();
@@ -1277,7 +1304,7 @@ describe('the KPI strip (publicaciones-ml-vista P12b)', () => {
     await page();
     await strip();
     const firstSignal = kpiCalls()[0][1].signal;
-    await user.click(screen.getByRole('button', { name: /Pausadas/ }));
+    await user.click(within(screen.getByRole('group', { name: 'Filtrar por estado' })).getByRole('button', { name: /Pausadas/ }));
     await waitFor(() => expect(kpiParams().estado).toBe('paused'));
     expect(firstSignal.aborted).toBe(true);
   });
@@ -1323,10 +1350,10 @@ describe('the Producto view', () => {
     publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120 }) });
   });
 
-  it('offers the views in Métricas ML order: Producto, Publicaciones, Agrupado', async () => {
+  it('offers the views in Métricas ML order: Producto, Publicaciones, Precios, Agrupado', async () => {
     await page();
     const views = within(screen.getByRole('group', { name: 'Vista' })).getAllByRole('button');
-    expect(views.map((button) => button.textContent)).toEqual(['Producto', 'Publicaciones', 'Agrupado']);
+    expect(views.map((button) => button.textContent)).toEqual(['Producto', 'Publicaciones', 'Precios', 'Agrupado']);
     expect(screen.getByRole('button', { name: 'Publicaciones' })).toHaveAttribute('aria-pressed', 'true');
   });
 
@@ -1335,6 +1362,13 @@ describe('the Producto view', () => {
     expect(productCalls()).toEqual([{ estado: 'active', orden: 'facturado_30d', dir: 'desc', limit: 50, offset: 50 }]);
     expect(screen.getByRole('table', { name: /por producto/ })).toBeInTheDocument();
     expect(screen.getByText(/de 120 productos/)).toBeInTheDocument();
+  });
+
+  it("asks the listed products' prearmadas once, as Productos does beside each product", async () => {
+    await products();
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/prearmados/stats/batch', { items: [{ item_id: 4101 }, { item_id: 4102 }] }, undefined),
+    );
   });
 
   it('asks /items only for the state and the facet counts', async () => {
@@ -1413,7 +1447,7 @@ describe('the product panel', () => {
     const user = userEvent.setup();
     await products('/ml-publicaciones?vista=producto&prod=4101');
     const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
-    await user.click(await within(opened).findByRole('button', { name: /^MLA1100000001/ }));
+    await user.click(await within(opened).findByRole('button', { name: 'Abrir MLA1100000001' }));
 
     const detail = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
     expect(productPanel()).not.toBeInTheDocument();
@@ -1813,6 +1847,70 @@ describe('Exportar a Sheets', () => {
 });
 
 describe('the color layer (S8)', () => {
+  it('opens team management from beside the layer, as Productos does', async () => {
+    await page();
+    await screen.findByRole('combobox', { name: 'Capa de color' });
+    expect(screen.queryByRole('dialog', { name: 'Gestión de equipos' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+
+    expect(screen.getByRole('dialog', { name: 'Gestión de equipos' })).toBeInTheDocument();
+  });
+
+  it('closing team management reloads the teams, so the layer offers a team just created', async () => {
+    await page();
+    await screen.findByRole('combobox', { name: 'Capa de color' });
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+    equiposAPI.listar.mockResolvedValueOnce({
+      data: [
+        { id: 1, nombre: 'U', es_global: true },
+        { id: 12, nombre: 'Ventas', es_global: false },
+        { id: 13, nombre: 'Compras', es_global: false },
+      ],
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar equipos' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Gestión de equipos' })).not.toBeInTheDocument();
+    const capa = screen.getByRole('combobox', { name: 'Capa de color' });
+    await waitFor(() =>
+      expect(within(capa).getAllByRole('option').map((o) => o.textContent)).toEqual(['Global', 'Ventas', 'Compras']),
+    );
+  });
+
+  it('closing team management after deleting the chosen layer\'s team drops it: the rows go back to the global one', async () => {
+    await page('/ml-publicaciones?equipo=12');
+    await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
+    const asked = calls().length;
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+    equiposAPI.listar.mockResolvedValueOnce({ data: [{ id: 1, nombre: 'U', es_global: true }] });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar equipos' }));
+
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('equipo_id'));
+    // With no team left there is no layer to choose: the selector goes away with it.
+    expect(screen.queryByRole('combobox', { name: 'Capa de color' })).not.toBeInTheDocument();
+    // Never asked again on the deleted team: it would answer 403.
+    expect(calls().slice(asked).map((params) => params.equipo_id)).not.toContain('12');
+  });
+
+  it('closing team management with nothing changed keeps the rows of a team layer, asking nothing again', async () => {
+    await page('/ml-publicaciones?equipo=12');
+    await waitFor(() => expect(lastParams()).toMatchObject({ equipo_id: '12' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Equipos' }));
+    const asked = calls().length;
+    const reloads = equiposAPI.listar.mock.calls.length;
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cerrar equipos' }));
+
+    await waitFor(() => expect(equiposAPI.listar.mock.calls.length).toBe(reloads + 1));
+    await act(async () => {
+      await equiposAPI.listar.mock.results.at(-1).value;
+    });
+    expect(calls().length).toBe(asked);
+    expect(screen.getByRole('combobox', { name: 'Capa de color' })).toHaveValue('12');
+  });
+
   it('lists the global layer and the teams, and asks the rows on the chosen one', async () => {
     await page();
     const capa = await screen.findByRole('combobox', { name: 'Capa de color' });
@@ -1864,6 +1962,96 @@ describe('the color filter (P6)', () => {
   });
 });
 
+describe('the Precios view and the publication counts (owner, 2026-10-28)', () => {
+  const PRICED = [{ item_id: 4101, precio_lista_ml: 12345.5, markup: 21.5 }];
+  beforeEach(() => {
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+  });
+  const table = () => screen.getByRole('table', { name: /Publicaciones de Mercado Libre/ });
+  const headers = () => within(table()).getAllByRole('columnheader').map((th) => th.textContent);
+
+  it("the Publicaciones view has no Productos' price group: the sales sit right after Precio", async () => {
+    await page();
+    expect(within(table()).queryByRole('columnheader', { name: /Precio Clásica/ })).not.toBeInTheDocument();
+    expect(within(table()).queryByRole('columnheader', { name: /Calcular/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Precios' })).not.toBeInTheDocument();
+    expect(headers()).not.toContain('Precios de Productos');
+    expect(headers()).toContain('Ventas (unidades)');
+  });
+
+  it('the Precios view is the publication rows with the price group, picked from the view selector', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.click(within(screen.getByRole('group', { name: 'Vista' })).getByRole('button', { name: 'Precios' }));
+    expect(await within(table()).findByRole('columnheader', { name: /Precio Clásica/ })).toBeInTheDocument();
+    expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Precios' })).toBeInTheDocument();
+    expect(within(table()).getByText('MLA1100000001')).toBeInTheDocument();
+  });
+
+  it('the Producto view has no price group either', async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto'] });
+    expect(await screen.findByRole('button', { name: 'Total Productos: 40' })).toBeInTheDocument();
+    expect(screen.queryByRole('columnheader', { name: /Precio Clásica/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Precios' })).not.toBeInTheDocument();
+  });
+
+  it('the Publicaciones view counts active, paused, with and without promo publications instead of the product totals', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, promo: { con_promo: 70, sin_promo: 165 } } });
+    await page();
+    expect(await screen.findByRole('button', { name: 'Activas: 180' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pausadas: 40' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Con promo: 70' })).toBeInTheDocument();
+    // Sin promo has no filter of its own: a figure, not a button.
+    const sinPromo = within(screen.getByRole('region', { name: 'Totales de publicaciones' })).getByRole('group', { name: 'Sin promo' });
+    expect(sinPromo).toHaveTextContent('165');
+    expect(within(sinPromo).queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Total Productos/ })).not.toBeInTheDocument();
+  });
+
+  it('a count applies its filter: Activas the status, Con promo the started promotions', async () => {
+    const user = userEvent.setup();
+    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, promo: { con_promo: 70, sin_promo: 165 } } });
+    await page();
+    await user.click(await screen.findByRole('button', { name: 'Activas: 180' }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ estado: 'active' }));
+    expect(screen.getByRole('button', { name: 'Activas: 180' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Con promo: 70' }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ con_promo_aplicada: true }));
+  });
+
+  it('a second click takes its filter off', async () => {
+    const user = userEvent.setup();
+    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, promo: { con_promo: 70, sin_promo: 165 } } });
+    await page('/ml-publicaciones?estado=paused&promo_estado=aplicada');
+    await user.click(await screen.findByRole('button', { name: 'Pausadas: 40', pressed: true }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('estado'));
+    await user.click(screen.getByRole('button', { name: 'Con promo: 70', pressed: true }));
+    await waitFor(() => expect(lastParams()).not.toHaveProperty('con_promo_aplicada'));
+  });
+
+  it('reads "…" until the counts arrive, never 0', async () => {
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockReturnValue(new Promise(() => {}));
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones'] });
+    expect(await screen.findByRole('button', { name: 'Activas: cargando' })).toHaveTextContent('…');
+    expect(screen.getByRole('button', { name: 'Con promo: cargando' })).toBeInTheDocument();
+  });
+
+  it('promotions the backend could not read are a dash, never 0', async () => {
+    await page();
+    expect(await screen.findByRole('button', { name: 'Con promo: no disponible' })).toBeInTheDocument();
+  });
+
+  it("the Precios view keeps Productos' totals", async () => {
+    await page('/ml-publicaciones?vista=precios');
+    expect(await screen.findByRole('button', { name: 'Total Productos: 40' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Totales de publicaciones' })).not.toBeInTheDocument();
+  });
+});
+
 describe("Productos' price columns (S11)", () => {
   const PRICED = [
     { item_id: 4101, precio_lista_ml: 12345.5, markup: 21.5, precio_3_cuotas: 13000, markup_3_cuotas: 18, precio_pvp: 15000, markup_pvp: 30 },
@@ -1875,7 +2063,7 @@ describe("Productos' price columns (S11)", () => {
   const table = () => screen.getByRole('table', { name: /Publicaciones de Mercado Libre/ });
 
   it("shows each publication's product prices, asked once to Productos for the page's products", async () => {
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     expect(within(table()).getByRole('columnheader', { name: /Precio Clásica/ })).toBeInTheDocument();
     expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
     expect(productosAPI.listar).toHaveBeenCalledTimes(1);
@@ -1886,7 +2074,7 @@ describe("Productos' price columns (S11)", () => {
 
   it('Cuotas and PVP switch the columns without asking the list again; Alt+V steps through them', async () => {
     const user = userEvent.setup();
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     const asked = calls().length;
     await user.selectOptions(screen.getByRole('combobox', { name: 'Precios' }), 'cuotas');
     expect(await within(table()).findByRole('columnheader', { name: /3 Cuotas/ })).toBeInTheDocument();
@@ -1902,9 +2090,36 @@ describe("Productos' price columns (S11)", () => {
     expect(productosAPI.listar).toHaveBeenCalledTimes(1);
   });
 
+  it("with ver_ganancia, Precio Clásica sorts the whole list by its markup, the worst first, as Productos", async () => {
+    canSeeMargin = true;
+    await page('/ml-publicaciones?vista=precios');
+    const header = within(table()).getByRole('columnheader', { name: /Precio Clásica/ });
+    await userEvent.click(within(header).getByRole('button'));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'lista_clasica', dir: 'asc' }));
+  });
+
+  it('without ver_ganancia the price headers do not sort', async () => {
+    await page('/ml-publicaciones?vista=precios');
+    const header = within(table()).getByRole('columnheader', { name: /Precio Clásica/ });
+    expect(within(header).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('with the margin permission the clásica markup carries Productos\' "markup con offsets" (Mercado Libre offsets)', async () => {
+    canSeeMargin = true;
+    productosAPI.listar.mockResolvedValue({
+      data: { productos: [{ ...PRICED[0], costo: 800, moneda_costo: 'ARS', marca: 'TP-LINK', markup: 25 }], total: 1 },
+    });
+    offsetsGananciaAPI.vigentes.mockResolvedValueOnce({
+      data: [{ id: 1, tipo_offset: 'porcentaje_costo', porcentaje: 10, marca: 'TP-LINK' }],
+    });
+    await page('/ml-publicaciones?vista=precios');
+    // 25 % over 800 is 1000, which is 38,89 % over the 720 the offset leaves
+    expect(await within(table()).findByTitle('Markup con offsets aplicados')).toHaveTextContent('→ 38,9%');
+  });
+
   it("without Productos' prices there are no price columns, no mode and nothing asked", async () => {
     canSeePrices = false;
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     expect(within(table()).queryByRole('columnheader', { name: /Precio Clásica/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Precios' })).not.toBeInTheDocument();
     expect(productosAPI.listar).not.toHaveBeenCalled();
@@ -1929,7 +2144,7 @@ describe("editing Productos' prices in the table (S11c)", () => {
 
   it("saves the typed price as Productos does, says so and reads the page's prices again", async () => {
     const user = userEvent.setup();
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     await editClasica(user, '15000');
     // Editing a price is not opening its row.
     expect(table().querySelector('tr[aria-current]')).toBeNull();
@@ -1940,7 +2155,7 @@ describe("editing Productos' prices in the table (S11c)", () => {
 
   it('a 0 clears the price: an in-app confirmation first, and nothing is written when cancelled', async () => {
     const user = userEvent.setup();
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     await editClasica(user, '0');
     // ModalTesla: the in-app confirmation, never window.confirm.
     const dialog = (await screen.findByText('Esto borra el precio de la lista ML y todas sus cuotas.')).closest('.modal-tesla');
@@ -1954,7 +2169,7 @@ describe("editing Productos' prices in the table (S11c)", () => {
 
   it('without a price edit permission the prices read only', async () => {
     canEditPrices = false;
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
     expect(within(table()).queryByRole('button', { name: /^Editar Precio/ })).not.toBeInTheDocument();
   });
@@ -1980,7 +2195,7 @@ describe("Productos' Auto-recalcular cuotas (S12f2)", () => {
 
   it("is on by default, as in Productos, and a price saved recalculates the cuotas", async () => {
     const user = userEvent.setup();
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     expect(toggle()).toHaveAttribute('aria-pressed', 'true');
     await editClasica(user, '15000');
     await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, recalcular_cuotas: true })));
@@ -1988,7 +2203,7 @@ describe("Productos' Auto-recalcular cuotas (S12f2)", () => {
 
   it("the button turns it off for this browser (Productos' own preference) and the next price keeps the cuotas", async () => {
     const user = userEvent.setup();
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     await user.click(toggle());
     expect(toggle()).toHaveAttribute('aria-pressed', 'false');
     expect(window.localStorage.getItem('recalcularCuotasAuto')).toBe('false');
@@ -1998,7 +2213,7 @@ describe("Productos' Auto-recalcular cuotas (S12f2)", () => {
 
   it('starts from what Productos left, and Alt+R flips it back', async () => {
     window.localStorage.setItem('recalcularCuotasAuto', 'false');
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     expect(toggle()).toHaveAttribute('aria-pressed', 'false');
     fireEvent.keyDown(document.body, { key: 'r', code: 'KeyR', altKey: true });
     expect(toggle()).toHaveAttribute('aria-pressed', 'true');
@@ -2007,7 +2222,7 @@ describe("Productos' Auto-recalcular cuotas (S12f2)", () => {
 
   it('without a price edit permission there is no button and Alt+R changes nothing', async () => {
     canEditPrices = false;
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Auto-recalcular/ })).not.toBeInTheDocument();
     fireEvent.keyDown(document.body, { key: 'r', code: 'KeyR', altKey: true });
@@ -2026,7 +2241,7 @@ describe("r / w / o on the focused row's product (S9)", () => {
 
   it("r turns the rebate of the focused publication's product on as Productos does, says so and re-reads the prices", async () => {
     const user = userEvent.setup();
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     await screen.findByText('12.345,50');
     await user.keyboard('{ArrowDown}r');
     await waitFor(() => expect(preciosAPI.setRebate).toHaveBeenCalledWith(4101, { participa_rebate: true, porcentaje_rebate: 4 }));
@@ -2036,7 +2251,7 @@ describe("r / w / o on the focused row's product (S9)", () => {
 
   it('a publication with no product says so and writes nothing', async () => {
     const user = userEvent.setup();
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     await screen.findByText('12.345,50');
     // The third publication has no product.
     await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}r');
@@ -2047,7 +2262,7 @@ describe("r / w / o on the focused row's product (S9)", () => {
   it('without the permission of that toggle it says so and writes nothing', async () => {
     const user = userEvent.setup();
     canEditPrices = false;
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     await screen.findByText('12.345,50');
     await user.keyboard('{ArrowDown}o');
     expect(await screen.findByText('No tenés permiso para cambiar fuera de tarjetas')).toBeInTheDocument();
@@ -2065,7 +2280,7 @@ describe("Productos' pricing modal from the table (P3c)", () => {
 
   it("Calcular opens Productos' pricing modal on the row's product", async () => {
     const user = userEvent.setup();
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     await user.click(await within(table()).findByRole('button', { name: 'Calcular el precio de Router Archer AX55' }));
     // PricingModalTesla, titled with the product and its listing figures as in Productos.
     const modal = (await screen.findByText(/Stock: 3 \| Costo: USD \$100\.00/)).closest('.modal-tesla');
@@ -2076,7 +2291,7 @@ describe("Productos' pricing modal from the table (P3c)", () => {
 
   it('without a price edit permission there is no Calcular', async () => {
     canEditPrices = false;
-    await page();
+    await page('/ml-publicaciones?vista=precios');
     expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
     expect(within(table()).queryByRole('columnheader', { name: /Calcular/ })).not.toBeInTheDocument();
   });
@@ -2154,6 +2369,111 @@ describe('bulk actions and filters from the keyboard (S9b)', () => {
     expect(await screen.findByLabelText('Ana')).toBeInTheDocument();
     await user.keyboard('{Alt>}s{/Alt}');
     await waitFor(() => expect(screen.queryByLabelText('Ana')).not.toBeInTheDocument());
+  });
+});
+
+describe("Ctrl+I: Productos' product information", () => {
+  let plainGet;
+  beforeEach(() => {
+    plainGet = api.get.getMockImplementation();
+    api.get.mockClear();
+    // The modal's own read stays pending: what it shows is ModalInfoProducto's business, opening it is this screen's.
+    api.get.mockImplementation((url, ...rest) => (url.endsWith('/detalle') ? new Promise(() => {}) : plainGet(url, ...rest)));
+  });
+  afterEach(() => api.get.mockImplementation(plainGet));
+
+  it("opens Productos' information of the focused publication's product, and Escape closes it", async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findAllByRole('row');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByRole('heading', { name: 'Información Detallada' })).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith(`/productos/${ITEMS[0].link.producto_item_id}/detalle`);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Información Detallada' })).not.toBeInTheDocument());
+    // Closed, the modal gives the keyboard back to the list.
+    const focused = document.activeElement;
+    await user.keyboard('{ArrowDown}');
+    expect(document.activeElement).not.toBe(focused);
+    expect(document.activeElement.closest('tr')).not.toBeNull();
+  });
+
+  it("in the Producto view it opens the focused product's information", async () => {
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    const user = userEvent.setup();
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto'] });
+    await within(await screen.findByRole('table', { name: /por producto/ })).findByText('Router Archer AX55');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByRole('heading', { name: 'Información Detallada' })).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith('/productos/4101/detalle');
+  });
+
+  it('in the Agrupado view it says where it works and opens nothing', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await screen.findByText('EPSON');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByText('La información del producto funciona en las vistas Publicaciones, Precios y Producto')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Información Detallada' })).not.toBeInTheDocument();
+  });
+
+  it('a publication with no linked product says so and opens nothing', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: FACETS, items: [{ ...ITEMS[0], link: null }], total: 1 });
+    const user = userEvent.setup();
+    await page();
+    await screen.findAllByRole('row');
+    await user.keyboard('{ArrowDown}{Control>}i{/Control}');
+    expect(await screen.findByText('La publicación no tiene producto vinculado')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Información Detallada' })).not.toBeInTheDocument();
+  });
+});
+
+describe("Productos' navigation mode banner", () => {
+  const banner = () => screen.queryByText(/Modo Navegación Activo/);
+
+  it('shows while a row has the focus, and Escape leaves the row and hides it', async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findAllByRole('row');
+    expect(banner()).not.toBeInTheDocument();
+    await user.keyboard('{ArrowDown}');
+    expect(banner()).toHaveTextContent('Modo Navegación Activo - Presiona Esc para salir o ? para ayuda');
+    await user.keyboard('{Escape}');
+    expect(banner()).not.toBeInTheDocument();
+    expect(document.activeElement.closest('tr')).toBeNull();
+  });
+
+  it('with the detail open, Escape first closes the detail and the row stays focused', async () => {
+    const user = userEvent.setup();
+    await page();
+    const row = screen.getByText('MLA1100000001').closest('tr');
+    await user.click(row);
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('heading', { name: /Router TP-Link Archer AX55/ })).not.toBeInTheDocument());
+    expect(row).toHaveFocus();
+    expect(banner()).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(row).not.toHaveFocus();
+    expect(banner()).not.toBeInTheDocument();
+  });
+});
+
+describe("Productos' Alt+A / Alt+C / Alt+F filter keys", () => {
+  it('Alt+A opens and closes the Auditoría filters, Alt+C and Alt+F the presence ones', async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.keyboard('{Alt>}a{/Alt}');
+    expect(await screen.findByRole('group', { name: 'Filtros de auditoría' })).toBeInTheDocument();
+    await user.keyboard('{Alt>}a{/Alt}');
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Filtros de auditoría' })).not.toBeInTheDocument());
+    await user.keyboard('{Alt>}c{/Alt}');
+    expect(await screen.findByRole('group', { name: 'Filtros de presencia' })).toBeInTheDocument();
+    await user.keyboard('{Alt>}f{/Alt}');
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Filtros de presencia' })).not.toBeInTheDocument());
+    // Alt+F opens them from closed too.
+    await user.keyboard('{Alt>}f{/Alt}');
+    expect(await screen.findByRole('group', { name: 'Filtros de presencia' })).toBeInTheDocument();
   });
 });
 
@@ -2298,5 +2618,93 @@ describe("Productos' Sin MLA in the Producto view", () => {
     await user.click(screen.getByRole('button', { name: 'Producto' }));
     await screen.findByText('Router Archer AX55');
     await waitFor(() => expect(productCalls().at(-1).con_mla).toBeUndefined());
+  });
+});
+
+describe("the panels' Precios tab shows the list's price group (owner, 2026-10-28)", () => {
+  const PRICED = [
+    {
+      item_id: 4101,
+      descripcion: 'Router Archer AX55',
+      precio_lista_ml: 12345.5,
+      markup: 21.5,
+      precio_3_cuotas: 13000,
+      precio_pvp: 15000,
+      mejor_oferta_precio: 11999,
+      participa_rebate: true,
+      precio_rebate: 12500,
+    },
+  ];
+  beforeEach(() => {
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+    preciosAPI.setRapido.mockClear();
+    publicacionesMlAPI.detail.mockImplementation(() => Promise.resolve({ data: { ...DETAIL_LINKED, row: ITEMS[0] } }));
+  });
+  const group = async () => {
+    const panel = await screen.findByRole('complementary', { name: /Detalle de/ });
+    return within(panel).findByRole('region', { name: 'Precios de la lista' });
+  };
+
+  it("a publication's Precios tab has every list price of the Precios view: Normal, Cuotas and PVP", async () => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
+    const prices = await group();
+    for (const header of ['Precio Clásica', 'Precio Rebate', 'Mejor Oferta', 'Web Transf.', '3 Cuotas', '12 Cuotas', 'Precio PVP', 'PVP 3 Cuotas']) {
+      expect(within(prices).getAllByRole('columnheader', { name: header }).length).toBeGreaterThan(0);
+    }
+    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
+    expect(within(prices).getByText('15.000,00')).toBeInTheDocument();
+  });
+
+  it("edits a price with the list's own editor and handlers, and reads it again", async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
+    const prices = await group();
+    await user.click((await within(prices).findAllByRole('button', { name: /^Editar Precio Clásica/ }))[0]);
+    const input = within(prices).getByRole('textbox', { name: 'Precio Clásica' });
+    await user.clear(input);
+    const asked = productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length;
+    productosAPI.listar.mockResolvedValue({ data: { productos: [{ ...PRICED[0], precio_lista_ml: 15000 }], total: 1 } });
+    await user.type(input, '15000{Enter}');
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 15000 })));
+    expect(await screen.findByText('Precio guardado.')).toBeInTheDocument();
+    // The group reads the product's prices again and shows the saved one.
+    await waitFor(() => expect(productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length).toBeGreaterThan(asked));
+    expect((await within(prices).findAllByText('15.000,00')).length).toBeGreaterThan(0);
+  });
+
+  it('without a price edit permission the group reads only: no editor, no Calcular', async () => {
+    canEditPrices = false;
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
+    const prices = await group();
+    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
+    expect(within(prices).queryByRole('button', { name: /^Editar/ })).not.toBeInTheDocument();
+    expect(within(prices).queryByRole('button', { name: /^Calcular/ })).not.toBeInTheDocument();
+  });
+
+  it('the Agrupado tree asks no offsets until a panel opens', async () => {
+    canSeeMargin = true;
+    offsetsGananciaAPI.vigentes.mockClear();
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await waitFor(() => expect(publicacionesMlAPI.groups).toHaveBeenCalled());
+    expect(offsetsGananciaAPI.vigentes).not.toHaveBeenCalled();
+  });
+
+  it("Calcular opens Productos' pricing modal on the product", async () => {
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
+    const prices = await group();
+    await userEvent.click(await within(prices).findByRole('button', { name: 'Calcular el precio de Router Archer AX55' }));
+    // PricingModalTesla, titled with the product as in Productos.
+    await waitFor(() => expect(document.querySelector('.modal-tesla')).toHaveTextContent('Router Archer AX55'));
+  });
+
+  it("a product's Precios tab has the same group", async () => {
+    publicacionesMlAPI.products.mockReset();
+    publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto&prod=4101'] });
+    const panel = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    await userEvent.click(await within(panel).findByRole('tab', { name: 'Precios' }));
+    const prices = await within(panel).findByRole('region', { name: 'Precios de la lista' });
+    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
   });
 });

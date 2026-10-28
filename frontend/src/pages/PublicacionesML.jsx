@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { Download, FileDown, FileSpreadsheet, FilterX, Keyboard, ShieldAlert } from 'lucide-react';
+import { Download, FileDown, FileSpreadsheet, FilterX, Keyboard, ShieldAlert, Users } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
@@ -13,6 +13,7 @@ import PromoFilters from '../components/publicacionesMl/PromoFilters';
 import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
 import PublicationStatCards from '../components/publicacionesMl/PublicationStatCards';
+import PublicationCountCards from '../components/publicacionesMl/PublicationCountCards';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import ProductPanel from '../components/publicacionesMl/ProductPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
@@ -23,13 +24,16 @@ import PaintColorMenu from '../components/publicacionesMl/PaintColorMenu';
 import { itemRowTone } from '../components/publicacionesMl/rowColor';
 import useColorOverlay from '../components/publicacionesMl/useColorOverlay';
 import { useSSEChannel } from '../hooks/useSSEChannel';
+import { PREARMADAS_LIMITE, usePrearmadasStats } from '../hooks/usePrearmadasStats';
 import { useEquipos } from '../hooks/useEquipos';
+import EquiposModal from '../components/EquiposModal';
 import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
 import { resolverParams } from '../components/publicacionesMl/bulkParams';
 import ExportModal from '../components/ExportModal';
+import ModalInfoProducto from '../components/ModalInfoProducto';
 import ShortcutsHelp from '../components/publicacionesMl/ShortcutsHelp';
 import useRecalcularCuotasAuto from '../components/publicacionesMl/useRecalcularCuotasAuto';
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
@@ -40,6 +44,7 @@ import useProductSelection from '../components/publicacionesMl/useProductSelecti
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';
 import useTnCardPercent from '../components/publicacionesMl/useTnCardPercent';
+import { useListOffsets } from '../hooks/useListOffsets';
 import PriceModeSelect from '../components/publicacionesMl/PriceModeSelect';
 import { canViewProductPrices, pricePermissions } from '../components/pricing/productPricePermissions';
 import useInlinePriceEdit from '../components/publicacionesMl/useInlinePriceEdit';
@@ -150,6 +155,8 @@ const EMPTY_ROWS = [];
 const VISTA_OPTIONS = [
   { value: 'producto', label: 'Producto' },
   { value: 'publicacion', label: 'Publicaciones' },
+  // The publication rows with Productos' price columns (owner, 2026-10-28): prices out of the main list.
+  { value: 'precios', label: 'Precios' },
   { value: 'agrupado', label: 'Agrupado' },
 ];
 
@@ -260,7 +267,9 @@ export default function PublicacionesML() {
     [],
   );
 
-  const { equipos, loaded: equiposLoaded } = useEquipos();
+  const { equipos, loaded: equiposLoaded, recargar: recargarEquipos } = useEquipos();
+  // Team management, as in Productos: any user may create and run their own teams, so no permission gates it.
+  const [equiposOpen, setEquiposOpen] = useState(false);
   // The rows are asked on a team layer only once the teams say it is the user's: a link to another team's layer
   // would answer 403 and flash a false error before ColorLayerSelect drops it. Until then nothing is asked.
   const layerPending = filters.equipo !== '' && !equiposLoaded;
@@ -276,6 +285,9 @@ export default function PublicacionesML() {
   const pageSize = filters.limite;
   const agrupado = filters.vista === 'agrupado';
   const producto = filters.vista === 'producto';
+  const precios = filters.vista === 'precios';
+  // The main list sums up publications, not products (owner, 2026-10-28).
+  const publicacion = filters.vista === 'publicacion';
   // Productos' Sin MLA: products with no publication, so nothing a publication strip or action could act on.
   const sinMla = filters.mla === SIN_MLA;
   // The views that load their own rows: `/items` brings them only the state and the facets.
@@ -376,7 +388,7 @@ export default function PublicacionesML() {
 
   // Like the rows, the strip and the bulk sets ask only a layer known to be the user's (it matters with `colores`).
   const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending && !sinMla);
-  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending);
+  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending && !publicacion);
   const productRows = useProductRows({
     filters: rowFilters,
     pageSize,
@@ -384,6 +396,19 @@ export default function PublicacionesML() {
     canSeeMargin,
     enabled: producto && !layerPending,
   });
+
+  // Productos' prearmadas badge beside each product row: the first PREARMADAS_LIMITE products, as Productos asks them.
+  const prearmadasItemIds = useMemo(
+    () =>
+      producto
+        ? productRows.rows
+            .filter((row) => row.type === 'node' && row.node.productoItemId != null)
+            .slice(0, PREARMADAS_LIMITE)
+            .map((row) => row.node.productoItemId)
+        : EMPTY_ROWS,
+    [producto, productRows.rows],
+  );
+  const { statsById: prearmadasStats } = usePrearmadasStats(prearmadasItemIds);
 
   // Productos' prices of the products on show: the publications' linked products, or the product rows themselves.
   // The tree loads its rows by itself and has no price columns.
@@ -396,10 +421,14 @@ export default function PublicacionesML() {
         : (data?.items ?? EMPTY_ROWS).map((item) => item.link?.producto_item_id),
     [producto, productRows.rows, data],
   );
-  // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it.
+  // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it. Read in every list
+  // view, not only Precios: the r / w / o shortcuts toggle the focused row's product from these prices.
   const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
   // Productos' Tienda Nube card surcharge, for the Web Transf. column's transfer hint (S3).
   const tnCardPercent = useTnCardPercent(canSeePrices);
+  // Productos' "markup con offsets" under the clásica markup: the offsets are about the cost, so only with the margin.
+  // Also for the panels' Precios tab: in the tree, which has no price columns, only while a panel is open.
+  const listOffsets = useListOffsets(canSeePrices && canSeeMargin && (!agrupado || Boolean(filters.sel || filters.prod)));
   // The products checked for the bulk pricing actions (a publication checks its linked product), as in Productos
   // (S12d): Shift+click checks a range of the rows on show, the title header checks the page, and the selection
   // outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page there.
@@ -424,6 +453,17 @@ export default function PublicacionesML() {
     () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, onToggle: priceEditor.editToggle, saving: priceEditor.saving }),
     [priceWritePermissions, priceEditor.save, priceEditor.editToggle, priceEditor.saving],
   );
+  // The list's price cells' handlers, for the panels' Precios tab (the same group, the same writes and modals).
+  const priceGroup = useMemo(
+    () => ({
+      edit: priceEdit,
+      onCalculate: canCalculatePrice ? setPricingProduct : null,
+      offsets: listOffsets,
+      tnCardPercent,
+      version: reloadToken,
+    }),
+    [priceEdit, canCalculatePrice, listOffsets, tnCardPercent, reloadToken],
+  );
   const cyclePriceMode = () => {
     const next = PRICE_MODES[(PRICE_MODES.indexOf(filters.modo) + 1) % PRICE_MODES.length];
     setFilters({ modo: next === PRICE_MODES[0] ? '' : next });
@@ -446,9 +486,11 @@ export default function PublicacionesML() {
         familias: filters.familias === '1',
         skuDivergence,
         priceMode: filters.modo,
-        prices: canSeePrices ? listPrices : null,
+        // Productos' price columns live in the Precios view only (owner, 2026-10-28).
+        prices: canSeePrices && precios ? listPrices : null,
         priceEdit,
         onCalculatePrice: canCalculatePrice ? setPricingProduct : null,
+        priceOffsets: listOffsets,
         tnCardPercent,
       }),
     [
@@ -465,8 +507,10 @@ export default function PublicacionesML() {
       filters.modo,
       canSeePrices,
       listPrices,
+      precios,
       priceEdit,
       canCalculatePrice,
+      listOffsets,
       tnCardPercent,
     ],
   );
@@ -563,9 +607,23 @@ export default function PublicacionesML() {
         : row?.item?.link?.producto_item_id
       : items.find((item) => item.item_id === key)?.link?.producto_item_id;
   };
+  // Ctrl+I: Productos' information modal of the focused row's product.
+  const [infoProductId, setInfoProductId] = useState(null);
+  const showInfo = (key) => {
+    if (agrupado) {
+      showToast('La información del producto funciona en las vistas Publicaciones, Precios y Producto', 'error');
+      return;
+    }
+    const productId = productIdOfRow(key);
+    if (productId == null) {
+      showToast('La publicación no tiene producto vinculado', 'error');
+      return;
+    }
+    setInfoProductId(productId);
+  };
   const paintRow = (key, color) => {
     if (agrupado) {
-      showToast('Pintar con el teclado funciona en las vistas Publicaciones y Producto', 'error');
+      showToast('Pintar con el teclado funciona en las vistas Publicaciones, Precios y Producto', 'error');
       return;
     }
     const productId = productIdOfRow(key);
@@ -612,13 +670,13 @@ export default function PublicacionesML() {
   const [bulkRequest, setBulkRequest] = useState(null);
   const filterCardRef = useRef(null);
   const openFilter = (name) => filterCardRef.current?.querySelector(`[data-filter="${name}"]`)?.click();
-  usePublicacionesMLKeyboard({
+  const { navigating } = usePublicacionesMLKeyboard({
     searchRef,
     onBulkAction: (key) => setBulkRequest({ key, at: performance.now() }),
     onOpenFilter: openFilter,
     onPaintRow: paintRow,
     onCycleLayer: cycleLayer,
-    onCycleMode: canSeePrices && !agrupado ? cyclePriceMode : undefined,
+    onCycleMode: canSeePrices && precios ? cyclePriceMode : undefined,
     onToggleRow: canSeePrices && !agrupado ? toggleRow : undefined,
     // Shift+Up / Shift+Down check the row moved to, from the last product checked (S12d, as in Productos).
     onExtendRow: agrupado ? undefined : extendRow,
@@ -626,7 +684,10 @@ export default function PublicacionesML() {
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
     onToggleAutoRecalc: canCalculatePrice ? autoRecalc.toggle : undefined,
+    onShowInfo: showInfo,
     onToggleHelp: () => setShowShortcuts((open) => !open),
+    // The open side panel takes Escape first (closing it gives its row the focus back).
+    keepRowOnEscape: Boolean(filters.sel || filters.prod),
     showToast,
   });
   const total = producto ? productRows.total : (data?.total ?? 0);
@@ -733,16 +794,20 @@ export default function PublicacionesML() {
         />
       )}
 
-      <PublicationStatCards
-        state={stats}
-        filters={filters}
-        canSeeMargin={canSeeMargin}
-        sinMla={producto}
-        onApply={setFilters}
-        onReset={resetFilters}
-        onRetry={stats.reload}
-        markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
-      />
+      {publicacion ? (
+        <PublicationCountCards facets={facets} filters={filters} onApply={setFilters} />
+      ) : (
+        <PublicationStatCards
+          state={stats}
+          filters={filters}
+          canSeeMargin={canSeeMargin}
+          sinMla={producto}
+          onApply={setFilters}
+          onReset={resetFilters}
+          onRetry={stats.reload}
+          markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
+        />
+      )}
 
       <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
@@ -774,6 +839,24 @@ export default function PublicacionesML() {
               equipo={rowFilters.equipo}
               onPainted={colorOverlay.apply}
               onClearChecked={clearChecked}
+            />
+            {/* Icon-only: the toolbar's first row has no room for a label at 1366 px. */}
+            <button
+              type="button"
+              className="btn-tesla outline-subtle-primary icon-only sm"
+              onClick={() => setEquiposOpen(true)}
+              aria-label="Equipos"
+              title="Equipos: crear y administrar tus equipos"
+            >
+              <Users size={14} aria-hidden="true" />
+            </button>
+            {/* Closing reloads the teams, so the layer offers what was just created, renamed or deleted. */}
+            <EquiposModal
+              isOpen={equiposOpen}
+              onClose={() => {
+                setEquiposOpen(false);
+                recargarEquipos();
+              }}
             />
           </div>
           <span className={styles.spacer} />
@@ -847,7 +930,7 @@ export default function PublicacionesML() {
           <AuditFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
           <PromoFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
           {/* Productos' price columns (S11): how the rows are looked at, like the Capa; the header has no room left. */}
-          {canSeePrices && !agrupado && (
+          {canSeePrices && precios && (
             <PriceModeSelect
               value={filters.modo}
               onChange={(value) => setFilters({ modo: value === PRICE_MODES[0] ? '' : value })}
@@ -901,6 +984,7 @@ export default function PublicacionesML() {
                   dataState={data?.data_state}
                   onBack={filters.prod ? backToProduct : undefined}
                   backLabel={backLabel}
+                  priceGroup={canSeePrices ? priceGroup : null}
                 />
               ) : filters.prod ? (
                 <ProductPanel
@@ -911,6 +995,7 @@ export default function PublicacionesML() {
                   canSeeSales={canSeeSales}
                   canSeeMargin={canSeeMargin}
                   onListReload={reloadList}
+                  priceGroup={canSeePrices ? priceGroup : null}
                 />
               ) : null
             }
@@ -921,6 +1006,8 @@ export default function PublicacionesML() {
                 columns={selectableColumns}
                 selection={selection}
                 colorOverlay={colorOverlay.colors}
+                prearmadasStats={prearmadasStats}
+                listingById={listPrices.byId}
                 canSeeMargin={canSeeMargin}
                 expandedIds={expandedIds}
                 onSelectItem={handleRowClick}
@@ -991,6 +1078,12 @@ export default function PublicacionesML() {
         </div>
       )}
       {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+      {navigating && (
+        <div className={styles.navigationBanner} role="status">
+          Modo Navegación Activo - Presiona <kbd>Esc</kbd> para salir o <kbd>?</kbd> para ayuda
+        </div>
+      )}
+      <ModalInfoProducto isOpen={infoProductId != null} itemId={infoProductId} onClose={() => setInfoProductId(null)} />
       {priceEditor.pending && (
         <ModalTesla
           isOpen

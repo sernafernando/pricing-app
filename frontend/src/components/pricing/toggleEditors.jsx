@@ -6,8 +6,29 @@ import styles from './ProductPrices.module.css';
  * product panel's ProductToggles and Publicaciones ML's row.
  */
 
-/** The editor's keys: Enter saves, Escape cancels the edit (not the side panel or the row around it). */
+// The editors' controls are checkboxes, text inputs and buttons only: the Tab wrap below takes its first and last
+// control from this selector (a new kind of control must be added here).
+const CONTROLS = 'input, button';
+
+/**
+ * The editor's keys: Enter saves, Escape cancels the edit (not the side panel or the row around it), and Tab stays
+ * inside the editor as in Productos (`useProductosKeyboard.js`): from its last control it goes back to the first, and
+ * Shift+Tab from the first goes to the last. In between, the browser's own order.
+ */
 const editorKeys = (onSave, onCancel) => (event) => {
+  if (event.key === 'Tab') {
+    // Disabled while saving: with no enabled control left, Tab is not held.
+    const controls = [...event.currentTarget.querySelectorAll(CONTROLS)].filter((el) => !el.disabled);
+    if (controls.length === 0) return;
+    const [first, last] = [controls[0], controls[controls.length - 1]];
+    const [from, to] = event.shiftKey ? [first, last] : [last, first];
+    if (event.target === from) {
+      event.preventDefault();
+      event.stopPropagation();
+      to.focus();
+    }
+    return;
+  }
   // Enter on a button is that button's click (Cancelar must not save).
   if (event.key === 'Enter' && event.target.tagName !== 'BUTTON') {
     event.preventDefault();

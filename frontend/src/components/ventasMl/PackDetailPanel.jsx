@@ -21,8 +21,9 @@
  */
 
 import { useCallback, useState } from 'react';
-import { X, TriangleAlert } from 'lucide-react';
+import { Package, X, TriangleAlert } from 'lucide-react';
 import { usePackDetail } from '../../hooks/usePackDetail';
+import SaleItemThumbnail from './SaleItemThumbnail';
 import saleStyles from './SaleDetailPanel.module.css';
 import styles from './PackDetailPanel.module.css';
 
@@ -101,6 +102,10 @@ export default function PackDetailPanel({ packId, onClose, onSelectOrder }) {
                     key={`${index}-${item.item_id}-${item.variation_id ?? ''}`}
                     className={saleStyles.itemLine}
                   >
+                    {/* The pack's only list of the items sold: each with its MLA's photo. */}
+                    <SaleItemThumbnail url={item.thumbnail_url} className={styles.itemLineThumb} aria-hidden="true">
+                      <Package size={12} />
+                    </SaleItemThumbnail>
                     <span className={saleStyles.itemLineTitle}>
                       {item.title || item.item_id}
                       {item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : ''}
