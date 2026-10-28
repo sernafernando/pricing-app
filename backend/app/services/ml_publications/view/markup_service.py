@@ -137,12 +137,17 @@ class NodeMarkup:
 
 
 def aggregate_nodes(
-    items: Mapping[str, ItemMarkup], members: Iterable[tuple[str, str]], products: bool = False
+    items: Mapping[str, ItemMarkup],
+    members: Iterable[tuple[str, str]],
+    products: bool = False,
+    product: Optional[int] = None,
 ) -> dict[str, NodeMarkup]:
     """`node key -> NodeMarkup` from the publications' markup (`compute_markups`, Ads applied when asked) and the
     `(item_id, node key)` pairs naming the node of each publication. A publication counts as negative exactly when
     `/items?markup_neg=true` would list it, and its units all enter the range (`value_min` / `value_max` span every
-    variation with a value). A node only of publications without a value has a null range."""
+    variation with a value). A node only of publications without a value has a null range. `products`: the nodes
+    are products (each reads its own units); `product`: every node is below that product (families, lone
+    publications), so each reads that product's units, as `/items?producto=` does."""
     negative: dict[str, int] = {}
     low: dict[str, float] = {}
     high: dict[str, float] = {}
@@ -152,7 +157,12 @@ def aggregate_nodes(
         if item is None:
             continue
         # a product node reads only the publication's units of that product (`product_markup`)
-        markup = product_markup(item, int(key)) if products and key.isdigit() else item.markup
+        if product is not None:
+            markup = product_markup(item, product)
+        elif products and key.isdigit():
+            markup = product_markup(item, int(key))
+        else:
+            markup = item.markup
         negative[key] += markup.any_negative
         if markup.value_min is not None and markup.value_max is not None:
             low[key] = min(low.get(key, markup.value_min), markup.value_min)

@@ -226,6 +226,19 @@ class TestEveryLevel:
         negatives = MarkupQuery(db, MarkupFilter(negative=True))
         assert lone.negative_count == TestConsistencyWithItems.items_total(db, lone.params, negatives)
 
+    def test_below_a_product_a_publication_of_two_products_reads_only_that_product_s_units(
+        self, conn, db, envio_calls
+    ) -> None:
+        """MLA4's variations are linked to 70 (positive) and 71 (negative). Under product 70 its node must count what
+        `/items?producto=70&markup_neg=true` opens: it is not negative there, and its range is 70's unit only."""
+        seed_catalog(conn)
+        negatives = MarkupQuery(db, MarkupFilter(negative=True))
+        for product, worst in (("70", worst_of(70)), ("71", worst_of(71))):
+            mla4 = by_key(tree(db, "ALFA", "__none__", "3845", product, markup=MarkupQuery(db), familias=True))["MLA4"]
+            assert mla4.params["producto"] == product
+            assert mla4.negative_count == TestConsistencyWithItems.items_total(db, mla4.params, negatives), product
+            assert (mla4.markup_min, mla4.markup_max) == (worst, worst), product
+
     def test_the_counts_of_a_level_still_add_up_with_the_figures_on(self, conn, db, envio_calls) -> None:
         seed_catalog(conn)
         page = tree(db, markup=MarkupQuery(db))
