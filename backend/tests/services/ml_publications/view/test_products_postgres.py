@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
@@ -276,3 +276,13 @@ def test_the_stock_is_the_erp_stock_of_items_only_through_a_linked_link(store) -
     assert 74 not in rows
     assert rows[NO_PRODUCT].stock is None and "MLA8" in expansion(store, rows[NO_PRODUCT], estado="active")
     assert rows[70].stock == 9  # a linked link keeps it
+
+
+def test_the_product_cost_is_read_only_when_asked(store) -> None:
+    store.execute(text("UPDATE productos_erp SET costo = 50, moneda_costo = 'USD' WHERE item_id = 70"))
+    f = parse_filter(estado="active")
+    assert products.list_products(store, f, products.DEFAULT_SORT, True, 50, 0).costs == {}
+    costs = products.list_products(store, f, products.DEFAULT_SORT, True, 50, 0, cost=True).costs
+    store.rollback()
+    assert costs["70"] == {"amount": 50.0, "currency": "USD"}
+    assert costs["71"] is None and costs[str(NO_PRODUCT)] is None

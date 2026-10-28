@@ -40,6 +40,7 @@ export const CAMPANA_MIGRADA = {
   created_at: '2026-10-22T15:10:00Z',
   updated_at: '2026-10-22T15:10:00Z',
   grupos: [{ id: 301, nombre: 'Offset #48: RB 8180' }],
+  items: [],
   resumen: RESUMEN_BASE,
 };
 

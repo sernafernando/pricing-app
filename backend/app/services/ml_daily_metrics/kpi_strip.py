@@ -8,7 +8,7 @@ and period. Without `can_see_margin` the profit figures (Total Gauss, markup) co
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel
 
@@ -42,6 +42,17 @@ class KpiUnits(BaseModel):
     value: int
     delta_pct: Optional[float] = None
     series: List[int]
+
+
+class KpiRatio(BaseModel):
+    value: Optional[float] = None
+    delta_pct: Optional[float] = None
+
+
+class KpiTicket(KpiRatio):
+    """Facturado per operation; a day without operations has no ticket (null, never 0)."""
+
+    series: List[Optional[float]]
 
 
 class KpiMarkup(BaseModel):
@@ -206,6 +217,11 @@ class BoardKpisWithAds(BoardKpis):
     ads: Optional[KpiAds] = None
     total_tp: Optional[KpiTp] = None
     sell_in_out: Optional[SellInOutFigures] = None
+    # Always present: packs or lone orders with a sale (`board.Board._operations`), Facturado per operation and
+    # units per operation, whose values (and deltas) are null, never 0, when there is nothing to divide by.
+    operations: KpiUnits
+    ticket: KpiTicket
+    units_per_sale: KpiRatio
 
 
 def round_money(value) -> Optional[float]:
@@ -315,9 +331,40 @@ def build_kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpis:
     )
 
 
+def _per_operation(value: Any, operations: int) -> Optional[float]:
+    return float(value) / operations if operations else None
+
+
+def _round2(value: Optional[float]) -> Optional[float]:
+    return None if value is None else round(value, 2)
+
+
+def _operations_kpis(k: board.Kpis) -> Dict[str, Any]:
+    """Operaciones, Ticket promedio (Facturado / Operaciones) and Unids/Venta (Unidades / Operaciones). They need
+    no profit permission: they read the same figures as Facturado and Unidades."""
+    ticket, ticket_prev = _per_operation(k.gross, k.operations), _per_operation(k.prev_gross, k.prev_operations)
+    per_sale, per_sale_prev = _per_operation(k.units, k.operations), _per_operation(k.prev_units, k.prev_operations)
+    return {
+        "operations": KpiUnits(
+            value=k.operations,
+            delta_pct=delta_pct(k.operations, k.prev_operations),
+            series=k.series_operations,
+        ),
+        "ticket": KpiTicket(
+            value=_round2(ticket),
+            delta_pct=delta_pct(ticket, ticket_prev) if ticket is not None else None,
+            series=[_round2(_per_operation(g, n)) for g, n in zip(k.series_gross, k.series_operations)],
+        ),
+        "units_per_sale": KpiRatio(
+            value=_round2(per_sale),
+            delta_pct=delta_pct(per_sale, per_sale_prev) if per_sale is not None else None,
+        ),
+    }
+
+
 def build_board_kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpisWithAds:
     """`build_kpis` plus the ads block and Total TP: each present only with its toggle ON and the profit-view
-    permission."""
+    permission; and the operations figures, always."""
     ads = _kpi_ads(k.ads, k.gross) if can_see_margin and k.ads is not None else None
     tp = (
         KpiTp(value=round_money(k.total_tp), incompletos=k.tp_incompletos)
@@ -325,4 +372,10 @@ def build_board_kpis(k: board.Kpis, can_see_margin: bool) -> BoardKpisWithAds:
         else None
     )
     sell = sell_in_out_of(k) if can_see_margin else None
-    return BoardKpisWithAds(**build_kpis(k, can_see_margin).model_dump(), ads=ads, total_tp=tp, sell_in_out=sell)
+    return BoardKpisWithAds(
+        **build_kpis(k, can_see_margin).model_dump(),
+        ads=ads,
+        total_tp=tp,
+        sell_in_out=sell,
+        **_operations_kpis(k),
+    )

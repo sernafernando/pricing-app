@@ -74,7 +74,7 @@ vi.mock('../../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   pxqAPI: { getLive: vi.fn(), getMarkup: vi.fn(), createTier: vi.fn(), updateTier: vi.fn(), deleteTier: vi.fn(), sync: vi.fn(), adoptLive: vi.fn() },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), stats: vi.fn(() => Promise.resolve({ data: { stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 }, can_see_margin: false } })), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
   productosPropiosAPI: {
     get: vi.fn(() =>
       Promise.resolve({
@@ -356,6 +356,23 @@ describe('Publicaciones ML (visual)', () => {
         for (const band of document.querySelectorAll('div[class*="filterBand"]')) {
           expect(band.scrollWidth).toBeLessThanOrEqual(band.clientWidth + 1);
         }
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the stat cards keep every label and figure on one line, inside their card`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        await expect.element(screen.getByRole('button', { name: 'Stock sin $: 3' })).toBeVisible();
+        const strip = document.querySelector('section[aria-label="Totales de productos"]');
+        const cards = [...strip.querySelectorAll('[role="group"]')];
+        expect(cards.length).toBe(4);
+        for (const card of cards) {
+          expect(rect(card).right, card.getAttribute('aria-label')).toBeLessThanOrEqual(width);
+          for (const button of card.querySelectorAll('button')) {
+            expect(rect(button).right, button.getAttribute('aria-label')).toBeLessThanOrEqual(rect(card).right + 0.5);
+          }
+        }
+        expect(wrapped([...strip.querySelectorAll('button span')])).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/stat-cards-${width}-${theme}.png` });
         screen.unmount();
       });
 
@@ -741,7 +758,17 @@ const renderProducts = async ({ width, height, theme }) => {
   canSeeMargin = true;
   publicacionesMlAPI.items.mockResolvedValue({ data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 130 } });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
-  publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 1234 }) });
+  publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 1234, sin_mla_count: 12345 }) });
+  publicacionesMlAPI.stats.mockResolvedValueOnce({
+    data: {
+      stats: {
+        total: 1234, con_stock: 900, con_precio: 1100, con_stock_sin_precio: 30, nuevos: 12, nuevos_sin_precio: 4, oferta_sin_rebate: 9,
+        sin_mla: 12345, sin_mla_con_stock: 10234, sin_mla_sin_stock: 2111, sin_mla_nuevos: 87,
+        markup_negativo_clasica: 15, markup_negativo_rebate: 2, markup_negativo_oferta: 0, markup_negativo_web: 7,
+      },
+      can_see_margin: true,
+    },
+  });
   await page.viewport(width, height);
   setTheme(theme);
   document.body.style.background = 'var(--cf-bg-app)';
@@ -779,6 +806,15 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(rect(control).right, control.textContent).toBeLessThanOrEqual(width);
         }
         await expect.element(screen.getByText(/de 1234 productos/)).toBeVisible();
+        // Productos' Sin MLA card (S12d4c), with five-digit counts, keeps each figure on one line inside its card.
+        const sinMla = screen.getByRole('group', { name: 'Sin MLA' }).element();
+        await expect.element(screen.getByRole('button', { name: 'Total: 12.345' })).toBeVisible();
+        expect(rect(sinMla).right).toBeLessThanOrEqual(width);
+        expect(wrapped([...sinMla.querySelectorAll('button span')])).toEqual([]);
+        for (const button of sinMla.querySelectorAll('button')) {
+          expect(rect(button).right, button.getAttribute('aria-label')).toBeLessThanOrEqual(rect(sinMla).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/products-header-${width}-${theme}.png` });
         expect(document.body.textContent).not.toContain('Markup:');
         screen.unmount();
       });
@@ -790,6 +826,24 @@ describe('Publicaciones ML Producto view (visual)', () => {
         expect(figures.length).toBeGreaterThan(0);
         expect(wrapped(figures)).toEqual([]);
         expect(overflowingCells(scroller)).toEqual([]);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: a product row fills its code, brand, cost and ERP stock inside their cells`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('button', { name: 'Columnas' }).click();
+        for (const name of ['Código', 'Marca', 'Costo']) await screen.getByRole('checkbox', { name }).click();
+        await screen.getByRole('button', { name: 'Columnas' }).click();
+        const row = rowWith(scrollerOf(), 'Router Archer AX55');
+        for (const text of ['TP-LINK', 'USD 45,50', '12']) {
+          expect([...row.querySelectorAll('td')].some((cell) => cell.textContent.trim() === text), text).toBe(true);
+        }
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          [...row.querySelectorAll('td')].find((cell) => cell.textContent.trim() === 'USD 45,50').scrollIntoView({ inline: 'center' });
+          await frame();
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-rows-fields-${width}-${theme}.png` });
+        }
         screen.unmount();
       });
     }
@@ -1776,6 +1830,28 @@ describe('row colors and the color layer (S8)', () => {
       await expect.element(modal).toBeVisible();
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/pricing-modal-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the page's checkbox sits on the title header's line, before its sort button, and is clickable`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const all = screen.getByRole('checkbox', { name: 'Seleccionar los productos de la página' });
+      await expect.element(all).toBeVisible();
+      all.element().scrollIntoView({ block: 'center', inline: 'nearest' });
+      const header = all.element().closest('th');
+      const sort = header.querySelector('button');
+      const box = all.element().getBoundingClientRect();
+      const sortBox = sort.getBoundingClientRect();
+      const headerBox = header.getBoundingClientRect();
+      // One line: the checkbox and the sort button share a vertical band, the checkbox first, both inside the cell.
+      expect(Math.abs(box.top + box.height / 2 - (sortBox.top + sortBox.height / 2))).toBeLessThanOrEqual(3);
+      expect(box.right).toBeLessThanOrEqual(sortBox.left);
+      expect(box.left).toBeGreaterThanOrEqual(headerBox.left);
+      expect(sortBox.right).toBeLessThanOrEqual(headerBox.right);
+      expect(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)).toBe(all.element());
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/select-page-1366-${theme}.png` });
       screen.unmount();
     });
   }

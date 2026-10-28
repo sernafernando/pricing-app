@@ -33,6 +33,7 @@ describe('bodyDeCampana', () => {
       acumulable: true,
       monto_incluye_iva: false,
       grupo_ids: [301],
+      items: [],
     });
   });
 

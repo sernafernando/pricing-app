@@ -206,7 +206,13 @@ from app.models.sell_in import (
     SellInCompraPedido,
     SellInConsumo,
 )
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutDirty
+from app.models.sell_out import (
+    SellOutCampana,
+    SellOutCampanaGrupo,
+    SellOutCampanaItem,
+    SellOutConsumo,
+    SellOutDirty,
+)
 from app.models.sell_dirty import SellDirty
 from app.models.combo_componente import ComboComponente
 
@@ -479,6 +485,7 @@ __all__ = [
     "SellInConsumo",
     "SellOutCampana",
     "SellOutCampanaGrupo",
+    "SellOutCampanaItem",
     "SellOutConsumo",
     "SellOutDirty",
     "SellDirty",

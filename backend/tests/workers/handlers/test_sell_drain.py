@@ -24,7 +24,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutDirty
+from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem, SellOutConsumo, SellOutDirty
 from app.services.sell import queue
 from app.services.sell_out import queue as sell_out_queue
 from app.services.sell_in import costing
@@ -43,7 +43,15 @@ _PRODUCTS_OF = queue.products_of
 # The drain also queues the sell-out campaigns its lines can move (T7 S3).
 SELL_OUT_TABLES = [
     t.__table__
-    for t in (OffsetGrupo, OffsetGrupoFiltro, SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutDirty)
+    for t in (
+        OffsetGrupo,
+        OffsetGrupoFiltro,
+        SellOutCampana,
+        SellOutCampanaGrupo,
+        SellOutCampanaItem,
+        SellOutConsumo,
+        SellOutDirty,
+    )
 ]
 # `sell_out_campanas.offset_origen_id` references the legacy offsets (T15).
 SELL_OUT_STUBS = ["CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY)"]

@@ -12,6 +12,7 @@ import AuditFilters from '../components/publicacionesMl/AuditFilters';
 import PromoFilters from '../components/publicacionesMl/PromoFilters';
 import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
+import PublicationStatCards from '../components/publicacionesMl/PublicationStatCards';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import ProductPanel from '../components/publicacionesMl/ProductPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
@@ -35,6 +36,7 @@ import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublica
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { withProductSelection } from '../components/publicacionesMl/productSelection';
+import useProductSelection from '../components/publicacionesMl/useProductSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';
 import PriceModeSelect from '../components/publicacionesMl/PriceModeSelect';
@@ -51,15 +53,18 @@ import {
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
+  pageSizeLabel,
   PRICE_MODES,
+  SIN_MLA,
   buildExportParams,
   buildItemsParams,
   buildKpiParams,
+  buildStatsParams,
   effectiveSort,
   hasMarkupFilter,
   usePublicacionesMLFilters,
 } from '../hooks/usePublicacionesMLFilters';
-import { usePublicacionesMLKpis } from '../hooks/usePublicacionesMLKpis';
+import { usePublicacionesMLKpis, usePublicationStats } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
 import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../utils/mlSellerPanel';
 import {
@@ -252,19 +257,6 @@ export default function PublicacionesML() {
     [],
   );
 
-  // The products checked for the bulk pricing actions (a publication checks its linked product). They belong to
-  // the list they were picked from: another filter or view starts with none.
-  const [checkedIds, setCheckedIds] = useState(() => new Set());
-  const toggleChecked = useCallback(
-    (productId) =>
-      setCheckedIds((current) => {
-        const next = new Set(current);
-        if (!next.delete(productId)) next.add(productId);
-        return next;
-      }),
-    [],
-  );
-  const clearChecked = useCallback(() => setCheckedIds(new Set()), []);
   const { equipos, loaded: equiposLoaded, recargar: recargarEquipos } = useEquipos();
   // Team management, as in Productos: any user may create and run their own teams, so no permission gates it.
   const [equiposOpen, setEquiposOpen] = useState(false);
@@ -279,11 +271,12 @@ export default function PublicacionesML() {
   const colorOverlay = useColorOverlay(rowFilters.equipo, filterKey);
   useSSEChannel('producto_color:changed', colorOverlay.apply);
   const getItemTone = useCallback((item) => itemRowTone(item, colorOverlay.colors), [colorOverlay.colors]);
-  useEffect(clearChecked, [filterKey, filters.vista, clearChecked]);
 
   const pageSize = filters.limite;
   const agrupado = filters.vista === 'agrupado';
   const producto = filters.vista === 'producto';
+  // Productos' Sin MLA: products with no publication, so nothing a publication strip or action could act on.
+  const sinMla = filters.mla === SIN_MLA;
   // The views that load their own rows: `/items` brings them only the state and the facets.
   const ownRows = agrupado || producto;
   const latestRequest = useRef(0);
@@ -381,7 +374,8 @@ export default function PublicacionesML() {
   const { toast, showToast, hideToast } = useToast();
 
   // Like the rows, the strip and the bulk sets ask only a layer known to be the user's (it matters with `colores`).
-  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending);
+  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending && !sinMla);
+  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending);
   const productRows = useProductRows({
     filters: rowFilters,
     pageSize,
@@ -403,6 +397,11 @@ export default function PublicacionesML() {
   );
   // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it.
   const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
+  // The products checked for the bulk pricing actions (a publication checks its linked product), as in Productos
+  // (S12d): Shift+click checks a range of the rows on show, the title header checks the page, and the selection
+  // outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page there.
+  const productSelection = useProductSelection(agrupado ? EMPTY_ROWS : listedProductIds);
+  const { checked: checkedIds, clear: clearChecked } = productSelection;
   // A price typed in a cell (S11c) is saved as Productos does; the list is reloaded after it, as after a panel write
   // (its prices with it).
   const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
@@ -482,7 +481,10 @@ export default function PublicacionesML() {
     () => columns.filter((column) => columnVisibility[column.key] !== false),
     [columns, columnVisibility],
   );
-  const selection = useMemo(() => ({ checked: checkedIds, onToggle: toggleChecked }), [checkedIds, toggleChecked]);
+  const selection = useMemo(
+    () => ({ checked: checkedIds, onToggle: productSelection.onToggle, togglePage: productSelection.togglePage, pageState: productSelection.pageState }),
+    [checkedIds, productSelection.onToggle, productSelection.togglePage, productSelection.pageState],
+  );
   const selectableColumns = useMemo(() => withProductSelection(visibleColumns, selection), [visibleColumns, selection]);
 
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
@@ -565,6 +567,10 @@ export default function PublicacionesML() {
     }
     paintProduct(productId, color);
   };
+  const extendRow = (key) => {
+    const productId = productIdOfRow(key);
+    if (productId != null) productSelection.extendTo(productId);
+  };
   // r / w / o (S9): flip the focused row's product rebate, web transfer or "fuera de tarjetas", as in Productos. They
   // write from the product's own figures (its stored percentages), so they wait for its prices.
   const toggleRow = (key, kind) => {
@@ -606,6 +612,8 @@ export default function PublicacionesML() {
     onCycleLayer: cycleLayer,
     onCycleMode: canSeePrices && !agrupado ? cyclePriceMode : undefined,
     onToggleRow: canSeePrices && !agrupado ? toggleRow : undefined,
+    // Shift+Up / Shift+Down check the row moved to, from the last product checked (S12d, as in Productos).
+    onExtendRow: agrupado ? undefined : extendRow,
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
     // While an export runs the key is still taken from the browser, and starts nothing.
     onExport: canExportVista(filters.vista) ? () => !exporting && handleExport() : undefined,
@@ -647,7 +655,7 @@ export default function PublicacionesML() {
             label="Vista"
             options={VISTA_OPTIONS}
             value={filters.vista}
-            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value })}
+            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
           />
           {agrupado && (
             <SegmentedControl
@@ -668,12 +676,13 @@ export default function PublicacionesML() {
           <BulkActions
             filters={rowFilters}
             checkedIds={checkedIds}
+            offPageCount={agrupado ? 0 : productSelection.offPageCount}
             onClearChecked={clearChecked}
             canSeeMargin={canSeeMargin}
             onDone={reloadList}
             openRequest={bulkRequest}
           />
-          <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} />
+          {!sinMla && <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} />}
           <ColumnPicker table={pickerTable} />
           {canExportVista(filters.vista) && (
             <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
@@ -706,7 +715,7 @@ export default function PublicacionesML() {
 
       <StateBanner dataState={data?.data_state} />
 
-      {canSeeKpis && (
+      {canSeeKpis && !sinMla && (
         <PublicationKpiStrip
           state={kpis}
           periodo={periodo}
@@ -714,6 +723,17 @@ export default function PublicacionesML() {
           markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
         />
       )}
+
+      <PublicationStatCards
+        state={stats}
+        filters={filters}
+        canSeeMargin={canSeeMargin}
+        sinMla={producto}
+        onApply={setFilters}
+        onReset={resetFilters}
+        onRetry={stats.reload}
+        markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
+      />
 
       <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
@@ -741,6 +761,7 @@ export default function PublicacionesML() {
             />
             <PaintColorMenu
               checkedIds={checkedIds}
+              offPageCount={agrupado ? 0 : productSelection.offPageCount}
               equipo={rowFilters.equipo}
               onPainted={colorOverlay.apply}
               onClearChecked={clearChecked}
@@ -954,6 +975,7 @@ export default function PublicacionesML() {
                 offset={offset}
                 pageSize={pageSize}
                 pageSizeOptions={PAGE_SIZES}
+                pageSizeLabel={pageSizeLabel}
                 summary={
                   <span>
                     mostrando {total === 0 ? 0 : offset + 1}-{Math.min(offset + pageSize, total)} de {total} {unit}
