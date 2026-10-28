@@ -1100,7 +1100,8 @@ class Board:
         joined = lines.outerjoin(sell_in, sell_in.c.venta_ref == lines.c.item_row_id).outerjoin(
             sell_out, sell_out.c.venta_ref == lines.c.item_row_id
         )
-        in_gauss, in_markup = lines.c.tg != 0, lines.c.mcosto > 0
+        # A line with a KNOWN Total Gauss -- a real 0 included -- takes its sell in / sell out (audit A3).
+        in_gauss, in_markup = lines.c.tg_known, lines.c.mcosto > 0
         sell_in_ars = func.coalesce(sell_in.c.ars, 0)
         sell_out_ars = func.coalesce(sell_out.c.ars, 0)
         return joined, [
