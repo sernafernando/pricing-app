@@ -5,8 +5,9 @@ const known = (id) => id !== null && id !== undefined;
 /**
  * The products checked for the bulk pricing actions (S12d), with Productos' selection (`useProductosSeleccion`):
  * a toggle checks or unchecks one product; with Shift it checks every product between the last one toggled and
- * this one, in the order they are on show (`order`: the rows' product ids, repeats and nulls allowed). The
- * selection outlives the rows: another filter, page or view keeps it.
+ * this one, in the order they are on show (`order`: the rows' product ids, repeats and nulls allowed). `extendTo`
+ * (Shift+arrows) checks that range too, or just the product when the range has no start on show, and never unchecks.
+ * The selection outlives the rows: another filter, page or view keeps it.
  *
  * `togglePage` checks every product on show, or unchecks them when they all are, leaving the products checked
  * elsewhere as they were. `pageState` says how many of the page's products are checked: 'empty' (none to check),
@@ -35,6 +36,20 @@ export default function useProductSelection(order) {
     anchor.current = productId;
   }, []);
 
+  // Shift+Up / Shift+Down: the range from the product toggled last, or only this product when that one is not on
+  // show. It only checks: moving over a checked row never unchecks it.
+  const extendTo = useCallback((productId) => {
+    const from = pageRef.current.indexOf(anchor.current);
+    const to = pageRef.current.indexOf(productId);
+    setChecked((current) => {
+      const next = new Set(current);
+      if (from !== -1 && to !== -1) pageRef.current.slice(Math.min(from, to), Math.max(from, to) + 1).forEach((id) => next.add(id));
+      else next.add(productId);
+      return next;
+    });
+    anchor.current = productId;
+  }, []);
+
   const pageState = useMemo(() => {
     if (page.length === 0) return 'empty';
     const on = page.filter((id) => checked.has(id)).length;
@@ -57,5 +72,5 @@ export default function useProductSelection(order) {
     anchor.current = null;
   }, []);
 
-  return { checked, onToggle, togglePage, clear, pageState };
+  return { checked, onToggle, extendTo, togglePage, clear, pageState };
 }

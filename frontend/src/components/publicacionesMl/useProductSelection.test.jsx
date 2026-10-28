@@ -42,6 +42,21 @@ describe('useProductSelection (S12d, Productos useProductosSeleccion)', () => {
     expect(checked(result)).toEqual([10, 20, 30]);
   });
 
+  it('extendTo (Shift+arrows) checks the range from the last product toggled, or just this one, and never unchecks', () => {
+    const { result, rerender } = setup();
+    act(() => result.current.onToggle(10));
+    act(() => result.current.extendTo(30));
+    expect(checked(result)).toEqual([10, 20, 30]);
+    // The range start went off the page (another filter): the product moved to is checked, the checked one stays.
+    rerender({ ids: [50, 60, 70] });
+    act(() => result.current.onToggle(60));
+    rerender({ ids: [30, 40] });
+    act(() => result.current.extendTo(30));
+    expect(checked(result)).toEqual([10, 20, 30, 60]);
+    act(() => result.current.extendTo(40));
+    expect(checked(result)).toEqual([10, 20, 30, 40, 60]);
+  });
+
   it('selecting the page checks every product on show and keeps the ones checked elsewhere', () => {
     const { result, rerender } = setup([1, 2]);
     act(() => result.current.onToggle(1));

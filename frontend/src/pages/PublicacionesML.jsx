@@ -559,7 +559,7 @@ export default function PublicacionesML() {
   };
   const extendRow = (key) => {
     const productId = productIdOfRow(key);
-    if (productId != null) productSelection.onToggle(productId, true);
+    if (productId != null) productSelection.extendTo(productId);
   };
   // r / w / o (S9): flip the focused row's product rebate, web transfer or "fuera de tarjetas", as in Productos. They
   // write from the product's own figures (its stored percentages), so they wait for its prices.
