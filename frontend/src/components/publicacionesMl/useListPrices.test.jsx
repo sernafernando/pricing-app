@@ -26,6 +26,29 @@ describe('useListPrices', () => {
     expect(result.current.loading).toBe(false);
   });
 
+  it('splits a long page (Todos) into requests of at most 200 products, under the listing cap, and merges them', async () => {
+    const ids = Array.from({ length: 450 }, (_, n) => n + 1);
+    productosAPI.listar.mockImplementation(({ item_ids }) =>
+      Promise.resolve(listed(...item_ids.split(',').map((id) => ({ item_id: Number(id), precio_lista_ml: Number(id) * 10 })))),
+    );
+    const { result } = renderHook(() => useListPrices(ids, true));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const sizes = productosAPI.listar.mock.calls.map(([params]) => params.item_ids.split(',').length);
+    expect(sizes).toEqual([200, 200, 50]);
+    expect(productosAPI.listar.mock.calls.map(([params]) => params.page_size)).toEqual([200, 200, 50]);
+    expect(result.current.byId.size).toBe(450);
+    expect(result.current.byId.get(450).precio_lista_ml).toBe(4500);
+  });
+
+  it('one failed part of a long page leaves no prices and says so', async () => {
+    const ids = Array.from({ length: 250 }, (_, n) => n + 1);
+    productosAPI.listar.mockResolvedValueOnce(listed({ item_id: 1, precio_lista_ml: 10 }));
+    productosAPI.listar.mockRejectedValueOnce(new Error('HTTP 500'));
+    const { result } = renderHook(() => useListPrices(ids, true));
+    await waitFor(() => expect(result.current.error).toBe(true));
+    expect(result.current.byId.size).toBe(0);
+  });
+
   it('asks nothing when disabled or with no product on show', () => {
     renderHook(() => useListPrices([7], false));
     renderHook(() => useListPrices([null], true));

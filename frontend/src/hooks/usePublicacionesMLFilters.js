@@ -24,8 +24,10 @@ import { COLORES_DISPONIBLES } from '../utils/productosConstants';
  *    the dimension the tree is grouped by (`AGRUPAR_DIMENSIONS`, default marca).
  */
 export const PAGE_SIZE = 50;
-// The backend caps `limit` at 100.
-export const PAGE_SIZES = [25, 50, 100];
+// Productos' sizes, 9999 being its "Todos" (the backend caps `limit` at 10000).
+export const ALL_ROWS = 9999;
+export const PAGE_SIZES = [25, 50, 100, 200, 500, ALL_ROWS];
+export const pageSizeLabel = (size) => (size === ALL_ROWS ? 'Todos' : String(size));
 
 const CSV_KEYS = [
   'estado',

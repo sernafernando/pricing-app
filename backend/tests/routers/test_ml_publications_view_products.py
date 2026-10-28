@@ -150,6 +150,12 @@ class TestPaging:
         assert [r["key"] for r in first["rows"] + second["rows"]] == ["0", "77"]  # 4 units vs 2 + 1
         assert (first["total"], first["mla_count"], first["limit"], first["offset"]) == (3, 4, 1, 0)
 
+    def test_the_whole_list_fits_one_page_as_productos_todos(self, client, sold, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER, METRICAS)
+        page = body(client, admin_auth_headers, limit=9999)
+        assert (len(page["rows"]), page["total"], page["limit"]) == (3, 3, 9999)
+        assert get(client, admin_auth_headers, limit=10001).status_code == 422
+
     def test_the_default_is_by_gross_descending(self, client, sold, db, rol_admin, admin_auth_headers):
         grant(db, rol_admin, VER, METRICAS)
         assert [r["key"] for r in body(client, admin_auth_headers)["rows"]] == ["0", "77", "78"]  # no sales last

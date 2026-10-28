@@ -445,6 +445,12 @@ describe('page size', () => {
     await userEvent.selectOptions(screen.getByLabelText('Filas por página'), '25');
     await waitFor(() => expect(lastParams()).toMatchObject({ limit: 25, offset: 0 }));
   });
+
+  it('"Todos" asks for every row on one page, as Productos does', async () => {
+    await page('/ml-publicaciones?pagina=3');
+    await userEvent.selectOptions(screen.getByLabelText('Filas por página'), 'Todos');
+    await waitFor(() => expect(lastParams()).toMatchObject({ limit: 9999, offset: 0 }));
+  });
 });
 
 describe('columns', () => {
