@@ -3,7 +3,7 @@ import { ML_PRICED_TYPES, promoDisplayPrice } from '../promociones/promoDisplayP
 /** Seller-priced promos that take an explicit deal_price (not ML-priced SMART). */
 export const SELLER_PRICED_TYPES = new Set(['DEAL', 'SELLER_CAMPAIGN']);
 
-/** Slot labels for the Advisor pool (D19): at most 3 suggestions. */
+/** Slot labels for the Advisor pool (D19/D20): at most 3 suggestions. */
 export const POOL_SLOT_LABELS = ['Mejor', 'Intermedia', 'Tercera'];
 
 function isCandidate(promo) {
@@ -80,13 +80,11 @@ function sortByCloseness(list, precioSugerido) {
   });
 }
 
-function samePromo(a, b) {
-  return a.promotion_id === b.promotion_id && a.promotion_type === b.promotion_type;
-}
-
 /**
- * PARA GANAR pool (D19): up to 3 candidates that fit criteria.
- * Priority: SMART-like → other DEAL/campaña → Premium (name contains "premium") last.
+ * PARA GANAR pool (D20): up to 3 slots by type — one SMART, one other DEAL/campaña,
+ * one Premium (name contains "premium"). Premium keeps the last slot when it fits;
+ * brand-specific campaigns (A PVP …) may appear as the single "other" pick but no
+ * longer crowd Premium out.
  *
  * @param {Array<object>} promotions
  * @param {{ precioSugerido?: number|null, markupMin?: number|null, markupMax?: number|null }} [opts]
@@ -116,14 +114,10 @@ export function selectParaGanarPromoPool(promotions, opts = {}) {
     precioSugerido,
   );
 
-  // SMART first, then other, Premium last — take unique top 3.
-  const ordered = [...smart, ...other, ...premium];
   const slots = [];
-  for (const promo of ordered) {
-    if (slots.length >= 3) break;
-    if (slots.some((row) => samePromo(row, promo))) continue;
-    slots.push(promo);
-  }
+  if (smart[0]) slots.push(smart[0]);
+  if (other[0]) slots.push(other[0]);
+  if (premium[0]) slots.push(premium[0]);
 
   return slots.map((promo, index) => ({
     ...promo,

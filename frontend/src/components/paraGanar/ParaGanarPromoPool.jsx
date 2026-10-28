@@ -93,8 +93,8 @@ export default function ParaGanarPromoPool({ mla, precioSugerido }) {
     <section className={styles.promoPool} aria-label="Pool de promociones">
       <h3 className={styles.sellersTitle}>Hasta 3 sugeridas</h3>
       <p className={styles.promoPoolLead}>
-        Entran en criterios: SMART primero, después otra campaña/DEAL, Premium (nombre) al final.
-        Aplicar desde Advisor llega después.
+        Hasta un SMART, un DEAL/campaña y un Premium (nombre). El precio de apply al
+        sugerido llega con el enroll. Aplicar sigue deshabilitado.
       </p>
       {loading && <p className={styles.emptyBody}>Cargando promociones…</p>}
       {error && (

@@ -10,7 +10,7 @@ describe('isPremiumPromo', () => {
 });
 
 describe('selectParaGanarPromoPool', () => {
-  it('returns at most 3: SMART, other, then Premium last', () => {
+  it('takes one SMART, one other, and reserves Premium last', () => {
     const pool = selectParaGanarPromoPool(
       [
         {
@@ -25,9 +25,17 @@ describe('selectParaGanarPromoPool', () => {
           promotion_id: 'D1',
           promotion_type: 'DEAL',
           status: 'candidate',
-          name: 'Deal',
+          name: 'OFERTAS OCTUBRE',
           min_discounted_price: 140,
           max_discounted_price: 160,
+        },
+        {
+          promotion_id: 'D-lyonn',
+          promotion_type: 'SELLER_CAMPAIGN',
+          status: 'candidate',
+          name: 'A PVP LYONN',
+          min_discounted_price: 100,
+          max_discounted_price: 200,
         },
         {
           promotion_id: 'S1',
@@ -36,21 +44,45 @@ describe('selectParaGanarPromoPool', () => {
           name: 'Smart',
           price: 150,
         },
+      ],
+      { precioSugerido: 150 },
+    );
+    expect(pool.map((p) => p.promotion_id)).toEqual(['S1', 'D1', 'P1']);
+    expect(pool.map((p) => p.pool_slot)).toEqual(['Mejor', 'Intermedia', 'Tercera']);
+  });
+
+  it('still shows Premium last and only one non-Premium DEAL when several fit', () => {
+    const pool = selectParaGanarPromoPool(
+      [
         {
-          promotion_id: 'D2',
+          promotion_id: 'P1',
+          promotion_type: 'SELLER_CAMPAIGN',
+          status: 'candidate',
+          name: 'PREMIUM JULIO',
+          min_discounted_price: 100,
+          max_discounted_price: 200,
+        },
+        {
+          promotion_id: 'D1',
           promotion_type: 'DEAL',
           status: 'candidate',
-          name: 'Wide deal',
+          name: 'OFERTAS',
+          min_discounted_price: 145,
+          max_discounted_price: 155,
+        },
+        {
+          promotion_id: 'D2',
+          promotion_type: 'SELLER_CAMPAIGN',
+          status: 'candidate',
+          name: 'A PVP TP',
           min_discounted_price: 50,
           max_discounted_price: 250,
         },
       ],
       { precioSugerido: 150 },
     );
-    // D1 midpoint == sugerido; D2 wider/farther mid — Premium excluded by top-3.
-    expect(pool.map((p) => p.promotion_id)).toEqual(['S1', 'D1', 'D2']);
-    expect(pool.map((p) => p.pool_slot)).toEqual(['Mejor', 'Intermedia', 'Tercera']);
-    expect(pool.some((p) => p.promotion_id === 'P1')).toBe(false);
+    expect(pool.map((p) => p.promotion_id)).toEqual(['D1', 'P1']);
+    expect(pool).toHaveLength(2);
   });
 
   it('puts Premium second when only SMART + Premium fit', () => {
@@ -75,7 +107,6 @@ describe('selectParaGanarPromoPool', () => {
       { precioSugerido: 150 },
     );
     expect(pool.map((p) => p.promotion_id)).toEqual(['S1', 'P1']);
-    expect(pool[1].pool_slot).toBe('Intermedia');
   });
 
   it('drops DEAL outside suggested range and started rows', () => {
