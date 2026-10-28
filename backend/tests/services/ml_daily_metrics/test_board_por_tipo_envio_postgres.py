@@ -62,9 +62,9 @@ def test_a_filter_keeps_the_sales_of_the_rows_it_keeps(shipped) -> None:
     assert _by_shipping(shipped, marcas=("Logi",)) == [("fulfillment", 1, 2, 200), ("cross_docking", 1, 1, 100)]
 
 
-def test_a_sold_line_without_its_order_row_still_counts_as_unknown(shipped) -> None:
-    # A sold line whose order row is gone (the persisted lines outlive it) stays in the breakdown, like it stays
-    # in the KPI strip: the panel never sums less than Facturado.
+def test_a_sold_line_without_its_order_row_still_counts_as_unknown(shipped, request) -> None:
+    # A sold line whose order row is gone stays in the breakdown, like it stays in the KPI strip: the panel never
+    # sums less than Facturado. Only the persisted lines outlive their order; the live ones are read through it.
     shipped.execute(text("DELETE FROM ml_orders_ops WHERE order_id = 2000012345678913"))
     shipped.flush()
 
@@ -72,13 +72,9 @@ def test_a_sold_line_without_its_order_row_still_counts_as_unknown(shipped) -> N
         gross = b.kpis().gross
     rows = _by_shipping(shipped)
 
+    orphan = [("desconocido", 1, 7, 700)] if request.node.callspec.params["sales"] == "persisted" else []
+    assert rows == orphan + [("fulfillment", 1, 3, 300), ("self_service", 1, 2, 200), ("cross_docking", 1, 1, 100)]
     assert sum(r[3] for r in rows) == gross
-    assert set(rows) <= {
-        ("desconocido", 1, 7, 700),
-        ("fulfillment", 1, 3, 300),
-        ("self_service", 1, 2, 200),
-        ("cross_docking", 1, 1, 100),
-    }
 
 
 @pytest.mark.parametrize(
