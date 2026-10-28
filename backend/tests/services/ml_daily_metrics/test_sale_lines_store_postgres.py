@@ -8,6 +8,8 @@ Real Postgres: the writer is PostgreSQL-only, like the queue it hangs from.
 
 from __future__ import annotations
 
+import dataclasses
+
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -18,7 +20,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 from app.models.ml_sale_line import MlSaleLine
 from app.services.ml_daily_metrics.sales import sale_lines
-from app.services.order_metrics.sale_lines_store import COLUMNS, store_sale_lines
+from app.services.order_metrics.sale_lines_store import COLUMNS, diverging_groups, store_sale_lines
 from app.services.order_metrics.store import store_order_metrics
 from app.services.order_metrics.types import GaussStatus, OrderMetrics
 from tests.services.ml_daily_metrics.seed import Line, seed_order
@@ -241,6 +243,41 @@ class TestSaleLinesStore:
         queued = sale_lines(sqlite=False, keyed=True)
         live = board_pg.execute(select(queued.c.tg).where(queued.c.order_id == 3)).scalars().all()
         assert live == [0]
+
+
+@pytest.mark.postgres
+class TestKnownTotalGauss:
+    """Audit A3: a stored line says whether its Total Gauss is known (`tg_known`), so a sale whose Total Gauss is
+    exactly 0 is told apart from one whose Total Gauss is not resolved yet (both store `tg` = 0)."""
+
+    def _seed(self, db):
+        seed_order(db, 11, DAY, [Line(110, "MLA11", 1, Decimal("50"))], tg="0", costo="50")
+        seed_order(db, 12, DAY, [Line(111, "MLA12", 1, Decimal("50"))], tg="0", costo="50")
+        db.flush()
+        unresolved = dataclasses.replace(
+            _metrics(12),
+            total_gauss=None,
+            markup_pct=None,
+            gauss_status=GaussStatus.UNRESOLVED,
+            unresolved_reason="test",
+        )
+        store_order_metrics(db, {11: _metrics(11, tg="0"), 12: unresolved})
+
+    def test_a_known_zero_is_stored_as_known_and_an_unresolved_one_is_not(self, board_pg):
+        self._seed(board_pg)
+
+        known = dict(board_pg.execute(select(MlSaleLine.order_id, MlSaleLine.tg_known)).all())
+        tg = dict(board_pg.execute(select(MlSaleLine.order_id, MlSaleLine.tg)).all())
+        assert known == {11: True, 12: False}
+        assert tg == {11: Decimal("0"), 12: Decimal("0")}
+
+    def test_a_line_stored_with_the_wrong_flag_diverges_so_it_is_rewritten(self, board_pg):
+        self._seed(board_pg)
+        # What the migration's backfill leaves for a known 0 stored before the column (`tg <> 0`).
+        board_pg.execute(text("UPDATE ml_sale_lines SET tg_known = false WHERE order_id = 11"))
+
+        group = board_pg.execute(select(MlSaleLine.group_key).where(MlSaleLine.order_id == 11)).scalar_one()
+        assert diverging_groups(board_pg, [group]) == [group]
 
 
 def _queued_ml(db):

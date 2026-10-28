@@ -1,0 +1,73 @@
+"""ml_sale_lines.tg_known: an unknown Total Gauss is told apart from a real 0
+
+Revision ID: 20261208_ml_sale_lines_tg_unknown
+Revises: 20261207_sell_out_campana_items
+Create Date: 2026-10-28
+
+Métricas ML audit A3. A stored line's `tg` is 0 both when its order's Total Gauss is not resolved yet and when it
+is exactly 0, and the board reads every 0 as unknown (`tg != 0`): a sale with a real Total Gauss of 0 never adds
+its sell in / sell out. `tg_known` says which one it is, derived like `tg` itself (the order is settled, its
+`gauss_status` is ok/provisional and its `total_gauss` is not NULL).
+
+Existing lines keep their current meaning: `tg_known = (tg <> 0)`, the very rule the board applies today. A line
+with a real 0 stored before this revision stays "unknown" until it is rewritten: the writer derives the flag from
+the order's metrics, and the stored-vs-live divergence check (which compares it) rewrites the lines that differ.
+No row's `tg` changes.
+
+How, without rewriting the table: ADD COLUMN with a constant default (true) is a catalog-only change in Postgres
+11+; the UPDATE then touches only the lines whose `tg` is 0; the default is dropped afterwards (also catalog-only,
+existing rows keep their value), so a writer that forgets the flag fails instead of storing a guess.
+
+LOCK NOTE: ADD COLUMN takes an ACCESS EXCLUSIVE lock on `ml_sale_lines`, which the drain writes all day. Behind an
+open writer it would queue and block every reader of the board, so upgrade and downgrade run with
+`lock_timeout = '5s'` and fail fast (55P03) instead; the deploy is retried. The transaction-local setting is
+restored afterwards because `env.py` runs every pending revision in one transaction.
+"""
+
+from typing import Sequence, Union
+
+import sqlalchemy as sa
+from alembic import op
+
+revision: str = "20261208_ml_sale_lines_tg_unknown"
+down_revision: Union[str, None] = "20261207_sell_out_campana_items"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+TABLE = "ml_sale_lines"
+COLUMN = "tg_known"
+LOCK_TIMEOUT = "5s"
+
+
+def _is_postgres() -> bool:
+    return op.get_bind().dialect.name == "postgresql"
+
+
+def _set_lock_timeout() -> None:
+    op.execute("SELECT set_config('ml_sale_lines.lock_timeout_previo', current_setting('lock_timeout'), true)")
+    op.execute(f"SELECT set_config('lock_timeout', '{LOCK_TIMEOUT}', true)")
+
+
+def _restore_lock_timeout() -> None:
+    op.execute("SELECT set_config('lock_timeout', current_setting('ml_sale_lines.lock_timeout_previo'), true)")
+
+
+def upgrade() -> None:
+    postgres = _is_postgres()
+    if postgres:
+        _set_lock_timeout()
+    op.add_column(TABLE, sa.Column(COLUMN, sa.Boolean(), nullable=False, server_default=sa.true()))
+    # The board's rule until now: a 0 is an unknown Total Gauss.
+    op.execute(f"UPDATE {TABLE} SET {COLUMN} = false WHERE tg = 0")
+    op.alter_column(TABLE, COLUMN, server_default=None)
+    if postgres:
+        _restore_lock_timeout()
+
+
+def downgrade() -> None:
+    postgres = _is_postgres()
+    if postgres:
+        _set_lock_timeout()
+    op.drop_column(TABLE, COLUMN)
+    if postgres:
+        _restore_lock_timeout()

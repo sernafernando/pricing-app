@@ -256,3 +256,51 @@ def test_a_sell_in_above_the_cost_leaves_the_markup_unknown_like_the_sort() -> N
 
     assert row.costo_sell_in == _d("-3")
     assert row.markup_sell is None
+
+
+@pytest.fixture(params=["live", "persisted"])
+def zero_tg(request, board_pg, monkeypatch):
+    """36: one sale whose Total Gauss is resolved and exactly 0 (tg0/c50), with a sell in of $4 and an ARS sell out
+    of $2. A known 0 is not an unknown Total Gauss: its sell in / sell out count."""
+    db = board_pg
+    db.execute(
+        text(
+            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
+            "VALUES (36, 'S36', 'Antena', 'TP-Link', 'Redes', 1, 1);"
+            "INSERT INTO ml_tiendas_oficiales (store_id, nombre, clave, orden, activa) VALUES "
+            "(57997, 'Gauss', NULL, 1, true);"
+            "INSERT INTO tb_mercadolibre_items_publicados "
+            "(mlp_id, mlp_publicationid, item_id, mlp_official_store_id) VALUES (9136, 'MLA936', 36, 57997)"
+        )
+    )
+    order_id = 2000012345679036
+    _order(db, order_id, [(36, "MLA936", 1, Decimal("50"))], tg="0", costo="50")
+    _group(db, f"o:{order_id}", [order_id], NOW - timedelta(hours=3))
+    ref = _line(db, order_id)
+    db.execute(text(CONSUMPTION_DDL))
+    db.execute(
+        text(
+            "INSERT INTO sell_in_consumos VALUES ('ml', :s, 4); INSERT INTO sell_out_consumos VALUES (1, 'ml', :s, 2, NULL)"
+        ),
+        {"s": ref},
+    )
+    db.flush()
+    if request.param == "persisted":
+        lines = sale_lines(sqlite=False, queue=False, keyed=True, tp=True)
+        db.execute(
+            insert(MlSaleLine.__table__).from_select(
+                list(STORED_COLUMNS), select(*(lines.c[n] for n in STORED_COLUMNS))
+            )
+        )
+        monkeypatch.setattr(settings, "METRICAS_SALE_LINES_ENABLED", True)
+        db.flush()
+    return db
+
+
+def test_a_sale_with_a_total_gauss_of_exactly_zero_adds_its_sell_in_out(zero_tg) -> None:
+    # Audit A3: "a sale with Total Gauss exactly 0 must add to sell in/out".
+    row = _rows(zero_tg, ON)["36"]
+
+    assert row.tg == _d("0")
+    assert (row.sell_in, row.sell_out, row.sell_in_lineas, row.sell_out_lineas) == (_d("4.00"), _d("2.00"), 1, 1)
+    assert row.total_gauss_sell == _d("6.00")

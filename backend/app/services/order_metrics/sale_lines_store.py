@@ -66,6 +66,7 @@ COLUMNS = (
     "qty",
     "gross",
     "tg",
+    "tg_known",
     "mtg",
     "mcosto",
 )

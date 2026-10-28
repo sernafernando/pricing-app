@@ -319,6 +319,8 @@ def sale_lines(
             (and_(x.settled == 1, x.currency == "ARS", x.unit_price.isnot(None)), x.unit_price * x.qty), else_=0
         ).label("gross"),
         case((x.has_gauss == 1, x.order_tg * share), else_=0).label("tg"),
+        # `tg` is 0 for an unknown Total Gauss AND for a real 0: this tells them apart.
+        (x.has_gauss == 1).label("tg_known"),
         case((eligible, x.order_tg * share), else_=0).label("mtg"),
         case((eligible, x.order_costo * share), else_=0).label("mcosto"),
         *(_tp_shares(x, share) if tp else []),
@@ -410,6 +412,8 @@ def persisted_lines(
         L.qty,
         case((order_queued, 0), else_=L.gross).label("gross"),
         case((order_queued, 0), else_=L.tg).label("tg"),
+        # Queued: unknown until recomputed, as the live derivation does.
+        and_(~order_queued, L.tg_known).label("tg_known"),
         case((group_queued, 0), else_=L.mtg).label("mtg"),
         case((group_queued, 0), else_=L.mcosto).label("mcosto"),
         *(
