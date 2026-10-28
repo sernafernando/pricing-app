@@ -69,7 +69,7 @@ describe('priceColumns', () => {
     };
     const [, , oferta] = priceColumns('normal', { prices: prices(new Map([[7, product]])) });
     const { container, unmount } = render(<div>{oferta.render(item())}</div>);
-    const lines = [...container.querySelectorAll('[data-offer-detail]')].map((line) => line.textContent);
+    const lines = [...container.querySelectorAll('[data-price-detail]')].map((line) => line.textContent);
     expect(lines).toEqual(['Aporte 12,50%', 'Rebate $ 1.500,00', 'Hasta 30/11', 'PVP $ 1.200,00']);
     unmount();
     // Only the details it has; none without an offer.
@@ -88,6 +88,32 @@ describe('priceColumns', () => {
     expect(cell(withMargin)).toContain('PVP $ 1.200,00');
     const [, , loading] = priceColumns('normal', { prices: prices(new Map(), true) });
     expect(cell(loading)).toBe('…');
+  });
+
+  it("shows the web transfer's % over the clásica under its price, and a lock when it is kept in bulk changes, as Productos", () => {
+    const web = (fields) => priceColumns('normal', { prices: prices(new Map([[7, { ...PRODUCT, participa_web_transferencia: true, ...fields }]])) })[3];
+    const draw = (fields) => render(<div>{web(fields).render(item())}</div>);
+    const kept = draw({ porcentaje_markup_web: 6.5, preservar_porcentaje_web: true });
+    expect([...kept.container.querySelectorAll('[data-price-detail]')].map((line) => line.textContent)).toEqual(['(+6,5%)']);
+    expect(screen.getByRole('img', { name: '% conservado en cambios masivos' })).toBeInTheDocument();
+    kept.unmount();
+    // Not kept: the % without the lock; no % stored: nothing under the price; not taking part: '—' alone.
+    const free = draw({ porcentaje_markup_web: 6, preservar_porcentaje_web: false });
+    expect(free.container).toHaveTextContent('(+6%)');
+    expect(screen.queryByRole('img')).toBeNull();
+    free.unmount();
+    // A web transfer under the clásica carries its own sign; 0 reads as +0.
+    expect(cell(web({ porcentaje_markup_web: -3 }))).toContain('(-3%)');
+    expect(cell(web({ porcentaje_markup_web: 0 }))).toContain('(+0%)');
+    const bare = draw({ porcentaje_markup_web: null, preservar_porcentaje_web: true });
+    expect(bare.container).toHaveTextContent(/^950,00$/);
+    expect(screen.queryByRole('img')).toBeNull();
+    bare.unmount();
+    // A % that is not a number (or blank) draws no line rather than '(+NaN%)' or '(+0%)'; a numeric string still reads.
+    expect(cell(web({ porcentaje_markup_web: 'n/a' }))).toBe('950,00');
+    expect(cell(web({ porcentaje_markup_web: '' }))).toBe('950,00');
+    expect(cell(web({ porcentaje_markup_web: '6.5' }))).toContain('(+6,5%)');
+    expect(cell(web({ participa_web_transferencia: false, porcentaje_markup_web: 6 }))).toBe('—');
   });
 
   describe("Tienda Nube's price in Web Transf. (S3), as Productos", () => {
@@ -121,6 +147,16 @@ describe('priceColumns', () => {
         const { container, unmount } = render(<div>{web.render(item())}</div>);
         expect(container.querySelector('s')).toBeNull();
         expect(container.querySelector('[data-tn-price]')).toHaveTextContent(/^\$ 900,00\$720,00 transf\.$/);
+        unmount();
+      }
+    });
+
+    it("a zero TN price sent as text ('0', '0.00') draws no TN line; a promotion falls back to a positive regular price", () => {
+      for (const zero of ['0', '0.00']) {
+        expect(cell(tn({ tn_price: zero }))).toBe('—');
+        expect(cell(tn({ tn_price: zero, tn_promotional_price: zero, tn_has_promotion: true }))).toBe('—');
+        const { container, unmount } = render(<div>{tn({ tn_price: '1000.00', tn_promotional_price: zero, tn_has_promotion: true }).render(item())}</div>);
+        expect(container.querySelector('[data-tn-price]')).toHaveTextContent(/^\$ 1\.000,00\$800,00 transf\.$/);
         unmount();
       }
     });

@@ -12,7 +12,7 @@ export default function TnPriceLine({ product, percent }) {
   const shown = tnShownPrice(product);
   if (!shown) return null;
   // Under a promotion the regular price is struck through.
-  const promo = Boolean(product.tn_has_promotion && product.tn_promotional_price);
+  const promo = Boolean(product.tn_has_promotion && Number(product.tn_promotional_price) > 0);
   return (
     <div className={styles.tnPrice} data-tn-price="">
       <div className={styles.tnAmount}>

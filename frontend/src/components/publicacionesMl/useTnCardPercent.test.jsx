@@ -26,10 +26,16 @@ describe('useTnCardPercent', () => {
     expect(api.get).not.toHaveBeenCalled();
   });
 
-  it('stays null when the read fails: no hint rather than a wrong one', async () => {
+  it('a failed read drops the value read before: no hint rather than a stale one', async () => {
+    api.get.mockResolvedValueOnce({ data: { valor: 25 } });
+    const { result, rerender } = renderHook(({ enabled }) => useTnCardPercent(enabled), { initialProps: { enabled: true } });
+    await waitFor(() => expect(result.current).toBe(25));
+    // Read again (permission toggled off and back on), and this time the read fails.
     let fail;
-    api.get.mockReturnValue(new Promise((_, reject) => (fail = reject)));
-    const { result } = renderHook(() => useTnCardPercent());
+    api.get.mockReturnValueOnce(new Promise((_, reject) => (fail = reject)));
+    rerender({ enabled: false });
+    rerender({ enabled: true });
+    expect(api.get).toHaveBeenCalledTimes(2);
     // The rejection and its handler run before the assertion, not just the request.
     await act(async () => {
       fail(new Error('boom'));

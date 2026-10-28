@@ -1,3 +1,4 @@
+import { Lock } from 'lucide-react';
 import { formatAmount } from '../../utils/ventasMlFormat';
 import { formatPct } from '../../utils/metricasMlFormat';
 import { costoConOffset, markupConOffset, requiereTipoCambio } from '../../utils/offsetsGanancia';
@@ -55,9 +56,12 @@ export default function ListPriceCell({ product, column, loading, failed, canSee
           → {formatPct(withOffsets)}
         </span>
       )}
-      {column.details?.(product).map((line) => (
-        <span key={line} className={styles.priceDetail} data-offer-detail="">
+      {column.details?.(product).map((line, index, lines) => (
+        <span key={line} className={styles.priceDetail} data-price-detail="">
           {line}
+          {index === lines.length - 1 && column.locked?.(product) && (
+            <Lock size={10} className={styles.detailLock} role="img" aria-label="% conservado en cambios masivos" />
+          )}
         </span>
       ))}
     </div>

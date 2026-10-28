@@ -123,7 +123,9 @@ vi.mock('../../services/api', () => ({
               precio_lista_ml: 189999, markup: 24.3, participa_rebate: true, precio_rebate: 197911, markup_rebate: 21.1,
               precio_3_cuotas: 209999, markup_3_cuotas: 18.2, precio_6_cuotas: 229999, markup_6_cuotas: 15.4,
               precio_pvp: 239999, markup_pvp: 31.9, has_catalog: true, catalog_status: 'winning', catalog_winner_price: 189999,
-              tn_price: 249999, tn_promotional_price: 229999, tn_has_promotion: true },
+              tn_price: 249999, tn_promotional_price: 229999, tn_has_promotion: true,
+              participa_web_transferencia: true, precio_web_transferencia: 179899, markup_web_real: 17.6, porcentaje_markup_web: 6.5,
+              preservar_porcentaje_web: true },
             { item_id: 4102, precio_lista_ml: 45999, markup: -3.2, mejor_oferta_precio: 41399, mejor_oferta_markup: -0.098,
               mejor_oferta_porcentaje_rebate: 12.5, mejor_oferta_monto_rebate: 5174.88, mejor_oferta_fecha_hasta: '2026-11-30',
               mejor_oferta_pvp_seller: 47999, tn_price: 52999 },
@@ -1798,6 +1800,41 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     }
   }
 
+  // Precios: the web transfer's % and its lock in the panel's price group too, inside their cell.
+  for (const theme of THEMES) {
+    it(`1920x1080 ${theme}: the Precios tab shows the web transfer's % and its lock under the price, inside the cell`, async () => {
+      preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
+      offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
+      try {
+        const screen = await renderWithPanel({ width: 1920, height: 1080, theme, tab: 'precios', linked: true, margin: true });
+        const group = screen.getByRole('region', { name: 'Precios de la lista' });
+        const lock = group.getByRole('img', { name: '% conservado en cambios masivos' });
+        await expect.element(lock).toBeVisible();
+        const line = lock.element().closest('[data-price-detail]');
+        expect(line.textContent).toBe('(+6,5%)');
+        const cell = line.closest('td');
+        // The Tienda Nube price above it carries its transfer hint here too (the page hands the group tnCardPercent).
+        expect(cell.textContent).toContain('$183.999,20 transf.');
+        for (const part of [line, lock.element()]) {
+          expect(rect(part).left).toBeGreaterThanOrEqual(rect(cell).left - 0.5);
+          expect(rect(part).right).toBeLessThanOrEqual(rect(cell).right + 0.5);
+        }
+        // The group's cells are transparent: measure against the first ancestor that paints.
+        let backdrop = cell;
+        while (getComputedStyle(backdrop).backgroundColor === 'rgba(0, 0, 0, 0)') backdrop = backdrop.parentElement;
+        expect(contrastRatio(getComputedStyle(line).color, getComputedStyle(backdrop).backgroundColor)).toBeGreaterThanOrEqual(4.5);
+        if (PRODUCT_SHOTS_DIR) {
+          cell.scrollIntoView({ block: 'center' });
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-web-transf-percent-1920-${theme}.png`, element: panelOf() });
+        }
+        screen.unmount();
+      } finally {
+        preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
+        offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
+      }
+    });
+  }
+
   // Precios: cost card, one accented card per list, markup chips by the app scale (markupTone).
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
@@ -2082,11 +2119,12 @@ describe('row colors and the color layer (S8)', () => {
     it(`1366x768 ${theme}: the best offer's details sit under its price, each on one line inside the cell`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });
       await expect.element(screen.getByText('Hasta 30/11').first()).toBeVisible();
-      const lines = [...document.querySelectorAll('[data-offer-detail]')];
-      expect(lines.map((line) => line.textContent).slice(0, 4)).toEqual(['Aporte 12,50%', 'Rebate $ 5.174,88', 'Hasta 30/11', 'PVP $ 47.999,00']);
-      const cell = lines[0].closest('td');
+      // The best offer's cell only (the web transfer's % line is a price detail too).
+      const cell = screen.getByText('Hasta 30/11').first().element().closest('td');
+      const lines = [...cell.querySelectorAll('[data-price-detail]')];
+      expect(lines.map((line) => line.textContent)).toEqual(['Aporte 12,50%', 'Rebate $ 5.174,88', 'Hasta 30/11', 'PVP $ 47.999,00']);
       const cellBox = cell.getBoundingClientRect();
-      for (const line of lines.slice(0, 4)) {
+      for (const line of lines) {
         const box = line.getBoundingClientRect();
         expect(box.left).toBeGreaterThanOrEqual(cellBox.left);
         expect(box.right).toBeLessThanOrEqual(cellBox.right);
@@ -2123,6 +2161,28 @@ describe('row colors and the color layer (S8)', () => {
       expect(wrapped(document.querySelectorAll('[data-tn-price] > div > span:first-child, [data-tn-price] s'))).toEqual([]);
       lines[1].closest('td').scrollIntoView({ block: 'center', inline: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/tn-price-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const [width, height, theme] of [[1366, 768, 'light'], [1366, 768, 'dark'], [1920, 1080, 'light'], [1920, 1080, 'dark']]) {
+    it(`${width}x${height} ${theme}: the web transfer's % and its lock sit under the price, inside the cell`, async () => {
+      const screen = await renderPage({ width, height, theme, entry: PRECIOS });
+      const lock = screen.getByRole('img', { name: '% conservado en cambios masivos' }).first();
+      await expect.element(lock).toBeVisible();
+      const line = lock.element().closest('[data-price-detail]');
+      expect(line.textContent).toBe('(+6,5%)');
+      const cell = line.closest('td');
+      const cellBox = cell.getBoundingClientRect();
+      for (const part of [line, lock.element()]) {
+        const box = part.getBoundingClientRect();
+        expect(box.left).toBeGreaterThanOrEqual(cellBox.left - 0.5);
+        expect(box.right).toBeLessThanOrEqual(cellBox.right + 0.5);
+      }
+      expect(wrapped([line])).toEqual([]);
+      expect(contrastRatio(getComputedStyle(line).color, getComputedStyle(cell).backgroundColor)).toBeGreaterThanOrEqual(4.5);
+      cell.scrollIntoView({ block: 'center', inline: 'center' });
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/web-transf-percent-${width}-${theme}.png` });
       screen.unmount();
     });
   }

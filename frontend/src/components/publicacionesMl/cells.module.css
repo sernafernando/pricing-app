@@ -256,6 +256,11 @@
   white-space: nowrap;
 }
 
+.detailLock {
+  margin-left: var(--spacing-xs);
+  vertical-align: -1px;
+}
+
 /* Tienda Nube's price over the web transfer (S3): its amount with the transfer hint beside it on one line, as Productos;
    where a wider font or a narrower cell (the panel's Precios tab) does not leave room, the hint drops to the next line
    and, if still too wide, breaks there instead of poking out. The regular price struck through under a promotion, a
