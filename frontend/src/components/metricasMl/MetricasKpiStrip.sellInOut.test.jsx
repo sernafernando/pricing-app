@@ -45,6 +45,12 @@ describe('MetricasKpiStrip with sell in / sell out', () => {
     expect(estimated.parentElement.className).toMatch(/sellFlags/);
   });
 
+  it('with no flags, the Total Gauss line holds only the amount (no empty flags block)', () => {
+    strip({ ...OFF, sell_in_out: SELL });
+
+    expect(within(cardOf('Total Gauss')).getByTestId('kpi-sell-in-out').querySelector('[class*="sellFlags"]')).toBeNull();
+  });
+
   it('flags how many sales add a sell out on an estimated rate, like the rows do (audit A5)', () => {
     strip({ ...OFF, sell_in_out: { ...SELL, sell_out_estimados: 3 } });
 
