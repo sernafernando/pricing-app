@@ -66,3 +66,16 @@ def resolve_modo_logistico(
     if tagged_no_shipping:
         return MODO_RETIRO
     return MODO_DESCONOCIDO
+
+
+def modo_logistico_expr(shipment_id: Any, logistic_type: Any, tagged_no_shipping: Any) -> Any:
+    """`resolve_modo_logistico` as a SQL expression, for a read that sums sales per mode: an outer-joined
+    shipment's `shipment_id` (NULL = no shipment) and `logistic_type`, and the order's `has_no_shipping_tag`. An
+    empty `logistic_type` is unknown, as in the resolver; a parity test pins every combination."""
+    from sqlalchemy import case, func, literal
+
+    return case(
+        (shipment_id.isnot(None), func.coalesce(func.nullif(logistic_type, ""), literal(MODO_DESCONOCIDO))),
+        (tagged_no_shipping.is_(True), literal(MODO_RETIRO)),
+        else_=literal(MODO_DESCONOCIDO),
+    )

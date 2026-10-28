@@ -1,0 +1,63 @@
+/* "Por tipo de envío": a closed panel under the KPI strip, one row per shipping type when opened. */
+
+.panel {
+  margin-bottom: var(--spacing-md);
+  padding: 10px 14px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--ventas-divider);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
+.table {
+  width: 100%;
+  margin-top: var(--space-3);
+  border-collapse: collapse;
+  font-size: var(--font-sm);
+}
+
+.table th,
+.table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ventas-divider);
+  color: var(--cf-text-primary);
+  text-align: left;
+}
+
+.table thead th {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+.table tbody th {
+  font-weight: var(--font-medium);
+}
+
+.table .num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
