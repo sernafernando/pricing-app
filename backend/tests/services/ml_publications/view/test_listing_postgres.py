@@ -487,6 +487,23 @@ class TestSearch:
         assert ids(run(db, q="cobre_y")) == []
         assert ids(run(db, q="%")) == ["MLA900400"]  # only the title that really holds a percent sign
 
+    def test_codigo_and_ean_operators_are_exact_and_case_insensitive_on_the_product_code(self, db) -> None:
+        assert ids(run(db, q="codigo:kb-hdmi-2m")) == ["MLA900700"]
+        assert ids(run(db, q="ean:7790001234567")) == ["MLA900300"]
+        assert ids(run(db, q="codigo:kb-hdmi")) == []  # exact, not a fragment
+
+    def test_marca_operator_is_the_exact_brand(self, db) -> None:
+        assert ids(run(db, q="marca:hikvision")) == ["MLA900300"]
+        assert ids(run(db, q="marca:hik")) == []
+
+    def test_a_leading_asterisk_matches_the_end_of_title_name_brand_or_code(self, db) -> None:
+        assert ids(run(db, q="*domo")) == ["MLA900300"]  # product name
+        assert ids(run(db, q="*ac1200")) == ["MLA900100"]  # title
+        assert ids(run(db, q="*bel")) == ["MLA900700"]  # brand
+        assert ids(run(db, q="*-2m")) == ["MLA900700"]  # code
+        assert ids(run(db, q="*router")) == []  # "Router Wifi AC1200" starts with it, does not end with it
+        assert ids(run(db, q="*100%")) == []  # the wildcard is literal
+
     def test_no_match_is_an_empty_page_with_total_zero(self, db) -> None:
         page = run(db, q="inexistente")
         assert (page.items, page.total) == ([], 0)

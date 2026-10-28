@@ -100,7 +100,9 @@ class FilterError(ValueError):
 
 @dataclass(frozen=True)
 class SearchTerm:
-    """`kind`: `item_id` (canonical `MLA123`), `digits` (exact key) or `text` (substring)."""
+    """`kind`: `item_id` (canonical `MLA123`), `digits` (exact key), `text` (substring), or one of Productos'
+    operators: `codigo` (`codigo:` / `ean:`, the exact product code), `marca` (`marca:`, the exact brand) and
+    `ends_with` (`*X`)."""
 
     kind: str
     value: str
@@ -194,7 +196,17 @@ def normalize_q(raw: Optional[str]) -> Optional[SearchTerm]:
         return SearchTerm("item_id", term.upper())
     if _DIGITS.fullmatch(term):
         return SearchTerm("digits", term)
+    field, sep, value = term.partition(":")
+    value = value.strip()
+    if sep and value and not value.startswith("*") and field.strip().lower() in _OPERATORS:
+        return SearchTerm(_OPERATORS[field.strip().lower()], value)
+    if term.startswith("*") and term[1:].strip():
+        return SearchTerm("ends_with", term[1:].strip())
     return SearchTerm("text", term)
+
+
+# Productos' search operators (`productos_listing.py`): `ean:` is the same code column there too
+_OPERATORS = {"codigo": "codigo", "ean": "codigo", "marca": "marca"}
 
 
 def escape_like(text: str) -> str:
@@ -632,6 +644,17 @@ def _search(term: SearchTerm) -> ColumnElement:
             same(T.p.codigo),
             _variation_sku(same),
         )
+    if term.kind == "codigo":
+        return func.upper(T.p.codigo) == term.value.upper()
+    if term.kind == "marca":
+        return normalized_text(T.p.marca) == normalized_text(literal(term.value))
+    if term.kind == "ends_with":
+        suffix = f"%{escape_like(term.value)}"
+
+        def ends(column: Any) -> ColumnElement:
+            return column.ilike(suffix, escape=LIKE_ESCAPE)
+
+        return or_(ends(T.i.title), ends(T.p.descripcion), ends(T.p.marca), ends(T.p.codigo))
     # ponytail: case-insensitive but accent-sensitive; `unaccent` is not installed on the test DB and its presence
     # on production is unverified (`scripts/measure_pubml_p5.py --database-url` reports it)
     pattern = f"%{escape_like(term.value)}%"
