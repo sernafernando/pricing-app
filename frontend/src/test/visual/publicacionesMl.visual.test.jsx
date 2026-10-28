@@ -77,7 +77,7 @@ vi.mock('../../services/api', () => ({
     chooseSource: vi.fn(),
     saveDatos: vi.fn(),
   },
-  mlItemOverridesAPI: { get: vi.fn() },
+  mlItemOverridesAPI: { get: vi.fn(), save: vi.fn() },
   promocionesAPI: { getPromocionesItem: vi.fn(), refreshItemPromociones: vi.fn(), confirmarSinPromosML: vi.fn() },
   productosAPI: {
     marcas: vi.fn(() => Promise.resolve({ data: { marcas: [] } })),
@@ -1104,7 +1104,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         screen.unmount();
       });
 
-      it(`${width}x${height} ${theme}: the Datos tab shows the applied data and the original apart, inside the panel`, async () => {
+      it(`${width}x${height} ${theme}: the Datos tab shows the applied data and the original apart, and its edit form, inside the panel`, async () => {
         const original = {
           titulo: 'Router TP-Link Archer AX55 WiFi 6 AX3000 Dual Band Gigabit con OneMesh y control parental',
           descripcion: 'Router WiFi 6 de doble banda.\nHasta 3 Gbps combinados, cuatro antenas y puertos Gigabit para toda la casa.',
@@ -1122,7 +1122,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
             aplicado: { ...original, titulo: 'Router Archer AX55 WiFi 6', fotos: original.fotos.slice(1) },
             editable: true,
             updated_at: '2026-10-27T15:00:00Z',
-            can_edit: false,
+            can_edit: true,
           },
         });
         const screen = await renderWithPanel({ width, height, theme, tab: 'datos' });
@@ -1135,6 +1135,20 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           expect(rect(img).left).toBeGreaterThanOrEqual(box.left - 0.5);
         }
         expect(panel.querySelectorAll('section img')).toHaveLength(9);
+        // The edit form: every field and button stays inside the panel, each picture's buttons inside its tile.
+        await screen.getByRole('button', { name: 'Editar datos' }).click();
+        await expect.element(screen.getByRole('button', { name: 'Volver al original' })).toBeVisible();
+        const form = panel.querySelector('form');
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const control of form.querySelectorAll('input, textarea, button, img')) {
+          expect(rect(control).right, control.getAttribute('aria-label') || control.textContent || control.tagName).toBeLessThanOrEqual(box.right + 0.5);
+        }
+        for (const tile of form.querySelectorAll('li')) {
+          for (const button of tile.querySelectorAll('button')) {
+            expect(rect(button).left, button.getAttribute('aria-label')).toBeGreaterThanOrEqual(rect(tile).left - 0.5);
+            expect(rect(button).right, button.getAttribute('aria-label')).toBeLessThanOrEqual(rect(tile).right + 0.5);
+          }
+        }
         screen.unmount();
       });
 
