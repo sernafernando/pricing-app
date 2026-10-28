@@ -1,13 +1,16 @@
 /**
  * ProductPanel: the side panel of one product of the Producto view. Its data comes from `useProductPanel` (mocked
  * here at that boundary); the panel draws the header, the summed figures the permissions allow, and the product's
- * publications, each one opening its own panel.
+ * publications: Productos' publication tree for a product (`ProductoMLAsPanel`, the real one over a mocked tree
+ * endpoint), the flat list for "Sin producto", each one of its publications opening its own panel.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProductPanel from './ProductPanel';
 import useProductPanel from './panel/useProductPanel';
+import ProductoMLAsPanel from '../promociones/ProductoMLAsPanel';
+import { productosAPI } from '../../services/api';
 import { readProduct } from './useProductRows';
 import { makeItem, makeProductRow, PRODUCT_ROWS } from '../../test/visual/publicacionesMlFixtures';
 
@@ -15,6 +18,21 @@ vi.mock('./panel/useProductPanel', async (importOriginal) => ({
   ...(await importOriginal()),
   default: vi.fn(),
 }));
+
+// The tree is the real component (so its controls are the ones Productos shows), wrapped to read its props; only
+// its endpoint is mocked. The tiendas oficiales store reads `api.get` too.
+vi.mock('../promociones/ProductoMLAsPanel', async (importOriginal) => {
+  const Real = (await importOriginal()).default;
+  return { default: vi.fn((props) => <Real {...props} />) };
+});
+vi.mock('../../services/api', async (importOriginal) => {
+  const original = await importOriginal();
+  return {
+    ...original,
+    default: { ...original.default, get: vi.fn(() => Promise.resolve({ data: [] })) },
+    productosAPI: { ...original.productosAPI, getProductoTree: vi.fn() },
+  };
+});
 
 let granted = new Set();
 vi.mock('../../contexts/PermisosContext', () => ({
@@ -122,6 +140,10 @@ const figures = () => screen.queryByRole('region', { name: 'Cifras' });
 describe('ProductPanel', () => {
   beforeEach(() => {
     useProductPanel.mockReset();
+    ProductoMLAsPanel.mockClear();
+    // An empty tree unless a test gives one.
+    productosAPI.getProductoTree.mockReset();
+    productosAPI.getProductoTree.mockResolvedValue({ data: { item_id: 4101, tree: { level: 0, kind: 'producto', children: [] } } });
     granted = new Set(['productos.ver']);
   });
 
@@ -173,8 +195,8 @@ describe('ProductPanel', () => {
     expect(screen.queryByText('41')).not.toBeInTheDocument();
   });
 
-  it('lists the publications and opens the one clicked', async () => {
-    const { onSelectItem } = renderPanel();
+  it('lists the publications of "Sin producto" and opens the one clicked', async () => {
+    const { onSelectItem } = renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT }) });
     const list = screen.getByRole('region', { name: 'Publicaciones' });
     const first = within(list).getByRole('button', { name: /MLA1100000001/ });
     expect(within(first).getByText('Router Archer AX55')).toBeInTheDocument();
@@ -186,14 +208,14 @@ describe('ProductPanel', () => {
     expect(onSelectItem).toHaveBeenCalledWith('MLA1100000001');
   });
 
-  it('asks for more publications while there are more', async () => {
-    const { state } = renderPanel({ state: hookState({ hasMore: true }) });
+  it('asks for more publications of "Sin producto" while there are more', async () => {
+    const { state } = renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT, hasMore: true }) });
     await userEvent.click(screen.getByRole('button', { name: 'Ver más' }));
     expect(state.loadMore).toHaveBeenCalledTimes(1);
   });
 
-  it('has no "Ver más" when every publication is shown', () => {
-    renderPanel();
+  it('has no "Ver más" when every publication of "Sin producto" is shown', () => {
+    renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT }) });
     expect(screen.queryByRole('button', { name: 'Ver más' })).not.toBeInTheDocument();
   });
 
@@ -293,8 +315,8 @@ describe('ProductPanel', () => {
     expect(figures()).not.toBeInTheDocument();
   });
 
-  it('says the publications are loading once the product is there', () => {
-    renderPanel({ state: hookState({ items: [], loading: true }) });
+  it('says the publications of "Sin producto" are loading once its figures are there', () => {
+    renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT, items: [], loading: true }) });
     expect(screen.queryByRole('status', { name: 'Cargando producto' })).not.toBeInTheDocument();
     expect(screen.getByText('Cargando publicaciones…')).toBeInTheDocument();
   });
@@ -311,6 +333,94 @@ describe('ProductPanel', () => {
     renderPanel({ state: hookState({ summary: null, items: [] }) });
     expect(screen.getByText('Los filtros actuales no incluyen este producto.')).toBeInTheDocument();
     expect(figures()).not.toBeInTheDocument();
+  });
+
+  it('feeds the catalog competition and the wholesale prices of "Sin producto" its listed publications', () => {
+    renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT }) });
+    const ids = ITEMS.map((item) => item.item_id).join(',');
+    expect(screen.getByTestId('product-catalog-competition')).toHaveTextContent(`competition of ${ids}`);
+    expect(screen.getByTestId('product-pxq')).toHaveTextContent(`pxq of ${ids}`);
+  });
+
+  it('keeps the flat list for "Sin producto", with no tree: it has no product to read one of', () => {
+    renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT }) });
+    const section = screen.getByRole('region', { name: 'Publicaciones' });
+    expect(within(section).getAllByRole('listitem')).toHaveLength(ITEMS.length);
+    expect(ProductoMLAsPanel).not.toHaveBeenCalled();
+    expect(productosAPI.getProductoTree).not.toHaveBeenCalled();
+  });
+
+  describe("a product's publications as Productos' tree", () => {
+    const TREE = {
+      data: {
+        item_id: 4101,
+        tree: {
+          level: 0,
+          kind: 'producto',
+          label: 'Router Archer AX55',
+          children: [{ level: 1, kind: 'publicacion', mla: 'MLA1100000001', label: 'MLA1100000001', children: [] }],
+        },
+        skipped_anomalous_edges: 0,
+        skipped_edges: [],
+      },
+    };
+
+    const treeProps = () => ProductoMLAsPanel.mock.lastCall[0];
+
+    beforeEach(() => {
+      productosAPI.getProductoTree.mockResolvedValue(TREE);
+    });
+
+    it("shows the tree of the product's item id, with Expandir todo and Colapsar todo, instead of the flat list", async () => {
+      renderPanel();
+      const section = screen.getByRole('region', { name: 'Publicaciones' });
+      expect(await within(section).findByRole('button', { name: 'Expandir todo' })).toBeInTheDocument();
+      expect(within(section).getByRole('button', { name: 'Colapsar todo' })).toBeInTheDocument();
+      expect(within(section).getByText('MLA1100000001')).toBeInTheDocument();
+      expect(within(section).queryByRole('list')).not.toBeInTheDocument();
+      expect(treeProps()).toMatchObject({ itemId: SUMMARY.productoItemId });
+      expect(productosAPI.getProductoTree).toHaveBeenCalledWith(SUMMARY.productoItemId, {});
+    });
+
+    it('opens a publication of the tree in its own panel, from its "Abrir" button', async () => {
+      const { onSelectItem } = renderPanel();
+      await userEvent.click(await screen.findByRole('button', { name: 'Abrir MLA1100000001' }));
+      expect(onSelectItem).toHaveBeenCalledWith('MLA1100000001');
+    });
+
+    it("hands the tree the page's promo, store and wholesale filters, in the tree endpoint's terms", async () => {
+      renderPanel({
+        filters: { ...FILTERS, promo_tipos: ['DEAL', 'SMART'], promo_estado: 'aplicada', tiendas: ['57997', 'sin_tienda'], pxq: 'con_pxq' },
+      });
+      await waitFor(() => expect(productosAPI.getProductoTree).toHaveBeenCalled());
+      expect(treeProps()).toMatchObject({
+        itemId: SUMMARY.productoItemId,
+        promoTipos: ['DEAL', 'SMART'],
+        promoEstado: 'aplicada',
+        tiendaOficial: '57997,sin_tienda',
+        conPxq: true,
+      });
+      expect(productosAPI.getProductoTree).toHaveBeenCalledWith(SUMMARY.productoItemId, {
+        promo_tipos: 'DEAL,SMART',
+        promo_estado: 'aplicada',
+        tiendas_oficiales: '57997,sin_tienda',
+        con_pxq: true,
+      });
+    });
+
+    it('hands the tree no filter when the page has none of those', async () => {
+      renderPanel({ filters: { ...FILTERS, promo_tipos: [], promo_estado: '', tiendas: [], pxq: '' } });
+      await waitFor(() => expect(productosAPI.getProductoTree).toHaveBeenCalledWith(SUMMARY.productoItemId, {}));
+      expect(treeProps()).toMatchObject({ promoTipos: [], promoEstado: undefined, tiendaOficial: undefined, conPxq: false });
+    });
+
+    it('keeps feeding the catalog competition and the wholesale prices the listed publications, not the tree', async () => {
+      renderPanel();
+      await screen.findByRole('button', { name: 'Expandir todo' });
+      const ids = ITEMS.map((item) => item.item_id).join(',');
+      expect(screen.getByTestId('product-catalog-competition')).toHaveTextContent(`competition of ${ids}`);
+      expect(screen.getByTestId('product-pxq')).toHaveTextContent(`pxq of ${ids}`);
+    });
   });
 
   describe('tabs', () => {
