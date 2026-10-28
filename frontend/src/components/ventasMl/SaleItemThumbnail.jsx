@@ -7,7 +7,9 @@ import styles from './SaleItemThumbnail.module.css';
  * shown from its stored URL as is, never downloaded or proxied. Without one, or when it fails to load, the box keeps
  * the caller's placeholder (`children`: the category icon or `Package`). The caller sizes and frames the box with
  * `className`; the photo fills it. `alt` is what the photo announces: in the row it takes the category icon's job
- * (the category), in the panels it is decorative (empty) since the item's title sits beside it.
+ * (the category), in the panels it is decorative (empty) since the item's title sits beside it. While the box shows
+ * the placeholder it carries `data-sale-item-placeholder`, part of its contract: the panels' tests count the items
+ * without a photo by it.
  *
  * @param {object} props
  * @param {string | null} [props.url] The MLA's stored photo.

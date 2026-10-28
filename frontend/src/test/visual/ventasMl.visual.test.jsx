@@ -85,12 +85,18 @@ const PHOTO = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#1f6feb"/><circle cx="200" cy="150" r="90" fill="#f2cc60"/></svg>',
 )}`;
 const photos = { on: false };
-// Every item sold (an order's `items`, a pack's `item_lines`) with its MLA photo.
+// The lists of items sold, the only ones that carry `thumbnail_url`: an order's `items`, a pack's `item_lines`.
+const PHOTO_LISTS = new Set(['items', 'item_lines']);
 const withPhotos = (value) => {
   if (Array.isArray(value)) return value.map(withPhotos);
   if (!value || typeof value !== 'object') return value;
-  const copy = Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, withPhotos(inner)]));
-  return 'item_id' in copy && 'title' in copy ? { ...copy, thumbnail_url: PHOTO } : copy;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, inner]) =>
+      PHOTO_LISTS.has(key) && Array.isArray(inner)
+        ? [key, inner.map((item) => ({ ...withPhotos(item), thumbnail_url: PHOTO }))]
+        : [key, withPhotos(inner)],
+    ),
+  );
 };
 
 const routeGet = (url) => {

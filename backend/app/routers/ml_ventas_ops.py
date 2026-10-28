@@ -1194,10 +1194,11 @@ def _thumbnails_by_mla(db: Session, mlas: Iterable[Optional[str]]) -> Dict[str, 
     wanted = sorted({mla for mla in mlas if mla})
     if not wanted:
         return {}
+    # An empty URL is no photo: it falls through to the next one, as a missing one does.
     photo = func.coalesce(
-        MlItem.raw[("pictures", 0, "secure_url")].as_string(),
-        MlItem.raw[("pictures", 0, "url")].as_string(),
-        MlItem.thumbnail,
+        func.nullif(MlItem.raw[("pictures", 0, "secure_url")].as_string(), ""),
+        func.nullif(MlItem.raw[("pictures", 0, "url")].as_string(), ""),
+        func.nullif(MlItem.thumbnail, ""),
     )
     rows = db.query(MlItem.item_id, photo).filter(MlItem.item_id.in_(wanted)).all()
     return {item_id: url for item_id, url in rows if url}

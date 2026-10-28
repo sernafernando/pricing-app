@@ -45,6 +45,10 @@ PHOTO_CASES = [
     ),
     pytest.param({"pictures": [{"url": PHOTO}]}, PHOTO, id="plain-url-without-a-secure-one"),
     pytest.param({"pictures": [], "thumbnail": PHOTO}, PHOTO, id="no-pictures-the-store-thumbnail"),
+    pytest.param({"pictures": [{"secure_url": "", "url": PHOTO}]}, PHOTO, id="empty-secure-url-falls-back"),
+    pytest.param(
+        {"pictures": [{"secure_url": "", "url": ""}], "thumbnail": PHOTO}, PHOTO, id="empty-urls-the-thumbnail"
+    ),
     pytest.param({"pictures": None, "thumbnail": None}, None, id="no-stored-photo"),
 ]
 
