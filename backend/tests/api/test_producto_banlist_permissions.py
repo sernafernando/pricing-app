@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from app.core.security import create_access_token, get_password_hash
-from app.models.permiso import Permiso, UsuarioPermisoOverride
+from app.models.permiso import Permiso, RolPermisoBase, UsuarioPermisoOverride
 from app.models.producto import ProductoERP
 from app.models.producto_banlist import ProductoBanlist
 from app.models.rol import Rol
@@ -54,7 +54,7 @@ def producto(db) -> ProductoERP:
     return row
 
 
-def _make_user(db, rol: Rol, username: str, rol_usuario: RolUsuario, perms=()) -> Usuario:
+def _make_user(db, rol: Rol, username: str, rol_usuario: RolUsuario, perms=(), revoked=()) -> Usuario:
     user = Usuario(
         username=username,
         email=f"{username}@test.com",
@@ -69,6 +69,8 @@ def _make_user(db, rol: Rol, username: str, rol_usuario: RolUsuario, perms=()) -
     db.flush()
     for perm in perms:
         db.add(UsuarioPermisoOverride(usuario_id=user.id, permiso_id=perm.id, concedido=True))
+    for perm in revoked:
+        db.add(UsuarioPermisoOverride(usuario_id=user.id, permiso_id=perm.id, concedido=False))
     db.flush()
     return user
 
@@ -83,8 +85,11 @@ def _banned(db) -> list[ProductoBanlist]:
     return db.query(ProductoBanlist).filter(ProductoBanlist.item_id == ITEM_ID).all()
 
 
-def test_a_user_without_the_role_or_the_permission_gets_403_and_nothing_is_banned(client, db, test_rol, producto):
-    ventas = _make_user(db, test_rol, "ventas_ban", RolUsuario.VENTAS)
+@pytest.mark.parametrize("rol_usuario", [RolUsuario.GERENTE, RolUsuario.PRICING, RolUsuario.VENTAS])
+def test_a_user_without_the_role_or_the_permission_gets_403_and_nothing_is_banned(
+    client, db, test_rol, producto, rol_usuario
+):
+    ventas = _make_user(db, test_rol, f"ban_denied_{rol_usuario.value.lower()}", rol_usuario)
 
     response = _ban(client, ventas)
 
@@ -112,4 +117,30 @@ def test_the_banlist_page_permission_still_bans(client, db, test_rol, producto, 
     response = _ban(client, gestor)
 
     assert response.status_code == 200
+    assert response.json()["total_agregados"] == 1
     assert [row.usuario_id for row in _banned(db)] == [gestor.id]
+
+
+def test_the_permission_granted_by_the_role_still_bans(client, db, test_rol, producto, perm_banlist):
+    db.add(RolPermisoBase(rol_id=test_rol.id, permiso_id=perm_banlist.id))
+    db.flush()
+    gestor = _make_user(db, test_rol, "gestor_rol_ban", RolUsuario.VENTAS)
+
+    response = _ban(client, gestor)
+
+    assert response.status_code == 200
+    assert response.json()["total_agregados"] == 1
+    assert [row.usuario_id for row in _banned(db)] == [gestor.id]
+
+
+def test_the_permission_revoked_for_the_user_denies_even_when_the_role_grants_it(
+    client, db, test_rol, producto, perm_banlist
+):
+    db.add(RolPermisoBase(rol_id=test_rol.id, permiso_id=perm_banlist.id))
+    db.flush()
+    revocado = _make_user(db, test_rol, "revocado_ban", RolUsuario.VENTAS, revoked=[perm_banlist])
+
+    response = _ban(client, revocado)
+
+    assert response.status_code == 403
+    assert _banned(db) == []
