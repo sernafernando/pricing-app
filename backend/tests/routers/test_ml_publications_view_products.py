@@ -10,7 +10,7 @@ surface: the rows need `ml_ops.ver`, their Métricas figures `ml_metricas.ver`, 
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete, func
+from sqlalchemy import delete, func, text
 
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.services.ml_publications.view import listing, products as products_service, status_block
@@ -226,6 +226,21 @@ class TestSinMla:
         grant(db, rol_admin, VER)
         assert body(client, admin_auth_headers)["sin_mla_count"] == 1
         assert body(client, admin_auth_headers, marcas="TP-Link")["sin_mla_count"] == 0
+
+    def test_a_slow_count_leaves_it_absent_and_the_page_still_answers(
+        self, client, unlinked, db, rol_admin, admin_auth_headers, monkeypatch
+    ) -> None:
+        grant(db, rol_admin, VER)
+
+        def slow(session, f):  # the count goes over statement_timeout; the rows were already read
+            session.execute(text("SELECT pg_sleep(2)"))
+
+        monkeypatch.setattr(listing, "STATEMENT_TIMEOUT", "500ms")
+        monkeypatch.setattr(products_service, "sin_mla_count", slow)
+        got = body(client, admin_auth_headers)
+        assert "sin_mla_count" not in got
+        assert [row["key"] for row in got["rows"]] == ["78", "77", "0"]
+        assert unlinked.pool.checkedout() == 0
 
     def test_with_a_publication_filter_the_count_is_absent(
         self, client, unlinked, db, rol_admin, admin_auth_headers

@@ -691,6 +691,18 @@ def _database_error(exc: DBAPIError) -> Optional[Exception]:
     return api_error(status.HTTP_503_SERVICE_UNAVAILABLE, SLOW_QUERY_CODE, "La consulta tardó demasiado; reintentá.")
 
 
+def _sin_mla_count_or_none(db: Session, f: PublicationFilter) -> Optional[int]:
+    """The Sin MLA card's count, or None (the card shows it as unknown) when it goes over `statement_timeout`: an
+    extra figure of the page never fails the rows already read. Any other database error is raised."""
+    try:
+        return products.sin_mla_count(db, f)
+    except DBAPIError as exc:
+        if not _timed_out(exc):
+            raise
+        logger.warning("ml_publications products: sin_mla_count over statement_timeout; answered without it")
+        return None
+
+
 def _attach_colors(
     auth_db: Session, layer: colors.ColorLayer, rows: list[dict[str, Any]], product_of: Callable[[dict[str, Any]], Any]
 ) -> None:
@@ -1301,7 +1313,7 @@ def get_products(
             sin_mla_count = page.total
         else:
             with timer.stage("sin_mla"):
-                sin_mla_count = products.sin_mla_count(db, f)
+                sin_mla_count = _sin_mla_count_or_none(db, f)
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:
