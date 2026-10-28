@@ -11,7 +11,7 @@ const known = (id) => id !== null && id !== undefined;
  *
  * `togglePage` checks every product on show, or unchecks them when they all are, leaving the products checked
  * elsewhere as they were. `pageState` says how many of the page's products are checked: 'empty' (none to check),
- * 'none', 'some' or 'all'.
+ * 'none', 'some' or 'all'; `offPageCount`, how many checked products are not on show.
  */
 export default function useProductSelection(order) {
   const [checked, setChecked] = useState(() => new Set());
@@ -56,6 +56,11 @@ export default function useProductSelection(order) {
     return on === 0 ? 'none' : on === page.length ? 'all' : 'some';
   }, [page, checked]);
 
+  const offPageCount = useMemo(() => {
+    const shown = new Set(page);
+    return [...checked].filter((id) => !shown.has(id)).length;
+  }, [page, checked]);
+
   const togglePage = useCallback(() => {
     const ids = pageRef.current;
     if (ids.length === 0) return;
@@ -72,5 +77,5 @@ export default function useProductSelection(order) {
     anchor.current = null;
   }, []);
 
-  return { checked, onToggle, extendTo, togglePage, clear, pageState };
+  return { checked, onToggle, extendTo, togglePage, clear, pageState, offPageCount };
 }

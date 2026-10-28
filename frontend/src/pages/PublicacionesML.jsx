@@ -666,6 +666,7 @@ export default function PublicacionesML() {
           <BulkActions
             filters={rowFilters}
             checkedIds={checkedIds}
+            offPageCount={agrupado ? 0 : productSelection.offPageCount}
             onClearChecked={clearChecked}
             canSeeMargin={canSeeMargin}
             onDone={reloadList}
@@ -739,6 +740,7 @@ export default function PublicacionesML() {
             />
             <PaintColorMenu
               checkedIds={checkedIds}
+              offPageCount={agrupado ? 0 : productSelection.offPageCount}
               equipo={rowFilters.equipo}
               onPainted={colorOverlay.apply}
               onClearChecked={clearChecked}

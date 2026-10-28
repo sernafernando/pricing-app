@@ -78,6 +78,14 @@ describe('useProductSelection (S12d, Productos useProductosSeleccion)', () => {
     expect(checked(result)).toEqual([1]);
   });
 
+  it('counts the checked products that are not on show', () => {
+    const { result, rerender } = setup([10, 20]);
+    act(() => result.current.togglePage());
+    expect(result.current.offPageCount).toBe(0);
+    rerender({ ids: [20, 30] });
+    expect(result.current.offPageCount).toBe(1);
+  });
+
   it('a page with no product has nothing to select', () => {
     const { result } = setup([null, null]);
     expect(result.current.pageState).toBe('empty');

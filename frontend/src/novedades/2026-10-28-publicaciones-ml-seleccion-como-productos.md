@@ -9,7 +9,7 @@ En **Publicaciones ML**, la selección de productos para las **Acciones masivas*
 - **Shift + clic** en un casillero marca todos los productos entre el último que marcaste y ese.
 - El casillero del título de la tabla marca todos los productos de la página. Si ya están todos marcados, los desmarca. Los productos marcados en otras páginas o con otros filtros quedan como estaban.
 - **Shift + ↓** y **Shift + ↑** se mueven de fila y marcan el producto de la fila nueva.
-- La selección ya no se borra al cambiar un filtro, la página o la vista. Para empezar de cero, usá **Limpiar selección** en **Acciones masivas**.
+- La selección ya no se borra al cambiar un filtro, la página o la vista. **Acciones masivas** y **Pintar** avisan cuántos productos marcados no están en la página que estás viendo. Para empezar de cero, usá **Limpiar selección** en **Acciones masivas**.
 - En la vista Agrupado se marca de a un producto: no hay rango ni casillero de página.
 
 ## Cómo se usa
