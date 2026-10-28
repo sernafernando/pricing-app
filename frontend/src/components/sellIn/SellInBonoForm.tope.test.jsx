@@ -118,4 +118,26 @@ describe('SellInBonoForm — the shared cap (T24d)', () => {
     expect(screen.getByText('Tope: quedan 40 u de 100')).toBeInTheDocument();
     expect(screen.getByText('Tope: quedan USD 125,50 de USD 500,00')).toBeInTheDocument();
   });
+
+  // T24 verifier, B2: a currency round trip must not drop the stored money cap.
+  it('keeps the stored money cap when the currency goes away and comes back', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByLabelText('Tope de monto en USD (opcional)');
+    await user.click(screen.getByRole('button', { name: 'ARS' }));
+    await user.click(screen.getByRole('button', { name: 'USD' }));
+    await guardar(user, 'Guardar cambios');
+    // The stored 3000.00 comes back as the form loads it ('3000', the same amount).
+    await waitFor(() => expect(sellInBonosAPI.editar).toHaveBeenCalledWith(3, expect.objectContaining({ moneda: 'USD', tope_monto: '3000' })));
+  });
+
+  it('brings back the stored cap, not a value typed in another currency in between', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await screen.findByLabelText('Tope de monto en USD (opcional)');
+    await user.click(screen.getByRole('button', { name: 'ARS' }));
+    await user.type(screen.getByLabelText('Tope de monto en ARS (opcional)'), '4500000');
+    await user.click(screen.getByRole('button', { name: 'USD' }));
+    expect(screen.getByLabelText('Tope de monto en USD (opcional)')).toHaveValue(3000);
+  });
 });

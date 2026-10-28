@@ -25,6 +25,9 @@ export const BONO_VACIO = {
   // '' is no cap.
   topeUnidades: '',
   topeMonto: '',
+  // The money cap as stored, with its currency (null on a new bonus): the form brings it back when the currency
+  // returns to it. Never sent.
+  topeGuardado: null,
 };
 
 /** The label of a model chip: code and description, or the bare item when the catalog lost it. */
@@ -48,6 +51,7 @@ export const valoresDeBono = (bono) => ({
   descripcion: bono.descripcion ?? '',
   topeUnidades: bono.tope_unidades != null ? String(bono.tope_unidades) : '',
   topeMonto: texto(bono.tope_monto),
+  topeGuardado: { moneda: bono.moneda, monto: texto(bono.tope_monto) },
 });
 
 /** The key of the bonus's kind in the API and in a model's form values. */
@@ -70,6 +74,17 @@ const CAMPO_DEL_ALCANCE = {
   categoria: (v) => ({ categoria: v.categoria }),
   modelos: (v) => ({ modelos: v.modelos.map((m) => modeloDelBody(m, v.tipo)) }),
   factura: (v) => ({ pedido_id: v.pedido?.id ?? null }),
+};
+
+/**
+ * The values after a currency change: the money cap is in the bonus's currency, so moving to another one empties it
+ * (to be entered again there), and coming back to the stored currency brings the stored cap back, so a round trip
+ * never drops it.
+ */
+export const conMoneda = (valores, moneda) => {
+  if (moneda === valores.moneda) return valores;
+  const guardado = valores.topeGuardado;
+  return { ...valores, moneda, topeMonto: guardado && guardado.moneda === moneda ? guardado.monto : '' };
 };
 
 /** A cap field as sent: trimmed, or null when empty (empty means no cap). */

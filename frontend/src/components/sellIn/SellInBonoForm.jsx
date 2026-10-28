@@ -5,6 +5,7 @@ import { SegmentedControl } from '../kit';
 import SellInBonoModelos from './SellInBonoModelos';
 import SellInBuscador from './SellInBuscador';
 import SellInOperacionPicker from './SellInOperacionPicker';
+import { conMoneda } from './sellInBonoValores';
 import styles from './SellInPanel.module.css';
 
 const MONEDAS = [
@@ -185,8 +186,8 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
               label="Moneda"
               options={MONEDAS}
               value={valores.moneda}
-              // The money cap is in the bonus's currency: another currency needs it entered again.
-              onChange={(moneda) => set(moneda === valores.moneda ? { moneda } : { moneda, topeMonto: '' })}
+              // The money cap is in the bonus's currency (`conMoneda`): emptied away from it, restored back on it.
+              onChange={(moneda) => onChange(conMoneda(valores, moneda))}
             />
           )}
         </div>
