@@ -1,6 +1,6 @@
 """A publication's data overridden locally (Publicaciones ML T8): read it beside its original, and save it.
 
-Reading needs `ml_ops.ver` (the Publicaciones ML screen); saving needs `ml_publicaciones.editar_publicacion`. Saving
+Reading needs the Publicaciones ML screen's permission (`productos.ver` OR `ml_ops.ver`, `PERMISOS_PUBLICACIONES_ML`); saving needs `ml_publicaciones.editar_publicacion`. Saving
 never writes to Mercado Libre: the override is kept here and every read answers the original (what ML has), the
 override and the applicable data. The rules live in `ml_item_override_service`.
 
@@ -19,7 +19,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permiso
+from app.api.deps import require_algun_permiso, require_permiso
+from app.core.constants import PERMISOS_PUBLICACIONES_ML
 from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.schemas.publication_data import (
@@ -48,7 +49,6 @@ from app.services.ml_publications import admin
 from app.services.ml_publications.publication_data import DatosNoValidos
 from app.services.permisos_service import PermisosService
 
-PERMISO_VER = "ml_ops.ver"
 PERMISO_EDITAR = "ml_publicaciones.editar_publicacion"
 
 router = APIRouter(prefix="/ml-item-overrides", tags=["Publicaciones ML"])
@@ -122,7 +122,7 @@ def _response(view: OverrideView, can_edit: bool) -> OverrideResponse:
 @router.get("/{item_id}", response_model=OverrideResponse)
 def get_override(
     item_id: ItemId,
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
     auth_db: Session = Depends(get_db),
     db: Session = Depends(get_ml_item_overrides_db),
 ) -> OverrideResponse:

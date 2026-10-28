@@ -1,9 +1,9 @@
 """Our own product (Publicaciones ML T6, T7): read and edit the SKU and EAN of an ERP product, keyed by its `item_id`,
 and copy its data (title, description, pictures, attributes) from one of its publications.
 
-Reading needs `ml_ops.ver` (the Publicaciones ML screen); editing and choosing the source need
-`ml_publicaciones.editar_producto`. The values are computed in `producto_propio_service`; only what an operator types
-or copies is stored.
+Reading needs the Publicaciones ML screen's permission (`productos.ver` OR `ml_ops.ver`, `PERMISOS_PUBLICACIONES_ML`:
+its product panel always reads it); editing and choosing the source need `ml_publicaciones.editar_producto`. The
+values are computed in `producto_propio_service`; only what an operator types or copies is stored.
 """
 
 from __future__ import annotations
@@ -16,7 +16,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permiso
+from app.api.deps import require_algun_permiso, require_permiso
+from app.core.constants import PERMISOS_PUBLICACIONES_ML
 from app.core.database import get_db
 from app.models.producto_propio import MAX_CODE_LENGTH
 from app.models.usuario import Usuario
@@ -39,7 +40,6 @@ from app.services.producto_propio_service import (
     save_producto_propio,
 )
 
-PERMISO_VER = "ml_ops.ver"
 PERMISO_EDITAR = "ml_publicaciones.editar_producto"
 
 router = APIRouter(prefix="/productos-propios", tags=["Productos propios"])
@@ -122,7 +122,7 @@ def _response(view: ProductoPropioView, can_edit: bool) -> ProductoPropioRespons
 @router.get("/{item_id}", response_model=ProductoPropioResponse)
 def get_producto_propio(
     item_id: int = Path(..., ge=1),
-    user: Usuario = Depends(require_permiso(PERMISO_VER)),
+    user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
     auth_db: Session = Depends(get_db),
     db: Session = Depends(get_productos_propios_db),
 ) -> ProductoPropioResponse:

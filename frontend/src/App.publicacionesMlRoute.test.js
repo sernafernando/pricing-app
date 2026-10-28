@@ -1,5 +1,5 @@
 /**
- * Publicaciones ML is a route behind `ml_ops.ver` (publicaciones-ml-vista S71.1).
+ * Publicaciones ML is a route behind `productos.ver` or `ml_ops.ver` (S71.1; S12f1 added Productos' permission).
  * It shipped hidden; the go-live PR (P14) added the discovery: the Sidebar item,
  * the SmartRedirect entry and exactly one novedad (R7). The Sidebar and
  * SmartRedirect behaviour is tested in their own suites.
@@ -15,9 +15,9 @@ import smartRedirectSource from './components/SmartRedirect.jsx?raw';
 const novedades = import.meta.glob('./novedades/*', { query: '?raw', import: 'default', eager: true });
 
 describe('Publicaciones ML route', () => {
-  it('S71.1: is a route behind ml_ops.ver', () => {
+  it("S12f1: is a route behind Productos' productos.ver or ml_ops.ver (any of them)", () => {
     expect(appSource).toMatch(
-      /\{ path: '\/ml-publicaciones', component: PublicacionesML, permiso: 'ml_ops\.ver' \}/,
+      /\{ path: '\/ml-publicaciones', component: PublicacionesML, permisos: \['productos\.ver', 'ml_ops\.ver'\] \}/,
     );
     expect(appSource).toMatch(/PublicacionesML = lazy\(\(\) => import\('\.\/pages\/PublicacionesML'\)\)/);
   });
