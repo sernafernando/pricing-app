@@ -122,6 +122,10 @@ class TestGating:
         [
             {"orden": "markup"},
             {"orden": "costo"},
+            {"orden": "lista_clasica"},
+            {"orden": "titulo,lista_rebate"},
+            {"orden": "lista_oferta"},
+            {"orden": "lista_web"},
             {"markup_neg": "true"},
             {"markup_min": "0"},
             {"markup_max": "10"},

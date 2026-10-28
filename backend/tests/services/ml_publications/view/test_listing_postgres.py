@@ -878,6 +878,52 @@ class TestSorting:
         assert by("asc,asc") == ["MLA2", "MLA4", "MLA1", "MLA3"]
         assert by("asc,desc") == ["MLA2", "MLA1", "MLA4", "MLA3"]
 
+    @pytest.mark.parametrize(
+        ("orden", "column"),
+        [
+            ("lista_clasica", "markup_calculado"),
+            ("lista_rebate", "markup_rebate"),
+            ("lista_oferta", "markup_oferta"),
+            ("lista_web", "markup_web_real"),
+        ],
+    )
+    def test_a_price_column_sorts_by_its_markup_like_productos_and_needs_the_margin(
+        self, conn, db, orden, column
+    ) -> None:
+        # Productos sorts these headers by the stored markup of the list (`productos_listing`), not by the price
+        seed.create_presence_tables(conn, with_pricing=True)
+        conn.execute(text(seed.MARKUP_DDL))
+        for product_id, markup in ((70, 12.5), (71, -3.0), (72, 40.0), (73, None)):
+            seed.add_product(conn, product_id, f"C{product_id}", "P")
+            seed.add_pricing(conn, product_id, **{column: markup})
+        for item_id, product_id in (("MLA1", 70), ("MLA2", 71), ("MLA3", 72), ("MLA5", 73)):
+            seed.add_item(conn, item_id)
+            seed.add_link(conn, item_id, product_id)
+        seed.add_item(conn, "MLA4")  # no product, no markup
+
+        def by(direction=None) -> list[str]:
+            sort = listing.parse_sort(orden, direction)
+            return ids(listing.list_items(db, parse_filter(), sort, 50, 0, events=True, can_see_margin=True))
+
+        assert by() == ["MLA2", "MLA1", "MLA3", "MLA4", "MLA5"]  # the worst markup first; none, last
+        assert by("desc") == ["MLA3", "MLA1", "MLA2", "MLA4", "MLA5"]
+        with pytest.raises(FilterError) as raised:
+            listing.list_items(db, parse_filter(), listing.parse_sort(orden, None), 50, 0, events=True)
+        assert raised.value.field == "orden"
+
+    def test_a_price_markup_combines_with_other_keys(self, conn, db) -> None:
+        seed.create_presence_tables(conn, with_pricing=True)
+        conn.execute(text(seed.MARKUP_DDL))
+        for product_id, marca, markup in ((70, "B", 5.0), (71, "A", 9.0), (72, "A", 1.0)):
+            seed.add_product(conn, product_id, f"C{product_id}", "P", marca=marca)
+            seed.add_pricing(conn, product_id, markup_calculado=markup)
+        for item_id, product_id in (("MLA1", 70), ("MLA2", 71), ("MLA3", 72)):
+            seed.add_item(conn, item_id)
+            seed.add_link(conn, item_id, product_id)
+        sort = listing.parse_sort("marca,lista_clasica", "asc,desc")
+        page = listing.list_items(db, parse_filter(), sort, 50, 0, events=True, can_see_margin=True)
+        assert ids(page) == ["MLA2", "MLA3", "MLA1"]
+
     def test_title_ignores_case_and_puts_missing_titles_last(self, conn, db) -> None:
         seed.add_item(conn, "MLA1", title="banana")
         seed.add_item(conn, "MLA2", title="Apple")

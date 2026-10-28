@@ -747,6 +747,20 @@ describe('sorting by several columns (S12e, Shift+click like Productos)', () => 
     expect(buildItemsParams(filters, 50, ALL)).toMatchObject({ orden: 'precio,markup,facturado_30d' });
   });
 
+  it("sorts Productos' price headers by their markup, worst first, only with the margin permission", () => {
+    const filters = { ...base, orden: 'lista_clasica,lista_rebate,lista_oferta,lista_web', dir: '' };
+    expect(effectiveSortKeys(filters, ALL)).toEqual([
+      { key: 'lista_clasica', dir: 'asc' },
+      { key: 'lista_rebate', dir: 'asc' },
+      { key: 'lista_oferta', dir: 'asc' },
+      { key: 'lista_web', dir: 'asc' },
+    ]);
+    // without ver_ganancia they are left out, as the markup is
+    expect(effectiveSortKeys({ ...filters, orden: 'lista_clasica,titulo' }, SALES)).toEqual([{ key: 'titulo', dir: 'asc' }]);
+    // the Producto view has no such sort: a shared link falls back to its default
+    expect(effectiveProductSortKeys({ ...filters, vista: 'producto' }, ALL)).toEqual([{ key: 'facturado_30d', dir: 'desc' }]);
+  });
+
   it('combines every figure in the Producto view, and asks /products for all of them', () => {
     const filters = { ...base, vista: 'producto', orden: 'unidades_7d,titulo', dir: 'desc,desc' };
     expect(effectiveProductSortKeys(filters, SALES)).toEqual([
