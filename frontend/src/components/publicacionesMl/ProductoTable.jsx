@@ -8,6 +8,7 @@ import { SelectionCheckbox } from './ProductCheckbox';
 import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
 import PrearmadaBadge from '../PrearmadaBadge';
 import PxqTramosBadge from '../PxqTramosBadge';
+import CatalogStatusBadge from '../CatalogStatusBadge';
 
 /**
  * Producto view of Publicaciones ML, like Métricas ML's: one row per product
@@ -31,7 +32,8 @@ import PxqTramosBadge from '../PxqTramosBadge';
  * whose panel is open (`selectedProductKey`).
  *
  * Beside a product's name, Productos' badges: its prearmadas (`prearmadasStats`, by product id, from the page) and its
- * wholesale (PxQ) tiers (the row's `pxq_tramos` / `pxq_precio_desde`).
+ * wholesale (PxQ) tiers (the row's `pxq_tramos` / `pxq_precio_desde`), and its catalog competition (from `listingById`:
+ * the Productos listing's product by id, the page's `useListPrices`).
  */
 // The columns a product row fills from its own product, as Productos' rows carry it: drawn by the publications' own
 // cells over the product read in their shape (`productAsItem`).
@@ -39,6 +41,8 @@ const PRODUCT_FIELDS = new Set(['codigo', 'marca', 'costo', 'stock_erp']);
 
 // No prearmadas stats given: one stable object, so the columns are not rebuilt on every render.
 const NO_PREARMADAS = {};
+// No listing given: an empty one, stable for the same reason.
+const NO_LISTING = new Map();
 
 /** A product node in the shape the publication cells read: its code and brand as a link's, its ERP stock, its cost
  * and the lines under it. */
@@ -68,6 +72,7 @@ export default function ProductoTable({
   emptyMessage = 'Ningún producto coincide con los filtros',
   selection,
   prearmadasStats = NO_PREARMADAS,
+  listingById = NO_LISTING,
 }) {
   const { rows, toggle, loadMore } = tree;
 
@@ -89,6 +94,7 @@ export default function ProductoTable({
                 <>
                   <PrearmadaBadge stats={prearmadasStats[node.productoItemId]} />
                   <PxqTramosBadge tramos={node.pxqTramos} precioDesde={node.pxqPrecioDesde} />
+                  <CatalogStatusBadge product={listingById.get(Number(node.productoItemId))} />
                 </>
               );
               return <NodeTitle row={row} onToggle={toggle} after={after} badges={badges} />;
@@ -103,7 +109,7 @@ export default function ProductoTable({
           return index === 0 ? <BranchState row={row} onMore={loadMore} onRetry={loadMore} /> : null;
         },
       })),
-    [columns, toggle, loadMore, selection, prearmadasStats],
+    [columns, toggle, loadMore, selection, prearmadasStats, listingById],
   );
 
   // The page selects by MLA; the table by row, so only one row is highlighted.

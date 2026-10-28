@@ -121,7 +121,7 @@ vi.mock('../../services/api', () => ({
             { item_id: 4101, descripcion: 'Router Archer AX55', marca: 'TP-LINK', categoria: 'REDES', stock: 12, costo: 95.5, moneda_costo: 'USD',
               precio_lista_ml: 189999, markup: 24.3, participa_rebate: true, precio_rebate: 197911, markup_rebate: 21.1,
               precio_3_cuotas: 209999, markup_3_cuotas: 18.2, precio_6_cuotas: 229999, markup_6_cuotas: 15.4,
-              precio_pvp: 239999, markup_pvp: 31.9 },
+              precio_pvp: 239999, markup_pvp: 31.9, has_catalog: true, catalog_status: 'winning', catalog_winner_price: 189999 },
             { item_id: 4102, precio_lista_ml: 45999, markup: -3.2, mejor_oferta_precio: 41399, mejor_oferta_markup: -0.098,
               mejor_oferta_porcentaje_rebate: 12.5, mejor_oferta_monto_rebate: 5174.88, mejor_oferta_fecha_hasta: '2026-11-30',
               mejor_oferta_pvp_seller: 47999 },
@@ -1129,6 +1129,27 @@ describe('Publicaciones ML Producto view (visual)', () => {
           row.scrollIntoView({ block: 'center' });
           await frame();
           await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-row-badges-${width}-${theme}.png` });
+        }
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: a product row's catalog-competition badge sits beside its name, inside the cell`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        const table = screen.getByRole('table', { name: /por producto/ });
+        const trophy = table.getByRole('img', { name: /^Catálogo: ganando/ }).first();
+        await expect.element(trophy).toBeVisible();
+        const badge = trophy.element();
+        expect(badge).toHaveAttribute('title', 'Ganando a $189999.00');
+        const cell = badge.closest('td');
+        expect(rect(badge).right).toBeLessThanOrEqual(rect(cell).right + 0.5);
+        expect(cell.textContent).toContain('Router Archer AX55');
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          badge.closest('tr').scrollIntoView({ block: 'center' });
+          await frame();
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-row-catalog-${width}-${theme}.png` });
         }
         screen.unmount();
       });

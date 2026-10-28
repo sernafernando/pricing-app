@@ -975,6 +975,7 @@ export default function PublicacionesML() {
                 selection={selection}
                 colorOverlay={colorOverlay.colors}
                 prearmadasStats={prearmadasStats}
+                listingById={listPrices.byId}
                 canSeeMargin={canSeeMargin}
                 expandedIds={expandedIds}
                 onSelectItem={handleRowClick}
