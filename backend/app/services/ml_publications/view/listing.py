@@ -13,7 +13,6 @@ its tests are `@pytest.mark.postgres`.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import date
 from typing import Any, Mapping, Optional
 
 from sqlalchemy import ARRAY, Text, and_, any_, case, cast, func, literal, select, text, true
@@ -22,9 +21,9 @@ from sqlalchemy.orm import Session
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tipo_cambio import TipoCambio
-from app.services.costo_ppp_service import PppMarkups, resolver_ppp_batch
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
 from app.services.ml_publications.view.display import round_display
+from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines
 from app.services.ml_publications.view.filters import (
     AXES,
     FULFILLMENT,
@@ -52,8 +51,6 @@ from app.services.ml_publications.view.markup_service import (
     compute_markups,
 )
 from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, needs_margin, ranked_page
-from app.services.pricing_calculator import obtener_tipo_cambio_actual
-from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 
 STATEMENT_TIMEOUT = "8s"
 SORT_ACTIVITY = "actividad"
@@ -375,49 +372,6 @@ def _attach_markup(items: list[dict[str, Any]], computed: Mapping[str, ItemMarku
     for item in items:
         if item["item_id"] in computed:
             item["markup"] = markup_out(computed[item["item_id"]])
-
-
-@dataclass(frozen=True)
-class _CostedProduct:
-    """What `SellInOutBatch.markups` reads of a product: its cost in its own currency and its VAT."""
-
-    item_id: int
-    costo: Optional[float]
-    moneda_costo: str
-    iva: Optional[float]
-
-
-NO_COST_LINES: dict[str, Any] = {"ppp": None, "sell_in_out": None}
-
-
-def cost_lines(pricing_db: Session, products: Mapping[int, tuple[Any, Any, Any]]) -> dict[int, dict[str, Any]]:
-    """The two lines Productos draws under a product's cost, per product id of `products` (id -> cost, currency,
-    VAT): `ppp` (`resolver_ppp_batch` + `PppMarkups`, null without a qualifying row) and `sell_in_out`
-    (`resolver_sell_in_out_batch`, null when neither applies). No markup is recorded: the cost cell shows neither.
-    Both resolvers read the pricing database, once for the whole page."""
-    if not products:
-        return {}
-    ids = sorted(products)
-    ppp = resolver_ppp_batch(pricing_db, ids)
-    sell_in_out = resolver_sell_in_out_batch(pricing_db, ids, date.today())
-    rate = obtener_tipo_cambio_actual(pricing_db, "USD")
-    out: dict[int, dict[str, Any]] = {}
-    for item_id in ids:
-        costo, moneda, iva = products[item_id]
-        moneda = getattr(moneda, "value", moneda) or "ARS"
-        ppp_payload = PppMarkups(ppp.get(item_id), moneda_costo=moneda, tipo_cambio=rate).payload()
-        product = _CostedProduct(item_id, _as_float(costo), moneda, _as_float(iva))
-        sio_payload = sell_in_out.markups(product, tipo_cambio=rate).payload()
-        out[item_id] = {
-            "ppp": None if ppp_payload is None else ppp_payload.model_dump(),
-            "sell_in_out": None if sio_payload is None else sio_payload.model_dump(),
-        }
-    return out
-
-
-def _as_float(value: Any) -> Optional[float]:
-    """A Numeric column's value (a Decimal) as the float the sell in arithmetic mixes it with."""
-    return None if value is None else float(value)
 
 
 def attach_cost(items: list[dict[str, Any]], rows: list[Any], pricing_db: Optional[Session] = None) -> None:

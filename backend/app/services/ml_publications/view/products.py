@@ -48,7 +48,8 @@ from app.services.ml_publications.view.filters import (
     build_base_select,
     erp_stock,
 )
-from app.services.ml_publications.view.listing import NO_COST_LINES, cost_lines, markup_accepted, resolve_pm_pairs
+from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines
+from app.services.ml_publications.view.listing import markup_accepted, resolve_pm_pairs
 from app.services.ml_publications.view.markup_service import MarkupQuery
 
 # `orden` -> (the summed row's column, whether it is a margin figure: `ml_metricas.ver_ganancia` only, whether it is a
@@ -93,7 +94,7 @@ class ProductsPage:
     without_figures: frozenset[str] = field(default_factory=frozenset)  # keys of rows with no Board row at all
     # key -> the product's cost in its own currency (`{amount, currency}`, None without one); only when asked
     costs: dict[str, Optional[dict[str, Any]]] = field(default_factory=dict)
-    # key -> the PPP and sell in lines under that cost (`listing.cost_lines`); only when asked
+    # key -> the PPP and sell in lines under that cost (`cost_lines.cost_lines`); only when asked
     lines: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -247,7 +248,7 @@ def _costs(
 ) -> tuple[dict[str, Optional[dict[str, Any]]], dict[str, dict[str, Any]]]:
     """Each row's product cost in its own currency, as the publication rows carry it (`listing.attach_cost`): one
     statement over the page's products; "Sin producto" and a product with no cost read None. With `pricing_db`, the
-    lines under each cost too (`listing.cost_lines`, null on "Sin producto")."""
+    lines under each cost too (`cost_lines.cost_lines`, null on "Sin producto")."""
     ids = [row.product_item_id for row in rows if row.product_item_id != NO_PRODUCT]
     found = {}
     if ids:
