@@ -37,6 +37,10 @@ vi.mock('./panel/ProductChangesTab', () => ({
   default: ({ productItemId }) => <div data-testid="product-changes">{`changes of ${productItemId}`}</div>,
 }));
 
+vi.mock('./panel/ProductCuotasConfig', () => ({
+  default: ({ productItemId }) => <div data-testid="product-cuotas">{`cuotas of ${productItemId}`}</div>,
+}));
+
 vi.mock('./panel/ProductBanAction', () => ({
   default: ({ productItemId, description }) => <div data-testid="product-ban">{`ban ${productItemId}: ${description}`}</div>,
 }));
@@ -234,6 +238,15 @@ describe('ProductPanel', () => {
       expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByRole('tabpanel')).toHaveTextContent('prices of 4101, cost shown, clasica editable');
       expect(figures()).not.toBeInTheDocument();
+    });
+
+    it("shows the product's instalment settings on Precios, under its prices", async () => {
+      renderPanel();
+      await userEvent.click(tab('Precios'));
+      const prices = screen.getByTestId('product-prices');
+      const cuotas = screen.getByTestId('product-cuotas');
+      expect(cuotas).toHaveTextContent('cuotas of 4101');
+      expect(prices.compareDocumentPosition(cuotas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('hides the cost on Precios without the margin permission', async () => {

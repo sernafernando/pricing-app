@@ -128,6 +128,7 @@ vi.mock('../../services/api', () => ({
         ],
       }),
     ),
+    configCuotas: vi.fn(),
   },
   preciosAPI: {
     obtenerProducto: vi.fn(() => new Promise(() => {})),
@@ -917,6 +918,36 @@ describe('Publicaciones ML Producto view (visual)', () => {
     }
 
     for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product's instalment settings and their edit fit under its prices`, async () => {
+        preciosAPI.obtenerProducto.mockResolvedValue({
+          data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT, recalcular_cuotas_auto: false, markup_adicional_cuotas_custom: 6.5, markup_adicional_cuotas_pvp_custom: null },
+        });
+        offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('tab', { name: 'Precios' }).click();
+          await expect.element(aside.getByText('Nunca recalcular')).toBeVisible();
+          const panel = document.querySelector('[data-split-panel]');
+          const section = aside.getByText('Nunca recalcular').element().closest('section');
+          section.scrollIntoView();
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cuotas-${width}-${theme}.png` });
+          await aside.getByRole('button', { name: 'Editar cuotas' }).click();
+          await expect.element(aside.getByLabelText('Recalcular cuotas')).toBeVisible();
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          for (const control of section.querySelectorAll('select, input, button')) {
+            expect(rect(control).right, control.textContent || control.tagName).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          }
+          section.scrollIntoView({ block: 'end' });
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cuotas-edit-${width}-${theme}.png` });
+          screen.unmount();
+        } finally {
+          preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
+          offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
+        }
+      });
+
       it(`${width}x${height} ${theme}: the product's ban and its confirmation fit inside the panel`, async () => {
         const screen = await renderProducts({ width, height, theme });
         await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
@@ -1632,6 +1663,28 @@ describe('row colors and the color layer (S8)', () => {
       await expect.element(modal).toBeVisible();
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/pricing-modal-1366-${theme}.png` });
+      screen.unmount();
+    });
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}: the page's checkbox sits on the title header's line, before its sort button, and is clickable`, async () => {
+      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const all = screen.getByRole('checkbox', { name: 'Seleccionar los productos de la página' });
+      await expect.element(all).toBeVisible();
+      all.element().scrollIntoView({ block: 'center', inline: 'nearest' });
+      const header = all.element().closest('th');
+      const sort = header.querySelector('button');
+      const box = all.element().getBoundingClientRect();
+      const sortBox = sort.getBoundingClientRect();
+      const headerBox = header.getBoundingClientRect();
+      // One line: the checkbox and the sort button share a vertical band, the checkbox first, both inside the cell.
+      expect(Math.abs(box.top + box.height / 2 - (sortBox.top + sortBox.height / 2))).toBeLessThanOrEqual(3);
+      expect(box.right).toBeLessThanOrEqual(sortBox.left);
+      expect(box.left).toBeGreaterThanOrEqual(headerBox.left);
+      expect(sortBox.right).toBeLessThanOrEqual(headerBox.right);
+      expect(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)).toBe(all.element());
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/select-page-1366-${theme}.png` });
       screen.unmount();
     });
   }

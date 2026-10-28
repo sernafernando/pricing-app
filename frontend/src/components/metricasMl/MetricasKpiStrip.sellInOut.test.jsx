@@ -33,6 +33,28 @@ describe('MetricasKpiStrip with sell in / sell out', () => {
     expect(within(cardOf('Total Gauss')).getByTitle('3 ventas con sell out en dólares sin tipo de cambio: no se suman')).toBeInTheDocument();
   });
 
+  it('flags how many sales add a sell out on an estimated rate, like the rows do (audit A5)', () => {
+    strip({ ...OFF, sell_in_out: { ...SELL, sell_out_estimados: 3 } });
+
+    const estimated = '3 ventas con tipo de cambio estimado';
+    expect(within(cardOf('Total Gauss')).getByTitle(estimated)).toHaveTextContent('≈ 3');
+    expect(within(cardOf('Sell in / Sell out')).getByTitle(estimated)).toHaveTextContent('≈ 3');
+  });
+
+  it('shows both flags side by side when some sell outs lack a rate and others use an estimate', () => {
+    strip({ ...OFF, sell_in_out: { ...SELL, sell_out_pendientes: 2, sell_out_estimados: 3 } });
+
+    const sellOut = within(cardOf('Sell in / Sell out')).getByTestId('kpi-sell-out');
+    expect(within(sellOut).getByTitle('2 ventas con sell out en dólares sin tipo de cambio: no se suman')).toHaveTextContent('2');
+    expect(within(sellOut).getByTitle('3 ventas con tipo de cambio estimado')).toHaveTextContent('≈ 3');
+  });
+
+  it('shows no estimated-rate flag when every sell out has its final rate', () => {
+    strip({ ...OFF, sell_in_out: SELL });
+
+    expect(screen.queryByText(/≈/)).not.toBeInTheDocument();
+  });
+
   it('shows nothing of it when no sale in the period has a sell in or a sell out', () => {
     strip({ ...OFF, sell_in_out: { ...SELL, sell_in: null, sell_out: null, costo_sell_in: null, total_gauss: null, markup_pct: null } });
 
