@@ -329,8 +329,9 @@ def run_migracion(
     filas = []
     for offset_id in ids:
         with session_factory() as db:
-            offset = fila = None
+            offset = fila = error = None
             pendiente = None  # (reason, warnings) of an offset left out, for the review table
+            guardado = False  # kept for review (or, in a dry run, would be)
             try:
                 offset = db.get(OffsetGanancia, offset_id)
                 if offset is None:  # deleted after the ids were read: no detail left to keep
@@ -357,31 +358,38 @@ def run_migracion(
                     else:
                         fila, error = _uno(db, offset, plan, apply)
                         if fila["resultado"] == NO_MIGRADO:
-                            pendiente = (error, plan.avisos)
+                            pendiente = (error or "No migrado", plan.avisos)
                 if apply:
+                    # `_uno` already rolled a failed campaign back: what commits here is the review row alone.
                     if pendiente is not None:
                         _guardar_pendiente(db, offset, *pendiente)
                     else:
                         _quitar_pendiente(db, offset_id)
                     db.commit()
+                guardado = pendiente is not None
             except SQLAlchemyError as exc:
-                # Reading the offset, or keeping it for review, failed: reported, the run and the report go on.
                 db.rollback()
                 logger.exception("Offset #%s: database error", offset_id)
-                error = f"Error de base de datos: {type(exc).__name__}"
-                if fila is None or pendiente is not None:
+                motivo = f"Error de base de datos: {type(exc).__name__}"
+                error = error or motivo
+                if fila is None:
+                    # Reading the offset failed: reported with its id alone, the run and the report go on.
                     fila = {
                         **dict.fromkeys(COLUMNAS, ""),
                         "offset_id": offset_id,
                         "resultado": NO_MIGRADO,
-                        "motivo": error,
+                        "motivo": motivo,
                     }
+                else:
+                    # Keeping it for review failed: the CSV keeps its reason and says the table missed it.
+                    aviso = f"No se guardó en la tabla de revisión ({motivo})"
+                    fila["avisos"] = csv_text(" | ".join(filter(None, [fila["avisos"], aviso])))
             finally:
                 if not apply:
                     db.rollback()
         filas.append(fila)
         summary[contador[fila["resultado"]]] += 1
-        if fila["resultado"] == NO_MIGRADO:
+        if guardado:
             summary["pendientes"] += 1
         if error is not None:
             summary["con_error"].append(offset_id)

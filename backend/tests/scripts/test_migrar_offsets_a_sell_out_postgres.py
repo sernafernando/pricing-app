@@ -666,3 +666,24 @@ def test_the_dry_run_leaves_an_existing_review_table_as_it_was(engine, correr) -
 
     assert _pendientes(engine) == antes
     assert summary["pendientes"] == 1  # what --apply would store
+
+
+def test_a_failure_keeping_the_review_row_keeps_the_reason_and_fails_the_run(engine, correr, monkeypatch) -> None:
+    falla = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=100)
+    sana = _offset(engine, marca="LENOVO", tipo_offset="monto_fijo", monto=200)
+    real = script._guardar_pendiente
+
+    def guardar(db, offset, motivo, avisos):
+        if offset.id == falla:
+            db.execute(text("SELECT * FROM tabla_que_no_existe"))
+        return real(db, offset, motivo, avisos)
+
+    monkeypatch.setattr(script, "_guardar_pendiente", guardar)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 1
+    assert filas[falla]["motivo"] == "Monto fijo: no tiene equivalente en una campaña por unidad"
+    assert "No se guardó en la tabla de revisión" in filas[falla]["avisos"]
+    assert list(_pendientes(engine)) == [sana]
+    assert (summary["pendientes"], summary["con_error"]) == (1, [falla])
