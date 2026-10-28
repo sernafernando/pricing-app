@@ -4,7 +4,7 @@
  * upgrade. Only with `produccion.ver_prearmadas_stats`, as in Productos.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import ProductPrearmadas from './ProductPrearmadas';
 import api from '../../../services/api';
 
@@ -55,6 +55,10 @@ describe('the badge', () => {
     const { container } = render(<ProductPrearmadas productItemId={4101} />);
 
     await waitFor(() => expect(api.post).toHaveBeenCalled());
+    // The badge is empty before the read lands too: let the zero stats reach it before asserting.
+    await act(async () => {
+      await api.post.mock.results[0].value;
+    });
     expect(container).toBeEmptyDOMElement();
   });
 });
