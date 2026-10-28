@@ -109,9 +109,9 @@ class TestVariationLinks:
                 # each leaf opens exactly its count
                 assert len(_items(client, admin_auth_headers, **node["params"])) == node["count"]
 
-        # MLA6 (variations to 77 TP-Link and 78 Ubiquiti) sits under its primary brand, TP-Link, and there only under
-        # 77: a product never appears under another brand's node (#1870 B1). Its 78 row is the Producto view's.
-        assert leaves == {"77": 3, "__none__": 3}
+        # MLA6 (variations to 77 TP-Link and 78 Ubiquiti) sits under each brand, and there only under that brand's
+        # product: a product never appears under another brand's node (#1870 B1), and each leaf is its Producto row
+        assert leaves == {"77": 3, "78": 1, "__none__": 3}
 
 
 @pytest.fixture()
@@ -167,11 +167,12 @@ class TestVariationLinksInTheProductFilters:
         ]
 
     def test_the_brand_is_the_linked_product_s(self, client, admin_auth_headers):
-        # MLA5/MLA6 are linked per variation only: their brand is their (first) variation product's, 77 TP-Link
+        # MLA5/MLA6 are linked per variation only: their brands are their variations' products'; MLA6 has both
         assert _items(client, admin_auth_headers, marcas="TP-LINK") == ["MLA1", "MLA5", "MLA6"]
+        assert _items(client, admin_auth_headers, marcas="UBIQUITI") == ["MLA6"]
         assert _items(client, admin_auth_headers, q="Router") == ["MLA1", "MLA5", "MLA6"]  # the product's name too
         roots = {n["key"]: n["count"] for n in _json(client, admin_auth_headers, "groups")["nodes"]}
-        assert roots == {"TP-LINK": 3, "__none__": 3}
+        assert roots == {"TP-LINK": 3, "UBIQUITI": 1, "__none__": 3}  # MLA6 under both: 7 for 6 publications
 
 
 def fill_siblings(conn) -> None:

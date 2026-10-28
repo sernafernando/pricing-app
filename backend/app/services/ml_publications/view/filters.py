@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -609,13 +609,41 @@ def has_product(products: Any = None, *, outside: Optional[list[int]] = None) ->
 
 
 def _any_linked_product(test: Any) -> ColumnElement:
-    """One of the row's linked products (`product_links`) in the catalog passes `test` (given its catalog alias)."""
+    """One of the row's linked products (`product_links`) passes `test` (given its catalog alias, outer-joined: NULL
+    for a product gone from the catalog, as `products.product_pairs` reads it, and its link's product id)."""
     pl, pp = product_links("pl_any"), aliased(ProductoERP, name="pp_any")
     return exists(
         select(1)
         .select_from(pl)
-        .join(pp, pp.item_id == pl.c.producto_item_id)
-        .where(pl.c.item_id == T.i.item_id, test(pp))
+        .outerjoin(pp, pp.item_id == pl.c.producto_item_id)
+        .where(pl.c.item_id == T.i.item_id, test(pp, pl.c.producto_item_id))
+    )
+
+
+def catalog_conditions(f: PublicationFilter, p: Any) -> list[ColumnElement]:
+    """The conditions of `f` on the product's catalog columns (brand, category, subcategory, PM), on catalog row `p`."""
+    conditions: list[ColumnElement] = []
+    if f.marcas:
+        conditions.append(_text_in(p.marca, f.marcas))
+    if f.categorias:
+        conditions.append(_text_in(p.categoria, f.categorias))
+    if f.subcategorias or f.no_subcategoria:
+        conditions.append(_subcategorias_in(f, p))
+    if f.pms:
+        conditions.append(_pm(f, p))
+    if f.pm_group is not None:
+        conditions.append(pm_group_in(f.pm_group, p))
+    return conditions
+
+
+def _catalog_match(f: PublicationFilter) -> ColumnElement:
+    """Brand, category, subcategory and PM on ANY linked product, the SAME product that passes every other condition
+    about the product (`linked_product_conditions`): `/items` keeps exactly the publications that have a row in the
+    Producto view (variations of different brands sit under each brand). A publication with no linked product
+    reads them on its empty catalog row (`T.p`, NULL), so `__none__` still finds it."""
+    return or_(
+        and_(~has_product(), *catalog_conditions(f, T.p)),
+        _any_linked_product(lambda p, product_id: and_(*linked_product_conditions(f, product_id, p))),
     )
 
 
@@ -636,17 +664,8 @@ def linked_product_conditions(f: PublicationFilter, product_id: Any, p: Any) -> 
         conditions.append(or_(*parts))
     if f.oferta is not None and f.oferta_per_product:
         conditions.append(product_has_offer(product_id) if f.oferta else ~product_has_offer(product_id))
-    if f.marcas:
-        conditions.append(_text_in(p.marca, f.marcas))
-    if f.categorias:
-        conditions.append(_text_in(p.categoria, f.categorias))
-    if f.subcategorias or f.no_subcategoria:
-        conditions.append(_subcategorias_in(f, p))
+    conditions.extend(catalog_conditions(f, p))
     conditions.extend(product_flag_conditions(f, p))
-    if f.pms:
-        conditions.append(_pm(f, p))
-    if f.pm_group is not None:
-        conditions.append(pm_group_in(f.pm_group, p))
     if f.q is not None:
         own, _ = _search_parts(f.q, p)
         conditions.append(or_(own, product_id.in_(_matching_products(f.q))))
@@ -1018,7 +1037,7 @@ def presence_conditions(f: PublicationFilter) -> list[ColumnElement]:
     where = []
     if product_flag_conditions(f, T.p):  # built only to know whether `f` asks any; one list, no copy to drift
         # one of the publication's linked products has them all (variations of different products: any of them)
-        where.append(_any_linked_product(lambda p: and_(*product_flag_conditions(f, p))))
+        where.append(_any_linked_product(lambda p, _product_id: and_(*product_flag_conditions(f, p))))
     if f.oferta is not None:
         where.append(_oferta(f.oferta, f.oferta_per_product))
     if f.mla_scope is not None:
@@ -1041,20 +1060,13 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
         where.append(_search(f.q))
     if (f.stores or f.no_store) and skip != "stores":
         where.append(_stores(f))
-    if f.marcas and skip != "marcas":
-        where.append(_text_in(T.p.marca, f.marcas))
-    if f.categorias:
-        where.append(_text_in(T.p.categoria, f.categorias))
-    if f.subcategorias or f.no_subcategoria:
-        where.append(_subcategorias_in(f))
+    catalog = replace(f, marcas=()) if skip == "marcas" else f  # the brand facet counts every brand
+    if catalog_conditions(catalog, T.p):
+        where.append(_catalog_match(catalog))
     if f.producto is not None:
         where.append(has_product([f.producto]))
     if f.sin_producto:
         where.append(~has_product())
-    if f.pms:
-        where.append(_pm(f))
-    if f.pm_group is not None:
-        where.append(pm_group_in(f.pm_group))
     if f.family_id is not None:
         where.append(T.i.family_id == f.family_id)
     if f.listing and skip != "listing":

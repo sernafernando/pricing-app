@@ -18,11 +18,13 @@ family.
 Rules worth knowing before reading the code:
 
 * Every publication is in exactly ONE node of every group level, so the counts of a level add up to their parent's.
-  The product level is the exception: a publication sits under EACH of its linked products (`filters.product_links`:
-  an item linked per variation can name several), once per product, so its counts may add up to more than the parent.
-  Brand, category and subcategory come from ONE product (`T.p`, `filters.primary_product`: the item-level link's,
-  else the lowest-id live variation product), so the group levels keep one node per publication; a publication with
-  no linked product sits under the `__none__` brand, category and subcategory, in "Sin producto" (`__none__`).
+  The exception is a publication linked to several products (`filters.product_links`: an item linked per variation
+  can name several): it sits under EACH of its linked products, and under each one's brand, category, subcategory
+  and PM (owner decision: a data-error case, ML variations share the product), once per node, so the counts of
+  such a node may add up to more than its parent. Every level but the store reads the expanded product (`PP`), the
+  same (publication, product) pairs the Producto view reads, so a node opens to exactly what it counts and a
+  product's leaf holds its Producto row. A publication with no linked product sits under the `__none__` brand,
+  category and subcategory, in "Sin producto" (`__none__`).
 * A node's `count` is the `/items` total with the node's own filters (`params`): the node is built from the SAME
   base select (`filters.build_base_select`) the list is, so the two cannot disagree. `params` is what the screen
   appends to the user's filters to fetch the publications of a node; the leaves are never served by this module.
@@ -73,7 +75,6 @@ from app.services.ml_publications.view.filters import (
     decode_key,
     encode_key,
     linked_product_conditions,
-    pm_group_in,
     product_links,
 )
 from app.services.ml_publications.view.listing import resolve_pm_pairs
@@ -142,7 +143,8 @@ def levels_of(dimension: str) -> tuple[str, ...]:
 @dataclass(frozen=True)
 class Tree:
     """The tree of one request: its levels and the key/label/joins of each group level, built ONCE per request
-    (the columns and the joins of the dimensions must be the same aliases)."""
+    (the columns and the joins of the dimensions must be the same aliases): the product's levels over the expanded
+    product (`PP`), the store over the publication."""
 
     levels: tuple[str, ...]
     dimensions: dict[str, Dimension]
@@ -152,14 +154,21 @@ class Tree:
         return self.levels[:-1]
 
 
+# The tree's own joins (`_scoped`): a publication sits under each of its linked products (`filters.product_links`:
+# item-level link or live variations' links), the set `producto=` / `sin_producto` filter on, and under its brand,
+# category, subcategory and PM.
+PL = product_links("pl_tree")
+PP = T.pl_p
+
+
 def tree_of(dimension: str) -> Tree:
     levels = levels_of(dimension)
     dimensions = {
         name: dimension_of(
             name,
-            marca=T.p.marca,
-            categoria=T.p.categoria,
-            subcategoria_id=T.p.subcategoria_id,
+            marca=PP.marca,
+            categoria=PP.categoria,
+            subcategoria_id=PP.subcategoria_id,
             store_id=T.i.official_store_id,
         )
         for name in levels[:-1]
@@ -180,12 +189,6 @@ def _total(db: Session, page: list[Any], key: Any) -> int:
     if page:
         return page[0][-1]
     return db.execute(select(func.count(func.distinct(key)))).scalar_one()
-
-
-# The product level's own joins (`_scoped(products=True)`): a publication sits under each of its linked products
-# (`filters.product_links`: item-level link or live variations' links), the set `producto=` / `sin_producto` filter on.
-PL = product_links("pl_tree")
-PP = T.pl_p
 
 
 def product_key() -> Any:
@@ -248,41 +251,21 @@ def _check_path(tree: Tree, path: list[str]) -> None:
             raise FilterError("path", f"{key!r} is not a {tree.levels[depth]} key")
 
 
-def _scoped(f: PublicationFilter, path: list[str], tree: Tree, *columns: Any, products: bool = False) -> Any:
-    """The base select with the dimensions' lookup tables joined and the ancestors' keys applied. With the product
-    level (`products`, or a path through it) a publication is one row per linked product (`PL`)."""
+def _scoped(f: PublicationFilter, path: list[str], tree: Tree, *columns: Any) -> Any:
+    """The base select, one row per (publication, linked product) (`PL`, `PP`; a publication with no linked product
+    is one row with none), with the dimensions' lookup tables joined and the ancestors' keys applied. Only the
+    products that pass the filter's product conditions are kept: a publication with variations in several products
+    never brings a sibling product (nor its brand) under a node. A group level counts its distinct publications."""
     query = build_base_select(f, *columns)
+    query = query.outerjoin(PL, PL.c.item_id == T.i.item_id).outerjoin(PP, PP.item_id == PL.c.producto_item_id)
+    conditions = linked_product_conditions(f, PL.c.producto_item_id, PP)
+    if conditions:
+        query = query.where(or_(PL.c.producto_item_id.is_(None), and_(*conditions)))
     for dimension in tree.dimensions.values():
         for target, onclause in dimension.joins:
             query = query.join(target, onclause, isouter=True)
-    if products or len(path) > len(tree.group_levels):
-        query = query.outerjoin(PL, PL.c.item_id == T.i.item_id).outerjoin(PP, PP.item_id == PL.c.producto_item_id)
-        # only the products that pass the filter's product conditions and the ancestors' brand/category keys: a
-        # publication with variations in several products never brings a sibling product under a node
-        conditions = linked_product_conditions(f, PL.c.producto_item_id, PP) + _product_path(tree, path)
-        if conditions:
-            query = query.where(or_(PL.c.producto_item_id.is_(None), and_(*conditions)))
     keys = [tree.dimensions[name].key for name in tree.group_levels] + [product_key()]
     return query.where(*(keys[depth] == _raw_key(tree.levels[depth], key) for depth, key in enumerate(path)))
-
-
-# the group levels that are the product's own columns, keyed over the expanded product (`PP`) as over `T.p`
-PRODUCT_LEVELS = ("marca", "categoria", "subcategoria", SUBCATEGORIA_IN_CATEGORIA)
-
-
-def _product_path(tree: Tree, path: list[str]) -> list[Any]:
-    """The ancestors' keys of the product's own levels, over the expanded product (`PP`)."""
-    conditions = []
-    for depth, key in enumerate(path[: len(tree.group_levels)]):
-        level = tree.levels[depth]
-        if level == "pm":  # the tree's own PM rule over the expanded product (`pm_grupo`)
-            conditions.append(pm_group_in(key, PP))
-        elif level in PRODUCT_LEVELS:
-            own = dimension_of(
-                level, marca=PP.marca, categoria=PP.categoria, subcategoria_id=PP.subcategoria_id, store_id=None
-            )
-            conditions.append(own.key == _raw_key(level, key))
-    return conditions
 
 
 def _group_level(
@@ -290,14 +273,16 @@ def _group_level(
 ) -> GroupsPage:
     dimension = tree.dimensions[level]
     title = title_of(level, dimension.key, dimension.label)
-    rows = _scoped(f, path, tree, dimension.key.label("k"), title.label("t")).subquery("rows")
+    rows = _scoped(f, path, tree, dimension.key.label("k"), title.label("t"), T.i.item_id.label("item")).subquery(
+        "rows"
+    )
     # One key can carry spelling variants of the same name ("Redes" / "redes "): show the trimmed one, and
     # pick it with the byte-wise "C" collation so the label does not depend on the server's locale. MIN under "C"
     # prefers the capitalized spelling ("TP-Link" over "tp-link").
     shown = func.min(func.trim(rows.c.t).collate("C"))
     ordered = (rows.c.k == NO_GROUP, func.lower(shown), rows.c.k)  # "Sin ..." last, then by name
     page = db.execute(
-        select(rows.c.k, shown, func.count(), _nodes_in_level())
+        select(rows.c.k, shown, func.count(func.distinct(rows.c.item)), _nodes_in_level())
         .group_by(rows.c.k)
         .order_by(*ordered)
         .limit(limit)
@@ -384,7 +369,7 @@ def _product_columns() -> list[Any]:
 def _products(
     db: Session, f: PublicationFilter, tree: Tree, path: list[str], familias: bool, limit: int, offset: int
 ) -> GroupsPage:
-    rows = _scoped(f, path, tree, *_product_columns(), family_key().label("fk"), products=True).subquery("rows")
+    rows = _scoped(f, path, tree, *_product_columns(), family_key().label("fk")).subquery("rows")
     if familias:
         # one row per (product, family key) first: a product is a leaf unless some family has two or more members
         per_family = (
@@ -490,8 +475,9 @@ def _members(db: Session, f: PublicationFilter, tree: Tree, path: list[str], pag
     key = product_key() if is_product else tree.dimensions[page.level].key
     raw = {_raw_key(page.level, node.key): node.key for node in page.nodes}
     # Plain columns, straight through the connection: the ORM loading layer costs more than the rows on a big set.
-    query = _scoped(f, path, tree, T.i.item_id, key.label("k"), products=is_product).where(key.in_(list(raw)))
-    return [(item_id, raw[k]) for item_id, k in db.connection().execute(query).all()]
+    query = _scoped(f, path, tree, T.i.item_id, key.label("k")).where(key.in_(list(raw)))
+    # a group node holds a publication once, whatever the number of its products in it
+    return list(dict.fromkeys((item_id, raw[k]) for item_id, k in db.connection().execute(query).all()))
 
 
 def _family_members(

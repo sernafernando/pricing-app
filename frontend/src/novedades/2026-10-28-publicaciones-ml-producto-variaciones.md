@@ -10,7 +10,8 @@ En **Publicaciones ML**, una publicación con variaciones vinculadas a un produc
 - Si sus variaciones apuntan a productos distintos, aparece en cada uno, y el total de publicaciones de arriba la cuenta una sola vez.
 - **Sin producto** queda solo para las publicaciones sin ningún producto vinculado, ni en la publicación ni en una variación activa.
 - El árbol de grupos, las tarjetas de arriba (total, con stock, con precio...) y las acciones masivas por producto usan la misma regla: cada tarjeta cuenta los mismos productos que lista al hacerle clic.
-- Los filtros de **color**, **mejor oferta** por producto, **marca**, **categoría** y la búsqueda por nombre de producto también ven el producto de las variaciones. Si sus variaciones son de marcas distintas, la publicación toma la marca de una sola de ellas.
+- Los filtros de **color**, **mejor oferta** por producto, **marca**, **categoría** y la búsqueda por nombre de producto también ven el producto de las variaciones.
+- Una publicación cuyas variaciones son productos de marcas, categorías o PM distintos aparece en cada uno de ellos, en los filtros y en el árbol de grupos. Por eso los totales de un grupo pueden sumar más que el grupo de arriba.
 - Con un filtro de color, mejor oferta, marca, categoría o búsqueda, la vista **Producto** y las acciones masivas muestran solo los productos que lo cumplen, no los otros productos de la misma publicación. El filtro de markup mira, para cada producto, solo sus propias variaciones.
 - En el árbol, las familias y publicaciones que cuelgan de un producto muestran el markup y las negativas solo de las variaciones de ese producto, igual que al abrirlas.
 
