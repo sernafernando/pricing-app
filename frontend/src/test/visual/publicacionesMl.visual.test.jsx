@@ -112,6 +112,7 @@ vi.mock('../../services/api', () => ({
         ],
       }),
     ),
+    configCuotas: vi.fn(),
   },
   preciosAPI: {
     obtenerProducto: vi.fn(() => new Promise(() => {})),
@@ -876,6 +877,38 @@ describe('Publicaciones ML Producto view (visual)', () => {
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cambios-${width}-${theme}.png` });
         screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product's instalment settings and their edit fit under its prices`, async () => {
+        preciosAPI.obtenerProducto.mockResolvedValue({
+          data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT, recalcular_cuotas_auto: false, markup_adicional_cuotas_custom: 6.5, markup_adicional_cuotas_pvp_custom: null },
+        });
+        offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('tab', { name: 'Precios' }).click();
+          await expect.element(aside.getByText('Nunca recalcular')).toBeVisible();
+          const panel = document.querySelector('[data-split-panel]');
+          const section = aside.getByText('Nunca recalcular').element().closest('section');
+          section.scrollIntoView();
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cuotas-${width}-${theme}.png` });
+          await aside.getByRole('button', { name: 'Editar cuotas' }).click();
+          await expect.element(aside.getByLabelText('Recalcular cuotas')).toBeVisible();
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          for (const control of section.querySelectorAll('select, input, button')) {
+            expect(rect(control).right, control.textContent || control.tagName).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          }
+          section.scrollIntoView({ block: 'end' });
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-cuotas-edit-${width}-${theme}.png` });
+          screen.unmount();
+        } finally {
+          preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
+          offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
+        }
       });
     }
 
