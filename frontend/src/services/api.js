@@ -248,6 +248,8 @@ export const productosAPI = {
   listar: (params) => api.get('/productos', { params }),
   // The product's changes made in the app, newest first (the Productos "Historial de Cambios" log).
   auditoria: (itemId) => api.get(`/productos/${itemId}/auditoria`),
+  // `{ recalcular_cuotas_auto, markup_adicional_cuotas_custom, markup_adicional_cuotas_pvp_custom }`: replaces all three; null follows the global.
+  configCuotas: (itemId, body) => api.patch(`/productos/${itemId}/config-cuotas`, body),
   listarTienda: (params) => api.get('/productos/tienda', { params }),
   stats: (params) => api.get('/stats', { params }),
   statsDinamicos: (params) => api.get('/stats-dinamicos', { params }),
@@ -895,6 +897,11 @@ export const productosPropiosAPI = {
   chooseSource: (itemId, mla) => api.post(`/productos-propios/${itemId}/fuente`, { mla }),
   // Save the edited copy whole: `{ titulo, descripcion, fotos: [id], atributos: [{ id, value_name }] }`.
   saveDatos: (itemId, body) => api.put(`/productos-propios/${itemId}/datos`, body),
+};
+
+export const productoBanlistAPI = {
+  // `{ agregados, duplicados, no_encontrados, total_agregados }`: each list names what happened to each product.
+  add: (itemId, motivo) => api.post('/producto-banlist', { item_ids: String(itemId), motivo }),
 };
 
 // A publication's data overridden locally (saving never writes ML; only pushToMl does): `{ original, override, aplicado, editable, can_edit }`.

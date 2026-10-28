@@ -1750,16 +1750,23 @@ class Board:
         return q
 
     def _sell_sort_columns(self, g: Any) -> List[Any]:
-        """Total Gauss and markup WITH sell in / sell out of a summed row, for sorting (`SellInOut` in SQL)."""
+        """The sell in / sell out sort keys of a summed row (`SellInOut` in SQL): NULL wherever the screen shows an
+        empty cell, so those rows sort last both ways instead of as 0 among the real figures."""
         if not self.sell:
             return []
-        columns = [(g.c.tg + g.c.sell_in + g.c.sell_out).label("total_gauss_sell")]
+        has_in, has_out = g.c.sell_in_lineas > 0, g.c.sell_out_lineas > 0
+        applies = or_(has_in, has_out)
+        columns = [
+            case((has_in, g.c.sell_in), else_=None).label("sell_in_sort"),
+            case((has_out, g.c.sell_out), else_=None).label("sell_out_sort"),
+            case((applies, g.c.tg + g.c.sell_in + g.c.sell_out), else_=None).label("total_gauss_sell"),
+        ]
         if not self.tp:
             cost = g.c.costo - g.c.m_sell_in
             columns.append(
-                case((cost > 0, (g.c.mtg + g.c.m_sell_in + g.c.m_sell_out) * 100 / cost), else_=None).label(
-                    "markup_sell"
-                )
+                case(
+                    (and_(applies, cost > 0), (g.c.mtg + g.c.m_sell_in + g.c.m_sell_out) * 100 / cost), else_=None
+                ).label("markup_sell")
             )
         return columns
 
@@ -1853,8 +1860,8 @@ class Board:
             "stock": rows.c.stock,
             # An unknown Total TP (incomplete, or no TP-store sale) is NULL: last either way.
             "total_tp": rows.c.tg_tp if self.tp else None,
-            "sell_in": rows.c.sell_in if self.sell else None,
-            "sell_out": rows.c.sell_out if self.sell else None,
+            "sell_in": rows.c.sell_in_sort if self.sell else None,
+            "sell_out": rows.c.sell_out_sort if self.sell else None,
             "total_gauss_sell": rows.c.total_gauss_sell if self.sell else None,
             "markup_sell": rows.c.markup_sell if self.sell and not self.tp else None,
         }

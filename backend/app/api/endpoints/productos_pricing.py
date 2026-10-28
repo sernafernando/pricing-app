@@ -1310,10 +1310,10 @@ def actualizar_config_cuotas_producto(
         "mensaje": "Configuración actualizada",
         "recalcular_cuotas_auto": producto_pricing.recalcular_cuotas_auto,
         "markup_adicional_cuotas_custom": float(producto_pricing.markup_adicional_cuotas_custom)
-        if producto_pricing.markup_adicional_cuotas_custom
+        if producto_pricing.markup_adicional_cuotas_custom is not None
         else None,
         "markup_adicional_cuotas_pvp_custom": float(producto_pricing.markup_adicional_cuotas_pvp_custom)
-        if producto_pricing.markup_adicional_cuotas_pvp_custom
+        if producto_pricing.markup_adicional_cuotas_pvp_custom is not None
         else None,
     }
 
