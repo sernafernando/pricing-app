@@ -165,7 +165,10 @@ def test_a_cap_must_be_positive(client, gestor, productos, overrides, message):
     assert _message(resp) == message
 
 
-@pytest.mark.parametrize("overrides", [{"tope_monto": "1.005"}, {"tope_unidades": 2**31}, {"tope_unidades": 1.5}])
+@pytest.mark.parametrize(
+    "overrides",
+    [{"tope_monto": "1.005"}, {"tope_unidades": 2**31}, {"tope_unidades": 1.5}, {"tope_unidades": True}],
+)
 def test_a_cap_out_of_its_column_is_refused_never_rounded(client, gestor, productos, overrides):
     assert client.post(BASE, json=_body(**overrides), headers=gestor).status_code == 422
 
