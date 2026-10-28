@@ -62,6 +62,7 @@ from app.core.constants import PERMISOS_PUBLICACIONES_ML
 from app.core.database import get_background_db, get_db
 from app.core.exceptions import ErrorCode, api_error
 from app.models.usuario import Usuario
+from app.schemas.costo_ppp import PppPayload
 from app.schemas.sell_in_out_producto import SellInOutProducto
 from app.services.ml_daily_metrics import board, kpi_strip
 from app.services.ml_daily_metrics.sales import NO_PRODUCT
@@ -297,6 +298,9 @@ class ItemRowOut(BaseModel):
     last_event: Optional[LastEventOut] = None  # present only while events.enabled
     markup: Optional[MarkupOut] = None  # present only with ml_metricas.ver_ganancia
     costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
+    # the lines Productos draws under the cost (same gate as `costo`): null without a product or a PPP row / sell in
+    ppp: Optional[PppPayload] = None
+    sell_in_out: Optional[SellInOutProducto] = None
     sales_30d: Optional[Sales30dOut] = None  # present only with ml_metricas.ver
     metrics: Optional[MetricsOut] = None  # present only with ml_metricas.ver; null when Métricas has no row
 
@@ -647,6 +651,8 @@ class ProductRowOut(BaseModel):
     publications_count: int
     stock: Optional[int] = None
     costo: Optional[ItemCostOut] = None  # present only with ml_metricas.ver_ganancia; null without a product cost
+    ppp: Optional[PppPayload] = None  # the lines under the cost, as on a publication row (same gate)
+    sell_in_out: Optional[SellInOutProducto] = None
     params: dict[str, str]
     metrics: Optional[MetricsOut] = None
 
@@ -1096,7 +1102,15 @@ def get_items(
         f = listing.resolve_pm_pairs(db, f)  # once: the list and the facets share the resolved pairs
         with timer.stage("list"):
             page = listing.list_items(
-                db, f, sort, limit, offset, events=events_enabled, markup=markup, can_see_margin=can_see_margin
+                db,
+                f,
+                sort,
+                limit,
+                offset,
+                events=events_enabled,
+                markup=markup,
+                can_see_margin=can_see_margin,
+                lines_db=auth_db,  # the PPP and sell in lines under the cost (only with the markup: same gate)
             )
         if can_see_sales:
             with timer.stage("metrics"):
@@ -1246,6 +1260,7 @@ def _product_out(
     has_figures: bool,
     offer_filter: bool,
     costs: Optional[dict[str, Any]] = None,
+    lines: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     no_product = row.product_item_id == NO_PRODUCT
     params = {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
@@ -1263,6 +1278,8 @@ def _product_out(
     }
     if with_margin and costs is not None:
         out["costo"] = costs.get(row.key)  # the product's cost, as a publication row carries it
+    if with_margin and lines is not None:
+        out.update(lines.get(row.key, listing.NO_COST_LINES))  # the PPP and sell in lines under that cost
     if with_metrics:
         out["metrics"] = _metrics_out(row, with_margin) if has_figures else None
     return out
@@ -1359,7 +1376,15 @@ def get_products(
         listing.bound(db)
         with timer.stage("products"):
             page = products.list_products(
-                db, f, sort_name, sort_dir == "desc", limit, offset, then=ask.then, cost=can_see_margin
+                db,
+                f,
+                sort_name,
+                sort_dir == "desc",
+                limit,
+                offset,
+                then=ask.then,
+                cost=can_see_margin,
+                pricing_db=auth_db,
             )
         if f.sin_mla:  # the rows are the Sin MLA products: their total is the count
             sin_mla_count = page.total
@@ -1384,6 +1409,7 @@ def get_products(
             row.key not in page.without_figures,
             f.oferta is not None,
             page.costs,
+            page.lines,
         )
         for row in page.rows
     ]

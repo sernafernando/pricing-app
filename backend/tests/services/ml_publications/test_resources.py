@@ -22,10 +22,18 @@ from tests.services.ml_publications.conftest import FIXTURES_DIR, SUBRESOURCE_FI
 # the markup of a page or filtered set is computed from) and P6c adds exactly `view/variations.py` (the code,
 # name and brand of the product each variation sub-row is priced with) and P8a adds exactly `view/detail.py` (the
 # product of the item-level link with its categories, list prices and, for margins, cost; and the code, name and
-# brand of the product of each unit's link). The allowance covers the catalog only: GBP clients
+# brand of the product of each unit's link) and S12d2b adds exactly `view/cost_lines.py` (the PPP and the cost with
+# sell in under a product's cost, the same sell in resolver `view/detail.py` reads). The allowance covers the catalog only: GBP clients
 # and the other ERP-mirror tables stay forbidden everywhere.
 ERP_ALLOW_LIST: frozenset[str] = frozenset(
-    {"links.py", "view/filters.py", "view/markup_inputs.py", "view/variations.py", "view/detail.py"}
+    {
+        "links.py",
+        "view/filters.py",
+        "view/markup_inputs.py",
+        "view/variations.py",
+        "view/detail.py",
+        "view/cost_lines.py",
+    }
 )
 CATALOG_NAMES = ("productos_erp", "ProductoERP")
 CATALOG_IMPORT_TOKEN = "producto"
@@ -174,7 +182,14 @@ def test_the_publication_map_is_allowed_only_in_the_linking_module():
 
 def test_allow_list_is_exactly_the_linking_module_and_the_view_extraction_modules():
     assert ERP_ALLOW_LIST == frozenset(
-        {"links.py", "view/filters.py", "view/markup_inputs.py", "view/variations.py", "view/detail.py"}
+        {
+            "links.py",
+            "view/filters.py",
+            "view/markup_inputs.py",
+            "view/variations.py",
+            "view/detail.py",
+            "view/cost_lines.py",
+        }
     )
 
 

@@ -23,6 +23,7 @@ from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
 from app.services.ml_publications.view.display import round_display
+from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines
 from app.services.ml_publications.view.filters import (
     AXES,
     FULFILLMENT,
@@ -230,10 +231,15 @@ def row_columns(*, cost: bool = False) -> list[Any]:
         l.producto_item_id,
         # the LINK's product: `T.p` also names a publication linked per variation only (`filters.primary_product`),
         # which has no item-level product, so its link shows none, as its `producto_item_id` and state do; the
-        # product's cost only for who sees the margin: without it, not even selected
+        # product's cost (and the VAT its sell in lines use) only for who sees the margin: without it, not even selected
         *(
-            case((l.producto_item_id.isnot(None), column), else_=None).label(column.key)
-            for column in (p.codigo, p.descripcion, p.marca, *((p.costo, p.moneda_costo) if cost else ()))
+            case((l.producto_item_id.isnot(None), column), else_=None).label(label)
+            for column, label in (
+                (p.codigo, "codigo"),
+                (p.descripcion, "descripcion"),
+                (p.marca, "marca"),
+                *(((p.costo, "costo"), (p.moneda_costo, "moneda_costo"), (p.iva, "costo_iva")) if cost else ()),
+            )
         ),
         link_divergence().label("sku_divergence_kind"),
         l.suggested_producto_item_id,
@@ -488,11 +494,18 @@ def _attach_markup(items: list[dict[str, Any]], computed: Mapping[str, ItemMarku
             item["markup"] = markup_out(computed[item["item_id"]])
 
 
-def attach_cost(items: list[dict[str, Any]], rows: list[Any]) -> None:
-    """Each row's linked product cost, as the panel shows it (only for who sees the margin, as the markup)."""
+def attach_cost(items: list[dict[str, Any]], rows: list[Any], pricing_db: Optional[Session] = None) -> None:
+    """Each row's linked product cost, as the panel shows it (only for who sees the margin, as the markup). With
+    `pricing_db`, also the PPP and sell in lines under it (`cost_lines`); null on a row without a product."""
+    lines: dict[int, dict[str, Any]] = {}
+    if pricing_db is not None:
+        linked = {r.producto_item_id: (r.costo, r.moneda_costo, r.costo_iva) for r in rows if r.producto_item_id}
+        lines = cost_lines(pricing_db, linked)
     for item, row in zip(items, rows):
         currency = getattr(row.moneda_costo, "value", row.moneda_costo)
         item["costo"] = None if row.costo is None else {"amount": row.costo, "currency": currency}
+        if pricing_db is not None:
+            item.update(lines.get(row.producto_item_id, NO_COST_LINES))
 
 
 def _worst_first(computed: Mapping[str, ItemMarkup], descending: bool) -> list[str]:
@@ -561,7 +574,14 @@ def _rows_for_ids(db: Session, f: PublicationFilter, ids: list[str], *, cost: bo
 
 
 def _list_by_markup(
-    db: Session, f: PublicationFilter, sort: Sort, limit: int, offset: int, events: bool, markup: MarkupQuery
+    db: Session,
+    f: PublicationFilter,
+    sort: Sort,
+    limit: int,
+    offset: int,
+    events: bool,
+    markup: MarkupQuery,
+    lines_db: Optional[Session] = None,
 ) -> ItemsPage:
     """The page of a markup sort or filter (`_markup_ids`), then only the page's rows (by id), with the markup
     computed for the whole set. A fixed number of statements."""
@@ -571,7 +591,7 @@ def _list_by_markup(
     rows = _rows_for_ids(db, f, page_ids, cost=True)
     items = _assemble(db, rows, events)
     _attach_markup(items, result.items)
-    attach_cost(items, rows)
+    attach_cost(items, rows, lines_db)
     return ItemsPage(items, total, result.stats, result.ads_failed)
 
 
@@ -603,15 +623,17 @@ def list_items(
     events: bool,
     markup: Optional[MarkupQuery] = None,
     can_see_margin: bool = False,
+    lines_db: Optional[Session] = None,
 ) -> ItemsPage:
     """One page of publications. `events` is the `events.enabled` flag: the event filter needs it and the last
     event is only read while it is on. `markup` (the caller may see margins) adds each row's markup; sorting by
     it or filtering on it prices the whole filtered set first. A Métricas sort (`METRIC_SORTS`) ranks the whole
-    filtered set by the Board's figures; the margin ones need `can_see_margin` (fail closed: it defaults to no)."""
+    filtered set by the Board's figures; the margin ones need `can_see_margin` (fail closed: it defaults to no).
+    `lines_db` (the pricing database) adds, next to each row's cost, the lines under it (`cost_lines`)."""
     _check(f, sort, events, can_see_margin)
     f = resolve_pm_pairs(db, f)
     if _by_markup(sort, markup):
-        return _list_by_markup(db, f, sort, limit, offset, events, markup)
+        return _list_by_markup(db, f, sort, limit, offset, events, markup, lines_db)
     total = db.execute(build_base_select(f, func.count())).scalar_one()
     if total == 0 or offset >= total:
         return ItemsPage([], total, None if markup is None else MarkupStats(0, {}, 0.0))
@@ -630,7 +652,7 @@ def list_items(
         return ItemsPage(items, total)
     result = compute_markups(db, markup.pricing_db, item_ids=[row.item_id for row in rows], ads=markup.ads)
     _attach_markup(items, result.items)
-    attach_cost(items, rows)
+    attach_cost(items, rows, lines_db)
     return ItemsPage(items, total, result.stats, result.ads_failed)
 
 

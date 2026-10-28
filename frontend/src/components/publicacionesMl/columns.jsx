@@ -8,6 +8,8 @@ import LastEventCell from './LastEventCell';
 import ActivityCell from './ActivityCell';
 import StoreCell from './StoreCell';
 import MarkupCell from './MarkupCell';
+import PppLine from '../PppLine';
+import SellInOutLine from '../SellInOutLine';
 import { priceColumns } from './priceColumns';
 import {
   AgeingCell,
@@ -50,6 +52,18 @@ const dash = <span className={styles.empty}>—</span>;
 const orDash = (value) => (value ? value : dash);
 // The cost in its own currency, as the panel's "Costo" reads it; the sort compares it in pesos.
 const costText = (costo) => (costo?.amount == null ? dash : `${costo.currency ?? ''} ${formatAmount(costo.amount)}`.trim());
+// Under a cost, the PPP and the cost with sell in, as Productos' cost cell draws them (`ppp` and `sell_in_out` come
+// next to `costo`, only with ver_ganancia; a row without them, or without a cost, is the cost alone).
+const costCell = (item) => {
+  if (item.ppp === undefined || item.costo?.amount == null) return costText(item.costo);
+  return (
+    <div className={`${styles.stack} ${styles.stackEnd} ${styles.costLines}`}>
+      <span>{costText(item.costo)}</span>
+      <PppLine ppp={item.ppp} />
+      <SellInOutLine sellInOut={item.sell_in_out} />
+    </div>
+  );
+};
 
 /**
  * Columns hidden until the user turns them on in the picker: the store and the
@@ -282,7 +296,7 @@ export function buildColumns({
     { key: 'codigo', header: 'Código', width: 130, sortable: true, render: (item) => orDash(item.link?.codigo) },
     { key: 'marca', header: 'Marca', width: 130, sortable: true, render: (item) => orDash(item.link?.marca) },
     ...withMargin([
-      { key: 'costo', header: 'Costo', width: 130, sortable: true, align: 'right', render: (item) => costText(item.costo) },
+      { key: 'costo', header: 'Costo', width: 130, sortable: true, align: 'right', render: costCell },
     ]),
     { key: 'vinculo', header: 'Vínculo', width: 170, render: (item) => <LinkBadge link={item.link} /> },
     { key: 'tienda', header: 'Tienda', width: 140, render: (item) => <StoreCell item={item} /> },
