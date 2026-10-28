@@ -15,7 +15,7 @@ import Toast from '../components/Toast';
 import { usePrearmadasStats, PREARMADAS_LIMITE } from '../hooks/usePrearmadasStats';
 import PrearmadaBadge from '../components/PrearmadaBadge';
 import PxqTramosBadge from '../components/PxqTramosBadge';
-import { catalogState, catalogTooltip } from '../components/catalogStatus';
+import { NEUTRAL_TONE, catalogState, catalogTooltip } from '../components/catalogStatus';
 import { ChevronDown, ChevronRight, Users } from 'lucide-react';
 import { useExpandedSet } from '../hooks/useExpandedSet';
 import ProductoMLAsPanel from '../components/promociones/ProductoMLAsPanel';
@@ -1722,7 +1722,7 @@ export default function Productos() {
                             fontSize: '10px',
                             fontWeight: '600',
                             marginLeft: '6px',
-                            backgroundColor: catalogState(p.catalog_status)?.tone ?? 'var(--text-tertiary)',
+                            backgroundColor: catalogState(p.catalog_status)?.tone ?? NEUTRAL_TONE,
                             color: 'var(--text-inverse)',
                             whiteSpace: 'nowrap'
                           }}

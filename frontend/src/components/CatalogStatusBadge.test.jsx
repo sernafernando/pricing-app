@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import CatalogStatusBadge from './CatalogStatusBadge';
-import { CATALOG_STATES } from './catalogStatus';
+import { CATALOG_STATES, NEUTRAL_TONE } from './catalogStatus';
 
 /** Publicaciones ML's catalog-competition badge, mirroring Productos' row badge: mark, tone and price tooltip per status. */
 describe('CatalogStatusBadge', () => {
@@ -55,12 +55,12 @@ describe('CatalogStatusBadge', () => {
     }
   });
 
-  it("each state's tone comes from the shared table; an unknown status has none (the neutral tone)", () => {
+  it("each state's tone comes from the shared table; an unknown status, the shared neutral tone", () => {
     const { container, unmount } = render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: 'winning' }} />);
     expect(container.firstChild.style.getPropertyValue('--catalog-tone')).toBe(CATALOG_STATES.winning.tone);
     unmount();
     const other = render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: 'listed' }} />);
-    expect(other.container.firstChild.style.getPropertyValue('--catalog-tone')).toBe('');
+    expect(other.container.firstChild.style.getPropertyValue('--catalog-tone')).toBe(NEUTRAL_TONE);
   });
 
   it('a price of 0 is no price, as in Productos: no tooltip', () => {

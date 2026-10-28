@@ -1,4 +1,4 @@
-import { catalogState, catalogTooltip } from './catalogStatus';
+import { NEUTRAL_TONE, catalogState, catalogTooltip } from './catalogStatus';
 import styles from './CatalogStatusBadge.module.css';
 
 
@@ -26,7 +26,7 @@ export default function CatalogStatusBadge({ product }) {
     <span
       className={styles.badge}
       data-status={product.catalog_status}
-      style={state ? { '--catalog-tone': state.tone } : undefined}
+      style={{ '--catalog-tone': state?.tone ?? NEUTRAL_TONE }}
       title={title}
       aria-label={label}
       role="img"

@@ -2,13 +2,35 @@ import { AlertCircle, Handshake, Trophy } from 'lucide-react';
 
 /**
  * The catalog competition states ML reports, one table for Productos' row badge and Publicaciones ML's
- * `CatalogStatusBadge`. Each state has its words, Productos' emoji mark, Publicaciones ML's icon and the badge's tone.
+ * `CatalogStatusBadge`. Each state has its words, Productos' emoji mark, Publicaciones ML's icon, the badge's tone and
+ * its tooltip, from the product's usable prices (`winner`: the price it wins or ties at; `toWin`: the price to win).
  */
 export const CATALOG_STATES = {
-  winning: { label: 'ganando', mark: '🏆', Icon: Trophy, tone: 'var(--success)' },
-  sharing_first_place: { label: 'compartiendo el primer lugar', mark: '🤝', Icon: Handshake, tone: 'var(--info)' },
-  competing: { label: 'compitiendo', mark: '!', Icon: AlertCircle, tone: 'var(--warning)' },
+  winning: {
+    label: 'ganando',
+    mark: '🏆',
+    Icon: Trophy,
+    tone: 'var(--success)',
+    tooltip: ({ winner }) => winner && `Ganando a $${winner}`,
+  },
+  sharing_first_place: {
+    label: 'compartiendo el primer lugar',
+    mark: '🤝',
+    Icon: Handshake,
+    tone: 'var(--info)',
+    tooltip: ({ winner }) => winner && `Empatando a $${winner}`,
+  },
+  competing: {
+    label: 'compitiendo',
+    mark: '!',
+    Icon: AlertCircle,
+    tone: 'var(--warning)',
+    tooltip: ({ toWin }) => toWin && `Precio para ganar: $${toWin}`,
+  },
 };
+
+/** The badge's tone for a status the table does not have, in both badges. */
+export const NEUTRAL_TONE = 'var(--text-tertiary)';
 
 /**
  * The state of a catalog status, or undefined for a status the table does not have. Only the table's own keys count,
@@ -33,11 +55,6 @@ const price = (value) => {
  * @returns {string | undefined}
  */
 export function catalogTooltip(product) {
-  const { catalog_status: status } = product;
-  const winner = price(product.catalog_winner_price);
-  const toWin = price(product.catalog_price_to_win);
-  if (status === 'winning' && winner) return `Ganando a $${winner}`;
-  if (status === 'competing' && toWin) return `Precio para ganar: $${toWin}`;
-  if (status === 'sharing_first_place' && winner) return `Empatando a $${winner}`;
-  return undefined;
+  const prices = { winner: price(product.catalog_winner_price), toWin: price(product.catalog_price_to_win) };
+  return catalogState(product.catalog_status)?.tooltip(prices) || undefined;
 }
