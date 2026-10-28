@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.services.para_ganar_top import (
     RankCompetitor,
     bucket_display_label,
+    compute_suggested_price,
     dense_rank_positions,
     our_rank_from_positions,
     positions_within_top,
@@ -44,3 +45,49 @@ def test_bucket_display_label() -> None:
     assert bucket_display_label("gold_pro|6") == "Premium · 6 cuotas"
     assert bucket_display_label("gold_special|0") == "Clásica"
     assert bucket_display_label(None) is None
+
+
+def test_suggested_price_losing_vs_cheapest() -> None:
+    ranked = [
+        RankCompetitor("a", "A", "MLA1", 100.0, markup=10.0),
+        RankCompetitor("b", "B", "MLA2", 110.0, markup=12.0),
+        RankCompetitor("us", "US", "MLAUS", 120.0, is_us=True),
+    ]
+    result = compute_suggested_price(ranked, markup_min=5.0)
+    assert result is not None
+    assert result.suggestion_status == "losing"
+    assert result.precio_sugerido == 100.0
+    assert result.delta_ars == -20.0
+    assert result.referent_reason == "markup_min"
+    assert result.referent_nickname == "A"
+
+
+def test_suggested_price_skips_low_markup_peer() -> None:
+    ranked = [
+        RankCompetitor("cheap", "CHEAP", "MLA1", 90.0, markup=1.0),
+        RankCompetitor("ok", "OK", "MLA2", 100.0, markup=8.0),
+        RankCompetitor("us", "US", "MLAUS", 120.0, is_us=True),
+    ]
+    result = compute_suggested_price(ranked, markup_min=5.0)
+    assert result is not None
+    assert result.precio_sugerido == 100.0
+    assert result.referent_nickname == "OK"
+    assert result.referent_reason == "markup_min"
+
+
+def test_suggested_price_winning_air_to_second() -> None:
+    ranked = [
+        RankCompetitor("us", "US", "MLAUS", 100.0, is_us=True),
+        RankCompetitor("b", "B", "MLA2", 100.0, markup=10.0),
+        RankCompetitor("c", "C", "MLA3", 115.0, markup=12.0),
+    ]
+    result = compute_suggested_price(ranked)
+    assert result is not None
+    assert result.suggestion_status == "winning"
+    assert result.precio_sugerido == 100.0
+    assert result.delta_ars == 15.0
+
+
+def test_suggested_price_alone_returns_none() -> None:
+    ranked = [RankCompetitor("us", "US", "MLAUS", 100.0, is_us=True)]
+    assert compute_suggested_price(ranked) is None

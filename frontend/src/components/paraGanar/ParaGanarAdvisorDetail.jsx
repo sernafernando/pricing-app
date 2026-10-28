@@ -85,8 +85,8 @@ export default function ParaGanarAdvisorDetail({ selected }) {
         <div className={styles.emptyState}>
           <p className={styles.emptyTitle}>Seleccioná un MLA</p>
           <p className={styles.emptyBody}>
-            Acá aparece el tablero TOP (posiciones de precio). Precio sugerido y
-            promo llegan después.
+            Acá aparece el precio sugerido (PARA GANAR) y el tablero TOP. Aplicar
+            promo llega después.
           </p>
         </div>
       )}
@@ -163,6 +163,46 @@ export default function ParaGanarAdvisorDetail({ selected }) {
                   <div>
                     <dt>Competís en</dt>
                     <dd>{board.bucket_label}</dd>
+                  </div>
+                ) : null}
+                {board.precio_sugerido != null ? (
+                  <div>
+                    <dt>Precio sugerido</dt>
+                    <dd>
+                      $ {formatPrice(board.precio_sugerido)}
+                      {board.suggestion_status === 'winning'
+                        ? ' · ganando'
+                        : board.suggestion_status === 'losing'
+                          ? ' · perdiendo'
+                          : ''}
+                      {board.referent_nickname
+                        ? ` · ref. ${board.referent_nickname}`
+                        : ''}
+                    </dd>
+                  </div>
+                ) : null}
+                {board.delta_ars != null ? (
+                  <div>
+                    <dt>
+                      {board.suggestion_status === 'winning' ? 'Holgura' : 'Delta'}
+                    </dt>
+                    <dd
+                      className={
+                        board.delta_ars < 0
+                          ? styles.deltaNeg
+                          : board.delta_ars > 0
+                            ? styles.deltaPos
+                            : undefined
+                      }
+                    >
+                      {board.delta_ars > 0 ? '+' : ''}
+                      $ {formatPrice(board.delta_ars)}
+                      {board.suggestion_status === 'winning'
+                        ? ' hasta el 2º'
+                        : board.suggestion_status === 'losing'
+                          ? ' vs referente'
+                          : ''}
+                    </dd>
                   </div>
                 ) : null}
               </dl>

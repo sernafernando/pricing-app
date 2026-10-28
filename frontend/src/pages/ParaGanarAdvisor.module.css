@@ -519,6 +519,16 @@
   font-weight: 400;
 }
 
+.deltaNeg {
+  color: var(--cf-accent-red, #c62828);
+  font-variant-numeric: tabular-nums;
+}
+
+.deltaPos {
+  color: var(--cf-accent-green, #2e7d32);
+  font-variant-numeric: tabular-nums;
+}
+
 .sellersHint {
   margin: 0;
   font-size: 12px;

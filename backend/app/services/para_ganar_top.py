@@ -18,6 +18,72 @@ class RankCompetitor:
     price_ars: float
     is_us: bool = False
     listing_label: Optional[str] = None
+    markup: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class SuggestedPriceResult:
+    """PARA GANAR suggested price vs peers in the same bucket (Pro-style)."""
+
+    precio_sugerido: float
+    delta_ars: float
+    suggestion_status: str  # winning | losing
+    referent_seller_id: Optional[str]
+    referent_nickname: Optional[str]
+    referent_reason: str  # cheapest | markup_min
+
+
+def compute_suggested_price(
+    ranked: list[RankCompetitor],
+    *,
+    markup_min: Optional[float] = None,
+    precio_min: Optional[float] = None,
+    precio_max: Optional[float] = None,
+) -> Optional[SuggestedPriceResult]:
+    """Referent = cheapest peer (optional markup floor); delta as in Pro.
+
+    - Losing (our > referent): delta = sugerido − our (negative ⇒ bajar).
+    - Winning (our ≤ referent): delta = next peer above us − our (holgura a subir);
+      0 if we are alone at the bottom of the peer ladder.
+    """
+    us = next((c for c in ranked if c.is_us), None)
+    peers = sorted(
+        (c for c in ranked if not c.is_us),
+        key=lambda c: (c.price_ars, (c.nickname or "").lower(), c.seller_id),
+    )
+    if us is None or not peers:
+        return None
+
+    referent = peers[0]
+    reason = "cheapest"
+    if markup_min is not None:
+        floored = [c for c in peers if c.markup is not None and c.markup >= markup_min]
+        if floored:
+            referent = floored[0]
+            reason = "markup_min"
+
+    sugerido = float(referent.price_ars)
+    if precio_min is not None:
+        sugerido = max(sugerido, float(precio_min))
+    if precio_max is not None:
+        sugerido = min(sugerido, float(precio_max))
+
+    if us.price_ars <= referent.price_ars:
+        above = [c for c in peers if c.price_ars > us.price_ars]
+        delta = (above[0].price_ars - us.price_ars) if above else 0.0
+        status = "winning"
+    else:
+        delta = sugerido - us.price_ars
+        status = "losing"
+
+    return SuggestedPriceResult(
+        precio_sugerido=sugerido,
+        delta_ars=float(delta),
+        suggestion_status=status,
+        referent_seller_id=referent.seller_id,
+        referent_nickname=referent.nickname,
+        referent_reason=reason,
+    )
 
 
 @dataclass(frozen=True)

@@ -36,6 +36,7 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D12 | **TOP N = price positions** (ties share a rank), not “N sellers” | Two at #1 + three at #2 = top **2** positions, five sellers | Done (GET `/criterios/{mla}/sugerencia` + Advisor board) |
 | D13 | **Cola default = solo catálogo** (`catalog_listing`); opt-in “Incluir tradicionales sincronizadas” | Operators want catalog winners first; sync partners clutter the queue | Done (`incluir_tradicionales_sincronizadas`) |
 | D14 | **TOP same_bucket = listing_type \| cuotas**; bare int installments normalize correctly; synthesize our bucket from web pricelist when snapshot omits it | Bare ints used to collapse to `\|0` → “estamos solos” on 6 cuotas while ML shows peers | Done (read-time recompute) |
+| D15 | **Precio sugerido** = referent peer in same bucket (cheapest; skip peers with markup &lt; `markup_min` when known); clamp to precio min/max if set. Delta: losing ⇒ sugerido−ours; winning ⇒ air to next peer | Pro algorithm; first Advisor slice without promo apply | Done (compute + UI; apply TBD) |
 
 ---
 
@@ -86,6 +87,7 @@ Newest first. Use for “why did we…” archaeology.
 - Bucket key is recomputed at read time from competitor `installments` (int/str/dict). If the snapshot lacks `our_bucket_key`, it is synthesized from this MLA’s web pricelist (e.g. lista 14 → `gold_pro|6`) so 6-cuotas peers are not dropped (D14).
 - TOP board shows **Competís en** + per-row `listing_label` from the competition API (e.g. `Premium · 3 cuotas`) so it is not confused with the website financing copy (“Mismo precio en 6 cuotas”).
 - If the bucket has fewer price positions than TOP N, a discreet notice says the TOP is incomplete (not enough competitors).
+- **Precio sugerido (D15):** cheapest same-bucket peer as referent; if `markup_min` is set and peer markups exist, skip peers below that floor. Caps `precio_min`/`precio_max` when set. **Perdiendo:** delta = sugerido − nuestro (negativo = bajar). **Ganando:** holgura hasta el siguiente peer. Promo apply still TBD.
 - Missing snapshot: `POST /para-ganar/criterios/{mla}/competencia/refresh` (permiso `productos.editar_precios`) fetches via the same `refrescar_competencia_catalogo` path as Promociones — **per MLA only** (ML throttle).
 
 ### Sellers del catálogo
@@ -103,7 +105,8 @@ Newest first. Use for “why did we…” archaeology.
 4. ~~D10–D11 criteria markup/price~~ (mass keys + per-MLA sync).
 5. ~~Suggestion/TOP engine (rank board D12 + Activo/Excluido)~~.
 6. ~~Cola solo catálogo + check tradicionales (D13); fix bucket 6 cuotas (D14)~~.
-7. Next: suggested price / promo apply; product/PM criteria inheritance; suggestion states.
+7. ~~Precio sugerido D15 (referent + delta; no promo apply)~~.
+8. Next: promo apply; product/PM criteria inheritance; suggestion states queue.
 
 ---
 

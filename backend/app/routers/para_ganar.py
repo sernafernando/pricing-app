@@ -37,6 +37,7 @@ from app.services.para_ganar_top import (
     RankCompetitor,
     board_to_dict,
     bucket_display_label,
+    compute_suggested_price,
     dense_rank_positions,
     our_rank_from_positions,
 )
@@ -985,6 +986,10 @@ class ParaGanarSugerenciaResponse(BaseModel):
     bucket_label: Optional[str] = None
     positions: List[ParaGanarSugerenciaPosition] = Field(default_factory=list)
     suggestion_status: str = "none"
+    precio_sugerido: Optional[float] = None
+    delta_ars: Optional[float] = None
+    referent_nickname: Optional[str] = None
+    referent_reason: Optional[str] = None
     message: Optional[str] = None
     needs_competition_refresh: bool = False
 
@@ -1424,6 +1429,14 @@ def _effective_top_sellers(db: Session, mla: str) -> int:
     return int(CRITERIOS_DEFAULT_TOP_SELLERS)
 
 
+def _effective_criterios_for_sugerencia(db: Session, mla: str) -> ParaGanarCriteriosMla:
+    """Defaults or MLA override — TOP N, markup floor, price caps for suggested price."""
+    row = db.query(ParaGanarCriterioMla).filter(ParaGanarCriterioMla.mla == mla).first()
+    if row is None:
+        return _criterios_defaults(mla)
+    return _criterios_from_row(row)
+
+
 @router.get(
     "/criterios/{mla}/sugerencia",
     response_model=ParaGanarSugerenciaResponse,
@@ -1434,14 +1447,15 @@ def obtener_sugerencia_mla(
     db: Session = Depends(get_db),
     _user: Usuario = Depends(get_current_user),
 ) -> ParaGanarSugerenciaResponse:
-    """Compute-only TOP board (D12). No suggested promo price yet."""
+    """TOP board (D12) + suggested price vs same-bucket peers (Pro-style referent)."""
     mla_norm = mla.strip().upper()
     if not mla_norm:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MLA inválida")
     if not _mla_exists(db, mla_norm):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MLA no encontrada")
 
-    top_n = _effective_top_sellers(db, mla_norm)
+    criterios = _effective_criterios_for_sugerencia(db, mla_norm)
+    top_n = int(criterios.top_sellers) if criterios.top_sellers is not None else int(CRITERIOS_DEFAULT_TOP_SELLERS)
     catalog_product_id = _catalog_product_id_for_mla(db, mla_norm)
     if not catalog_product_id:
         return ParaGanarSugerenciaResponse(
@@ -1519,6 +1533,13 @@ def obtener_sugerencia_mla(
         item_id = str(item_raw).strip()[:32] if item_raw else None
         label_raw = competitor.get("listing_label")
         listing_label = str(label_raw).strip()[:64] if label_raw else None
+        markup_val = competitor.get("markup")
+        markup_f: Optional[float] = None
+        if markup_val is not None:
+            try:
+                markup_f = float(markup_val)
+            except (TypeError, ValueError):
+                markup_f = None
         candidate = RankCompetitor(
             seller_id=seller_id,
             nickname=nickname_s,
@@ -1526,6 +1547,7 @@ def obtener_sugerencia_mla(
             price_ars=price_ars,
             is_us=bool(is_us),
             listing_label=listing_label,
+            markup=markup_f,
         )
         previous = best_by_seller.get(seller_id)
         if previous is None or candidate.price_ars < previous.price_ars or (candidate.is_us and not previous.is_us):
@@ -1591,6 +1613,18 @@ def obtener_sugerencia_mla(
                 f"En este bucket solo hay {positions_available} {pos_word} de precio; "
                 f"el TOP pide {top_n} (faltan competidores)."
             )
+    suggested = compute_suggested_price(
+        ranked,
+        markup_min=criterios.markup_min,
+        precio_min=criterios.precio_min,
+        precio_max=criterios.precio_max,
+    )
+    suggestion_status = suggested.suggestion_status if suggested else "alone"
+    if suggested is None and not any(not c.is_us for c in ranked):
+        suggestion_status = "alone"
+    elif suggested is None:
+        suggestion_status = "none"
+
     message = " ".join(message_parts) if message_parts else None
     snapshot_at = snap.get("fecha_consulta")
     if isinstance(snapshot_at, str):
@@ -1609,7 +1643,11 @@ def obtener_sugerencia_mla(
         excluded_count=payload["excluded_count"],
         bucket_label=payload.get("bucket_label"),
         positions=[ParaGanarSugerenciaPosition(**p) for p in payload["positions"]],
-        suggestion_status=payload["suggestion_status"],
+        suggestion_status=suggestion_status,
+        precio_sugerido=suggested.precio_sugerido if suggested else None,
+        delta_ars=suggested.delta_ars if suggested else None,
+        referent_nickname=suggested.referent_nickname if suggested else None,
+        referent_reason=suggested.referent_reason if suggested else None,
         message=message,
         needs_competition_refresh=False,
     )

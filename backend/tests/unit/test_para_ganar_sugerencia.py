@@ -115,6 +115,10 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
     assert "excluido" in body.message
     assert "faltan competidores" in body.message
     assert f"TOP pide {body.top_sellers}" in body.message
+    assert body.suggestion_status == "losing"
+    assert body.precio_sugerido == 105.0
+    assert body.delta_ars == -3.0
+    assert body.referent_nickname == "MID"
 
     response = client.get(
         "/api/para-ganar/criterios/MLA88201/sugerencia",
@@ -122,6 +126,7 @@ def test_sugerencia_rank_board_excludes_sellers(client: TestClient, rma_superadm
     )
     assert response.status_code == 200, response.text
     assert response.json()["our_rank"] == 2
+    assert response.json()["precio_sugerido"] == 105.0
 
 
 def test_sugerencia_flags_needs_refresh_without_snapshot(client: TestClient, rma_superadmin_user, db) -> None:
