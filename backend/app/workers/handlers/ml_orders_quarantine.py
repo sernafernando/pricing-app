@@ -18,12 +18,15 @@ gives back is written, one ML has no longer is dropped.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, time, timedelta, timezone
 from typing import Optional, Tuple
 
 from app.core.database import get_background_db
 from app.services.ml_orders_ingestion import activity_receiver_service, ingestion_service
 from app.workers.context import JobResult, WorkerContext
+
+logger = logging.getLogger(__name__)
 
 
 class QuarantineRetryHandler:
@@ -37,7 +40,13 @@ class QuarantineRetryHandler:
     def run(self, ctx: WorkerContext) -> JobResult:
         # First the orders ML never gave back (no payload to replay): asked
         # again, and the ones that come back are written in that same pass.
-        refetch = activity_receiver_service.refetch_unresolved_orders(deadline=ctx.deadline)
+        # A failure there (the pool, the proxy) must not hold back the replay
+        # of the orders whose write failed: logged, and the next run retries.
+        try:
+            refetch = activity_receiver_service.refetch_unresolved_orders(deadline=ctx.deadline)
+        except Exception:
+            logger.exception("ml_orders.quarantine_retry: re-fetch of the payload-less orders failed")
+            refetch = activity_receiver_service.RefetchResult()
         detail = {
             "refetched": refetch.attempted,
             "refetch_landed": refetch.landed,

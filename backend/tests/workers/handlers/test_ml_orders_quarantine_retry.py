@@ -194,3 +194,31 @@ class TestTheRefetchRunsBeforeTheReplay:
         assert result.detail["dropped"] == 1
         assert result.detail["refetch_failed"] == 1
         assert result.detail["recovered"] == 1
+
+    def test_a_refetch_that_raises_does_not_stop_the_replay(self, monkeypatch, caplog) -> None:
+        """The re-fetch is a separate concern: if it fails (the pool, the proxy), the orders whose write failed are
+        still replayed."""
+
+        def _refetch(deadline):
+            raise RuntimeError("pool timeout")
+
+        def _retry(db, limit):
+            return ingestion_service.QuarantineRetryResult(attempted=1, recovered=1, order_ids=[1])
+
+        @contextmanager
+        def _no_db():
+            yield None
+
+        monkeypatch.setattr(activity_receiver_service, "refetch_unresolved_orders", _refetch)
+        monkeypatch.setattr(ingestion_service, "retry_quarantined_orders", _retry)
+        monkeypatch.setattr(handler_module, "get_background_db", _no_db)
+
+        with caplog.at_level("ERROR"):
+            result = quarantine_retry.run(
+                WorkerContext(deadline=datetime.now(timezone.utc) + timedelta(seconds=30), worker_name="w")
+            )
+
+        assert result.success is True
+        assert result.detail["recovered"] == 1
+        assert result.detail["refetched"] == 0
+        assert any("re-fetch" in r.getMessage() for r in caplog.records)
