@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, CircleHelp, Clock, PauseCircle, RefreshCw, XCircle } from 'lucide-react';
+import { CheckCircle2, CircleHelp, Clock, PanelRightOpen, PauseCircle, RefreshCw, XCircle } from 'lucide-react';
 import ExpandableRow from './ExpandableRow';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import CatalogCompetitionPanel from './CatalogCompetitionPanel';
@@ -92,7 +92,11 @@ const KIND_ROW_CLASS = {
  * those features deeper in the tree (this is the design's flagged #1 FE
  * risk; the catalog-competition panel was previously omitted from the
  * collapse-epoch sync effect below and had to be fixed once already).
- * `revealAll` and `showDeleted` are forwarded the same way.
+ * `revealAll` and `showDeleted` are forwarded the same way, and so is
+ * `onOpenPublication` (optional): with it, each MLA-bearing row gets an
+ * "Abrir <mla>" button that hands the MLA to the caller (Publicaciones ML
+ * opens that publication's panel) without expanding the row. Without it
+ * (Productos), the rows render exactly as before.
  */
 function TreeNode({
   node,
@@ -107,6 +111,7 @@ function TreeNode({
   conPxq,
   revealAll = false,
   showDeleted = false,
+  onOpenPublication,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
@@ -204,6 +209,7 @@ function TreeNode({
             conPxq={conPxq}
             revealAll={revealAll}
             showDeleted={showDeleted}
+            onOpenPublication={onOpenPublication}
           />
         ))}
       </>
@@ -301,6 +307,17 @@ function TreeNode({
           <td className={styles.treeNodeLabelCell}>
             <span className={`${styles.badge} ${badgeClass}`}>{kindLabel}</span>
             <span className={styles.treeNodeLabel}>{displayLabel}</span>
+            {onOpenPublication && bearsMla && node.mla && (
+              <button
+                type="button"
+                className="btn-tesla outline-subtle-primary icon-only sm"
+                onClick={() => onOpenPublication(node.mla)}
+                aria-label={`Abrir ${node.mla}`}
+                title={`Abrir ${node.mla}`}
+              >
+                <PanelRightOpen size={14} aria-hidden="true" />
+              </button>
+            )}
             {listaLabel && <span className={`${styles.badge} ${styles.badgeReadonly}`}>{listaLabel}</span>}
             {statusBadge && (
               <span className={`${styles.badge} ${statusBadge.className}`} title={statusBadge.title}>
@@ -410,6 +427,7 @@ function TreeNode({
                   conPxq={conPxq}
                   revealAll={revealAll}
                   showDeleted={showDeleted}
+                  onOpenPublication={onOpenPublication}
                 />
               ))}
             </tbody>
