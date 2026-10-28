@@ -19,7 +19,7 @@ import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
-import { equiposAPI, mlItemOverridesAPI, offsetsGananciaAPI, preciosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
+import { equiposAPI, mlItemOverridesAPI, offsetsGananciaAPI, preciosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI, pxqAPI } from '../../services/api';
 import { PRODUCTO_CON_REBATE_Y_OFERTA, SELL_IN_OUT } from '../../components/pricing/ProductPrices.fixtures';
 import {
   BRAND_NODES,
@@ -66,6 +66,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn(() => Promise.resolve({ data: [] })),
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
+  pxqAPI: { getLive: vi.fn(), getMarkup: vi.fn(), createTier: vi.fn(), updateTier: vi.fn(), deleteTier: vi.fn(), sync: vi.fn(), adoptLive: vi.fn() },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), events: vi.fn(), history: vi.fn(), enqueue: vi.fn(), setItemStatus: vi.fn(), statusItemIds: vi.fn(), statusBulk: vi.fn(), kpis: vi.fn(), stats: vi.fn(() => Promise.resolve({ data: { stats: { total: 40, con_stock: 30, con_precio: 35, con_stock_sin_precio: 3, nuevos: 5, nuevos_sin_precio: 2, oferta_sin_rebate: 4 }, can_see_margin: false } })), productIds: vi.fn(() => Promise.resolve({ data: { item_ids: [4101, 4102], count: 2, sin_producto: 1 } })), productLinks: vi.fn(() => Promise.resolve({ data: { units: [] } })), setProductLink: vi.fn(), setProductLinkNone: vi.fn(), revertProductLinkAuto: vi.fn(), searchProducts: vi.fn() },
   productosPropiosAPI: {
     get: vi.fn(() =>
@@ -1018,6 +1019,45 @@ describe('Publicaciones ML Producto view (visual)', () => {
           // the next tests read the page's own items and no stored snapshot
           promocionesAPI.getCompetenciaCatalogo.mockReset();
           publicacionesMlAPI.items.mockReset();
+        }
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the wholesale prices of a product's publication fit inside the panel`, async () => {
+        pxqAPI.getLive.mockResolvedValue({
+          data: {
+            item_id: 'MLA1100000005',
+            live_status: 'ok',
+            live_tiers: [
+              { id: 'p1', quantity: 3, amount: 95000 },
+              { id: 'p2', quantity: 10, amount: 91500.5 },
+            ],
+            mirror_tiers: [
+              { id: 1, cantidad_minima: 3, precio_unitario: 95000, costo_envio_total: 15000, estado: 'sincronizado', ml_price_id: 'p1' },
+              { id: 2, cantidad_minima: 10, precio_unitario: 91500.5, costo_envio_total: null, estado: 'sincronizado', ml_price_id: 'p2' },
+            ],
+          },
+        });
+        pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA1100000005', tiers: [] } });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('button', { name: /^Precios mayoristas de / }).first().click();
+          const section = aside.getByRole('heading', { name: 'Precios mayoristas' }).element().closest('section');
+          await expect.poll(() => section.querySelectorAll('table, li').length).toBeGreaterThan(1);
+          const panel = document.querySelector('[data-split-panel]');
+          section.scrollIntoView();
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-pxq-${width}-${theme}.png` });
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          for (const el of section.querySelectorAll('li, button, table, input')) {
+            expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          }
+          screen.unmount();
+        } finally {
+          pxqAPI.getLive.mockReset();
+          pxqAPI.getMarkup.mockReset();
         }
       });
     }

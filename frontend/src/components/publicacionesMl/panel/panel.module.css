@@ -737,11 +737,17 @@
   margin: 0;
 }
 
-/* A row that opens what sits under it (a catalog publication's competition): reads left to right like the rest. */
+/* A publication row that opens what sits under it (`PublicationDisclosures`: catalog competition, wholesale prices):
+   reads left to right like the rest, and a long title wraps inside the panel. */
 .disclosure {
   justify-content: flex-start;
+  flex-wrap: wrap;
   width: 100%;
+  min-width: 0;
+  height: auto;
   text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .banConfirm {

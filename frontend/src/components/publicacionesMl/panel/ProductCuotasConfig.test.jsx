@@ -109,7 +109,8 @@ describe('editing', () => {
       markup_adicional_cuotas_custom: null,
       markup_adicional_cuotas_pvp_custom: 3,
     });
-    expect(await screen.findByRole('status')).toHaveTextContent('Guardado.');
+    // The re-read shows a loading status first; wait for the confirmation itself.
+    expect(await screen.findByText(/^Guardado\./)).toHaveAttribute('role', 'status');
     // What is shown after saving is the stored setting, read again.
     expect(await screen.findByText('Nunca recalcular')).toBeInTheDocument();
     expect(field('Markup adicional cuotas PVP')).toHaveTextContent('3 %');
@@ -176,6 +177,8 @@ describe('editing', () => {
     renderConfig();
     expect(await screen.findByText('No se pudo leer la configuración completa, así que no se puede editar.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Editar cuotas' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Recalcular cuotas')).not.toBeInTheDocument();
+    expect(productosAPI.configCuotas).not.toHaveBeenCalled();
   });
 
   it('a failed read after saving says so, without claiming it was saved', async () => {

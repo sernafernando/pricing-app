@@ -1388,7 +1388,7 @@ describe('the product panel', () => {
     const user = userEvent.setup();
     await products('/ml-publicaciones?vista=producto&prod=4101');
     const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
-    await user.click(await within(opened).findByRole('button', { name: /MLA1100000001/ }));
+    await user.click(await within(opened).findByRole('button', { name: /^MLA1100000001/ }));
 
     const detail = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
     expect(productPanel()).not.toBeInTheDocument();

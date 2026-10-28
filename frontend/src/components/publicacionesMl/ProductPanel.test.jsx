@@ -47,6 +47,10 @@ vi.mock('./panel/ProductCatalogCompetition', () => ({
   ),
 }));
 
+vi.mock('./panel/ProductPxq', () => ({
+  default: ({ publications }) => <div data-testid="product-pxq">{`pxq of ${publications.map((p) => p.item_id).join(',')}`}</div>,
+}));
+
 vi.mock('./panel/ProductPurchases', () => ({
   default: ({ productItemId }) => <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div>,
 }));
@@ -208,6 +212,14 @@ describe('ProductPanel', () => {
     expect(screen.getByTestId('product-catalog-competition')).toBeInTheDocument();
   });
 
+  it('shows the wholesale prices of the listed publications under Resumen, after the catalog competition', () => {
+    renderPanel();
+    const pxq = screen.getByTestId('product-pxq');
+    expect(pxq).toHaveTextContent(`pxq of ${ITEMS.map((item) => item.item_id).join(',')}`);
+    const competition = screen.getByTestId('product-catalog-competition');
+    expect(competition.compareDocumentPosition(pxq) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("gives each Resumen section its own key, so switching products restarts every one of them", () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
@@ -217,6 +229,11 @@ describe('ProductPanel', () => {
     } finally {
       errors.mockRestore();
     }
+  });
+
+  it('shows the wholesale prices for "Sin producto" too', () => {
+    renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
+    expect(screen.getByTestId('product-pxq')).toBeInTheDocument();
   });
 
   it('has no last purchases for "Sin producto"', () => {
