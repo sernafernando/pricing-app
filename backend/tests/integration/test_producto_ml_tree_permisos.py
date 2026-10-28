@@ -75,3 +75,10 @@ def test_user_override_revokes_productos_ver(client, db, active_user, rol_ventas
     db.commit()
 
     _assert_forbidden(_get(client, active_user))
+
+
+def test_without_session_is_unauthorized(client, publicacion) -> None:
+    response = client.get("/api/productos/9301/mercadolibre/tree")
+
+    assert response.status_code == 401
+    assert "MLA9301" not in response.text
