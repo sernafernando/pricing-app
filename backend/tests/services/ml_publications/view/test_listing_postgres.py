@@ -6,6 +6,8 @@ stock locations, plus the `productos_erp` table built from the model). Rows are 
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
@@ -1070,6 +1072,32 @@ class TestFacets:
                 "propio_sin_stock": 0,
             },
         }
+
+    def test_the_promo_axis_counts_the_publications_with_a_started_promotion_and_the_rest(self, db) -> None:
+        # MLA6 is gone (hidden by default); MLA9 is a started promotion of a publication the store does not hold
+        facets = listing.facets(db, parse_filter(), promo_mlas=frozenset({"MLA1", "MLA3", "MLA6", "MLA9"}))
+        assert facets["promo"] == {"con_promo": 2, "sin_promo": 3}
+
+    def test_the_promo_axis_obeys_the_other_filters(self, db) -> None:
+        facets = listing.facets(db, parse_filter(estado="active"), promo_mlas=frozenset({"MLA1", "MLA3"}))
+        assert facets["promo"] == {"con_promo": 1, "sin_promo": 2}
+
+    def test_no_started_promotion_is_every_publication_without_promo(self, db) -> None:
+        assert listing.facets(db, parse_filter(), promo_mlas=frozenset())["promo"] == {"con_promo": 0, "sin_promo": 5}
+
+    def test_the_promo_axis_ignores_its_own_filter_and_keeps_the_pxq_one(self, db) -> None:
+        # the list is filtered to the promoted MLA1 (promo filter) among the PxQ ones (MLA1, MLA2, MLA3)
+        f = replace(parse_filter(), mla_scope=frozenset({"MLA1"}), pxq_scope=frozenset({"MLA1", "MLA2", "MLA3"}))
+        facets = listing.facets(db, replace(f, promo_filter=True), promo_mlas=frozenset({"MLA1"}))
+        assert facets["promo"] == {"con_promo": 1, "sin_promo": 2}
+        assert facets["status"] == {"active": 1}  # every other axis still obeys the promo filter
+
+    def test_without_a_promo_filter_the_scope_is_the_pxq_one_and_the_promo_axis_obeys_it(self, db) -> None:
+        f = replace(parse_filter(), mla_scope=frozenset({"MLA1", "MLA2"}), pxq_scope=frozenset({"MLA1", "MLA2"}))
+        assert listing.facets(db, f, promo_mlas=frozenset({"MLA1"}))["promo"] == {"con_promo": 1, "sin_promo": 1}
+
+    def test_without_the_promotions_there_is_no_promo_axis(self, db) -> None:
+        assert "promo" not in listing.facets(db, parse_filter())
 
     def test_the_erp_without_stock_count_is_what_selecting_it_lists(self, conn, db) -> None:
         conn.execute(text("UPDATE productos_erp SET stock = 0 WHERE item_id = 70"))

@@ -174,6 +174,10 @@ class PublicationFilter:
     # The promo and PxQ filters, resolved by the router to the matching MLAs (mlwebhook database): `None` = no such
     # filter, an empty set lists nothing.
     mla_scope: Optional[frozenset[str]] = None
+    # Which part of it is the PxQ toggle's (`pxq_scope`), and whether a promo filter is in it (`promo_filter`): the
+    # facets' promo axis counts without its own filter, as every axis does.
+    pxq_scope: Optional[frozenset[str]] = None
+    promo_filter: bool = False
 
     @property
     def audits(self) -> bool:
@@ -884,6 +888,14 @@ def listing_clauses() -> dict[str, ColumnElement]:
         "catalogo": T.i.catalog_listing.is_(True),
         "full": T.i.logistic_type == FULFILLMENT,
     }
+
+
+def promo_clauses(started: frozenset[str]) -> dict[str, ColumnElement]:
+    """With / without a started promotion (`fetch_mlas_with_started`, the mlwebhook database): the two halves of
+    the list, so they always add up to it."""
+    # `!= ALL`, not `not_(_item_in)`: SQLAlchemy negates `= ANY` into `!= ANY` (differs from SOME of them).
+    without = T.i.item_id != all_(literal(sorted(started), ARRAY(String))) if started else true()
+    return {"con_promo": _item_in(started), "sin_promo": without}
 
 
 def erp_stock(linked: Optional[ColumnElement] = None) -> ColumnElement:

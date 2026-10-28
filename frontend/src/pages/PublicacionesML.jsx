@@ -13,6 +13,7 @@ import PromoFilters from '../components/publicacionesMl/PromoFilters';
 import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
 import PublicationStatCards from '../components/publicacionesMl/PublicationStatCards';
+import PublicationCountCards from '../components/publicacionesMl/PublicationCountCards';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import ProductPanel from '../components/publicacionesMl/ProductPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
@@ -153,6 +154,8 @@ const EMPTY_ROWS = [];
 const VISTA_OPTIONS = [
   { value: 'producto', label: 'Producto' },
   { value: 'publicacion', label: 'Publicaciones' },
+  // The publication rows with Productos' price columns (owner, 2026-10-28): prices out of the main list.
+  { value: 'precios', label: 'Precios' },
   { value: 'agrupado', label: 'Agrupado' },
 ];
 
@@ -281,6 +284,9 @@ export default function PublicacionesML() {
   const pageSize = filters.limite;
   const agrupado = filters.vista === 'agrupado';
   const producto = filters.vista === 'producto';
+  const precios = filters.vista === 'precios';
+  // The main list sums up publications, not products (owner, 2026-10-28).
+  const publicacion = filters.vista === 'publicacion';
   // Productos' Sin MLA: products with no publication, so nothing a publication strip or action could act on.
   const sinMla = filters.mla === SIN_MLA;
   // The views that load their own rows: `/items` brings them only the state and the facets.
@@ -381,7 +387,7 @@ export default function PublicacionesML() {
 
   // Like the rows, the strip and the bulk sets ask only a layer known to be the user's (it matters with `colores`).
   const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending && !sinMla);
-  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending);
+  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending && !publicacion);
   const productRows = useProductRows({
     filters: rowFilters,
     pageSize,
@@ -414,7 +420,8 @@ export default function PublicacionesML() {
         : (data?.items ?? EMPTY_ROWS).map((item) => item.link?.producto_item_id),
     [producto, productRows.rows, data],
   );
-  // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it.
+  // A panel or bulk write reloads the list (`reloadList`): the prices are read again with it. Read in every list
+  // view, not only Precios: the r / w / o shortcuts toggle the focused row's product from these prices.
   const listPrices = useListPrices(listedProductIds, canSeePrices && !agrupado, reloadToken);
   // Productos' "markup con offsets" under the clásica markup: the offsets are about the cost, so only with the margin.
   const listOffsets = useListOffsets(canSeePrices && canSeeMargin && !agrupado);
@@ -464,7 +471,8 @@ export default function PublicacionesML() {
         familias: filters.familias === '1',
         skuDivergence,
         priceMode: filters.modo,
-        prices: canSeePrices ? listPrices : null,
+        // Productos' price columns live in the Precios view only (owner, 2026-10-28).
+        prices: canSeePrices && precios ? listPrices : null,
         priceEdit,
         onCalculatePrice: canCalculatePrice ? setPricingProduct : null,
         priceOffsets: listOffsets,
@@ -483,6 +491,7 @@ export default function PublicacionesML() {
       filters.modo,
       canSeePrices,
       listPrices,
+      precios,
       priceEdit,
       canCalculatePrice,
       listOffsets,
@@ -585,7 +594,7 @@ export default function PublicacionesML() {
   const [infoProductId, setInfoProductId] = useState(null);
   const showInfo = (key) => {
     if (agrupado) {
-      showToast('La información del producto funciona en las vistas Publicaciones y Producto', 'error');
+      showToast('La información del producto funciona en las vistas Publicaciones, Precios y Producto', 'error');
       return;
     }
     const productId = productIdOfRow(key);
@@ -597,7 +606,7 @@ export default function PublicacionesML() {
   };
   const paintRow = (key, color) => {
     if (agrupado) {
-      showToast('Pintar con el teclado funciona en las vistas Publicaciones y Producto', 'error');
+      showToast('Pintar con el teclado funciona en las vistas Publicaciones, Precios y Producto', 'error');
       return;
     }
     const productId = productIdOfRow(key);
@@ -650,7 +659,7 @@ export default function PublicacionesML() {
     onOpenFilter: openFilter,
     onPaintRow: paintRow,
     onCycleLayer: cycleLayer,
-    onCycleMode: canSeePrices && !agrupado ? cyclePriceMode : undefined,
+    onCycleMode: canSeePrices && precios ? cyclePriceMode : undefined,
     onToggleRow: canSeePrices && !agrupado ? toggleRow : undefined,
     // Shift+Up / Shift+Down check the row moved to, from the last product checked (S12d, as in Productos).
     onExtendRow: agrupado ? undefined : extendRow,
@@ -768,16 +777,20 @@ export default function PublicacionesML() {
         />
       )}
 
-      <PublicationStatCards
-        state={stats}
-        filters={filters}
-        canSeeMargin={canSeeMargin}
-        sinMla={producto}
-        onApply={setFilters}
-        onReset={resetFilters}
-        onRetry={stats.reload}
-        markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
-      />
+      {publicacion ? (
+        <PublicationCountCards facets={facets} filters={filters} onApply={setFilters} />
+      ) : (
+        <PublicationStatCards
+          state={stats}
+          filters={filters}
+          canSeeMargin={canSeeMargin}
+          sinMla={producto}
+          onApply={setFilters}
+          onReset={resetFilters}
+          onRetry={stats.reload}
+          markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
+        />
+      )}
 
       <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
@@ -900,7 +913,7 @@ export default function PublicacionesML() {
           <AuditFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
           <PromoFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
           {/* Productos' price columns (S11): how the rows are looked at, like the Capa; the header has no room left. */}
-          {canSeePrices && !agrupado && (
+          {canSeePrices && precios && (
             <PriceModeSelect
               value={filters.modo}
               onChange={(value) => setFilters({ modo: value === PRICE_MODES[0] ? '' : value })}

@@ -239,7 +239,7 @@ const MANY = Array.from({ length: 50 }, (_, i) => ({
 const RESPONSE = {
   ...ITEMS_RESPONSE,
   items: MANY,
-  facets: { ...FACETS, stock: { ...FACETS.stock, erp_sin_stock: 9 } },
+  facets: { ...FACETS, stock: { ...FACETS.stock, erp_sin_stock: 9 }, promo: { con_promo: 70, sin_promo: 165 } },
   data_state: {
     ...DATA_STATE_OK,
     degraded: true,
@@ -257,13 +257,16 @@ const Shell = ({ children }) => (
   </div>
 );
 
-const renderPage = async ({ width, height, theme }) => {
+// The publication rows with Productos' price columns (owner, 2026-10-28).
+const PRECIOS = '/ml-publicaciones?vista=precios';
+
+const renderPage = async ({ width, height, theme, entry = '/ml-publicaciones' }) => {
   await page.viewport(width, height);
   setTheme(theme);
   document.body.style.background = 'var(--cf-bg-app)';
   window.scrollTo(0, 0);
   const screen = await render(
-    <MemoryRouter initialEntries={['/ml-publicaciones']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Shell>
         <PublicacionesML />
       </Shell>
@@ -381,8 +384,8 @@ describe('Publicaciones ML (visual)', () => {
         screen.unmount();
       });
 
-      it(`${width}x${height} ${theme}: the stat cards keep every label and figure on one line, inside their card`, async () => {
-        const screen = await renderPage({ width, height, theme });
+      it(`${width}x${height} ${theme}: the Precios view's stat cards keep every label and figure on one line, inside their card`, async () => {
+        const screen = await renderPage({ width, height, theme, entry: PRECIOS });
         await expect.element(screen.getByRole('button', { name: 'Stock sin $: 3' })).toBeVisible();
         const strip = document.querySelector('section[aria-label="Totales de productos"]');
         const cards = [...strip.querySelectorAll('[role="group"]')];
@@ -395,6 +398,33 @@ describe('Publicaciones ML (visual)', () => {
         }
         expect(wrapped([...strip.querySelectorAll('button span')])).toEqual([]);
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/stat-cards-${width}-${theme}.png` });
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the Publicaciones view sums up publications: active, paused, with and without promo, one line each`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        await expect.element(screen.getByRole('button', { name: 'Activas: 180' })).toBeVisible();
+        const strip = document.querySelector('section[aria-label="Totales de publicaciones"]');
+        const cards = [...strip.querySelectorAll('[role="group"]')];
+        expect(cards.map((card) => card.getAttribute('aria-label'))).toEqual(['Activas', 'Pausadas', 'Con promo', 'Sin promo']);
+        for (const card of cards) expect(rect(card).right, card.getAttribute('aria-label')).toBeLessThanOrEqual(width);
+        expect(wrapped([...strip.querySelectorAll('span')])).toEqual([]);
+        expect(document.querySelector('section[aria-label="Totales de productos"]')).toBeNull();
+        // Ventas 7D is the column right after Precio.
+        const th = (key) => rect(scrollerOf().querySelector(`thead th[data-column="${key}"]`));
+        expect(Math.abs(th('unidades_7d').left - th('precio').right)).toBeLessThanOrEqual(1);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/vista-publicaciones-${width}-${theme}.png` });
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: the Precios view is the publication rows with Productos' price group right after Precio`, async () => {
+        const screen = await renderPage({ width, height, theme, entry: PRECIOS });
+        const scroller = scrollerOf();
+        const groups = [...scroller.querySelectorAll('thead th[scope="colgroup"]')].map((th) => th.textContent);
+        expect(groups).toEqual(['Precios de Productos', 'Ventas (unidades)', 'Resultado financiero', 'Rotación', 'Stock']);
+        await expect.element(screen.getByRole('button', { name: 'Precios', pressed: true })).toBeVisible();
+        expect(overflowingCells(scroller)).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/vista-precios-${width}-${theme}.png` });
         screen.unmount();
       });
 
@@ -423,8 +453,8 @@ describe('Publicaciones ML (visual)', () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();
         const groups = [...scroller.querySelectorAll('thead th[scope="colgroup"]')];
-        // Productos' price columns (S11) lead, right after Precio.
-        expect(groups.map((th) => th.textContent)).toEqual(['Precios de Productos', 'Ventas (unidades)', 'Resultado financiero', 'Rotación', 'Stock']);
+        // The sales right after Precio: Productos' price columns live in the Precios view (owner, 2026-10-28).
+        expect(groups.map((th) => th.textContent)).toEqual(['Ventas (unidades)', 'Resultado financiero', 'Rotación', 'Stock']);
         for (const th of groups) {
           expect(getComputedStyle(th).textAlign).toBe('center');
           expect(getComputedStyle(th).textTransform).toBe('uppercase');
@@ -438,7 +468,7 @@ describe('Publicaciones ML (visual)', () => {
         // Scrolled down, the group row and the leaf row both stay on top, in that order.
         scroller.scrollTo({ top: 400, left: 0 });
         await frame();
-        const ventas = rect(groups[1]);
+        const ventas = rect(groups[0]);
         const leaf = rect(scroller.querySelector('thead th[data-column="unidades_7d"]'));
         expect(Math.abs(ventas.top - rect(scroller).top)).toBeLessThanOrEqual(2);
         expect(Math.abs(leaf.top - ventas.bottom)).toBeLessThanOrEqual(2);
@@ -491,7 +521,7 @@ const MARGIN_ITEMS = [
 ];
 const MARGIN_RESPONSE = { ...RESPONSE, can_see_margin: true, items: MARGIN_ITEMS };
 
-const renderMarginPage = async ({ width, height, theme }) => {
+const renderMarginPage = async ({ width, height, theme, entry = '/ml-publicaciones' }) => {
   canSeeMargin = true;
   publicacionesMlAPI.items.mockResolvedValue({ data: MARGIN_RESPONSE });
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
@@ -500,7 +530,7 @@ const renderMarginPage = async ({ width, height, theme }) => {
   document.body.style.background = 'var(--cf-bg-app)';
   window.scrollTo(0, 0);
   const screen = await render(
-    <MemoryRouter initialEntries={['/ml-publicaciones']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Shell>
         <PublicacionesML />
       </Shell>
@@ -545,7 +575,7 @@ describe('Publicaciones ML with markup and an expanded row (visual)', () => {
         offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [{ id: 1, tipo_offset: 'porcentaje_costo', porcentaje: 10, marca: 'TP-LINK' }] });
         preciosAPI.tipoCambioActual.mockResolvedValue({ data: { venta: 1000 } });
         try {
-          const screen = await renderMarginPage({ width, height, theme });
+          const screen = await renderMarginPage({ width, height, theme, entry: PRECIOS });
           await expect.element(screen.getByTitle('Markup con offsets aplicados').first()).toBeVisible();
           const scroller = scrollerOf();
           const lines = [...scroller.querySelectorAll('[title="Markup con offsets aplicados"]')];
@@ -1995,7 +2025,7 @@ describe('row colors and the color layer (S8)', () => {
 
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: a price edited in place keeps its input inside the cell`, async () => {
-      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });
       const edit = screen.getByRole('button', { name: /^Editar Precio Clásica/ }).first();
       await expect.element(edit).toBeVisible();
       await edit.click();
@@ -2017,7 +2047,7 @@ describe('row colors and the color layer (S8)', () => {
 
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: the best offer's details sit under its price, each on one line inside the cell`, async () => {
-      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });
       await expect.element(screen.getByText('Hasta 30/11').first()).toBeVisible();
       const lines = [...document.querySelectorAll('[data-offer-detail]')];
       expect(lines.map((line) => line.textContent).slice(0, 4)).toEqual(['Aporte 12,50%', 'Rebate $ 5.174,88', 'Hasta 30/11', 'PVP $ 47.999,00']);
@@ -2039,7 +2069,7 @@ describe('row colors and the color layer (S8)', () => {
 
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: the rebate and web transfer editors open inside their cell, every control in view`, async () => {
-      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });
       for (const [button, group] of [
         [/^Editar Precio Rebate/, 'Rebate'],
         [/^Editar Web Transf\./, 'Web transferencia'],
@@ -2072,7 +2102,7 @@ describe('row colors and the color layer (S8)', () => {
 
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: Calcular fits its cell and opens Productos' pricing modal inside the screen`, async () => {
-      const screen = await renderPage({ width: 1366, height: 768, theme });
+      const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });
       const calculate = screen.getByRole('button', { name: 'Calcular el precio de Router Archer AX55' }).first();
       await expect.element(calculate).toBeVisible();
       const box = calculate.element().getBoundingClientRect();
