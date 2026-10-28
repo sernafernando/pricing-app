@@ -8,17 +8,18 @@ export const PRICES_CHUNK = 200;
 export const PRICES_IN_FLIGHT = 3;
 
 // Each part's products, asked PRICES_IN_FLIGHT at a time in the parts' order; it stops asking when one fails or
-// `stopped()` (the page moved on), and rejects with the first failure.
-async function readParts(parts, stopped) {
+// `signal` aborts (the page moved on: the parts in flight are cancelled too), and rejects with the first failure.
+async function readParts(parts, signal) {
   const answers = new Array(parts.length);
   let next = 0;
   let failed = false;
   const worker = async () => {
-    while (next < parts.length && !failed && !stopped()) {
+    while (next < parts.length && !failed && !signal.aborted) {
       const at = next;
       next += 1;
       try {
-        const response = await productosAPI.listar({ item_ids: parts[at].join(','), page: 1, page_size: parts[at].length });
+        const params = { item_ids: parts[at].join(','), page: 1, page_size: parts[at].length };
+        const response = await productosAPI.listar(params, { signal });
         answers[at] = response.data?.productos ?? [];
       } catch (error) {
         failed = true;
@@ -52,10 +53,11 @@ export default function useListPrices(productIds, enabled, version = 0) {
   useEffect(() => {
     if (!key) return undefined;
     let current = true;
+    const controller = new AbortController();
     const ids = key.split(',');
     const parts = [];
     for (let at = 0; at < ids.length; at += PRICES_CHUNK) parts.push(ids.slice(at, at + PRICES_CHUNK));
-    readParts(parts, () => !current)
+    readParts(parts, controller.signal)
       .then((products) => {
         if (!current) return;
         const byId = new Map(products.map((product) => [product.item_id, product]));
@@ -66,6 +68,7 @@ export default function useListPrices(productIds, enabled, version = 0) {
       });
     return () => {
       current = false;
+      controller.abort();
     };
   }, [key, version]);
 
