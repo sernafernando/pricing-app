@@ -125,3 +125,12 @@ def test_switching_to_percentage_without_clearing_the_amounts_is_a_422(client, g
     assert resp.status_code == 422
     assert "Una campaña por porcentaje no lleva montos por producto" in resp.text
     assert _montos(client.get(f"{BASE}/{campana_id}", headers=gestor)) == [(ROUTER, 25.0)]
+
+
+def test_each_product_amount_comes_with_the_product_code_and_description(client, gestor, grupo) -> None:
+    # The panel shows which product each stored amount is for, not a bare id.
+    resp = client.post(BASE, json=_body(grupo, items=[{"item_id": ROUTER, "monto_unit": "25"}]), headers=gestor)
+    assert resp.status_code == 201, resp.text
+
+    [item] = client.get(BASE, headers=gestor).json()["items"][0]["items"]
+    assert (item["item_id"], item["codigo"], item["descripcion"]) == (ROUTER, f"C{ROUTER}", "P")

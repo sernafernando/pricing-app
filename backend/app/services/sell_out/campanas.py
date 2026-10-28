@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
+from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem
 from app.schemas.sell_out import SellOutCampanaIn
 from app.services.sell_in.compras import contiene
@@ -208,13 +209,20 @@ def _grupo_ids(db: Session, campana_id: int) -> list[int]:
 
 
 def _items(db: Session, campana_ids: list[int]) -> dict[int, list[dict]]:
-    """`{campana_id: [{item_id, monto_unit}]}` by item_id, in one query; every asked campaign is present."""
+    """`{campana_id: [{item_id, monto_unit, codigo, descripcion}]}` by item_id, in one query; every asked campaign is
+    present. The product's code and description are for the screen (the audit keeps only id and amount)."""
     salida: dict[int, list[dict]] = {i: [] for i in campana_ids}
     if campana_ids:
         t = SellOutCampanaItem
-        rows = db.query(t.campana_id, t.item_id, t.monto_unit).filter(t.campana_id.in_(campana_ids))
-        for campana_id, item_id, monto in rows.order_by(t.item_id):
-            salida[campana_id].append({"item_id": item_id, "monto_unit": Decimal(monto)})
+        rows = (
+            db.query(t.campana_id, t.item_id, t.monto_unit, ProductoERP.codigo, ProductoERP.descripcion)
+            .outerjoin(ProductoERP, ProductoERP.item_id == t.item_id)
+            .filter(t.campana_id.in_(campana_ids))
+        )
+        for campana_id, item_id, monto, codigo, descripcion in rows.order_by(t.item_id):
+            salida[campana_id].append(
+                {"item_id": item_id, "monto_unit": Decimal(monto), "codigo": codigo, "descripcion": descripcion}
+            )
     return salida
 
 
