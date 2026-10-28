@@ -77,8 +77,9 @@ class SellOutCampanaIn(BaseModel):
     # Whether `monto_unit` includes VAT: each sale then gets it net of its product's own VAT.
     monto_incluye_iva: bool = False
     grupo_ids: list[int] = Field(default_factory=list, max_length=GRUPOS_MAX)
-    # Products of the groups with their own amount (`por_unidad` only); the rest get `monto_unit`.
-    items: list[SellOutCampanaItemIn] = Field(default_factory=list, max_length=ITEMS_MAX)
+    # Products of the groups with their own amount (`por_unidad` only); the rest get `monto_unit`. Absent (None)
+    # keeps the stored ones, so a client that does not send them never wipes them; `[]` clears them.
+    items: Optional[list[SellOutCampanaItemIn]] = Field(default=None, max_length=ITEMS_MAX)
 
 
 class SellOutAnularIn(BaseModel):

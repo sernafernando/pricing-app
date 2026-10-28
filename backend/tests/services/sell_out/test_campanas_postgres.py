@@ -280,7 +280,7 @@ def test_an_edit_replaces_the_product_amounts(Session) -> None:
         assert audit.valores_nuevos["items"] == [{"item_id": SWITCH, "monto_unit": "8.00"}]
         assert db.execute(text("SELECT campana_id FROM sell_out_dirty")).scalars().all() == [campana_id]
     with Session() as db:
-        service.editar_campana(db, campana_id, _data(), USUARIO)  # no items: the campaign amount for all
+        service.editar_campana(db, campana_id, _data(items=[]), USUARIO)  # cleared: the campaign amount for all
     with Session() as db:
         assert _guardados(db, campana_id) == []
         assert _api(db, campana_id)["items"] == []

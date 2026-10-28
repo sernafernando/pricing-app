@@ -161,7 +161,7 @@ def _validar_items(data: SellOutCampanaIn) -> None:
     if data.items and data.tipo != "por_unidad":
         raise SellOutError("Una campaña por porcentaje no lleva montos por producto")
     vistos = set()
-    for item in data.items:
+    for item in data.items or []:
         if item.item_id in vistos:
             raise SellOutError(f"El producto {item.item_id} tiene más de un monto")
         vistos.add(item.item_id)
@@ -254,7 +254,16 @@ def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo
 
 def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn) -> None:
     """Replace the per-product amounts with `data.items`, refusing (and rolling back) one outside the reach of
-    the groups just stored: an amount that would never apply must not be stored as if it did."""
+    the groups just stored: an amount that would never apply must not be stored as if it did. `data.items` None
+    keeps the stored ones, unless the campaign is no longer per unit: those must be cleared explicitly (`[]`)."""
+    t = SellOutCampanaItem
+    if data.items is None:
+        if data.tipo != "por_unidad" and db.query(t.id).filter(t.campana_id == campana.id).first() is not None:
+            db.rollback()
+            raise SellOutError(
+                "Una campaña por porcentaje no lleva montos por producto: quitá los montos por producto para cambiarla"
+            )
+        return
     if data.items:
         alcanzados = alcance.productos(db, [campana.id]).get(campana.id, {})
         for item in data.items:
@@ -262,7 +271,6 @@ def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn)
                 db.rollback()
                 raise SellOutError(f"El producto {item.item_id} no está en los grupos de la campaña")
     pedidos = {item.item_id: _a_escala("monto_unit", item.monto_unit) for item in data.items}
-    t = SellOutCampanaItem
     tenidos = {fila.item_id: fila for fila in db.query(t).filter(t.campana_id == campana.id)}
     for item_id, fila in tenidos.items():
         if item_id not in pedidos:

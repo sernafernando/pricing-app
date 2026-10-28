@@ -73,3 +73,55 @@ def test_product_amounts_on_a_percentage_campaign_are_a_422(client, gestor, grup
     resp = client.post(BASE, json=body, headers=gestor)
     assert resp.status_code == 422
     assert "Una campaña por porcentaje no lleva montos por producto" in resp.text
+
+
+def _creada_con_monto(client, gestor, grupo) -> int:
+    resp = client.post(BASE, json=_body(grupo, items=[{"item_id": ROUTER, "monto_unit": "25"}]), headers=gestor)
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+def _montos(resp) -> list:
+    return [(i["item_id"], float(i["monto_unit"])) for i in resp.json()["items"]]
+
+
+def test_an_edit_without_items_keeps_the_stored_amounts(client, gestor, grupo) -> None:
+    # A client that does not know about items (e.g. renaming the campaign) must not wipe them.
+    campana_id = _creada_con_monto(client, gestor, grupo)
+
+    resp = client.put(f"{BASE}/{campana_id}", json=_body(grupo, nombre="Renombrada"), headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert (resp.json()["nombre"], _montos(resp)) == ("Renombrada", [(ROUTER, 25.0)])
+    assert _montos(client.get(f"{BASE}/{campana_id}", headers=gestor)) == [(ROUTER, 25.0)]
+
+
+def test_an_edit_with_an_empty_list_clears_the_amounts(client, gestor, grupo) -> None:
+    campana_id = _creada_con_monto(client, gestor, grupo)
+
+    resp = client.put(f"{BASE}/{campana_id}", json=_body(grupo, items=[]), headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert _montos(resp) == []
+
+
+def test_an_edit_with_a_list_replaces_the_amounts(client, gestor, grupo) -> None:
+    campana_id = _creada_con_monto(client, gestor, grupo)
+
+    resp = client.put(
+        f"{BASE}/{campana_id}", json=_body(grupo, items=[{"item_id": ROUTER, "monto_unit": "30"}]), headers=gestor
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert _montos(resp) == [(ROUTER, 30.0)]
+
+
+def test_switching_to_percentage_without_clearing_the_amounts_is_a_422(client, gestor, grupo) -> None:
+    campana_id = _creada_con_monto(client, gestor, grupo)
+
+    body = _body(grupo, tipo="porcentaje", monto_unit=None, porcentaje="2")
+    resp = client.put(f"{BASE}/{campana_id}", json=body, headers=gestor)
+
+    assert resp.status_code == 422
+    assert "Una campaña por porcentaje no lleva montos por producto" in resp.text
+    assert _montos(client.get(f"{BASE}/{campana_id}", headers=gestor)) == [(ROUTER, 25.0)]
