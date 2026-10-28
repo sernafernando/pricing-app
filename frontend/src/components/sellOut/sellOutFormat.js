@@ -21,3 +21,7 @@ export function recalculo(estado) {
   const label = RECALCULO_LABELS[estado.estado] ?? estado.estado;
   return estado.estado === 'fallida' && estado.error ? `${label}: ${estado.error}` : label;
 }
+
+/** How a per-product amount's product is named: its code when picked in the form, its `item_id` when it came
+ * stored (the API sends only that). */
+export const nombreDeItem = (item) => item.codigo ?? `#${item.itemId}`;

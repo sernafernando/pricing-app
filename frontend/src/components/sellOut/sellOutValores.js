@@ -17,6 +17,9 @@ export const CAMPANA_VACIA = {
   acumulable: true,
   montoIncluyeIva: false,
   grupoIds: [],
+  // Products with their own amount per unit (`por_unidad` only): `{ itemId, codigo, descripcion, monto }`.
+  // The API returns only `item_id` for stored ones, so `codigo`/`descripcion` are null until picked again.
+  items: [],
 };
 
 const texto = (value) => (value === null || value === undefined ? '' : String(value));
@@ -42,12 +45,14 @@ export function valoresDeCampana(campana) {
     acumulable: campana.acumulable,
     montoIncluyeIva: campana.monto_incluye_iva,
     grupoIds: (campana.grupos ?? []).map((g) => g.id),
+    items: (campana.items ?? []).map((i) => ({ itemId: i.item_id, codigo: null, descripcion: null, monto: texto(i.monto_unit) })),
   };
 }
 
 /**
  * The request body: the amount of its type only, the FX fields only in USD (the rate only when fixed),
- * empty optionals as null. Amounts stay strings: the backend reads them as Decimal.
+ * empty optionals as null. Amounts stay strings: the backend reads them as Decimal. `items` always goes (a full
+ * replace): `[]` in a percentage campaign, which takes no per-product amounts.
  */
 export function bodyDeCampana(v) {
   const porUnidad = v.tipo === 'por_unidad';
@@ -70,6 +75,7 @@ export function bodyDeCampana(v) {
     acumulable: v.acumulable,
     monto_incluye_iva: v.montoIncluyeIva,
     grupo_ids: v.grupoIds,
+    items: porUnidad ? v.items.map((i) => ({ item_id: i.itemId, monto_unit: String(i.monto).trim() })) : [],
   };
 }
 
@@ -79,6 +85,7 @@ export function faltantes(v) {
   if (!v.nombre.trim()) faltan.push('nombre');
   if (!v.fechaDesde || !v.fechaHasta) faltan.push('fechas');
   if (v.tipo === 'por_unidad' && !positivo(v.montoUnit)) faltan.push('monto por unidad');
+  if (v.tipo === 'por_unidad' && v.items.some((i) => !positivo(i.monto))) faltan.push('monto de cada producto');
   if (v.tipo === 'porcentaje' && !positivo(v.porcentaje)) faltan.push('porcentaje');
   if (v.moneda === 'USD' && v.tcModo === 'fijo' && !positivo(v.tipoCambio)) faltan.push('tipo de cambio');
   if (opcional(v.topeUnidades) !== null && !Number.isInteger(Number(v.topeUnidades))) faltan.push('tope de unidades entero');
