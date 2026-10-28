@@ -373,8 +373,11 @@ def _adopt_legacy_unresolved_debts(db) -> int:
 
     D2b's migration moved the open debts it found. Until the receiver restarts on the new code, the old one keeps
     recording debts in the legacy table after that copy ran, and nothing else would ever read them; so every open
-    debt left there is one of those, and the sweep pass adopts it. A quarantined payload wins. Idempotent. Remove
-    with the table (remove-ml-divergences D3). Returns the legacy rows moved.
+    debt left there is one of those, and the sweep pass adopts it. A quarantined payload wins, and that order's legacy
+    debt stays (a downgrade keeps it). Only debts the quarantine holds without payload are deleted: under READ
+    COMMITTED a debt committed between the copy and the delete is not in the copy's snapshot, and waits for the next
+    pass instead of vanishing. Idempotent. Remove with the table (remove-ml-divergences D3). Returns the legacy rows
+    moved.
     """
     open_debt = (
         MlOpsDivergence.kind == "unknown",
@@ -389,7 +392,12 @@ def _adopt_legacy_unresolved_debts(db) -> int:
         .from_select(["order_id", "raw_order", "error", "intentos", "primera_falla_at"], legacy)
         .on_conflict_do_nothing(index_elements=["order_id"])
     )
-    moved = db.query(MlOpsDivergence).filter(*open_debt).delete(synchronize_session=False)
+    copied = select(MlOrdersOpsCuarentena.order_id).where(has_no_payload())
+    moved = (
+        db.query(MlOpsDivergence)
+        .filter(*open_debt, MlOpsDivergence.order_id.in_(copied))
+        .delete(synchronize_session=False)
+    )
     if moved:
         logger.warning("activity_receiver: moved %s legacy unresolved-order debt(s) into the quarantine", moved)
     return moved

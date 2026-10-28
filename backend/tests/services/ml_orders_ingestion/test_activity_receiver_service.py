@@ -665,19 +665,43 @@ class TestAdoptLegacyDebts:
         moved = service._adopt_legacy_unresolved_debts(db)
         db.commit()
 
-        assert moved == 3
+        assert moved == 2
         assert [row.order_id for row in _unresolved(db)] == [40, 41]
         adopted = db.get(MlOrdersOpsCuarentena, 40)
         assert adopted.error == service.UNRESOLVED_ERROR
         assert adopted.primera_falla_at.replace(tzinfo=timezone.utc) == detected
-        # A quarantined payload wins; the legacy debt of that order is dropped with the others.
+        # A quarantined payload wins, and the legacy debt of that order stays (a downgrade keeps it).
         assert db.get(MlOrdersOpsCuarentena, 43).raw_order == {"id": 43}
         left = sorted((d.order_id, d.field, d.state) for d in db.query(MlOpsDivergence).all())
         assert left == [
             (0, "cost_sync:700", "open"),
             (42, "activity_unresolved", "ignored"),
+            (43, "activity_unresolved", "open"),
             (44, "other_field", "open"),
         ]
+
+    def test_a_debt_recorded_after_the_copy_is_not_deleted(self, db, monkeypatch):
+        """Postgres READ COMMITTED: a debt the old receiver commits between the copy and the delete is not in the
+        copy's snapshot. The delete takes only the debts the quarantine now holds, so this one waits for the next
+        pass instead of vanishing."""
+        self._legacy(db, 40)
+        db.commit()
+        execute = db.execute
+
+        def execute_then_record_a_debt(statement, *args, **kwargs):
+            result = execute(statement, *args, **kwargs)
+            if getattr(statement, "is_insert", False):
+                self._legacy(db, 45)
+                db.flush()
+            return result
+
+        monkeypatch.setattr(db, "execute", execute_then_record_a_debt)
+
+        assert service._adopt_legacy_unresolved_debts(db) == 1
+        db.commit()
+
+        assert [row.order_id for row in _unresolved(db)] == [40]
+        assert [d.order_id for d in db.query(MlOpsDivergence).all()] == [45]
 
     def test_running_it_twice_is_a_no_op_the_second_time(self, db):
         self._legacy(db, 40)

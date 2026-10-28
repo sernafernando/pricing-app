@@ -15,7 +15,8 @@ so every open debt found there later was recorded by a receiver still on the old
 sweep pass adopts it (`activity_receiver_service._adopt_legacy_unresolved_debts`). The copy keeps when they were detected as the first
 failure. Their last attempt is now: until the worker restarts on the new code, its replay still selects every due
 row, and a copied row is not due for its backoff. An order already quarantined with its payload (a write that failed)
-keeps that row (its legacy debt is deleted with the others). A row with the JSON `null` literal (the old replay re-quarantining a copied row, its column had no
+keeps that row and its legacy debt. Only debts now held without payload are deleted, so a debt the old receiver
+commits between the copy and the delete is left for the sweep. A row with the JSON `null` literal (the old replay re-quarantining a copied row, its column had no
 `none_as_null`) has no payload either. Every other legacy row is left in place: the
 table is dropped by a later revision. Downgrade rewrites the open legacy debts from the rows with no payload (debts
 settled after the upgrade do not come back), removes those rows and makes `raw_order` NOT NULL again.
@@ -53,10 +54,16 @@ WHERE {UNRESOLVED_DEBT}
 ON CONFLICT (order_id) DO NOTHING
 """
 
-DELETE_MOVED_DEBTS = f"DELETE FROM ml_ops_divergence d WHERE {UNRESOLVED_DEBT}"
+DELETE_MOVED_DEBTS = f"""
+DELETE FROM ml_ops_divergence d
+USING {TABLE} q
+WHERE {UNRESOLVED_DEBT}
+  AND q.order_id = d.order_id
+  AND {NO_PAYLOAD}
+"""
 
 # A debt settled after the upgrade (its quarantine row deleted) must not come back from its pre-upgrade row. The
-# debt of an order quarantined with its payload (one the old receiver recorded after the move) is left as it was.
+# debt of an order quarantined with its payload was never moved, so it is left as it was.
 DELETE_LEGACY_DEBTS = f"""
 DELETE FROM ml_ops_divergence d
 WHERE {UNRESOLVED_DEBT}
