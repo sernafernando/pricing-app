@@ -12,6 +12,7 @@ import AuditFilters from '../components/publicacionesMl/AuditFilters';
 import PromoFilters from '../components/publicacionesMl/PromoFilters';
 import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
+import PublicationStatCards from '../components/publicacionesMl/PublicationStatCards';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
 import ProductPanel from '../components/publicacionesMl/ProductPanel';
 import VariationRows from '../components/publicacionesMl/VariationRows';
@@ -51,15 +52,18 @@ import {
   FILTER_KEYS,
   PAGE_SIZE,
   PAGE_SIZES,
+  pageSizeLabel,
   PRICE_MODES,
+  SIN_MLA,
   buildExportParams,
   buildItemsParams,
   buildKpiParams,
+  buildStatsParams,
   effectiveSort,
   hasMarkupFilter,
   usePublicacionesMLFilters,
 } from '../hooks/usePublicacionesMLFilters';
-import { usePublicacionesMLKpis } from '../hooks/usePublicacionesMLKpis';
+import { usePublicacionesMLKpis, usePublicationStats } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
 import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../utils/mlSellerPanel';
 import {
@@ -268,6 +272,8 @@ export default function PublicacionesML() {
   const pageSize = filters.limite;
   const agrupado = filters.vista === 'agrupado';
   const producto = filters.vista === 'producto';
+  // Productos' Sin MLA: products with no publication, so nothing a publication strip or action could act on.
+  const sinMla = filters.mla === SIN_MLA;
   // The views that load their own rows: `/items` brings them only the state and the facets.
   const ownRows = agrupado || producto;
   const latestRequest = useRef(0);
@@ -365,7 +371,8 @@ export default function PublicacionesML() {
   const { toast, showToast, hideToast } = useToast();
 
   // Like the rows, the strip and the bulk sets ask only a layer known to be the user's (it matters with `colores`).
-  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending);
+  const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending && !sinMla);
+  const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending);
   const productRows = useProductRows({
     filters: rowFilters,
     pageSize,
@@ -645,7 +652,7 @@ export default function PublicacionesML() {
             label="Vista"
             options={VISTA_OPTIONS}
             value={filters.vista}
-            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value })}
+            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
           />
           {agrupado && (
             <SegmentedControl
@@ -672,7 +679,7 @@ export default function PublicacionesML() {
             onDone={reloadList}
             openRequest={bulkRequest}
           />
-          <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} />
+          {!sinMla && <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} />}
           <ColumnPicker table={pickerTable} />
           {canExportVista(filters.vista) && (
             <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
@@ -705,7 +712,7 @@ export default function PublicacionesML() {
 
       <StateBanner dataState={data?.data_state} />
 
-      {canSeeKpis && (
+      {canSeeKpis && !sinMla && (
         <PublicationKpiStrip
           state={kpis}
           periodo={periodo}
@@ -713,6 +720,17 @@ export default function PublicacionesML() {
           markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
         />
       )}
+
+      <PublicationStatCards
+        state={stats}
+        filters={filters}
+        canSeeMargin={canSeeMargin}
+        sinMla={producto}
+        onApply={setFilters}
+        onReset={resetFilters}
+        onRetry={stats.reload}
+        markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
+      />
 
       <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
@@ -936,6 +954,7 @@ export default function PublicacionesML() {
                 offset={offset}
                 pageSize={pageSize}
                 pageSizeOptions={PAGE_SIZES}
+                pageSizeLabel={pageSizeLabel}
                 summary={
                   <span>
                     mostrando {total === 0 ? 0 : offset + 1}-{Math.min(offset + pageSize, total)} de {total} {unit}

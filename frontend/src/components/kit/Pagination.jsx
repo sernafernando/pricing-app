@@ -6,9 +6,19 @@ import styles from './Pagination.module.css';
  * Controlled: the page owns `offset`/`pageSize` (they drive the request).
  * `summary` replaces the "mostrando a-b de N ventas" line for a screen that
  * counts something else (Métricas ML counts products). `pageSizeOptions`
- * narrows the selector for a backend with a lower cap (Publicaciones ML: 100).
+ * sets the selector's sizes for another backend cap (Publicaciones ML), and
+ * `pageSizeLabel` names a size (Productos' 9999 is "Todos").
  */
-export default function Pagination({ total, offset, pageSize, onOffsetChange, onPageSizeChange, summary, pageSizeOptions = PAGE_SIZE_OPTIONS }) {
+export default function Pagination({
+  total,
+  offset,
+  pageSize,
+  onOffsetChange,
+  onPageSizeChange,
+  summary,
+  pageSizeOptions = PAGE_SIZE_OPTIONS,
+  pageSizeLabel = String,
+}) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.floor(offset / pageSize) + 1;
   const rangeFrom = total === 0 ? 0 : offset + 1;
@@ -64,7 +74,7 @@ export default function Pagination({ total, offset, pageSize, onOffsetChange, on
         <select value={pageSize} onChange={(e) => onPageSizeChange(Number(e.target.value))}>
           {pageSizeOptions.map((n) => (
             <option key={n} value={n}>
-              {n}
+              {pageSizeLabel(n)}
             </option>
           ))}
         </select>

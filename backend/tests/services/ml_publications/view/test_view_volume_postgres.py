@@ -279,6 +279,7 @@ class TestVolume:
         print("\n--- list service timings (service only, no HTTP), 25k publications")
         timed("default page (limit 50)", lambda: page(session))
         timed("default page, page 200 (offset 10k)", lambda: page(session, offset=10_000))
+        timed("Todos page (limit 9999, Productos' Todos)", lambda: page(session, limit=9_999))
         timed("default page + 6 facets", lambda: (page(session), listing.facets(session, parse_filter())))
         timed("search: title substring, common word", lambda: page(session, q="router"))
         timed("search: title substring, rare token", lambda: page(session, q="modelo 9972"))
@@ -392,6 +393,7 @@ class TestMarkupVolume:
     def test_markup_timings(self, session, priced) -> None:
         print("\n--- markup timings (service only, no HTTP, no shipping batch), 25k publications")
         timed("page of 50 + markup (default sort)", lambda: markup_page(session))
+        timed("Todos page (limit 9999) + markup", lambda: markup_page(session, limit=9_999))
         timed("orden=markup, page 1 (set-wide)", lambda: markup_page(session, orden="markup"))
         timed("orden=markup, page 200 (offset 10k)", lambda: markup_page(session, orden="markup", offset=10_000))
         timed("markup_neg=true, sort titulo (set-wide)", lambda: markup_page(session, negative=True, orden="titulo"))

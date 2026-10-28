@@ -575,16 +575,70 @@ class TestExclusividad:
         assert w.consumos(engine) == [(segunda, "ml", ref, 2964, D(2026, 11, 2), 2, Decimal("2.00"), None)]
 
 
+class TestMontosPorProducto:
+    """T22b S25: a legacy grouped offset, each product its own amount under the campaign's one cap."""
+
+    def test_two_groups_with_their_own_amounts_share_one_cap(self, engine: Engine) -> None:
+        routers = w.grupo(engine, [TP_ROUTERS])
+        switches = w.grupo(engine, [{"marca": "TP-LINK", "categoria": "Switches"}])
+        campana = w.campana(engine, [routers, switches], tope_unidades=4)
+        w.monto_item(engine, campana, 2964, "25.00")
+        w.monto_item(engine, campana, 2270, "7.50")
+        router = w.venta(engine, "ml", 2964, 3, D(2026, 11, 2))
+        switch = w.venta(engine, "fuera", 2270, 2, D(2026, 11, 3))
+        w.venta(engine, "tn", 2964, 1, D(2026, 11, 4))  # the cap is used up
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [("ml", router, 3, Decimal("75.00")), ("fuera", switch, 1, Decimal("7.50"))]
+
+    def test_a_product_without_its_own_amount_gets_the_campaign_one(self, engine: Engine) -> None:
+        campana = w.campana(engine, [w.grupo(engine, [{"marca": "TP-LINK"}])], tope_monto="60")
+        w.monto_item(engine, campana, 2964, "25.00")
+        router = w.venta(engine, "ml", 2964, 2, D(2026, 11, 2))
+        switch = w.venta(engine, "ml", 2270, 3, D(2026, 11, 3))
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [("ml", router, 2, Decimal("50.00")), ("ml", switch, 1, Decimal("10.00"))]
+
+    def test_an_amount_of_another_campaign_does_not_leak(self, engine: Engine) -> None:
+        routers = w.grupo(engine, [TP_ROUTERS])
+        propia = w.campana(engine, [routers])
+        otra = w.campana(engine, [routers])
+        w.monto_item(engine, otra, 2964, "99.00")
+        venta = w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+
+        _recalcular(engine, propia, otra)
+
+        assert _filas(engine, propia) == [("ml", venta, 1, Decimal("10.00"))]
+        assert _filas(engine, otra) == [("ml", venta, 1, Decimal("99.00"))]
+
+    def test_the_preview_credit_of_a_product_uses_its_own_amount(self, engine: Engine) -> None:
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], monto_incluye_iva=True, monto_unit="121.00")
+        with sessionmaker(bind=engine)() as db:
+            c = db.get(asignacion.SellOutCampana, campana)
+            hoy = D(2026, 11, 2)
+            assert asignacion.credito_unitario(c, hoy, Decimal(21), None, None) == (Decimal(100), Decimal(1))
+            con_item = asignacion.credito_unitario(c, hoy, Decimal(21), None, None, monto_item=Decimal("242"))
+            assert con_item == (Decimal(200), Decimal(1))
+
+
 class TestQueryCount:
     def test_the_reads_of_a_call_do_not_grow_with_its_campaigns_and_sales(self, engine: Engine) -> None:
         assert _selects(engine, 1) == _selects(engine, 4)
 
+    def test_nor_with_their_per_product_amounts(self, engine: Engine) -> None:
+        assert _selects(engine, 1, montos=True) == _selects(engine, 4, montos=True)
 
-def _selects(engine: Engine, n: int) -> int:
+
+def _selects(engine: Engine, n: int, montos: bool = False) -> int:
     w.clean(engine)
     w.tipo_cambio(engine, D(2026, 10, 1), 1000)
     routers = w.grupo(engine, [TP_ROUTERS])
     ids = [w.campana(engine, [routers], moneda="USD", tc_modo="dia_venta", acumulable=i > 0) for i in range(n)]
+    for cid in ids if montos else []:
+        w.monto_item(engine, cid, 2964, "3.00")
     for i in range(n):
         for canal in ("ml", "fuera", "tn"):
             w.venta(engine, canal, 2964, 1, D(2026, 11, 1 + i))

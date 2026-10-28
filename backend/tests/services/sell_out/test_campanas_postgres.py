@@ -30,6 +30,7 @@ pytestmark = pytest.mark.postgres
 TABLES = (
     "sell_out_campanas",
     "sell_out_campana_grupos",
+    "sell_out_campana_items",
     "auditoria",
     "sell_out_dirty",
     "sell_out_consumos",
@@ -221,3 +222,137 @@ def test_a_migrated_campaign_stores_audits_and_returns_its_legacy_offset_and_an_
         service.editar_campana(db, migrada, _data(nombre="Editada"), USUARIO)
     with Session() as db:
         assert _api(db, migrada)["offset_origen_id"] == 123
+
+
+# ── Per-product amounts (T22b S25: legacy grouped offsets) ──────────
+
+ROUTER, SWITCH, AJENO = 2964, 2270, 950
+
+
+def _alcance(db) -> None:
+    """Group 1 reaches the router and the switch; the third product is outside it."""
+    for item_id in (ROUTER, SWITCH, AJENO):
+        db.execute(
+            text("INSERT INTO productos_erp (item_id, codigo, descripcion) VALUES (:i, :c, 'P')"),
+            {"i": item_id, "c": f"C{item_id}"},
+        )
+    for item_id in (ROUTER, SWITCH):
+        db.execute(
+            text("INSERT INTO offset_grupo_filtros (grupo_id, item_id) VALUES (:g, :i)"), {"g": GRUPO, "i": item_id}
+        )
+    db.commit()
+
+
+def _guardados(db, campana_id: int) -> list[tuple]:
+    sql = "SELECT item_id, monto_unit FROM sell_out_campana_items WHERE campana_id = :c ORDER BY item_id"
+    return [tuple(r) for r in db.execute(text(sql), {"c": campana_id})]
+
+
+def test_a_campaign_stores_returns_audits_and_queues_its_product_amounts(Session) -> None:
+    with Session() as db:
+        _alcance(db)
+        items = [{"item_id": SWITCH, "monto_unit": "7.5"}, {"item_id": ROUTER, "monto_unit": "25"}]
+        campana_id = service.crear_campana(db, _data(items=items), USUARIO).id
+    with Session() as db:
+        assert _guardados(db, campana_id) == [(SWITCH, Decimal("7.50")), (ROUTER, Decimal("25.00"))]
+        esperado = [{"item_id": SWITCH, "monto_unit": "7.50"}, {"item_id": ROUTER, "monto_unit": "25.00"}]
+        # The response names each product (code and description); the audit keeps id and amount.
+        assert [{k: i[k] for k in ("item_id", "monto_unit")} for i in _api(db, campana_id)["items"]] == esperado
+        assert [i["codigo"] for i in _api(db, campana_id)["items"]] == [f"C{SWITCH}", f"C{ROUTER}"]
+        assert _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA).valores_nuevos["items"] == esperado
+        assert db.execute(text("SELECT campana_id FROM sell_out_dirty")).scalars().all() == [campana_id]
+
+
+def test_an_edit_replaces_the_product_amounts(Session) -> None:
+    with Session() as db:
+        _alcance(db)
+        antes = [{"item_id": ROUTER, "monto_unit": "25"}, {"item_id": SWITCH, "monto_unit": "7.5"}]
+        campana_id = service.crear_campana(db, _data(items=antes), USUARIO).id
+        db.execute(text("DELETE FROM sell_out_dirty"))
+        db.commit()
+    with Session() as db:
+        service.editar_campana(db, campana_id, _data(items=[{"item_id": SWITCH, "monto_unit": "8"}]), USUARIO)
+    with Session() as db:
+        assert _guardados(db, campana_id) == [(SWITCH, Decimal("8.00"))]
+        audit = _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA)
+        assert audit.valores_anteriores["items"] == [
+            {"item_id": SWITCH, "monto_unit": "7.50"},
+            {"item_id": ROUTER, "monto_unit": "25.00"},
+        ]
+        assert audit.valores_nuevos["items"] == [{"item_id": SWITCH, "monto_unit": "8.00"}]
+        assert db.execute(text("SELECT campana_id FROM sell_out_dirty")).scalars().all() == [campana_id]
+    with Session() as db:
+        service.editar_campana(db, campana_id, _data(items=[]), USUARIO)  # cleared: the campaign amount for all
+    with Session() as db:
+        assert _guardados(db, campana_id) == []
+        assert _api(db, campana_id)["items"] == []
+
+
+def test_a_campaign_without_product_amounts_returns_an_empty_list(Session) -> None:
+    with Session() as db:
+        campana_id = service.crear_campana(db, _data(), USUARIO).id
+    with Session() as db:
+        assert _api(db, campana_id)["items"] == []
+        assert _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA).valores_nuevos["items"] == []
+
+
+@pytest.mark.parametrize(
+    "overrides,mensaje",
+    [
+        (
+            {
+                "tipo": "porcentaje",
+                "monto_unit": None,
+                "porcentaje": "2",
+                "items": [{"item_id": ROUTER, "monto_unit": "5"}],
+            },
+            "Una campaña por porcentaje no lleva montos por producto",
+        ),
+        (
+            {"items": [{"item_id": ROUTER, "monto_unit": "5"}, {"item_id": ROUTER, "monto_unit": "6"}]},
+            f"El producto {ROUTER} tiene más de un monto",
+        ),
+        (
+            {"items": [{"item_id": ROUTER, "monto_unit": "0"}]},
+            f"El monto del producto {ROUTER} tiene que ser mayor a 0",
+        ),
+        (
+            {"items": [{"item_id": ROUTER, "monto_unit": "-1"}]},
+            f"El monto del producto {ROUTER} tiene que ser mayor a 0",
+        ),
+        (
+            {"items": [{"item_id": AJENO, "monto_unit": "5"}]},
+            f"El producto {AJENO} no está en los grupos de la campaña",
+        ),
+    ],
+    ids=["porcentaje", "duplicado", "cero", "negativo", "fuera_del_alcance"],
+)
+def test_invalid_product_amounts_are_refused_and_leave_nothing(Session, overrides, mensaje) -> None:
+    counts = (
+        "SELECT (SELECT count(*) FROM sell_out_campanas), (SELECT count(*) FROM sell_out_campana_items), "
+        "(SELECT count(*) FROM auditoria), (SELECT count(*) FROM sell_out_dirty)"
+    )
+    with Session() as db:
+        _alcance(db)
+        with pytest.raises(service.SellOutError) as caught:
+            service.crear_campana(db, _data(**overrides), USUARIO)
+        assert str(caught.value) == mensaje
+    with Session() as db:
+        assert tuple(db.execute(text(counts)).one()) == (0, 0, 0, 0)
+
+
+def test_an_edit_with_a_product_outside_the_reach_keeps_the_campaign_as_it_was(Session) -> None:
+    with Session() as db:
+        _alcance(db)
+        campana_id = service.crear_campana(db, _data(items=[{"item_id": ROUTER, "monto_unit": "25"}]), USUARIO).id
+    with Session() as db:
+        with pytest.raises(service.SellOutError):
+            service.editar_campana(db, campana_id, _data(items=[{"item_id": AJENO, "monto_unit": "5"}]), USUARIO)
+    with Session() as db:
+        assert _guardados(db, campana_id) == [(ROUTER, Decimal("25.00"))]
+        assert _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA) is None
+
+
+def test_a_product_amount_with_more_decimals_than_the_column_is_rejected_not_rounded() -> None:
+    with pytest.raises(ValueError):
+        _data(items=[{"item_id": ROUTER, "monto_unit": "1.005"}])

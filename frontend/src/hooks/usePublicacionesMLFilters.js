@@ -24,8 +24,10 @@ import { COLORES_DISPONIBLES } from '../utils/productosConstants';
  *    the dimension the tree is grouped by (`AGRUPAR_DIMENSIONS`, default marca).
  */
 export const PAGE_SIZE = 50;
-// The backend caps `limit` at 100.
-export const PAGE_SIZES = [25, 50, 100];
+// Productos' sizes, 9999 being its "Todos" (the backend caps `limit` at 10000).
+export const ALL_ROWS = 9999;
+export const PAGE_SIZES = [25, 50, 100, 200, 500, ALL_ROWS];
+export const pageSizeLabel = (size) => (size === ALL_ROWS ? 'Todos' : String(size));
 
 const CSV_KEYS = [
   'estado',
@@ -93,7 +95,34 @@ const AUDIT_KEYS = [...Object.keys(AUDIT_CSV_PARAMS), ...Object.keys(AUDIT_TEXT_
 const PROMO_TYPE_VALUES = PROMO_TYPES.map(({ type }) => type);
 export const PROMO_STATES = ['aplicada', 'sin_aplicar'];
 const PROMO_KEYS = ['promo_tipos', 'promo_estado', 'pxq'];
-export const FILTER_KEYS = [...TEXT_KEYS, ...CSV_KEYS, ...PRESENCE_KEYS, ...MARKUP_SIGN_KEYS, ...AUDIT_KEYS, ...PROMO_KEYS];
+/**
+ * Productos' "Sin MLA" (`?mla=sin_mla`, Productos' value): in the Producto view, the products no publication is
+ * linked to (`con_mla=false`). Only the product filters apply to them; the backend refuses the others (422).
+ */
+const MLA_KEY = 'mla';
+export const SIN_MLA = 'sin_mla';
+export const FILTER_KEYS = [
+  ...TEXT_KEYS,
+  ...CSV_KEYS,
+  ...PRESENCE_KEYS,
+  ...MARKUP_SIGN_KEYS,
+  ...AUDIT_KEYS,
+  ...PROMO_KEYS,
+  MLA_KEY,
+];
+// What a product without a publication has nothing to answer: turning Sin MLA on clears them. The audit and the
+// markup sign filters stay: they read the product, and the backend applies them to Sin MLA too. The markup ranges
+// never reach `/products`.
+const PUBLICATION_ONLY_KEYS = ['estado', 'estado_excluir', 'tiendas', 'tipo', 'vinculo', 'evento', 'evento_desde',
+  'familia', 'oferta', ...PROMO_KEYS];
+// The ERP stock values ask the product; the others ask its publications.
+const PRODUCT_STOCK_VALUES = ['erp_sin_stock', 'erp_con_stock'];
+
+/** The `setFilters` updates that turn Sin MLA on: the flag, and the publication filters cleared. */
+export function sinMlaUpdates(filters) {
+  const cleared = Object.fromEntries(PUBLICATION_ONLY_KEYS.map((key) => [key, '']));
+  return { ...cleared, stock: filters.stock.filter((value) => PRODUCT_STOCK_VALUES.includes(value)), [MLA_KEY]: SIN_MLA };
+}
 
 // `producto` = one row per product, opening into its publications (`/view/products`).
 const VISTAS = ['publicacion', 'producto', 'agrupado'];
@@ -170,6 +199,8 @@ export const PRODUCT_SORTS = ['titulo', 'unidades_7d', 'unidades_30d', 'markup_3
  * for it, else Métricas' default (Facturado 30D) for who sees the sales and the name otherwise.
  */
 export function effectiveProductSort(filters, permissions = {}) {
+  // A product without MLA has no Métricas figure: its rows go by name (the backend falls back the same way).
+  if (filters.mla === SIN_MLA) return { key: 'titulo', dir: (filters.orden === 'titulo' && filters.dir) || 'asc' };
   const asked = PRODUCT_SORTS.includes(filters.orden) && mayAsk(filters.orden, permissions) ? filters.orden : '';
   const key = asked || (permissions.canSeeSales ? 'facturado_30d' : 'titulo');
   return { key, dir: (asked && filters.dir) || DEFAULT_DIRECTION[key] || 'desc' };
@@ -208,6 +239,7 @@ function readFilters(params, { canSeeMargin = false } = {}) {
   filters.markup_neg = ['1', 'true'].includes(params.get('markup_neg')) ? '1' : '';
   const vista = params.get('vista');
   filters.vista = VISTAS.includes(vista) ? vista : 'publicacion';
+  filters.mla = filters.vista === 'producto' && params.get(MLA_KEY) === SIN_MLA ? SIN_MLA : '';
   // The tree's family nodes: '1' or '' (a toggle, off by default).
   filters.familias = ['1', 'true'].includes(params.get('familias')) ? '1' : '';
   const agrupar = params.get('agrupar');
@@ -310,7 +342,7 @@ export function buildProductsParams(filters, pageSize = filters.limite ?? PAGE_S
   const { orden, dir, ...params } = buildItemsParams(filters, pageSize, { canSeeMargin: false });
   void orden, dir;
   const sort = effectiveProductSort(filters, permissions);
-  return { ...params, orden: sort.key, dir: sort.dir };
+  return { ...params, ...sinMlaParam(filters), orden: sort.key, dir: sort.dir };
 }
 
 /**
@@ -325,6 +357,9 @@ export function buildExportParams(filters, permissions = {}) {
 }
 
 const MARKUP_KEYS = ['markup_neg', 'markup_min', 'markup_max'];
+
+// Only the product reads (`/products`, its export, the bulk set) take it: the publication views have no such rows.
+const sinMlaParam = (filters) => (filters.mla === SIN_MLA ? { con_mla: false } : {});
 
 /**
  * The strip, the bulk set and the export show no row color, so they never ask the layer -- unless the color filter
@@ -364,6 +399,18 @@ export function buildKpiParams(filters, periodo) {
 export function buildProductIdsParams(filters) {
   const { periodo, ...params } = buildKpiParams(filters);
   void periodo;
+  return { ...params, ...sinMlaParam(filters) };
+}
+
+/**
+ * The `GET /ml-publications/view/stats` query (Productos' stat cards, S12d4): they count the linked products of the
+ * very set a bulk action takes, so they ask as `/product-ids` does. In the Producto view the "Oferta sin Rebate" card
+ * counts the offer of the product, as the list it opens does, even before the offer filter is set.
+ */
+export function buildStatsParams(filters) {
+  const params = buildProductIdsParams(filters);
+  // The Producto view also asks Productos' Sin MLA card (S12d4c).
+  if (filters.vista === 'producto') Object.assign(params, { oferta_por_producto: true, tarjetas_sin_mla: true });
   return params;
 }
 
