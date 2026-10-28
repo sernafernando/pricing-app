@@ -752,11 +752,14 @@ def _attach_pxq(db: Session, rows: list[dict[str, Any]]) -> None:
     if not item_ids:
         return
     try:
+        listing.bound(db)  # the list's own `statement_timeout`: the page's rollback already ended its SET LOCAL
         mlas = products.mlas_by_product(db, sorted(item_ids))
     except DBAPIError as exc:  # over `statement_timeout`: the list's own controlled 503, as `_attach_colors`
         if (slow := _database_error(exc)) is not None:
             raise slow from exc
         raise
+    finally:
+        db.rollback()  # read-only, as the page's own work
     if not mlas:
         return
     try:

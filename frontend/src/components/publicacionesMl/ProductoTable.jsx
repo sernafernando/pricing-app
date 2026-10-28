@@ -35,9 +35,10 @@ import PxqTramosBadge from '../PxqTramosBadge';
  */
 // The columns a product row fills from its own product, as Productos' rows carry it: drawn by the publications' own
 // cells over the product read in their shape (`productAsItem`).
-const NO_PREARMADAS = {};
-
 const PRODUCT_FIELDS = new Set(['codigo', 'marca', 'costo', 'stock_erp']);
+
+// No prearmadas stats given: one stable object, so the columns are not rebuilt on every render.
+const NO_PREARMADAS = {};
 
 /** A product node in the shape the publication cells read: its code and brand as a link's, its ERP stock, its cost
  * and the lines under it. */
