@@ -21,7 +21,7 @@ import math
 import re
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import (
@@ -104,8 +104,8 @@ class FilterError(ValueError):
 @dataclass(frozen=True)
 class SearchTerm:
     """`kind`: `item_id` (canonical `MLA123`), `digits` (exact key), `text` (substring), or one of Productos'
-    operators: `codigo` (`codigo:` / `ean:`, the exact product code), `marca` (`marca:`, the exact brand) and
-    `ends_with` (`*X`)."""
+    operators: `codigo` (`codigo:` / `ean:`, the exact product code), `marca` (`marca:`, the exact brand),
+    `descripcion` (`desc:` / `descripcion:`, the product description), `ends_with` (`*X`) and `starts_with` (`X*`)."""
 
     kind: str
     value: str
@@ -205,15 +205,44 @@ def normalize_q(raw: Optional[str]) -> Optional[SearchTerm]:
         return SearchTerm("digits", term)
     field, sep, value = term.partition(":")
     value = value.strip()
-    if sep and value and not value.startswith("*") and field.strip().lower() in _OPERATORS:
+    if sep and value and not value.startswith("*") and not value.endswith("*") and field.strip().lower() in _OPERATORS:
         return SearchTerm(_OPERATORS[field.strip().lower()], value)
     if term.startswith("*") and term[1:].strip():
         return SearchTerm("ends_with", term[1:].strip())
+    if term.endswith("*") and term[:-1].strip():
+        return SearchTerm("starts_with", term[:-1].strip())
     return SearchTerm("text", term)
 
 
 # Productos' search operators (`productos_listing.py`): `ean:` is the same code column there too
-_OPERATORS = {"codigo": "codigo", "ean": "codigo", "marca": "marca"}
+_OPERATORS = {
+    "codigo": "codigo",
+    "ean": "codigo",
+    "marca": "marca",
+    "desc": "descripcion",
+    "descripcion": "descripcion",
+}
+
+
+def _folded(column: Any, chars: str = "- ") -> ColumnElement:
+    """`column` upper-cased without dashes and spaces, as Productos compares its plain and `desc:` searches."""
+    folded = func.upper(column)
+    for char in chars:
+        folded = func.replace(folded, char, "")
+    return folded
+
+
+def _folded_contains(value: str) -> Callable[..., ColumnElement]:
+    """A test that `column`, folded (`_folded`), holds `value` folded the same way; nothing matches when no character
+    is left to look for (a lone `-` must not match every product)."""
+    folded = value.replace("-", "").replace(" ", "")
+    # upper-cased by the database on both sides, as `_text_in`: Python and Postgres disagree on some letters
+    pattern = func.upper(literal(f"%{escape_like(folded)}%"))
+
+    def contains(column: Any, chars: str = "- ") -> ColumnElement:
+        return _folded(column, chars).like(pattern, escape=LIKE_ESCAPE) if folded else false()
+
+    return contains
 
 
 def escape_like(text: str) -> str:
@@ -777,6 +806,15 @@ def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElemen
             return column.ilike(suffix, escape=LIKE_ESCAPE)
 
         return ends(T.i.title), or_(ends(p.descripcion), ends(p.marca), ends(p.codigo))
+    if term.kind == "starts_with":
+        prefix = f"{escape_like(term.value)}%"
+
+        def starts(column: Any) -> ColumnElement:
+            return column.ilike(prefix, escape=LIKE_ESCAPE)
+
+        return starts(T.i.title), or_(starts(p.descripcion), starts(p.marca), starts(p.codigo))
+    if term.kind == "descripcion":
+        return false(), _folded_contains(term.value)(p.descripcion)
     # ponytail: case-insensitive but accent-sensitive; `unaccent` is not installed on the test DB and its presence
     # on production is unverified (`scripts/measure_pubml_p5.py --database-url` reports it)
     pattern = f"%{escape_like(term.value)}%"
@@ -787,7 +825,16 @@ def _search_parts(term: SearchTerm, p: Any) -> tuple[ColumnElement, ColumnElemen
     own = or_(
         contains(T.i.title), contains(T.i.seller_sku), contains(T.i.seller_custom_field), _variation_sku(contains)
     )
-    return own, or_(contains(p.codigo), contains(p.descripcion))
+    # Productos' plain search: name and brand without dashes and spaces, the code without dashes (`productos_listing`)
+    folded = _folded_contains(term.value)
+    product = or_(
+        contains(p.codigo),
+        contains(p.descripcion),
+        folded(p.descripcion),
+        folded(p.marca),
+        folded(p.codigo, "-"),
+    )
+    return own, product
 
 
 def _matching_products(term: SearchTerm) -> Select:
@@ -1140,16 +1187,11 @@ def publication_filter_in(f: PublicationFilter) -> Optional[str]:
 
 
 def _product_search(term: SearchTerm) -> ColumnElement:
-    """`_search` without the publication's columns: the product's code, name and brand."""
-    if term.kind in ("codigo", "marca"):
-        return _search_parts(term, T.p)[1]
-    if term.kind == "digits":
-        return T.p.codigo == term.value
-    if term.kind == "ends_with":
-        suffix = f"%{escape_like(term.value)}"
-        return or_(*(column.ilike(suffix, escape=LIKE_ESCAPE) for column in (T.p.descripcion, T.p.marca, T.p.codigo)))
-    pattern = f"%{escape_like(term.value)}%"
-    return or_(T.p.codigo.ilike(pattern, escape=LIKE_ESCAPE), T.p.descripcion.ilike(pattern, escape=LIKE_ESCAPE))
+    """`_search` without the publication's columns: the product's code, name and brand. An MLA id has no product
+    side, so it is looked for as plain text there."""
+    if term.kind == "item_id":
+        term = SearchTerm("text", term.value)
+    return _search_parts(term, T.p)[1]
 
 
 def _without_mla() -> list[ColumnElement]:

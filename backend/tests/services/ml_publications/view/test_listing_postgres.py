@@ -514,6 +514,28 @@ class TestSearch:
         assert ids(run(db, q="*router")) == []  # "Router Wifi AC1200" starts with it, does not end with it
         assert ids(run(db, q="*100%")) == []  # the wildcard is literal
 
+    def test_desc_operator_is_a_folded_substring_of_the_product_description(self, db) -> None:
+        assert ids(run(db, q="desc:hikvision-domo")) == ["MLA900300"]  # `-` and spaces folded away
+        assert ids(run(db, q="descripcion:CABLEHDMI")) == ["MLA900700"]
+        assert ids(run(db, q="desc:router")) == []  # the publication title is not the description
+        assert ids(run(db, q="desc:100%")) == []  # the wildcard is literal
+
+    def test_a_trailing_asterisk_matches_the_start_of_title_name_brand_or_code(self, db) -> None:
+        assert ids(run(db, q="router*")) == ["MLA900100"]  # title
+        assert ids(run(db, q="cámara hik*")) == ["MLA900300"]  # product name
+        assert ids(run(db, q="kab*")) == ["MLA900700"]  # brand
+        assert ids(run(db, q="kb-hd*")) == ["MLA900700"]  # code
+        assert ids(run(db, q="ac1200*")) == []  # "Router Wifi AC1200" ends with it, does not start with it
+        assert ids(run(db, q="100%*")) == []  # the wildcard is literal
+
+    def test_plain_text_matches_the_brand_and_folds_dashes_and_spaces_on_the_product(self, db) -> None:
+        assert ids(run(db, q="kabel")) == ["MLA900700"]  # brand
+        assert ids(run(db, q="kbhdmi")) == ["MLA900700"]  # code without its dashes
+        assert ids(run(db, q="cablehdmi")) == ["MLA900700"]  # name without its spaces
+        assert ids(run(db, q="hik vision")) == ["MLA900300"]  # brand typed with a space
+        # nothing left to fold: no product matches everything, only the fields that really hold a dash
+        assert sorted(ids(run(db, q="-"))) == ["MLA900100", "MLA900200", "MLA900500", "MLA900700"]
+
     def test_no_match_is_an_empty_page_with_total_zero(self, db) -> None:
         page = run(db, q="inexistente")
         assert (page.items, page.total) == ([], 0)

@@ -67,7 +67,17 @@ class TestSearchTerm:
     def test_a_leading_asterisk_is_an_ends_with(self) -> None:
         assert normalize_q("*domo") == SearchTerm("ends_with", "domo")
 
-    @pytest.mark.parametrize("raw", ["color:rojo", "codigo:", "*", "marca:*hik"])
+    @pytest.mark.parametrize("raw", ["desc:Hikvision Domo", "DESCRIPCION: Hikvision Domo"])
+    def test_desc_and_descripcion_search_the_product_description(self, raw: str) -> None:
+        assert normalize_q(raw) == SearchTerm("descripcion", "Hikvision Domo")
+
+    def test_a_trailing_asterisk_is_a_starts_with(self) -> None:
+        assert normalize_q("rout*") == SearchTerm("starts_with", "rout")
+
+    def test_an_operator_with_a_trailing_asterisk_is_a_starts_with_of_the_whole_term_as_in_productos(self) -> None:
+        assert normalize_q("marca:hik*") == SearchTerm("starts_with", "marca:hik")
+
+    @pytest.mark.parametrize("raw", ["color:rojo", "codigo:", "*", "marca:*hik", "desc:"])
     def test_an_unknown_field_an_empty_value_or_a_bare_asterisk_is_plain_text(self, raw: str) -> None:
         assert normalize_q(raw) == SearchTerm("text", raw)
 
