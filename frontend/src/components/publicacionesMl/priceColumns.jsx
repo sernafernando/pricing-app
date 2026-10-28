@@ -3,6 +3,7 @@ import { offerDetails } from '../pricing/offerDetails';
 import { LISTS } from '../pricing/priceWrites';
 import ListPriceCell from './ListPriceCell';
 import PriceEditCell from './PriceEditCell';
+import TnPriceLine from './TnPriceLine';
 import ToggleEditCell from './ToggleEditCell';
 import styles from './cells.module.css';
 
@@ -21,7 +22,7 @@ const GROUP = 'Precios de Productos';
 
 const LIST_ROWS = new Map(LISTS.flatMap((group) => group.rows).map((row) => [row.id, row]));
 
-const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, toggles, details } = {}) => ({
+const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, toggles, details, tienda = false } = {}) => ({
   key,
   header,
   price,
@@ -31,6 +32,7 @@ const list = (key, header, price, markup, { takesPart, markupScale = 1, edits, t
   list: edits,
   toggles,
   details,
+  tienda,
 });
 // The permission of each flag's editor (`pricePermissions`).
 const TOGGLE_PERMS = { rebate: 'canToggleRebate', web: 'canToggleWebTransf' };
@@ -44,7 +46,8 @@ const MODES = {
     // The listing sends the best offer's markup as a fraction (every other one as a percentage); Productos scales it.
     // Under its price, its details as in Productos (S2).
     list('lista_oferta', 'Mejor Oferta', 'mejor_oferta_precio', 'mejor_oferta_markup', { markupScale: 100, details: offerDetails }),
-    list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', { takesPart: 'participa_web_transferencia', toggles: 'web' }),
+    // Over it, the Tienda Nube price with its transfer price, as Productos (S3).
+    list('lista_web', 'Web Transf.', 'precio_web_transferencia', 'markup_web_real', { takesPart: 'participa_web_transferencia', toggles: 'web', tienda: true }),
   ],
   cuotas: [CLASICA, ...CUOTAS.map((n) => list(`lista_${n}_cuotas`, `${n} Cuotas`, `precio_${n}_cuotas`, `markup_${n}_cuotas`, { edits: `ml-${n}` }))],
   pvp: [
@@ -59,14 +62,27 @@ const MODES = {
  * `pricePermissions` and `useInlinePriceEdit`) makes the list prices editable: `onSave(listRow, product, text)`; and
  * the rebate and web transfer: `onToggle(kind, product, draft)`, resolving true when saved.
  * `onCalculate(product)` (P3c, for whoever may edit prices) closes the group with Productos' Calcular button, which
- * opens its pricing modal on the row's product.
+ * opens its pricing modal on the row's product. `tnCardPercent` (`useTnCardPercent`) is the Tienda Nube card surcharge
+ * the Web Transf. column takes off its TN price for the transfer hint.
  */
-export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, onCalculate = null }) {
+export function priceColumns(mode, { prices, canSeeMargin = false, edit = null, onCalculate = null, tnCardPercent = null }) {
   const columns = (MODES[mode] ?? MODES.normal).map((column) => {
     const listRow = column.list ? LIST_ROWS.get(column.list) : null;
     const editable = Boolean(edit && listRow && edit.permissions[listRow.perm]);
     const togglable = Boolean(edit?.onToggle && column.toggles && edit.permissions[TOGGLE_PERMS[column.toggles]]);
     const renderProduct = (productId) => {
+      const content = renderCell(productId);
+      const product = productId == null || prices.error ? null : prices.byId.get(productId);
+      const tn = column.tienda && product && ((product.tn_has_promotion && product.tn_promotional_price) || product.tn_price);
+      if (!tn) return content;
+      return (
+        <div className={`${styles.stack} ${styles.stackEnd}`}>
+          <TnPriceLine product={product} percent={tnCardPercent} />
+          {content}
+        </div>
+      );
+    };
+    const renderCell = (productId) => {
       const product = productId == null ? null : prices.byId.get(productId);
       const failed = productId != null && prices.error;
       const cell = (

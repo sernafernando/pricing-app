@@ -90,6 +90,44 @@ describe('priceColumns', () => {
     expect(cell(loading)).toBe('…');
   });
 
+  describe("Tienda Nube's price in Web Transf. (S3), as Productos", () => {
+    const tn = (fields, tnCardPercent = 25) => {
+      const product = { ...PRODUCT, ...fields };
+      const [, , , web] = priceColumns('normal', { prices: prices(new Map([[7, product]])), tnCardPercent });
+      return web;
+    };
+
+    it('shows the TN price with its transfer price (the card surcharge taken off), above the web transfer', () => {
+      const web = tn({ tn_price: 1000, participa_web_transferencia: true });
+      render(<div>{web.render(item())}</div>);
+      const line = screen.getByText('$ 1.000,00').closest('[data-tn-price]');
+      expect(line).toHaveTextContent('$800,00 transf.');
+      // The web transfer's own price follows.
+      expect(screen.getByText('950,00')).toBeInTheDocument();
+    });
+
+    it('a TN promotion shows the promotional price with its hint and the regular one struck through', () => {
+      const web = tn({ tn_price: 1000, tn_promotional_price: 900, tn_has_promotion: true });
+      const { container } = render(<div>{web.render(item())}</div>);
+      expect(container.querySelector('[data-tn-price]')).toHaveTextContent('$ 900,00$720,00 transf.');
+      expect(container.querySelector('s')).toHaveTextContent('$ 1.000,00');
+      // Not taking part in the web transfer: its own figure still reads "—".
+      expect(container).toHaveTextContent('—');
+    });
+
+    it('without the surcharge (not loaded, or failed) the TN price shows alone, never a wrong transfer price', () => {
+      const web = tn({ tn_price: 1000 }, null);
+      expect(cell(web)).toContain('$ 1.000,00');
+      expect(cell(web)).not.toContain('transf.');
+    });
+
+    it('no TN price: the cell is as before; the other columns never show it', () => {
+      expect(cell(tn({}))).toBe('—');
+      const [clasica] = priceColumns('normal', { prices: prices(new Map([[7, { ...PRODUCT, tn_price: 1000 }]])), tnCardPercent: 25 });
+      expect(cell(clasica)).not.toContain('transf.');
+    });
+  });
+
   it('never shows a markup without the margin permission', () => {
     const [clasica] = priceColumns('normal', { prices: prices(), canSeeMargin: false });
     expect(cell(clasica)).toContain('1.000,00');

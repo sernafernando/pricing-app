@@ -213,3 +213,27 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* Tienda Nube's price over the web transfer (S3): its amount with the transfer hint under it (both on one line do not
+   fit the column), the regular price struck through under a promotion, a divider before the web transfer's figure. */
+.tnPrice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--cf-border-default);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tnAmount {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.tnHint,
+.tnRegular {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
