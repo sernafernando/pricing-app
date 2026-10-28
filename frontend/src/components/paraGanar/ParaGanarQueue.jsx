@@ -62,11 +62,19 @@ export default function ParaGanarQueue({
           <ul className={styles.queueList}>
             {items.map((row) => {
               const isSelected = row.mla === selectedMla;
+              const hasCriteria = Boolean(row.criterios_aplicados);
+              const rowClass = [
+                styles.queueRow,
+                isCriterios && hasCriteria ? styles.queueRowCriteriaApplied : '',
+                isSelected ? styles.queueRowSelected : '',
+              ]
+                .filter(Boolean)
+                .join(' ');
               return (
                 <li key={row.mla}>
                   <button
                     type="button"
-                    className={`${styles.queueRow} ${isSelected ? styles.queueRowSelected : ''}`}
+                    className={rowClass}
                     onClick={() => onSelect(row.mla)}
                     aria-pressed={isSelected}
                   >

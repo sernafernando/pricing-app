@@ -224,6 +224,7 @@
   appearance: none;
   border: 0;
   border-bottom: 1px solid var(--cf-border-subtle);
+  /* Sin criterio: fondo del panel (oscuro ≈ app black; claro ≈ card). */
   background: transparent;
   color: inherit;
   padding: var(--spacing-sm) var(--spacing-md);
@@ -237,8 +238,21 @@
   background: var(--cf-bg-hover);
 }
 
+/* Con criterio aplicado: gris de superficie (tokens; no hex). */
+.queueRowCriteriaApplied {
+  background: var(--cf-bg-card);
+}
+
+.queueRowCriteriaApplied:hover {
+  background: var(--cf-bg-hover);
+}
+
 .queueRowSelected {
   background: color-mix(in srgb, var(--cf-accent-blue) 12%, transparent);
+}
+
+.queueRowCriteriaApplied.queueRowSelected {
+  background: color-mix(in srgb, var(--cf-accent-blue) 12%, var(--cf-bg-card));
 }
 
 .queueRowTop {
