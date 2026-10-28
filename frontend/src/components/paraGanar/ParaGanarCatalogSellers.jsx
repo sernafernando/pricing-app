@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import api from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
-import { SELLER_DISPOSITIONS } from './sellerDispositions';
+import {
+  DISPOSITION_ACTIVE,
+  SELLER_DISPOSITIONS,
+  normalizeDisposition,
+} from './sellerDispositions';
 import styles from '../../pages/ParaGanarAdvisor.module.css';
 
 export default function ParaGanarCatalogSellers({ mla }) {
@@ -54,7 +58,7 @@ export default function ParaGanarCatalogSellers({ mla }) {
         setSellers(rows);
         const nextDraft = {};
         rows.forEach((row) => {
-          nextDraft[row.seller_id] = row.disposition || 'active';
+          nextDraft[row.seller_id] = normalizeDisposition(row.disposition);
         });
         setDraft(nextDraft);
       } catch (err) {
@@ -78,8 +82,13 @@ export default function ParaGanarCatalogSellers({ mla }) {
   }, [mla, canWrite]);
 
   const dirty = sellers.some(
-    (row) => (draft[row.seller_id] || 'active') !== (row.disposition || 'active'),
+    (row) =>
+      (draft[row.seller_id] || DISPOSITION_ACTIVE) !==
+      normalizeDisposition(row.disposition),
   );
+  const excludedCount = sellers.filter(
+    (row) => normalizeDisposition(draft[row.seller_id] ?? row.disposition) !== DISPOSITION_ACTIVE,
+  ).length;
 
   const onSave = async () => {
     if (!mla || !canWrite || saving || !dirty) return;
@@ -90,7 +99,7 @@ export default function ParaGanarCatalogSellers({ mla }) {
       const payload = {
         sellers: sellers.map((row) => ({
           seller_id: row.seller_id,
-          disposition: draft[row.seller_id] || 'active',
+          disposition: normalizeDisposition(draft[row.seller_id]),
         })),
       };
       const { data } = await api.put(
@@ -101,7 +110,7 @@ export default function ParaGanarCatalogSellers({ mla }) {
       setSellers(rows);
       const nextDraft = {};
       rows.forEach((row) => {
-        nextDraft[row.seller_id] = row.disposition || 'active';
+        nextDraft[row.seller_id] = normalizeDisposition(row.disposition);
       });
       setDraft(nextDraft);
       setSaveOk(true);
@@ -127,6 +136,13 @@ export default function ParaGanarCatalogSellers({ mla }) {
           ? `Catálogo ${catalogProductId}${synced ? ' · sincronizado desde competencia' : ''}`
           : 'Esta MLA no tiene catalog_product_id; no hay roster.'}
       </p>
+      {!loading && excludedCount > 0 && (
+        <p className={styles.sellersNotice} role="status">
+          {excludedCount === 1
+            ? 'Hay 1 seller excluido del ranking (sigue en esta lista para reactivarlo).'
+            : `Hay ${excludedCount} sellers excluidos del ranking (siguen en esta lista para reactivarlos).`}
+        </p>
+      )}
 
       {loading && <p className={styles.sellersHint}>Cargando sellers…</p>}
       {error && (
@@ -156,11 +172,14 @@ export default function ParaGanarCatalogSellers({ mla }) {
                 <span className={styles.srOnly}>Disposición</span>
                 <select
                   className={styles.criteriaInput}
-                  value={draft[row.seller_id] || 'active'}
+                  value={normalizeDisposition(draft[row.seller_id])}
                   disabled={!canWrite || saving}
                   onChange={(e) => {
                     setSaveOk(false);
-                    setDraft((prev) => ({ ...prev, [row.seller_id]: e.target.value }));
+                    setDraft((prev) => ({
+                      ...prev,
+                      [row.seller_id]: normalizeDisposition(e.target.value),
+                    }));
                   }}
                 >
                   {SELLER_DISPOSITIONS.map((opt) => (

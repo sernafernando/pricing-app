@@ -454,6 +454,58 @@
   color: var(--cf-text-tertiary);
 }
 
+.sellersNotice {
+  margin: 0 0 var(--spacing-sm);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--cf-text-secondary);
+  border-left: 2px solid var(--cf-border-strong, var(--cf-border-subtle));
+  padding-left: var(--spacing-sm);
+}
+
+.topBoard {
+  list-style: none;
+  margin: var(--spacing-md) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.topBoardRow {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: flex-start;
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.topBoardRank {
+  flex: 0 0 2.5rem;
+  font-weight: var(--font-semibold, 600);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+}
+
+.topBoardBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.topBoardPrice {
+  font-size: 13px;
+  color: var(--cf-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.topBoardSellers {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
 .sellersHint {
   margin: 0;
   font-size: 12px;
@@ -502,7 +554,7 @@
 }
 
 .sellerDisposition {
-  flex: 0 0 180px;
+  flex: 0 0 120px;
 }
 
 .srOnly {

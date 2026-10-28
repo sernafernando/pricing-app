@@ -14,7 +14,7 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 2. Filter the MLA queue with scope chips (tipo, lista, tienda, marca, subcategoría, PM, EAN/código, MLA catálogo). Facets cascade.
 3. Select an MLA → **Criterios**: edit override (or see system defaults). Save persists per MLA.
 4. **Catalog sellers** (on Criterios): roster from competition snapshot; dispositions active / ignore / hide / exclude_from_top.
-5. Advisor detail is still a shell (suggestion engine TBD).
+5. Advisor detail: TOP board (our rank vs N, positions). Suggested price / promo apply still TBD.
 
 ---
 
@@ -27,13 +27,13 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 | D3 | Scope filters = “which MLAs are showable”, not criteria | Same mental model as Productos filters | Done (partial) |
 | D4 | System defaults: markup **5–15%**, TOP **5**, prices unset, flags off | Sensible floor until PM/product inheritance | Done |
 | D5 | Criteria layers: system → (future product/PM) → MLA override | Inheritance without forcing every MLA | MLA + default done; product/PM TBD |
-| D6 | Seller dispositions on catalog roster | Ignore/hide/exclude without deleting competition data | Done (API + UI) |
+| D6 | Seller dispositions on catalog roster | **Activo / Excluido** only — excluded = out of ranking, stays on list + discreet notice | Done (simplified) |
 | D7 | Faceted `alcance-opciones`: each facet skips **only itself**; tipo↔lista both apply | Cascading options; mutual tipo/lista need each other | Done |
 | D8 | Tienda filter via `ml_tiendas_oficiales` + `tb_mercadolibre_items_publicados`; “Sin tienda” = no row | Named stores need seed in empty sandbox | Done (+ seeds) |
 | D9 | **Cost USD from–to** = scope filter (not criteria) | Different cost bands need different criteria later | Done (`costo_usd_min` / `costo_usd_max`; ARS→USD via TC venta) |
 | D10 | **Mass / system criteria = markup only** (no mass price caps) | No single cost → price caps as mass criteria are meaningless | Done (defaults + `MASS_CRITERIA_NUMBER_KEYS`; mass apply UI still disabled) |
 | D11 | **Per MLA:** precio ↔ markup stay in sync (edit either; other derives via Pricing calc) | Same chain as Productos: `POST /precios/calcular-por-markup` (`adicional_markup: 0`) and `GET /precios/calcular-markup` with cola `item_id` + `pricelist_id` | Done (debounced UI sync) |
-| D12 | **TOP N = price positions** (ties share a rank), not “N sellers” | Two at #1 + three at #2 = top **2** positions, five sellers | Label done; engine when TOP logic lands |
+| D12 | **TOP N = price positions** (ties share a rank), not “N sellers” | Two at #1 + three at #2 = top **2** positions, five sellers | Done (GET `/criterios/{mla}/sugerencia` + Advisor board) |
 
 ---
 
@@ -78,12 +78,13 @@ Newest first. Use for “why did we…” archaeology.
 
 ### TOP (posiciones)
 
-- Field label: **TOP posiciones de precio**. Empates comparten puesto (D12). Suggestion engine must use rank-by-price, not headcount.
+- Field label: **TOP posiciones de precio**. Empates comparten puesto (D12).
+- Advisor: `GET /para-ganar/criterios/{mla}/sugerencia` ranks competition `price_ars` (dense rank); excluded sellers omitted; ourselves always counted.
 
 ### Sellers del catálogo
 
 - Sync pulls members from latest competition snapshot.
-- Dispositions: active | ignore_participant | hide | exclude_from_top.
+- Dispositions: **Activo** | **Excluido**. Excluido = fuera del ranking (como si no existiera), sigue en la lista; aviso discreto si hay alguno.
 
 ---
 
@@ -93,8 +94,8 @@ Newest first. Use for “why did we…” archaeology.
 2. ~~Fix CI css-guard~~ (`filterGroupActive`).
 3. ~~Scope: costo USD desde–hasta~~ (D9).
 4. ~~D10–D11 criteria markup/price~~ (mass keys + per-MLA sync).
-5. Suggestion/TOP engine: enforce D12 rank-by-price (ties share position).
-6. Later: product/PM criteria inheritance; suggestion states; apply via promotions.
+5. ~~Suggestion/TOP engine (rank board D12 + Activo/Excluido)~~.
+6. Next: suggested price / promo apply; product/PM criteria inheritance; suggestion states.
 
 ---
 

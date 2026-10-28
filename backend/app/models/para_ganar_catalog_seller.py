@@ -7,17 +7,34 @@ from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
-# active | ignore_participant | hide | exclude_from_top
+# Canonical: active | excluded.
+# Legacy values (ignore_participant, hide, exclude_from_top) normalize to excluded.
 DISPOSITION_ACTIVE = "active"
-DISPOSITION_IGNORE_PARTICIPANT = "ignore_participant"
-DISPOSITION_HIDE = "hide"
-DISPOSITION_EXCLUDE_FROM_TOP = "exclude_from_top"
-DISPOSITION_VALUES = (
-    DISPOSITION_ACTIVE,
-    DISPOSITION_IGNORE_PARTICIPANT,
-    DISPOSITION_HIDE,
-    DISPOSITION_EXCLUDE_FROM_TOP,
+DISPOSITION_EXCLUDED = "excluded"
+DISPOSITION_VALUES = (DISPOSITION_ACTIVE, DISPOSITION_EXCLUDED)
+
+# Pre-simplify labels still present in older rows until rewritten.
+_LEGACY_EXCLUDED = frozenset(
+    {
+        "ignore_participant",
+        "hide",
+        "exclude_from_top",
+        DISPOSITION_EXCLUDED,
+    }
 )
+
+
+def normalize_disposition(value: str | None) -> str:
+    """Map stored/API disposition to active|excluded."""
+    if not value or value == DISPOSITION_ACTIVE:
+        return DISPOSITION_ACTIVE
+    if value in _LEGACY_EXCLUDED or value == DISPOSITION_EXCLUDED:
+        return DISPOSITION_EXCLUDED
+    return DISPOSITION_ACTIVE
+
+
+def is_excluded(value: str | None) -> bool:
+    return normalize_disposition(value) == DISPOSITION_EXCLUDED
 
 
 class ParaGanarCatalogSeller(Base):

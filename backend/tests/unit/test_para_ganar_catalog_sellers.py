@@ -69,14 +69,15 @@ def test_sellers_put_and_get_disposition(client: TestClient, rma_superadmin_user
         headers=_auth(rma_superadmin_user),
         json={
             "sellers": [
-                {"seller_id": "159206893", "disposition": "exclude_from_top"},
+                {"seller_id": "159206893", "disposition": "excluded"},
             ]
         },
     )
     assert put.status_code == 200, put.text
     saved = put.json()
     assert saved["catalog_product_id"] == "MLA999001"
-    assert any(s["seller_id"] == "159206893" and s["disposition"] == "exclude_from_top" for s in saved["sellers"])
+    assert any(s["seller_id"] == "159206893" and s["disposition"] == "excluded" for s in saved["sellers"])
+    assert saved["excluded_count"] >= 1
 
     get = client.get(
         "/api/para-ganar/criterios/MLA88102/sellers",
@@ -84,4 +85,5 @@ def test_sellers_put_and_get_disposition(client: TestClient, rma_superadmin_user
     )
     assert get.status_code == 200
     body = get.json()
-    assert any(s["seller_id"] == "159206893" and s["disposition"] == "exclude_from_top" for s in body["sellers"])
+    assert any(s["seller_id"] == "159206893" and s["disposition"] == "excluded" for s in body["sellers"])
+    assert body["excluded_count"] >= 1

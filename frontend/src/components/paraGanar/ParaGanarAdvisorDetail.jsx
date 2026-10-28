@@ -1,7 +1,50 @@
+import { useEffect, useState } from 'react';
+import api from '../../services/api';
 import { formatPrice } from './formatPrice';
 import styles from '../../pages/ParaGanarAdvisor.module.css';
 
 export default function ParaGanarAdvisorDetail({ selected }) {
+  const [board, setBoard] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!selected?.mla) {
+      setBoard(null);
+      setError(null);
+      return undefined;
+    }
+
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data } = await api.get(
+          `/para-ganar/criterios/${encodeURIComponent(selected.mla)}/sugerencia`,
+        );
+        if (!cancelled) setBoard(data);
+      } catch (err) {
+        if (cancelled) return;
+        setBoard(null);
+        if (err.response?.status === 403) {
+          setError('No tenés permiso para ver la sugerencia.');
+        } else if (err.response?.status === 404) {
+          setError('MLA no encontrada.');
+        } else {
+          setError('No se pudo calcular el tablero TOP.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.mla]);
+
   return (
     <aside className={styles.detail} aria-label="Detalle de sugerencia">
       <div className={styles.panelTitle}>Detalle</div>
@@ -9,58 +52,89 @@ export default function ParaGanarAdvisorDetail({ selected }) {
         <div className={styles.emptyState}>
           <p className={styles.emptyTitle}>Seleccioná un MLA</p>
           <p className={styles.emptyBody}>
-            Catálogo, referente, markup y promoción sugerida van a aparecer acá.
-            Por ahora solo mostramos los datos base de la publicación.
+            Acá aparece el tablero TOP (posiciones de precio). Precio sugerido y
+            promo llegan después.
           </p>
         </div>
       )}
       {selected && (
-        <dl className={styles.detailList}>
-          <div>
-            <dt>MLA</dt>
-            <dd>{selected.mla}</dd>
+        <div className={styles.criteriaPanel}>
+          <div className={styles.criteriaIdentity}>
+            <div className={styles.mla}>{selected.mla}</div>
+            <div className={styles.criteriaIdentityMeta}>
+              {selected.codigo || '—'} · {selected.lista_nombre || 'Sin lista'}
+            </div>
           </div>
-          <div>
-            <dt>Código</dt>
-            <dd>{selected.codigo || '—'}</dd>
-          </div>
-          <div>
-            <dt>Item ERP</dt>
-            <dd>{selected.item_id}</dd>
-          </div>
-          <div>
-            <dt>Título ML</dt>
-            <dd>{selected.titulo || '—'}</dd>
-          </div>
-          <div>
-            <dt>Descripción ERP</dt>
-            <dd>{selected.producto_descripcion || '—'}</dd>
-          </div>
-          <div>
-            <dt>Lista / tipo</dt>
-            <dd>{selected.lista_nombre || '—'}</dd>
-          </div>
-          <div>
-            <dt>Precio lista</dt>
-            <dd>$ {formatPrice(selected.precio)}</dd>
-          </div>
-          <div>
-            <dt>Catálogo</dt>
-            <dd>
-              {selected.catalog_listing
-                ? `Sí (${selected.catalog_product_id || 'sin id'})`
-                : 'No'}
-            </dd>
-          </div>
-          <div>
-            <dt>Par sync</dt>
-            <dd>{selected.sync_partner_mla || '—'}</dd>
-          </div>
-          <div>
-            <dt>Estado sugerencia</dt>
-            <dd>{selected.suggestion_status}</dd>
-          </div>
-        </dl>
+
+          {loading && <p className={styles.emptyBody}>Calculando posiciones…</p>}
+          {error && (
+            <p className={styles.criteriaFeedbackError} role="alert">
+              {error}
+            </p>
+          )}
+          {board?.message && (
+            <p className={styles.sellersNotice} role="status">
+              {board.message}
+            </p>
+          )}
+
+          {board && !loading && (
+            <>
+              <dl className={styles.detailList}>
+                <div>
+                  <dt>Nuestro precio</dt>
+                  <dd>$ {formatPrice(board.our_price ?? selected.precio)}</dd>
+                </div>
+                <div>
+                  <dt>Nuestra posición</dt>
+                  <dd>
+                    {board.our_rank != null
+                      ? `#${board.our_rank} de TOP ${board.top_sellers}`
+                      : '—'}
+                    {board.in_top ? ' · dentro del TOP' : board.our_rank != null ? ' · fuera del TOP' : ''}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Catálogo</dt>
+                  <dd>{board.catalog_product_id || '—'}</dd>
+                </div>
+              </dl>
+
+              {board.positions?.length > 0 ? (
+                <ol className={styles.topBoard} aria-label="Posiciones TOP de precio">
+                  {board.positions.map((pos) => (
+                    <li key={`${pos.rank}-${pos.price_ars}`} className={styles.topBoardRow}>
+                      <div className={styles.topBoardRank}>#{pos.rank}</div>
+                      <div className={styles.topBoardBody}>
+                        <div className={styles.topBoardPrice}>
+                          $ {formatPrice(pos.price_ars)}
+                          {pos.seller_count > 1 ? ` · ${pos.seller_count} sellers` : ''}
+                        </div>
+                        <ul className={styles.topBoardSellers}>
+                          {pos.sellers.map((s) => (
+                            <li key={s.seller_id}>
+                              {s.is_us ? (
+                                <strong>Nosotros</strong>
+                              ) : (
+                                s.nickname || `Seller ${s.seller_id}`
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                !board.message && (
+                  <p className={styles.emptyBody}>
+                    No hay precios comparables en el snapshot para armar el TOP.
+                  </p>
+                )
+              )}
+            </>
+          )}
+        </div>
       )}
     </aside>
   );

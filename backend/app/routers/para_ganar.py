@@ -1,14 +1,15 @@
-"""PARA GANAR advisor — MLA queue + per-MLA criteria persistence.
+"""PARA GANAR advisor — MLA queue + per-MLA criteria + TOP rank board.
 
 Intent: docs/para-ganar-pro-source-map.md. Unit of work is MLA (sync pairs
-surfaced via inventory_id when present). No suggestion engine yet.
+surfaced via inventory_id when present). TOP engine: dense rank by price (D12).
 """
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -22,9 +23,17 @@ from app.models.para_ganar_catalog_seller import (
     DISPOSITION_ACTIVE,
     DISPOSITION_VALUES,
     ParaGanarCatalogSeller,
+    is_excluded,
+    normalize_disposition,
 )
 from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
 from app.models.usuario import Usuario
+from app.services.para_ganar_top import (
+    RankCompetitor,
+    board_to_dict,
+    dense_rank_positions,
+    our_rank_from_positions,
+)
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
 from app.services.pricing_columns import (
     PRICELIST_TO_CAMPO,
@@ -901,7 +910,36 @@ class ParaGanarCatalogSellersResponse(BaseModel):
     mla: str
     catalog_product_id: Optional[str] = None
     synced_from_competition: bool = False
+    excluded_count: int = 0
     sellers: List[ParaGanarCatalogSellerItem]
+
+
+class ParaGanarSugerenciaPositionSeller(BaseModel):
+    seller_id: str
+    nickname: Optional[str] = None
+    item_id: Optional[str] = None
+    is_us: bool = False
+
+
+class ParaGanarSugerenciaPosition(BaseModel):
+    rank: int
+    price_ars: float
+    seller_count: int
+    sellers: List[ParaGanarSugerenciaPositionSeller]
+
+
+class ParaGanarSugerenciaResponse(BaseModel):
+    mla: str
+    catalog_product_id: Optional[str] = None
+    snapshot_at: Optional[datetime] = None
+    our_price: Optional[float] = None
+    our_rank: Optional[int] = None
+    top_sellers: int
+    in_top: bool = False
+    excluded_count: int = 0
+    positions: List[ParaGanarSugerenciaPosition] = Field(default_factory=list)
+    suggestion_status: str = "none"
+    message: Optional[str] = None
 
 
 class ParaGanarCatalogSellerDispositionUpdate(BaseModel):
@@ -911,6 +949,7 @@ class ParaGanarCatalogSellerDispositionUpdate(BaseModel):
     @field_validator("disposition")
     @classmethod
     def _disposition_ok(cls, value: str) -> str:
+        # Write path: only active|excluded. Legacy labels are normalized on read.
         if value not in DISPOSITION_VALUES:
             raise ValueError(f"disposition inválida: {value}")
         return value
@@ -1069,7 +1108,7 @@ def _sellers_response(
         by_id[row.seller_id] = ParaGanarCatalogSellerItem(
             seller_id=row.seller_id,
             nickname=row.nickname,
-            disposition=row.disposition or DISPOSITION_ACTIVE,
+            disposition=normalize_disposition(row.disposition),
             last_item_id=row.last_item_id,
             last_seen_at=row.last_seen_at,
         )
@@ -1087,10 +1126,12 @@ def _sellers_response(
         by_id.values(),
         key=lambda item: ((item.nickname or "").lower(), item.seller_id),
     )
+    excluded_count = sum(1 for s in sellers if is_excluded(s.disposition))
     return ParaGanarCatalogSellersResponse(
         mla=mla,
         catalog_product_id=catalog_product_id,
         synced_from_competition=synced_from_competition,
+        excluded_count=excluded_count,
         sellers=sellers,
     )
 
@@ -1125,6 +1166,7 @@ def listar_sellers_catalogo(
             mla=mla_norm,
             catalog_product_id=None,
             synced_from_competition=False,
+            excluded_count=0,
             sellers=[],
         )
 
@@ -1231,4 +1273,229 @@ def actualizar_sellers_catalogo(
         competition=competition,
         seen_at=seen_at,
         synced_from_competition=False,
+    )
+
+
+def _positive_price(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number <= 0:
+        return None
+    return number
+
+
+def _competition_snapshot_for_rank(
+    db: Session, *, mla: str, catalog_product_id: str
+) -> Optional[dict[str, Any]]:
+    """Newest OK competition row for this catalog (prefer this MLA's snapshot)."""
+    from sqlalchemy.exc import OperationalError, ProgrammingError
+
+    try:
+        snap = (
+            db.execute(
+                text(
+                    """
+                SELECT mla, competitors, fecha_consulta, our_price, our_seller_id, our_item_id
+                FROM ml_catalog_competition
+                WHERE catalog_product_id = :cid
+                  AND fetch_status = 'ok'
+                  AND competitors IS NOT NULL
+                ORDER BY
+                  CASE WHEN mla = :mla THEN 0 ELSE 1 END,
+                  fecha_consulta DESC
+                LIMIT 1
+                """
+                ),
+                {"cid": catalog_product_id, "mla": mla},
+            )
+            .mappings()
+            .first()
+        )
+    except (OperationalError, ProgrammingError):
+        db.rollback()
+        return None
+    return dict(snap) if snap else None
+
+
+def _cola_precio_for_mla(db: Session, mla: str) -> Optional[float]:
+    row = (
+        db.execute(
+            text(
+                """
+                SELECT pm.precio
+                FROM publicaciones_ml p
+                LEFT JOIN precios_ml pm
+                  ON pm.item_id = p.item_id AND pm.pricelist_id = p.pricelist_id
+                WHERE p.mla = :mla
+                LIMIT 1
+                """
+            ),
+            {"mla": mla},
+        )
+        .mappings()
+        .first()
+    )
+    if not row:
+        return None
+    return _positive_price(row["precio"])
+
+
+def _effective_top_sellers(db: Session, mla: str) -> int:
+    row = db.query(ParaGanarCriterioMla).filter(ParaGanarCriterioMla.mla == mla).first()
+    if row and row.top_sellers is not None:
+        return int(row.top_sellers)
+    return int(CRITERIOS_DEFAULT_TOP_SELLERS)
+
+
+@router.get(
+    "/criterios/{mla}/sugerencia",
+    response_model=ParaGanarSugerenciaResponse,
+    dependencies=[Depends(require_permiso("productos.ver"))],
+)
+def obtener_sugerencia_mla(
+    mla: str,
+    db: Session = Depends(get_db),
+    _user: Usuario = Depends(get_current_user),
+) -> ParaGanarSugerenciaResponse:
+    """Compute-only TOP board (D12). No suggested promo price yet."""
+    mla_norm = mla.strip().upper()
+    if not mla_norm:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="MLA inválida")
+    if not _mla_exists(db, mla_norm):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MLA no encontrada")
+
+    top_n = _effective_top_sellers(db, mla_norm)
+    catalog_product_id = _catalog_product_id_for_mla(db, mla_norm)
+    if not catalog_product_id:
+        return ParaGanarSugerenciaResponse(
+            mla=mla_norm,
+            top_sellers=top_n,
+            message="Sin catálogo vinculado: no hay snapshot de competencia para rankear.",
+        )
+
+    snap = _competition_snapshot_for_rank(db, mla=mla_norm, catalog_product_id=catalog_product_id)
+    if not snap:
+        return ParaGanarSugerenciaResponse(
+            mla=mla_norm,
+            catalog_product_id=catalog_product_id,
+            top_sellers=top_n,
+            message="Sin snapshot de competencia OK para este catálogo.",
+        )
+
+    dispositions = {
+        row.seller_id: normalize_disposition(row.disposition)
+        for row in _list_persisted_sellers(db, catalog_product_id)
+    }
+    excluded_count = sum(1 for d in dispositions.values() if d != DISPOSITION_ACTIVE)
+
+    our_seller_id = str(snap["our_seller_id"]).strip() if snap.get("our_seller_id") else None
+    our_item_id = str(snap["our_item_id"]).strip() if snap.get("our_item_id") else mla_norm
+    our_price = _positive_price(snap.get("our_price")) or _cola_precio_for_mla(db, mla_norm)
+
+    competitors_raw = snap.get("competitors") or []
+    if isinstance(competitors_raw, str):
+        try:
+            competitors_raw = json.loads(competitors_raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            competitors_raw = []
+    if not isinstance(competitors_raw, list):
+        competitors_raw = []
+
+    ranked: list[RankCompetitor] = []
+    seen_sellers: set[str] = set()
+    for competitor in competitors_raw:
+        if not isinstance(competitor, dict):
+            continue
+        raw_id = competitor.get("seller_id")
+        if raw_id is None:
+            continue
+        seller_id = str(raw_id).strip()
+        if not seller_id or seller_id in seen_sellers:
+            continue
+        price_ars = _positive_price(competitor.get("price_ars"))
+        if price_ars is None:
+            continue
+        # Ourselves always participate even if accidentally marked excluded.
+        is_us = (our_seller_id and seller_id == our_seller_id) or (
+            competitor.get("item_id") is not None and str(competitor.get("item_id")).strip() == mla_norm
+        )
+        if not is_us and is_excluded(dispositions.get(seller_id)):
+            continue
+        nickname = competitor.get("seller_nickname")
+        nickname_s = str(nickname).strip()[:128] if nickname else None
+        item_raw = competitor.get("item_id")
+        item_id = str(item_raw).strip()[:32] if item_raw else None
+        ranked.append(
+            RankCompetitor(
+                seller_id=seller_id,
+                nickname=nickname_s,
+                item_id=item_id,
+                price_ars=price_ars,
+                is_us=bool(is_us),
+            )
+        )
+        seen_sellers.add(seller_id)
+
+    if our_price is not None and our_seller_id and our_seller_id not in seen_sellers:
+        ranked.append(
+            RankCompetitor(
+                seller_id=our_seller_id,
+                nickname="Nosotros",
+                item_id=our_item_id,
+                price_ars=our_price,
+                is_us=True,
+            )
+        )
+    elif our_price is not None and not any(c.is_us for c in ranked):
+        ranked.append(
+            RankCompetitor(
+                seller_id=our_seller_id or "us",
+                nickname="Nosotros",
+                item_id=our_item_id,
+                price_ars=our_price,
+                is_us=True,
+            )
+        )
+
+    positions = dense_rank_positions(ranked)
+    our_rank = our_rank_from_positions(positions)
+    payload = board_to_dict(
+        positions=positions,
+        top_n=top_n,
+        our_price=our_price,
+        our_rank=our_rank,
+        excluded_count=excluded_count,
+        catalog_product_id=catalog_product_id,
+        snapshot_at=None,
+    )
+    message = None
+    if excluded_count > 0:
+        noun = "seller" if excluded_count == 1 else "sellers"
+        adj = "excluido" if excluded_count == 1 else "excluidos"
+        message = (
+            f"Hay {excluded_count} {noun} {adj} del ranking "
+            "(siguen en la lista de Criterios para reactivarlos)."
+        )
+    snapshot_at = snap.get("fecha_consulta")
+    if isinstance(snapshot_at, str):
+        try:
+            snapshot_at = datetime.fromisoformat(snapshot_at.replace("Z", "+00:00"))
+        except ValueError:
+            snapshot_at = None
+    return ParaGanarSugerenciaResponse(
+        mla=mla_norm,
+        catalog_product_id=payload["catalog_product_id"],
+        snapshot_at=snapshot_at,
+        our_price=payload["our_price"],
+        our_rank=payload["our_rank"],
+        top_sellers=payload["top_sellers"],
+        in_top=payload["in_top"],
+        excluded_count=payload["excluded_count"],
+        positions=[ParaGanarSugerenciaPosition(**p) for p in payload["positions"]],
+        suggestion_status=payload["suggestion_status"],
+        message=message,
     )
