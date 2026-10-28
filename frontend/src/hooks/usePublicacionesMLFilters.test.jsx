@@ -745,6 +745,8 @@ describe('sorting by several columns (S12e, Shift+click like Productos)', () => 
     ]);
     // without ver_ganancia they are left out, as the markup is
     expect(effectiveSortKeys({ ...filters, orden: 'lista_clasica,titulo' }, SALES)).toEqual([{ key: 'titulo', dir: 'asc' }]);
+    // the Producto view has no such sort: a shared link falls back to its default
+    expect(effectiveProductSortKeys({ ...filters, vista: 'producto' }, ALL)).toEqual([{ key: 'facturado_30d', dir: 'desc' }]);
   });
 
   it('combines every figure in the Producto view, and asks /products for all of them', () => {

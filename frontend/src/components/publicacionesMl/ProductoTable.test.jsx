@@ -160,6 +160,13 @@ describe('the product rows', () => {
     expect(onSort).toHaveBeenCalledWith('unidades_30d', expect.anything());
     expect(screen.queryByRole('button', { name: /^Precio/ })).not.toBeInTheDocument();
   });
+
+  it("does not sort by Productos' price markups: /products has no such sort (the publications list does)", async () => {
+    const prices = { byId: new Map([[4101, { item_id: 4101, precio_lista_ml: 2500, markup: 10 }]]), loading: false, error: false };
+    render(<Harness prices={prices} canSeeMargin />);
+    expect(await screen.findByRole('columnheader', { name: /Precio Clásica/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Precio Clásica/ })).not.toBeInTheDocument();
+  });
 });
 
 describe("Productos' prices (S11)", () => {
