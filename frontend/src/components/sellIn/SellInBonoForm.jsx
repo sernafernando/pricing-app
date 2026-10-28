@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { productosAPI } from '../../services/api';
 import { SegmentedControl } from '../kit';
+import SellInBonoModelos from './SellInBonoModelos';
 import SellInBuscador from './SellInBuscador';
 import SellInOperacionPicker from './SellInOperacionPicker';
 import styles from './SellInPanel.module.css';
@@ -27,7 +28,8 @@ const TIPOS = [
 const AYUDA = {
   marca: 'Se aplica sola a cada compra de la marca cuya fecha de factura del proveedor cae en el rango, al vincularse la factura.',
   categoria: 'Se aplica sola a cada compra con productos de la categoría cuya fecha de factura del proveedor cae en el rango, al vincularse la factura.',
-  modelos: 'Se aplica sola a cada compra con alguno de los modelos cuya fecha de factura del proveedor cae en el rango, al vincularse la factura.',
+  modelos:
+    'Se aplica sola a cada compra con alguno de los modelos cuya fecha de factura del proveedor cae en el rango, al vincularse la factura; cada modelo usa su valor propio o, si no tiene, el del bono.',
   factura: 'Se aplica a todos los productos de esa operación cuando su fecha de factura del proveedor cae en el rango.',
 };
 
@@ -85,7 +87,7 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
 
   const agregarModelo = ({ producto }) => {
     if (valores.modelos.some((m) => m.itemId === producto.item_id)) return;
-    set({ modelos: [...valores.modelos, { itemId: producto.item_id, label: `${producto.codigo} · ${producto.descripcion}` }] });
+    set({ modelos: [...valores.modelos, { itemId: producto.item_id, label: `${producto.codigo} · ${producto.descripcion}`, montoUnit: '', porcentaje: '' }] });
   };
 
   return (
@@ -117,25 +119,7 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
           {!disabled && (
             <SellInBuscador label="Agregar modelo" placeholder="Buscar por código o descripción…" buscar={buscarProductos} onPick={agregarModelo} errorMessage="No se pudieron buscar productos." />
           )}
-          {valores.modelos.length > 0 && (
-            <ul className={styles.chips} aria-label="Modelos del bono">
-              {valores.modelos.map((modelo) => (
-                <li key={modelo.itemId} className={styles.chip}>
-                  <span>{modelo.label}</span>
-                  {!disabled && (
-                    <button
-                      type="button"
-                      className={styles.close}
-                      aria-label={`Quitar modelo ${modelo.label}`}
-                      onClick={() => set({ modelos: valores.modelos.filter((m) => m.itemId !== modelo.itemId) })}
-                    >
-                      <X size={12} />
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+          <SellInBonoModelos valores={valores} disabled={disabled} onChange={(modelos) => set({ modelos })} />
         </div>
       )}
       {valores.alcance === 'factura' &&
@@ -218,7 +202,7 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
       <p className={styles.hint}>
         {AYUDA[valores.alcance]}{' '}
         {porcentaje
-          ? 'Paga ese porcentaje de lo facturado de cada producto, neto de notas de crédito; si se facturó en la otra moneda, se convierte al tipo de cambio de la operación.'
+          ? 'Paga el porcentaje de lo facturado de cada producto, neto de notas de crédito; si se facturó en la otra moneda, se convierte al tipo de cambio de la operación.'
           : 'Cuenta las unidades facturadas, netas de notas de crédito.'}
       </p>
     </>

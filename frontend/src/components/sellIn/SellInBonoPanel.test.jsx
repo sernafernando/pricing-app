@@ -146,7 +146,7 @@ describe('SellInBonoPanel — scope and kind (T3e)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Guardar bono' }));
 
-    expect(sellInBonosAPI.crear).toHaveBeenCalledWith({ alcance: 'modelos', modelos: [4512], tipo: 'por_unidad', monto_unit: '3', ...BASE_BODY });
+    expect(sellInBonosAPI.crear).toHaveBeenCalledWith({ alcance: 'modelos', modelos: [{ item_id: 4512 }], tipo: 'por_unidad', monto_unit: '3', ...BASE_BODY });
   });
 
   it('creates an invoice bonus on one Compras operation', async () => {
