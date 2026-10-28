@@ -1,5 +1,7 @@
 /* Publicaciones ML's catalog-competition badge, mirroring Productos': its state's tone, set as --catalog-tone by the
-   component from catalogStatus.js (CATALOG_STATES' `tone`, or NEUTRAL_TONE for any other status); inverse text. */
+   component from catalogStatus.js (CATALOG_STATES' `tone`, or NEUTRAL_TONE for any other status); inverse text.
+   The box (margin, padding, radius, type) copies the inline style of Productos' badge (pages/Productos.jsx): a change
+   to one goes to the other. */
 .badge {
   display: inline-flex;
   align-items: center;

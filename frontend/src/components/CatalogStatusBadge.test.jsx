@@ -49,7 +49,7 @@ describe('CatalogStatusBadge', () => {
     for (const status of ['constructor', 'toString']) {
       const { container, unmount } = render(<CatalogStatusBadge product={{ has_catalog: true, catalog_status: status }} />);
       expect(container.firstChild.querySelector('svg')).toBeNull();
-      expect(container.firstChild).toHaveTextContent('');
+      expect(container.firstChild).toBeEmptyDOMElement();
       expect(container.firstChild).toHaveAttribute('aria-label', `Catálogo: ${status}`);
       unmount();
     }
