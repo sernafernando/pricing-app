@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { renderWithRouter } from '../test/renderWithRouter';
 import MetricasML from './MetricasML';
 import api, { productosAPI } from '../services/api';
@@ -34,7 +34,12 @@ afterAll(resetTiendasOficiales);
 const boardCalls = () => api.get.mock.calls.filter(([url]) => url === '/ml-metricas/board');
 
 function LocationProbe() {
-  return <output data-testid="location">{useLocation().search}</output>;
+  return (
+    <>
+      <output data-testid="location">{useLocation().search}</output>
+      <Link to="/metricas-ml?agrupar=publication&marcas=HP">Link a otra vista</Link>
+    </>
+  );
 }
 
 const renderAt = (search) =>
@@ -74,5 +79,22 @@ describe('MetricasML: filters in the URL', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(/^$/));
+  });
+
+  it('follows a link to another view of the page while it is open, instead of writing over it', async () => {
+    await renderAt('?solo_ventas=0');
+    await waitFor(() => expect(boardCalls().length).toBeGreaterThan(0));
+
+    await userEvent.click(screen.getByRole('link', { name: 'Link a otra vista' }));
+
+    await waitFor(() => expect(boardCalls().at(-1)[1].params).toMatchObject({ group_by: 'publication', marcas: 'HP', solo_con_ventas: true }));
+    expect(screen.getByTestId('location')).toHaveTextContent('?agrupar=publication&marcas=HP');
+  });
+
+  it('opens a link sorted by Total TP with the default sort: Costos TP is not in the URL and the board needs it', async () => {
+    await renderAt('?orden=total_tp&dir=desc');
+
+    await waitFor(() => expect(boardCalls().length).toBeGreaterThan(0));
+    expect(boardCalls()[0][1].params).toMatchObject({ sort: 'gross', sort_dir: 'desc' });
   });
 });

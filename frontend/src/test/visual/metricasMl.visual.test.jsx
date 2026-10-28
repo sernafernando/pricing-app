@@ -29,9 +29,9 @@ import {
   GROUP_BOARD_RESPONSE,
 } from './metricasMlFixtures';
 
-vi.mock('react-router-dom', () => ({
-  // The page keeps its filters in the URL (U1); here there is no URL to read nor to write.
-  useSearchParams: () => [new URLSearchParams(), () => {}],
+vi.mock('react-router-dom', async () => ({
+  // The page keeps its filters in the URL (U1): an in-memory query, empty at the start.
+  useSearchParams: (await import('./searchParamsMock')).useSearchParams,
   Link: ({ to, children, ...rest }) => (
     <a href={to} {...rest}>
       {children}

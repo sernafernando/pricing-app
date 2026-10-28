@@ -20,7 +20,7 @@ export const COLUMN_GROUPS = [
   { id: 'sellin', label: 'Sell-in / Sell-out' },
 ];
 
-const MARGIN_COLUMNS = new Set([
+export const MARGIN_COLUMNS = new Set([
   'markup',
   'markup_delta',
   'markup_trend',

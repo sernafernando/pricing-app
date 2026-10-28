@@ -12,4 +12,5 @@ Un período rápido como **7d** o **Mes actual** se guarda como tal: el enlace m
 
 1. En **Métricas ML**, elegir el período, los filtros y el orden.
 2. Copiar la dirección de la barra del navegador para compartir esa vista o guardarla en favoritos.
-3. **Limpiar filtros** vuelve a la vista inicial y limpia también la dirección.
+3. **Limpiar filtros** vuelve los filtros y el período a los de entrada, y los saca de la dirección; la vista (**Producto**, **Publicación** o **Agrupado**), la comparación y el orden se mantienen.
+4. Un orden por **Total TP** o por **Publicidad (inversión)** no se guarda, porque depende de **Costos TP** o de **Publicidad**: el enlace abre ordenado por **Facturado**.
