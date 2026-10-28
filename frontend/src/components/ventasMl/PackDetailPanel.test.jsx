@@ -76,6 +76,31 @@ describe('Fetch and render on mount', () => {
   });
 });
 
+describe('the photos of the items sold', () => {
+  it("shows each line's MLA photo, and the placeholder for a line without one", async () => {
+    mockPack(556, {
+      pack_id: 556,
+      monto_operacion: 1000,
+      item_lines: [
+        { item_id: 'MLA1', variation_id: null, title: 'Producto A', quantity: 1, monto: 600, thumbnail_url: 'https://http2.mlstatic.com/a.jpg' },
+        { item_id: 'MLA2', variation_id: null, title: 'Producto B', quantity: 1, monto: 400, thumbnail_url: null },
+      ],
+      item_lines_reconcilia: true,
+      item_lines_razon: null,
+      member_order_ids: [111],
+    });
+
+    const { container } = render(<PackDetailPanel packId={556} onClose={vi.fn()} onSelectOrder={vi.fn()} />);
+
+    expect(await screen.findByText('Producto A')).toBeInTheDocument();
+    const list = screen.getByRole('list', { name: 'Detalle de productos' });
+    expect(list.querySelectorAll('img')).toHaveLength(1);
+    expect(list.querySelector('img')).toHaveAttribute('src', 'https://http2.mlstatic.com/a.jpg');
+    expect(list.querySelectorAll('[data-sale-item-placeholder]')).toHaveLength(1);
+    expect(container).toBeTruthy();
+  });
+});
+
 describe('Member order navigation (PANEL R23 scenario 10)', () => {
   it('calls onSelectOrder with the clicked member order id', async () => {
     mockPack(555, {

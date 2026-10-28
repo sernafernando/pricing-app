@@ -31,7 +31,7 @@ import logging
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -54,6 +54,7 @@ from app.models.ml_orders_ops import (
     MlShipmentOps,
 )
 from app.models.ml_payments import MlPaymentOps
+from app.models.ml_publications import MlItem
 from app.models.rma_claim_ml import RmaClaimML
 from app.models.usuario import Usuario
 from app.services.ml_orders_ingestion.activity_receiver_service import drain_activity
@@ -239,6 +240,8 @@ class OrderItemOpsSummary(BaseModel):
     unit_price: Optional[float] = None
     # ML's listing type (`gold_special`, `gold_pro`, ...), as ingested.
     listing_type_id: Optional[str] = None
+    # The first stored photo of the MLA sold (`_thumbnails_by_mla`); null when it has none: the UI's placeholder.
+    thumbnail_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -371,6 +374,9 @@ class ItemDesgloseLineSummary(BaseModel):
     title: Optional[str] = None
     quantity: Optional[int] = None
     monto: Optional[float] = None
+    # The first stored photo of the MLA (`_thumbnails_by_mla`). Filled by `GET /packs/{id}`, whose lines are its only
+    # list of the items sold; an order's own items carry it in `items`.
+    thumbnail_url: Optional[str] = None
 
 
 class OperationBreakdownSummary(BaseModel):
@@ -1181,6 +1187,30 @@ def _coupon_amount_by_order(db: Session, order_ids: List[int]) -> Dict[int, Deci
     return result
 
 
+def _thumbnails_by_mla(db: Session, mlas: Iterable[Optional[str]]) -> Dict[str, str]:
+    """The first stored photo of each MLA, in ONE query for all of them: a sale's `item_id` IS the MLA, so this reads
+    the publication store's own row (`ml_items`) -- its first picture's secure URL, else its URL, else the store's
+    `thumbnail`. The URL as stored: never downloaded or proxied. An MLA with no stored photo (or never read) is absent."""
+    wanted = sorted({mla for mla in mlas if mla})
+    if not wanted:
+        return {}
+    photo = func.coalesce(
+        MlItem.raw[("pictures", 0, "secure_url")].as_string(),
+        MlItem.raw[("pictures", 0, "url")].as_string(),
+        MlItem.thumbnail,
+    )
+    rows = db.query(MlItem.item_id, photo).filter(MlItem.item_id.in_(wanted)).all()
+    return {item_id: url for item_id, url in rows if url}
+
+
+def _item_summaries(items: Iterable[MlOrderItemOps], photos: Dict[str, str]) -> List[OrderItemOpsSummary]:
+    """`OrderItemOpsSummary` of each item, with its MLA's photo from `photos` (`_thumbnails_by_mla`)."""
+    return [
+        OrderItemOpsSummary.model_validate(item).model_copy(update={"thumbnail_url": photos.get(item.item_id)})
+        for item in items
+    ]
+
+
 def _items_by_order(db: Session, order_ids: List[int]) -> Dict[int, List[MlOrderItemOps]]:
     """ventas-ml-producto-listado-pr10b: ONE bulk query for the whole page
     (same shape as `_item_category_by_order`/`_coupon_amount_by_order`
@@ -1555,6 +1585,7 @@ def _sales_page(
         # discipline as the two lookups above.
         items_by_order = _items_by_order(db, page_order_ids)
         sell_by_order = _sell_in_out_by_order(db, items_by_order)
+        photos = _thumbnails_by_mla(db, (item.item_id for items in items_by_order.values() for item in items))
         for order, shipment, key, operation_status_value, goods_status_value in member_rows:
             stored = stored_metrics_by_order.get(order.order_id)
             order_neto = stored.neto if stored is not None else None
@@ -1641,7 +1672,7 @@ def _sales_page(
                     metrics_state=order_metrics_state,
                     alert_level=order_alert_level,
                     markup=float(order_markup) if order_markup is not None else None,
-                    items=[OrderItemOpsSummary.model_validate(item) for item in items_by_order.get(order.order_id, [])],
+                    items=_item_summaries(items_by_order.get(order.order_id, []), photos),
                     **_sell_in_out_fields(sell_by_order.get(order.order_id)),
                     costo_mercaderia=_float(stored.costo_mercaderia if stored is not None else None),
                     neto_sin_iva=_float(stored.neto_sin_iva if stored is not None else None),
@@ -2770,7 +2801,7 @@ def obtener_operacion(
             payment_date_approved=payment_date_approved,
             coupon_amount=float(order_coupon) if order_coupon is not None else None,
         ),
-        items=[OrderItemOpsSummary.model_validate(item) for item in items],
+        items=_item_summaries(items, _thumbnails_by_mla(db, (item.item_id for item in items))),
         shipment=ShipmentOpsSummary.from_shipment(shipment) if shipment else None,
         claim=ClaimSummary.model_validate(claim) if claim else None,
         questions=[QuestionSummary.model_validate(q) for q in questions],
@@ -2888,6 +2919,7 @@ def obtener_pack(
     # the KPI exactly when the record is missing.
     grupo = db.query(MlGroupMetrics).filter(MlGroupMetrics.group_key == f"p:{pack_id}").one_or_none()
 
+    photos = _thumbnails_by_mla(db, (item.item_id for item in breakdown.item_lines))
     response = PackOperationSummary(
         pack_id=pack_id,
         monto_operacion=(float(breakdown.monto_operacion) if breakdown.monto_operacion is not None else None),
@@ -2900,6 +2932,7 @@ def obtener_pack(
                 title=item.title,
                 quantity=item.quantity,
                 monto=float(item.monto) if item.monto is not None else None,
+                thumbnail_url=photos.get(item.item_id),
             )
             for item in breakdown.item_lines
         ],

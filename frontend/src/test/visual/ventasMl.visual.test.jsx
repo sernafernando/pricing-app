@@ -27,6 +27,7 @@ import {
   ORDER_DETAIL_RESPONSE,
   PACK_DETAIL_RESPONSE,
   EPSON_ORDER_ID,
+  PACK_ID,
 } from './ventasMlFixtures';
 
 const router = vi.hoisted(() => ({ params: '' }));
@@ -79,7 +80,25 @@ vi.mock('../../contexts/PermisosContext', () => ({
   PermisosProvider: ({ children }) => children,
 }));
 
+// The MLA photos as the backend sends them (`thumbnail_url`), inline so no request leaves the test.
+const PHOTO = `data:image/svg+xml;utf8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#1f6feb"/><circle cx="200" cy="150" r="90" fill="#f2cc60"/></svg>',
+)}`;
+const photos = { on: false };
+// Every item sold (an order's `items`, a pack's `item_lines`) with its MLA photo.
+const withPhotos = (value) => {
+  if (Array.isArray(value)) return value.map(withPhotos);
+  if (!value || typeof value !== 'object') return value;
+  const copy = Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, withPhotos(inner)]));
+  return 'item_id' in copy && 'title' in copy ? { ...copy, thumbnail_url: PHOTO } : copy;
+};
+
 const routeGet = (url) => {
+  const response = routeGetPlain(url);
+  return photos.on ? withPhotos(response) : response;
+};
+
+const routeGetPlain = (url) => {
   if (url === '/ml-ventas-ops/sales') return { data: SALES_RESPONSE };
   if (url === '/ml-ventas-ops/sales/kpis') return { data: KPI_RESPONSE };
   if (url === '/ml-ventas-ops/sales/sync-status') {
@@ -242,6 +261,43 @@ describe('Ventas ML screen (visual)', () => {
       });
     }
   }
+
+  it("the MLA photos fill their boxes in the row, the sale panel and the pack panel; pack sub-rows have none", async () => {
+    photos.on = true;
+    try {
+      const fills = (img) => {
+        const box = img.parentElement.getBoundingClientRect();
+        const r = img.getBoundingClientRect();
+        expect(Math.abs(r.width - box.width) <= 2 && Math.abs(r.height - box.height) <= 2).toBe(true);
+      };
+      let screen = await renderPage({ width: 1366, height: 768, theme: 'light', params: `orden=${EPSON_ORDER_ID}` });
+      await expect.element(screen.getByText('De dónde sale el neto')).toBeVisible();
+      // Lazy: the first row's photo loads, the ones below the fold may wait; every box is filled either way.
+      const loaded = (img) => Boolean(img) && img.complete && img.naturalWidth > 0;
+      await expect.poll(() => loaded(document.querySelector('table img'))).toBe(true);
+      document.querySelectorAll('table img').forEach(fills);
+      await expect.poll(() => loaded(document.querySelector('aside img'))).toBe(true);
+      document.querySelectorAll('aside img').forEach(fills);
+      expect(overflowingCells(document.querySelector('table'))).toEqual([]);
+      await shot('photos-row-and-sale-panel-1366-light', { width: 1366, height: 768 });
+      screen.unmount();
+
+      screen = await renderPage({ width: 1366, height: 768, theme: 'dark', params: `pack=${PACK_ID}` });
+      const list = await vi.waitUntil(() => document.querySelector('aside [aria-label="Detalle de productos"]'));
+      await expect.poll(() => loaded(list.querySelector('img'))).toBe(true);
+      list.querySelectorAll('img').forEach(fills);
+      await screen.getByRole('button', { name: /Pack 2000014907031737/ }).click();
+      await expect.element(screen.getByText(/Mouse Inalámbrico Logitech/).first()).toBeVisible();
+      // The opened pack's member sub-rows: no thumbnail, photo or not.
+      const memberRows = [...document.querySelectorAll('table tbody tr')].filter((row) => row.querySelector('svg.lucide-corner-down-right'));
+      expect(memberRows.length).toBeGreaterThan(0);
+      memberRows.forEach((row) => expect(row.querySelector('img')).toBeNull());
+      await shot('photos-pack-panel-1366-dark', { width: 1366, height: 768 });
+      screen.unmount();
+    } finally {
+      photos.on = false;
+    }
+  });
 
   it('pack expanded: sub-rows render each product, nothing overflows at 1366', async () => {
     const screen = await renderPage({ width: 1366, height: 768, theme: 'light' });
