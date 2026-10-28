@@ -1,10 +1,7 @@
 /* Productos' stat cards on Publicaciones ML: the KPI strip's card look, every figure a button. Tokens only. */
 
 .strip {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin-bottom: var(--spacing-md);
+  composes: strip from './PublicationKpiStrip.module.css';
 }
 
 .cards {
@@ -26,16 +23,10 @@
 }
 
 .card {
-  display: flex;
-  flex-direction: column;
+  composes: card from './PublicationKpiStrip.module.css';
   justify-content: center;
   gap: 2px;
-  min-width: 0;
   padding: 10px 12px;
-  background: var(--cf-bg-card);
-  border: 1px solid var(--ventas-divider);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--cf-card-shadow);
 }
 
 .cardLabel {
@@ -128,25 +119,11 @@
 }
 
 .notice {
+  composes: notice from './PublicationKpiStrip.module.css';
   align-self: flex-start;
   margin: 0;
-  padding: 4px 10px;
-  border: 1px solid var(--tone-warning-border);
-  border-radius: var(--radius-base);
-  font-size: var(--font-xs);
-  color: var(--tone-warning-fg);
-  background: var(--tone-warning-bg);
 }
 
 .error {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  padding: 8px 12px;
-  border: 1px solid var(--tone-danger-border);
-  border-radius: var(--radius-base);
-  font-size: var(--font-sm);
-  color: var(--tone-danger-fg);
-  background: var(--tone-danger-bg);
+  composes: error from './PublicationKpiStrip.module.css';
 }
