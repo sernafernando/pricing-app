@@ -268,7 +268,8 @@ EXPECTED = {
 EXPECTED_STATS = (11, {"sin_precio": 1, "sin_vinculo": 1, "sin_costo": 1, "sin_lista": 2, "cofinanciada": 1})
 # The negative publication linked per variation only has its variation product's brand, ALFA (S12g), not "__none__".
 EXPECTED_TREE = {
-    "ALFA": (9, 5, -6.380165289256201, -2.975206611570236),
+    # MLA12 also hangs under ALFA: its variation links to 70 (Alfa) count under each linked brand (#1873, option A)
+    "ALFA": (10, 6, -87.56404958677686, 0.31404958677685446),
     "BETA": (3, 3, -87.56404958677686, 0.31404958677685446),
     "GAMMA": (4, 0, 75.94066539521087, 90.11125238397966),
     "__none__": (1, 0, None, None),

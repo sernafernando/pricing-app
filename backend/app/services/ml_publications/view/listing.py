@@ -34,11 +34,13 @@ from app.services.ml_publications.view.filters import (
     build_base_select,
     encode_key,
     erp_stock,
+    linked_product_conditions,
     link_divergence,
     link_state,
     listing_clauses,
     normalized_text,
     price_amount,
+    product_links,
     status_value,
     stock_clauses,
 )
@@ -564,17 +566,30 @@ def items_for_keys(
     return ItemsPage(items, len(items), result.stats, result.ads_failed)
 
 
-def _grouped(
-    db: Session, f: PublicationFilter, axis: str, key: Any, *, present: bool = False, limit: Optional[int] = None
-) -> dict:
-    """`key -> rows` over the base select without `axis`' own selection, biggest first. `present` drops NULL keys."""
+def _grouped(db: Session, f: PublicationFilter, axis: str, key: Any) -> dict:
+    """`key -> rows` over the base select without `axis`' own selection, biggest first."""
     count = func.count()
-    query = build_base_select(f, key, count.label("n"), skip=axis)
-    if present:
-        query = query.where(key.isnot(None))
-    query = query.group_by(key).order_by(count.desc(), key)
-    rows = db.execute(query.limit(limit) if limit else query)
-    return {name: count for name, count in rows}
+    query = build_base_select(f, key, count.label("n"), skip=axis).group_by(key).order_by(count.desc(), key)
+    return {name: count for name, count in db.execute(query)}
+
+
+def _brand_counts(db: Session, f: PublicationFilter) -> dict:
+    """The brand axis: a publication counts under the brand of EACH of its linked products (`product_links`) that
+    passes the filter's other conditions about the product (`linked_product_conditions`), once per brand, so a
+    brand's count is the `/items` total under `marcas=<brand>`. None (blank) is not offered."""
+    pl, pp = product_links("pl_facet"), T.pl_p
+    brand = func.nullif(normalized_text(pp.marca), "")  # as the tree keys a brand
+    count = func.count(func.distinct(T.i.item_id))
+    query = (
+        build_base_select(f, brand, count.label("n"), skip="marcas")
+        .join(pl, pl.c.item_id == T.i.item_id)
+        .outerjoin(pp, pp.item_id == pl.c.producto_item_id)
+        .where(brand.isnot(None), *linked_product_conditions(replace(f, marcas=()), pl.c.producto_item_id, pp))
+        .group_by(brand)
+        .order_by(count.desc(), brand)
+        .limit(FACET_MAX_BRANDS)
+    )
+    return {name: n for name, n in db.execute(query)}
 
 
 def _flags(db: Session, f: PublicationFilter, axis: str, clauses: dict) -> dict[str, int]:
@@ -599,10 +614,9 @@ def facets(db: Session, f: PublicationFilter) -> dict[str, dict[str, int]]:
     own selection left out (so choosing a value never makes its siblings read zero). The brand values are keys as
     the tree writes them (`encode_key`): a screen shows the decoded name and sends the key back unchanged."""
     f = resolve_pm_pairs(db, f)
-    brand = func.nullif(normalized_text(T.p.marca), "")  # as the tree keys a brand; none (blank) is not offered
     by_status = _grouped(db, f, "status", status_value())
     by_store = _grouped(db, f, "stores", func.coalesce(cast(T.i.official_store_id, Text), NO_STORE))
-    by_brand = _grouped(db, f, "marcas", brand, present=True, limit=FACET_MAX_BRANDS)
+    by_brand = _brand_counts(db, f)
     return {
         "status": by_status,
         "stores": by_store,
