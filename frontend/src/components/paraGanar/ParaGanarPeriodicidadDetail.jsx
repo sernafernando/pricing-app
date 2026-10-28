@@ -255,7 +255,9 @@ export default function ParaGanarPeriodicidadDetail({
                   <label
                     key={mla}
                     className={`${styles.criteriaCheck} ${
-                      opt.criterios_aplicados ? styles.periodicidadMlaConCriterio : ''
+                      opt.criterios_aplicados
+                        ? styles.periodicidadMlaConCriterio
+                        : styles.periodicidadMlaSinCriterio
                     }`}
                   >
                     <input
@@ -273,12 +275,16 @@ export default function ParaGanarPeriodicidadDetail({
                         (opt.pricelist_id != null ? `Lista ${opt.pricelist_id}` : 'Lista —')}
                       {' · '}
                       {tiendaLabel}
-                      {opt.criterios_aplicados ? (
-                        <>
-                          {' · '}
-                          <span className={styles.periodicidadCriterioBadge}>Con criterio</span>
-                        </>
-                      ) : null}
+                      {' · '}
+                      <span
+                        className={
+                          opt.criterios_aplicados
+                            ? styles.periodicidadCriterioBadge
+                            : styles.periodicidadSinCriterioBadge
+                        }
+                      >
+                        {opt.criterios_aplicados ? 'Con criterio' : 'Sin criterio'}
+                      </span>
                       {opt.titulo ? ` — ${opt.titulo}` : ''}
                     </span>
                   </label>
