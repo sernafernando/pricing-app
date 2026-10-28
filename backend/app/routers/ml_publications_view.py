@@ -753,10 +753,15 @@ def _attach_pxq(auth_db: Session, rows: list[dict[str, Any]]) -> None:
     if not item_ids:
         return
     mlas: dict[int, list[str]] = {}
-    for item_id, mla in auth_db.query(PublicacionML.item_id, PublicacionML.mla).filter(
-        PublicacionML.item_id.in_(item_ids)
-    ):
-        mlas.setdefault(item_id, []).append(mla)
+    try:
+        for item_id, mla in auth_db.query(PublicacionML.item_id, PublicacionML.mla).filter(
+            PublicacionML.item_id.in_(item_ids)
+        ):
+            mlas.setdefault(item_id, []).append(mla)
+    except DBAPIError as exc:  # over `statement_timeout`: the list's own controlled 503, as `_attach_colors`
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
     if not mlas:
         return
     try:

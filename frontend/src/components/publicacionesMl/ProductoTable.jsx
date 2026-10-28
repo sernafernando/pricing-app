@@ -35,6 +35,8 @@ import PxqTramosBadge from '../PxqTramosBadge';
  */
 // The columns a product row fills from its own product, as Productos' rows carry it: drawn by the publications' own
 // cells over the product read in their shape (`productAsItem`).
+const NO_PREARMADAS = {};
+
 const PRODUCT_FIELDS = new Set(['codigo', 'marca', 'costo', 'stock_erp']);
 
 /** A product node in the shape the publication cells read: its code and brand as a link's, its ERP stock, its cost
@@ -64,7 +66,7 @@ export default function ProductoTable({
   colorOverlay,
   emptyMessage = 'Ningún producto coincide con los filtros',
   selection,
-  prearmadasStats = {},
+  prearmadasStats = NO_PREARMADAS,
 }) {
   const { rows, toggle, loadMore } = tree;
 
