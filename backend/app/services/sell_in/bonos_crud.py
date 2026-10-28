@@ -48,6 +48,8 @@ _CAMPOS = (
     "fecha_desde",
     "fecha_hasta",
     "descripcion",
+    "tope_unidades",
+    "tope_monto",
 )
 # How each scope is named in a message, and the request field that belongs to it.
 _ALCANCES = {"marca": "por marca", "categoria": "por categoría", "modelos": "por modelos", "factura": "por factura"}
@@ -140,6 +142,10 @@ def validar(db: Session, data: SellInBonoIn) -> Campos:
             raise SellInBonoError("El porcentaje no puede superar 100")
     if data.fecha_desde > data.fecha_hasta:
         raise SellInBonoError("La fecha desde no puede ser posterior a la fecha hasta")
+    if data.tope_unidades is not None and data.tope_unidades <= 0:
+        raise SellInBonoError("El tope de unidades debe ser mayor que cero")
+    if data.tope_monto is not None and data.tope_monto <= 0:
+        raise SellInBonoError("El tope de monto debe ser mayor que cero")
     valores_modelos = _validar_valores_modelos(data)
     return Campos(
         marca=marca,
@@ -240,6 +246,11 @@ def _asignar(db: Session, bono: SellInBonoMarca, data: SellInBonoIn, campos: Cam
         setattr(bono, campo, getattr(data, campo))
     for campo in ("marca", "categoria", "pedido_id", "monto_unit", "porcentaje"):
         setattr(bono, campo, getattr(campos, campo))
+    # A cap left out of the body keeps the stored one (a new bonus has none); an explicit null removes it.
+    if "tope_unidades" in data.model_fields_set:
+        bono.tope_unidades = data.tope_unidades
+    if "tope_monto" in data.model_fields_set:
+        bono.tope_monto = data.tope_monto.quantize(Decimal("0.01")) if data.tope_monto is not None else None
     db.flush()
     # The model list, replaced: rows that stay are kept, so their trigger queues only a real change. A model
     # sent as an object takes its values; one sent as a bare id keeps its stored value of the bonus's kind.
@@ -402,9 +413,20 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
                 # Only the bonus's own currency: a purchase left in another one is listed apart, never added.
                 "monto_generado": por_moneda.get(bono.moneda, Decimal("0.00")),
                 "montos_generados": [{"moneda": m, "monto": v} for m, v in sorted(por_moneda.items())],
+                **_restante(bono, unidades.get(bono.id, 0), por_moneda.get(bono.moneda, Decimal("0.00"))),
             }
         )
     return filas
+
+
+def _restante(bono: SellInBonoMarca, unidades: int, monto: Decimal) -> dict:
+    """What is left of each cap after what the bonus generated (never below zero: a cap lowered after the fact)."""
+    return {
+        "tope_unidades_restantes": max(bono.tope_unidades - unidades, 0) if bono.tope_unidades is not None else None,
+        "tope_monto_restante": max(Decimal(bono.tope_monto) - monto, Decimal("0.00")).quantize(Decimal("0.01"))
+        if bono.tope_monto is not None
+        else None,
+    }
 
 
 _COLUMNAS = (
@@ -421,6 +443,8 @@ _COLUMNAS = (
     "fecha_hasta",
     "descripcion",
     "estado",
+    "tope_unidades",
+    "tope_monto",
     "usuario_id",
     "created_at",
     "updated_at",

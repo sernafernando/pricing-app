@@ -12,6 +12,13 @@ per unit, as before.
 porcentaje?}` (T23a): a model's own value of the bonus's kind replaces the
 bonus's for it, bounded like the bonus's own field. A bare id on an edit keeps
 the value the model had stored; an object's values are what is stored.
+
+`tope_unidades` and `tope_monto` (T24) are the bonus's one cap shared by every
+product and operation it reaches, in invoiced units and in its own currency
+(`tope_monto` bounded like `monto_unit`). On an edit, a cap field left out of
+the body keeps what was stored and an explicit null removes it, so a client that
+does not know about caps never drops one. The response adds what is left of
+each cap (never below zero; None without that cap).
 """
 
 from __future__ import annotations
@@ -91,6 +98,9 @@ class SellInBonoIn(BaseModel):
     fecha_desde: date  # supplier invoice date, inclusive
     fecha_hasta: date  # inclusive
     descripcion: Optional[str] = None
+    # One cap shared by everything the bonus reaches (T24); left out on an edit: the stored one stays.
+    tope_unidades: Optional[int] = Field(default=None, le=2**31 - 1)  # invoiced units, INTEGER
+    tope_monto: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=2)  # in `moneda`
 
 
 class SellInBonoAnularIn(BaseModel):
@@ -124,6 +134,11 @@ class SellInBonoOut(BaseModel):
     unidades: int
     monto_generado: Decimal
     montos_generados: list[SellInBonoMontoOut]
+    # The shared cap (T24) and what is left of it after `unidades` / `monto_generado`; None: no such cap.
+    tope_unidades: Optional[int]
+    tope_monto: Optional[Decimal]
+    tope_unidades_restantes: Optional[int]
+    tope_monto_restante: Optional[Decimal]
 
 
 class SellInBonoListOut(BaseModel):
