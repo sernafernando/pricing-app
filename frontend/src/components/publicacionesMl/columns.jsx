@@ -8,6 +8,7 @@ import LastEventCell from './LastEventCell';
 import ActivityCell from './ActivityCell';
 import StoreCell from './StoreCell';
 import MarkupCell from './MarkupCell';
+import { priceColumns } from './priceColumns';
 import {
   AgeingCell,
   FullStockCell,
@@ -84,6 +85,8 @@ export function columnChoicesOver(visibility, defaults) {
  * `skuDivergence` (the `sku_divergente` link filter is on) adds, right after
  * Publicación, the publication's SKU next to the product it names and the
  * linked product (`SkuDivergenceCell`).
+ * `prices` (`useListPrices`, only for who sees Productos' prices) adds, right after Precio, Productos' price columns
+ * of `priceMode` ('normal' | 'cuotas' | 'pvp', S11); the tree has none. `priceEdit` makes them editable (S11c).
  */
 export function buildColumns({
   eventsEnabled,
@@ -96,6 +99,9 @@ export function buildColumns({
   familias = false,
   producto = false,
   skuDivergence = false,
+  priceMode = 'normal',
+  prices = null,
+  priceEdit = null,
 }) {
   const withSales = (columns) => (canSeeSales ? columns : []);
   const withMargin = (columns) => (canSeeMargin ? columns : []);
@@ -143,6 +149,7 @@ export function buildColumns({
       render: (item) => <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />,
     },
     { key: 'precio', header: 'Precio', width: 150, sortable: true, align: 'right', render: (item) => <PriceCell price={item.price} /> },
+    ...(prices && !agrupado ? priceColumns(priceMode, { prices, canSeeMargin, edit: priceEdit }) : []),
     ...withSales([
       {
         key: 'unidades_7d',

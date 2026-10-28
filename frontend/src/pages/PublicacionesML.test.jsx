@@ -8,7 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../test/renderWithRouter';
 import PublicacionesML from './PublicacionesML';
-import api, { publicacionesMlAPI } from '../services/api';
+import api, { preciosAPI, productosAPI, publicacionesMlAPI } from '../services/api';
 import { openInMlPanel } from '../utils/mlSidePanel';
 import { exportPublicacionesCsv, exportPublicacionesSheets } from '../utils/publicacionesMlExport';
 import { loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -45,11 +45,20 @@ vi.mock('../services/api', () => ({
     categorias: vi.fn(() => Promise.resolve({ data: { categorias: ['REDES'] } })),
     subcategorias: vi.fn(() => Promise.resolve({ data: { categorias: [] } })),
     pms: vi.fn(() => Promise.resolve({ data: [{ id: 7, nombre: 'Ana' }] })),
+    listar: vi.fn(() => Promise.resolve({ data: { productos: [], total: 0 } })),
   },
   equiposAPI: {
     listar: vi.fn(() =>
       Promise.resolve({ data: [{ id: 1, nombre: 'U', es_global: true }, { id: 12, nombre: 'Ventas', es_global: false }] }),
     ),
+  },
+  preciosAPI: {
+    calcularMarkup: vi.fn(() => Promise.resolve({ data: { markup: 10 } })),
+    setRapido: vi.fn(() => Promise.resolve({ data: {} })),
+    setCuota: vi.fn(() => Promise.resolve({ data: {} })),
+    setRebate: vi.fn(() => Promise.resolve({ data: {} })),
+    setWebTransferencia: vi.fn(() => Promise.resolve({ data: {} })),
+    setOutOfCards: vi.fn(() => Promise.resolve({ data: {} })),
   },
   registerAuthFailureHandler: vi.fn(),
 }));
@@ -80,6 +89,10 @@ vi.mock('../utils/googleSheetsExport', async (importOriginal) => ({
 // Everything is allowed except the margin, which each test grants on purpose.
 let canSeeMargin = false;
 let canSeeKpis = true;
+// Productos' prices (S11): `productos.ver` or a price-edit code (`canViewProductPrices`).
+let canSeePrices = true;
+// Writing them (S11c): the Productos and Tienda edit codes (`pricePermissions`).
+let canEditPrices = true;
 let denied = new Set();
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
@@ -88,6 +101,8 @@ vi.mock('../contexts/PermisosContext', () => ({
       if (denied.has(permiso)) return false;
       if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
       if (permiso === 'ml_metricas.ver') return canSeeKpis;
+      if (/^(productos\.(editar|toggle)|tienda\.editar)/.test(permiso)) return canSeePrices && canEditPrices;
+      if (permiso.startsWith('productos.') || permiso.startsWith('tienda.')) return canSeePrices;
       return true;
     },
     cargandoPermisos: false,
@@ -108,6 +123,8 @@ const page = async (entry = '/ml-publicaciones') => {
 beforeEach(() => {
   canSeeMargin = false;
   canSeeKpis = true;
+  canSeePrices = true;
+  canEditPrices = true;
   denied = new Set();
   publicacionesMlAPI.kpis.mockReset();
   publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE });
@@ -1709,6 +1726,142 @@ describe('the color filter (P6)', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ colores: 'rojo,sin_color', equipo_id: '12', offset: 0 }));
     await user.click(screen.getByRole('button', { name: /Limpiar filtros/ }));
     await waitFor(() => expect(lastParams()).not.toHaveProperty('colores'));
+  });
+});
+
+describe("Productos' price columns (S11)", () => {
+  const PRICED = [
+    { item_id: 4101, precio_lista_ml: 12345.5, markup: 21.5, precio_3_cuotas: 13000, markup_3_cuotas: 18, precio_pvp: 15000, markup_pvp: 30 },
+  ];
+  beforeEach(() => {
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+  });
+  const table = () => screen.getByRole('table', { name: /Publicaciones de Mercado Libre/ });
+
+  it("shows each publication's product prices, asked once to Productos for the page's products", async () => {
+    await page();
+    expect(within(table()).getByRole('columnheader', { name: /Precio Clásica/ })).toBeInTheDocument();
+    expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
+    expect(productosAPI.listar).toHaveBeenCalledTimes(1);
+    expect(productosAPI.listar).toHaveBeenCalledWith({ item_ids: '4101,4102', page: 1, page_size: 2 });
+    // The markup only with ver_ganancia, as every markup of this screen.
+    expect(within(table()).queryByText('21,5%')).not.toBeInTheDocument();
+  });
+
+  it('Cuotas and PVP switch the columns without asking the list again; Alt+V steps through them', async () => {
+    const user = userEvent.setup();
+    await page();
+    const asked = calls().length;
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Precios' }), 'cuotas');
+    expect(await within(table()).findByRole('columnheader', { name: /3 Cuotas/ })).toBeInTheDocument();
+    expect(within(table()).queryByRole('columnheader', { name: /Precio Rebate/ })).not.toBeInTheDocument();
+    // Like every shortcut, not while a field (the select itself) has the focus.
+    screen.getByRole('combobox', { name: 'Precios' }).blur();
+    await user.keyboard('{Alt>}v{/Alt}');
+    expect(await within(table()).findByRole('columnheader', { name: /Precio PVP/ })).toBeInTheDocument();
+    expect(within(table()).getByText('15.000,00')).toBeInTheDocument();
+    await user.keyboard('{Alt>}v{/Alt}');
+    expect(await within(table()).findByRole('columnheader', { name: /Precio Rebate/ })).toBeInTheDocument();
+    expect(calls().length).toBe(asked);
+    expect(productosAPI.listar).toHaveBeenCalledTimes(1);
+  });
+
+  it("without Productos' prices there are no price columns, no mode and nothing asked", async () => {
+    canSeePrices = false;
+    await page();
+    expect(within(table()).queryByRole('columnheader', { name: /Precio Clásica/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Precios' })).not.toBeInTheDocument();
+    expect(productosAPI.listar).not.toHaveBeenCalled();
+  });
+});
+
+describe("editing Productos' prices in the table (S11c)", () => {
+  const PRICED = [{ item_id: 4101, precio_lista_ml: 12345.5, markup: 21.5 }];
+  beforeEach(() => {
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+    preciosAPI.calcularMarkup.mockClear();
+    preciosAPI.setRapido.mockClear();
+  });
+  const table = () => screen.getByRole('table', { name: /Publicaciones de Mercado Libre/ });
+  const editClasica = async (user, text) => {
+    await user.click((await within(table()).findAllByRole('button', { name: /^Editar Precio Clásica/ }))[0]);
+    const input = within(table()).getByRole('textbox', { name: 'Precio Clásica' });
+    await user.clear(input);
+    await user.type(input, `${text}{Enter}`);
+  };
+
+  it("saves the typed price as Productos does, says so and reads the page's prices again", async () => {
+    const user = userEvent.setup();
+    await page();
+    await editClasica(user, '15000');
+    // Editing a price is not opening its row.
+    expect(table().querySelector('tr[aria-current]')).toBeNull();
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 15000 })));
+    expect(await screen.findByText('Precio guardado.')).toBeInTheDocument();
+    await waitFor(() => expect(productosAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
+  it('a 0 clears the price: an in-app confirmation first, and nothing is written when cancelled', async () => {
+    const user = userEvent.setup();
+    await page();
+    await editClasica(user, '0');
+    // ModalTesla: the in-app confirmation, never window.confirm.
+    const dialog = (await screen.findByText('Esto borra el precio de la lista ML y todas sus cuotas.')).closest('.modal-tesla');
+    expect(within(dialog).getByText('Borrar precio')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    expect(preciosAPI.setRapido).not.toHaveBeenCalled();
+    await editClasica(user, '0');
+    await user.click(await screen.findByRole('button', { name: 'Borrar el precio' }));
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 0 })));
+  });
+
+  it('without a price edit permission the prices read only', async () => {
+    canEditPrices = false;
+    await page();
+    expect(await within(table()).findByText('12.345,50')).toBeInTheDocument();
+    expect(within(table()).queryByRole('button', { name: /^Editar Precio/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("r / w / o on the focused row's product (S9)", () => {
+  const PRICED = [{ item_id: 4101, precio_lista_ml: 12345.5, participa_rebate: false, porcentaje_rebate: 4, out_of_cards: false }];
+  beforeEach(() => {
+    productosAPI.listar.mockReset();
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+    preciosAPI.setRebate.mockClear();
+    preciosAPI.setOutOfCards.mockClear();
+  });
+
+  it("r turns the rebate of the focused publication's product on as Productos does, says so and re-reads the prices", async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findByText('12.345,50');
+    await user.keyboard('{ArrowDown}r');
+    await waitFor(() => expect(preciosAPI.setRebate).toHaveBeenCalledWith(4101, { participa_rebate: true, porcentaje_rebate: 4 }));
+    expect(await screen.findByText('Rebate activado.')).toBeInTheDocument();
+    await waitFor(() => expect(productosAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
+  it('a publication with no product says so and writes nothing', async () => {
+    const user = userEvent.setup();
+    await page();
+    await screen.findByText('12.345,50');
+    // The third publication has no product.
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}r');
+    expect(await screen.findByText('La publicación no tiene producto vinculado')).toBeInTheDocument();
+    expect(preciosAPI.setRebate).not.toHaveBeenCalled();
+  });
+
+  it('without the permission of that toggle it says so and writes nothing', async () => {
+    const user = userEvent.setup();
+    canEditPrices = false;
+    await page();
+    await screen.findByText('12.345,50');
+    await user.keyboard('{ArrowDown}o');
+    expect(await screen.findByText('No tenés permiso para cambiar fuera de tarjetas')).toBeInTheDocument();
+    expect(preciosAPI.setOutOfCards).not.toHaveBeenCalled();
   });
 });
 
