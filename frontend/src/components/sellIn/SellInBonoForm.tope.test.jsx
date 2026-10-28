@@ -88,8 +88,13 @@ describe('SellInBonoForm — the shared cap (T24d)', () => {
     await screen.findByLabelText('Tope de monto en USD (opcional)');
     await user.click(screen.getByRole('button', { name: 'ARS' }));
     expect(screen.getByLabelText('Tope de monto en ARS (opcional)')).toHaveValue(null);
+    // Saving without it would drop the cap silently: refused until it is entered again.
     await guardar(user, 'Guardar cambios');
-    await waitFor(() => expect(sellInBonosAPI.editar).toHaveBeenCalledWith(3, expect.objectContaining({ moneda: 'ARS', tope_unidades: '1200', tope_monto: null })));
+    expect(screen.getByRole('alert')).toHaveTextContent('Al cambiar la moneda hay que volver a indicar el tope de monto.');
+    expect(sellInBonosAPI.editar).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText('Tope de monto en ARS (opcional)'), '4500000');
+    await guardar(user, 'Guardar cambios');
+    await waitFor(() => expect(sellInBonosAPI.editar).toHaveBeenCalledWith(3, expect.objectContaining({ moneda: 'ARS', tope_unidades: '1200', tope_monto: '4500000' })));
   });
 
   it('lists what is left of each cap in the bonuses table, and nothing without one', () => {

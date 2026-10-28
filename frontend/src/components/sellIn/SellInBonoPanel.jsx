@@ -89,7 +89,12 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
       setError(faltanDatos(valores));
       return;
     }
-    const invalido = errorDeModelos(valores) ?? errorDeTope(valores);
+    // Changing the currency empties the money cap: removing a stored cap must not be a side effect of that.
+    const topeSinMoneda =
+      !nuevo && bono?.tope_monto != null && valores.moneda !== bono.moneda && valores.topeMonto.trim() === ''
+        ? 'Al cambiar la moneda hay que volver a indicar el tope de monto.'
+        : null;
+    const invalido = errorDeModelos(valores) ?? errorDeTope(valores) ?? topeSinMoneda;
     if (invalido) {
       setError(invalido);
       return;
