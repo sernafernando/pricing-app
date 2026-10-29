@@ -554,6 +554,8 @@ def solo_sus_marcas(db: Session, filas: list[dict], pares: Optional[set]) -> lis
     if pares is None:
         return filas
     item_ids = [i["item_id"] for f in filas if f["tipo"] == "monto_total" for i in f["items"]]
+    if not item_ids:  # no share on the page: nothing to hide, no lookup
+        return filas
     propios, _ = _de_sus_marcas(db, item_ids, pares)
     return [
         {**f, "items": [i for i in f["items"] if i["item_id"] in propios]} if f["tipo"] == "monto_total" else f

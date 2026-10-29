@@ -627,3 +627,60 @@ def test_a_scoped_pm_still_sees_a_per_unit_campaigns_amounts(client, gestor, pm_
     cid = client.post(BASE, json=body, headers=gestor).json()["id"]
     [item] = client.get(f"{BASE}/{cid}", headers=pm_lector).json()["items"]
     assert (item["item_id"], item["monto_unit"]) == (TINTA, "9.00")
+
+
+def test_a_page_without_shares_skips_the_brand_lookup(client, gestor, pm_lector, grupo, monkeypatch) -> None:
+    from app.services.sell_out import campanas
+
+    _crear(client, gestor, grupo)  # monto_total, no shares
+    body = _body(grupo, tipo="por_unidad", monto_unit="5", items=[{"item_id": TINTA, "monto_unit": "9"}])
+    del body["monto_total"]
+    assert client.post(BASE, json=body, headers=gestor).status_code == 201
+
+    def no_lookup(*_args):
+        raise AssertionError("brand lookup on a page without shares")
+
+    monkeypatch.setattr(campanas, "_de_sus_marcas", no_lookup)
+    resp = client.get(BASE, headers=pm_lector)
+    assert resp.status_code == 200, resp.text
+    assert campanas.solo_sus_marcas(None, [], {("TP-LINK", "ROUTERS")}) == []
+
+
+def test_a_reader_without_repartir_sees_every_share(
+    client, gestor, grupo, db, rol_ventas, active_user, auth_headers, grant_permiso
+) -> None:
+    # A PM brand of their own does not scope a plain reader: only `sell_out.repartir` does.
+    db.add(MarcaPM(marca="TP-LINK", categoria="Routers", usuario_id=active_user.id))
+    db.flush()
+    grant_permiso(rol_ventas, "sell_out.ver")
+    cid = _dos_marcas(client, gestor, grupo)
+    assert _shares(client.get(f"{BASE}/{cid}", headers=auth_headers).json()) == [
+        (ROUTER, None, 100.0),
+        (TINTA, 30.0, None),
+    ]
+
+
+def test_a_repartir_pm_who_sees_every_brand_sees_every_share(
+    client, gestor, grupo, rol_ventas, auth_headers, grant_permiso
+) -> None:
+    for codigo in ("sell_out.ver", "sell_out.repartir", "ventas_ml.ver_todas_marcas"):
+        grant_permiso(rol_ventas, codigo)
+    cid = _dos_marcas(client, gestor, grupo)
+    assert _shares(client.get(f"{BASE}/{cid}", headers=auth_headers).json()) == [
+        (ROUTER, None, 100.0),
+        (TINTA, 30.0, None),
+    ]
+    [listada] = client.get(BASE, headers=auth_headers).json()["items"]
+    assert _shares(listada) == [(ROUTER, None, 100.0), (TINTA, 30.0, None)]
+
+
+def test_a_scoped_pm_list_is_filtered_per_type(client, gestor, pm_lector, grupo) -> None:
+    total = _dos_marcas(client, gestor, grupo)
+    body = _body(grupo, tipo="por_unidad", monto_unit="5", items=[{"item_id": TINTA, "monto_unit": "9"}])
+    del body["monto_total"]
+    por_unidad = client.post(BASE, json=body, headers=gestor).json()["id"]
+
+    por_id = {c["id"]: c for c in client.get(BASE, headers=pm_lector).json()["items"]}
+
+    assert _shares(por_id[total]) == [(ROUTER, None, 100.0)]
+    assert [(i["item_id"], i["monto_unit"]) for i in por_id[por_unidad]["items"]] == [(TINTA, "9.00")]
