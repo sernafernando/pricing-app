@@ -103,6 +103,8 @@ class RecomputeResult:
     deleted: int = 0
     # item_id -> error, for the products whose recompute failed (rolled back alone).
     failed: Dict[int, str] = field(default_factory=dict)
+    # Set by `sell.drain` (T25b): the % of cost bonuses that could not be recomputed after this FIFO run.
+    bonos_costo_fallidos: int = 0
 
 
 @runtime_checkable

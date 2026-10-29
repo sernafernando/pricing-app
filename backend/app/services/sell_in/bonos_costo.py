@@ -64,10 +64,13 @@ from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInConsumo
 from app.services.sell_in.costing import _LOCK_SQL, LOCK_NAMESPACE
 from app.services.sell_out import alcance, tope
+from app.services.sell_out import queue as sell_out_queue
 
 logger = logging.getLogger(__name__)
 
 BASE = "costo_venta"
+# How long `seguir_fifo` (an interactive purchase, the invoice reconcile) waits for a product lock.
+LOCK_TIMEOUT = sell_out_queue.LOCK_TIMEOUT
 CIEN = Decimal(100)
 
 Clave = Tuple[str, int]  # (canal, venta_ref)
@@ -306,9 +309,12 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
 
     guardadas: Dict[Tuple[int, str, int], Tuple[int, _Fila]] = {}
     t = SellInBonoConsumo
-    for rid, bid, canal, ref, item_id, fecha, unidades, monto in db.query(
-        t.id, t.bono_id, t.canal, t.venta_ref, t.item_id, t.fecha_venta, t.unidades, t.descuento_ars
-    ).filter(t.item_id.in_(ids)):
+    for rid, bid, canal, ref, item_id, fecha, unidades, monto in (
+        db.query(t.id, t.bono_id, t.canal, t.venta_ref, t.item_id, t.fecha_venta, t.unidades, t.descuento_ars)
+        .join(SellInBonoMarca, SellInBonoMarca.id == t.bono_id)
+        .filter(t.item_id.in_(ids), SellInBonoMarca.base == BASE)
+    ):
+        # Only cost bonuses' rows: a row of any other kind is never this call's to delete.
         guardadas[(bid, canal, ref)] = (rid, (item_id, fecha, unidades, Decimal(monto)))
     # A failed component keeps its rows; a sale re-filed into another product keeps its key there too.
     retenidas = {clave for clave, (_, fila) in guardadas.items() if fila[0] in fallidos}
@@ -336,11 +342,25 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
 
 def seguir_fifo(db: Session, item_ids: Iterable[int]) -> None:
     """Right after a write that moved the FIFO of `item_ids` outside `sell.drain` (the invoice reconcile, loading or
-    voiding a manual purchase): their cost bonuses follow in the same transaction, so the exclusivity holds. A product
-    whose cost bonus cannot be computed (a missing VAT rate) never blocks that write: it keeps its rows, logged, and
-    the next drain of its sales or change of the bonus retries it."""
-    fallidos = recalcular(db, item_ids).failed
+    voiding a manual purchase): their cost bonuses follow in the same transaction, so the exclusivity holds. It never
+    blocks that write: it runs in a savepoint whose statements wait at most `LOCK_TIMEOUT` for a lock (a capped
+    bonus's other products may be locked by a drain), and ANY error rolls back only that savepoint and is logged; the
+    products' cost-bonus rows are left as they were and their next drain (or the bonus's next change) fixes them. A
+    product whose cost bonus cannot be computed (a missing VAT rate) keeps its rows the same way, logged."""
+    try:
+        with sell_out_queue.lock_timeout(db, LOCK_TIMEOUT):
+            fallidos = recalcular(db, item_ids).failed
+    except Exception:  # noqa: BLE001 - the purchase or reconcile that called it must commit
+        logger.exception("sell in: the %% of cost bonuses were not recomputed for products %s", sorted(item_ids))
+        return
     if fallidos:
         logger.warning(
             "sell in: the %% of cost bonuses of %s product(s) were left as they were: %s", len(fallidos), fallidos
         )
+
+
+def registrar_fallidos(result: CostoResult, origen: str) -> None:
+    """One ERROR per failed cost bonus (its products and why), so it reaches alerting without charging anything."""
+    for bono_id, error in sorted(result.bonos_fallidos.items()):
+        productos = sorted(item for item, e in result.failed.items() if e == error)
+        logger.error("%s: cost bonus (bono %s) not recomputed for products %s: %s", origen, bono_id, productos, error)

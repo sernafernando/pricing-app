@@ -7,6 +7,9 @@ Postgres only, in a throwaway schema (`tests.services.sell_in._bono_world`)."""
 
 from __future__ import annotations
 
+import logging
+import threading
+import time as clock
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterator
@@ -15,7 +18,9 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.services.sell_in import compras
+from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
+from app.services.sell_in import bonos_costo, compras
+from app.services.sell_in.costing import LOCK_NAMESPACE
 from app.workers.context import WorkerContext
 from app.workers.handlers.sell_drain import drain as sell_drain
 from app.workers.handlers.sell_in_bono import bono as sell_in_bono
@@ -93,17 +98,43 @@ class TestSellDrain:
         assert [(c[2], c[4]) for c in w.consumos(engine)] == [(ref, 3)]
         assert _filas(engine) == [(bono, ref, 2, Decimal("60.00"))]
 
-    def test_a_product_whose_cost_bonus_fails_charges_its_line(self, engine: Engine) -> None:
-        b.bono_costo(engine, "3.00", incluye_iva=True)  # 2964 has no VAT rate
+    def test_a_cost_bonus_failure_is_reported_never_charged_to_a_line_whose_fifo_succeeded(
+        self, engine: Engine, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # A capped bonus with VAT links 2270 (21 %) to 2964, which has no VAT rate: the component fails.
+        b.set_iva(engine, 2270, 21.0)
+        bono = b.bono_costo(engine, "3.00", incluye_iva=True, tope_unidades=10)
         _drain_bonos()
-        ref = _fuera(engine, 2964, 1, D(2026, 10, 5))
+        _fuera(engine, 2964, 1, D(2026, 10, 4))  # a sale of the product without VAT
+        _drain_ventas()
+        [linea] = w.compra(engine, [(2270, 1, "100.00")], D(2026, 10, 1))
+        ref = _fuera(engine, 2270, 2, D(2026, 10, 5))
+
+        with caplog.at_level(logging.ERROR):
+            detail = _drain_ventas()
+
+        assert (detail["failed"], detail["bonos_costo_fallidos"]) == (0, 1)
+        assert _sell_dirty(engine) == []  # acked
+        assert [(c[0], c[2], c[4]) for c in w.consumos(engine)] == [(linea, ref, 1)]
+        assert _filas(engine) == []  # the failed component keeps its rows (none)
+        # One alert per failed bonus (a capture handler may see a record twice: compared as a set).
+        errores = {
+            r.getMessage() for r in caplog.records if r.levelno == logging.ERROR and "cost bonus" in r.getMessage()
+        }
+        assert errores == {
+            f"sell.drain: cost bonus (bono {bono}) not recomputed for products [2270, 2964]: "
+            f"bono {bono}: el producto 2964 no tiene alícuota de IVA"
+        }
+
+    def test_a_drain_without_cost_bonus_failures_keeps_its_detail(self, engine: Engine) -> None:
+        b.bono_costo(engine, "3.00")
+        _drain_bonos()
+        _fuera(engine, 2964, 1, D(2026, 10, 5))
 
         detail = _drain_ventas()
 
-        assert detail["failed"] == 1
-        [(venta_ref, attempts, error)] = _sell_dirty(engine)
-        assert (venta_ref, attempts) == (ref, 1)
-        assert "IVA" in error
+        assert "bonos_costo_fallidos" not in detail
+        assert detail["failed"] == 0
 
 
 @pytest.mark.postgres
@@ -179,3 +210,84 @@ class TestCompras:
 
         assert w.consumos(engine) == []
         assert _filas(engine) == [(costo, ref, 5, Decimal("150.00"))]
+
+
+def _compra_2964(engine: Engine) -> int:
+    data = SellInCompraCreate(
+        moneda="ARS",
+        monto_total=Decimal("100.00"),
+        formula="por_unidad",
+        fecha_compra=D(2026, 10, 1),
+        lineas=[SellInLineaIn(item_id=2964, cantidad=2, costo_base_unit=Decimal("1000"))],
+    )
+    with sessionmaker(bind=engine)() as db:
+        return compras.crear_compra(db, data, usuario_id=7).id
+
+
+def _estado_compras(engine: Engine):
+    with engine.connect() as conn:
+        return [r[0] for r in conn.execute(text("SELECT estado FROM sell_in_compras ORDER BY id"))]
+
+
+@pytest.mark.postgres
+class TestComprasNoBloquea:
+    def test_a_purchase_commits_while_a_cost_bonus_of_its_product_cannot_be_computed(self, engine: Engine) -> None:
+        b.bono_costo(engine, "3.00", incluye_iva=True)  # 2964 has no VAT rate
+        _fuera(engine, 2964, 2, D(2026, 10, 5))
+        _drain_bonos()
+        _drain_ventas()
+        assert _filas(engine) == []
+
+        _compra_2964(engine)
+
+        assert _estado_compras(engine) == ["activa"]
+        assert len(w.consumos(engine)) == 1
+        assert _filas(engine) == []
+
+    def test_a_cost_bonus_error_rolls_back_only_its_savepoint(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        bono = b.bono_costo(engine, "3.00")
+        ref = _fuera(engine, 2964, 2, D(2026, 10, 5))
+        _drain_bonos()
+        _drain_ventas()
+        antes = _filas(engine)
+        assert antes == [(bono, ref, 2, Decimal("60.00"))]
+
+        def _falla(db, item_ids=(), *, bono_ids=()):
+            db.execute(text("DELETE FROM sell_in_bono_consumos"))  # written, then the error
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(bonos_costo, "recalcular", _falla)
+        _compra_2964(engine)
+
+        assert _estado_compras(engine) == ["activa"]
+        assert [(c[2], c[4]) for c in w.consumos(engine)] == [(ref, 2)]
+        assert _filas(engine) == antes  # left as they were: the next drain fixes them
+
+    def test_a_purchase_never_waits_long_on_a_capped_bonus_s_other_products(self, engine: Engine) -> None:
+        # The capped bonus links 2270 to 2964; another transaction holds 2270's product lock for a while.
+        b.bono_costo(engine, "3.00", tope_unidades=10)
+        _drain_bonos()
+        tomado, soltar = threading.Event(), threading.Event()
+
+        def _holder() -> None:
+            with engine.connect() as conn:
+                with conn.begin():
+                    conn.execute(text("SELECT pg_advisory_xact_lock(:ns, 2270)"), {"ns": LOCK_NAMESPACE})
+                    tomado.set()
+                    soltar.wait(15)
+
+        hilo = threading.Thread(target=_holder)
+        hilo.start()
+        try:
+            assert tomado.wait(5)
+            inicio = clock.monotonic()
+            _compra_2964(engine)
+            demora = clock.monotonic() - inicio
+        finally:
+            soltar.set()
+            hilo.join()
+
+        assert demora < 8
+        assert _estado_compras(engine) == ["activa"]

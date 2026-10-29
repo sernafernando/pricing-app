@@ -312,6 +312,23 @@ class TestEscritura:
 
         assert _filas(engine) == []
 
+    def test_a_row_of_a_bonus_that_is_not_a_cost_bonus_survives_the_recompute(self, engine: Engine) -> None:
+        b.bono_costo(engine, "3.00")
+        factura = b.bono(engine, monto="1.50")
+        otra = _fuera(engine, 2964, 1, D(2026, 10, 5))
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO sell_in_bono_consumos (bono_id, canal, venta_ref, item_id, fecha_venta, unidades, "
+                    "descuento_ars) VALUES (:b, 'fuera', :r, 2964, '2026-10-05', 1, 9.99)"
+                ),
+                {"b": factura, "r": otra},
+            )
+
+        _items(engine, 2964)
+
+        assert (factura, otra, 2964, 1, Decimal("9.99")) in _filas(engine)
+
     def test_no_active_cost_bonus_is_a_no_op(self, engine: Engine) -> None:
         _fuera(engine, 2964, 1, D(2026, 10, 5))
 

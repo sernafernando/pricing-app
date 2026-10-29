@@ -124,6 +124,8 @@ class SellDrainHandler:
             detail["inserted"] += result.inserted
             detail["deleted"] += result.deleted
             detail["failed"] += len(failed)
+            if result.bonos_costo_fallidos:  # only when some: the detail is otherwise as before T25b
+                detail["bonos_costo_fallidos"] = detail.get("bonos_costo_fallidos", 0) + result.bonos_costo_fallidos
             if failed:
                 logger.warning("sell.drain: %s line(s) failed: %s", len(failed), failed)
             if len(claimed) < queue.BATCH_SIZE:
@@ -143,9 +145,12 @@ def _recompute_and_settle(
     products = queue.products_of(db, claimed)
     items = set().union(*products.values())
     result = get_costing().recompute(db, items)
-    # T25b: the % of cost bonuses take the units the FIFO just left, under the same product locks; a product
-    # whose FIFO failed keeps its rows (its line is charged anyway) and one whose cost bonus fails is charged too.
-    result.failed.update(bonos_costo.recalcular(db, items - result.failed.keys()).failed)
+    # T25b: the % of cost bonuses take the units the FIFO just left, under the same product locks. A product whose
+    # FIFO failed keeps its rows (its line is charged anyway). A cost bonus that cannot be computed (a missing VAT
+    # rate) is logged at ERROR and counted, never charged to the lines: their FIFO succeeded and they are acked.
+    costo = bonos_costo.recalcular(db, items - result.failed.keys())
+    bonos_costo.registrar_fallidos(costo, "sell.drain")
+    result.bonos_costo_fallidos = len(costo.bonos_fallidos)
     _fan_out_sell_out(db, list(products))
     failed: Dict[queue.Line, str] = {
         line: "; ".join(f"item {item}: {result.failed[item]}" for item in sorted(items & result.failed.keys()))
@@ -238,6 +243,7 @@ def _line_by_line(
         total.products += result.products
         total.inserted += result.inserted
         total.deleted += result.deleted
+        total.bonos_costo_fallidos += result.bonos_costo_fallidos
     return total, failed, False, processed
 
 
