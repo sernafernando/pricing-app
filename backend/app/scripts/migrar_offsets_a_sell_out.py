@@ -630,20 +630,6 @@ def _uno(db: Session, offset: OffsetGanancia, plan: _Plan, apply: bool) -> tuple
         return _fila(offset, NO_MIGRADO, motivo=motivo, avisos=plan.avisos), motivo
 
 
-def _crear_bono(db: Session, data: SellInBonoIn, usuario_id: int, offset_origen_id: int) -> SellInBonoMarca:
-    """`bonos_crud.crear_bono` with the legacy offset it migrates set on the new row before its first flush, so the
-    audit row carries it (the API never takes it: T25d makes it read-only). The same steps, in the same order:
-    validation, fields and models, audit, commit; the table's triggers queue it for the `sell_in.bono` worker."""
-    campos = bonos_crud.validar(db, data)
-    bono = SellInBonoMarca(usuario_id=usuario_id, estado="activa", offset_origen_id=offset_origen_id)
-    db.add(bono)
-    bonos_crud._asignar(db, bono, data, campos)
-    bonos_crud._audit(db, TipoAccion.SELL_IN_BONO_CREADO, usuario_id, None, bonos_crud._valores(db, bono))
-    db.commit()
-    db.refresh(bono)
-    return bono
-
-
 def _bono_migrado(db: Session, offset_ids: list[int]) -> Optional[SellInBonoMarca]:
     return (
         db.query(SellInBonoMarca)
@@ -666,7 +652,7 @@ def _uno_bono(
         if not apply:
             bonos_crud.validar(db, plan.bono)
             return _fila(offset, BONO_MIGRARIA, avisos=plan.avisos), None, None
-        bono = _crear_bono(db, plan.bono, plan.usuario_id, offset.id)
+        bono = bonos_crud.crear_bono(db, plan.bono, plan.usuario_id, offset_origen_id=offset.id)
         return _fila(offset, BONO_MIGRADO.format(bono.id), avisos=plan.avisos), None, bono.id
     except bonos_crud.SellInBonoError as exc:
         db.rollback()
