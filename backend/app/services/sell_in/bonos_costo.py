@@ -57,11 +57,12 @@ from datetime import date
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import delete, func, insert
+from sqlalchemy import delete, func, insert, text
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInConsumo
+from app.services.sell_in import bono_queue
 from app.services.sell_in.costing import LOCK_SQL, LOCK_NAMESPACE
 from app.services.sell_out import alcance, tope
 from app.services.sell_out import queue as sell_out_queue
@@ -348,19 +349,45 @@ def seguir_fifo(db: Session, item_ids: Iterable[int]) -> None:
     """Right after a write that moved the FIFO of `item_ids` outside `sell.drain` (the invoice reconcile, loading or
     voiding a manual purchase): their cost bonuses follow in the same transaction, so the exclusivity holds. It never
     blocks that write: it runs in a savepoint whose statements wait at most `LOCK_TIMEOUT` for a lock (a capped
-    bonus's other products may be locked by a drain), and ANY error rolls back only that savepoint and is logged; the
-    products' cost-bonus rows are left as they were and their next drain (or the bonus's next change) fixes them. A
-    product whose cost bonus cannot be computed (a missing VAT rate) keeps its rows the same way, logged."""
+    bonus's other products may be locked by a drain), and ANY error rolls back only that savepoint and is logged.
+    The FIFO's new units then commit while the cost-bonus rows still hold the same units, so the active cost bonuses
+    reaching the products are queued (`sell_in_bono_dirty`, `('bono', id)`) in the caller's transaction: they commit
+    with the write and the `sell_in.bono` drain recomputes them (verifier B1). A product whose cost bonus cannot be
+    computed (a missing VAT rate) keeps its rows, logged; queuing it would only fail again."""
+    item_ids = set(item_ids)
     try:
         with sell_out_queue.lock_timeout(db, LOCK_TIMEOUT):
             fallidos = recalcular(db, item_ids).failed
     except Exception:  # noqa: BLE001 - the purchase or reconcile that called it must commit
         logger.exception("sell in: the %% of cost bonuses were not recomputed for products %s", sorted(item_ids))
+        _encolar(db, item_ids)
         return
     if fallidos:
         logger.warning(
             "sell in: the %% of cost bonuses of %s product(s) were left as they were: %s", len(fallidos), fallidos
         )
+
+
+# The bonus key the queue's triggers write (`bono_queue`), with the same refresh on conflict.
+_ENCOLAR_BONO = text(
+    "INSERT INTO sell_in_bono_dirty (tipo, ref) VALUES ('bono', :ref) "
+    "ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL"
+)
+
+
+def _encolar(db: Session, item_ids: Set[int]) -> None:
+    """Queues the active cost bonuses reaching `item_ids` for the `sell_in.bono` drain, in a savepoint of the caller's
+    transaction. If even that fails, an ERROR says which products stay stale until their next drain."""
+    try:
+        with db.begin_nested():
+            activos = _activos(db)
+            bonos = sorted(bid for bid, productos in _alcances(db, activos).items() if productos & item_ids)
+            for bid in bonos:
+                db.execute(_ENCOLAR_BONO, {"ref": bid})
+            if bonos:
+                db.execute(text("SELECT pg_notify(:canal, '')"), {"canal": bono_queue.CHANNEL})
+    except Exception:  # noqa: BLE001 - the purchase or reconcile that called it must commit
+        logger.exception("sell in: the cost bonuses of products %s could not be queued; stale until a drain", item_ids)
 
 
 def registrar_fallidos(result: CostoResult, origen: str) -> None:

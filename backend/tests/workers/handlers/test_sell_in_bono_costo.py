@@ -279,7 +279,7 @@ class TestComprasNoBloquea:
         assert len(w.consumos(engine)) == 1
         assert _filas(engine) == []
 
-    def test_a_cost_bonus_error_rolls_back_only_its_savepoint(
+    def test_a_cost_bonus_error_rolls_back_only_its_savepoint_and_queues_its_bonuses(
         self, engine: Engine, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         bono = b.bono_costo(engine, "3.00")
@@ -288,6 +288,7 @@ class TestComprasNoBloquea:
         _drain_ventas()
         antes = _filas(engine)
         assert antes == [(bono, ref, 2, Decimal("60.00"))]
+        recalcular = bonos_costo.recalcular
 
         def _falla(db, item_ids=(), *, bono_ids=()):
             db.execute(text("DELETE FROM sell_in_bono_consumos"))  # written, then the error
@@ -298,7 +299,49 @@ class TestComprasNoBloquea:
 
         assert _estado_compras(engine) == ["activa"]
         assert [(c[2], c[4]) for c in w.consumos(engine)] == [(ref, 2)]
-        assert _filas(engine) == antes  # left as they were: the next drain fixes them
+        assert _filas(engine) == antes  # the savepoint rolled back: the purchase committed with the old rows
+        assert ("bono", bono) in b.queued(engine)  # verifier B1: queued with the purchase, so a drain repairs them
+
+        monkeypatch.setattr(bonos_costo, "recalcular", recalcular)
+        _drain_bonos()
+
+        assert _filas(engine) == []  # the FIFO holds both units now: the cost bonus gives them nothing
+
+    def test_a_lock_timeout_on_a_capped_bonus_queues_it_and_a_drain_removes_the_double_count(
+        self, engine: Engine
+    ) -> None:
+        # Verifier B1, its repro: the capped bonus links 2270 to 2964; 2270's product lock is held while a purchase of
+        # 2964 is loaded; the purchase commits its FIFO units and the cost bonus must not keep the same units.
+        bono = b.bono_costo(engine, "3.00", tope_unidades=10)
+        ref = _fuera(engine, 2964, 2, D(2026, 10, 5))
+        _drain_bonos()
+        _drain_ventas()
+        assert _filas(engine) == [(bono, ref, 2, Decimal("60.00"))]
+        b.clear_queue(engine)
+        tomado, soltar = threading.Event(), threading.Event()
+
+        def _holder() -> None:
+            with engine.connect() as conn:
+                with conn.begin():
+                    conn.execute(text("SELECT pg_advisory_xact_lock(:ns, 2270)"), {"ns": LOCK_NAMESPACE})
+                    tomado.set()
+                    soltar.wait(15)
+
+        hilo = threading.Thread(target=_holder)
+        hilo.start()
+        try:
+            assert tomado.wait(5)
+            _compra_2964(engine)
+        finally:
+            soltar.set()
+            hilo.join()
+
+        assert [(c[2], c[4]) for c in w.consumos(engine)] == [(ref, 2)]
+        assert ("bono", bono) in b.queued(engine)
+
+        _drain_bonos()
+
+        assert _filas(engine) == []
 
     def test_a_purchase_never_waits_long_on_a_capped_bonus_s_other_products(self, engine: Engine) -> None:
         # The capped bonus links 2270 to 2964; another transaction holds 2270's product lock for a while.
