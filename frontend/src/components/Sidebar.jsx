@@ -150,6 +150,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         // No permiso: feature announcements, visible to every logged-in
         // user — not the price-audit log above (Últimos Cambios).
         { label: 'Novedades', path: '/novedades' },
+        // No permiso: the end-user help manual, next to Novedades.
+        { label: 'Ayuda', path: '/ayuda' },
         { label: 'Cuentas Corrientes', path: '/cuentas-corrientes', permiso: 'reportes.ver_cuentas_corrientes' },
       ],
     },

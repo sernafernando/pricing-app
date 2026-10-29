@@ -79,6 +79,7 @@ export const SCREENS = [
   { path: '/calculos', label: 'Cálculos', section: 'Reportes', permisos: ['reportes.ver_calculadora'], scope: 'permiso' },
   { path: '/ultimos-cambios', label: 'Últimos Cambios', section: 'Reportes', permisos: ['productos.ver_auditoria'], scope: 'permiso' },
   { path: '/novedades', label: 'Novedades', section: 'Reportes', permisos: [], scope: 'public' },
+  { path: '/ayuda', label: 'Ayuda', section: 'Reportes', permisos: [], scope: 'public' },
   { path: '/cuentas-corrientes', label: 'Cuentas Corrientes', section: 'Reportes', permisos: ['reportes.ver_cuentas_corrientes'], scope: 'permiso' },
 
   // ── RRHH ──────────────────────────────────────────────────

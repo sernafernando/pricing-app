@@ -25,6 +25,7 @@ const Tienda = lazy(() => import('./pages/Tienda'));
 const Admin = lazy(() => import('./pages/Admin'));
 const UltimosCambios = lazy(() => import('./pages/UltimosCambios'));
 const Novedades = lazy(() => import('./pages/Novedades'));
+const Ayuda = lazy(() => import('./pages/Ayuda'));
 const PreciosListas = lazy(() => import('./pages/PreciosListas'));
 const GestionPM = lazy(() => import('./pages/GestionPM'));
 const MisSubPMs = lazy(() => import('./pages/MisSubPMs'));
@@ -122,6 +123,8 @@ const protectedRoutes = [
   // No permiso: visible to any logged-in user (see AppLayout's outer auth
   // guard) — feature announcements are not a permission-gated concept.
   { path: '/novedades', component: Novedades },
+  // No permiso: the help manual is for every logged-in user, like Novedades.
+  { path: '/ayuda', component: Ayuda },
   { path: '/admin', component: Admin, permiso: 'admin.ver_panel' },
   { path: '/gestion-pm', component: GestionPM, permiso: 'admin.gestionar_pms' },
   { path: '/api-docs', component: ApiDocs, permiso: 'admin.ver_api_docs' },
