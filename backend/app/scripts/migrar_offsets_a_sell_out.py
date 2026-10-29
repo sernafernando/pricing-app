@@ -88,6 +88,7 @@ from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
+from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoMarca
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem
 from app.schemas.sell_out import ITEMS_MAX, NOMBRE_MAX, SellOutCampanaIn
@@ -529,6 +530,14 @@ def _fuera_de_filtros(db: Session, grupo_id: int, items) -> list[int]:
     return [item_id for item_id in pedidos if item_id not in alcanzados]
 
 
+def _inexistentes(db: Session, item_ids: list[int]) -> list[int]:
+    """The products a legacy offset names that no longer exist (a legacy table may lack the product FK)."""
+    if not item_ids:
+        return []
+    existen = {i for (i,) in db.query(ProductoERP.item_id).filter(ProductoERP.item_id.in_(item_ids))}
+    return [i for i in item_ids if i not in existen]
+
+
 def _grupo_de_productos(db: Session, grupo_id: int, item_ids: list[int], usuario_id: int) -> int:
     """A new group with one `item_id` filter per product, linked to the same campaign so the campaign reaches what the
     legacy group reached. The operator's group is left as it is: new filter rows there would change what the legacy
@@ -567,10 +576,20 @@ def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id,
             for o in offsets
         ]
     campana_id = None
+    avisos = list(plan.avisos)  # the moved products are only reported when the campaign is (or would be) created
     try:
         fuera = _fuera_de_filtros(db, grupo_id, plan.data.items)
+        inexistentes = _inexistentes(db, fuera)
+        if inexistentes:
+            # `--apply` would fail on the new group's product FK; both runs refuse it the same way, before writing.
+            motivo = f"Grupo #{grupo_id}: el producto {', '.join(map(str, inexistentes))} de sus offsets no existe; "
+            motivo += "revisar a mano"
+            return [
+                _Resultado(_fila(o, NO_MIGRADO, motivo=motivo, avisos=avisos), o, None, (motivo, avisos))
+                for o in offsets
+            ]
         if fuera:
-            plan.avisos.append(
+            avisos.append(
                 f"Grupo #{grupo_id}: los productos {', '.join(map(str, fuera))} no están en sus filtros "
                 "(venían de sus offsets): van a un grupo nuevo de la misma campaña"
             )
@@ -599,7 +618,7 @@ def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id,
     )
     return [
         _Resultado(
-            _fila(o, resultado, campana_id, avisos=plan.avisos if i == 0 else [otro, *plan.avisos]),
+            _fila(o, resultado, campana_id, avisos=avisos if i == 0 else [otro, *avisos]),
             o,
             vencido=plan.vencido,
             nueva=i == 0,

@@ -1046,9 +1046,51 @@ def test_a_refused_group_campaign_leaves_no_new_group_behind(engine, correr, mon
     escritas = {table: _count(engine, table) for table in _ESCRITAS if table != "offsets_migracion_pendientes"}
     assert escritas == {table: antes[table] for table in escritas}
     assert {filas[i]["resultado"] for i in ids} == {"no migrado"}
+    assert {filas[i]["avisos"] for i in ids} == {""}  # nothing moved: no "van a un grupo nuevo" on a refusal
     assert {i: p["motivo"] for i, p in _pendientes(engine).items()} == dict.fromkeys(
         ids, f"Grupo #{grupo_id}: rechazada"
     )
+
+
+@pytest.fixture()
+def sin_fk_de_producto(engine: Engine) -> Iterator[None]:
+    """`offsets_ganancia` without its product FK, as a legacy table may be: an offset can name a deleted product."""
+    with engine.begin() as conn:
+        fks = conn.execute(
+            text(
+                "SELECT conname FROM pg_constraint WHERE conrelid = 'offsets_ganancia'::regclass AND contype = 'f' "
+                "AND confrelid = 'productos_erp'::regclass"
+            )
+        ).scalars()
+        for fk in list(fks):
+            conn.execute(text(f'ALTER TABLE offsets_ganancia DROP CONSTRAINT "{fk}"'))
+    yield
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM offsets_ganancia"))
+        conn.execute(
+            text(
+                "ALTER TABLE offsets_ganancia ADD CONSTRAINT offsets_ganancia_item_id_fkey "
+                "FOREIGN KEY (item_id) REFERENCES productos_erp (item_id)"
+            )
+        )
+
+
+@pytest.mark.parametrize("args", [(), ("--apply",)], ids=["dry_run", "apply"])
+def test_a_group_product_that_does_not_exist_is_refused_the_same_in_dry_run_and_apply(
+    engine, correr, sin_fk_de_producto, args
+) -> None:
+    # Review R3-dryrun-apply-divergence: the dry run must report what `--apply` does for the products' group.
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ids = [_offset(engine, grupo_id=grupo_id), _offset(engine, grupo_id=grupo_id, item_id=999999)]
+    motivo = f"Grupo #{grupo_id}: el producto 999999 de sus offsets no existe; revisar a mano"
+    antes = _count(engine, "offset_grupos")
+
+    code, summary, filas = correr(*args)
+
+    assert code == 0
+    assert _campanas(engine) == [] and _count(engine, "offset_grupos") == antes
+    assert {i: (filas[i]["resultado"], filas[i]["motivo"]) for i in ids} == dict.fromkeys(ids, ("no migrado", motivo))
+    assert summary["pendientes"] == 2
 
 
 def test_a_group_without_filters_reaches_the_products_of_its_offsets(engine, correr) -> None:
