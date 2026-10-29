@@ -134,6 +134,21 @@ class TestTriggers:
 
         assert [row[1] for row in _queued(pg_sell_engine)] == refs
 
+    def test_a_change_to_the_recorded_cost_queues_the_line(
+        self, pg_sell_engine: Engine, canal: str, model: Type
+    ) -> None:
+        """T25b2: a % of cost bonus's base is the sale's `costo_total / units` (`sell_out.alcance.ventas`)."""
+        ref = _venta(pg_sell_engine, model, item_id=2964)
+        _update(pg_sell_engine, model, ref, costo_total=Decimal("41081.90"))
+        _clear_queue(pg_sell_engine)
+
+        _update(pg_sell_engine, model, ref, costo_total=Decimal("40000.00"))
+        assert _queued(pg_sell_engine) == [(canal, ref, 2964)]
+
+        _clear_queue(pg_sell_engine)
+        _update(pg_sell_engine, model, ref, costo_total=Decimal("40000.00"))  # the same value: nothing moved
+        assert _queued(pg_sell_engine) == []
+
     def test_a_product_change_queues_the_line_under_its_new_product(
         self, pg_sell_engine: Engine, canal: str, model: Type
     ) -> None:

@@ -15,8 +15,10 @@ and does NO allocation work: `sell_out.drain` rebuilds them.
   queues only the ones whose amount depends on it (`monto_incluye_iva`, or a
   percentage on `precio_neto`, whose ML base carries VAT; `asignacion._base`).
 - `ventas_fuera_ml_metricas` / `ventas_tienda_nube_metricas`, updated rows
-  whose `cust_id` or `costo_total` changed (the columns the sell-out reads that
-  `sell_dirty` does not watch, `sell.queue.ALLOCATION_COLUMNS`):
+  whose `cust_id` or `costo_total` changed (`cust_id` is not in
+  `sell.queue.ALLOCATION_COLUMNS`; `costo_total` is since 20261213, so a change
+  also reaches sell out through `sell.drain`'s fan-out, a harmless extra queue;
+  this trigger queues only the campaigns that depend on it):
   - `cust_id`: it decides which earlier sale a return reverses
     (`costing.resolver_objetivos`), and that return may fall in any campaign
     ending on or after the sale; it queues the campaigns holding the line plus

@@ -19,7 +19,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.scripts import backfill_sell_in_consumos as script
 from app.scripts.backfill_sell_in_consumos import _build_parser, run_backfill
-from app.services.sell_in import costing
+from app.services.sell_in import bonos_costo, costing
+from tests.services.sell_in import _bono_world as b_world
 from tests.services.sell_in import _world as w
 
 D = date
@@ -289,3 +290,98 @@ class TestImport:
         importlib.reload(script)
 
         assert calls == [] and sys.path == before
+
+
+@pytest.fixture(scope="module")
+def bono_engine() -> Iterator[Engine]:
+    """A world with the % of cost bonus tables (`_bono_world`)."""
+    with b_world.world("sell_in_backfill_costo") as engine:
+        yield engine
+
+
+@pytest.fixture()
+def _clean_bonos(bono_engine: Engine) -> Iterator[None]:
+    yield
+    b_world.clean(bono_engine)
+
+
+def _costo_seed(engine: Engine) -> tuple:
+    """A 3 % cost bonus over TP-LINK and a fuera sale of 2 units at 1000.00 each; its rows computed BEFORE the
+    purchase below exists (the FIFO then takes 1 unit the bonus still holds)."""
+    bono = b_world.bono_costo(engine, "3.00")
+    venta = w.venta(engine, "fuera", 2964, 2, D(2026, 10, 5))
+    w.update_venta(engine, "fuera", venta, costo_total=Decimal("2000.00"))
+    with sessionmaker(bind=engine)() as db:
+        bonos_costo.recalcular(db, [2964])
+        db.commit()
+    w.compra(engine, [(2964, 1, "20.00")])  # loaded behind the drain's back: what the backfill repairs
+    return bono, venta
+
+
+def _costo_filas(engine: Engine) -> list:
+    return [(r[0], r[2], r[5], r[6]) for r in b_world.bono_consumos(engine)]
+
+
+@pytest.mark.postgres
+@pytest.mark.usefixtures("_clean_bonos")
+class TestBackfillCostBonuses:
+    """T25b2: the backfill moves the FIFO, so the % of cost bonuses of those products follow in the same batch (they
+    take only the units the FIFO left, rule 5), with the same idempotency, --dry-run and --limit."""
+
+    def test_the_cost_bonuses_follow_the_fifo_and_a_rerun_writes_nothing(self, bono_engine: Engine) -> None:
+        bono, venta = _costo_seed(bono_engine)
+        assert _costo_filas(bono_engine) == [(bono, venta, 2, Decimal("60.00"))]
+
+        first = _run(bono_engine, limit=None, dry_run=False)
+        again = _run(bono_engine, limit=None, dry_run=False)
+
+        assert [(r[2], r[4]) for r in w.consumos(bono_engine)] == [(venta, 1)]
+        assert _costo_filas(bono_engine) == [(bono, venta, 1, Decimal("30.00"))]
+        assert (first["bono_costo_inserted"], first["bono_costo_deleted"]) == (1, 1)
+        assert (again["inserted"], again["bono_costo_inserted"], again["bono_costo_deleted"]) == (0, 0, 0)
+
+    def test_a_dry_run_reports_the_cost_bonus_changes_and_writes_nothing(self, bono_engine: Engine) -> None:
+        bono, venta = _costo_seed(bono_engine)
+
+        summary = _run(bono_engine, limit=None, dry_run=True)
+
+        assert (summary["bono_costo_inserted"], summary["bono_costo_deleted"]) == (1, 1)
+        assert w.consumos(bono_engine) == []
+        assert _costo_filas(bono_engine) == [(bono, venta, 2, Decimal("60.00"))]
+
+    def test_limit_recomputes_the_cost_bonuses_of_the_batch_only(self, bono_engine: Engine) -> None:
+        bono, venta = _costo_seed(bono_engine)
+        w.compra(bono_engine, [(2270, 1, "10.00")])  # 2270 (< 2964) is the first candidate
+
+        summary = _run(bono_engine, limit=1, dry_run=False)
+
+        assert (summary["products"], summary["last_item_id"]) == (1, 2270)
+        assert _costo_filas(bono_engine) == [(bono, venta, 2, Decimal("60.00"))]  # 2964 not reached yet
+
+    def test_a_cost_bonus_that_cannot_be_computed_lists_its_products(self, bono_engine: Engine) -> None:
+        bono, venta = _costo_seed(bono_engine)
+        b_world.bono_costo(bono_engine, "3.00", incluye_iva=True)  # 2964 has no VAT rate: it cannot be computed
+
+        summary = _run(bono_engine, limit=None, dry_run=False)
+
+        assert (summary["failed"], summary["failed_items"]) == (1, [2964])
+        assert [(r[2], r[4]) for r in w.consumos(bono_engine)] == [(venta, 1)]  # the FIFO still commits
+        assert _costo_filas(bono_engine) == [(bono, venta, 2, Decimal("60.00"))]  # kept as they were
+
+    def test_an_unexpected_cost_bonus_error_rolls_back_only_its_savepoint(
+        self, bono_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Review (#1915): an error other than a missing VAT rate must not cost the batch its FIFO, as in sell.drain.
+        bono, venta = _costo_seed(bono_engine)
+
+        def boom(db, item_ids=(), *, bono_ids=()):
+            db.execute(text("DELETE FROM sell_in_bono_consumos"))  # written, then the error
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(bonos_costo, "recalcular", boom)
+
+        summary = _run(bono_engine, limit=None, dry_run=False)
+
+        assert (summary["failed"], summary["failed_items"]) == (1, [2964])
+        assert [(r[2], r[4]) for r in w.consumos(bono_engine)] == [(venta, 1)]  # the FIFO committed
+        assert _costo_filas(bono_engine) == [(bono, venta, 2, Decimal("60.00"))]  # kept as they were

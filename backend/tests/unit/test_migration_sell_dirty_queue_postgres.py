@@ -41,8 +41,8 @@ def _script_directory() -> ScriptDirectory:
     return ScriptDirectory.from_config(config)
 
 
-def _module():
-    spec = importlib.util.spec_from_file_location("sell_dirty_queue_migration", _PATH)
+def _module(path: str = _PATH):
+    spec = importlib.util.spec_from_file_location(f"{os.path.basename(path)[:-3]}_migration", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -60,9 +60,14 @@ class TestMigrationGraph:
         assert _script_directory().get_revision(_REVISION).down_revision == "20261030_ml_write_log"
 
     def test_the_trigger_sql_is_a_frozen_copy_of_the_live_one(self) -> None:
-        module = _module()
-        assert module._TRIGGERS_UP == queue.UPGRADE_SQL
-        assert module._TRIGGERS_DOWN == queue.DOWNGRADE_SQL
+        # 20261213_sell_in_bono_costo_triggers replaced the two UPDATE triggers (they also watch `costo_total`): the
+        # module is this revision's set with those two statements swapped for 20261213's.
+        later = _module(os.path.join(_BACKEND_ROOT, "alembic", "versions", "20261213_sell_in_bono_costo_triggers.py"))
+        fuera, tn = later.SELL_DIRTY_UP
+        swaps = {"CREATE TRIGGER trg_sell_dirty_fuera_update": fuera, "CREATE TRIGGER trg_sell_dirty_tn_update": tn}
+        installed = [next((new for key, new in swaps.items() if key in s), s) for s in _module()._TRIGGERS_UP]
+        assert installed == queue.UPGRADE_SQL
+        assert _module()._TRIGGERS_DOWN == queue.DOWNGRADE_SQL
 
 
 @pytest.fixture()

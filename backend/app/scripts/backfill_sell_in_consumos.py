@@ -8,7 +8,12 @@ consumptions, so the allocation matches the sales as they are now. After it,
 the drain keeps it current.
 
 Idempotent: the strategy recomputes a product from scratch and writes only the
-difference, so a re-run writes nothing. Bounded and resumable: keyset
+difference, so a re-run writes nothing. The % of the sale's cost bonuses
+(`bonos_costo`, T25b2) take only the units the FIFO leaves, so each batch
+recomputes theirs for the products whose FIFO recompute succeeded, in the same
+transaction (`bono_costo_inserted` / `bono_costo_deleted`); a product whose
+cost bonus cannot be computed (a missing VAT rate) keeps its rows as they were
+and is listed in `failed_items` too (its FIFO still commits). Bounded and resumable: keyset
 pagination on `item_id`, one short session and one commit per batch (rolled
 back under `--dry-run`, which still reports what would change); `--after-item`
 (the `last_item_id` of a previous summary) skips what is done.
@@ -46,6 +51,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
+from app.services.sell_in import bonos_costo
 from app.services.sell_in.costing import RecomputeResult, get_costing
 
 logger = logging.getLogger(__name__)
@@ -71,6 +77,21 @@ def _stop(summary: dict, exc: BaseException, what: str) -> None:
     logger.exception("backfill_sell_in_consumos: %s after item %s failed", what, summary["last_item_id"])
     summary["stopped_at_after_item"] = summary["last_item_id"]
     summary["stop_error"] = f"{type(exc).__name__}: {exc}"[:500]
+
+
+def _cost_bonuses(db: Session, items: set[int]) -> bonos_costo.CostoResult:
+    """The % of cost bonuses of `items` after their FIFO, in a savepoint as in `sell.drain`: a bonus that cannot be
+    computed (a missing VAT rate) lists its products; any other error rolls back only the savepoint, keeps their rows
+    and lists every one of `items`, and the batch's FIFO still commits."""
+    try:
+        with db.begin_nested():
+            costo = bonos_costo.recalcular(db, items)
+    except Exception as exc:  # noqa: BLE001 - the batch's FIFO must commit
+        logger.exception("backfill_sell_in_consumos: cost bonuses not recomputed for products %s", sorted(items))
+        error = f"{type(exc).__name__}: {exc}"[:500]
+        return bonos_costo.CostoResult(failed={item: error for item in items})
+    bonos_costo.registrar_fallidos(costo, "backfill_sell_in_consumos")
+    return costo
 
 
 def _close(db: Session) -> None:
@@ -99,6 +120,8 @@ def run_backfill(
         "batches": 0,
         "inserted": 0,
         "deleted": 0,
+        "bono_costo_inserted": 0,
+        "bono_costo_deleted": 0,
         "failed": 0,
         "failed_items": [],
         "last_item_id": after_item,
@@ -124,8 +147,10 @@ def run_backfill(
                 batch = [item for item in wanted if item > summary["last_item_id"]][:take]
             if not batch:
                 break
+            costo = bonos_costo.CostoResult()
             try:
                 result = get_costing().recompute(db, batch)
+                costo = _cost_bonuses(db, set(batch) - result.failed.keys())
                 if dry_run:
                     db.rollback()
                 else:
@@ -142,16 +167,20 @@ def run_backfill(
                 logger.exception("backfill_sell_in_consumos: batch %s..%s failed", batch[0], batch[-1])
                 error = f"{type(exc).__name__}: {exc}"[:500]
                 result = RecomputeResult(products=len(batch), failed={item: error for item in batch})
+                costo = bonos_costo.CostoResult()
         finally:
             _close(db)
-        if result.failed:
-            logger.warning("backfill_sell_in_consumos: failed products %s", result.failed)
+        failed = {**{item: error for item, error in costo.failed.items() if item in batch}, **result.failed}
+        if failed:
+            logger.warning("backfill_sell_in_consumos: failed products %s", failed)
         summary["products"] += len(batch)
         summary["batches"] += 1
         summary["inserted"] += result.inserted
         summary["deleted"] += result.deleted
-        summary["failed"] += len(result.failed)
-        summary["failed_items"].extend(sorted(result.failed))
+        summary["bono_costo_inserted"] += costo.inserted
+        summary["bono_costo_deleted"] += costo.deleted
+        summary["failed"] += len(failed)
+        summary["failed_items"].extend(sorted(failed))
         summary["last_item_id"] = batch[-1]
         if len(batch) < take:
             break

@@ -23,7 +23,9 @@ Three writers, all inside the transaction that changes the sale:
 
 `UPGRADE_SQL`/`DOWNGRADE_SQL` are the live definition of the triggers; the
 migration `20261031_sell_dirty_queue` carries a frozen copy and also owns the
-table (`app.models.sell_dirty`).
+table (`app.models.sell_dirty`); `20261213_sell_in_bono_costo_triggers` replaced
+the two UPDATE triggers (they also watch `costo_total`, T25b2) and carries
+their frozen copy.
 
 A claimed row is locked (`FOR UPDATE SKIP LOCKED`): a trigger re-queueing the
 same line waits for the drain's short transaction, then lands as a fresh row,
@@ -43,7 +45,17 @@ BATCH_SIZE = 500
 
 # What the allocators read from a fuera / TN sale row. Changing anything else
 # (customer, seller, commission...) does not move an allocation.
-ALLOCATION_COLUMNS = ("it_transaction", "item_id", "cantidad", "fecha_venta", "signo", "monto_total", "costo_unitario")
+# `costo_total` is the base of a % of cost sell-in bonus (`bonos_costo`, `sell_out.alcance.ventas`; T25b2).
+ALLOCATION_COLUMNS = (
+    "it_transaction",
+    "item_id",
+    "cantidad",
+    "fecha_venta",
+    "signo",
+    "monto_total",
+    "costo_unitario",
+    "costo_total",
+)
 
 UPGRADE_SQL: List[str] = [
     """
@@ -71,12 +83,14 @@ FOR EACH ROW EXECUTE FUNCTION sell_dirty_enqueue_venta('fuera')
 """,
     """
 CREATE TRIGGER trg_sell_dirty_fuera_update
-AFTER UPDATE OF it_transaction, item_id, cantidad, fecha_venta, signo, monto_total, costo_unitario
+AFTER UPDATE OF it_transaction, item_id, cantidad, fecha_venta, signo, monto_total, costo_unitario, costo_total
 ON ventas_fuera_ml_metricas
 FOR EACH ROW WHEN (
-    (OLD.it_transaction, OLD.item_id, OLD.cantidad, OLD.fecha_venta, OLD.signo, OLD.monto_total, OLD.costo_unitario)
+    (OLD.it_transaction, OLD.item_id, OLD.cantidad, OLD.fecha_venta, OLD.signo, OLD.monto_total, OLD.costo_unitario,
+     OLD.costo_total)
     IS DISTINCT FROM
-    (NEW.it_transaction, NEW.item_id, NEW.cantidad, NEW.fecha_venta, NEW.signo, NEW.monto_total, NEW.costo_unitario)
+    (NEW.it_transaction, NEW.item_id, NEW.cantidad, NEW.fecha_venta, NEW.signo, NEW.monto_total, NEW.costo_unitario,
+     NEW.costo_total)
 )
 EXECUTE FUNCTION sell_dirty_enqueue_venta('fuera')
 """,
@@ -87,12 +101,14 @@ FOR EACH ROW EXECUTE FUNCTION sell_dirty_enqueue_venta('tn')
 """,
     """
 CREATE TRIGGER trg_sell_dirty_tn_update
-AFTER UPDATE OF it_transaction, item_id, cantidad, fecha_venta, signo, monto_total, costo_unitario
+AFTER UPDATE OF it_transaction, item_id, cantidad, fecha_venta, signo, monto_total, costo_unitario, costo_total
 ON ventas_tienda_nube_metricas
 FOR EACH ROW WHEN (
-    (OLD.it_transaction, OLD.item_id, OLD.cantidad, OLD.fecha_venta, OLD.signo, OLD.monto_total, OLD.costo_unitario)
+    (OLD.it_transaction, OLD.item_id, OLD.cantidad, OLD.fecha_venta, OLD.signo, OLD.monto_total, OLD.costo_unitario,
+     OLD.costo_total)
     IS DISTINCT FROM
-    (NEW.it_transaction, NEW.item_id, NEW.cantidad, NEW.fecha_venta, NEW.signo, NEW.monto_total, NEW.costo_unitario)
+    (NEW.it_transaction, NEW.item_id, NEW.cantidad, NEW.fecha_venta, NEW.signo, NEW.monto_total, NEW.costo_unitario,
+     NEW.costo_total)
 )
 EXECUTE FUNCTION sell_dirty_enqueue_venta('tn')
 """,
