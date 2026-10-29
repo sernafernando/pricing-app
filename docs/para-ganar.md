@@ -51,7 +51,7 @@ Extension archaeology (what Pro does today): [`para-ganar-pro-source-map.md`](./
 
 ### Periodicidad (roadmap — módulos)
 
-Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por MLA sueltos y/o por criterios (lista de precios, tipo de publicación, tienda). Solo lo incluido entra en la **revisión periódica** (trigger → datos de catálogo → evaluación → marca por revisar). Lo no incluido se consulta **a mano** desde Advisor con filtros.
+Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por MLA sueltos y/o por criterios (lista de precios, tipo de publicación, tienda). Solo lo incluido entra en la **revisión periódica** (P6: job → refresh catálogo → P5 → marca por revisar). Lo no incluido se consulta **a mano** desde Advisor (**A1**: encola el mismo tipo de job sobre el filtro). Ver contrato A1/P6/P7 abajo.
 
 | Módulo | Qué | Depende de | Status |
 |--------|-----|------------|--------|
@@ -63,11 +63,27 @@ Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por ML
 | **P3.3** | Aviso/filtro **MLA nuevos** (`scope_mode=mlas` con MLA activo fuera de la lista); badge en cola + highlight en detalle | P3.2 | Done |
 | **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Done |
 | **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Done (R1–R4) |
-| **A1** | Advisor **Consultar filtrados**: misma pipeline que el periódico, pero a demanda sobre el alcance del filtro (manual; lo no suscripto a Periodicidad) | P5 | Done |
-| **P6** | Trigger periódico: job que pide/refresca competencia de catálogo solo para inclusiones y dispara P5 | P5 | Planned |
-| **P7** | Vista flotante de cola “por revisar” (después; por ahora solo Advisor) | P4+P5 | Later |
+| **A1** | Advisor **Consultar filtrados**: encola un **lote** del alcance filtrado (refresh competencia → P5). Dueño = PM. Interim sync `evaluar-filtrados` existe; producto final = job async | P5 + cola de jobs | Contract locked; impl pending (after job core) |
+| **P6** | Trigger periódico + **worker compartido**: refresh competencia de inclusiones Periodicidad → P5. Misma tubería que A1 | P5 | Planned (job core first) |
+| **P7** | Vista flotante de cola “por revisar” (misma cola de estados; no otra lógica) | P4+P5 + jobs | Later |
 
 **Deprecado (confirmado):** herencia producto/PM; heurística campañas de marca.
+
+### Contrato A1 / P6 / P7 — cola de consulta (locked 2026-10-29)
+
+Product decision: “Consultar filtrados” is **not** a synchronous “evaluate only” click. Consultation takes time (ML throttle); the button must **enqueue work**. Periodic and manual share one pipeline; results land in the same **Pendiente / Sin novedades** revision queue.
+
+| Concept | Rule |
+|---------|------|
+| **Pipeline** | For each MLA in a job: **refresh catalog competition** → **P5 evaluate** (`evaluar_mlas` / R1–R4). Missing/failed refresh → skip that MLA (same as today). |
+| **Manual job (A1)** | Advisor filters → create a **job** owned by the requesting **PM** (user). Progress / cancel / “mis consultas” are per job. Does **not** require Periodicidad subscription. |
+| **Periodic job (P6)** | Cron (or scheduler) creates job(s) for **enabled Periodicidad** inclusions. Can interleave with manuals in the worker pool. |
+| **Independence** | Several PMs may enqueue **independent** manual jobs at once. Logical isolation (owner, scope, progress). |
+| **Shared bottleneck** | One **ML rate-limit / worker pool** (fairness / round-robin across jobs). Do **not** give each PM an unbounded parallel full-speed refresh. |
+| **Revision queue** | `para_ganar_revision_mla` stays **per MLA** (global). Job metadata may filter “lo que disparé yo”; P7 is another **view** of the same pendiente queue, not a second state machine. |
+| **Interim today** | `POST /para-ganar/evaluar-filtrados` + Advisor button = **P5-only, sync**, no refresh. Keep as internal motor until the job worker lands; then rewire the button to **enqueue**. |
+
+**Build order:** (1) this contract — done in this doc · (2) job model + worker (P6 core) · (3) rewire A1 button to enqueue · (4) P7 UI.
 
 ---
 
@@ -123,7 +139,7 @@ Newest first. Use for “why did we…” archaeology.
 - **Precio sugerido (D15):** cheapest same-bucket peer as referent; if `markup_min` is set and peer markups exist, skip peers below that floor. Caps `precio_min`/`precio_max` when set. **Perdiendo:** delta = sugerido − nuestro (negativo = bajar). **Ganando:** holgura hasta el siguiente peer. TOP rows show `referent_note` (D22): who is Referente vs discarded by markup/price criteria. Disposition **Excluido** sellers never appear on the board.
 - **Pool promos (D20–D23):** under the TOP board, up to **3** slots: **one** SMART-like, **one** other DEAL/campaña, **one** Premium (name contains `premium`). Markup band + DEAL range vs `precio_sugerido` for candidates. If Premium is already `started`, still show it with **Aplicada**. Seller-priced rows show **aplicar a $sugerido** (clamped to min/max). **Aplicar** (permiso `promos.escribir`) → Confirmar → same `POST /promociones/item/{mla}` as Productos (`deal_price` or `precio_visto`).
 - Missing snapshot: `POST /para-ganar/criterios/{mla}/competencia/refresh` (permiso `productos.editar_precios`) fetches via the same `refrescar_competencia_catalogo` path as Promociones — **per MLA only** (ML throttle).
-- **Consultar filtrados (A1):** from Advisor, `POST /para-ganar/evaluar-filtrados` with the same alcance query as the cola (permiso `productos.editar_precios`). Runs P5 (R1–R4) on every MLA in scope — including those not in Periodicidad. Does not use the Pendiente/Sin novedades chips as input. Empty scope → 422.
+- **Consultar filtrados (A1):** **target** — enqueue a PM-owned job for the current alcance (refresh competencia → P5); see contract above. **Interim** — `POST /para-ganar/evaluar-filtrados` runs P5 only (no refresh), sync; empty scope → 422; chips Pendiente/Sin novedades are not inputs.
 
 ### Sellers del catálogo
 
@@ -145,8 +161,8 @@ Newest first. Use for “why did we…” archaeology.
 
 ### Motor P5 (R1–R4)
 
-- `POST /para-ganar/periodicidad/evaluar` (`productos.editar_precios`) evaluates **enabled** Periodicidad MLAs (`all|mlas|rules`, `catalog_listing=true`).
-- `POST /para-ganar/evaluar-filtrados` (A1, same permiso) evaluates MLAs in the **Advisor alcance** filters (same params as cola / aplicar-masivo). Shared core: `evaluar_mlas`.
+- `POST /para-ganar/periodicidad/evaluar` (`productos.editar_precios`) evaluates **enabled** Periodicidad MLAs (`all|mlas|rules`, `catalog_listing=true`) — P5 only, no refresh (cron path will own refresh+evaluate via jobs).
+- `POST /para-ganar/evaluar-filtrados` (interim A1, same permiso) evaluates MLAs in the **Advisor alcance** (same params as cola / aplicar-masivo). Shared core: `evaluar_mlas`. Product target: replace button with **enqueue job** (refresh → P5).
 - First usable snapshot → `pendiente` and stores `competition_baseline` (rank, price, `suggestion_status`, `in_top`, `fecha_consulta`). Later runs: R1 rank/`in_top` worsened; R2 catalog win lost; R3 winning with raise room; **R4** if any **candidate** promo projects better `(X′,Y′,Z′)` (price/markup/rank) than current `(X,Y,Z)` without clearly worsening another dimension (co-funding markup included for SMART-like). Any R → `pendiente`, else `sin_novedades`. Re-run overwrites `estado`. Missing snapshot → skip.
 
 ---
@@ -167,11 +183,12 @@ Newest first. Use for “why did we…” archaeology.
 12. ~~**Periodicidad P1–P3**~~ (shell + API + UI por EAN).
 13. ~~**P4** — estados Advisor Pendiente / Sin novedades~~ (tabla + cola + chips; escritura = P5).
 14. ~~**P5** — motor de evaluación~~ (R1–R4; `POST /para-ganar/periodicidad/evaluar`).
-15. ~~**A1** — Advisor **Consultar filtrados**~~ (`POST /para-ganar/evaluar-filtrados` + botón Advisor).
-16. **P6** — trigger periódico de catálogo.
-17. **P7** — vista flotante (después).
-18. ~~Herencia producto/PM~~ — **deprecado:** filtro EAN + aplicar masivo cubre el caso.
-19. ~~Heurística campañas de marca (A PVP…)~~ — **deprecado:** no aporta.
+15. ~~**A1 interim** — sync `evaluar-filtrados`~~ (motor only). **A1 final** — encolar lote PM (tras job core).
+16. **P6** — job model + worker (refresh → P5) + trigger periódico Periodicidad.
+17. **A1 rewire** — botón Consultar filtrados → enqueue (dueño PM).
+18. **P7** — vista flotante “por revisar” (después).
+19. ~~Herencia producto/PM~~ — **deprecado:** filtro EAN + aplicar masivo cubre el caso.
+20. ~~Heurística campañas de marca (A PVP…)~~ — **deprecado:** no aporta.
 
 ---
 
