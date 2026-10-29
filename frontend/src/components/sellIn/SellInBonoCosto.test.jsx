@@ -6,6 +6,7 @@ import { sellInBonosAPI } from '../../services/sellInAPI';
 import { ALCANCE, ALCANCE_VACIO, BONO } from './sellInFixtures';
 import SellInBonoPanel from './SellInBonoPanel';
 import SellInBonosTable from './SellInBonosTable';
+import { BASE_COSTO, BONO_VACIO, bodyDeBono, conBase, faltanDatos } from './sellInBonoValores';
 
 vi.mock('../../services/sellInAPI', () => ({
   sellInBonosAPI: { detalle: vi.fn(), alcance: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn() },
@@ -16,7 +17,7 @@ vi.mock('../../services/api', () => ({
   productosAPI: { categorias: vi.fn(), listar: vi.fn() },
 }));
 
-// A bonus over the sale's cost (T25d): % in ARS, its units/amount come from its sales, no purchases.
+// A bonus over the sale's cost, as the T25d API answers it: % in ARS, its units/amount come from its sales, no purchases.
 const BONO_COSTO = {
   ...BONO,
   id: 12,
@@ -117,6 +118,26 @@ describe('SellInBonoForm — base of a new bonus', () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(BONO_COSTO));
   });
 
+  it('keeps a money cap typed in USD across an invoice -> cost -> invoice round trip', async () => {
+    const user = userEvent.setup();
+    renderPanel({ bonoId: null });
+    await user.type(screen.getByLabelText('Tope de monto en USD (opcional)'), '3000');
+    await user.type(screen.getByLabelText('Tope de unidades (opcional)'), '500');
+    await user.click(within(base()).getByRole('button', { name: 'Sobre el costo de la venta' }));
+    expect(screen.getByLabelText('Tope de monto en ARS (opcional)')).toHaveValue(null);
+    await user.click(within(base()).getByRole('button', { name: 'Sobre facturas' }));
+    expect(screen.getByLabelText('Tope de monto en USD (opcional)')).toHaveValue(3000);
+    expect(screen.getByLabelText('Tope de unidades (opcional)')).toHaveValue(500);
+  });
+
+  it('explains the cost bonus cap by sale date', async () => {
+    const user = userEvent.setup();
+    renderPanel({ bonoId: null });
+    await user.click(within(base()).getByRole('button', { name: 'Sobre el costo de la venta' }));
+    await user.type(screen.getByLabelText('Tope de unidades (opcional)'), '500');
+    expect(screen.getByText(/todos los productos y ventas del bono: se reparte por fecha de venta/)).toBeInTheDocument();
+  });
+
   it('goes back to the invoice bonus as it was when "Sobre facturas" is chosen again', async () => {
     const user = userEvent.setup();
     renderPanel({ bonoId: null });
@@ -179,5 +200,21 @@ describe('SellInBonosTable — cost bonuses', () => {
     const invoice = screen.getByText('Bono TP-Link USD 3/u').closest('tr');
     expect(within(invoice).queryByText('Sobre costo')).not.toBeInTheDocument();
     expect(within(invoice).getByText('18 compras · 1.040 u')).toBeInTheDocument();
+  });
+});
+
+describe('sellInBonoValores — cost bonus', () => {
+  const costo = { ...conBase({ ...BONO_VACIO, marca: 'TP-LINK' }, BASE_COSTO), porcentaje: '3', fechaDesde: '2026-01-01', fechaHasta: '2026-12-31' };
+
+  it('never sends the base unless the call is a create', () => {
+    expect(bodyDeBono(costo)).not.toHaveProperty('base');
+    expect(bodyDeBono(costo, false)).not.toHaveProperty('base');
+    expect(bodyDeBono(costo, false)).toHaveProperty('incluye_iva', false);
+    expect(bodyDeBono(costo, true)).toHaveProperty('base', 'costo_venta');
+  });
+
+  it('asks for sale dates in the missing-data message', () => {
+    expect(faltanDatos(costo)).toBe('Faltan datos: marca, porcentaje y fechas de venta.');
+    expect(faltanDatos(BONO_VACIO)).toBe('Faltan datos: marca, monto por unidad y fechas de factura.');
   });
 });

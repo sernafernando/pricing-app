@@ -115,7 +115,7 @@ function Base({ valores, editable, onChange }) {
  * The fields of a bonus (Stitch `03`, "Definición"): what it reaches (a brand from the brand filter's
  * list, a catalog category, some models from the product search, or one Compras operation), how it
  * pays (an amount per invoiced unit or a % of the invoiced net), the currency (USD by default) and the
- * supplier-invoice date range. A cost bonus (`base`, T25e) is a % in ARS of each sale's cost by sale date, with no
+ * supplier-invoice date range. A cost bonus (`base`; API T25d, this form T25e) is a % in ARS of each sale's cost by sale date, with no
  * invoice scope and an "Incluye IVA" flag. Controlled; `disabled` makes it read-only; `baseEditable` (a new bonus) lets
  * the base be chosen.
  */

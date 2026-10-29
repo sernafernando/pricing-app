@@ -35,12 +35,12 @@ export const BONO_VACIO = {
   // The money cap as stored, with its currency (null on a new bonus): the form brings it back when the currency
   // returns to it. Never sent.
   topeGuardado: null,
-  // What the bonus is a % of (T25d): the invoiced net ('factura') or the cost of each sale ('costo_venta', for old
+  // What the bonus is a % of (API: T25d; form: T25e): the invoiced net ('factura') or the cost of each sale ('costo_venta', for old
   // operations without their invoice loaded). Set on create only: the backend refuses a change on edit.
   base: BASE_FACTURA,
   // Only on a cost bonus: the loaded % includes IVA and is divided by each product's IVA rate (S33).
   incluyeIva: false,
-  // The invoice bonus's kind, currency and scope before moving to the cost base, brought back when returning to it.
+  // The invoice bonus's kind, currency, scope and money cap before moving to the cost base, brought back when returning to it.
   // Never sent.
   antesDeCosto: null,
 };
@@ -113,12 +113,16 @@ export const conMoneda = (valores, moneda) => {
 export const conBase = (valores, base) => {
   if (base === valores.base) return valores;
   if (base === BASE_COSTO) {
-    const antesDeCosto = { tipo: valores.tipo, moneda: valores.moneda, alcance: valores.alcance };
+    // The money cap too: moving to ARS empties a cap typed in another currency, and the round trip must not drop it.
+    const antesDeCosto = { tipo: valores.tipo, moneda: valores.moneda, alcance: valores.alcance, topeMonto: valores.topeMonto };
     const enPesos = conMoneda(valores, 'ARS');
     return { ...enPesos, base, tipo: 'porcentaje', alcance: valores.alcance === 'factura' ? 'marca' : valores.alcance, antesDeCosto };
   }
-  const previo = valores.antesDeCosto ?? { tipo: valores.tipo, moneda: valores.moneda, alcance: valores.alcance };
-  return { ...conMoneda(valores, previo.moneda), base, tipo: previo.tipo, alcance: previo.alcance, incluyeIva: false, antesDeCosto: null };
+  const previo = valores.antesDeCosto;
+  if (!previo) return { ...valores, base, incluyeIva: false };
+  // Back in the same currency (ARS), the cap typed meanwhile stays; back in another one, the saved cap returns.
+  const topeMonto = previo.moneda === valores.moneda ? valores.topeMonto : previo.topeMonto;
+  return { ...valores, base, tipo: previo.tipo, moneda: previo.moneda, alcance: previo.alcance, topeMonto, incluyeIva: false, antesDeCosto: null };
 };
 
 /** A cap field as sent: trimmed, or null when empty (empty means no cap). */
@@ -134,10 +138,11 @@ const camposDeBase = (valores, nuevo) => {
 };
 
 /**
- * The create/edit body (`SellInBonoIn`): a full replace on edit; an empty cap is sent as null (no cap). `nuevo`: a
- * create, the only time the base is sent.
+ * The create/edit body (`SellInBonoIn`): a full replace on edit; an empty cap is sent as null (no cap). `nuevo`: true
+ * only on a create, the only time the base is sent; it defaults to an edit so a caller that leaves it out never sends
+ * a base the backend refuses to change.
  */
-export const bodyDeBono = (valores, nuevo = true) => ({
+export const bodyDeBono = (valores, nuevo = false) => ({
   alcance: valores.alcance,
   ...CAMPO_DEL_ALCANCE[valores.alcance](valores),
   tipo: valores.tipo,
