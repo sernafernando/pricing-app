@@ -293,6 +293,105 @@ class TestProductosTrigger:
 
 
 @pytest.mark.postgres
+class TestProductosCostoTrigger:
+    """T25b2: a % of the sale's cost bonus (`base = 'costo_venta'`) has no invoice to gate on: a product whose `marca`
+    or `categoria` changes, or that arrives or leaves the catalog, queues `('bono', id)` for every active cost bonus
+    reaching it on its old or new side; an `iva` change alone queues the ones loaded with VAT (`incluye_iva`), the
+    only ones whose amount reads it."""
+
+    def test_a_brand_change_queues_the_cost_bonuses_of_the_old_and_the_new_brand(self, engine: Engine) -> None:
+        tplink = b.bono_costo(engine, marca=b.TPLINK)
+        mercusys = b.bono_costo(engine, marca=b.MERCUSYS)
+        b.bono_costo(engine, marca="OTRA MARCA")
+        b.bono_costo(engine, marca=b.TPLINK, estado="anulada")
+        b.clear_queue(engine)
+
+        _sql(engine, "UPDATE productos_erp SET marca = :m WHERE item_id = 2964", m=b.MERCUSYS)
+
+        assert b.queued(engine) == sorted([("bono", tplink), ("bono", mercusys)])
+
+    def test_a_brand_change_still_queues_the_invoice_operations_and_never_an_invoice_bonus(
+        self, engine: Engine
+    ) -> None:
+        factura = b.bono(engine)
+        pedido = b.pedido(engine, {2964: 1})
+        costo = b.bono_costo(engine)
+        b.clear_queue(engine)
+
+        _sql(engine, "UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = 2964")
+
+        assert b.queued(engine) == [("bono", costo), ("pedido", pedido)]
+        assert ("bono", factura) not in b.queued(engine)
+
+    def test_a_category_change_queues_the_cost_bonuses_of_the_old_and_the_new_category(self, engine: Engine) -> None:
+        routers = b.bono_costo(engine, alcance="categoria", categoria="Routers")
+        switches = b.bono_costo(engine, alcance="categoria", categoria="Switches")
+        _sql(engine, "UPDATE productos_erp SET categoria = 'Routers' WHERE item_id = 2964")
+        b.clear_queue(engine)
+
+        _sql(engine, "UPDATE productos_erp SET categoria = 'Switches' WHERE item_id = 2964")
+
+        assert b.queued(engine) == sorted([("bono", routers), ("bono", switches)])
+
+    def test_a_vat_change_queues_the_cost_bonuses_loaded_with_vat_reaching_the_product(self, engine: Engine) -> None:
+        con_iva = b.bono_costo(engine, incluye_iva=True)
+        b.bono_costo(engine)  # without VAT: its amount never reads the rate
+        modelo = b.bono_costo(engine, alcance="modelos", modelos=(2964,), incluye_iva=True)
+        b.bono_costo(engine, alcance="modelos", modelos=(950,), incluye_iva=True)  # does not reach 2964
+        b.bono(engine)
+        b.pedido(engine, {2964: 1})  # an invoice bonus does not read the VAT rate
+        b.set_iva(engine, 2964, 21.0)
+        b.clear_queue(engine)
+
+        b.set_iva(engine, 2964, 10.5)
+
+        assert b.queued(engine) == sorted([("bono", con_iva), ("bono", modelo)])
+
+    def test_an_unrelated_change_or_a_same_value_rewrite_queues_nothing(self, engine: Engine) -> None:
+        b.bono_costo(engine, incluye_iva=True)
+        b.set_iva(engine, 2964, 21.0)
+        b.clear_queue(engine)
+
+        _sql(engine, "UPDATE productos_erp SET costo = 50, descripcion = 'Otra' WHERE item_id = 2964")
+        _sql(engine, "UPDATE productos_erp SET marca = 'TP-LINK', categoria = NULL, iva = 21.0 WHERE item_id = 2964")
+
+        assert b.queued(engine) == []
+
+    def test_a_product_arriving_or_leaving_the_catalog_queues_the_cost_bonuses_reaching_it(
+        self, engine: Engine
+    ) -> None:
+        costo = b.bono_costo(engine)
+        b.bono_costo(engine, marca=b.MERCUSYS)
+        b.clear_queue(engine)
+
+        _sql(
+            engine, "INSERT INTO productos_erp (item_id, codigo, descripcion, marca) VALUES (4011, 'N', 'N', 'TP-LINK')"
+        )
+        assert b.queued(engine) == [("bono", costo)]
+
+        b.clear_queue(engine)
+        _sql(engine, "DELETE FROM productos_erp WHERE item_id = 4011")
+        assert b.queued(engine) == [("bono", costo)]
+
+    def test_a_brand_change_notifies_the_channel(self, engine: Engine) -> None:
+        b.bono_costo(engine)
+        b.clear_queue(engine)
+        raw = engine.raw_connection()
+        try:
+            raw.driver_connection.autocommit = True
+            cursor = raw.cursor()
+            cursor.execute(f"LISTEN {bono_queue.CHANNEL}")
+            cursor.execute("UPDATE productos_erp SET marca = 'OTRA' WHERE item_id = 2964")
+            select.select([raw.driver_connection], [], [], 5)
+            raw.driver_connection.poll()
+            channels = [n.channel for n in raw.driver_connection.notifies]
+        finally:
+            raw.invalidate()  # never hand an autocommit connection back to the pool
+
+        assert bono_queue.CHANNEL in channels
+
+
+@pytest.mark.postgres
 def test_the_trigger_notifies_the_channel(engine: Engine) -> None:
     raw = engine.raw_connection()
     try:

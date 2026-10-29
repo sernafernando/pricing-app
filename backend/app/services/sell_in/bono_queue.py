@@ -26,7 +26,11 @@ exists (and a key is only queued when some active bonus can care about it):
   (`sell_in_bono_cubre_producto`): by brand, by category, by model (listed in
   `sell_in_bono_items`) or by invoice (that very operation: a line with no
   product is out of an invoice bonus's base, so the product's arrival or
-  removal moves it). A NULL brand or category matches no bonus.
+  removal moves it). A NULL brand or category matches no bonus. The same
+  changes, and an `iva` change, also queue `('bono', id)` for the active % of
+  the sale's cost bonuses reaching it on either side (T25b2: they have no
+  invoice date to gate on; `iva` alone queues only the ones with
+  `incluye_iva`, and no operation, since an invoice bonus never reads it).
 
 The `pedidos_compra` and invoiced-line triggers gate on the invoice date only,
 not on the brands of the operation's items: a deliberate over-queue (an
@@ -40,7 +44,10 @@ over the (few) bonuses each. A trigger does no reconcile work.
 `UPGRADE_SQL`/`DOWNGRADE_SQL` are the live definition; the migration
 `20261115_sell_in_bono_queue_alcance` carries a frozen copy (it replaced the
 one `20261107_sell_in_bonos_marca` installed, which owns the table,
-`app.models.sell_in.SellInBonoDirty`).
+`app.models.sell_in.SellInBonoDirty`); later migrations replaced single
+statements and carry their frozen copies: the bonus update trigger
+(`20261211_sell_in_bono_tope`, `20261212_sell_in_bono_costo`) and the product
+function and update trigger (`20261213_sell_in_bono_costo_triggers`).
 
 The `sell_in.bono` worker drains it. A claimed row is locked (`FOR UPDATE SKIP
 LOCKED`) for the drain's short transaction: a trigger re-queueing it waits and
@@ -180,23 +187,44 @@ $trg$ LANGUAGE plpgsql
 CREATE OR REPLACE FUNCTION sell_in_bono_enqueue_producto() RETURNS TRIGGER AS $trg$
 DECLARE
     item productos_erp.item_id%TYPE;
+    solo_iva BOOLEAN := false;
+    encolado BOOLEAN := false;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         item := OLD.item_id;
     ELSE
         item := NEW.item_id;
     END IF;
+    IF TG_OP = 'UPDATE' THEN
+        solo_iva := (OLD.marca, OLD.categoria) IS NOT DISTINCT FROM (NEW.marca, NEW.categoria);
+    END IF;
+    IF NOT solo_iva THEN
+        INSERT INTO sell_in_bono_dirty (tipo, ref)
+        SELECT DISTINCT 'pedido', l.pedido_id
+        FROM pedido_compra_lineas_facturadas AS l
+        JOIN pedidos_compra AS p ON p.id = l.pedido_id
+        WHERE l.item_id = item
+          AND ((TG_OP <> 'DELETE' AND sell_in_bono_cubre_producto(p.fecha_factura, p.id, item, NEW.marca, NEW.categoria))
+               OR (TG_OP <> 'INSERT'
+                   AND sell_in_bono_cubre_producto(p.fecha_factura, p.id, item, OLD.marca, OLD.categoria)))
+        ORDER BY 2
+        ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
+        encolado := FOUND;
+    END IF;
+    -- % of the sale's cost bonuses (T25b2): no invoice date to gate on; an `iva` change alone moves only the ones
+    -- loaded with VAT. Same scope rule as `sell_in_bono_cubre_producto` (a cost bonus is never by invoice).
     INSERT INTO sell_in_bono_dirty (tipo, ref)
-    SELECT DISTINCT 'pedido', l.pedido_id
-    FROM pedido_compra_lineas_facturadas AS l
-    JOIN pedidos_compra AS p ON p.id = l.pedido_id
-    WHERE l.item_id = item
-      AND ((TG_OP <> 'DELETE' AND sell_in_bono_cubre_producto(p.fecha_factura, p.id, item, NEW.marca, NEW.categoria))
+    SELECT DISTINCT 'bono', b.id FROM sell_in_bonos_marca AS b
+    WHERE b.estado = 'activa' AND b.base = 'costo_venta' AND (NOT solo_iva OR b.incluye_iva)
+      AND ((b.alcance = 'modelos'
+            AND EXISTS (SELECT 1 FROM sell_in_bono_items AS i WHERE i.bono_id = b.id AND i.item_id = item))
+           OR (TG_OP <> 'DELETE'
+               AND ((b.alcance = 'marca' AND b.marca = NEW.marca) OR (b.alcance = 'categoria' AND b.categoria = NEW.categoria)))
            OR (TG_OP <> 'INSERT'
-               AND sell_in_bono_cubre_producto(p.fecha_factura, p.id, item, OLD.marca, OLD.categoria)))
+               AND ((b.alcance = 'marca' AND b.marca = OLD.marca) OR (b.alcance = 'categoria' AND b.categoria = OLD.categoria))))
     ORDER BY 2
     ON CONFLICT (tipo, ref) DO UPDATE SET enqueued_at = now(), attempts = 0, last_error = NULL;
-    IF FOUND THEN
+    IF encolado OR FOUND THEN
         PERFORM pg_notify('{CHANNEL}', '');
     END IF;
     RETURN NULL;
@@ -262,8 +290,8 @@ FOR EACH ROW EXECUTE FUNCTION sell_in_bono_enqueue_producto()
 """,
     """
 CREATE TRIGGER trg_sell_in_bono_productos_marca
-AFTER UPDATE OF marca, categoria ON productos_erp
-FOR EACH ROW WHEN ((OLD.marca, OLD.categoria) IS DISTINCT FROM (NEW.marca, NEW.categoria))
+AFTER UPDATE OF marca, categoria, iva ON productos_erp
+FOR EACH ROW WHEN ((OLD.marca, OLD.categoria, OLD.iva) IS DISTINCT FROM (NEW.marca, NEW.categoria, NEW.iva))
 EXECUTE FUNCTION sell_in_bono_enqueue_producto()
 """,
     """
