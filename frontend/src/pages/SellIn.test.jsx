@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useLocation } from 'react-router-dom';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
@@ -39,6 +40,8 @@ vi.mock('../contexts/PermisosContext', () => ({
 }));
 
 const lastParams = (fn) => fn.mock.calls[fn.mock.calls.length - 1][0];
+// The bonus list's own requests, leaving out the active bonuses the summary cards ask for.
+const listadosDeBonos = () => sellInBonosAPI.listar.mock.calls.filter(([params]) => params?.estado !== 'activa').length;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -53,6 +56,107 @@ beforeEach(() => {
   sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
   sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
   sellOutAPI.grupos.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
+});
+
+/** Prints where the router is, so a test can read the tab the URL keeps. */
+function Ubicacion() {
+  const { search } = useLocation();
+  return <output data-testid="ubicacion">{search}</output>;
+}
+
+const bonosPorEstado = (params) =>
+  params?.estado === 'activa' ? { data: { items: [BONO], total: 1, page: 1, page_size: 200 } } : { data: BONOS_LISTA };
+
+describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
+  it('is one "Sell in / Sell out" page with both tabs counted, Sell in selected and no campaigns in it', async () => {
+    renderWithRouter(<SellIn />);
+    expect(screen.getByRole('heading', { name: 'Sell in / Sell out', level: 1 })).toBeInTheDocument();
+    const tabs = screen.getByRole('tablist', { name: 'Sell in / Sell out' });
+    expect(await within(tabs).findByRole('tab', { name: 'Sell in · 4' })).toHaveAttribute('aria-selected', 'true');
+    expect(await within(tabs).findByRole('tab', { name: 'Sell out · 2' })).toHaveAttribute('aria-selected', 'false');
+    const panel = screen.getByRole('tabpanel', { name: /Sell in/ });
+    expect(await within(panel).findByText('Bonificación Q4 switches')).toBeInTheDocument();
+    expect(within(panel).getByRole('region', { name: 'Bonos de marca' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Campañas de sell out' })).not.toBeInTheDocument();
+  });
+
+  it('the Sell out tab shows the campaigns, hides the sell ins and keeps itself in the URL', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <SellIn />
+        <Ubicacion />
+      </>,
+      { initialEntries: ['/sell-in'] },
+    );
+    await screen.findByText('Bonificación Q4 switches');
+    await user.click(screen.getByRole('tab', { name: /Sell out/ }));
+    expect(screen.getByRole('tab', { name: /Sell out/ })).toHaveAttribute('aria-selected', 'true');
+    const panel = screen.getByRole('tabpanel', { name: /Sell out/ });
+    expect(await within(panel).findByText('RB 8180')).toBeInTheDocument();
+    expect(screen.queryByText('Bonificación Q4 switches')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Bonos de marca' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=sell-out');
+    await user.click(screen.getByRole('tab', { name: /Sell in/ }));
+    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
+    expect(screen.getByTestId('ubicacion')).toHaveTextContent(/^$/);
+  });
+
+  it('opens on the Sell out tab when the URL says so (a reload keeps the tab)', async () => {
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    expect(screen.getByRole('tab', { name: /Sell out/ })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByText('RB 8180')).toBeInTheDocument();
+  });
+
+  it('without sell_out.ver there is no Sell out tab, and ?tab=sell-out falls back to Sell in', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.ver');
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Sell out/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('the header action follows the tab: "Nuevo sell in" on Sell in, "Nueva campaña" on Sell out', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    expect(screen.getByRole('button', { name: /Nuevo sell in/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Nueva campaña/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Sell out/ }));
+    expect(screen.getByRole('button', { name: /Nueva campaña/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Nuevo sell in/ })).not.toBeInTheDocument();
+  });
+
+  it('the Tipo chips count purchases and brand bonuses and show one list or both', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    const chips = await screen.findByRole('group', { name: 'Tipo' });
+    expect(await within(chips).findByRole('button', { name: 'Todos · 4' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(chips).getByRole('button', { name: 'Por compra · 2' })).toBeInTheDocument();
+    expect(within(chips).getByRole('button', { name: 'Bono de marca · 2' })).toBeInTheDocument();
+    await screen.findByText('Bonificación Q4 switches');
+
+    await user.click(within(chips).getByRole('button', { name: 'Bono de marca · 2' }));
+    expect(screen.queryByText('Bonificación Q4 switches')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Bonos de marca' })).toBeInTheDocument();
+
+    await user.click(within(chips).getByRole('button', { name: 'Por compra · 2' }));
+    expect(screen.getByText('Bonificación Q4 switches')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Bonos de marca' })).not.toBeInTheDocument();
+  });
+
+  it('the summary adds the active brand bonuses, their brands and the purchases they reached', async () => {
+    sellInBonosAPI.listar.mockImplementation(async (params) => bonosPorEstado(params));
+    renderWithRouter(<SellIn />);
+    const cards = await screen.findByRole('region', { name: 'Resumen' });
+    await waitFor(() => expect(sellInBonosAPI.listar).toHaveBeenCalledWith({ estado: 'activa', page: 1, page_size: 200 }));
+    const vigentes = (await within(cards).findByText('Bonos de marca vigentes')).parentElement;
+    expect(vigentes).toHaveTextContent('1');
+    expect(vigentes).toHaveTextContent('1 marca');
+    const alcanzadas = within(cards).getByText('Compras alcanzadas').parentElement;
+    expect(alcanzadas).toHaveTextContent('18');
+    expect(alcanzadas).toHaveTextContent('por bonos de marca');
+  });
 });
 
 describe('SellIn page — list', () => {
@@ -183,9 +287,9 @@ describe('SellIn page — brand bonuses', () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />);
     await screen.findByRole('region', { name: 'Bonos de marca' });
-    await waitFor(() => expect(sellInBonosAPI.listar).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(listadosDeBonos()).toBe(1));
     await user.click(screen.getByRole('button', { name: /Actualizar/ }));
-    await waitFor(() => expect(sellInBonosAPI.listar).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(listadosDeBonos()).toBe(2));
   });
 
   it('lists the brand bonuses with what they generated, and opens one in the side panel', async () => {
@@ -230,7 +334,7 @@ describe('SellIn page — brand bonuses', () => {
     await user.type(within(panel).getByLabelText('Factura hasta'), '2026-11-30');
     await user.click(within(panel).getByRole('button', { name: 'Guardar bono' }));
     expect(await screen.findByRole('complementary', { name: 'Bono de marca' })).toBeInTheDocument();
-    await waitFor(() => expect(sellInBonosAPI.listar).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(listadosDeBonos()).toBe(2));
   });
 });
 
@@ -244,7 +348,7 @@ describe('SellIn page — purchases generated by a brand bonus', () => {
 
 describe('SellIn page — sell-out campaigns (T8)', () => {
   it('lists the campaigns with their benefit, validity, credit and state', async () => {
-    renderWithRouter(<SellIn />);
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
     const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
     const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
     expect(fila).toHaveTextContent('USD 36,00 por unidad');
@@ -257,7 +361,7 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
 
   it('searches the campaigns by name and goes back to page 1', async () => {
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
     const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
     await user.type(within(seccion).getByPlaceholderText('Buscar campaña por nombre…'), 'RB');
     await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ q: 'RB', page: 1, page_size: 10 }));
@@ -265,7 +369,7 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
 
   it('"Ver campaña" opens it in the side panel', async () => {
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
     const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
     const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
     await user.click(within(fila).getByRole('button', { name: 'Ver campaña' }));
@@ -275,7 +379,7 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
 
   it('"Actualizar" reloads the campaigns too', async () => {
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
     await screen.findByRole('region', { name: 'Campañas de sell out' });
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole('button', { name: /Actualizar/ }));
@@ -286,10 +390,10 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     const user = userEvent.setup();
     sellOutAPI.crear.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, id: 95, nombre: 'Epson diciembre' } });
     sellOutAPI.detalle.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, id: 95, nombre: 'Epson diciembre' } });
-    renderWithRouter(<SellIn />);
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await screen.findByRole('region', { name: 'Campañas de sell out' });
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
-    await user.click(within(seccion).getByRole('button', { name: /Nueva campaña/ }));
+    await user.click(screen.getByRole('button', { name: /Nueva campaña/ }));
 
     expect(await screen.findByRole('heading', { name: 'Nueva campaña de sell out' })).toBeInTheDocument();
     await user.type(screen.getByLabelText('Nombre'), 'Epson diciembre');
@@ -306,16 +410,16 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
 
   it('without sell_out.gestionar there is no "Nueva campaña" and the groups are not asked', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
-    renderWithRouter(<SellIn />);
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
     const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
     await within(seccion).findByText('RB 8180');
-    expect(within(seccion).queryByRole('button', { name: /Nueva campaña/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Nueva campaña/ })).not.toBeInTheDocument();
     expect(sellOutAPI.grupos).not.toHaveBeenCalled();
   });
 
   it('without sell_out.ver the section is not shown and nothing is asked', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.ver');
-    renderWithRouter(<SellIn />);
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
     expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Campañas de sell out' })).not.toBeInTheDocument();
     expect(sellOutAPI.listar).not.toHaveBeenCalled();

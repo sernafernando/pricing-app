@@ -28,18 +28,34 @@ function ChipContent({ label, count }) {
 
 /**
  * `hints` (optional, per option value): a tooltip for that chip, e.g. why it can read 0 and still select rows.
+ * `allLabel` (optional): the name of the chip that clears the axis, "Todas" unless the axis is masculine ("Todos").
+ * `allLast` (optional): put that chip after the options instead of before them.
  */
-export default function FacetChips({ label, options, labels, counts, hints, total, activeValue, onChange }) {
+export default function FacetChips({
+  label,
+  options,
+  labels,
+  counts,
+  hints,
+  total,
+  activeValue,
+  onChange,
+  allLabel = 'Todas',
+  allLast = false,
+}) {
+  const allChip = (
+    <button
+      type="button"
+      className={`${styles.chip} ${activeValue === '' ? styles.chipActive : ''}`}
+      aria-pressed={activeValue === ''}
+      onClick={() => onChange('')}
+    >
+      <ChipContent label={allLabel} count={total} />
+    </button>
+  );
   return (
     <div className={styles.row} role="group" aria-label={label}>
-      <button
-        type="button"
-        className={`${styles.chip} ${activeValue === '' ? styles.chipActive : ''}`}
-        aria-pressed={activeValue === ''}
-        onClick={() => onChange('')}
-      >
-        <ChipContent label="Todas" count={total} />
-      </button>
+      {!allLast && allChip}
       {options.map((value) => (
         <button
           key={value}
@@ -52,6 +68,7 @@ export default function FacetChips({ label, options, labels, counts, hints, tota
           <ChipContent label={labels[value] ?? value} count={counts?.[value]} />
         </button>
       ))}
+      {allLast && allChip}
     </div>
   );
 }
