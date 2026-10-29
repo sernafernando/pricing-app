@@ -13,6 +13,8 @@ import {
   errorDeModelos,
   errorDeTope,
   faltanDatos,
+  esBonoCosto,
+  origenDeBono,
   restanteDeTope,
   valoresDeBono,
 } from './sellInBonoValores';
@@ -102,7 +104,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
     setBusy(true);
     setError(null);
     try {
-      const body = bodyDeBono(valores);
+      const body = bodyDeBono(valores, nuevo);
       const { data } = nuevo ? await sellInBonosAPI.crear(body) : await sellInBonosAPI.editar(bonoId, body);
       if (nuevo) {
         onSaved(data);
@@ -136,6 +138,8 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
   const activo = bono?.estado === 'activa';
   const restante = bono ? restanteDeTope(bono, formatEntero, formatMonto) : null;
   const editable = puedeGestionar && (nuevo || activo);
+  const costo = bono ? esBonoCosto(bono) : false;
+  const origen = bono ? origenDeBono(bono) : null;
   const titulo = nuevo ? 'Nuevo sell in · Bono de marca' : bono ? bono.descripcion || `Bono · ${alcanceDeBono(bono)}` : 'Bono de marca';
 
   return (
@@ -151,6 +155,7 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
           <h2>{titulo}</h2>
           {/* A timestamptz with its offset: formatted on the user's local (Argentina) day, never the UTC one. */}
           {bono?.created_at && <p className={styles.hint}>Creado el {formatDateOnly(bono.created_at)}</p>}
+          {origen && <p className={styles.hint}>{origen}</p>}
         </div>
         <button type="button" className={styles.close} aria-label="Cerrar" onClick={onClose} disabled={busy}>
           <X size={18} />
@@ -170,8 +175,13 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
             <h3>
               <Settings2 size={14} aria-hidden /> Definición
             </h3>
-            <SellInBonoForm valores={valores} onChange={setValores} marcas={marcas} disabled={!editable} />
-            {bono && (
+            <SellInBonoForm valores={valores} onChange={setValores} marcas={marcas} disabled={!editable} baseEditable={nuevo} />
+            {bono && costo && (
+              <p className={styles.hint}>
+                <strong>{`${formatEntero(bono.unidades)} u vendidas · ${formatMonto(bono.monto_generado, bono.moneda)} aplicados en ventas`}</strong>
+              </p>
+            )}
+            {bono && !costo && (
               <p className={styles.hint}>
                 <strong>{`${formatEntero(bono.compras_activas)} compras · ${formatEntero(bono.unidades)} u · ${formatMonto(bono.monto_generado, bono.moneda)} aplicados`}</strong>
               </p>
@@ -189,7 +199,15 @@ export default function SellInBonoPanel({ bonoId = null, marcas, puedeGestionar,
             {alcanceError}
           </p>
         )}
-        {bono && alcance && <SellInBonoAlcance alcance={alcance} onVerCompra={onVerCompra} />}
+        {bono && costo && (
+          <section className={styles.section}>
+            <p className={styles.hint}>
+              Se aplica a las ventas de su alcance cuya fecha de venta cae en el rango, sobre el costo de cada venta: no genera compras, así que no hay
+              compras para listar. Lo aplicado y el tope salen de esas ventas.
+            </p>
+          </section>
+        )}
+        {bono && !costo && alcance && <SellInBonoAlcance alcance={alcance} onVerCompra={onVerCompra} />}
       </div>
 
       {editable && (
