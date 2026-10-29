@@ -1,14 +1,14 @@
 """para_ganar: per-MLA criteria table
 
 Revision ID: 20261201_para_ganar_criterios_mla
-Revises: 20261208_ml_sale_lines_tg_unknown
+Revises: 20261214_sell_out_monto_total
 Create Date: 2026-12-01
 
 Stores PARA GANAR advisor criteria keyed by MLA (unit of work). Product/PM
 defaults come later; this table is the MLA override layer.
 
 Chained after upstream/main head so the PR merge does not fork alembic
-(main moved past 20261211 → 20261208_ml_sale_lines_tg_unknown).
+(main moved to 20261214_sell_out_monto_total).
 """
 
 from typing import Sequence, Union
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261201_para_ganar_criterios_mla"
-down_revision: Union[str, None] = "20261208_ml_sale_lines_tg_unknown"
+down_revision: Union[str, None] = "20261214_sell_out_monto_total"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
