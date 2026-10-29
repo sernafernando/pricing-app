@@ -133,6 +133,7 @@ Before creating a PR:
 2. Run all relevant linters
 3. Write descriptive commit messages
 4. Update documentation if needed
+5. A PR that changes what a screen shows updates that screen's help section in `frontend/src/ayuda/` (the in-app **Ayuda** page), in the same PR, like a novedad (`frontend/src/novedades/`)
 
 ---
 
