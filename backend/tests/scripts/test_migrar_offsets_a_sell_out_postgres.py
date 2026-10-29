@@ -23,7 +23,7 @@ from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInBonoMarca
+from app.models.sell_in import SellInBonoItem, SellInBonoMarca
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem, SellOutDirty
 from app.scripts import migrar_offsets_a_sell_out as script
 from tests.services.sell._schema import throwaway_schema
@@ -64,6 +64,7 @@ _TABLES = [
     SellOutDirty.__table__,
     Auditoria.__table__,
     SellInBonoMarca.__table__,
+    SellInBonoItem.__table__,
 ]
 # Every table the script could write, for the dry-run check.
 _ESCRITAS = (
@@ -75,6 +76,8 @@ _ESCRITAS = (
     "sell_out_dirty",
     "auditoria",
     "offsets_migracion_pendientes",
+    "sell_in_bonos_marca",
+    "sell_in_bono_items",
 )
 
 
@@ -255,6 +258,9 @@ def test_an_active_per_unit_usd_offset_becomes_one_campaign_through_the_service(
         "campana_ids": [c["id"]],
         "pendientes": 0,
         "vencidos_migrados": [],
+        "bonos_creados": 0,
+        "bono_ids": [],
+        "bonos_vencidos_migrados": [],
     }
 
 
@@ -1239,9 +1245,6 @@ def _bono(engine: Engine, porcentaje="4", **values) -> int:
         ).scalar_one()
 
 
-SIN_BONO = "Porcentaje sobre costo: no hay un bono de sell in equivalente; cargarlo a mano"
-
-
 def _porcentaje(engine, correr, **values) -> tuple[int, int, dict, dict]:
     """A cost-percentage offset run with --apply: (offset id, exit code, its CSV row, its review row);
     nothing is created, neither a campaign nor a bono."""
@@ -1289,52 +1292,59 @@ def test_several_equivalent_bonos_are_all_named(engine, correr) -> None:
     assert fila["avisos"] == f"el bono #{otro} tiene 5 % y el offset 4 %"
 
 
-def test_a_cost_percentage_without_an_equivalent_bono_is_stored_with_its_detail(engine, correr) -> None:
-    _bono(engine, marca="EPSON")
+@pytest.mark.parametrize(
+    "alcance,esperado",
+    [
+        ({"marca": None, "categoria": "Routers"}, ("categoria", None, "Routers", [])),
+        ({"marca": None, "item_id": 2964}, ("modelos", None, None, [(2964, None)])),
+    ],
+    ids=["categoria", "producto"],
+)
+def test_a_cost_percentage_not_scoped_to_a_brand_alone_is_not_the_brand_bono_and_migrates_to_its_scope(
+    engine, correr, alcance, esperado
+) -> None:
+    a_mano = _bono(engine)  # a TP-LINK brand bonus is not the one of a category or a product offset
 
-    _, code, fila, pendiente = _porcentaje(engine, correr)
+    offset_id = _pct(engine, **alcance)
+    code, _, filas = correr("--apply")
 
     assert code == 0
-    assert fila["motivo"] == pendiente["motivo"] == SIN_BONO
-    assert (pendiente["tipo_offset"], pendiente["marca"], pendiente["porcentaje"]) == (
-        "porcentaje_costo",
-        "TP-LINK",
-        4.0,
-    )
+    [b] = _bonos_costo(engine)
+    assert (b["id"] != a_mano, b["offset_origen_id"], b["base"]) == (True, offset_id, "costo_venta")
+    assert (b["alcance"], b["marca"], b["categoria"], _modelos_de(engine, b["id"])) == esperado
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == (f"migrado a bono #{b['id']}", "")
 
 
 @pytest.mark.parametrize(
-    "alcance", [{"marca": None, "categoria": "TP-LINK"}, {"marca": None, "item_id": 2964}, {"categoria": "Routers"}]
-)
-def test_a_cost_percentage_not_scoped_to_a_brand_alone_has_no_equivalent_bono(engine, correr, alcance) -> None:
-    _bono(engine)
-
-    _, _, fila, _ = _porcentaje(engine, correr, **alcance)
-
-    assert fila["motivo"] == SIN_BONO
-
-
-@pytest.mark.parametrize(
-    "fechas,coincide",
+    "fechas,esperado",
     [
-        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": date(2026, 6, 30)}, False),  # expired before the bono
-        ({"fecha_desde": date(2027, 1, 1), "fecha_hasta": None}, False),  # open-ended, after the bono
-        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": None}, True),  # open-ended, reaching the bono
-        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": date(2026, 10, 1)}, True),  # ends on its first day
-        ({"fecha_desde": date(2026, 12, 31), "fecha_hasta": date(2027, 2, 28)}, True),  # starts on its last day
+        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": date(2026, 6, 30)}, "bono"),  # expired before the bono
+        # open-ended after the bono: it would end on the default date, before it starts
+        ({"fecha_desde": date(2027, 1, 1), "fecha_hasta": None}, "error"),
+        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": None}, "a_mano"),  # open-ended, reaching the bono
+        ({"fecha_desde": date(2026, 3, 1), "fecha_hasta": date(2026, 10, 1)}, "a_mano"),  # ends on its first day
+        ({"fecha_desde": date(2026, 12, 31), "fecha_hasta": date(2027, 2, 28)}, "a_mano"),  # starts on its last day
     ],
     ids=["vencido", "abierto_despues", "abierto_cubre", "termina_el_primer_dia", "empieza_el_ultimo_dia"],
 )
-def test_a_cost_percentage_matches_only_a_bono_covering_its_dates(engine, correr, fechas, coincide) -> None:
-    # A4: a bono of another period is not the one loaded by hand for this offset.
+def test_a_cost_percentage_matches_only_a_bono_covering_its_dates(engine, correr, fechas, esperado) -> None:
+    # A4: a bono of another period is not the one loaded by hand for this offset, so the offset migrates.
     bono = _bono(engine)  # 2026-10-01..2026-12-31
+    offset_id = _pct(engine, porcentaje=4, **fechas)
 
-    _, code, fila, pendiente = _porcentaje(engine, correr, **fechas)
+    code, _, filas = correr("--apply")
 
-    assert code == 0
-    motivo = f"ya cargado a mano como bono #{bono}" if coincide else SIN_BONO
-    assert (fila["motivo"], fila["avisos"]) == (motivo, "")
-    assert (pendiente["motivo"], pendiente["avisos"]) == (motivo, None)
+    fila = filas[offset_id]
+    if esperado == "a_mano":
+        assert (code, fila["resultado"], fila["motivo"]) == (0, "no migrado", f"ya cargado a mano como bono #{bono}")
+        assert (_bonos_costo(engine), _pendientes(engine)[offset_id]["motivo"]) == ([], fila["motivo"])
+    elif esperado == "bono":
+        [b] = _bonos_costo(engine)
+        assert (code, fila["resultado"], _pendientes(engine)) == (0, f"migrado a bono #{b['id']}", {})
+    else:
+        motivo = "La fecha desde no puede ser posterior a la fecha hasta"
+        assert (code, fila["resultado"], fila["motivo"], _bonos_costo(engine)) == (1, "no migrado", motivo, [])
+        assert _pendientes(engine)[offset_id]["motivo"] == motivo
 
 
 def test_only_the_bonos_covering_the_offset_dates_are_named(engine, correr) -> None:
@@ -1355,3 +1365,517 @@ def test_a_fixed_amount_offset_is_stored_for_review(engine, correr) -> None:
     motivo = "Monto fijo: no tiene equivalente en una campaña por unidad"
     assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == ("no migrado", motivo)
     assert (_pendientes(engine)[offset_id]["motivo"], _campanas(engine)) == (motivo, [])
+
+
+# ── Cost percentage -> sell-in cost bonus (T25f) ─────────────────────
+
+VENCIDO_SELL_IN = "Vencido el {}: migrarlo cambia el costo histórico con sell in en Métricas ML"
+
+
+def _pct(engine: Engine, **values) -> int:
+    """A legacy cost-percentage offset like the owner's (TP-LINK '3 %' stored net of VAT as 2,71)."""
+    return _offset(
+        engine,
+        **{
+            "marca": "TP-LINK",
+            "tipo_offset": "porcentaje_costo",
+            "monto": None,
+            "porcentaje": 2.71,
+            "moneda": "ARS",
+            "descripcion": "TP 3% xQ",
+            **values,
+        },
+    )
+
+
+def _bonos_costo(engine: Engine) -> list:
+    with engine.connect() as conn:
+        return (
+            conn.execute(text("SELECT * FROM sell_in_bonos_marca WHERE offset_origen_id IS NOT NULL ORDER BY id"))
+            .mappings()
+            .all()
+        )
+
+
+def _modelos_de(engine: Engine, bono_id: int) -> list[tuple]:
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT item_id, porcentaje FROM sell_in_bono_items WHERE bono_id = :b ORDER BY item_id"),
+            {"b": bono_id},
+        )
+        return [tuple(r) for r in rows]
+
+
+def test_a_brand_cost_percentage_becomes_one_cost_bonus_with_its_stored_percentage_unticked(engine, correr) -> None:
+    # S33: the stored % (already net of VAT) as is and 'incluye IVA' unticked; rule 9: brand scope, its own dates.
+    offset_id = _pct(engine)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [b] = _bonos_costo(engine)
+    assert (b["offset_origen_id"], b["alcance"], b["marca"], b["base"], b["tipo"]) == (
+        offset_id,
+        "marca",
+        "TP-LINK",
+        "costo_venta",
+        "porcentaje",
+    )
+    assert (b["porcentaje"], b["incluye_iva"], b["moneda"], b["monto_unit"]) == (Decimal("2.7100"), False, "ARS", None)
+    assert (b["fecha_desde"], b["fecha_hasta"], b["estado"], b["usuario_id"]) == (
+        date(2026, 9, 1),
+        date(2026, 12, 15),
+        "activa",
+        7,
+    )
+    assert (b["tope_unidades"], b["tope_monto"], b["descripcion"]) == (
+        None,
+        None,
+        f"Migrado del offset #{offset_id}: TP 3% xQ",
+    )
+    assert _modelos_de(engine, b["id"]) == []
+    assert _campanas(engine) == [] and _count(engine, "offset_grupos") == 0
+    with engine.connect() as conn:  # audited like a bonus loaded from the screen
+        audit = conn.execute(text("SELECT valores_nuevos FROM auditoria")).scalar_one()
+    assert (audit["bono_id"], audit["offset_origen_id"], audit["base"], audit["incluye_iva"]) == (
+        b["id"],
+        offset_id,
+        "costo_venta",
+        False,
+    )
+    assert filas[offset_id] == {
+        "offset_id": str(offset_id),
+        "tipo": "porcentaje_costo",
+        "descripcion": "TP 3% xQ",
+        "alcance": "marca TP-LINK",
+        "valor": "2,71",
+        "moneda": "ARS",
+        "desde": "2026-09-01",
+        "hasta": "2026-12-15",
+        "resultado": f"migrado a bono #{b['id']}",
+        "campana_id": "",
+        "motivo": "",
+        "avisos": "",
+    }
+    assert (summary["migrados"], summary["campana_ids"], summary["bonos_creados"], summary["bono_ids"]) == (
+        1,
+        [],
+        1,
+        [b["id"]],
+    )
+    assert (summary["pendientes"], summary["con_error"], _pendientes(engine)) == (0, [], {})
+
+
+def test_a_cost_percentage_that_migrates_later_leaves_the_review_table(engine, correr) -> None:
+    offset_id = _pct(engine, usuario_id=None)
+    correr("--apply")
+    assert _pendientes(engine)[offset_id]["motivo"] == "Sin usuario: indicar --usuario-id"
+    assert _bonos_costo(engine) == []
+
+    _, summary, filas = correr("--apply", "--usuario-id", "8")
+
+    [b] = _bonos_costo(engine)
+    assert (b["usuario_id"], filas[offset_id]["resultado"]) == (8, f"migrado a bono #{b['id']}")
+    assert (_pendientes(engine), summary["pendientes"]) == ({}, 0)
+
+
+def test_a_cost_percentage_with_a_unit_cap_keeps_it_on_the_bonus(engine, correr) -> None:
+    _pct(engine, max_unidades=50)
+
+    correr("--apply")
+
+    [b] = _bonos_costo(engine)
+    assert (b["tope_unidades"], b["tope_monto"]) == (50, None)
+
+
+@pytest.mark.parametrize(
+    "alcance,detalle",
+    [
+        ({"categoria": "Routers"}, "marca TP-LINK o categoría Routers"),
+        ({"marca": None, "subcategoria_id": 11}, "subcategoría 11"),
+    ],
+    ids=["marca_o_categoria", "subcategoria"],
+)
+def test_a_cost_percentage_whose_scope_a_bonus_cannot_hold_goes_to_review_with_its_detail(
+    engine, correr, alcance, detalle
+) -> None:
+    offset_id = _pct(engine, **alcance)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    motivo = f"Porcentaje sobre costo: un bono de sell in no puede tener este alcance ({detalle}); revisar a mano"
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == ("no migrado", motivo)
+    pendiente = _pendientes(engine)[offset_id]
+    assert (pendiente["motivo"], pendiente["subcategoria_id"], pendiente["porcentaje"]) == (
+        motivo,
+        alcance.get("subcategoria_id"),
+        2.71,
+    )
+    assert (_bonos_costo(engine), summary["bonos_creados"], summary["con_error"]) == ([], 0, [])
+
+
+@pytest.mark.parametrize(
+    "values,motivo",
+    [
+        ({"aplica_fuera": False}, "No aplicaba a: fuera de ML; un bono sobre el costo aplica a todos los canales"),
+        ({"max_monto_usd": 100}, "El tope en USD (100,00) no se puede guardar en un bono sobre el costo en pesos"),
+    ],
+    ids=["sin_canal", "tope_usd"],
+)
+def test_a_cost_percentage_a_bonus_cannot_represent_goes_to_review(engine, correr, values, motivo) -> None:
+    offset_id = _pct(engine, **values)
+
+    _, _, filas = correr("--apply")
+
+    assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == ("no migrado", motivo)
+    assert (_bonos_costo(engine), _pendientes(engine)[offset_id]["motivo"]) == ([], motivo)
+
+
+def test_an_open_ended_cost_percentage_ends_on_the_default_date_and_warns(engine, correr) -> None:
+    offset_id = _pct(engine, fecha_desde=date(2025, 11, 1), fecha_hasta=None)
+
+    _, summary, filas = correr("--apply", "--fecha-hasta-default", "2027-03-31")
+
+    [b] = _bonos_costo(engine)
+    assert (b["fecha_desde"], b["fecha_hasta"]) == (date(2025, 11, 1), date(2027, 3, 31))
+    assert (filas[offset_id]["hasta"], filas[offset_id]["avisos"]) == (
+        "",
+        "Sin fecha hasta: se usó 2027-03-31, revisar",
+    )
+    assert summary["bonos_vencidos_migrados"] == []
+
+
+def test_an_expired_cost_percentage_migrates_with_its_real_dates_and_a_sell_in_warning(engine, correr) -> None:
+    # It changes the historical cost with sell in in Métricas ML, so the CSV, the summary and stderr say so.
+    offset_id = _pct(engine, fecha_desde=date(2025, 11, 1), fecha_hasta=date(2026, 7, 31))
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [b] = _bonos_costo(engine)
+    assert (b["fecha_desde"], b["fecha_hasta"]) == (date(2025, 11, 1), date(2026, 7, 31))
+    assert filas[offset_id]["avisos"] == VENCIDO_SELL_IN.format("2026-07-31")
+    assert (summary["bonos_vencidos_migrados"], summary["vencidos_migrados"]) == ([offset_id], [])
+    assert correr.err.splitlines()[-1] == (
+        f"AVISO: 1 offset(s) vencido(s) migrado(s) a bono ({offset_id}): cambian el costo histórico con sell in "
+        "en Métricas ML"
+    )
+
+
+def test_a_rerun_reports_the_migrated_cost_percentage_with_its_bonus_and_creates_nothing(engine, correr) -> None:
+    offset_id = _pct(engine)
+    correr("--apply")
+    [b] = _bonos_costo(engine)
+
+    code, summary, filas = correr("--apply")
+
+    assert (code, _bonos_costo(engine), _count(engine, "auditoria")) == (0, [b], 1)
+    assert (filas[offset_id]["resultado"], filas[offset_id]["avisos"]) == (f"ya migrado a bono #{b['id']}", "")
+    assert (summary["ya_migrados"], summary["migrados"], summary["bonos_creados"], summary["bono_ids"]) == (1, 0, 0, [])
+    assert _pendientes(engine) == {}
+
+
+def test_the_owners_tp_link_pair_one_migrates_and_the_one_loaded_by_hand_never_does(engine, correr) -> None:
+    # Owner's dry run: 9 (TP 3 %, to 2026-07-31) has no bonus; 87 (TP 4 %, from 2026-08-01) is bono #1, by hand.
+    a_mano = _bono(engine, fecha_desde=date(2026, 8, 1), fecha_hasta=date(2026, 12, 31))
+    nueve = _pct(engine, fecha_desde=date(2025, 11, 1), fecha_hasta=date(2026, 7, 31))
+    ochenta_y_siete = _pct(
+        engine, descripcion="TP 4% xQ", porcentaje=3.6, fecha_desde=date(2026, 8, 1), fecha_hasta=None
+    )
+
+    for _ in range(2):  # a re-run never migrates it either
+        code, _, filas = correr("--apply")
+
+        assert code == 0
+        motivo = f"ya cargado a mano como bono #{a_mano}"
+        assert (filas[ochenta_y_siete]["resultado"], filas[ochenta_y_siete]["motivo"]) == ("no migrado", motivo)
+        assert list(_pendientes(engine)) == [ochenta_y_siete]
+        assert [b["offset_origen_id"] for b in _bonos_costo(engine)] == [nueve]
+
+
+def test_the_dry_run_writes_nothing_and_reports_the_cost_bonuses_as_apply_does(engine, correr) -> None:
+    marca = _pct(engine, fecha_hasta=None)
+    vencido = _pct(engine, marca="MERCUSYS", fecha_desde=date(2026, 1, 1), fecha_hasta=date(2026, 1, 31))
+    sin_productos = _pct(engine, marca="FORZA")
+    antes = {table: _count(engine, table) for table in _ESCRITAS}
+
+    code, summary, filas = correr()
+
+    assert {table: _count(engine, table) for table in _ESCRITAS} == antes
+    assert code == 1  # the brand without products is a validation error, as under --apply
+    assert [filas[i]["resultado"] for i in (marca, vencido)] == ["se migraría a bono"] * 2
+    assert filas[marca]["avisos"] == "Sin fecha hasta: se usó 2026-12-31, revisar"
+    assert filas[vencido]["avisos"] == VENCIDO_SELL_IN.format("2026-01-31")
+    assert (filas[sin_productos]["resultado"], filas[sin_productos]["motivo"]) == (
+        "no migrado",
+        "No hay productos de la marca FORZA",
+    )
+    assert (summary["migrarian"], summary["bonos_creados"], summary["bono_ids"], summary["con_error"]) == (
+        2,
+        0,
+        [],
+        [sin_productos],
+    )
+    assert (summary["bonos_vencidos_migrados"], summary["pendientes"]) == ([vencido], 1)
+    assert correr.err.splitlines()[-1] == (
+        f"AVISO: 1 offset(s) vencido(s) se migrarían a bono ({vencido}): cambian el costo histórico con sell in "
+        "en Métricas ML"
+    )
+    sin_resultado = {
+        i: {k: v for k, v in filas[i].items() if k != "resultado"} for i in (marca, vencido, sin_productos)
+    }
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 1
+    assert {i: {k: v for k, v in filas[i].items() if k != "resultado"} for i in sin_resultado} == sin_resultado
+    bonos = _bonos_costo(engine)
+    assert [filas[i]["resultado"] for i in (marca, vencido)] == [f"migrado a bono #{b['id']}" for b in bonos]
+    assert (summary["con_error"], list(_pendientes(engine))) == ([sin_productos], [sin_productos])
+    assert _pendientes(engine)[sin_productos]["motivo"] == "No hay productos de la marca FORZA"
+
+
+def test_a_database_error_on_one_cost_percentage_is_reported_and_the_others_still_migrate(
+    engine, correr, monkeypatch
+) -> None:
+    falla = _pct(engine)
+    sana = _pct(engine, marca="MERCUSYS")
+    real = script.bonos_crud._audit
+
+    def audit(db, tipo, usuario_id, antes, despues, motivo=None):
+        if despues["offset_origen_id"] == falla:  # after the bonus and its models were flushed, before the commit
+            db.execute(text("SELECT * FROM tabla_que_no_existe"))
+        return real(db, tipo, usuario_id, antes, despues, motivo)
+
+    monkeypatch.setattr(script.bonos_crud, "_audit", audit)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 1
+    assert (filas[falla]["resultado"], filas[falla]["motivo"].split(":")[0]) == ("no migrado", "Error de base de datos")
+    assert [b["offset_origen_id"] for b in _bonos_costo(engine)] == [sana]  # the failed bonus rolled back
+    assert (summary["con_error"], _count(engine, "auditoria")) == ([falla], 1)
+    assert _pendientes(engine)[falla]["motivo"].startswith("Error de base de datos")
+
+
+def _grupo_amplify(engine: Engine) -> tuple[int, int, int]:
+    """Like the owner's grupo #5: a filter (category Switches: 2270) and offsets, one of them with a product
+    outside the filter (950) and its own %."""
+    grupo_id = w.grupo(engine, [{"categoria": "Switches"}])
+    base = {
+        "grupo_id": grupo_id,
+        "marca": None,
+        "descripcion": "AMPLIFY IMPRESION 0.5%",
+        "fecha_desde": date(2025, 11, 1),
+        "fecha_hasta": date(2026, 1, 31),
+    }
+    return grupo_id, _pct(engine, **base, porcentaje=0.5), _pct(engine, **base, item_id=950, porcentaje=0.35)
+
+
+def test_a_cost_percentage_group_becomes_one_models_bonus_with_its_filters_and_its_offsets_products(
+    engine, correr
+) -> None:
+    # Owner: "El grupo lo arma el operador...": the filters' products today UNION the products of its offsets.
+    grupo_id, ref, otro = _grupo_amplify(engine)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [b] = _bonos_costo(engine)
+    assert (b["offset_origen_id"], b["alcance"], b["marca"], b["categoria"], b["base"]) == (
+        ref,
+        "modelos",
+        None,
+        None,
+        "costo_venta",
+    )
+    assert (b["porcentaje"], b["incluye_iva"], b["fecha_desde"], b["fecha_hasta"]) == (
+        Decimal("0.5000"),
+        False,
+        date(2025, 11, 1),
+        date(2026, 1, 31),
+    )
+    assert _modelos_de(engine, b["id"]) == [(950, Decimal("0.3500")), (2270, None)]
+    congelado = (
+        f"Grupo #{grupo_id}: alcance congelado en 2 productos (sus filtros hoy y los productos de sus offsets); "
+        "un producto que cambió de marca o categoría desde entonces puede no coincidir"
+    )
+    vencido = VENCIDO_SELL_IN.format("2026-01-31")
+    assert filas[ref]["resultado"] == filas[otro]["resultado"] == f"migrado a bono #{b['id']}"
+    assert filas[ref]["avisos"] == f"{vencido} | {congelado}"
+    assert filas[otro]["avisos"] == f"migrado en el bono #{b['id']} del grupo #{grupo_id} | {vencido} | {congelado}"
+    assert (summary["migrados"], summary["bonos_creados"], summary["bono_ids"]) == (2, 1, [b["id"]])
+    assert (summary["bonos_vencidos_migrados"], _pendientes(engine)) == ([ref, otro], {})
+    assert _count(engine, "offset_grupos") == 1 and _filtros(engine, grupo_id) == [(None, "Switches", None, None)]
+
+
+def test_a_cost_percentage_group_rerun_reports_its_offsets_migrated_and_a_later_one_for_review(engine, correr) -> None:
+    grupo_id, ref, otro = _grupo_amplify(engine)
+    correr("--apply")
+    [b] = _bonos_costo(engine)
+    nuevo = _pct(engine, grupo_id=grupo_id, marca=None, item_id=2964, porcentaje=0.5)
+
+    code, summary, filas = correr("--apply")
+
+    assert (code, _bonos_costo(engine)) == (0, [b])
+    assert filas[ref]["resultado"] == filas[otro]["resultado"] == f"ya migrado a bono #{b['id']}"
+    motivo = f"Grupo #{grupo_id}: el offset se agregó después de migrar el grupo al bono #{b['id']}; revisar a mano"
+    assert (filas[nuevo]["resultado"], filas[nuevo]["motivo"]) == ("no migrado", motivo)
+    assert (summary["ya_migrados"], summary["bonos_creados"], list(_pendientes(engine))) == (2, 0, [nuevo])
+
+
+def test_cost_bonuses_leave_the_per_unit_campaigns_and_the_fixed_amounts_as_they_were(engine, correr) -> None:
+    por_unidad = _offset(engine, item_id=2964)
+    fijo = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=10000)
+    pct = _pct(engine)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [c], [b] = _campanas(engine), _bonos_costo(engine)
+    assert (c["offset_origen_id"], c["tipo"], b["offset_origen_id"]) == (por_unidad, "por_unidad", pct)
+    assert (filas[por_unidad]["resultado"], filas[por_unidad]["campana_id"]) == ("migrado", str(c["id"]))
+    assert (filas[fijo]["resultado"], filas[fijo]["motivo"]) == (
+        "no migrado",
+        "Monto fijo: no tiene equivalente en una campaña por unidad",
+    )
+    assert (summary["migrados"], summary["campana_ids"], summary["bono_ids"], list(_pendientes(engine))) == (
+        2,
+        [c["id"]],
+        [b["id"]],
+        [fijo],
+    )
+
+
+# ── T25f review follow-ups: hand-loaded bonuses of every scope, non-positive %, group refusals ──
+
+
+def _bono_modelos(engine: Engine, items: list[int], porcentaje="0.5") -> int:
+    """A 'modelos' % bonus loaded by hand over `items`."""
+    bono_id = _bono(engine, alcance="modelos", marca=None, porcentaje=porcentaje, fecha_desde=date(2025, 11, 1))
+    with engine.begin() as conn:
+        for item_id in items:
+            conn.execute(
+                text("INSERT INTO sell_in_bono_items (bono_id, item_id) VALUES (:b, :i)"), {"b": bono_id, "i": item_id}
+            )
+    return bono_id
+
+
+@pytest.mark.parametrize(
+    "a_mano,alcance",
+    [
+        (
+            lambda e: _bono(e, alcance="categoria", marca=None, categoria="Routers"),
+            {"marca": None, "categoria": "Routers"},
+        ),
+        (lambda e: _bono_modelos(e, [950, 2964]), {"marca": None, "item_id": 2964}),
+    ],
+    ids=["categoria", "producto"],
+)
+def test_a_category_or_product_offset_loaded_by_hand_goes_to_review_and_is_never_migrated(
+    engine, correr, a_mano, alcance
+) -> None:
+    bono = a_mano(engine)  # 2026-10-01..2026-12-31, overlapping the offset's dates
+    offset_id = _pct(engine, **alcance)
+
+    for _ in range(2):  # a re-run never migrates it either
+        code, summary, filas = correr("--apply")
+
+        motivo = f"ya cargado a mano como bono #{bono}"
+        assert (code, filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == (0, "no migrado", motivo)
+        assert (_pendientes(engine)[offset_id]["motivo"], _bonos_costo(engine)) == (motivo, [])
+        assert (summary["bonos_creados"], summary["con_error"]) == (0, [])
+
+
+def test_a_models_bonus_not_covering_the_product_is_not_the_one_loaded_for_it(engine, correr) -> None:
+    _bono_modelos(engine, [950])
+    offset_id = _pct(engine, marca=None, item_id=2964)
+
+    _, _, filas = correr("--apply")
+
+    [b] = _bonos_costo(engine)
+    assert filas[offset_id]["resultado"] == f"migrado a bono #{b['id']}"
+
+
+def test_a_group_whose_products_a_hand_loaded_models_bonus_covers_goes_to_review(engine, correr) -> None:
+    bono = _bono_modelos(engine, [2270], porcentaje="0.5")  # grupo's filter reaches 2270
+    _, ref, otro = _grupo_amplify(engine)
+
+    code, summary, filas = correr("--apply")
+
+    motivo = f"ya cargado a mano como bono #{bono}"
+    assert code == 0
+    assert {i: (filas[i]["resultado"], filas[i]["motivo"]) for i in (ref, otro)} == dict.fromkeys(
+        (ref, otro), ("no migrado", motivo)
+    )
+    assert ({i: p["motivo"] for i, p in _pendientes(engine).items()}, _bonos_costo(engine)) == (
+        dict.fromkeys((ref, otro), motivo),
+        [],
+    )
+    assert (summary["bonos_creados"], summary["con_error"]) == (0, [])
+
+
+@pytest.mark.parametrize("porcentaje", [None, 0, -1.5], ids=["vacio", "cero", "negativo"])
+def test_a_cost_percentage_without_a_positive_percentage_is_a_plain_review_reason(engine, correr, porcentaje) -> None:
+    _bono(engine)  # a TP-LINK brand bonus loaded by hand: the % is checked first
+    offset_id = _pct(engine, porcentaje=porcentaje)
+
+    code, summary, filas = correr("--apply")
+
+    motivo = "Porcentaje negativo o cero"
+    assert (code, filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == (0, "no migrado", motivo)
+    assert (_pendientes(engine)[offset_id]["motivo"], _bonos_costo(engine), summary["con_error"]) == (motivo, [], [])
+
+
+@pytest.mark.parametrize(
+    "cambios,motivo",
+    [
+        (
+            {"otro": {"fecha_hasta": date(2026, 2, 28)}},
+            "sus offsets tienen períodos distintos y un bono tiene uno solo; revisar a mano",
+        ),
+        ({"ambos": {"usuario_id": None}}, "sin usuario; indicar --usuario-id"),
+        ({"otro": {"porcentaje": 0}}, "el offset #{otro} tiene porcentaje negativo o cero"),
+        (
+            {"ref": {"max_monto_usd": 100}},
+            "El tope en USD (100,00) no se puede guardar en un bono sobre el costo en pesos",
+        ),
+        (
+            {"otro": {"aplica_tienda_nube": False}},
+            "No aplicaba a: Tienda Nube; un bono sobre el costo aplica a todos los canales",
+        ),
+        ("modelos_max", "alcanza 2 productos y un bono por modelos admite hasta 1; revisar a mano"),
+    ],
+    ids=["periodos", "sin_usuario", "porcentaje_cero", "tope_usd", "sin_canal", "modelos_max"],
+)
+def test_a_cost_percentage_group_a_bonus_cannot_hold_goes_to_review_whole(
+    engine, correr, monkeypatch, cambios, motivo
+) -> None:
+    grupo_id, ref, otro = _grupo_amplify(engine)
+    if cambios == "modelos_max":
+        monkeypatch.setattr(script, "MODELOS_MAX", 1)
+    else:
+        por_offset = {"ref": [ref], "otro": [otro], "ambos": [ref, otro]}
+        with engine.begin() as conn:
+            for clave, valores in cambios.items():
+                for offset_id in por_offset[clave]:
+                    sets = ", ".join(f"{k} = :{k}" for k in valores)
+                    conn.execute(
+                        text(f"UPDATE offsets_ganancia SET {sets} WHERE id = :id"), {**valores, "id": offset_id}
+                    )
+
+    code, summary, filas = correr("--apply")
+
+    esperado = f"Grupo #{grupo_id}: " + motivo.format(otro=otro)
+    assert code == 0
+    assert {i: (filas[i]["resultado"], filas[i]["motivo"]) for i in (ref, otro)} == dict.fromkeys(
+        (ref, otro), ("no migrado", esperado)
+    )
+    assert {i: p["motivo"] for i, p in _pendientes(engine).items()} == dict.fromkeys((ref, otro), esperado)
+    assert (_bonos_costo(engine), summary["bonos_creados"], summary["con_error"], summary["pendientes"]) == (
+        [],
+        0,
+        [],
+        2,
+    )

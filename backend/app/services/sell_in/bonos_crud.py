@@ -308,9 +308,13 @@ def _valor_nuevo(campos: Campos, item_id: int) -> dict:
     return {"monto_unit": monto_unit, "porcentaje": porcentaje}
 
 
-def crear_bono(db: Session, data: SellInBonoIn, usuario_id: int) -> SellInBonoMarca:
+def crear_bono(
+    db: Session, data: SellInBonoIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
+) -> SellInBonoMarca:
+    """`offset_origen_id`: the legacy offset a migration loads this bonus from (the offsets script only; the API
+    never takes it), set before the first flush so the audit row carries it."""
     campos = validar(db, data)
-    bono = SellInBonoMarca(usuario_id=usuario_id, estado="activa")
+    bono = SellInBonoMarca(usuario_id=usuario_id, estado="activa", offset_origen_id=offset_origen_id)
     db.add(bono)
     _asignar(db, bono, data, campos)
     _audit(db, TipoAccion.SELL_IN_BONO_CREADO, usuario_id, None, _valores(db, bono))
