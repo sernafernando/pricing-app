@@ -34,7 +34,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 from sqlalchemy.orm import Session
 
 from app.core.database import get_background_db
-from app.services.sell_in import bono_queue, bonos
+from app.services.sell_in import bono_queue, bonos, bonos_costo
 from app.workers.context import JobResult, WorkerContext
 from app.workers.handlers.sell_drain import is_transient
 
@@ -55,7 +55,11 @@ def _reconciliar(db: Session, keys: Sequence[Key]) -> Tuple[bonos.ReconcileResul
         bono_ids=[ref for tipo, ref in keys if tipo == "bono"],
         pedido_ids=[ref for tipo, ref in keys if tipo == "pedido"],
     )
-    failed: Dict[Key, str] = {}
+    # T25b: a % of cost bonus never generates a purchase (the reconcile skips it); its sales are recomputed here,
+    # a voided or edited one included. A bonus whose recompute fails charges its key.
+    costo = bonos_costo.recalcular(db, bono_ids=[ref for tipo, ref in keys if tipo == "bono"])
+    failed: Dict[Key, str] = {("bono", bono_id): error for bono_id, error in costo.bonos_fallidos.items()}
+    failed = {key: error for key, error in failed.items() if key in keys}
     for (bono_id, pedido_id), error in result.fallidas.items():
         for key in (("bono", bono_id), ("pedido", pedido_id)):
             if key in keys:

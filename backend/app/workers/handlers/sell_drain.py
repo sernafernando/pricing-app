@@ -9,7 +9,8 @@ Each batch is ONE short `get_background_db()` transaction:
    stored consumptions are filed under (a fuera / TN line moved to another
    product is queued under the NEW one only; its OLD product is found here);
 3. recompute those products through the active `SellInCosting` strategy
-   (per-product advisory lock, writes only the difference);
+   (per-product advisory lock, writes only the difference), then their % of
+   cost bonuses (`bonos_costo`, T25b), which take only the units the FIFO left;
 4. ack the lines whose products all succeeded; charge the rest
    (`attempts`/`last_error`). A charged line is not claimed again in this run,
    and is parked after `queue.MAX_ATTEMPTS` until a new change re-queues it.
@@ -50,6 +51,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_background_db
 from app.services.sell import queue
+from app.services.sell_in import bonos_costo
 from app.services.sell_in.costing import RecomputeResult, get_costing
 from app.services.sell_out import queue as sell_out_queue
 from app.workers.context import JobResult, WorkerContext
@@ -139,7 +141,11 @@ def _recompute_and_settle(
     charged lines that park. Does not commit, so it does not log the parks:
     the caller does, once its transaction committed."""
     products = queue.products_of(db, claimed)
-    result = get_costing().recompute(db, set().union(*products.values()))
+    items = set().union(*products.values())
+    result = get_costing().recompute(db, items)
+    # T25b: the % of cost bonuses take the units the FIFO just left, under the same product locks; a product
+    # whose FIFO failed keeps its rows (its line is charged anyway) and one whose cost bonus fails is charged too.
+    result.failed.update(bonos_costo.recalcular(db, items - result.failed.keys()).failed)
     _fan_out_sell_out(db, list(products))
     failed: Dict[queue.Line, str] = {
         line: "; ".join(f"item {item}: {result.failed[item]}" for item in sorted(items & result.failed.keys()))

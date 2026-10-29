@@ -43,6 +43,7 @@ from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.schemas.sell_in import SellInCompraCreate, SellInPreviewIn
+from app.services.sell_in import bonos_costo
 from app.services.sell_in.costing import get_costing
 from app.services.sell_in.split import CENT, UNIT_PRECISION, Line, SellInSplitError, preview, unit_discount
 
@@ -374,6 +375,7 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
     try:
         # The sales already made since the purchase counts consume it in the same transaction.
         get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
+        bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
         db.commit()
     except Exception:
         db.rollback()  # a failed recompute takes the purchase with it; never leave the session aborted
@@ -464,6 +466,7 @@ def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional
     # Its units are released in the same transaction: later purchases take those sales over.
     try:
         get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
+        bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
         db.commit()
     except Exception:
         db.rollback()  # the purchase stays activa and unaudited; never leave the session aborted

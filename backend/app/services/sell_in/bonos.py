@@ -104,6 +104,7 @@ from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido
 from app.models.tipo_cambio import TipoCambio
+from app.services.sell_in import bonos_costo
 from app.services.sell_in.compras import SellInError, audit, costo_en_moneda, moneda
 from app.services.sell_in.costing import get_costing
 from app.services.sell_in.split import CENT
@@ -563,6 +564,8 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
     if tocados:
         # Same transaction, like loading or voiding a manual purchase: the consumptions follow at once.
         get_costing().recompute(db, tocados, isolate_failures=False)
+        # The % of cost bonuses (T25b) take only the units the FIFO leaves: they follow at once too.
+        bonos_costo.seguir_fifo(db, tocados)
     return result
 
 

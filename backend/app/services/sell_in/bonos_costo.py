@@ -50,6 +50,7 @@ ERP independence (owner, 2026-10-17): only app tables, never `tb_*`.
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
@@ -63,6 +64,8 @@ from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInConsumo
 from app.services.sell_in.costing import _LOCK_SQL, LOCK_NAMESPACE
 from app.services.sell_out import alcance, tope
+
+logger = logging.getLogger(__name__)
 
 BASE = "costo_venta"
 CIEN = Decimal(100)
@@ -329,3 +332,15 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
         db.execute(insert(SellInBonoConsumo), filas)
     result.inserted, result.deleted = len(filas), len(borrar)
     return result
+
+
+def seguir_fifo(db: Session, item_ids: Iterable[int]) -> None:
+    """Right after a write that moved the FIFO of `item_ids` outside `sell.drain` (the invoice reconcile, loading or
+    voiding a manual purchase): their cost bonuses follow in the same transaction, so the exclusivity holds. A product
+    whose cost bonus cannot be computed (a missing VAT rate) never blocks that write: it keeps its rows, logged, and
+    the next drain of its sales or change of the bonus retries it."""
+    fallidos = recalcular(db, item_ids).failed
+    if fallidos:
+        logger.warning(
+            "sell in: the %% of cost bonuses of %s product(s) were left as they were: %s", len(fallidos), fallidos
+        )
