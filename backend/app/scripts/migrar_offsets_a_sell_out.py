@@ -41,7 +41,7 @@ UNTICKED (S33: the stored value is already net of VAT), and is loaded with the
 bonus service's own steps (`app.services.sell_in.bonos_crud`: `validar`, the
 same fields, the audit row; its table's triggers queue it for the worker like a
 bonus loaded from the screen). The API never takes `offset_origen_id` (T25d:
-read-only), so `_crear_bono` is `crear_bono` with it set on the new row:
+read-only), so the script passes it to `crear_bono` as a keyword argument:
 
 - a brand alone -> `alcance='marca'`; a category alone -> 'categoria'; a product
   alone -> 'modelos' with that product. A subcategory, or more than one field
@@ -85,7 +85,7 @@ run leaves the table as it is; its summary counts what `--apply` would keep ther
 (`pendientes`).
 
 Dry run is the DEFAULT: it only validates (`validar_campos`, `validar` for a
-group, `bonos_crud.validar` for a cost bonus
+group, `bonos_crud.validar` for a cost bonus,
 and it plans the new group of the products outside the existing group's
 filters, as `--apply` creates it) and writes nothing. A single offset's new
 group is built from its own scope and carries no per-product amount, so its reach
@@ -115,15 +115,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
-from app.models.auditoria import TipoAccion
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoItem, SellInBonoMarca
-from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, MODELOS_MAX, SellInBonoIn, SellInBonoModeloIn
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem
+from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, MODELOS_MAX, SellInBonoIn, SellInBonoModeloIn
 from app.schemas.sell_out import ITEMS_MAX, NOMBRE_MAX, SellOutCampanaIn
 from app.services.sell_in import bonos_crud
 from app.services.sell_out import alcance, campanas
