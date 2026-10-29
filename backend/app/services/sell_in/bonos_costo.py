@@ -170,7 +170,7 @@ def _componentes(activos: Dict[int, SellInBonoMarca], alcances: Dict[int, Set[in
     return [grupos[k] for k in sorted(grupos)]
 
 
-def _pct_neto(bono: SellInBonoMarca, pct: Decimal, item_id: int, iva: Optional[Decimal], fecha: date) -> Decimal:
+def pct_neto(bono: SellInBonoMarca, pct: Decimal, item_id: int, iva: Optional[Decimal], fecha: date) -> Decimal:
     """The % that reaches the math: divided by (1 + the product's VAT rate) when loaded with VAT, by sell out's
     `monto_incluye_iva` rule (`tope.credito_unitario`)."""
     if bono.incluye_iva and iva is None:
@@ -204,7 +204,7 @@ def _componente(
                     continue
                 propio = modelos.get(bono.id, {}).get(v.item_id)
                 pct = Decimal(propio if propio is not None else bono.porcentaje)
-                unitario = v.costo_unit * _pct_neto(bono, pct, v.item_id, iva.get(v.item_id), v.fecha) / CIEN
+                unitario = v.costo_unit * pct_neto(bono, pct, v.item_id, iva.get(v.item_id), v.fecha) / CIEN
                 unitario = min(unitario, v.costo_unit - usado[clave])
                 if unitario <= 0:
                     continue

@@ -11,12 +11,14 @@ from pydantic import BaseModel
 
 
 class SellInProducto(BaseModel):
-    """The purchase line the next sale takes its sell in from (option A, FIFO)."""
+    """Where the next sale takes its sell in from: the purchase line (option A, FIFO), or, with no lot left, the
+    active % of cost bonuses (T25; rule 5, a FIFO lot's units go first)."""
 
-    compra_item_id: int
+    compra_item_id: Optional[int] = None  # the FIFO lot; None for a cost bonus
+    bono_id: Optional[int] = None  # the first cost bonus (id order) of the stack; None for a FIFO lot
     descuento_unit: float  # ARS per unit
     costo: Optional[float]  # ARS per unit with sell in; None when the cost has no ARS value (no rate)
-    unidades_restantes: int
+    unidades_restantes: Optional[int] = None  # the lot's units left; None for a cost bonus (no stock)
 
 
 class SellOutProducto(BaseModel):

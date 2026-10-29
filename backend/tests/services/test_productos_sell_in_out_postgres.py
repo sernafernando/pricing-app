@@ -17,10 +17,12 @@ from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.producto import ProductoERP
+from app.models.sell_in import SellInBonoItem
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 from app.services.sell_in.costing import get_costing
 from app.services.sell_out import asignacion
 from tests.services.sell._schema import throwaway_schema
+from tests.services.sell_in import _bono_world as bw
 from tests.services.sell_in import _world as si
 from tests.services.sell_out import _world as so
 
@@ -31,7 +33,7 @@ HOY = D(2026, 11, 10)
 ROUTER = 2964  # TP-LINK Routers, iva 21, cost 50000 ARS
 SWITCH = 2270  # TP-LINK Switches, iva 10.5, no sell in nor sell out anywhere
 
-TABLES = list(dict.fromkeys([*si.TABLES, *so.TABLES]))
+TABLES = list(dict.fromkeys([*si.TABLES, SellInBonoItem.__table__, *so.TABLES]))
 STUBS = [*si.STUBS, so.STUBS[-1]]  # usuarios / proveedores / pedidos_compra + offsets_ganancia
 
 
@@ -59,6 +61,8 @@ def _clean(engine: Engine) -> Iterator[None]:
     yield
     si.clean(engine)
     so.clean(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM sell_in_bonos_marca"))  # items and consumptions cascade
 
 
 def _recompute_sell_in(engine: Engine, *item_ids: int) -> None:
@@ -127,6 +131,115 @@ class TestSellIn:
 
         assert payload.sell_in.descuento_unit == 5000.0
         assert payload.sell_in.costo == 45000.0
+
+
+def _bono_costo(engine, porcentaje: str = "3.00", **kw) -> int:
+    """A % of cost bonus (T25) over TP-LINK, current on `HOY`."""
+    kw.setdefault("desde", D(2026, 11, 1))
+    kw.setdefault("hasta", D(2026, 11, 30))
+    return bw.bono_costo(engine, porcentaje, **kw)
+
+
+def _consumido(engine, bono_id: int, unidades: int, descuento: str) -> None:
+    """What the allocator already gave a sale from the bonus (`sell_in_bono_consumos`)."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sell_in_bono_consumos (bono_id, canal, venta_ref, item_id, fecha_venta, unidades, "
+                "descuento_ars) VALUES (:b, 'fuera', :r, :i, :f, :u, :d)"
+            ),
+            {"b": bono_id, "r": 900_000 + bono_id, "i": ROUTER, "f": D(2026, 11, 5), "u": unidades, "d": descuento},
+        )
+
+
+class TestCostBonus:
+    """T25 (S31, rule 5 exclusive per unit): the next sale takes a FIFO lot's units first; with none left, an active
+    % of cost bonus is the product's sell in: its % of the product's current cost without VAT (50000 ARS)."""
+
+    def test_a_current_fifo_lot_stays_the_sell_in_whatever_cost_bonus_reaches_it(self, engine):
+        (lote,) = si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))
+        _bono_costo(engine)
+
+        payload = _payload(engine)
+
+        assert payload.sell_in.model_dump() == {
+            "compra_item_id": lote,
+            "bono_id": None,
+            "descuento_unit": 100.0,
+            "costo": 49900.0,
+            "unidades_restantes": 2,
+        }
+
+    def test_with_no_lot_left_an_active_cost_bonus_is_the_sell_in(self, engine):
+        bono = _bono_costo(engine)
+
+        payload = _payload(engine)
+
+        assert payload.sell_in.model_dump() == {
+            "compra_item_id": None,
+            "bono_id": bono,
+            "descuento_unit": 1500.0,  # 3 % of 50000
+            "costo": 48500.0,
+            "unidades_restantes": None,
+        }
+        assert payload.markups_sell_in["clasica"] == round((60000 / 48500 - 1) * 100, 2)
+
+    def test_a_used_up_lot_gives_way_to_the_cost_bonus(self, engine):
+        si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))
+        si.venta(engine, "fuera", ROUTER, 2, D(2026, 10, 20))
+        _recompute_sell_in(engine, ROUTER)
+        bono = _bono_costo(engine)
+
+        assert (_payload(engine).sell_in.bono_id, _payload(engine).sell_in.descuento_unit) == (bono, 1500.0)
+
+    def test_a_percentage_with_vat_is_divided_by_the_product_rate(self, engine):
+        # S33: "el tilde tendría que restar el iva"; the router's VAT is 21 %: 3 / 1.21 % of 50000.
+        _bono_costo(engine, incluye_iva=True)
+
+        assert _payload(engine).sell_in.descuento_unit == 1239.67
+
+    def test_a_model_takes_its_own_percentage(self, engine):
+        bono = _bono_costo(engine, alcance="modelos", modelos=(ROUTER, SWITCH))
+        bw.valor_de_modelo(engine, bono, ROUTER, porcentaje="5.00")
+
+        assert _payload(engine).sell_in.descuento_unit == 2500.0
+        assert _payload(engine, SWITCH).sell_in.descuento_unit == 1500.0
+
+    def test_several_cost_bonuses_stack_up_to_the_cost(self, engine):
+        primero = _bono_costo(engine, "60.00")
+        _bono_costo(engine, "60.00")
+
+        sell_in = _payload(engine).sell_in
+
+        assert (sell_in.bono_id, sell_in.descuento_unit, sell_in.costo) == (primero, 50000.0, 0.0)
+
+    def test_a_bonus_whose_cap_is_used_up_does_not_apply(self, engine):
+        topado = _bono_costo(engine, tope_unidades=2)
+        _consumido(engine, topado, 2, "3000.00")
+        siguiente = _bono_costo(engine, "1.00", tope_monto="5000.00")
+        _consumido(engine, siguiente, 1, "4900.00")
+
+        sell_in = _payload(engine).sell_in
+
+        # The first gives nothing; the second only the money its cap has left.
+        assert (sell_in.bono_id, sell_in.descuento_unit) == (siguiente, 100.0)
+
+    def test_a_bonus_outside_today_voided_or_on_invoices_does_not_apply(self, engine):
+        _bono_costo(engine, desde=D(2026, 10, 1), hasta=D(2026, 10, 31))
+        _bono_costo(engine, estado="anulada")
+        bw.bono(engine, desde=D(2026, 11, 1), hasta=D(2026, 11, 30))  # an invoice bonus: it lives in the FIFO lots
+
+        assert _payload(engine) is None
+
+    def test_the_batch_reads_two_more_queries_with_cost_bonuses(self, engine):
+        _bono_costo(engine)
+        statements = []
+        with sessionmaker(bind=engine)() as db:
+            conn = db.connection()
+            event.listen(conn, "before_cursor_execute", lambda *a: statements.append(a[2]))
+            resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
+
+        assert len(statements) <= 5  # no sell out campaign: FIFO, campaigns, cost bonuses and their scope
 
 
 class TestSellOut:
@@ -245,4 +358,4 @@ class TestNoData:
             event.listen(conn, "before_cursor_execute", lambda *a: statements.append(a[2]))
             resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
 
-        assert len(statements) <= 6
+        assert len(statements) <= 7  # the 6 of FIFO and sell out, plus the cost bonuses' gate (T25)
