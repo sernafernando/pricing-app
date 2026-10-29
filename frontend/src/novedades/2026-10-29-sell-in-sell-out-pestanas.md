@@ -8,7 +8,7 @@ La pantalla de **Sell in** ahora se llama **Sell in / Sell out** y se ordena en 
 
 - **Pestaña Sell in:** los filtros, los chips **Aplican / No aplican / Todas**, los chips de **Tipo** (**Por compra**, **Bono de marca**, **Todos**), las tarjetas de resumen, la lista de sell in por compra y los **bonos de marca**.
 - **Pestaña Sell out:** las campañas de sell out, con su búsqueda. **Nueva campaña** está arriba a la derecha cuando esta pestaña está abierta.
-- **Cada pestaña muestra cuántos hay:** Sell in cuenta los sell in cargados; Sell out, las campañas.
+- **Cada pestaña muestra cuántos hay:** Sell in cuenta los sell in que entran en los filtros elegidos (fechas, búsqueda, marca, moneda, estado); Sell out, las campañas.
 - **Dos tarjetas nuevas:** **Bonos de marca vigentes** (cuántos bonos activos hay y de cuántas marcas) y **Compras alcanzadas** (cuántas compras alcanzaron esos bonos).
 - **La pestaña queda en la dirección de la página:** si se recarga o se comparte el link, abre en la misma pestaña.
 
