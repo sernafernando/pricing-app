@@ -219,6 +219,13 @@ describe('the markup with sell in / sell out (ver_ganancia only)', () => {
     expect(markup.querySelector('[title]').getAttribute('title')).toBe('Con sell in');
   });
 
+  it('names the % of cost bonus in the tooltip when the sell in has no lot (T25c)', () => {
+    const bono = { ...SELL_IN, compra_item_id: null, bono_id: 4, unidades_restantes: null };
+    renderTab(withSellInOut({ sell_in: bono, sell_out: null, markups_sell_in: {}, markups_sell_in_out: {} }), { canSeeMargin: true });
+    const tooltip = valueOf('Markup', 'Costo c/ sell in').querySelector('[title]').getAttribute('title');
+    expect(tooltip).toBe('Descuento por unidad: $ 1.500,00\nBono #4 sobre el costo');
+  });
+
   it('with sell out the markup is the one with sell in and sell out', () => {
     renderTab(
       withSellInOut({

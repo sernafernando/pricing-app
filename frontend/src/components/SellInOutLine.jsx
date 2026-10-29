@@ -1,4 +1,5 @@
 import { formatPppMonto } from '../hooks/useProductosOffsets';
+import { sellInOrigen } from '../utils/sellInOrigen';
 
 const PENDIENTE = 'pendiente';
 
@@ -15,7 +16,8 @@ function sellOutTitle(sellOut) {
 }
 
 function sellInTitle(sellIn) {
-  return `Descuento de sell in por unidad: ${ars(sellIn.descuento_unit)} · Unidades restantes del lote: ${sellIn.unidades_restantes}`;
+  const origen = sellInOrigen(sellIn); // a purchase lot or the % of cost bonuses (T25c)
+  return `Descuento de sell in por unidad: ${ars(sellIn.descuento_unit)} · ${origen}`;
 }
 
 /**

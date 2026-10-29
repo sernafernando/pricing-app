@@ -67,6 +67,8 @@ def expected_lines(linea: int, costo: float, ppp: float = 850.0) -> dict:
         "sell_in_out": {
             "sell_in": {
                 "compra_item_id": linea,
+                "bono_id": None,  # a FIFO lot (T25: a cost bonus fills it)
+                "bono_ids": [],
                 "descuento_unit": 100.0,
                 "costo": costo - 100.0,
                 "unidades_restantes": 2,

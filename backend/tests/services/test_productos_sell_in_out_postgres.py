@@ -17,10 +17,13 @@ from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.producto import ProductoERP
+from app.models.sell_in import SellInBonoItem, SellInBonoMarca
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
+from app.services.sell_in.bonos_alcance import del_alcance
 from app.services.sell_in.costing import get_costing
-from app.services.sell_out import asignacion
+from app.services.sell_out import alcance, asignacion
 from tests.services.sell._schema import throwaway_schema
+from tests.services.sell_in import _bono_world as bw
 from tests.services.sell_in import _world as si
 from tests.services.sell_out import _world as so
 
@@ -31,7 +34,7 @@ HOY = D(2026, 11, 10)
 ROUTER = 2964  # TP-LINK Routers, iva 21, cost 50000 ARS
 SWITCH = 2270  # TP-LINK Switches, iva 10.5, no sell in nor sell out anywhere
 
-TABLES = list(dict.fromkeys([*si.TABLES, *so.TABLES]))
+TABLES = list(dict.fromkeys([*si.TABLES, SellInBonoItem.__table__, *so.TABLES]))
 STUBS = [*si.STUBS, so.STUBS[-1]]  # usuarios / proveedores / pedidos_compra + offsets_ganancia
 
 
@@ -59,6 +62,8 @@ def _clean(engine: Engine) -> Iterator[None]:
     yield
     si.clean(engine)
     so.clean(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM sell_in_bonos_marca"))  # items and consumptions cascade
 
 
 def _recompute_sell_in(engine: Engine, *item_ids: int) -> None:
@@ -127,6 +132,211 @@ class TestSellIn:
 
         assert payload.sell_in.descuento_unit == 5000.0
         assert payload.sell_in.costo == 45000.0
+
+
+def _bono_costo(engine, porcentaje: str = "3.00", **kw) -> int:
+    """A % of cost bonus (T25) over TP-LINK, current on `HOY`."""
+    kw.setdefault("desde", D(2026, 11, 1))
+    kw.setdefault("hasta", D(2026, 11, 30))
+    return bw.bono_costo(engine, porcentaje, **kw)
+
+
+def _consumido(engine, bono_id: int, unidades: int, descuento: str) -> None:
+    """What the allocator already gave a sale from the bonus (`sell_in_bono_consumos`)."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sell_in_bono_consumos (bono_id, canal, venta_ref, item_id, fecha_venta, unidades, "
+                "descuento_ars) VALUES (:b, 'fuera', :r, :i, :f, :u, :d)"
+            ),
+            {"b": bono_id, "r": 900_000 + bono_id, "i": ROUTER, "f": D(2026, 11, 5), "u": unidades, "d": descuento},
+        )
+
+
+class TestCostBonus:
+    """T25 (S31, rule 5 exclusive per unit): the next sale takes a FIFO lot's units first; with none left, an active
+    % of cost bonus is the product's sell in: its % of the product's current cost without VAT (50000 ARS)."""
+
+    def test_a_current_fifo_lot_stays_the_sell_in_whatever_cost_bonus_reaches_it(self, engine):
+        (lote,) = si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))
+        _bono_costo(engine)
+
+        payload = _payload(engine)
+
+        assert payload.sell_in.model_dump() == {
+            "compra_item_id": lote,
+            "bono_id": None,
+            "bono_ids": [],
+            "descuento_unit": 100.0,
+            "costo": 49900.0,
+            "unidades_restantes": 2,
+        }
+
+    def test_with_no_lot_left_an_active_cost_bonus_is_the_sell_in(self, engine):
+        bono = _bono_costo(engine)
+
+        payload = _payload(engine)
+
+        assert payload.sell_in.model_dump() == {
+            "compra_item_id": None,
+            "bono_id": bono,
+            "bono_ids": [bono],
+            "descuento_unit": 1500.0,  # 3 % of 50000
+            "costo": 48500.0,
+            "unidades_restantes": None,
+        }
+        assert payload.markups_sell_in["clasica"] == round((60000 / 48500 - 1) * 100, 2)
+
+    def test_a_used_up_lot_gives_way_to_the_cost_bonus(self, engine):
+        si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))
+        si.venta(engine, "fuera", ROUTER, 2, D(2026, 10, 20))
+        _recompute_sell_in(engine, ROUTER)
+        bono = _bono_costo(engine)
+
+        assert (_payload(engine).sell_in.bono_id, _payload(engine).sell_in.descuento_unit) == (bono, 1500.0)
+
+    def test_a_percentage_with_vat_is_divided_by_the_product_rate(self, engine):
+        # S33: "el tilde tendría que restar el iva"; the router's VAT is 21 %: 3 / 1.21 % of 50000.
+        _bono_costo(engine, incluye_iva=True)
+
+        assert _payload(engine).sell_in.descuento_unit == 1239.67
+
+    def test_a_model_takes_its_own_percentage(self, engine):
+        bono = _bono_costo(engine, alcance="modelos", modelos=(ROUTER, SWITCH))
+        bw.valor_de_modelo(engine, bono, ROUTER, porcentaje="5.00")
+
+        assert _payload(engine).sell_in.descuento_unit == 2500.0
+        assert _payload(engine, SWITCH).sell_in.descuento_unit == 1500.0
+
+    def test_a_category_bonus_reaches_only_that_category(self, engine):
+        # The scope is the panel's (`bonos_alcance.del_alcance`): the router is a Routers product, the switch is not.
+        bono = _bono_costo(engine, alcance="categoria", categoria="Routers")
+
+        assert _payload(engine).sell_in.bono_ids == [bono]
+        assert _payload(engine, SWITCH) is None
+
+    def test_the_scope_matches_the_panel_rule_for_every_scope_and_edge(self, engine):
+        # Parity with `bonos_alcance.del_alcance`: the resolver matches the scope in one set-based query, and every
+        # (bonus, product) pair it reaches must be the panel's. 951 has neither brand nor category; the router is
+        # listed in no model bonus; the switch and 950 are listed each in another one.
+        sin_nada = 951
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO productos_erp (item_id, codigo, descripcion, costo, moneda_costo, iva) "
+                    "VALUES (:i, 'C951', 'Sin marca', 50000, 'ARS', 21)"
+                ),
+                {"i": sin_nada},
+            )
+        try:
+            ids = [ROUTER, SWITCH, 950, sin_nada]
+            for kw in (
+                {"alcance": "marca", "marca": "TP-LINK"},
+                {"alcance": "marca", "marca": "OTRA"},
+                {"alcance": "categoria", "categoria": "Routers"},
+                {"alcance": "categoria", "categoria": "Sin productos"},
+                {"alcance": "modelos", "modelos": (SWITCH,)},
+                {"alcance": "modelos", "modelos": (950,)},
+            ):
+                _bono_costo(engine, "1.00", **kw)
+            with sessionmaker(bind=engine)() as db:
+                panel = {
+                    (bono.id, item)
+                    for bono in db.query(SellInBonoMarca)
+                    for (item,) in db.query(ProductoERP.item_id).filter(
+                        ProductoERP.item_id.in_(ids), del_alcance(db, bono, ProductoERP.item_id, None)
+                    )
+                }
+                batch = resolver_sell_in_out_batch(db, ids, HOY)
+                resolver = {(x.bono.id, item) for item, xs in batch.bonos_costo.items() for x in xs}
+                payloads = {item: batch.markups(db.get(ProductoERP, item)).payload() for item in ids}
+
+            assert resolver == panel
+            assert len(panel) == 6  # router: brand + category; switch: brand + model; 950: category + model
+            for item in ids:
+                esperados = sorted(bid for bid, i in panel if i == item)
+                assert (payloads[item].sell_in.bono_ids if payloads[item] else []) == esperados
+        finally:
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM productos_erp WHERE item_id = :i"), {"i": sin_nada})
+
+    def test_a_page_with_campaigns_and_cost_bonuses_reads_the_campaigns_as_alone(self, engine):
+        # The cost bonuses ride on the campaigns' query (UNION ALL): the campaigns per product must not change.
+        si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))  # the router has a lot, the switch has none
+        gid = so.grupo(engine, [{"marca": "TP-LINK"}])
+        campanas = [so.campana(engine, [gid], monto_unit="10.00"), so.campana(engine, [gid], monto_unit="20.00")]
+        bono = _bono_costo(engine)
+        ids = [ROUTER, SWITCH, 950]
+        with sessionmaker(bind=engine)() as db:
+            solo = alcance.campanas_por_item(db, {(i, HOY) for i in ids})
+            batch = resolver_sell_in_out_batch(db, ids, HOY)
+            switch = batch.markups(db.get(ProductoERP, SWITCH)).payload()
+            router = batch.markups(db.get(ProductoERP, ROUTER)).payload()
+
+        assert solo == {ROUTER: set(campanas), SWITCH: set(campanas)}
+        assert {i: [x.campana.id for x in xs] for i, xs in batch.campanas.items()} == {
+            i: sorted(cs) for i, cs in solo.items()
+        }
+        assert (switch.sell_in.bono_ids, switch.sell_out.campana_ids, switch.sell_out.monto_unit) == (
+            [bono],
+            campanas,
+            30.0,
+        )
+        assert (router.sell_in.compra_item_id is not None, router.sell_in.bono_ids) == (True, [])
+        assert router.sell_out.campana_ids == campanas
+
+    def test_several_cost_bonuses_stack_up_to_the_cost(self, engine):
+        primero = _bono_costo(engine, "60.00")
+        segundo = _bono_costo(engine, "60.00")
+        _bono_costo(engine, "1.00")  # nothing left of the cost: it gives nothing
+
+        sell_in = _payload(engine).sell_in
+
+        assert (sell_in.bono_id, sell_in.descuento_unit, sell_in.costo) == (primero, 50000.0, 0.0)
+        assert sell_in.bono_ids == [primero, segundo]  # every bonus that gives something, in id order
+
+    def test_a_vat_loaded_bonus_on_a_product_without_vat_leaves_no_cost_bonus_sell_in(self, engine):
+        # Like the allocator (`bonos_costo.recalcular`): the product's whole component fails, every bonus of it.
+        _bono_costo(engine, "3.00")
+        _bono_costo(engine, "2.00", incluye_iva=True)
+        bw.set_iva(engine, ROUTER, None)
+        try:
+            assert _payload(engine) is None
+        finally:
+            bw.set_iva(engine, ROUTER, so.PRODUCTOS[ROUTER][3])
+
+    def test_a_bonus_whose_cap_is_used_up_does_not_apply(self, engine):
+        topado = _bono_costo(engine, tope_unidades=2)
+        _consumido(engine, topado, 2, "3000.00")
+        siguiente = _bono_costo(engine, "1.00", tope_monto="5000.00")
+        _consumido(engine, siguiente, 1, "4900.00")
+
+        sell_in = _payload(engine).sell_in
+
+        # The first gives nothing; the second only the money its cap has left.
+        assert (sell_in.bono_id, sell_in.descuento_unit) == (siguiente, 100.0)
+
+    def test_a_bonus_outside_today_voided_or_on_invoices_does_not_apply(self, engine):
+        _bono_costo(engine, desde=D(2026, 10, 1), hasta=D(2026, 10, 31))
+        _bono_costo(engine, estado="anulada")
+        bw.bono(engine, desde=D(2026, 11, 1), hasta=D(2026, 11, 30))  # an invoice bonus: it lives in the FIFO lots
+
+        assert _payload(engine) is None
+
+    def _statements(self, engine) -> int:
+        statements = []
+        with sessionmaker(bind=engine)() as db:
+            conn = db.connection()
+            event.listen(conn, "before_cursor_execute", lambda *a: statements.append(a[2]))
+            resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
+        return len(statements)
+
+    def test_cost_bonuses_of_any_scope_cost_one_query_more_than_none_active(self, engine):
+        sin_bonos = self._statements(engine)  # FIFO and sell out; the bonuses' scope rides on the campaigns' query
+        _bono_costo(engine)
+        _bono_costo(engine, alcance="modelos", modelos=(SWITCH,))
+
+        assert self._statements(engine) == sin_bonos + 1  # the reached bonuses' rows and caps, every bonus in one query
 
 
 class TestSellOut:
@@ -245,4 +455,4 @@ class TestNoData:
             event.listen(conn, "before_cursor_execute", lambda *a: statements.append(a[2]))
             resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
 
-        assert len(statements) <= 6
+        assert len(statements) <= 6  # no cost bonus active: the T25 lookup costs no statement

@@ -39,6 +39,9 @@ TP_STORES = (2645,)
 CONSUMPTION_DDL = (
     "CREATE TEMP TABLE sell_in_consumos (canal VARCHAR(8), venta_ref BIGINT, descuento_ars NUMERIC(18, 2)) "
     "ON COMMIT DROP;"
+    # The % of cost bonuses' sell in (T25, `sell_in_bono_consumos`): the same keys, disjoint units.
+    "CREATE TEMP TABLE sell_in_bono_consumos (canal VARCHAR(8), venta_ref BIGINT, descuento_ars NUMERIC(18, 2)) "
+    "ON COMMIT DROP;"
     "CREATE TEMP TABLE sell_out_campanas (id BIGINT PRIMARY KEY, moneda VARCHAR(3), tc_modo VARCHAR(12), "
     "tipo_cambio NUMERIC(18, 6)) ON COMMIT DROP;"
     "CREATE TEMP TABLE sell_out_consumos (campana_id BIGINT, canal VARCHAR(8), venta_ref BIGINT, "
@@ -335,3 +338,72 @@ def test_a_known_zero_being_recalculated_takes_no_sell_in_out(zero_tg) -> None:
 
     assert (row.tg, row.sell_in, row.sell_in_lineas) == (_d("0"), _d("0"), 0)
     assert row.total_gauss_sell is None
+
+
+@pytest.fixture(params=["live", "persisted"])
+def cost_bonus(request, board_pg, monkeypatch):
+    """T25 (S31): a % of cost bonus's sell in (`sell_in_bono_consumos`) reaches the board like invoice sell in.
+    37: one sale (tg10/c50) whose only sell in is a cost bonus of $6 (and a fuera row of the same ref, never counted).
+    38: one sale (tg10/c50) with an invoice sell in of $5 and a cost bonus sell in of $2 on its other units."""
+    db = board_pg
+    db.execute(
+        text(
+            "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria, subcategoria_id, stock) "
+            "VALUES (37, 'S37', 'Antena', 'TP-Link', 'Redes', 1, 1), (38, 'S38', 'Repetidor', 'TP-Link', 'Redes', 1, 1);"
+            "INSERT INTO ml_tiendas_oficiales (store_id, nombre, clave, orden, activa) VALUES "
+            "(57997, 'Gauss', NULL, 1, true);"
+            "INSERT INTO tb_mercadolibre_items_publicados (mlp_id, mlp_publicationid, item_id, mlp_official_store_id) "
+            "VALUES (9137, 'MLA937', 37, 57997), (9138, 'MLA938', 38, 57997)"
+        )
+    )
+    refs = {}
+    for product in (37, 38):
+        order_id = 2000012345679000 + product
+        _order(db, order_id, [(product, f"MLA9{product}", 1, Decimal("50"))], tg="10", costo="50")
+        _group(db, f"o:{order_id}", [order_id], NOW - timedelta(hours=3))
+        refs[product] = _line(db, order_id)
+    db.execute(text(CONSUMPTION_DDL))
+    db.execute(
+        text(
+            "INSERT INTO sell_in_bono_consumos VALUES ('ml', :s37, 6), ('fuera', :s37, 99), ('ml', :s38, 2);"
+            "INSERT INTO sell_in_consumos VALUES ('ml', :s38, 5)"
+        ),
+        {"s37": refs[37], "s38": refs[38]},
+    )
+    db.flush()
+    if request.param == "persisted":
+        lines = sale_lines(sqlite=False, queue=False, keyed=True, tp=True)
+        db.execute(
+            insert(MlSaleLine.__table__).from_select(
+                list(STORED_COLUMNS), select(*(lines.c[n] for n in STORED_COLUMNS))
+            )
+        )
+        monkeypatch.setattr(settings, "METRICAS_SALE_LINES_ENABLED", True)
+        db.flush()
+    return db
+
+
+@pytest.mark.postgres
+class TestCostBonusSellIn:
+    def test_a_sale_with_only_a_cost_bonus_is_a_sell_in_line(self, cost_bonus) -> None:
+        row = _rows(cost_bonus, ON)["37"]
+
+        assert (row.sell_in, row.m_sell_in, row.sell_in_lineas) == (_d("6.00"), _d("6.00"), 1)
+        assert (row.tg, row.costo) == (_d("10.00"), _d("50.00"))
+        assert row.costo_sell_in == _d("44.00")
+        assert row.total_gauss_sell == _d("16.00")
+        # Not empty (T17): the screen and the CSV read these figures.
+        figures = sell_in_out_of(row)
+        assert (figures.sell_in, figures.costo_sell_in, figures.total_gauss) == (6.0, 44.0, 16.0)
+
+    def test_an_invoice_and_a_cost_bonus_sell_in_add_up_on_one_sale(self, cost_bonus) -> None:
+        row = _rows(cost_bonus, ON)["38"]
+
+        assert (row.sell_in, row.sell_in_lineas) == (_d("7.00"), 1)
+        assert row.costo_sell_in == _d("43.00")
+
+    def test_the_kpis_include_the_cost_bonus_sell_in(self, cost_bonus) -> None:
+        with board.Board(cost_bonus, ON, scope_pairs=None) as b:
+            k = b.kpis()
+
+        assert (k.sell_in, k.m_sell_in, k.sell_in_lineas) == (_d("13.00"), _d("13.00"), 2)

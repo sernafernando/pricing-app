@@ -6,7 +6,8 @@ allocator already wrote each row net of VAT).
 
 Read only, from what the allocators wrote, for any channel (`ml`, `fuera`, `tn`; `venta_ref` is the
 channel's sale line, `ventas_fuera_ml_metricas.it_transaction` for `fuera`):
-- `sell_in_ars`: the sum of the sale's `sell_in_consumos.descuento_ars` (already ARS);
+- `sell_in_ars`: the sum of the sale's `sell_in_consumos.descuento_ars` plus its `sell_in_bono_consumos` ones (the %
+  of cost bonuses, T25: units the invoice sell in left, so they never overlap), already ARS;
 - `sell_out_ars`: the sum of the sale's `sell_out_consumos` in ARS, converted per campaign like the
   sell-out screen (`resumen.monto_ars`). A USD row without its rate leaves it unknown (None), never a
   partial sum, and makes it `sell_out_estimado`, as does an `al_cobro` campaign whose rate is not set
@@ -22,10 +23,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, select, union_all
 from sqlalchemy.orm import Session
 
-from app.models.sell_in import SellInConsumo
+from app.models.sell_in import SellInBonoConsumo, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
 from app.services.sell_out import resumen
 
@@ -45,12 +46,13 @@ class MontosVenta:
 
 
 def _sell_in(db: Session, canal: str, refs: List[int]) -> Dict[int, Decimal]:
-    t = SellInConsumo
-    rows = (
-        db.query(t.venta_ref, func.sum(t.descuento_ars))
-        .filter(t.canal == canal, t.venta_ref.in_(refs))
-        .group_by(t.venta_ref)
-    )
+    filas = union_all(
+        *(
+            select(t.venta_ref, t.descuento_ars).where(t.canal == canal, t.venta_ref.in_(refs))
+            for t in (SellInConsumo, SellInBonoConsumo)
+        )
+    ).subquery()
+    rows = db.query(filas.c.venta_ref, func.sum(filas.c.descuento_ars)).group_by(filas.c.venta_ref)
     return {int(ref): Decimal(total) for ref, total in rows}
 
 

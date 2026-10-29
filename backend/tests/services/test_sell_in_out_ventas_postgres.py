@@ -22,7 +22,14 @@ from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
+from app.models.sell_in import (
+    SellInBonoConsumo,
+    SellInBonoMarca,
+    SellInCompra,
+    SellInCompraItem,
+    SellInCompraPedido,
+    SellInConsumo,
+)
 from app.models.sell_out import SellOutCampana, SellOutConsumo
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.services import sell_in_out_ventas
@@ -52,6 +59,7 @@ TABLES = [
     SellInCompraItem.__table__,
     SellInCompraPedido.__table__,
     SellInConsumo.__table__,
+    SellInBonoConsumo.__table__,
     SellOutCampana.__table__,
     SellOutConsumo.__table__,
     VentaFueraMLMetrica.__table__,
@@ -71,7 +79,7 @@ def world(prefix: str) -> Iterator[Engine]:
 
 def clean(engine: Engine) -> None:
     with engine.begin() as conn:
-        for table in ("ventas_fuera_ml_metricas", "sell_in_compras", "sell_out_campanas"):
+        for table in ("ventas_fuera_ml_metricas", "sell_in_compras", "sell_in_bonos_marca", "sell_out_campanas"):
             conn.execute(text(f"DELETE FROM {table}"))  # items and consumptions cascade
 
 
@@ -95,6 +103,33 @@ def sell_in(engine: Engine, compra_item_id: int, ref: int, descuento: str, canal
         "INSERT INTO sell_in_consumos (compra_item_id, canal, venta_ref, item_id, fecha_venta, unidades, "
         "descuento_ars) VALUES (:c, :canal, :r, 2964, :f, 1, :d)",
         c=compra_item_id,
+        canal=canal,
+        r=ref,
+        f=DIA,
+        d=descuento,
+    )
+
+
+def bono_costo(engine: Engine) -> int:
+    """A % of cost bonus (T25, `base = 'costo_venta'`): only its id matters to the lists."""
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "INSERT INTO sell_in_bonos_marca (base, alcance, marca, tipo, porcentaje, moneda, fecha_desde, "
+                "fecha_hasta, usuario_id) VALUES ('costo_venta', 'marca', 'TP-LINK', 'porcentaje', 3, 'ARS', :f, :f, 7) "
+                "RETURNING id"
+            ),
+            {"f": DIA},
+        ).scalar()
+
+
+def sell_in_costo(engine: Engine, bono_id: int, ref: int, descuento: str, canal: str = "fuera") -> None:
+    """A cost bonus's sell in on the sale (`sell_in_bono_consumos`, T25b): on units the invoice sell in left."""
+    w_out.execute(
+        engine,
+        "INSERT INTO sell_in_bono_consumos (bono_id, canal, venta_ref, item_id, fecha_venta, unidades, descuento_ars) "
+        "VALUES (:b, :canal, :r, 2964, :f, 1, :d)",
+        b=bono_id,
         canal=canal,
         r=ref,
         f=DIA,
@@ -143,6 +178,24 @@ class TestMontosPorVenta:
 
         assert (m.sell_in_ars, m.sell_out_ars, m.sell_out_estimado) == (Decimal("200.00"), None, None)
         assert m.credito_ars == Decimal("200.00")
+
+    def test_a_cost_bonus_only_sale_has_its_sell_in(self, engine: Engine) -> None:
+        # T25 (S31): a % of cost bonus reaches the operations lists like invoice sell in.
+        ref = venta(engine)
+        sell_in_costo(engine, bono_costo(engine), ref, "30.00")
+        sell_in_costo(engine, bono_costo(engine), ref, "99.00", canal="tn")  # another channel's sale
+
+        m = _montos(engine, [ref])[ref]
+
+        assert (m.sell_in_ars, m.sell_out_ars, m.sell_out_estimado) == (Decimal("30.00"), None, None)
+        assert m.credito_ars == Decimal("30.00")
+
+    def test_an_invoice_and_a_cost_bonus_sell_in_add_up(self, engine: Engine) -> None:
+        ref = venta(engine)
+        sell_in(engine, compra_item(engine), ref, "150.25")
+        sell_in_costo(engine, bono_costo(engine), ref, "9.75")
+
+        assert _montos(engine, [ref])[ref].sell_in_ars == Decimal("160.00")
 
     def test_an_ars_sell_out_is_its_amount(self, engine: Engine) -> None:
         ref = venta(engine)

@@ -16,6 +16,7 @@ import {
   label,
 } from './labels';
 import styles from './panel.module.css';
+import { sellInOrigen } from '../../../utils/sellInOrigen';
 
 function PublicationSection({ detail }) {
   const { row } = detail;
@@ -124,7 +125,8 @@ const MarkupValue = ({ value }) => (
 /** The cost of the purchase lot the next sale takes its sell in from, with its discount and units left. */
 function SellInCost({ sellIn }) {
   if (!sellIn) return <Muted title="Sin sell in vigente">-</Muted>;
-  const detalle = `Descuento por unidad: $ ${amount(sellIn.descuento_unit)}\nUnidades restantes del lote: ${sellIn.unidades_restantes}`;
+  const origen = sellInOrigen(sellIn); // a purchase lot or the % of cost bonuses (T25c)
+  const detalle = `Descuento por unidad: $ ${amount(sellIn.descuento_unit)}\n${origen}`;
   if (isBlank(sellIn.costo)) return <Muted title={detalle}>Sin tipo de cambio</Muted>;
   return <span title={detalle}>{amount(sellIn.costo)}</span>;
 }
