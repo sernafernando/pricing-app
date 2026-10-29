@@ -1,4 +1,4 @@
-"""Migrate the legacy offsets (`offsets_ganancia`) to sell-out campaigns (sell-in-sell-out T15, T22).
+"""Migrate the legacy offsets (`offsets_ganancia`) to sell-out campaigns and sell-in cost bonuses (T15, T22, T25f).
 
 Owner: "Los offsets hay que migrar todo, lo que no se pueda migrar directo haceme
 un detalle y guardamelo en una tabla". Each offset of type `monto_por_unidad`
@@ -33,11 +33,41 @@ stamped with `offset_origen_id`:
 - a NULL `fecha_hasta` ends on `--fecha-hasta-default` (2026-12-31), with a
   warning so someone adjusts it.
 
+Each `porcentaje_costo` offset becomes ONE sell-in cost bonus (T25f, rule 9:
+`sell_in_bonos_marca` with `base='costo_venta'`, `tipo='porcentaje'`, ARS), the
+legacy offset's exact equivalent (a % of each sale's cost without VAT, by sale
+date). It takes the offset's STORED `porcentaje` as is with 'incluye IVA'
+UNTICKED (S33: the stored value is already net of VAT), and is loaded with the
+bonus service's own steps (`app.services.sell_in.bonos_crud`: `validar`, the
+same fields, the audit row; its table's triggers queue it for the worker like a
+bonus loaded from the screen). The API never takes `offset_origen_id` (T25d:
+read-only), so `_crear_bono` is `crear_bono` with it set on the new row:
+
+- a brand alone -> `alcance='marca'`; a category alone -> 'categoria'; a product
+  alone -> 'modelos' with that product. A subcategory, or more than one field
+  (a legacy offset reaches ANY of them, a bonus holds one), goes to review;
+- a group's offsets (all `porcentaje_costo`) become ONE 'modelos' bonus whose
+  models are the group's reach FROZEN at migration time: the products its
+  filters reach now UNION the products of its offsets (the same reach as the
+  sell-out groups above). Each offset with a product gives it its own %; the
+  bonus's % is the first offset's. The same rules as a campaign's group refuse
+  it (a product given twice, an offset other than the first without a product,
+  different periods), and its rows warn that the reach is frozen;
+- the dates, caps (`max_unidades` -> `tope_unidades`; a USD cap or a skipped
+  channel goes to review) and the expired / open-ended warnings are the
+  campaigns' (an expired one changes the historical cost with sell in in
+  Métricas ML: `bonos_vencidos_migrados` and stderr);
+- an offset matching a sell-in % brand bonus loaded BY HAND (active, same
+  brand, overlapping dates, no `offset_origen_id`) is never migrated: it stays
+  in review as "ya cargado a mano como bono #N", warning when its percentage
+  differs. A bonus whose `offset_origen_id` is the offset's (any offset of a
+  group) means it was already migrated: "ya migrado a bono #N".
+
+The CSV says "migrado a bono #N" ("se migraría a bono" in a dry run); the
+summary adds `bonos_creados` and `bono_ids`.
+
 Everything else is reported in the CSV and NOT migrated, each with its reason:
-`porcentaje_costo` (never a new bono: when an active sell-in % brand bonus of
-the same brand whose dates overlap the offset's exists it was loaded by hand, and
-the reason names it, "ya cargado a mano como bono #N", warning when its
-percentage differs; otherwise it waits for a person), `monto_fijo` (no campaign type holds a fixed total), a non-positive
+`monto_fijo` (no campaign type holds a fixed total), a non-positive
 amount, no scope, no user (offset without `usuario_id` and no `--usuario-id`),
 what a campaign cannot represent (active or expired, single or any offset of a
 group: an ARS offset capped in USD, since a campaign in pesos holds no USD cap; an
@@ -55,7 +85,8 @@ run leaves the table as it is; its summary counts what `--apply` would keep ther
 (`pendientes`).
 
 Dry run is the DEFAULT: it only validates (`validar_campos`, `validar` for a
-group, and it plans the new group of the products outside the existing group's
+group, `bonos_crud.validar` for a cost bonus
+and it plans the new group of the products outside the existing group's
 filters, as `--apply` creates it) and writes nothing. A single offset's new
 group is built from its own scope and carries no per-product amount, so its reach
 holds by construction. `--apply` loads each offset, or each group, in its own transaction
@@ -84,14 +115,17 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
+from app.models.auditoria import TipoAccion
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInBonoMarca
+from app.models.sell_in import SellInBonoItem, SellInBonoMarca
+from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, MODELOS_MAX, SellInBonoIn, SellInBonoModeloIn
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem
 from app.schemas.sell_out import ITEMS_MAX, NOMBRE_MAX, SellOutCampanaIn
+from app.services.sell_in import bonos_crud
 from app.services.sell_out import alcance, campanas
 from app.utils.csv_cells import csv_money, csv_text
 
@@ -114,6 +148,8 @@ COLUMNAS = [
     "avisos",
 ]
 MIGRADO, NO_MIGRADO, YA_MIGRADO, MIGRARIA = "migrado", "no migrado", "ya migrado", "migraría (dry-run)"
+BONO_MIGRADO, BONO_YA_MIGRADO, BONO_MIGRARIA = "migrado a bono #{}", "ya migrado a bono #{}", "se migraría a bono"
+BONO = "un bono sobre el costo"  # how `_irrepresentable` names a cost bonus
 # Scope fields as (column, CSV label), in the order the filter rows are created.
 _ALCANCE = (
     ("marca", "marca"),
@@ -133,6 +169,7 @@ class _Plan:
     motivo: Optional[str] = None
     error: bool = False
     data: Optional[SellOutCampanaIn] = None
+    bono: Optional[SellInBonoIn] = None  # a cost-percentage offset (or group) becomes this sell-in cost bonus
     usuario_id: Optional[int] = None
     avisos: list[str] = field(default_factory=list)
     vencido: bool = False  # ends before `--hoy`: migrating it changes the historical sell-out figures
@@ -153,10 +190,17 @@ def _monto(valor: float) -> Decimal:
 
 
 VENCIDO = "Vencido el {}: migrarlo cambia las cifras históricas de sell out en Métricas ML"
+VENCIDO_SELL_IN = "Vencido el {}: migrarlo cambia el costo histórico con sell in en Métricas ML"
 
 
 def _condiciones(
-    plan: _Plan, offsets: list[OffsetGanancia], tope_de: Optional[OffsetGanancia], moneda: str, hoy, default
+    plan: _Plan,
+    offsets: list[OffsetGanancia],
+    tope_de: Optional[OffsetGanancia],
+    moneda: str,
+    hoy,
+    default,
+    vencido: str = VENCIDO,
 ) -> dict:
     """Caps (from `tope_de`), dates and the warnings shared by one offset and a group: the earliest start, the
     latest end (an open-ended offset ends on `default`). An expired end is kept as it is, with its warning."""
@@ -177,7 +221,7 @@ def _condiciones(
         if fecha_hasta < hoy:
             plan.vencido = True
     if plan.vencido:
-        plan.avisos.append(VENCIDO.format(fecha_hasta.isoformat()))
+        plan.avisos.append(vencido.format(fecha_hasta.isoformat()))
     return {
         "fecha_desde": min(o.fecha_desde for o in offsets),
         "fecha_hasta": fecha_hasta,
@@ -186,17 +230,17 @@ def _condiciones(
     }
 
 
-def _irrepresentable(offsets: list[OffsetGanancia], tope_de: Optional[OffsetGanancia], moneda: str) -> Optional[str]:
-    """Why a campaign cannot credit what these offsets credited, or None: a campaign in pesos holds no USD cap, and a
-    campaign covers every channel. Migrating them anyway would credit more than the legacy offsets did."""
+def _irrepresentable(
+    offsets: list[OffsetGanancia], tope_de: Optional[OffsetGanancia], moneda: str, que: str = "una campaña"
+) -> Optional[str]:
+    """Why a campaign (or `que`: a cost bonus) cannot credit what these offsets credited, or None: one in pesos holds
+    no USD cap, and it covers every channel. Migrating them anyway would credit more than the legacy offsets did."""
     motivos = []
     if moneda != "USD" and tope_de is not None and tope_de.max_monto_usd is not None:
-        motivos.append(
-            f"El tope en USD ({csv_money(tope_de.max_monto_usd)}) no se puede guardar en una campaña en pesos"
-        )
+        motivos.append(f"El tope en USD ({csv_money(tope_de.max_monto_usd)}) no se puede guardar en {que} en pesos")
     sin_canal = [label for col, label in _CANALES if any(getattr(o, col) is False for o in offsets)]
     if sin_canal:
-        motivos.append(f"No aplicaba a: {', '.join(sin_canal)}; una campaña aplica a todos los canales")
+        motivos.append(f"No aplicaba a: {', '.join(sin_canal)}; {que} aplica a todos los canales")
     return " | ".join(motivos) or None
 
 
@@ -209,11 +253,11 @@ def _clave(marca: str) -> str:
 
 
 def _bonos(db: Session) -> _Bonos:
-    """The active sell-in brand bonuses of `porcentaje` type: the 4 brand % offsets were loaded BY HAND as these
-    (2026-10-23), with no link back to the offset."""
+    """The active sell-in brand bonuses of `porcentaje` type loaded BY HAND (no `offset_origen_id`): the 4 brand %
+    offsets were loaded as these (2026-10-23), with no link back to the offset."""
     b = SellInBonoMarca
     rows = db.query(b.id, b.marca, b.porcentaje, b.fecha_desde, b.fecha_hasta).filter(
-        b.tipo == "porcentaje", b.alcance == "marca", b.estado == "activa"
+        b.tipo == "porcentaje", b.alcance == "marca", b.estado == "activa", b.offset_origen_id.is_(None)
     )
     salida: _Bonos = {}
     for bono_id, marca, porcentaje, desde, hasta in rows.order_by(b.id):
@@ -225,9 +269,9 @@ def _pct(valor) -> str:
     return format(Decimal(str(valor)).normalize(), "f").replace(".", ",")
 
 
-def _porcentaje(offset: OffsetGanancia, bonos: _Bonos) -> _Plan:
-    """Never a new bono (decision 2026-10-27): the equivalent one loaded by hand is named, or the offset waits for a
-    person. Only a brand-alone scope has an equivalent (a brand bonus), and only a bonus whose dates overlap the
+def _a_mano(offset: OffsetGanancia, bonos: _Bonos) -> Optional[_Plan]:
+    """The review plan of an offset already loaded BY HAND as a bonus (it is never migrated: a new bonus would count
+    twice), or None. Only a brand-alone scope has one (a brand bonus), and only a bonus whose dates overlap the
     offset's (both inclusive; an offset without end is open) can be the one loaded for it."""
     solo_marca = offset.marca is not None and all(getattr(offset, c) is None for c, _ in _ALCANCE if c != "marca")
     iguales = [
@@ -236,7 +280,7 @@ def _porcentaje(offset: OffsetGanancia, bonos: _Bonos) -> _Plan:
         if desde <= (offset.fecha_hasta or desde) and offset.fecha_desde <= hasta
     ]
     if not iguales:
-        return _Plan("Porcentaje sobre costo: no hay un bono de sell in equivalente; cargarlo a mano")
+        return None
     nombres = ", ".join(f"#{bono_id}" for bono_id, _ in iguales)
     plan = _Plan(f"ya cargado a mano como bono{'s' if len(iguales) > 1 else ''} {nombres}")
     propio = Decimal(str(offset.porcentaje)) if offset.porcentaje is not None else None
@@ -247,6 +291,54 @@ def _porcentaje(offset: OffsetGanancia, bonos: _Bonos) -> _Plan:
     return plan
 
 
+# A single offset's scope as a bonus's: one field alone (a legacy offset reaches a product matching ANY of its fields).
+_ALCANCE_BONO = {
+    ("marca",): lambda o: {"alcance": "marca", "marca": o.marca},
+    ("categoria",): lambda o: {"alcance": "categoria", "categoria": o.categoria},
+    ("item_id",): lambda o: {"alcance": "modelos", "modelos": [o.item_id]},
+}
+
+
+def _con_bono(plan: _Plan, campos: dict, porcentaje, descripcion: str, condiciones: dict, prefijo: str = "") -> _Plan:
+    """`plan` with its cost bonus (S33: the stored % as is, 'incluye IVA' unticked), or the value it cannot hold."""
+    try:
+        plan.bono = SellInBonoIn(
+            **campos,
+            tipo="porcentaje",
+            porcentaje=_monto(porcentaje) if porcentaje is not None else None,
+            moneda="ARS",
+            base=BASE_COSTO_VENTA,
+            incluye_iva=False,
+            descripcion=descripcion,
+            **condiciones,
+        )
+    except ValidationError as exc:
+        return _Plan(f"{prefijo}Valor no válido en: {_campos(exc)}", error=True)
+    return plan
+
+
+def _planear_bono(offset: OffsetGanancia, hoy: date, fecha_hasta_default: date, usuario_id: Optional[int]) -> _Plan:
+    """A cost-percentage offset as one cost bonus over its own scope, dates and unit cap (rule 9)."""
+    usuario = offset.usuario_id if offset.usuario_id is not None else usuario_id
+    if usuario is None:
+        return _Plan("Sin usuario: indicar --usuario-id")
+    dados = tuple(col for col, _ in _ALCANCE if getattr(offset, col) is not None)
+    if not dados:
+        return _Plan("Sin alcance: no indica marca, categoría, subcategoría, producto ni grupo")
+    if dados not in _ALCANCE_BONO:
+        return _Plan(
+            f"Porcentaje sobre costo: un bono de sell in no puede tener este alcance ({_alcance(offset)}); revisar a mano"
+        )
+    motivo = _irrepresentable([offset], offset, "ARS", BONO)
+    if motivo is not None:
+        return _Plan(motivo)
+    plan = _Plan(usuario_id=usuario)
+    condiciones = _condiciones(plan, [offset], offset, "ARS", hoy, fecha_hasta_default, VENCIDO_SELL_IN)
+    texto = _texto(offset)
+    descripcion = f"Migrado del offset #{offset.id}" + (f": {texto}" if texto else "")
+    return _con_bono(plan, _ALCANCE_BONO[dados](offset), offset.porcentaje, descripcion, condiciones)
+
+
 def _planear(
     offset: OffsetGanancia,
     hoy: date,
@@ -255,7 +347,7 @@ def _planear(
     bonos: Optional[_Bonos] = None,
 ) -> _Plan:
     if offset.tipo_offset == "porcentaje_costo":
-        return _porcentaje(offset, bonos or {})
+        return _a_mano(offset, bonos or {}) or _planear_bono(offset, hoy, fecha_hasta_default, usuario_id)
     if offset.tipo_offset == "monto_fijo":
         return _Plan("Monto fijo: no tiene equivalente en una campaña por unidad")
     if offset.tipo_offset != "monto_por_unidad":
@@ -304,18 +396,10 @@ def _planear_grupo(
     monedas = sorted({o.moneda or "ARS" for o in offsets})
     if len(monedas) > 1:
         return _Plan(f"{g}: mezcla monedas ({', '.join(monedas)})")
-    for o in offsets:
-        if o.monto is None or o.monto <= 0:
-            return _Plan(f"{g}: el offset #{o.id} tiene monto negativo o cero")
-    for o in offsets[1:]:
-        if o.item_id is None:
-            return _Plan(f"{g}: el offset #{o.id} no indica producto (solo el primero del grupo puede no indicarlo)")
+    motivo = _grupo_irregular(g, offsets, "monto")
+    if motivo is not None:
+        return _Plan(motivo)
     con_item = [o for o in offsets if o.item_id is not None]
-    vistos = set()
-    for o in con_item:
-        if o.item_id in vistos:
-            return _Plan(f"{g}: el producto {o.item_id} tiene más de un offset")
-        vistos.add(o.item_id)
     if len(con_item) > ITEMS_MAX:
         return _Plan(
             f"{g}: tiene {len(con_item)} productos con monto propio y una campaña admite hasta {ITEMS_MAX}; "
@@ -351,6 +435,77 @@ def _planear_grupo(
     except ValidationError as exc:
         return _Plan(f"{g}: Valor no válido en: {_campos(exc)}", error=True)
     return plan
+
+
+def _grupo_irregular(g: str, offsets: list[OffsetGanancia], valor: str) -> Optional[str]:
+    """What a group's offsets break of the legacy money path's shape, or None: each `valor` positive, a product in every
+    offset but the first, once each."""
+    for o in offsets:
+        if getattr(o, valor) is None or getattr(o, valor) <= 0:
+            return f"{g}: el offset #{o.id} tiene {valor} negativo o cero"
+    for o in offsets[1:]:
+        if o.item_id is None:
+            return f"{g}: el offset #{o.id} no indica producto (solo el primero del grupo puede no indicarlo)"
+    vistos = set()
+    for o in offsets:
+        if o.item_id is not None and o.item_id in vistos:
+            return f"{g}: el producto {o.item_id} tiene más de un offset"
+        vistos.add(o.item_id)
+    return None
+
+
+def _alcance_de_grupo(db: Session, grupo_id: int) -> set[int]:
+    """Every product an existing group's filters reach now, with the campaigns' rule (`alcance.filtro_alcanza`)."""
+    f, p = OffsetGrupoFiltro, ProductoERP
+    rows = db.query(p.item_id).join(f, alcance.filtro_alcanza(f, p)).filter(f.grupo_id == grupo_id)
+    return {i for (i,) in rows.distinct()}
+
+
+def _planear_grupo_bono(
+    db: Session,
+    grupo_id: int,
+    offsets: list[OffsetGanancia],
+    hoy: date,
+    fecha_hasta_default: date,
+    usuario_id: Optional[int],
+) -> _Plan:
+    """A group of cost-percentage offsets as ONE 'modelos' cost bonus over the group's reach frozen now: its filters'
+    products UNION its offsets' products (owner: "El grupo lo arma el operador..."). Each offset with a product gives
+    it its own %; the bonus's % (a product reached only by the filters) is the first offset's."""
+    g = f"Grupo #{grupo_id}"
+    motivo = _grupo_irregular(g, offsets, "porcentaje")
+    if motivo is not None:
+        return _Plan(motivo)
+    if len({(o.fecha_desde, o.fecha_hasta) for o in offsets}) > 1:
+        return _Plan(f"{g}: sus offsets tienen períodos distintos y un bono tiene uno solo; revisar a mano")
+    usuario = next((o.usuario_id for o in offsets if o.usuario_id is not None), usuario_id)
+    if usuario is None:
+        return _Plan(f"{g}: sin usuario; indicar --usuario-id")
+    tope_de = next((o for o in offsets if o.max_unidades or o.max_monto_usd), None)
+    motivo = _irrepresentable(offsets, tope_de, "ARS", BONO)
+    if motivo is not None:
+        return _Plan(f"{g}: {motivo}")
+    propios = {o.item_id: o.porcentaje for o in offsets if o.item_id is not None}
+    modelos = sorted(_alcance_de_grupo(db, grupo_id) | set(propios))
+    if len(modelos) > MODELOS_MAX:
+        return _Plan(
+            f"{g}: alcanza {len(modelos)} productos y un bono por modelos admite hasta {MODELOS_MAX}; revisar a mano"
+        )
+    plan = _Plan(usuario_id=usuario)
+    condiciones = _condiciones(plan, offsets, tope_de, "ARS", hoy, fecha_hasta_default, VENCIDO_SELL_IN)
+    plan.avisos.append(
+        f"{g}: alcance congelado en {len(modelos)} productos (sus filtros hoy y los productos de sus offsets); "
+        "un producto que cambió de marca o categoría desde entonces puede no coincidir"
+    )
+    texto = _texto(offsets[0])
+    origen = ", ".join(f"#{o.id}" for o in offsets)
+    descripcion = f"Migrado de los offsets {origen} del grupo #{grupo_id}" + (f": {texto}" if texto else "")
+    try:
+        lista = [SellInBonoModeloIn(item_id=i, porcentaje=_monto(propios[i])) if i in propios else i for i in modelos]
+    except ValidationError as exc:
+        return _Plan(f"{g}: Valor no válido en: {_campos(exc)}", error=True)
+    campos = {"alcance": "modelos", "modelos": lista}
+    return _con_bono(plan, campos, offsets[0].porcentaje, descripcion, condiciones, f"{g}: ")
 
 
 def _campos(exc: ValidationError) -> str:
@@ -450,7 +605,9 @@ class _Resultado:
     error: Optional[str] = None
     pendiente: Optional[tuple[str, list[str]]] = None  # (reason, warnings) for the review table
     vencido: bool = False  # an expired offset that migrates (or, in a dry run, would)
-    nueva: bool = False  # the row that names a new campaign once in the summary
+    nueva: bool = False  # the row that names a new campaign (or cost bonus) once in the summary
+    cuenta: Optional[str] = None  # the summary counter, when `resultado` names a bonus (it holds its id)
+    bono_id: Optional[int] = None  # a cost bonus created (or, with `cuenta`, holding the offset)
 
 
 def _uno(db: Session, offset: OffsetGanancia, plan: _Plan, apply: bool) -> tuple[dict, Optional[str]]:
@@ -473,13 +630,71 @@ def _uno(db: Session, offset: OffsetGanancia, plan: _Plan, apply: bool) -> tuple
         return _fila(offset, NO_MIGRADO, motivo=motivo, avisos=plan.avisos), motivo
 
 
+def _crear_bono(db: Session, data: SellInBonoIn, usuario_id: int, offset_origen_id: int) -> SellInBonoMarca:
+    """`bonos_crud.crear_bono` with the legacy offset it migrates set on the new row before its first flush, so the
+    audit row carries it (the API never takes it: T25d makes it read-only). The same steps, in the same order:
+    validation, fields and models, audit, commit; the table's triggers queue it for the `sell_in.bono` worker."""
+    campos = bonos_crud.validar(db, data)
+    bono = SellInBonoMarca(usuario_id=usuario_id, estado="activa", offset_origen_id=offset_origen_id)
+    db.add(bono)
+    bonos_crud._asignar(db, bono, data, campos)
+    bonos_crud._audit(db, TipoAccion.SELL_IN_BONO_CREADO, usuario_id, None, bonos_crud._valores(db, bono))
+    db.commit()
+    db.refresh(bono)
+    return bono
+
+
+def _bono_migrado(db: Session, offset_ids: list[int]) -> Optional[SellInBonoMarca]:
+    return (
+        db.query(SellInBonoMarca)
+        .filter(SellInBonoMarca.offset_origen_id.in_(offset_ids))
+        .order_by(SellInBonoMarca.id)
+        .first()
+    )
+
+
+def _anulado(bono: SellInBonoMarca) -> list[str]:
+    return [f"El bono #{bono.id} está anulado"] if bono.estado == "anulada" else []
+
+
+def _uno_bono(
+    db: Session, offset: OffsetGanancia, plan: _Plan, apply: bool
+) -> tuple[dict, Optional[str], Optional[int]]:
+    """The CSV row of one planned cost bonus (an offset's, or a group's at its first offset), its error and the new
+    bonus's id. Under `apply` it commits; a failure rolls the bonus and its models back."""
+    try:
+        if not apply:
+            bonos_crud.validar(db, plan.bono)
+            return _fila(offset, BONO_MIGRARIA, avisos=plan.avisos), None, None
+        bono = _crear_bono(db, plan.bono, plan.usuario_id, offset.id)
+        return _fila(offset, BONO_MIGRADO.format(bono.id), avisos=plan.avisos), None, bono.id
+    except bonos_crud.SellInBonoError as exc:
+        db.rollback()
+        return _fila(offset, NO_MIGRADO, motivo=str(exc), avisos=plan.avisos), str(exc), None
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Offset #%s: database error", offset.id)
+        motivo = f"Error de base de datos: {type(exc).__name__}"
+        return _fila(offset, NO_MIGRADO, motivo=motivo, avisos=plan.avisos), motivo, None
+
+
 def _suelto(
     db: Session, offset: OffsetGanancia, hoy, default, usuario_id, apply: bool, bonos: _Bonos
 ) -> list[_Resultado]:
     ya = _ya_migrada(db, offset.id)
     if ya is not None:
         return [_Resultado(_fila(offset, YA_MIGRADO, ya), offset)]
+    bono = _bono_migrado(db, [offset.id])
+    if bono is not None:
+        fila = _fila(offset, BONO_YA_MIGRADO.format(bono.id), avisos=_anulado(bono))
+        return [_Resultado(fila, offset, cuenta="ya_migrados", bono_id=bono.id)]
     plan = _planear(offset, hoy, default, usuario_id, bonos)
+    if plan.bono is not None:
+        fila, error, bono_id = _uno_bono(db, offset, plan, apply)
+        if error is not None:
+            return [_Resultado(fila, offset, error, (error, plan.avisos))]
+        cuenta = "migrados" if apply else "migrarian"
+        return [_Resultado(fila, offset, vencido=plan.vencido, nueva=True, cuenta=cuenta, bono_id=bono_id)]
     if plan.data is None:
         fila = _fila(offset, NO_MIGRADO, motivo=plan.motivo, avisos=plan.avisos)
         return [_Resultado(fila, offset, plan.motivo if plan.error else None, (plan.motivo, plan.avisos))]
@@ -557,9 +772,76 @@ def _grupo_de_productos(db: Session, grupo_id: int, item_ids: list[int], usuario
     return grupo.id
 
 
-def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool) -> list[_Resultado]:
-    """Every offset of one group (by id): one campaign, loaded in ONE transaction, or none of them migrates."""
+def _grupo_bono_migrado(db: Session, grupo_id: int, offsets: list[OffsetGanancia], bono) -> list[_Resultado]:
+    """A re-run over a group already migrated to a cost bonus: an offset the bonus holds as it is now (its origin with
+    the bonus's %, or its product with that %) is "ya migrado"; one added afterwards or whose % changed goes to review."""
+    t = SellInBonoItem
+    propios = {i: p for i, p in db.query(t.item_id, t.porcentaje).filter(t.bono_id == bono.id)}
+    g = f"Grupo #{grupo_id}"
+    salida = []
+    for o in offsets:
+        if o.id == bono.offset_origen_id:
+            tenido = bono.porcentaje
+        elif o.item_id is not None and o.item_id in propios:
+            tenido = propios[o.item_id] if propios[o.item_id] is not None else bono.porcentaje
+        else:
+            motivo = f"{g}: el offset se agregó después de migrar el grupo al bono #{bono.id}; revisar a mano"
+            salida.append(_Resultado(_fila(o, NO_MIGRADO, motivo=motivo), o, None, (motivo, [])))
+            continue
+        if o.porcentaje is not None and _monto(o.porcentaje) == tenido:
+            fila = _fila(o, BONO_YA_MIGRADO.format(bono.id), avisos=_anulado(bono))
+            salida.append(_Resultado(fila, o, cuenta="ya_migrados", bono_id=bono.id))
+            continue
+        motivo = (
+            f"{g}: el porcentaje del offset cambió después de migrar el grupo al bono #{bono.id} "
+            f"(bono {_pct(tenido)} %, offset {_pct(o.porcentaje)} %); revisar a mano"
+        )
+        salida.append(_Resultado(_fila(o, NO_MIGRADO, motivo=motivo), o, None, (motivo, [])))
+    return salida
+
+
+def _grupo_bono(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool) -> list[_Resultado]:
+    """Every cost-percentage offset of one group (by id): one cost bonus, loaded in ONE transaction, or none."""
     grupo_id = offsets[0].grupo_id
+    plan = _planear_grupo_bono(db, grupo_id, offsets, hoy, default, usuario_id)
+    if plan.bono is None:
+        error = plan.motivo if plan.error else None
+        return [
+            _Resultado(
+                _fila(o, NO_MIGRADO, motivo=plan.motivo, avisos=plan.avisos), o, error, (plan.motivo, plan.avisos)
+            )
+            for o in offsets
+        ]
+    fila, error, bono_id = _uno_bono(db, offsets[0], plan, apply)
+    if error is not None:
+        motivo = f"Grupo #{grupo_id}: {error}"
+        return [
+            _Resultado(_fila(o, NO_MIGRADO, motivo=motivo, avisos=plan.avisos), o, motivo, (motivo, plan.avisos))
+            for o in offsets
+        ]
+    otro = f"migrado en el bono #{bono_id} del grupo #{grupo_id}" if apply else f"en el bono del grupo #{grupo_id}"
+    return [
+        _Resultado(
+            _fila(o, fila["resultado"], avisos=plan.avisos if i == 0 else [otro, *plan.avisos]),
+            o,
+            vencido=plan.vencido,
+            nueva=i == 0,
+            cuenta="migrados" if apply else "migrarian",
+            bono_id=bono_id,
+        )
+        for i, o in enumerate(offsets)
+    ]
+
+
+def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool) -> list[_Resultado]:
+    """Every offset of one group (by id): one campaign, loaded in ONE transaction, or none of them migrates (a group
+    of cost-percentage offsets: one cost bonus, `_grupo_bono`)."""
+    grupo_id = offsets[0].grupo_id
+    bono = _bono_migrado(db, [o.id for o in offsets])
+    if bono is not None:
+        return _grupo_bono_migrado(db, grupo_id, offsets, bono)
+    if all(o.tipo_offset == "porcentaje_costo" for o in offsets):
+        return _grupo_bono(db, offsets, hoy, default, usuario_id, apply)
     ya = (
         db.query(SellOutCampana.id)
         .filter(SellOutCampana.offset_origen_id.in_([o.id for o in offsets]))
@@ -658,6 +940,9 @@ def run_migracion(
         "campana_ids": [],
         "pendientes": 0,
         "vencidos_migrados": [],
+        "bonos_creados": 0,
+        "bono_ids": [],
+        "bonos_vencidos_migrados": [],
     }
     contador = {MIGRADO: "migrados", MIGRARIA: "migrarian", YA_MIGRADO: "ya_migrados", NO_MIGRADO: "no_migrados"}
     filas = []
@@ -715,15 +1000,18 @@ def run_migracion(
         for r in resultados:
             fila = r.fila
             filas.append(fila)
-            summary[contador[fila["resultado"]]] += 1
+            summary[r.cuenta or contador[fila["resultado"]]] += 1
             if tabla and r.pendiente is not None:
                 summary["pendientes"] += 1
             if r.error is not None:
                 summary["con_error"].append(fila["offset_id"])
             if r.nueva and fila["resultado"] == MIGRADO:
                 summary["campana_ids"].append(fila["campana_id"])
+            if r.nueva and r.cuenta == "migrados":
+                summary["bonos_creados"] += 1
+                summary["bono_ids"].append(r.bono_id)
             if r.vencido:
-                summary["vencidos_migrados"].append(fila["offset_id"])
+                summary["bonos_vencidos_migrados" if r.cuenta else "vencidos_migrados"].append(fila["offset_id"])
     return summary, filas
 
 
@@ -744,10 +1032,12 @@ def _fecha(value: str) -> date:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Migrate the legacy offsets to sell-out campaigns (dry run by default)."
+        description="Migrate the legacy offsets to sell-out campaigns and sell-in cost bonuses (dry run by default)."
     )
     parser.add_argument("--csv", required=True, help="Where to write the report (CSV).")
-    parser.add_argument("--apply", action="store_true", help="Create the campaigns; without it nothing is written.")
+    parser.add_argument(
+        "--apply", action="store_true", help="Create the campaigns and cost bonuses; without it nothing is written."
+    )
     parser.add_argument("--usuario-id", type=int, default=None, help="User for the offsets that have none.")
     parser.add_argument(
         "--fecha-hasta-default", type=_fecha, default=FECHA_HASTA_DEFAULT, help="End date for open-ended offsets."
@@ -779,6 +1069,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(
             f"AVISO: {len(summary['vencidos_migrados'])} offset(s) vencido(s) {hecho} ({ids}): "
             "cambian las cifras históricas de sell out en Métricas ML",
+            file=sys.stderr,
+        )
+    if summary["bonos_vencidos_migrados"]:
+        ids = ", ".join(str(i) for i in summary["bonos_vencidos_migrados"])
+        hecho = "migrado(s)" if args.apply else "se migrarían"
+        print(
+            f"AVISO: {len(summary['bonos_vencidos_migrados'])} offset(s) vencido(s) {hecho} a bono ({ids}): "
+            "cambian el costo histórico con sell in en Métricas ML",
             file=sys.stderr,
         )
     return 1 if summary["con_error"] else 0
