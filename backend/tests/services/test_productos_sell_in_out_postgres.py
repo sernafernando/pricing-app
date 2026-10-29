@@ -207,6 +207,13 @@ class TestCostBonus:
         assert _payload(engine).sell_in.descuento_unit == 2500.0
         assert _payload(engine, SWITCH).sell_in.descuento_unit == 1500.0
 
+    def test_a_category_bonus_reaches_only_that_category(self, engine):
+        # The scope is the panel's (`bonos_alcance.del_alcance`): the router is a Routers product, the switch is not.
+        bono = _bono_costo(engine, alcance="categoria", categoria="Routers")
+
+        assert _payload(engine).sell_in.bono_ids == [bono]
+        assert _payload(engine, SWITCH) is None
+
     def test_several_cost_bonuses_stack_up_to_the_cost(self, engine):
         primero = _bono_costo(engine, "60.00")
         segundo = _bono_costo(engine, "60.00")
@@ -254,11 +261,11 @@ class TestCostBonus:
         return len(statements)
 
     def test_cost_bonuses_of_any_scope_cost_one_query_more_than_none_active(self, engine):
-        sin_bonos = self._statements(engine)  # FIFO, sell out and the cost bonuses' gate
+        sin_bonos = self._statements(engine)  # FIFO and sell out; the bonuses' scope rides on the campaigns' query
         _bono_costo(engine)
         _bono_costo(engine, alcance="modelos", modelos=(SWITCH,))
 
-        assert self._statements(engine) == sin_bonos + 1  # their scope, every bonus in one query
+        assert self._statements(engine) == sin_bonos + 1  # the reached bonuses' rows and caps, every bonus in one query
 
 
 class TestSellOut:
@@ -377,4 +384,4 @@ class TestNoData:
             event.listen(conn, "before_cursor_execute", lambda *a: statements.append(a[2]))
             resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
 
-        assert len(statements) <= 7  # the 6 of FIFO and sell out, plus the cost bonuses' gate (T25)
+        assert len(statements) <= 6  # no cost bonus active: the T25 lookup costs no statement

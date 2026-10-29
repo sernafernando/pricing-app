@@ -35,9 +35,10 @@ same keys and scale): with sell in, `limpio` over the cost with sell in; with
 sell in + sell out, `limpio + sell out` over the cost with sell in, or the plain
 cost when there is no sell in.
 
-Batch: `resolver_sell_in_out_batch` reads a whole page in at most eight queries:
-six for FIFO and sell out, and for the cost bonuses one (none active, or every
-product of the page has a lot) or two (their scope, every bonus in one query).
+Batch: `resolver_sell_in_out_batch` reads a whole page in at most seven queries:
+six for FIFO and sell out (the cost bonuses' scope rides on the campaigns'
+query), plus one for the reached cost bonuses' rows and caps, only when a
+product without a lot has one.
 """
 
 from __future__ import annotations
@@ -47,7 +48,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import and_, func, literal, select, union_all
+from sqlalchemy import Numeric, and_, cast, func, literal, null, or_, select, true, union_all
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
@@ -57,7 +58,6 @@ from app.schemas.sell_in_out_producto import SellInOutProducto, SellInProducto, 
 from app.services.pricing_calculator import calcular_markup, convertir_a_pesos
 from app.services.sell_in import bonos_costo
 from app.services.sell_in.bonos import tasas_bna_por_fecha
-from app.services.sell_in.bonos_alcance import del_alcance
 from app.services.sell_in.costing import LoteVigente, get_costing
 from app.services.sell_out import alcance, asignacion
 from app.services.sell_out.tope import cents
@@ -208,7 +208,7 @@ def resolver_sell_in_out_batch(db: Session, item_ids: Iterable[int], hoy: date) 
     """What `hoy`'s next sale of each product would get (module docstring), for a whole page."""
     ids = sorted({int(i) for i in item_ids if i is not None})
     sell_in = get_costing().vigentes(db, ids, hoy)
-    por_item = alcance.campanas_por_item(db, {(i, hoy) for i in ids})
+    por_item, pares = _campanas_y_bonos(db, ids, [i for i in ids if i not in sell_in], hoy)
     cids = sorted(set().union(*por_item.values()))
     vigentes: Dict[int, _Campana] = {}
     bna = None
@@ -239,13 +239,54 @@ def resolver_sell_in_out_batch(db: Session, item_ids: Iterable[int], hoy: date) 
         if any(x.campana.moneda == "USD" for x in vigentes.values()):
             bna = tasas_bna_por_fecha(db, {hoy})[hoy]
     campanas = {item: [vigentes[c] for c in sorted(cs) if c in vigentes] for item, cs in por_item.items()}
-    return SellInOutBatch(hoy, sell_in, campanas, bna, _bonos_costo(db, [i for i in ids if i not in sell_in], hoy))
+    return SellInOutBatch(hoy, sell_in, campanas, bna, _bonos_costo(db, pares))
 
 
-def _bonos_costo(db: Session, ids: List[int], hoy: date) -> Dict[int, List[_BonoCosto]]:
-    """`{item_id: cost bonuses}` of the products without a current lot: the active `costo_venta` bonuses of `hoy`
-    with cap left, by the panel's scope rule (`del_alcance`), in id order. Two queries (one with none active)."""
-    if not ids:
+_Par = Tuple[int, int, Optional[Decimal]]  # (bono_id, item_id, the product's own % in the bonus or None)
+
+
+def _campanas_y_bonos(db: Session, ids: List[int], sin_lote: List[int], hoy: date):
+    """`(alcance.campanas_por_item of hoy, the (cost bonus, product) pairs of the products without a lot)` in ONE
+    query: the cost bonuses ride on the campaigns' (a UNION ALL), so a page with none active costs nothing more.
+    A pair is an active `costo_venta` bonus current on `hoy` reaching the product by the panel's scope rule
+    (`bonos_alcance.del_alcance`: brand, category, or a model listed in `sell_in_bono_items`; a NULL brand or
+    category matches nothing), set-based."""
+    ventas = {(i, hoy) for i in ids}
+    if not ventas:
+        return {}, []
+    campanas = alcance.consulta_campanas_por_item(db, ventas)
+    if not sin_lote:
+        return alcance.campanas_de_filas(campanas, ventas), []
+    b, i, p = SellInBonoMarca, SellInBonoItem, ProductoERP
+    bonos = (
+        select(b.id, p.item_id, b.fecha_desde, b.fecha_hasta, literal("bono"), i.porcentaje)
+        .select_from(p)
+        .join(b, true())
+        .outerjoin(i, and_(i.bono_id == b.id, i.item_id == p.item_id))
+        .where(
+            p.item_id.in_(sin_lote),
+            b.base == bonos_costo.BASE,
+            b.estado == "activa",
+            b.fecha_desde <= hoy,
+            b.fecha_hasta >= hoy,
+            or_(
+                and_(b.alcance == "marca", b.marca == p.marca),
+                and_(b.alcance == "categoria", b.categoria == p.categoria),
+                and_(b.alcance == "modelos", i.item_id.isnot(None)),
+            ),
+        )
+    )
+    filas = db.execute(
+        union_all(campanas.add_columns(literal("campana"), cast(null(), Numeric)).statement, bonos)
+    ).all()
+    pares = [(int(r[0]), int(r[1]), r[5]) for r in filas if r[4] == "bono"]
+    return alcance.campanas_de_filas([r[:4] for r in filas if r[4] == "campana"], ventas), pares
+
+
+def _bonos_costo(db: Session, pares: List[_Par]) -> Dict[int, List[_BonoCosto]]:
+    """`{item_id: cost bonuses}` from the (bonus, product) pairs, in id order, without the bonuses whose cap is used
+    up (after `sell_in_bono_consumos`). One query, only when there is a pair."""
+    if not pares:
         return {}
     t = SellInBonoConsumo
     usado = (
@@ -257,13 +298,7 @@ def _bonos_costo(db: Session, ids: List[int], hoy: date) -> Dict[int, List[_Bono
     for bono, unidades, monto in (
         db.query(SellInBonoMarca, usado.c.unidades, usado.c.monto)
         .outerjoin(usado, usado.c.bono_id == SellInBonoMarca.id)
-        .filter(
-            SellInBonoMarca.base == bonos_costo.BASE,
-            SellInBonoMarca.estado == "activa",
-            SellInBonoMarca.fecha_desde <= hoy,
-            SellInBonoMarca.fecha_hasta >= hoy,
-        )
-        .order_by(SellInBonoMarca.id)
+        .filter(SellInBonoMarca.id.in_(sorted({bid for bid, _, _ in pares})))
     ):
         libre = None if bono.tope_monto is None else Decimal(bono.tope_monto) - Decimal(monto or 0)
         if (bono.tope_unidades is not None and bono.tope_unidades <= int(unidades or 0)) or (
@@ -271,20 +306,10 @@ def _bonos_costo(db: Session, ids: List[int], hoy: date) -> Dict[int, List[_Bono
         ):
             continue  # the cap is used up: this bonus discounts nothing more
         activos[bono.id] = (bono, libre)
-    if not activos:
-        return {}
-    i = SellInBonoItem
-    alcanzados = union_all(
-        *(
-            select(literal(bid).label("bono_id"), ProductoERP.item_id, i.porcentaje)
-            .outerjoin(i, and_(i.bono_id == bid, i.item_id == ProductoERP.item_id))
-            .where(ProductoERP.item_id.in_(ids), del_alcance(db, bono, ProductoERP.item_id, None))
-            for bid, (bono, _) in activos.items()
-        )
-    ).subquery()
     salida: Dict[int, List[_BonoCosto]] = {}
-    for bid, item_id, propio in db.execute(select(alcanzados).order_by(alcanzados.c.item_id, alcanzados.c.bono_id)):
-        bono, libre = activos[bid]
-        pct = Decimal(propio if propio is not None else bono.porcentaje)
-        salida.setdefault(int(item_id), []).append(_BonoCosto(bono, pct, libre))
+    for bid, item_id, propio in sorted(pares, key=lambda x: (x[1], x[0])):
+        if bid in activos:
+            bono, libre = activos[bid]
+            pct = Decimal(propio if propio is not None else bono.porcentaje)
+            salida.setdefault(item_id, []).append(_BonoCosto(bono, pct, libre))
     return salida

@@ -147,8 +147,15 @@ def campanas_por_item(db: Session, ventas: Iterable[Tuple[int, date]]) -> Dict[i
     ventas = set(ventas)
     if not ventas:
         return {}
+    return campanas_de_filas(consulta_campanas_por_item(db, ventas), ventas)
+
+
+def consulta_campanas_por_item(db: Session, ventas: Set[Tuple[int, date]]):
+    """`campanas_por_item`'s query, unexecuted (a caller may run it together with another one): `(campana_id,
+    item_id, fecha_desde, fecha_hasta)` rows of the active campaigns reaching the items around their dates.
+    `ventas` must not be empty."""
     c, g = SellOutCampana, SellOutCampanaGrupo
-    rows = (
+    return (
         _alcanzados(db, c.id, ProductoERP.item_id, c.fecha_desde, c.fecha_hasta)
         .join(c, c.id == g.campana_id)
         .filter(
@@ -159,6 +166,10 @@ def campanas_por_item(db: Session, ventas: Iterable[Tuple[int, date]]) -> Dict[i
         )
         .distinct()
     )
+
+
+def campanas_de_filas(rows, ventas: Set[Tuple[int, date]]) -> Dict[int, Set[int]]:
+    """`campanas_por_item`'s result from its query's rows."""
     fechas: Dict[int, Set[date]] = defaultdict(set)
     for item, dia in ventas:
         fechas[item].add(dia)
