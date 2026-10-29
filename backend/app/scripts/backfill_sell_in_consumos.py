@@ -79,6 +79,21 @@ def _stop(summary: dict, exc: BaseException, what: str) -> None:
     summary["stop_error"] = f"{type(exc).__name__}: {exc}"[:500]
 
 
+def _cost_bonuses(db: Session, items: set[int]) -> bonos_costo.CostoResult:
+    """The % of cost bonuses of `items` after their FIFO, in a savepoint as in `sell.drain`: a bonus that cannot be
+    computed (a missing VAT rate) lists its products; any other error rolls back only the savepoint, keeps their rows
+    and lists every one of `items`, and the batch's FIFO still commits."""
+    try:
+        with db.begin_nested():
+            costo = bonos_costo.recalcular(db, items)
+    except Exception as exc:  # noqa: BLE001 - the batch's FIFO must commit
+        logger.exception("backfill_sell_in_consumos: cost bonuses not recomputed for products %s", sorted(items))
+        error = f"{type(exc).__name__}: {exc}"[:500]
+        return bonos_costo.CostoResult(failed={item: error for item in items})
+    bonos_costo.registrar_fallidos(costo, "backfill_sell_in_consumos")
+    return costo
+
+
 def _close(db: Session) -> None:
     try:
         db.close()
@@ -135,8 +150,7 @@ def run_backfill(
             costo = bonos_costo.CostoResult()
             try:
                 result = get_costing().recompute(db, batch)
-                costo = bonos_costo.recalcular(db, set(batch) - result.failed.keys())
-                bonos_costo.registrar_fallidos(costo, "backfill_sell_in_consumos")
+                costo = _cost_bonuses(db, set(batch) - result.failed.keys())
                 if dry_run:
                     db.rollback()
                 else:

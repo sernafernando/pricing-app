@@ -367,3 +367,21 @@ class TestBackfillCostBonuses:
         assert (summary["failed"], summary["failed_items"]) == (1, [2964])
         assert [(r[2], r[4]) for r in w.consumos(bono_engine)] == [(venta, 1)]  # the FIFO still commits
         assert _costo_filas(bono_engine) == [(bono, venta, 2, Decimal("60.00"))]  # kept as they were
+
+    def test_an_unexpected_cost_bonus_error_rolls_back_only_its_savepoint(
+        self, bono_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Review (#1915): an error other than a missing VAT rate must not cost the batch its FIFO, as in sell.drain.
+        bono, venta = _costo_seed(bono_engine)
+
+        def boom(db, item_ids=(), *, bono_ids=()):
+            db.execute(text("DELETE FROM sell_in_bono_consumos"))  # written, then the error
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(bonos_costo, "recalcular", boom)
+
+        summary = _run(bono_engine, limit=None, dry_run=False)
+
+        assert (summary["failed"], summary["failed_items"]) == (1, [2964])
+        assert [(r[2], r[4]) for r in w.consumos(bono_engine)] == [(venta, 1)]  # the FIFO committed
+        assert _costo_filas(bono_engine) == [(bono, venta, 2, Decimal("60.00"))]  # kept as they were
