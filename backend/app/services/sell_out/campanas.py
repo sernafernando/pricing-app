@@ -546,13 +546,19 @@ def _de_sus_marcas(db: Session, item_ids: list[int], pares: set) -> tuple[set, d
     return propios, codigos
 
 
-def solo_sus_marcas(db: Session, fila: dict, pares: Optional[set]) -> dict:
-    """A serialized campaign as a brand-scoped PM may see it: only the shares of the products of their `pares`
-    (None: every brand, unchanged). The summary stays the campaign's, aggregated (no per-product amount)."""
+def solo_sus_marcas(db: Session, filas: list[dict], pares: Optional[set]) -> list[dict]:
+    """Serialized campaigns as a brand-scoped PM may see them: a `monto_total` campaign lists only the shares of
+    the products of their `pares`, so what they read is what they may send back (`repartir`). None: every brand,
+    unchanged. Other types and the summary (the campaign's aggregate, no per-product amount) stay whole. One
+    query for the whole page."""
     if pares is None:
-        return fila
-    propios, _ = _de_sus_marcas(db, [i["item_id"] for i in fila["items"]], pares)
-    return {**fila, "items": [i for i in fila["items"] if i["item_id"] in propios]}
+        return filas
+    item_ids = [i["item_id"] for f in filas if f["tipo"] == "monto_total" for i in f["items"]]
+    propios, _ = _de_sus_marcas(db, item_ids, pares)
+    return [
+        {**f, "items": [i for i in f["items"] if i["item_id"] in propios]} if f["tipo"] == "monto_total" else f
+        for f in filas
+    ]
 
 
 def repartir(
