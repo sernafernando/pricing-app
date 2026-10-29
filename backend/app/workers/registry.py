@@ -102,6 +102,7 @@ def __getattr__(name: str) -> List[JobHandler]:
                 verify,
             )
             from app.workers.handlers.para_ganar_consulta import para_ganar_consulta
+            from app.workers.handlers.para_ganar_consulta_periodic import para_ganar_consulta_periodic
             from app.workers.handlers.promo_refresh import promo_write_refresh
 
             _ml_publications_registry = [
@@ -121,6 +122,8 @@ def __getattr__(name: str) -> List[JobHandler]:
                 billing,
                 # PARA GANAR A1/P6: consultation jobs (catalog refresh → P5 evaluate).
                 para_ganar_consulta,
+                # PARA GANAR P6: every 2h enqueue enabled Periodicidad into the shared drain.
+                para_ganar_consulta_periodic,
             ]
         return _ml_publications_registry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

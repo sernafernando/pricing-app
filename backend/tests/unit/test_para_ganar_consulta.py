@@ -15,11 +15,13 @@ from app.models.para_ganar_consulta_job import (
     JOB_PENDING,
     JOB_RUNNING,
     SOURCE_MANUAL,
+    SOURCE_PERIODIC,
     ParaGanarConsultaJob,
     ParaGanarConsultaJobItem,
 )
 from app.services import para_ganar_consulta as consulta
 from app.workers.handlers.para_ganar_consulta import para_ganar_consulta
+from app.workers.handlers.para_ganar_consulta_periodic import para_ganar_consulta_periodic
 
 
 def test_enqueue_dedupes_and_sets_pending(db) -> None:
@@ -160,3 +162,26 @@ def test_handler_contract() -> None:
     assert para_ganar_consulta.name == "para_ganar.consulta"
     assert para_ganar_consulta.channels == (consulta.CHANNEL,)
     assert para_ganar_consulta.interval == timedelta(seconds=30)
+
+
+def test_periodic_handler_is_every_two_hours() -> None:
+    assert para_ganar_consulta_periodic.name == "para_ganar.consulta_periodic"
+    assert para_ganar_consulta_periodic.channels == ()
+    assert para_ganar_consulta_periodic.interval == timedelta(hours=2)
+    assert consulta.PERIODIC_INTERVAL == timedelta(hours=2)
+
+
+def test_enqueue_periodic_skips_when_open_or_empty(db, monkeypatch) -> None:
+    monkeypatch.setattr(consulta, "list_mlas_periodicidad_enabled", lambda _db: [])
+    assert consulta.enqueue_periodic_consulta(db) is None
+
+    monkeypatch.setattr(consulta, "list_mlas_periodicidad_enabled", lambda _db: ["MLA_P1", "MLA_P2"])
+    job = consulta.enqueue_periodic_consulta(db)
+    db.flush()
+    assert job is not None
+    assert job.source == SOURCE_PERIODIC
+    assert job.created_by_id is None
+    assert job.total_count == 2
+
+    again = consulta.enqueue_periodic_consulta(db)
+    assert again is None

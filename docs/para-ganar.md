@@ -64,7 +64,7 @@ Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por ML
 | **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Done |
 | **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Done (R1–R4) |
 | **A1** | Advisor **Consultar filtrados**: encola un **lote** del alcance filtrado (refresh competencia → P5). Dueño = PM. Interim sync `evaluar-filtrados` existe; producto final = job async | P5 + cola de jobs | Contract locked; impl pending (after job core) |
-| **P6** | Trigger periódico + **worker compartido**: refresh competencia de inclusiones Periodicidad → P5. Misma tubería que A1 | P5 | In progress (job core + ML worker; periodic trigger next) |
+| **P6** | Trigger periódico (cada **2 h**) + **worker compartido**: refresh competencia de inclusiones Periodicidad → P5. Misma tubería que A1 | P5 | Done (core + periodic enqueue; tune cadence with metrics) |
 | **P7** | Vista flotante de cola “por revisar” (misma cola de estados; no otra lógica) | P4+P5 + jobs | Later |
 
 **Deprecado (confirmado):** herencia producto/PM; heurística campañas de marca.
@@ -77,14 +77,15 @@ Product decision: “Consultar filtrados” is **not** a synchronous “evaluate
 |---------|------|
 | **Pipeline** | For each MLA in a job: **refresh catalog competition** → **P5 evaluate** (`evaluar_mlas` / R1–R4). Missing/failed refresh → skip that MLA (same as today). |
 | **Manual job (A1)** | Advisor filters → create a **job** owned by the requesting **PM** (user). Progress / cancel / “mis consultas” are per job. Does **not** require Periodicidad subscription. |
-| **Periodic job (P6)** | Cron (or scheduler) creates job(s) for **enabled Periodicidad** inclusions. Can interleave with manuals in the worker pool. |
+| **Periodic job (P6)** | Handler `para_ganar.consulta_periodic` every **2 h** enqueues enabled Periodicidad inclusions (`source=periodic`). Skips if a prior periodic job is still open. Interleaves with manuals in the shared drain. |
+| **Per-MLA progress** | Each MLA: refresh → P5 → write `para_ganar_revision_mla` **immediately**. Advisor chips update per MLA; no need to wait for the whole job. |
 | **Independence** | Several PMs may enqueue **independent** manual jobs at once. Logical isolation (owner, scope, progress). |
 | **Shared bottleneck** | One **ML rate-limit / worker pool** (fairness / round-robin across jobs). Do **not** give each PM an unbounded parallel full-speed refresh. |
 | **Revision queue** | `para_ganar_revision_mla` stays **per MLA** (global). Job metadata may filter “lo que disparé yo”; P7 is another **view** of the same pendiente queue, not a second state machine. |
 | **A1 button** | Advisor **Consultar filtrados** → `POST /para-ganar/consulta-jobs` (enqueue). Sync `POST /evaluar-filtrados` remains as internal P5 motor. |
 | **Job tables** | `para_ganar_consulta_job` + `para_ganar_consulta_job_item`. Enqueue via `enqueue_consulta` (service). Drain: ML handler `para_ganar.consulta` (`pg_notify('para_ganar_consulta')` + 30s interval), fairness by `last_progress_at`. Per item: refresh → `evaluar_mla`. |
 
-**Build order:** (1) contract — done · (2) job model + worker — done · (3) rewire A1 button — done · (4) P7 UI. Periodic P6 trigger still open.
+**Build order:** (1) contract — done · (2) job model + worker — done · (3) rewire A1 — done · (4) P6 periodic 2h — done · (5) P7 UI later.
 
 ---
 

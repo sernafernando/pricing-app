@@ -28,13 +28,14 @@ from app.models.para_ganar_consulta_job import (
     JOB_PENDING,
     JOB_RUNNING,
     SOURCE_MANUAL,
+    SOURCE_PERIODIC,
     SOURCES,
     ParaGanarConsultaJob,
     ParaGanarConsultaJobItem,
 )
 from app.models.para_ganar_revision_mla import REVISION_PENDIENTE, REVISION_SIN_NOVEDADES
 from app.services.ml_catalog_competition_service import refrescar_competencia_catalogo
-from app.services.para_ganar_evaluacion import evaluar_mla
+from app.services.para_ganar_evaluacion import evaluar_mla, list_mlas_periodicidad_enabled
 from app.utils.async_bridge import resolve_maybe_async
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,8 @@ MAX_ATTEMPTS = 3
 ERROR_MAX = 500
 # Worker crash mid-MLA: release `processing` rows after this lease so fairness can retry.
 PROCESSING_LEASE = timedelta(minutes=10)
+# Default P6 cadence (handler interval); product chose 2h after ~100-MLA timing estimate.
+PERIODIC_INTERVAL = timedelta(hours=2)
 
 _NOTIFY_SQL = text("SELECT pg_notify(:channel, '')")
 
@@ -134,6 +137,34 @@ def enqueue_consulta(
     db.flush()
     notify_consulta(db)
     return job
+
+
+def has_open_periodic_job(db: Session) -> bool:
+    """True when a previous periodic job still has work (avoid stacking every cadence)."""
+    return (
+        db.query(ParaGanarConsultaJob.id)
+        .filter(
+            ParaGanarConsultaJob.source == SOURCE_PERIODIC,
+            ParaGanarConsultaJob.status.in_((JOB_PENDING, JOB_RUNNING)),
+        )
+        .limit(1)
+        .first()
+        is not None
+    )
+
+
+def enqueue_periodic_consulta(db: Session) -> Optional[ParaGanarConsultaJob]:
+    """Enqueue one job for enabled Periodicidad MLAs, or None if skipped/empty.
+
+    Skips when a periodic job is still pending/running so cadences do not pile up.
+    Caller commits. `created_by_id` is null (system).
+    """
+    if has_open_periodic_job(db):
+        return None
+    mlas = list_mlas_periodicidad_enabled(db)
+    if not mlas:
+        return None
+    return enqueue_consulta(db, mlas, created_by_id=None, source=SOURCE_PERIODIC)
 
 
 def reclaim_stale_processing(db: Session, *, now: Optional[datetime] = None) -> int:
