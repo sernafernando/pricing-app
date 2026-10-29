@@ -109,6 +109,9 @@ class SellInBonoMarca(Base):
     base = Column(String(16), nullable=False, default="factura", server_default="factura")
     # S33: the loaded % includes VAT and is divided by (1 + each product's VAT rate); only on a 'costo_venta' bonus.
     incluye_iva = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # S36: same meaning as `SellOutCampana.acumulable`: bonuses on the same product and dates stack unless one of them
+    # is not acumulable. Every bonus before T27 is acumulable; the reconcile reads it from T27b.
+    acumulable = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     # The legacy offset (`offsets_ganancia.id`) this bonus was migrated from, one bonus per offset. Provenance only,
     # no FK: the sell-in tables do not depend on the legacy offsets table.
     offset_origen_id = Column(Integer, nullable=True)

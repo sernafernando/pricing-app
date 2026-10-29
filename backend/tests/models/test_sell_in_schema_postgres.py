@@ -37,6 +37,7 @@ _MIGRATIONS = [
         "20261210_sell_in_bono_items_montos",
         "20261211_sell_in_bono_tope",
         "20261212_sell_in_bono_costo",
+        "20261215_sell_in_bono_acumulable",
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos"}
