@@ -1,8 +1,9 @@
 """Migration `20261105_sell_out_campanas`: sell-out campaigns, their groups and permissions.
 
 The schema is built by every sell-out migration in order (`_MIGRATIONS`), so the
-parity test also covers `20261108_sell_out_consumos`, whose own rules are proven
-in `tests/unit/test_migration_sell_out_consumos.py`.
+parity test also covers `20261108_sell_out_consumos`, `20261207_sell_out_campana_items` and
+`20261214_sell_out_monto_total`; their own rules are proven
+in `tests/unit/test_migration_sell_out_consumos.py` and `tests/migrations/`.
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
 bare stand-ins of the tables it references, and proves the CHECK/UNIQUE/FK
@@ -24,9 +25,21 @@ from app.core.database import Base
 
 _MIGRATIONS = [
     Path(__file__).resolve().parents[2] / "alembic" / "versions" / f"{revision}.py"
-    for revision in ("20261105_sell_out_campanas", "20261108_sell_out_consumos", "20261111_sell_out_offset_origen")
+    for revision in (
+        "20261105_sell_out_campanas",
+        "20261108_sell_out_consumos",
+        "20261111_sell_out_offset_origen",
+        "20261207_sell_out_campana_items",
+        "20261214_sell_out_monto_total",
+    )
 ]
-TABLES = ("sell_out_campanas", "sell_out_campana_grupos", "sell_out_consumos", "sell_out_dirty")
+TABLES = (
+    "sell_out_campanas",
+    "sell_out_campana_grupos",
+    "sell_out_campana_items",
+    "sell_out_consumos",
+    "sell_out_dirty",
+)
 
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",

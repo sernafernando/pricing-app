@@ -103,10 +103,11 @@ class TestSellOutConsumosMigration:
             {"canal": "amazon"},
             {"u": 0},
             {"u": -1},
-            {"monto": "-0.01"},
             {"tc": "0"},
         ],
     )
+    # `monto >= 0` was this revision's rule until 20261214 dropped it (a negative monto total campaign);
+    # `tests/migrations/test_migration_sell_out_monto_total_postgres.py` proves both sides.
     def test_row_checks(self, engine: Engine, overrides) -> None:
         with engine.begin() as conn:
             campana_id = base._new(conn)

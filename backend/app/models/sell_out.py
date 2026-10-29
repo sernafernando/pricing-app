@@ -27,6 +27,11 @@ VAT (owner, 2026-10-20): sell out applies against the net without VAT.
 each sale's amount is divided by its own product's VAT rate (T7,
 `app.services.sell_out.tope`).
 
+A `monto_total` campaign (T26, S34/S35) carries one fixed amount (`monto_total`, in `moneda`, never 0:
+positive = a credit, negative = a deduction from profit) and no cap (the total is its cap); the PM or an admin
+shares it out by hand per product (`SellOutCampanaItem`), and each product's share spreads over its sales in the
+campaign's dates. What nobody was given is "Sin asignar" and counts on `fecha_hasta`.
+
 Campaigns on the same product and dates stack unless one of them is not
 `acumulable`. A campaign is never deleted: it is voided (`anulada`).
 
@@ -76,11 +81,14 @@ FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID = "fk_sell_out_campana_grupos_grupo_id"
 class SellOutCampana(Base):
     __tablename__ = "sell_out_campanas"
     __table_args__ = (
-        CheckConstraint("tipo IN ('por_unidad', 'porcentaje')", name="ck_sell_out_campanas_tipo"),
+        CheckConstraint("tipo IN ('por_unidad', 'porcentaje', 'monto_total')", name="ck_sell_out_campanas_tipo"),
         CheckConstraint(
-            "(tipo = 'por_unidad' AND monto_unit IS NOT NULL AND monto_unit > 0 AND porcentaje IS NULL) OR "
+            "(tipo = 'por_unidad' AND monto_unit IS NOT NULL AND monto_unit > 0 AND porcentaje IS NULL "
+            "AND monto_total IS NULL) OR "
             "(tipo = 'porcentaje' AND porcentaje IS NOT NULL AND porcentaje > 0 AND porcentaje <= 100 "
-            "AND monto_unit IS NULL)",
+            "AND monto_unit IS NULL AND monto_total IS NULL) OR "
+            "(tipo = 'monto_total' AND monto_total IS NOT NULL AND monto_total <> 0 AND monto_unit IS NULL "
+            "AND porcentaje IS NULL AND tope_unidades IS NULL AND tope_monto IS NULL)",
             name="ck_sell_out_campanas_monto_segun_tipo",
         ),
         CheckConstraint("base_porcentaje IN ('costo', 'precio_neto')", name="ck_sell_out_campanas_base_porcentaje"),
@@ -113,6 +121,8 @@ class SellOutCampana(Base):
     tipo = Column(String(16), nullable=False)
     monto_unit = Column(Numeric(18, 2), nullable=True)  # per unit, in `moneda`
     porcentaje = Column(Numeric(7, 4), nullable=True)
+    # A `monto_total` campaign's whole amount, in `moneda`; negative = a deduction. See the module docstring.
+    monto_total = Column(Numeric(18, 2), nullable=True)
     base_porcentaje = Column(String(16), nullable=False, default="costo", server_default="costo")
     # Currency of `monto_unit` and `tope_monto`. USD is the usual case, hence the default.
     moneda = Column(String(3), nullable=False, default="USD", server_default="USD")
@@ -158,20 +168,36 @@ class SellOutCampanaGrupo(Base):
 
 
 class SellOutCampanaItem(Base):
-    """A product's own amount per unit in a `por_unidad` campaign (T22b, legacy grouped offsets): it replaces
-    the campaign's `monto_unit` for that product, under the campaign's one cap. No FK on `item_id`, like
-    `SellOutConsumo.item_id`: the campaigns service checks the product is in the campaign's reach."""
+    """A product's own amount in a campaign: in a `por_unidad` campaign its own `monto_unit` (T22b, legacy grouped
+    offsets), replacing the campaign's for that product under the campaign's one cap; in a `monto_total` campaign
+    its manual share (T26, S34), `reparto_porcentaje` (a % of the total) or `reparto_monto` (a fixed amount).
+    Exactly one of the three per row. Rules that need the campaign row live in the campaigns service: a fixed
+    share has the total's sign, shares only on `monto_total` and `monto_unit` only on `por_unidad`. No FK on
+    `item_id`, like `SellOutConsumo.item_id`: the campaigns service checks the product is in the campaign's
+    reach."""
 
     __tablename__ = "sell_out_campana_items"
     __table_args__ = (
         UniqueConstraint("campana_id", "item_id", name="uq_sell_out_campana_items_campana_item"),
         CheckConstraint("monto_unit > 0", name="ck_sell_out_campana_items_monto_positivo"),
+        CheckConstraint(
+            "(monto_unit IS NOT NULL AND reparto_porcentaje IS NULL AND reparto_monto IS NULL) OR "
+            "(monto_unit IS NULL AND reparto_porcentaje IS NOT NULL AND reparto_monto IS NULL) OR "
+            "(monto_unit IS NULL AND reparto_porcentaje IS NULL AND reparto_monto IS NOT NULL)",
+            name="ck_sell_out_campana_items_un_monto",
+        ),
+        CheckConstraint(
+            "reparto_porcentaje > 0 AND reparto_porcentaje <= 100", name="ck_sell_out_campana_items_reparto_porcentaje"
+        ),
+        CheckConstraint("reparto_monto <> 0", name="ck_sell_out_campana_items_reparto_monto"),
     )
 
     id = Column(BigInteger, primary_key=True)
     campana_id = Column(BigInteger, ForeignKey("sell_out_campanas.id", ondelete="CASCADE"), nullable=False)
     item_id = Column(Integer, nullable=False)
-    monto_unit = Column(Numeric(18, 2), nullable=False)  # per unit, in the campaign's `moneda`
+    monto_unit = Column(Numeric(18, 2), nullable=True)  # per unit, in the campaign's `moneda` (por_unidad)
+    reparto_porcentaje = Column(Numeric(7, 4), nullable=True)  # % of the total (monto_total)
+    reparto_monto = Column(Numeric(18, 2), nullable=True)  # fixed share, in the campaign's `moneda` (monto_total)
 
 
 class SellOutConsumo(Base):
@@ -182,7 +208,6 @@ class SellOutConsumo(Base):
         UniqueConstraint("campana_id", "canal", "venta_ref", name="uq_sell_out_consumos_campana_canal_venta"),
         CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_out_consumos_canal"),
         CheckConstraint("unidades > 0", name="ck_sell_out_consumos_unidades_positivas"),
-        CheckConstraint("monto >= 0", name="ck_sell_out_consumos_monto_no_negativo"),
         CheckConstraint("tc_venta IS NULL OR tc_venta > 0", name="ck_sell_out_consumos_tc_venta_positivo"),
         Index("ix_sell_out_consumos_canal_venta", "canal", "venta_ref"),
     )
@@ -194,7 +219,9 @@ class SellOutConsumo(Base):
     item_id = Column(Integer, nullable=False)  # copy of the sale's product, for lookups by product
     fecha_venta = Column(Date, nullable=False)
     unidades = Column(Integer, nullable=False)
-    monto = Column(Numeric(18, 2), nullable=False)  # in the campaign's `moneda`
+    # In the campaign's `moneda`. Negative only for a negative `monto_total` campaign (no CHECK since 20261214:
+    # it cannot see the campaign's type; the allocators keep the other types non-negative).
+    monto = Column(Numeric(18, 2), nullable=False)
     # The rate (ARS per USD) the row converts at: `al_cobro` the latest BNA until the campaign's rate is
     # defined, then that rate; `fijo` the campaign's rate; `dia_venta` the BNA on or before the sale day.
     # Rewritten on recompute whenever it changes; NULL for ARS. ARS is computed on read.
