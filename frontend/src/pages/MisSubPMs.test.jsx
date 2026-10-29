@@ -979,6 +979,83 @@ describe('MisSubPMs — a PM shows their own pairs ticked, and can be copied as 
     expect(marcasPmAPI.asignarSubPMsBulk).not.toHaveBeenCalled();
   });
 
+  it('cannot confirm a copy once the user gets unsaved changes with the panel open', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Ana');
+    await abrirCopia(user, 'Beto');
+    await screen.findByTestId('copiarResumen');
+
+    await user.click(screen.getByLabelText('Seleccionar LENOVO / Notebooks'));
+
+    expect(screen.getByRole('button', { name: 'Sí, copiar' })).toBeDisabled();
+  });
+
+  it('a rejected copy says nothing was applied, names the rejected pairs and refreshes nothing', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.asignarSubPMsBulk.mockRejectedValue({
+      response: {
+        status: 403,
+        data: { detail: { mensaje: 'Uno o más pares están fuera de tu scope o no existen', pares_rechazados: [{ marca: 'HP', categoria: 'Notebooks' }] } },
+      },
+    });
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+    await abrirCopia(user, 'Beto');
+    await screen.findByTestId('copiarResumen');
+    const conteosAntes = marcasPmAPI.obtenerConteosSubPMs.mock.calls.length;
+
+    await user.click(screen.getByRole('button', { name: 'Sí, copiar' }));
+
+    expect(
+      await screen.findByText(
+        'Uno o más pares están fuera de tu scope o no existen No se aplicó ningún cambio. Rechazados: HP / Notebooks.',
+      ),
+    ).toBeInTheDocument();
+    expect(marcasPmAPI.obtenerConteosSubPMs.mock.calls.length).toBe(conteosAntes);
+  });
+
+  it('says so when the target already has every pair, and offers nothing to confirm', async () => {
+    const user = userEvent.setup();
+    GRANTS[6] = [
+      { marca: 'LENOVO', categoria: 'Monitores' },
+      { marca: 'SAMSUNG', categoria: 'Celulares' },
+      { marca: 'HP', categoria: 'Notebooks' },
+    ];
+    try {
+      render(<MisSubPMs />);
+      await elegirUsuario(user, 'Ana');
+      await abrirCopia(user, 'Beto');
+
+      expect(await screen.findByText('Beto ya es sub-PM de todos esos pares; no hay nada para agregar.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Sí, copiar' })).not.toBeInTheDocument();
+    } finally {
+      GRANTS[6] = [{ marca: 'EPSON', categoria: 'Impresoras' }];
+    }
+  });
+
+  it('drops a late preview for a target that is no longer picked', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+    let soltarBeto;
+    marcasPmAPI.obtenerGrantsUsuario.mockImplementation((id) =>
+      id === 6
+        ? new Promise((resolve) => {
+            soltarBeto = () => resolve({ data: { pares: [], total: 0 } });
+          })
+        : Promise.resolve({ data: { pares: GRANTS[id] || [], total: 0 } }),
+    );
+    await abrirCopia(user, 'Beto');
+    await user.selectOptions(screen.getByLabelText('Copiar a'), 'Carla');
+    expect(await screen.findByTestId('copiarResumen')).toHaveTextContent('Se le agregan a Carla 3 pares como sub-PM');
+
+    soltarBeto();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(screen.getByTestId('copiarResumen')).toHaveTextContent('Se le agregan a Carla 3 pares como sub-PM');
+  });
+
   it('cannot copy while the user has unsaved changes', async () => {
     const user = userEvent.setup();
     render(<MisSubPMs />);

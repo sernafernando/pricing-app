@@ -28,7 +28,9 @@ function agruparPorMarca(lista) {
  * The write goes through the existing atomic bulk PUT, which REPLACES the
  * target's whole set, so the target's current grants are read fresh again
  * right before writing and kept — same contract as `VistaPorMarca`. If a
- * read fails, nothing is written. A pair whose titular is the target is
+ * read fails, nothing is written. While `disabled` (unsaved changes on the
+ * selected user) neither the panel opens nor "Sí, copiar" runs, since the
+ * copy is built from what is saved. A pair whose titular is the target is
  * never copied: a titular is never a sub-PM of their own pairs.
  *
  * `onCopiado(usuarioId)` tells the parent which user changed.
@@ -182,7 +184,13 @@ export default function CopiarSubPM({ origen, pares, usuarios, disabled, onCopia
 
           <div className={styles.acciones}>
             {previa?.estado === 'lista' && cantidad > 0 && (
-              <button type="button" className="btn-tesla outline-subtle-primary sm" onClick={copiar} disabled={ocupado}>
+              <button
+                type="button"
+                className="btn-tesla outline-subtle-primary sm"
+                onClick={copiar}
+                disabled={ocupado || disabled}
+                title={disabled ? 'Guardá o descartá los cambios de este usuario primero' : undefined}
+              >
                 {ocupado ? 'Copiando...' : 'Sí, copiar'}
               </button>
             )}
