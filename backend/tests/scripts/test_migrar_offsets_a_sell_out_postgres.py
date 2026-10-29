@@ -1026,6 +1026,31 @@ def test_a_group_product_outside_its_filters_goes_to_a_new_group_of_the_same_cam
     assert {filas[i]["resultado"] for i in (ref, o950, o2964)} == {"ya migrado"}
 
 
+def test_a_refused_group_campaign_leaves_no_new_group_behind(engine, correr, monkeypatch) -> None:
+    # R3-001: the new group is flushed before the campaign is created; a refusal after it must roll it back.
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ids = [_offset(engine, grupo_id=grupo_id), _offset(engine, grupo_id=grupo_id, item_id=950)]  # 950: MERCUSYS
+    antes = {table: _count(engine, table) for table in _ESCRITAS}
+    vistos = []
+
+    def rechazar(db, data, usuario_id, offset_origen_id):
+        vistos.append(list(data.grupo_ids))  # the new group exists in the transaction at this point
+        raise script.campanas.SellOutError("rechazada")
+
+    monkeypatch.setattr(script.campanas, "crear_campana", rechazar)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 1
+    assert len(vistos) == 1 and vistos[0][0] == grupo_id and len(vistos[0]) == 2
+    escritas = {table: _count(engine, table) for table in _ESCRITAS if table != "offsets_migracion_pendientes"}
+    assert escritas == {table: antes[table] for table in escritas}
+    assert {filas[i]["resultado"] for i in ids} == {"no migrado"}
+    assert {i: p["motivo"] for i, p in _pendientes(engine).items()} == dict.fromkeys(
+        ids, f"Grupo #{grupo_id}: rechazada"
+    )
+
+
 def test_a_group_without_filters_reaches_the_products_of_its_offsets(engine, correr) -> None:
     # Group #1 in prod (offsets 14/15/16): the operator picked products, the group has no filter rows.
     grupo_id = w.grupo(engine, [])
