@@ -62,8 +62,8 @@ Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por ML
 | **P3.2** | Criterios Sin/Con filtran EANs (≥1 MLA con criterio); detalle = checkboxes MLA + filtros tipo/lista/tienda; Todo el EAN; sin modo rules en UI | P3.1 | Done |
 | **P3.3** | Aviso/filtro **MLA nuevos** (`scope_mode=mlas` con MLA activo fuera de la lista); badge en cola + highlight en detalle | P3.2 | Done |
 | **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Done |
-| **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Slice A done (R1–R3). Slice B R4: promo opportunity (X,Y,Z)→(X′,Y′,Z′) |
-| **A1** | Advisor **Consultar filtrados**: misma pipeline que el periódico, pero a demanda sobre el alcance del filtro (manual; lo no suscripto a Periodicidad) | P5 | Planned |
+| **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Done (R1–R4) |
+| **A1** | Advisor **Consultar filtrados**: misma pipeline que el periódico, pero a demanda sobre el alcance del filtro (manual; lo no suscripto a Periodicidad) | P5 | Done |
 | **P6** | Trigger periódico: job que pide/refresca competencia de catálogo solo para inclusiones y dispara P5 | P5 | Planned |
 | **P7** | Vista flotante de cola “por revisar” (después; por ahora solo Advisor) | P4+P5 | Later |
 
@@ -123,7 +123,7 @@ Newest first. Use for “why did we…” archaeology.
 - **Precio sugerido (D15):** cheapest same-bucket peer as referent; if `markup_min` is set and peer markups exist, skip peers below that floor. Caps `precio_min`/`precio_max` when set. **Perdiendo:** delta = sugerido − nuestro (negativo = bajar). **Ganando:** holgura hasta el siguiente peer. TOP rows show `referent_note` (D22): who is Referente vs discarded by markup/price criteria. Disposition **Excluido** sellers never appear on the board.
 - **Pool promos (D20–D23):** under the TOP board, up to **3** slots: **one** SMART-like, **one** other DEAL/campaña, **one** Premium (name contains `premium`). Markup band + DEAL range vs `precio_sugerido` for candidates. If Premium is already `started`, still show it with **Aplicada**. Seller-priced rows show **aplicar a $sugerido** (clamped to min/max). **Aplicar** (permiso `promos.escribir`) → Confirmar → same `POST /promociones/item/{mla}` as Productos (`deal_price` or `precio_visto`).
 - Missing snapshot: `POST /para-ganar/criterios/{mla}/competencia/refresh` (permiso `productos.editar_precios`) fetches via the same `refrescar_competencia_catalogo` path as Promociones — **per MLA only** (ML throttle).
-- **Consultar filtrados (A1, planned):** from Advisor, run the evaluation pipeline on-demand for MLAs in the current filter (manual path for non–Periodicidad subscriptions). Button stub in toolbar until P5 exists.
+- **Consultar filtrados (A1):** from Advisor, `POST /para-ganar/evaluar-filtrados` with the same alcance query as the cola (permiso `productos.editar_precios`). Runs P5 (R1–R4) on every MLA in scope — including those not in Periodicidad. Does not use the Pendiente/Sin novedades chips as input. Empty scope → 422.
 
 ### Sellers del catálogo
 
@@ -146,6 +146,7 @@ Newest first. Use for “why did we…” archaeology.
 ### Motor P5 (R1–R4)
 
 - `POST /para-ganar/periodicidad/evaluar` (`productos.editar_precios`) evaluates **enabled** Periodicidad MLAs (`all|mlas|rules`, `catalog_listing=true`).
+- `POST /para-ganar/evaluar-filtrados` (A1, same permiso) evaluates MLAs in the **Advisor alcance** filters (same params as cola / aplicar-masivo). Shared core: `evaluar_mlas`.
 - First usable snapshot → `pendiente` and stores `competition_baseline` (rank, price, `suggestion_status`, `in_top`, `fecha_consulta`). Later runs: R1 rank/`in_top` worsened; R2 catalog win lost; R3 winning with raise room; **R4** if any **candidate** promo projects better `(X′,Y′,Z′)` (price/markup/rank) than current `(X,Y,Z)` without clearly worsening another dimension (co-funding markup included for SMART-like). Any R → `pendiente`, else `sin_novedades`. Re-run overwrites `estado`. Missing snapshot → skip.
 
 ---
@@ -166,7 +167,7 @@ Newest first. Use for “why did we…” archaeology.
 12. ~~**Periodicidad P1–P3**~~ (shell + API + UI por EAN).
 13. ~~**P4** — estados Advisor Pendiente / Sin novedades~~ (tabla + cola + chips; escritura = P5).
 14. ~~**P5** — motor de evaluación~~ (R1–R4; `POST /para-ganar/periodicidad/evaluar`).
-15. **A1** — Advisor **Consultar filtrados** (manual sobre el filtro; UI stub ya visible, cableado tras P5).
+15. ~~**A1** — Advisor **Consultar filtrados**~~ (`POST /para-ganar/evaluar-filtrados` + botón Advisor).
 16. **P6** — trigger periódico de catálogo.
 17. **P7** — vista flotante (después).
 18. ~~Herencia producto/PM~~ — **deprecado:** filtro EAN + aplicar masivo cubre el caso.

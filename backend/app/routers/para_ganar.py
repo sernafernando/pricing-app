@@ -28,6 +28,7 @@ from app.models.para_ganar_catalog_seller import (
 from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
 from app.models.usuario import Usuario
 from app.services.ml_catalog_competition_service import refrescar_competencia_catalogo
+from app.services.para_ganar_evaluacion import evaluar_mlas
 from app.services.para_ganar_sugerencia import (
     SugerenciaMla,
     catalog_product_id_for_mla,
@@ -891,6 +892,18 @@ class ParaGanarCriteriosMasivoResponse(BaseModel):
     updated: int
 
 
+class ParaGanarEvaluarFiltradosResponse(BaseModel):
+    """A1: on-demand P5 evaluation over the current Advisor alcance."""
+
+    scope_total: int = 0
+    evaluated: int = 0
+    pendiente: int = 0
+    sin_novedades: int = 0
+    skipped: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 def _costo_ars_for_mla(db: Session, mla: str) -> Optional[float]:
     """ERP cost converted to ARS for criteria precio↔markup sync (D11)."""
     row = (
@@ -1196,6 +1209,68 @@ def aplicar_criterios_masivo(
         applied=len(mlas),
         created=created,
         updated=updated,
+    )
+
+
+@router.post(
+    "/evaluar-filtrados",
+    response_model=ParaGanarEvaluarFiltradosResponse,
+    dependencies=[Depends(require_permiso("productos.editar_precios"))],
+)
+def evaluar_filtrados(
+    q: Optional[str] = Query(None, max_length=120),
+    marcas: Optional[str] = Query(None),
+    subcategorias: Optional[str] = Query(None),
+    pms: Optional[str] = Query(None),
+    tipos_publicacion: Optional[str] = Query(None),
+    pricelists: Optional[str] = Query(None),
+    tiendas: Optional[str] = Query(None),
+    ean: Optional[str] = Query(None, max_length=80),
+    catalog_product_id: Optional[str] = Query(None, max_length=64),
+    costo_usd_min: Optional[float] = Query(None, ge=0),
+    costo_usd_max: Optional[float] = Query(None, ge=0),
+    incluir_tradicionales_sincronizadas: bool = Query(False),
+    criterios_aplicados: Optional[bool] = Query(
+        None,
+        description="True = only MLAs with saved criteria; false = only without; omit = all",
+    ),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ParaGanarEvaluarFiltradosResponse:
+    """A1: run P5 (R1–R4) on every MLA in the current Advisor alcance filters.
+
+    Same scope params as cola / aplicar-masivo. Does not use revision_estado chips.
+    Writes `para_ganar_revision_mla` (pendiente / sin_novedades + baseline).
+    """
+    scope = _parse_scope_query(
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        tipos_publicacion=tipos_publicacion,
+        pricelists=pricelists,
+        tiendas=tiendas,
+        ean=ean,
+        catalog_product_id=catalog_product_id,
+        costo_usd_min=costo_usd_min,
+        costo_usd_max=costo_usd_max,
+        incluir_tradicionales_sincronizadas=incluir_tradicionales_sincronizadas,
+        criterios_aplicados=criterios_aplicados,
+    )
+    mlas = _list_scope_mlas(db, scope)
+    if not mlas:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No hay MLAs en el alcance filtrado",
+        )
+    counts = evaluar_mlas(db, mlas, updated_by_id=current_user.id)
+    db.commit()
+    return ParaGanarEvaluarFiltradosResponse(
+        scope_total=len(mlas),
+        evaluated=counts["evaluated"],
+        pendiente=counts["pendiente"],
+        sin_novedades=counts["sin_novedades"],
+        skipped=counts["skipped"],
     )
 
 

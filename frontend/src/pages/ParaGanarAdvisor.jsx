@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Target, ListChecks, SlidersHorizontal, CalendarClock } from 'lucide-react';
 import { usePermisos } from '../contexts/PermisosContext';
 import useParaGanarCola from '../hooks/useParaGanarCola';
+import api from '../services/api';
 import ParaGanarQueue from '../components/paraGanar/ParaGanarQueue';
 import ParaGanarAdvisorDetail from '../components/paraGanar/ParaGanarAdvisorDetail';
 import ParaGanarCriteriosDetail from '../components/paraGanar/ParaGanarCriteriosDetail';
@@ -34,6 +35,13 @@ function subtitleForVista(vista) {
   return 'Advisor de sugerencias — cola sandbox (solo lectura)';
 }
 
+function formatEvaluarError(err) {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === 'string' && detail.trim()) return detail;
+  if (err?.response?.status === 403) return 'Requiere productos.editar_precios';
+  return 'No se pudo evaluar el alcance filtrado';
+}
+
 export default function ParaGanarAdvisor() {
   const [searchParams, setSearchParams] = useSearchParams();
   const vista = parseVista(searchParams.get('vista'));
@@ -45,6 +53,27 @@ export default function ParaGanarAdvisor() {
   const cola = useParaGanarCola(50);
   const [massOpen, setMassOpen] = useState(false);
   const [massFeedback, setMassFeedback] = useState(null);
+  const [evaluandoFiltro, setEvaluandoFiltro] = useState(false);
+  const [evaluarFeedback, setEvaluarFeedback] = useState(null);
+  const [evaluarError, setEvaluarError] = useState(null);
+
+  const consultarFiltrados = async () => {
+    if (evaluandoFiltro || cola.loading || cola.total <= 0 || !canWriteCriteria) return;
+    setEvaluandoFiltro(true);
+    setEvaluarError(null);
+    setEvaluarFeedback(null);
+    try {
+      const { data } = await api.post('/para-ganar/evaluar-filtrados', null, {
+        params: cola.scopeQueryParams,
+      });
+      setEvaluarFeedback(data);
+      cola.reload();
+    } catch (err) {
+      setEvaluarError(formatEvaluarError(err));
+    } finally {
+      setEvaluandoFiltro(false);
+    }
+  };
 
   const isAdvisor = vista === VISTA_ADVISOR;
   const isCriterios = vista === VISTA_CRITERIOS;
@@ -168,10 +197,17 @@ export default function ParaGanarAdvisor() {
               <button
                 type="button"
                 className={styles.bulkBtn}
-                disabled
-                title="Actualización manual del filtro — se cablea con el motor de evaluación (A1 tras P5)"
+                disabled={evaluandoFiltro || cola.loading || cola.total <= 0 || !canWriteCriteria}
+                title={
+                  !canWriteCriteria
+                    ? 'Requiere productos.editar_precios'
+                    : cola.total <= 0
+                      ? 'No hay MLAs en el alcance'
+                      : 'Evalúa Pendiente / Sin novedades sobre el alcance filtrado (P5)'
+                }
+                onClick={consultarFiltrados}
               >
-                Consultar filtrados
+                {evaluandoFiltro ? 'Evaluando…' : 'Consultar filtrados'}
               </button>
               <button
                 type="button"
@@ -200,6 +236,10 @@ export default function ParaGanarAdvisor() {
               </button>
               <span className={styles.toolbarHint}>
                 {cola.total.toLocaleString('es-AR')} publicaciones · estados los marca el motor (P5)
+                {evaluarFeedback
+                  ? ` · evaluadas ${Number(evaluarFeedback.evaluated || 0).toLocaleString('es-AR')} (${Number(evaluarFeedback.pendiente || 0).toLocaleString('es-AR')} pendiente, ${Number(evaluarFeedback.sin_novedades || 0).toLocaleString('es-AR')} sin novedades, ${Number(evaluarFeedback.skipped || 0).toLocaleString('es-AR')} omitidas)`
+                  : ''}
+                {evaluarError ? ` · ${evaluarError}` : ''}
               </span>
             </>
           )}

@@ -140,8 +140,8 @@ def evaluar_mla(db: Session, mla: str, *, updated_by_id: Optional[int]) -> Optio
     return estado
 
 
-def evaluar_periodicidad(db: Session, *, updated_by_id: Optional[int]) -> dict[str, int]:
-    """Evaluate every enabled Periodicidad MLA. Caller commits.
+def evaluar_mlas(db: Session, mlas: list[str], *, updated_by_id: Optional[int]) -> dict[str, int]:
+    """Evaluate an explicit MLA list with P5 R1–R4. Caller commits.
 
     Prefetch sugerencias + existing revision rows, decide in memory, then
     one INSERT … ON CONFLICT upsert. No per-MLA query in the decision loop.
@@ -152,7 +152,6 @@ def evaluar_periodicidad(db: Session, *, updated_by_id: Optional[int]) -> dict[s
         "sin_novedades": 0,
         "skipped": 0,
     }
-    mlas = list_mlas_periodicidad_enabled(db)
     if not mlas:
         return counts
 
@@ -191,6 +190,11 @@ def evaluar_periodicidad(db: Session, *, updated_by_id: Optional[int]) -> dict[s
 
     _bulk_upsert_revision_estados(db, writes, updated_by_id=updated_by_id)
     return counts
+
+
+def evaluar_periodicidad(db: Session, *, updated_by_id: Optional[int]) -> dict[str, int]:
+    """Evaluate every enabled Periodicidad MLA. Caller commits."""
+    return evaluar_mlas(db, list_mlas_periodicidad_enabled(db), updated_by_id=updated_by_id)
 
 
 def _decide_estado(stored: object, sug: SugerenciaMla) -> str:

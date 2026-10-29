@@ -245,3 +245,44 @@ def test_evaluar_endpoint_requires_auth_and_writes(client: TestClient, rma_super
     assert row is not None
     assert row.estado == "pendiente"
     assert row.competition_baseline is not None
+
+
+def test_evaluar_filtrados_endpoint_scope_and_empty(client: TestClient, rma_superadmin_user, db, monkeypatch) -> None:
+    from app.models.ml_publication_link import MlPublicationLink
+    from app.models.producto import ProductoERP
+    from app.models.publicacion_ml import PublicacionML
+
+    assert client.post("/api/para-ganar/evaluar-filtrados").status_code in (401, 403)
+
+    empty = client.post(
+        "/api/para-ganar/evaluar-filtrados",
+        headers=_auth(rma_superadmin_user),
+        params={"ean": "ZZZ-NO-SUCH-EAN-A1"},
+    )
+    assert empty.status_code == 422
+
+    producto = ProductoERP(item_id=88131, codigo="779888401", descripcion="a1 filtrados", costo=10)
+    db.add(producto)
+    db.flush()
+    db.add(PublicacionML(mla="MLA88401", item_id=producto.item_id, codigo="779888401", activo=True, pricelist_id=4))
+    db.add(MlPublicationLink(mla="MLA88401", catalog_product_id="CAT-A1", catalog_listing=True))
+    db.commit()
+
+    monkeypatch.setattr(
+        "app.services.para_ganar_evaluacion.compute_sugerencia_mlas_bulk",
+        lambda _db, mlas: {mla: _sug(mla=mla) for mla in mlas},
+    )
+    response = client.post(
+        "/api/para-ganar/evaluar-filtrados",
+        headers=_auth(rma_superadmin_user),
+        params={"ean": "779888401"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["scope_total"] == 1
+    assert body["evaluated"] == 1
+    assert body["pendiente"] == 1
+    assert body["skipped"] == 0
+    row = db.get(ParaGanarRevisionMla, "MLA88401")
+    assert row is not None
+    assert row.estado == "pendiente"
