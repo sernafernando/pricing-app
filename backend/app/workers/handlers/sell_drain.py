@@ -148,9 +148,7 @@ def _recompute_and_settle(
     # T25b: the % of cost bonuses take the units the FIFO just left, under the same product locks. A product whose
     # FIFO failed keeps its rows (its line is charged anyway). A cost bonus that cannot be computed (a missing VAT
     # rate) is logged at ERROR and counted, never charged to the lines: their FIFO succeeded and they are acked.
-    costo = bonos_costo.recalcular(db, items - result.failed.keys())
-    bonos_costo.registrar_fallidos(costo, "sell.drain")
-    result.bonos_costo_fallidos = len(costo.bonos_fallidos)
+    result.bonos_costo_fallidos = _recompute_cost_bonuses(db, items - result.failed.keys())
     _fan_out_sell_out(db, list(products))
     failed: Dict[queue.Line, str] = {
         line: "; ".join(f"item {item}: {result.failed[item]}" for item in sorted(items & result.failed.keys()))
@@ -159,6 +157,23 @@ def _recompute_and_settle(
     }
     parked = queue.settle(db, [line for line in products if line not in failed], failed)
     return result, failed, parked
+
+
+def _recompute_cost_bonuses(db: Session, items: Set[int]) -> int:
+    """T25b: the % of cost bonuses of `items`, in a savepoint so they never cost the FIFO's batch. A bonus that
+    cannot be computed (a missing VAT rate) is logged and counted by `bonos_costo`; any other non-transient error
+    rolls back only the savepoint, is logged and counts as one failure, and the lines are still acked. A transient
+    error raises: the whole batch rolls back uncharged and the next wake retries. Returns the failures."""
+    try:
+        with db.begin_nested():
+            costo = bonos_costo.recalcular(db, items)
+    except Exception as exc:
+        if is_transient(exc):
+            raise
+        logger.exception("sell.drain: cost bonuses not recomputed for products %s", sorted(items))
+        return 1
+    bonos_costo.registrar_fallidos(costo, "sell.drain")
+    return len(costo.bonos_fallidos)
 
 
 def _fan_out_sell_out(db: Session, lines: List[queue.Line]) -> None:

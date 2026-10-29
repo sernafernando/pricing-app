@@ -126,6 +126,25 @@ class TestSellDrain:
             f"bono {bono}: el producto 2964 no tiene alícuota de IVA"
         }
 
+    def test_an_unexpected_cost_bonus_error_rolls_back_only_its_savepoint_and_charges_no_line(
+        self, engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # GGA: an error other than a missing VAT rate (e.g. a CHECK violation) must not abort the batch either.
+        [linea] = w.compra(engine, [(2270, 1, "100.00")], D(2026, 10, 1))
+        ref = _fuera(engine, 2270, 1, D(2026, 10, 5))
+
+        def boom(db, items):
+            db.execute(text("SELECT 1"))  # inside the savepoint
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(bonos_costo, "recalcular", boom)
+
+        detail = _drain_ventas()
+
+        assert (detail["failed"], detail["bonos_costo_fallidos"]) == (0, 1)
+        assert _sell_dirty(engine) == []  # acked
+        assert [(c[0], c[2], c[4]) for c in w.consumos(engine)] == [(linea, ref, 1)]  # the FIFO committed
+
     def test_a_drain_without_cost_bonus_failures_keeps_its_detail(self, engine: Engine) -> None:
         b.bono_costo(engine, "3.00")
         _drain_bonos()
