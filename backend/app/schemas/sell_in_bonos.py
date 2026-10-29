@@ -19,13 +19,19 @@ product and operation it reaches, in invoiced units and in its own currency
 the body keeps what was stored and an explicit null removes it, so a client that
 does not know about caps never drops one. The response adds what is left of
 each cap (never below zero; None without that cap).
+
+`base` (T25d) is 'factura' (invoiced purchases, by invoice date) or
+'costo_venta' (a % of the cost recorded on each sale, by sale date, ARS, no
+purchase); it is set on create and never changes. `incluye_iva` (S33) only
+exists on a cost bonus; left out on an edit, the stored one stays.
+`offset_origen_id` is read-only (set by the offsets migration script).
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Union, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -33,6 +39,9 @@ Moneda = Literal["ARS", "USD"]
 Estado = Literal["activa", "anulada"]
 Alcance = Literal["marca", "categoria", "modelos", "factura"]
 TipoBono = Literal["por_unidad", "porcentaje"]
+BaseBono = Literal["factura", "costo_venta"]
+# The one spelling of each base, shared by the services (T25d).
+BASE_FACTURA, BASE_COSTO_VENTA = get_args(BaseBono)
 
 MARCA_MAX = 100  # productos_erp.marca is VARCHAR(100)
 CATEGORIA_MAX = 100  # productos_erp.categoria is VARCHAR(100)
@@ -101,6 +110,9 @@ class SellInBonoIn(BaseModel):
     # One cap shared by everything the bonus reaches (T24); left out on an edit: the stored one stays.
     tope_unidades: Optional[int] = Field(default=None, le=2**31 - 1)  # invoiced units, INTEGER
     tope_monto: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=2)  # in `moneda`
+    # T25d: set on create only; left out on an edit, the stored ones stay (`base` never changes).
+    base: BaseBono = BASE_FACTURA
+    incluye_iva: bool = False  # the loaded % includes VAT (S33); only on a 'costo_venta' bonus
 
     @field_validator("tope_unidades", mode="before")
     @classmethod
@@ -147,6 +159,11 @@ class SellInBonoOut(BaseModel):
     tope_monto: Optional[Decimal]
     tope_unidades_restantes: Optional[int]
     tope_monto_restante: Optional[Decimal]
+    # T25d: a 'costo_venta' bonus's `unidades` / `monto_generado` (ARS) are what its sales got
+    # (`sell_in_bono_consumos`), and `compras_activas` is 0.
+    base: BaseBono
+    incluye_iva: bool
+    offset_origen_id: Optional[int]
 
 
 class SellInBonoListOut(BaseModel):

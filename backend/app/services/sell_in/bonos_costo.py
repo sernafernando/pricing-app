@@ -62,6 +62,7 @@ from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInConsumo
+from app.schemas.sell_in_bonos import BASE_COSTO_VENTA
 from app.services.sell_in import bono_queue
 from app.services.sell_in.costing import LOCK_SQL, LOCK_NAMESPACE
 from app.services.sell_out import alcance, tope
@@ -69,7 +70,7 @@ from app.services.sell_out import queue as sell_out_queue
 
 logger = logging.getLogger(__name__)
 
-BASE = "costo_venta"
+BASE = BASE_COSTO_VENTA
 # How long `seguir_fifo` (an interactive purchase, the invoice reconcile) waits for a product lock.
 LOCK_TIMEOUT = sell_out_queue.LOCK_TIMEOUT
 CIEN = Decimal(100)

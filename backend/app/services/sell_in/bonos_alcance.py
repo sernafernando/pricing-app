@@ -28,6 +28,9 @@ corrected operation is cancelled). The brand match is exact on
 `productos_erp.marca`, like the reconcile. Read-only, two queries per group
 (three for `sin_aplicar`: rows, count, and one for the queue), none per row.
 ERP independence (owner, 2026-10-17): only app tables, never `tb_*`.
+
+A cost bonus (`base='costo_venta'`, T25d) reaches sales, not purchases: every
+group is empty for it (what its sales got is in the bonus's own totals).
 """
 
 from __future__ import annotations
@@ -43,6 +46,7 @@ from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInBonoDirty, SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
+from app.schemas.sell_in_bonos import BASE_COSTO_VENTA
 from app.services.sell_in.bonos import ESTADOS_EXCLUIDOS, ORIGEN
 
 
@@ -182,6 +186,15 @@ def _sin_aplicar(db: Session, bono: SellInBonoMarca, facturadas, recibidas, limi
 
 
 def alcance(db: Session, bono: SellInBonoMarca, limite: int) -> dict:
+    if bono.base == BASE_COSTO_VENTA:
+        # A cost bonus (T25d) reaches sales, never purchases: no operation is its own, applied or pending.
+        return {
+            "limite": limite,
+            **{
+                grupo: {"total": 0, "items": []}
+                for grupo in ("alcanzadas", "pendientes", "fuera_de_rango", "sin_aplicar")
+            },
+        }
     alcanzadas = (
         db.query(
             SellInCompra.id,

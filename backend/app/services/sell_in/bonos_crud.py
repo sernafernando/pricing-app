@@ -18,6 +18,12 @@ Nothing here touches purchases: the `sell_in_bonos_marca` triggers queue the
 bonus and the `sell_in.bono` worker (`app.services.sell_in.bonos`) applies,
 updates or voids what it generates. The detail reports what it generated so
 far (active purchases, their units and amount).
+
+A bonus's `base` (T25d) is set on create and never changes: a cost bonus
+('costo_venta', a % of each sale's cost, ARS, brand/category/models) turned
+into an invoice bonus would keep the sales rows it generated
+(`sell_in_bono_consumos`) and count them twice. What a cost bonus generated, and
+its cap, come from those sales rows; `incluye_iva` exists only on it.
 """
 
 from __future__ import annotations
@@ -33,8 +39,8 @@ from sqlalchemy.orm import Session
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
-from app.schemas.sell_in_bonos import SellInBonoIn, SellInBonoModeloIn
+from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
+from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn, SellInBonoModeloIn
 
 _CAMPOS = (
     "alcance",
@@ -50,6 +56,9 @@ _CAMPOS = (
     "descripcion",
     "tope_unidades",
     "tope_monto",
+    "base",
+    "incluye_iva",
+    "offset_origen_id",
 )
 # How each scope is named in a message, and the request field that belongs to it.
 _ALCANCES = {"marca": "por marca", "categoria": "por categoría", "modelos": "por modelos", "factura": "por factura"}
@@ -78,6 +87,8 @@ class Campos:
     monto_unit: Optional[Decimal]
     porcentaje: Optional[Decimal]
     valores_modelos: dict[int, tuple[Optional[Decimal], Optional[Decimal]]]
+    base: str = BASE_FACTURA
+    incluye_iva: bool = False
 
 
 def _item_id(modelo) -> int:
@@ -121,8 +132,26 @@ def _validar_alcance(db: Session, data: SellInBonoIn) -> tuple[Optional[str], Op
     return marca, categoria, modelos, data.pedido_id
 
 
-def validar(db: Session, data: SellInBonoIn) -> Campos:
-    """The rules the operator can break, in one readable message each; returns the normalized fields."""
+def _validar_base(data: SellInBonoIn, base: str, incluye_iva: bool) -> None:
+    """A cost bonus is a % of the sale's cost in ARS over a brand, category or models (the DB CHECK
+    `ck_sell_in_bonos_marca_costo_venta`); only it may take its % with VAT included (S33)."""
+    if base == BASE_COSTO_VENTA:
+        if data.tipo != "porcentaje":
+            raise SellInBonoError("Un bono sobre el costo tiene que ser por porcentaje")
+        if data.moneda != "ARS":
+            raise SellInBonoError("Un bono sobre el costo va en pesos (ARS)")
+        if data.alcance == "factura":
+            raise SellInBonoError("Un bono sobre el costo no puede ser por factura")
+    elif incluye_iva:
+        raise SellInBonoError("Solo un bono sobre el costo puede incluir IVA")
+
+
+def validar(db: Session, data: SellInBonoIn, base: Optional[str] = None, incluye_iva: Optional[bool] = None) -> Campos:
+    """The rules the operator can break, in one readable message each; returns the normalized fields.
+    `base` / `incluye_iva`: the effective ones (an edit's stored ones); None: the body's."""
+    base = data.base if base is None else base
+    incluye_iva = data.incluye_iva if incluye_iva is None else incluye_iva
+    _validar_base(data, base, incluye_iva)
     marca, categoria, modelos, pedido_id = _validar_alcance(db, data)
     if data.tipo == "por_unidad":
         if data.porcentaje is not None:
@@ -155,6 +184,8 @@ def validar(db: Session, data: SellInBonoIn) -> Campos:
         monto_unit=data.monto_unit.quantize(Decimal("0.01")) if data.monto_unit is not None else None,
         porcentaje=data.porcentaje.quantize(Decimal("0.0001")) if data.porcentaje is not None else None,
         valores_modelos=valores_modelos,
+        base=base,
+        incluye_iva=incluye_iva,
     )
 
 
@@ -244,7 +275,7 @@ def _audit(db: Session, tipo: TipoAccion, usuario_id: int, antes: Optional[dict]
 def _asignar(db: Session, bono: SellInBonoMarca, data: SellInBonoIn, campos: Campos) -> None:
     for campo in ("alcance", "tipo", "moneda", "fecha_desde", "fecha_hasta", "descripcion"):
         setattr(bono, campo, getattr(data, campo))
-    for campo in ("marca", "categoria", "pedido_id", "monto_unit", "porcentaje"):
+    for campo in ("marca", "categoria", "pedido_id", "monto_unit", "porcentaje", "base", "incluye_iva"):
         setattr(bono, campo, getattr(campos, campo))
     # A cap left out of the body keeps the stored one (a new bonus has none); an explicit null removes it.
     if "tope_unidades" in data.model_fields_set:
@@ -300,7 +331,12 @@ def editar_bono(db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int) 
     bono = _bloquear(db, bono_id)
     if bono is None:
         return None
-    campos = validar(db, data)
+    if "base" in data.model_fields_set and data.base != bono.base:
+        raise SellInBonoError(
+            "La base del bono no se puede cambiar: lo que ya generó se contaría dos veces; anulalo y cargá otro"
+        )
+    incluye_iva = data.incluye_iva if "incluye_iva" in data.model_fields_set else bono.incluye_iva
+    campos = validar(db, data, bono.base, incluye_iva)
     if data.moneda != bono.moneda and bono.tope_monto is not None and "tope_monto" not in data.model_fields_set:
         # The stored money cap is in the old currency: kept as is it would silently mean another amount.
         raise SellInBonoError("Al cambiar la moneda hay que volver a indicar el tope de monto")
@@ -355,7 +391,7 @@ def listar_bonos(
 
 def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
     """Bonuses with their models (code and description), operation number and what they generated (active
-    purchases, units, amount per currency): at most 5 queries per page."""
+    purchases, units, amount per currency; a cost bonus's from its sales rows): at most 6 queries per page."""
     if not bonos:
         return []
     ids = [b.id for b in bonos]
@@ -381,6 +417,25 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
     ):
         unidades[bono_id] = unidades.get(bono_id, 0) + int(cantidad)
         montos.setdefault(bono_id, {})[moneda] = Decimal(str(monto)).quantize(Decimal("0.01"))
+    # A cost bonus generates no purchase: what its sales got (ARS), one query when the page has any.
+    # Set explicitly: none of its purchase numbers count, and without sales rows it generated nothing.
+    costo_ids = [b.id for b in bonos if b.base == BASE_COSTO_VENTA]
+    for bono_id in costo_ids:
+        compras[bono_id] = 0
+        unidades[bono_id] = 0
+        montos[bono_id] = {}
+    if costo_ids:
+        for bono_id, cantidad, monto in (
+            db.query(
+                SellInBonoConsumo.bono_id,
+                func.coalesce(func.sum(SellInBonoConsumo.unidades), 0),
+                func.coalesce(func.sum(SellInBonoConsumo.descuento_ars), 0),
+            )
+            .filter(SellInBonoConsumo.bono_id.in_(costo_ids))
+            .group_by(SellInBonoConsumo.bono_id)
+        ):
+            unidades[bono_id] = int(cantidad)
+            montos[bono_id] = {"ARS": Decimal(str(monto)).quantize(Decimal("0.01"))}
     modelos = _modelos(db, ids)
     productos = {
         p.item_id: p
@@ -450,6 +505,9 @@ _COLUMNAS = (
     "estado",
     "tope_unidades",
     "tope_monto",
+    "base",
+    "incluye_iva",
+    "offset_origen_id",
     "usuario_id",
     "created_at",
     "updated_at",
