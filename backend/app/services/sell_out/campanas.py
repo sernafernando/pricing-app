@@ -38,9 +38,8 @@ from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem
-from app.schemas.sell_out import SellOutCampanaIn
+from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaItemIn
 from app.services.sell_in.compras import contiene
-from app.schemas.sell_out import SellOutCampanaItemIn
 from app.services.sell_out import alcance, asignacion, queue, reparto
 
 # Each NUMERIC column's scale as a quantum: `monto_unit` 0.01, `porcentaje` 0.0001, ...
@@ -49,6 +48,12 @@ _QUANTUM = {
     for column in SellOutCampana.__table__.columns
     if isinstance(column.type, Numeric)
 }
+# The shares' own columns (`sell_out_campana_items`, T26).
+_QUANTUM.update(
+    (column.name, Decimal(1).scaleb(-column.type.scale))
+    for column in SellOutCampanaItem.__table__.columns
+    if column.name in ("reparto_porcentaje", "reparto_monto")
+)
 _INSTANTE = TypeAdapter(datetime)
 
 _CAMPOS = (
@@ -397,8 +402,8 @@ def _fila(item: SellOutCampanaItemIn) -> dict:
     """The row's three money columns at their scale (exactly one is set, `_validar_items`)."""
     return {
         "monto_unit": _a_escala("monto_unit", item.monto_unit),
-        "reparto_porcentaje": _a_escala("porcentaje", item.reparto_porcentaje),
-        "reparto_monto": _a_escala("monto_unit", item.reparto_monto),
+        "reparto_porcentaje": _a_escala("reparto_porcentaje", item.reparto_porcentaje),
+        "reparto_monto": _a_escala("reparto_monto", item.reparto_monto),
     }
 
 
@@ -534,6 +539,15 @@ def _de_sus_marcas(db: Session, item_ids: list[int], pares: set) -> tuple[set, d
             if (marca, categoria) in pares:
                 propios.add(item_id)
     return propios, codigos
+
+
+def solo_sus_marcas(db: Session, fila: dict, pares: Optional[set]) -> dict:
+    """A serialized campaign as a brand-scoped PM may see it: only the shares of the products of their `pares`
+    (None: every brand, unchanged). The summary stays the campaign's, aggregated (no per-product amount)."""
+    if pares is None:
+        return fila
+    propios, _ = _de_sus_marcas(db, [i["item_id"] for i in fila["items"]], pares)
+    return {**fila, "items": [i for i in fila["items"] if i["item_id"] in propios]}
 
 
 def repartir(

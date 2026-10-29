@@ -16,7 +16,8 @@ price, and that credit is added to profit. The rules live in
   (migration `20261216_sell_out_repartir_permiso`). A user who sees every
   brand replaces the whole split; a PM (`sell_out.repartir` only) splits only
   the products of their brands (`pm_scope`): another brand's product is a 403
-  naming it, and the shares they cannot see are kept.
+  naming it, and the shares they cannot see are kept; their response lists
+  only the shares of their brands (the summary is the campaign's aggregate).
 - `POST /{id}/tipo-cambio` sets or changes the rate of a USD `al_cobro`
   campaign when the brand pays, also after it ended (audited; 409 once voided).
   Until then its ARS figures are estimates at the current BNA rate (T7).
@@ -220,4 +221,4 @@ def repartir_campana(
         raise _error(db, exc) from exc
     if campana is None:
         raise _no_existe(campana_id)
-    return resumen.serializar(db, [campana])[0]
+    return service.solo_sus_marcas(db, resumen.serializar(db, [campana])[0], pares)

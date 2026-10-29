@@ -19,7 +19,17 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ModelWrapValidatorHandler,
+    SerializerFunctionWrapHandler,
+    ValidationError,
+    model_serializer,
+    model_validator,
+)
+from pydantic_core import InitErrorDetails
 
 Tipo = Literal["por_unidad", "porcentaje", "monto_total"]
 BasePorcentaje = Literal["costo", "precio_neto"]
@@ -111,6 +121,23 @@ class SellOutCampanaIn(BaseModel):
     # (`monto_total`, see `SellOutCampanaItemIn`). Absent (None)
     # keeps the stored ones, so a client that does not send them never wipes them; `[]` clears them.
     items: Optional[list[SellOutCampanaItemIn]] = Field(default=None, max_length=ITEMS_MAX)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _monto_unit_requerido(cls, data, handler: ModelWrapValidatorHandler["SellOutCampanaIn"]):
+        """Outside `monto_total`, an item without `monto_unit` (and without a share, which gets its own readable
+        422) is pydantic's field-required error, as it was before `monto_unit` became optional for the shares
+        (same type, location and message)."""
+        items = data.get("items") if isinstance(data, dict) and data.get("tipo") != "monto_total" else None
+        if isinstance(items, list):
+            faltan = [
+                InitErrorDetails(type="missing", loc=("items", i, "monto_unit"), input=item)
+                for i, item in enumerate(items)
+                if isinstance(item, dict) and not {"monto_unit", "reparto_porcentaje", "reparto_monto"} & item.keys()
+            ]
+            if faltan:
+                raise ValidationError.from_exception_data(cls.__name__, faltan)
+        return handler(data)
 
 
 class SellOutAnularIn(BaseModel):

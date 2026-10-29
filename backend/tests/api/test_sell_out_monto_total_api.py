@@ -328,10 +328,40 @@ def test_a_pm_split_keeps_the_shares_of_brands_they_cannot_see(client, gestor, p
 
     assert resp.status_code == 200, resp.text
     # SWITCH (theirs, not sent) is removed; TINTA (EPSON, not theirs) is kept as it was.
-    assert _shares(resp.json()) == [(ROUTER, 50.0, None), (TINTA, 30.0, None)]
+    assert _shares(client.get(f"{BASE}/{cid}", headers=gestor).json()) == [(ROUTER, 50.0, None), (TINTA, 30.0, None)]
+
+    _repartir(client, pm, cid, [])
+    assert _shares(client.get(f"{BASE}/{cid}", headers=gestor).json()) == [(TINTA, 30.0, None)]
+
+
+def test_a_scoped_pm_response_shows_only_the_shares_of_their_brands(client, gestor, pm, grupo) -> None:
+    # An empty PUT must not turn into a read of the other brands' split.
+    items = [{"item_id": TINTA, "reparto_porcentaje": "30"}, {"item_id": SWITCH, "reparto_monto": "7"}]
+    cid = _crear(client, gestor, grupo, items=items)["id"]
 
     resp = _repartir(client, pm, cid, [])
-    assert _shares(resp.json()) == [(TINTA, 30.0, None)]
+    assert resp.status_code == 200, resp.text
+    assert _shares(resp.json()) == []
+    assert "reparto_porcentaje" not in resp.text
+
+    resp = _repartir(client, pm, cid, [{"item_id": ROUTER, "reparto_monto": "1"}])
+    assert _shares(resp.json()) == [(ROUTER, None, 1.0)]
+    # The summary is the campaign's, aggregated: what is left to assign, no product of another brand.
+    assert float(resp.json()["resumen"]["reparto"]["sin_asignar"]) == 2000000.0 - 600000.0 - 1.0
+
+
+def test_a_repartir_user_who_sees_every_brand_replaces_the_whole_split(
+    client, gestor, grupo, rol_ventas, auth_headers, grant_permiso
+) -> None:
+    grant_permiso(rol_ventas, "sell_out.repartir")
+    grant_permiso(rol_ventas, "ventas_ml.ver_todas_marcas")  # pm_scope: no brand filter
+    cid = _crear(client, gestor, grupo, items=[{"item_id": TINTA, "reparto_porcentaje": "30"}])["id"]
+
+    resp = _repartir(client, auth_headers, cid, [{"item_id": ROUTER, "reparto_monto": "5"}])
+
+    assert resp.status_code == 200, resp.text
+    assert _shares(resp.json()) == [(ROUTER, None, 5.0)]
+    assert _shares(client.get(f"{BASE}/{cid}", headers=gestor).json()) == [(ROUTER, None, 5.0)]
 
 
 def test_a_pm_split_counts_the_kept_shares_against_the_total(client, gestor, pm, grupo) -> None:
@@ -451,3 +481,46 @@ def test_per_unit_and_percentage_responses_are_byte_identical(client, gestor, gr
     assert listado == {a["id"]: esperado_a, b["id"]: esperado_b}
     editado = client.put(f"{BASE}/{a['id']}", json=por_unidad, headers=gestor)
     assert _estable(editado.json()) == esperado_a
+
+
+# ── Error shapes ────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("tipo,extra", [("por_unidad", {"monto_unit": "10"}), ("porcentaje", {"porcentaje": "2"})])
+def test_an_item_without_its_amount_keeps_the_field_required_422(client, gestor, grupo, tipo, extra) -> None:
+    body = _body(grupo, tipo=tipo, items=[{"item_id": ROUTER}], **extra)
+    del body["monto_total"]
+
+    resp = client.post(BASE, json=body, headers=gestor)
+
+    # Byte for byte what the API answered before T26c.
+    assert resp.status_code == 422
+    assert resp.json() == {
+        "detail": [
+            {
+                "type": "missing",
+                "loc": ["body", "items", 0, "monto_unit"],
+                "msg": "Field required",
+                "input": {"item_id": ROUTER},
+            }
+        ]
+    }
+
+
+def test_the_summary_only_absorbs_a_split_refusal(client, gestor, grupo, monkeypatch) -> None:
+    from app.services.sell_out import reparto
+
+    cid = _crear(client, gestor, grupo)["id"]
+
+    def rehusa(*_args):
+        raise reparto.RepartoInvalido("the shares exceed the total", suma=None, total=None)
+
+    monkeypatch.setattr(reparto, "resumen_monto_total", rehusa)
+    out = client.get(f"{BASE}/{cid}", headers=gestor).json()
+    assert out["resumen"]["reparto"] == {"asignado": None, "asignado_sin_ventas": None, "sin_asignar": None}
+
+    def falla(*_args):
+        raise ValueError("an unrelated bug")
+
+    monkeypatch.setattr(reparto, "resumen_monto_total", falla)
+    assert client.get(f"{BASE}/{cid}", headers=gestor).status_code == 500  # surfaces, never a null summary
