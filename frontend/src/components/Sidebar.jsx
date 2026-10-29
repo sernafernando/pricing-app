@@ -85,7 +85,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Banlist MLAs', path: '/mla-banlist', permiso: 'admin.gestionar_mla_banlist' },
         { label: 'Items sin MLA', path: '/items-sin-mla', permiso: 'admin.ver_items_sin_mla' },
         { label: 'Prearmadas disponibles', path: '/prearmadas-disponibles', permiso: 'produccion.ver_prearmadas_stats' },
-        { label: 'Sell in', path: '/sell-in', permiso: 'sell_in.ver' },
+        { label: 'Sell in / Sell out', path: '/sell-in', permiso: 'sell_in.ver' },
       ],
     },
     {

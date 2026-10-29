@@ -32,6 +32,19 @@ describe('FacetChips', () => {
     expect(screen.getByRole('button', { name: /Cancelada · 1/ })).toBeInTheDocument();
   });
 
+  it('names the "all" chip with allLabel when the axis is masculine', () => {
+    render(
+      <FacetChips label="Tipo" allLabel="Todos" options={OPTIONS} labels={LABELS} counts={counts} total={4} activeValue="" onChange={() => {}} />
+    );
+    expect(screen.getByRole('button', { name: 'Todos · 4' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('button', { name: /Todas/ })).not.toBeInTheDocument();
+  });
+
+  it('puts the "all" chip after the options with allLast', () => {
+    render(<FacetChips label="Tipo" allLast options={OPTIONS} labels={LABELS} counts={counts} total={4} activeValue="" onChange={() => {}} />);
+    expect(screen.getAllByRole('button').map((chip) => chip.textContent)).toEqual(['Pagada · 3', 'Cancelada · 1', 'Todas · 4']);
+  });
+
   it('renders a count of 0 verbatim instead of hiding the chip or omitting the number', () => {
     render(
       <FacetChips
