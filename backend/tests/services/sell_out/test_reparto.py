@@ -8,7 +8,7 @@ from decimal import Decimal as D
 import pytest
 
 from app.services.sell_out import reparto
-from app.services.sell_out.reparto import MontoTotal, cuota, repartir, resumen_monto_total
+from app.services.sell_out.reparto import MontoTotal, cuota, repartir, resumen_monto_total, validar
 from app.services.sell_out.tope import Campana, Consumo, Linea, asignar
 
 
@@ -91,7 +91,38 @@ class TestResumen:
         }
 
 
+class TestValidar:
+    def test_shares_adding_up_to_more_than_the_total_are_refused(self) -> None:
+        with pytest.raises(ValueError, match="exceed"):
+            validar(MontoTotal(D("100.00"), {1: (D("60"), None), 2: (None, D("40.01"))}))
+
+    def test_shares_of_a_negative_total_are_compared_by_size(self) -> None:
+        validar(MontoTotal(D("-100.00"), {1: (D("60"), None), 2: (None, D("-40.00"))}))
+        with pytest.raises(ValueError, match="exceed"):
+            validar(MontoTotal(D("-100.00"), {1: (D("60"), None), 2: (None, D("-40.01"))}))
+
+    def test_a_whole_split_of_an_odd_cent_total_is_not_refused_by_its_rounding(self) -> None:
+        validar(MontoTotal(D("100.01"), {1: (D("50"), None), 2: (D("50"), None)}))
+
+    def test_a_fixed_share_with_the_opposite_sign_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="sign"):
+            validar(MontoTotal(D("-100.00"), {1: (None, D("10.00"))}))
+
+    def test_a_share_without_percent_nor_amount_is_refused_by_name(self) -> None:
+        with pytest.raises(ValueError, match="product 1 has no share"):
+            validar(MontoTotal(D("100.00"), {1: (None, None)}))
+
+    def test_repartir_refuses_an_invalid_split_before_writing(self) -> None:
+        with pytest.raises(ValueError, match="sign"):
+            repartir(MontoTotal(D("100.00"), {1: (None, D("-10.00"))}), [_consumo(1, 1, 1)])
+
+
 class TestTopeUnidades:
+    @pytest.mark.parametrize("tope", [{"tope_unidades": 1}, {"tope_monto": D("1")}])
+    def test_a_monto_total_campaign_with_a_cap_is_refused(self, tope: dict) -> None:
+        with pytest.raises(ValueError, match="no cap"):
+            asignar(Campana(tipo="monto_total", moneda="ARS", **tope), [])
+
     def test_a_monto_total_campaign_takes_the_net_units_with_no_money_and_no_cap(self) -> None:
         campana = Campana(tipo="monto_total", moneda="ARS")
         lineas = [

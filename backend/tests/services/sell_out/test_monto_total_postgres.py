@@ -211,6 +211,34 @@ class TestExclusividad:
         assert _filas(engine, total) == [(ref, 2964, 3, Decimal("30.00"))]
 
 
+class TestRepartoInvalido:
+    @pytest.mark.parametrize(
+        ("total", "monto", "error"), [("100.00", "100.01", "exceed"), ("-100.00", "10.00", "sign")]
+    )
+    def test_an_invalid_split_fails_its_campaign_and_writes_nothing(
+        self, engine: Engine, total: str, monto: str, error: str
+    ) -> None:
+        campana = w.monto_total(engine, [w.grupo(engine, [TP_LINK])], total)
+        w.reparto(engine, campana, 2964, monto=monto)
+        w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+
+        with pytest.raises(SellOutAsignacionError, match=f"campaign {campana}: .*{error}"):
+            _recalcular(engine, campana)
+
+        assert w.consumos(engine) == []
+
+    def test_a_shared_product_without_vat_rate_fails_naming_campaign_and_product(self, engine: Engine) -> None:
+        campana = w.monto_total(engine, [w.grupo(engine, [TP_LINK])], "100.00", monto_incluye_iva=True)
+        w.reparto(engine, campana, 2964, monto="50.00")
+        w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+        w.execute(engine, "UPDATE productos_erp SET iva = NULL WHERE item_id = 2964")
+        try:
+            with pytest.raises(SellOutAsignacionError, match=f"campaign {campana}: product 2964 has no VAT rate"):
+                _recalcular(engine, campana)
+        finally:
+            w.execute(engine, "UPDATE productos_erp SET iva = 21 WHERE item_id = 2964")
+
+
 class TestSigno:
     def test_a_negative_per_unit_amount_is_never_written(self, engine: Engine, monkeypatch) -> None:
         campana = w.campana(engine, [w.grupo(engine, [TP_LINK])])

@@ -64,7 +64,9 @@ share loaded with VAT is divided by its own product's VAT; the share is in the
 campaign currency and a USD row carries its `tc_venta` by `tc_modo` as above.
 Stacking: a lump sum is not per unit, so it holds no units (another exclusive
 campaign is not displaced by it, whatever its `acumulable`) and no campaign's
-units limit it. Only its rows may be negative: a negative row of a
+units limit it. Shares that cannot be split as they stand (`reparto.validar`:
+a fixed share against the total's sign, shares exceeding the total) fail the
+campaign like a missing VAT rate does, writing nothing. Only its rows may be negative: a negative row of a
 `por_unidad` or `porcentaje` campaign fails the rebuild (the DB no longer
 refuses it).
 
@@ -312,7 +314,10 @@ def _asignar(
         consumos = tope.asignar(_tope(c, montos.get(c.id)), lineas, por_linea=por_linea)
         if total:
             mt = reparto.MontoTotal(c.monto_total, repartos.get(c.id, {}), c.monto_incluye_iva, alcance_c)
-            salida[c.id] = reparto.repartir(mt, consumos)
+            try:
+                salida[c.id] = reparto.repartir(mt, consumos)
+            except ValueError as exc:  # shares that cannot be split, a product without VAT: as the other kinds
+                raise SellOutAsignacionError(f"campaign {c.id}: {exc}") from exc
             tenidas[c.id] = {}  # a lump sum holds no units
             continue
         if any(x.monto < 0 for x in consumos):

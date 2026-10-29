@@ -21,6 +21,12 @@ campaign's `fecha_hasta`, T26b2): a share whose product has no sale in the
 dates ("Asignado sin ventas", net of VAT like the rows it would have written)
 and the remainder nobody was given, total − Σ shares ("Sin asignar", as
 loaded: it has no product, so no VAT rate to strip).
+
+Shares are checked, never repaired (`validar`, also run by `repartir` and
+`resumen_monto_total`): a share must be a % or an amount, a fixed share has the
+total's sign and |Σ shares| <= |total|, compared before rounding so a whole
+split of an odd-cent total is not refused for its cents. Like `tope`, anything
+inconsistent raises `ValueError`; the allocator fails the campaign with it.
 """
 
 from __future__ import annotations
@@ -44,9 +50,28 @@ class MontoTotal:
     ivas: Mapping[int, Optional[Decimal]] = field(default_factory=dict)  # item_id -> its VAT rate, in percent
 
 
-def _cargada(c: MontoTotal, item_id: int) -> Decimal:
+def _exacta(c: MontoTotal, item_id: int) -> Decimal:
     porcentaje, monto = c.repartos[item_id]
-    return cents(Decimal(monto) if porcentaje is None else Decimal(c.monto_total) * Decimal(porcentaje) / CIEN)
+    if porcentaje is None and monto is None:
+        raise ValueError(f"product {item_id} has no share: neither a percent nor an amount")
+    return Decimal(monto) if porcentaje is None else Decimal(c.monto_total) * Decimal(porcentaje) / CIEN
+
+
+def _cargada(c: MontoTotal, item_id: int) -> Decimal:
+    return cents(_exacta(c, item_id))
+
+
+def validar(c: MontoTotal) -> None:
+    """Raises `ValueError` when the shares cannot be split as they stand (module docstring)."""
+    total = Decimal(c.monto_total)
+    suma = Decimal(0)
+    for item_id in c.repartos:
+        exacta = _exacta(c, item_id)
+        if (exacta < 0) != (total < 0):
+            raise ValueError(f"product {item_id}'s share {exacta} does not have the total's sign")
+        suma += exacta
+    if abs(suma) > abs(total):
+        raise ValueError(f"the shares ({cents(suma)}) exceed the total ({cents(total)})")
 
 
 def cuota(c: MontoTotal, item_id: int) -> Decimal:
@@ -62,6 +87,7 @@ def cuota(c: MontoTotal, item_id: int) -> Decimal:
 
 def repartir(c: MontoTotal, consumos: Iterable[Consumo]) -> List[Consumo]:
     """The rows of the campaign: each product's share over its `consumos` (net units, sale order) by units."""
+    validar(c)
     consumos = [x for x in consumos if x.item_id in c.repartos and x.unidades > 0]
     totales: Dict[int, int] = {}
     for x in consumos:
@@ -82,6 +108,7 @@ def repartir(c: MontoTotal, consumos: Iterable[Consumo]) -> List[Consumo]:
 def resumen_monto_total(c: MontoTotal, con_ventas: Iterable[int]) -> Dict[str, Decimal]:
     """`{asignado_sin_ventas, sin_asignar}`: what the campaign's rows do not carry (module docstring).
     `con_ventas`: the products with sales the campaign reaches in its dates."""
+    validar(c)
     con_ventas = set(con_ventas)
     sin_ventas = sum((cuota(c, i) for i in c.repartos if i not in con_ventas), Decimal("0.00"))
     asignado = sum((_cargada(c, i) for i in c.repartos), Decimal("0.00"))
