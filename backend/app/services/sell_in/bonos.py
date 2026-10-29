@@ -106,7 +106,7 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Collection, Dict, Iterable, List, Mapping, NamedTuple, Optional, Set, Tuple
 
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import ColumnElement, and_, func, or_, text
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -198,7 +198,7 @@ def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
         pedidos_ |= mas_pedidos
 
 
-def _en_rango():
+def _en_rango() -> ColumnElement[bool]:
     return and_(
         PedidoCompra.fecha_factura >= SellInBonoMarca.fecha_desde,
         PedidoCompra.fecha_factura <= SellInBonoMarca.fecha_hasta,
