@@ -53,6 +53,21 @@ Per-product amounts (T22b, legacy grouped offsets): a `por_unidad` campaign's
 `sell_out_campana_items` give a product its own amount instead of
 `monto_unit`, under the same one cap (`tope`); read in ONE query per call.
 
+Fixed totals (T26b, S34/S35): a `monto_total` campaign's manual shares
+(`sell_out_campana_items`, read in ONE query per call) spread over each
+product's sales the campaign reaches in its dates, the same sale set and
+returns as the other kinds (`tope.asignar` keeps the net units, with no money),
+by units (`reparto.repartir`); the rows may be negative (a deduction). A share
+whose product sold nothing there and the unassigned remainder write nothing
+(`reparto.resumen_monto_total`). VAT and currency as for a per-unit amount: a
+share loaded with VAT is divided by its own product's VAT; the share is in the
+campaign currency and a USD row carries its `tc_venta` by `tc_modo` as above.
+Stacking: a lump sum is not per unit, so it holds no units (another exclusive
+campaign is not displaced by it, whatever its `acumulable`) and no campaign's
+units limit it. Only its rows may be negative: a negative row of a
+`por_unidad` or `porcentaje` campaign fails the rebuild (the DB no longer
+refuses it).
+
 Concurrency: `pg_advisory_xact_lock(LOCK_NAMESPACE, campana_id)` for every
 campaign rebuilt, in id order, before reading what is stored. Does not commit;
 any error propagates and the caller rolls back.
@@ -71,7 +86,7 @@ from sqlalchemy.orm import Session
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem, SellOutConsumo
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell_in.bonos import tasas_bna_por_fecha
-from app.services.sell_out import alcance, tope
+from app.services.sell_out import alcance, reparto, tope
 
 # First key of the two-key advisory lock; the second is the campaign id. Sell-in costing uses 0x5E11 (item ids)
 # and the brand bonus 0x5E12 (bonus ids).
@@ -86,6 +101,7 @@ _TC_ESCALA = Decimal("0.000001")  # `sell_out_consumos.tc_venta` is NUMERIC(18, 
 Clave = Tuple[str, int]  # (canal, venta_ref)
 Productos = Dict[int, Dict[int, Optional[Decimal]]]
 Montos = Dict[int, Dict[int, Decimal]]  # campana_id -> item_id -> its own amount per unit
+Repartos = Dict[int, Dict[int, reparto.Reparto]]  # campana_id -> item_id -> its share of the total
 
 
 class SellOutAsignacionError(ValueError):
@@ -142,6 +158,19 @@ def montos_item(db: Session, campanas: Iterable[SellOutCampana]) -> Montos:
         t = SellOutCampanaItem
         for cid, item_id, monto in db.query(t.campana_id, t.item_id, t.monto_unit).filter(t.campana_id.in_(ids)):
             salida.setdefault(cid, {})[item_id] = Decimal(monto)
+    return salida
+
+
+def repartos_item(db: Session, campanas: Iterable[SellOutCampana]) -> Repartos:
+    """`{campana_id: {item_id: (reparto_porcentaje, reparto_monto)}}` of the given `monto_total` campaigns'
+    shares, in ONE query (none when no campaign is `monto_total`); a campaign without any is absent."""
+    ids = sorted({c.id for c in campanas if c.tipo == "monto_total"})
+    salida: Repartos = {}
+    if ids:
+        t = SellOutCampanaItem
+        filas = db.query(t.campana_id, t.item_id, t.reparto_porcentaje, t.reparto_monto).filter(t.campana_id.in_(ids))
+        for cid, item_id, porcentaje, monto in filas:
+            salida.setdefault(cid, {})[item_id] = (porcentaje, monto)
     return salida
 
 
@@ -233,16 +262,21 @@ def _asignar(
     ventas: List[alcance.Venta],
     tasas: _Tasas,
     montos: Optional[Montos] = None,
+    repartos: Optional[Repartos] = None,
 ):
     """`{campana_id: [Consumo]}`, campaigns in id order, each after those taking precedence over it.
-    `montos`: the campaigns' per-product amounts (`montos_item`)."""
+    `montos`: the campaigns' per-product amounts (`montos_item`); `repartos`: their shares (`repartos_item`)."""
     montos = montos or {}
+    repartos = repartos or {}
     tenidas: Dict[int, Dict[Clave, List[int]]] = {}  # per campaign and line: the unit numbers it took or freed
     salida: Dict[int, List[tope.Consumo]] = {}
     pendientes: Dict[int, int] = {}
     for c in activas:
         alcance_c = productos.get(c.id, {})
-        antes = [p.id for p in activas if p.id < c.id and not (p.acumulable and c.acumulable)]
+        total = c.tipo == "monto_total"
+        if total:  # only its shared products; it is not limited by the units others hold (module docstring)
+            alcance_c = {i: iva for i, iva in alcance_c.items() if i in repartos.get(c.id, {})}
+        antes = [] if total else [p.id for p in activas if p.id < c.id and not (p.acumulable and c.acumulable)]
         lineas, libres, admitidas = [], {}, set()
         for v in sorted(ventas, key=lambda x: x.unidades < 0):  # sales first: a return checks its sale
             if v.item_id not in alcance_c or not alcance.en_campana(c, v):
@@ -275,7 +309,15 @@ def _asignar(
                 )
             )
         por_linea: Dict[Clave, int] = {}
-        salida[c.id] = tope.asignar(_tope(c, montos.get(c.id)), lineas, por_linea=por_linea)
+        consumos = tope.asignar(_tope(c, montos.get(c.id)), lineas, por_linea=por_linea)
+        if total:
+            mt = reparto.MontoTotal(c.monto_total, repartos.get(c.id, {}), c.monto_incluye_iva, alcance_c)
+            salida[c.id] = reparto.repartir(mt, consumos)
+            tenidas[c.id] = {}  # a lump sum holds no units
+            continue
+        if any(x.monto < 0 for x in consumos):
+            raise SellOutAsignacionError(f"campaign {c.id}: a {c.tipo} campaign never gives a negative amount")
+        salida[c.id] = consumos
         tenidas[c.id] = {clave: libres[clave][:n] for clave, n in por_linea.items()}
     return salida, pendientes
 
@@ -323,7 +365,9 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
         desde = min(c.fecha_desde for c in activas)
         ventas = alcance.ventas(db, items, desde, max(c.fecha_hasta for c in activas))
     tasas = _tasas(db, activas, ventas)
-    deseados, pendientes = _asignar(activas, productos, ventas, tasas, montos_item(db, activas))
+    deseados, pendientes = _asignar(
+        activas, productos, ventas, tasas, montos_item(db, activas), repartos_item(db, activas)
+    )
 
     guardados: Dict[Tuple[int, str, int], Tuple[int, tuple]] = {}
     t = SellOutConsumo
