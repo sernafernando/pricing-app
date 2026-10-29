@@ -468,15 +468,17 @@ export default function MisSubPMs() {
       .map(([marca, total]) => ({ marca, total, cambiado: guardado.get(marca) !== total }));
   }, [checked, baseline, pairsByKey]);
 
-  // A change made from "Por marca / par" goes straight to the server, so the
-  // shared reads are refreshed; the selected user's baseline too when they
-  // were the one changed (the tab switch is blocked while it is dirty, so
-  // reloading it never throws away pending edits).
+  // A copy writes another user, never the selected one: only the shared
+  // reads need refreshing.
   const alCopiar = () => {
     cargarGrantsScope();
     cargarConteos();
   };
 
+  // A change made from "Por marca / par" goes straight to the server, so the
+  // shared reads are refreshed; the selected user's baseline too when they
+  // were the one changed (the tab switch is blocked while it is dirty, so
+  // reloading it never throws away pending edits).
   const alCambiarPorMarca = (usuarioIds) => {
     cargarGrantsScope();
     cargarConteos();
