@@ -332,3 +332,11 @@
   padding: var(--space-3) var(--spacing-md);
   border-bottom: 1px solid var(--cf-border-default);
 }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}

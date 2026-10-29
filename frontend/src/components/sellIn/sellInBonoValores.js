@@ -3,8 +3,15 @@
  *
  * A bonus reaches a brand, a category, some models or one Compras operation (`alcance`) and pays an
  * amount per invoiced unit or a % of the invoiced net (`tipo`); the body carries only the fields of its
- * scope and kind, since the backend refuses the others.
+ * scope and kind, since the backend refuses the others. A cost bonus (`base`) is instead a % in ARS of each sale's
+ * cost, by sale date, for old operations without their invoice loaded.
  */
+
+export const BASE_FACTURA = 'factura';
+export const BASE_COSTO = 'costo_venta';
+
+/** Whether the values (or a bonus as the API answered it) are a bonus over the sale's cost. */
+export const esBonoCosto = (bono) => bono.base === BASE_COSTO;
 
 export const BONO_VACIO = {
   alcance: 'marca',
@@ -28,6 +35,14 @@ export const BONO_VACIO = {
   // The money cap as stored, with its currency (null on a new bonus): the form brings it back when the currency
   // returns to it. Never sent.
   topeGuardado: null,
+  // What the bonus is a % of (API: T25d; form: T25e): the invoiced net ('factura') or the cost of each sale ('costo_venta', for old
+  // operations without their invoice loaded). Set on create only: the backend refuses a change on edit.
+  base: BASE_FACTURA,
+  // Only on a cost bonus: the loaded % includes IVA and is divided by each product's IVA rate (S33).
+  incluyeIva: false,
+  // The invoice bonus's kind, currency, scope and money cap before moving to the cost base, brought back when returning to it.
+  // Never sent.
+  antesDeCosto: null,
 };
 
 /** The label of a model chip: code and description, or the bare item when the catalog lost it. */
@@ -52,6 +67,9 @@ export const valoresDeBono = (bono) => ({
   topeUnidades: bono.tope_unidades != null ? String(bono.tope_unidades) : '',
   topeMonto: texto(bono.tope_monto),
   topeGuardado: { moneda: bono.moneda, monto: texto(bono.tope_monto) },
+  base: bono.base ?? BASE_FACTURA,
+  incluyeIva: Boolean(bono.incluye_iva),
+  antesDeCosto: null,
 });
 
 /** The key of the bonus's kind in the API and in a model's form values. */
@@ -87,11 +105,44 @@ export const conMoneda = (valores, moneda) => {
   return { ...valores, moneda, topeMonto: guardado && guardado.moneda === moneda ? guardado.monto : '' };
 };
 
+/**
+ * The values after a base change. The cost base is always a % in ARS over a brand, a category or some models (the
+ * backend refuses the rest), so moving to it forces those and leaves an invoice scope for a brand; coming back to the
+ * invoice base restores the kind, currency and scope it had.
+ */
+export const conBase = (valores, base) => {
+  if (base === valores.base) return valores;
+  if (base === BASE_COSTO) {
+    // The money cap too: moving to ARS empties a cap typed in another currency, and the round trip must not drop it.
+    const antesDeCosto = { tipo: valores.tipo, moneda: valores.moneda, alcance: valores.alcance, topeMonto: valores.topeMonto };
+    const enPesos = conMoneda(valores, 'ARS');
+    return { ...enPesos, base, tipo: 'porcentaje', alcance: valores.alcance === 'factura' ? 'marca' : valores.alcance, antesDeCosto };
+  }
+  const previo = valores.antesDeCosto;
+  if (!previo) return { ...valores, base, incluyeIva: false };
+  // Back in the same currency (ARS), the cap typed meanwhile stays; back in another one, the saved cap returns.
+  const topeMonto = previo.moneda === valores.moneda ? valores.topeMonto : previo.topeMonto;
+  return { ...valores, base, tipo: previo.tipo, moneda: previo.moneda, alcance: previo.alcance, topeMonto, incluyeIva: false, antesDeCosto: null };
+};
+
 /** A cap field as sent: trimmed, or null when empty (empty means no cap). */
 const normalizarTope = (valor) => String(valor ?? '').trim() || null;
 
-/** The create/edit body (`SellInBonoIn`): a full replace on edit; an empty cap is sent as null (no cap). */
-export const bodyDeBono = (valores) => ({
+/**
+ * The base fields of the body: none on an invoice bonus (the backend's default, so its body is as before); a cost
+ * bonus sends its base on create only (it never changes) and its IVA flag on create and edit.
+ */
+const camposDeBase = (valores, nuevo) => {
+  if (!esBonoCosto(valores)) return {};
+  return nuevo ? { base: BASE_COSTO, incluye_iva: valores.incluyeIva } : { incluye_iva: valores.incluyeIva };
+};
+
+/**
+ * The create/edit body (`SellInBonoIn`): a full replace on edit; an empty cap is sent as null (no cap). `nuevo`: true
+ * only on a create, the only time the base is sent; it defaults to an edit so a caller that leaves it out never sends
+ * a base the backend refuses to change.
+ */
+export const bodyDeBono = (valores, nuevo = false) => ({
   alcance: valores.alcance,
   ...CAMPO_DEL_ALCANCE[valores.alcance](valores),
   tipo: valores.tipo,
@@ -102,6 +153,7 @@ export const bodyDeBono = (valores) => ({
   descripcion: valores.descripcion.trim() || null,
   tope_unidades: normalizarTope(valores.topeUnidades),
   tope_monto: normalizarTope(valores.topeMonto),
+  ...camposDeBase(valores, nuevo),
 });
 
 const ALCANCE_COMPLETO = {
@@ -157,7 +209,10 @@ const FALTA_ALCANCE = { marca: 'marca', categoria: 'categoría', modelos: 'al me
 
 /** What the operator must fill, for the "Faltan datos" message. */
 export const faltanDatos = (v) =>
-  `Faltan datos: ${FALTA_ALCANCE[v.alcance]}, ${v.tipo === 'porcentaje' ? 'porcentaje' : 'monto por unidad'} y fechas de factura.`;
+  `Faltan datos: ${FALTA_ALCANCE[v.alcance]}, ${v.tipo === 'porcentaje' ? 'porcentaje' : 'monto por unidad'} y fechas de ${esBonoCosto(v) ? 'venta' : 'factura'}.`;
+
+/** "Migrado del offset #9" for a bonus created from a legacy offset, or null. */
+export const origenDeBono = (bono) => (bono.offset_origen_id != null ? `Migrado del offset #${bono.offset_origen_id}` : null);
 
 /** What the bonus reaches, in a few words: "Marca TP-LINK", "Categoría Switches", "2 modelos", "Factura N° P-00042". */
 export const alcanceDeBono = (bono) => {
