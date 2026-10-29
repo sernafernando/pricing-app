@@ -12,7 +12,8 @@ which must count twice: "agregaselo".
   generated changes.
 
 The bonus update trigger also queues a bonus when `acumulable` changes (the rest of its definition is 20261212's,
-unchanged). The downgrade puts 20261212's trigger back and drops the column.
+unchanged). The downgrade puts 20261212's trigger back and drops the column. It refuses (RAISE, nothing changed)
+while a bonus is not acumulable: dropping the column would silently make it stack again.
 
 LOCK NOTE: ADD COLUMN with a constant default (no rewrite since PG 11) and DROP/CREATE TRIGGER take an ACCESS
 EXCLUSIVE lock on `sell_in_bonos_marca`, which the `sell_in.bono` worker reads. Upgrade and downgrade run with
@@ -58,6 +59,21 @@ EXECUTE FUNCTION sell_in_bono_enqueue_bono()
 """
 
 
+DOWNGRADE_GUARD = f"""
+DO $guard$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = 'sell_in_bonos_marca' AND column_name = 'acumulable'
+  ) THEN
+    IF EXISTS (SELECT 1 FROM sell_in_bonos_marca WHERE NOT acumulable) THEN
+      RAISE EXCEPTION 'downgrade of {revision} refused: sell-in bonuses that are not acumulable exist';
+    END IF;
+  END IF;
+END
+$guard$
+"""
+
 DROP_TRIGGER = "DROP TRIGGER IF EXISTS trg_sell_in_bono_bonos_update ON sell_in_bonos_marca"
 
 
@@ -75,4 +91,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    _run([DROP_TRIGGER, _trigger(con_acumulable=False), DROP_COLUMN])
+    _run([DOWNGRADE_GUARD, DROP_TRIGGER, _trigger(con_acumulable=False), DROP_COLUMN])

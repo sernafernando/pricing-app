@@ -110,6 +110,7 @@ def test_downgrade_drops_the_flag_restores_the_trigger_and_both_steps_are_idempo
     _step(before, "upgrade")
     _step(before, "upgrade")
     _update(before, "acumulable = false")
+    _update(before, "acumulable = true")
     _step(before, "downgrade")
     _step(before, "downgrade")
 
@@ -117,6 +118,20 @@ def test_downgrade_drops_the_flag_restores_the_trigger_and_both_steps_are_idempo
         assert conn.execute(text(_COLUMN), {"t": _TABLE}).all() == []
     assert _update(before, "incluye_iva = true") == [1]
     assert _update(before, "descripcion = 'otra'") == []
+
+
+@pytest.mark.postgres
+def test_downgrade_refuses_while_a_bonus_is_not_acumulable_and_changes_nothing(before) -> None:
+    _step(before, "upgrade")
+    _update(before, "acumulable = false")
+
+    with pytest.raises(Exception, match="not acumulable"):
+        _step(before, "downgrade")
+
+    with before.connect() as conn:
+        assert conn.execute(text(_COLUMN), {"t": _TABLE}).one().data_type == "boolean"
+        assert conn.execute(text(f"SELECT acumulable FROM {_TABLE} WHERE id = 1")).scalar() is False
+    assert _update(before, "acumulable = true") == [1]  # the trigger with the flag is still there
 
 
 @pytest.mark.postgres
