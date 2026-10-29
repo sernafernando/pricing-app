@@ -81,10 +81,10 @@ Product decision: “Consultar filtrados” is **not** a synchronous “evaluate
 | **Independence** | Several PMs may enqueue **independent** manual jobs at once. Logical isolation (owner, scope, progress). |
 | **Shared bottleneck** | One **ML rate-limit / worker pool** (fairness / round-robin across jobs). Do **not** give each PM an unbounded parallel full-speed refresh. |
 | **Revision queue** | `para_ganar_revision_mla` stays **per MLA** (global). Job metadata may filter “lo que disparé yo”; P7 is another **view** of the same pendiente queue, not a second state machine. |
-| **Interim today** | `POST /para-ganar/evaluar-filtrados` + Advisor button = **P5-only, sync**, no refresh. Keep as internal motor until the job worker lands; then rewire the button to **enqueue**. |
+| **A1 button** | Advisor **Consultar filtrados** → `POST /para-ganar/consulta-jobs` (enqueue). Sync `POST /evaluar-filtrados` remains as internal P5 motor. |
 | **Job tables** | `para_ganar_consulta_job` + `para_ganar_consulta_job_item`. Enqueue via `enqueue_consulta` (service). Drain: ML handler `para_ganar.consulta` (`pg_notify('para_ganar_consulta')` + 30s interval), fairness by `last_progress_at`. Per item: refresh → `evaluar_mla`. |
 
-**Build order:** (1) this contract — done · (2) job model + worker — done (core) · (3) rewire A1 button to enqueue · (4) P7 UI. Periodic P6 trigger still open.
+**Build order:** (1) contract — done · (2) job model + worker — done · (3) rewire A1 button — done · (4) P7 UI. Periodic P6 trigger still open.
 
 ---
 

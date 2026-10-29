@@ -28,6 +28,8 @@ from app.models.para_ganar_catalog_seller import (
 from app.models.para_ganar_criterio_mla import ParaGanarCriterioMla
 from app.models.usuario import Usuario
 from app.services.ml_catalog_competition_service import refrescar_competencia_catalogo
+from app.models.para_ganar_consulta_job import SOURCE_MANUAL
+from app.services.para_ganar_consulta import enqueue_consulta
 from app.services.para_ganar_evaluacion import evaluar_mlas
 from app.services.para_ganar_sugerencia import (
     SugerenciaMla,
@@ -893,13 +895,24 @@ class ParaGanarCriteriosMasivoResponse(BaseModel):
 
 
 class ParaGanarEvaluarFiltradosResponse(BaseModel):
-    """A1: on-demand P5 evaluation over the current Advisor alcance."""
+    """A1 interim: sync P5 evaluation over the current Advisor alcance."""
 
     scope_total: int = 0
     evaluated: int = 0
     pendiente: int = 0
     sin_novedades: int = 0
     skipped: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ParaGanarConsultaJobEnqueueResponse(BaseModel):
+    """A1 final: enqueued consultation job (refresh → P5 via ML worker)."""
+
+    job_id: int
+    total_count: int
+    source: str
+    status: str
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1271,6 +1284,79 @@ def evaluar_filtrados(
         pendiente=counts["pendiente"],
         sin_novedades=counts["sin_novedades"],
         skipped=counts["skipped"],
+    )
+
+
+@router.post(
+    "/consulta-jobs",
+    response_model=ParaGanarConsultaJobEnqueueResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permiso("productos.editar_precios"))],
+)
+def enqueue_consulta_filtrados(
+    q: Optional[str] = Query(None, max_length=120),
+    marcas: Optional[str] = Query(None),
+    subcategorias: Optional[str] = Query(None),
+    pms: Optional[str] = Query(None),
+    tipos_publicacion: Optional[str] = Query(None),
+    pricelists: Optional[str] = Query(None),
+    tiendas: Optional[str] = Query(None),
+    ean: Optional[str] = Query(None, max_length=80),
+    catalog_product_id: Optional[str] = Query(None, max_length=64),
+    costo_usd_min: Optional[float] = Query(None, ge=0),
+    costo_usd_max: Optional[float] = Query(None, ge=0),
+    incluir_tradicionales_sincronizadas: bool = Query(False),
+    criterios_aplicados: Optional[bool] = Query(
+        None,
+        description="True = only MLAs with saved criteria; false = only without; omit = all",
+    ),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ParaGanarConsultaJobEnqueueResponse:
+    """A1: enqueue a PM-owned consultation job for the Advisor alcance filters.
+
+    Same scope params as cola / evaluar-filtrados. Worker refreshes catalog
+    competition then runs P5; revision states land in the shared queue.
+    """
+    scope = _parse_scope_query(
+        q=q,
+        marcas=marcas,
+        subcategorias=subcategorias,
+        pms=pms,
+        tipos_publicacion=tipos_publicacion,
+        pricelists=pricelists,
+        tiendas=tiendas,
+        ean=ean,
+        catalog_product_id=catalog_product_id,
+        costo_usd_min=costo_usd_min,
+        costo_usd_max=costo_usd_max,
+        incluir_tradicionales_sincronizadas=incluir_tradicionales_sincronizadas,
+        criterios_aplicados=criterios_aplicados,
+    )
+    mlas = _list_scope_mlas(db, scope)
+    if not mlas:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No hay MLAs en el alcance filtrado",
+        )
+    try:
+        job = enqueue_consulta(
+            db,
+            mlas,
+            created_by_id=current_user.id,
+            source=SOURCE_MANUAL,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    db.commit()
+    return ParaGanarConsultaJobEnqueueResponse(
+        job_id=job.id,
+        total_count=job.total_count,
+        source=job.source,
+        status=job.status,
     )
 
 

@@ -286,3 +286,42 @@ def test_evaluar_filtrados_endpoint_scope_and_empty(client: TestClient, rma_supe
     row = db.get(ParaGanarRevisionMla, "MLA88401")
     assert row is not None
     assert row.estado == "pendiente"
+
+
+def test_consulta_jobs_enqueue_endpoint(client: TestClient, rma_superadmin_user, db) -> None:
+    from app.models.ml_publication_link import MlPublicationLink
+    from app.models.para_ganar_consulta_job import ParaGanarConsultaJob, ParaGanarConsultaJobItem
+    from app.models.producto import ProductoERP
+    from app.models.publicacion_ml import PublicacionML
+
+    assert client.post("/api/para-ganar/consulta-jobs").status_code in (401, 403)
+
+    empty = client.post(
+        "/api/para-ganar/consulta-jobs",
+        headers=_auth(rma_superadmin_user),
+        params={"ean": "ZZZ-NO-SUCH-EAN-JOB"},
+    )
+    assert empty.status_code == 422
+
+    producto = ProductoERP(item_id=88141, codigo="779888411", descripcion="a1 job", costo=10)
+    db.add(producto)
+    db.flush()
+    db.add(PublicacionML(mla="MLA88411", item_id=producto.item_id, codigo="779888411", activo=True, pricelist_id=4))
+    db.add(MlPublicationLink(mla="MLA88411", catalog_product_id="CAT-JOB", catalog_listing=True))
+    db.commit()
+
+    response = client.post(
+        "/api/para-ganar/consulta-jobs",
+        headers=_auth(rma_superadmin_user),
+        params={"ean": "779888411"},
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["total_count"] == 1
+    assert body["source"] == "manual"
+    assert body["status"] == "pending"
+    job = db.get(ParaGanarConsultaJob, body["job_id"])
+    assert job is not None
+    assert job.created_by_id == rma_superadmin_user.id
+    items = db.query(ParaGanarConsultaJobItem).filter_by(job_id=job.id).all()
+    assert [i.mla for i in items] == ["MLA88411"]

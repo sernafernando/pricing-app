@@ -16,7 +16,7 @@ Delivery: ask-on-risk · source of truth: `docs/para-ganar.md` § Contrato A1/P6
 - T1 S1-S3 — lock contract in `docs/para-ganar.md` — inline — done
 - T2 S1-S2 — job model + worker (refresh → P5) — inline — done
 - T3 S1 — P6 periodic trigger using worker — pending
-- T4 S1,S4 — rewire Consultar filtrados → enqueue — pending
+- T4 S1,S4 — rewire Consultar filtrados → enqueue — inline — done
 - T5 S1 — P7 floating queue UI — pending (later)
 
 ## Log
@@ -24,3 +24,4 @@ Delivery: ask-on-risk · source of truth: `docs/para-ganar.md` § Contrato A1/P6
 - L1: User clarified A1 needs refresh+enqueue; accepted parallel PM jobs + shared ML pool.
 - L2: User: "dale por favor arranquemos con el punto 1" (docs contract).
 - L3: User: "bueno sigamos" → T2 job tables + `para_ganar.consulta` on ML registry + unit/registry tests.
+- L4: T4 — `POST /consulta-jobs` + Advisor button rewire; `evaluar-filtrados` kept as motor.

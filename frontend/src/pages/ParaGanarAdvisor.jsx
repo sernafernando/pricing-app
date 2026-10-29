@@ -35,11 +35,11 @@ function subtitleForVista(vista) {
   return 'Advisor de sugerencias — cola sandbox (solo lectura)';
 }
 
-function formatEvaluarError(err) {
+function formatConsultarError(err) {
   const detail = err?.response?.data?.detail;
   if (typeof detail === 'string' && detail.trim()) return detail;
   if (err?.response?.status === 403) return 'Requiere productos.editar_precios';
-  return 'No se pudo evaluar el alcance filtrado';
+  return 'No se pudo encolar la consulta del alcance filtrado';
 }
 
 export default function ParaGanarAdvisor() {
@@ -63,13 +63,12 @@ export default function ParaGanarAdvisor() {
     setEvaluarError(null);
     setEvaluarFeedback(null);
     try {
-      const { data } = await api.post('/para-ganar/evaluar-filtrados', null, {
+      const { data } = await api.post('/para-ganar/consulta-jobs', null, {
         params: cola.scopeQueryParams,
       });
       setEvaluarFeedback(data);
-      cola.reload();
     } catch (err) {
-      setEvaluarError(formatEvaluarError(err));
+      setEvaluarError(formatConsultarError(err));
     } finally {
       setEvaluandoFiltro(false);
     }
@@ -203,11 +202,11 @@ export default function ParaGanarAdvisor() {
                     ? 'Requiere productos.editar_precios'
                     : cola.total <= 0
                       ? 'No hay MLAs en el alcance'
-                      : 'Evalúa Pendiente / Sin novedades sobre el alcance filtrado (P5)'
+                      : 'Encola refresh de competencia + evaluación P5 (worker ML)'
                 }
                 onClick={consultarFiltrados}
               >
-                {evaluandoFiltro ? 'Evaluando…' : 'Consultar filtrados'}
+                {evaluandoFiltro ? 'Encolando…' : 'Consultar filtrados'}
               </button>
               <button
                 type="button"
@@ -237,7 +236,7 @@ export default function ParaGanarAdvisor() {
               <span className={styles.toolbarHint}>
                 {cola.total.toLocaleString('es-AR')} publicaciones · estados los marca el motor (P5)
                 {evaluarFeedback
-                  ? ` · evaluadas ${Number(evaluarFeedback.evaluated || 0).toLocaleString('es-AR')} (${Number(evaluarFeedback.pendiente || 0).toLocaleString('es-AR')} pendiente, ${Number(evaluarFeedback.sin_novedades || 0).toLocaleString('es-AR')} sin novedades, ${Number(evaluarFeedback.skipped || 0).toLocaleString('es-AR')} omitidas)`
+                  ? ` · consulta #${evaluarFeedback.job_id} encolada (${Number(evaluarFeedback.total_count || 0).toLocaleString('es-AR')} MLAs)`
                   : ''}
                 {evaluarError ? ` · ${evaluarError}` : ''}
               </span>
