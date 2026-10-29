@@ -38,6 +38,9 @@ applies against the net without VAT):
 - `porcentaje`: `base_unit * porcentaje / 100`. The caller passes the base
   without VAT already (the cost, or the net sale price) converted to the
   campaign currency, so `monto_incluye_iva` does not apply to it.
+- `monto_total` (T26b): none. Its rows only carry the units each sale keeps
+  (returns as above, never capped); the allocator then spreads each product's
+  share over them (`reparto.repartir`).
 
 Rounding: the unit amount is kept unrounded; each row's amount is
 `units * unit amount` rounded ONCE to cents, half up (like Postgres NUMERIC).
@@ -73,7 +76,7 @@ Clave = Tuple[str, int]  # (canal, venta_ref)
 class Campana:
     """What the allocation needs from a `SellOutCampana`."""
 
-    tipo: str  # 'por_unidad' | 'porcentaje'
+    tipo: str  # 'por_unidad' | 'porcentaje' | 'monto_total'
     moneda: str  # every amount here is in this currency
     monto_unit: Optional[Decimal] = None
     porcentaje: Optional[Decimal] = None
@@ -121,6 +124,8 @@ def credito_unitario(campana: Campana, linea: Linea) -> Decimal:
         if linea.base_unit is None:
             raise ValueError(f"sale {(linea.canal, linea.venta_ref)} has no percentage base")
         return linea.base_unit * campana.porcentaje / CIEN
+    if campana.tipo == "monto_total":
+        return Decimal(0)
     monto = campana.montos_item.get(linea.item_id, campana.monto_unit)
     if campana.monto_incluye_iva:
         return monto / (1 + linea.iva_pct / CIEN)
@@ -137,6 +142,9 @@ def _validar(campana: Campana, lineas: List[Linea]) -> None:
     elif campana.tipo == "porcentaje":
         if campana.porcentaje is None or campana.porcentaje < 0:
             raise ValueError("a percentage campaign needs a non-negative porcentaje")
+    elif campana.tipo == "monto_total":
+        if campana.tope_unidades is not None or campana.tope_monto is not None:
+            raise ValueError("a monto_total campaign has no cap: the total is its cap")
     else:
         raise ValueError(f"unknown campaign tipo {campana.tipo!r}")
     if campana.tope_unidades is not None and campana.tope_unidades <= 0:

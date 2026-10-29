@@ -204,3 +204,21 @@ def consumos(engine: Engine, campana_id: Optional[int] = None) -> List[Tuple]:
 def consumo_ids(engine: Engine) -> List[int]:
     with engine.connect() as conn:
         return [r[0] for r in conn.execute(text("SELECT id FROM sell_out_consumos ORDER BY id"))]
+
+
+def monto_total(engine: Engine, grupos: Sequence[int], total: str, **values) -> int:
+    """A `monto_total` campaign (T26) of `total` in its currency, ARS unless overridden."""
+    return campana(engine, grupos, tipo="monto_total", monto_unit=None, monto_total=total, **values)
+
+
+def reparto(engine: Engine, campana_id: int, item_id: int, porcentaje: Optional[str] = None, monto=None) -> None:
+    """A product's share of a `monto_total` campaign: a % of the total or a fixed amount (T26)."""
+    execute(
+        engine,
+        "INSERT INTO sell_out_campana_items (campana_id, item_id, reparto_porcentaje, reparto_monto) "
+        "VALUES (:c, :i, :p, :m)",
+        c=campana_id,
+        i=item_id,
+        p=porcentaje,
+        m=monto,
+    )
