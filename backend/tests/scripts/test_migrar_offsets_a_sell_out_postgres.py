@@ -1054,25 +1054,29 @@ def test_a_refused_group_campaign_leaves_no_new_group_behind(engine, correr, mon
 
 @pytest.fixture()
 def sin_fk_de_producto(engine: Engine) -> Iterator[None]:
-    """`offsets_ganancia` without its product FK, as a legacy table may be: an offset can name a deleted product."""
+    """`offsets_ganancia` without its product FK, as a legacy table may be: an offset can name a deleted product.
+    Teardown removes only the offsets naming a missing product and restores each FK with its own name and definition."""
     with engine.begin() as conn:
         fks = conn.execute(
             text(
-                "SELECT conname FROM pg_constraint WHERE conrelid = 'offsets_ganancia'::regclass AND contype = 'f' "
+                "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid = 'offsets_ganancia'::regclass AND contype = 'f' "
                 "AND confrelid = 'productos_erp'::regclass"
             )
-        ).scalars()
-        for fk in list(fks):
-            conn.execute(text(f'ALTER TABLE offsets_ganancia DROP CONSTRAINT "{fk}"'))
+        ).all()
+        for nombre, _ in fks:
+            conn.execute(text(f'ALTER TABLE offsets_ganancia DROP CONSTRAINT "{nombre}"'))
+    assert fks, "offsets_ganancia should reference productos_erp"
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM offsets_ganancia"))
         conn.execute(
             text(
-                "ALTER TABLE offsets_ganancia ADD CONSTRAINT offsets_ganancia_item_id_fkey "
-                "FOREIGN KEY (item_id) REFERENCES productos_erp (item_id)"
+                "DELETE FROM offsets_ganancia o WHERE o.item_id IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM productos_erp p WHERE p.item_id = o.item_id)"
             )
         )
+        for nombre, definicion in fks:
+            conn.execute(text(f'ALTER TABLE offsets_ganancia ADD CONSTRAINT "{nombre}" {definicion}'))
 
 
 @pytest.mark.parametrize("args", [(), ("--apply",)], ids=["dry_run", "apply"])
@@ -1115,6 +1119,27 @@ def test_a_group_without_filters_reaches_the_products_of_its_offsets(engine, cor
     assert filas[ids[0]]["avisos"] == FUERA_DE_FILTROS.format(g=grupo_id, items="2964, 2270, 950")
     assert {filas[i]["resultado"] for i in ids} == {"migrado"}
     assert (summary["migrados"], summary["pendientes"]) == (3, 0)
+
+
+def test_the_dry_run_of_a_group_without_filters_matches_apply(engine, correr) -> None:
+    # Review: a product reached only through the new group must pass the service's reach rule, as the dry run assumes.
+    grupo_id = w.grupo(engine, [])
+    ids = [
+        _offset(engine, grupo_id=grupo_id, item_id=2964, monto=20, max_monto_usd=2000),
+        _offset(engine, grupo_id=grupo_id, item_id=950, monto=20),
+    ]
+
+    code, _, filas = correr()
+    code_apply, _, filas_apply = correr("--apply")
+
+    assert (code, code_apply) == (0, 0)
+    assert {i: filas[i]["resultado"] for i in ids} == dict.fromkeys(ids, "migraría (dry-run)")
+    assert {i: filas_apply[i]["resultado"] for i in ids} == dict.fromkeys(ids, "migrado")
+    assert (
+        filas[ids[0]]["avisos"]
+        == filas_apply[ids[0]]["avisos"]
+        == FUERA_DE_FILTROS.format(g=grupo_id, items="2964, 950")
+    )
 
 
 def test_the_dry_run_plans_a_group_product_outside_its_filters_as_apply_does(engine, correr) -> None:

@@ -531,7 +531,9 @@ def _fuera_de_filtros(db: Session, grupo_id: int, items) -> list[int]:
 
 
 def _inexistentes(db: Session, item_ids: list[int]) -> list[int]:
-    """The products a legacy offset names that no longer exist (a legacy table may lack the product FK)."""
+    """The products a legacy offset names that no longer exist (a legacy table may lack the product FK). An existing
+    product is always reached by a row holding only its `item_id` (`alcance.filtro_alcanza` is a plain match), so with
+    this check the dry run plans exactly the products' group `--apply` stores."""
     if not item_ids:
         return []
     existen = {i for (i,) in db.query(ProductoERP.item_id).filter(ProductoERP.item_id.in_(item_ids))}
