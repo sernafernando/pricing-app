@@ -39,7 +39,7 @@ STUBS = [
     "INSERT INTO usuarios VALUES (7), (8)",
     "INSERT INTO proveedores VALUES (31, 'TP-Link Argentina'), (32, 'Otro proveedor')",
 ]
-_SELL_IN = [t for t in w.TABLES if t.name not in ("productos_erp", "sell_in_bonos_marca")]
+_SELL_IN = [t for t in w.TABLES if t.name not in ("productos_erp", "sell_in_bonos_marca", "sell_in_bono_consumos")]
 TABLES = [
     w.ProductoERP.__table__,
     SellInBonoMarca.__table__,

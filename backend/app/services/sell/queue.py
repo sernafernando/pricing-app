@@ -176,9 +176,13 @@ FOR UPDATE SKIP LOCKED
 # Served by the unique index (canal, venta_ref, compra_item_id).
 _FILED_UNDER_SQL = text(
     """
-SELECT DISTINCT c.canal, c.venta_ref, c.item_id
+SELECT c.canal, c.venta_ref, c.item_id
 FROM unnest(CAST(:canales AS text[]), CAST(:refs AS bigint[])) AS l(canal, ref)
 JOIN sell_in_consumos AS c ON c.canal = l.canal AND c.venta_ref = l.ref
+UNION
+SELECT c.canal, c.venta_ref, c.item_id
+FROM unnest(CAST(:canales AS text[]), CAST(:refs AS bigint[])) AS l(canal, ref)
+JOIN sell_in_bono_consumos AS c ON c.canal = l.canal AND c.venta_ref = l.ref
 """
 )
 
@@ -257,7 +261,10 @@ def charge(db: Session, line: Line, error: str, enqueued_at: datetime) -> Option
 
 
 def products_of(db: Session, claimed: Sequence[Tuple[str, int, Optional[int]]]) -> Dict[Line, Set[int]]:
-    """Every product each claimed line touches: its queued product plus the ones its consumptions are filed under."""
+    """Every product each claimed line touches: its queued product plus the ones its consumptions are filed under,
+    from purchases (`sell_in_consumos`) or from % of cost bonuses (`sell_in_bono_consumos`, T25b: a sale moved to
+    another product is queued under the new one only, and a cost bonus usually has no purchase row to find the old
+    one by)."""
     products: Dict[Line, Set[int]] = {
         (canal, ref): ({item} if item is not None else set()) for canal, ref, item in claimed
     }

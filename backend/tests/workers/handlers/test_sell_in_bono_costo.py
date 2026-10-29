@@ -145,6 +145,22 @@ class TestSellDrain:
         assert _sell_dirty(engine) == []  # acked
         assert [(c[0], c[2], c[4]) for c in w.consumos(engine)] == [(linea, ref, 1)]  # the FIFO committed
 
+    def test_a_sale_moved_to_another_product_moves_its_cost_bonus_row(self, engine: Engine) -> None:
+        # GGA: the line is queued under its NEW product only; with no FIFO row, its OLD product was found nowhere and
+        # the old row blocked the new one (unique per bonus and sale).
+        b.bono_costo(engine, "3.00")
+        _drain_bonos()
+        ref = _fuera(engine, 2964, 1, D(2026, 10, 5))
+        _drain_ventas()
+        assert [r[1] for r in b.bono_consumos(engine)] == ["fuera"]
+        assert [r[3] for r in b.bono_consumos(engine)] == [2964]
+
+        w.update_venta(engine, "fuera", ref, item_id=2270)
+        detail = _drain_ventas()
+
+        assert (detail["failed"], "bonos_costo_fallidos" in detail) == (0, False)
+        assert [(r[2], r[3]) for r in b.bono_consumos(engine)] == [(ref, 2270)]
+
     def test_a_drain_without_cost_bonus_failures_keeps_its_detail(self, engine: Engine) -> None:
         b.bono_costo(engine, "3.00")
         _drain_bonos()
