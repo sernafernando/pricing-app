@@ -15,6 +15,8 @@ existing cost and markup fields are never touched.
   model's own one, when set) of the product's current cost in ARS (`costo`),
   divided by (1 + the product's VAT rate) when loaded with VAT
   (`bonos_costo.pct_neto`, the allocator's rule); they stack up to the cost,
+  with the allocator's precedence (T27b: a bonus does not stack with an
+  earlier one that gave something when either is not `acumulable`),
   and a money cap with less left than the unit amount gives what is left. A
   cost without an ARS value, or a VAT-loaded bonus on a product without a VAT
   rate (the allocator refuses it too), leaves no sell in, never a guess.
@@ -160,6 +162,8 @@ class SellInOutBatch:
         """The cost bonuses' sell in of the next unit (module docstring), None when none gives anything."""
         total, tomados = Decimal(0), []
         for x in self.bonos_costo.get(item_id, []):
+            if any(not (p.acumulable and x.bono.acumulable) for p in tomados):
+                continue  # an earlier bonus it does not stack with holds the unit (`bonos_costo`, T27b)
             try:
                 pct = bonos_costo.pct_neto(x.bono, x.porcentaje, item_id, iva, self.hoy)
             except ValueError:
@@ -170,12 +174,11 @@ class SellInOutBatch:
             if unitario <= 0:
                 continue
             total += cents(unitario) if x.monto_libre is None else min(cents(unitario), x.monto_libre)
-            tomados.append(x.bono.id)
+            tomados.append(x.bono)
         if not tomados:
             return None
-        return SellInProducto(
-            bono_id=tomados[0], bono_ids=tomados, descuento_unit=float(total), costo=float(costo - total)
-        )
+        ids = [b.id for b in tomados]
+        return SellInProducto(bono_id=ids[0], bono_ids=ids, descuento_unit=float(total), costo=float(costo - total))
 
     def _sell_out(
         self, item_id: int, campanas: List[_Campana], iva: Optional[Decimal], base: dict
