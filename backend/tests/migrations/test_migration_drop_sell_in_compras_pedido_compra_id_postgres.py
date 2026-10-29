@@ -28,8 +28,18 @@ _STUBS = [
         pedido_compra_id BIGINT REFERENCES pedidos_compra(id) ON DELETE SET NULL,
         descripcion TEXT
     )""",
-    "INSERT INTO sell_in_compras (id, pedido_compra_id, descripcion) VALUES (1, 15, 'vieja'), (2, NULL, 'nueva')",
+    "INSERT INTO sell_in_compras (id, pedido_compra_id, descripcion) VALUES "
+    "(1, 15, 'vieja'), (2, NULL, 'nueva'), (3, 16, 'ya linkeada')",
+    """CREATE TABLE sell_in_compra_pedidos (
+        id BIGSERIAL PRIMARY KEY,
+        compra_id BIGINT NOT NULL REFERENCES sell_in_compras(id) ON DELETE CASCADE,
+        pedido_compra_id BIGINT NOT NULL REFERENCES pedidos_compra(id),
+        UNIQUE (compra_id, pedido_compra_id)
+    )""",
+    # Purchase 1's operation is only in the legacy column; purchase 3 already has its link.
+    "INSERT INTO sell_in_compra_pedidos (compra_id, pedido_compra_id) VALUES (3, 16)",
 ]
+_LINKS = "SELECT compra_id, pedido_compra_id FROM sell_in_compra_pedidos ORDER BY compra_id, pedido_compra_id"
 _COLUMN = (
     "SELECT data_type, is_nullable FROM information_schema.columns "
     "WHERE table_schema = current_schema() AND table_name = 'sell_in_compras' AND column_name = 'pedido_compra_id'"
@@ -92,7 +102,17 @@ def test_upgrade_drops_the_column_keeps_the_rows_and_is_idempotent(before) -> No
         assert conn.execute(text("SELECT id, descripcion FROM sell_in_compras ORDER BY id")).all() == [
             (1, "vieja"),
             (2, "nueva"),
+            (3, "ya linkeada"),
         ]
+
+
+@pytest.mark.postgres
+def test_upgrade_first_links_an_operation_found_only_in_the_column_without_duplicating(before) -> None:
+    _step(before, "upgrade")
+    _step(before, "upgrade")
+
+    with before.connect() as conn:
+        assert conn.execute(text(_LINKS)).all() == [(1, 15), (3, 16)]
 
 
 @pytest.mark.postgres
@@ -108,6 +128,7 @@ def test_downgrade_puts_the_column_back_empty_with_its_foreign_key_and_is_idempo
         assert conn.execute(text("SELECT id, pedido_compra_id FROM sell_in_compras ORDER BY id")).all() == [
             (1, None),
             (2, None),
+            (3, None),
         ]
 
 

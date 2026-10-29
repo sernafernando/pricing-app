@@ -130,7 +130,6 @@ def test_create_links_every_operation_once_and_shows_the_first(
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert _links(db, data["id"]) == sorted([p1.id, p2.id])
-    assert db.get(SellInCompra, data["id"]).pedido_compra_id is None
     assert data["pedido_compra_id"] == p1.id
     assert data["pedido_compra_ids"] == sorted([p1.id, p2.id])
     detalle = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
@@ -182,7 +181,6 @@ def test_legacy_id_inside_the_list_is_accepted_and_is_the_first_operation(
     assert resp.json()["pedido_compra_id"] == p2.id
     assert client.get(f"{BASE}/{resp.json()['id']}", headers=gestor).json()["pedido_compra_id"] == p2.id
     assert _links(db, resp.json()["id"]) == sorted([p1.id, p2.id])
-    assert db.get(SellInCompra, resp.json()["id"]).pedido_compra_id is None
 
 
 def test_one_operation_may_feed_several_sell_ins(client, gestor, productos, proveedores, nuevo_pedido, db):
@@ -227,19 +225,6 @@ def test_create_accepts_the_operations_own_supplier(client, gestor, productos, p
 
     assert resp.status_code == 201, resp.text
     assert resp.json()["proveedor_id"] == proveedores[0].id
-
-
-def test_an_operation_only_in_the_legacy_column_is_not_read(client, gestor, productos, proveedores, nuevo_pedido, db):
-    """The link table is the only source (T3b-4): the column that revision `20261102_sell_in_compra_pedidos`
-    backfilled into it is no longer read, and the release that drops it first recreates any link it lacks."""
-    p1 = nuevo_pedido(proveedores[0])
-    data = client.post(BASE, json=_body(pedido_compra_ids=[p1.id]), headers=gestor).json()
-    db.query(SellInCompraPedido).filter(SellInCompraPedido.compra_id == data["id"]).delete()
-    db.get(SellInCompra, data["id"]).pedido_compra_id = p1.id
-    db.flush()
-
-    detalle = client.get(f"{BASE}/{data['id']}", headers=gestor).json()
-    assert (detalle["pedido_compra_id"], detalle["pedido_compra_ids"]) == (None, [])
 
 
 def test_too_many_operations_is_refused_by_the_schema(client, gestor, productos, db):

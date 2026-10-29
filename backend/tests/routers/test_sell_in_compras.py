@@ -676,17 +676,14 @@ def test_list_free_text_matches_the_purchase_order_number(client, gestor, produc
 
 
 def test_list_free_text_finds_the_purchase_order_through_the_link_only(client, gestor, productos, pedido, db):
-    """The number is matched over the link rows; the legacy column is no longer read (T3b-4)."""
+    """The number is matched over the link rows (T3b-4); the legacy column was dropped (20261217)."""
     solo_link = _crear(client, gestor, descripcion=None)
     db.add(SellInCompraPedido(compra_id=solo_link["id"], pedido_compra_id=pedido.id))
-    solo_columna = _crear(client, gestor, descripcion=None)
-    db.get(SellInCompra, solo_columna["id"]).pedido_compra_id = pedido.id
+    _crear(client, gestor, descripcion=None)
     db.flush()
 
     resp = client.get(BASE, params={"q": "p-si-0000"}, headers=gestor)
     assert _ids(resp) == [solo_link["id"]]
-    detalle = client.get(f"{BASE}/{solo_columna['id']}", headers=gestor).json()
-    assert (detalle["pedido_compra_id"], detalle["pedido_compra_ids"]) == (None, [])
 
 
 @pytest.mark.parametrize(

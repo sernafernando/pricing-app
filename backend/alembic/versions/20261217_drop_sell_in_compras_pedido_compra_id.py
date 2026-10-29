@@ -8,6 +8,9 @@ T28. A purchase's Compras operations live in `sell_in_compra_pedidos` (20261102,
 since #1809 nothing reads or writes `sell_in_compras.pedido_compra_id`, and the owner authorized the drop once #1809
 was deployed. Dropping the column drops its foreign key to `pedidos_compra` with it.
 
+Before the drop, any operation still found only in the column gets its link (the promise #1809's tests made: "the
+release that drops it first recreates any link it lacks"); a link that already exists is left alone.
+
 The downgrade puts the column back as it was (BIGINT, nullable, `REFERENCES pedidos_compra(id) ON DELETE SET NULL`)
 but EMPTY: its values are lost. Nothing reads it any more; the operations are still in `sell_in_compra_pedidos`.
 
@@ -28,6 +31,22 @@ depends_on: Union[str, Sequence[str], None] = None
 
 LOCK_TIMEOUT = "5s"
 
+# Guarded so a re-run after the column is gone is a no-op (and so is a schema without the link table).
+BACKFILL_LINKS = """
+DO $$
+BEGIN
+    IF to_regclass('sell_in_compra_pedidos') IS NOT NULL AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'sell_in_compras' AND column_name = 'pedido_compra_id'
+    ) THEN
+        INSERT INTO sell_in_compra_pedidos (compra_id, pedido_compra_id)
+        SELECT id, pedido_compra_id FROM sell_in_compras
+        WHERE pedido_compra_id IS NOT NULL
+        ON CONFLICT (compra_id, pedido_compra_id) DO NOTHING;
+    END IF;
+END $$
+"""
+
 DROP_COLUMN = "ALTER TABLE sell_in_compras DROP COLUMN IF EXISTS pedido_compra_id"
 
 ADD_COLUMN = (
@@ -46,7 +65,7 @@ def _run(statements: List[str]) -> None:
 
 
 def upgrade() -> None:
-    _run([DROP_COLUMN])
+    _run([BACKFILL_LINKS, DROP_COLUMN])
 
 
 def downgrade() -> None:
