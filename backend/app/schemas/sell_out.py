@@ -19,9 +19,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
-Tipo = Literal["por_unidad", "porcentaje"]
+Tipo = Literal["por_unidad", "porcentaje", "monto_total"]
 BasePorcentaje = Literal["costo", "precio_neto"]
 Moneda = Literal["ARS", "USD"]
 TcModo = Literal["al_cobro", "fijo", "dia_venta"]
@@ -36,24 +36,50 @@ ITEMS_MAX = 500
 INT_MIN, INT_MAX = -(2**31), 2**31 - 1  # INTEGER
 
 # Each NUMERIC(precision, scale) column as (max_digits, decimal_places).
-MONTO = {"max_digits": 18, "decimal_places": 2}  # monto_unit, tope_monto: NUMERIC(18, 2)
+MONTO = {"max_digits": 18, "decimal_places": 2}  # monto_unit, tope_monto, monto_total, reparto_monto: NUMERIC(18, 2)
 PORCENTAJE = {"max_digits": 7, "decimal_places": 4}  # NUMERIC(7, 4)
 TIPO_CAMBIO = {"max_digits": 18, "decimal_places": 6}  # NUMERIC(18, 6)
 
 
 class SellOutCampanaItemIn(BaseModel):
     """A product's own amount per unit in a `por_unidad` campaign (T22b: legacy grouped offsets), in `moneda`,
-    loaded with VAT or not like `monto_unit`. It replaces `monto_unit` for that product only; the cap is shared."""
+    loaded with VAT or not like `monto_unit`. It replaces `monto_unit` for that product only; the cap is shared.
+
+    In a `monto_total` campaign (T26c) it is the product's share of the total instead: `reparto_porcentaje` (a % of
+    the total) or `reparto_monto` (a fixed amount in `moneda`, with the total's sign), exactly one, no `monto_unit`."""
 
     item_id: int = Field(ge=INT_MIN, le=INT_MAX)
-    monto_unit: Decimal = Field(**MONTO)
+    monto_unit: Optional[Decimal] = Field(default=None, **MONTO)
+    reparto_porcentaje: Optional[Decimal] = Field(default=None, **PORCENTAJE)
+    reparto_monto: Optional[Decimal] = Field(default=None, **MONTO)
+
+
+# Keys only a `monto_total` campaign returns: the other types' responses keep their shape, byte for byte.
+_SOLO_MONTO_TOTAL = ("reparto_porcentaje", "reparto_monto")
 
 
 class SellOutCampanaItemOut(BaseModel):
     item_id: int
-    monto_unit: Decimal
+    monto_unit: Optional[Decimal]  # None for a share of a `monto_total` campaign
     codigo: Optional[str] = None  # the product, for the screen; None if it left the ERP catalog
     descripcion: Optional[str] = None
+    reparto_porcentaje: Optional[Decimal] = None  # `monto_total` only, like `reparto_monto`
+    reparto_monto: Optional[Decimal] = None
+
+    @model_serializer(mode="wrap")
+    def _sin_reparto(self, handler: SerializerFunctionWrapHandler) -> dict:
+        salida = handler(self)
+        if self.monto_unit is not None:  # a per-unit amount, not a share
+            for clave in _SOLO_MONTO_TOTAL:
+                salida.pop(clave, None)
+        return salida
+
+
+class SellOutRepartoIn(BaseModel):
+    """`PUT /{id}/reparto`: the shares of a `monto_total` campaign (see `SellOutCampanaItemIn`). An admin or a
+    `sell_out.gestionar` user replaces them all; a PM only those of their brands, the rest are kept."""
+
+    repartos: list[SellOutCampanaItemIn] = Field(max_length=ITEMS_MAX)
 
 
 class SellOutCampanaIn(BaseModel):
@@ -65,6 +91,8 @@ class SellOutCampanaIn(BaseModel):
     fecha_hasta: date  # inclusive
     tipo: Tipo
     monto_unit: Optional[Decimal] = Field(default=None, **MONTO)  # per unit, in `moneda`; only for `por_unidad`
+    # The campaign's one amount, in `moneda`, never 0 (negative: a deduction); only for `monto_total`
+    monto_total: Optional[Decimal] = Field(default=None, **MONTO)
     porcentaje: Optional[Decimal] = Field(default=None, **PORCENTAJE)  # only for `porcentaje`
     base_porcentaje: BasePorcentaje = "costo"
     moneda: Moneda = "USD"
@@ -79,7 +107,8 @@ class SellOutCampanaIn(BaseModel):
     # Whether `monto_unit` includes VAT: each sale then gets it net of its product's own VAT.
     monto_incluye_iva: bool = False
     grupo_ids: list[int] = Field(default_factory=list, max_length=GRUPOS_MAX)
-    # Products of the groups with their own amount (`por_unidad` only); the rest get `monto_unit`. Absent (None)
+    # Products of the groups with their own amount (`por_unidad`; the rest get `monto_unit`) or their share
+    # (`monto_total`, see `SellOutCampanaItemIn`). Absent (None)
     # keeps the stored ones, so a client that does not send them never wipes them; `[]` clears them.
     items: Optional[list[SellOutCampanaItemIn]] = Field(default=None, max_length=ITEMS_MAX)
 
@@ -114,6 +143,16 @@ class SellOutRecalculoOut(BaseModel):
     encolada_en: Optional[datetime]
 
 
+class SellOutRepartoResumenOut(BaseModel):
+    """A `monto_total` campaign's split (`reparto.resumen_monto_total`), in the campaign currency: what its shares
+    assign (`asignado`), the shares of products without sales in the dates (`asignado_sin_ventas`) and the total
+    nobody was given (`sin_asignar`). None amounts: the stored shares cannot be split as they stand."""
+
+    asignado: Optional[Decimal]
+    asignado_sin_ventas: Optional[Decimal]
+    sin_asignar: Optional[Decimal]
+
+
 class SellOutResumenOut(BaseModel):
     """What the campaign credited so far (`app.services.sell_out.resumen`)."""
 
@@ -127,6 +166,14 @@ class SellOutResumenOut(BaseModel):
     por_canal: list[SellOutCanalOut]
     pendientes_base: int  # percentage sales skipped while their base is unknown
     recalculo: SellOutRecalculoOut
+    reparto: Optional[SellOutRepartoResumenOut] = None  # `monto_total` only (absent on the other types)
+
+    @model_serializer(mode="wrap")
+    def _sin_reparto(self, handler: SerializerFunctionWrapHandler) -> dict:
+        salida = handler(self)
+        if self.reparto is None:
+            salida.pop("reparto", None)
+        return salida
 
 
 class SellOutCampanaOut(BaseModel):
@@ -140,6 +187,7 @@ class SellOutCampanaOut(BaseModel):
     tipo: Tipo
     monto_unit: Optional[Decimal]
     porcentaje: Optional[Decimal]
+    monto_total: Optional[Decimal] = None  # `monto_total` only (absent on the other types)
     base_porcentaje: BasePorcentaje
     moneda: Moneda
     tc_modo: Optional[TcModo]
@@ -155,8 +203,15 @@ class SellOutCampanaOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     grupos: list[SellOutGrupoOut]
-    items: list[SellOutCampanaItemOut] = []  # the products with their own amount, by item_id
+    items: list[SellOutCampanaItemOut] = []  # the products with their own amount or share, by item_id
     resumen: SellOutResumenOut
+
+    @model_serializer(mode="wrap")
+    def _sin_monto_total(self, handler: SerializerFunctionWrapHandler) -> dict:
+        salida = handler(self)
+        if self.tipo != "monto_total":
+            salida.pop("monto_total", None)
+        return salida
 
 
 class SellOutCampanaListOut(BaseModel):

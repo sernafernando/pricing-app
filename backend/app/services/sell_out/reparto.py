@@ -50,6 +50,22 @@ class MontoTotal:
     ivas: Mapping[int, Optional[Decimal]] = field(default_factory=dict)  # item_id -> its VAT rate, in percent
 
 
+class RepartoInvalido(ValueError):
+    """`validar`'s refusal, with what broke for a message to the operator: the product whose share does not have
+    the total's sign (`item_id`), or the shares' sum over the total (`suma`, `total`, both rounded to cents)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        item_id: Optional[int] = None,
+        suma: Optional[Decimal] = None,
+        total: Optional[Decimal] = None,
+    ) -> None:
+        super().__init__(message)
+        self.item_id, self.suma, self.total = item_id, suma, total
+
+
 def _exacta(c: MontoTotal, item_id: int) -> Decimal:
     porcentaje, monto = c.repartos[item_id]
     if porcentaje is None and monto is None:
@@ -62,16 +78,18 @@ def _cargada(c: MontoTotal, item_id: int) -> Decimal:
 
 
 def validar(c: MontoTotal) -> None:
-    """Raises `ValueError` when the shares cannot be split as they stand (module docstring)."""
+    """Raises `RepartoInvalido` (a `ValueError`) when the shares cannot be split as they stand (module docstring)."""
     total = Decimal(c.monto_total)
     suma = Decimal(0)
     for item_id in c.repartos:
         exacta = _exacta(c, item_id)
         if (exacta < 0) != (total < 0):
-            raise ValueError(f"product {item_id}'s share {exacta} does not have the total's sign")
+            raise RepartoInvalido(f"product {item_id}'s share {exacta} does not have the total's sign", item_id=item_id)
         suma += exacta
     if abs(suma) > abs(total):
-        raise ValueError(f"the shares ({cents(suma)}) exceed the total ({cents(total)})")
+        raise RepartoInvalido(
+            f"the shares ({cents(suma)}) exceed the total ({cents(total)})", suma=cents(suma), total=cents(total)
+        )
 
 
 def cuota(c: MontoTotal, item_id: int) -> Decimal:

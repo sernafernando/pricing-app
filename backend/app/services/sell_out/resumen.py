@@ -15,7 +15,12 @@ Read only. Everything comes from what the allocator already wrote or holds:
 - `recalculo`, the rebuild state: `recalculando` while the allocator holds the
   campaign's advisory lock, `fallida` when the queue row carries an error
   (`detenida` once it is parked after `queue.MAX_ATTEMPTS`, until something
-  queues it again), `en_cola` while queued, else `al_dia`.
+  queues it again), `en_cola` while queued, else `al_dia`;
+- `reparto`, a `monto_total` campaign's split only (T26c): what its shares
+  assign, the shares of products with no written row (no sale in the dates:
+  "Asignado sin ventas") and the total nobody was given ("Sin asignar"), by
+  the allocator's own rule (`reparto.resumen_monto_total`); None amounts when
+  the stored shares cannot be split as they stand.
 
 The query count is fixed for a whole page, whatever the number of campaigns.
 """
@@ -31,7 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutConsumo, SellOutDirty
-from app.services.sell_out import alcance, asignacion, campanas as campanas_service, queue
+from app.services.sell_out import alcance, asignacion, campanas as campanas_service, queue, reparto
 from app.services.sell_out.tope import cents
 
 CANALES = ("ml", "fuera", "tn")
@@ -139,6 +144,32 @@ def _recalculo(fila: Optional[SellOutDirty], en_curso: bool) -> dict:
     }
 
 
+def _repartos(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
+    """`{campana_id: reparto summary}` of the `monto_total` campaigns, in at most three queries for the page."""
+    total = [c for c in campanas if c.tipo == "monto_total"]
+    if not total:
+        return {}
+    ids = [c.id for c in total]
+    repartos = asignacion.repartos_item(db, total)
+    con_iva = [c.id for c in total if c.monto_incluye_iva]
+    ivas = alcance.productos(db, con_iva) if con_iva else {}
+    con_ventas: Dict[int, set] = defaultdict(set)
+    rows = db.query(SellOutConsumo.campana_id, SellOutConsumo.item_id).filter(SellOutConsumo.campana_id.in_(ids))
+    for cid, item_id in rows.distinct():
+        con_ventas[cid].add(item_id)
+    salida = {}
+    for c in total:
+        mt = reparto.MontoTotal(Decimal(c.monto_total), repartos.get(c.id, {}), c.monto_incluye_iva, ivas.get(c.id, {}))
+        try:
+            r = reparto.resumen_monto_total(mt, con_ventas[c.id])
+        except ValueError:
+            salida[c.id] = {"asignado": None, "asignado_sin_ventas": None, "sin_asignar": None}
+            continue
+        asignado = cents(Decimal(c.monto_total)) - r["sin_asignar"]
+        salida[c.id] = {"asignado": asignado, **r}
+    return salida
+
+
 def resumenes(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
     """`{campana_id: summary}` for a page of campaigns (module docstring)."""
     por_id = {c.id: c for c in campanas}
@@ -148,6 +179,7 @@ def resumenes(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
     montos = _montos(db, por_id)
     pendientes = _pendientes_base(db, campanas)
     cola, en_curso = _recalculos(db, ids)
+    repartos = _repartos(db, campanas)
     salida = {}
     for cid, c in por_id.items():
         canales = montos.get(cid, {})
@@ -170,6 +202,8 @@ def resumenes(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
             "pendientes_base": pendientes.get(cid, 0),
             "recalculo": _recalculo(cola.get(cid), cid in en_curso),
         }
+        if cid in repartos:
+            salida[cid]["reparto"] = repartos[cid]
     return salida
 
 
