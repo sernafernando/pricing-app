@@ -89,7 +89,7 @@ from app.services.sell_in.split import unit_discount
 # First key of the two-key advisory lock; the second is the product's item_id.
 LOCK_NAMESPACE = 0x5E11
 
-_LOCK_SQL = text(
+LOCK_SQL = text(
     "SELECT pg_advisory_xact_lock(:ns, i) FROM (SELECT DISTINCT i FROM unnest(CAST(:ids AS integer[])) AS t(i) "
     "ORDER BY i) AS ordered"
 )
@@ -103,6 +103,8 @@ class RecomputeResult:
     deleted: int = 0
     # item_id -> error, for the products whose recompute failed (rolled back alone).
     failed: Dict[int, str] = field(default_factory=dict)
+    # Set by `sell.drain` (T25b): the % of cost bonuses that could not be recomputed after this FIFO run.
+    bonos_costo_fallidos: int = 0
 
 
 @runtime_checkable
@@ -190,7 +192,7 @@ class FifoPurchaseCosting:
         if not ids:
             return result
         if db.get_bind().dialect.name == "postgresql":
-            db.execute(_LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": ids})
+            db.execute(LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": ids})
 
         lotes = self._lotes(db, ids)
         ventas = self._ventas(db, lotes)

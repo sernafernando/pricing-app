@@ -9,7 +9,8 @@ Each batch is ONE short `get_background_db()` transaction:
    stored consumptions are filed under (a fuera / TN line moved to another
    product is queued under the NEW one only; its OLD product is found here);
 3. recompute those products through the active `SellInCosting` strategy
-   (per-product advisory lock, writes only the difference);
+   (per-product advisory lock, writes only the difference), then their % of
+   cost bonuses (`bonos_costo`, T25b), which take only the units the FIFO left;
 4. ack the lines whose products all succeeded; charge the rest
    (`attempts`/`last_error`). A charged line is not claimed again in this run,
    and is parked after `queue.MAX_ATTEMPTS` until a new change re-queues it.
@@ -50,6 +51,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_background_db
 from app.services.sell import queue
+from app.services.sell_in import bonos_costo
 from app.services.sell_in.costing import RecomputeResult, get_costing
 from app.services.sell_out import queue as sell_out_queue
 from app.workers.context import JobResult, WorkerContext
@@ -122,6 +124,8 @@ class SellDrainHandler:
             detail["inserted"] += result.inserted
             detail["deleted"] += result.deleted
             detail["failed"] += len(failed)
+            if result.bonos_costo_fallidos:  # only when some: the detail is otherwise as before T25b
+                detail["bonos_costo_fallidos"] = detail.get("bonos_costo_fallidos", 0) + result.bonos_costo_fallidos
             if failed:
                 logger.warning("sell.drain: %s line(s) failed: %s", len(failed), failed)
             if len(claimed) < queue.BATCH_SIZE:
@@ -139,15 +143,37 @@ def _recompute_and_settle(
     charged lines that park. Does not commit, so it does not log the parks:
     the caller does, once its transaction committed."""
     products = queue.products_of(db, claimed)
-    result = get_costing().recompute(db, set().union(*products.values()))
+    items = set().union(*products.values())
+    result = get_costing().recompute(db, items)
+    # T25b: the % of cost bonuses take the units the FIFO just left, under the same product locks. A product whose
+    # FIFO failed keeps its rows (its line is charged anyway). A cost bonus that cannot be computed (a missing VAT
+    # rate) is logged at ERROR and counted, never charged to the lines: their FIFO succeeded and they are acked.
+    result.bonos_costo_fallidos = _recompute_cost_bonuses(db, items - result.failed.keys())
     _fan_out_sell_out(db, list(products))
     failed: Dict[queue.Line, str] = {
-        line: "; ".join(f"item {item}: {result.failed[item]}" for item in sorted(items & result.failed.keys()))
-        for line, items in products.items()
-        if items & result.failed.keys()
+        line: "; ".join(f"item {item}: {result.failed[item]}" for item in sorted(suyos & result.failed.keys()))
+        for line, suyos in products.items()
+        if suyos & result.failed.keys()
     }
     parked = queue.settle(db, [line for line in products if line not in failed], failed)
     return result, failed, parked
+
+
+def _recompute_cost_bonuses(db: Session, items: Set[int]) -> int:
+    """T25b: the % of cost bonuses of `items`, in a savepoint so they never cost the FIFO's batch. A bonus that
+    cannot be computed (a missing VAT rate) is logged and counted by `bonos_costo`; any other non-transient error
+    rolls back only the savepoint, is logged and counts as one failure, and the lines are still acked. A transient
+    error raises: the whole batch rolls back uncharged and the next wake retries. Returns the failures."""
+    try:
+        with db.begin_nested():
+            costo = bonos_costo.recalcular(db, items)
+    except Exception as exc:
+        if is_transient(exc):
+            raise
+        logger.exception("sell.drain: cost bonuses not recomputed for products %s", sorted(items))
+        return 1
+    bonos_costo.registrar_fallidos(costo, "sell.drain")
+    return len(costo.bonos_fallidos)
 
 
 def _fan_out_sell_out(db: Session, lines: List[queue.Line]) -> None:
@@ -232,6 +258,7 @@ def _line_by_line(
         total.products += result.products
         total.inserted += result.inserted
         total.deleted += result.deleted
+        total.bonos_costo_fallidos += result.bonos_costo_fallidos
     return total, failed, False, processed
 
 

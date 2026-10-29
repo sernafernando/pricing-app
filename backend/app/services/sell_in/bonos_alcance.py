@@ -1,7 +1,7 @@
 """What a bonus reaches, for its panel (sell-in-sell-out T3c-4; scopes in T3e-3; `sin_aplicar` in T18).
 
 "Of the brand" below means of the bonus's scope: its brand, its category, its
-models, or only its own operation for an invoice bonus (`_del_alcance`).
+models, or only its own operation for an invoice bonus (`del_alcance`).
 
 Four groups, each capped at `limite` rows with its full count:
 
@@ -83,7 +83,7 @@ def _pedidos_de_marca(db: Session, unidades_por_pedido) -> Query:
     )
 
 
-def _del_alcance(db: Session, bono: SellInBonoMarca, item_id, pedido_id):
+def del_alcance(db: Session, bono: SellInBonoMarca, item_id, pedido_id):
     """The rows (a product joined, its `item_id` and `pedido_id` columns) the bonus's scope reaches, like the
     reconcile (`bonos._alcanzadas`)."""
     if bono.alcance == "categoria":
@@ -218,7 +218,7 @@ def alcance(db: Session, bono: SellInBonoMarca, limite: int) -> dict:
             func.sum(PedidoCompraIngreso.cantidad_recibida).label("unidades"),
         )
         .join(ProductoERP, ProductoERP.item_id == PedidoCompraIngreso.item_id)
-        .filter(_del_alcance(db, bono, PedidoCompraIngreso.item_id, PedidoCompraIngreso.pedido_id))
+        .filter(del_alcance(db, bono, PedidoCompraIngreso.item_id, PedidoCompraIngreso.pedido_id))
         .group_by(PedidoCompraIngreso.pedido_id)
         .subquery()
     )
@@ -237,7 +237,7 @@ def alcance(db: Session, bono: SellInBonoMarca, limite: int) -> dict:
             func.sum(PedidoCompraLineaFacturada.cantidad).label("unidades"),
         )
         .join(ProductoERP, ProductoERP.item_id == PedidoCompraLineaFacturada.item_id)
-        .filter(_del_alcance(db, bono, PedidoCompraLineaFacturada.item_id, PedidoCompraLineaFacturada.pedido_id))
+        .filter(del_alcance(db, bono, PedidoCompraLineaFacturada.item_id, PedidoCompraLineaFacturada.pedido_id))
         .group_by(PedidoCompraLineaFacturada.pedido_id)
         .subquery()
     )

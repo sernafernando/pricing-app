@@ -27,7 +27,14 @@ from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
 from app.models.sell_dirty import SellDirty
-from app.models.sell_in import SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
+from app.models.sell_in import (
+    SellInBonoConsumo,
+    SellInBonoMarca,
+    SellInCompra,
+    SellInCompraItem,
+    SellInCompraPedido,
+    SellInConsumo,
+)
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell import queue
@@ -46,6 +53,7 @@ TABLES = [
     SellInCompraItem.__table__,
     SellInCompraPedido.__table__,
     SellInConsumo.__table__,
+    SellInBonoConsumo.__table__,  # read by the drain's old-product lookup (`queue.products_of`)
     Auditoria.__table__,
     VentaFueraMLMetrica.__table__,
     VentaTiendaNubeMetrica.__table__,

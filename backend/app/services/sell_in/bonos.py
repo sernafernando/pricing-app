@@ -104,6 +104,7 @@ from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem, SellInCompraPedido
 from app.models.tipo_cambio import TipoCambio
+from app.services.sell_in import bonos_costo
 from app.services.sell_in.compras import SellInError, audit, costo_en_moneda, moneda
 from app.services.sell_in.costing import get_costing
 from app.services.sell_in.split import CENT
@@ -114,7 +115,7 @@ LOCK_NAMESPACE = 0x5E12
 ESTADOS_EXCLUIDOS = frozenset({"cancelado", "rechazado"})
 ORIGEN = "bono_marca"
 
-_LOCK_SQL = text(
+LOCK_SQL = text(
     "SELECT pg_advisory_xact_lock(:ns, i) FROM (SELECT DISTINCT i FROM unnest(CAST(:ids AS integer[])) AS t(i) "
     "ORDER BY i) AS ordered"
 )
@@ -164,7 +165,7 @@ class _Deseada:
 def _bloquear(db: Session, bono_ids: Iterable[int]) -> None:
     ids = sorted({int(i) for i in bono_ids})
     if ids and db.get_bind().dialect.name == "postgresql":
-        db.execute(_LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": ids})
+        db.execute(LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": ids})
 
 
 def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
@@ -175,6 +176,8 @@ def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
         PedidoCompra.fecha_factura <= SellInBonoMarca.fecha_hasta,
         # An invoice bonus reaches its own operation only.
         or_(SellInBonoMarca.alcance != "factura", SellInBonoMarca.pedido_id == PedidoCompra.id),
+        # A % of the sale's cost bonus (T25) never generates a purchase (`bonos_costo`).
+        SellInBonoMarca.base == "factura",
     )
     if bono_ids:
         # Each given bonus (any state) with every operation invoiced in its range.
@@ -309,7 +312,7 @@ def _deseada(
     rate, or a % line whose invoiced net mixes currencies. `tasas_bna` holds the BNA rate per invoice date
     for the whole call; `modelos` the item ids of a models bonus, each with its own value of the bonus's kind
     (`monto_unit` or `porcentaje`; None: the bonus's), which replaces the bonus's for that item."""
-    if bono.estado != "activa" or pedido is None or pedido.estado in ESTADOS_EXCLUIDOS:
+    if bono.estado != "activa" or bono.base != "factura" or pedido is None or pedido.estado in ESTADOS_EXCLUIDOS:
         return None
     fecha = pedido.fecha_factura
     if fecha is None or not (bono.fecha_desde <= fecha <= bono.fecha_hasta):
@@ -561,6 +564,8 @@ def reconciliar(db: Session, *, bono_ids: Iterable[int] = (), pedido_ids: Iterab
     if tocados:
         # Same transaction, like loading or voiding a manual purchase: the consumptions follow at once.
         get_costing().recompute(db, tocados, isolate_failures=False)
+        # The % of cost bonuses (T25b) take only the units the FIFO leaves: they follow at once too.
+        bonos_costo.seguir_fifo(db, tocados)
     return result
 
 
