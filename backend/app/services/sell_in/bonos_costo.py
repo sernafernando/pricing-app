@@ -88,6 +88,8 @@ class CostoResult:
     pendientes: Dict[int, int] = field(default_factory=dict)
     # bono_id -> the error of a component it reaches
     bonos_fallidos: Dict[int, str] = field(default_factory=dict)
+    # bono_id -> the products of its failed component(s)
+    productos_fallidos: Dict[int, Set[int]] = field(default_factory=dict)
 
 
 def _activos(db: Session) -> Dict[int, SellInBonoMarca]:
@@ -306,6 +308,8 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
             fallidos |= componente
             result.failed.update({p: error for p in componente})
             result.bonos_fallidos.update({b.id: error for b in suyos})
+            for b in suyos:
+                result.productos_fallidos.setdefault(b.id, set()).update(componente)
 
     guardadas: Dict[Tuple[int, str, int], Tuple[int, _Fila]] = {}
     t = SellInBonoConsumo
@@ -362,5 +366,5 @@ def seguir_fifo(db: Session, item_ids: Iterable[int]) -> None:
 def registrar_fallidos(result: CostoResult, origen: str) -> None:
     """One ERROR per failed cost bonus (its products and why), so it reaches alerting without charging anything."""
     for bono_id, error in sorted(result.bonos_fallidos.items()):
-        productos = sorted(item for item, e in result.failed.items() if e == error)
+        productos = sorted(result.productos_fallidos.get(bono_id, ()))
         logger.error("%s: cost bonus (bono %s) not recomputed for products %s: %s", origen, bono_id, productos, error)

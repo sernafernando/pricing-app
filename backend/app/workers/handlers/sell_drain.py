@@ -151,9 +151,9 @@ def _recompute_and_settle(
     result.bonos_costo_fallidos = _recompute_cost_bonuses(db, items - result.failed.keys())
     _fan_out_sell_out(db, list(products))
     failed: Dict[queue.Line, str] = {
-        line: "; ".join(f"item {item}: {result.failed[item]}" for item in sorted(items & result.failed.keys()))
-        for line, items in products.items()
-        if items & result.failed.keys()
+        line: "; ".join(f"item {item}: {result.failed[item]}" for item in sorted(suyos & result.failed.keys()))
+        for line, suyos in products.items()
+        if suyos & result.failed.keys()
     }
     parked = queue.settle(db, [line for line in products if line not in failed], failed)
     return result, failed, parked
