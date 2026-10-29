@@ -57,11 +57,15 @@ read-only), so the script passes it to `crear_bono` as a keyword argument:
   channel goes to review) and the expired / open-ended warnings are the
   campaigns' (an expired one changes the historical cost with sell in in
   Métricas ML: `bonos_vencidos_migrados` and stderr);
-- an offset matching a sell-in % brand bonus loaded BY HAND (active, same
-  brand, overlapping dates, no `offset_origen_id`) is never migrated: it stays
-  in review as "ya cargado a mano como bono #N", warning when its percentage
-  differs. A bonus whose `offset_origen_id` is the offset's (any offset of a
-  group) means it was already migrated: "ya migrado a bono #N".
+- an offset (or group) matching a sell-in % bonus loaded BY HAND (active, no
+  `offset_origen_id`, overlapping dates, the same scope: the same brand or
+  category, or a 'modelos' bonus covering its product or any product of the
+  group's reach) is never migrated: it stays in review as "ya cargado a mano
+  como bono #N", warning when its percentage differs;
+- a NULL, zero or negative stored % stays in review ("Porcentaje negativo o
+  cero"; a group's: "el offset #N tiene porcentaje negativo o cero"). A bonus
+  whose `offset_origen_id` is the offset's (any offset of a group) means it was
+  already migrated: "ya migrado a bono #N".
 
 The CSV says "migrado a bono #N" ("se migraría a bono" in a dry run); the
 summary adds `bonos_creados` and `bono_ids`.
@@ -243,8 +247,21 @@ def _irrepresentable(
     return " | ".join(motivos) or None
 
 
-# brand (trimmed, lower case) -> its active % bonuses as (id, percentage, fecha_desde, fecha_hasta), by id
-_Bonos = dict[str, list[tuple[int, Decimal, date, date]]]
+@dataclass(frozen=True)
+class _BonoAMano:
+    """An active sell-in % bonus loaded BY HAND: its scope (`clave`: the brand or category, trimmed and lower case;
+    `modelos`: the products of a 'modelos' one), percentage and dates."""
+
+    id: int
+    alcance: str
+    clave: Optional[str]
+    modelos: frozenset[int]
+    porcentaje: Decimal
+    desde: date
+    hasta: date
+
+
+_Bonos = list[_BonoAMano]
 
 
 def _clave(marca: str) -> str:
@@ -252,42 +269,81 @@ def _clave(marca: str) -> str:
 
 
 def _bonos(db: Session) -> _Bonos:
-    """The active sell-in brand bonuses of `porcentaje` type loaded BY HAND (no `offset_origen_id`): the 4 brand %
-    offsets were loaded as these (2026-10-23), with no link back to the offset."""
-    b = SellInBonoMarca
-    rows = db.query(b.id, b.marca, b.porcentaje, b.fecha_desde, b.fecha_hasta).filter(
-        b.tipo == "porcentaje", b.alcance == "marca", b.estado == "activa", b.offset_origen_id.is_(None)
+    """The active sell-in % bonuses by brand, category or models loaded BY HAND (no `offset_origen_id`), by id: the 4
+    brand % offsets were loaded as these (2026-10-23), with no link back to the offset."""
+    b, t = SellInBonoMarca, SellInBonoItem
+    rows = (
+        db.query(b.id, b.alcance, b.marca, b.categoria, b.porcentaje, b.fecha_desde, b.fecha_hasta)
+        .filter(
+            b.tipo == "porcentaje",
+            b.alcance.in_(("marca", "categoria", "modelos")),
+            b.estado == "activa",
+            b.offset_origen_id.is_(None),
+        )
+        .order_by(b.id)
+        .all()
     )
-    salida: _Bonos = {}
-    for bono_id, marca, porcentaje, desde, hasta in rows.order_by(b.id):
-        salida.setdefault(_clave(marca), []).append((bono_id, Decimal(porcentaje), desde, hasta))
-    return salida
+    modelos: dict[int, set[int]] = {}
+    ids = [r.id for r in rows if r.alcance == "modelos"]
+    if ids:
+        for bono_id, item_id in db.query(t.bono_id, t.item_id).filter(t.bono_id.in_(ids)):
+            modelos.setdefault(bono_id, set()).add(item_id)
+    return [
+        _BonoAMano(
+            r.id,
+            r.alcance,
+            _clave(r.marca or r.categoria or "") if r.alcance != "modelos" else None,
+            frozenset(modelos.get(r.id, ())),
+            Decimal(r.porcentaje),
+            r.fecha_desde,
+            r.fecha_hasta,
+        )
+        for r in rows
+    ]
 
 
 def _pct(valor) -> str:
     return format(Decimal(str(valor)).normalize(), "f").replace(".", ",")
 
 
-def _a_mano(offset: OffsetGanancia, bonos: _Bonos) -> Optional[_Plan]:
-    """The review plan of an offset already loaded BY HAND as a bonus (it is never migrated: a new bonus would count
-    twice), or None. Only a brand-alone scope has one (a brand bonus), and only a bonus whose dates overlap the
-    offset's (both inclusive; an offset without end is open) can be the one loaded for it."""
-    solo_marca = offset.marca is not None and all(getattr(offset, c) is None for c, _ in _ALCANCE if c != "marca")
+def _a_mano(
+    bonos: _Bonos, alcance: str, clave: Optional[str], items: set[int], offsets: list[OffsetGanancia]
+) -> Optional[_Plan]:
+    """The review plan of offsets already loaded BY HAND as a bonus of the same scope (they are never migrated: a new
+    bonus would count twice), or None: the same brand or category, or a 'modelos' bonus covering any of `items`. Only
+    a bonus whose dates overlap the offsets' (both inclusive; an offset without end is open) can be the one loaded."""
+    desde = min(o.fecha_desde for o in offsets)
+    hasta = None if any(o.fecha_hasta is None for o in offsets) else max(o.fecha_hasta for o in offsets)
     iguales = [
-        (bono_id, porcentaje)
-        for bono_id, porcentaje, desde, hasta in (bonos.get(_clave(offset.marca), []) if solo_marca else [])
-        if desde <= (offset.fecha_hasta or desde) and offset.fecha_desde <= hasta
+        b
+        for b in bonos
+        if b.alcance == alcance
+        and (b.modelos & items if alcance == "modelos" else b.clave == clave)
+        and b.desde <= (hasta or b.desde)
+        and desde <= b.hasta
     ]
     if not iguales:
         return None
-    nombres = ", ".join(f"#{bono_id}" for bono_id, _ in iguales)
+    nombres = ", ".join(f"#{b.id}" for b in iguales)
     plan = _Plan(f"ya cargado a mano como bono{'s' if len(iguales) > 1 else ''} {nombres}")
-    propio = Decimal(str(offset.porcentaje)) if offset.porcentaje is not None else None
-    for bono_id, porcentaje in iguales:
-        if porcentaje != propio:
-            cual = f"el bono #{bono_id}" if len(iguales) > 1 else "el bono"
-            plan.avisos.append(f"{cual} tiene {_pct(porcentaje)} % y el offset {_pct(offset.porcentaje)} %")
+    propio = _monto(offsets[0].porcentaje)  # positive: checked before
+    for b in iguales:
+        if b.porcentaje != propio:
+            cual = f"el bono #{b.id}" if len(iguales) > 1 else "el bono"
+            plan.avisos.append(f"{cual} tiene {_pct(b.porcentaje)} % y el offset {_pct(propio)} %")
     return plan
+
+
+def _a_mano_suelto(offset: OffsetGanancia, bonos: _Bonos) -> Optional[_Plan]:
+    """`_a_mano` for a single offset of one scope field alone (a brand, a category or a product)."""
+    dados = tuple(col for col, _ in _ALCANCE if getattr(offset, col) is not None)
+    if dados == ("marca",):
+        return _a_mano(bonos, "marca", _clave(offset.marca), set(), [offset])
+    if dados == ("categoria",):
+        return _a_mano(bonos, "categoria", _clave(offset.categoria), set(), [offset])
+    if dados == ("item_id",):
+        return _a_mano(bonos, "modelos", None, {offset.item_id}, [offset])
+    return None
 
 
 # A single offset's scope as a bonus's: one field alone (a legacy offset reaches a product matching ANY of its fields).
@@ -346,7 +402,9 @@ def _planear(
     bonos: Optional[_Bonos] = None,
 ) -> _Plan:
     if offset.tipo_offset == "porcentaje_costo":
-        return _a_mano(offset, bonos or {}) or _planear_bono(offset, hoy, fecha_hasta_default, usuario_id)
+        if offset.porcentaje is None or offset.porcentaje <= 0:
+            return _Plan("Porcentaje negativo o cero")
+        return _a_mano_suelto(offset, bonos or []) or _planear_bono(offset, hoy, fecha_hasta_default, usuario_id)
     if offset.tipo_offset == "monto_fijo":
         return _Plan("Monto fijo: no tiene equivalente en una campaña por unidad")
     if offset.tipo_offset != "monto_por_unidad":
@@ -467,6 +525,7 @@ def _planear_grupo_bono(
     hoy: date,
     fecha_hasta_default: date,
     usuario_id: Optional[int],
+    bonos: _Bonos = (),
 ) -> _Plan:
     """A group of cost-percentage offsets as ONE 'modelos' cost bonus over the group's reach frozen now: its filters'
     products UNION its offsets' products (owner: "El grupo lo arma el operador..."). Each offset with a product gives
@@ -475,6 +534,11 @@ def _planear_grupo_bono(
     motivo = _grupo_irregular(g, offsets, "porcentaje")
     if motivo is not None:
         return _Plan(motivo)
+    propios = {o.item_id: o.porcentaje for o in offsets if o.item_id is not None}
+    modelos = sorted(_alcance_de_grupo(db, grupo_id) | set(propios))
+    a_mano = _a_mano(list(bonos), "modelos", None, set(modelos), offsets)
+    if a_mano is not None:
+        return a_mano
     if len({(o.fecha_desde, o.fecha_hasta) for o in offsets}) > 1:
         return _Plan(f"{g}: sus offsets tienen períodos distintos y un bono tiene uno solo; revisar a mano")
     usuario = next((o.usuario_id for o in offsets if o.usuario_id is not None), usuario_id)
@@ -484,8 +548,6 @@ def _planear_grupo_bono(
     motivo = _irrepresentable(offsets, tope_de, "ARS", BONO)
     if motivo is not None:
         return _Plan(f"{g}: {motivo}")
-    propios = {o.item_id: o.porcentaje for o in offsets if o.item_id is not None}
-    modelos = sorted(_alcance_de_grupo(db, grupo_id) | set(propios))
     if len(modelos) > MODELOS_MAX:
         return _Plan(
             f"{g}: alcanza {len(modelos)} productos y un bono por modelos admite hasta {MODELOS_MAX}; revisar a mano"
@@ -785,10 +847,12 @@ def _grupo_bono_migrado(db: Session, grupo_id: int, offsets: list[OffsetGanancia
     return salida
 
 
-def _grupo_bono(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool) -> list[_Resultado]:
+def _grupo_bono(
+    db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool, bonos: _Bonos
+) -> list[_Resultado]:
     """Every cost-percentage offset of one group (by id): one cost bonus, loaded in ONE transaction, or none."""
     grupo_id = offsets[0].grupo_id
-    plan = _planear_grupo_bono(db, grupo_id, offsets, hoy, default, usuario_id)
+    plan = _planear_grupo_bono(db, grupo_id, offsets, hoy, default, usuario_id, bonos)
     if plan.bono is None:
         error = plan.motivo if plan.error else None
         return [
@@ -818,7 +882,9 @@ def _grupo_bono(db: Session, offsets: list[OffsetGanancia], hoy, default, usuari
     ]
 
 
-def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool) -> list[_Resultado]:
+def _grupo(
+    db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool, bonos: _Bonos = ()
+) -> list[_Resultado]:
     """Every offset of one group (by id): one campaign, loaded in ONE transaction, or none of them migrates (a group
     of cost-percentage offsets: one cost bonus, `_grupo_bono`)."""
     grupo_id = offsets[0].grupo_id
@@ -826,7 +892,7 @@ def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id,
     if bono is not None:
         return _grupo_bono_migrado(db, grupo_id, offsets, bono)
     if all(o.tipo_offset == "porcentaje_costo" for o in offsets):
-        return _grupo_bono(db, offsets, hoy, default, usuario_id, apply)
+        return _grupo_bono(db, offsets, hoy, default, usuario_id, apply, list(bonos))
     ya = (
         db.query(SellOutCampana.id)
         .filter(SellOutCampana.offset_origen_id.in_([o.id for o in offsets]))
@@ -954,7 +1020,7 @@ def run_migracion(
                     )
                     miembros = [o.id for o in grupo]
                     hechos.update(miembros)
-                    resultados = _grupo(db, grupo, hoy, fecha_hasta_default, usuario_id, apply)
+                    resultados = _grupo(db, grupo, hoy, fecha_hasta_default, usuario_id, apply, bonos)
                 if apply:
                     # A failed campaign was already rolled back: what commits here is the review rows alone.
                     for r in resultados:
