@@ -79,7 +79,8 @@ function useBonos(enabled) {
 
 /**
  * The active brand bonuses for the summary cards (`GET /sell-in/bonos?estado=activa`):
- * how many, how many brands they cover and how many purchases they reached. Null until they answer.
+ * how many, how many brands they cover and how many purchases they reached. Null until they answer,
+ * `{ error: true }` when they could not be read.
  */
 function useBonosVigentes(enabled) {
   const [resumen, setResumen] = useState(null);
@@ -97,7 +98,7 @@ function useBonosVigentes(enabled) {
         compras: items.reduce((sum, bono) => sum + (bono.compras_activas ?? 0), 0),
       });
     } catch {
-      if (requestId === requestRef.current) setResumen(null);
+      if (requestId === requestRef.current) setResumen({ error: true });
     }
   }, [enabled]);
   useEffect(() => {
@@ -359,6 +360,7 @@ export default function SellIn() {
               onBonoCreado={(bono) => {
                 verBono(bono.id);
                 bonos.recargar();
+                bonosVigentes.recargar();
               }}
             />
           ) : panel?.tipo === 'bono' ? (
@@ -369,6 +371,7 @@ export default function SellIn() {
               puedeGestionar={puedeGestionar}
               onSaved={() => {
                 bonos.recargar();
+                bonosVigentes.recargar();
                 cargar();
               }}
               onVerCompra={verCompra}
@@ -391,7 +394,10 @@ export default function SellIn() {
               key={panel.id}
               compraId={panel.id}
               puedeGestionar={puedeGestionar}
-              onChanged={cargar}
+              onChanged={() => {
+                cargar();
+                bonosVigentes.recargar();
+              }}
               onVerBono={verBono}
               onClose={cerrarPanel}
             />

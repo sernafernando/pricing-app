@@ -175,6 +175,38 @@ describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
     expect(screen.queryByRole('region', { name: 'Bonos de marca' })).not.toBeInTheDocument();
   });
 
+  it('when the active bonuses cannot be read, their cards say so instead of disappearing', async () => {
+    sellInBonosAPI.listar.mockImplementation(async (params) => {
+      if (params?.estado === 'activa') throw new Error('boom');
+      return { data: BONOS_LISTA };
+    });
+    renderWithRouter(<SellIn />);
+    const cards = await screen.findByRole('region', { name: 'Resumen' });
+    const vigentes = (await within(cards).findByText('Bonos de marca vigentes')).parentElement;
+    expect(vigentes).toHaveTextContent('—');
+    expect(vigentes).toHaveTextContent('No se pudieron cargar');
+    expect(within(cards).getByText('Compras alcanzadas').parentElement).toHaveTextContent('—');
+  });
+
+  it('saving a brand bonus asks the active bonuses again, so its cards follow the list', async () => {
+    const user = userEvent.setup();
+    const vigentesPedidos = () => sellInBonosAPI.listar.mock.calls.filter(([params]) => params?.estado === 'activa').length;
+    sellInBonosAPI.crear.mockResolvedValue({ data: BONO });
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    await waitFor(() => expect(vigentesPedidos()).toBe(1));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'TP-Link' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /Nuevo sell in/ }));
+    const panel = screen.getByRole('complementary', { name: 'Nuevo sell in' });
+    await user.click(within(panel).getByRole('button', { name: 'Bono de marca' }));
+    await user.selectOptions(within(panel).getByLabelText('Marca'), 'TP-Link');
+    await user.type(within(panel).getByLabelText('Monto por unidad'), '3');
+    await user.type(within(panel).getByLabelText('Factura desde'), '2026-09-01');
+    await user.type(within(panel).getByLabelText('Factura hasta'), '2026-11-30');
+    await user.click(within(panel).getByRole('button', { name: 'Guardar bono' }));
+    await waitFor(() => expect(vigentesPedidos()).toBe(2));
+  });
+
   it('the summary adds the active brand bonuses, their brands and the purchases they reached', async () => {
     sellInBonosAPI.listar.mockImplementation(async (params) => bonosPorEstado(params));
     renderWithRouter(<SellIn />);

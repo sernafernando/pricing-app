@@ -5,7 +5,7 @@ import styles from './SellInResumen.module.css';
  * The summary cards, straight from `GET /sell-in/compras/resumen` (every
  * purchase matching the filters, not just this page). Amounts stay per
  * currency: USD is never converted into the ARS figure. `bonos` (optional,
- * `{ vigentes, marcas, compras }`) adds the active brand bonuses' cards.
+ * `{ vigentes, marcas, compras }`, or `{ error: true }`) adds the active brand bonuses' cards.
  */
 export default function SellInResumen({ resumen, bonos }) {
   if (!resumen) return null;
@@ -16,7 +16,12 @@ export default function SellInResumen({ resumen, bonos }) {
     { label: 'Unidades cubiertas', value: formatEntero(unidades), sub: 'Unidades de las compras' },
     { label: 'Sell in que aplican', value: formatEntero(conteo.si), sub: `de ${formatEntero(conteo.todas)} cargados` },
   ];
-  if (bonos) {
+  if (bonos?.error) {
+    cards.push(
+      { label: 'Bonos de marca vigentes', value: '—', sub: 'No se pudieron cargar' },
+      { label: 'Compras alcanzadas', value: '—', sub: 'No se pudieron cargar' },
+    );
+  } else if (bonos) {
     cards.push(
       {
         label: 'Bonos de marca vigentes',
