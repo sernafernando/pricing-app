@@ -64,7 +64,7 @@ Tercera vista junto a Advisor | Criterios. Lista por **EAN**; inclusiones por ML
 | **P4** | Estados en Advisor: badge + filtro **Pendiente de revisión** / **Sin novedades** (persistidos; sin Perdiendo/Ganando) | puede ir en paralelo tras P2 | Done |
 | **P5** | Motor de evaluación (reusa sugerencia/criterios): ¿hay optimización? → Pendiente; si no → Sin novedades | P2 + P4 | Done (R1–R4) |
 | **A1** | Advisor **Consultar filtrados**: encola un **lote** del alcance filtrado (refresh competencia → P5). Dueño = PM. Interim sync `evaluar-filtrados` existe; producto final = job async | P5 + cola de jobs | Contract locked; impl pending (after job core) |
-| **P6** | Trigger periódico + **worker compartido**: refresh competencia de inclusiones Periodicidad → P5. Misma tubería que A1 | P5 | Planned (job core first) |
+| **P6** | Trigger periódico + **worker compartido**: refresh competencia de inclusiones Periodicidad → P5. Misma tubería que A1 | P5 | In progress (job core + ML worker; periodic trigger next) |
 | **P7** | Vista flotante de cola “por revisar” (misma cola de estados; no otra lógica) | P4+P5 + jobs | Later |
 
 **Deprecado (confirmado):** herencia producto/PM; heurística campañas de marca.
@@ -82,8 +82,9 @@ Product decision: “Consultar filtrados” is **not** a synchronous “evaluate
 | **Shared bottleneck** | One **ML rate-limit / worker pool** (fairness / round-robin across jobs). Do **not** give each PM an unbounded parallel full-speed refresh. |
 | **Revision queue** | `para_ganar_revision_mla` stays **per MLA** (global). Job metadata may filter “lo que disparé yo”; P7 is another **view** of the same pendiente queue, not a second state machine. |
 | **Interim today** | `POST /para-ganar/evaluar-filtrados` + Advisor button = **P5-only, sync**, no refresh. Keep as internal motor until the job worker lands; then rewire the button to **enqueue**. |
+| **Job tables** | `para_ganar_consulta_job` + `para_ganar_consulta_job_item`. Enqueue via `enqueue_consulta` (service). Drain: ML handler `para_ganar.consulta` (`pg_notify('para_ganar_consulta')` + 30s interval), fairness by `last_progress_at`. Per item: refresh → `evaluar_mla`. |
 
-**Build order:** (1) this contract — done in this doc · (2) job model + worker (P6 core) · (3) rewire A1 button to enqueue · (4) P7 UI.
+**Build order:** (1) this contract — done · (2) job model + worker — done (core) · (3) rewire A1 button to enqueue · (4) P7 UI. Periodic P6 trigger still open.
 
 ---
 

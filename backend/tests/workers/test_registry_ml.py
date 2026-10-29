@@ -10,6 +10,7 @@ from app.workers.handlers import ml_ads, ml_billing, ml_publications
 from app.workers.handlers.combos_sync import sync as combos_sync
 from app.workers.handlers.ml_orders_quarantine import quarantine_retry
 from app.workers.handlers.order_metrics import divergence, drain, reconcile
+from app.workers.handlers.para_ganar_consulta import para_ganar_consulta
 from app.workers.handlers.promo_refresh import promo_write_refresh
 from app.workers.handlers.rrhh_horas_extras import horas_extras
 from app.workers.handlers.sell_drain import drain as sell_drain
@@ -64,6 +65,7 @@ class TestMlPublicationsRegistry:
             "promo_write.refresh",
             "ml_publications.freshness",
             "ml_billing.sweep",
+            "para_ganar.consulta",
         ]
         assert registry.ML_PUBLICATIONS_REGISTRY[0] is ml_publications.refresh
         assert registry.ML_PUBLICATIONS_REGISTRY[1] is ml_publications.intake
@@ -77,6 +79,7 @@ class TestMlPublicationsRegistry:
         assert registry.ML_PUBLICATIONS_REGISTRY[9] is promo_write_refresh
         assert registry.ML_PUBLICATIONS_REGISTRY[10] is ml_publications.freshness
         assert registry.ML_PUBLICATIONS_REGISTRY[11] is ml_billing.billing
+        assert registry.ML_PUBLICATIONS_REGISTRY[12] is para_ganar_consulta
 
     def test_intake_runs_every_fifteen_seconds_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[1]
@@ -127,5 +130,5 @@ class TestProcessIsolation:
             "['ml_publications.refresh', 'ml_publications.intake', 'ml_publications.relink', "
             "'ml_publications.scan', 'ml_publications.missed_feeds', 'ml_publications.sweep', "
             "'ml_publications.verify', 'ml_publications.promo_refresh', 'ml_ads.ingest', 'promo_write.refresh', "
-            "'ml_publications.freshness', 'ml_billing.sweep'] True"
+            "'ml_publications.freshness', 'ml_billing.sweep', 'para_ganar.consulta'] True"
         )

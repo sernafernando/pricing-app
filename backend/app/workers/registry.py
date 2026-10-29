@@ -101,6 +101,7 @@ def __getattr__(name: str) -> List[JobHandler]:
                 sweep,
                 verify,
             )
+            from app.workers.handlers.para_ganar_consulta import para_ganar_consulta
             from app.workers.handlers.promo_refresh import promo_write_refresh
 
             _ml_publications_registry = [
@@ -118,6 +119,8 @@ def __getattr__(name: str) -> List[JobHandler]:
                 # ml-sync-pipeline S5: the per-minute freshness check (no ML call).
                 freshness,
                 billing,
+                # PARA GANAR A1/P6: consultation jobs (catalog refresh → P5 evaluate).
+                para_ganar_consulta,
             ]
         return _ml_publications_registry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
