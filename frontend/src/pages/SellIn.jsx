@@ -26,7 +26,13 @@ const PANEL_LABELS = { crear: 'Nuevo sell in', detalle: 'Detalle del sell in', b
 const APLICA_LABELS = { si: 'Aplican', no: 'No aplican' };
 const EMPTY_FILTERS = { aplica: 'si', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', filtro: '' };
 const TIPO_LABELS = { compra: 'Por compra', bono: 'Bono de marca' };
-// The active bonuses the summary cards add up; more than this many active bonuses is not expected.
+// The two counts measure different lists: the bonus list takes none of the purchase filters.
+const TIPO_HINTS = {
+  compra: 'Los sell in por compra con los filtros de arriba',
+  bono: 'Todos los bonos de marca cargados: los filtros de arriba no los cuentan',
+};
+// The active bonuses the summary cards add up.
+// ponytail: brands and reached purchases count only the first 200 active bonuses; ask the backend for those totals if active bonuses ever pass 200
 const BONOS_VIGENTES_MAX = 200;
 const TAB_SELL_OUT = 'sell-out';
 
@@ -182,6 +188,22 @@ export default function SellIn() {
   const verBono = useCallback((id) => setPanel({ tipo: 'bono', id }), []);
   const verCompra = useCallback((id) => setPanel({ tipo: 'detalle', id }), []);
   const verCampana = useCallback((id) => setPanel({ tipo: 'campana', id }), []);
+  // Arrow keys move between the tabs (WAI-ARIA tabs pattern, automatic activation).
+  const tabsVisibles = puedeVerSellOut ? ['sell-in', TAB_SELL_OUT] : ['sell-in'];
+  const onTabsKeyDown = (event) => {
+    const actual = tabsVisibles.indexOf(tab);
+    const destino = {
+      ArrowRight: (actual + 1) % tabsVisibles.length,
+      ArrowLeft: (actual - 1 + tabsVisibles.length) % tabsVisibles.length,
+      Home: 0,
+      End: tabsVisibles.length - 1,
+    }[event.key];
+    if (destino === undefined) return;
+    event.preventDefault();
+    const next = tabsVisibles[destino];
+    cambiarTab(next);
+    document.getElementById(`${next}-tab`)?.focus();
+  };
   const cambiarTab = (next) => {
     if (next === tab) return;
     setPanel(null);
@@ -283,13 +305,14 @@ export default function SellIn() {
         </div>
       </header>
 
-      <div className={styles.tabs} role="tablist" aria-label="Sell in / Sell out">
+      <div className={styles.tabs} role="tablist" aria-label="Sell in / Sell out" onKeyDown={onTabsKeyDown}>
         <button
           type="button"
           role="tab"
           id="sell-in-tab"
           aria-selected={!enSellOut}
-          aria-controls="sell-in-panel"
+          aria-controls={!enSellOut ? 'sell-in-panel' : undefined}
+          tabIndex={!enSellOut ? 0 : -1}
           className={`${styles.tab} ${!enSellOut ? styles.tabActive : ''}`}
           onClick={() => cambiarTab('sell-in')}
         >
@@ -302,7 +325,8 @@ export default function SellIn() {
             role="tab"
             id="sell-out-tab"
             aria-selected={enSellOut}
-            aria-controls="sell-out-panel"
+            aria-controls={enSellOut ? 'sell-out-panel' : undefined}
+            tabIndex={enSellOut ? 0 : -1}
             className={`${styles.tab} ${enSellOut ? styles.tabActive : ''}`}
             onClick={() => cambiarTab(TAB_SELL_OUT)}
           >
@@ -452,6 +476,7 @@ export default function SellIn() {
                     allLabel="Todos"
                     options={['compra', 'bono']}
                     labels={TIPO_LABELS}
+                    hints={TIPO_HINTS}
                     counts={{ compra: totalCompras, bono: totalBonos }}
                     total={tipoTotal}
                     activeValue={tipo}

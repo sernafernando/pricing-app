@@ -116,6 +116,36 @@ describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
     expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('moves between tabs with the arrow keys, and only the selected tab is in the Tab order', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    const sellIn = screen.getByRole('tab', { name: /Sell in/ });
+    expect(sellIn).toHaveAttribute('tabindex', '0');
+    expect(sellIn).toHaveAttribute('aria-controls', 'sell-in-panel');
+    expect(screen.getByRole('tab', { name: /Sell out/ })).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('tab', { name: /Sell out/ })).not.toHaveAttribute('aria-controls');
+    sellIn.focus();
+    await user.keyboard('{ArrowRight}');
+    const sellOut = screen.getByRole('tab', { name: /Sell out/ });
+    expect(sellOut).toHaveAttribute('aria-selected', 'true');
+    expect(sellOut).toHaveFocus();
+    expect(await screen.findByText('RB 8180')).toBeInTheDocument();
+    await user.keyboard('{ArrowLeft}');
+    expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveFocus();
+  });
+
+  it('the Tipo chips say what each count covers', async () => {
+    renderWithRouter(<SellIn />);
+    const chips = await screen.findByRole('group', { name: 'Tipo' });
+    expect(await within(chips).findByRole('button', { name: 'Bono de marca · 2' })).toHaveAttribute(
+      'title',
+      'Todos los bonos de marca cargados: los filtros de arriba no los cuentan',
+    );
+    expect(within(chips).getByRole('button', { name: 'Por compra · 2' })).toHaveAttribute('title', 'Los sell in por compra con los filtros de arriba');
+  });
+
   it('the header action follows the tab: "Nuevo sell in" on Sell in, "Nueva campaña" on Sell out', async () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />);
