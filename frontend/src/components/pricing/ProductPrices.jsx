@@ -11,6 +11,7 @@ import { formatRate, isBlank } from './priceFormat';
 import { LISTS, errorText, warningText, writePrice } from './priceWrites';
 import ProductToggles from './ProductToggles';
 import styles from './ProductPrices.module.css';
+import { sellInOrigen } from '../../utils/sellInOrigen';
 
 /** The typed value as editable text again, for the editor's mode. */
 const editorValue = (row, product, mode) =>
@@ -57,14 +58,11 @@ const NoSellInOut = ({ title }) => (
 
 /**
  * The cost of the purchase lot the next sale takes its sell in from (FIFO),
- * with its discount per unit and the units left of the lot in the tooltip.
+ * with its discount per unit and its origin (the lot's units left, or the % of cost bonuses) in the tooltip.
  */
 function SellInCost({ sellIn }) {
   if (!sellIn) return <NoSellInOut title="Sin sell in vigente" />;
-  // A % of cost bonus (T25c) has no purchase lot: it names the bonus instead of the units left.
-  const origen = sellIn.unidades_restantes == null
-    ? `Bono #${sellIn.bono_id} sobre el costo`
-    : `Unidades restantes del lote: ${sellIn.unidades_restantes}`;
+  const origen = sellInOrigen(sellIn); // a purchase lot or the % of cost bonuses (T25c)
   const detalle = `Descuento por unidad: $ ${formatAmount(sellIn.descuento_unit)}\n${origen}`;
   if (isBlank(sellIn.costo)) {
     return (

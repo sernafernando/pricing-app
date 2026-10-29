@@ -165,6 +165,7 @@ class TestCostBonus:
         assert payload.sell_in.model_dump() == {
             "compra_item_id": lote,
             "bono_id": None,
+            "bono_ids": [],
             "descuento_unit": 100.0,
             "costo": 49900.0,
             "unidades_restantes": 2,
@@ -178,6 +179,7 @@ class TestCostBonus:
         assert payload.sell_in.model_dump() == {
             "compra_item_id": None,
             "bono_id": bono,
+            "bono_ids": [bono],
             "descuento_unit": 1500.0,  # 3 % of 50000
             "costo": 48500.0,
             "unidades_restantes": None,
@@ -207,11 +209,23 @@ class TestCostBonus:
 
     def test_several_cost_bonuses_stack_up_to_the_cost(self, engine):
         primero = _bono_costo(engine, "60.00")
-        _bono_costo(engine, "60.00")
+        segundo = _bono_costo(engine, "60.00")
+        _bono_costo(engine, "1.00")  # nothing left of the cost: it gives nothing
 
         sell_in = _payload(engine).sell_in
 
         assert (sell_in.bono_id, sell_in.descuento_unit, sell_in.costo) == (primero, 50000.0, 0.0)
+        assert sell_in.bono_ids == [primero, segundo]  # every bonus that gives something, in id order
+
+    def test_a_vat_loaded_bonus_on_a_product_without_vat_leaves_no_cost_bonus_sell_in(self, engine):
+        # Like the allocator (`bonos_costo.recalcular`): the product's whole component fails, every bonus of it.
+        _bono_costo(engine, "3.00")
+        _bono_costo(engine, "2.00", incluye_iva=True)
+        bw.set_iva(engine, ROUTER, None)
+        try:
+            assert _payload(engine) is None
+        finally:
+            bw.set_iva(engine, ROUTER, so.PRODUCTOS[ROUTER][3])
 
     def test_a_bonus_whose_cap_is_used_up_does_not_apply(self, engine):
         topado = _bono_costo(engine, tope_unidades=2)
@@ -231,15 +245,20 @@ class TestCostBonus:
 
         assert _payload(engine) is None
 
-    def test_the_batch_reads_two_more_queries_with_cost_bonuses(self, engine):
-        _bono_costo(engine)
+    def _statements(self, engine) -> int:
         statements = []
         with sessionmaker(bind=engine)() as db:
             conn = db.connection()
             event.listen(conn, "before_cursor_execute", lambda *a: statements.append(a[2]))
             resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
+        return len(statements)
 
-        assert len(statements) <= 5  # no sell out campaign: FIFO, campaigns, cost bonuses and their scope
+    def test_cost_bonuses_of_any_scope_cost_one_query_more_than_none_active(self, engine):
+        sin_bonos = self._statements(engine)  # FIFO, sell out and the cost bonuses' gate
+        _bono_costo(engine)
+        _bono_costo(engine, alcance="modelos", modelos=(SWITCH,))
+
+        assert self._statements(engine) == sin_bonos + 1  # their scope, every bonus in one query
 
 
 class TestSellOut:

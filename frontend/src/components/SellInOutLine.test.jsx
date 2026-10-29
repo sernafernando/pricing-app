@@ -37,6 +37,15 @@ describe('SellInOutLine — sell in / sell out companion line', () => {
       expect(line.getAttribute('title')).toBe('Descuento de sell in por unidad: ARS $150.00 · Bono #4 sobre el costo');
     });
 
+    it('names every stacked % of cost bonus (T25c)', () => {
+      const bonos = { ...SELL_IN, compra_item_id: null, bono_id: 4, bono_ids: [4, 7], unidades_restantes: null };
+      render(<SellInOutLine sellInOut={{ sell_in: bonos, sell_out: null }} />);
+      const line = screen.getByText('c/ sell in: ARS $850.50');
+      expect(line.getAttribute('title')).toBe(
+        'Descuento de sell in por unidad: ARS $150.00 · Bonos #4, #7 sobre el costo',
+      );
+    });
+
     it('shows the cost with sell in as pending when it has no ARS value, never a number', () => {
       render(<SellInOutLine sellInOut={{ sell_in: { ...SELL_IN, costo: null }, sell_out: null }} />);
       expect(screen.getByText('c/ sell in: pendiente')).toBeTruthy();

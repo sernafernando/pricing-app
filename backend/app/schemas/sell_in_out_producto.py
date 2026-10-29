@@ -16,6 +16,7 @@ class SellInProducto(BaseModel):
 
     compra_item_id: Optional[int] = None  # the FIFO lot; None for a cost bonus
     bono_id: Optional[int] = None  # the first cost bonus (id order) of the stack; None for a FIFO lot
+    bono_ids: List[int] = []  # every cost bonus giving part of `descuento_unit`, in id order; empty for a FIFO lot
     descuento_unit: float  # ARS per unit
     costo: Optional[float]  # ARS per unit with sell in; None when the cost has no ARS value (no rate)
     unidades_restantes: Optional[int] = None  # the lot's units left; None for a cost bonus (no stock)

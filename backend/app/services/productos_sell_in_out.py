@@ -35,8 +35,9 @@ same keys and scale): with sell in, `limpio` over the cost with sell in; with
 sell in + sell out, `limpio + sell out` over the cost with sell in, or the plain
 cost when there is no sell in.
 
-Batch: `resolver_sell_in_out_batch` reads a whole page in at most eight queries
-(six for FIFO and sell out, two for the cost bonuses: one when none is active).
+Batch: `resolver_sell_in_out_batch` reads a whole page in at most eight queries:
+six for FIFO and sell out, and for the cost bonuses one (none active, or every
+product of the page has a lot) or two (their scope, every bonus in one query).
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import and_, func, literal, select, union_all
 from sqlalchemy.orm import Session
@@ -162,7 +163,9 @@ class SellInOutBatch:
             try:
                 pct = bonos_costo.pct_neto(x.bono, x.porcentaje, item_id, iva, self.hoy)
             except ValueError:
-                return None  # a VAT-loaded bonus on a product without a VAT rate: the allocator refuses it too
+                # A VAT-loaded bonus on a product without a VAT rate: the allocator (`bonos_costo.recalcular`) fails
+                # the product's whole component, every cost bonus of it, so none is shown either.
+                return None
             unitario = min(costo * pct / bonos_costo.CIEN, costo - total)
             if unitario <= 0:
                 continue
@@ -170,7 +173,9 @@ class SellInOutBatch:
             tomados.append(x.bono.id)
         if not tomados:
             return None
-        return SellInProducto(bono_id=tomados[0], descuento_unit=float(total), costo=float(costo - total))
+        return SellInProducto(
+            bono_id=tomados[0], bono_ids=tomados, descuento_unit=float(total), costo=float(costo - total)
+        )
 
     def _sell_out(
         self, item_id: int, campanas: List[_Campana], iva: Optional[Decimal], base: dict
@@ -248,7 +253,7 @@ def _bonos_costo(db: Session, ids: List[int], hoy: date) -> Dict[int, List[_Bono
         .group_by(t.bono_id)
         .subquery()
     )
-    activos: Dict[int, _BonoCosto] = {}
+    activos: Dict[int, Tuple[SellInBonoMarca, Optional[Decimal]]] = {}  # bono_id -> (bonus, ARS cap left)
     for bono, unidades, monto in (
         db.query(SellInBonoMarca, usado.c.unidades, usado.c.monto)
         .outerjoin(usado, usado.c.bono_id == SellInBonoMarca.id)
@@ -265,7 +270,7 @@ def _bonos_costo(db: Session, ids: List[int], hoy: date) -> Dict[int, List[_Bono
             libre is not None and libre <= 0
         ):
             continue  # the cap is used up: this bonus discounts nothing more
-        activos[bono.id] = _BonoCosto(bono, Decimal(0), libre)
+        activos[bono.id] = (bono, libre)
     if not activos:
         return {}
     i = SellInBonoItem
@@ -273,13 +278,13 @@ def _bonos_costo(db: Session, ids: List[int], hoy: date) -> Dict[int, List[_Bono
         *(
             select(literal(bid).label("bono_id"), ProductoERP.item_id, i.porcentaje)
             .outerjoin(i, and_(i.bono_id == bid, i.item_id == ProductoERP.item_id))
-            .where(ProductoERP.item_id.in_(ids), del_alcance(db, x.bono, ProductoERP.item_id, None))
-            for bid, x in activos.items()
+            .where(ProductoERP.item_id.in_(ids), del_alcance(db, bono, ProductoERP.item_id, None))
+            for bid, (bono, _) in activos.items()
         )
     ).subquery()
     salida: Dict[int, List[_BonoCosto]] = {}
     for bid, item_id, propio in db.execute(select(alcanzados).order_by(alcanzados.c.item_id, alcanzados.c.bono_id)):
-        x = activos[bid]
-        pct = Decimal(propio if propio is not None else x.bono.porcentaje)
-        salida.setdefault(int(item_id), []).append(_BonoCosto(x.bono, pct, x.monto_libre))
+        bono, libre = activos[bid]
+        pct = Decimal(propio if propio is not None else bono.porcentaje)
+        salida.setdefault(int(item_id), []).append(_BonoCosto(bono, pct, libre))
     return salida
