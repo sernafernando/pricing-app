@@ -40,7 +40,7 @@ from app.models.auditoria import Auditoria, TipoAccion
 from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
-from app.schemas.sell_in_bonos import SellInBonoIn, SellInBonoModeloIn
+from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn, SellInBonoModeloIn
 
 _CAMPOS = (
     "alcance",
@@ -60,7 +60,6 @@ _CAMPOS = (
     "incluye_iva",
     "offset_origen_id",
 )
-COSTO_VENTA = "costo_venta"
 # How each scope is named in a message, and the request field that belongs to it.
 _ALCANCES = {"marca": "por marca", "categoria": "por categoría", "modelos": "por modelos", "factura": "por factura"}
 _CAMPO_DE_ALCANCE = {"marca": "marca", "categoria": "categoria", "modelos": "modelos", "factura": "pedido_id"}
@@ -88,7 +87,7 @@ class Campos:
     monto_unit: Optional[Decimal]
     porcentaje: Optional[Decimal]
     valores_modelos: dict[int, tuple[Optional[Decimal], Optional[Decimal]]]
-    base: str = "factura"
+    base: str = BASE_FACTURA
     incluye_iva: bool = False
 
 
@@ -136,7 +135,7 @@ def _validar_alcance(db: Session, data: SellInBonoIn) -> tuple[Optional[str], Op
 def _validar_base(data: SellInBonoIn, base: str, incluye_iva: bool) -> None:
     """A cost bonus is a % of the sale's cost in ARS over a brand, category or models (the DB CHECK
     `ck_sell_in_bonos_marca_costo_venta`); only it may take its % with VAT included (S33)."""
-    if base == COSTO_VENTA:
+    if base == BASE_COSTO_VENTA:
         if data.tipo != "porcentaje":
             raise SellInBonoError("Un bono sobre el costo tiene que ser por porcentaje")
         if data.moneda != "ARS":
@@ -419,11 +418,12 @@ def serializar(db: Session, bonos: list[SellInBonoMarca]) -> list[dict]:
         unidades[bono_id] = unidades.get(bono_id, 0) + int(cantidad)
         montos.setdefault(bono_id, {})[moneda] = Decimal(str(monto)).quantize(Decimal("0.01"))
     # A cost bonus generates no purchase: what its sales got (ARS), one query when the page has any.
-    costo_ids = [b.id for b in bonos if b.base == COSTO_VENTA]
+    # Set explicitly: none of its purchase numbers count, and without sales rows it generated nothing.
+    costo_ids = [b.id for b in bonos if b.base == BASE_COSTO_VENTA]
     for bono_id in costo_ids:
-        compras.pop(bono_id, None)
-        unidades.pop(bono_id, None)
-        montos.pop(bono_id, None)
+        compras[bono_id] = 0
+        unidades[bono_id] = 0
+        montos[bono_id] = {}
     if costo_ids:
         for bono_id, cantidad, monto in (
             db.query(

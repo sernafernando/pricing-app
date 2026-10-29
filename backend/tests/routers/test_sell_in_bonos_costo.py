@@ -256,3 +256,58 @@ def test_an_invoice_bonus_response_is_unchanged(client, gestor, productos, admin
         "incluye_iva": False,
         "offset_origen_id": None,
     }
+
+
+def test_a_page_mixing_bonuses_reports_a_cost_bonus_without_sales_as_nothing_generated(
+    client, gestor, productos, admin_user, db
+):
+    factura = _crear(client, gestor, _factura(tope_unidades=10))
+    costo = _crear(client, gestor, _costo(tope_unidades=10, tope_monto="500.00"))
+    compra = SellInCompra(
+        fecha_compra=date(2026, 10, 10),
+        moneda="USD",
+        monto_total=Decimal("10.00"),
+        tipo_cambio=Decimal("1450"),
+        formula="por_unidad",
+        estado="activa",
+        usuario_id=admin_user.id,
+        origen="bono_marca",
+        bono_id=factura["id"],
+    )
+    db.add(compra)
+    db.flush()
+    db.add(
+        SellInCompraItem(
+            compra_id=compra.id, item_id=4512, cantidad=4, costo_base_unit=Decimal("10"), monto_asignado="10.00"
+        )
+    )
+    db.flush()
+    campos = (
+        "compras_activas",
+        "unidades",
+        "monto_generado",
+        "montos_generados",
+        "tope_unidades_restantes",
+        "tope_monto_restante",
+    )
+
+    filas = {f["id"]: {k: f[k] for k in campos} for f in client.get(BASE, headers=gestor).json()["items"]}
+
+    assert filas == {
+        costo["id"]: {
+            "compras_activas": 0,
+            "unidades": 0,
+            "monto_generado": "0.00",
+            "montos_generados": [],
+            "tope_unidades_restantes": 10,
+            "tope_monto_restante": "500.00",
+        },
+        factura["id"]: {
+            "compras_activas": 1,
+            "unidades": 4,
+            "monto_generado": "10.00",
+            "montos_generados": [{"moneda": "USD", "monto": "10.00"}],
+            "tope_unidades_restantes": 6,
+            "tope_monto_restante": None,
+        },
+    }

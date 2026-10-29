@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Union, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -40,6 +40,8 @@ Estado = Literal["activa", "anulada"]
 Alcance = Literal["marca", "categoria", "modelos", "factura"]
 TipoBono = Literal["por_unidad", "porcentaje"]
 BaseBono = Literal["factura", "costo_venta"]
+# The one spelling of each base, shared by the services (T25d).
+BASE_FACTURA, BASE_COSTO_VENTA = get_args(BaseBono)
 
 MARCA_MAX = 100  # productos_erp.marca is VARCHAR(100)
 CATEGORIA_MAX = 100  # productos_erp.categoria is VARCHAR(100)
@@ -109,7 +111,7 @@ class SellInBonoIn(BaseModel):
     tope_unidades: Optional[int] = Field(default=None, le=2**31 - 1)  # invoiced units, INTEGER
     tope_monto: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=2)  # in `moneda`
     # T25d: set on create only; left out on an edit, the stored ones stay (`base` never changes).
-    base: BaseBono = "factura"
+    base: BaseBono = BASE_FACTURA
     incluye_iva: bool = False  # the loaded % includes VAT (S33); only on a 'costo_venta' bonus
 
     @field_validator("tope_unidades", mode="before")

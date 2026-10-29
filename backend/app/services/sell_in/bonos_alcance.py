@@ -46,6 +46,7 @@ from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
 from app.models.producto import ProductoERP
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInBonoDirty, SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
+from app.schemas.sell_in_bonos import BASE_COSTO_VENTA
 from app.services.sell_in.bonos import ESTADOS_EXCLUIDOS, ORIGEN
 
 
@@ -185,15 +186,14 @@ def _sin_aplicar(db: Session, bono: SellInBonoMarca, facturadas, recibidas, limi
 
 
 def alcance(db: Session, bono: SellInBonoMarca, limite: int) -> dict:
-    if bono.base == "costo_venta":
+    if bono.base == BASE_COSTO_VENTA:
         # A cost bonus (T25d) reaches sales, never purchases: no operation is its own, applied or pending.
-        vacio = {"total": 0, "items": []}
         return {
             "limite": limite,
-            "alcanzadas": dict(vacio),
-            "pendientes": dict(vacio),
-            "fuera_de_rango": dict(vacio),
-            "sin_aplicar": dict(vacio),
+            **{
+                grupo: {"total": 0, "items": []}
+                for grupo in ("alcanzadas", "pendientes", "fuera_de_rango", "sin_aplicar")
+            },
         }
     alcanzadas = (
         db.query(
