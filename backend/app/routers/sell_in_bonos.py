@@ -19,6 +19,9 @@ is HTTP only over `app.services.sell_in.bonos_crud`.
   panel: generated purchases, operations of its scope pending an invoice, and
   operations of its scope invoiced outside the range (`bonos_alcance`), each capped with
   its count.
+- A bonus's `base` (T25d: 'factura' or 'costo_venta', a % of each sale's cost)
+  is set on create and an edit that changes it is a 422; a cost bonus's totals
+  come from its sales rows and its panel groups are empty.
 - Business-rule errors are a 422 with one readable Spanish message; an unknown
   bonus is a 404.
 """

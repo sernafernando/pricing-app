@@ -438,3 +438,31 @@ def test_a_cancelled_bonus_has_nothing_left_to_apply(client, lector, mundo, db):
     data = _alcance(client, lector, mundo["bono"].id)
 
     assert data["sin_aplicar"] == {"total": 0, "items": []}
+
+
+def test_a_cost_bonus_reaches_sales_not_purchases_so_its_purchase_groups_are_empty(client, lector, mundo, db):
+    """T25d: a 'costo_venta' bonus generates no purchase; the brand's operations are not its own."""
+    bono = mundo["bono"]
+    bono.base, bono.tipo, bono.monto_unit, bono.porcentaje, bono.moneda = (
+        "costo_venta",
+        "porcentaje",
+        None,
+        Decimal("2.71"),
+        "ARS",
+    )
+    db.flush()
+    pendiente = mundo["pedido"]()
+    mundo["recibido"](pendiente, TP, "5")
+    for fecha in (date(2026, 9, 1), date(2026, 10, 5)):
+        p = mundo["pedido"](fecha_factura=fecha)
+        mundo["facturado"](p, TP, 3)
+
+    data = _alcance(client, lector, bono.id)
+
+    vacio = {"total": 0, "items": []}
+    assert {k: data[k] for k in ("alcanzadas", "pendientes", "fuera_de_rango", "sin_aplicar")} == {
+        "alcanzadas": vacio,
+        "pendientes": vacio,
+        "fuera_de_rango": vacio,
+        "sin_aplicar": vacio,
+    }
