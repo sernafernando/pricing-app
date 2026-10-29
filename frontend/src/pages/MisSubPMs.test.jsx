@@ -828,3 +828,240 @@ describe('MisSubPMs — "Por marca / par" tab', () => {
     expect(marcasPmAPI.listarGrantsScope.mock.calls.length).toBeGreaterThan(grantsAntes);
   });
 });
+
+describe('MisSubPMs — a PM shows their own pairs ticked, and can be copied as sub-PM', () => {
+  // Owner: "el pm que ya tiene pares en pm tendría que traer tildados los
+  // pares que ya tiene designados por ser pm no estar vacíos [...] así poder
+  // duplicar eso a otro usuario como permiso de sub pm".
+  const PARES_ADMIN = [
+    { id: 1, marca: 'LENOVO', categoria: 'Monitores', usuario_id: 5, usuario_nombre: 'Ana' },
+    { id: 2, marca: 'LENOVO', categoria: 'Notebooks', usuario_id: 7, usuario_nombre: 'Carla' },
+    { id: 3, marca: 'SAMSUNG', categoria: 'Celulares', usuario_id: 5, usuario_nombre: 'Ana' },
+    { id: 4, marca: 'EPSON', categoria: 'Impresoras', usuario_id: 7, usuario_nombre: 'Carla' },
+    { id: 5, marca: 'HP', categoria: 'Notebooks', usuario_id: null, usuario_nombre: null },
+  ];
+  const USUARIOS_ADMIN = [
+    { id: 5, nombre: 'Ana', email: null, rol: 'pm' },
+    { id: 6, nombre: 'Beto', email: null, rol: 'ventas' },
+    { id: 7, nombre: 'Carla', email: null, rol: 'pm' },
+  ];
+  // Ana is titular of LENOVO / Monitores and SAMSUNG / Celulares, and sub-PM
+  // of HP / Notebooks. Beto is sub-PM of EPSON / Impresoras.
+  const GRANTS = {
+    5: [{ marca: 'HP', categoria: 'Notebooks' }],
+    6: [{ marca: 'EPSON', categoria: 'Impresoras' }],
+    7: [],
+  };
+
+  beforeEach(() => {
+    permisosDenegados.clear();
+    marcasPmAPI.listarTodosLosPares.mockResolvedValue({ data: PARES_ADMIN });
+    marcasPmAPI.listarUsuariosPM.mockResolvedValue({ data: USUARIOS_ADMIN });
+    marcasPmAPI.obtenerGrantsUsuario.mockImplementation(async (id) => ({
+      data: { pares: GRANTS[id] || [], total: (GRANTS[id] || []).length },
+    }));
+  });
+
+  async function abrirCopia(user, destino) {
+    await user.click(await screen.findByRole('button', { name: 'Copiar a otro usuario como sub-PM' }));
+    await user.selectOptions(screen.getByLabelText('Copiar a'), destino);
+  }
+
+  it('a PM shows the pairs they hold as titular already ticked, locked and tagged "PM"', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Carla');
+    expect(screen.getByText(/PM titular de/)).toHaveTextContent('PM titular de 2 pares');
+    expect(screen.getByText('Todavía no es sub-PM de ningún par.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Seleccionar EPSON / Impresoras')).toBeChecked();
+
+    await elegirYExpandir(user, 'Ana');
+    const monitores = screen.getByLabelText('Seleccionar LENOVO / Monitores');
+    expect(monitores).toBeChecked();
+    expect(monitores).toBeDisabled();
+    expect(within(monitores.closest('li')).getByText('PM')).toBeInTheDocument();
+    expect(screen.getByLabelText('Seleccionar SAMSUNG / Celulares')).toBeChecked();
+    // Their sub-PM pair stays a normal, editable row.
+    expect(screen.getByLabelText('Seleccionar HP / Notebooks')).toBeChecked();
+    expect(screen.getByLabelText('Seleccionar HP / Notebooks')).toBeEnabled();
+    expect(screen.getByLabelText('Seleccionar LENOVO / Notebooks')).not.toBeChecked();
+    expect(screen.getByText(/PM titular de/)).toHaveTextContent('PM titular de 2 pares');
+    expect(screen.getByRole('button', { name: /guardar cambios/i })).toBeDisabled();
+  });
+
+  it('saving a PM never sends their titular pairs as sub-PM pairs of themselves', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.asignarSubPMsBulk.mockResolvedValue({ data: { otorgados: 1, revocados: 0, total: 2 } });
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Ana');
+
+    // Ticking the marca only adds the pair Ana does not hold as PM.
+    await user.click(screen.getByLabelText('Seleccionar toda la marca LENOVO'));
+    expect(screen.getByText('+1 agregar')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /guardar cambios/i }));
+    await user.click(screen.getByRole('button', { name: /sí, guardar/i }));
+
+    await waitFor(() => expect(marcasPmAPI.asignarSubPMsBulk).toHaveBeenCalledTimes(1));
+    const [usuarioId, enviados] = marcasPmAPI.asignarSubPMsBulk.mock.calls[0];
+    expect(usuarioId).toBe(5);
+    expect(enviados).toHaveLength(2);
+    expect(enviados).toEqual(
+      expect.arrayContaining([
+        { marca: 'HP', categoria: 'Notebooks' },
+        { marca: 'LENOVO', categoria: 'Notebooks' },
+      ]),
+    );
+  });
+
+  it('copies a PM\'s pairs to another user as sub-PM, showing what is added before saving', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.asignarSubPMsBulk.mockResolvedValue({ data: { otorgados: 3, revocados: 0, total: 4 } });
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+    await abrirCopia(user, 'Beto');
+
+    const resumen = await screen.findByTestId('copiarResumen');
+    expect(resumen).toHaveTextContent('Se le agregan a Beto 3 pares como sub-PM');
+    expect(within(resumen).getByText('LENOVO')).toBeInTheDocument();
+    expect(within(resumen).getByText('Monitores')).toBeInTheDocument();
+    expect(within(resumen).getByText('SAMSUNG')).toBeInTheDocument();
+    expect(within(resumen).getByText('HP')).toBeInTheDocument();
+    expect(marcasPmAPI.asignarSubPMsBulk).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Sí, copiar' }));
+
+    await waitFor(() => expect(marcasPmAPI.asignarSubPMsBulk).toHaveBeenCalledTimes(1));
+    const [usuarioId, enviados] = marcasPmAPI.asignarSubPMsBulk.mock.calls[0];
+    expect(usuarioId).toBe(6);
+    // Beto keeps what he had, plus Ana's pairs.
+    expect(enviados).toHaveLength(4);
+    expect(enviados).toEqual(
+      expect.arrayContaining([
+        { marca: 'EPSON', categoria: 'Impresoras' },
+        { marca: 'LENOVO', categoria: 'Monitores' },
+        { marca: 'SAMSUNG', categoria: 'Celulares' },
+        { marca: 'HP', categoria: 'Notebooks' },
+      ]),
+    );
+    expect(await screen.findByText('Beto ahora es sub-PM de 3 pares más.')).toBeInTheDocument();
+  });
+
+  it('never copies a pair to the user who is its titular', async () => {
+    const user = userEvent.setup();
+    GRANTS[5] = [{ marca: 'HP', categoria: 'Notebooks' }, { marca: 'EPSON', categoria: 'Impresoras' }];
+    try {
+      marcasPmAPI.asignarSubPMsBulk.mockResolvedValue({ data: { otorgados: 3, revocados: 0, total: 3 } });
+      render(<MisSubPMs />);
+      await elegirUsuario(user, 'Ana');
+      await abrirCopia(user, 'Carla');
+
+      const resumen = await screen.findByTestId('copiarResumen');
+      expect(resumen).toHaveTextContent('Se le agregan a Carla 3 pares como sub-PM');
+      expect(within(resumen).queryByText('EPSON')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: 'Sí, copiar' }));
+
+      await waitFor(() => expect(marcasPmAPI.asignarSubPMsBulk).toHaveBeenCalledTimes(1));
+      expect(marcasPmAPI.asignarSubPMsBulk.mock.calls[0][1]).not.toContainEqual({ marca: 'EPSON', categoria: 'Impresoras' });
+    } finally {
+      GRANTS[5] = [{ marca: 'HP', categoria: 'Notebooks' }];
+    }
+  });
+
+  it('writes nothing when the target user\'s current pairs cannot be read', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+    marcasPmAPI.obtenerGrantsUsuario.mockRejectedValue(new Error('network'));
+    await abrirCopia(user, 'Beto');
+
+    expect(await screen.findByText(/No se pudieron leer los pares actuales de Beto/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sí, copiar' })).not.toBeInTheDocument();
+    expect(marcasPmAPI.asignarSubPMsBulk).not.toHaveBeenCalled();
+  });
+
+  it('cannot confirm a copy once the user gets unsaved changes with the panel open', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Ana');
+    await abrirCopia(user, 'Beto');
+    await screen.findByTestId('copiarResumen');
+
+    await user.click(screen.getByLabelText('Seleccionar LENOVO / Notebooks'));
+
+    expect(screen.getByRole('button', { name: 'Sí, copiar' })).toBeDisabled();
+  });
+
+  it('a rejected copy says nothing was applied, names the rejected pairs and refreshes nothing', async () => {
+    const user = userEvent.setup();
+    marcasPmAPI.asignarSubPMsBulk.mockRejectedValue({
+      response: {
+        status: 403,
+        data: { detail: { mensaje: 'Uno o más pares están fuera de tu scope o no existen', pares_rechazados: [{ marca: 'HP', categoria: 'Notebooks' }] } },
+      },
+    });
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+    await abrirCopia(user, 'Beto');
+    await screen.findByTestId('copiarResumen');
+    const conteosAntes = marcasPmAPI.obtenerConteosSubPMs.mock.calls.length;
+
+    await user.click(screen.getByRole('button', { name: 'Sí, copiar' }));
+
+    expect(
+      await screen.findByText(
+        'Uno o más pares están fuera de tu scope o no existen No se aplicó ningún cambio. Rechazados: HP / Notebooks.',
+      ),
+    ).toBeInTheDocument();
+    expect(marcasPmAPI.obtenerConteosSubPMs.mock.calls.length).toBe(conteosAntes);
+  });
+
+  it('says so when the target already has every pair, and offers nothing to confirm', async () => {
+    const user = userEvent.setup();
+    GRANTS[6] = [
+      { marca: 'LENOVO', categoria: 'Monitores' },
+      { marca: 'SAMSUNG', categoria: 'Celulares' },
+      { marca: 'HP', categoria: 'Notebooks' },
+    ];
+    try {
+      render(<MisSubPMs />);
+      await elegirUsuario(user, 'Ana');
+      await abrirCopia(user, 'Beto');
+
+      expect(await screen.findByText('Beto ya es sub-PM de todos esos pares; no hay nada para agregar.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Sí, copiar' })).not.toBeInTheDocument();
+    } finally {
+      GRANTS[6] = [{ marca: 'EPSON', categoria: 'Impresoras' }];
+    }
+  });
+
+  it('drops a late preview for a target that is no longer picked', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirUsuario(user, 'Ana');
+    let soltarBeto;
+    marcasPmAPI.obtenerGrantsUsuario.mockImplementation((id) =>
+      id === 6
+        ? new Promise((resolve) => {
+            soltarBeto = () => resolve({ data: { pares: [], total: 0 } });
+          })
+        : Promise.resolve({ data: { pares: GRANTS[id] || [], total: 0 } }),
+    );
+    await abrirCopia(user, 'Beto');
+    await user.selectOptions(screen.getByLabelText('Copiar a'), 'Carla');
+    expect(await screen.findByTestId('copiarResumen')).toHaveTextContent('Se le agregan a Carla 3 pares como sub-PM');
+
+    soltarBeto();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(screen.getByTestId('copiarResumen')).toHaveTextContent('Se le agregan a Carla 3 pares como sub-PM');
+  });
+
+  it('cannot copy while the user has unsaved changes', async () => {
+    const user = userEvent.setup();
+    render(<MisSubPMs />);
+    await elegirYExpandir(user, 'Ana');
+    await user.click(screen.getByLabelText('Seleccionar LENOVO / Notebooks'));
+
+    expect(screen.getByRole('button', { name: 'Copiar a otro usuario como sub-PM' })).toBeDisabled();
+  });
+});

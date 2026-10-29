@@ -134,3 +134,36 @@ describe.each([
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/subpms-por-marca-${theme}-${width}.png` });
   });
 });
+
+describe('Sub-PMs at 1920 px, light: a PM and the copy to another user', () => {
+  it('shows the PM pairs ticked and tagged, and the copy preview, without overflow', async () => {
+    await page.viewport(1920, 1080);
+    setTheme('light');
+    document.body.style.background = 'var(--cf-bg-app)';
+    marcasPmAPI.listarUsuariosPM.mockResolvedValue({ data: [{ id: 2, nombre: 'Ramiro Echeverría', email: null, rol: 'pm' }, ...USUARIOS] });
+    marcasPmAPI.obtenerGrantsUsuario.mockImplementation(async (id) => ({
+      data: id === 2 ? { pares: [{ marca: 'HP', categoria: 'Mouse' }], total: 1 } : { pares: [{ marca: 'EPSON', categoria: 'Impresoras' }], total: 1 },
+    }));
+    const screen = await render(<MisSubPMs />);
+
+    await screen.getByRole('button', { name: /^Ramiro Echeverría \(/ }).click();
+    await screen.getByRole('button', { name: 'Expandir todo' }).click();
+    await expect.element(screen.getByText(/PM titular de/)).toBeVisible();
+
+    await screen.getByRole('button', { name: 'Copiar a otro usuario como sub-PM' }).click();
+    await screen.getByLabelText('Copiar a').selectOptions('Juan Pereyra');
+    await expect.element(screen.getByTestId('copiarResumen')).toBeVisible();
+
+    const detalle = screen.getByRole('heading', { name: 'Ramiro Echeverría' }).element().closest('section');
+    expect(detalle.scrollWidth).toBeLessThanOrEqual(detalle.clientWidth);
+    const lista = document.querySelector('aside[aria-label="Usuarios"]').getBoundingClientRect();
+    expect(lista.right).toBeLessThanOrEqual(detalle.getBoundingClientRect().left + 1);
+
+    // The "PM" tag sits inside its row, never spilling past it.
+    const badge = screen.getByText('PM', { exact: true }).first().element();
+    const fila = badge.closest('li').getBoundingClientRect();
+    expect(badge.getBoundingClientRect().right).toBeLessThanOrEqual(fila.right + 1);
+
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/subpms-pm-copiar-light-1920.png` });
+  });
+});

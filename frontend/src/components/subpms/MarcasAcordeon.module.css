@@ -136,6 +136,13 @@
   color: var(--cf-accent-green);
 }
 
+.badgePm {
+  composes: badge;
+  justify-self: end;
+  background: color-mix(in srgb, var(--cf-accent-purple) 15%, transparent);
+  color: var(--cf-accent-purple);
+}
+
 .badgeQuita {
   composes: badge;
   justify-self: end;

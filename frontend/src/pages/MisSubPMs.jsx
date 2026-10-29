@@ -6,6 +6,7 @@ import UsuariosLista from '../components/subpms/UsuariosLista';
 import MarcasAcordeon from '../components/subpms/MarcasAcordeon';
 import ChipsPorMarca from '../components/subpms/ChipsPorMarca';
 import VistaPorMarca from '../components/subpms/VistaPorMarca';
+import CopiarSubPM from '../components/subpms/CopiarSubPM';
 import { parKey } from '../components/parKey';
 import { clavesDesdePayload, extraerError } from './misSubPMsHelpers';
 import { useAuthStore } from '../store/authStore';
@@ -422,6 +423,21 @@ export default function MisSubPMs() {
     }
   };
 
+  // Pairs the selected user holds as PM (titular). Shown ticked and locked,
+  // never part of `checked`/`baseline`: those are sub-PM grants, and a
+  // titular is never a sub-PM of their own pairs.
+  const titularesDelUsuario = useMemo(() => {
+    if (targetUserId == null) return new Set();
+    return new Set(pares.filter((par) => par.usuario_id === targetUserId).map((par) => parKey(par.marca, par.categoria)));
+  }, [pares, targetUserId]);
+
+  // What "Copiar a otro usuario como sub-PM" hands over: the user's PM pairs
+  // plus their saved sub-PM pairs (the copy is blocked while dirty).
+  const paresACopiar = useMemo(() => {
+    const keys = new Set([...titularesDelUsuario, ...baseline]);
+    return [...keys].map((key) => pairsByKey.get(key)).filter(Boolean);
+  }, [titularesDelUsuario, baseline, pairsByKey]);
+
   const otrosPorPar = useMemo(() => {
     const map = new Map();
     for (const g of grantsScope) {
@@ -451,6 +467,13 @@ export default function MisSubPMs() {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([marca, total]) => ({ marca, total, cambiado: guardado.get(marca) !== total }));
   }, [checked, baseline, pairsByKey]);
+
+  // A copy writes another user, never the selected one: only the shared
+  // reads need refreshing.
+  const alCopiar = () => {
+    cargarGrantsScope();
+    cargarConteos();
+  };
 
   // A change made from "Por marca / par" goes straight to the server, so the
   // shared reads are refreshed; the selected user's baseline too when they
@@ -577,16 +600,38 @@ export default function MisSubPMs() {
             <>
               <header className={styles.resumen}>
                 <h2 className={styles.resumenNombre}>{usuarioSeleccionado?.nombre || `Usuario #${targetUserId}`}</h2>
+                {titularesDelUsuario.size > 0 && (
+                  <span className={styles.resumenTexto}>
+                    PM titular de <strong>{titularesDelUsuario.size}</strong>{' '}
+                    {titularesDelUsuario.size === 1 ? 'par' : 'pares'}
+                  </span>
+                )}
                 <span className={styles.resumenTexto}>
                   Gestiona <strong>{paresGuardados}</strong> {paresGuardados === 1 ? 'par' : 'pares'} en{' '}
                   <strong>{marcasGuardadas}</strong> {marcasGuardadas === 1 ? 'marca' : 'marcas'}
                 </span>
-                <ChipsPorMarca grupos={chipsPorMarca} onQuitarMarca={quitarMarca} disabled={saving} />
+                <ChipsPorMarca
+                  grupos={chipsPorMarca}
+                  onQuitarMarca={quitarMarca}
+                  disabled={saving}
+                  textoVacio={titularesDelUsuario.size > 0 ? 'Todavía no es sub-PM de ningún par.' : undefined}
+                />
+                {paresACopiar.length > 0 && (
+                  <CopiarSubPM
+                    key={targetUserId}
+                    origen={usuarioSeleccionado?.nombre || `Usuario #${targetUserId}`}
+                    pares={paresACopiar}
+                    usuarios={usuariosDisponibles.filter((u) => u.id !== targetUserId)}
+                    disabled={dirty || saving}
+                    onCopiado={alCopiar}
+                  />
+                )}
               </header>
               <MarcasAcordeon
                 pares={pares}
                 checked={checked}
                 baseline={baseline}
+                titulares={titularesDelUsuario}
                 otrosPorPar={otrosPorPar}
                 onToggle={toggle}
                 onMarcarPares={marcarPares}

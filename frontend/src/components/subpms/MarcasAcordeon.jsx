@@ -27,8 +27,22 @@ function estadoPar(key, checked, baseline) {
  *
  * `otrosPorPar` maps a `parKey` to the names of the other sub-PMs of that
  * pair; it may be empty when that read failed (cosmetic, never blocking).
+ *
+ * `titulares` holds the `parKey`s the selected user holds as PM (titular).
+ * Those rows show ticked, locked and tagged "PM": they are not sub-PM
+ * grants, so they never enter `checked` and a marca checkbox only toggles
+ * the other rows — a titular is never a sub-PM of their own pairs.
  */
-export default function MarcasAcordeon({ pares, checked, baseline, otrosPorPar, onToggle, onMarcarPares, disabled }) {
+export default function MarcasAcordeon({
+  pares,
+  checked,
+  baseline,
+  titulares = new Set(),
+  otrosPorPar,
+  onToggle,
+  onMarcarPares,
+  disabled,
+}) {
   const [busqueda, setBusqueda] = useState('');
   const [soloAsignado, setSoloAsignado] = useState(false);
   const [expandidas, setExpandidas] = useState(() => new Set());
@@ -50,7 +64,7 @@ export default function MarcasAcordeon({ pares, checked, baseline, otrosPorPar, 
       const marcaCoincide = marca.toLowerCase().includes(termino);
       const filtrados = lista.filter((par) => {
         const key = parKey(par.marca, par.categoria);
-        if (soloAsignado && !checked.has(key) && !baseline.has(key)) return false;
+        if (soloAsignado && !checked.has(key) && !baseline.has(key) && !titulares.has(key)) return false;
         return !termino || marcaCoincide || par.categoria.toLowerCase().includes(termino);
       });
       return [marca, filtrados];
@@ -109,8 +123,10 @@ export default function MarcasAcordeon({ pares, checked, baseline, otrosPorPar, 
         <ul className={styles.marcas}>
           {visibles.map(([marca, lista]) => {
             const keys = lista.map((par) => parKey(par.marca, par.categoria));
-            const marcados = keys.filter((key) => checked.has(key)).length;
+            const marcados = keys.filter((key) => checked.has(key) || titulares.has(key)).length;
             const todos = marcados === keys.length;
+            const editables = lista.filter((par) => !titulares.has(parKey(par.marca, par.categoria)));
+            const todosEditables = editables.every((par) => checked.has(parKey(par.marca, par.categoria)));
             const parcial = marcados > 0 && !todos;
             const cambios = keys.filter((key) => estadoPar(key, checked, baseline)).length;
             const abierta = abrirTodo || expandidas.has(marca);
@@ -123,8 +139,8 @@ export default function MarcasAcordeon({ pares, checked, baseline, otrosPorPar, 
                     ref={(el) => {
                       if (el) el.indeterminate = parcial;
                     }}
-                    onChange={() => onMarcarPares(lista, !todos)}
-                    disabled={disabled}
+                    onChange={() => onMarcarPares(editables, !todosEditables)}
+                    disabled={disabled || editables.length === 0}
                     aria-label={`Seleccionar toda la marca ${marca}`}
                   />
                   <button
@@ -149,13 +165,14 @@ export default function MarcasAcordeon({ pares, checked, baseline, otrosPorPar, 
                       const key = parKey(par.marca, par.categoria);
                       const estado = estadoPar(key, checked, baseline);
                       const otros = otrosPorPar.get(key) || [];
+                      const esTitular = titulares.has(key);
                       return (
                         <li key={key} className={CLASE_FILA[estado] || styles.fila}>
                           <input
                             type="checkbox"
-                            checked={checked.has(key)}
+                            checked={esTitular || checked.has(key)}
                             onChange={() => onToggle(par.marca, par.categoria)}
-                            disabled={disabled}
+                            disabled={disabled || esTitular}
                             aria-label={`Seleccionar ${par.marca} / ${par.categoria}`}
                           />
                           <span className={estado === 'quita' ? styles.categoriaQuitada : styles.categoria}>{par.categoria}</span>
@@ -170,6 +187,11 @@ export default function MarcasAcordeon({ pares, checked, baseline, otrosPorPar, 
                           <span className={styles.otros}>
                             {otros.length > 0 ? `También: ${otros.join(', ')}` : 'Sin otros sub-PMs'}
                           </span>
+                          {esTitular && (
+                            <span className={styles.badgePm} title="Es el PM titular de este par">
+                              PM
+                            </span>
+                          )}
                           {estado === 'agrega' && <span className={styles.badgeAgrega}>Se agrega</span>}
                           {estado === 'quita' && <span className={styles.badgeQuita}>Se quita</span>}
                         </li>
