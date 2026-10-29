@@ -5,7 +5,7 @@ Owner: "agregá el de sell in, es para operaciones viejas que no tienen la factu
 `ck_sell_in_bonos_marca_costo_venta` check) never generates a sell-in purchase (`bonos.reconciliar` skips it).
 `recalcular` keeps its `sell_in_bono_consumos` rows, one per (bonus, channel, sale), in step with:
 
-- Scope and date: the sales of the products its scope reaches (`bonos_alcance._del_alcance`, the panel's rule)
+- Scope and date: the sales of the products its scope reaches (`bonos_alcance.del_alcance`, the panel's rule)
   whose SALE date is in its inclusive range, read the way sell out reads them (`sell_out.alcance.ventas`, every
   channel; fuera/TN returns resolved to their sale like the FIFO's `costing.resolver_objetivos`).
 - Base: the cost recorded on the sale, ARS without VAT (ML `mcosto / qty`, fuera/TN `costo_total / units`,
@@ -62,7 +62,7 @@ from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInConsumo
-from app.services.sell_in.costing import _LOCK_SQL, LOCK_NAMESPACE
+from app.services.sell_in.costing import LOCK_SQL, LOCK_NAMESPACE
 from app.services.sell_out import alcance, tope
 from app.services.sell_out import queue as sell_out_queue
 
@@ -103,10 +103,10 @@ def _activos(db: Session) -> Dict[int, SellInBonoMarca]:
 def _alcances(db: Session, activos: Dict[int, SellInBonoMarca]) -> Dict[int, Set[int]]:
     """Each active cost bonus's products, by the panel's scope rule (one query per bonus: they are few)."""
     # Imported here: `bonos_alcance` imports `bonos`, which imports this module.
-    from app.services.sell_in.bonos_alcance import _del_alcance
+    from app.services.sell_in.bonos_alcance import del_alcance
 
     return {
-        bid: {i for (i,) in db.query(ProductoERP.item_id).filter(_del_alcance(db, bono, ProductoERP.item_id, None))}
+        bid: {i for (i,) in db.query(ProductoERP.item_id).filter(del_alcance(db, bono, ProductoERP.item_id, None))}
         for bid, bono in activos.items()
     }
 
@@ -144,7 +144,7 @@ def _semilla(db: Session, item_ids: Set[int], bono_ids: Set[int], alcances: Dict
 
 def _bloquear(db: Session, ids: Set[int]) -> None:
     if ids and db.get_bind().dialect.name == "postgresql":
-        db.execute(_LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": sorted(ids)})
+        db.execute(LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": sorted(ids)})
 
 
 def _componentes(activos: Dict[int, SellInBonoMarca], alcances: Dict[int, Set[int]], productos: Set[int]):

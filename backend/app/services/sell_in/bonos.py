@@ -115,7 +115,7 @@ LOCK_NAMESPACE = 0x5E12
 ESTADOS_EXCLUIDOS = frozenset({"cancelado", "rechazado"})
 ORIGEN = "bono_marca"
 
-_LOCK_SQL = text(
+LOCK_SQL = text(
     "SELECT pg_advisory_xact_lock(:ns, i) FROM (SELECT DISTINCT i FROM unnest(CAST(:ids AS integer[])) AS t(i) "
     "ORDER BY i) AS ordered"
 )
@@ -165,7 +165,7 @@ class _Deseada:
 def _bloquear(db: Session, bono_ids: Iterable[int]) -> None:
     ids = sorted({int(i) for i in bono_ids})
     if ids and db.get_bind().dialect.name == "postgresql":
-        db.execute(_LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": ids})
+        db.execute(LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": ids})
 
 
 def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:

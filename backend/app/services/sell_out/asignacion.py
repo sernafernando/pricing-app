@@ -76,7 +76,7 @@ from app.services.sell_out import alcance, tope
 # First key of the two-key advisory lock; the second is the campaign id. Sell-in costing uses 0x5E11 (item ids)
 # and the brand bonus 0x5E12 (bonus ids).
 LOCK_NAMESPACE = 0x5E13
-_LOCK_SQL = text(
+LOCK_SQL = text(
     "SELECT pg_advisory_xact_lock(:ns, i) FROM (SELECT DISTINCT i FROM unnest(CAST(:ids AS integer[])) AS t(i) "
     "ORDER BY i) AS ordered"
 )
@@ -310,7 +310,7 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
         return RecomputeResult()
     _, _, bloqueadas = _vinculadas(db, ids)
     if db.get_bind().dialect.name == "postgresql":
-        db.execute(_LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": bloqueadas})
+        db.execute(LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": bloqueadas})
     # Again under the lock, and ONLY for the locked ones: a campaign linked while this call waited is
     # rebuilt by the call its own change queues.
     campanas, productos, vinculadas = _vinculadas(db, ids)
