@@ -9,9 +9,9 @@ import styles from './ChipsPorMarca.module.css';
  *
  * `grupos` is an array of { marca, total, cambiado } sorted by the parent.
  */
-export default function ChipsPorMarca({ grupos, onQuitarMarca, disabled }) {
+export default function ChipsPorMarca({ grupos, onQuitarMarca, disabled, textoVacio = 'Todavía no gestiona ningún par.' }) {
   if (grupos.length === 0) {
-    return <p className={styles.vacio}>Todavía no gestiona ningún par.</p>;
+    return <p className={styles.vacio}>{textoVacio}</p>;
   }
 
   return (
