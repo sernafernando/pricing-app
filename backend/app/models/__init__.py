@@ -199,6 +199,7 @@ from app.models.ml_publications import (
     MlUserProductStock,
 )
 from app.models.sell_in import (
+    SellInBonoConsumo,
     SellInBonoDirty,
     SellInBonoMarca,
     SellInCompra,
@@ -477,6 +478,7 @@ __all__ = [
     "MlUserProduct",
     "MlUserProductStock",
     "MlUserProductFamily",
+    "SellInBonoConsumo",
     "SellInBonoDirty",
     "SellInBonoMarca",
     "SellInCompra",

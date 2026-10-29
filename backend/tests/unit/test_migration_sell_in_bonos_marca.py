@@ -102,15 +102,16 @@ class TestFrozenTriggerCopy:
         return up, [s for s in down if "sell_in_bonos_marca_set_updated_at" not in s]
 
     def test_the_latest_upgrade_installs_exactly_the_module_trigger_sql(self) -> None:
-        # 20261211_sell_in_bono_tope replaced the bonus update trigger alone (it also watches the caps): the module is
-        # 20261115's set with that one statement swapped for 20261211's.
-        tope = base._load_migration(_BACKEND_ROOT / "alembic" / "versions" / "20261211_sell_in_bono_tope.py")
+        # 20261211_sell_in_bono_tope, then 20261212_sell_in_bono_costo, replaced the bonus update trigger alone (it also
+        # watches the caps, then the cost base): the module is 20261115's set with that one statement swapped for
+        # 20261212's.
+        costo = base._load_migration(_BACKEND_ROOT / "alembic" / "versions" / "20261212_sell_in_bono_costo.py")
         instalado = [
-            tope._trigger(con_tope=True) if "CREATE TRIGGER trg_sell_in_bono_bonos_update" in s else s
+            costo._trigger(con_costo=True) if "CREATE TRIGGER trg_sell_in_bono_bonos_update" in s else s
             for s in self._latest()._TRIGGERS_UP
         ]
         assert [" ".join(s.split()) for s in instalado] == [" ".join(s.split()) for s in bono_queue.UPGRADE_SQL], (
-            self._DRIFT.format("UPGRADE_SQL", f"{_LATEST_TRIGGERS} + 20261211_sell_in_bono_tope")
+            self._DRIFT.format("UPGRADE_SQL", f"{_LATEST_TRIGGERS} + 20261212_sell_in_bono_costo")
         )
 
     def test_the_latest_downgrade_drops_exactly_the_module_trigger_sql(self) -> None:

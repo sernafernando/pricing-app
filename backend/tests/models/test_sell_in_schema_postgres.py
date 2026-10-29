@@ -36,10 +36,11 @@ _MIGRATIONS = [
         "20261115_sell_in_bono_queue_alcance",
         "20261210_sell_in_bono_items_montos",
         "20261211_sell_in_bono_tope",
+        "20261212_sell_in_bono_costo",
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos"}
-BONO_TABLES = {"sell_in_bonos_marca", "sell_in_bono_dirty", "sell_in_bono_items"}
+BONO_TABLES = {"sell_in_bonos_marca", "sell_in_bono_dirty", "sell_in_bono_items", "sell_in_bono_consumos"}
 
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
