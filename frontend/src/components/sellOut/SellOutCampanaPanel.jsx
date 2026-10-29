@@ -1,11 +1,13 @@
 import { useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
+import { usePermisos } from '../../contexts/PermisosContext';
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { StatusPill } from '../kit';
 import { apiMessage, formatEntero, formatMonto } from '../sellIn/sellInFormat';
 import SellOutCampanaForm from './SellOutCampanaForm';
 import SellOutConsumos from './SellOutConsumos';
+import SellOutReparto from './SellOutReparto';
 import SellOutTipoCambio from './SellOutTipoCambio';
 import { CANAL_LABELS, TC_MODO_LABELS, beneficio, nombreDeItem, recalculo } from './sellOutFormat';
 import { CAMPANA_VACIA, bodyDeCampana, faltantes, valoresDeCampana } from './sellOutValores';
@@ -34,7 +36,9 @@ function topes(campana) {
  * loads a new one. Otherwise it reads it fresh from `GET /sell-out/campanas/{id}`: its terms, what it
  * credited by channel and its recalculation state; with `sell_out.gestionar` an active one is edited in
  * place (a full replace), voided after an inline confirmation, and, in USD `al_cobro`, given the rate the brand
- * paid at. The backend's messages (422/409) show inline; a 409 on save reads the campaign again.
+ * paid at. The backend's messages (422/409) show inline; a 409 on save reads the campaign again. A `monto_total`
+ * campaign (T26d) shows its split per product (`SellOutReparto`), edited with `sell_out.repartir` (read from the
+ * permissions context: a PM may split without managing campaigns) or `sell_out.gestionar`.
  */
 export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGestionar = false, onSaved, onClose }) {
   const id = useId();
@@ -45,6 +49,7 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
   const [valores, setValores] = useState(CAMPANA_VACIA);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const { tienePermiso } = usePermisos();
 
   const mostrar = (data) => {
     setCampana(data);
@@ -107,6 +112,8 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
   };
 
   const editable = puedeGestionar && (nuevo || campana?.estado === 'activa');
+  const montoTotal = campana?.tipo === 'monto_total';
+  const repartible = montoTotal && campana.estado === 'activa' && (puedeGestionar || tienePermiso('sell_out.repartir'));
   // Editing shows the form; what the form does not hold (origin, recalculation, caps left) stays below it.
   const soloLectura = new Set(['Topes', 'Origen', 'Recálculo']);
   const campos = campana
@@ -123,10 +130,13 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
       ]
     : [];
   const conTipoCambio = editable && !nuevo && campana?.moneda === 'USD' && campana?.tc_modo === 'al_cobro';
-  const visibles = editable ? campos.filter(([label]) => soloLectura.has(label)) : campos;
+  // The total is a monto total campaign's only cap.
+  const aplicables = montoTotal ? campos.filter(([label]) => label !== 'Topes') : campos;
+  const visibles = editable ? aplicables.filter(([label]) => soloLectura.has(label)) : aplicables;
   const canales = campana?.resumen?.por_canal ?? [];
   // Editing, the form holds them; read-only, they are listed when the campaign has any.
-  const montosPorProducto = !editable && campana?.items?.length ? campana.items : [];
+  // A monto total campaign's items are its shares, shown by its reparto section.
+  const montosPorProducto = !editable && !montoTotal && campana?.items?.length ? campana.items : [];
 
   return (
     <div className={panelStyles.panel}>
@@ -200,6 +210,19 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
                   </tbody>
                 </table>
               </section>
+            )}
+            {montoTotal && (
+              <SellOutReparto
+                key={`reparto-${campana.updated_at}`}
+                campana={campana}
+                editable={repartible}
+                busy={busy}
+                onBusyChange={setBusy}
+                onGuardado={(data) => {
+                  mostrar(data);
+                  onSaved(data);
+                }}
+              />
             )}
             <section className={panelStyles.section} aria-label="Acreditado por canal">
               <h3>Acreditado por canal</h3>

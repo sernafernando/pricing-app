@@ -8,6 +8,8 @@ export const CAMPANA_VACIA = {
   tipo: 'por_unidad',
   montoUnit: '',
   porcentaje: '',
+  // `monto_total` only: the campaign's one amount, never 0 (negative: a deduction from profit, S35).
+  montoTotal: '',
   basePorcentaje: 'costo',
   moneda: 'USD',
   tcModo: 'al_cobro',
@@ -17,7 +19,8 @@ export const CAMPANA_VACIA = {
   acumulable: true,
   montoIncluyeIva: false,
   grupoIds: [],
-  // Products with their own amount per unit (`por_unidad` only): `{ itemId, codigo, descripcion, monto }`.
+  // Products with their own amount per unit (`por_unidad` only; a `monto_total` campaign's shares are edited apart,
+  // in its reparto section, so they never enter the form): `{ itemId, codigo, descripcion, monto }`.
   // The API names each stored product (`codigo`/`descripcion`); null when it left the ERP catalog.
   items: [],
 };
@@ -25,6 +28,7 @@ export const CAMPANA_VACIA = {
 const texto = (value) => (value === null || value === undefined ? '' : String(value));
 const opcional = (value) => (String(value ?? '').trim() === '' ? null : String(value).trim());
 const positivo = (value) => Number(value) > 0;
+const distintoDeCero = (value) => Number.isFinite(Number(value)) && Number(value) !== 0;
 
 /** A stored campaign (`SellOutCampanaOut`) as form values. */
 export function valoresDeCampana(campana) {
@@ -36,6 +40,7 @@ export function valoresDeCampana(campana) {
     tipo: campana.tipo,
     montoUnit: texto(campana.monto_unit),
     porcentaje: texto(campana.porcentaje),
+    montoTotal: texto(campana.monto_total),
     basePorcentaje: campana.base_porcentaje ?? 'costo',
     moneda: campana.moneda,
     tcModo: campana.tc_modo ?? 'al_cobro',
@@ -45,7 +50,7 @@ export function valoresDeCampana(campana) {
     acumulable: campana.acumulable,
     montoIncluyeIva: campana.monto_incluye_iva,
     grupoIds: (campana.grupos ?? []).map((g) => g.id),
-    items: (campana.items ?? []).map((i) => ({
+    items: (campana.tipo === 'monto_total' ? [] : campana.items ?? []).map((i) => ({
       itemId: i.item_id,
       codigo: i.codigo ?? null,
       descripcion: i.descripcion ?? null,
@@ -57,9 +62,27 @@ export function valoresDeCampana(campana) {
 /**
  * The request body: the amount of its type only, the FX fields only in USD (the rate only when fixed),
  * empty optionals as null. Amounts stay strings: the backend reads them as Decimal. `items` always goes (a full
- * replace): `[]` in a percentage campaign, which takes no per-product amounts.
+ * replace): `[]` in a percentage campaign, which takes no per-product amounts. A `monto_total` campaign sends its
+ * total and no caps, and no `items` (the API keeps the stored shares, set with `PUT /reparto`), except `[]` to drop
+ * the per-unit amounts of a campaign switched to it.
  */
 export function bodyDeCampana(v) {
+  if (v.tipo === 'monto_total') {
+    const { items: _items, ...comun } = bodyBase(v);
+    return {
+      ...comun,
+      monto_unit: null,
+      porcentaje: null,
+      monto_total: opcional(v.montoTotal),
+      tope_unidades: null,
+      tope_monto: null,
+      ...(v.items.length ? { items: [] } : {}),
+    };
+  }
+  return bodyBase(v);
+}
+
+function bodyBase(v) {
   const porUnidad = v.tipo === 'por_unidad';
   const usd = v.moneda === 'USD';
   const tope = opcional(v.topeUnidades);
@@ -92,6 +115,7 @@ export function faltantes(v) {
   if (v.tipo === 'por_unidad' && !positivo(v.montoUnit)) faltan.push('monto por unidad');
   if (v.tipo === 'por_unidad' && v.items.some((i) => !positivo(i.monto))) faltan.push('monto de cada producto');
   if (v.tipo === 'porcentaje' && !positivo(v.porcentaje)) faltan.push('porcentaje');
+  if (v.tipo === 'monto_total' && !distintoDeCero(v.montoTotal)) faltan.push('monto total');
   if (v.moneda === 'USD' && v.tcModo === 'fijo' && !positivo(v.tipoCambio)) faltan.push('tipo de cambio');
   if (opcional(v.topeUnidades) !== null && !Number.isInteger(Number(v.topeUnidades))) faltan.push('tope de unidades entero');
   if (v.grupoIds.length === 0) faltan.push('productos alcanzados');

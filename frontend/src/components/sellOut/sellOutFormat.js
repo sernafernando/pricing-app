@@ -7,8 +7,9 @@ export const CANAL_LABELS = { ml: 'Mercado Libre', fuera: 'Fuera de ML', tn: 'Ti
 const BASE_LABELS = { costo: 'del costo', precio_neto: 'del precio neto' };
 const RECALCULO_LABELS = { al_dia: 'Al día', en_cola: 'En cola', recalculando: 'Recalculando', fallida: 'Falló' };
 
-/** What a campaign credits per sale: "USD 36,00 por unidad" or "2% del precio neto". */
+/** What a campaign credits per sale: "USD 36,00 por unidad" or "2% del precio neto"; once: "Monto total $ 2.000.000,00". */
 export function beneficio(campana) {
+  if (campana.tipo === 'monto_total') return `Monto total ${formatMonto(campana.monto_total, campana.moneda)}`;
   if (campana.tipo === 'porcentaje') {
     return `${PORCENTAJE.format(Number(campana.porcentaje))}% ${BASE_LABELS[campana.base_porcentaje] ?? ''}`.trim();
   }
@@ -25,3 +26,6 @@ export function recalculo(estado) {
 /** How a per-product amount's product is named: its code (picked in the form, or sent by the API with the stored
  * amount); its `item_id` only when the product left the ERP catalog. */
 export const nombreDeItem = (item) => item.codigo ?? `#${item.itemId}`;
+
+/** A `monto_total` campaign with a negative total: a deduction from profit (S35). */
+export const esDeduccion = (campana) => campana.tipo === 'monto_total' && Number(campana.monto_total) < 0;
