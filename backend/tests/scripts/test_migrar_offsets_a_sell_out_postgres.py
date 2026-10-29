@@ -939,11 +939,6 @@ _RECHAZOS = {
         "Grupo #{g}: el producto 2964 tiene más de un offset",
         0,
     ),
-    "fuera_de_alcance": (
-        [{}, {"item_id": 950}],  # MERCUSYS: outside the TP-LINK group
-        "Grupo #{g}: El producto 950 no está en los grupos de la campaña",
-        1,
-    ),
     "sin_usuario": (
         [{"usuario_id": None}, {"item_id": 2964, "usuario_id": None}],
         "Grupo #{g}: sin usuario; indicar --usuario-id",
@@ -992,33 +987,95 @@ def test_a_group_that_cannot_be_modeled_stores_every_offset_for_review_and_creat
     assert summary["con_error"] == (ids if codigo else [])
 
 
-def test_the_dry_run_reports_a_group_with_a_product_outside_its_reach_as_apply_does(engine, correr) -> None:
-    # A1: the dry run's `pendientes` is what `--apply` keeps for review.
+FUERA_DE_FILTROS = (
+    "Grupo #{g}: los productos {items} no están en sus filtros (venían de sus offsets): "
+    "van a un grupo nuevo de la misma campaña"
+)
+
+
+def test_a_group_product_outside_its_filters_goes_to_a_new_group_of_the_same_campaign(engine, correr) -> None:
+    # Owner: "El grupo lo arma el operador": the legacy money path reaches the group's filters AND the products of its
+    # offsets (`_consumo_grupos`), so a product outside the filters is part of the group, not an error.
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ref = _offset(engine, grupo_id=grupo_id, monto=2, max_monto_usd=2000)
+    o950 = _offset(engine, grupo_id=grupo_id, item_id=950, monto=7)  # MERCUSYS: outside the TP-LINK filter
+    o2964 = _offset(engine, grupo_id=grupo_id, item_id=2964, monto=3)  # inside it
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [c] = _campanas(engine)
+    assert (c["offset_origen_id"], c["monto_unit"], c["tope_monto"]) == (ref, Decimal("2.00"), Decimal("2000.00"))
+    grupos = [g for g, _ in _grupos_de(engine, c["id"])]
+    assert grupos[0] == grupo_id and len(grupos) == 2  # one campaign, one shared cap over both groups
+    nuevo = grupos[1]
+    assert _filtros(engine, grupo_id) == [("TP-LINK", None, None, None)]  # the operator's group is left as it was
+    assert _filtros(engine, nuevo) == [(None, None, None, 950)]
+    assert _items_de(engine, c["id"]) == [(950, Decimal("7.00")), (2964, Decimal("3.00"))]
+    aviso = FUERA_DE_FILTROS.format(g=grupo_id, items="950")
+    assert {i: (filas[i]["resultado"], filas[i]["campana_id"]) for i in (ref, o950, o2964)} == dict.fromkeys(
+        (ref, o950, o2964), ("migrado", str(c["id"]))
+    )
+    assert filas[ref]["avisos"] == aviso
+    assert (summary["migrados"], summary["no_migrados"], summary["pendientes"], _pendientes(engine)) == (3, 0, 0, {})
+
+    grupos_antes = _count(engine, "offset_grupos")
+    code, _, filas = correr("--apply")  # a re-run creates nothing: the new group is reached through the campaign
+
+    assert code == 0 and _count(engine, "offset_grupos") == grupos_antes and len(_campanas(engine)) == 1
+    assert {filas[i]["resultado"] for i in (ref, o950, o2964)} == {"ya migrado"}
+
+
+def test_a_group_without_filters_reaches_the_products_of_its_offsets(engine, correr) -> None:
+    # Group #1 in prod (offsets 14/15/16): the operator picked products, the group has no filter rows.
+    grupo_id = w.grupo(engine, [])
+    ids = [
+        _offset(engine, grupo_id=grupo_id, item_id=2964, monto=20, max_monto_usd=2000),
+        _offset(engine, grupo_id=grupo_id, item_id=2270, monto=20),
+        _offset(engine, grupo_id=grupo_id, item_id=950, monto=20),
+    ]
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [c] = _campanas(engine)
+    assert c["tope_monto"] == Decimal("2000.00")
+    grupos = [g for g, _ in _grupos_de(engine, c["id"])]
+    assert grupos[0] == grupo_id and len(grupos) == 2
+    assert _filtros(engine, grupo_id) == []
+    assert _filtros(engine, grupos[1]) == [(None, None, None, 2964), (None, None, None, 2270), (None, None, None, 950)]
+    assert _items_de(engine, c["id"]) == [(950, Decimal("20.00")), (2270, Decimal("20.00")), (2964, Decimal("20.00"))]
+    assert filas[ids[0]]["avisos"] == FUERA_DE_FILTROS.format(g=grupo_id, items="2964, 2270, 950")
+    assert {filas[i]["resultado"] for i in ids} == {"migrado"}
+    assert (summary["migrados"], summary["pendientes"]) == (3, 0)
+
+
+def test_the_dry_run_plans_a_group_product_outside_its_filters_as_apply_does(engine, correr) -> None:
+    # A1: the dry run reports what `--apply` does and writes nothing.
     grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
     ids = [_offset(engine, grupo_id=grupo_id), _offset(engine, grupo_id=grupo_id, item_id=950)]  # 950: MERCUSYS
-    motivo = f"Grupo #{grupo_id}: El producto 950 no está en los grupos de la campaña"
+    aviso = FUERA_DE_FILTROS.format(g=grupo_id, items="950")
     antes = {table: _count(engine, table) for table in _ESCRITAS}
 
     code, summary, filas = correr()
 
     assert {table: _count(engine, table) for table in _ESCRITAS} == antes
-    assert code == 1
-    assert {i: (filas[i]["resultado"], filas[i]["motivo"]) for i in ids} == dict.fromkeys(ids, ("no migrado", motivo))
+    assert code == 0
+    assert {i: filas[i]["resultado"] for i in ids} == dict.fromkeys(ids, "migraría (dry-run)")
+    assert filas[ids[0]]["avisos"] == aviso
     assert (summary["pendientes"], summary["migrarian"], summary["no_migrados"], summary["con_error"]) == (
-        2,
         0,
         2,
-        ids,
+        0,
+        [],
     )
 
     code_apply, summary_apply, filas_apply = correr("--apply")
 
     assert code_apply == code
-    assert {i: (filas_apply[i]["resultado"], filas_apply[i]["motivo"]) for i in ids} == {
-        i: (filas[i]["resultado"], filas[i]["motivo"]) for i in ids
-    }
-    assert summary_apply["pendientes"] == summary["pendientes"] == len(_pendientes(engine))
-    assert _campanas(engine) == []
+    assert {i: filas_apply[i]["resultado"] for i in ids} == dict.fromkeys(ids, "migrado")
+    assert filas_apply[ids[0]]["avisos"] == aviso
+    assert len(_campanas(engine)) == 1
 
 
 @pytest.mark.parametrize("cual,campana,nuevo", [(0, "2,00", 5), (1, "3,50", 9)], ids=["referencia", "producto"])
