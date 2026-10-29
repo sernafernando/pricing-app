@@ -107,13 +107,13 @@ class TestFrozenTriggerCopy:
         # update trigger (they also queue the cost bonuses): the module is 20261115's set with those statements
         # swapped for 20261212's and 20261213's.
         versions = _BACKEND_ROOT / "alembic" / "versions"
-        costo = base._load_migration(versions / "20261212_sell_in_bono_costo.py")
+        acumulable = base._load_migration(versions / "20261215_sell_in_bono_acumulable.py")
         disparadores = base._load_migration(versions / "20261213_sell_in_bono_costo_triggers.py")
         producto_fn, producto_trg = disparadores.PRODUCTO_UP
 
         def _vigente(s: str) -> str:
             if "CREATE TRIGGER trg_sell_in_bono_bonos_update" in s:
-                return costo._trigger(con_costo=True)
+                return acumulable._trigger(con_acumulable=True)
             if "CREATE OR REPLACE FUNCTION sell_in_bono_enqueue_producto" in s:
                 return producto_fn
             if "CREATE TRIGGER trg_sell_in_bono_productos_marca" in s:
@@ -124,7 +124,7 @@ class TestFrozenTriggerCopy:
         assert [" ".join(s.split()) for s in instalado] == [" ".join(s.split()) for s in bono_queue.UPGRADE_SQL], (
             self._DRIFT.format(
                 "UPGRADE_SQL",
-                f"{_LATEST_TRIGGERS} + 20261212_sell_in_bono_costo + 20261213_sell_in_bono_costo_triggers",
+                f"{_LATEST_TRIGGERS} + 20261213_sell_in_bono_costo_triggers + 20261215_sell_in_bono_acumulable",
             )
         )
 

@@ -211,10 +211,14 @@ def test_it_restores_the_lock_timeout_the_transaction_had(before, step) -> None:
             assert conn.exec_driver_sql("SHOW lock_timeout").scalar() == "17s"
 
 
-def test_the_live_update_trigger_is_this_revisions() -> None:
-    """`bono_queue.UPGRADE_SQL` (what the test worlds install) and this revision's bonus update trigger are the same."""
+def test_the_live_update_trigger_is_this_revisions_plus_the_acumulable_flag() -> None:
+    """`bono_queue.UPGRADE_SQL` (what the test worlds install) is this revision's bonus update trigger with the one field
+    `20261215_sell_in_bono_acumulable` added after it."""
     from app.services.sell_in import bono_queue
 
     vivo = [s for s in bono_queue.UPGRADE_SQL if "CREATE TRIGGER trg_sell_in_bono_bonos_update" in s]
     assert len(vivo) == 1
-    assert " ".join(vivo[0].split()) == " ".join(_module()._trigger(con_costo=True).split())
+    propio = _module()._trigger(con_costo=True)
+    for r in ("OLD", "NEW"):
+        propio = propio.replace(f"{r}.incluye_iva)", f"{r}.incluye_iva, {r}.acumulable)")
+    assert " ".join(vivo[0].split()) == " ".join(propio.split())

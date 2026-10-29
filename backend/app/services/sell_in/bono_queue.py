@@ -46,7 +46,8 @@ over the (few) bonuses each. A trigger does no reconcile work.
 one `20261107_sell_in_bonos_marca` installed, which owns the table,
 `app.models.sell_in.SellInBonoDirty`); later migrations replaced single
 statements and carry their frozen copies: the bonus update trigger
-(`20261211_sell_in_bono_tope`, `20261212_sell_in_bono_costo`) and the product
+(`20261211_sell_in_bono_tope`, `20261212_sell_in_bono_costo`,
+`20261215_sell_in_bono_acumulable`) and the product
 function and update trigger (`20261213_sell_in_bono_costo_triggers`).
 
 The `sell_in.bono` worker drains it. A claimed row is locked (`FOR UPDATE SKIP
@@ -242,11 +243,11 @@ AFTER UPDATE ON sell_in_bonos_marca
 FOR EACH ROW WHEN (
     (OLD.alcance, OLD.marca, OLD.categoria, OLD.pedido_id, OLD.tipo, OLD.monto_unit, OLD.porcentaje, OLD.moneda,
      OLD.fecha_desde, OLD.fecha_hasta, OLD.estado, OLD.usuario_id, OLD.tope_unidades, OLD.tope_monto,
-     OLD.base, OLD.incluye_iva)
+     OLD.base, OLD.incluye_iva, OLD.acumulable)
     IS DISTINCT FROM
     (NEW.alcance, NEW.marca, NEW.categoria, NEW.pedido_id, NEW.tipo, NEW.monto_unit, NEW.porcentaje, NEW.moneda,
      NEW.fecha_desde, NEW.fecha_hasta, NEW.estado, NEW.usuario_id, NEW.tope_unidades, NEW.tope_monto,
-     NEW.base, NEW.incluye_iva)
+     NEW.base, NEW.incluye_iva, NEW.acumulable)
 )
 EXECUTE FUNCTION sell_in_bono_enqueue_bono()
 """,

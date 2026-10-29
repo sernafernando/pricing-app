@@ -130,3 +130,12 @@ def test_it_restores_the_lock_timeout_the_transaction_had(before, step) -> None:
             conn.exec_driver_sql("SET LOCAL lock_timeout = '42s'")
             getattr(_module(), step)()
             assert conn.exec_driver_sql("SHOW lock_timeout").scalar() == "42s"
+
+
+def test_the_live_update_trigger_is_this_revisions() -> None:
+    """`bono_queue.UPGRADE_SQL` (what the test worlds install) and this revision's bonus update trigger are the same."""
+    from app.services.sell_in import bono_queue
+
+    vivo = [s for s in bono_queue.UPGRADE_SQL if "CREATE TRIGGER trg_sell_in_bono_bonos_update" in s]
+    assert len(vivo) == 1
+    assert " ".join(vivo[0].split()) == " ".join(_module()._trigger(con_acumulable=True).split())
