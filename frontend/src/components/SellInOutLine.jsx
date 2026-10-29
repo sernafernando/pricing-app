@@ -15,7 +15,11 @@ function sellOutTitle(sellOut) {
 }
 
 function sellInTitle(sellIn) {
-  return `Descuento de sell in por unidad: ${ars(sellIn.descuento_unit)} · Unidades restantes del lote: ${sellIn.unidades_restantes}`;
+  // A % of cost bonus (T25c) has no purchase lot: it names the bonus instead of the units left.
+  const origen = sellIn.unidades_restantes == null
+    ? `Bono #${sellIn.bono_id} sobre el costo`
+    : `Unidades restantes del lote: ${sellIn.unidades_restantes}`;
+  return `Descuento de sell in por unidad: ${ars(sellIn.descuento_unit)} · ${origen}`;
 }
 
 /**

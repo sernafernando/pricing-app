@@ -30,6 +30,13 @@ describe('SellInOutLine — sell in / sell out companion line', () => {
       );
     });
 
+    it('names the % of cost bonus instead of a lot when the sell in has no units left (T25c)', () => {
+      const bono = { ...SELL_IN, compra_item_id: null, bono_id: 4, unidades_restantes: null };
+      render(<SellInOutLine sellInOut={{ sell_in: bono, sell_out: null }} />);
+      const line = screen.getByText('c/ sell in: ARS $850.50');
+      expect(line.getAttribute('title')).toBe('Descuento de sell in por unidad: ARS $150.00 · Bono #4 sobre el costo');
+    });
+
     it('shows the cost with sell in as pending when it has no ARS value, never a number', () => {
       render(<SellInOutLine sellInOut={{ sell_in: { ...SELL_IN, costo: null }, sell_out: null }} />);
       expect(screen.getByText('c/ sell in: pendiente')).toBeTruthy();

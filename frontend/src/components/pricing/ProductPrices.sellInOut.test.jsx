@@ -51,6 +51,17 @@ describe('cost with sell in and sell out per unit', () => {
     expect(factOf(group, 'Costo')).toHaveTextContent('$ 64.000,00');
   });
 
+  it('names the % of cost bonus in the tooltip when the sell in has no lot (T25c)', async () => {
+    const bono = { compra_item_id: null, bono_id: 4, descuento_unit: 4000, costo: 60000, unidades_restantes: null };
+    preciosAPI.obtenerProducto.mockResolvedValue({
+      data: { ...PRODUCTO_CON_SELL_IN_OUT, sell_in_out: { ...SELL_IN_OUT, sell_in: bono } },
+    });
+    render(<ProductPrices productItemId={4101} showCost />);
+    const group = await facts();
+    const detalle = factOf(group, 'Costo c/ sell in').querySelector('[title]').getAttribute('title');
+    expect(detalle).toBe('Descuento por unidad: $ 4.000,00\nBono #4 sobre el costo');
+  });
+
   it('shows the sell out per unit', async () => {
     render(<ProductPrices productItemId={4101} showCost />);
     expect(factOf(await facts(), 'Sell out por unidad')).toHaveTextContent('$ 1.500,00');

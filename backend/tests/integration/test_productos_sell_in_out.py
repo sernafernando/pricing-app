@@ -111,6 +111,7 @@ class TestPayload:
 
         assert sio["sell_in"] == {
             "compra_item_id": linea,
+            "bono_id": None,
             "descuento_unit": 100.0,
             "costo": 900.0,
             "unidades_restantes": 2,

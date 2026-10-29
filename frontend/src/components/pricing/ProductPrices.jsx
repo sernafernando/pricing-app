@@ -61,7 +61,11 @@ const NoSellInOut = ({ title }) => (
  */
 function SellInCost({ sellIn }) {
   if (!sellIn) return <NoSellInOut title="Sin sell in vigente" />;
-  const detalle = `Descuento por unidad: $ ${formatAmount(sellIn.descuento_unit)}\nUnidades restantes del lote: ${sellIn.unidades_restantes}`;
+  // A % of cost bonus (T25c) has no purchase lot: it names the bonus instead of the units left.
+  const origen = sellIn.unidades_restantes == null
+    ? `Bono #${sellIn.bono_id} sobre el costo`
+    : `Unidades restantes del lote: ${sellIn.unidades_restantes}`;
+  const detalle = `Descuento por unidad: $ ${formatAmount(sellIn.descuento_unit)}\n${origen}`;
   if (isBlank(sellIn.costo)) {
     return (
       <span className={styles.muted} title={detalle}>
