@@ -101,7 +101,8 @@ Newest first. Use for “why did we…” archaeology.
 
 - Filters restrict the **cola**; they are not saved as criteria.
 - Multi-select: open → check options → optional **X** on the chip or **Limpiar** at the bottom of the list.
-- Facets refresh from other active filters (e.g. marca narrows EAN options).
+- Facets refresh from other active filters (e.g. marca narrows available tipos). Selections are **never auto-cleared** when a combo has no rows — the chips stay and the cola shows zero; clear manually if you want.
+- New picks in a dropdown only list values that still exist under the other active filters (cascade).
 - **Costo USD desde/hasta:** ERP `productos_erp.costo` normalized to USD (`moneda_costo=USD` as-is; ARS ÷ tipo de cambio venta). Rows without a convertible cost drop out of the band.
 - **Solo catálogo (default):** cola and facets require `ml_publication_links.catalog_listing = true`. Check **Incluir tradicionales sincronizadas** to also show traditional listings that share a `catalog_product_id` (D13).
 

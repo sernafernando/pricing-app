@@ -52,11 +52,6 @@ export default function ParaGanarScopeFilters({
     costoUsdMax,
     incluirTradicionalSync,
     criteriosAplicados,
-    onMarcasChange,
-    onSubcategoriasChange,
-    onPmsChange,
-    onTiposPublicacionChange,
-    onPricelistsChange,
   });
   const { grupos: tiendasGrupos } = useTiendasOficiales();
   const tiendaOptions = [

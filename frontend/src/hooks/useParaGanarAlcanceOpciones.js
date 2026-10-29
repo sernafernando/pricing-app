@@ -6,9 +6,21 @@ function joinCsv(values) {
   return values.length > 0 ? values.join(',') : undefined;
 }
 
-function pruneSelected(selected, availableKeys) {
-  const allowed = new Set(availableKeys.map(String));
-  return selected.filter((key) => allowed.has(String(key)));
+/** Keep selected keys visible even when the cascade universe no longer lists them. */
+export function mergeStringOptions(available, selected) {
+  const have = new Set((available || []).map(String));
+  const orphans = (selected || []).map(String).filter((key) => key && !have.has(key));
+  return orphans.length > 0 ? [...orphans, ...(available || [])] : available || [];
+}
+
+/** Same for `{ id, nombre }` facet rows (subcategoría, PM, tipo, lista). */
+export function mergeRowOptions(available, selected) {
+  const rows = available || [];
+  const have = new Set(rows.map((row) => String(row.id)));
+  const orphans = (selected || [])
+    .filter((key) => key != null && key !== '' && !have.has(String(key)))
+    .map((key) => ({ id: key, nombre: String(key) }));
+  return orphans.length > 0 ? [...orphans, ...rows] : rows;
 }
 
 const EMPTY = {
@@ -21,7 +33,8 @@ const EMPTY = {
 
 /**
  * Loads cascading facet options for PARA GANAR scope filters.
- * Prunes parent selections that fall outside the current universe.
+ * Options shrink to the current universe; selections are never auto-cleared —
+ * an incompatible combo keeps the chips and the cola shows zero rows.
  */
 export default function useParaGanarAlcanceOpciones({
   marcas,
@@ -36,11 +49,6 @@ export default function useParaGanarAlcanceOpciones({
   costoUsdMax = '',
   incluirTradicionalSync = false,
   criteriosAplicados = null,
-  onMarcasChange,
-  onSubcategoriasChange,
-  onPmsChange,
-  onTiposPublicacionChange,
-  onPricelistsChange,
 }) {
   const [opciones, setOpciones] = useState(EMPTY);
   const [loading, setLoading] = useState(true);
@@ -82,41 +90,13 @@ export default function useParaGanarAlcanceOpciones({
           },
         });
         if (cancelled) return;
-        const next = {
+        setOpciones({
           marcas: data.marcas || [],
           subcategorias: data.subcategorias || [],
           pms: data.pms || [],
           tipos_publicacion: data.tipos_publicacion || [],
           listas_precios: data.listas_precios || [],
-        };
-        setOpciones(next);
-
-        const nextMarcas = pruneSelected(marcas, next.marcas);
-        if (nextMarcas.length !== marcas.length) onMarcasChange(nextMarcas);
-
-        const nextSubcats = pruneSelected(
-          subcategorias,
-          next.subcategorias.map((row) => row.id),
-        );
-        if (nextSubcats.length !== subcategorias.length) onSubcategoriasChange(nextSubcats);
-
-        const nextPms = pruneSelected(
-          pms,
-          next.pms.map((row) => row.id),
-        );
-        if (nextPms.length !== pms.length) onPmsChange(nextPms);
-
-        const nextTipos = pruneSelected(
-          tiposPublicacion,
-          next.tipos_publicacion.map((row) => row.id),
-        );
-        if (nextTipos.length !== tiposPublicacion.length) onTiposPublicacionChange(nextTipos);
-
-        const nextLists = pruneSelected(
-          pricelists,
-          next.listas_precios.map((row) => row.id),
-        );
-        if (nextLists.length !== pricelists.length) onPricelistsChange(nextLists);
+        });
       } catch (err) {
         if (cancelled) return;
         setOpciones(EMPTY);
@@ -133,8 +113,6 @@ export default function useParaGanarAlcanceOpciones({
     return () => {
       cancelled = true;
     };
-    // Parent setters are recreated each render — omit from deps on purpose.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     marcas,
     subcategorias,
@@ -152,7 +130,13 @@ export default function useParaGanarAlcanceOpciones({
   ]);
 
   return {
-    opciones,
+    opciones: {
+      marcas: mergeStringOptions(opciones.marcas, marcas),
+      subcategorias: mergeRowOptions(opciones.subcategorias, subcategorias),
+      pms: mergeRowOptions(opciones.pms, pms),
+      tipos_publicacion: mergeRowOptions(opciones.tipos_publicacion, tiposPublicacion),
+      listas_precios: mergeRowOptions(opciones.listas_precios, pricelists),
+    },
     loading,
     loadError,
     retry: () => setReloadToken((n) => n + 1),
