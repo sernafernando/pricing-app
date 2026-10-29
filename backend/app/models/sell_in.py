@@ -19,6 +19,7 @@ store or cascade the consumptions away. The allocator owns that reference.
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Column,
     Date,
@@ -70,6 +71,14 @@ class SellInBonoMarca(Base):
         ),
         CheckConstraint("tope_unidades IS NULL OR tope_unidades > 0", name="ck_sell_in_bonos_marca_tope_unidades"),
         CheckConstraint("tope_monto IS NULL OR tope_monto > 0", name="ck_sell_in_bonos_marca_tope_monto"),
+        CheckConstraint("base IN ('factura', 'costo_venta')", name="ck_sell_in_bonos_marca_base"),
+        CheckConstraint(
+            "(base = 'factura' AND NOT incluye_iva) "
+            "OR (base = 'costo_venta' AND tipo = 'porcentaje' AND moneda = 'ARS' "
+            "AND alcance IN ('marca', 'categoria', 'modelos'))",
+            name="ck_sell_in_bonos_marca_costo_venta",
+        ),
+        UniqueConstraint("offset_origen_id", name="uq_sell_in_bonos_marca_offset_origen_id"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -94,6 +103,15 @@ class SellInBonoMarca(Base):
     # `moneda`; NULL: no cap. Allocated like sell out's cap (`sell_out.tope`) by the reconcile, which reads it from T24b.
     tope_unidades = Column(Integer, nullable=True)
     tope_monto = Column(Numeric(18, 2), nullable=True)
+    # T25: 'factura' (the invoiced purchases, by invoice date) or 'costo_venta' (a % of the cost recorded on each sale
+    # in [fecha_desde, fecha_hasta], no purchase or invoice; ARS, brand/category/models only). Its sales' discounts
+    # live in `SellInBonoConsumo`.
+    base = Column(String(16), nullable=False, default="factura", server_default="factura")
+    # S33: the loaded % includes VAT and is divided by (1 + each product's VAT rate); only on a 'costo_venta' bonus.
+    incluye_iva = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # The legacy offset (`offsets_ganancia.id`) this bonus was migrated from, one bonus per offset. Provenance only,
+    # no FK: the sell-in tables do not depend on the legacy offsets table.
+    offset_origen_id = Column(Integer, nullable=True)
     descripcion = Column(Text, nullable=True)
     estado = Column(String(16), nullable=False, default="activa", server_default="activa")
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
@@ -264,6 +282,35 @@ class SellInConsumo(Base):
     canal = Column(String(8), nullable=False)
     venta_ref = Column(BigInteger, nullable=False)  # no FK: see module docstring
     item_id = Column(Integer, nullable=False)  # copy of the line's item, for lookups by product
+    fecha_venta = Column(Date, nullable=False)
+    unidades = Column(Integer, nullable=False)
+    descuento_ars = Column(Numeric(18, 2), nullable=False)
+
+
+class SellInBonoConsumo(Base):
+    """The ARS discount one sale got from a 'costo_venta' bonus (T25): a % of the cost recorded on the sale, with no
+    purchase line, so it cannot live in `sell_in_consumos`. One row per (bonus, channel, sale); `venta_ref` is the
+    same sale reference as `SellInConsumo` (no FK)."""
+
+    __tablename__ = "sell_in_bono_consumos"
+    __table_args__ = (
+        UniqueConstraint("bono_id", "canal", "venta_ref", name="uq_sell_in_bono_consumos_bono_canal_venta"),
+        CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_in_bono_consumos_canal"),
+        CheckConstraint("unidades > 0", name="ck_sell_in_bono_consumos_unidades_positivas"),
+        CheckConstraint("descuento_ars >= 0", name="ck_sell_in_bono_consumos_descuento_no_negativo"),
+        Index("ix_sell_in_bono_consumos_canal_venta", "canal", "venta_ref"),
+        Index("ix_sell_in_bono_consumos_item_fecha", "item_id", "fecha_venta"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    bono_id = Column(
+        BigInteger,
+        ForeignKey("sell_in_bonos_marca.id", ondelete="CASCADE", name="fk_sell_in_bono_consumos_bono_id"),
+        nullable=False,
+    )
+    canal = Column(String(8), nullable=False)
+    venta_ref = Column(BigInteger, nullable=False)  # no FK: see `SellInConsumo`
+    item_id = Column(Integer, nullable=False)
     fecha_venta = Column(Date, nullable=False)
     unidades = Column(Integer, nullable=False)
     descuento_ars = Column(Numeric(18, 2), nullable=False)

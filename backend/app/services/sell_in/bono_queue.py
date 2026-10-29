@@ -213,10 +213,12 @@ CREATE TRIGGER trg_sell_in_bono_bonos_update
 AFTER UPDATE ON sell_in_bonos_marca
 FOR EACH ROW WHEN (
     (OLD.alcance, OLD.marca, OLD.categoria, OLD.pedido_id, OLD.tipo, OLD.monto_unit, OLD.porcentaje, OLD.moneda,
-     OLD.fecha_desde, OLD.fecha_hasta, OLD.estado, OLD.usuario_id, OLD.tope_unidades, OLD.tope_monto)
+     OLD.fecha_desde, OLD.fecha_hasta, OLD.estado, OLD.usuario_id, OLD.tope_unidades, OLD.tope_monto,
+     OLD.base, OLD.incluye_iva)
     IS DISTINCT FROM
     (NEW.alcance, NEW.marca, NEW.categoria, NEW.pedido_id, NEW.tipo, NEW.monto_unit, NEW.porcentaje, NEW.moneda,
-     NEW.fecha_desde, NEW.fecha_hasta, NEW.estado, NEW.usuario_id, NEW.tope_unidades, NEW.tope_monto)
+     NEW.fecha_desde, NEW.fecha_hasta, NEW.estado, NEW.usuario_id, NEW.tope_unidades, NEW.tope_monto,
+     NEW.base, NEW.incluye_iva)
 )
 EXECUTE FUNCTION sell_in_bono_enqueue_bono()
 """,

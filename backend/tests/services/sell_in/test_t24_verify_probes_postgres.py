@@ -193,19 +193,20 @@ def test_p2d0_the_live_definition_queues_a_cap_change(engine) -> None:
 
 
 def test_p2d00_the_live_update_trigger_is_the_migrations() -> None:
-    """A1: the module's bonus update trigger and migration 20261211's are the same statement."""
+    """A1: the module's bonus update trigger and the latest migration's (20261212, which extends 20261211's list) are
+    the same statement."""
     import importlib.util
     from pathlib import Path
 
     from app.services.sell_in import bono_queue
 
-    path = Path(__file__).resolve().parents[3] / "alembic/versions/20261211_sell_in_bono_tope.py"
-    spec = importlib.util.spec_from_file_location("m20261211", path)
+    path = Path(__file__).resolve().parents[3] / "alembic/versions/20261212_sell_in_bono_costo.py"
+    spec = importlib.util.spec_from_file_location("m20261212", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     vivo = [s for s in bono_queue.UPGRADE_SQL if "CREATE TRIGGER trg_sell_in_bono_bonos_update" in s]
     assert len(vivo) == 1
-    assert " ".join(vivo[0].split()) == " ".join(mod._trigger(con_tope=True).split())
+    assert " ".join(vivo[0].split()) == " ".join(mod._trigger(con_costo=True).split())
 
 
 def test_p2d_raise_lower_remove_cap_and_void_bonus(engine) -> None:
