@@ -17,10 +17,11 @@ from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInBonoItem
+from app.models.sell_in import SellInBonoItem, SellInBonoMarca
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
+from app.services.sell_in.bonos_alcance import del_alcance
 from app.services.sell_in.costing import get_costing
-from app.services.sell_out import asignacion
+from app.services.sell_out import alcance, asignacion
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
 from tests.services.sell_in import _world as si
@@ -213,6 +214,76 @@ class TestCostBonus:
 
         assert _payload(engine).sell_in.bono_ids == [bono]
         assert _payload(engine, SWITCH) is None
+
+    def test_the_scope_matches_the_panel_rule_for_every_scope_and_edge(self, engine):
+        # Parity with `bonos_alcance.del_alcance`: the resolver matches the scope in one set-based query, and every
+        # (bonus, product) pair it reaches must be the panel's. 951 has neither brand nor category; the router is
+        # listed in no model bonus; the switch and 950 are listed each in another one.
+        sin_nada = 951
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO productos_erp (item_id, codigo, descripcion, costo, moneda_costo, iva) "
+                    "VALUES (:i, 'C951', 'Sin marca', 50000, 'ARS', 21)"
+                ),
+                {"i": sin_nada},
+            )
+        try:
+            ids = [ROUTER, SWITCH, 950, sin_nada]
+            for kw in (
+                {"alcance": "marca", "marca": "TP-LINK"},
+                {"alcance": "marca", "marca": "OTRA"},
+                {"alcance": "categoria", "categoria": "Routers"},
+                {"alcance": "categoria", "categoria": "Sin productos"},
+                {"alcance": "modelos", "modelos": (SWITCH,)},
+                {"alcance": "modelos", "modelos": (950,)},
+            ):
+                _bono_costo(engine, "1.00", **kw)
+            with sessionmaker(bind=engine)() as db:
+                panel = {
+                    (bono.id, item)
+                    for bono in db.query(SellInBonoMarca)
+                    for (item,) in db.query(ProductoERP.item_id).filter(
+                        ProductoERP.item_id.in_(ids), del_alcance(db, bono, ProductoERP.item_id, None)
+                    )
+                }
+                batch = resolver_sell_in_out_batch(db, ids, HOY)
+                resolver = {(x.bono.id, item) for item, xs in batch.bonos_costo.items() for x in xs}
+                payloads = {item: batch.markups(db.get(ProductoERP, item)).payload() for item in ids}
+
+            assert resolver == panel
+            assert len(panel) == 6  # router: brand + category; switch: brand + model; 950: category + model
+            for item in ids:
+                esperados = sorted(bid for bid, i in panel if i == item)
+                assert (payloads[item].sell_in.bono_ids if payloads[item] else []) == esperados
+        finally:
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM productos_erp WHERE item_id = :i"), {"i": sin_nada})
+
+    def test_a_page_with_campaigns_and_cost_bonuses_reads_the_campaigns_as_alone(self, engine):
+        # The cost bonuses ride on the campaigns' query (UNION ALL): the campaigns per product must not change.
+        si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))  # the router has a lot, the switch has none
+        gid = so.grupo(engine, [{"marca": "TP-LINK"}])
+        campanas = [so.campana(engine, [gid], monto_unit="10.00"), so.campana(engine, [gid], monto_unit="20.00")]
+        bono = _bono_costo(engine)
+        ids = [ROUTER, SWITCH, 950]
+        with sessionmaker(bind=engine)() as db:
+            solo = alcance.campanas_por_item(db, {(i, HOY) for i in ids})
+            batch = resolver_sell_in_out_batch(db, ids, HOY)
+            switch = batch.markups(db.get(ProductoERP, SWITCH)).payload()
+            router = batch.markups(db.get(ProductoERP, ROUTER)).payload()
+
+        assert solo == {ROUTER: set(campanas), SWITCH: set(campanas)}
+        assert {i: [x.campana.id for x in xs] for i, xs in batch.campanas.items()} == {
+            i: sorted(cs) for i, cs in solo.items()
+        }
+        assert (switch.sell_in.bono_ids, switch.sell_out.campana_ids, switch.sell_out.monto_unit) == (
+            [bono],
+            campanas,
+            30.0,
+        )
+        assert (router.sell_in.compra_item_id is not None, router.sell_in.bono_ids) == (True, [])
+        assert router.sell_out.campana_ids == campanas
 
     def test_several_cost_bonuses_stack_up_to_the_cost(self, engine):
         primero = _bono_costo(engine, "60.00")
