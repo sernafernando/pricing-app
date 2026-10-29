@@ -13,7 +13,8 @@ export const MODO_MONTO = 'monto';
 const texto = (value) => (value === null || value === undefined ? '' : String(value));
 // Half away from zero, like the backend's Decimal cents, so a negative total rounds as a positive one.
 const redondear = (value) => Math.sign(value) * Math.round(Math.abs(value));
-const aCentavos = (value) => redondear(Number(value) * 100);
+/** An amount in cents, half away from zero: the one rounding rule of rows, totals and the guard. */
+export const aCentavos = (value) => redondear(Number(value) * 100);
 const numero = (value) => (String(value ?? '').trim() === '' ? NaN : Number(value));
 
 /** A stored campaign's shares as rows: `{ itemId, codigo, descripcion, modo, valor }`. */
@@ -34,15 +35,31 @@ export function centavosDeFila(totalCentavos, fila) {
   return fila.modo === MODO_PORCENTAJE ? redondear((totalCentavos * valor) / 100) : aCentavos(valor);
 }
 
-/** What the rows assign and what stays unassigned (total − Σ, same sign as the total), in the campaign currency. */
-export function totalesDeReparto(total, filas) {
+/**
+ * The cents assigned to shares this user does not hold: a brand-scoped PM gets only their brands' shares, while the
+ * server keeps the others (T26c). The server's `resumen.reparto.asignado` minus the stored shares listed here; 0 when
+ * the server could not compute it (`motivo`).
+ */
+export function centavosAjenos(campana) {
+  const asignado = campana.resumen?.reparto?.asignado;
+  if (asignado === null || asignado === undefined) return 0;
+  const totalCentavos = aCentavos(campana.monto_total);
+  const propios = filasDeCampana(campana).reduce((acc, fila) => acc + (centavosDeFila(totalCentavos, fila) ?? 0), 0);
+  return aCentavos(asignado) - propios;
+}
+
+/**
+ * What the rows assign, plus `ajenos` (cents of shares the user cannot see, see `centavosAjenos`), and what stays
+ * unassigned (total − Σ, same sign as the total), in the campaign currency.
+ */
+export function totalesDeReparto(total, filas, ajenos = 0) {
   const totalCentavos = aCentavos(total);
-  const asignado = filas.reduce((acc, fila) => acc + (centavosDeFila(totalCentavos, fila) ?? 0), 0);
+  const asignado = filas.reduce((acc, fila) => acc + (centavosDeFila(totalCentavos, fila) ?? 0), ajenos);
   return { asignado: asignado / 100, sinAsignar: (totalCentavos - asignado) / 100 };
 }
 
 /** Why the API would refuse the rows, in its words (products named by code); null when they can be sent. */
-export function errorDeReparto(total, filas, moneda) {
+export function errorDeReparto(total, filas, moneda, ajenos = 0) {
   const totalCentavos = aCentavos(total);
   for (const fila of filas) {
     const valor = numero(fila.valor);
@@ -56,7 +73,7 @@ export function errorDeReparto(total, filas, moneda) {
       return `El reparto del producto ${nombreDeItem(fila)} tiene que tener el signo del monto total`;
     }
   }
-  const { asignado } = totalesDeReparto(total, filas);
+  const { asignado } = totalesDeReparto(total, filas, ajenos);
   const asignadoCentavos = aCentavos(asignado);
   if (Math.abs(asignadoCentavos) > Math.abs(totalCentavos)) {
     const exceso = (Math.abs(asignadoCentavos) - Math.abs(totalCentavos)) / 100;

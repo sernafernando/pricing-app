@@ -5,10 +5,13 @@ import { sellOutAPI } from '../../services/sellOutAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import SellInBuscador from '../sellIn/SellInBuscador';
 import { apiMessage, formatMonto, formatPorcentaje } from '../sellIn/sellInFormat';
+import SellOutMonto from './SellOutMonto';
 import { nombreDeItem } from './sellOutFormat';
 import {
   MODO_MONTO,
   MODO_PORCENTAJE,
+  aCentavos,
+  centavosAjenos,
   centavosDeFila,
   errorDeReparto,
   filasDeCampana,
@@ -26,22 +29,13 @@ const buscarProductos = (search) =>
     (data?.productos ?? []).map((p) => ({ key: p.item_id, label: `${p.codigo} · ${p.descripcion}`, sub: p.marca, producto: p })),
   );
 
-function Monto({ value, moneda }) {
-  const negativo = Number(value) < 0;
-  return (
-    <span className={negativo ? styles.deduccion : undefined} data-deduccion={negativo ? 'true' : undefined}>
-      {formatMonto(value, moneda)}
-    </span>
-  );
-}
-
 /**
  * The split of a `monto_total` campaign among its products (T26d, S34/S35). Everyone who sees the campaign gets
  * the server's summary (`resumen.reparto`: assigned, assigned to products without sales, unassigned, or why it
  * cannot be computed) and the shares. With `editable` (`sell_out.repartir` or `sell_out.gestionar`, active campaign)
  * the PM adds products, picks "%" or "Monto fijo" for each, sees the live totals and saves with `PUT /reparto`.
  * The client guard mirrors the API's; the API's own 422/403 message shows when it refuses. `onGuardado` gets the
- * campaign as stored; `busy` / `onBusyChange` are the panel's: one request at a time.
+ * campaign as read again after saving; `busy` / `onBusyChange` are the panel's: one request at a time.
  */
 export default function SellOutReparto({ campana, editable = false, busy = false, onBusyChange = () => {}, onGuardado }) {
   const [filas, setFilas] = useState(() => filasDeCampana(campana));
@@ -49,8 +43,10 @@ export default function SellOutReparto({ campana, editable = false, busy = false
   const { moneda } = campana;
   const total = campana.monto_total;
   const resumen = campana.resumen?.reparto;
-  const totalCentavos = Math.round(Number(total) * 100);
-  const enVivo = totalesDeReparto(total, filas);
+  const totalCentavos = aCentavos(total);
+  // A brand-scoped PM holds only their brands' shares; the server keeps (and counts) the others.
+  const ajenos = centavosAjenos(campana);
+  const enVivo = totalesDeReparto(total, filas, ajenos);
 
   const cambiar = (itemId, patch) => setFilas(filas.map((f) => (f.itemId === itemId ? { ...f, ...patch } : f)));
   const agregar = ({ producto }) => {
@@ -62,7 +58,7 @@ export default function SellOutReparto({ campana, editable = false, busy = false
   };
 
   const guardar = async () => {
-    const invalido = errorDeReparto(total, filas, moneda);
+    const invalido = errorDeReparto(total, filas, moneda, ajenos);
     if (invalido) {
       setError(invalido);
       return;
@@ -71,7 +67,12 @@ export default function SellOutReparto({ campana, editable = false, busy = false
     setError(null);
     try {
       const { data } = await sellOutAPI.repartir(campana.id, repartosDeFilas(filas));
-      onGuardado(data);
+      // A scoped PM's PUT answers only their shares: read the campaign again rather than keep that subset.
+      const fresca = await sellOutAPI
+        .detalle(campana.id)
+        .then((r) => r.data)
+        .catch(() => data);
+      onGuardado(fresca);
     } catch (err) {
       setError(apiMessage(err, 'No se pudo guardar el reparto.'));
     } finally {
@@ -91,7 +92,7 @@ export default function SellOutReparto({ campana, editable = false, busy = false
           <div key={label} className={panelStyles.campo}>
             <dt>{label}</dt>
             <dd>
-              <Monto value={value} moneda={moneda} />
+              <SellOutMonto value={value} moneda={moneda} />
             </dd>
           </div>
         ))}
@@ -138,7 +139,7 @@ export default function SellOutReparto({ campana, editable = false, busy = false
                   onChange={(e) => cambiar(fila.itemId, { valor: e.target.value })}
                 />
                 <span className={styles.importe}>
-                  {importe === null ? '—' : <Monto value={importe / 100} moneda={moneda} />}
+                  {importe === null ? '—' : <SellOutMonto value={importe / 100} moneda={moneda} />}
                 </span>
                 <button
                   type="button"
@@ -151,12 +152,17 @@ export default function SellOutReparto({ campana, editable = false, busy = false
               </div>
             );
           })}
+          {ajenos !== 0 && (
+            <p className={panelStyles.hint}>
+              {`Incluye ${formatMonto(ajenos / 100, moneda)} de productos de otras marcas, que no se ven ni se cambian acá.`}
+            </p>
+          )}
           <div className={styles.enVivo} data-testid="reparto-en-vivo">
             <span>
-              Asignado <Monto value={enVivo.asignado} moneda={moneda} />
+              Asignado <SellOutMonto value={enVivo.asignado} moneda={moneda} />
             </span>
             <span>
-              Sin asignar <Monto value={enVivo.sinAsignar} moneda={moneda} />
+              Sin asignar <SellOutMonto value={enVivo.sinAsignar} moneda={moneda} />
             </span>
           </div>
           {error && (
@@ -190,7 +196,7 @@ export default function SellOutReparto({ campana, editable = false, busy = false
                     <span className={panelStyles.mono}>{nombreDeItem(fila)}</span> {fila.descripcion}
                   </td>
                   <td className={tableStyles.num}>{fila.modo === MODO_PORCENTAJE ? formatPorcentaje(fila.valor) : 'Monto fijo'}</td>
-                  <td className={tableStyles.num}>{importe === null ? '—' : <Monto value={importe / 100} moneda={moneda} />}</td>
+                  <td className={tableStyles.num}>{importe === null ? '—' : <SellOutMonto value={importe / 100} moneda={moneda} />}</td>
                 </tr>
               );
             })}

@@ -149,8 +149,9 @@ describe('SellOutCampanaPanel — reparto of a monto total campaign (T26d)', () 
     const user = userEvent.setup();
     const onSaved = vi.fn();
     const guardada = { ...CAMPANA_MONTO_TOTAL, updated_at: '2026-10-29T18:00:00Z' };
-    sellOutAPI.repartir.mockResolvedValue({ data: guardada });
+    sellOutAPI.repartir.mockResolvedValue({ data: { ...guardada, items: [] } });
     abrir(CAMPANA_MONTO_TOTAL, { permisos: ['sell_out.ver', 'sell_out.repartir'], onSaved });
+    sellOutAPI.detalle.mockResolvedValueOnce({ data: guardada }); // the read after saving (the mount already read)
 
     await screen.findByRole('region', { name: 'Reparto del monto total' });
     expect(screen.queryByRole('region', { name: 'Definición' })).not.toBeInTheDocument(); // repartir does not edit the terms
@@ -177,7 +178,28 @@ describe('SellOutCampanaPanel — reparto of a monto total campaign (T26d)', () 
       { item_id: 4172, reparto_monto: '1000000' },
       { item_id: 4180, reparto_porcentaje: '10' },
     ]);
+    // The campaign is read again: a scoped PM's PUT answers only their shares, never what the others see.
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(guardada));
+    expect(sellOutAPI.detalle).toHaveBeenLastCalledWith(70);
+  });
+
+  it('a brand-scoped PM: the other brands\' shares the server keeps count in the live totals and the guard', async () => {
+    const user = userEvent.setup();
+    // The server assigned 1.700.000; this PM sees only the 60 % share (1.200.000): 500.000 are other brands'.
+    abrir({ ...CAMPANA_MONTO_TOTAL, items: [CAMPANA_MONTO_TOTAL.items[0]] }, { permisos: ['sell_out.repartir'] });
+    await screen.findByRole('region', { name: 'Reparto del monto total' });
+    expect(enVivo()).toHaveTextContent('Asignado $ 1.700.000,00');
+    expect(enVivo()).toHaveTextContent('Sin asignar $ 300.000,00');
+    expect(within(reparto()).getByText(/\$ 500\.000,00 de productos de otras marcas/)).toBeInTheDocument();
+
+    const valor = within(reparto()).getByLabelText('Reparto de C13T00R120');
+    await user.clear(valor);
+    await user.type(valor, '80');
+    await user.click(within(reparto()).getByRole('button', { name: 'Guardar reparto' }));
+    expect(within(reparto()).getByRole('alert')).toHaveTextContent(
+      'El reparto ($ 2.100.000,00) supera el monto total ($ 2.000.000,00) en $ 100.000,00',
+    );
+    expect(sellOutAPI.repartir).not.toHaveBeenCalled();
   });
 
   it('a negative total: shares and the unassigned part keep its sign', async () => {

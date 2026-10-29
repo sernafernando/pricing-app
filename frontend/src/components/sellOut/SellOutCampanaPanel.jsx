@@ -49,6 +49,7 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
   const [valores, setValores] = useState(CAMPANA_VACIA);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // The app mounts PermisosProvider at the root; unit tests get the global stub from src/test/setup.js.
   const { tienePermiso } = usePermisos();
 
   const mostrar = (data) => {

@@ -1,7 +1,8 @@
 import { StatusPill } from '../kit';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { formatEntero, formatMonto } from '../sellIn/sellInFormat';
-import { beneficio, esDeduccion } from './sellOutFormat';
+import SellOutMonto from './SellOutMonto';
+import { beneficio, cuantosItems, esDeduccion } from './sellOutFormat';
 import styles from '../sellIn/SellInTable.module.css';
 import repartoStyles from './SellOutReparto.module.css';
 
@@ -37,32 +38,17 @@ export default function SellOutCampanasTable({ campanas, selectedId, onSelect })
                 {campana.offset_origen_id != null && <div className={styles.sub}>{`Del offset #${campana.offset_origen_id}`}</div>}
               </td>
               <td>
-                {campana.tipo === 'monto_total' ? (
-                  <>
-                    <div>
-                      Monto total{' '}
-                      <span
-                        className={esDeduccion(campana) ? repartoStyles.deduccion : undefined}
-                        data-deduccion={esDeduccion(campana) ? 'true' : undefined}
-                      >
-                        {formatMonto(campana.monto_total, campana.moneda)}
-                      </span>
-                    </div>
-                    {esDeduccion(campana) && <div className={`${styles.sub} ${repartoStyles.deduccion}`}>Deducción de ganancia</div>}
-                    {campana.items?.length > 0 && (
-                      <div className={styles.sub}>
-                        {campana.items.length === 1 ? '1 producto con reparto' : `${campana.items.length} productos con reparto`}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div>{beneficio(campana)}</div>
-                )}
-                {campana.tipo !== 'monto_total' && campana.items?.length > 0 && (
-                  <div className={styles.sub}>
-                    {campana.items.length === 1 ? '1 monto por producto' : `${campana.items.length} montos por producto`}
-                  </div>
-                )}
+                <div>
+                  {campana.tipo === 'monto_total' ? (
+                    <>
+                      Monto total <SellOutMonto value={campana.monto_total} moneda={campana.moneda} />
+                    </>
+                  ) : (
+                    beneficio(campana)
+                  )}
+                </div>
+                {esDeduccion(campana) && <div className={`${styles.sub} ${repartoStyles.deduccion}`}>Deducción de ganancia</div>}
+                {campana.items?.length > 0 && <div className={styles.sub}>{cuantosItems(campana)}</div>}
               </td>
               <td>{`${formatDateOnly(campana.fecha_desde, DIA)} – ${formatDateOnly(campana.fecha_hasta, DIA)}`}</td>
               <td className={styles.num}>

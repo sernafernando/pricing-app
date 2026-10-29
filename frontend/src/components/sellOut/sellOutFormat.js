@@ -29,3 +29,10 @@ export const nombreDeItem = (item) => item.codigo ?? `#${item.itemId}`;
 
 /** A `monto_total` campaign with a negative total: a deduction from profit (S35). */
 export const esDeduccion = (campana) => campana.tipo === 'monto_total' && Number(campana.monto_total) < 0;
+
+/** "2 montos por producto" (per unit) or "2 productos con reparto" (`monto_total`). */
+export function cuantosItems(campana) {
+  const n = campana.items?.length ?? 0;
+  if (campana.tipo === 'monto_total') return n === 1 ? '1 producto con reparto' : `${n} productos con reparto`;
+  return n === 1 ? '1 monto por producto' : `${n} montos por producto`;
+}
