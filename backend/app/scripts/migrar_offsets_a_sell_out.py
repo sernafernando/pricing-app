@@ -12,16 +12,18 @@ stamped with `offset_origen_id`:
   subcategoria_id / item_id). A legacy offset reaches a product matching ANY of
   its fields and a group matches ANY of its rows, so the reach is the same;
 - the offsets of one group (same `grupo_id`) become ONE campaign linked to that
-  EXISTING group (its filters are the reach), as the legacy money path applies
-  them: each offset with a product gives it its own amount (`items`), the
+  EXISTING group, as the legacy money path applies them: the group reaches its
+  filters AND the products of its offsets (the operator builds it from both; it
+  may have no filters), so the products its filters miss go to a NEW group with
+  one `item_id` filter each, linked to the same campaign (one shared cap); each
+  offset with a product gives it its own amount (`items`), the
   campaign's `monto_unit` is the first offset's (by id: what a sale reached only
   by the filters gets), the cap comes from the first offset with a limit, the
   dates span the group's. The first offset is the campaign's origin; the others
   are reported migrated in it. The group migrates whole or not at all: mixed
   types or currencies, a non-positive amount, a product given twice, an offset
-  other than the first without a product, a product outside the group's reach,
-  no user or a cap or channel a campaign cannot hold (below) keep every offset of
-  the group in the review table;
+  other than the first without a product, no user or a cap or channel a
+  campaign cannot hold (below) keep every offset of the group in the review table;
 - `monto` -> `monto_unit` in the offset's `moneda`; a USD campaign gets the
   service's default FX mode (`al_cobro`), the offset's rate is not kept;
 - `max_unidades` -> `tope_unidades`; `max_monto_usd` -> `tope_monto` (USD);
@@ -53,8 +55,8 @@ run leaves the table as it is; its summary counts what `--apply` would keep ther
 (`pendientes`).
 
 Dry run is the DEFAULT: it only validates (`validar_campos`, `validar` for a
-group, plus each per-product amount against the existing group's reach, as
-`--apply` does when it stores them) and writes nothing. A single offset's new
+group, and it plans the new group of the products outside the existing group's
+filters, as `--apply` creates it) and writes nothing. A single offset's new
 group is built from its own scope and carries no per-product amount, so its reach
 holds by construction. `--apply` loads each offset, or each group, in its own transaction
 (its campaign and a new group commit together, or nothing does). Exits 1 when a
@@ -86,6 +88,7 @@ from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
+from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoMarca
 from app.models.sell_out import SellOutCampana, SellOutCampanaItem
 from app.schemas.sell_out import ITEMS_MAX, NOMBRE_MAX, SellOutCampanaIn
@@ -341,7 +344,7 @@ def _planear_grupo(
             tipo="por_unidad",
             monto_unit=_monto(ref.monto),
             moneda=moneda,
-            grupo_ids=[grupo_id],  # the existing group: its filters already define the reach
+            grupo_ids=[grupo_id],  # the existing group; products outside its filters get a second one (`_grupo`)
             items=[{"item_id": o.item_id, "monto_unit": _monto(o.monto)} for o in con_item],
             **condiciones,
         )
@@ -516,17 +519,42 @@ def _grupo_migrado(db: Session, grupo_id: int, offsets: list[OffsetGanancia], ca
     return salida
 
 
-def _comprobar_alcance(db: Session, grupo_id: int, items) -> None:
-    """Dry run: refuses a per-product amount outside the EXISTING group's reach with the error `--apply` gets from the
-    service (`campanas._asignar_items`), resolving the group's reach with the campaigns' own rule
-    (`alcance.productos_de_grupo`), read-only: a dry run creates no campaign."""
+def _fuera_de_filtros(db: Session, grupo_id: int, items) -> list[int]:
+    """The per-product amounts the EXISTING group's filters do not reach, in offset order. The operator builds a group
+    from filters and from the products of its offsets, and the legacy money path reaches both (`_consumo_grupos`),
+    so these products belong to the group even when no filter covers them (a group may have no filters at all)."""
     if not items:
-        return
+        return []
     pedidos = [item.item_id for item in items]
     alcanzados = alcance.productos_de_grupo(db, grupo_id, pedidos)
-    for item_id in pedidos:
-        if item_id not in alcanzados:
-            raise campanas.SellOutError(f"El producto {item_id} no está en los grupos de la campaña")
+    return [item_id for item_id in pedidos if item_id not in alcanzados]
+
+
+def _inexistentes(db: Session, item_ids: list[int]) -> list[int]:
+    """The products a legacy offset names that no longer exist (a legacy table may lack the product FK). An existing
+    product is always reached by a row holding only its `item_id` (`alcance.filtro_alcanza` is a plain match), so with
+    this check the dry run plans exactly the products' group `--apply` stores."""
+    if not item_ids:
+        return []
+    existen = {i for (i,) in db.query(ProductoERP.item_id).filter(ProductoERP.item_id.in_(item_ids))}
+    return [i for i in item_ids if i not in existen]
+
+
+def _grupo_de_productos(db: Session, grupo_id: int, item_ids: list[int], usuario_id: int) -> int:
+    """A new group with one `item_id` filter per product, linked to the same campaign so the campaign reaches what the
+    legacy group reached. The operator's group is left as it is: new filter rows there would change what the legacy
+    screens show."""
+    grupo = OffsetGrupo(
+        nombre=f"Grupo #{grupo_id}: productos de sus offsets"[:_GRUPO_NOMBRE_MAX],
+        descripcion=f"Productos de los offsets del grupo #{grupo_id} fuera de sus filtros, migrado a sell out",
+        usuario_id=usuario_id,
+    )
+    db.add(grupo)
+    db.flush()
+    for item_id in item_ids:
+        db.add(OffsetGrupoFiltro(grupo_id=grupo.id, item_id=item_id))
+    db.flush()
+    return grupo.id
 
 
 def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id, apply: bool) -> list[_Resultado]:
@@ -550,12 +578,29 @@ def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id,
             for o in offsets
         ]
     campana_id = None
+    avisos = list(plan.avisos)  # the moved products are only reported when the campaign is (or would be) created
     try:
+        fuera = _fuera_de_filtros(db, grupo_id, plan.data.items)
+        inexistentes = _inexistentes(db, fuera)
+        if inexistentes:
+            # `--apply` would fail on the new group's product FK; both runs refuse it the same way, before writing.
+            motivo = f"Grupo #{grupo_id}: el producto {', '.join(map(str, inexistentes))} de sus offsets no existe; "
+            motivo += "revisar a mano"
+            return [
+                _Resultado(_fila(o, NO_MIGRADO, motivo=motivo, avisos=avisos), o, None, (motivo, avisos))
+                for o in offsets
+            ]
+        if fuera:
+            avisos.append(
+                f"Grupo #{grupo_id}: los productos {', '.join(map(str, fuera))} no están en sus filtros "
+                "(venían de sus offsets): van a un grupo nuevo de la misma campaña"
+            )
         if apply:
+            if fuera:
+                plan.data.grupo_ids = [grupo_id, _grupo_de_productos(db, grupo_id, fuera, plan.usuario_id)]
             campana_id = campanas.crear_campana(db, plan.data, plan.usuario_id, offset_origen_id=offsets[0].id).id
         else:
             campanas.validar(db, plan.data)  # the group exists: its id is checked too
-            _comprobar_alcance(db, grupo_id, plan.data.items)
     except (campanas.SellOutError, SQLAlchemyError) as exc:
         db.rollback()
         if isinstance(exc, SQLAlchemyError):
@@ -575,7 +620,7 @@ def _grupo(db: Session, offsets: list[OffsetGanancia], hoy, default, usuario_id,
     )
     return [
         _Resultado(
-            _fila(o, resultado, campana_id, avisos=plan.avisos if i == 0 else [otro, *plan.avisos]),
+            _fila(o, resultado, campana_id, avisos=avisos if i == 0 else [otro, *avisos]),
             o,
             vencido=plan.vencido,
             nueva=i == 0,
