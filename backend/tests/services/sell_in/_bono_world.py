@@ -20,7 +20,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 from sqlalchemy import Engine, text
 
 from app.models.pedido_compra_linea_facturada import PedidoCompraLineaFacturada
-from app.models.sell_in import SellInBonoDirty, SellInBonoItem, SellInBonoMarca
+from app.models.sell_in import SellInBonoConsumo, SellInBonoDirty, SellInBonoItem, SellInBonoMarca
 from app.models.tipo_cambio import TipoCambio
 from app.services.sell import queue as sell_queue
 from app.services.sell_in import bono_queue
@@ -44,6 +44,7 @@ TABLES = [
     w.ProductoERP.__table__,
     SellInBonoMarca.__table__,
     SellInBonoItem.__table__,
+    SellInBonoConsumo.__table__,
     *_SELL_IN,
     PedidoCompraLineaFacturada.__table__,
     TipoCambio.__table__,
@@ -99,7 +100,7 @@ def clean(engine: Engine) -> None:
         conn.execute(
             text(
                 "UPDATE productos_erp SET marca = CASE item_id WHEN 950 THEN 'MERCUSYS' ELSE 'TP-LINK' END, "
-                "categoria = NULL"
+                "categoria = NULL, iva = NULL"
             )
         )
         conn.execute(text("DELETE FROM sell_in_bono_dirty"))
@@ -166,6 +167,68 @@ def bono_alcance(
                 text("INSERT INTO sell_in_bono_items (bono_id, item_id) VALUES (:b, :i)"), {"b": bono_id, "i": item_id}
             )
     return bono_id
+
+
+def bono_costo(
+    engine: Engine,
+    porcentaje: str = "3.00",
+    *,
+    alcance: str = "marca",
+    marca: Optional[str] = TPLINK,
+    categoria: Optional[str] = None,
+    modelos: Tuple[int, ...] = (),
+    incluye_iva: bool = False,
+    desde: date = date(2026, 10, 1),
+    hasta: date = date(2026, 10, 31),
+    estado: str = "activa",
+    tope_unidades: Optional[int] = None,
+    tope_monto: Optional[str] = None,
+) -> int:
+    """A % of the sale's cost bonus (T25, `base = 'costo_venta'`): ARS, over a brand, a category or models."""
+    with engine.begin() as conn:
+        bono_id = conn.execute(
+            text(
+                "INSERT INTO sell_in_bonos_marca (base, alcance, marca, categoria, tipo, porcentaje, moneda, incluye_iva, "
+                "fecha_desde, fecha_hasta, estado, tope_unidades, tope_monto, usuario_id) VALUES ('costo_venta', :a, "
+                ":m, :c, 'porcentaje', :pct, 'ARS', :iva, :d, :h, :e, :tu, :tm, 7) RETURNING id"
+            ),
+            {
+                "a": alcance,
+                "m": marca if alcance == "marca" else None,
+                "c": categoria,
+                "pct": porcentaje,
+                "iva": incluye_iva,
+                "d": desde,
+                "h": hasta,
+                "e": estado,
+                "tu": tope_unidades,
+                "tm": tope_monto,
+            },
+        ).scalar()
+        for item_id in modelos:
+            conn.execute(
+                text("INSERT INTO sell_in_bono_items (bono_id, item_id) VALUES (:b, :i)"), {"b": bono_id, "i": item_id}
+            )
+    return bono_id
+
+
+def set_iva(engine: Engine, item_id: int, iva: Optional[float]) -> None:
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE productos_erp SET iva = :v WHERE item_id = :i"), {"v": iva, "i": item_id})
+
+
+def bono_consumos(engine: Engine) -> List[Tuple[int, str, int, int, date, int, Decimal]]:
+    """`(bono_id, canal, venta_ref, item_id, fecha_venta, unidades, descuento_ars)` of the cost bonuses."""
+    with engine.connect() as conn:
+        return [
+            tuple(r)
+            for r in conn.execute(
+                text(
+                    "SELECT bono_id, canal, venta_ref, item_id, fecha_venta, unidades, descuento_ars "
+                    "FROM sell_in_bono_consumos ORDER BY bono_id, fecha_venta, canal, venta_ref"
+                )
+            )
+        ]
 
 
 def valor_de_modelo(
