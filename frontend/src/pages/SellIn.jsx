@@ -318,7 +318,7 @@ export default function SellIn() {
           onClick={() => cambiarTab('sell-in')}
         >
           <span>Sell in</span> <span className={styles.srOnly}>·</span>{' '}
-          <span className={styles.tabCount}>{conteo ? conteo.todas.toLocaleString('es-AR') : '…'}</span>
+          <span className={styles.tabCount}>{conteo ? conteo.todas.toLocaleString('es-AR') : error ? '—' : '…'}</span>
         </button>
         {puedeVerSellOut && (
           <button
@@ -332,7 +332,7 @@ export default function SellIn() {
             onClick={() => cambiarTab(TAB_SELL_OUT)}
           >
             <span>Sell out</span> <span className={styles.srOnly}>·</span>{' '}
-            <span className={styles.tabCount}>{campanas.lista ? campanas.lista.total.toLocaleString('es-AR') : '…'}</span>
+            <span className={styles.tabCount}>{campanas.lista ? campanas.lista.total.toLocaleString('es-AR') : campanas.error ? '—' : '…'}</span>
           </button>
         )}
       </div>

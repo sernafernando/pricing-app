@@ -146,6 +146,14 @@ describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
     expect(within(chips).getByRole('button', { name: 'Por compra · 2' })).toHaveAttribute('title', 'Los sell in por compra con los filtros de arriba');
   });
 
+  it('a tab whose list failed shows "—" instead of waiting forever', async () => {
+    sellOutAPI.listar.mockRejectedValue(new Error('boom'));
+    sellInAPI.resumen.mockRejectedValue(new Error('boom'));
+    renderWithRouter(<SellIn />);
+    expect(await screen.findByRole('tab', { name: 'Sell out · —' })).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: 'Sell in · —' })).toBeInTheDocument();
+  });
+
   it('the header action follows the tab: "Nuevo sell in" on Sell in, "Nueva campaña" on Sell out', async () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />);
