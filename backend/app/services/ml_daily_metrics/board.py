@@ -119,7 +119,7 @@ from app.models.ml_ads import (
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps, MlShipmentOps
 from app.models.producto import ProductoERP
-from app.models.sell_in import SellInConsumo
+from app.models.sell_in import SellInBonoConsumo, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
 from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_ads.owner import ads_owner_select
@@ -1069,16 +1069,19 @@ class Board:
 
     def _sell_line_sums(self, lines: Any) -> Tuple[Any, List[Any]]:
         """Sell in / sell out per sold line (`venta_ref` = its `item_row_id`, channel 'ml'): `(the lines joined to
-        them, their sums)`. A line's sell out is in ARS like the sell-out screen (`resumen.ARS_FILA`); a USD row
+        them, their sums)`. A line's sell in is its invoice one plus its % of cost bonuses' (T25). A line's sell out is in ARS like the sell-out screen (`resumen.ARS_FILA`); a USD row
         without its rate leaves the line's sell out unknown (pending, never partial nor 0), a campaign whose rate
         is still an estimate makes it estimated. Only the lines inside Total Gauss count (a line whose Total Gauss
         is not known yet, or being recomputed, reads 0 in both line sources): its sell in would read as profit
         without the sale's. `m_*` keep only the lines inside the markup population."""
-        si, so, campana = SellInConsumo, SellOutConsumo, SellOutCampana
+        so, campana = SellOutConsumo, SellOutCampana
+        # Invoice sell in plus the % of cost bonuses' (T25, S31): disjoint units of the sale, so they add up.
+        rows = union_all(
+            *(select(t.venta_ref, t.descuento_ars).where(t.canal == "ml") for t in (SellInConsumo, SellInBonoConsumo))
+        ).subquery("line_sell_in_rows")
         sell_in = (
-            select(si.venta_ref, func.sum(si.descuento_ars).label("ars"))
-            .where(si.canal == "ml")
-            .group_by(si.venta_ref)
+            select(rows.c.venta_ref, func.sum(rows.c.descuento_ars).label("ars"))
+            .group_by(rows.c.venta_ref)
             .subquery("line_sell_in")
         )
         sin_tasa = func.sum(case((and_(campana.moneda != "ARS", so.tc_venta.is_(None)), 1), else_=0))
