@@ -6,7 +6,7 @@ Permiso: Pedile a un administrador acceso a la calculadora de reportes (reportes
 
 ## Para qué sirve
 
-Es una calculadora de precios y costos: permite crear y editar cálculos con costo, comisión de ML, costo de envío, precio final y cuotas, y ver el markup resultante. También muestra el tipo de cambio y constantes de pricing.
+Muestra el historial de cálculos de precios y costos guardados y permite editarlos (costo, comisión de ML, costo de envío, precio final y cuotas), viendo el markup resultante. Para crear uno nuevo se usa la calculadora (Ctrl+P). También usa el tipo de cambio guardado y las constantes de pricing para recalcular.
 
 ## Cómo se usa
 

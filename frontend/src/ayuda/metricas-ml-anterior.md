@@ -20,7 +20,7 @@ En **Detalle de Operaciones** se listan las operaciones con muchas columnas (fec
 
 En **Rentabilidad** se muestra la rentabilidad filtrada.
 
-La ganancia se muestra como * si no tenés permiso de ganancia.
+La ganancia se muestra como *** si no tenés permiso de ganancia.
 
 ## Filtros y columnas
 

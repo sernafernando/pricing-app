@@ -12,13 +12,13 @@ Muestra las métricas de ventas de Tienda Nube: resumen con KPIs, detalle de ope
 
 Arriba dice **Tienda Nube** con tres pestañas: **Resumen**, **Detalle de Operaciones** y **Rentabilidad**.
 
-La barra de filtros permite elegir rango de fechas y recargar. En **Resumen** se ven KPIs y gráficos. En **Detalle de Operaciones** se listan las operaciones con paginación. En **Rentabilidad** se muestra la rentabilidad.
+La barra de filtros permite elegir rango de fechas, filtrar por vendedores y recargar. En **Resumen** se ven KPIs y gráficos. En **Detalle de Operaciones** se listan las operaciones con búsqueda. En **Rentabilidad** se muestra la rentabilidad.
 
 Si hay productos sin costo, se muestra un aviso en la pestaña Resumen.
 
 ## Filtros y columnas
 
-Filtros: fecha.
+Filtros: fecha, vendedores y, en Detalle de Operaciones, solo sin costo.
 
 Columnas de operaciones: fecha, producto, cantidad, precios, costos, markup.
 

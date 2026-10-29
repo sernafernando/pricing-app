@@ -14,11 +14,11 @@ Arriba dice **Dashboard TP-Link** con tres pestañas: **Resumen**, **Detalle de 
 
 La barra de filtros permite elegir rango de fechas (filtros rápidos), categorías y recargar. En **Resumen** se ven KPIs, gráfico de ventas por día, ventas por categoría, por tipo de envío y rankings de top productos por unidades y por facturación (con selector Top 10/25/50).
 
-En **Detalle de Operaciones** se listan las operaciones con paginación y exportación.
+En **Detalle de Operaciones** se listan las operaciones con búsqueda y paginación.
 
 En **Stock** se muestra el stock de TP-Link.
 
-La ganancia se muestra como *** si no tenés permiso.
+Si no tenés permiso para ver la ganancia, las tarjetas y columnas de ganancia y markup no se muestran.
 
 ## Filtros y columnas
 
@@ -29,7 +29,6 @@ Columnas de operaciones: similares a las de Métricas ML (anterior).
 ## Botones y acciones
 
 - **Recargar**: actualiza datos.
-- **Exportar**: descarga operaciones.
 
 ## Preguntas frecuentes
 

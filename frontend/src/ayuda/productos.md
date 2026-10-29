@@ -18,7 +18,7 @@ La tabla se puede ordenar haciendo clic en los encabezados. Cada fila se expande
 
 El selector **Vista** cambia las columnas visibles entre **Normal**, **📊 Cuotas** y **💰 PVP**. El selector **Capa** elige la capa de color (Global o un equipo). Con **Equipos** gestionás los equipos de color.
 
-Los botones **Exportar**, **Calcular Web Transf.**, **Calcular PVP** y **Acciones masivas** aparecen según permisos. **Auto-recalcular** activa o desactiva el recálculo automático de cuotas.
+**Exportar** está siempre disponible; **Calcular Web Transf.**, **Calcular PVP** y **Acciones masivas** aparecen según permisos. **Auto-recalcular** activa o desactiva el recálculo automático de cuotas.
 
 ## Filtros y columnas
 
@@ -46,7 +46,7 @@ Filtro de auditoría (panel **Auditoría**): usuario que modificó, tipo de modi
 ## Preguntas frecuentes
 
 **¿Cómo cambio entre vistas?**
-Usá el botón **Normal / 📊 Cuotas / 💰 PVP** o los atajos Alt+V y Alt+P.
+Usá el botón **Normal / 📊 Cuotas / 💰 PVP** o el atajo Alt+V, que va ciclando entre las tres vistas.
 
 **¿Cómo edito un precio?**
 Hacé clic sobre el precio (si tenés permiso) y escribí el nuevo valor; confirmá con Enter o con ✓, cancelá con ✗ o Esc.
@@ -55,4 +55,4 @@ Hacé clic sobre el precio (si tenés permiso) y escribí el nuevo valor; confir
 Marca el producto como fuera de tarjetas; se puede tildar desde la columna de Rebate.
 
 **¿Los filtros se recuerdan?**
-Los filtros se aplican a la página actual; podés limpiarlos con **Limpiar** o **Limpiar Todos**.
+No se guardan al salir de la pantalla y se aplican al listado completo de productos, no solo a la página visible; podés limpiarlos con **Limpiar** o **Limpiar Todos**.

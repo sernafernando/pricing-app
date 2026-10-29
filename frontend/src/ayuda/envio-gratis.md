@@ -10,18 +10,18 @@ Muestra las publicaciones que tienen envío gratis activado pero cuyo precio reb
 
 ## Cómo se usa
 
-Arriba dice **Envío Gratis**. Se listan las publicaciones con error de envío gratis, con su MLA, precio rebate, estado de auto-fix y estado manual.
+Arriba dice **Alertas de Envío Gratis**. Se listan las publicaciones con error de envío gratis, con su MLA, título, precios, logística y estado de auto-fix.
 
-El botón **Actualizar** recarga la lista. Para cada publicación hay un botón para desactivar el envío gratis manualmente (**Sacar envío gratis manualmente**), que muestra el progreso (cargando/éxito/fallo).
+El botón **Actualizar** recarga la lista. Para cada publicación hay un botón **Sacar envío** (título "Sacar envío gratis manualmente") que desactiva el envío gratis y muestra el progreso (cargando/éxito/fallo).
 
 ## Filtros y columnas
 
-Sin filtros. Columnas: MLA, precio rebate, estado de auto-fix, estado manual, acciones.
+Sin filtros. Columnas: MLA, Título, Precio Publicado, Precio Rebate, Logística, Auto-Fix y Acciones.
 
 ## Botones y acciones
 
 - **Actualizar**: recarga la lista.
-- **Sacar envío gratis manualmente**: desactiva el envío gratis en MercadoLibre para esa publicación.
+- **Sacar envío**: desactiva el envío gratis en MercadoLibre para esa publicación.
 
 ## Preguntas frecuentes
 

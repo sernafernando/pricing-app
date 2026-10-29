@@ -6,7 +6,7 @@ Permiso: Pedile a un administrador el permiso para gestionar la banlist.
 
 ## Para qué sirve
 
-Sirve para mantener una lista de MLAs (y de productos) que se excluyen automáticamente de las exportaciones de rebates y de todas las vistas. Tiene dos pestañas: **🚫 Banlist MLAs** y **📦 Banlist Productos**.
+Sirve para mantener una lista de MLAs que se excluyen de las exportaciones de rebates y una lista de productos que se excluye de todas las vistas y exportaciones. Tiene dos pestañas: **🚫 Banlist MLAs** y **📦 Banlist Productos**.
 
 ## Cómo se usa
 

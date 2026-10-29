@@ -10,7 +10,7 @@ Gestiona los perfiles de medidas (cajas) usados en Tienda Nube: peso, ancho, alt
 
 ## Cómo se usa
 
-Arriba dice **Perfiles de medidas**. La tabla lista los perfiles con nombre, peso, ancho, alto y profundidad. Si tenés permiso, podés crear un perfil nuevo (**Nuevo perfil**), editarlo o eliminarlo.
+Arriba dice **Perfiles de medidas**. La tabla lista los perfiles con nombre, peso, ancho, alto, profundidad y en qué categorías se usa. Si tenés permiso, podés crear un perfil nuevo (**Nuevo perfil**), editarlo o borrarlo.
 
 Al eliminar, si el perfil está en uso por categorías, se avisa cuántas categorías se verían afectadas.
 
@@ -18,13 +18,13 @@ Al eliminar, si el perfil está en uso por categorías, se avisa cuántas catego
 
 Sin filtros.
 
-Columnas: Nombre, Peso, Ancho, Alto, Profundidad, Acciones.
+Columnas: Perfil, Peso, Ancho, Alto, Prof., Se usa en y Acciones.
 
 ## Botones y acciones
 
 - **Nuevo perfil**: crea un perfil.
 - **Editar**: modifica un perfil.
-- **Eliminar**: borra un perfil (con confirmación; avisa si está en uso).
+- **Borrar**: borra un perfil (con confirmación; avisa si está en uso).
 
 ## Preguntas frecuentes
 

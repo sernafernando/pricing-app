@@ -10,7 +10,7 @@ Muestra, en vista producción (EAN con guion + notebooks/PC armada/AIO), los pro
 
 ## Cómo se usa
 
-Arriba dice **Producción**. Los botones son **Actualizar**, **Sincronizar ERP** y, si hay datos, **Desplegar todos / Colapsar todos**. Debajo están los filtros: vista lista/cards, tipo de envío y búsqueda por código o descripción. La vista producción está siempre activa (filtra EAN con guion + Notebooks, NB, PC ARMADA, AIO).
+Arriba dice **Producción**. Los botones son **Actualizar**, **Sincronizar ERP** y, si hay datos y estás en vista lista, **Desplegar todos / Colapsar todos**. Debajo están los filtros: vista lista/cards, tipo de envío y búsqueda por código o descripción. La vista producción está siempre activa (filtra EAN con guion + Notebooks, NB, PC ARMADA, AIO).
 
 La tabla lista los productos con cantidad, paquetes y tipo de envío. Cada fila se expande para ver los componentes (con indicación si alguno se reemplaza). En vista cards se muestra la misma información en tarjetas.
 

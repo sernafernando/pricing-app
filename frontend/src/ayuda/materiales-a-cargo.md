@@ -10,24 +10,24 @@ Gestiona la cuenta corriente de materiales a cargo del personal: cargos, abonos,
 
 ## Cómo se usa
 
-Arriba hay dos pestañas: **Cuentas** y **Herramientas**.
+Arriba hay dos pestañas: **Cuentas Corrientes** y **Herramientas**.
 
-En **Cuentas** se listan las cuentas corrientes de los empleados, con filtro por saldo (solo con saldo) y búsqueda. Al tocar una cuenta se abre el detalle con movimientos (cargos/abonos) paginados. Si tenés permiso de gestión, podés agregar cargo, agregar abono o liquidar (mes/año).
+En **Cuentas Corrientes** se listan las cuentas de los empleados, con filtro **Solo con saldo** y búsqueda. Al tocar una cuenta se abre el detalle con movimientos (cargos/abonos) paginados. Si tenés permiso de gestión, podés usar **Registrar Cargo**, **Registrar Abono** o **Liquidación Mensual** (mes/año).
 
 En **Herramientas** se gestionan las herramientas asignadas a los empleados, con estado (asignado, devuelto, perdido, roto).
 
 ## Filtros y columnas
 
-Cuentas: solo con saldo, búsqueda por nombre.
+Cuentas Corrientes: solo con saldo, búsqueda por nombre o legajo.
 
 Herramientas: (según la vista).
 
 ## Botones y acciones
 
-- **Cargo**: agrega un cargo a la cuenta (si tenés permiso de gestión).
-- **Abono**: agrega un abono (si tenés permiso de gestión).
-- **Liquidar**: liquida el período (mes/año).
-- Agregar/devolver herramientas.
+- **Registrar Cargo**: agrega un cargo a la cuenta (si tenés permiso de gestión).
+- **Registrar Abono**: agrega un abono (si tenés permiso de gestión).
+- **Liquidación Mensual**: liquida el período (mes/año).
+- **Asignar Herramienta** y **Devolver**: agregan o devuelven herramientas.
 
 ## Preguntas frecuentes
 

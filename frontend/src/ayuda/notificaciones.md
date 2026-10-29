@@ -6,23 +6,24 @@ Permiso: Pedile a un administrador acceso a Notificaciones (reportes.ver_notific
 
 ## Para qué sirve
 
-Muestra las notificaciones del sistema (por ejemplo, markup negativo, productos sin precio, etc.), con filtros por tipo, PM, severidad y estado de lectura.
+Muestra las notificaciones del sistema (por ejemplo, markup bajo, stock bajo, precio desactualizado, etc.), con filtros por tipo, PM, urgencia y estado de lectura.
 
 ## Cómo se usa
 
-Arriba dice **Notificaciones**. Se muestra el total y la cantidad de no leídas. Hay filtros por tipo, PM, severidad, solo no leídas y ordenamiento (por severidad, fecha o markup). Se puede ver agrupada o lista.
+Arriba dice **Notificaciones**. Se muestra el total y la cantidad de no leídas. Hay filtros por tipo, PM, urgencia (Urgente/Crítico/Advertencia/Info), solo no leídas y ordenamiento (por urgencia, fecha o markup). Se puede ver agrupada por producto/markup o como lista.
 
-Cada notificación se puede marcar como leída; también hay un botón para marcar todas como leídas. Al expandir una notificación se ven más detalles y se puede setear el precio.
+Al expandir una notificación se marca como leída automáticamente y se ven más detalles (incluido el precio de venta seteado). También hay botones para marcar todas como leídas o no leídas, y acciones **Revisada**, **Ignorar**, **Resuelta** y **Eliminar**.
 
 ## Filtros y columnas
 
-Filtros: tipo, PM, severidad, solo no leídas, vista agrupada/lista, ordenamiento.
+Filtros: tipo, PM, urgencia, solo no leídas, agrupada/lista, ordenamiento.
 
 ## Botones y acciones
 
-- Marcar como leída.
-- Marcar todas como leídas.
-- Expandir para ver detalles y setear precio.
+- **Marcar todas leídas** / **Marcar todas no leídas**.
+- **Limpiar leídas**.
+- **Revisada**, **Ignorar**, **Resuelta** y **Eliminar** en cada notificación.
+- Expandir para ver detalles.
 
 ## Preguntas frecuentes
 

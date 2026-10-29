@@ -10,21 +10,21 @@ Gestiona los impuestos (IVA, retenciones, percepciones, otros) con sus alícuota
 
 ## Cómo se usa
 
-Arriba dice **Impuestos**. La tabla lista los impuestos con nombre, tipo, alícuota, código AFIP y estado. El filtro **Tipo** permite filtrar por IVA/Retención/Percepción/Otro. El filtro **Solo activos** muestra u oculta los inactivos.
+Arriba dice **Impuestos**. Los impuestos se agrupan por tipo en tablas con nombre, jurisdicción, alícuota, no inscripto, convenio ML, mínimos y a qué aplica. El filtro **Tipo** permite filtrar por IVA/Retención/Percepción/Otro. El filtro **Solo activos** muestra u oculta los inactivos.
 
-Si tenés permiso de gestión de proveedores, podés crear, editar y ocultar impuestos.
+Si tenés permiso de gestión de proveedores, podés crear, editar y deshabilitar/habilitar impuestos.
 
 ## Filtros y columnas
 
 Filtros: tipo, solo activos.
 
-Columnas: Nombre, Tipo, Alícuota, Código AFIP, Aplica a, Estado, Acciones.
+Columnas: Nombre, Jurisdicción, Alícuota, No Inscr., Conv. ML, Mínimos, Aplica a y Acciones.
 
 ## Botones y acciones
 
 - **Nuevo**: crea un impuesto (si tenés permiso).
 - **Editar**: modifica un impuesto.
-- **Ocultar/Mostrar**: oculta o muestra un impuesto.
+- **Deshabilitar/Habilitar**: oculta o muestra un impuesto.
 
 ## Preguntas frecuentes
 

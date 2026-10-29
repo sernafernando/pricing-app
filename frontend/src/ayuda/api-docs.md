@@ -10,7 +10,7 @@ Muestra la documentación técnica de la API (OpenAPI) con un explorador interac
 
 ## Cómo se usa
 
-Arriba dice **API docs**. La página carga la documentación de la API y la muestra en un explorador interactivo. Se puede navegar por los endpoints, ver parámetros y respuestas, y probar llamadas.
+La página carga la documentación de la API y la muestra en un explorador interactivo (Scalar), sin encabezado propio. Se puede navegar por los endpoints, ver parámetros y respuestas, y probar llamadas.
 
 Si falla la carga, muestra **No se pudo cargar la documentación de la API.**
 

@@ -10,21 +10,21 @@ Gestiona las fichadas (entradas/salidas), los horarios asignados, las excepcione
 
 ## Cómo se usa
 
-Arriba hay cuatro pestañas: **Fichadas**, **Horarios**, **Excepciones** y **Hikvision**.
+Arriba hay cuatro pestañas: **Fichadas**, **Horarios**, **Excepciones** y **Hikvision** (esta última solo con permiso de gestión).
 
-En **Fichadas** se listan las fichadas con fecha, hora, empleado y puntualidad (a tiempo, tolerancia, tarde). Se pueden filtrar por empleado y fecha.
+En **Fichadas** se listan las fichadas con fecha, entrada/salida y hora, empleado, origen y puntualidad indicada por color (a tiempo, tolerancia, tarde). Se pueden filtrar por empleado, fecha y origen.
 
 En **Horarios** se gestionan los horarios asignados a los empleados (días de la semana, entrada/salida).
 
 En **Excepciones** se gestionan las excepciones de horario.
 
-En **Hikvision** se configura la integración con el sistema de fichaje.
+En **Hikvision** se sincronizan los usuarios del dispositivo y se vinculan con los empleados.
 
 ## Filtros y columnas
 
 Filtros: empleado, fecha.
 
-Columnas Fichadas: fecha, hora, empleado, puntualidad.
+Columnas Fichadas: Fecha, Fichada (entrada/salida y hora), Empleado, Origen, Ubic., Hs Día y Motivo.
 
 ## Botones y acciones
 

@@ -12,20 +12,20 @@ Muestra las cuentas corrientes (saldos) de proveedores y clientes, con la posibi
 
 Arriba hay dos pestañas: **Proveedores** y **Clientes**. Cada una muestra una tabla con el saldo de cada proveedor/cliente.
 
-Hay un filtro por sucursal y por saldo (todos/positivos/negativos). El buscador permite buscar por nombre. El botón **Sincronizar** actualiza los datos desde el ERP (mientras trabaja dice **Sincronizando...**). El botón **Exportar** descarga a Excel.
+Hay un filtro por sucursal y por saldo (todos, con pendiente, con deuda, a favor o sin deuda). El buscador permite buscar por nombre. El botón **Actualizar** sincroniza los datos desde el ERP (mientras trabaja dice **Sincronizando...**). El botón **Exportar Excel** descarga a Excel.
 
 Si falla la carga aparece un error.
 
 ## Filtros y columnas
 
-Filtros: sucursal, saldo (todos/positivos/negativos), búsqueda por nombre.
+Filtros: sucursal, saldo (todos, con pendiente, con deuda, a favor o sin deuda), búsqueda por nombre.
 
-Columnas: ID, Nombre (proveedor/cliente), Saldo, y posiblemente más según el ERP.
+Columnas: Sucursal, ID, Nombre (proveedor/cliente), Monto Total, Abonado y Pendiente.
 
 ## Botones y acciones
 
-- **Sincronizar**: actualiza desde el ERP.
-- **Exportar**: descarga a Excel.
+- **Actualizar**: sincroniza desde el ERP.
+- **Exportar Excel**: descarga a Excel.
 
 ## Preguntas frecuentes
 

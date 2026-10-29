@@ -10,7 +10,7 @@ Es el panel del bot que responde preguntas de pre-venta en MercadoLibre. Permite
 
 ## Cómo se usa
 
-Arriba dice **Bot de Preguntas ML**. Hay un interruptor para encender/apagar el bot (si tenés permiso) y el botón **Actualizar**.
+Arriba dice **Bot de Preguntas ML**. Hay botones **Activar** y **Apagar** para encender/apagar el bot (si tenés permiso) y el botón **Actualizar**.
 
 Las pestañas (según permisos) son: **Preguntas**, **Mensajes**, **Pendientes** y **Configuración**.
 

@@ -12,7 +12,7 @@ Consolida reportes de RRHH: presentismo mensual, sanciones, vacaciones, cuenta c
 
 Arriba hay cinco pestañas: **Presentismo**, **Sanciones**, **Vacaciones**, **Cuenta Corriente** y **Horas Trabajadas**.
 
-Cada pestaña carga su reporte según los filtros (mes/año, área, fechas). El botón **Exportar** descarga el reporte a Excel.
+Cada pestaña tiene sus filtros (mes/año, área, fechas); con **Generar** se carga el reporte y con **Exportar Excel** se descarga.
 
 ## Filtros y columnas
 
@@ -20,8 +20,8 @@ Varían por pestaña: mes/año, área, fechas.
 
 ## Botones y acciones
 
-- **Exportar**: descarga el reporte a Excel.
-- **Recargar**: actualiza datos.
+- **Generar**: carga el reporte según los filtros.
+- **Exportar Excel**: descarga el reporte.
 
 ## Preguntas frecuentes
 

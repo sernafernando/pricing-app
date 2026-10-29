@@ -10,9 +10,9 @@ Gestiona los proveedores de la empresa y sincroniza la lista desde el ERP.
 
 ## Cómo se usa
 
-Arriba dice **Proveedores** con un buscador y un botón **Sincronizar** (que actualiza la lista desde el ERP). La tabla lista los proveedores con sus datos; se puede buscar por nombre.
+Arriba dice **Proveedores** con un buscador y un botón **Sync ERP** (que actualiza la lista desde el ERP). La tabla lista los proveedores con sus datos; se puede buscar por nombre.
 
-El botón **Sincronizar** lanza el sync y muestra el progreso (con un timeout de 90 s). Al terminar se actualiza la lista.
+El botón **Sync ERP** lanza el sync y muestra el progreso; la pantalla espera hasta 90 segundos la confirmación. Al terminar se actualiza la lista.
 
 ## Filtros y columnas
 
@@ -22,7 +22,7 @@ Columnas: datos del proveedor (razón social, CUIT, etc.).
 
 ## Botones y acciones
 
-- **Sincronizar**: actualiza proveedores desde el ERP.
+- **Sync ERP**: actualiza proveedores desde el ERP.
 
 ## Preguntas frecuentes
 
@@ -30,4 +30,4 @@ Columnas: datos del proveedor (razón social, CUIT, etc.).
 Se sincronizan desde el ERP.
 
 **¿Cuánto tarda la sincronización?**
-Hasta 90 segundos.
+La pantalla espera hasta 90 segundos la confirmación; si no llega, el sync puede seguir en el servidor y conviene actualizar la página más tarde.
