@@ -51,19 +51,22 @@ class MontoTotal:
 
 
 class RepartoInvalido(ValueError):
-    """`validar`'s refusal, with what broke for a message to the operator: the product whose share does not have
-    the total's sign (`item_id`), or the shares' sum over the total (`suma`, `total`, both rounded to cents)."""
+    """The shares cannot be split as they stand, with what broke for a message to the operator (`causa`):
+    `signo`, the product whose share does not have the total's sign (`item_id`); `excede`, the shares' sum over
+    the total (`suma`, `total`, both rounded to cents); `sin_iva`, a product without a VAT rate on a campaign
+    loaded with VAT (`item_id`)."""
 
     def __init__(
         self,
         message: str,
         *,
+        causa: str = "excede",
         item_id: Optional[int] = None,
         suma: Optional[Decimal] = None,
         total: Optional[Decimal] = None,
     ) -> None:
         super().__init__(message)
-        self.item_id, self.suma, self.total = item_id, suma, total
+        self.causa, self.item_id, self.suma, self.total = causa, item_id, suma, total
 
 
 def _exacta(c: MontoTotal, item_id: int) -> Decimal:
@@ -84,7 +87,9 @@ def validar(c: MontoTotal) -> None:
     for item_id in c.repartos:
         exacta = _exacta(c, item_id)
         if (exacta < 0) != (total < 0):
-            raise RepartoInvalido(f"product {item_id}'s share {exacta} does not have the total's sign", item_id=item_id)
+            raise RepartoInvalido(
+                f"product {item_id}'s share {exacta} does not have the total's sign", causa="signo", item_id=item_id
+            )
         suma += exacta
     if abs(suma) > abs(total):
         raise RepartoInvalido(
@@ -99,7 +104,7 @@ def cuota(c: MontoTotal, item_id: int) -> Decimal:
         return cargada
     iva = c.ivas.get(item_id)
     if iva is None:
-        raise ValueError(f"product {item_id} has no VAT rate")
+        raise RepartoInvalido(f"product {item_id} has no VAT rate", causa="sin_iva", item_id=item_id)
     return cents(cargada / (1 + Decimal(iva) / CIEN))
 
 

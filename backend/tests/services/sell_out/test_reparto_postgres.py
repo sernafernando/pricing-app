@@ -78,4 +78,5 @@ def test_the_summary_reports_assigned_without_sales_and_unassigned(engine: Engin
         "asignado": Decimal("700.00"),
         "asignado_sin_ventas": Decimal("100.00"),
         "sin_asignar": Decimal("300.00"),
+        "motivo": None,
     }

@@ -5,6 +5,8 @@ what the responses show. The queue is Postgres only: `tests/services/sell_out/te
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -94,7 +96,8 @@ def test_create_a_fixed_total_campaign_without_shares(client, gestor, grupo) -> 
         None,
     )
     assert out["items"] == []
-    reparto = out["resumen"]["reparto"]
+    reparto = dict(out["resumen"]["reparto"])
+    assert reparto.pop("motivo") is None
     assert {k: float(v) for k, v in reparto.items()} == {
         "asignado": 0.0,
         "asignado_sin_ventas": 0.0,
@@ -146,7 +149,7 @@ def test_create_with_shares_returns_them_with_the_product(client, gestor, grupo)
         (f"C{ROUTER}", f"P{ROUTER}", None),
         (f"C{TINTA}", f"P{TINTA}", None),
     ]
-    reparto = {k: float(v) for k, v in out["resumen"]["reparto"].items()}
+    reparto = {k: float(v) for k, v in out["resumen"]["reparto"].items() if k != "motivo"}
     # No sale yet: everything assigned has no sales; the rest is unassigned.
     assert reparto == {"asignado": 1300000.0, "asignado_sin_ventas": 1300000.0, "sin_asignar": 700000.0}
 
@@ -231,7 +234,7 @@ def test_a_negative_total_takes_percent_shares_and_same_sign_fixed_shares(client
     )
 
     assert resp.status_code == 200, resp.text
-    reparto = {k: float(v) for k, v in resp.json()["resumen"]["reparto"].items()}
+    reparto = {k: float(v) for k, v in resp.json()["resumen"]["reparto"].items() if k != "motivo"}
     assert reparto["asignado"] == -8197250.0  # 60 % of -13.662.075 = -8.197.245 plus -5
     assert reparto["sin_asignar"] == -5464825.0
 
@@ -513,14 +516,40 @@ def test_the_summary_only_absorbs_a_split_refusal(client, gestor, grupo, monkeyp
     cid = _crear(client, gestor, grupo)["id"]
 
     def rehusa(*_args):
-        raise reparto.RepartoInvalido("the shares exceed the total", suma=None, total=None)
+        raise reparto.RepartoInvalido("the shares exceed the total", suma=Decimal("3.00"), total=Decimal("2.00"))
 
     monkeypatch.setattr(reparto, "resumen_monto_total", rehusa)
     out = client.get(f"{BASE}/{cid}", headers=gestor).json()
-    assert out["resumen"]["reparto"] == {"asignado": None, "asignado_sin_ventas": None, "sin_asignar": None}
+    assert out["resumen"]["reparto"] == {
+        "asignado": None,
+        "asignado_sin_ventas": None,
+        "sin_asignar": None,
+        "motivo": "El reparto (3.00) supera el monto total (2.00) en 1.00",
+    }
 
     def falla(*_args):
         raise ValueError("an unrelated bug")
 
     monkeypatch.setattr(reparto, "resumen_monto_total", falla)
     assert client.get(f"{BASE}/{cid}", headers=gestor).status_code == 500  # surfaces, never a null summary
+
+
+def test_a_vat_loaded_split_on_a_product_without_vat_does_not_break_the_list(client, gestor, grupo, db) -> None:
+    db.get(ProductoERP, ROUTER).iva = None
+    db.flush()
+    rota = _crear(client, gestor, grupo, monto_incluye_iva=True, items=[{"item_id": ROUTER, "reparto_monto": "5"}])
+    sana = _crear(client, gestor, grupo, items=[{"item_id": TINTA, "reparto_monto": "5"}])
+
+    resp = client.get(BASE, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    por_id = {c["id"]: c["resumen"]["reparto"] for c in resp.json()["items"]}
+    assert por_id[rota["id"]] == {
+        "asignado": None,
+        "asignado_sin_ventas": None,
+        "sin_asignar": None,
+        "motivo": f"El producto {ROUTER} no tiene IVA y el monto se cargó con IVA",
+    }
+    assert float(por_id[sana["id"]]["sin_asignar"]) == 1999995.0
+    assert por_id[sana["id"]]["motivo"] is None
+    assert client.get(f"{BASE}/{rota['id']}", headers=gestor).status_code == 200

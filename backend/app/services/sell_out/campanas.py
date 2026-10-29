@@ -435,12 +435,17 @@ def _validar_suma(db: Session, campana: SellOutCampana) -> None:
         reparto.validar(reparto.MontoTotal(Decimal(campana.monto_total), repartos))
     except reparto.RepartoInvalido as exc:
         db.rollback()
-        if exc.item_id is not None:
-            raise SellOutError(
-                f"El reparto del producto {exc.item_id} tiene que tener el signo del monto total"
-            ) from exc
-        exceso = abs(exc.suma) - abs(exc.total)
-        raise SellOutError(f"El reparto ({exc.suma}) supera el monto total ({exc.total}) en {exceso}") from exc
+        raise SellOutError(mensaje_reparto(exc)) from exc
+
+
+def mensaje_reparto(exc: reparto.RepartoInvalido) -> str:
+    """`reparto.RepartoInvalido` for the operator, in Spanish."""
+    if exc.causa == "signo":
+        return f"El reparto del producto {exc.item_id} tiene que tener el signo del monto total"
+    if exc.causa == "sin_iva":
+        return f"El producto {exc.item_id} no tiene IVA y el monto se cargó con IVA"
+    exceso = abs(exc.suma) - abs(exc.total)
+    return f"El reparto ({exc.suma}) supera el monto total ({exc.total}) en {exceso}"
 
 
 def crear_campana(

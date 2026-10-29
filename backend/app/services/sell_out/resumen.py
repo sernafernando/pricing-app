@@ -20,7 +20,8 @@ Read only. Everything comes from what the allocator already wrote or holds:
   assign, the shares of products with no written row (no sale in the dates:
   "Asignado sin ventas") and the total nobody was given ("Sin asignar"), by
   the allocator's own rule (`reparto.resumen_monto_total`); None amounts when
-  the stored shares cannot be split as they stand (`reparto.RepartoInvalido`).
+  the stored shares cannot be split as they stand (`reparto.RepartoInvalido`,
+  e.g. a product without VAT on a campaign loaded with VAT), with `motivo`.
 
 The query count is fixed for a whole page, whatever the number of campaigns.
 """
@@ -162,11 +163,14 @@ def _repartos(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
         mt = reparto.MontoTotal(Decimal(c.monto_total), repartos.get(c.id, {}), c.monto_incluye_iva, ivas.get(c.id, {}))
         try:
             r = reparto.resumen_monto_total(mt, con_ventas[c.id])
-        except reparto.RepartoInvalido:  # the stored shares cannot be split as they stand; anything else surfaces
-            salida[c.id] = {"asignado": None, "asignado_sin_ventas": None, "sin_asignar": None}
+        except (
+            reparto.RepartoInvalido
+        ) as exc:  # the stored shares cannot be split as they stand; anything else surfaces
+            motivo = campanas_service.mensaje_reparto(exc)
+            salida[c.id] = {"asignado": None, "asignado_sin_ventas": None, "sin_asignar": None, "motivo": motivo}
             continue
         asignado = cents(Decimal(c.monto_total)) - r["sin_asignar"]
-        salida[c.id] = {"asignado": asignado, **r}
+        salida[c.id] = {"asignado": asignado, **r, "motivo": None}
     return salida
 
 

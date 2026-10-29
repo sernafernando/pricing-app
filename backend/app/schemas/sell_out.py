@@ -173,11 +173,13 @@ class SellOutRecalculoOut(BaseModel):
 class SellOutRepartoResumenOut(BaseModel):
     """A `monto_total` campaign's split (`reparto.resumen_monto_total`), in the campaign currency: what its shares
     assign (`asignado`), the shares of products without sales in the dates (`asignado_sin_ventas`) and the total
-    nobody was given (`sin_asignar`). None amounts: the stored shares cannot be split as they stand."""
+    nobody was given (`sin_asignar`). None amounts: the stored shares cannot be split as they stand, and `motivo`
+    says why (else None)."""
 
     asignado: Optional[Decimal]
     asignado_sin_ventas: Optional[Decimal]
     sin_asignar: Optional[Decimal]
+    motivo: Optional[str] = None
 
 
 class SellOutResumenOut(BaseModel):
