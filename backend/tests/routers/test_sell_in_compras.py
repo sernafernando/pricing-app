@@ -359,9 +359,7 @@ def test_create_keeps_a_known_supplier_and_purchase_order(client, gestor, produc
 
     compra = db.get(SellInCompra, data["id"])
     assert compra.proveedor_id == proveedor.id
-    assert _links(db, data["id"]) == [pedido.id]
-    # The legacy column is no longer written: the link table is the only source (T3b-4).
-    assert compra.pedido_compra_id is None
+    assert _links(db, data["id"]) == [pedido.id]  # the link table is the only source (T3b-4; the column is gone)
 
 
 def _links(db, compra_id: int) -> list[int]:
