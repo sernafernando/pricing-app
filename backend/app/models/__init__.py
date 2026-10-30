@@ -496,4 +496,6 @@ __all__ = [
     "ComboComponente",
     "ProductoPropio",
     "MlItemOverride",
+    "GestionFullOverride",
+    "MlFulfillmentLastInbound",
 ]

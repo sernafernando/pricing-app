@@ -89,7 +89,7 @@ def __getattr__(name: str) -> List[JobHandler]:
     if name == "ML_PUBLICATIONS_REGISTRY":
         if _ml_publications_registry is None:
             from app.workers.handlers.gestion_full_inbound import inbound as gestion_full_inbound
-from app.workers.handlers.ml_ads import ads
+            from app.workers.handlers.ml_ads import ads
             from app.workers.handlers.ml_billing import billing
             from app.workers.handlers.ml_promo_refresh import promo_refresh
             from app.workers.handlers.ml_publications import (
