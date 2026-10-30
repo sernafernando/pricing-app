@@ -251,8 +251,9 @@ def anular_compras(
     db: Session = Depends(get_db),
 ) -> dict:
     """Void several purchases at once, all or nothing, each through the single void (same guards, audit and release
-    of units). Already-voided ones are skipped and reported; a missing or refused one makes it a 409 that names each
-    refused purchase and voids none."""
+    of units). Already-voided ones are skipped and reported. Voids none when it is refused, naming each refused
+    purchase: a 422 when all of them are missing, a 409 when one is refused by its guard (a purchase a bonus
+    generated), or a 409 to retry when a deadlock with another writer stopped it."""
     try:
         anuladas, ya_anuladas = anular_masivo.anular_varios(
             db,

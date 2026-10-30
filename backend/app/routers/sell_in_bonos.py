@@ -141,8 +141,8 @@ def anular_bonos(
     db: Session = Depends(get_db),
 ) -> dict:
     """Void several bonuses at once, all or nothing, each through the single void (same audit; the worker then voids
-    what each generated). Already-voided ones are skipped and reported; a missing one makes it a 409 that names it
-    and voids none."""
+    what each generated). Already-voided ones are skipped and reported. Voids none when it is refused: a 422 naming
+    each missing bonus, or a 409 to retry when a deadlock with another writer stopped it."""
     try:
         anuladas, ya_anuladas = anular_masivo.anular_varios(
             db,

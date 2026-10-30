@@ -246,7 +246,9 @@ export default function SellIn() {
 
   const params = useMemo(() => buildSellInParams({ ...filters, aplica: filters.aplica || 'todas' }), [filters]);
   const paramsRef = useRef(params);
-  paramsRef.current = params;
+  useEffect(() => {
+    paramsRef.current = params;
+  }, [params]);
 
   // "Todo lo filtrado" of the purchases, dropped when the filters changed while it was being read.
   const seleccionarComprasFiltradas = async () => {
@@ -293,18 +295,20 @@ export default function SellIn() {
   // leaves the list, so the page it was on may no longer exist: each list goes back to page 1. The void can take a
   // while and the page stays usable, so the reload reads the page and filters on screen when it ends (refs).
   const recargarComprasRef = useRef(null);
-  recargarComprasRef.current = () => {
-    if (offset === 0) cargar();
-    else setOffset(0);
-    bonosVigentes.recargar();
-  };
   const recargarBonosRef = useRef(null);
-  recargarBonosRef.current = () => {
-    if (bonos.offset === 0) bonos.recargar();
-    else bonos.setOffset(0);
-    bonosVigentes.recargar();
-    cargar();
-  };
+  useEffect(() => {
+    recargarComprasRef.current = () => {
+      if (offset === 0) cargar();
+      else setOffset(0);
+      bonosVigentes.recargar();
+    };
+    recargarBonosRef.current = () => {
+      if (bonos.offset === 0) bonos.recargar();
+      else bonos.setOffset(0);
+      bonosVigentes.recargar();
+      cargar();
+    };
+  }, [offset, cargar, bonos.offset, bonos.recargar, bonos.setOffset, bonosVigentes.recargar]);
   const anuladoMasivo = (seleccion, tipoPanel, recargarRef) => (mensaje, { anuladas }) => {
     seleccion.limpiar();
     setAviso(mensaje);

@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import List, Optional
+from typing import Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -335,7 +335,7 @@ def crear_bono(
     return bono
 
 
-def bloquear_bonos(db: Session, bono_ids: List[int]) -> None:
+def bloquear_bonos(db: Session, bono_ids: list[int]) -> None:
     """Bulk void: lock every bonus row up front, in id order, so two bulk voids of the same bonuses never wait on each
     other; each single void then re-takes its own row without waiting."""
     db.query(SellInBonoMarca.id).filter(SellInBonoMarca.id.in_(list(bono_ids))).order_by(

@@ -5,7 +5,7 @@ import styles from './SellInAnularMasivo.module.css';
 /**
  * The bulk void bar of a sell-in list: "N seleccionados", "Seleccionar todo lo filtrado (N)" and "Anular
  * seleccionados", which opens a confirmation pane saying how many records are voided and what is reversed
- * (`revierte`). A refused set (409) voids nothing and lists each refused record with its reason. `onHecho(mensaje,
+ * (`revierte`). A refused set (409, or 422 for unknown ids) voids nothing and lists each refused record with its reason. `onHecho(mensaje,
  * data)` gets what happened and the API's answer (`anuladas`, `ya_anuladas`). `total` is how many of the filtered
  * records can be voided; `nota` says why the rest cannot (purchases a bonus generated).
  */

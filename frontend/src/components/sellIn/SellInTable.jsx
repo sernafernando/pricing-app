@@ -24,15 +24,15 @@ export function CheckPagina({ ids, seleccion, onTogglePagina, label }) {
   );
 }
 
+/** A purchase a brand bonus generated is voided only through its bonus: it has no bulk-void checkbox. */
+const anulable = (compra) => compra.origen !== 'bono_marca';
+
 /**
  * The sell-in purchases list. The chevron opens a row into its lines; a click
  * elsewhere on the row selects it (`onSelect`, the detail panel). A purchase a
  * brand bonus generated carries a "Bono de marca" badge and links to its bonus (`onVerBono`). With `seleccion` (a Set)
  * each voidable row gets a checkbox for the bulk void (`onToggle`, `onTogglePagina`).
  */
-/** A purchase a brand bonus generated is voided only through its bonus: it has no bulk-void checkbox. */
-const anulable = (compra) => compra.origen !== 'bono_marca';
-
 export default function SellInTable({ compras, selectedId, onSelect, onVerBono, seleccion, onToggle, onTogglePagina }) {
   const columnas = COLUMNS + (seleccion ? 1 : 0);
   const [abiertas, setAbiertas] = useState(() => new Set());

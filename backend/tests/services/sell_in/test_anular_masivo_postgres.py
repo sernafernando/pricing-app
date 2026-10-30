@@ -6,11 +6,11 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Iterator
+from typing import Any, Iterator, List, Tuple
 
 import pytest
 from sqlalchemy import Engine, event, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.sell_in import SellInCompra, SellInCompraItem
 from app.services.sell_in import anular_masivo, compras
@@ -31,13 +31,13 @@ def _clean(engine: Engine) -> Iterator[None]:
     w.clean(engine)
 
 
-def _compra_de(engine: Engine, lineas) -> int:
+def _compra_de(engine: Engine, lineas: List[Tuple[int, int, str]]) -> int:
     (linea, *_) = w.compra(engine, lineas)
     with sessionmaker(bind=engine)() as db:
         return db.get(SellInCompraItem, linea).compra_id
 
 
-def _anular(db, ids):
+def _anular(db: Session, ids: List[int]) -> Tuple[List[int], List[int]]:
     return anular_masivo.anular_varios(
         db,
         ids,
@@ -49,16 +49,16 @@ def _anular(db, ids):
     )
 
 
-def test_the_locks_of_every_product_are_taken_first_in_item_id_order(engine):
+def test_the_locks_of_every_product_are_taken_first_in_item_id_order(engine: Engine) -> None:
     # Purchase A holds the higher item, B the lower one: one recompute per purchase alone would lock 2964 then 950.
     a = _compra_de(engine, [(2964, 2, "100.00")])
     b = _compra_de(engine, [(950, 2, "100.00"), (2270, 1, "50.00")])
-    locks = []
+    locks: List[List[int]] = []
     with sessionmaker(bind=engine)() as db:
         conn = db.connection()
 
         @event.listens_for(conn, "before_cursor_execute")
-        def _capturar(_conn, _cursor, statement, parameters, _context, _many):
+        def _capturar(_conn: Any, _cursor: Any, statement: str, parameters: Any, _context: Any, _many: bool) -> None:
             if "pg_advisory_xact_lock" in statement:
                 locks.append(list(parameters["ids"]))
 
@@ -69,17 +69,17 @@ def test_the_locks_of_every_product_are_taken_first_in_item_id_order(engine):
         assert {db.get(SellInCompra, x).estado for x in (a, b)} == {"anulada"}
 
 
-def test_the_purchase_rows_are_locked_in_id_order_before_the_product_locks(engine):
+def test_the_purchase_rows_are_locked_in_id_order_before_the_product_locks(engine: Engine) -> None:
     # The single void locks its purchase row, then (in its recompute) the products: the bulk one keeps that order, or a
     # single void and a bulk void of the same purchase would each wait on the lock the other holds.
     a = _compra_de(engine, [(2964, 2, "100.00")])
     b = _compra_de(engine, [(950, 2, "100.00")])
-    sentencias = []
+    sentencias: List[Any] = []
     with sessionmaker(bind=engine)() as db:
         conn = db.connection()
 
         @event.listens_for(conn, "before_cursor_execute")
-        def _capturar(_conn, _cursor, statement, parameters, _context, _many):
+        def _capturar(_conn: Any, _cursor: Any, statement: str, parameters: Any, _context: Any, _many: bool) -> None:
             if "pg_advisory_xact_lock" in statement:
                 sentencias.append("productos")
             elif "FOR UPDATE" in statement and "sell_in_compras" in statement:
@@ -94,7 +94,7 @@ def test_the_purchase_rows_are_locked_in_id_order_before_the_product_locks(engin
     assert "ORDER BY sell_in_compras.id" in statement
 
 
-def test_a_refused_bulk_void_leaves_the_released_units_where_they_were(engine):
+def test_a_refused_bulk_void_leaves_the_released_units_where_they_were(engine: Engine) -> None:
     # The first purchase's recompute releases its units before the missing one is reached: the rollback must undo it.
     a = _compra_de(engine, [(2964, 5, "100.00")])
     w.venta(engine, "fuera", 2964, 2, w.date(2026, 10, 5))
@@ -112,13 +112,13 @@ def test_a_refused_bulk_void_leaves_the_released_units_where_they_were(engine):
         assert db.get(SellInCompra, a).estado != "anulada"
 
 
-def test_a_deadlock_with_another_writer_refuses_the_whole_bulk_void_with_a_retry(engine):
+def test_a_deadlock_with_another_writer_refuses_the_whole_bulk_void_with_a_retry(engine: Engine) -> None:
     # Another transaction holds product 950's lock; the bulk void takes A's row and waits on 950; the other one then
     # updates A's row: a lock cycle Postgres breaks by aborting the bulk void (40P01). Nothing is voided, and the
     # caller gets a refusal it can retry, never a 500.
     a = _compra_de(engine, [(950, 2, "100.00")])
-    resultado: list = []
-    pid: list = []
+    resultado: List[Any] = []
+    pid: List[int] = []
 
     def bulk() -> None:
         with sessionmaker(bind=engine)() as db:
@@ -146,7 +146,7 @@ def test_a_deadlock_with_another_writer_refuses_the_whole_bulk_void_with_a_retry
         assert db.get(SellInCompra, a).estado == "activa"
 
 
-def _esperar_bloqueado(engine: Engine, pid: list) -> None:
+def _esperar_bloqueado(engine: Engine, pid: List[int]) -> None:
     """Waits (bounded) until the bulk void's backend is waiting on a lock."""
     sql = text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :p")
     for _ in range(100):
