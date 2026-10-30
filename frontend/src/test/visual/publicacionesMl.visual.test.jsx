@@ -97,6 +97,19 @@ const API_GETS = vi.hoisted(() => ({
   '/auditoria/tipos-accion': {
     tipos: ['modificar_precio_clasica', 'modificar_precio_web', 'modificar_porcentaje_rebate', 'desmarcar_out_of_cards', 'activar_web_transferencia'],
   },
+  // The product panel's sell-in lots (`SellInLotes`): a used-up lot, the current one, a queued USD one, a future one.
+  '/sell-in/productos/4101/lotes': {
+    item_id: 4101,
+    lotes: [
+      { numero: 1, compra_item_id: 501, compra_id: 41, proveedor: 'Mayorista Sur SRL', facturas: ['A-0003-00012345'], moneda: 'ARS', fecha_desde: '2026-09-01', cantidad: 20, consumidas: 20, restantes: 0, descuento_unit: '1250.000000', estado: 'agotado' },
+      { numero: 2, compra_item_id: 502, compra_id: 42, proveedor: 'Mayorista Sur SRL', facturas: ['A-0003-00012390', 'A-0003-00012391'], moneda: 'ARS', fecha_desde: '2026-10-05', cantidad: 30, consumidas: 12, restantes: 18, descuento_unit: '980.333333', estado: 'vigente' },
+      { numero: 3, compra_item_id: 503, compra_id: 43, proveedor: null, facturas: [], moneda: 'USD', fecha_desde: '2026-10-08', cantidad: 10, consumidas: 0, restantes: 10, descuento_unit: '10500.000000', estado: 'en_cola' },
+      { numero: 4, compra_item_id: 504, compra_id: 44, proveedor: 'TP-Link Argentina', facturas: ['B-0001-00000077'], moneda: 'ARS', fecha_desde: '2026-11-15', cantidad: 50, consumidas: 0, restantes: 50, descuento_unit: '700.000000', estado: 'desde' },
+    ],
+    proxima: { numero: 2, compra_item_id: 502, descuento_unit: '980.333333', restantes: 18, siguiente: { numero: 3, descuento_unit: '10500.000000', fecha_desde: '2026-10-08', estado: 'en_cola' } },
+    bono_costo: null,
+    compra_visible: true,
+  },
 }));
 vi.mock('../../services/api', () => ({
   default: {
@@ -1115,6 +1128,25 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
         }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-compras-${width}-${theme}.png` });
+        screen.unmount();
+      });
+    }
+
+    for (const { width, height } of VIEWPORTS) {
+      it(`${width}x${height} ${theme}: the product's sell-in lots fit inside the panel`, async () => {
+        const screen = await renderProducts({ width, height, theme });
+        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+        const next = aside.getByText(/^La próxima venta descuenta \$ 980,33 por unidad \(lote 2\)/);
+        await expect.element(next).toBeVisible();
+        const panel = document.querySelector('[data-split-panel]');
+        const section = next.element().closest('section');
+        section.scrollIntoView();
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        for (const el of section.querySelectorAll('li, li span, li button')) {
+          expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-lotes-${width}-${theme}.png` });
         screen.unmount();
       });
     }

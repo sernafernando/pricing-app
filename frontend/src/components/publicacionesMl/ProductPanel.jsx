@@ -21,6 +21,7 @@ import ProductCuotasConfig from './panel/ProductCuotasConfig';
 import ProductIdentity from './panel/ProductIdentity';
 import ProductPrearmadas from './panel/ProductPrearmadas';
 import ProductPurchases from './panel/ProductPurchases';
+import SellInLotes from '../sellIn/SellInLotes';
 import ProductPxq from './panel/ProductPxq';
 import { Field, Fields, Section } from './panel/PanelParts';
 import { amount, count } from './panel/format';
@@ -71,7 +72,8 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * what ProductoTable hides: nothing without `canSeeSales`, no markup or Total Gauss without `canSeeMargin`.
  *
  * Those go under the Resumen tab, after the product's SKU and EAN (`ProductIdentity`, editable with
- * `ml_publicaciones.editar_producto`) and its last purchases (`ProductPurchases`, `productos.ver_info_compras`), and
+ * `ml_publicaciones.editar_producto`), its last purchases (`ProductPurchases`, `productos.ver_info_compras`) and its
+ * sell-in lots in FIFO order (`SellInLotes`, hidden when the API refuses it), and
  * after the publications comes the catalog competition of those in a catalog (`ProductCatalogCompetition`,
  * `promos.ver`) and the wholesale prices of each (`ProductPxq`, `pxq.ver`), for "Sin producto" too since both belong
  * to each publication, and last the product's ban (`ProductBanAction`, gated by itself).
@@ -174,6 +176,7 @@ export default function ProductPanel({
             <>
               {productItemId != null && <ProductIdentity key={`identity-${productItemId}`} productItemId={productItemId} publications={items} />}
               {productItemId != null && <ProductPurchases key={`purchases-${productItemId}`} productItemId={productItemId} />}
+              {productItemId != null && <SellInLotes key={`lotes-${productItemId}`} productItemId={productItemId} container={Section} />}
               {figures.length > 0 && (
                 <Section title="Cifras">
                   <p className={panelStyles.note}>Con los filtros actuales</p>

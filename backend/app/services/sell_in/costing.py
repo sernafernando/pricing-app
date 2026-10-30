@@ -83,7 +83,7 @@ from app.models.ml_sale_line import MlSaleLine
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
-from app.services.sell_in.fifo import Consumo, Lote, Venta, asignar
+from app.services.sell_in.fifo import Consumo, Lote, Venta, asignar, orden_fifo
 from app.services.sell_in.split import unit_discount
 
 # First key of the two-key advisory lock; the second is the product's item_id.
@@ -121,6 +121,14 @@ class SellInCosting(Protocol):
     def vigentes(self, db: Session, item_ids: Iterable[int], hoy: date) -> Dict[int, "LoteVigente"]:
         """`{item_id: what a sale on `hoy` would be discounted}` for the products that have it, from
         the stored consumptions (read only; a product with none is absent)."""
+        ...
+
+    def lotes(self, db: Session, item_ids: Iterable[int]) -> Dict[int, List[Lote]]:
+        """Each product's lines of active purchases, in the order its sales consume them (read only)."""
+        ...
+
+    def unidades_usadas(self, db: Session, lineas: List[int]) -> Dict[int, int]:
+        """`{compra_item_id: units the stored consumptions took}`, for the lines that have any (read only)."""
         ...
 
 
@@ -219,27 +227,33 @@ class FifoPurchaseCosting:
         """The first line in FIFO order (`fifo`: `fecha`, `compra_id`, `compra_item_id`) counting on or
         before `hoy` with units the stored consumptions left; a product whose lines are used up is
         absent: its cost is back to normal. Two queries, whatever the number of products."""
-        ids = sorted({int(i) for i in item_ids if i is not None})
-        lotes = self._lotes(db, ids) if ids else {}
-        lineas = [lote.compra_item_id for item in lotes.values() for lote in item]
-        usadas = (
-            dict(
-                db.query(SellInConsumo.compra_item_id, func.sum(SellInConsumo.unidades))
-                .filter(SellInConsumo.compra_item_id.in_(lineas))
-                .group_by(SellInConsumo.compra_item_id)
-            )
-            if lineas
-            else {}
-        )
+        lotes = self.lotes(db, item_ids)
+        usadas = self.unidades_usadas(db, [lote.compra_item_id for item in lotes.values() for lote in item])
         salida: Dict[int, LoteVigente] = {}
         for item_id, item in lotes.items():
-            for lote in sorted(item, key=lambda x: (x.fecha, x.compra_id, x.compra_item_id)):
-                restantes = lote.cantidad - int(usadas.get(lote.compra_item_id) or 0)
+            for lote in item:
+                restantes = lote.cantidad - usadas.get(lote.compra_item_id, 0)
                 if lote.fecha <= hoy and restantes > 0:
                     descuento = unit_discount(lote.descuento_ars, lote.cantidad)
                     salida[item_id] = LoteVigente(lote.compra_item_id, descuento, restantes)
                     break
         return salida
+
+    def lotes(self, db: Session, item_ids: Iterable[int]) -> Dict[int, List[Lote]]:
+        """Each product's lines of active purchases, in the order its sales consume them (`fifo.orden_fifo`)."""
+        ids = sorted({int(i) for i in item_ids if i is not None})
+        return {
+            item_id: sorted(item, key=orden_fifo) for item_id, item in (self._lotes(db, ids) if ids else {}).items()
+        }
+
+    @staticmethod
+    def unidades_usadas(db: Session, lineas: List[int]) -> Dict[int, int]:
+        """`{compra_item_id: units the stored consumptions took}`, for the lines that have any."""
+        if not lineas:
+            return {}
+        t = SellInConsumo
+        filas = db.query(t.compra_item_id, func.sum(t.unidades)).filter(t.compra_item_id.in_(lineas))
+        return {linea: int(unidades) for linea, unidades in filas.group_by(t.compra_item_id)}
 
     @classmethod
     def _producto(
