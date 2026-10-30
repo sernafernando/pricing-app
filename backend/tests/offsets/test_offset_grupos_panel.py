@@ -194,6 +194,7 @@ class TestDelete:
         assert mensaje.startswith("El grupo está asignado a las campañas de sell out activas")
         assert "Noviembre TP-Link" in mensaje and "Diciembre TP-Link" in mensaje
         assert "Octubre anulada" not in mensaje
+        assert mensaje.endswith("Quite el grupo de las campañas antes de eliminarlo.")
         assert db.get(OffsetGrupo, gid) is not None
 
     def test_a_voided_campaign_alone_keeps_the_existing_refusal(self, client, db, editor, admin_user) -> None:

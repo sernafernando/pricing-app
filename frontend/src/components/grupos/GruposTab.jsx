@@ -20,6 +20,8 @@ export default function GruposTab({ version = 0 }) {
   const [panel, setPanel] = useState(null);
   const subcategorias = nombresDeSubcategorias(opciones);
   const grupo = panel?.id != null ? (grupos?.find((g) => g.id === panel.id) ?? panel.inicial) : null;
+  // A reload without the open group (someone else deleted it) closes the panel instead of turning it into "Nuevo".
+  if (panel?.id != null && grupos && !grupo) setPanel(null);
 
   return (
     <SplitPanelLayout

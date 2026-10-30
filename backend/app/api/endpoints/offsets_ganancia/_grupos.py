@@ -191,9 +191,11 @@ def eliminar_grupo(grupo_id: int, db: Session = Depends(get_db), current_user: U
     activas = [nombre for nombre, estado in estados if estado == "activa"]
     if activas:
         nombres = ", ".join(f"«{nombre}»" for nombre in activas)
-        a_quien = "a la campaña de sell out activa" if len(activas) == 1 else "a las campañas de sell out activas"
+        una = len(activas) == 1
+        a_quien = "a la campaña de sell out activa" if una else "a las campañas de sell out activas"
+        de_cual = "de la campaña" if una else "de las campañas"
         raise HTTPException(
-            400, f"El grupo está asignado {a_quien} {nombres}. Quite el grupo de la campaña antes de eliminarlo."
+            400, f"El grupo está asignado {a_quien} {nombres}. Quite el grupo {de_cual} antes de eliminarlo."
         )
     if estados:
         raise HTTPException(400, _GRUPO_EN_SELL_OUT)

@@ -103,6 +103,17 @@ describe('GruposTab — list', () => {
     expect(screen.getByRole('complementary', { name: 'Grupo' })).toBeInTheDocument();
   });
 
+  it('a reload without the open group (someone deleted it) closes the panel', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<GruposTab version={0} />);
+    await abrir(user, 'TP-Link redes');
+    offsetGruposAPI.listar.mockResolvedValue({ data: [VACIO] });
+    rerender(<GruposTab version={1} />);
+    await waitFor(() => expect(screen.queryByText('TP-Link redes')).not.toBeInTheDocument());
+    expect(screen.queryByRole('complementary', { name: 'Grupo' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Crear grupo' })).not.toBeInTheDocument();
+  });
+
   it('when the filter options fail it says so, and the next reload asks them again', async () => {
     offsetGruposAPI.opciones.mockRejectedValueOnce(new Error('500'));
     const { rerender } = render(<GruposTab version={0} />);
