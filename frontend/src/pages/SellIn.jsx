@@ -124,8 +124,11 @@ function useBonosVigentes(enabled) {
   return { resumen, recargar };
 }
 
-/** The offset groups a sell-out campaign can reach (`GET /offset-grupos`); empty on failure. */
-function useGruposOffset(enabled) {
+/**
+ * The offset groups a sell-out campaign can reach (`GET /offset-grupos`); empty on failure. A new `version`
+ * ("Actualizar", or a group created, changed or deleted in the Grupos tab) asks them again.
+ */
+function useGruposOffset(enabled, version) {
   const [grupos, setGrupos] = useState([]);
   useEffect(() => {
     if (!enabled) return undefined;
@@ -137,7 +140,7 @@ function useGruposOffset(enabled) {
     return () => {
       active = false;
     };
-  }, [enabled]);
+  }, [enabled, version]);
   return grupos;
 }
 
@@ -195,11 +198,13 @@ export default function SellIn() {
   const puedeVerSellOut = tienePermiso('sell_out.ver');
   const campanas = useCampanas(puedeVer && puedeVerSellOut);
   const puedeGestionarSellOut = puedeVerSellOut && tienePermiso('sell_out.gestionar');
-  const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut);
   const [searchParams, setSearchParams] = useSearchParams();
   const puedeGestionarGrupos = tienePermiso('config.editar_constantes');
   // "Actualizar" bumps it: the Grupos tab asks its groups again.
   const [versionGrupos, setVersionGrupos] = useState(0);
+  // A group created, changed or deleted in the Grupos tab: the campaign form's groups are asked again.
+  const [cambiosGrupos, setCambiosGrupos] = useState(0);
+  const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut, versionGrupos + cambiosGrupos);
   const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeGestionarGrupos ? [TAB_GRUPOS] : [])];
   const tabUrl = searchParams.get('tab');
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
@@ -508,7 +513,7 @@ export default function SellIn() {
       >
         {tab === TAB_GRUPOS ? (
           <div role="tabpanel" id="grupos-panel" aria-labelledby="grupos-tab">
-            <GruposTab version={versionGrupos} />
+            <GruposTab version={versionGrupos} onGruposCambiados={() => setCambiosGrupos((v) => v + 1)} />
           </div>
         ) : enSellIn ? (
           <div role="tabpanel" id="sell-in-panel" aria-labelledby="sell-in-tab">

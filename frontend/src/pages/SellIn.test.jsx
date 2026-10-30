@@ -45,7 +45,7 @@ vi.mock('../services/sellOutAPI', () => ({
 }));
 
 vi.mock('../services/offsetGruposAPI', () => ({
-  offsetGruposAPI: { listar: vi.fn(), alcance: vi.fn(), opciones: vi.fn() },
+  offsetGruposAPI: { listar: vi.fn(), alcance: vi.fn(), opciones: vi.fn(), crear: vi.fn() },
 }));
 
 const mockTienePermiso = vi.fn();
@@ -570,6 +570,33 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole('button', { name: /Actualizar/ }));
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
+  it('a group created in Grupos is offered in "Nueva campaña" without reloading the page', async () => {
+    const user = userEvent.setup();
+    const NUEVO = { id: 3, nombre: 'Mercusys', descripcion: null, filtros: [] };
+    offsetGruposAPI.crear.mockResolvedValue({ data: NUEVO });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
+    expect(await screen.findByText('TP-Link redes')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Nuevo grupo' }));
+    const panel = screen.getByRole('complementary', { name: 'Grupo' });
+    sellOutAPI.grupos.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }, NUEVO] });
+    offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }, NUEVO] });
+    await user.type(within(panel).getByLabelText('Nombre'), 'Mercusys');
+    await user.click(within(panel).getByRole('button', { name: 'Crear grupo' }));
+    await waitFor(() => expect(offsetGruposAPI.crear).toHaveBeenCalled());
+
+    await user.click(screen.getByRole('tab', { name: /Sell out/ }));
+    await user.click(await screen.findByRole('button', { name: /Nueva campaña/ }));
+    expect(await screen.findByRole('checkbox', { name: 'Mercusys' })).toBeInTheDocument();
+  });
+
+  it('"Actualizar" also asks again the groups a new campaign can reach', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await waitFor(() => expect(sellOutAPI.grupos).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+    await waitFor(() => expect(sellOutAPI.grupos).toHaveBeenCalledTimes(2));
   });
 
   it('"Nueva campaña" opens the form with the offset groups; saving shows the new campaign and reloads the list', async () => {

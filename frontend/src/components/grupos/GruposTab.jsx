@@ -12,13 +12,18 @@ import own from './Grupos.module.css';
  * The "Grupos" tab of Sell in / Sell out (T30): the product groups sell-out campaigns reach, with the products
  * each reaches and the campaigns using it; "Editar" / "Nuevo grupo" open the side panel. Shown with
  * `config.editar_constantes`, the permission of every group endpoint it calls. A new `version` (the page's
- * "Actualizar") asks the groups again and keeps the open panel.
+ * "Actualizar") asks the groups again and keeps the open panel; `onGruposCambiados` tells the page a group was
+ * created, changed or deleted, so the campaign form offers the current groups.
  */
-export default function GruposTab({ version = 0 }) {
+export default function GruposTab({ version = 0, onGruposCambiados = () => {} }) {
   const { grupos, opciones, error, errorOpciones, recargar } = useGrupos(version);
   // `{ id, inicial }`: `id` null is a new group; `inicial` is what "Crear grupo" answered, until the list has it.
   const [panel, setPanel] = useState(null);
   const subcategorias = nombresDeSubcategorias(opciones);
+  const cambiaron = () => {
+    recargar();
+    onGruposCambiados();
+  };
   const grupo = panel?.id != null ? (grupos?.find((g) => g.id === panel.id) ?? panel.inicial) : null;
   // A reload without the open group (someone else deleted it) closes the panel instead of turning it into "Nuevo".
   if (panel?.id != null && grupos && !grupo) setPanel(null);
@@ -39,12 +44,12 @@ export default function GruposTab({ version = 0 }) {
             onClose={() => setPanel(null)}
             onCreado={(creado) => {
               setPanel({ id: creado.id, inicial: { productos: 0, campanas: [], filtros: [], ...creado } });
-              recargar();
+              cambiaron();
             }}
-            onCambio={recargar}
+            onCambio={cambiaron}
             onEliminado={() => {
               setPanel(null);
-              recargar();
+              cambiaron();
             }}
           />
         )
