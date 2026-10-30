@@ -97,6 +97,20 @@ describe('SellInAnularMasivo — selection bar and confirmation', () => {
     expect(p.onHecho).not.toHaveBeenCalled();
   });
 
+  it('unknown records (a 422) also void nothing and are named', async () => {
+    const user = userEvent.setup();
+    const anular = vi.fn().mockRejectedValue({
+      response: { status: 422, data: { mensaje: 'No se anuló ninguna: 1 no se puede anular', rechazadas: [{ id: 8, motivo: 'La compra 8 no existe' }] } },
+    });
+    render(<SellInAnularMasivo {...props({ anular })} />);
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, anular 2' }));
+
+    const alerta = await screen.findByRole('alert');
+    expect(alerta).toHaveTextContent('No se anuló ninguna: 1 no se puede anular');
+    expect(alerta).toHaveTextContent('#8: La compra 8 no existe');
+  });
+
   it('a failed "todo lo filtrado" shows why and sends nothing', async () => {
     const p = props({ seleccionados: [], onSeleccionarFiltrado: vi.fn().mockRejectedValue(new Error('La lista cambió mientras se seleccionaba (2 de 3). Volvé a intentarlo.')) });
     render(<SellInAnularMasivo {...p} />);

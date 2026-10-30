@@ -4,10 +4,12 @@ another bulk void that touches the same products in another order."""
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import Iterator
 
 import pytest
-from sqlalchemy import Engine, event
+from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.sell_in import SellInCompra, SellInCompraItem
@@ -108,3 +110,49 @@ def test_a_refused_bulk_void_leaves_the_released_units_where_they_were(engine):
     assert w.consumos(engine) == antes
     with sessionmaker(bind=engine)() as db:
         assert db.get(SellInCompra, a).estado != "anulada"
+
+
+def test_a_deadlock_with_another_writer_refuses_the_whole_bulk_void_with_a_retry(engine):
+    # Another transaction holds product 950's lock; the bulk void takes A's row and waits on 950; the other one then
+    # updates A's row: a lock cycle Postgres breaks by aborting the bulk void (40P01). Nothing is voided, and the
+    # caller gets a refusal it can retry, never a 500.
+    a = _compra_de(engine, [(950, 2, "100.00")])
+    resultado: list = []
+    pid: list = []
+
+    def bulk() -> None:
+        with sessionmaker(bind=engine)() as db:
+            pid.append(db.execute(text("SELECT pg_backend_pid()")).scalar())
+            try:
+                resultado.append(_anular(db, [a]))
+            except Exception as exc:  # noqa: BLE001 - asserted below
+                resultado.append(exc)
+
+    with engine.connect() as otra:
+        tx = otra.begin()
+        otra.execute(compras.LOCK_SQL, {"ns": compras.LOCK_NAMESPACE, "ids": [950]})
+        hilo = threading.Thread(target=bulk)
+        hilo.start()
+        _esperar_bloqueado(engine, pid)
+        otra.execute(text("UPDATE sell_in_compras SET descripcion = descripcion WHERE id = :a"), {"a": a})
+        tx.rollback()
+        hilo.join(timeout=30)
+
+    (exc,) = resultado
+    assert isinstance(exc, anular_masivo.AnulacionRechazada) and exc.reintentar
+    # It deadlocks while taking the rows and products up front, before voiding any purchase: none is singled out.
+    assert (exc.ocupada, exc.rechazadas) == (None, [])
+    with sessionmaker(bind=engine)() as db:
+        assert db.get(SellInCompra, a).estado == "activa"
+
+
+def _esperar_bloqueado(engine: Engine, pid: list) -> None:
+    """Waits (bounded) until the bulk void's backend is waiting on a lock."""
+    sql = text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :p")
+    for _ in range(100):
+        if pid:
+            with engine.connect() as conn:
+                if conn.execute(sql, {"p": pid[0]}).scalar() == "Lock":
+                    return
+        time.sleep(0.05)
+    raise AssertionError("the bulk void never waited on the other transaction's lock")

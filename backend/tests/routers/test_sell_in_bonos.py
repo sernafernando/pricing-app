@@ -387,7 +387,7 @@ def test_bulk_void_of_bonuses_is_all_or_nothing(client, gestor, productos, db):
 
     resp = client.post(MASIVO, json={"ids": [a["id"], 424242]}, headers=gestor)
 
-    assert resp.status_code == 409, resp.text
+    assert resp.status_code == 422, resp.text  # only unknown ids: a 422 naming each
     assert resp.json() == {  # a dict detail without "code" is the body root (app.core.exceptions)
         "mensaje": "No se anuló ninguno: 1 no se puede anular",
         "rechazadas": [{"id": 424242, "motivo": "El bono 424242 no existe"}],

@@ -228,15 +228,19 @@ def obtener_compra(
     return service.serializar(db, [compra])[0]
 
 
-def rechazo_masivo(exc: anular_masivo.AnulacionRechazada, ninguno: str) -> HTTPException:
-    """The 409 of a refused bulk void: nothing was voided, and each refused record says why."""
+def rechazo_masivo(exc: anular_masivo.AnulacionRechazada, ninguno: str, uno: str, todos: str) -> HTTPException:
+    """A refused bulk void: nothing was voided, and each refused record says why. A 422 when every refused id does
+    not exist; a 409 when one is refused by its guard, or when a deadlock with another writer stopped it (a retry
+    naming `uno` and the record, or `todos` while the locks were being taken)."""
     n = len(exc.rechazadas)
+    if exc.reintentar:
+        quien = f"{uno} {exc.ocupada}" if exc.ocupada is not None else todos
+        mensaje = f"No se anuló {ninguno}: otra operación está modificando {quien} en este momento. {anular_masivo.REINTENTAR}"
+    else:
+        mensaje = f"No se anuló {ninguno}: {n} no se {'puede' if n == 1 else 'pueden'} anular"
     return HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail={
-            "mensaje": f"No se anuló {ninguno}: {n} no se {'puede' if n == 1 else 'pueden'} anular",
-            "rechazadas": [{"id": r.id, "motivo": r.motivo} for r in exc.rechazadas],
-        },
+        status_code=422 if exc.solo_inexistentes else status.HTTP_409_CONFLICT,
+        detail={"mensaje": mensaje, "rechazadas": [{"id": r.id, "motivo": r.motivo} for r in exc.rechazadas]},
     )
 
 
@@ -260,7 +264,7 @@ def anular_compras(
             preparar=lambda: service.bloquear_productos_de(db, data.ids),
         )
     except anular_masivo.AnulacionRechazada as exc:
-        raise rechazo_masivo(exc, "ninguna") from exc
+        raise rechazo_masivo(exc, "ninguna", "la compra", "estas compras") from exc
     return {"anuladas": anuladas, "ya_anuladas": ya_anuladas}
 
 

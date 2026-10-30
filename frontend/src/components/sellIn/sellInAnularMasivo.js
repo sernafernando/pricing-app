@@ -11,8 +11,8 @@ const PAGINA = 200; // the list endpoints' largest page
  * Every voidable id of the filtered list. `listar` is the list API (`sellInAPI.listar` / `sellInBonosAPI.listar`),
  * `params` the filters it is showing with, `total` the count it showed and `generadas` how many of those a brand
  * bonus generated (purchases only): those are voided through their bonus, so they are left out. Throws a message to
- * show when it cannot be trusted: more voidable ones than the bulk limit, an empty answer with filters active, or a
- * count (total or generated) that moved while reading.
+ * show when it cannot be trusted: more voidable ones than the bulk limit, an empty answer with filters active, a
+ * short page before the last, or a count (total or generated) that moved while reading.
  */
 export async function resolverIdsFiltrados(listar, params, { total, generadas = 0, filtrosActivos }) {
   const anulables = total - generadas;
@@ -26,6 +26,8 @@ export async function resolverIdsFiltrados(listar, params, { total, generadas = 
     if ((data?.generadas ?? 0) !== generadas) throw cambio(items.length);
     if (pagina.length === 0) break;
     items.push(...pagina);
+    // Every page but the last comes full: a short one before the end means rows moved between pages.
+    if (pagina.length < PAGINA && items.length < total) throw cambio(items.length);
   }
   const unicos = new Set(items.map((item) => item.id));
   if (unicos.size === 0 && filtrosActivos) throw new Error('No se pudo resolver lo filtrado: la lista vino vacía.');

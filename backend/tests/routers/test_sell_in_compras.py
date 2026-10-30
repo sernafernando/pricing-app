@@ -944,6 +944,60 @@ def test_bulk_void_skips_and_reports_an_already_voided_purchase(client, gestor, 
     assert resp.json() == {"anuladas": [b["id"]], "ya_anuladas": [a["id"]]}
 
 
+def test_a_deadlock_with_another_writer_refuses_the_whole_bulk_void_with_a_retry(
+    client, gestor, productos, db, monkeypatch
+):
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.sell_in import compras as service
+
+    a, b = _crear(client, gestor)["id"], _crear(client, gestor)["id"]
+    anular = service.anular_compra_sin_commit
+
+    class _Deadlock(Exception):
+        pgcode = "40P01"  # deadlock_detected: Postgres aborted this transaction to break a lock cycle
+
+    def _segunda_en_deadlock(db_, compra_id, *args, **kwargs):
+        if compra_id == b:
+            raise DBAPIError("SELECT pg_advisory_xact_lock ...", {}, _Deadlock())
+        return anular(db_, compra_id, *args, **kwargs)
+
+    monkeypatch.setattr(service, "anular_compra_sin_commit", _segunda_en_deadlock)
+
+    resp = client.post(MASIVO, json={"ids": [a, b, 424242]}, headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json() == {
+        "mensaje": (
+            f"No se anuló ninguna: otra operación está modificando la compra {b} en este momento. "
+            "Reintentar en unos segundos."
+        ),
+        "rechazadas": [
+            {"id": b, "motivo": "Otra operación la está modificando. Reintentar en unos segundos."},
+        ],
+    }
+    db.expire_all()
+    assert {db.get(SellInCompra, x).estado for x in (a, b)} == {"activa"}
+    assert db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_COMPRA_ANULADA).count() == 0
+
+
+def test_bulk_void_with_only_unknown_purchases_is_a_422_naming_each(client, gestor, productos, db):
+    manual = _crear(client, gestor)
+
+    resp = client.post(MASIVO, json={"ids": [manual["id"], 424242, 424243]}, headers=gestor)
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json() == {
+        "mensaje": "No se anuló ninguna: 2 no se pueden anular",
+        "rechazadas": [
+            {"id": 424242, "motivo": "La compra 424242 no existe"},
+            {"id": 424243, "motivo": "La compra 424243 no existe"},
+        ],
+    }
+    db.expire_all()
+    assert db.get(SellInCompra, manual["id"]).estado == "activa"
+
+
 def test_bulk_void_is_all_or_nothing_and_names_each_refused_purchase(client, gestor, productos, admin_user, db):
     bono = SellInBonoMarca(
         marca="TP-LINK",

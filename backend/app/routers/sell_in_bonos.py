@@ -154,7 +154,7 @@ def anular_bonos(
             preparar=lambda: service.bloquear_bonos(db, data.ids),
         )
     except anular_masivo.AnulacionRechazada as exc:
-        raise rechazo_masivo(exc, "ninguno") from exc
+        raise rechazo_masivo(exc, "ninguno", "el bono", "estos bonos") from exc
     return {"anuladas": anuladas, "ya_anuladas": ya_anuladas}
 
 

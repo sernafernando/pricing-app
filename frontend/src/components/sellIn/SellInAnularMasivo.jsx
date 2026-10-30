@@ -55,7 +55,8 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, n
     try {
       ({ data } = await anular(seleccionados, motivo));
     } catch (err) {
-      const rechazo = err?.response?.status === 409 ? err.response.data : null;
+      // 409: one refused by its guard, or another writer in the way (retry); 422: ids that do not exist.
+      const rechazo = [409, 422].includes(err?.response?.status) ? err.response.data : null;
       setError(rechazo?.mensaje ? { mensaje: rechazo.mensaje, rechazadas: rechazo.rechazadas ?? [] } : { mensaje: `No se pudieron anular ${g.los} ${sustantivo.plural}.`, rechazadas: [] });
       return;
     } finally {

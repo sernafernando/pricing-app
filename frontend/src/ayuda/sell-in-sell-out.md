@@ -24,7 +24,7 @@ El botón **Actualizar** recarga todo.
 
 En las listas de compras y de bonos de marca, cada fila tiene una casilla. La del encabezado marca la página, y **Seleccionar todo lo filtrado (N)** marca todo lo que muestran los filtros. Las compras que genera un bono de marca no tienen casilla, porque se anulan anulando el bono: **Seleccionar todo lo filtrado** las deja afuera y lo avisa (por ejemplo, "3 anulables; 2 generadas por bonos no se pueden anular a mano"). Con algo marcado aparece **N seleccionados** y el botón **Anular seleccionados**, que pide confirmación y dice cuántos se anulan y qué se revierte: en una compra se liberan sus unidades, y en un bono se anulan las compras que generó.
 
-Se anula todo o nada: si alguno no se puede anular, no se anula ninguno y se lista cuál y por qué. Los ya anulados se saltean. Se anulan hasta 500 por vez y hace falta el mismo permiso que para anular de a uno.
+Se anula todo o nada: si alguno no se puede anular, no se anula ninguno y se lista cuál y por qué. Si otra operación está modificando esos registros en ese momento, tampoco se anula ninguno y pide reintentar en unos segundos. Los ya anulados se saltean. Se anulan hasta 500 por vez y hace falta el mismo permiso que para anular de a uno.
 
 ### Bonos de marca: base del bono
 

@@ -68,4 +68,14 @@ describe('resolverIdsFiltrados — "todo lo filtrado" is fail-closed', () => {
 
     await expect(resolverIdsFiltrados(listar, {}, { total: 600, generadas: 200, filtrosActivos: false })).resolves.toHaveLength(400);
   });
+
+  it('refuses a short page that is not the last one', async () => {
+    const ids = Array.from({ length: 300 }, (_, i) => 1000 - i);
+    const paginas = [ids.slice(0, 150), ids.slice(150)]; // 150 + 150 add up, but page 1 should have had 200
+    const listar = vi.fn(async ({ page }) => ({ data: { items: (paginas[page - 1] ?? []).map((id) => ({ id })), total: 300 } }));
+
+    await expect(resolverIdsFiltrados(listar, {}, { total: 300, filtrosActivos: false })).rejects.toThrow(
+      'La lista cambió mientras se seleccionaba',
+    );
+  });
 });
