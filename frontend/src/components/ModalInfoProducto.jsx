@@ -4,6 +4,7 @@ import '../styles/ModalInfoProducto.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 import { usePermisos } from '../contexts/PermisosContext';
 import PublicationStatusPill from './publicacionesMl/PublicationStatusPill';
+import SellInLotes from './sellIn/SellInLotes';
 
 const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const { overlayRef, handleOverlayMouseDown, handleOverlayClick } = useModalClickOutside(onClose);
@@ -15,6 +16,8 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const puedeVerInfoML = tienePermiso('productos.ver_info_mercadolibre');
   const puedeVerInfoVentas = tienePermiso('productos.ver_info_ventas');
   const puedeVerInfoCompras = tienePermiso('productos.ver_info_compras');
+  // The sell-in lot viewer: the backend gates it with the product's view permission.
+  const puedeVerLotesSellIn = tienePermiso('productos.ver');
 
   // Tab info requiere al menos info básica o pricing
   const puedeVerTabInfo = puedeVerInfoBasica || puedeVerInfoPricing;
@@ -25,14 +28,15 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
     if (puedeVerInfoML) return 'ml';
     if (puedeVerInfoVentas) return 'ventas';
     if (puedeVerInfoCompras) return 'proveedor';
+    if (puedeVerLotesSellIn) return 'lotes';
     return null;
-  }, [puedeVerTabInfo, puedeVerInfoML, puedeVerInfoVentas, puedeVerInfoCompras]);
+  }, [puedeVerTabInfo, puedeVerInfoML, puedeVerInfoVentas, puedeVerInfoCompras, puedeVerLotesSellIn]);
 
   const [detalle, setDetalle] = useState(null);
   const [datosMl, setDatosMl] = useState(null);
   const [cargando, setCargando] = useState(false);
   const [cargandoMl, setCargandoMl] = useState(false);
-  const [tabActiva, setTabActiva] = useState(tabInicial); // 'info', 'ml', 'ventas', 'proveedor'
+  const [tabActiva, setTabActiva] = useState(tabInicial); // 'info', 'ml', 'ventas', 'proveedor', 'lotes'
 
   useEffect(() => {
     if (isOpen && itemId) {
@@ -163,6 +167,14 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                 onClick={() => setTabActiva('proveedor')}
               >
                 🏭 Últimas Compras
+              </button>
+            )}
+            {puedeVerLotesSellIn && (
+              <button
+                className={`tab-button ${tabActiva === 'lotes' ? 'active' : ''}`}
+                onClick={() => setTabActiva('lotes')}
+              >
+                🧾 Lotes sell in
               </button>
             )}
           </div>
@@ -537,6 +549,9 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                   )}
                 </>
               )}
+
+              {/* TAB: LOTES SELL IN */}
+              {tabActiva === 'lotes' && puedeVerLotesSellIn && <SellInLotes key={itemId} productItemId={itemId} />}
 
               {/* TAB: ÚLTIMAS COMPRAS */}
               {tabActiva === 'proveedor' && puedeVerInfoCompras && detalle.ultimas_compras && detalle.ultimas_compras.length > 0 && (

@@ -1,0 +1,95 @@
+/* The sell-in lot viewer of a product: the next-sale line, the lots table and each lot's sales. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.next {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--cf-bg-hover);
+  border-left: 3px solid var(--cf-accent-blue);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.note {
+  margin: 0;
+  color: var(--cf-text-secondary);
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  border-bottom: 1px solid var(--cf-border-default);
+  white-space: nowrap;
+}
+
+.table th {
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-tertiary);
+}
+
+.num {
+  text-align: right;
+}
+
+/* The purchase (#, supplier, invoices) wraps so the figures and the status stay in view in a narrow panel. */
+.table td.purchase {
+  min-width: 9rem;
+  white-space: normal;
+}
+
+.vigente {
+  background: var(--cf-accent-blue-light);
+}
+
+.agotado {
+  color: var(--cf-text-tertiary);
+}
+
+.status {
+  font-weight: var(--font-semibold);
+}
+
+.statusDesde {
+  color: var(--cf-warning);
+}
+
+.toggle {
+  padding: 0;
+  font: inherit;
+  color: var(--cf-accent-blue);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.sales {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-1) 0 var(--space-1) var(--space-4);
+  list-style: none;
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--cf-danger);
+}

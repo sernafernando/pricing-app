@@ -40,6 +40,16 @@ Al crear un bono de marca, **Base del bono** define cómo se calcula. Se elige u
 
 **Acumulable con otros bonos** viene tildada. Tildada, el bono se suma a los otros bonos que cobran sobre la misma unidad. Sin tildar, el bono no cobra sobre las unidades que ya cobró un bono anterior (creado antes), y los bonos posteriores tampoco cobran sobre las suyas. Se puede cambiar al editar el bono.
 
+### Lotes de un producto
+
+El sell in se descuenta por lote, en orden FIFO, no promediado: cada venta toma las unidades del lote más viejo que todavía tiene. Para ver cómo van a aplicar los lotes de un producto, abrí la sección **Lotes sell in** en el panel del producto de **Publicaciones ML** (pestaña Resumen) o en la ficha de información del producto de **Productos** (pestaña **🧾 Lotes sell in**).
+
+- Arriba dice qué descuenta la próxima venta, por ejemplo: "La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después $ 10,00". Si no queda ningún lote con unidades, dice que el costo vuelve al normal y si aplica un bono de costo en su lugar.
+- La tabla lista los lotes en el orden en que se consumen: número, compra (#, proveedor, facturas), la fecha desde la que cuenta, unidades, consumidas, las que quedan, el descuento por unidad en pesos (una compra en USD, a su propio tipo de cambio) y el estado: **Vigente** (el que toma la próxima venta), **En cola**, **Agotado** o **Desde dd/mm** (cuenta desde una fecha futura).
+- **Ver** en un lote muestra las ventas que lo consumieron (canal, venta, fecha, unidades y descuento); **Ver más ventas** trae las siguientes.
+
+Es solo lectura: no cambia nada.
+
 ### Campañas de sell out: tipos
 
 Al crear o editar una campaña se elige el **Tipo**:
