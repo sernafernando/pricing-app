@@ -532,8 +532,8 @@ def anular_campanas(
     """Void several campaigns in one transaction, each through the single void's step (same lock, audit row
     and queueing), in id order so concurrent bulk voids lock in one order. Returns `(anuladas, omitidas)`:
     the already voided are skipped. All or nothing: an unknown campaign rolls everything back and raises
-    `SellOutAnulacionRechazada` naming each one; a campaign being rebuilt is `SellOutRecalculando` (also
-    rolled back)."""
+    `SellOutAnulacionRechazada` naming each one; a campaign being rebuilt is `SellOutRecalculando` naming it
+    (also rolled back)."""
     anuladas: list[int] = []
     omitidas: list[int] = []
     rechazadas: list[tuple[int, str]] = []
@@ -546,7 +546,14 @@ def anular_campanas(
         if campana is None:
             rechazadas.append((campana_id, f"La campaña {campana_id} no existe"))
             continue
-        _anular(db, campana, usuario_id, motivo)
+        nombre = campana.nombre  # read before a refused queueing rolls the session back
+        try:
+            _anular(db, campana, usuario_id, motivo)
+        except SellOutRecalculando as exc:
+            raise SellOutRecalculando(
+                f"No se anuló ninguna campaña: la campaña {campana_id} ({nombre}) se está recalculando. "
+                "Reintentar en unos segundos."
+            ) from exc
         anuladas.append(campana_id)
     if rechazadas:
         db.rollback()

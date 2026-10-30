@@ -379,7 +379,7 @@ export default function SellIn() {
             />
           ) : panel?.tipo === 'campana' ? (
             <SellOutCampanaPanel
-              key={`campana-${panel.id ?? 'nueva'}`}
+              key={`campana-${panel.id ?? 'nueva'}-${panel.version ?? 0}`}
               campanaId={panel.id}
               grupos={gruposOffset}
               puedeGestionar={puedeGestionarSellOut}
@@ -587,7 +587,11 @@ export default function SellIn() {
                     puedeGestionar={puedeGestionarSellOut}
                     selectedId={panel?.tipo === 'campana' ? panel.id : null}
                     onSelect={verCampana}
-                    onAnuladas={campanas.recargar}
+                    onAnuladas={(ids) => {
+                      campanas.recargar();
+                      // The open campaign was just voided: read it again (a new key remounts the panel).
+                      if (panel?.tipo === 'campana' && ids.includes(panel.id)) setPanel({ ...panel, version: (panel.version ?? 0) + 1 });
+                    }}
                   />
                   <Pagination
                     total={campanas.lista.total}

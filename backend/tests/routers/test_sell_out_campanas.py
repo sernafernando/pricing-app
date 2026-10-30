@@ -659,5 +659,7 @@ def test_a_campaign_being_recalculated_refuses_the_whole_bulk_void(client, gesto
     resp = client.post(MASIVO, json={"ids": [a, b]}, headers=gestor)
 
     assert resp.status_code == 409, resp.text
-    assert _message(resp) == "La campaña se está recalculando. Reintentar en unos segundos."
+    assert _message(resp) == (
+        f"No se anuló ninguna campaña: la campaña {b} (Campaña b) se está recalculando. Reintentar en unos segundos."
+    )
     assert _estados(client, gestor, [a, b]) == ["activa", "activa"]

@@ -2,17 +2,25 @@ import { useId, useState } from 'react';
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { apiMessage } from '../sellIn/sellInFormat';
 import SellOutCampanasTable from './SellOutCampanasTable';
-import { ANULAR_MASIVO_MAX, resolverFiltradas, textoConfirmacion, textoResultado } from './sellOutSeleccion';
+import { ANULAR_MASIVO_MAX, SeleccionCambiada, resolverFiltradas, textoConfirmacion, textoResultado } from './sellOutSeleccion';
 import panelStyles from '../sellIn/SellInPanel.module.css';
 import styles from './SellOutAnularMasivo.module.css';
 
 const MOTIVO_MAX = 500; // backend `SellOutAnularMasivoIn.motivo` (auditoria.comentario is VARCHAR(500))
 
+/** Why "Seleccionar todo lo filtrado" failed, in Spanish: never the HTTP client's own (English) message. */
+function errorDeSeleccion(err) {
+  if (err instanceof SeleccionCambiada) return err.message;
+  if (err?.response) return apiMessage(err, 'No se pudieron seleccionar las campañas.');
+  return 'No se pudo conectar con el servidor para seleccionar las campañas.';
+}
+
 /**
  * The sell-out campaigns list with bulk void (`POST /sell-out/campanas/anular`, `sell_out.gestionar`): row and page
  * checkboxes, "Seleccionar todo lo filtrado" (fail-closed, `resolverFiltradas`), a confirmation and the result. All or
  * nothing on the server: a refusal voids nothing and names each refused campaign. Without `puedeGestionar` it is the
- * plain table. The parent keys it by the filters, so a new search starts a new selection.
+ * plain table. The parent keys it by the filters, so a new search starts a new selection; `onAnuladas(ids)` gets the
+ * voided ids.
  */
 export default function SellOutAnularMasivo({ campanas, total, filtros, puedeGestionar, selectedId, onSelect, onAnuladas }) {
   const id = useId();
@@ -49,7 +57,7 @@ export default function SellOutAnularMasivo({ campanas, total, filtros, puedeGes
       cambiar(await resolverFiltradas(sellOutAPI.listar, filtros, total));
     } catch (err) {
       cambiar(new Map());
-      setError({ mensaje: err.message, rechazadas: [] });
+      setError({ mensaje: errorDeSeleccion(err), rechazadas: [] });
     } finally {
       setBusy(false);
     }
@@ -62,7 +70,7 @@ export default function SellOutAnularMasivo({ campanas, total, filtros, puedeGes
       cambiar(new Map());
       setMotivo('');
       setResultado(textoResultado(data));
-      onAnuladas();
+      onAnuladas(data.anuladas);
     } catch (err) {
       setConfirmando(false);
       const rechazadas = err?.response?.data?.error?.rechazadas;

@@ -18,5 +18,6 @@ En la pestaña **Sell out** ya no hace falta entrar campaña por campaña para a
 - Pide permiso de gestión de campañas (sell_out.gestionar), igual que anular una sola.
 - El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban.
 - Si alguna no se puede anular, no se anula ninguna y el mensaje dice cuál y por qué.
+- Si una campaña se está recalculando, el mensaje la nombra: esperar unos segundos y volver a intentar.
 - Se pueden anular hasta 500 campañas por vez.
 - Si al seleccionar todo lo filtrado aparece que la lista cambió, tocar **Actualizar** y volver a intentar.

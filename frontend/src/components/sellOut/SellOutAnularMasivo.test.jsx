@@ -109,6 +109,21 @@ describe('SellOutAnularMasivo', () => {
     );
   });
 
+  it.each([
+    ['an API error with its message', { response: { status: 403, data: { error: { message: 'No tienes permiso: sell_out.ver' } } } }, 'No tienes permiso: sell_out.ver'],
+    ['an API error without a message', { response: { status: 500, data: {} }, message: 'Request failed with status code 500' }, 'No se pudieron seleccionar las campañas.'],
+    ['a network error', { message: 'Network Error' }, 'No se pudo conectar con el servidor para seleccionar las campañas.'],
+  ])('select all filtered shows %s in Spanish, never the client error', async (_caso, err, mensaje) => {
+    const user = userEvent.setup();
+    sellOutAPI.listar.mockRejectedValue(err);
+    renderLista();
+
+    await user.click(screen.getByRole('button', { name: 'Seleccionar todo lo filtrado (3)' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(mensaje);
+    expect(screen.queryByText(/seleccionad/)).not.toBeInTheDocument();
+  });
+
   it('the confirmation states how many are voided, what is reversed, and the result names voided and skipped', async () => {
     const user = userEvent.setup();
     sellOutAPI.anularVarias.mockResolvedValue({ data: { anuladas: [1, 2], omitidas: [3] } });
@@ -128,7 +143,7 @@ describe('SellOutAnularMasivo', () => {
 
     expect(sellOutAPI.anularVarias).toHaveBeenCalledWith([1, 2, 3], 'Cargadas dos veces');
     expect(await screen.findByRole('status')).toHaveTextContent('Se anularon 2 campañas. 1 ya estaba anulada y se omitió.');
-    expect(onAnuladas).toHaveBeenCalledTimes(1);
+    expect(onAnuladas).toHaveBeenCalledWith([1, 2]);
     expect(screen.queryByText(/seleccionad/)).not.toBeInTheDocument();
   });
 

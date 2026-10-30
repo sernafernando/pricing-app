@@ -14,7 +14,7 @@ price, and that credit is added to profit. The rules live in
 - `POST /anular` (`{"ids": [...], "motivo"}`, `sell_out.gestionar`) voids up to 500 campaigns in one
   transaction, each through the single void's step (same audit row and queueing). Already voided ones are
   skipped and listed in `omitidas`. All or nothing: an unknown id is a 422 `ANULACION_RECHAZADA` naming each
-  refused id and why (`rechazadas`) and nothing is voided; a campaign being rebuilt is the 409 below. Voiding
+  refused id and why (`rechazadas`) and nothing is voided; a campaign being rebuilt is the 409 below, naming it. Voiding
   is not brand-scoped (a PM with `sell_out.repartir` only cannot void), so the per-request `gestionar` check
   is the per-record one.
 - A brand-scoped PM (`sell_out.repartir` without `sell_out.gestionar`) reads

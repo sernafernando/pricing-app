@@ -16,7 +16,7 @@ Si tenés permiso, el botón **Nuevo sell in** abre el panel para crear una comp
 
 En **Sell out** se listan las campañas (buscables por nombre), con paginación. Si tenés permiso, **Nueva campaña** abre el panel de campaña.
 
-Para anular varias campañas de una vez (pide permiso de gestión de campañas, sell_out.gestionar): marcá la casilla de cada fila, la casilla del encabezado para toda la página, o **Seleccionar todo lo filtrado (N)** para todas las que coinciden con la búsqueda. La barra muestra cuántas hay seleccionadas; **Anular seleccionados** pide confirmación, dice cuántas se anulan y permite un motivo. El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban. Es todo o nada: si alguna no se puede anular, no se anula ninguna y el mensaje dice cuál y por qué. Las que ya estaban anuladas se omiten y el resultado las cuenta aparte. Se pueden anular hasta 500 por vez.
+Para anular varias campañas de una vez (pide permiso de gestión de campañas, sell_out.gestionar): marcá la casilla de cada fila, la casilla del encabezado para toda la página, o **Seleccionar todo lo filtrado (N)** para todas las que coinciden con la búsqueda. La barra muestra cuántas hay seleccionadas; **Anular seleccionados** pide confirmación, dice cuántas se anulan y permite un motivo. El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban. Es todo o nada: si alguna no se puede anular, no se anula ninguna y el mensaje dice cuál y por qué. Si una se está recalculando, el mensaje la nombra y se puede reintentar en unos segundos. Las que ya estaban anuladas se omiten y el resultado las cuenta aparte. Se pueden anular hasta 500 por vez.
 
 El botón **Actualizar** recarga todo.
 

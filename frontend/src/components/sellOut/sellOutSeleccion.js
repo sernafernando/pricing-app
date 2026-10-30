@@ -5,9 +5,17 @@ export const ANULAR_MASIVO_MAX = 500;
 
 export const SELECCION_CAMBIADA = 'La lista de campañas cambió mientras se seleccionaba. Actualizá la lista y volvé a intentar.';
 
+/** What `resolverFiltradas` throws when the ids do not add up to the list (its message is for the operator). */
+export class SeleccionCambiada extends Error {
+  constructor() {
+    super(SELECCION_CAMBIADA);
+    this.name = 'SeleccionCambiada';
+  }
+}
+
 /**
  * Every campaign the list's filters match, as `Map(id → estado)`, paging `GET /sell-out/campanas` in its stable
- * order (start date desc, id desc). Fail-closed: throws `SELECCION_CAMBIADA` when a page reports another total, when
+ * order (start date desc, id desc). Fail-closed: throws `SeleccionCambiada` when a page reports another total, when
  * the ids do not add up to `total` (what the list shows), or when nothing comes back while filters are active.
  */
 export async function resolverFiltradas(listar, filtros, total) {
@@ -15,11 +23,11 @@ export async function resolverFiltradas(listar, filtros, total) {
   const ids = new Map();
   for (let page = 1; ; page += 1) {
     const { data } = await listar({ ...filtros, page, page_size: PAGINA_SELECCION });
-    if (data.total !== total) throw new Error(SELECCION_CAMBIADA);
+    if (data.total !== total) throw new SeleccionCambiada();
     data.items.forEach((c) => ids.set(c.id, c.estado));
     if (data.items.length < PAGINA_SELECCION || page * PAGINA_SELECCION >= data.total) break;
   }
-  if (ids.size !== total || (ids.size === 0 && filtrado)) throw new Error(SELECCION_CAMBIADA);
+  if (ids.size !== total || (ids.size === 0 && filtrado)) throw new SeleccionCambiada();
   return ids;
 }
 
