@@ -8,6 +8,7 @@ import formStyles from './SellOutCampanaForm.module.css';
 const TIPOS = [
   { value: 'por_unidad', label: 'Por unidad' },
   { value: 'porcentaje', label: 'Porcentaje' },
+  { value: 'monto_total', label: 'Monto total' },
 ];
 const MONEDAS = [
   { value: 'USD', label: 'USD' },
@@ -17,7 +18,9 @@ const MONEDAS = [
 /**
  * The terms of a sell-out campaign (`SellOutCampanaIn`): name, validity, a per-unit amount or a percentage of
  * cost or net price, currency and, in USD, how the exchange rate is taken; caps, VAT, stacking and the product
- * groups it reaches (managed in Gestionar Offsets); per unit, the products with their own amount. Controlled.
+ * groups it reaches (managed in Gestionar Offsets); per unit, the products with their own amount. A `monto_total`
+ * campaign (T26d) takes one total instead, negative for a deduction, and no caps: its split per product is set in
+ * the panel's reparto section (`SellOutReparto`). Controlled.
  */
 export default function SellOutCampanaForm({ valores, onChange, grupos }) {
   const id = useId();
@@ -29,6 +32,7 @@ export default function SellOutCampanaForm({ valores, onChange, grupos }) {
         : [...valores.grupoIds, grupoId],
     });
   const porUnidad = valores.tipo === 'por_unidad';
+  const montoTotal = valores.tipo === 'monto_total';
   const usd = valores.moneda === 'USD';
   const numero = (key, label, step = '0.01') => (
     <label className={styles.field} htmlFor={`${id}-${key}`}>
@@ -75,9 +79,26 @@ export default function SellOutCampanaForm({ valores, onChange, grupos }) {
           <SegmentedControl label="Moneda" options={MONEDAS} value={valores.moneda} onChange={(moneda) => set({ moneda })} />
         </div>
       </div>
-      {porUnidad ? (
-        numero('montoUnit', 'Monto por unidad')
-      ) : (
+      {montoTotal && (
+        <>
+          <label className={styles.field} htmlFor={`${id}-montoTotal`}>
+            <span className={styles.label}>{`Monto total (${valores.moneda})`}</span>
+            <input
+              id={`${id}-montoTotal`}
+              type="number"
+              step="0.01"
+              className={styles.input}
+              value={valores.montoTotal}
+              onChange={(e) => set({ montoTotal: e.target.value })}
+            />
+          </label>
+          <p className={styles.hint}>
+            Negativo: descuenta de la ganancia. Suma una sola vez al total; se reparte por producto desde la campaña guardada.
+          </p>
+        </>
+      )}
+      {porUnidad && numero('montoUnit', 'Monto por unidad')}
+      {valores.tipo === 'porcentaje' && (
         <div className={styles.grid2}>
           {numero('porcentaje', 'Porcentaje', '0.0001')}
           <label className={styles.field} htmlFor={`${id}-base`}>
@@ -104,10 +125,12 @@ export default function SellOutCampanaForm({ valores, onChange, grupos }) {
           {valores.tcModo === 'fijo' && numero('tipoCambio', 'Tipo de cambio fijo', '0.000001')}
         </div>
       )}
-      <div className={styles.grid2}>
-        {numero('topeUnidades', 'Tope de unidades', '1')}
-        {numero('topeMonto', `Tope de monto (${valores.moneda})`)}
-      </div>
+      {!montoTotal && (
+        <div className={styles.grid2}>
+          {numero('topeUnidades', 'Tope de unidades', '1')}
+          {numero('topeMonto', `Tope de monto (${valores.moneda})`)}
+        </div>
+      )}
       <label className={formStyles.check}>
         <input type="checkbox" checked={valores.montoIncluyeIva} onChange={(e) => set({ montoIncluyeIva: e.target.checked })} />
         El monto incluye IVA
@@ -126,12 +149,14 @@ export default function SellOutCampanaForm({ valores, onChange, grupos }) {
           </label>
         ))}
       </fieldset>
-      {porUnidad ? (
+      {!montoTotal && valores.repartosGuardados > 0 ? (
+        <p className={styles.hint}>Esta campaña tiene reparto por producto: quitá el reparto para cambiarla de tipo.</p>
+      ) : porUnidad ? (
         <SellOutCampanaItems items={valores.items} moneda={valores.moneda} onChange={(items) => set({ items })} />
       ) : (
         valores.items.length > 0 && (
           <p className={styles.hint}>
-            {`Una campaña por porcentaje no lleva montos por producto: al guardar se ${
+            {`Una campaña por ${montoTotal ? 'monto total' : 'porcentaje'} no lleva montos por producto: al guardar se ${
               valores.items.length === 1 ? 'quita 1 monto por producto' : `quitan ${valores.items.length} montos por producto`
             }.`}
           </p>

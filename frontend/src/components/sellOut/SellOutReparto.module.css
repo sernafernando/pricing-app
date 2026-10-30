@@ -1,0 +1,57 @@
+/* ── Sell-out monto total: the reparto section and the deduction highlight ── */
+
+.fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  font-size: 13px;
+  color: var(--cf-text-primary);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.filaNombre {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.modo {
+  composes: select selectSm from '../../styles/forms-tesla.css';
+  width: 120px;
+}
+
+.valor {
+  composes: input inputSm from '../../styles/forms-tesla.css';
+  width: 130px;
+}
+
+.importe {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-secondary);
+}
+
+.enVivo {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-md);
+}
+
+.acciones {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.deduccion {
+  color: var(--tone-danger-fg);
+}

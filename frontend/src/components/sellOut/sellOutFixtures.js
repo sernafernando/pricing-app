@@ -108,3 +108,40 @@ export const CONSUMOS_USD = {
   page: 1,
   page_size: 25,
 };
+
+/** A `monto_total` campaign (T26c): one ARS amount split by hand, a % share and a fixed share. */
+export const CAMPANA_MONTO_TOTAL = {
+  ...CAMPANA_MIGRADA,
+  id: 70,
+  nombre: 'TP-Link bono Q4',
+  tipo: 'monto_total',
+  monto_unit: null,
+  monto_total: '2000000.00',
+  moneda: 'ARS',
+  tc_modo: null,
+  offset_origen_id: null,
+  grupos: [{ id: 1, nombre: 'TP-Link redes' }],
+  items: [
+    { item_id: 4172, codigo: 'C13T00R120', descripcion: 'Epson EcoTank L8180', monto_unit: null, reparto_porcentaje: '60.0000', reparto_monto: null },
+    { item_id: 4173, codigo: 'C11CJ21301', descripcion: 'Epson EcoTank L3250', monto_unit: null, reparto_porcentaje: null, reparto_monto: '500000.00' },
+  ],
+  resumen: {
+    ...RESUMEN_BASE,
+    reparto: { asignado: '1700000.00', asignado_sin_ventas: '500000.00', sin_asignar: '300000.00', motivo: null },
+  },
+};
+
+/** A negative `monto_total` campaign (S35, offset 50): a deduction, nothing split yet. */
+export const CAMPANA_MONTO_TOTAL_NEGATIVA = {
+  ...CAMPANA_MONTO_TOTAL,
+  id: 71,
+  nombre: 'LENOVO cta y orden',
+  monto_total: '-13662075.00',
+  grupos: [{ id: 2, nombre: 'LENOVO' }],
+  items: [],
+  resumen: {
+    ...RESUMEN_BASE,
+    por_canal: [],
+    reparto: { asignado: '0.00', asignado_sin_ventas: '0.00', sin_asignar: '-13662075.00', motivo: null },
+  },
+};

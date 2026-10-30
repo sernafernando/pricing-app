@@ -1,8 +1,10 @@
 import { StatusPill } from '../kit';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { formatEntero, formatMonto } from '../sellIn/sellInFormat';
-import { beneficio } from './sellOutFormat';
+import SellOutMonto from './SellOutMonto';
+import { beneficio, cuantosItems, esDeduccion } from './sellOutFormat';
 import styles from '../sellIn/SellInTable.module.css';
+import repartoStyles from './SellOutReparto.module.css';
 
 const DIA = { day: '2-digit', month: '2-digit', year: 'numeric' };
 
@@ -36,12 +38,17 @@ export default function SellOutCampanasTable({ campanas, selectedId, onSelect })
                 {campana.offset_origen_id != null && <div className={styles.sub}>{`Del offset #${campana.offset_origen_id}`}</div>}
               </td>
               <td>
-                <div>{beneficio(campana)}</div>
-                {campana.items?.length > 0 && (
-                  <div className={styles.sub}>
-                    {campana.items.length === 1 ? '1 monto por producto' : `${campana.items.length} montos por producto`}
-                  </div>
-                )}
+                <div>
+                  {campana.tipo === 'monto_total' ? (
+                    <>
+                      Monto total <SellOutMonto value={campana.monto_total} moneda={campana.moneda} />
+                    </>
+                  ) : (
+                    beneficio(campana)
+                  )}
+                </div>
+                {esDeduccion(campana) && <div className={`${styles.sub} ${repartoStyles.deduccion}`}>Deducción de ganancia</div>}
+                {campana.items?.length > 0 && <div className={styles.sub}>{cuantosItems(campana)}</div>}
               </td>
               <td>{`${formatDateOnly(campana.fecha_desde, DIA)} – ${formatDateOnly(campana.fecha_hasta, DIA)}`}</td>
               <td className={styles.num}>
