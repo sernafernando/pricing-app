@@ -2,9 +2,9 @@
 
 Owner: "podríamos tener un visualizador de lotes? para saber como van a aplicar?". The sell-in cost is FIFO by lot,
 not weighted: each sale takes the units of the oldest line with units left, so the viewer lists a product's lines of
-active purchases in that order (`costing.lotes`, sorted by `fifo.orden_fifo`) with what the stored consumptions took from
-each one (`costing.unidades_usadas`) and the unit discount `split.unit_discount` gives it (a USD purchase at its own
-rate, as costing converts it).
+active purchases in that order (`costing.lotes`, sorted by `fifo.orden_fifo`) with what the stored consumptions took
+from each one (`costing.unidades_usadas`) and the unit discount `split.unit_discount` gives it (a USD purchase at its
+own rate, as costing converts it).
 
 Status of a line: `vigente` is the one `costing.vigentes` returns for today (the next sale takes it); `agotado` has
 no units left; `desde` counts from a date after today; `en_cola` has units left and waits behind the current one.
