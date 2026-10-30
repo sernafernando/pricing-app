@@ -20,9 +20,10 @@ export default function GruposTab({ version = 0, onGruposCambiados = () => {} })
   // `{ id, inicial }`: `id` null is a new group; `inicial` is what "Crear grupo" answered, until the list has it.
   const [panel, setPanel] = useState(null);
   const subcategorias = nombresDeSubcategorias(opciones);
+  // Returns the reload: the panel stays busy until the list and the preview are current.
   const cambiaron = () => {
-    recargar();
     onGruposCambiados();
+    return recargar();
   };
   const grupo = panel?.id != null ? (grupos?.find((g) => g.id === panel.id) ?? panel.inicial) : null;
   // A reload without the open group (someone else deleted it) closes the panel instead of turning it into "Nuevo".

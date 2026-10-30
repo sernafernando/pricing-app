@@ -245,6 +245,21 @@ describe('GruposTab — filters and preview', () => {
     expect(await within(panel).findByText('Alcanza 30 productos.')).toBeInTheDocument();
   });
 
+  it('after a filter change the panel stays busy until the list and the preview come back', async () => {
+    const user = userEvent.setup();
+    offsetGruposAPI.eliminarFiltro.mockResolvedValue({ data: {} });
+    renderWithRouter(<GruposTab />);
+    const panel = await abrir(user, 'TP-Link redes');
+    let responder;
+    offsetGruposAPI.alcance.mockReturnValue(new Promise((r) => (responder = r)));
+    await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
+    await waitFor(() => expect(offsetGruposAPI.alcance).toHaveBeenCalledTimes(2));
+    expect(within(panel).getByRole('button', { name: 'Quitar Marca TP-LINK · Categoría Routers' })).toBeDisabled();
+    responder({ data: [{ ...ALCANCE[0], productos: 30 }, ALCANCE[1]] });
+    expect(await within(panel).findByText('Alcanza 30 productos.')).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Quitar Marca TP-LINK · Categoría Routers' })).toBeEnabled();
+  });
+
   it('a failed filter change says so', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.eliminarFiltro.mockRejectedValue({ response: { data: { error: { message: 'Filtro no encontrado' } } } });

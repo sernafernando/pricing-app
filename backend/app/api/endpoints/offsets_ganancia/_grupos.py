@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from typing import List
+from typing import Dict, List
 
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
@@ -13,7 +13,7 @@ from app.api.deps import get_current_user
 from app.services.permisos_service import verificar_permiso
 from app.services.sell_out.alcance import productos_por_grupo
 
-from ._schemas import AlcanceGrupo, OffsetGrupoCreate, OffsetGrupoResponse, OffsetGrupoUpdate
+from ._schemas import AlcanceGrupo, OffsetGrupoCreate, OffsetGrupoEditado, OffsetGrupoResponse, OffsetGrupoUpdate
 
 router = APIRouter()
 
@@ -66,13 +66,13 @@ def listar_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends
 
 
 @router.get("/offset-grupos-alcance", response_model=List[AlcanceGrupo])
-def alcance_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def alcance_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)) -> List[dict]:
     """Per group: how many products it reaches (the sell-out campaign rule) and the campaigns using it.
     Two queries whatever the number of groups (the Grupos panel of Sell in / Sell out)."""
     if not verificar_permiso(db, current_user, PERMISO_GRUPOS):
         raise HTTPException(status_code=403, detail=_SIN_PERMISO)
     productos = productos_por_grupo(db)
-    campanas: dict = {}
+    campanas: Dict[int, List[dict]] = {}
     rows = (
         db.query(OffsetGrupo.id, SellOutCampana.id, SellOutCampana.nombre, SellOutCampana.estado)
         .outerjoin(SellOutCampanaGrupo, SellOutCampanaGrupo.grupo_id == OffsetGrupo.id)
@@ -86,13 +86,13 @@ def alcance_grupos(db: Session = Depends(get_db), current_user: Usuario = Depend
     return [{"grupo_id": gid, "productos": productos.get(gid, 0), "campanas": lista} for gid, lista in campanas.items()]
 
 
-@router.patch("/offset-grupos/{grupo_id}")
+@router.patch("/offset-grupos/{grupo_id}", response_model=OffsetGrupoEditado)
 def editar_grupo(
     grupo_id: int,
     cambios: OffsetGrupoUpdate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
-):
+) -> dict:
     """Renombra o describe un grupo (sus filtros se editan aparte)."""
     if not verificar_permiso(db, current_user, PERMISO_GRUPOS):
         raise HTTPException(status_code=403, detail=_SIN_PERMISO)

@@ -44,6 +44,12 @@ class OffsetGrupoUpdate(BaseModel):
     descripcion: Optional[str] = Field(default=None, max_length=255)
 
 
+class OffsetGrupoEditado(BaseModel):
+    id: int
+    nombre: str
+    descripcion: Optional[str] = None
+
+
 class CampanaDeGrupo(BaseModel):
     id: int
     nombre: str
