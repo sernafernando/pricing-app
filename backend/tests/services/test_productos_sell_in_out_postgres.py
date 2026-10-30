@@ -221,6 +221,30 @@ class TestCostBonus:
         assert (sell_in.bono_ids, sell_in.descuento_unit) == ([bono], 1500.0)
         assert _payload(engine).sell_in.compra_item_id is not None  # the screens are unchanged
 
+    def test_the_lot_viewer_converts_a_usd_cost_at_the_rate_and_shows_nothing_without_one(self, engine):
+        # A USD-cost product: the bonus's % applies to its cost in ARS at the current rate, as the screens do; with no
+        # rate there is no ARS cost, so no bonus amount (never a guess, never an error).
+        bono = _bono_costo(engine)
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE productos_erp SET costo = 40, moneda_costo = 'USD' WHERE item_id = :i"), {"i": ROUTER}
+            )
+        try:
+            with sessionmaker(bind=engine)() as db:
+                sin_tasa = visor_lotes.bono_costo(db, ROUTER, HOY)
+            so.tipo_cambio(engine, D(2026, 11, 9), 1250)
+            with sessionmaker(bind=engine)() as db:
+                con_tasa = visor_lotes.bono_costo(db, ROUTER, HOY)
+        finally:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE productos_erp SET costo = 50000, moneda_costo = 'ARS' WHERE item_id = :i"),
+                    {"i": ROUTER},
+                )
+
+        assert sin_tasa is None
+        assert (con_tasa.bono_ids, con_tasa.descuento_unit) == ([bono], 1500.0)  # 3 % of 40 USD x 1250
+
     def test_a_percentage_with_vat_is_divided_by_the_product_rate(self, engine):
         # S33: "el tilde tendría que restar el iva"; the router's VAT is 21 %: 3 / 1.21 % of 50000.
         _bono_costo(engine, incluye_iva=True)

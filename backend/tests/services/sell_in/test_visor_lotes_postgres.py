@@ -164,3 +164,32 @@ def test_each_line_names_its_purchase_supplier_and_invoices(engine: Engine) -> N
         (lote,) = visor_lotes.lotes_de_producto(db, 950, HOY).lotes
 
     assert (lote.compra_id, lote.proveedor, lote.facturas) == (compra_id, "Gauss SA", ["A-0001-1"])
+
+
+def test_a_purchase_a_bonus_generated_names_the_invoice_of_its_operation(engine: Engine) -> None:
+    (linea,) = w.compra(engine, [(950, 2, "20.00")], date(2026, 10, 1))
+    with engine.begin() as conn:
+        bono = conn.execute(
+            text(
+                "INSERT INTO sell_in_bonos_marca (marca, tipo, monto_unit, moneda, fecha_desde, fecha_hasta, usuario_id) "
+                "VALUES ('MERCUSYS', 'por_unidad', 10, 'ARS', '2026-10-01', '2026-10-31', 7) RETURNING id"
+            )
+        ).scalar()
+        conn.execute(text("INSERT INTO pedidos_compra (id, numero, numero_factura) VALUES (81, 'OC-9', 'B-0002-9')"))
+        conn.execute(
+            text(
+                "UPDATE sell_in_compras SET origen = 'bono_marca', bono_id = :b, bono_pedido_id = 81 "
+                "WHERE id = (SELECT compra_id FROM sell_in_compra_items WHERE id = :l)"
+            ),
+            {"b": bono, "l": linea},
+        )
+    try:
+        with sessionmaker(bind=engine)() as db:
+            (lote,) = visor_lotes.lotes_de_producto(db, 950, HOY).lotes
+
+        assert lote.facturas == ["B-0002-9"]
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM sell_in_compras"))
+            conn.execute(text("DELETE FROM sell_in_bonos_marca"))
+            conn.execute(text("DELETE FROM pedidos_compra"))

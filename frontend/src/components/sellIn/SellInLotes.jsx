@@ -99,16 +99,23 @@ function LotSales({ productItemId, lote }) {
     };
   }, [productItemId, lote.compra_item_id, page, attempt]);
 
-  if (read.status === 'error') {
-    return (
-      <div className={styles.error} role="alert">
-        <span>No se pudieron cargar las ventas del lote.</span>
-        <button type="button" className="btn-tesla outline sm" onClick={() => setAttempt((n) => n + 1)}>
-          Reintentar
-        </button>
-      </div>
-    );
-  }
+  const retry = (
+    <div className={styles.error} role="alert">
+      <span>No se pudieron cargar las ventas del lote.</span>
+      <button
+        type="button"
+        className="btn-tesla outline sm"
+        onClick={() => {
+          setRead((prev) => ({ ...prev, status: 'loading' }));
+          setAttempt((n) => n + 1);
+        }}
+      >
+        Reintentar
+      </button>
+    </div>
+  );
+  // A failed first page has nothing to keep; a failed next page keeps the sales already listed.
+  if (read.status === 'error' && read.items.length === 0) return retry;
   if (read.status === 'loading' && read.items.length === 0) {
     return (
       <p className={styles.note} role="status">
@@ -126,7 +133,8 @@ function LotSales({ productItemId, lote }) {
           </li>
         ))}
       </ul>
-      {read.items.length < read.total && (
+      {read.status === 'error' && retry}
+      {read.status !== 'error' && read.items.length < read.total && (
         <button
           type="button"
           className={styles.toggle}

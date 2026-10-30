@@ -243,6 +243,29 @@ describe('a lot expanded', () => {
     expect(screen.queryByRole('button', { name: 'Ver más ventas' })).not.toBeInTheDocument();
   });
 
+  it('a failed next page keeps the sales already listed and can be retried', async () => {
+    const venta = (ref) => ({ canal: 'ml', venta_ref: ref, fecha_venta: '2026-10-02', unidades: 1, descuento_ars: '100.00' });
+    let reintento;
+    sellInLotesAPI.consumos
+      .mockResolvedValueOnce({ data: { items: [venta(11)], total: 2, page: 1, page_size: 20 } })
+      .mockRejectedValueOnce(httpError(500))
+      .mockReturnValueOnce(new Promise((resolve) => (reintento = resolve)));
+    renderLotes();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver ventas del lote 1' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver más ventas' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar las ventas del lote.');
+    const ventas = screen.getByRole('list', { name: 'Ventas del lote 1' });
+    expect(within(ventas).getByText(/venta 11/)).toBeInTheDocument();
+    await userEvent.click(within(screen.getByRole('alert')).getByRole('button', { name: 'Reintentar' }));
+    expect(sellInLotesAPI.consumos).toHaveBeenLastCalledWith(950, 501, { page: 2, page_size: 20 });
+    expect(screen.getByRole('button', { name: 'Cargando ventas…' })).toBeDisabled();
+    reintento({ data: { items: [venta(12)], total: 2, page: 2, page_size: 20 } });
+    expect(await within(ventas).findByText(/venta 12/)).toBeInTheDocument();
+    expect(within(ventas).getAllByRole('listitem')).toHaveLength(2);
+  });
+
   it('a lot nothing consumed says so', async () => {
     sellInLotesAPI.consumos.mockResolvedValue({ data: { items: [], total: 0, page: 1, page_size: 20 } });
     renderLotes();

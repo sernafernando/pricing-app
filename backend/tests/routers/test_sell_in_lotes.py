@@ -12,6 +12,8 @@ import pytest
 from app.models.producto import ProductoERP, TipoMoneda
 from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
+from app.schemas.sell_in_out_producto import SellInProducto
+from app.services.sell_in import visor_lotes
 
 BASE = "/api/sell-in/productos"
 
@@ -124,3 +126,66 @@ def test_with_the_purchases_permission_the_supplier_comes(client, lector, lineas
 
     assert lotes["compra_visible"] is True
     assert {x["proveedor"] for x in lotes["lotes"]} == {"Gauss SA"}
+
+
+BONO = SellInProducto(bono_id=7, bono_ids=[7], descuento_unit=1500.0, costo=48500.0)
+
+
+def _con_bono(monkeypatch) -> list[int]:
+    llamadas: list[int] = []
+
+    def bono_costo(_db, item_id, _hoy):
+        llamadas.append(item_id)
+        return BONO
+
+    monkeypatch.setattr(visor_lotes, "bono_costo", bono_costo)
+    return llamadas
+
+
+def test_the_cost_bonus_comes_when_the_current_lot_is_the_last_one(client, lector, lineas, monkeypatch) -> None:
+    _con_bono(monkeypatch)
+
+    data = client.get(f"{BASE}/4512/lotes", headers=lector).json()
+
+    assert data["proxima"]["siguiente"] is None
+    assert data["bono_costo"] == {"bono_ids": [7], "descuento_unit": 1500.0}
+
+
+def test_the_cost_bonus_comes_until_a_future_next_lot(client, lector, lineas, db, admin_user, monkeypatch) -> None:
+    _con_bono(monkeypatch)
+    compra = SellInCompra(
+        fecha_compra=date(2099, 1, 1), moneda="ARS", monto_total=Decimal("5.00"), usuario_id=admin_user.id
+    )
+    db.add(compra)
+    db.flush()
+    db.add(
+        SellInCompraItem(
+            compra_id=compra.id, item_id=4512, cantidad=1, costo_base_unit=Decimal("100"), monto_asignado=Decimal("5")
+        )
+    )
+    db.commit()
+
+    data = client.get(f"{BASE}/4512/lotes", headers=lector).json()
+
+    assert data["proxima"]["siguiente"]["estado"] == "desde"
+    assert data["bono_costo"] == {"bono_ids": [7], "descuento_unit": 1500.0}
+
+
+def test_no_cost_bonus_while_a_queued_lot_follows(client, lector, lineas, db, admin_user, monkeypatch) -> None:
+    llamadas = _con_bono(monkeypatch)
+    compra = SellInCompra(
+        fecha_compra=date(2026, 10, 8), moneda="ARS", monto_total=Decimal("5.00"), usuario_id=admin_user.id
+    )
+    db.add(compra)
+    db.flush()
+    db.add(
+        SellInCompraItem(
+            compra_id=compra.id, item_id=4512, cantidad=1, costo_base_unit=Decimal("100"), monto_asignado=Decimal("5")
+        )
+    )
+    db.commit()
+
+    data = client.get(f"{BASE}/4512/lotes", headers=lector).json()
+
+    assert data["proxima"]["siguiente"]["estado"] == "en_cola"
+    assert (data["bono_costo"], llamadas) == (None, [])
