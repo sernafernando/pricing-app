@@ -7,10 +7,14 @@
   composes: count from './PresenceFilters.module.css';
 }
 
+/* Its own width, not the narrow button's: the users and kinds lists take their longest label (a scrollbar's room
+   included), the dates keep their 160px; capped to the screen, where the lists scroll sideways rather than overflow. */
 .panel {
   composes: panel from './PresenceFilters.module.css';
-  grid-template-columns: repeat(3, minmax(160px, auto));
+  grid-template-columns: minmax(180px, max-content) minmax(180px, max-content) minmax(160px, auto);
   align-items: start;
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--spacing-md));
 }
 
 .section {
@@ -38,6 +42,7 @@
   gap: var(--space-1);
   max-height: 220px;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .option {
