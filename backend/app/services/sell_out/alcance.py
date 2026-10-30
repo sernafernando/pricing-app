@@ -117,6 +117,14 @@ def productos_de_grupo(db: Session, grupo_id: int, item_ids: Iterable[int]) -> s
     return {i for (i,) in rows.distinct()}
 
 
+def productos_por_grupo(db: Session) -> Dict[int, int]:
+    """`{grupo_id: products reached}` of every group, with the same rule as a campaign linked to it, in ONE query
+    (the Grupos panel's preview); a group reaching nothing is absent."""
+    f, p = OffsetGrupoFiltro, ProductoERP
+    rows = db.query(f.grupo_id, func.count(func.distinct(p.item_id))).join(p, filtro_alcanza(f, p)).group_by(f.grupo_id)
+    return {grupo_id: total for grupo_id, total in rows}
+
+
 def campanas_que_alcanzan(db: Session, item_ids: Any):
     """The ids of the campaigns whose groups reach one of `item_ids` (a list or a selectable of product ids), as an
     unexecuted query (a caller filters on it), with the same rule as `productos`."""

@@ -1,20 +1,45 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
-from app.models.sell_out import FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID, SellOutCampanaGrupo
+from app.models.sell_out import FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID, SellOutCampana, SellOutCampanaGrupo
 from app.models.usuario import Usuario
 from app.api.deps import get_current_user
 from app.services.permisos_service import verificar_permiso
+from app.services.sell_out.alcance import productos_por_grupo
 
 from ._schemas import OffsetGrupoCreate, OffsetGrupoResponse
 
 router = APIRouter()
+
+PERMISO_GRUPOS = "config.editar_constantes"
+_SIN_PERMISO = "No tienes permiso para gestionar offsets de ganancia"
+
+
+class OffsetGrupoUpdate(BaseModel):
+    """Only the fields sent change; an empty description clears it."""
+
+    nombre: Optional[str] = Field(default=None, max_length=100)
+    descripcion: Optional[str] = Field(default=None, max_length=255)
+
+
+class CampanaDeGrupo(BaseModel):
+    id: int
+    nombre: str
+    estado: str
+
+
+class AlcanceGrupo(BaseModel):
+    grupo_id: int
+    productos: int
+    campanas: List[CampanaDeGrupo]
+
 
 _GRUPO_EN_SELL_OUT = (
     "El grupo está asignado a una campaña de sell out. Quite el grupo de la campaña antes de eliminarlo."
@@ -58,6 +83,51 @@ def listar_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends
         )
 
     return resultado
+
+
+@router.get("/offset-grupos-alcance", response_model=List[AlcanceGrupo])
+def alcance_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    """Per group: how many products it reaches (the sell-out campaign rule) and the campaigns using it.
+    Two queries whatever the number of groups (the Grupos panel of Sell in / Sell out)."""
+    if not verificar_permiso(db, current_user, PERMISO_GRUPOS):
+        raise HTTPException(status_code=403, detail=_SIN_PERMISO)
+    productos = productos_por_grupo(db)
+    campanas: dict = {}
+    rows = (
+        db.query(OffsetGrupo.id, SellOutCampana.id, SellOutCampana.nombre, SellOutCampana.estado)
+        .outerjoin(SellOutCampanaGrupo, SellOutCampanaGrupo.grupo_id == OffsetGrupo.id)
+        .outerjoin(SellOutCampana, SellOutCampana.id == SellOutCampanaGrupo.campana_id)
+        .order_by(OffsetGrupo.id, SellOutCampana.estado, SellOutCampana.fecha_desde.desc(), SellOutCampana.id)
+    )
+    for grupo_id, campana_id, nombre, estado in rows:
+        lista = campanas.setdefault(grupo_id, [])
+        if campana_id is not None:
+            lista.append({"id": campana_id, "nombre": nombre, "estado": estado})
+    return [{"grupo_id": gid, "productos": productos.get(gid, 0), "campanas": lista} for gid, lista in campanas.items()]
+
+
+@router.patch("/offset-grupos/{grupo_id}")
+def editar_grupo(
+    grupo_id: int,
+    cambios: OffsetGrupoUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Renombra o describe un grupo (sus filtros se editan aparte)."""
+    if not verificar_permiso(db, current_user, PERMISO_GRUPOS):
+        raise HTTPException(status_code=403, detail=_SIN_PERMISO)
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    if not grupo:
+        raise HTTPException(404, "Grupo no encontrado")
+    if "nombre" in cambios.model_fields_set:
+        nombre = (cambios.nombre or "").strip()
+        if not nombre:
+            raise HTTPException(422, "El nombre del grupo no puede quedar vacío.")
+        grupo.nombre = nombre
+    if "descripcion" in cambios.model_fields_set:
+        grupo.descripcion = (cambios.descripcion or "").strip() or None
+    db.commit()
+    return {"id": grupo.id, "nombre": grupo.nombre, "descripcion": grupo.descripcion}
 
 
 @router.post("/offset-grupos")
@@ -129,8 +199,23 @@ def eliminar_grupo(grupo_id: int, db: Session = Depends(get_db), current_user: U
     if offsets_count > 0:
         raise HTTPException(400, f"No se puede eliminar el grupo, tiene {offsets_count} offsets asociados")
 
-    # sell_out_campana_grupos points here with RESTRICT: answer clearly instead of a database error
-    if db.query(SellOutCampanaGrupo).filter(SellOutCampanaGrupo.grupo_id == grupo_id).first() is not None:
+    # sell_out_campana_grupos points here with RESTRICT: answer clearly instead of a database error,
+    # naming the active campaigns (a voided one also holds the group: the generic message)
+    estados = (
+        db.query(SellOutCampana.nombre, SellOutCampana.estado)
+        .join(SellOutCampanaGrupo, SellOutCampanaGrupo.campana_id == SellOutCampana.id)
+        .filter(SellOutCampanaGrupo.grupo_id == grupo_id)
+        .order_by(SellOutCampana.nombre)
+        .all()
+    )
+    activas = [nombre for nombre, estado in estados if estado == "activa"]
+    if activas:
+        nombres = ", ".join(f"«{nombre}»" for nombre in activas)
+        a_quien = "a la campaña de sell out activa" if len(activas) == 1 else "a las campañas de sell out activas"
+        raise HTTPException(
+            400, f"El grupo está asignado {a_quien} {nombres}. Quite el grupo de la campaña antes de eliminarlo."
+        )
+    if estados:
         raise HTTPException(400, _GRUPO_EN_SELL_OUT)
 
     # Los filtros se eliminan automáticamente por el cascade
