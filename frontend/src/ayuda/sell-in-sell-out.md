@@ -30,6 +30,10 @@ Al crear un bono de marca, **Base del bono** define cómo se calcula. Se elige u
 
 > Cuando se carga la factura de una operación, el sell in de esa factura toma sus unidades y el bono sobre el costo deja de aplicarse a ellas: no se cuenta dos veces.
 
+### Bonos de marca: acumulables o no
+
+**Acumulable con otros bonos** viene tildada. Tildada, el bono se suma a los otros bonos que cobran sobre la misma unidad. Sin tildar, el bono no cobra sobre las unidades que ya cobró un bono anterior (creado antes), y los bonos posteriores tampoco cobran sobre las suyas. Se puede cambiar al editar el bono.
+
 ### Campañas de sell out: tipos
 
 Al crear o editar una campaña se elige el **Tipo**:
