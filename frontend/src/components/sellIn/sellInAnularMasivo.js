@@ -29,11 +29,15 @@ export async function resolverIdsFiltrados(listar, params, { total, filtrosActiv
   return unicos;
 }
 
+/** The gendered words of a noun ("compra" / "bono"): its article and endings. */
+export const generoDe = ({ singular }) => (singular.endsWith('a') ? { o: 'a', los: 'las', alguno: 'alguna', ninguno: 'ninguna' } : { o: 'o', los: 'los', alguno: 'alguno', ninguno: 'ninguno' });
+
 /** "Se anuló 1 compra. 1 ya estaba anulada." from the bulk void's answer. */
-export function resultadoDeAnulacion({ anuladas, ya_anuladas: yaAnuladas }, { singular, plural }) {
+export function resultadoDeAnulacion({ anuladas, ya_anuladas: yaAnuladas }, sustantivo) {
+  const { o } = generoDe(sustantivo);
   const n = anuladas.length;
-  const partes = [n === 1 ? `Se anuló 1 ${singular}.` : `Se anularon ${n} ${plural}.`];
-  if (yaAnuladas.length === 1) partes.push(`1 ya estaba anulad${singular.endsWith('a') ? 'a' : 'o'}.`);
-  if (yaAnuladas.length > 1) partes.push(`${yaAnuladas.length} ya estaban anulad${singular.endsWith('a') ? 'as' : 'os'}.`);
+  const partes = [n === 1 ? `Se anuló 1 ${sustantivo.singular}.` : `Se anularon ${n} ${sustantivo.plural}.`];
+  if (yaAnuladas.length === 1) partes.push(`1 ya estaba anulad${o}.`);
+  if (yaAnuladas.length > 1) partes.push(`${yaAnuladas.length} ya estaban anulad${o}s.`);
   return partes.join(' ');
 }

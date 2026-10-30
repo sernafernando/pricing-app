@@ -258,7 +258,15 @@ def _valores(db: Session, bono: SellInBonoMarca) -> dict:
     }
 
 
-def _audit(db: Session, tipo: TipoAccion, usuario_id: int, antes: Optional[dict], despues: dict, motivo=None) -> None:
+def _audit(
+    db: Session,
+    tipo: TipoAccion,
+    usuario_id: int,
+    antes: Optional[dict],
+    despues: dict,
+    motivo: Optional[str] = None,
+    es_masivo: bool = False,
+) -> None:
     db.add(
         Auditoria(
             item_id=None,
@@ -266,7 +274,7 @@ def _audit(db: Session, tipo: TipoAccion, usuario_id: int, antes: Optional[dict]
             tipo_accion=tipo,
             valores_anteriores=antes,
             valores_nuevos=despues,
-            es_masivo=False,
+            es_masivo=es_masivo,
             comentario=motivo,
             fecha=datetime.now(timezone.utc).replace(tzinfo=None),  # naive UTC, like the column's default
         )
@@ -367,9 +375,12 @@ def anular_bono(db: Session, bono_id: int, usuario_id: int, motivo: Optional[str
     return bono
 
 
-def _anular_bono(db: Session, bono_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInBonoMarca]:
-    """THE void step, without committing (the single void and the bulk one, `anular_masivo`, commit). None when it
-    does not exist; `SellInBonoYaAnulado` before any change when it is already voided."""
+def _anular_bono(
+    db: Session, bono_id: int, usuario_id: int, motivo: Optional[str], es_masivo: bool = False
+) -> Optional[SellInBonoMarca]:
+    """THE void step, without committing (the single void and the bulk one, `anular_masivo`, commit; `es_masivo`
+    marks its audit row). None when it does not exist; `SellInBonoYaAnulado` before any change when it is already
+    voided."""
     bono = _bloquear(db, bono_id)
     if bono is None:
         return None
@@ -382,6 +393,7 @@ def _anular_bono(db: Session, bono_id: int, usuario_id: int, motivo: Optional[st
         None,
         _valores(db, bono),
         motivo,
+        es_masivo,
     )
     return bono
 

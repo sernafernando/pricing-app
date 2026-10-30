@@ -246,7 +246,7 @@ def anular_compras(
         anuladas, ya_anuladas = anular_masivo.anular_varios(
             db,
             data.ids,
-            lambda compra_id: service._anular_compra(db, compra_id, user.id, data.motivo),
+            lambda compra_id: service._anular_compra(db, compra_id, user.id, data.motivo, es_masivo=True),
             ya_anulada=service.SellInYaAnulada,
             rechazos=(service.SellInGenerada,),
             no_existe=lambda compra_id: f"La compra {compra_id} no existe",

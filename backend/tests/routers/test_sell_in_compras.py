@@ -854,6 +854,7 @@ def test_anular_once_then_409(client, gestor, productos, db):
     audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_COMPRA_ANULADA).all()
     assert sorted(r.item_id for r in audit) == [4512, 4513]
     assert {r.comentario for r in audit} == {"Cargada dos veces"}
+    assert {bool(r.es_masivo) for r in audit} == {False}
 
 
 def test_anular_without_body(client, gestor, productos):
@@ -908,6 +909,7 @@ def test_bulk_void_voids_every_purchase_with_the_single_void_audit(client, gesto
     audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_COMPRA_ANULADA).all()
     assert sorted(r.item_id for r in audit) == [4512, 4512, 4513]  # one row per line, like the single void
     assert {r.comentario for r in audit} == {"Cargadas mal"}
+    assert {bool(r.es_masivo) for r in audit} == {True}  # a bulk action, like every other one in the audit
 
 
 def test_bulk_void_skips_and_reports_an_already_voided_purchase(client, gestor, productos, db):

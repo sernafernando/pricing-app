@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { resultadoDeAnulacion } from './sellInAnularMasivo';
+import { useEffect, useState } from 'react';
+import { ANULAR_MASIVO_MAX, generoDe, resultadoDeAnulacion } from './sellInAnularMasivo';
 import styles from './SellInAnularMasivo.module.css';
 
 /**
@@ -14,6 +14,21 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
   const [error, setError] = useState(null); // { mensaje, rechazadas }
   const n = seleccionados.length;
   const nombre = n === 1 ? sustantivo.singular : sustantivo.plural;
+  const g = generoDe(sustantivo);
+
+  // An emptied selection (other filters, "Limpiar selección") closes the confirmation: it never reopens by itself.
+  useEffect(() => {
+    if (n === 0) setConfirmando(false);
+  }, [n]);
+
+  const abrirConfirmacion = () => {
+    if (n > ANULAR_MASIVO_MAX) {
+      setError({ mensaje: `Son ${n}: se pueden anular hasta ${ANULAR_MASIVO_MAX} por vez.`, rechazadas: [] });
+      return;
+    }
+    setError(null);
+    setConfirmando(true);
+  };
 
   const seleccionarFiltrado = async () => {
     setError(null);
@@ -34,7 +49,7 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
       onHecho(resultadoDeAnulacion(data, sustantivo));
     } catch (err) {
       const data = err?.response?.status === 409 ? err.response.data : null;
-      setError(data?.mensaje ? { mensaje: data.mensaje, rechazadas: data.rechazadas ?? [] } : { mensaje: `No se pudieron anular las ${sustantivo.plural}.`, rechazadas: [] });
+      setError(data?.mensaje ? { mensaje: data.mensaje, rechazadas: data.rechazadas ?? [] } : { mensaje: `No se pudieron anular ${g.los} ${sustantivo.plural}.`, rechazadas: [] });
     } finally {
       setEnviando(false);
     }
@@ -54,7 +69,7 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
             <button type="button" className="btn-tesla ghost sm" onClick={onLimpiar}>
               Limpiar selección
             </button>
-            <button type="button" className="btn-tesla danger sm" onClick={() => setConfirmando(true)} disabled={confirmando}>
+            <button type="button" className="btn-tesla danger sm" onClick={abrirConfirmacion} disabled={confirmando}>
               Anular seleccionados
             </button>
           </>
@@ -63,7 +78,7 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
       {confirmando && n > 0 && (
         <div role="dialog" aria-label={`Anular ${n} ${nombre}`} className={styles.confirm}>
           <p>{`Se van a anular ${n} ${nombre}. ${revierte}`}</p>
-          <p className={styles.hint}>Se anula todo o nada: si alguna no se puede anular, no se anula ninguna. Las ya anuladas se saltean.</p>
+          <p className={styles.hint}>{`Se anula todo o nada: si ${g.alguno} no se puede anular, no se anula ${g.ninguno}. ${g.los === 'las' ? 'Las' : 'Los'} ya anulad${g.o}s se saltean.`}</p>
           <label className={styles.field}>
             <span>Motivo (opcional)</span>
             <input type="text" maxLength={500} value={motivo} onChange={(e) => setMotivo(e.target.value)} />

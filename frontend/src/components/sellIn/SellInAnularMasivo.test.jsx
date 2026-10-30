@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SellInAnularMasivo from './SellInAnularMasivo';
+import { ANULAR_MASIVO_MAX } from './sellInAnularMasivo';
 
 const props = (over = {}) => ({
   sustantivo: { singular: 'compra', plural: 'compras' },
@@ -77,6 +78,36 @@ describe('SellInAnularMasivo — selection bar and confirmation', () => {
     render(<SellInAnularMasivo {...p} />);
     await userEvent.click(screen.getByRole('button', { name: 'Seleccionar todo lo filtrado (30)' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('La lista cambió mientras se seleccionaba (2 de 3).');
+    expect(p.anular).not.toHaveBeenCalled();
+  });
+
+  it('speaks of bonuses in the masculine', async () => {
+    const user = userEvent.setup();
+    const p = props({ sustantivo: { singular: 'bono', plural: 'bonos' }, anular: vi.fn().mockRejectedValue(new Error('red')) });
+    render(<SellInAnularMasivo {...p} />);
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('si alguno no se puede anular, no se anula ninguno. Los ya anulados se saltean.');
+    await user.click(screen.getByRole('button', { name: 'Sí, anular 2' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron anular los bonos.');
+  });
+
+  it('the confirmation closes when the selection empties, and does not come back by itself', async () => {
+    const user = userEvent.setup();
+    const p = props();
+    const { rerender } = render(<SellInAnularMasivo {...p} />);
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    rerender(<SellInAnularMasivo {...p} seleccionados={[]} />);
+    rerender(<SellInAnularMasivo {...p} seleccionados={[9]} />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('refuses more than the bulk limit before confirming', async () => {
+    const user = userEvent.setup();
+    const p = props({ seleccionados: Array.from({ length: ANULAR_MASIVO_MAX + 1 }, (_, i) => i + 1) });
+    render(<SellInAnularMasivo {...p} />);
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(`Son ${ANULAR_MASIVO_MAX + 1}: se pueden anular hasta ${ANULAR_MASIVO_MAX} por vez.`);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(p.anular).not.toHaveBeenCalled();
   });
 });

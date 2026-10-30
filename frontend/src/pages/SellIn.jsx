@@ -237,6 +237,16 @@ export default function SellIn() {
   };
 
   const params = useMemo(() => buildSellInParams({ ...filters, aplica: filters.aplica || 'todas' }), [filters]);
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+
+  // "Todo lo filtrado" of the purchases, dropped when the filters changed while it was being read.
+  const seleccionarComprasFiltradas = async () => {
+    const desde = params;
+    const ids = await resolverIdsFiltrados(sellInAPI.listar, desde, { total: lista.total, filtrosActivos: true });
+    if (paramsRef.current !== desde) throw new Error('Los filtros cambiaron mientras se seleccionaba. Volvé a intentarlo.');
+    selCompras.reemplazar(ids);
+  };
 
   const cargar = useCallback(async () => {
     if (!puedeVer) return;
@@ -524,22 +534,21 @@ export default function SellIn() {
 
             <SellInResumen resumen={resumen} bonos={bonosVigentes.resumen} />
 
+            {aviso && (
+              <p role="status" className={styles.loading}>
+                {aviso}
+              </p>
+            )}
+
             {verCompras && (
               <>
-                {aviso && (
-                  <p role="status" className={styles.loading}>
-                    {aviso}
-                  </p>
-                )}
                 {puedeGestionar && lista && (
                   <SellInAnularMasivo
                     sustantivo={COMPRAS}
                     seleccionados={[...selCompras.ids]}
                     total={lista.total}
                     revierte={REVIERTE_COMPRAS}
-                    onSeleccionarFiltrado={async () =>
-                      selCompras.reemplazar(await resolverIdsFiltrados(sellInAPI.listar, params, { total: lista.total, filtrosActivos: true }))
-                    }
+                    onSeleccionarFiltrado={seleccionarComprasFiltradas}
                     onLimpiar={selCompras.limpiar}
                     anular={sellInAPI.anularMasivo}
                     onHecho={anuladoMasivo(selCompras, () => {

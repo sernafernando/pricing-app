@@ -277,6 +277,7 @@ def test_void_once_then_409_with_the_reason_audited(client, gestor, productos, d
     assert "anulado" in _message(second)
     [row] = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_BONO_ANULADO).all()
     assert row.comentario == "La marca canceló el acuerdo"
+    assert not row.es_masivo
 
 
 def test_void_unknown_is_404(client, gestor):
@@ -360,6 +361,7 @@ def test_bulk_void_voids_every_bonus_with_the_single_void_audit(client, gestor, 
     assert {db.get(SellInBonoMarca, x["id"]).estado for x in (a, b)} == {"anulada"}
     rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_BONO_ANULADO).all()
     assert len(rows) == 2 and {r.comentario for r in rows} == {"Acuerdo caído"}
+    assert {bool(r.es_masivo) for r in rows} == {True}
 
 
 def test_bulk_void_skips_and_reports_an_already_voided_bonus(client, gestor, productos):

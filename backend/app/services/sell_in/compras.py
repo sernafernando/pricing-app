@@ -260,8 +260,10 @@ def audit(
     tipo: TipoAccion,
     usuario_id: int,
     motivo: Optional[str] = None,
+    es_masivo: bool = False,
 ) -> None:
-    """One audit row per line; `motivo` (the void's reason, if any) goes to `comentario`."""
+    """One audit row per line; `motivo` (the void's reason, if any) goes to `comentario`; `es_masivo` marks the rows
+    of a bulk action."""
     fecha = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC, like the column's default
     for item in items:
         valores = {
@@ -281,7 +283,7 @@ def audit(
                 tipo_accion=tipo,
                 valores_anteriores=None,
                 valores_nuevos=valores,
-                es_masivo=False,
+                es_masivo=es_masivo,
                 comentario=motivo,
                 fecha=fecha,
             )
@@ -463,10 +465,12 @@ def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional
     return compra
 
 
-def _anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInCompra]:
+def _anular_compra(
+    db: Session, compra_id: int, usuario_id: int, motivo: Optional[str], es_masivo: bool = False
+) -> Optional[SellInCompra]:
     """THE void step, without committing (the single void and the bulk one, `anular_masivo`, commit): voids the
-    purchase, audits each line and releases its units. None when it does not exist; `SellInYaAnulada` /
-    `SellInGenerada` before any change when it cannot be voided."""
+    purchase, audits each line (`es_masivo` on the bulk one) and releases its units. None when it does not exist;
+    `SellInYaAnulada` / `SellInGenerada` before any change when it cannot be voided."""
     compra = db.query(SellInCompra).filter(SellInCompra.id == compra_id).with_for_update().first()
     if compra is None:
         return None
@@ -480,7 +484,7 @@ def _anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optiona
     items = list(
         db.query(SellInCompraItem).filter(SellInCompraItem.compra_id == compra_id).order_by(SellInCompraItem.id)
     )
-    audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo)
+    audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo, es_masivo=es_masivo)
     db.flush()
     # Its units are released in the same transaction: later purchases take those sales over.
     get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)

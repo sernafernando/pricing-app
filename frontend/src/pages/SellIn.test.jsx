@@ -618,4 +618,30 @@ describe('SellIn page — bulk void (anular masivo)', () => {
     expect(screen.queryByRole('checkbox', { name: /Seleccionar/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Seleccionar todo lo filtrado/ })).not.toBeInTheDocument();
   });
+
+  it('says what happened even when only the bonus list is shown', async () => {
+    const user = userEvent.setup();
+    sellInBonosAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [BONO.id], ya_anuladas: [] } });
+    renderWithRouter(<SellIn />);
+    const chips = await screen.findByRole('group', { name: 'Tipo' });
+    await user.click(await within(chips).findByRole('button', { name: 'Bono de marca · 2' }));
+    await user.click(screen.getByRole('checkbox', { name: `Seleccionar bono #${BONO.id}` }));
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, anular 1' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Se anuló 1 bono.');
+  });
+
+  it('drops "todo lo filtrado" when the filters changed while it was read', async () => {
+    const user = userEvent.setup();
+    let soltar;
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    sellInAPI.listar.mockImplementationOnce(() => new Promise((resolve) => (soltar = () => resolve({ data: LISTA }))));
+    await user.click(screen.getAllByRole('button', { name: 'Seleccionar todo lo filtrado (2)' })[0]);
+    await user.click(screen.getByRole('button', { name: /No aplican/ }));
+    soltar();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Los filtros cambiaron mientras se seleccionaba. Volvé a intentarlo.');
+    expect(screen.queryByText('2 seleccionados')).not.toBeInTheDocument();
+  });
 });

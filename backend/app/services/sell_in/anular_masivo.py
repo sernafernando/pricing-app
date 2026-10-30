@@ -59,7 +59,7 @@ def anular_varios(
         if rechazadas:
             raise AnulacionRechazada(rechazadas)
         db.commit()
-    except BaseException:
+    except Exception:
         db.rollback()  # nothing is voided; never leave the session aborted
         raise
     return anuladas, ya_anuladas
