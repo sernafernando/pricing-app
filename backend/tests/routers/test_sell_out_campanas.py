@@ -611,9 +611,10 @@ def test_bulk_void_writes_the_same_audit_and_queue_as_the_single_void(client, ge
 
     def _sin_id(row) -> tuple:
         valores = {k: v for k, v in row.valores_nuevos.items() if k != "campana_id"}
-        return (row.usuario_id, row.item_id, row.valores_anteriores, valores, row.es_masivo, row.comentario)
+        return (row.usuario_id, row.item_id, row.valores_anteriores, valores, row.comentario)
 
     assert _sin_id(rows[masiva]) == _sin_id(rows[sola])
+    assert (rows[sola].es_masivo, rows[masiva].es_masivo) == (False, True)  # the bulk row says it was bulk
     assert client.get(f"{BASE}/{masiva}", headers=gestor).json()["estado"] == "anulada"
 
 
@@ -642,7 +643,7 @@ def test_a_brand_scoped_pm_cannot_bulk_void(client, gestor, grupos, auth_headers
     assert _estados(client, gestor, [cid]) == ["activa"]
 
 
-def test_a_campaign_being_recalculated_refuses_the_whole_bulk_void(client, gestor, grupos, monkeypatch) -> None:
+def test_a_campaign_being_recalculated_refuses_the_whole_bulk_void(client, gestor, grupos, db, monkeypatch) -> None:
     from app.services.sell_out import campanas as service
 
     a, b = (_crear(client, gestor, grupos, nombre=f"Campaña {n}")["id"] for n in "ab")
@@ -656,10 +657,50 @@ def test_a_campaign_being_recalculated_refuses_the_whole_bulk_void(client, gesto
 
     monkeypatch.setattr(service, "_encolar", _segunda_recalculando)
 
-    resp = client.post(MASIVO, json={"ids": [a, b]}, headers=gestor)
+    resp = client.post(MASIVO, json={"ids": [a, 999999, b]}, headers=gestor)
 
     assert resp.status_code == 409, resp.text
     assert _message(resp) == (
         f"No se anuló ninguna campaña: la campaña {b} (Campaña b) se está recalculando. Reintentar en unos segundos."
     )
+    assert resp.json()["error"]["rechazadas"] == [  # every refused campaign of the request, the unknown one too
+        {"id": b, "motivo": "Se está recalculando. Reintentar en unos segundos."},
+        {"id": 999999, "motivo": "La campaña 999999 no existe"},
+    ]
     assert _estados(client, gestor, [a, b]) == ["activa", "activa"]
+    assert db.query(Auditoria).filter(Auditoria.tipo_accion == ANULADA).count() == 0
+
+
+def test_a_deadlock_with_a_concurrent_edit_refuses_the_whole_bulk_void_with_a_retry(
+    client, gestor, grupos, db, monkeypatch
+) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.sell_out import campanas as service
+
+    a, b = (_crear(client, gestor, grupos, nombre=f"Campaña {n}")["id"] for n in "ab")
+    encolar = service._encolar
+
+    class _Deadlock(Exception):
+        pgcode = "40P01"  # deadlock_detected: Postgres aborted this transaction to break a lock cycle
+
+    def _segunda_en_deadlock(db, campana_ids):
+        if campana_ids == [b]:
+            raise DBAPIError("UPDATE sell_out_dirty ...", {}, _Deadlock())
+        encolar(db, campana_ids)
+
+    monkeypatch.setattr(service, "_encolar", _segunda_en_deadlock)
+
+    resp = client.post(MASIVO, json={"ids": [a, b, 999999]}, headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    assert _message(resp) == (
+        f"No se anuló ninguna campaña: otra operación está modificando la campaña {b} en este momento. "
+        "Reintentar en unos segundos."
+    )
+    assert resp.json()["error"]["rechazadas"] == [
+        {"id": b, "motivo": "Otra operación la está modificando. Reintentar en unos segundos."},
+        {"id": 999999, "motivo": "La campaña 999999 no existe"},
+    ]
+    assert _estados(client, gestor, [a, b]) == ["activa", "activa"]
+    assert db.query(Auditoria).filter(Auditoria.tipo_accion == ANULADA).count() == 0

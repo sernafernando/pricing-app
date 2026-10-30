@@ -314,7 +314,16 @@ def _items(db: Session, campana_ids: list[int]) -> dict[int, list[dict]]:
     return salida
 
 
-def _audit(db: Session, tipo: TipoAccion, usuario_id: int, antes: Optional[dict], despues: dict, motivo=None) -> None:
+def _audit(
+    db: Session,
+    tipo: TipoAccion,
+    usuario_id: int,
+    antes: Optional[dict],
+    despues: dict,
+    motivo=None,
+    *,
+    masivo: bool = False,
+) -> None:
     db.add(
         Auditoria(
             item_id=None,
@@ -322,7 +331,7 @@ def _audit(db: Session, tipo: TipoAccion, usuario_id: int, antes: Optional[dict]
             tipo_accion=tipo,
             valores_anteriores=antes,
             valores_nuevos=despues,
-            es_masivo=False,
+            es_masivo=masivo,
             comentario=motivo,
             fecha=datetime.now(timezone.utc).replace(tzinfo=None),  # naive UTC, like the column's default
         )
@@ -498,11 +507,12 @@ def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario
     return campana
 
 
-def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optional[str]) -> None:
-    """The void step of a locked, active campaign, without committing: shared by the single and the bulk void."""
+def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optional[str], masivo: bool = False) -> None:
+    """The void step of a locked, active campaign, without committing: shared by the single and the bulk void
+    (whose audit row says so with `es_masivo`)."""
     campana.estado = "anulada"
     valores = _valores(campana, _grupo_ids(db, campana.id), _items(db, [campana.id])[campana.id])
-    _audit(db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, valores, motivo)
+    _audit(db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, valores, motivo, masivo=masivo)
     _encolar(db, [campana.id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
 
 
@@ -517,43 +527,62 @@ def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Option
     return campana
 
 
-class SellOutAnulacionRechazada(SellOutError):
-    """A bulk void with campaigns that cannot be voided: nothing was voided. `rechazadas` is `[(id, motivo)]`."""
+REINTENTAR = "Reintentar en unos segundos."
+DEADLOCK = "40P01"  # deadlock_detected: Postgres aborted the transaction to break a lock cycle with another writer
 
-    def __init__(self, rechazadas: list[tuple[int, str]]) -> None:
-        self.rechazadas = rechazadas
+
+class SellOutAnulacionRechazada(SellOutError):
+    """A bulk void with campaigns that cannot be voided: nothing was voided. `rechazadas` is `[(id, motivo)]`, in id
+    order. `reintentar` is True when one of them was busy (being rebuilt, or locked by another writer): a 409 the
+    client can retry, the message naming that campaign; otherwise a 422."""
+
+    def __init__(self, rechazadas: list[tuple[int, str]], mensaje: Optional[str] = None) -> None:
+        self.rechazadas = sorted(rechazadas)
+        self.reintentar = mensaje is not None
         cuantas = "1 no se puede" if len(rechazadas) == 1 else f"{len(rechazadas)} no se pueden"
-        super().__init__(f"No se anuló ninguna campaña: {cuantas} anular.")
+        super().__init__(mensaje or f"No se anuló ninguna campaña: {cuantas} anular.")
 
 
 def anular_campanas(
     db: Session, campana_ids: list[int], usuario_id: int, motivo: Optional[str]
 ) -> tuple[list[int], list[int]]:
-    """Void several campaigns in one transaction, each through the single void's step (same lock, audit row
-    and queueing), in id order so concurrent bulk voids lock in one order. Returns `(anuladas, omitidas)`:
-    the already voided are skipped. All or nothing: an unknown campaign rolls everything back and raises
-    `SellOutAnulacionRechazada` naming each one; a campaign being rebuilt is `SellOutRecalculando` naming it
-    (also rolled back)."""
+    """Void several campaigns in one transaction, each through the single void's step (same lock, audit content
+    and queueing; the audit row is `es_masivo`), in id order so concurrent bulk voids lock in one order. Returns
+    `(anuladas, omitidas)`: the already voided are skipped. All or nothing, raising `SellOutAnulacionRechazada`
+    with every refused campaign: the unknown ones (found up front, campaigns are never deleted), plus the first
+    busy one, being rebuilt (`SellOutRecalculando`) or in a deadlock with another writer (40P01), which stops
+    the loop and makes it a retry. Everything is rolled back."""
+    ids = sorted(set(campana_ids))
+    existen = {cid for (cid,) in db.query(SellOutCampana.id).filter(SellOutCampana.id.in_(ids))}
+    rechazadas = [(cid, f"La campaña {cid} no existe") for cid in ids if cid not in existen]
     anuladas: list[int] = []
     omitidas: list[int] = []
-    rechazadas: list[tuple[int, str]] = []
-    for campana_id in sorted(set(campana_ids)):
+    for campana_id in (cid for cid in ids if cid in existen):
+        nombre = None
         try:
             campana = _bloquear(db, campana_id)
+            nombre = campana.nombre  # read before a refused queueing rolls the session back
+            _anular(db, campana, usuario_id, motivo, masivo=True)
         except SellOutYaAnulada:
             omitidas.append(campana_id)
             continue
-        if campana is None:
-            rechazadas.append((campana_id, f"La campaña {campana_id} no existe"))
-            continue
-        nombre = campana.nombre  # read before a refused queueing rolls the session back
-        try:
-            _anular(db, campana, usuario_id, motivo)
-        except SellOutRecalculando as exc:
-            raise SellOutRecalculando(
-                f"No se anuló ninguna campaña: la campaña {campana_id} ({nombre}) se está recalculando. "
-                "Reintentar en unos segundos."
+        except SellOutRecalculando as exc:  # `_encolar` already rolled back
+            mensaje = (
+                f"No se anuló ninguna campaña: la campaña {campana_id} ({nombre}) se está recalculando. {REINTENTAR}"
+            )
+            raise SellOutAnulacionRechazada(
+                [(campana_id, f"Se está recalculando. {REINTENTAR}"), *rechazadas], mensaje
             ) from exc
+        except DBAPIError as exc:
+            if getattr(exc.orig, "pgcode", None) != DEADLOCK:
+                raise
+            db.rollback()
+            mensaje = (
+                f"No se anuló ninguna campaña: otra operación está modificando la campaña {campana_id} "
+                f"en este momento. {REINTENTAR}"
+            )
+            busy = (campana_id, f"Otra operación la está modificando. {REINTENTAR}")
+            raise SellOutAnulacionRechazada([busy, *rechazadas], mensaje) from exc
         anuladas.append(campana_id)
     if rechazadas:
         db.rollback()

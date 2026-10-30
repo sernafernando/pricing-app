@@ -12,9 +12,10 @@ price, and that credit is added to profit. The rules live in
 - `PUT /{id}` replaces an active campaign (409 once voided). There is no
   delete: `POST /{id}/anular` voids it, once (409 on a second call).
 - `POST /anular` (`{"ids": [...], "motivo"}`, `sell_out.gestionar`) voids up to 500 campaigns in one
-  transaction, each through the single void's step (same audit row and queueing). Already voided ones are
-  skipped and listed in `omitidas`. All or nothing: an unknown id is a 422 `ANULACION_RECHAZADA` naming each
-  refused id and why (`rechazadas`) and nothing is voided; a campaign being rebuilt is the 409 below, naming it. Voiding
+  transaction, each through the single void's step (same audit content, with `es_masivo` set, and queueing).
+  Already voided ones are skipped and listed in `omitidas`. All or nothing, nothing is voided and the refusal
+  `ANULACION_RECHAZADA` names each refused id and why (`rechazadas`): a 422 for unknown ids, a 409 (retry) when a
+  campaign is being rebuilt or a concurrent edit deadlocks with the bulk void, naming it and the unknown ids. Voiding
   is not brand-scoped (a PM with `sell_out.repartir` only cannot void), so the per-request `gestionar` check
   is the per-record one.
 - A brand-scoped PM (`sell_out.repartir` without `sell_out.gestionar`) reads
@@ -208,7 +209,7 @@ def anular_campanas(
     except service.SellOutAnulacionRechazada as exc:
         rechazadas = [{"id": i, "motivo": motivo} for i, motivo in exc.rechazadas]
         detail = {"code": "ANULACION_RECHAZADA", "message": str(exc), "rechazadas": rechazadas}
-        raise HTTPException(status_code=422, detail=detail) from exc
+        raise HTTPException(status_code=409 if exc.reintentar else 422, detail=detail) from exc
     except service.SellOutError as exc:
         raise _error(db, exc) from exc
     return {"anuladas": anuladas, "omitidas": omitidas}
