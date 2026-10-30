@@ -2170,6 +2170,35 @@ _RECHAZOS_FIJOS = {
 }
 
 
+@pytest.mark.parametrize(
+    "agregado",
+    [
+        {"tipo_offset": "porcentaje_costo", "porcentaje": 2, "monto": None},
+        {"tipo_offset": "monto_fijo", "monto": 0},
+    ],
+    ids=["porcentaje_sin_monto", "fijo_en_cero"],
+)
+def test_an_offset_added_to_a_migrated_fixed_group_without_an_amount_goes_to_review(engine, correr, agregado) -> None:
+    # GGA: the re-run compared only the sum of the amounts; an added offset that adds nothing to it (no monto, or 0)
+    # was reported "ya migrado" and left the review table though no campaign holds it.
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ids = [
+        _fijo(engine, marca=None, grupo_id=grupo_id, monto=1000),
+        _fijo(engine, marca=None, grupo_id=grupo_id, item_id=2964, monto=500),
+    ]
+    correr("--apply")
+    [c] = _campanas(engine)
+    nuevo = _offset(engine, grupo_id=grupo_id, item_id=2270, **agregado)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert _campanas(engine) == [c]
+    todos = [*ids, nuevo]
+    assert {filas[i]["resultado"] for i in todos} == {"no migrado"}
+    assert set(_pendientes(engine)) == set(todos)
+
+
 @pytest.mark.parametrize("caso", list(_RECHAZOS_FIJOS))
 def test_a_group_of_fixed_amounts_that_cannot_be_modeled_goes_to_review_whole(engine, correr, caso) -> None:
     valores, motivo = _RECHAZOS_FIJOS[caso]

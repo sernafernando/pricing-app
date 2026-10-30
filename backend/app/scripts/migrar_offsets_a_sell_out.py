@@ -878,9 +878,18 @@ def _suelto(
 def _grupo_fijo_migrado(grupo_id: int, offsets: list[OffsetGanancia], campana) -> list[_Resultado]:
     """A re-run over a group of fixed amounts already migrated to a `monto_total` campaign: "ya migrado" while the
     campaign's total is still the sum of the group's offsets as they are now; otherwise (an amount changed, or an
-    offset was added) the whole group goes to review."""
+    offset was added) the whole group goes to review. An added offset that is not a non-zero fixed amount (a
+    `porcentaje_costo`, or a fixed amount of 0 or with no amount) adds nothing to the sum, so it is checked first."""
     g = f"Grupo #{grupo_id}"
-    total = sum((_monto(o.monto) for o in offsets if o.monto is not None), Decimal(0))
+    ajenos = [o for o in offsets if o.tipo_offset != "monto_fijo" or not o.monto]
+    if ajenos:
+        motivo = (
+            f"{g}: se agregaron offsets que no son un monto fijo distinto de cero "
+            f"({', '.join(f'#{o.id}' for o in ajenos)}) después de migrar el grupo a la campaña #{campana.id}; "
+            "revisar a mano"
+        )
+        return [_Resultado(_fila(o, NO_MIGRADO, motivo=motivo), o, None, (motivo, [])) for o in offsets]
+    total = sum((_monto(o.monto) for o in offsets), Decimal(0))
     if total == campana.monto_total:
         avisos = [f"La campaña #{campana.id} está anulada"] if campana.estado == "anulada" else []
         return [_Resultado(_fila(o, YA_MIGRADO, campana.id, avisos=avisos), o) for o in offsets]
