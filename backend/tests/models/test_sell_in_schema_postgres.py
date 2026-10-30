@@ -38,6 +38,7 @@ _MIGRATIONS = [
         "20261211_sell_in_bono_tope",
         "20261212_sell_in_bono_costo",
         "20261215_sell_in_bono_acumulable",
+        "20261217_drop_sell_in_compras_pedido_compra_id",
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos"}
@@ -58,8 +59,8 @@ _STUBS = [
 ]
 
 _INSERT_COMPRA = (
-    "INSERT INTO sell_in_compras (proveedor_id, pedido_compra_id, fecha_compra, fecha_ingreso, cuenta_desde, "
-    "moneda, monto_total, tipo_cambio, descripcion, usuario_id) VALUES (:proveedor, :pedido, :fecha, :ingreso, "
+    "INSERT INTO sell_in_compras (proveedor_id, fecha_compra, fecha_ingreso, cuenta_desde, "
+    "moneda, monto_total, tipo_cambio, descripcion, usuario_id) VALUES (:proveedor, :fecha, :ingreso, "
     ":desde, :moneda, :monto, :tc, 'Bonificación Q4 switches', 7) RETURNING id"
 )
 _INSERT_ITEM = (
@@ -75,7 +76,6 @@ _INSERT_CONSUMO = (
 def _compra(**overrides) -> dict:
     row = {
         "proveedor": 3,
-        "pedido": 900,
         "fecha": "2026-10-01",
         "ingreso": None,
         "desde": "compra",
@@ -364,7 +364,6 @@ class TestSellInMigration:
         with engine.connect() as conn:
             assert "ON DELETE RESTRICT" in _fk_rule(conn, "sell_in_compras", "proveedor_id")
             assert "ON DELETE RESTRICT" in _fk_rule(conn, "sell_in_compras", "usuario_id")
-            assert "ON DELETE SET NULL" in _fk_rule(conn, "sell_in_compras", "pedido_compra_id")
             assert "ON DELETE CASCADE" in _fk_rule(conn, "sell_in_consumos", "compra_item_id")
 
     @pytest.mark.parametrize("statement", ["DELETE FROM proveedores WHERE id = 3", "DELETE FROM usuarios WHERE id = 7"])
@@ -372,15 +371,6 @@ class TestSellInMigration:
         with engine.begin() as conn:
             _new_compra(conn)
         _rejects(engine, statement, {})
-
-    def test_deleting_the_purchase_order_unlinks_the_purchase(self, engine) -> None:
-        with engine.begin() as conn:
-            compra_id = _new_compra(conn)
-            conn.execute(text("DELETE FROM pedidos_compra WHERE id = 900"))
-            pedido = conn.execute(
-                text("SELECT pedido_compra_id FROM sell_in_compras WHERE id = :i"), {"i": compra_id}
-            ).scalar_one()
-        assert pedido is None
 
     def test_deleting_a_purchase_line_cascades_to_its_consumptions(self, engine) -> None:
         with engine.begin() as conn:

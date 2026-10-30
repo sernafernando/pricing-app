@@ -394,8 +394,8 @@ def _guardar(
 ) -> Tuple[SellInCompra, List[SellInCompraItem]]:
     """Writes the purchase, its operation links, lines and audit rows (flushed, not committed): every
     `IntegrityError` it raises is about the purchase's own references. Without a supplier of its own the
-    purchase takes the operations' one. The operations live in the link table only; the legacy
-    `pedido_compra_id` column is no longer written (it is dropped by a later release)."""
+    purchase takes the operations' one. The operations live in the link table only (the legacy
+    `sell_in_compras.pedido_compra_id` column was dropped in 20261217)."""
     compra = SellInCompra(
         proveedor_id=data.proveedor_id if data.proveedor_id is not None else (ops.proveedor_id if ops else None),
         fecha_compra=data.fecha_compra,
