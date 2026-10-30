@@ -20,6 +20,7 @@ import { buildSellInParams } from '../components/sellIn/sellInFormat';
 import { useSeleccionMasiva } from '../components/sellIn/useSeleccionMasiva';
 import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
 import SellOutAnularMasivo from '../components/sellOut/SellOutAnularMasivo';
+import GruposTab from '../components/grupos/GruposTab';
 import styles from './SellIn.module.css';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
@@ -50,6 +51,7 @@ const TIPO_HINTS = {
 // ponytail: brands and reached purchases count only the first 200 active bonuses; ask the backend for those totals if active bonuses ever pass 200
 const BONOS_VIGENTES_MAX = 200;
 const TAB_SELL_OUT = 'sell-out';
+const TAB_GRUPOS = 'grupos';
 
 /** The brand list Productos and Publicaciones ML filter by (`GET /marcas`); empty on failure. */
 function useMarcas(enabled) {
@@ -180,7 +182,8 @@ function useCampanas(enabled) {
  * one page, two tabs. Sell in holds the purchase discounts that lower the cost
  * of that purchase's units and the brand bonuses; Sell out holds the campaigns.
  * The selected tab lives in the URL (`?tab=sell-out`) so a reload keeps it.
- * `sell_in.ver` reads the page, `sell_out.ver` shows the Sell out tab.
+ * `sell_in.ver` reads the page, `sell_out.ver` shows the Sell out tab, `config.editar_constantes` (the offset
+ * groups API permission) the Grupos tab (`?tab=grupos`).
  */
 export default function SellIn() {
   const { tienePermiso } = usePermisos();
@@ -194,7 +197,10 @@ export default function SellIn() {
   const puedeGestionarSellOut = puedeVerSellOut && tienePermiso('sell_out.gestionar');
   const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut);
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = puedeVerSellOut && searchParams.get('tab') === TAB_SELL_OUT ? TAB_SELL_OUT : 'sell-in';
+  const puedeGestionarGrupos = tienePermiso('config.editar_constantes');
+  const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeGestionarGrupos ? [TAB_GRUPOS] : [])];
+  const tabUrl = searchParams.get('tab');
+  const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
   const [tipo, setTipo] = useState('');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [offset, setOffset] = useState(0);
@@ -215,7 +221,6 @@ export default function SellIn() {
   const selBonos = useSeleccionMasiva();
   const [aviso, setAviso] = useState(null);
   // Arrow keys move between the tabs (WAI-ARIA tabs pattern, automatic activation).
-  const tabsVisibles = puedeVerSellOut ? ['sell-in', TAB_SELL_OUT] : ['sell-in'];
   const onTabsKeyDown = (event) => {
     const actual = tabsVisibles.indexOf(tab);
     const destino = {
@@ -236,8 +241,8 @@ export default function SellIn() {
     setSearchParams(
       (prev) => {
         const params = new URLSearchParams(prev);
-        if (next === TAB_SELL_OUT) params.set('tab', TAB_SELL_OUT);
-        else params.delete('tab');
+        if (next === 'sell-in') params.delete('tab');
+        else params.set('tab', next);
         return params;
       },
       { replace: true },
@@ -345,6 +350,7 @@ export default function SellIn() {
 
   const conteo = resumen?.conteo;
   const enSellOut = tab === TAB_SELL_OUT;
+  const enSellIn = tab === 'sell-in';
   const totalCompras = lista?.total;
   const totalBonos = bonos.lista?.total;
   const tipoTotal = totalCompras === undefined || totalBonos === undefined ? undefined : totalCompras + totalBonos;
@@ -372,7 +378,7 @@ export default function SellIn() {
           >
             <RefreshCw size={14} /> Actualizar
           </button>
-          {!enSellOut && puedeGestionar && (
+          {enSellIn && puedeGestionar && (
             <button type="button" className="btn-tesla primary sm" onClick={() => setPanel({ tipo: 'crear' })}>
               <Plus size={14} /> Nuevo sell in
             </button>
@@ -390,10 +396,10 @@ export default function SellIn() {
           type="button"
           role="tab"
           id="sell-in-tab"
-          aria-selected={!enSellOut}
-          aria-controls={!enSellOut ? 'sell-in-panel' : undefined}
-          tabIndex={!enSellOut ? 0 : -1}
-          className={`${styles.tab} ${!enSellOut ? styles.tabActive : ''}`}
+          aria-selected={enSellIn}
+          aria-controls={enSellIn ? 'sell-in-panel' : undefined}
+          tabIndex={enSellIn ? 0 : -1}
+          className={`${styles.tab} ${enSellIn ? styles.tabActive : ''}`}
           onClick={() => cambiarTab('sell-in')}
         >
           <span>Sell in</span> <span className={styles.srOnly}>·</span>{' '}
@@ -414,9 +420,23 @@ export default function SellIn() {
             <span className={styles.tabCount}>{campanas.lista ? campanas.lista.total.toLocaleString('es-AR') : campanas.error ? '—' : '…'}</span>
           </button>
         )}
+        {puedeGestionarGrupos && (
+          <button
+            type="button"
+            role="tab"
+            id="grupos-tab"
+            aria-selected={tab === TAB_GRUPOS}
+            aria-controls={tab === TAB_GRUPOS ? 'grupos-panel' : undefined}
+            tabIndex={tab === TAB_GRUPOS ? 0 : -1}
+            className={`${styles.tab} ${tab === TAB_GRUPOS ? styles.tabActive : ''}`}
+            onClick={() => cambiarTab(TAB_GRUPOS)}
+          >
+            Grupos
+          </button>
+        )}
       </div>
 
-      {error && !enSellOut && (
+      {error && enSellIn && (
         <div className={styles.errorBar} role="alert">
           <ShieldAlert size={16} /> {error}
         </div>
@@ -483,7 +503,11 @@ export default function SellIn() {
           ) : null
         }
       >
-        {!enSellOut ? (
+        {tab === TAB_GRUPOS ? (
+          <div role="tabpanel" id="grupos-panel" aria-labelledby="grupos-tab">
+            <GruposTab />
+          </div>
+        ) : enSellIn ? (
           <div role="tabpanel" id="sell-in-panel" aria-labelledby="sell-in-tab">
             <section className={styles.filterCard} aria-label="Filtros">
               <div className={styles.filterBand}>

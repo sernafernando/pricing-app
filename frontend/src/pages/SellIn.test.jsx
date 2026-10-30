@@ -7,6 +7,7 @@ import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, RESUMEN } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI } from '../services/sellOutAPI';
+import { offsetGruposAPI } from '../services/offsetGruposAPI';
 import { CAMPANA_MIGRADA, CAMPANAS_LISTA, CONSUMOS_USD } from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
 
@@ -43,6 +44,10 @@ vi.mock('../services/sellOutAPI', () => ({
   },
 }));
 
+vi.mock('../services/offsetGruposAPI', () => ({
+  offsetGruposAPI: { listar: vi.fn(), alcance: vi.fn(), opciones: vi.fn() },
+}));
+
 const mockTienePermiso = vi.fn();
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: (codigo) => mockTienePermiso(codigo), cargandoPermisos: false }),
@@ -66,6 +71,9 @@ beforeEach(() => {
   sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
   sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
   sellOutAPI.grupos.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
+  offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
+  offsetGruposAPI.alcance.mockResolvedValue({ data: [{ grupo_id: 1, productos: 3, campanas: [] }] });
+  offsetGruposAPI.opciones.mockResolvedValue({ data: { marcas: [], categorias: [], subcategorias: [] } });
 });
 
 /** Prints where the router is, so a test can read the tab the URL keeps. */
@@ -236,6 +244,34 @@ describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
     const alcanzadas = within(cards).getByText('Compras alcanzadas').parentElement;
     expect(alcanzadas).toHaveTextContent('18');
     expect(alcanzadas).toHaveTextContent('por bonos de marca');
+  });
+});
+
+describe('SellIn page — Grupos tab (T30)', () => {
+  it('with config.editar_constantes a Grupos tab lists the groups and keeps itself in the URL', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <SellIn />
+        <Ubicacion />
+      </>,
+    );
+    await screen.findByText('Bonificación Q4 switches');
+    expect(offsetGruposAPI.listar).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('tab', { name: 'Grupos' }));
+    expect(screen.getByRole('tab', { name: 'Grupos' })).toHaveAttribute('aria-selected', 'true');
+    const panel = screen.getByRole('tabpanel', { name: 'Grupos' });
+    expect(await within(panel).findByText('TP-Link redes')).toBeInTheDocument();
+    expect(screen.queryByText('Bonificación Q4 switches')).not.toBeInTheDocument();
+    expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=grupos');
+  });
+
+  it('without config.editar_constantes there is no Grupos tab, and ?tab=grupos falls back to Sell in', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'config.editar_constantes');
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
+    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Grupos' })).not.toBeInTheDocument();
+    expect(offsetGruposAPI.listar).not.toHaveBeenCalled();
   });
 });
 
