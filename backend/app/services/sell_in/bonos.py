@@ -57,6 +57,17 @@ operation or a credit note frees the cap for the later ones. So does a deleted o
 purchase recomputes the bonus's other operations. When an operation of a capped bonus FAILS, the
 bonus's later operations are left as they were too (reported in `fallidas`): their share is unknown.
 
+`acumulable` (T27b, S36, owner: "agregaselo"), sell out's meaning (`sell_out.asignacion`): bonuses on the same
+product and operation stack unless one of them is not acumulable; then the one with the lower id takes precedence
+and the other takes only the invoiced units it left. Bonuses go in id order; each records which of a line's invoiced
+units it took (the lowest free ones), and a later bonus's line starts without those of every earlier bonus it does
+not stack with (`tope.asignar`'s `ocupadas`), then its own cap applies. A line left with part of its units gets that
+share of its amount; one left with none drops out, and an operation left with nothing has no purchase. So two
+acumulable bonuses both pay every unit, and a third acumulable one after an exclusive one pays only the units the
+exclusive one left. The bonuses sharing an operation with a non-acumulable one depend on each other, so any call
+that looks at that operation looks at all of them (`_pares`); a pair whose earlier exclusive bonus FAILS on that
+operation is left as it was too.
+
 Writes, set against what is stored:
 
 - no purchase and it applies → created (audit `SELL_IN_COMPRA_CREADA` per line);
@@ -95,7 +106,7 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Collection, Dict, Iterable, List, Mapping, NamedTuple, Optional, Set, Tuple
 
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import ColumnElement, and_, func, or_, text
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -170,9 +181,25 @@ def _bloquear(db: Session, bono_ids: Iterable[int]) -> None:
 
 
 def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
-    """Every pair a call must look at: what may apply now plus what was generated before."""
-    pares: Set[Par] = set()
-    en_rango = and_(
+    """Every pair a call must look at: what may apply now plus what was generated before, closed over what couples
+    pairs. A capped bonus's operations share its cap: looking at one of them means looking at all of them. A bonus's
+    share of an operation depends on the bonuses there it does not stack with (S36): the operations the given bonuses
+    reach are looked at with every active bonus on them (an edit, a void or an `acumulable` change moves the others),
+    and so is any operation reached on the way that an active non-acumulable bonus covers."""
+    bonos_ = set(bono_ids)
+    pedidos_ = set(pedido_ids) | {pid for _, pid in _directos(db, bonos_, set())}
+    while True:
+        pares = _directos(db, bonos_, pedidos_)
+        mas_bonos = _con_tope(db, {bid for bid, _ in pares} - bonos_)
+        mas_pedidos = _con_exclusivo(db, {pid for _, pid in pares} - pedidos_)
+        if not mas_bonos and not mas_pedidos:
+            return pares
+        bonos_ |= mas_bonos
+        pedidos_ |= mas_pedidos
+
+
+def _en_rango() -> ColumnElement[bool]:
+    return and_(
         PedidoCompra.fecha_factura >= SellInBonoMarca.fecha_desde,
         PedidoCompra.fecha_factura <= SellInBonoMarca.fecha_hasta,
         # An invoice bonus reaches its own operation only.
@@ -180,12 +207,18 @@ def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
         # A % of the sale's cost bonus (T25) never generates a purchase (`bonos_costo`).
         SellInBonoMarca.base == BASE_FACTURA,
     )
+
+
+def _directos(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
+    """The given bonuses with every operation in their range, the given operations with every active bonus covering
+    them, and what was generated for either."""
+    pares: Set[Par] = set()
     if bono_ids:
         # Each given bonus (any state) with every operation invoiced in its range.
         pares.update(
             (int(bid), int(pid))
             for bid, pid in db.query(SellInBonoMarca.id, PedidoCompra.id)
-            .join(PedidoCompra, en_rango)
+            .join(PedidoCompra, _en_rango())
             .filter(SellInBonoMarca.id.in_(bono_ids))
         )
     if pedido_ids:
@@ -193,7 +226,7 @@ def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
         pares.update(
             (int(bid), int(pid))
             for bid, pid in db.query(SellInBonoMarca.id, PedidoCompra.id)
-            .join(PedidoCompra, en_rango)
+            .join(PedidoCompra, _en_rango())
             .filter(PedidoCompra.id.in_(pedido_ids), SellInBonoMarca.estado == "activa")
         )
     generadas = db.query(SellInCompra.bono_id, SellInCompra.bono_pedido_id).filter(
@@ -202,11 +235,24 @@ def _pares(db: Session, bono_ids: Set[int], pedido_ids: Set[int]) -> Set[Par]:
         or_(SellInCompra.bono_id.in_(bono_ids or [-1]), SellInCompra.bono_pedido_id.in_(pedido_ids or [-1])),
     )
     pares.update((int(bid), int(pid)) for bid, pid in generadas)
-    # A capped bonus's operations share its cap: looking at one of them means looking at all of them.
-    con_tope = _con_tope(db, {bid for bid, _ in pares} - bono_ids)
-    if con_tope:
-        return _pares(db, bono_ids | con_tope, pedido_ids)
     return pares
+
+
+def _con_exclusivo(db: Session, pedido_ids: Set[int]) -> Set[int]:
+    """The given operations an active non-acumulable invoice bonus covers (by date: a scope it misses is harmless)."""
+    if not pedido_ids:
+        return set()
+    return {
+        int(pid)
+        for (pid,) in db.query(PedidoCompra.id)
+        .join(SellInBonoMarca, _en_rango())
+        .filter(
+            PedidoCompra.id.in_(pedido_ids),
+            SellInBonoMarca.estado == "activa",
+            SellInBonoMarca.acumulable.is_(False),
+        )
+        .distinct()
+    }
 
 
 def _con_tope(db: Session, bono_ids: Set[int]) -> Set[int]:
@@ -580,46 +626,87 @@ def _aplicar_topes(
     deseadas: Dict[Par, Optional[_Deseada]],
     fallidas: Dict[Par, str],
 ) -> None:
-    """Cuts the desired purchases of every capped bonus down to its cap, in place (module docstring). A pair whose
-    operation comes after a failed one of the same capped bonus moves from `deseadas` to `fallidas`."""
+    """Cuts the desired purchases down to what each bonus takes, in place, bonuses in id order (module docstring):
+    the units of earlier bonuses it does not stack with (S36), then its cap. A pair moves from `deseadas` to
+    `fallidas` when an earlier bonus it does not stack with failed on that operation (its free units are unknown),
+    or when its operation comes after a failed one of the same capped bonus."""
     por_bono: Dict[int, List[int]] = defaultdict(list)
     for bono_id, pedido_id in list(deseadas) + list(fallidas):
-        bono = bonos.get(bono_id)
-        if bono is not None and (bono.tope_unidades is not None or bono.tope_monto is not None):
+        if bono_id in bonos:
             por_bono[bono_id].append(pedido_id)
-    for bono_id, pedido_ids in por_bono.items():
+    orden = sorted(por_bono)
+    tenidas: Dict[int, Dict[Tuple[int, int], List[int]]] = {}  # per bonus and (operation, item): the units it took
+    for bono_id in orden:
         bono = bonos[bono_id]
-        # A pair only fails once its operation is known and dated (`_deseada`); `.get` keeps any other one harmless.
-        fallas = [pedidos.get(pid) for pid in pedido_ids if (bono_id, pid) in fallidas]
-        fallas = [p for p in fallas if p is not None and p.fecha_factura is not None]
-        corte = min((_orden(p) for p in fallas), default=None)
+        antes = [p for p in orden if p < bono_id and not (bonos[p].acumulable and bono.acumulable)]
+        for pid in por_bono[bono_id]:
+            par = (bono_id, pid)
+            previa = next((p for p in antes if (p, pid) in fallidas), None)
+            if deseadas.get(par) is not None and previa is not None:
+                del deseadas[par]
+                fallidas[par] = (
+                    f"El bono {previa} no se pudo calcular en el pedido {pid} y no se acumula con el bono {bono_id}: "
+                    "las unidades que le deja quedan sin definir"
+                )
+        con_tope = bono.tope_unidades is not None or bono.tope_monto is not None
         # Only applying pairs have a date to sort by; the others desire nothing whatever the cap.
-        vigentes = sorted((pedidos[pid] for pid in pedido_ids if deseadas.get((bono_id, pid)) is not None), key=_orden)
-        if corte is not None:
-            for pedido in vigentes:
-                if _orden(pedido) > corte:
-                    del deseadas[(bono_id, pedido.id)]
-                    fallidas[(bono_id, pedido.id)] = (
-                        f"El bono {bono_id} tiene tope y un pedido anterior al {pedido.id} no se pudo calcular: "
-                        "su parte del tope queda sin definir"
-                    )
-            vigentes = [p for p in vigentes if _orden(p) < corte]
-        _topear(bono, vigentes, deseadas)
+        vigentes = sorted(
+            (pedidos[pid] for pid in por_bono[bono_id] if deseadas.get((bono_id, pid)) is not None), key=_orden
+        )
+        if con_tope:
+            # A pair only fails once its operation is known and dated (`_deseada`); `.get` keeps any other one harmless.
+            fallas = [pedidos.get(pid) for pid in por_bono[bono_id] if (bono_id, pid) in fallidas]
+            fallas = [p for p in fallas if p is not None and p.fecha_factura is not None]
+            corte = min((_orden(p) for p in fallas), default=None)
+            if corte is not None:
+                for pedido in vigentes:
+                    if _orden(pedido) > corte:
+                        del deseadas[(bono_id, pedido.id)]
+                        fallidas[(bono_id, pedido.id)] = (
+                            f"El bono {bono_id} tiene tope y un pedido anterior al {pedido.id} no se pudo calcular: "
+                            "su parte del tope queda sin definir"
+                        )
+                vigentes = [p for p in vigentes if _orden(p) < corte]
+        ocupado: Dict[Tuple[int, int], Set[int]] = {}
+        for pedido in vigentes:
+            for item_id in deseadas[(bono_id, pedido.id)].lineas:
+                clave = (pedido.id, item_id)
+                ocupado[clave] = set().union(*(tenidas[p].get(clave, ()) for p in antes))
+        if not con_tope and not any(ocupado.values()):
+            # Nothing to cut: every desired line stays whole (the amounts computed, untouched).
+            tenidas[bono_id] = {
+                (pedido.id, item_id): list(range(cantidad))
+                for pedido in vigentes
+                for item_id, (cantidad, _) in deseadas[(bono_id, pedido.id)].lineas.items()
+            }
+            continue
+        tenidas[bono_id] = _topear(bono, vigentes, deseadas, ocupado)
 
 
-def _topear(bono: SellInBonoMarca, vigentes: List[_Pedido], deseadas: Dict[Par, Optional[_Deseada]]) -> None:
-    """Allocates the bonus's cap over its applying pairs (`vigentes`, in invoice order) through `tope.asignar`.
+def _topear(
+    bono: SellInBonoMarca,
+    vigentes: List[_Pedido],
+    deseadas: Dict[Par, Optional[_Deseada]],
+    ocupado: Mapping[Tuple[int, int], Set[int]],
+) -> Dict[Tuple[int, int], List[int]]:
+    """Allocates the bonus's cap over its applying pairs (`vigentes`, in invoice order) through `tope.asignar`, each
+    line without the units earlier bonuses it does not stack with took (`ocupado`, per (operation, item): their unit
+    numbers, as `ocupadas`). Returns the unit numbers it took per (operation, item): the lowest free ones.
 
     Each desired line becomes a `tope.Linea` whose per-unit credit is its own amount over its units (a 100%
     "percentage" of that base: the amount is already in the bonus's currency, VAT and rate applied), so a line the
-    cap leaves whole gets back exactly its amount, and the line that crosses it gets what sell out would give."""
+    cap leaves whole gets back exactly its amount, and the line that crosses it, or keeps only the free units, gets
+    what sell out would give."""
     # Every desired line has units: the invoiced snapshot keeps CHECK(cantidad > 0), so `monto / cantidad` is safe.
     lineas: List[tope.Linea] = []
     origen: Dict[int, Tuple[int, int]] = {}  # venta_ref -> (pedido_id, item_id)
+    libres: Dict[Tuple[int, int], List[int]] = {}
     for pedido in vigentes:
         for item_id, (cantidad, monto) in sorted(deseadas[(bono.id, pedido.id)].lineas.items()):
             ref = len(lineas)
-            origen[ref] = (pedido.id, item_id)
+            clave = (pedido.id, item_id)
+            origen[ref] = clave
+            libres[clave] = [u for u in range(cantidad) if u not in ocupado.get(clave, ())]
             lineas.append(
                 tope.Linea(
                     canal="compra",
@@ -628,6 +715,7 @@ def _topear(bono: SellInBonoMarca, vigentes: List[_Pedido], deseadas: Dict[Par, 
                     fecha=pedido.fecha_factura,
                     unidades=cantidad,
                     base_unit=monto / cantidad,
+                    ocupadas=cantidad - len(libres[clave]),
                 )
             )
     campana = tope.Campana(
@@ -638,7 +726,8 @@ def _topear(bono: SellInBonoMarca, vigentes: List[_Pedido], deseadas: Dict[Par, 
         tope_monto=Decimal(bono.tope_monto) if bono.tope_monto is not None else None,
     )
     topeadas: Dict[int, Dict[int, Tuple[int, Decimal]]] = defaultdict(dict)
-    for consumo in tope.asignar(campana, lineas):
+    por_linea: Dict[tope.Clave, int] = {}
+    for consumo in tope.asignar(campana, lineas, por_linea=por_linea):
         pedido_id, item_id = origen[consumo.venta_ref]
         topeadas[pedido_id][item_id] = (consumo.unidades, consumo.monto)
     for pedido in vigentes:
@@ -650,6 +739,7 @@ def _topear(bono: SellInBonoMarca, vigentes: List[_Pedido], deseadas: Dict[Par, 
         anterior = deseadas[par]
         cabecera = {**anterior.cabecera, "monto_total": sum((m for _, m in detalle.values()), Decimal("0"))}
         deseadas[par] = _Deseada(cabecera, detalle)
+    return {origen[ref]: libres[origen[ref]][:n] for (_, ref), n in por_linea.items()}
 
 
 def _motivo(pedido: Optional[_Pedido], bono: Optional[SellInBonoMarca]) -> str:

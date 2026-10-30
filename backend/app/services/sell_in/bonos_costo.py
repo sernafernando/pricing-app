@@ -21,8 +21,13 @@ Owner: "agregá el de sell in, es para operaciones viejas que no tienen la factu
   exceed the sale's net units. A return whose sale the bonus does not count (outside its dates, unknown cost) frees
   nothing, like sell out.
 - Several cost bonuses on one sale stack, in id order, each unit's total never above the unit cost: a later bonus's
-  amount per unit is cut to the cost minus what the earlier ones give that sale per unit (conservative when an
-  earlier capped bonus holds only part of the sale's units).
+  amount per unit is cut to the cost minus what the earlier ones give the most loaded unit it may take
+  (conservative when an earlier capped bonus holds only part of those units).
+- `acumulable` (T27b, S36), sell out's meaning (`sell_out.asignacion`): when a bonus or an earlier one (lower id) on
+  the same sale is not acumulable, the earlier one takes precedence and this one takes only the units it left. A
+  sale's units are numbered (the FIFO's first), each bonus records the numbers it took, and a later bonus's
+  `ocupadas` are the FIFO's plus those of every earlier bonus it does not stack with; a return's are the units it
+  gave back to those bonuses.
 - Cap (T24 columns): `tope_unidades` units sold and/or `tope_monto` ARS, allocated in sale order (fecha_venta,
   canal, venta_ref) by sell out's `tope.asignar` with the per-unit amount as a 100 % base (like `bonos._topear`),
   recomputed from scratch for the whole bonus: a late sale dated earlier displaces a later one. Amounts are each
@@ -192,10 +197,14 @@ def _componente(
 ) -> Dict[Tuple[int, str, int], _Fila]:
     """The desired rows of one component: its bonuses in id order over its sales (module docstring)."""
     deseadas: Dict[Tuple[int, str, int], _Fila] = {}
-    usado: Dict[Clave, Decimal] = defaultdict(Decimal)  # per sale: what earlier bonuses give per unit
+    # Per sale and unit number: what earlier bonuses give that unit.
+    usado: Dict[Clave, Dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+    tenidas: Dict[int, Dict[Clave, List[int]]] = {}  # per bonus and line: the unit numbers it took or freed (S36)
     for bono in bonos:
+        antes = [p.id for p in bonos if p.id < bono.id and not (p.acumulable and bono.acumulable)]
         lineas: List[tope.Linea] = []
         unitarios: Dict[Clave, Decimal] = {}
+        libres: Dict[Clave, List[int]] = {}
         for v in sorted(ventas, key=lambda x: x.unidades < 0):  # sales first: a return checks its sale
             if v.item_id not in alcances[bono.id] or not (bono.fecha_desde <= v.fecha <= bono.fecha_hasta):
                 continue
@@ -204,18 +213,23 @@ def _componente(
                 if v.costo_unit is None:
                     pendientes[bono.id] = pendientes.get(bono.id, 0) + 1
                     continue
-                propio = modelos.get(bono.id, {}).get(v.item_id)
-                pct = Decimal(propio if propio is not None else bono.porcentaje)
-                unitario = v.costo_unit * pct_neto(bono, pct, v.item_id, iva.get(v.item_id), v.fecha) / CIEN
-                unitario = min(unitario, v.costo_unit - usado[clave])
-                if unitario <= 0:
-                    continue
-                unitarios[clave] = unitario
-                ocupadas = min(fifo.get(clave, 0), v.unidades)
+                # The units invoice-based sell in took come first; the FIFO's rows are already net of returns.
+                ocupado = set(range(min(fifo.get(clave, 0), v.unidades)))
             else:
                 if v.objetivo is not None and v.objetivo not in unitarios:
                     continue  # it returns a sale this bonus does not count
-                ocupadas = 0  # the FIFO's rows are net of the return already: it frees its units here in full
+                ocupado = set()  # the FIFO's rows are net of the return already: it frees its units here in full
+            ocupado.update(*(tenidas[p].get(clave, ()) for p in antes))
+            libres[clave] = [u for u in range(abs(v.unidades)) if u not in ocupado]
+            if v.unidades > 0:
+                propio = modelos.get(bono.id, {}).get(v.item_id)
+                pct = Decimal(propio if propio is not None else bono.porcentaje)
+                unitario = v.costo_unit * pct_neto(bono, pct, v.item_id, iva.get(v.item_id), v.fecha) / CIEN
+                # A unit never gets more than its cost: cut to what the most loaded unit it may take has left.
+                unitario = min(unitario, v.costo_unit - max((usado[clave][u] for u in libres[clave]), default=0))
+                if unitario <= 0:
+                    continue
+                unitarios[clave] = unitario
             lineas.append(
                 tope.Linea(
                     canal=v.canal,
@@ -224,7 +238,7 @@ def _componente(
                     fecha=v.fecha,
                     unidades=v.unidades,
                     base_unit=unitarios.get(clave),
-                    ocupadas=ocupadas,
+                    ocupadas=len(ocupado),
                     objetivo=v.objetivo,
                 )
             )
@@ -235,10 +249,13 @@ def _componente(
             tope_unidades=bono.tope_unidades,
             tope_monto=Decimal(bono.tope_monto) if bono.tope_monto is not None else None,
         )
-        for x in tope.asignar(campana, lineas):
+        por_linea: Dict[Clave, int] = {}
+        for x in tope.asignar(campana, lineas, por_linea=por_linea):
             clave = (x.canal, x.venta_ref)
             deseadas[(bono.id, x.canal, x.venta_ref)] = (x.item_id, x.fecha_venta, x.unidades, x.monto)
-            usado[clave] += unitarios[clave]
+            for u in libres[clave][: x.unidades]:
+                usado[clave][u] += unitarios[clave]
+        tenidas[bono.id] = {clave: libres[clave][:n] for clave, n in por_linea.items()}
     return deseadas
 
 

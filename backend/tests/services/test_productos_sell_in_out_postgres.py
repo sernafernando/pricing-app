@@ -295,6 +295,29 @@ class TestCostBonus:
         assert (sell_in.bono_id, sell_in.descuento_unit, sell_in.costo) == (primero, 50000.0, 0.0)
         assert sell_in.bono_ids == [primero, segundo]  # every bonus that gives something, in id order
 
+    @pytest.mark.parametrize("cual", ["el_primero", "el_segundo"])
+    def test_a_not_acumulable_bonus_does_not_stack_with_an_earlier_one(self, engine, cual):
+        # T27b (S36), the allocator's precedence: the lower id takes the unit, the other gives nothing.
+        primero = _bono_costo(engine, "3.00")
+        segundo = _bono_costo(engine, "2.00")
+        bw.update_bono(engine, primero if cual == "el_primero" else segundo, acumulable=False)
+
+        sell_in = _payload(engine).sell_in
+
+        assert (sell_in.bono_ids, sell_in.descuento_unit, sell_in.costo) == ([primero], 1500.0, 48500.0)
+
+    def test_an_acumulable_bonus_after_an_exclusive_one_stacks_with_the_first_only(self, engine):
+        # The exclusive second takes no unit the first holds; the third stacks with the first (both acumulable) and
+        # takes what the exclusive one left: the whole next unit.
+        primero = _bono_costo(engine, "3.00")
+        segundo = _bono_costo(engine, "2.00")
+        bw.update_bono(engine, segundo, acumulable=False)
+        tercero = _bono_costo(engine, "1.00")
+
+        sell_in = _payload(engine).sell_in
+
+        assert (sell_in.bono_ids, sell_in.descuento_unit, sell_in.costo) == ([primero, tercero], 2000.0, 48000.0)
+
     def test_a_vat_loaded_bonus_on_a_product_without_vat_leaves_no_cost_bonus_sell_in(self, engine):
         # Like the allocator (`bonos_costo.recalcular`): the product's whole component fails, every bonus of it.
         _bono_costo(engine, "3.00")

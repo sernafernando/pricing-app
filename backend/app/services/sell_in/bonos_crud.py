@@ -58,6 +58,7 @@ _CAMPOS = (
     "tope_monto",
     "base",
     "incluye_iva",
+    "acumulable",
     "offset_origen_id",
 )
 # How each scope is named in a message, and the request field that belongs to it.
@@ -282,6 +283,9 @@ def _asignar(db: Session, bono: SellInBonoMarca, data: SellInBonoIn, campos: Cam
         bono.tope_unidades = data.tope_unidades
     if "tope_monto" in data.model_fields_set:
         bono.tope_monto = data.tope_monto.quantize(Decimal("0.01")) if data.tope_monto is not None else None
+    # Same for the flag (T27b): a new bonus stacks unless told otherwise.
+    if "acumulable" in data.model_fields_set or bono.acumulable is None:
+        bono.acumulable = data.acumulable
     db.flush()
     # The model list, replaced: rows that stay are kept, so their trigger queues only a real change. A model
     # sent as an object takes its values; one sent as a bare id keeps its stored value of the bonus's kind.
@@ -511,6 +515,7 @@ _COLUMNAS = (
     "tope_monto",
     "base",
     "incluye_iva",
+    "acumulable",
     "offset_origen_id",
     "usuario_id",
     "created_at",

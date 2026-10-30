@@ -300,3 +300,44 @@ def test_the_purchases_api_tells_a_generated_purchase_from_a_manual_one(client, 
 
     assert resp.status_code == 200
     assert (resp.json()["origen"], resp.json()["bono_id"]) == ("bono_marca", data["id"])
+
+
+# T27b (S36): `acumulable`, sell out's meaning; the reconcile reads it (tests/services/sell_in/test_bonos_acumulable).
+
+
+def test_a_new_bonus_is_acumulable_unless_told_otherwise(client, gestor, productos, db):
+    por_defecto = _crear(client, gestor)
+    exclusivo = _crear(client, gestor, acumulable=False)
+
+    assert (por_defecto["acumulable"], exclusivo["acumulable"]) == (True, False)
+    assert db.get(SellInBonoMarca, exclusivo["id"]).acumulable is False
+    rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_BONO_CREADO).all()
+    assert sorted(r.valores_nuevos["acumulable"] for r in rows) == [False, True]
+
+
+def test_editing_the_flag_stores_it_and_audits_before_and_after(client, gestor, productos, db):
+    data = _crear(client, gestor)
+
+    resp = client.put(f"{BASE}/{data['id']}", json=_body(acumulable=False), headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["acumulable"] is False
+    assert db.get(SellInBonoMarca, data["id"]).acumulable is False
+    [row] = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_BONO_EDITADO).all()
+    assert (row.valores_anteriores["acumulable"], row.valores_nuevos["acumulable"]) == (True, False)
+
+
+def test_an_edit_that_leaves_the_flag_out_keeps_the_stored_one(client, gestor, productos, db):
+    data = _crear(client, gestor, acumulable=False)
+
+    resp = client.put(f"{BASE}/{data['id']}", json=_body(monto_unit="3.00"), headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert (resp.json()["acumulable"], resp.json()["monto_unit"]) == (False, "3.00")
+    assert client.get(BASE, headers=gestor).json()["items"][0]["acumulable"] is False
+
+
+def test_the_flag_must_be_a_boolean(client, gestor, productos):
+    resp = client.post(BASE, json=_body(acumulable="quizás"), headers=gestor)
+
+    assert resp.status_code == 422

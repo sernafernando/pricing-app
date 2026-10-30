@@ -254,6 +254,7 @@ def test_an_invoice_bonus_response_is_unchanged(client, gestor, productos, admin
         "tope_monto_restante": None,
         "base": "factura",
         "incluye_iva": False,
+        "acumulable": True,
         "offset_origen_id": None,
     }
 
@@ -311,3 +312,13 @@ def test_a_page_mixing_bonuses_reports_a_cost_bonus_without_sales_as_nothing_gen
             "tope_monto_restante": None,
         },
     }
+
+
+def test_a_cost_bonus_takes_the_acumulable_flag_too(client, gestor, productos, db):
+    """T27b (S36): every sell-in bonus carries it, the % of cost ones included."""
+    data = _crear(client, gestor, _costo(acumulable=False))
+
+    assert data["acumulable"] is False
+    resp = client.put(f"{BASE}/{data['id']}", json=_costo(acumulable=True), headers=gestor)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["acumulable"] is True

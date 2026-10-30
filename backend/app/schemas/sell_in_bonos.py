@@ -113,6 +113,9 @@ class SellInBonoIn(BaseModel):
     # T25d: set on create only; left out on an edit, the stored ones stay (`base` never changes).
     base: BaseBono = BASE_FACTURA
     incluye_iva: bool = False  # the loaded % includes VAT (S33); only on a 'costo_venta' bonus
+    # T27b (S36): stacks with the other bonuses on the same product and dates (sell out's meaning); left out on an
+    # edit, the stored one stays.
+    acumulable: bool = True
 
     @field_validator("tope_unidades", mode="before")
     @classmethod
@@ -163,6 +166,7 @@ class SellInBonoOut(BaseModel):
     # (`sell_in_bono_consumos`), and `compras_activas` is 0.
     base: BaseBono
     incluye_iva: bool
+    acumulable: bool
     offset_origen_id: Optional[int]
 
 
