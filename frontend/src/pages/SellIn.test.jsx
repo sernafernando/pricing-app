@@ -18,6 +18,7 @@ vi.mock('../services/sellInAPI', () => ({
     preview: vi.fn(),
     crear: vi.fn(),
     anular: vi.fn(),
+    anularMasivo: vi.fn(),
   },
   sellInBonosAPI: {
     listar: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock('../services/sellInAPI', () => ({
     crear: vi.fn(),
     editar: vi.fn(),
     anular: vi.fn(),
+    anularMasivo: vi.fn(),
   },
 }));
 
@@ -561,5 +563,59 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Campañas de sell out' })).not.toBeInTheDocument();
     expect(sellOutAPI.listar).not.toHaveBeenCalled();
+  });
+});
+
+describe('SellIn page — bulk void (anular masivo)', () => {
+  it('voids the selected purchases after confirming, then reloads the list and says what happened', async () => {
+    const user = userEvent.setup();
+    sellInAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [1], ya_anuladas: [2] } });
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    const listados = sellInAPI.listar.mock.calls.length;
+
+    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar la página de sell in' }));
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar compra #1' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    const pane = screen.getByRole('dialog', { name: 'Anular 2 compras' });
+    expect(pane).toHaveTextContent('Se liberan sus unidades');
+    await user.click(within(pane).getByRole('button', { name: 'Sí, anular 2' }));
+
+    expect(sellInAPI.anularMasivo).toHaveBeenCalledWith([1, 2], '');
+    expect(await screen.findByRole('status')).toHaveTextContent('Se anuló 1 compra. 1 ya estaba anulada.');
+    expect(sellInAPI.listar.mock.calls.length).toBeGreaterThan(listados);
+    expect(screen.getByRole('checkbox', { name: 'Seleccionar compra #1' })).not.toBeChecked();
+  });
+
+  it('"Seleccionar todo lo filtrado" asks every page with the filters on screen', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+
+    await user.click(screen.getAllByRole('button', { name: 'Seleccionar todo lo filtrado (2)' })[0]);
+
+    expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ aplica: 'si', page: 1, page_size: 200 }));
+    expect(await screen.findByText('2 seleccionados')).toBeInTheDocument();
+  });
+
+  it('voids the selected brand bonuses through their own bulk endpoint', async () => {
+    const user = userEvent.setup();
+    sellInBonosAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [BONO.id], ya_anuladas: [] } });
+    renderWithRouter(<SellIn />);
+    await user.click(await screen.findByRole('checkbox', { name: `Seleccionar bono #${BONO.id}` }));
+    const bonos = screen.getByRole('region', { name: 'Bonos de marca' });
+    await user.click(within(bonos).getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(within(bonos).getByRole('button', { name: 'Sí, anular 1' }));
+
+    expect(sellInBonosAPI.anularMasivo).toHaveBeenCalledWith([BONO.id], '');
+    expect(await screen.findByRole('status')).toHaveTextContent('Se anuló 1 bono.');
+  });
+
+  it('without sell_in.gestionar there is nothing to select', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo === 'sell_in.ver');
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    expect(screen.queryByRole('checkbox', { name: /Seleccionar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Seleccionar todo lo filtrado/ })).not.toBeInTheDocument();
   });
 });

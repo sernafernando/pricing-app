@@ -2,6 +2,7 @@ import { StatusPill } from '../kit';
 import { formatDateOnly } from '../../utils/dateUtils';
 import { alcanceDeBono, esBonoCosto, origenDeBono, restanteDeTope } from './sellInBonoValores';
 import { formatEntero, formatMonto, formatPorcentaje } from './sellInFormat';
+import { CheckPagina } from './SellInTable';
 import styles from './SellInTable.module.css';
 
 const DIA = { day: '2-digit', month: '2-digit', year: 'numeric' };
@@ -22,13 +23,21 @@ function TopeRestante({ bono }) {
   return restante ? <div className={styles.sub}>{`Tope: quedan ${restante}`}</div> : null;
 }
 
-/** The bonuses (`GET /sell-in/bonos`): what each reaches, how it pays and what it generated; "Ver bono" opens it (`onSelect`). */
-export default function SellInBonosTable({ bonos, selectedId, onSelect }) {
+/**
+ * The bonuses (`GET /sell-in/bonos`): what each reaches, how it pays and what it generated; "Ver bono" opens it
+ * (`onSelect`). With `seleccion` (a Set) each row gets a checkbox for the bulk void (`onToggle`, `onTogglePagina`).
+ */
+export default function SellInBonosTable({ bonos, selectedId, onSelect, seleccion, onToggle, onTogglePagina }) {
   return (
     <div className={styles.scroller}>
       <table className={styles.table}>
         <thead>
           <tr>
+            {seleccion && (
+              <th>
+                <CheckPagina ids={bonos.map((b) => b.id)} seleccion={seleccion} onTogglePagina={onTogglePagina} label="Seleccionar la página de bonos" />
+              </th>
+            )}
             <th>Descripción</th>
             <th>Alcance</th>
             <th className={styles.num}>Monto</th>
@@ -41,13 +50,18 @@ export default function SellInBonosTable({ bonos, selectedId, onSelect }) {
         <tbody>
           {bonos.length === 0 && (
             <tr>
-              <td colSpan={7} className={styles.empty}>
+              <td colSpan={seleccion ? 8 : 7} className={styles.empty}>
                 No hay bonos de marca.
               </td>
             </tr>
           )}
           {bonos.map((bono) => (
             <tr key={bono.id} className={selectedId === bono.id ? styles.rowSelected : ''}>
+              {seleccion && (
+                <td>
+                  <input type="checkbox" aria-label={`Seleccionar bono #${bono.id}`} checked={seleccion.has(bono.id)} onChange={() => onToggle(bono.id)} />
+                </td>
+              )}
               <td>
                 <div>{bono.descripcion || <span className={styles.muted}>Sin descripción</span>}</div>
                 {esBonoCosto(bono) && <StatusPill tone="info">Sobre costo</StatusPill>}

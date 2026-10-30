@@ -8,13 +8,16 @@ import { sellOutAPI } from '../services/sellOutAPI';
 import DateRangeFilter from '../components/DateRangeFilter';
 import SearchInput from '../components/SearchInput';
 import { FacetChips, Pagination, SplitPanelLayout } from '../components/kit';
+import SellInAnularMasivo from '../components/sellIn/SellInAnularMasivo';
 import SellInBonoPanel from '../components/sellIn/SellInBonoPanel';
 import SellInBonosTable from '../components/sellIn/SellInBonosTable';
 import SellInDetailPanel from '../components/sellIn/SellInDetailPanel';
 import SellInNuevoPanel from '../components/sellIn/SellInNuevoPanel';
 import SellInResumen from '../components/sellIn/SellInResumen';
 import SellInTable from '../components/sellIn/SellInTable';
+import { resolverIdsFiltrados } from '../components/sellIn/sellInAnularMasivo';
 import { buildSellInParams } from '../components/sellIn/sellInFormat';
+import { useSeleccionMasiva } from '../components/sellIn/useSeleccionMasiva';
 import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
 import SellOutAnularMasivo from '../components/sellOut/SellOutAnularMasivo';
 import styles from './SellIn.module.css';
@@ -22,6 +25,10 @@ import styles from './SellIn.module.css';
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 const BONOS_PAGE_SIZES = [10, 25, 50];
 const CAMPANAS_PAGE_SIZES = [10, 25, 50];
+const COMPRAS = { singular: 'compra', plural: 'compras' };
+const BONOS = { singular: 'bono', plural: 'bonos' };
+const REVIERTE_COMPRAS = 'Se liberan sus unidades: las ventas que tomaban pasan a las compras siguientes. Las compras que genera un bono de marca no se anulan acá.';
+const REVIERTE_BONOS = 'Después se anulan las compras que generó cada bono, y un bono sobre el costo deja de aplicarse a sus ventas.';
 const PANEL_LABELS = { crear: 'Nuevo sell in', detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out' };
 const APLICA_LABELS = { si: 'Aplican', no: 'No aplican' };
 const EMPTY_FILTERS = { aplica: 'si', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', filtro: '' };
@@ -195,6 +202,10 @@ export default function SellIn() {
   const verBono = useCallback((id) => setPanel({ tipo: 'bono', id }), []);
   const verCompra = useCallback((id) => setPanel({ tipo: 'detalle', id }), []);
   const verCampana = useCallback((id) => setPanel({ tipo: 'campana', id }), []);
+  // The bulk void (`sell_in.gestionar`): the checked purchases and bonuses, and what the last one did.
+  const selCompras = useSeleccionMasiva();
+  const selBonos = useSeleccionMasiva();
+  const [aviso, setAviso] = useState(null);
   // Arrow keys move between the tabs (WAI-ARIA tabs pattern, automatic activation).
   const tabsVisibles = puedeVerSellOut ? ['sell-in', TAB_SELL_OUT] : ['sell-in'];
   const onTabsKeyDown = (event) => {
@@ -253,6 +264,18 @@ export default function SellIn() {
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  // Other filters are another set: what was checked under the previous ones is dropped.
+  const limpiarCompras = selCompras.limpiar;
+  useEffect(() => {
+    limpiarCompras();
+  }, [params, limpiarCompras]);
+
+  const anuladoMasivo = (seleccion, recargar) => (mensaje) => {
+    seleccion.limpiar();
+    setAviso(mensaje);
+    recargar();
+  };
 
   // Changing what is filtered goes back to page 1.
   const setFilter = (patch) => {
@@ -503,6 +526,28 @@ export default function SellIn() {
 
             {verCompras && (
               <>
+                {aviso && (
+                  <p role="status" className={styles.loading}>
+                    {aviso}
+                  </p>
+                )}
+                {puedeGestionar && lista && (
+                  <SellInAnularMasivo
+                    sustantivo={COMPRAS}
+                    seleccionados={[...selCompras.ids]}
+                    total={lista.total}
+                    revierte={REVIERTE_COMPRAS}
+                    onSeleccionarFiltrado={async () =>
+                      selCompras.reemplazar(await resolverIdsFiltrados(sellInAPI.listar, params, { total: lista.total, filtrosActivos: true }))
+                    }
+                    onLimpiar={selCompras.limpiar}
+                    anular={sellInAPI.anularMasivo}
+                    onHecho={anuladoMasivo(selCompras, () => {
+                      cargar();
+                      bonosVigentes.recargar();
+                    })}
+                  />
+                )}
                 {loading && !lista ? (
                   <p className={styles.loading}>Cargando sell in…</p>
                 ) : (
@@ -511,6 +556,7 @@ export default function SellIn() {
                     selectedId={panel?.tipo === 'detalle' ? panel.id : null}
                     onSelect={verCompra}
                     onVerBono={verBono}
+                    {...(puedeGestionar && { seleccion: selCompras.ids, onToggle: selCompras.toggle, onTogglePagina: selCompras.togglePagina })}
                   />
                 )}
 
@@ -546,7 +592,30 @@ export default function SellIn() {
                 )}
                 {bonos.lista && (
                   <>
-                    <SellInBonosTable bonos={bonos.lista.items} selectedId={panel?.tipo === 'bono' ? panel.id : null} onSelect={verBono} />
+                    {puedeGestionar && (
+                      <SellInAnularMasivo
+                        sustantivo={BONOS}
+                        seleccionados={[...selBonos.ids]}
+                        total={bonos.lista.total}
+                        revierte={REVIERTE_BONOS}
+                        onSeleccionarFiltrado={async () =>
+                          selBonos.reemplazar(await resolverIdsFiltrados(sellInBonosAPI.listar, {}, { total: bonos.lista.total, filtrosActivos: false }))
+                        }
+                        onLimpiar={selBonos.limpiar}
+                        anular={sellInBonosAPI.anularMasivo}
+                        onHecho={anuladoMasivo(selBonos, () => {
+                          bonos.recargar();
+                          bonosVigentes.recargar();
+                          cargar();
+                        })}
+                      />
+                    )}
+                    <SellInBonosTable
+                      bonos={bonos.lista.items}
+                      selectedId={panel?.tipo === 'bono' ? panel.id : null}
+                      onSelect={verBono}
+                      {...(puedeGestionar && { seleccion: selBonos.ids, onToggle: selBonos.toggle, onTogglePagina: selBonos.togglePagina })}
+                    />
                     <Pagination
                       total={bonos.lista.total}
                       offset={bonos.offset}

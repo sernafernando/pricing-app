@@ -1,0 +1,74 @@
+/* The bulk void bar above a sell-in list and its confirmation pane. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.count {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.confirm p {
+  margin: 0;
+}
+
+.hint {
+  color: var(--cf-text-secondary);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.field input {
+  padding: var(--space-2);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.error {
+  padding: var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--cf-danger);
+  border: 1px solid var(--cf-danger);
+  border-radius: var(--radius-md);
+}
+
+.error p,
+.error ul {
+  margin: 0;
+}

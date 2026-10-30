@@ -20,6 +20,12 @@ Para anular varias campañas de una vez (pide permiso de gestión de campañas, 
 
 El botón **Actualizar** recarga todo.
 
+### Anular varios a la vez
+
+En las listas de compras y de bonos de marca, cada fila tiene una casilla. La del encabezado marca la página, y **Seleccionar todo lo filtrado (N)** marca todo lo que muestran los filtros. Con algo marcado aparece **N seleccionados** y el botón **Anular seleccionados**, que pide confirmación y dice cuántos se anulan y qué se revierte: en una compra se liberan sus unidades, y en un bono se anulan las compras que generó.
+
+Se anula todo o nada: si alguno no se puede anular (por ejemplo, una compra generada por un bono de marca), no se anula ninguno y se lista cuál y por qué. Los ya anulados se saltean. Se anulan hasta 500 por vez y hace falta el mismo permiso que para anular de a uno.
+
 ### Bonos de marca: base del bono
 
 Al crear un bono de marca, **Base del bono** define cómo se calcula. Se elige una sola vez: después de guardarlo no se cambia.
