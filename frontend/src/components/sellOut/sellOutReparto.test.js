@@ -48,8 +48,40 @@ describe('sellOutReparto', () => {
     expect(errorDeReparto('100.01', filas, 'ARS')).toBeNull();
     expect(totalesDeReparto('100.01', filas)).toEqual({ asignado: 100.01, sinAsignar: 0 });
     const conFijo = [...filas.slice(0, 1), { ...fila(MODO_MONTO, '50.01', 'B'), itemId: 2 }];
-    // 50,005 + 50,01 = 100,015 > 100,01: refused, the amounts rounded to cents as the API's message does
-    expect(errorDeReparto('100.01', conFijo, 'ARS')).toBe('El reparto ($ 100,02) supera el monto total ($ 100,01) en $ 0,01');
+    // 50,005 + 50,01 = 100,015 > 100,01: refused, with the exact amounts as the API's message (`_importe`) gives them
+    expect(errorDeReparto('100.01', conFijo, 'ARS')).toBe('El reparto ($ 100,015) supera el monto total ($ 100,01) en $ 0,005');
+  });
+
+  it('a sub-cent excess never reads 0,00: exact amounts when they have more decimals than cents', () => {
+    const filas = [fila(MODO_PORCENTAJE, '50.0001', 'A'), { ...fila(MODO_MONTO, '50.00', 'B'), itemId: 2 }];
+    expect(errorDeReparto('100.00', filas, 'ARS')).toBe('El reparto ($ 100,0001) supera el monto total ($ 100,00) en $ 0,0001');
+    const grande = [fila(MODO_MONTO, '2100000', 'A')];
+    expect(errorDeReparto('-2000000', [{ ...grande[0], valor: '-2100000' }], 'ARS')).toBe(
+      'El reparto ($ -2.100.000,00) supera el monto total ($ -2.000.000,00) en $ 100.000,00',
+    );
+  });
+
+  it('a user who sees every share holds no other brands\' money, whatever the per-share rounding', () => {
+    // The server's `asignado` sums each share rounded to cents (`reparto._cargada`): 50,01 + 50,01 = 100,02.
+    const dosMitades = {
+      ...CAMPANA_MONTO_TOTAL,
+      monto_total: '100.01',
+      items: [
+        { item_id: 1, codigo: 'A', reparto_porcentaje: '50.0000', reparto_monto: null },
+        { item_id: 2, codigo: 'B', reparto_porcentaje: '50.0000', reparto_monto: null },
+      ],
+      resumen: { ...CAMPANA_MONTO_TOTAL.resumen, reparto: { asignado: '100.02', asignado_sin_ventas: '0.00', sin_asignar: '-0.01', motivo: null } },
+    };
+    expect(centavosAjenos(dosMitades)).toBe(0);
+    expect(errorDeReparto('100.01', filasDeCampana(dosMitades), 'ARS', centavosAjenos(dosMitades))).toBeNull();
+    // 3 × 33,3333 % of 100,00 = 33,33 each once rounded: the server says 99,99.
+    const tercios = {
+      ...dosMitades,
+      monto_total: '100.00',
+      items: [1, 2, 3].map((id) => ({ item_id: id, codigo: `P${id}`, reparto_porcentaje: '33.3333', reparto_monto: null })),
+      resumen: { ...dosMitades.resumen, reparto: { asignado: '99.99', asignado_sin_ventas: '0.00', sin_asignar: '0.01', motivo: null } },
+    };
+    expect(centavosAjenos(tercios)).toBe(0);
   });
 
   it('the shares the user cannot see count in the totals and the guard', () => {

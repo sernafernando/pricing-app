@@ -1,10 +1,13 @@
 /**
  * The split of a `monto_total` campaign (T26c/T26d, S34/S35) as the reparto section holds it: one row per product,
  * its share a % of the total or a fixed amount. The live totals and the guard mirror `reparto.validar` (a fixed share
- * has the total's sign, |Σ| <= |total|, in cents) so the PM sees them before saving; the API stays the source of
+ * has the total's sign, |Σ| <= |total| on the exact shares, before any rounding) so the PM sees them before saving;
+ * the API stays the source of
  * truth and its 422/403 message is what the panel shows when it refuses.
  */
 import { formatMonto } from '../sellIn/sellInFormat';
+
+const MILES = new Intl.NumberFormat('es-AR');
 import { nombreDeItem } from './sellOutFormat';
 
 export const MODO_PORCENTAJE = 'porcentaje';
@@ -49,6 +52,20 @@ function microDeFila(totalCentavos, fila) {
   return fila.modo === MODO_PORCENTAJE ? BigInt(totalCentavos) * valor : valor * MICRO;
 }
 
+/**
+ * An exact amount in micro-cents like the backend's `_importe`: two decimals when it is whole cents, else every
+ * decimal it has (so an excess below a cent never reads 0,00): "$ 100,00", "$ 0,0001".
+ */
+function formatMicro(micro, moneda) {
+  if (micro % MICRO === 0n) return formatMonto(Number(micro / MICRO) / 100, moneda);
+  const negativo = micro < 0n;
+  const abs = negativo ? -micro : micro;
+  const unidad = 100n * MICRO; // micro-cents per currency unit
+  const entero = MILES.format(abs / unidad);
+  const decimales = String(abs % unidad).padStart(8, '0').replace(/0+$/, '');
+  return `${moneda === 'USD' ? 'USD' : '$'} ${negativo ? '-' : ''}${entero},${decimales}`;
+}
+
 const sumaMicro = (totalCentavos, filas) => filas.reduce((acc, fila) => acc + (microDeFila(totalCentavos, fila) ?? 0n), 0n);
 
 /** A stored campaign's shares as rows: `{ itemId, codigo, descripcion, modo, valor }`. */
@@ -76,8 +93,11 @@ export function centavosDeFila(totalCentavos, fila) {
 export function centavosAjenos(campana) {
   const asignado = campana.resumen?.reparto?.asignado;
   if (asignado === null || asignado === undefined) return 0;
-  const propios = sumaMicro(aCentavos(campana.monto_total), filasDeCampana(campana));
-  return aCentavosDesdeMicro(BigInt(aCentavos(asignado)) * MICRO - propios);
+  // The server sums each share already rounded to cents (`reparto._cargada`), so the visible ones are summed the
+  // same way: with every share visible the difference is exactly 0, whatever the rounding of each.
+  const totalCentavos = aCentavos(campana.monto_total);
+  const propios = filasDeCampana(campana).reduce((acc, fila) => acc + (centavosDeFila(totalCentavos, fila) ?? 0), 0);
+  return aCentavos(asignado) - propios;
 }
 
 /**
@@ -108,10 +128,10 @@ export function errorDeReparto(total, filas, moneda, ajenos = 0) {
   const suma = sumaMicro(totalCentavos, filas) + BigInt(ajenos) * MICRO;
   const absoluto = (n) => (n < 0n ? -n : n);
   if (absoluto(suma) > absoluto(BigInt(totalCentavos) * MICRO)) {
-    // Like the API's message: the sum and the total rounded to cents, the excess between them.
-    const sumaCentavos = aCentavosDesdeMicro(suma);
-    const exceso = (Math.abs(sumaCentavos) - Math.abs(totalCentavos)) / 100;
-    return `El reparto (${formatMonto(sumaCentavos / 100, moneda)}) supera el monto total (${formatMonto(total, moneda)}) en ${formatMonto(exceso, moneda)}`;
+    // Like the API's message (`_importe`): the exact sum, the total and the excess between them.
+    const totalMicro = BigInt(totalCentavos) * MICRO;
+    const exceso = absoluto(suma) - absoluto(totalMicro);
+    return `El reparto (${formatMicro(suma, moneda)}) supera el monto total (${formatMicro(totalMicro, moneda)}) en ${formatMicro(exceso, moneda)}`;
   }
   return null;
 }
