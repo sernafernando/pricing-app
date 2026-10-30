@@ -64,6 +64,21 @@ class SellInAnularIn(BaseModel):
     motivo: Optional[str] = Field(default=None, max_length=MOTIVO_MAX)
 
 
+ANULAR_MASIVO_MAX = 500  # each record runs the single void (with its recompute) in one request
+
+
+class SellInAnularMasivoIn(BaseModel):
+    """The ids to void (purchases or bonuses) and one reason for every audit row."""
+
+    ids: list[int] = Field(min_length=1, max_length=ANULAR_MASIVO_MAX)
+    motivo: Optional[str] = Field(default=None, max_length=MOTIVO_MAX)
+
+
+class SellInAnularMasivoOut(BaseModel):
+    anuladas: list[int]
+    ya_anuladas: list[int]
+
+
 class SellInPreviewLinea(BaseModel):
     item_id: int
     codigo: Optional[str]
@@ -197,6 +212,7 @@ class SellInCompraListOut(BaseModel):
     total: int
     page: int
     page_size: int
+    generadas: int = 0  # matching purchases a brand bonus generated (every page): not voidable by hand
 
 
 class SellInConteoAplica(BaseModel):

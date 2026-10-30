@@ -50,6 +50,8 @@ from app.schemas.sell_in import (
     Estado,
     Moneda,
     SellInAnularIn,
+    SellInAnularMasivoIn,
+    SellInAnularMasivoOut,
     SellInCompraCreate,
     SellInCompraListOut,
     SellInCompraOut,
@@ -61,6 +63,7 @@ from app.schemas.sell_in import (
     SellInPreviewOut,
 )
 from app.services.permisos_service import verificar_permiso
+from app.services.sell_in import anular_masivo
 from app.services.sell_in import compras as service
 from app.services.sell_in import operaciones as operaciones_service
 from app.services.sell_in import prefill as prefill_service
@@ -153,8 +156,15 @@ def listar_compras(
     _user: Usuario = Depends(requiere_ver),
     db: Session = Depends(get_db),
 ) -> dict:
+    """One page of purchases. `generadas` counts the matching purchases (every page) a brand bonus generated."""
     compras, total = service.listar_compras(db, filtros, page=page, page_size=page_size)
-    return {"items": service.serializar(db, compras), "total": total, "page": page, "page_size": page_size}
+    return {
+        "items": service.serializar(db, compras),
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "generadas": service.contar_generadas(db, filtros),
+    }
 
 
 @router.get("/resumen", response_model=SellInCompraResumenOut)
@@ -216,6 +226,47 @@ def obtener_compra(
     if compra is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"La compra {compra_id} no existe")
     return service.serializar(db, [compra])[0]
+
+
+def rechazo_masivo(exc: anular_masivo.AnulacionRechazada, ninguno: str, uno: str, todos: str) -> HTTPException:
+    """A refused bulk void: nothing was voided, and each refused record says why. A 422 when every refused id does
+    not exist; a 409 when one is refused by its guard, or when a deadlock with another writer stopped it (a retry
+    naming `uno` and the record, or `todos` while the locks were being taken)."""
+    n = len(exc.rechazadas)
+    if exc.reintentar:
+        quien = f"{uno} {exc.ocupada}" if exc.ocupada is not None else todos
+        mensaje = f"No se anuló {ninguno}: otra operación está modificando {quien} en este momento. {anular_masivo.REINTENTAR}"
+    else:
+        mensaje = f"No se anuló {ninguno}: {n} no se {'puede' if n == 1 else 'pueden'} anular"
+    return HTTPException(
+        status_code=422 if exc.solo_inexistentes else status.HTTP_409_CONFLICT,
+        detail={"mensaje": mensaje, "rechazadas": [{"id": r.id, "motivo": r.motivo} for r in exc.rechazadas]},
+    )
+
+
+@router.post("/anular-masivo", response_model=SellInAnularMasivoOut)
+def anular_compras(
+    data: SellInAnularMasivoIn,
+    user: Usuario = Depends(requiere_gestionar),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Void several purchases at once, all or nothing, each through the single void (same guards, audit and release
+    of units). Already-voided ones are skipped and reported. Voids none when it is refused, naming each refused
+    purchase: a 422 when all of them are missing, a 409 when one is refused by its guard (a purchase a bonus
+    generated), or a 409 to retry when a deadlock with another writer stopped it."""
+    try:
+        anuladas, ya_anuladas = anular_masivo.anular_varios(
+            db,
+            data.ids,
+            lambda compra_id: service.anular_compra_sin_commit(db, compra_id, user.id, data.motivo, es_masivo=True),
+            ya_anulada=service.SellInYaAnulada,
+            rechazos=(service.SellInGenerada,),
+            no_existe=lambda compra_id: f"La compra {compra_id} no existe",
+            preparar=lambda: service.bloquear_productos_de(db, data.ids),
+        )
+    except anular_masivo.AnulacionRechazada as exc:
+        raise rechazo_masivo(exc, "ninguna", "la compra", "estas compras") from exc
+    return {"anuladas": anuladas, "ya_anuladas": ya_anuladas}
 
 
 @router.post("/{compra_id}/anular", response_model=SellInCompraOut)

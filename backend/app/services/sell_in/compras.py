@@ -44,7 +44,7 @@ from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.schemas.sell_in import SellInCompraCreate, SellInPreviewIn
 from app.services.sell_in import bonos_costo
-from app.services.sell_in.costing import get_costing
+from app.services.sell_in.costing import LOCK_NAMESPACE, LOCK_SQL, get_costing
 from app.services.sell_in.split import CENT, UNIT_PRECISION, Line, SellInSplitError, preview, unit_discount
 
 
@@ -260,8 +260,10 @@ def audit(
     tipo: TipoAccion,
     usuario_id: int,
     motivo: Optional[str] = None,
+    es_masivo: bool = False,
 ) -> None:
-    """One audit row per line; `motivo` (the void's reason, if any) goes to `comentario`."""
+    """One audit row per line; `motivo` (the void's reason, if any) goes to `comentario`; `es_masivo` marks the rows
+    of a bulk action."""
     fecha = datetime.now(timezone.utc).replace(tzinfo=None)  # naive UTC, like the column's default
     for item in items:
         valores = {
@@ -281,7 +283,7 @@ def audit(
                 tipo_accion=tipo,
                 valores_anteriores=None,
                 valores_nuevos=valores,
-                es_masivo=False,
+                es_masivo=es_masivo,
                 comentario=motivo,
                 fecha=fecha,
             )
@@ -448,6 +450,51 @@ def _sincronizar_pedidos(db: Session, compra: SellInCompra, ids: list[int]) -> N
 
 def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInCompra]:
     """Void a purchase. None when it does not exist; `SellInYaAnulada` on a second call."""
+    try:
+        compra = anular_compra_sin_commit(db, compra_id, usuario_id, motivo)
+        if compra is not None:
+            db.commit()
+    except SellInError:
+        raise  # refused before any change; the caller rolls back
+    except Exception:
+        db.rollback()  # the purchase stays activa and unaudited; never leave the session aborted
+        raise
+    if compra is None:
+        return None
+    db.refresh(compra)
+    return compra
+
+
+def bloquear_productos_de(db: Session, compra_ids: List[int]) -> None:
+    """Bulk void: take, up front and in item_id order, the per-product lock each purchase's recompute takes.
+
+    One recompute per purchase would lock each purchase's products in the order the ids came, holding them all until
+    the commit, and could deadlock a drain (or another bulk void) taking the same products in another order. A
+    session re-takes a lock it holds without waiting, so the recomputes then run as in the single void.
+
+    The purchase rows go first, in id order: the single void locks its row before its recompute locks the products, and
+    a bulk void taking them the other way round would deadlock a single void of one of its purchases."""
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    db.query(SellInCompra.id).filter(SellInCompra.id.in_(list(compra_ids))).order_by(
+        SellInCompra.id
+    ).with_for_update().all()
+    ids = sorted(
+        item_id
+        for (item_id,) in db.query(SellInCompraItem.item_id)
+        .filter(SellInCompraItem.compra_id.in_(list(compra_ids)))
+        .distinct()
+    )
+    if ids:
+        db.execute(LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": ids})
+
+
+def anular_compra_sin_commit(
+    db: Session, compra_id: int, usuario_id: int, motivo: Optional[str], es_masivo: bool = False
+) -> Optional[SellInCompra]:
+    """THE void step, without committing (the single void and the bulk one, `anular_masivo`, commit): voids the
+    purchase, audits each line (`es_masivo` on the bulk one) and releases its units. None when it does not exist;
+    `SellInYaAnulada` / `SellInGenerada` before any change when it cannot be voided."""
     compra = db.query(SellInCompra).filter(SellInCompra.id == compra_id).with_for_update().first()
     if compra is None:
         return None
@@ -461,17 +508,11 @@ def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional
     items = list(
         db.query(SellInCompraItem).filter(SellInCompraItem.compra_id == compra_id).order_by(SellInCompraItem.id)
     )
-    audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo)
+    audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo, es_masivo=es_masivo)
     db.flush()
     # Its units are released in the same transaction: later purchases take those sales over.
-    try:
-        get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
-        bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
-        db.commit()
-    except Exception:
-        db.rollback()  # the purchase stays activa and unaudited; never leave the session aborted
-        raise
-    db.refresh(compra)
+    get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
+    bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
     return compra
 
 
@@ -597,6 +638,12 @@ def listar_compras(
         .all()
     )
     return compras, total
+
+
+def contar_generadas(db: Session, filtros: FiltrosCompras) -> int:
+    """How many of the matching purchases (every page) a brand bonus generated: they are voided only through their
+    bonus, so the bulk void's "todo lo filtrado" leaves them out."""
+    return _filtrada(db, filtros).filter(SellInCompra.origen == "bono_marca").count()
 
 
 def resumir_compras(db: Session, filtros: FiltrosCompras) -> dict:

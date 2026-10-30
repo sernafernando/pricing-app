@@ -117,6 +117,7 @@ ENDPOINTS = [
     ("get", f"{BASE}/resumen", None),
     ("get", f"{BASE}/1", None),
     ("post", f"{BASE}/1/anular", {}),
+    ("post", f"{BASE}/anular-masivo", {"ids": [1]}),
 ]
 
 
@@ -853,6 +854,7 @@ def test_anular_once_then_409(client, gestor, productos, db):
     audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_COMPRA_ANULADA).all()
     assert sorted(r.item_id for r in audit) == [4512, 4513]
     assert {r.comentario for r in audit} == {"Cargada dos veces"}
+    assert {bool(r.es_masivo) for r in audit} == {False}
 
 
 def test_anular_without_body(client, gestor, productos):
@@ -887,3 +889,171 @@ def test_anular_a_purchase_generated_by_a_brand_bonus_is_409(client, gestor, pro
     assert "bono de marca" in _message(resp)
     db.expire_all()
     assert db.get(SellInCompra, data["id"]).estado == "activa"
+
+
+def test_the_list_counts_the_purchases_bonuses_generated_over_every_page(client, gestor, productos, admin_user, db):
+    # The bulk void's "todo lo filtrado" leaves them out (they are voided by their bonus): it needs how many there are.
+    bono = SellInBonoMarca(
+        marca="TP-LINK",
+        monto_unit=D("2"),
+        moneda="ARS",
+        fecha_desde=date(2026, 10, 1),
+        fecha_hasta=date(2026, 10, 31),
+        usuario_id=admin_user.id,
+    )
+    db.add(bono)
+    db.flush()
+    ids = [_crear(client, gestor)["id"] for _ in range(3)]
+    compra = db.get(SellInCompra, ids[0])
+    compra.origen, compra.bono_id = "bono_marca", bono.id
+    db.flush()
+
+    pagina = client.get(BASE, params={"aplica": "todas", "page": 2, "page_size": 1}, headers=gestor).json()
+
+    assert (pagina["total"], pagina["generadas"]) == (3, 1)
+
+
+# ── Anular masivo ───────────────────────────────────────────────────
+
+MASIVO = f"{BASE}/anular-masivo"
+
+
+def test_bulk_void_voids_every_purchase_with_the_single_void_audit(client, gestor, productos, db):
+    a = _crear(client, gestor)
+    b = _crear(client, gestor, lineas=[{"item_id": 4512, "cantidad": 4}])
+
+    resp = client.post(MASIVO, json={"ids": [a["id"], b["id"]], "motivo": "Cargadas mal"}, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"anuladas": [a["id"], b["id"]], "ya_anuladas": []}
+    db.expire_all()
+    assert {db.get(SellInCompra, x["id"]).estado for x in (a, b)} == {"anulada"}
+    audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_COMPRA_ANULADA).all()
+    assert sorted(r.item_id for r in audit) == [4512, 4512, 4513]  # one row per line, like the single void
+    assert {r.comentario for r in audit} == {"Cargadas mal"}
+    assert {bool(r.es_masivo) for r in audit} == {True}  # a bulk action, like every other one in the audit
+
+
+def test_bulk_void_skips_and_reports_an_already_voided_purchase(client, gestor, productos, db):
+    a, b = _crear(client, gestor), _crear(client, gestor)
+    client.post(f"{BASE}/{a['id']}/anular", json={}, headers=gestor)
+
+    resp = client.post(MASIVO, json={"ids": [a["id"], b["id"]]}, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"anuladas": [b["id"]], "ya_anuladas": [a["id"]]}
+
+
+def test_a_deadlock_with_another_writer_refuses_the_whole_bulk_void_with_a_retry(
+    client, gestor, productos, db, monkeypatch
+):
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.sell_in import compras as service
+
+    a, b = _crear(client, gestor)["id"], _crear(client, gestor)["id"]
+    anular = service.anular_compra_sin_commit
+
+    class _Deadlock(Exception):
+        pgcode = "40P01"  # deadlock_detected: Postgres aborted this transaction to break a lock cycle
+
+    def _segunda_en_deadlock(db_, compra_id, *args, **kwargs):
+        if compra_id == b:
+            raise DBAPIError("SELECT pg_advisory_xact_lock ...", {}, _Deadlock())
+        return anular(db_, compra_id, *args, **kwargs)
+
+    monkeypatch.setattr(service, "anular_compra_sin_commit", _segunda_en_deadlock)
+
+    resp = client.post(MASIVO, json={"ids": [a, b, 424242]}, headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json() == {
+        "mensaje": (
+            f"No se anuló ninguna: otra operación está modificando la compra {b} en este momento. "
+            "Reintentar en unos segundos."
+        ),
+        "rechazadas": [
+            {"id": b, "motivo": "Otra operación la está modificando. Reintentar en unos segundos."},
+        ],
+    }
+    db.expire_all()
+    assert {db.get(SellInCompra, x).estado for x in (a, b)} == {"activa"}
+    assert db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_COMPRA_ANULADA).count() == 0
+
+
+def test_bulk_void_with_only_unknown_purchases_is_a_422_naming_each(client, gestor, productos, db):
+    manual = _crear(client, gestor)
+
+    resp = client.post(MASIVO, json={"ids": [manual["id"], 424242, 424243]}, headers=gestor)
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json() == {
+        "mensaje": "No se anuló ninguna: 2 no se pueden anular",
+        "rechazadas": [
+            {"id": 424242, "motivo": "La compra 424242 no existe"},
+            {"id": 424243, "motivo": "La compra 424243 no existe"},
+        ],
+    }
+    db.expire_all()
+    assert db.get(SellInCompra, manual["id"]).estado == "activa"
+
+
+def test_bulk_void_is_all_or_nothing_and_names_each_refused_purchase(client, gestor, productos, admin_user, db):
+    bono = SellInBonoMarca(
+        marca="TP-LINK",
+        monto_unit=D("2"),
+        moneda="ARS",
+        fecha_desde=date(2026, 10, 1),
+        fecha_hasta=date(2026, 10, 31),
+        usuario_id=admin_user.id,
+    )
+    db.add(bono)
+    db.flush()
+    manual, generada = _crear(client, gestor), _crear(client, gestor)
+    compra = db.get(SellInCompra, generada["id"])
+    compra.origen, compra.bono_id = "bono_marca", bono.id
+    db.flush()
+
+    resp = client.post(MASIVO, json={"ids": [manual["id"], generada["id"], 424242]}, headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()  # a dict detail without "code" is the body root (app.core.exceptions)
+    assert detail["mensaje"] == "No se anuló ninguna: 2 no se pueden anular"
+    assert [r["id"] for r in detail["rechazadas"]] == [generada["id"], 424242]
+    assert "bono de marca" in detail["rechazadas"][0]["motivo"]
+    assert detail["rechazadas"][1]["motivo"] == "La compra 424242 no existe"
+    db.expire_all()
+    assert db.get(SellInCompra, manual["id"]).estado == "activa"  # voided first, rolled back with the rest
+    assert db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_COMPRA_ANULADA).count() == 0
+
+
+def test_bulk_void_releases_the_units_exactly_like_the_single_void(client, gestor, productos, db, monkeypatch):
+    """The bulk action runs the single void per purchase: same recompute and FIFO calls, in the same order."""
+    llamadas = []
+
+    class Costing:
+        def recompute(self, _db, item_ids, isolate_failures):
+            llamadas.append(("recompute", sorted(item_ids), isolate_failures))
+
+    monkeypatch.setattr(compras_service, "get_costing", lambda: Costing())
+    monkeypatch.setattr(
+        compras_service.bonos_costo, "seguir_fifo", lambda _db, ids: llamadas.append(("fifo", sorted(ids)))
+    )
+    a = _crear(client, gestor)
+    b = _crear(client, gestor, lineas=[{"item_id": 4513, "cantidad": 2}])
+    llamadas.clear()
+    client.post(f"{BASE}/{a['id']}/anular", json={}, headers=gestor)
+    client.post(f"{BASE}/{b['id']}/anular", json={}, headers=gestor)
+    individual = list(llamadas)
+    a2 = _crear(client, gestor)
+    b2 = _crear(client, gestor, lineas=[{"item_id": 4513, "cantidad": 2}])
+    llamadas.clear()
+
+    assert client.post(MASIVO, json={"ids": [a2["id"], b2["id"]]}, headers=gestor).status_code == 200
+
+    assert llamadas == individual
+
+
+@pytest.mark.parametrize("ids", [[], list(range(1, 502))])
+def test_bulk_void_needs_between_1_and_500_ids(client, gestor, ids):
+    assert client.post(MASIVO, json={"ids": ids}, headers=gestor).status_code == 422

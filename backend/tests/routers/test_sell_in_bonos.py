@@ -12,6 +12,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import event
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.producto import ProductoERP, TipoMoneda
@@ -79,6 +80,7 @@ ENDPOINTS = [
     ("get", f"{BASE}/1", None),
     ("put", f"{BASE}/1", _body()),
     ("post", f"{BASE}/1/anular", {}),
+    ("post", f"{BASE}/anular-masivo", {"ids": [1]}),
 ]
 
 
@@ -180,6 +182,13 @@ def test_list_is_paginated(client, gestor, productos):
     assert (page["total"], page["page"], page["page_size"]) == (3, 2, 2)
 
 
+@pytest.mark.parametrize("url", [BASE, "/api/sell-in/compras"])
+def test_the_lists_serve_the_200_rows_page_select_all_reads(client, gestor, url):
+    # "Seleccionar todo lo filtrado" pages both lists with page_size=200 (frontend sellInAnularMasivo.js).
+    assert client.get(url, params={"page_size": 200}, headers=gestor).status_code == 200
+    assert client.get(url, params={"page_size": 201}, headers=gestor).status_code == 422
+
+
 def test_get_reports_what_the_bonus_generated(client, gestor, productos, admin_user, db):
     data = _crear(client, gestor)
     for estado, cantidad in (("activa", 4), ("activa", 6), ("anulada", 100)):
@@ -276,6 +285,7 @@ def test_void_once_then_409_with_the_reason_audited(client, gestor, productos, d
     assert "anulado" in _message(second)
     [row] = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_BONO_ANULADO).all()
     assert row.comentario == "La marca canceló el acuerdo"
+    assert not row.es_masivo
 
 
 def test_void_unknown_is_404(client, gestor):
@@ -341,3 +351,67 @@ def test_the_flag_must_be_a_boolean(client, gestor, productos):
     resp = client.post(BASE, json=_body(acumulable="quizás"), headers=gestor)
 
     assert resp.status_code == 422
+
+
+# ── Anular masivo ───────────────────────────────────────────────────
+
+MASIVO = f"{BASE}/anular-masivo"
+
+
+def test_bulk_void_voids_every_bonus_with_the_single_void_audit(client, gestor, productos, db):
+    a, b = _crear(client, gestor), _crear(client, gestor, marca="MERCUSYS")
+
+    resp = client.post(MASIVO, json={"ids": [a["id"], b["id"]], "motivo": "Acuerdo caído"}, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"anuladas": [a["id"], b["id"]], "ya_anuladas": []}
+    db.expire_all()
+    assert {db.get(SellInBonoMarca, x["id"]).estado for x in (a, b)} == {"anulada"}
+    rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_BONO_ANULADO).all()
+    assert len(rows) == 2 and {r.comentario for r in rows} == {"Acuerdo caído"}
+    assert {bool(r.es_masivo) for r in rows} == {True}
+
+
+def test_bulk_void_skips_and_reports_an_already_voided_bonus(client, gestor, productos):
+    a, b = _crear(client, gestor), _crear(client, gestor)
+    client.post(f"{BASE}/{a['id']}/anular", json={}, headers=gestor)
+
+    resp = client.post(MASIVO, json={"ids": [a["id"], b["id"]]}, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"anuladas": [b["id"]], "ya_anuladas": [a["id"]]}
+
+
+def test_bulk_void_of_bonuses_is_all_or_nothing(client, gestor, productos, db):
+    a = _crear(client, gestor)
+
+    resp = client.post(MASIVO, json={"ids": [a["id"], 424242]}, headers=gestor)
+
+    assert resp.status_code == 422, resp.text  # only unknown ids: a 422 naming each
+    assert resp.json() == {  # a dict detail without "code" is the body root (app.core.exceptions)
+        "mensaje": "No se anuló ninguno: 1 no se puede anular",
+        "rechazadas": [{"id": 424242, "motivo": "El bono 424242 no existe"}],
+    }
+    db.expire_all()
+    assert db.get(SellInBonoMarca, a["id"]).estado == "activa"
+    assert db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_BONO_ANULADO).count() == 0
+
+
+def test_bulk_void_locks_every_bonus_in_id_order_before_voiding_any(client, gestor, productos, db):
+    # Locking them as they came would let two bulk voids of the same bonuses in another order wait on each other.
+    a, b = _crear(client, gestor), _crear(client, gestor)
+    sentencias = []
+
+    def _capturar(_conn, _cursor, statement, _parameters, _context, _many):
+        if "FROM sell_in_bonos_marca" in statement:
+            sentencias.append(statement)
+
+    conn = db.connection()
+    event.listen(conn, "before_cursor_execute", _capturar)
+    try:
+        resp = client.post(MASIVO, json={"ids": [b["id"], a["id"]]}, headers=gestor)
+    finally:
+        event.remove(conn, "before_cursor_execute", _capturar)
+
+    assert resp.status_code == 200, resp.text
+    assert "ORDER BY sell_in_bonos_marca.id" in sentencias[0] and " IN " in sentencias[0]

@@ -8,12 +8,33 @@ import styles from './SellInTable.module.css';
 
 const COLUMNS = 9;
 
+/** The checkbox column of the bulk void: a header box for the visible page and one per row. */
+export function CheckPagina({ ids, seleccion, onTogglePagina, label }) {
+  const marcadas = ids.filter((id) => seleccion.has(id)).length;
+  return (
+    <input
+      type="checkbox"
+      aria-label={label}
+      checked={ids.length > 0 && marcadas === ids.length}
+      ref={(el) => {
+        if (el) el.indeterminate = marcadas > 0 && marcadas < ids.length;
+      }}
+      onChange={() => onTogglePagina(ids)}
+    />
+  );
+}
+
+/** A purchase a brand bonus generated is voided only through its bonus: it has no bulk-void checkbox. */
+const anulable = (compra) => compra.origen !== 'bono_marca';
+
 /**
  * The sell-in purchases list. The chevron opens a row into its lines; a click
  * elsewhere on the row selects it (`onSelect`, the detail panel). A purchase a
- * brand bonus generated carries a "Bono de marca" badge and links to its bonus (`onVerBono`).
+ * brand bonus generated carries a "Bono de marca" badge and links to its bonus (`onVerBono`). With `seleccion` (a Set)
+ * each voidable row gets a checkbox for the bulk void (`onToggle`, `onTogglePagina`).
  */
-export default function SellInTable({ compras, selectedId, onSelect, onVerBono }) {
+export default function SellInTable({ compras, selectedId, onSelect, onVerBono, seleccion, onToggle, onTogglePagina }) {
+  const columnas = COLUMNS + (seleccion ? 1 : 0);
   const [abiertas, setAbiertas] = useState(() => new Set());
   const toggle = (id) =>
     setAbiertas((prev) => {
@@ -28,6 +49,11 @@ export default function SellInTable({ compras, selectedId, onSelect, onVerBono }
       <table className={styles.table}>
         <thead>
           <tr>
+            {seleccion && (
+              <th>
+                <CheckPagina ids={compras.filter(anulable).map((c) => c.id)} seleccion={seleccion} onTogglePagina={onTogglePagina} label="Seleccionar la página de sell in" />
+              </th>
+            )}
             <th aria-label="Expandir" />
             <th>Descripción</th>
             <th>Proveedor</th>
@@ -42,7 +68,7 @@ export default function SellInTable({ compras, selectedId, onSelect, onVerBono }
         <tbody>
           {compras.length === 0 && (
             <tr>
-              <td colSpan={COLUMNS} className={styles.empty}>
+              <td colSpan={columnas} className={styles.empty}>
                 No hay sell in con estos filtros.
               </td>
             </tr>
@@ -52,6 +78,13 @@ export default function SellInTable({ compras, selectedId, onSelect, onVerBono }
             return (
               <Fragment key={compra.id}>
                 <tr className={`${abierta ? styles.rowOpen : ''} ${selectedId === compra.id ? styles.rowSelected : ''}`}>
+                  {seleccion && (
+                    <td>
+                      {anulable(compra) && (
+                        <input type="checkbox" aria-label={`Seleccionar compra #${compra.id}`} checked={seleccion.has(compra.id)} onChange={() => onToggle(compra.id)} />
+                      )}
+                    </td>
+                  )}
                   <td>
                     <button
                       type="button"
@@ -103,7 +136,7 @@ export default function SellInTable({ compras, selectedId, onSelect, onVerBono }
                 </tr>
                 {abierta && (
                   <tr className={styles.subRow}>
-                    <td colSpan={COLUMNS}>
+                    <td colSpan={columnas}>
                       <SellInLineas compra={compra} />
                     </td>
                   </tr>

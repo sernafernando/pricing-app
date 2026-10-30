@@ -20,6 +20,8 @@ export const sellInAPI = {
   // One operation's products (ordered and received units), for the picker's hover card; needs `sell_in.gestionar`.
   operacionProductos: (id) => api.get(`${BASE}/operaciones/${id}/productos`),
   anular: (id, motivo) => api.post(`${BASE}/${id}/anular`, { motivo: motivo?.trim() || null }),
+  // All or nothing; a refused set (409, or 422 for unknown ids) names each one (`{ mensaje, rechazadas: [{ id, motivo }] }`).
+  anularMasivo: (ids, motivo) => api.post(`${BASE}/anular-masivo`, { ids, motivo: motivo?.trim() || null }),
   // The supplier picker of the create panel (`GET /administracion/proveedores`, active ones by default).
   proveedores: (search) => api.get('/administracion/proveedores', { params: { search, page_size: 10 } }),
 };
@@ -39,4 +41,5 @@ export const sellInBonosAPI = {
   crear: (body) => api.post(BONOS, body),
   editar: (id, body) => api.put(`${BONOS}/${id}`, body),
   anular: (id, motivo) => api.post(`${BONOS}/${id}/anular`, { motivo: motivo?.trim() || null }),
+  anularMasivo: (ids, motivo) => api.post(`${BONOS}/anular-masivo`, { ids, motivo: motivo?.trim() || null }),
 };
