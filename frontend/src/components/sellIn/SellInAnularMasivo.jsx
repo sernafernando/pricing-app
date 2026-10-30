@@ -49,16 +49,23 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
   const confirmar = async () => {
     setEnviando(true);
     setError(null);
+    let data;
     try {
-      const { data } = await anular(seleccionados, motivo);
-      setConfirmando(false);
-      setMotivo('');
-      onHecho(resultadoDeAnulacion(data, sustantivo), data);
+      ({ data } = await anular(seleccionados, motivo));
     } catch (err) {
-      const data = err?.response?.status === 409 ? err.response.data : null;
-      setError(data?.mensaje ? { mensaje: data.mensaje, rechazadas: data.rechazadas ?? [] } : { mensaje: `No se pudieron anular ${g.los} ${sustantivo.plural}.`, rechazadas: [] });
+      const rechazo = err?.response?.status === 409 ? err.response.data : null;
+      setError(rechazo?.mensaje ? { mensaje: rechazo.mensaje, rechazadas: rechazo.rechazadas ?? [] } : { mensaje: `No se pudieron anular ${g.los} ${sustantivo.plural}.`, rechazadas: [] });
+      return;
     } finally {
       setEnviando(false);
+    }
+    setConfirmando(false);
+    setMotivo('');
+    // The void already went through: a failure from here on is the page's, never "could not void".
+    try {
+      onHecho(resultadoDeAnulacion(data, sustantivo), data);
+    } catch {
+      setError({ mensaje: 'Se anularon, pero la pantalla no se pudo actualizar. Recargá la página.', rechazadas: [] });
     }
   };
 

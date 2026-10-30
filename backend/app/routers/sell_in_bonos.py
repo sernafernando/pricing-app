@@ -147,10 +147,11 @@ def anular_bonos(
         anuladas, ya_anuladas = anular_masivo.anular_varios(
             db,
             data.ids,
-            lambda bono_id: service._anular_bono(db, bono_id, user.id, data.motivo, es_masivo=True),
+            lambda bono_id: service.anular_bono_sin_commit(db, bono_id, user.id, data.motivo, es_masivo=True),
             ya_anulada=service.SellInBonoYaAnulado,
             rechazos=(),
             no_existe=lambda bono_id: f"El bono {bono_id} no existe",
+            preparar=lambda: service.bloquear_bonos(db, data.ids),
         )
     except anular_masivo.AnulacionRechazada as exc:
         raise rechazo_masivo(exc, "ninguno") from exc

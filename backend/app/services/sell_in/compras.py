@@ -451,7 +451,7 @@ def _sincronizar_pedidos(db: Session, compra: SellInCompra, ids: list[int]) -> N
 def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInCompra]:
     """Void a purchase. None when it does not exist; `SellInYaAnulada` on a second call."""
     try:
-        compra = _anular_compra(db, compra_id, usuario_id, motivo)
+        compra = anular_compra_sin_commit(db, compra_id, usuario_id, motivo)
         if compra is not None:
             db.commit()
     except SellInError:
@@ -489,7 +489,7 @@ def bloquear_productos_de(db: Session, compra_ids: List[int]) -> None:
         db.execute(LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": ids})
 
 
-def _anular_compra(
+def anular_compra_sin_commit(
     db: Session, compra_id: int, usuario_id: int, motivo: Optional[str], es_masivo: bool = False
 ) -> Optional[SellInCompra]:
     """THE void step, without committing (the single void and the bulk one, `anular_masivo`, commit): voids the

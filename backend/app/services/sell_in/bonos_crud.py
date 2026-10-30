@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -335,6 +335,14 @@ def crear_bono(
     return bono
 
 
+def bloquear_bonos(db: Session, bono_ids: List[int]) -> None:
+    """Bulk void: lock every bonus row up front, in id order, so two bulk voids of the same bonuses never wait on each
+    other; each single void then re-takes its own row without waiting."""
+    db.query(SellInBonoMarca.id).filter(SellInBonoMarca.id.in_(list(bono_ids))).order_by(
+        SellInBonoMarca.id
+    ).with_for_update().all()
+
+
 def _bloquear(db: Session, bono_id: int) -> Optional[SellInBonoMarca]:
     bono = db.query(SellInBonoMarca).filter(SellInBonoMarca.id == bono_id).with_for_update().first()
     if bono is not None and bono.estado == "anulada":
@@ -367,7 +375,7 @@ def editar_bono(db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int) 
 def anular_bono(db: Session, bono_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInBonoMarca]:
     """Void a bonus (the worker then voids what it generated). None when it does not exist;
     `SellInBonoYaAnulado` on a second call."""
-    bono = _anular_bono(db, bono_id, usuario_id, motivo)
+    bono = anular_bono_sin_commit(db, bono_id, usuario_id, motivo)
     if bono is None:
         return None
     db.commit()
@@ -375,7 +383,7 @@ def anular_bono(db: Session, bono_id: int, usuario_id: int, motivo: Optional[str
     return bono
 
 
-def _anular_bono(
+def anular_bono_sin_commit(
     db: Session, bono_id: int, usuario_id: int, motivo: Optional[str], es_masivo: bool = False
 ) -> Optional[SellInBonoMarca]:
     """THE void step, without committing (the single void and the bulk one, `anular_masivo`, commit; `es_masivo`

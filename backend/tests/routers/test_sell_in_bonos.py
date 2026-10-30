@@ -12,6 +12,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import event
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.producto import ProductoERP, TipoMoneda
@@ -387,3 +388,23 @@ def test_bulk_void_of_bonuses_is_all_or_nothing(client, gestor, productos, db):
     db.expire_all()
     assert db.get(SellInBonoMarca, a["id"]).estado == "activa"
     assert db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_BONO_ANULADO).count() == 0
+
+
+def test_bulk_void_locks_every_bonus_in_id_order_before_voiding_any(client, gestor, productos, db):
+    # Locking them as they came would let two bulk voids of the same bonuses in another order wait on each other.
+    a, b = _crear(client, gestor), _crear(client, gestor)
+    sentencias = []
+
+    def _capturar(_conn, _cursor, statement, _parameters, _context, _many):
+        if "FROM sell_in_bonos_marca" in statement:
+            sentencias.append(statement)
+
+    conn = db.connection()
+    event.listen(conn, "before_cursor_execute", _capturar)
+    try:
+        resp = client.post(MASIVO, json={"ids": [b["id"], a["id"]]}, headers=gestor)
+    finally:
+        event.remove(conn, "before_cursor_execute", _capturar)
+
+    assert resp.status_code == 200, resp.text
+    assert "ORDER BY sell_in_bonos_marca.id" in sentencias[0] and " IN " in sentencias[0]

@@ -44,6 +44,17 @@ describe('SellInAnularMasivo — selection bar and confirmation', () => {
     expect(p.onHecho).toHaveBeenCalledWith('Se anuló 1 compra. 1 ya estaba anulada.', { anuladas: [7], ya_anuladas: [8] });
   });
 
+  it('a void that went through is never reported as failed, even when refreshing the page afterwards fails', async () => {
+    const user = userEvent.setup();
+    const p = props({ onHecho: vi.fn(() => { throw new Error('boom'); }) });
+    render(<SellInAnularMasivo {...p} />);
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, anular 2' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Se anularon, pero la pantalla no se pudo actualizar. Recargá la página.');
+    expect(screen.queryByText(/No se pudieron anular/)).not.toBeInTheDocument();
+  });
+
   it('cancelling the confirmation voids nothing', async () => {
     const user = userEvent.setup();
     const p = props();

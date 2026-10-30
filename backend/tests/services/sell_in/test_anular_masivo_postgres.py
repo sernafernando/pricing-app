@@ -39,7 +39,7 @@ def _anular(db, ids):
     return anular_masivo.anular_varios(
         db,
         ids,
-        lambda compra_id: compras._anular_compra(db, compra_id, 7, None, es_masivo=True),
+        lambda compra_id: compras.anular_compra_sin_commit(db, compra_id, 7, None, es_masivo=True),
         ya_anulada=compras.SellInYaAnulada,
         rechazos=(compras.SellInGenerada,),
         no_existe=lambda compra_id: f"La compra {compra_id} no existe",

@@ -1,6 +1,6 @@
 """Bulk void of sell-in purchases or bonuses, all or nothing.
 
-Each record goes through the SAME single-void step (`compras._anular_compra`, `bonos_crud._anular_bono`): same
+Each record goes through the SAME single-void step (`compras.anular_compra_sin_commit`, `bonos_crud.anular_bono_sin_commit`): same
 guards, same audit rows, same release of units. Everything happens in one transaction: an already-voided record is
 skipped and reported; any refused one (missing, or refused by its guard) rolls the whole set back, and the error
 names each refused record and why.
