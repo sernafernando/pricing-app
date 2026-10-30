@@ -205,24 +205,32 @@ describe('SellOutCampanaPanel — reparto of a monto total campaign (T26d)', () 
     expect(sellOutAPI.detalle).toHaveBeenLastCalledWith(70);
   });
 
-  it('a brand-scoped PM: the other brands\' shares the server keeps count in the live totals and the guard', async () => {
+  it('a brand-scoped PM: the hidden shares count in the live totals (approximate) and the API judges the sum', async () => {
     const user = userEvent.setup();
+    sellOutAPI.repartir.mockRejectedValueOnce({
+      response: { status: 422, data: { detail: 'El reparto (2100000.00) supera el monto total (2000000.00) en 100000.00' } },
+    });
     // As the API answers a scoped PM (#1957): only their brands' items, the whole campaign's resumen. The server
     // assigned 1.700.000; this PM sees only the 60 % share (1.200.000): 500.000 are other brands'.
     abrir({ ...CAMPANA_MONTO_TOTAL, items: [CAMPANA_MONTO_TOTAL.items[0]] }, { permisos: ['sell_out.repartir'] });
     await screen.findByRole('region', { name: 'Reparto del monto total' });
-    expect(enVivo()).toHaveTextContent('Asignado $ 1.700.000,00');
-    expect(enVivo()).toHaveTextContent('Sin asignar $ 300.000,00');
+    expect(enVivo()).toHaveTextContent('Asignado aprox. $ 1.700.000,00');
+    expect(enVivo()).toHaveTextContent('Sin asignar aprox. $ 300.000,00');
     expect(within(reparto()).getByText(/\$ 500\.000,00 de productos de otras marcas/)).toBeInTheDocument();
 
     const valor = within(reparto()).getByLabelText('Reparto de C13T00R120');
     await user.clear(valor);
     await user.type(valor, '80');
     await user.click(within(reparto()).getByRole('button', { name: 'Guardar reparto' }));
-    expect(within(reparto()).getByRole('alert')).toHaveTextContent(
-      'El reparto ($ 2.100.000,00) supera el monto total ($ 2.000.000,00) en $ 100.000,00',
-    );
-    expect(sellOutAPI.repartir).not.toHaveBeenCalled();
+    expect(sellOutAPI.repartir).toHaveBeenCalledWith(70, [{ item_id: 4172, reparto_porcentaje: '80' }]);
+    expect(await within(reparto()).findByRole('alert')).toHaveTextContent('supera el monto total (2000000.00) en 100000.00');
+  });
+
+  it('with every share visible the live totals are exact (no "aprox.")', async () => {
+    abrir(CAMPANA_MONTO_TOTAL, { permisos: ['sell_out.repartir'] });
+    await screen.findByRole('region', { name: 'Reparto del monto total' });
+    expect(enVivo()).toHaveTextContent('Asignado $ 1.700.000,00');
+    expect(enVivo()).not.toHaveTextContent('aprox.');
   });
 
   it('a negative total: shares and the unassigned part keep its sign', async () => {

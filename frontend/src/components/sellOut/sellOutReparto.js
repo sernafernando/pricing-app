@@ -2,13 +2,13 @@
  * The split of a `monto_total` campaign (T26c/T26d, S34/S35) as the reparto section holds it: one row per product,
  * its share a % of the total or a fixed amount. The live totals and the guard mirror `reparto.validar` (a fixed share
  * has the total's sign, |Σ| <= |total| on the exact shares, before any rounding) so the PM sees them before saving;
- * the API stays the source of
- * truth and its 422/403 message is what the panel shows when it refuses.
+ * the API stays the source of truth and its 422/403 message is what the panel shows when it refuses. With shares of
+ * other brands hidden from the user, only the API, which has them exact, judges the sum.
  */
 import { formatMonto } from '../sellIn/sellInFormat';
+import { nombreDeItem } from './sellOutFormat';
 
 const MILES = new Intl.NumberFormat('es-AR');
-import { nombreDeItem } from './sellOutFormat';
 
 export const MODO_PORCENTAJE = 'porcentaje';
 export const MODO_MONTO = 'monto';
@@ -110,7 +110,11 @@ export function totalesDeReparto(total, filas, ajenos = 0) {
   return { asignado: asignado / 100, sinAsignar: (totalCentavos - asignado) / 100 };
 }
 
-/** Why the API would refuse the rows, in its words (products named by code); null when they can be sent. */
+/**
+ * Why the API would refuse the rows, in its words (products named by code); null when they can be sent. The
+ * over-total rule applies only when every share is visible (`ajenos` 0): the hidden part is known only as the
+ * server's per-share-rounded sum, so with hidden shares the API decides (and its 422 is shown).
+ */
 export function errorDeReparto(total, filas, moneda, ajenos = 0) {
   const totalCentavos = aCentavos(total);
   for (const fila of filas) {
@@ -125,7 +129,8 @@ export function errorDeReparto(total, filas, moneda, ajenos = 0) {
       return `El reparto del producto ${nombreDeItem(fila)} tiene que tener el signo del monto total`;
     }
   }
-  const suma = sumaMicro(totalCentavos, filas) + BigInt(ajenos) * MICRO;
+  if (ajenos !== 0) return null;
+  const suma = sumaMicro(totalCentavos, filas);
   const absoluto = (n) => (n < 0n ? -n : n);
   if (absoluto(suma) > absoluto(BigInt(totalCentavos) * MICRO)) {
     // Like the API's message (`_importe`): the exact sum, the total and the excess between them.

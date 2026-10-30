@@ -43,6 +43,8 @@ export default function SellOutReparto({ campana, editable = false, busy = false
   // A brand-scoped PM holds only their brands' shares; the server keeps (and counts) the others.
   const ajenos = centavosAjenos(campana);
   const enVivo = totalesDeReparto(total, filas, ajenos);
+  // The hidden part is the server's rounded sum: with it the live totals are approximate.
+  const aprox = (label) => (ajenos !== 0 ? `${label} aprox.` : label);
 
   const cambiar = (itemId, patch) => setFilas(filas.map((f) => (f.itemId === itemId ? { ...f, ...patch } : f)));
   const agregar = ({ producto }) => {
@@ -155,10 +157,10 @@ export default function SellOutReparto({ campana, editable = false, busy = false
           )}
           <div className={styles.enVivo} data-testid="reparto-en-vivo">
             <span>
-              Asignado <SellOutMonto value={enVivo.asignado} moneda={moneda} />
+              {aprox('Asignado')} <SellOutMonto value={enVivo.asignado} moneda={moneda} />
             </span>
             <span>
-              Sin asignar <SellOutMonto value={enVivo.sinAsignar} moneda={moneda} />
+              {aprox('Sin asignar')} <SellOutMonto value={enVivo.sinAsignar} moneda={moneda} />
             </span>
           </div>
           {error && (

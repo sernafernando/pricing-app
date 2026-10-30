@@ -84,17 +84,33 @@ describe('sellOutReparto', () => {
     expect(centavosAjenos(tercios)).toBe(0);
   });
 
-  it('the shares the user cannot see count in the totals and the guard', () => {
+  it('the shares the user cannot see count in the totals, but only the API judges the sum', () => {
     // Server: 1.700.000 assigned; this user holds the 60 % share only (1.200.000): 500.000 belong to other brands.
     const campana = { ...CAMPANA_MONTO_TOTAL, items: [CAMPANA_MONTO_TOTAL.items[0]] };
     const ajenos = centavosAjenos(campana);
     expect(ajenos).toBe(50000000);
     const filas = filasDeCampana(campana);
     expect(totalesDeReparto('2000000.00', filas, ajenos)).toEqual({ asignado: 1700000, sinAsignar: 300000 });
+    // The hidden part is the server's rounded sum, not the exact shares: the over-total rule is the API's to apply.
     const mas = [{ ...filas[0], valor: '80' }];
-    expect(errorDeReparto('2000000.00', mas, 'ARS', ajenos)).toBe(
-      'El reparto ($ 2.100.000,00) supera el monto total ($ 2.000.000,00) en $ 100.000,00',
+    expect(errorDeReparto('2000000.00', mas, 'ARS', ajenos)).toBeNull();
+    // The per-row rules still hold.
+    expect(errorDeReparto('2000000.00', [{ ...filas[0], modo: MODO_MONTO, valor: '-5' }], 'ARS', ajenos)).toBe(
+      'El reparto del producto C13T00R120 tiene que tener el signo del monto total',
     );
+  });
+
+  it('a scoped PM is not refused a split the API accepts: 50 % own + 50 % hidden of 100,01', () => {
+    // The API validates 50,005 + 50,005 = 100,01; the server's asignado rounds each share: 50,01 + 50,01 = 100,02.
+    const campana = {
+      ...CAMPANA_MONTO_TOTAL,
+      monto_total: '100.01',
+      items: [{ item_id: 1, codigo: 'A', reparto_porcentaje: '50.0000', reparto_monto: null }],
+      resumen: { ...CAMPANA_MONTO_TOTAL.resumen, reparto: { asignado: '100.02', asignado_sin_ventas: '0.00', sin_asignar: '-0.01', motivo: null } },
+    };
+    const ajenos = centavosAjenos(campana);
+    expect(ajenos).toBe(5001);
+    expect(errorDeReparto('100.01', filasDeCampana(campana), 'ARS', ajenos)).toBeNull();
   });
 
   it('with every share visible, or no server amount, nothing is somebody else’s', () => {

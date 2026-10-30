@@ -42,7 +42,7 @@ Una campaña por **Monto total** muestra, al abrirla con **Ver campaña**, la se
 
 - **Quién puede repartir**: el PM, sobre los productos de sus marcas, y quien gestiona campañas. Los demás ven el reparto sin poder cambiarlo. En el reparto, un PM ve solo los productos de sus marcas. Lo asignado a productos de otras marcas no se ve ni se cambia, pero se respeta al guardar y cuenta en **Asignado** y **Sin asignar**.
 - **Cómo se reparte**: en **Agregar producto** se busca el producto por código o descripción. En su fila se elige **%** (un porcentaje del monto total) o **Monto fijo**, y se escribe el valor. Un monto fijo lleva el mismo signo que el total: en una deducción, también va en negativo. Un **%** siempre se escribe en positivo.
-- Debajo de las filas se ven al momento lo **Asignado** y lo **Sin asignar** con los cambios, antes de guardar. **Guardar reparto** los guarda. Si el reparto supera el monto total, o un monto fijo no tiene el signo del total, el panel lo dice y no guarda.
+- Debajo de las filas se ven al momento lo **Asignado** y lo **Sin asignar** con los cambios, antes de guardar (marcados **aprox.** cuando incluyen productos de otras marcas que no ves). **Guardar reparto** los guarda. Si el reparto supera el monto total, o un monto fijo no tiene el signo del total, el panel lo dice y no guarda.
 
 Arriba de la sección, la campaña muestra:
 
