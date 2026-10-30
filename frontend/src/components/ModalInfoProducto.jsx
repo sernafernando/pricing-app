@@ -4,6 +4,7 @@ import '../styles/ModalInfoProducto.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 import { usePermisos } from '../contexts/PermisosContext';
 import PublicationStatusPill from './publicacionesMl/PublicationStatusPill';
+import { Layers } from 'lucide-react';
 import SellInLotes from './sellIn/SellInLotes';
 
 const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
@@ -174,7 +175,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                 className={`tab-button ${tabActiva === 'lotes' ? 'active' : ''}`}
                 onClick={() => setTabActiva('lotes')}
               >
-                🧾 Lotes sell in
+                <Layers size={14} aria-hidden="true" /> Lotes sell in
               </button>
             )}
           </div>

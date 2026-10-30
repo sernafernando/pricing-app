@@ -30,8 +30,9 @@ function purchaseLabel(lote) {
   return [`#${lote.compra_id}`, lote.proveedor || 'Sin proveedor', ...lote.facturas].join(' · ');
 }
 
-/** S3: what the next sale gets, or, with no lot left, that the cost is back to normal and the cost bonus if any. */
-function NextSale({ proxima, bonoCosto, hayLotes }) {
+/** S3: what the next sale gets, or, with no lot having units today, that the cost is back to normal (until when, if
+ * a future lot has units) and the cost bonus if any. */
+function NextSale({ proxima, bonoCosto, lotes }) {
   if (proxima) {
     const { siguiente } = proxima;
     let despues = 'el costo vuelve al normal';
@@ -45,7 +46,14 @@ function NextSale({ proxima, bonoCosto, hayLotes }) {
       </p>
     );
   }
-  const sinLote = hayLotes ? 'No quedan lotes con unidades: el costo vuelve al normal.' : 'Este producto no tiene lotes de sell in.';
+  // No lot has units today; the first one left in FIFO order, if any, counts from a future date.
+  const futuro = lotes.find((lote) => lote.restantes > 0);
+  let sinLote = 'Este producto no tiene lotes de sell in.';
+  if (futuro) {
+    sinLote = `Ningún lote tiene unidades hoy: el costo vuelve al normal hasta el ${day(futuro.fecha_desde, { year: false })} (lote ${futuro.numero}, ${money(futuro.descuento_unit)} por unidad).`;
+  } else if (lotes.length > 0) {
+    sinLote = 'No quedan lotes con unidades: el costo vuelve al normal.';
+  }
   const bono = bonoCosto
     ? `Aplica el bono de costo ${bonoCosto.bono_ids.map((id) => `#${id}`).join(', ')}: descuenta ${money(bonoCosto.descuento_unit)} por unidad.`
     : 'Ningún bono de costo aplica.';
@@ -57,7 +65,6 @@ function LotSales({ productItemId, lote }) {
   const [read, setRead] = useState({ status: 'loading', items: [], total: 0, page: 1 });
   const [page, setPage] = useState(1);
   const [attempt, setAttempt] = useState(0);
-  const listId = useId();
 
   useEffect(() => {
     let current = true;
@@ -98,7 +105,7 @@ function LotSales({ productItemId, lote }) {
   if (read.items.length === 0) return <p className={styles.note}>Ninguna venta consumió este lote todavía.</p>;
   return (
     <>
-      <ul id={listId} className={styles.sales} aria-label={`Ventas del lote ${lote.numero}`}>
+      <ul className={styles.sales} aria-label={`Ventas del lote ${lote.numero}`}>
         {read.items.map((venta) => (
           <li key={`${venta.canal}-${venta.venta_ref}`}>
             {`${CHANNELS[venta.canal] ?? venta.canal} · venta ${venta.venta_ref} · ${day(venta.fecha_venta)} · ${venta.unidades} u. · ${money(venta.descuento_ars)}`}
@@ -106,8 +113,16 @@ function LotSales({ productItemId, lote }) {
         ))}
       </ul>
       {read.items.length < read.total && (
-        <button type="button" className={styles.toggle} disabled={read.status === 'loading'} onClick={() => setPage(read.page + 1)}>
-          Ver más ventas
+        <button
+          type="button"
+          className={styles.toggle}
+          disabled={read.status === 'loading'}
+          onClick={() => {
+            setRead((prev) => ({ ...prev, status: 'loading' }));
+            setPage(read.page + 1);
+          }}
+        >
+          {read.status === 'loading' ? 'Cargando ventas…' : 'Ver más ventas'}
         </button>
       )}
     </>
@@ -188,7 +203,7 @@ export default function SellInLotes({ productItemId, container = DefaultSection 
     const { lotes = [], proxima = null, bono_costo: bonoCosto = null } = read.data ?? {};
     body = (
       <div className={styles.wrap}>
-        <NextSale proxima={proxima} bonoCosto={bonoCosto} hayLotes={lotes.length > 0} />
+        <NextSale proxima={proxima} bonoCosto={bonoCosto} lotes={lotes} />
         {lotes.length > 0 && (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
@@ -218,7 +233,7 @@ export default function SellInLotes({ productItemId, container = DefaultSection 
                       <td className={styles.num}>{lote.consumidas}</td>
                       <td className={styles.num}>{lote.restantes}</td>
                       <td className={styles.num}>
-                        {lote.moneda === 'ARS' ? money(lote.descuento_unit) : `${money(lote.descuento_unit)} (${lote.moneda})`}
+                        {lote.moneda === 'ARS' ? money(lote.descuento_unit) : `${money(lote.descuento_unit)} (compra en ${lote.moneda})`}
                       </td>
                       <td>
                         <button

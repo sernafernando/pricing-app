@@ -75,7 +75,7 @@ describe('the lots', () => {
     expect(datos[0]).toEqual(expect.arrayContaining(['#41 · Gauss SA · A-0001-1', '01/10/2026', '2', '2', '0', '$ 100,00']));
     expect(datos[1]).toEqual(expect.arrayContaining(['$ 33,33', '3', '1', '2']));
     // A USD purchase's discount is already in ARS (its own rate); the currency is said.
-    expect(datos[2]).toEqual(expect.arrayContaining(['#43 · Sin proveedor', '$ 10.000,00 (USD)']));
+    expect(datos[2]).toEqual(expect.arrayContaining(['#43 · Sin proveedor', '$ 10.000,00 (compra en USD)']));
   });
 
   it('say what the next sale gets: the current lot, its units left at that value, then the next one', async () => {
@@ -142,6 +142,17 @@ describe('with no lot left', () => {
     ).toBeInTheDocument();
   });
 
+  it('with only a future lot left, says the cost is normal until that lot counts', async () => {
+    sellInLotesAPI.lotes.mockResolvedValue(respuesta({ lotes: [lote(), LOTES[3]], proxima: null }));
+    renderLotes();
+
+    expect(
+      await screen.findByText(
+        'Ningún lote tiene unidades hoy: el costo vuelve al normal hasta el 03/11 (lote 4, $ 10,00 por unidad). Ningún bono de costo aplica.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('a product that never had a lot says so', async () => {
     sellInLotesAPI.lotes.mockResolvedValue(respuesta({ lotes: [], proxima: null }));
     renderLotes();
@@ -154,9 +165,10 @@ describe('with no lot left', () => {
 describe('a lot expanded', () => {
   it('lists the sales that consumed it, paginated', async () => {
     const venta = (ref, fecha) => ({ canal: 'ml', venta_ref: ref, fecha_venta: fecha, unidades: 1, descuento_ars: '100.00' });
+    let segunda;
     sellInLotesAPI.consumos
       .mockResolvedValueOnce({ data: { items: [venta(11, '2026-10-02')], total: 2, page: 1, page_size: 20 } })
-      .mockResolvedValueOnce({ data: { items: [venta(12, '2026-10-03')], total: 2, page: 2, page_size: 20 } });
+      .mockReturnValueOnce(new Promise((resolve) => (segunda = resolve)));
     renderLotes();
 
     await userEvent.click(await screen.findByRole('button', { name: 'Ver ventas del lote 1' }));
@@ -166,6 +178,9 @@ describe('a lot expanded', () => {
     expect(within(ventas).getByRole('listitem')).toHaveTextContent('ML · venta 11 · 02/10/2026 · 1 u. · $ 100,00');
     await userEvent.click(screen.getByRole('button', { name: 'Ver más ventas' }));
     expect(sellInLotesAPI.consumos).toHaveBeenLastCalledWith(950, 501, { page: 2, page_size: 20 });
+    // While the next page loads, the button says so and cannot be pressed again.
+    expect(screen.getByRole('button', { name: 'Cargando ventas…' })).toBeDisabled();
+    segunda({ data: { items: [venta(12, '2026-10-03')], total: 2, page: 2, page_size: 20 } });
     expect(await within(ventas).findByText(/venta 12/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Ver más ventas' })).not.toBeInTheDocument();
   });

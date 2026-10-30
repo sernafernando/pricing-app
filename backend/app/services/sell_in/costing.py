@@ -123,6 +123,14 @@ class SellInCosting(Protocol):
         the stored consumptions (read only; a product with none is absent)."""
         ...
 
+    def lotes(self, db: Session, item_ids: Iterable[int]) -> Dict[int, List[Lote]]:
+        """Each product's lines of active purchases, in the order its sales consume them (read only)."""
+        ...
+
+    def unidades_usadas(self, db: Session, lineas: List[int]) -> Dict[int, int]:
+        """`{compra_item_id: units the stored consumptions took}`, for the lines that have any (read only)."""
+        ...
+
 
 @dataclass(frozen=True)
 class LoteVigente:

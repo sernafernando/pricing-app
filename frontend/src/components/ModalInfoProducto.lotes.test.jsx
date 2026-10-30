@@ -28,7 +28,7 @@ describe('ModalInfoProducto - sell-in lots tab', () => {
     granted = new Set(['productos.ver', 'productos.ver_info_basica']);
     render(<ModalInfoProducto isOpen onClose={() => {}} itemId={950} />);
 
-    await userEvent.click(await screen.findByRole('button', { name: '🧾 Lotes sell in' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Lotes sell in' }));
 
     expect(screen.getByTestId('sell-in-lotes')).toHaveTextContent('lotes of 950');
   });
@@ -45,6 +45,6 @@ describe('ModalInfoProducto - sell-in lots tab', () => {
     render(<ModalInfoProducto isOpen onClose={() => {}} itemId={950} />);
 
     expect(await screen.findByRole('button', { name: '📦 Información' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '🧾 Lotes sell in' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Lotes sell in' })).not.toBeInTheDocument();
   });
 });

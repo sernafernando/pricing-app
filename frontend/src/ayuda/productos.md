@@ -58,4 +58,4 @@ Marca el producto como fuera de tarjetas; se puede tildar desde la columna de Re
 No se guardan al salir de la pantalla y se aplican al listado completo de productos, no solo a la página visible; podés limpiarlos con **Limpiar** o **Limpiar Todos**.
 
 **¿Cómo sé qué lote de sell in va a aplicar en la próxima venta?**
-En la información detallada del producto (pestaña **🧾 Lotes sell in**) está la sección **Lotes sell in**: los lotes en orden FIFO con su estado (Vigente, En cola, Agotado, Desde dd/mm) y qué descuenta la próxima venta. Ver **Sell in / Sell out → Lotes de un producto**.
+En la información detallada del producto (pestaña **Lotes sell in**) está la sección **Lotes sell in**: los lotes en orden FIFO con su estado (Vigente, En cola, Agotado, Desde dd/mm) y qué descuenta la próxima venta. Ver **Sell in / Sell out → Lotes de un producto**.

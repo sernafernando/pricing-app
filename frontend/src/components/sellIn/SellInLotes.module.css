@@ -43,7 +43,8 @@
   color: var(--cf-text-tertiary);
 }
 
-.num {
+.table th.num,
+.table td.num {
   text-align: right;
 }
 
