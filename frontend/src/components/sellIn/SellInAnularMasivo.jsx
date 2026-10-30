@@ -5,7 +5,8 @@ import styles from './SellInAnularMasivo.module.css';
 /**
  * The bulk void bar of a sell-in list: "N seleccionados", "Seleccionar todo lo filtrado (N)" and "Anular
  * seleccionados", which opens a confirmation pane saying how many records are voided and what is reversed
- * (`revierte`). A refused set (409) voids nothing and lists each refused record with its reason.
+ * (`revierte`). A refused set (409) voids nothing and lists each refused record with its reason. `onHecho(mensaje,
+ * data)` gets what happened and the API's answer (`anuladas`, `ya_anuladas`).
  */
 export default function SellInAnularMasivo({ sustantivo, seleccionados, total, revierte, onSeleccionarFiltrado, onLimpiar, anular, onHecho }) {
   const [confirmando, setConfirmando] = useState(false);
@@ -16,9 +17,13 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
   const nombre = n === 1 ? sustantivo.singular : sustantivo.plural;
   const g = generoDe(sustantivo);
 
-  // An emptied selection (other filters, "Limpiar selección") closes the confirmation: it never reopens by itself.
+  // An emptied selection (other filters, "Limpiar selección") closes the confirmation, so it never reopens by itself,
+  // and drops an old refusal.
   useEffect(() => {
-    if (n === 0) setConfirmando(false);
+    if (n === 0) {
+      setConfirmando(false);
+      setError(null);
+    }
   }, [n]);
 
   const abrirConfirmacion = () => {
@@ -35,7 +40,9 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
     try {
       await onSeleccionarFiltrado();
     } catch (err) {
-      setError({ mensaje: err.message, rechazadas: [] });
+      // Our own refusals (`resolverIdsFiltrados`, filters that changed) explain themselves; a failed request does not.
+      const deRed = err?.isAxiosError || err?.response;
+      setError({ mensaje: deRed ? 'No se pudo leer la lista para seleccionar todo lo filtrado.' : err.message, rechazadas: [] });
     }
   };
 
@@ -46,7 +53,7 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
       const { data } = await anular(seleccionados, motivo);
       setConfirmando(false);
       setMotivo('');
-      onHecho(resultadoDeAnulacion(data, sustantivo));
+      onHecho(resultadoDeAnulacion(data, sustantivo), data);
     } catch (err) {
       const data = err?.response?.status === 409 ? err.response.data : null;
       setError(data?.mensaje ? { mensaje: data.mensaje, rechazadas: data.rechazadas ?? [] } : { mensaje: `No se pudieron anular ${g.los} ${sustantivo.plural}.`, rechazadas: [] });
@@ -58,7 +65,7 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
   return (
     <div className={styles.wrap}>
       <div className={styles.bar}>
-        {n > 0 && <span className={styles.count}>{`${n} seleccionados`}</span>}
+        {n > 0 && <span className={styles.count}>{n === 1 ? '1 seleccionado' : `${n} seleccionados`}</span>}
         {total > 0 && (
           <button type="button" className="btn-tesla ghost sm" onClick={seleccionarFiltrado}>
             {`Seleccionar todo lo filtrado (${total})`}
@@ -66,7 +73,14 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
         )}
         {n > 0 && (
           <>
-            <button type="button" className="btn-tesla ghost sm" onClick={onLimpiar}>
+            <button
+              type="button"
+              className="btn-tesla ghost sm"
+              onClick={() => {
+                setError(null);
+                onLimpiar();
+              }}
+            >
               Limpiar selección
             </button>
             <button type="button" className="btn-tesla danger sm" onClick={abrirConfirmacion} disabled={confirmando}>
@@ -84,7 +98,15 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
             <input type="text" maxLength={500} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
           </label>
           <div className={styles.actions}>
-            <button type="button" className="btn-tesla ghost sm" onClick={() => setConfirmando(false)} disabled={enviando}>
+            <button
+              type="button"
+              className="btn-tesla ghost sm"
+              onClick={() => {
+                setConfirmando(false);
+                setError(null);
+              }}
+              disabled={enviando}
+            >
               Cancelar
             </button>
             <button type="button" className="btn-tesla danger sm" onClick={confirmar} disabled={enviando}>

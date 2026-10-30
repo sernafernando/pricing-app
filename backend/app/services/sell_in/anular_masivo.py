@@ -36,8 +36,10 @@ def anular_varios(
     ya_anulada: type[Exception],
     rechazos: tuple[type[Exception], ...],
     no_existe: Callable[[int], str],
+    preparar: Optional[Callable[[], None]] = None,
 ) -> tuple[list[int], list[int]]:
-    """Void every id with `anular_uno` (the single void without its commit) and commit once.
+    """Void every id with `anular_uno` (the single void without its commit) and commit once. `preparar` runs first,
+    in the same transaction (the purchases take their products' locks there, in order).
 
     Returns (voided ids, already-voided ids) in the order sent; raises `AnulacionRechazada` after rolling back when
     any id is missing or refused. Every id is tried, so the error lists all the refused ones, not just the first.
@@ -46,6 +48,8 @@ def anular_varios(
     ya_anuladas: list[int] = []
     rechazadas: list[Rechazo] = []
     try:
+        if preparar is not None:
+            preparar()
         for id_ in dict.fromkeys(ids):
             try:
                 if anular_uno(id_) is None:

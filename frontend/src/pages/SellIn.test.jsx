@@ -644,4 +644,23 @@ describe('SellIn page — bulk void (anular masivo)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Los filtros cambiaron mientras se seleccionaba. Volvé a intentarlo.');
     expect(screen.queryByText('2 seleccionados')).not.toBeInTheDocument();
   });
+
+  it('closes the side panel of a purchase it voided, and the notice goes away on the next selection', async () => {
+    const user = userEvent.setup();
+    sellInAPI.detalle.mockResolvedValue({ data: LISTA.items[0] });
+    sellInAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [1], ya_anuladas: [] } });
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    await user.click(screen.getAllByRole('button', { name: 'Detalle' })[0]);
+    expect(screen.getByRole('complementary', { name: 'Detalle del sell in' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar compra #1' }));
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, anular 1' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Se anuló 1 compra.');
+    expect(screen.queryByRole('complementary', { name: 'Detalle del sell in' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar compra #2' }));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
 });

@@ -250,6 +250,7 @@ def anular_compras(
             ya_anulada=service.SellInYaAnulada,
             rechazos=(service.SellInGenerada,),
             no_existe=lambda compra_id: f"La compra {compra_id} no existe",
+            preparar=lambda: service.bloquear_productos_de(db, data.ids),
         )
     except anular_masivo.AnulacionRechazada as exc:
         raise rechazo_masivo(exc, "ninguna") from exc

@@ -41,7 +41,7 @@ describe('SellInAnularMasivo — selection bar and confirmation', () => {
     await user.click(screen.getByRole('button', { name: 'Sí, anular 2' }));
 
     expect(p.anular).toHaveBeenCalledWith([7, 8], 'Cargadas dos veces');
-    expect(p.onHecho).toHaveBeenCalledWith('Se anuló 1 compra. 1 ya estaba anulada.');
+    expect(p.onHecho).toHaveBeenCalledWith('Se anuló 1 compra. 1 ya estaba anulada.', { anuladas: [7], ya_anuladas: [8] });
   });
 
   it('cancelling the confirmation voids nothing', async () => {
@@ -109,5 +109,42 @@ describe('SellInAnularMasivo — selection bar and confirmation', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(`Son ${ANULAR_MASIVO_MAX + 1}: se pueden anular hasta ${ANULAR_MASIVO_MAX} por vez.`);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(p.anular).not.toHaveBeenCalled();
+  });
+
+  it('says "1 seleccionado" for a single row', () => {
+    render(<SellInAnularMasivo {...props({ seleccionados: [7] })} />);
+    expect(screen.getByText('1 seleccionado')).toBeInTheDocument();
+  });
+
+  it('a failed list read says so in Spanish, not with the raw request error', async () => {
+    const error = Object.assign(new Error('Network Error'), { isAxiosError: true });
+    render(<SellInAnularMasivo {...props({ seleccionados: [], onSeleccionarFiltrado: vi.fn().mockRejectedValue(error) })} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Seleccionar todo lo filtrado (30)' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo leer la lista para seleccionar todo lo filtrado.');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Network Error');
+  });
+
+  it('an old refusal goes away on "Cancelar", on "Limpiar selección" and when the selection empties', async () => {
+    const user = userEvent.setup();
+    const error = Object.assign(new Error('409'), { response: { status: 409, data: { mensaje: 'No se anuló ninguna: 1 no se puede anular', rechazadas: [] } } });
+    const p = props({ anular: vi.fn().mockRejectedValue(error) });
+    const { rerender } = render(<SellInAnularMasivo {...p} />);
+    const rechazar = async () => {
+      await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+      await user.click(screen.getByRole('button', { name: 'Sí, anular 2' }));
+      await screen.findByRole('alert');
+    };
+
+    await rechazar();
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    await rechazar();
+    await user.click(screen.getByRole('button', { name: 'Limpiar selección' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    await rechazar();
+    rerender(<SellInAnularMasivo {...p} seleccionados={[]} />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

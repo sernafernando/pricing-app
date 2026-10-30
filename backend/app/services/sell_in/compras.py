@@ -44,7 +44,7 @@ from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInCompraPedido, SellInConsumo
 from app.schemas.sell_in import SellInCompraCreate, SellInPreviewIn
 from app.services.sell_in import bonos_costo
-from app.services.sell_in.costing import get_costing
+from app.services.sell_in.costing import LOCK_NAMESPACE, LOCK_SQL, get_costing
 from app.services.sell_in.split import CENT, UNIT_PRECISION, Line, SellInSplitError, preview, unit_discount
 
 
@@ -463,6 +463,24 @@ def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional
         return None
     db.refresh(compra)
     return compra
+
+
+def bloquear_productos_de(db: Session, compra_ids: List[int]) -> None:
+    """Bulk void: take, up front and in item_id order, the per-product lock each purchase's recompute takes.
+
+    One recompute per purchase would lock each purchase's products in the order the ids came, holding them all until
+    the commit, and could deadlock a drain (or another bulk void) taking the same products in another order. A
+    session re-takes a lock it holds without waiting, so the recomputes then run as in the single void."""
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    ids = sorted(
+        item_id
+        for (item_id,) in db.query(SellInCompraItem.item_id)
+        .filter(SellInCompraItem.compra_id.in_(list(compra_ids)))
+        .distinct()
+    )
+    if ids:
+        db.execute(LOCK_SQL, {"ns": LOCK_NAMESPACE, "ids": ids})
 
 
 def _anular_compra(

@@ -281,11 +281,22 @@ export default function SellIn() {
     limpiarCompras();
   }, [params, limpiarCompras]);
 
-  const anuladoMasivo = (seleccion, recargar) => (mensaje) => {
+  // After a bulk void: the side panel of a record it voided closes (it read the record when it opened).
+  const anuladoMasivo = (seleccion, tipoPanel, recargar) => (mensaje, { anuladas }) => {
     seleccion.limpiar();
     setAviso(mensaje);
+    setPanel((actual) => (actual?.tipo === tipoPanel && anuladas.includes(actual.id) ? null : actual));
     recargar();
   };
+
+  // The last result stays until the filters change or the next selection starts.
+  const haySeleccion = selCompras.ids.size > 0 || selBonos.ids.size > 0;
+  useEffect(() => {
+    if (haySeleccion) setAviso(null);
+  }, [haySeleccion]);
+  useEffect(() => {
+    setAviso(null);
+  }, [params]);
 
   // Changing what is filtered goes back to page 1.
   const setFilter = (patch) => {
@@ -551,7 +562,7 @@ export default function SellIn() {
                     onSeleccionarFiltrado={seleccionarComprasFiltradas}
                     onLimpiar={selCompras.limpiar}
                     anular={sellInAPI.anularMasivo}
-                    onHecho={anuladoMasivo(selCompras, () => {
+                    onHecho={anuladoMasivo(selCompras, 'detalle', () => {
                       cargar();
                       bonosVigentes.recargar();
                     })}
@@ -612,7 +623,7 @@ export default function SellIn() {
                         }
                         onLimpiar={selBonos.limpiar}
                         anular={sellInBonosAPI.anularMasivo}
-                        onHecho={anuladoMasivo(selBonos, () => {
+                        onHecho={anuladoMasivo(selBonos, 'bono', () => {
                           bonos.recargar();
                           bonosVigentes.recargar();
                           cargar();
