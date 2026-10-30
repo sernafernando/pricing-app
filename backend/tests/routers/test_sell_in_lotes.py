@@ -84,7 +84,7 @@ def test_a_product_without_lots_answers_an_empty_list(client, lector) -> None:
     resp = client.get(f"{BASE}/999/lotes", headers=lector)
 
     assert resp.status_code == 200
-    assert resp.json() == {"item_id": 999, "lotes": [], "proxima": None}
+    assert resp.json() == {"item_id": 999, "lotes": [], "proxima": None, "bono_costo": None}
 
 
 def test_the_consumptions_of_a_lot_are_paginated(client, lector, lineas) -> None:

@@ -45,10 +45,20 @@ class ProximaVentaOut(BaseModel):
     siguiente: Optional[SiguienteOut]
 
 
+class BonoCostoOut(BaseModel):
+    """The % of cost bonuses the next sale gets when no lot has units (as the Productos screens decide it)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    bono_ids: List[int]
+    descuento_unit: float  # ARS per unit
+
+
 class LotesProductoOut(BaseModel):
     item_id: int
     lotes: List[LoteOut]
     proxima: Optional[ProximaVentaOut]  # None: no lot has units today, the cost is back to normal
+    bono_costo: Optional[BonoCostoOut] = None  # only without `proxima`: what applies instead, if anything
 
 
 class ConsumoLoteOut(BaseModel):

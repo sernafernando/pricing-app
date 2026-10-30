@@ -20,6 +20,7 @@ from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoItem, SellInBonoMarca
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 from app.services.sell_in.bonos_alcance import del_alcance
+from app.services.sell_in import visor_lotes
 from app.services.sell_in.costing import get_costing
 from app.services.sell_out import alcance, asignacion
 from tests.services.sell._schema import throwaway_schema
@@ -194,6 +195,20 @@ class TestCostBonus:
         bono = _bono_costo(engine)
 
         assert (_payload(engine).sell_in.bono_id, _payload(engine).sell_in.descuento_unit) == (bono, 1500.0)
+
+    def test_the_lot_viewer_names_the_cost_bonus_the_screens_show_when_no_lot_is_left(self, engine):
+        # The lot viewer (visor_lotes) says what applies instead of the used-up lots: the same decision as above.
+        si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))
+        si.venta(engine, "fuera", ROUTER, 2, D(2026, 10, 20))
+        _recompute_sell_in(engine, ROUTER)
+        bono = _bono_costo(engine)
+
+        with sessionmaker(bind=engine)() as db:
+            sell_in = visor_lotes.bono_costo(db, ROUTER, HOY)
+            sin_bono = visor_lotes.bono_costo(db, 950, HOY)  # MERCUSYS: the TP-LINK bonus does not reach it
+
+        assert (sell_in.bono_ids, sell_in.descuento_unit) == ([bono], 1500.0)
+        assert sin_bono is None
 
     def test_a_percentage_with_vat_is_divided_by_the_product_rate(self, engine):
         # S33: "el tilde tendría que restar el iva"; the router's VAT is 21 %: 3 / 1.21 % of 50000.
