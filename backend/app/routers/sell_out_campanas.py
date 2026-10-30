@@ -11,6 +11,10 @@ price, and that credit is added to profit. The rules live in
   a day the campaign covers (`vigente_en`), free text (`q`) and group.
 - `PUT /{id}` replaces an active campaign (409 once voided). There is no
   delete: `POST /{id}/anular` voids it, once (409 on a second call).
+- A brand-scoped PM (`sell_out.repartir` without `sell_out.gestionar`) reads
+  a `monto_total` campaign's shares of their brands only, in the list, the
+  detail and the `PUT /{id}/reparto` response, so what they read is what they
+  may send back; the summary stays the campaign's.
 - `PUT /{id}/reparto` sets the split of a `monto_total` campaign among its
   products (T26c, S34), with `sell_out.repartir` or `sell_out.gestionar`
   (migration `20261216_sell_out_repartir_permiso`). A user who sees every
@@ -77,6 +81,15 @@ requiere_ver = _requiere("sell_out.ver")
 requiere_gestionar = _requiere("sell_out.gestionar")
 
 
+def _pares_reparto(db: Session, user: Usuario) -> Optional[set]:
+    """The (MARCA, CATEGORIA) pairs a brand-scoped PM splits and reads shares of: a user with `sell_out.repartir`
+    but not `sell_out.gestionar` who does not see every brand (`pm_scope`). None for everyone else."""
+    if verificar_permiso(db, user, "sell_out.gestionar") or not verificar_permiso(db, user, "sell_out.repartir"):
+        return None
+    alcance_pm = get_pares_marca_categoria_usuario(db, user)  # None: the user sees every brand
+    return None if alcance_pm is None else set(alcance_pm)
+
+
 def _no_existe(campana_id: int) -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"La campaña {campana_id} no existe")
 
@@ -100,20 +113,21 @@ def listar_campanas(
     grupo_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    _user: Usuario = Depends(requiere_ver),
+    user: Usuario = Depends(requiere_ver),
     db: Session = Depends(get_db),
 ) -> dict:
     filtros = service.FiltrosCampanas(estado=estado, vigente_en=vigente_en, q=q, grupo_id=grupo_id, tipo=tipo)
     campanas, total = service.listar_campanas(db, filtros, page=page, page_size=page_size)
-    return {"items": resumen.serializar(db, campanas), "total": total, "page": page, "page_size": page_size}
+    items = service.solo_sus_marcas(db, resumen.serializar(db, campanas), _pares_reparto(db, user))
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/{campana_id}", response_model=SellOutCampanaOut)
-def obtener_campana(campana_id: int, _user: Usuario = Depends(requiere_ver), db: Session = Depends(get_db)) -> dict:
+def obtener_campana(campana_id: int, user: Usuario = Depends(requiere_ver), db: Session = Depends(get_db)) -> dict:
     campana = db.get(SellOutCampana, campana_id)
     if campana is None:
         raise _no_existe(campana_id)
-    return resumen.serializar(db, [campana])[0]
+    return service.solo_sus_marcas(db, resumen.serializar(db, [campana]), _pares_reparto(db, user))[0]
 
 
 @router.get("/{campana_id}/consumos", response_model=SellOutConsumosListOut)
@@ -209,16 +223,13 @@ def repartir_campana(
     db: Session = Depends(get_db),
 ) -> dict:
     """Set the split of an active `monto_total` campaign among its products (module docstring)."""
-    pares = None
-    if not verificar_permiso(db, user, "sell_out.gestionar"):
-        if not verificar_permiso(db, user, "sell_out.repartir"):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso: sell_out.repartir")
-        alcance_pm = get_pares_marca_categoria_usuario(db, user)  # None: the user sees every brand
-        pares = None if alcance_pm is None else set(alcance_pm)
+    if not verificar_permiso(db, user, "sell_out.gestionar") and not verificar_permiso(db, user, "sell_out.repartir"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso: sell_out.repartir")
+    pares = _pares_reparto(db, user)
     try:
         campana = service.repartir(db, campana_id, data.repartos, user.id, pares)
     except service.SellOutError as exc:
         raise _error(db, exc) from exc
     if campana is None:
         raise _no_existe(campana_id)
-    return service.solo_sus_marcas(db, resumen.serializar(db, [campana])[0], pares)
+    return service.solo_sus_marcas(db, resumen.serializar(db, [campana]), pares)[0]
