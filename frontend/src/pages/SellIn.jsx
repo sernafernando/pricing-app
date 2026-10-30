@@ -16,7 +16,7 @@ import SellInResumen from '../components/sellIn/SellInResumen';
 import SellInTable from '../components/sellIn/SellInTable';
 import { buildSellInParams } from '../components/sellIn/sellInFormat';
 import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
-import SellOutCampanasTable from '../components/sellOut/SellOutCampanasTable';
+import SellOutAnularMasivo from '../components/sellOut/SellOutAnularMasivo';
 import styles from './SellIn.module.css';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
@@ -579,10 +579,15 @@ export default function SellIn() {
               )}
               {campanas.lista && (
                 <>
-                  <SellOutCampanasTable
+                  <SellOutAnularMasivo
+                    key={campanas.q.trim()}
                     campanas={campanas.lista.items}
+                    total={campanas.lista.total}
+                    filtros={campanas.q.trim() ? { q: campanas.q.trim() } : {}}
+                    puedeGestionar={puedeGestionarSellOut}
                     selectedId={panel?.tipo === 'campana' ? panel.id : null}
                     onSelect={verCampana}
+                    onAnuladas={campanas.recargar}
                   />
                   <Pagination
                     total={campanas.lista.total}

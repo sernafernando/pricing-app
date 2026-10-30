@@ -16,6 +16,8 @@ Si tenés permiso, el botón **Nuevo sell in** abre el panel para crear una comp
 
 En **Sell out** se listan las campañas (buscables por nombre), con paginación. Si tenés permiso, **Nueva campaña** abre el panel de campaña.
 
+Para anular varias campañas de una vez (pide permiso de gestión de campañas, sell_out.gestionar): marcá la casilla de cada fila, la casilla del encabezado para toda la página, o **Seleccionar todo lo filtrado (N)** para todas las que coinciden con la búsqueda. La barra muestra cuántas hay seleccionadas; **Anular seleccionados** pide confirmación, dice cuántas se anulan y permite un motivo. El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban. Es todo o nada: si alguna no se puede anular, no se anula ninguna y el mensaje dice cuál y por qué. Las que ya estaban anuladas se omiten y el resultado las cuenta aparte. Se pueden anular hasta 500 por vez.
+
 El botón **Actualizar** recarga todo.
 
 ### Bonos de marca: base del bono
@@ -72,3 +74,6 @@ Sell in baja el costo de la compra; sell out suma ganancia por campaña (o la de
 
 **¿Por qué no puedo cambiar el reparto de una campaña?**
 Repartir pide permiso de reparto (lo tienen los PM y los administradores) o de gestión de campañas, y la campaña tiene que estar activa. Un PM solo puede repartir productos de sus marcas.
+
+**¿Por qué "Seleccionar todo lo filtrado" dice que la lista cambió?**
+Antes de anular, la pantalla trae todas las campañas de la búsqueda y las cuenta. Si no coinciden con el total de la lista (por ejemplo, alguien cargó o anuló una campaña en ese momento), no selecciona nada para no anular de más ni de menos. Tocá **Actualizar** y volvé a intentar.

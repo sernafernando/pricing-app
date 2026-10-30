@@ -15,6 +15,8 @@ export const sellOutAPI = {
   crear: (body) => api.post(CAMPANAS, body),
   editar: (id, body) => api.put(`${CAMPANAS}/${id}`, body),
   anular: (id, motivo) => api.post(`${CAMPANAS}/${id}/anular`, { motivo: motivo?.trim() || null }),
+  // Bulk void, all or nothing: `{ anuladas, omitidas }`; a refusal is a 422 with `error.rechazadas: [{ id, motivo }]`.
+  anularVarias: (ids, motivo) => api.post(`${CAMPANAS}/anular`, { ids, motivo: motivo?.trim() || null }),
   // The rate the brand paid at, for an `al_cobro` campaign; also after it ended, and it can be changed.
   definirTipoCambio: (id, tipoCambio) => api.post(`${CAMPANAS}/${id}/tipo-cambio`, { tipo_cambio: tipoCambio }),
   // The shares of a `monto_total` campaign: `[{ item_id, reparto_porcentaje | reparto_monto }]`. A brand-scoped PM
