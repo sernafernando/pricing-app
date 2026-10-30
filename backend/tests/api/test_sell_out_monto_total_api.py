@@ -302,7 +302,7 @@ def test_only_an_active_fixed_total_campaign_is_split(client, gestor, grupo) -> 
     cid = _crear(client, gestor, grupo)["id"]
     assert client.post(f"{BASE}/{cid}/anular", headers=gestor).status_code == 200
     resp = _repartir(client, gestor, cid, [])
-    assert resp.status_code == 422
+    assert resp.status_code == 409  # like edit, void and rate change on a voided campaign
     assert f"La campaña {cid} está anulada" in resp.text
 
     assert _repartir(client, gestor, 999999, []).status_code == 404
@@ -684,3 +684,25 @@ def test_a_scoped_pm_list_is_filtered_per_type(client, gestor, pm_lector, grupo)
 
     assert _shares(por_id[total]) == [(ROUTER, None, 100.0)]
     assert [(i["item_id"], i["monto_unit"]) for i in por_id[por_unidad]["items"]] == [(TINTA, "9.00")]
+
+
+def test_a_share_whose_product_left_the_reach_is_reported_as_such(client, gestor, grupo, db) -> None:
+    out = _crear(client, gestor, grupo, monto_incluye_iva=True, items=[{"item_id": ROUTER, "reparto_monto": "5"}])
+    db.query(OffsetGrupoFiltro).filter(OffsetGrupoFiltro.item_id == ROUTER).delete()
+    db.flush()
+
+    reparto = client.get(f"{BASE}/{out['id']}", headers=gestor).json()["resumen"]["reparto"]
+
+    # It has VAT (21 %): the reason is the reach, not a missing VAT rate.
+    assert reparto["motivo"] == f"El producto {ROUTER} no está en los grupos de la campaña"
+    assert reparto["sin_asignar"] is None
+
+
+def test_an_excess_below_a_cent_is_reported_exactly(client, gestor, grupo) -> None:
+    cid = _crear(client, gestor, grupo, monto_total="100.00")["id"]
+    shares = [{"item_id": ROUTER, "reparto_porcentaje": "50.0001"}, {"item_id": TINTA, "reparto_monto": "50.00"}]
+
+    resp = _repartir(client, gestor, cid, shares)
+
+    assert resp.status_code == 422
+    assert "El reparto (100.0001) supera el monto total (100.00) en 0.0001" in resp.text

@@ -53,8 +53,9 @@ class MontoTotal:
 class RepartoInvalido(ValueError):
     """The shares cannot be split as they stand, with what broke for a message to the operator (`causa`):
     `signo`, the product whose share does not have the total's sign (`item_id`); `excede`, the shares' sum over
-    the total (`suma`, `total`, both rounded to cents); `sin_iva`, a product without a VAT rate on a campaign
-    loaded with VAT (`item_id`)."""
+    the total (`suma`, `total`, exact, before rounding: an excess may be below a cent); `sin_iva`, a product
+    without a VAT rate on a campaign loaded with VAT (`item_id`); `fuera_de_alcance`, set by readers that know the
+    reach (`resumen`), a share whose product is no longer in the campaign's groups (`item_id`)."""
 
     def __init__(
         self,
@@ -92,9 +93,7 @@ def validar(c: MontoTotal) -> None:
             )
         suma += exacta
     if abs(suma) > abs(total):
-        raise RepartoInvalido(
-            f"the shares ({cents(suma)}) exceed the total ({cents(total)})", suma=cents(suma), total=cents(total)
-        )
+        raise RepartoInvalido(f"the shares ({cents(suma)}) exceed the total ({cents(total)})", suma=suma, total=total)
 
 
 def cuota(c: MontoTotal, item_id: int) -> Decimal:

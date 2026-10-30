@@ -444,8 +444,16 @@ def mensaje_reparto(exc: reparto.RepartoInvalido) -> str:
         return f"El reparto del producto {exc.item_id} tiene que tener el signo del monto total"
     if exc.causa == "sin_iva":
         return f"El producto {exc.item_id} no tiene IVA y el monto se cargó con IVA"
+    if exc.causa == "fuera_de_alcance":
+        return f"El producto {exc.item_id} no está en los grupos de la campaña"
     exceso = abs(exc.suma) - abs(exc.total)
-    return f"El reparto ({exc.suma}) supera el monto total ({exc.total}) en {exceso}"
+    return f"El reparto ({_importe(exc.suma)}) supera el monto total ({_importe(exc.total)}) en {_importe(exceso)}"
+
+
+def _importe(valor: Decimal) -> str:
+    """An amount in cents, or exact when it has more decimals (so an excess below a cent never reads 0.00)."""
+    en_centavos = Decimal(valor).quantize(Decimal("0.01"))
+    return str(en_centavos) if en_centavos == valor else format(Decimal(valor).normalize(), "f")
 
 
 def crear_campana(
@@ -566,7 +574,8 @@ def solo_sus_marcas(db: Session, filas: list[dict], pares: Optional[set]) -> lis
 def repartir(
     db: Session, campana_id: int, repartos: list[SellOutCampanaItemIn], usuario_id: int, pares: Optional[set]
 ) -> Optional[SellOutCampana]:
-    """Set the split of an active `monto_total` campaign among its products (S34). None when it does not exist.
+    """Set the split of an active `monto_total` campaign among its products (S34). None when it does not exist;
+    `SellOutYaAnulada` when voided, like an edit.
 
     `pares`: None for a user who sees every brand (an admin, `sell_out.gestionar`), whose `repartos` replace the
     whole split; else the PM's (MARCA, CATEGORIA) pairs (`pm_scope`): a share of another brand's product is
@@ -574,11 +583,9 @@ def repartir(
     so `repartos` replace only theirs. The resulting split is checked as a whole (`_validar_suma`), audited (before
     and after) and queued for `sell_out.drain`.
     """
-    campana = db.query(SellOutCampana).filter(SellOutCampana.id == campana_id).with_for_update().first()
+    campana = _bloquear(db, campana_id)
     if campana is None:
         return None
-    if campana.estado == "anulada":
-        raise SellOutError(f"La campaña {campana_id} está anulada")
     if campana.tipo != "monto_total":
         raise SellOutError("Solo las campañas por monto total se reparten por producto")
     _validar_items("monto_total", repartos)

@@ -163,9 +163,11 @@ def _repartos(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
         mt = reparto.MontoTotal(Decimal(c.monto_total), repartos.get(c.id, {}), c.monto_incluye_iva, ivas.get(c.id, {}))
         try:
             r = reparto.resumen_monto_total(mt, con_ventas[c.id])
-        except (
-            reparto.RepartoInvalido
-        ) as exc:  # the stored shares cannot be split as they stand; anything else surfaces
+        # The stored shares cannot be split as they stand; anything else surfaces.
+        except reparto.RepartoInvalido as exc:
+            if exc.causa == "sin_iva" and exc.item_id not in ivas.get(c.id, {}):
+                # No rate because the product left the reach (the rates come from it), not because it has no VAT.
+                exc = reparto.RepartoInvalido(str(exc), causa="fuera_de_alcance", item_id=exc.item_id)
             motivo = campanas_service.mensaje_reparto(exc)
             salida[c.id] = {"asignado": None, "asignado_sin_ventas": None, "sin_asignar": None, "motivo": motivo}
             continue
