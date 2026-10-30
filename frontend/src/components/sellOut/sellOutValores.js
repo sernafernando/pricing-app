@@ -23,6 +23,9 @@ export const CAMPANA_VACIA = {
   // in its reparto section, so they never enter the form): `{ itemId, codigo, descripcion, monto }`.
   // The API names each stored product (`codigo`/`descripcion`); null when it left the ERP catalog.
   items: [],
+  // How many shares a stored `monto_total` campaign has: they never enter the form, so a kind change must not send
+  // `items` over them (the API refuses it: "quitá el reparto para cambiarla").
+  repartosGuardados: 0,
 };
 
 const texto = (value) => (value === null || value === undefined ? '' : String(value));
@@ -50,6 +53,7 @@ export function valoresDeCampana(campana) {
     acumulable: campana.acumulable,
     montoIncluyeIva: campana.monto_incluye_iva,
     grupoIds: (campana.grupos ?? []).map((g) => g.id),
+    repartosGuardados: campana.tipo === 'monto_total' ? (campana.items ?? []).length : 0,
     items: (campana.tipo === 'monto_total' ? [] : campana.items ?? []).map((i) => ({
       itemId: i.item_id,
       codigo: i.codigo ?? null,
@@ -79,7 +83,13 @@ export function bodyDeCampana(v) {
       ...(v.items.length ? { items: [] } : {}),
     };
   }
-  return bodyBase(v);
+  const body = bodyBase(v);
+  if (v.repartosGuardados > 0) {
+    // Leaving `monto_total` with stored shares: no `items`, so the API keeps them and answers its own guard.
+    const { items: _items, ...sinItems } = body;
+    return sinItems;
+  }
+  return body;
 }
 
 function bodyBase(v) {

@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { productosAPI } from '../../services/api';
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { formatDateOnly } from '../../utils/dateUtils';
 import SellInBuscador from '../sellIn/SellInBuscador';
 import { apiMessage, formatMonto, formatPorcentaje } from '../sellIn/sellInFormat';
 import SellOutMonto from './SellOutMonto';
+import { buscarProductos } from './sellOutBuscar';
 import { nombreDeItem } from './sellOutFormat';
 import {
   MODO_MONTO,
@@ -24,10 +24,6 @@ import styles from './SellOutReparto.module.css';
 
 const DIA = { day: '2-digit', month: '2-digit', year: 'numeric' };
 
-const buscarProductos = (search) =>
-  productosAPI.listar({ search, page_size: 10 }).then(({ data }) =>
-    (data?.productos ?? []).map((p) => ({ key: p.item_id, label: `${p.codigo} · ${p.descripcion}`, sub: p.marca, producto: p })),
-  );
 
 /**
  * The split of a `monto_total` campaign among its products (T26d, S34/S35). Everyone who sees the campaign gets

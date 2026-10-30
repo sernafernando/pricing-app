@@ -114,6 +114,28 @@ describe('SellOutCampanaForm — monto total kind (T26d)', () => {
   });
 });
 
+describe('SellOutCampanaForm — kind change with stored shares (T26d)', () => {
+  it('switching a split campaign to per unit sends no items: the API guard answers and the panel shows it', async () => {
+    const user = userEvent.setup();
+    sellOutAPI.editar.mockRejectedValueOnce({
+      response: { status: 422, data: { detail: 'Una campaña por unidad no lleva reparto por producto: quitá el reparto para cambiarla' } },
+    });
+    abrir(CAMPANA_MONTO_TOTAL, { puedeGestionar: true, permisos: ['sell_out.gestionar'] });
+
+    await screen.findByLabelText('Monto total (ARS)');
+    await user.click(screen.getByRole('button', { name: 'Por unidad' }));
+    expect(screen.getByText('Esta campaña tiene reparto por producto: quitá el reparto para cambiarla de tipo.')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Montos por producto' })).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Monto por unidad'), '10');
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }));
+
+    const [, body] = sellOutAPI.editar.mock.calls[0];
+    expect(body).toEqual(expect.objectContaining({ tipo: 'por_unidad', monto_unit: '10' }));
+    expect(body).not.toHaveProperty('items');
+    expect(await screen.findByRole('alert')).toHaveTextContent('quitá el reparto para cambiarla');
+  });
+});
+
 describe('SellOutCampanaPanel — reparto of a monto total campaign (T26d)', () => {
   it('read-only with sell_out.ver: the server summary, the note and the shares, nothing to edit', async () => {
     abrir(CAMPANA_MONTO_TOTAL);
@@ -185,7 +207,8 @@ describe('SellOutCampanaPanel — reparto of a monto total campaign (T26d)', () 
 
   it('a brand-scoped PM: the other brands\' shares the server keeps count in the live totals and the guard', async () => {
     const user = userEvent.setup();
-    // The server assigned 1.700.000; this PM sees only the 60 % share (1.200.000): 500.000 are other brands'.
+    // As the API answers a scoped PM (#1957): only their brands' items, the whole campaign's resumen. The server
+    // assigned 1.700.000; this PM sees only the 60 % share (1.200.000): 500.000 are other brands'.
     abrir({ ...CAMPANA_MONTO_TOTAL, items: [CAMPANA_MONTO_TOTAL.items[0]] }, { permisos: ['sell_out.repartir'] });
     await screen.findByRole('region', { name: 'Reparto del monto total' });
     expect(enVivo()).toHaveTextContent('Asignado $ 1.700.000,00');

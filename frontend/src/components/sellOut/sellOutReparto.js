@@ -11,11 +11,45 @@ export const MODO_PORCENTAJE = 'porcentaje';
 export const MODO_MONTO = 'monto';
 
 const texto = (value) => (value === null || value === undefined ? '' : String(value));
-// Half away from zero, like the backend's Decimal cents, so a negative total rounds as a positive one.
-const redondear = (value) => Math.sign(value) * Math.round(Math.abs(value));
-/** An amount in cents, half away from zero: the one rounding rule of rows, totals and the guard. */
-export const aCentavos = (value) => redondear(Number(value) * 100);
 const numero = (value) => (String(value ?? '').trim() === '' ? NaN : Number(value));
+
+// Exact math in micro-cents (1e-6 of a cent): a 4-decimal % of a cents total is a whole number of them, so the sum is
+// compared before rounding, like the backend's Decimal (`reparto.validar`); only what is shown is rounded to cents.
+const MICRO = 1000000n;
+
+/** `value` (a typed decimal) times 10^decimales as a BigInt, half away from zero beyond those decimals; null if unset. */
+function escalar(value, decimales) {
+  const limpio = String(value ?? '').trim();
+  const match = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(limpio);
+  if (!match || (match[2] === '' && !match[3])) return null;
+  const [, signo, entero, fraccion = ''] = match;
+  const digitos = BigInt(`${entero || '0'}${fraccion.slice(0, decimales).padEnd(decimales, '0')}`);
+  const redondeo = Number(fraccion[decimales] ?? 0) >= 5 ? 1n : 0n;
+  return signo === '-' ? -(digitos + redondeo) : digitos + redondeo;
+}
+
+/** Micro-cents to cents, half away from zero. */
+function aCentavosDesdeMicro(micro) {
+  const negativo = micro < 0n;
+  const abs = negativo ? -micro : micro;
+  const cents = (abs + MICRO / 2n) / MICRO;
+  return Number(negativo ? -cents : cents);
+}
+
+/** An amount in cents, half away from zero: the one rounding rule of rows, totals and the guard. */
+export const aCentavos = (value) => {
+  const cents = escalar(value, 2);
+  return cents === null ? NaN : Number(cents);
+};
+
+/** A row's exact share in micro-cents (a % share is a % of the total, sign kept); null when unset. */
+function microDeFila(totalCentavos, fila) {
+  const valor = escalar(fila.valor, fila.modo === MODO_PORCENTAJE ? 4 : 2);
+  if (valor === null) return null;
+  return fila.modo === MODO_PORCENTAJE ? BigInt(totalCentavos) * valor : valor * MICRO;
+}
+
+const sumaMicro = (totalCentavos, filas) => filas.reduce((acc, fila) => acc + (microDeFila(totalCentavos, fila) ?? 0n), 0n);
 
 /** A stored campaign's shares as rows: `{ itemId, codigo, descripcion, modo, valor }`. */
 export function filasDeCampana(campana) {
@@ -30,9 +64,8 @@ export function filasDeCampana(campana) {
 
 /** A row's share in cents of the campaign currency (a % share is a % of the total, sign kept); null when unset. */
 export function centavosDeFila(totalCentavos, fila) {
-  const valor = numero(fila.valor);
-  if (!Number.isFinite(valor)) return null;
-  return fila.modo === MODO_PORCENTAJE ? redondear((totalCentavos * valor) / 100) : aCentavos(valor);
+  const micro = microDeFila(totalCentavos, fila);
+  return micro === null ? null : aCentavosDesdeMicro(micro);
 }
 
 /**
@@ -43,9 +76,8 @@ export function centavosDeFila(totalCentavos, fila) {
 export function centavosAjenos(campana) {
   const asignado = campana.resumen?.reparto?.asignado;
   if (asignado === null || asignado === undefined) return 0;
-  const totalCentavos = aCentavos(campana.monto_total);
-  const propios = filasDeCampana(campana).reduce((acc, fila) => acc + (centavosDeFila(totalCentavos, fila) ?? 0), 0);
-  return aCentavos(asignado) - propios;
+  const propios = sumaMicro(aCentavos(campana.monto_total), filasDeCampana(campana));
+  return aCentavosDesdeMicro(BigInt(aCentavos(asignado)) * MICRO - propios);
 }
 
 /**
@@ -54,7 +86,7 @@ export function centavosAjenos(campana) {
  */
 export function totalesDeReparto(total, filas, ajenos = 0) {
   const totalCentavos = aCentavos(total);
-  const asignado = filas.reduce((acc, fila) => acc + (centavosDeFila(totalCentavos, fila) ?? 0), ajenos);
+  const asignado = aCentavosDesdeMicro(sumaMicro(totalCentavos, filas) + BigInt(ajenos) * MICRO);
   return { asignado: asignado / 100, sinAsignar: (totalCentavos - asignado) / 100 };
 }
 
@@ -73,11 +105,13 @@ export function errorDeReparto(total, filas, moneda, ajenos = 0) {
       return `El reparto del producto ${nombreDeItem(fila)} tiene que tener el signo del monto total`;
     }
   }
-  const { asignado } = totalesDeReparto(total, filas, ajenos);
-  const asignadoCentavos = aCentavos(asignado);
-  if (Math.abs(asignadoCentavos) > Math.abs(totalCentavos)) {
-    const exceso = (Math.abs(asignadoCentavos) - Math.abs(totalCentavos)) / 100;
-    return `El reparto (${formatMonto(asignado, moneda)}) supera el monto total (${formatMonto(total, moneda)}) en ${formatMonto(exceso, moneda)}`;
+  const suma = sumaMicro(totalCentavos, filas) + BigInt(ajenos) * MICRO;
+  const absoluto = (n) => (n < 0n ? -n : n);
+  if (absoluto(suma) > absoluto(BigInt(totalCentavos) * MICRO)) {
+    // Like the API's message: the sum and the total rounded to cents, the excess between them.
+    const sumaCentavos = aCentavosDesdeMicro(suma);
+    const exceso = (Math.abs(sumaCentavos) - Math.abs(totalCentavos)) / 100;
+    return `El reparto (${formatMonto(sumaCentavos / 100, moneda)}) supera el monto total (${formatMonto(total, moneda)}) en ${formatMonto(exceso, moneda)}`;
   }
   return null;
 }

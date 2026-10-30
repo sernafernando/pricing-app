@@ -1,13 +1,9 @@
 import { X } from 'lucide-react';
-import { productosAPI } from '../../services/api';
 import SellInBuscador from '../sellIn/SellInBuscador';
 import styles from '../sellIn/SellInPanel.module.css';
+import { buscarProductos } from './sellOutBuscar';
 import { nombreDeItem } from './sellOutFormat';
 
-const buscarProductos = (search) =>
-  productosAPI.listar({ search, page_size: 10 }).then(({ data }) =>
-    (data?.productos ?? []).map((p) => ({ key: p.item_id, label: `${p.codigo} · ${p.descripcion}`, sub: p.marca, producto: p })),
-  );
 
 /**
  * The products of a `por_unidad` campaign that get their own amount per unit (T22c, legacy grouped offsets),

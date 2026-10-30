@@ -43,6 +43,15 @@ describe('sellOutReparto', () => {
     expect(errorDeReparto('-1000', [fila(MODO_MONTO, '-10')], 'ARS')).toBeNull();
   });
 
+  it('compares the sum before rounding, like the API: two 50 % shares of 100,01 fit', () => {
+    const filas = [fila(MODO_PORCENTAJE, '50', 'A'), { ...fila(MODO_PORCENTAJE, '50', 'B'), itemId: 2 }];
+    expect(errorDeReparto('100.01', filas, 'ARS')).toBeNull();
+    expect(totalesDeReparto('100.01', filas)).toEqual({ asignado: 100.01, sinAsignar: 0 });
+    const conFijo = [...filas.slice(0, 1), { ...fila(MODO_MONTO, '50.01', 'B'), itemId: 2 }];
+    // 50,005 + 50,01 = 100,015 > 100,01: refused, the amounts rounded to cents as the API's message does
+    expect(errorDeReparto('100.01', conFijo, 'ARS')).toBe('El reparto ($ 100,02) supera el monto total ($ 100,01) en $ 0,01');
+  });
+
   it('the shares the user cannot see count in the totals and the guard', () => {
     // Server: 1.700.000 assigned; this user holds the 60 % share only (1.200.000): 500.000 belong to other brands.
     const campana = { ...CAMPANA_MONTO_TOTAL, items: [CAMPANA_MONTO_TOTAL.items[0]] };

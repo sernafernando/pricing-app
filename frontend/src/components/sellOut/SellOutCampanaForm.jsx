@@ -149,7 +149,9 @@ export default function SellOutCampanaForm({ valores, onChange, grupos }) {
           </label>
         ))}
       </fieldset>
-      {porUnidad ? (
+      {!montoTotal && valores.repartosGuardados > 0 ? (
+        <p className={styles.hint}>Esta campaña tiene reparto por producto: quitá el reparto para cambiarla de tipo.</p>
+      ) : porUnidad ? (
         <SellOutCampanaItems items={valores.items} moneda={valores.moneda} onChange={(items) => set({ items })} />
       ) : (
         valores.items.length > 0 && (
