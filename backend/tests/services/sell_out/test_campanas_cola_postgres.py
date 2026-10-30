@@ -93,6 +93,19 @@ def test_a_void_and_a_payment_rate_queue_the_campaign(engine: Engine) -> None:
     assert _queued(engine) == [ars]
 
 
+def test_a_bulk_void_queues_each_voided_campaign_and_a_refused_one_queues_nothing(engine: Engine) -> None:
+    g = w.grupo(engine, [ROUTERS])
+    a, b = w.campana(engine, [g]), w.campana(engine, [g])
+
+    with sessionmaker(bind=engine)() as db, pytest.raises(service.SellOutAnulacionRechazada):
+        service.anular_campanas(db, [a, 999999, b], USUARIO, "baja")
+    assert _queued(engine) == []
+
+    with sessionmaker(bind=engine)() as db:
+        assert service.anular_campanas(db, [b, a], USUARIO, "baja") == ([a, b], [])
+    assert _queued(engine) == [a, b]
+
+
 def test_a_refused_change_queues_nothing(engine: Engine) -> None:
     g = w.grupo(engine, [ROUTERS])
     cid = w.campana(engine, [g])

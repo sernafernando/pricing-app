@@ -498,18 +498,60 @@ def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario
     return campana
 
 
+def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optional[str]) -> None:
+    """The void step of a locked, active campaign, without committing: shared by the single and the bulk void."""
+    campana.estado = "anulada"
+    valores = _valores(campana, _grupo_ids(db, campana.id), _items(db, [campana.id])[campana.id])
+    _audit(db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, valores, motivo)
+    _encolar(db, [campana.id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
+
+
 def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellOutCampana]:
     """Void a campaign. None when it does not exist; `SellOutYaAnulada` on a second call."""
     campana = _bloquear(db, campana_id)
     if campana is None:
         return None
-    campana.estado = "anulada"
-    valores = _valores(campana, _grupo_ids(db, campana_id), _items(db, [campana_id])[campana_id])
-    _audit(db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, valores, motivo)
-    _encolar(db, [campana_id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
+    _anular(db, campana, usuario_id, motivo)
     db.commit()
     db.refresh(campana)
     return campana
+
+
+class SellOutAnulacionRechazada(SellOutError):
+    """A bulk void with campaigns that cannot be voided: nothing was voided. `rechazadas` is `[(id, motivo)]`."""
+
+    def __init__(self, rechazadas: list[tuple[int, str]]) -> None:
+        self.rechazadas = rechazadas
+        super().__init__(f"No se anuló ninguna campaña: {len(rechazadas)} no se pueden anular.")
+
+
+def anular_campanas(
+    db: Session, campana_ids: list[int], usuario_id: int, motivo: Optional[str]
+) -> tuple[list[int], list[int]]:
+    """Void several campaigns in one transaction, each through the single void's step (same lock, audit row
+    and queueing), in id order so concurrent bulk voids lock in one order. Returns `(anuladas, omitidas)`:
+    the already voided are skipped. All or nothing: an unknown campaign rolls everything back and raises
+    `SellOutAnulacionRechazada` naming each one; a campaign being rebuilt is `SellOutRecalculando` (also
+    rolled back)."""
+    anuladas: list[int] = []
+    omitidas: list[int] = []
+    rechazadas: list[tuple[int, str]] = []
+    for campana_id in sorted(set(campana_ids)):
+        try:
+            campana = _bloquear(db, campana_id)
+        except SellOutYaAnulada:
+            omitidas.append(campana_id)
+            continue
+        if campana is None:
+            rechazadas.append((campana_id, f"La campaña {campana_id} no existe"))
+            continue
+        _anular(db, campana, usuario_id, motivo)
+        anuladas.append(campana_id)
+    if rechazadas:
+        db.rollback()
+        raise SellOutAnulacionRechazada(rechazadas)
+    db.commit()
+    return anuladas, omitidas
 
 
 def definir_tipo_cambio(

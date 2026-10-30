@@ -69,7 +69,13 @@ def _crear(client, headers, grupos, **overrides) -> dict:
 
 # ── Permissions ─────────────────────────────────────────────────────
 
-ESCRITURAS = [("post", BASE), ("put", f"{BASE}/1"), ("post", f"{BASE}/1/anular"), ("post", f"{BASE}/1/tipo-cambio")]
+ESCRITURAS = [
+    ("post", BASE),
+    ("put", f"{BASE}/1"),
+    ("post", f"{BASE}/1/anular"),
+    ("post", f"{BASE}/anular"),
+    ("post", f"{BASE}/1/tipo-cambio"),
+]
 LECTURAS = [("get", BASE), ("get", f"{BASE}/1"), ("get", f"{BASE}/1/consumos")]
 
 
@@ -541,3 +547,117 @@ def test_a_campaign_being_recalculated_is_a_409_with_a_neutral_message_and_nothi
     assert _message(resp) == "La campaña se está recalculando. Reintentar en unos segundos."
     actual = client.get(f"{BASE}/{out['id']}", headers=gestor).json()
     assert (actual["nombre"], actual["estado"], actual["tipo_cambio"]) == (out["nombre"], "activa", None)
+
+
+# ── Bulk void (`POST /anular`) ──────────────────────────────────────
+
+MASIVO = f"{BASE}/anular"
+ANULADA = TipoAccion.SELL_OUT_CAMPANA_ANULADA
+
+
+def _estados(client, headers, ids: list[int]) -> list[str]:
+    return [client.get(f"{BASE}/{i}", headers=headers).json()["estado"] for i in ids]
+
+
+def test_bulk_void_voids_each_campaign_and_skips_the_already_voided(client, gestor, grupos, db) -> None:
+    a, b, c = (_crear(client, gestor, grupos, nombre=f"Campaña {n}")["id"] for n in "abc")
+    assert client.post(f"{BASE}/{c}/anular", json={}, headers=gestor).status_code == 200
+
+    resp = client.post(MASIVO, json={"ids": [b, c, a, b], "motivo": "Cargadas dos veces"}, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"anuladas": sorted([a, b]), "omitidas": [c]}
+    assert _estados(client, gestor, [a, b, c]) == ["anulada"] * 3
+    audits = db.query(Auditoria).filter(Auditoria.tipo_accion == ANULADA).all()
+    assert sorted(x.valores_nuevos["campana_id"] for x in audits) == sorted([a, b, c])  # c only once: skipped
+    assert {x.comentario for x in audits if x.valores_nuevos["campana_id"] in (a, b)} == {"Cargadas dos veces"}
+
+
+def test_bulk_void_is_all_or_nothing_and_names_each_refused_campaign(client, gestor, grupos, db) -> None:
+    a, b = (_crear(client, gestor, grupos, nombre=f"Campaña {n}")["id"] for n in "ab")
+
+    resp = client.post(MASIVO, json={"ids": [a, 999999, b, 999998]}, headers=gestor)
+
+    assert resp.status_code == 422, resp.text
+    error = resp.json()["error"]
+    assert error["code"] == "ANULACION_RECHAZADA"
+    assert error["message"] == "No se anuló ninguna campaña: 2 no se pueden anular."
+    assert error["rechazadas"] == [
+        {"id": 999998, "motivo": "La campaña 999998 no existe"},
+        {"id": 999999, "motivo": "La campaña 999999 no existe"},
+    ]
+    assert _estados(client, gestor, [a, b]) == ["activa", "activa"]
+    assert db.query(Auditoria).filter(Auditoria.tipo_accion == ANULADA).count() == 0
+
+
+def test_bulk_void_writes_the_same_audit_and_queue_as_the_single_void(client, gestor, grupos, db, monkeypatch) -> None:
+    from app.services.sell_out import campanas as service
+
+    sola, masiva = (_crear(client, gestor, grupos)["id"] for _ in range(2))
+    encolar = service._encolar
+    encoladas: list[list[int]] = []
+
+    def _espia(db, campana_ids):
+        encoladas.append(list(campana_ids))
+        encolar(db, campana_ids)
+
+    monkeypatch.setattr(service, "_encolar", _espia)
+
+    assert client.post(f"{BASE}/{sola}/anular", json={"motivo": "Baja"}, headers=gestor).status_code == 200
+    assert client.post(MASIVO, json={"ids": [masiva], "motivo": "Baja"}, headers=gestor).status_code == 200
+
+    assert encoladas == [[sola], [masiva]]
+    rows = {x.valores_nuevos["campana_id"]: x for x in db.query(Auditoria).filter(Auditoria.tipo_accion == ANULADA)}
+
+    def _sin_id(row) -> tuple:
+        valores = {k: v for k, v in row.valores_nuevos.items() if k != "campana_id"}
+        return (row.usuario_id, row.item_id, row.valores_anteriores, valores, row.es_masivo, row.comentario)
+
+    assert _sin_id(rows[masiva]) == _sin_id(rows[sola])
+    assert client.get(f"{BASE}/{masiva}", headers=gestor).json()["estado"] == "anulada"
+
+
+@pytest.mark.parametrize(
+    "ids,mensaje",
+    [
+        ([], "Elegí al menos una campaña para anular."),
+        (list(range(1, 502)), "Se pueden anular hasta 500 campañas por vez."),
+    ],
+)
+def test_bulk_void_refuses_an_empty_or_too_large_selection(client, gestor, ids, mensaje) -> None:
+    resp = client.post(MASIVO, json={"ids": ids}, headers=gestor)
+    assert resp.status_code == 422, resp.text
+    assert _message(resp) == mensaje
+
+
+def test_a_brand_scoped_pm_cannot_bulk_void(client, gestor, grupos, auth_headers, rol_ventas, grant_permiso) -> None:
+    cid = _crear(client, gestor, grupos)["id"]
+    grant_permiso(rol_ventas, VER)
+    grant_permiso(rol_ventas, "sell_out.repartir")
+
+    resp = client.post(MASIVO, json={"ids": [cid]}, headers=auth_headers)
+
+    assert resp.status_code == 403
+    assert GESTIONAR in _message(resp)
+    assert _estados(client, gestor, [cid]) == ["activa"]
+
+
+def test_a_campaign_being_recalculated_refuses_the_whole_bulk_void(client, gestor, grupos, monkeypatch) -> None:
+    from app.services.sell_out import campanas as service
+
+    a, b = (_crear(client, gestor, grupos, nombre=f"Campaña {n}")["id"] for n in "ab")
+    encolar = service._encolar
+
+    def _segunda_recalculando(db, campana_ids):  # the second campaign's queue row is held by a drain batch
+        if campana_ids == [b]:
+            db.rollback()
+            raise service.SellOutRecalculando("La campaña se está recalculando. Reintentar en unos segundos.")
+        encolar(db, campana_ids)
+
+    monkeypatch.setattr(service, "_encolar", _segunda_recalculando)
+
+    resp = client.post(MASIVO, json={"ids": [a, b]}, headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    assert _message(resp) == "La campaña se está recalculando. Reintentar en unos segundos."
+    assert _estados(client, gestor, [a, b]) == ["activa", "activa"]
