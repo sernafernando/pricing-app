@@ -15,6 +15,8 @@ export const offsetGruposAPI = {
   editar: (id, body) => api.patch(`/offset-grupos/${id}`, body),
   // Refused (400, the message names the active campaigns) while a sell-out campaign or a legacy offset uses it.
   eliminar: (id) => api.delete(`/offset-grupos/${id}`),
+  // Products reached now and with `{ agregar: filtro }` and/or `{ quitar_filtro_id }`, without saving: `{ antes, despues }`.
+  alcancePrevio: (id, cambio) => api.post(`/offset-grupos/${id}/alcance-previo`, cambio),
   agregarFiltro: (id, filtro) => api.post(`/offset-grupos/${id}/filtros`, filtro),
   eliminarFiltro: (id, filtroId) => api.delete(`/offset-grupos/${id}/filtros/${filtroId}`),
 };

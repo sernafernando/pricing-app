@@ -35,7 +35,7 @@ from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import Integer, String, and_, cast, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.models.ml_sale_line import MlSaleLine
@@ -123,6 +123,37 @@ def productos_por_grupo(db: Session) -> Dict[int, int]:
     f, p = OffsetGrupoFiltro, ProductoERP
     rows = db.query(f.grupo_id, func.count(func.distinct(p.item_id))).join(p, filtro_alcanza(f, p)).group_by(f.grupo_id)
     return {grupo_id: total for grupo_id, total in rows}
+
+
+def productos_con_cambio(
+    db: Session, grupo_id: int, agregar: Optional[Dict[str, Any]] = None, quitar_filtro_id: Optional[int] = None
+) -> int:
+    """How many products the group would reach with one filter row added (`agregar`: marca / categoria /
+    subcategoria_id / item_id) and/or one removed, with the same rule as a campaign linked to it and without
+    writing anything (the Grupos panel asks before a change re-queues active campaigns)."""
+    f, p = OffsetGrupoFiltro, ProductoERP
+    existentes = select(
+        f.marca.label("marca"),
+        f.categoria.label("categoria"),
+        f.subcategoria_id.label("subcategoria_id"),
+        f.item_id.label("item_id"),
+    ).where(f.grupo_id == grupo_id)
+    if quitar_filtro_id is not None:
+        existentes = existentes.where(f.id != quitar_filtro_id)
+    filas = existentes
+    if agregar is not None:
+        nueva = select(
+            cast(literal(agregar.get("marca")), String).label("marca"),
+            cast(literal(agregar.get("categoria")), String).label("categoria"),
+            cast(literal(agregar.get("subcategoria_id")), Integer).label("subcategoria_id"),
+            cast(literal(agregar.get("item_id")), Integer).label("item_id"),
+        )
+        filas = union_all(existentes, nueva)
+    propuestas = filas.subquery("propuestas")
+    total = (
+        db.query(func.count(func.distinct(p.item_id))).select_from(propuestas).join(p, filtro_alcanza(propuestas.c, p))
+    )
+    return total.scalar() or 0
 
 
 def campanas_que_alcanzan(db: Session, item_ids: Any):

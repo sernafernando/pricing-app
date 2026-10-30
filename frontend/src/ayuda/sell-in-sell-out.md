@@ -29,7 +29,11 @@ Las campañas de sell out alcanzan productos a través de **grupos**. En la pest
 - Cada **filtro** es una fila con marca, categoría, subcategoría y/o un producto (buscado por código o descripción). Un producto entra en el grupo si cumple **alguna** fila; dentro de una fila tiene que cumplir **todos** los campos elegidos. Un grupo sin filtros no alcanza productos.
 - Después de cada cambio se vuelve a contar cuántos productos alcanza el grupo.
 - Cambiar los filtros de un grupo cambia los productos que alcanzan las campañas que lo usan: esas campañas se recalculan solas.
-- **Eliminar grupo** no se puede mientras lo use una campaña de sell out (activa o anulada) o un offset. Si lo usa una campaña activa, el mensaje la nombra; hay que quitar el grupo de la campaña antes.
+- Si una campaña **activa** usa el grupo, **Agregar filtro** y **Quitar** no guardan enseguida: primero el panel avisa qué campañas activas se van a recalcular y cuántos productos alcanza el grupo antes y después del cambio (por ejemplo, "Productos alcanzados: 42 → 30."). **Confirmar cambio** lo guarda; **Cancelar** no cambia nada. Sin campañas activas, el cambio se guarda enseguida.
+- **Eliminar grupo** no se puede en estos casos, y el mensaje dice por qué:
+  - Lo usa una campaña activa: el mensaje la nombra; hay que quitar el grupo de la campaña antes.
+  - Solo lo usan campañas anuladas: el mensaje las nombra. El grupo queda guardado porque es parte del historial de esas campañas.
+  - Lo usa un offset, o tiene consumo de offsets registrado (lo que esos offsets ya aplicaron en ventas).
 
 ### Anular varios a la vez
 
@@ -96,7 +100,7 @@ Pide un permiso adicional (sell_out.ver). Pedíselo a un administrador.
 Pide permiso de edición de constantes (config.editar_constantes), el mismo que gestionar offsets. Pedíselo a un administrador.
 
 **¿Por qué no puedo eliminar un grupo?**
-Lo usa una campaña de sell out o un offset. El mensaje nombra las campañas activas que lo usan; quitá el grupo de esas campañas y volvé a intentar.
+Lo usa una campaña de sell out, un offset, o tiene consumo de offsets registrado. Si lo usa una campaña activa, el mensaje la nombra: quitá el grupo de esa campaña y volvé a intentar. Si solo lo usan campañas anuladas, el grupo queda guardado porque es parte de su historial.
 
 **¿Qué diferencia hay entre sell in y sell out?**
 Sell in baja el costo de la compra; sell out suma ganancia por campaña (o la descuenta, si es un monto total negativo).

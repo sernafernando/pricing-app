@@ -44,6 +44,18 @@ class OffsetGrupoUpdate(BaseModel):
     descripcion: Optional[str] = Field(default=None, max_length=255)
 
 
+class AlcancePrevioIn(BaseModel):
+    """One filter row to add and/or the id of one to remove; nothing is saved."""
+
+    agregar: Optional[OffsetGrupoFiltroCreate] = None
+    quitar_filtro_id: Optional[int] = None
+
+
+class AlcancePrevio(BaseModel):
+    antes: int
+    despues: int
+
+
 class OffsetGrupoEditado(BaseModel):
     id: int
     nombre: str

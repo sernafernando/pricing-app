@@ -14,7 +14,9 @@ const FILTRO_VACIO = { marca: '', categoria: '', subcategoria_id: '', producto: 
 /**
  * One offset group in the side panel: name and description, its filter rows (add / remove), the products it
  * reaches and the campaigns using it, and delete. `grupo` null is a new group: "Crear grupo" calls `onCreado`.
- * Every change calls `onCambio` (the list and the preview are asked again).
+ * Every change calls `onCambio` (the list and the preview are asked again). While an active campaign uses the
+ * group, a filter change re-queues its money: the panel asks first, naming the campaigns and showing the products
+ * reached before -> after (`alcancePrevio`, the same rule, nothing saved); without one it saves at once.
  */
 export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, onCreado, onCambio, onEliminado }) {
   const id = useId();
@@ -25,6 +27,9 @@ export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, on
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [confirmando, setConfirmando] = useState(false);
+  // `{ cambio, guardar, antes, despues }`: a filter change waiting for "Confirmar cambio".
+  const [pendiente, setPendiente] = useState(null);
+  const activas = (grupo?.campanas ?? []).filter((c) => c.estado === 'activa');
 
   const correr = async (accion, fallback) => {
     setBusy(true);
@@ -50,23 +55,50 @@ export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, on
       }
     }, 'No se pudo guardar el grupo.');
 
-  const agregarFiltro = () =>
-    correr(async () => {
-      await offsetGruposAPI.agregarFiltro(grupo.id, {
-        marca: filtro.marca || null,
-        categoria: filtro.categoria || null,
-        subcategoria_id: filtro.subcategoria_id ? Number(filtro.subcategoria_id) : null,
-        item_id: filtro.producto?.key ?? null,
-      });
-      setFiltro(FILTRO_VACIO);
-      await onCambio();
-    }, 'No se pudo agregar el filtro.');
+  // Without an active campaign `guardar` runs at once; with one, the preview is asked and the change waits.
+  const cambiarFiltros = (cambio, guardar) => {
+    if (activas.length === 0) return guardar();
+    return correr(async () => {
+      const { data } = await offsetGruposAPI.alcancePrevio(grupo.id, cambio);
+      setPendiente({ guardar, antes: data.antes, despues: data.despues });
+    }, 'No se pudo calcular el alcance del cambio.');
+  };
+
+  const confirmarCambio = () => {
+    const { guardar } = pendiente;
+    setPendiente(null);
+    return guardar();
+  };
+
+  const agregarFiltro = () => {
+    const body = {
+      marca: filtro.marca || null,
+      categoria: filtro.categoria || null,
+      subcategoria_id: filtro.subcategoria_id ? Number(filtro.subcategoria_id) : null,
+      item_id: filtro.producto?.key ?? null,
+    };
+    return cambiarFiltros({ agregar: body }, () =>
+      correr(async () => {
+        await offsetGruposAPI.agregarFiltro(grupo.id, body);
+        setFiltro(FILTRO_VACIO);
+        await onCambio();
+      }, 'No se pudo agregar el filtro.'),
+    );
+  };
 
   const quitarFiltro = (filtroId) =>
-    correr(async () => {
-      await offsetGruposAPI.eliminarFiltro(grupo.id, filtroId);
-      await onCambio();
-    }, 'No se pudo quitar el filtro.');
+    cambiarFiltros({ quitar_filtro_id: filtroId }, () =>
+      correr(async () => {
+        await offsetGruposAPI.eliminarFiltro(grupo.id, filtroId);
+        await onCambio();
+      }, 'No se pudo quitar el filtro.'),
+    );
+
+  const nombresActivas = activas.map((c) => `«${c.nombre}»`).join(', ');
+  const recalcula =
+    activas.length === 1
+      ? `Este cambio recalcula la campaña de sell out activa ${nombresActivas}.`
+      : `Este cambio recalcula las campañas de sell out activas ${nombresActivas}.`;
 
   const eliminar = () =>
     correr(async () => {
@@ -123,7 +155,7 @@ export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, on
                   return (
                     <li key={f.id} className={own.fila}>
                       <span>{texto}</span>
-                      <button type="button" className="btn-tesla ghost sm" aria-label={`Quitar ${texto}`} onClick={() => quitarFiltro(f.id)} disabled={busy}>
+                      <button type="button" className="btn-tesla ghost sm" aria-label={`Quitar ${texto}`} onClick={() => quitarFiltro(f.id)} disabled={busy || Boolean(pendiente)}>
                         Quitar
                       </button>
                     </li>
@@ -181,11 +213,25 @@ export default function GrupoPanel({ grupo, opciones, subcategorias, onClose, on
                   />
                 )}
                 <div className={own.acciones}>
-                  <button type="button" className="btn-tesla outline sm" onClick={agregarFiltro} disabled={busy || filtroVacio}>
+                  <button type="button" className="btn-tesla outline sm" onClick={agregarFiltro} disabled={busy || filtroVacio || Boolean(pendiente)}>
                     Agregar filtro
                   </button>
                 </div>
               </div>
+              {pendiente && (
+                <div className={styles.confirm} role="group" aria-label="Confirmar cambio de filtros">
+                  <p>{recalcula}</p>
+                  <p>{`Productos alcanzados: ${pendiente.antes} → ${pendiente.despues}.`}</p>
+                  <div className={styles.confirmActions}>
+                    <button type="button" className="btn-tesla outline sm" onClick={() => setPendiente(null)} disabled={busy}>
+                      Cancelar
+                    </button>
+                    <button type="button" className="btn-tesla primary sm" onClick={confirmarCambio} disabled={busy}>
+                      Confirmar cambio
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
 
             <section className={styles.section} aria-label="Alcance del grupo">

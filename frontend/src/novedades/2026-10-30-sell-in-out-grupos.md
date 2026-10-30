@@ -19,4 +19,5 @@ Los grupos de productos que usan las campañas de sell out ahora se arman en la 
 - Pide permiso de edición de constantes (config.editar_constantes), el mismo que gestionar offsets.
 - Un producto entra en el grupo si cumple alguna fila; dentro de una fila, todos los campos elegidos.
 - Cambiar un grupo cambia los productos que alcanzan las campañas de sell out que lo usan: esas campañas se recalculan solas.
-- Un grupo que usa una campaña de sell out o un offset no se puede eliminar; si lo usa una campaña activa, el mensaje la nombra.
+- Si una campaña activa usa el grupo, antes de guardar un cambio de filtros el panel avisa qué campañas se recalculan y cuántos productos alcanza el grupo antes y después; hay que tocar **Confirmar cambio**.
+- Un grupo que usa una campaña de sell out o un offset, o que tiene consumo de offsets registrado, no se puede eliminar. El mensaje dice por qué y nombra las campañas; si solo lo usan campañas anuladas, queda guardado como parte de su historial.

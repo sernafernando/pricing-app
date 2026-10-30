@@ -9,12 +9,13 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
+from app.models.offset_grupo_consumo import OffsetGrupoConsumo, OffsetGrupoResumen
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo
@@ -197,7 +198,22 @@ class TestDelete:
         assert mensaje.endswith("Quite el grupo de las campañas antes de eliminarlo.")
         assert db.get(OffsetGrupo, gid) is not None
 
-    def test_a_voided_campaign_alone_keeps_the_existing_refusal(self, client, db, editor, admin_user) -> None:
+    def test_voided_campaigns_alone_are_named_and_the_group_stays(self, client, db, editor, admin_user) -> None:
+        gid = _grupo(db, "TP-Link")
+        _campana(db, admin_user, gid, "Octubre anulada", estado="anulada")
+        _campana(db, admin_user, gid, "Septiembre anulada", estado="anulada")
+
+        resp = client.delete(f"/api/offset-grupos/{gid}", headers=editor)
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["error"]["message"] == (
+            "El grupo está vinculado a las campañas de sell out anuladas «Octubre anulada», «Septiembre anulada». "
+            "Queda guardado porque es parte de su historial: no se puede eliminar."
+        )
+        assert db.get(OffsetGrupo, gid) is not None
+        assert db.query(SellOutCampanaGrupo).filter_by(grupo_id=gid).count() == 2
+
+    def test_one_voided_campaign_is_named_in_the_singular(self, client, db, editor, admin_user) -> None:
         gid = _grupo(db, "TP-Link")
         _campana(db, admin_user, gid, "Octubre anulada", estado="anulada")
 
@@ -205,8 +221,48 @@ class TestDelete:
 
         assert resp.status_code == 400, resp.text
         assert resp.json()["error"]["message"] == (
-            "El grupo está asignado a una campaña de sell out. Quite el grupo de la campaña antes de eliminarlo."
+            "El grupo está vinculado a la campaña de sell out anulada «Octubre anulada». "
+            "Queda guardado porque es parte de su historial: no se puede eliminar."
         )
+
+    @pytest.mark.parametrize("con_resumen", [False, True])
+    def test_recorded_offset_consumption_refuses_with_a_clear_400(self, client, db, editor, con_resumen) -> None:
+        gid = _grupo(db, "Legacy consumido")
+        otro = OffsetGanancia(tipo_offset="monto_fijo", monto=1, fecha_desde=date(2026, 1, 1))
+        db.add(otro)
+        db.flush()
+        db.add(
+            OffsetGrupoConsumo(
+                grupo_id=gid,
+                tipo_venta="ml",
+                fecha_venta=datetime(2026, 2, 1, tzinfo=timezone.utc),
+                item_id=2964,
+                cantidad=1,
+                offset_id=otro.id,
+                monto_offset_aplicado=10,
+            )
+        )
+        if con_resumen:
+            db.add(OffsetGrupoResumen(grupo_id=gid))
+        db.flush()
+
+        resp = client.delete(f"/api/offset-grupos/{gid}", headers=editor)
+
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["error"]["message"] == (
+            "No se puede eliminar el grupo: tiene consumo de offsets registrado "
+            "(el historial de lo que ya se aplicó en ventas)."
+        )
+        assert db.get(OffsetGrupo, gid) is not None
+
+    def test_a_consumption_summary_alone_also_refuses(self, client, db, editor) -> None:
+        gid = _grupo(db, "Solo resumen")
+        db.add(OffsetGrupoResumen(grupo_id=gid))
+        db.flush()
+
+        resp = client.delete(f"/api/offset-grupos/{gid}", headers=editor)
+
+        assert resp.status_code == 400, resp.text
         assert db.get(OffsetGrupo, gid) is not None
 
     def test_a_legacy_offset_keeps_the_existing_refusal(self, client, db, editor) -> None:
@@ -218,3 +274,43 @@ class TestDelete:
 
         assert resp.status_code == 400, resp.text
         assert resp.json()["error"]["message"] == "No se puede eliminar el grupo, tiene 1 offsets asociados"
+
+
+class TestPreviewReach:
+    """`POST /api/offset-grupos/{id}/alcance-previo`: products reached before -> after adding or removing one filter
+    row, with the campaign rule and WITHOUT saving (the panel asks before re-queuing active campaigns)."""
+
+    def test_adding_a_row_counts_the_union(self, client, db, editor, catalogo) -> None:
+        gid = _grupo(db, "TP-Link routers", [{"marca": "TP-LINK", "categoria": "Routers"}])
+
+        resp = client.post(
+            f"/api/offset-grupos/{gid}/alcance-previo", headers=editor, json={"agregar": {"marca": "MERCUSYS"}}
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"antes": 1, "despues": 2}
+        assert db.query(OffsetGrupoFiltro).filter_by(grupo_id=gid).count() == 1
+
+    def test_removing_a_row_drops_what_only_it_reached(self, client, db, editor, catalogo) -> None:
+        gid = _grupo(db, "TP-Link", [{"marca": "TP-LINK"}, {"item_id": 950}])
+        fid = db.query(OffsetGrupoFiltro.id).filter_by(grupo_id=gid, item_id=950).scalar()
+
+        resp = client.post(f"/api/offset-grupos/{gid}/alcance-previo", headers=editor, json={"quitar_filtro_id": fid})
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"antes": 3, "despues": 2}
+        assert db.get(OffsetGrupoFiltro, fid) is not None
+
+    def test_an_empty_row_reaches_nothing_like_the_campaigns(self, client, db, editor, catalogo) -> None:
+        gid = _grupo(db, "TP-Link", [{"marca": "TP-LINK"}])
+
+        resp = client.post(f"/api/offset-grupos/{gid}/alcance-previo", headers=editor, json={"agregar": {}})
+
+        assert resp.json() == {"antes": 2, "despues": 2}
+
+    def test_an_unknown_group_is_404(self, client, editor) -> None:
+        assert client.post("/api/offset-grupos/999999/alcance-previo", headers=editor, json={}).status_code == 404
+
+    def test_without_the_permission_it_is_403(self, client, db, auth_headers) -> None:
+        gid = _grupo(db, "TP-Link")
+        assert client.post(f"/api/offset-grupos/{gid}/alcance-previo", headers=auth_headers, json={}).status_code == 403

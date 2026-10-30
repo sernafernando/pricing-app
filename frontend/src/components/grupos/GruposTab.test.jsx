@@ -15,6 +15,7 @@ vi.mock('../../services/offsetGruposAPI', () => ({
     editar: vi.fn(),
     eliminar: vi.fn(),
     agregarFiltro: vi.fn(),
+    alcancePrevio: vi.fn(),
     eliminarFiltro: vi.fn(),
   },
 }));
@@ -52,6 +53,7 @@ beforeEach(() => {
   offsetGruposAPI.listar.mockResolvedValue({ data: [TPLINK, VACIO] });
   offsetGruposAPI.alcance.mockResolvedValue({ data: ALCANCE });
   offsetGruposAPI.opciones.mockResolvedValue({ data: OPCIONES });
+  offsetGruposAPI.alcancePrevio.mockResolvedValue({ data: { antes: 42, despues: 50 } });
 });
 
 const fila = async (nombre) => (await screen.findByText(nombre)).closest('tr');
@@ -60,6 +62,9 @@ async function abrir(user, nombre) {
   await user.click(within(await fila(nombre)).getByRole('button', { name: 'Editar' }));
   return screen.getByRole('complementary', { name: 'Grupo' });
 }
+
+// TP-Link redes is used by the active campaign "Noviembre TP-Link": a filter change asks first.
+const confirmarCambio = async (user, panel) => user.click(await within(panel).findByRole('button', { name: 'Confirmar cambio' }));
 
 describe('GruposTab — list', () => {
   it('lists each group with its description, filters, products reached and the campaigns using it', async () => {
@@ -233,6 +238,7 @@ describe('GruposTab — filters and preview', () => {
     await user.selectOptions(within(panel).getByLabelText('Categoría'), 'Switches');
     offsetGruposAPI.alcance.mockResolvedValue({ data: [{ ...ALCANCE[0], productos: 50 }, ALCANCE[1]] });
     await user.click(within(panel).getByRole('button', { name: 'Agregar filtro' }));
+    await confirmarCambio(user, panel);
     expect(offsetGruposAPI.agregarFiltro).toHaveBeenCalledWith(1, { marca: 'MERCUSYS', categoria: 'Switches', subcategoria_id: null, item_id: null });
     expect(await within(panel).findByText('Alcanza 50 productos.')).toBeInTheDocument();
     expect(offsetGruposAPI.alcance).toHaveBeenCalledTimes(2);
@@ -248,6 +254,7 @@ describe('GruposTab — filters and preview', () => {
     await user.click(await within(panel).findByRole('button', { name: /ARCHER · Archer C6/ }));
     expect(within(panel).getByText('Producto: ARCHER · Archer C6')).toBeInTheDocument();
     await user.click(within(panel).getByRole('button', { name: 'Agregar filtro' }));
+    await confirmarCambio(user, panel);
     expect(offsetGruposAPI.agregarFiltro).toHaveBeenCalledWith(1, { marca: null, categoria: null, subcategoria_id: null, item_id: 2964 });
   });
 
@@ -258,6 +265,7 @@ describe('GruposTab — filters and preview', () => {
     const panel = await abrir(user, 'TP-Link redes');
     offsetGruposAPI.alcance.mockResolvedValue({ data: [{ ...ALCANCE[0], productos: 30 }, ALCANCE[1]] });
     await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
+    await confirmarCambio(user, panel);
     expect(offsetGruposAPI.eliminarFiltro).toHaveBeenCalledWith(1, 12);
     expect(await within(panel).findByText('Alcanza 30 productos.')).toBeInTheDocument();
   });
@@ -270,11 +278,72 @@ describe('GruposTab — filters and preview', () => {
     let responder;
     offsetGruposAPI.alcance.mockReturnValue(new Promise((r) => (responder = r)));
     await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
+    await confirmarCambio(user, panel);
     await waitFor(() => expect(offsetGruposAPI.alcance).toHaveBeenCalledTimes(2));
     expect(within(panel).getByRole('button', { name: 'Quitar Marca TP-LINK · Categoría Routers' })).toBeDisabled();
     responder({ data: [{ ...ALCANCE[0], productos: 30 }, ALCANCE[1]] });
     expect(await within(panel).findByText('Alcanza 30 productos.')).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Quitar Marca TP-LINK · Categoría Routers' })).toBeEnabled();
+  });
+
+  it('with an active campaign, adding a filter asks first naming it and showing the products before -> after', async () => {
+    const user = userEvent.setup();
+    offsetGruposAPI.agregarFiltro.mockResolvedValue({ data: { id: 13 } });
+    renderWithRouter(<GruposTab />);
+    const panel = await abrir(user, 'TP-Link redes');
+    await user.selectOptions(within(panel).getByLabelText('Marca'), 'MERCUSYS');
+    await user.click(within(panel).getByRole('button', { name: 'Agregar filtro' }));
+    const aviso = await within(panel).findByRole('group', { name: 'Confirmar cambio de filtros' });
+    expect(offsetGruposAPI.alcancePrevio).toHaveBeenCalledWith(1, {
+      agregar: { marca: 'MERCUSYS', categoria: null, subcategoria_id: null, item_id: null },
+    });
+    expect(aviso).toHaveTextContent('Este cambio recalcula la campaña de sell out activa «Noviembre TP-Link».');
+    expect(aviso).toHaveTextContent('Productos alcanzados: 42 → 50.');
+    expect(offsetGruposAPI.agregarFiltro).not.toHaveBeenCalled();
+    await user.click(within(aviso).getByRole('button', { name: 'Confirmar cambio' }));
+    expect(offsetGruposAPI.agregarFiltro).toHaveBeenCalledWith(1, { marca: 'MERCUSYS', categoria: null, subcategoria_id: null, item_id: null });
+    await waitFor(() => expect(within(panel).queryByRole('group', { name: 'Confirmar cambio de filtros' })).not.toBeInTheDocument());
+  });
+
+  it('with an active campaign, removing a filter asks first; "Cancelar" saves nothing', async () => {
+    const user = userEvent.setup();
+    offsetGruposAPI.alcancePrevio.mockResolvedValue({ data: { antes: 42, despues: 30 } });
+    renderWithRouter(<GruposTab />);
+    const panel = await abrir(user, 'TP-Link redes');
+    await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
+    const aviso = await within(panel).findByRole('group', { name: 'Confirmar cambio de filtros' });
+    expect(offsetGruposAPI.alcancePrevio).toHaveBeenCalledWith(1, { quitar_filtro_id: 12 });
+    expect(aviso).toHaveTextContent('Productos alcanzados: 42 → 30.');
+    await user.click(within(aviso).getByRole('button', { name: 'Cancelar' }));
+    expect(within(panel).queryByRole('group', { name: 'Confirmar cambio de filtros' })).not.toBeInTheDocument();
+    expect(offsetGruposAPI.eliminarFiltro).not.toHaveBeenCalled();
+    expect(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' })).toBeEnabled();
+  });
+
+  it('without an active campaign a filter change saves at once, with no prompt', async () => {
+    const user = userEvent.setup();
+    offsetGruposAPI.listar.mockResolvedValue({ data: [TPLINK, { ...VACIO, filtros: [] }] });
+    offsetGruposAPI.alcance.mockResolvedValue({
+      data: [ALCANCE[0], { grupo_id: 2, productos: 0, campanas: [{ id: 6, nombre: 'Octubre anulada', estado: 'anulada' }] }],
+    });
+    offsetGruposAPI.agregarFiltro.mockResolvedValue({ data: { id: 14 } });
+    renderWithRouter(<GruposTab />);
+    const panel = await abrir(user, 'Sin filtros');
+    await user.selectOptions(within(panel).getByLabelText('Marca'), 'MERCUSYS');
+    await user.click(within(panel).getByRole('button', { name: 'Agregar filtro' }));
+    expect(offsetGruposAPI.agregarFiltro).toHaveBeenCalledWith(2, { marca: 'MERCUSYS', categoria: null, subcategoria_id: null, item_id: null });
+    expect(offsetGruposAPI.alcancePrevio).not.toHaveBeenCalled();
+    expect(within(panel).queryByRole('group', { name: 'Confirmar cambio de filtros' })).not.toBeInTheDocument();
+  });
+
+  it('a failed preview says so and saves nothing', async () => {
+    const user = userEvent.setup();
+    offsetGruposAPI.alcancePrevio.mockRejectedValue(new Error('boom'));
+    renderWithRouter(<GruposTab />);
+    const panel = await abrir(user, 'TP-Link redes');
+    await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('No se pudo calcular el alcance del cambio.');
+    expect(offsetGruposAPI.eliminarFiltro).not.toHaveBeenCalled();
   });
 
   it('a failed filter change says so', async () => {
@@ -283,6 +352,7 @@ describe('GruposTab — filters and preview', () => {
     renderWithRouter(<GruposTab />);
     const panel = await abrir(user, 'TP-Link redes');
     await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
+    await confirmarCambio(user, panel);
     expect(await within(panel).findByRole('alert')).toHaveTextContent('Filtro no encontrado');
   });
 });
