@@ -181,7 +181,7 @@ class TestSchedule:
     def test_the_registry_holds_exactly_one_billing_scheduler(self) -> None:
         names = [h.name for h in registry.ML_PUBLICATIONS_REGISTRY]
         assert names.count("ml_billing.sweep") == 1
-        assert registry.ML_PUBLICATIONS_REGISTRY[-1] is ml_billing.billing
+        assert ml_billing.billing in registry.ML_PUBLICATIONS_REGISTRY
         assert not [h for h in registry.REGISTRY if h.name.startswith("ml_billing")]
 
 

@@ -136,12 +136,14 @@ class TestContract:
         # `ml_publications.promo_refresh` drains a queue every 15 s behind `promo_refresh.enabled`: nothing to request.
         # `promo_write.refresh` drains the post-write queue every 30 s behind the PROMOS_WRITE_ENABLED kill switch.
         # `ml_publications.freshness` measures every minute with no flag and makes no ML call: nothing to request.
+        # `gestion_full.inbound` weekend drip: nothing to request via admin.
         env_gated = {
             "ml_ads.ingest",
             "ml_billing.sweep",
             "ml_publications.promo_refresh",
             "promo_write.refresh",
             "ml_publications.freshness",
+            "gestion_full.inbound",
         }
         registered = {h.name for h in ML_PUBLICATIONS_REGISTRY if h.name not in env_gated}
         assert {handler for handler, _ in admin.JOBS.values()} == registered
