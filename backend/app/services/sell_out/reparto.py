@@ -127,11 +127,16 @@ def repartir(c: MontoTotal, consumos: Iterable[Consumo]) -> List[Consumo]:
     return salida
 
 
+def sin_ventas(c: MontoTotal, con_ventas: Iterable[int]) -> Dict[int, Decimal]:
+    """`{item_id: its share}` of the products whose share no row carries ("Asignado sin ventas", `cuota`)."""
+    validar(c)
+    con_ventas = set(con_ventas)
+    return {i: cuota(c, i) for i in c.repartos if i not in con_ventas}
+
+
 def resumen_monto_total(c: MontoTotal, con_ventas: Iterable[int]) -> Dict[str, Decimal]:
     """`{asignado_sin_ventas, sin_asignar}`: what the campaign's rows do not carry (module docstring).
     `con_ventas`: the products with sales the campaign reaches in its dates."""
-    validar(c)
-    con_ventas = set(con_ventas)
-    sin_ventas = sum((cuota(c, i) for i in c.repartos if i not in con_ventas), Decimal("0.00"))
+    sin_ventas_ = sum(sin_ventas(c, con_ventas).values(), Decimal("0.00"))
     asignado = sum((_cargada(c, i) for i in c.repartos), Decimal("0.00"))
-    return {"asignado_sin_ventas": sin_ventas, "sin_asignar": cents(Decimal(c.monto_total)) - asignado}
+    return {"asignado_sin_ventas": sin_ventas_, "sin_asignar": cents(Decimal(c.monto_total)) - asignado}

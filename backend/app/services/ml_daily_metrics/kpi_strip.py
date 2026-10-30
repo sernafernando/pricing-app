@@ -200,9 +200,7 @@ def sell_in_out_of(x: Union[board.Row, board.Kpis]) -> Optional[SellInOutFigures
         sell_in=round_money(x.sell_in) if x.sell_in_lineas else None,
         # A pending sell out has a line but no known ARS yet: it stays 0 next to its pending count. The strip's sell
         # out also applies with only a monto total campaign's amount no row carries (`board.Board.remanente`).
-        sell_out=(
-            round_money(x.sell_out) if x.sell_out_lineas or getattr(x, "sell_out_remanente", None) is not None else None
-        ),
+        sell_out=(round_money(x.sell_out) if x.sell_out_lineas or board.SellInOut.remanente(x) is not None else None),
         sell_out_pendientes=x.sell_out_pendientes,
         sell_out_estimados=x.sell_out_estimados,
         costo=None if x.m_sell_in is None else round_money(x.costo),

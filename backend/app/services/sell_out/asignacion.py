@@ -207,6 +207,13 @@ def _tasa(c: SellOutCampana, fecha: date, tasas: _Tasas) -> Decimal:
     return Decimal(tasa)
 
 
+def tasa_en(c: SellOutCampana, fecha: date, bna: Optional[Decimal], bna_actual: Optional[Decimal]) -> Decimal:
+    """The rate a USD campaign converts at on `fecha` by this allocator's rule (module docstring, "Rate"): its own
+    `tipo_cambio` (`fijo`, or `al_cobro` once set), `bna` (the BNA of `fecha`) for `dia_venta`, else `bna_actual`
+    (the latest BNA). Without one it raises `SellOutAsignacionError`, never a guessed rate."""
+    return _tasa(c, fecha, _Tasas({fecha: bna}, bna_actual))
+
+
 def credito_unitario(
     c: SellOutCampana,
     fecha: date,

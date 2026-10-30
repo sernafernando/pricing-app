@@ -19,7 +19,8 @@ from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
+from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem, SellOutConsumo
+from app.services import pm_scope
 from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- fixtures
     URL,
     _frozen_clock,
@@ -212,12 +213,14 @@ class TestWithTheProfitView:
         assert rows["Switch"]["Sell out pendientes"] == "1"
 
 
-def _monto_total(db, total: str, marca: str = "TP-Link", fecha_hasta: date = DIA) -> int:
-    """A `monto_total` ARS campaign over `marca` with no share: all of it "Sin asignar" (T26b2)."""
-    grupo = OffsetGrupo(nombre=f"Grupo {marca}")
+def _monto_total(db, total: str, marca="TP-Link", fecha_hasta: date = DIA, repartos: dict = None, **values) -> int:
+    """A `monto_total` campaign (ARS unless `values` say otherwise) over `marca` (one or a tuple of brands), with
+    `repartos` `{item_id: fixed share}`; with no share all of it is "Sin asignar" (T26b2)."""
+    grupo = OffsetGrupo(nombre="Grupo")
     db.add(grupo)
     db.flush()
-    db.add(OffsetGrupoFiltro(grupo_id=grupo.id, marca=marca))
+    for m in (marca,) if isinstance(marca, str) else marca:
+        db.add(OffsetGrupoFiltro(grupo_id=grupo.id, marca=m))
     campana = SellOutCampana(
         nombre="Monto total",
         fecha_desde=DIA - timedelta(days=5),
@@ -225,14 +228,19 @@ def _monto_total(db, total: str, marca: str = "TP-Link", fecha_hasta: date = DIA
         tipo="monto_total",
         monto_unit=None,
         monto_total=Decimal(total),
-        moneda="ARS",
         usuario_id=_USUARIO[0],
+        **{"moneda": "ARS", **values},
     )
     db.add(campana)
     db.flush()
     db.add(SellOutCampanaGrupo(campana_id=campana.id, grupo_id=grupo.id))
+    for item_id, monto in (repartos or {}).items():
+        db.add(SellOutCampanaItem(campana_id=campana.id, item_id=item_id, reparto_monto=Decimal(monto)))
     db.commit()
     return campana.id
+
+
+REMANENTE_LABEL = "Sell out de montos totales sin producto (Sin asignar y Asignado sin ventas)"
 
 
 def _csv(client, headers, **params):
@@ -300,10 +308,48 @@ class TestMontoTotalRemainder:
         assert last["Producto"] == "Sell out de montos totales sin producto (Sin asignar y Asignado sin ventas)"
         assert (last["Sell out"], last["Unidades"], last["Facturado"]) == ("100,00", "", "")
 
+    def test_a_pm_scope_counts_only_its_products_shares_and_the_unassigned_only_with_the_whole_reach(
+        self, client, admin_auth_headers, db, monkeypatch
+    ) -> None:
+        # 100 over TP-Link and Logi: 20 to 12 (TP-Link) and 30 to 13 (Logi), neither with a written row; 50 unassigned.
+        _producto(db, 13, "Mouse", "Logi")
+        db.commit()
+        _monto_total(db, "100", marca=("TP-Link", "Logi"), repartos={12: "20", 13: "30"})
+
+        assert _get(client, admin_auth_headers)["kpis"]["sell_in_out"]["sell_out"] == 105.0
+        # A TP-Link PM: its product's 20 only; the 50 nobody was given also belongs to Logi's PM, so it is not theirs.
+        monkeypatch.setattr(pm_scope, "get_pares_marca_categoria_usuario", lambda db, user: [("TP-LINK", "CAT")])
+        assert _get(client, admin_auth_headers)["kpis"]["sell_in_out"]["sell_out"] == 25.0
+        # A PM seeing every product the campaign reaches: all of it.
+        both = [("TP-LINK", "CAT"), ("LOGI", "CAT")]
+        monkeypatch.setattr(pm_scope, "get_pares_marca_categoria_usuario", lambda db, user: both)
+        assert _get(client, admin_auth_headers)["kpis"]["sell_in_out"]["sell_out"] == 105.0
+
     def test_without_a_monto_total_campaign_the_csv_has_no_closing_line(self, client, admin_auth_headers) -> None:
         header, lines = _csv(client, admin_auth_headers)
 
         assert len(lines) == 2 and all("sin producto" not in ";".join(line) for line in lines)
+
+
+def test_only_a_pending_usd_remainder_is_a_zero_sell_out_with_its_pending_count_in_the_kpi_and_the_csv(
+    client, admin_auth_headers, db, rol_admin, admin_user
+) -> None:
+    """The period's only sell out is a USD remainder without its rate yet (`dia_venta`, no BNA): never read as 0."""
+    _grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+    _USUARIO[0] = admin_user.id
+    db.add(MlTiendaOficial(store_id=57997, nombre="Gauss", clave=None, orden=1, activa=True))
+    _producto(db, 11, "Router AX55", "TP-Link")
+    db.flush()
+    _pub(db, 1, "MLA1", 11, 57997)
+    _sale(db, 11, "MLA1", "30", "100")
+    db.commit()
+    _monto_total(db, "10", moneda="USD", tc_modo="dia_venta")
+
+    figures = _get(client, admin_auth_headers)["kpis"]["sell_in_out"]
+    assert (figures["sell_out"], figures["sell_out_pendientes"]) == (0.0, 1)
+    header, lines = _csv(client, admin_auth_headers)
+    last = dict(zip(header, lines[-1]))
+    assert (last["Producto"], last["Sell out"], last["Sell out pendientes"]) == (REMANENTE_LABEL, "0,00", "1")
 
 
 class TestWithoutTheProfitView:
@@ -312,6 +358,13 @@ class TestWithoutTheProfitView:
         _grant(db, rol_admin, "ml_metricas.ver")
         db.commit()
 
+    def test_the_csv_has_no_monto_total_closing_line(self, client, admin_auth_headers, db) -> None:
+        _monto_total(db, "100")
+
+        header, lines = _csv(client, admin_auth_headers)
+
+        assert "Sell out" not in header and all(REMANENTE_LABEL not in line for line in lines)
+
     def test_no_figure_and_no_sort(self, client, admin_auth_headers) -> None:
         body = _get(client, admin_auth_headers)
 
@@ -319,6 +372,16 @@ class TestWithoutTheProfitView:
         assert body["kpis"]["sell_in_out"] is None
         resp = client.get(URL, params={"sort": "markup_sell"}, headers=admin_auth_headers)
         assert resp.status_code == 403
+
+
+def test_a_tplink_solo_export_has_no_monto_total_closing_line(client, admin_auth_headers, db, rol_admin, sells) -> None:
+    _grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia", "tplink.solo")
+    db.commit()
+    _monto_total(db, "100")
+
+    header, lines = _csv(client, admin_auth_headers)
+
+    assert lines and "Sell out" not in header and all(REMANENTE_LABEL not in line for line in lines)
 
 
 def test_tplink_solo_never_gets_them(client, admin_auth_headers, db, rol_admin, sells) -> None:

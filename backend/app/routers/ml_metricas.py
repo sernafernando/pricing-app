@@ -878,7 +878,7 @@ def _csv_remanente_line(header: List[str], remanente: Optional[board.Remanente])
     row to carry it (`board.Board.remanente`, T26b2): its label in the first column, the ARS in "Sell out" and the
     campaigns still without a rate in "Sell out pendientes"; every other cell empty. None (no line, the file as
     before) when nothing is added."""
-    if remanente is None or not (remanente.monto_ars or remanente.pendientes):
+    if remanente is None or not remanente.suma:
         return None
     line: list = [""] * len(header)
     line[0] = REMANENTE_CSV_LABEL

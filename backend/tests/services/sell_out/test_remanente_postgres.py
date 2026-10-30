@@ -44,9 +44,17 @@ def _items(*ids: int):
     return union_all(*(select(literal(i)) for i in ids))
 
 
-def _remanentes(engine: Engine, desde: date, hasta: date, items: Optional[tuple] = None) -> resumen.Remanente:
+def _remanentes(
+    engine: Engine, desde: date, hasta: date, items: Optional[tuple] = None, visibles: Optional[tuple] = None
+) -> resumen.Remanente:
     with sessionmaker(bind=engine)() as db:
-        return resumen.remanentes(db, desde, hasta, None if items is None else _items(*items))
+        return resumen.remanentes(
+            db,
+            desde,
+            hasta,
+            None if items is None else _items(*items),
+            visibles=None if visibles is None else _items(*visibles),
+        )
 
 
 def _recalcular(engine: Engine, *ids: int) -> None:
@@ -111,6 +119,35 @@ class TestRemanentes:
 
         w.tipo_cambio(engine, D(2026, 12, 5), 1200)  # the latest BNA
         assert _remanentes(engine, *NOV) == resumen.Remanente(Decimal("2400.00"), 0, 1)
+
+    def test_a_campaign_with_nothing_left_counts_no_pending_nor_estimate(self, engine: Engine) -> None:
+        # Its whole total went to a product with a written row: nothing to add, so no rate is needed either.
+        grupo = w.grupo(engine, [TP_LINK])
+        for tc_modo in ("dia_venta", "al_cobro"):
+            campana = w.monto_total(engine, [grupo], "10.00", moneda="USD", tc_modo=tc_modo)
+            w.reparto(engine, campana, 2964, porcentaje="100")
+            w.execute(
+                engine,
+                "INSERT INTO sell_out_consumos (campana_id, canal, venta_ref, item_id, fecha_venta, unidades, monto) "
+                "VALUES (:c, 'ml', :r, 2964, '2026-11-02', 1, 10)",
+                c=campana,
+                r=campana,
+            )
+        assert _remanentes(engine, *NOV) == resumen.Remanente(Decimal("0"), 0, 0)
+        w.tipo_cambio(engine, D(2026, 12, 5), 1200)  # a latest BNA: the al_cobro one would be an estimate
+        assert _remanentes(engine, *NOV) == resumen.Remanente(Decimal("0"), 0, 0)
+        assert not resumen.Remanente(Decimal("0"), 0, 0).suma
+        assert resumen.Remanente(Decimal("0"), 1, 0).suma and resumen.Remanente(Decimal("-1"), 0, 0).suma
+
+    def test_a_scoped_viewer_counts_its_products_shares_and_the_unassigned_only_with_the_whole_reach(
+        self, engine: Engine
+    ) -> None:
+        # 2964 sells (no remainder), 2270 has 100 without sales, 300 unassigned; the reach is 2964 and 2270.
+        _campana_con_reparto(engine)
+
+        assert _remanentes(engine, *NOV, visibles=(2270,)).monto_ars == Decimal("100.00")
+        assert _remanentes(engine, *NOV, visibles=(2964,)) == resumen.Remanente(Decimal("0"), 0, 0)
+        assert _remanentes(engine, *NOV, visibles=(2964, 2270)).monto_ars == Decimal("400.00")
 
     def test_with_products_given_only_a_campaign_reaching_one_of_them_counts(self, engine: Engine) -> None:
         _campana_con_reparto(engine)

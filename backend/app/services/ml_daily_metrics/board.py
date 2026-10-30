@@ -54,7 +54,7 @@ A bounded number of statements per board request whatever the page size or
 the volume (a fixed set; plus 4 per pair axis that has a filter; plus up to 5
 when an MLA set, a PM scope or a search bounds the groups read: its lookups and
 the touched groups; plus, with `sell_in_out`, the KPIs' one lookup of the monto total campaigns ending in the
-period, and at most five more when some do, `Board.remanente`), pinned with the measured timings by
+period, and at most seven more when some do, `Board.remanente`), pinned with the measured timings by
 `tests/services/ml_daily_metrics/test_board_volume_postgres.py`. With
 `product_item_id` (a product's publication sub-rows) both tables hold only
 that product's groups, reached through the frozen-cost product index: the
@@ -529,8 +529,14 @@ class SellInOut:
     leaves the cost with sell in empty, and neither sell in nor sell out leaves the totals with them empty."""
 
     @staticmethod
+    def remanente(r: Any) -> Optional[Decimal]:
+        """The part of a `Kpis` sell out no sale row carries (`Kpis.sell_out_remanente`); always None for a `Row`,
+        which has no such field (rows never carry it, and their shape is pinned)."""
+        return getattr(r, "sell_out_remanente", None)
+
+    @staticmethod
     def applies(r: Any) -> bool:
-        return bool(r.sell_in_lineas or r.sell_out_lineas or getattr(r, "sell_out_remanente", None) is not None)
+        return bool(r.sell_in_lineas or r.sell_out_lineas or SellInOut.remanente(r) is not None)
 
     @staticmethod
     def costo_sell_in(r: Any) -> Optional[Decimal]:
@@ -2224,7 +2230,7 @@ class Board:
             sell_in_lineas=int(r["sell_in_lineas"] or 0),
             sell_out_lineas=int(r["sell_out_lineas"] or 0),
         )
-        if remanente is not None and (remanente.monto_ars or remanente.pendientes or remanente.estimados):
+        if remanente is not None and remanente.suma:
             sell["sell_out"] += remanente.monto_ars
             sell["sell_out_pendientes"] += remanente.pendientes
             sell["sell_out_estimados"] += remanente.estimados
@@ -2239,14 +2245,25 @@ class Board:
         Filters: the UNFILTERED view (`is_unfiltered`, no node scope, no product) counts every such campaign; any
         filter, PM scope, node or product narrows it to the campaigns whose groups reach a product of the pairs
         that survive the filters (the very pairs the KPI rows sum), so a brand filter keeps its brand's campaigns
-        and drops the others'. One statement when no campaign ends in the period, never one per campaign."""
+        and drops the others'. A PM scope also narrows the amount: only the "Asignado sin ventas" of the products
+        the PM sees, and the "Sin asignar" (no product's) only of a campaign whose whole reach they see, so one PM
+        never sees another brand's money. One statement when no campaign ends in the period, never one per
+        campaign."""
         if not self.sell:
             return None
         items = None
         if self.scope or self.product_item_id is not None or not is_unfiltered(self.f, self.scope_pairs):
             joined, fp = self._members("", narrow=True)
             items = select(fp.c.product).select_from(joined)
-        return remanentes(self.db, self.f.date_from, self.f.date_to, items)
+        visibles = None
+        if self.scope_pairs is not None:
+            # Fail closed like the pairs: an empty scope sees no product.
+            visibles = select(P.item_id).where(
+                tuple_(func.upper(P.marca), func.upper(P.categoria)).in_(self.scope_pairs)
+                if self.scope_pairs
+                else false()
+            )
+        return remanentes(self.db, self.f.date_from, self.f.date_to, items, visibles=visibles)
 
     # ── the leaves of the whole tree: one row per (path, product), for the CSV ──
 

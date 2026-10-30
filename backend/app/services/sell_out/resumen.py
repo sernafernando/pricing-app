@@ -153,24 +153,39 @@ def _recalculo(fila: Optional[SellOutDirty], en_curso: bool) -> dict:
     }
 
 
+def _montos_totales(
+    db: Session, total: List[SellOutCampana], *, todo_el_alcance: bool = False
+) -> Tuple[Dict[int, reparto.MontoTotal], Dict[int, set], Dict[int, Dict[int, Optional[Decimal]]]]:
+    """`(MontoTotal, products with a written row, reach {item_id: iva})` of each `monto_total` campaign, in at most
+    three queries. The reach is read for the campaigns loaded with VAT only (its rates), or for every one with
+    `todo_el_alcance`."""
+    ids = [c.id for c in total]
+    repartos = asignacion.repartos_item(db, total)
+    con_alcance = ids if todo_el_alcance else [c.id for c in total if c.monto_incluye_iva]
+    ivas = alcance.productos(db, con_alcance) if con_alcance else {}
+    con_ventas: Dict[int, set] = defaultdict(set)
+    rows = db.query(SellOutConsumo.campana_id, SellOutConsumo.item_id).filter(SellOutConsumo.campana_id.in_(ids))
+    for cid, item_id in rows.distinct():
+        con_ventas[cid].add(item_id)
+    mts = {
+        c.id: reparto.MontoTotal(
+            Decimal(c.monto_total), repartos.get(c.id, {}), c.monto_incluye_iva, ivas.get(c.id, {})
+        )
+        for c in total
+    }
+    return mts, con_ventas, ivas
+
+
 def _repartos(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
     """`{campana_id: reparto summary}` of the `monto_total` campaigns, in at most three queries for the page."""
     total = [c for c in campanas if c.tipo == "monto_total"]
     if not total:
         return {}
-    ids = [c.id for c in total]
-    repartos = asignacion.repartos_item(db, total)
-    con_iva = [c.id for c in total if c.monto_incluye_iva]
-    ivas = alcance.productos(db, con_iva) if con_iva else {}
-    con_ventas: Dict[int, set] = defaultdict(set)
-    rows = db.query(SellOutConsumo.campana_id, SellOutConsumo.item_id).filter(SellOutConsumo.campana_id.in_(ids))
-    for cid, item_id in rows.distinct():
-        con_ventas[cid].add(item_id)
+    mts, con_ventas, ivas = _montos_totales(db, total)
     salida = {}
     for c in total:
-        mt = reparto.MontoTotal(Decimal(c.monto_total), repartos.get(c.id, {}), c.monto_incluye_iva, ivas.get(c.id, {}))
         try:
-            r = reparto.resumen_monto_total(mt, con_ventas[c.id])
+            r = reparto.resumen_monto_total(mts[c.id], con_ventas[c.id])
         # The stored shares cannot be split as they stand; anything else surfaces.
         except reparto.RepartoInvalido as exc:
             if exc.causa == "sin_iva" and exc.item_id not in ivas.get(c.id, {}):
@@ -193,6 +208,12 @@ class Remanente:
     pendientes: int
     estimados: int
 
+    @property
+    def suma(self) -> bool:
+        """Whether it adds anything to the totals (a known amount, or one pending or estimated): the ONE test the
+        Métricas ML KPIs and the CSV closing line share."""
+        return bool(self.monto_ars or self.pendientes or self.estimados)
+
 
 def _ultima_bna(db: Session) -> Optional[Decimal]:
     fila = (
@@ -204,19 +225,24 @@ def _ultima_bna(db: Session) -> Optional[Decimal]:
     return Decimal(str(fila[0])) if fila else None
 
 
-def remanentes(db: Session, desde: date, hasta: date, item_ids: Any = None) -> Remanente:
+def remanentes(db: Session, desde: date, hasta: date, item_ids: Any = None, *, visibles: Any = None) -> Remanente:
     """What the ACTIVE `monto_total` campaigns whose `fecha_hasta` is in `desde`..`hasta` add to the Métricas ML
     totals with no sale row to carry it (T26b2, S34/S35/S37): once per campaign, its "Asignado sin ventas" plus its
-    "Sin asignar", as the panel shows them (`_repartos`: a share net of its own product's VAT when loaded with VAT,
-    the remainder as loaded, since it is applied to no product), in ARS. A USD amount converts at the rate the
-    allocator would give a sale on `fecha_hasta` (`asignacion._tasa`: the campaign's own rate, the BNA of that
-    date, or for `al_cobro` without its rate the latest BNA, an estimate); with no rate it is pending, never 0.
-    Shares that cannot be split as they stand count nothing (the allocator fails the campaign too).
+    "Sin asignar", as the panel shows them (a share net of its own product's VAT when loaded with VAT, the
+    remainder as loaded, since it is applied to no product), in ARS. A campaign with nothing left adds nothing, and
+    needs no rate. A USD amount converts at the rate the allocator would give a sale on `fecha_hasta`
+    (`asignacion.tasa_en`: the campaign's own rate, the BNA of that date, or for `al_cobro` without its rate the
+    latest BNA, an estimate); with no rate it is pending, never 0. Shares that cannot be split as they stand count
+    nothing (the allocator fails the campaign too).
 
     `item_ids` (a selectable or list of product ids, or None for every product): only the campaigns whose groups
     reach one of them count (the board's filtered products).
 
-    Statements: the lookup alone when no campaign matches; else at most six, whatever the number of campaigns."""
+    `visibles` (a selectable or list of product ids, or None for a viewer who sees every product: the PM scope): a
+    scoped viewer gets only the "Asignado sin ventas" of the products they see, and the "Sin asignar" (it belongs
+    to no product) only of a campaign whose whole reach they see.
+
+    Statements: the lookup alone when no campaign matches; else at most eight, whatever the number of campaigns."""
     c = SellOutCampana
     ids_q = select(c.id).where(c.tipo == "monto_total", c.estado == "activa", c.fecha_hasta.between(desde, hasta))
     if item_ids is not None:
@@ -225,20 +251,42 @@ def remanentes(db: Session, desde: date, hasta: date, item_ids: Any = None) -> R
     if not ids:
         return Remanente(Decimal("0"), 0, 0)
     campanas = db.query(c).filter(c.id.in_(ids)).order_by(c.id).all()
-    repartos = _repartos(db, campanas)
-    usd = [x for x in campanas if x.moneda == "USD"]
+    mts, con_ventas, alcances = _montos_totales(db, campanas, todo_el_alcance=visibles is not None)
+    vistos: Optional[set] = None
+    if visibles is not None:
+        alcanzados = {i for productos in alcances.values() for i in productos}
+        p = ProductoERP
+        vistos = (
+            set(db.execute(select(p.item_id).where(p.item_id.in_(alcanzados), p.item_id.in_(visibles))).scalars())
+            if alcanzados
+            else set()
+        )
+    montos: Dict[int, Decimal] = {}
+    for x in campanas:
+        try:
+            por_producto = reparto.sin_ventas(mts[x.id], con_ventas[x.id])
+            sin_asignar = reparto.resumen_monto_total(mts[x.id], con_ventas[x.id])["sin_asignar"]
+        except reparto.RepartoInvalido:
+            continue
+        if vistos is None:
+            monto = sum(por_producto.values(), Decimal("0.00")) + sin_asignar
+        else:
+            monto = sum((v for i, v in por_producto.items() if i in vistos), Decimal("0.00"))
+            if set(alcances.get(x.id, {})) <= vistos:
+                monto += sin_asignar
+        if monto:
+            montos[x.id] = monto
+    usd = [x for x in campanas if x.moneda == "USD" and x.id in montos]
     por_dia = tasas_bna_por_fecha(db, {x.fecha_hasta for x in usd if x.tc_modo == "dia_venta"})
-    sin_tasa = any(x.tc_modo == "al_cobro" and x.tipo_cambio is None for x in usd)
-    tasas = asignacion._Tasas(por_dia, _ultima_bna(db) if sin_tasa else None)
+    actual = _ultima_bna(db) if any(x.tc_modo == "al_cobro" and x.tipo_cambio is None for x in usd) else None
     total, pendientes, estimados = Decimal("0"), 0, 0
     for x in campanas:
-        r = repartos[x.id]
-        if r["motivo"] is not None:
+        if x.id not in montos:
             continue
-        monto = r["asignado_sin_ventas"] + r["sin_asignar"]
+        monto = montos[x.id]
         if x.moneda == "USD":
             try:
-                tasa = asignacion._tasa(x, x.fecha_hasta, tasas)
+                tasa = asignacion.tasa_en(x, x.fecha_hasta, por_dia.get(x.fecha_hasta), actual)
             except asignacion.SellOutAsignacionError:  # no rate yet
                 pendientes += 1
                 continue
