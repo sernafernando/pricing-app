@@ -33,7 +33,9 @@ function unitsLabel(lote) {
   return `Quedan ${lote.restantes} de ${lote.cantidad} · ${usadas} · desde ${day(lote.fecha_desde)}`;
 }
 
-function purchaseLabel(lote) {
+/** Without the purchases permission the supplier and invoices are withheld (`compraVisible`), never "Sin proveedor". */
+function purchaseLabel(lote, compraVisible) {
+  if (!compraVisible) return `Compra #${lote.compra_id}`;
   return [`#${lote.compra_id}`, lote.proveedor || 'Sin proveedor', ...lote.facturas].join(' · ');
 }
 
@@ -42,11 +44,15 @@ function purchaseLabel(lote) {
 function NextSale({ proxima, bonoCosto, lotes }) {
   if (proxima) {
     const { siguiente } = proxima;
-    let despues = 'el costo vuelve al normal';
-    if (!siguiente && bonoCosto) despues = `aplica el bono de costo ${bonoLabel(bonoCosto)}: ${money(bonoCosto.descuento_unit)} por unidad`;
-    if (siguiente) {
-      const desde = siguiente.estado === 'desde' ? ` (desde ${day(siguiente.fecha_desde, { year: false })})` : '';
-      despues = `${money(siguiente.descuento_unit)}${desde}`;
+    // What applies when the current lot runs out and no lot has units yet: the cost bonus, or the plain cost.
+    const sinLotes = bonoCosto
+      ? `aplica el bono de costo ${bonoLabel(bonoCosto)}: ${money(bonoCosto.descuento_unit)} por unidad`
+      : 'el costo vuelve al normal';
+    let despues = sinLotes;
+    if (siguiente?.estado === 'desde') {
+      despues = `${sinLotes} hasta el ${day(siguiente.fecha_desde, { year: false })} y desde entonces ${money(siguiente.descuento_unit)}`;
+    } else if (siguiente) {
+      despues = money(siguiente.descuento_unit);
     }
     return (
       <p className={styles.next}>
@@ -208,7 +214,7 @@ export default function SellInLotes({ productItemId, container = DefaultSection 
       </div>
     );
   } else {
-    const { lotes = [], proxima = null, bono_costo: bonoCosto = null } = read.data ?? {};
+    const { lotes = [], proxima = null, bono_costo: bonoCosto = null, compra_visible: compraVisible = false } = read.data ?? {};
     body = (
       <div className={styles.wrap}>
         <NextSale proxima={proxima} bonoCosto={bonoCosto} lotes={lotes} />
@@ -227,7 +233,7 @@ export default function SellInLotes({ productItemId, container = DefaultSection 
                   </div>
                   <div className={styles.lotLine}>{unitsLabel(lote)}</div>
                   <div className={styles.lotLine}>
-                    <span>{purchaseLabel(lote)}</span>
+                    <span>{purchaseLabel(lote, compraVisible)}</span>
                     <button
                       type="button"
                       className={styles.toggle}

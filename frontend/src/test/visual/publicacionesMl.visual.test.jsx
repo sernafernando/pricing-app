@@ -108,6 +108,7 @@ const API_GETS = vi.hoisted(() => ({
     ],
     proxima: { numero: 2, compra_item_id: 502, descuento_unit: '980.333333', restantes: 18, siguiente: { numero: 3, descuento_unit: '10500.000000', fecha_desde: '2026-10-08', estado: 'en_cola' } },
     bono_costo: null,
+    compra_visible: true,
   },
 }));
 vi.mock('../../services/api', () => ({

@@ -8,6 +8,16 @@ import { Layers } from 'lucide-react';
 import SellInLotes from './sellIn/SellInLotes';
 import { canViewProductPrices } from './pricing/productPricePermissions';
 
+/** A section drawn like the modal's own (card and heading), for components that take their host's section. */
+function InfoSection({ title, children }) {
+  return (
+    <section className="info-section">
+      <h3>{title}</h3>
+      {children}
+    </section>
+  );
+}
+
 const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const { overlayRef, handleOverlayMouseDown, handleOverlayClick } = useModalClickOutside(onClose);
   const { tienePermiso } = usePermisos();
@@ -553,7 +563,7 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
               )}
 
               {/* TAB: LOTES SELL IN */}
-              {tabActiva === 'lotes' && puedeVerLotesSellIn && <SellInLotes key={itemId} productItemId={itemId} />}
+              {tabActiva === 'lotes' && puedeVerLotesSellIn && <SellInLotes key={itemId} productItemId={itemId} container={InfoSection} />}
 
               {/* TAB: ÚLTIMAS COMPRAS */}
               {tabActiva === 'proveedor' && puedeVerInfoCompras && detalle.ultimas_compras && detalle.ultimas_compras.length > 0 && (

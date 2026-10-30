@@ -59,6 +59,8 @@ class LotesProductoOut(BaseModel):
     lotes: List[LoteOut]
     proxima: Optional[ProximaVentaOut]  # None: no lot has units today, the cost is back to normal
     bono_costo: Optional[BonoCostoOut] = None  # when the lots run out (no `proxima`, or no `siguiente`): what applies
+    # False without `productos.ver_info_compras`: each lot's `proveedor` and `facturas` are withheld, not missing.
+    compra_visible: bool
 
 
 class ConsumoLoteOut(BaseModel):

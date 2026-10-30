@@ -51,6 +51,7 @@ const respuesta = (overrides = {}) => ({
       siguiente: { numero: 3, descuento_unit: '10000.000000', fecha_desde: '2026-10-08', estado: 'en_cola' },
     },
     bono_costo: null,
+    compra_visible: true,
     ...overrides,
   },
 });
@@ -139,10 +140,43 @@ describe('the lots', () => {
 
     expect(
       await screen.findByText(
-        'La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después $ 10,00 (desde 03/11)',
+        'La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después el costo vuelve al normal hasta el 03/11 y desde entonces $ 10,00',
       ),
     ).toBeInTheDocument();
   });
+});
+
+it('until a future next lot counts, names the cost bonus that applies in between', async () => {
+  sellInLotesAPI.lotes.mockResolvedValue(
+    respuesta({
+      proxima: {
+        numero: 2,
+        compra_item_id: 502,
+        descuento_unit: '33.333333',
+        restantes: 2,
+        siguiente: { numero: 4, descuento_unit: '10.000000', fecha_desde: '2026-11-03', estado: 'desde' },
+      },
+      bono_costo: { bono_ids: [7], descuento_unit: 1500 },
+    }),
+  );
+  renderLotes();
+
+  expect(
+    await screen.findByText(
+      'La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después aplica el bono de costo #7: $ 1.500,00 por unidad hasta el 03/11 y desde entonces $ 10,00',
+    ),
+  ).toBeInTheDocument();
+});
+
+it('without the purchases permission, a lot names only its purchase number, never "Sin proveedor"', async () => {
+  sellInLotesAPI.lotes.mockResolvedValue(
+    respuesta({ compra_visible: false, lotes: LOTES.map((x) => ({ ...x, proveedor: null, facturas: [] })) }),
+  );
+  renderLotes();
+  const lista = await screen.findByRole('list', { name: 'Lotes en orden FIFO' });
+
+  expect(lista.children[0]).toHaveTextContent('Compra #41');
+  expect(lista).not.toHaveTextContent('Sin proveedor');
 });
 
 describe('with no lot left', () => {

@@ -10,6 +10,7 @@ from decimal import Decimal
 import pytest
 
 from app.models.producto import ProductoERP, TipoMoneda
+from app.models.proveedor import Proveedor
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
 
 BASE = "/api/sell-in/productos"
@@ -24,13 +25,21 @@ def lector(rol_admin, admin_auth_headers, grant_permiso) -> dict:
 @pytest.fixture()
 def lineas(db, admin_user) -> dict[str, int]:
     db.add(ProductoERP(item_id=4512, codigo="SW-8", descripcion="Switch", costo=100.0, moneda_costo=TipoMoneda.ARS))
+    proveedor = Proveedor(nombre="Gauss SA")
+    db.add(proveedor)
+    db.flush()
     ids: dict[str, int] = {}
     for nombre, fecha, cantidad, monto in (
         ("vieja", date(2026, 10, 1), 2, "20.00"),
         ("nueva", date(2026, 10, 5), 3, "10.00"),
     ):
         compra = SellInCompra(
-            fecha_compra=fecha, moneda="ARS", monto_total=Decimal(monto), usuario_id=admin_user.id, estado="activa"
+            fecha_compra=fecha,
+            moneda="ARS",
+            monto_total=Decimal(monto),
+            usuario_id=admin_user.id,
+            estado="activa",
+            proveedor_id=proveedor.id,
         )
         db.add(compra)
         db.flush()
@@ -84,7 +93,7 @@ def test_a_product_without_lots_answers_an_empty_list(client, lector) -> None:
     resp = client.get(f"{BASE}/999/lotes", headers=lector)
 
     assert resp.status_code == 200
-    assert resp.json() == {"item_id": 999, "lotes": [], "proxima": None, "bono_costo": None}
+    assert resp.json() == {"item_id": 999, "lotes": [], "proxima": None, "bono_costo": None, "compra_visible": False}
 
 
 def test_the_consumptions_of_a_lot_are_paginated(client, lector, lineas) -> None:
@@ -98,3 +107,20 @@ def test_the_consumptions_of_a_lot_are_paginated(client, lector, lineas) -> None
         ("ml", 12, "2026-10-02", 1)
     ]
     assert Decimal(data["items"][0]["descuento_ars"]) == Decimal("10.00")
+
+
+def test_the_supplier_and_invoices_need_the_purchases_permission(client, lector, lineas) -> None:
+    # The same permission that shows Productos' "Últimas compras": without it the lots still come, without who sold.
+    lotes = client.get(f"{BASE}/4512/lotes", headers=lector).json()
+
+    assert lotes["compra_visible"] is False
+    assert {(x["proveedor"], tuple(x["facturas"])) for x in lotes["lotes"]} == {(None, ())}
+
+
+def test_with_the_purchases_permission_the_supplier_comes(client, lector, lineas, rol_admin, grant_permiso) -> None:
+    grant_permiso(rol_admin, "productos.ver_info_compras")
+
+    lotes = client.get(f"{BASE}/4512/lotes", headers=lector).json()
+
+    assert lotes["compra_visible"] is True
+    assert {x["proveedor"] for x in lotes["lotes"]} == {"Gauss SA"}

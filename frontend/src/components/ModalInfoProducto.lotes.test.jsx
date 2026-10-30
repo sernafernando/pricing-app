@@ -10,7 +10,14 @@ import api from '../services/api';
 vi.mock('../services/api', () => ({ default: { get: vi.fn() } }));
 
 vi.mock('./sellIn/SellInLotes', () => ({
-  default: ({ productItemId }) => <div data-testid="sell-in-lotes">{`lotes of ${productItemId}`}</div>,
+  default: ({ productItemId, container }) => {
+    const Container = container;
+    return (
+      <Container title="Lotes sell in">
+        <div data-testid="sell-in-lotes">{`lotes of ${productItemId}`}</div>
+      </Container>
+    );
+  },
 }));
 
 let granted = new Set();
@@ -31,6 +38,8 @@ describe('ModalInfoProducto - sell-in lots tab', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Lotes sell in' }));
 
     expect(screen.getByTestId('sell-in-lotes')).toHaveTextContent('lotes of 950');
+    // Drawn as the modal's other sections (its card and heading).
+    expect(screen.getByRole('heading', { name: 'Lotes sell in' }).closest('section')).toHaveClass('info-section');
   });
 
   it('starts on the lots when it is the only tab allowed', async () => {
