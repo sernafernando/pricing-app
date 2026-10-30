@@ -296,19 +296,21 @@ export default function SellIn() {
   // while and the page stays usable, so the reload reads the page and filters on screen when it ends (refs).
   const recargarComprasRef = useRef(null);
   const recargarBonosRef = useRef(null);
+  const { offset: bonosOffset, setOffset: setBonosOffset, recargar: recargarBonos } = bonos;
+  const recargarVigentes = bonosVigentes.recargar;
   useEffect(() => {
     recargarComprasRef.current = () => {
       if (offset === 0) cargar();
       else setOffset(0);
-      bonosVigentes.recargar();
+      recargarVigentes();
     };
     recargarBonosRef.current = () => {
-      if (bonos.offset === 0) bonos.recargar();
-      else bonos.setOffset(0);
-      bonosVigentes.recargar();
+      if (bonosOffset === 0) recargarBonos();
+      else setBonosOffset(0);
+      recargarVigentes();
       cargar();
     };
-  }, [offset, cargar, bonos.offset, bonos.recargar, bonos.setOffset, bonosVigentes.recargar]);
+  }, [offset, cargar, bonosOffset, setBonosOffset, recargarBonos, recargarVigentes]);
   const anuladoMasivo = (seleccion, tipoPanel, recargarRef) => (mensaje, { anuladas }) => {
     seleccion.limpiar();
     setAviso(mensaje);
