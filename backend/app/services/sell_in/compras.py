@@ -448,6 +448,25 @@ def _sincronizar_pedidos(db: Session, compra: SellInCompra, ids: list[int]) -> N
 
 def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInCompra]:
     """Void a purchase. None when it does not exist; `SellInYaAnulada` on a second call."""
+    try:
+        compra = _anular_compra(db, compra_id, usuario_id, motivo)
+        if compra is not None:
+            db.commit()
+    except SellInError:
+        raise  # refused before any change; the caller rolls back
+    except Exception:
+        db.rollback()  # the purchase stays activa and unaudited; never leave the session aborted
+        raise
+    if compra is None:
+        return None
+    db.refresh(compra)
+    return compra
+
+
+def _anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInCompra]:
+    """THE void step, without committing (the single void and the bulk one, `anular_masivo`, commit): voids the
+    purchase, audits each line and releases its units. None when it does not exist; `SellInYaAnulada` /
+    `SellInGenerada` before any change when it cannot be voided."""
     compra = db.query(SellInCompra).filter(SellInCompra.id == compra_id).with_for_update().first()
     if compra is None:
         return None
@@ -464,14 +483,8 @@ def anular_compra(db: Session, compra_id: int, usuario_id: int, motivo: Optional
     audit(db, compra, items, TipoAccion.SELL_IN_COMPRA_ANULADA, usuario_id, motivo=motivo)
     db.flush()
     # Its units are released in the same transaction: later purchases take those sales over.
-    try:
-        get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
-        bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
-        db.commit()
-    except Exception:
-        db.rollback()  # the purchase stays activa and unaudited; never leave the session aborted
-        raise
-    db.refresh(compra)
+    get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
+    bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
     return compra
 
 

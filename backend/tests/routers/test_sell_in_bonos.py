@@ -79,6 +79,7 @@ ENDPOINTS = [
     ("get", f"{BASE}/1", None),
     ("put", f"{BASE}/1", _body()),
     ("post", f"{BASE}/1/anular", {}),
+    ("post", f"{BASE}/anular-masivo", {"ids": [1]}),
 ]
 
 
@@ -341,3 +342,46 @@ def test_the_flag_must_be_a_boolean(client, gestor, productos):
     resp = client.post(BASE, json=_body(acumulable="quizás"), headers=gestor)
 
     assert resp.status_code == 422
+
+
+# ── Anular masivo ───────────────────────────────────────────────────
+
+MASIVO = f"{BASE}/anular-masivo"
+
+
+def test_bulk_void_voids_every_bonus_with_the_single_void_audit(client, gestor, productos, db):
+    a, b = _crear(client, gestor), _crear(client, gestor, marca="MERCUSYS")
+
+    resp = client.post(MASIVO, json={"ids": [a["id"], b["id"]], "motivo": "Acuerdo caído"}, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"anuladas": [a["id"], b["id"]], "ya_anuladas": []}
+    db.expire_all()
+    assert {db.get(SellInBonoMarca, x["id"]).estado for x in (a, b)} == {"anulada"}
+    rows = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_BONO_ANULADO).all()
+    assert len(rows) == 2 and {r.comentario for r in rows} == {"Acuerdo caído"}
+
+
+def test_bulk_void_skips_and_reports_an_already_voided_bonus(client, gestor, productos):
+    a, b = _crear(client, gestor), _crear(client, gestor)
+    client.post(f"{BASE}/{a['id']}/anular", json={}, headers=gestor)
+
+    resp = client.post(MASIVO, json={"ids": [a["id"], b["id"]]}, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"anuladas": [b["id"]], "ya_anuladas": [a["id"]]}
+
+
+def test_bulk_void_of_bonuses_is_all_or_nothing(client, gestor, productos, db):
+    a = _crear(client, gestor)
+
+    resp = client.post(MASIVO, json={"ids": [a["id"], 424242]}, headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json() == {  # a dict detail without "code" is the body root (app.core.exceptions)
+        "mensaje": "No se anuló ninguno: 1 no se puede anular",
+        "rechazadas": [{"id": 424242, "motivo": "El bono 424242 no existe"}],
+    }
+    db.expire_all()
+    assert db.get(SellInBonoMarca, a["id"]).estado == "activa"
+    assert db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_BONO_ANULADO).count() == 0

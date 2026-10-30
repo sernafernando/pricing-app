@@ -36,7 +36,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.sell_in import SellInBonoMarca
 from app.models.usuario import Usuario
-from app.routers.sell_in_compras import requiere_gestionar, requiere_ver
+from app.routers.sell_in_compras import rechazo_masivo, requiere_gestionar, requiere_ver
+from app.schemas.sell_in import SellInAnularMasivoIn, SellInAnularMasivoOut
 from app.schemas.sell_in_bonos import (
     ALCANCE_LIMITE,
     ALCANCE_LIMITE_MAX,
@@ -47,7 +48,7 @@ from app.schemas.sell_in_bonos import (
     SellInBonoListOut,
     SellInBonoOut,
 )
-from app.services.sell_in import bonos_alcance
+from app.services.sell_in import anular_masivo, bonos_alcance
 from app.services.sell_in import bonos_crud as service
 
 router = APIRouter(prefix="/sell-in/bonos", tags=["Sell in"])
@@ -131,6 +132,29 @@ def editar_bono(
     if bono is None:
         raise _no_existe(bono_id)
     return service.serializar(db, [bono])[0]
+
+
+@router.post("/anular-masivo", response_model=SellInAnularMasivoOut)
+def anular_bonos(
+    data: SellInAnularMasivoIn,
+    user: Usuario = Depends(requiere_gestionar),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Void several bonuses at once, all or nothing, each through the single void (same audit; the worker then voids
+    what each generated). Already-voided ones are skipped and reported; a missing one makes it a 409 that names it
+    and voids none."""
+    try:
+        anuladas, ya_anuladas = anular_masivo.anular_varios(
+            db,
+            data.ids,
+            lambda bono_id: service._anular_bono(db, bono_id, user.id, data.motivo),
+            ya_anulada=service.SellInBonoYaAnulado,
+            rechazos=(),
+            no_existe=lambda bono_id: f"El bono {bono_id} no existe",
+        )
+    except anular_masivo.AnulacionRechazada as exc:
+        raise rechazo_masivo(exc, "ninguno") from exc
+    return {"anuladas": anuladas, "ya_anuladas": ya_anuladas}
 
 
 @router.post("/{bono_id}/anular", response_model=SellInBonoOut)

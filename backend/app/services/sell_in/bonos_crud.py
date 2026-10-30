@@ -359,6 +359,17 @@ def editar_bono(db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int) 
 def anular_bono(db: Session, bono_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInBonoMarca]:
     """Void a bonus (the worker then voids what it generated). None when it does not exist;
     `SellInBonoYaAnulado` on a second call."""
+    bono = _anular_bono(db, bono_id, usuario_id, motivo)
+    if bono is None:
+        return None
+    db.commit()
+    db.refresh(bono)
+    return bono
+
+
+def _anular_bono(db: Session, bono_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInBonoMarca]:
+    """THE void step, without committing (the single void and the bulk one, `anular_masivo`, commit). None when it
+    does not exist; `SellInBonoYaAnulado` before any change when it is already voided."""
     bono = _bloquear(db, bono_id)
     if bono is None:
         return None
@@ -372,8 +383,6 @@ def anular_bono(db: Session, bono_id: int, usuario_id: int, motivo: Optional[str
         _valores(db, bono),
         motivo,
     )
-    db.commit()
-    db.refresh(bono)
     return bono
 
 
