@@ -30,8 +30,8 @@ def lotes_de_producto(
     item_id: int, current_user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> dict:
     """The product's lots of active purchases in the order the next sales take them, with today's status of each one
-    and what the next sale gets (`visor_lotes`); when the lots run out (now or after the current one), the cost bonus
-    that applies then, if any. The supplier and invoices only with `productos.ver_info_compras` (`compra_visible`).
+    and what the next sale gets (`visor_lotes`); while no lot has units (now, after the current one, or until a next
+    lot that counts from a future date), the cost bonus that applies then, if any. The supplier and invoices only with `productos.ver_info_compras` (`compra_visible`).
     Writes nothing."""
     hoy = date.today()
     visor = visor_lotes.lotes_de_producto(db, item_id, hoy)
