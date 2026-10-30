@@ -282,12 +282,26 @@ export default function SellIn() {
   }, [params, limpiarCompras]);
 
   // After a bulk void: the side panel of a record it voided closes (it read the record when it opened). What it voided
-  // leaves the list, so the page it was on may no longer exist: `recargar` goes back to page 1.
-  const anuladoMasivo = (seleccion, tipoPanel, recargar) => (mensaje, { anuladas }) => {
+  // leaves the list, so the page it was on may no longer exist: each list goes back to page 1. The void can take a
+  // while and the page stays usable, so the reload reads the page and filters on screen when it ends (refs).
+  const recargarComprasRef = useRef(null);
+  recargarComprasRef.current = () => {
+    if (offset === 0) cargar();
+    else setOffset(0);
+    bonosVigentes.recargar();
+  };
+  const recargarBonosRef = useRef(null);
+  recargarBonosRef.current = () => {
+    if (bonos.offset === 0) bonos.recargar();
+    else bonos.setOffset(0);
+    bonosVigentes.recargar();
+    cargar();
+  };
+  const anuladoMasivo = (seleccion, tipoPanel, recargarRef) => (mensaje, { anuladas }) => {
     seleccion.limpiar();
     setAviso(mensaje);
     setPanel((actual) => (actual?.tipo === tipoPanel && anuladas.includes(actual.id) ? null : actual));
-    recargar();
+    recargarRef.current();
   };
 
   // The last result stays until the filters change or the next selection starts.
@@ -563,11 +577,7 @@ export default function SellIn() {
                     onSeleccionarFiltrado={seleccionarComprasFiltradas}
                     onLimpiar={selCompras.limpiar}
                     anular={sellInAPI.anularMasivo}
-                    onHecho={anuladoMasivo(selCompras, 'detalle', () => {
-                      if (offset === 0) cargar();
-                      else setOffset(0);
-                      bonosVigentes.recargar();
-                    })}
+                    onHecho={anuladoMasivo(selCompras, 'detalle', recargarComprasRef)}
                   />
                 )}
                 {loading && !lista ? (
@@ -625,12 +635,7 @@ export default function SellIn() {
                         }
                         onLimpiar={selBonos.limpiar}
                         anular={sellInBonosAPI.anularMasivo}
-                        onHecho={anuladoMasivo(selBonos, 'bono', () => {
-                          if (bonos.offset === 0) bonos.recargar();
-                          else bonos.setOffset(0);
-                          bonosVigentes.recargar();
-                          cargar();
-                        })}
+                        onHecho={anuladoMasivo(selBonos, 'bono', recargarBonosRef)}
                       />
                     )}
                     <SellInBonosTable

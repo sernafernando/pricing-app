@@ -603,6 +603,29 @@ describe('SellIn page — bulk void (anular masivo)', () => {
     await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ page: 1 })));
   });
 
+  it('reloads with the page on screen when the void ends, not the one it started on', async () => {
+    const user = userEvent.setup();
+    let soltar;
+    sellInAPI.listar.mockResolvedValue({ data: { ...LISTA, total: 500 } });
+    sellInAPI.anularMasivo.mockImplementation(() => new Promise((resolve) => (soltar = () => resolve({ data: { anuladas: [1, 2], ya_anuladas: [] } }))));
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    await user.click(screen.getAllByRole('button', { name: 'Página 2' })[0]);
+    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ page: 2 })));
+    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar la página de sell in' }));
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, anular 2' }));
+
+    await user.click(screen.getAllByRole('button', { name: 'Página 1' })[0]);
+    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ page: 1 })));
+    const listados = sellInAPI.listar.mock.calls.length;
+    soltar();
+
+    await screen.findByRole('status');
+    await waitFor(() => expect(sellInAPI.listar.mock.calls.length).toBeGreaterThan(listados));
+    expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ page: 1 }));
+  });
+
   it('the bonus list also goes back to page 1 after a bulk void', async () => {
     const user = userEvent.setup();
     sellInBonosAPI.listar.mockResolvedValue({ data: { ...BONOS_LISTA, total: 500 } });
