@@ -16,7 +16,7 @@ vi.mock('../../services/api', () => ({
 }));
 
 const SW8 = 'SW-8 · Switch 8 bocas';
-const BASE_BODY = { moneda: 'USD', fecha_desde: '2026-09-01', fecha_hasta: '2026-11-30', descripcion: null, tope_unidades: null, tope_monto: null };
+const BASE_BODY = { moneda: 'USD', fecha_desde: '2026-09-01', fecha_hasta: '2026-11-30', descripcion: null, tope_unidades: null, tope_monto: null, acumulable: true };
 const BONO_MODELOS = {
   ...BONO,
   alcance: 'modelos',

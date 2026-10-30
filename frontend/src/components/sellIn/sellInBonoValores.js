@@ -43,6 +43,9 @@ export const BONO_VACIO = {
   // The invoice bonus's kind, currency, scope and money cap before moving to the cost base, brought back when returning to it.
   // Never sent.
   antesDeCosto: null,
+  // Whether it adds to the other bonuses on the same unit (T27, sell out's meaning): unticked, it pays only on units no
+  // earlier bonus paid, and a later bonus does not pay on its units either.
+  acumulable: true,
 };
 
 /** The label of a model chip: code and description, or the bare item when the catalog lost it. */
@@ -70,6 +73,7 @@ export const valoresDeBono = (bono) => ({
   base: bono.base ?? BASE_FACTURA,
   incluyeIva: Boolean(bono.incluye_iva),
   antesDeCosto: null,
+  acumulable: bono.acumulable ?? true,
 });
 
 /** The key of the bonus's kind in the API and in a model's form values. */
@@ -153,6 +157,7 @@ export const bodyDeBono = (valores, nuevo = false) => ({
   descripcion: valores.descripcion.trim() || null,
   tope_unidades: normalizarTope(valores.topeUnidades),
   tope_monto: normalizarTope(valores.topeMonto),
+  acumulable: valores.acumulable,
   ...camposDeBase(valores, nuevo),
 });
 

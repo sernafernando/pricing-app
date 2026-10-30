@@ -112,6 +112,7 @@ describe('SellInBonoForm — base of a new bonus', () => {
       descripcion: null,
       tope_unidades: null,
       tope_monto: null,
+      acumulable: true,
       base: 'costo_venta',
       incluye_iva: true,
     });

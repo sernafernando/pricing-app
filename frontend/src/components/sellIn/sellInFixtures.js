@@ -247,6 +247,7 @@ export const BONO = {
   tope_monto: null,
   tope_unidades_restantes: null,
   tope_monto_restante: null,
+  acumulable: true,
 };
 
 export const BONO_ANULADO = { ...BONO, id: 4, estado: 'anulada', descripcion: 'Bono anulado', compras_activas: 0, unidades: 0, monto_generado: '0.00', montos_generados: [] };

@@ -250,6 +250,17 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
           </p>
         </div>
       )}
+      <div className={styles.field}>
+        <label className={styles.check}>
+          <input type="checkbox" checked={valores.acumulable} disabled={disabled} onChange={(e) => set({ acumulable: e.target.checked })} />
+          Acumulable con otros bonos
+        </label>
+        {!valores.acumulable && (
+          <p className={styles.hint}>
+            No acumulable: no cobra sobre las unidades que ya cobró un bono anterior, y los bonos posteriores tampoco cobran sobre las suyas.
+          </p>
+        )}
+      </div>
       <div className={styles.grid2}>
         <label className={styles.field} htmlFor={`${id}-desde`}>
           <span className={styles.label}>{`${fechas} desde`}</span>
