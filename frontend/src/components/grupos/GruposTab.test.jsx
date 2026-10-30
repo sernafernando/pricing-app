@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithRouter } from '../../test/renderWithRouter';
 import { productosAPI } from '../../services/api';
@@ -74,6 +74,44 @@ describe('GruposTab — list', () => {
     const vacio = await fila('Sin filtros');
     expect(within(vacio).getByText('Sin filtros: no alcanza productos')).toBeInTheDocument();
     expect(within(vacio).getByText('Ninguna')).toBeInTheDocument();
+  });
+
+  it('says it is loading while the groups and their reach are asked, and never together with the error', async () => {
+    let responder;
+    offsetGruposAPI.alcance.mockReturnValue(new Promise((resolve) => (responder = resolve)));
+    renderWithRouter(<GruposTab />);
+    expect(screen.getByText('Cargando grupos…')).toBeInTheDocument();
+    responder({ data: ALCANCE });
+    expect(await screen.findByText('TP-Link redes')).toBeInTheDocument();
+    expect(screen.queryByText('Cargando grupos…')).not.toBeInTheDocument();
+  });
+
+  it('a failed load shows the error without the loading text', async () => {
+    offsetGruposAPI.alcance.mockRejectedValue(new Error('500'));
+    renderWithRouter(<GruposTab />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los grupos.');
+    expect(screen.queryByText('Cargando grupos…')).not.toBeInTheDocument();
+  });
+
+  it('a new version asks the groups again and keeps the open panel', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<GruposTab version={0} />);
+    await abrir(user, 'TP-Link redes');
+    rerender(<GruposTab version={1} />);
+    await waitFor(() => expect(offsetGruposAPI.listar).toHaveBeenCalledTimes(2));
+    expect(offsetGruposAPI.alcance).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('complementary', { name: 'Grupo' })).toBeInTheDocument();
+  });
+
+  it('when the filter options fail it says so, and the next reload asks them again', async () => {
+    offsetGruposAPI.opciones.mockRejectedValueOnce(new Error('500'));
+    const { rerender } = render(<GruposTab version={0} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar las marcas, categorías y subcategorías');
+    expect(screen.getByText('TP-Link redes')).toBeInTheDocument();
+    rerender(<GruposTab version={1} />);
+    await waitFor(() => expect(offsetGruposAPI.opciones).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('Subcategoría Wi-Fi 6')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('says so when the groups cannot be read', async () => {

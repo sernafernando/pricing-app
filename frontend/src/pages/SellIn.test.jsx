@@ -266,6 +266,16 @@ describe('SellIn page — Grupos tab (T30)', () => {
     expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=grupos');
   });
 
+  it('"Actualizar" on the Grupos tab reloads the groups too', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
+    expect(await screen.findByText('TP-Link redes')).toBeInTheDocument();
+    expect(offsetGruposAPI.listar).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+    await waitFor(() => expect(offsetGruposAPI.listar).toHaveBeenCalledTimes(2));
+    expect(offsetGruposAPI.alcance).toHaveBeenCalledTimes(2);
+  });
+
   it('without config.editar_constantes there is no Grupos tab, and ?tab=grupos falls back to Sell in', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'config.editar_constantes');
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });

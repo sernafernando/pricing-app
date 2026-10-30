@@ -11,10 +11,11 @@ import own from './Grupos.module.css';
 /**
  * The "Grupos" tab of Sell in / Sell out (T30): the product groups sell-out campaigns reach, with the products
  * each reaches and the campaigns using it; "Editar" / "Nuevo grupo" open the side panel. Shown with
- * `config.editar_constantes`, the permission of every group endpoint it calls.
+ * `config.editar_constantes`, the permission of every group endpoint it calls. A new `version` (the page's
+ * "Actualizar") asks the groups again and keeps the open panel.
  */
-export default function GruposTab() {
-  const { grupos, opciones, error, recargar } = useGrupos();
+export default function GruposTab({ version = 0 }) {
+  const { grupos, opciones, error, errorOpciones, recargar } = useGrupos(version);
   // `{ id, inicial }`: `id` null is a new group; `inicial` is what "Crear grupo" answered, until the list has it.
   const [panel, setPanel] = useState(null);
   const subcategorias = nombresDeSubcategorias(opciones);
@@ -62,6 +63,12 @@ export default function GruposTab() {
             <ShieldAlert size={16} /> {error}
           </div>
         )}
+        {errorOpciones && !error && (
+          <div className={pageStyles.errorBar} role="alert">
+            <ShieldAlert size={16} /> {errorOpciones}
+          </div>
+        )}
+        {!grupos && !error && <p className={pageStyles.loading}>Cargando grupos…</p>}
         {grupos && <GruposTable grupos={grupos} subcategorias={subcategorias} selectedId={panel?.id ?? null} onSelect={(id) => setPanel({ id })} />}
       </section>
     </SplitPanelLayout>

@@ -198,6 +198,8 @@ export default function SellIn() {
   const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut);
   const [searchParams, setSearchParams] = useSearchParams();
   const puedeGestionarGrupos = tienePermiso('config.editar_constantes');
+  // "Actualizar" bumps it: the Grupos tab asks its groups again.
+  const [versionGrupos, setVersionGrupos] = useState(0);
   const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeGestionarGrupos ? [TAB_GRUPOS] : [])];
   const tabUrl = searchParams.get('tab');
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
@@ -373,6 +375,7 @@ export default function SellIn() {
               bonos.recargar();
               bonosVigentes.recargar();
               campanas.recargar();
+              setVersionGrupos((v) => v + 1);
             }}
             disabled={loading}
           >
@@ -505,7 +508,7 @@ export default function SellIn() {
       >
         {tab === TAB_GRUPOS ? (
           <div role="tabpanel" id="grupos-panel" aria-labelledby="grupos-tab">
-            <GruposTab />
+            <GruposTab version={versionGrupos} />
           </div>
         ) : enSellIn ? (
           <div role="tabpanel" id="sell-in-panel" aria-labelledby="sell-in-tab">

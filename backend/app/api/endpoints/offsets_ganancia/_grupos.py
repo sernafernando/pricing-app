@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List
 
 from app.core.database import get_db
 from app.models.offset_ganancia import OffsetGanancia
@@ -14,31 +13,12 @@ from app.api.deps import get_current_user
 from app.services.permisos_service import verificar_permiso
 from app.services.sell_out.alcance import productos_por_grupo
 
-from ._schemas import OffsetGrupoCreate, OffsetGrupoResponse
+from ._schemas import AlcanceGrupo, OffsetGrupoCreate, OffsetGrupoResponse, OffsetGrupoUpdate
 
 router = APIRouter()
 
 PERMISO_GRUPOS = "config.editar_constantes"
 _SIN_PERMISO = "No tienes permiso para gestionar offsets de ganancia"
-
-
-class OffsetGrupoUpdate(BaseModel):
-    """Only the fields sent change; an empty description clears it."""
-
-    nombre: Optional[str] = Field(default=None, max_length=100)
-    descripcion: Optional[str] = Field(default=None, max_length=255)
-
-
-class CampanaDeGrupo(BaseModel):
-    id: int
-    nombre: str
-    estado: str
-
-
-class AlcanceGrupo(BaseModel):
-    grupo_id: int
-    productos: int
-    campanas: List[CampanaDeGrupo]
 
 
 _GRUPO_EN_SELL_OUT = (
