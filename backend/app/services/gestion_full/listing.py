@@ -24,6 +24,7 @@ def _sugerido(target: Optional[int], stock_full: Optional[int]) -> Optional[int]
     stock = int(stock_full or 0)
     return max(0, int(target) - stock)
 
+
 _LIST_SQL = text(
     """
     WITH linked AS (

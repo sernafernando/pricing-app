@@ -215,10 +215,14 @@ def claim_inventory_ids_for_inbound_refresh(
     """Oldest-unchecked Full inventory_ids (skip ones fetched within fresh_within_days)."""
     moment = now or datetime.now(UTC)
     fresh_after = moment - timedelta(days=max(1, fresh_within_days))
-    rows = db.execute(
-        _CLAIM_SQL,
-        {"limit": max(1, limit), "fresh_after": fresh_after},
-    ).scalars().all()
+    rows = (
+        db.execute(
+            _CLAIM_SQL,
+            {"limit": max(1, limit), "fresh_after": fresh_after},
+        )
+        .scalars()
+        .all()
+    )
     return [str(r) for r in rows]
 
 
@@ -233,9 +237,7 @@ def refresh_last_inbound(
     owns_client = client is None
     http = client or MlHttpClient(pacer=Pacer())
     try:
-        picked = fetch_last_inbound_for_inventory(
-            http, inventory_id=inventory_id, lookback_days=lookback_days
-        )
+        picked = fetch_last_inbound_for_inventory(http, inventory_id=inventory_id, lookback_days=lookback_days)
         if picked is None:
             return None
         return upsert_last_inbound(
