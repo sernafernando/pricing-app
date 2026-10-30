@@ -30,6 +30,7 @@ Este índice lista todas las pantallas de la aplicación, en el mismo orden en q
 | 24 | Métricas ML (anterior) | `metricas-ml-anterior.md` | `/dashboard-metricas-ml` | Reportes → Métricas ML (anterior) | Acceso al tablero de ventas ML |
 | 25 | Aportes de marcas (Ads ML) | `aportes-de-marcas-ads-ml.md` | `/ml-ads-aportes` | Reportes → Aportes de marcas (Ads ML) | Acceso a Métricas ML y, además, permiso para ver ganancias |
 | 26 | Ventas ML | `ventas-ml.md` | `/ml-ventas-listado` | Reportes → Ventas ML | Acceso a Ventas ML |
+| 27b | Gestión Full | `gestion-full.md` | `/gestion-full` | Reportes → Gestión Full | Acceso a Productos o a Ventas ML; override solo PM/sub-PM o admin |
 | 27 | Publicaciones ML | `publicaciones-ml.md` | `/ml-publicaciones` | Reportes → Publicaciones ML | Acceso a Productos o a Ventas ML |
 | 28 | Dashboard TP-Link | `dashboard-tp-link.md` | `/dashboard-tplink` | Reportes → Dashboard TP-Link | Acceso al tablero de TP-Link |
 | 29 | Ventas por Fuera | `ventas-por-fuera.md` | `/dashboard-ventas-fuera` | Reportes → Ventas por Fuera | Acceso al tablero de ventas por fuera |

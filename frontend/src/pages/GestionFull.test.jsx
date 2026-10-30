@@ -1,0 +1,110 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import GestionFull from './GestionFull';
+
+vi.mock('../services/api', () => ({
+  default: {
+    get: vi.fn(),
+    patch: vi.fn(),
+  },
+}));
+
+vi.mock('../hooks/useDebounce', () => ({
+  useDebounce: (value) => value,
+}));
+
+import api from '../services/api';
+
+describe('GestionFull', () => {
+  beforeEach(() => {
+    api.get.mockReset();
+    api.patch.mockReset();
+  });
+
+  it('renders grouped rows centered and calls the list endpoint', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        total: 2,
+        items: [
+          {
+            producto_item_id: 1,
+            ean: 'EAN-A',
+            descripcion: 'Producto A',
+            inventory_id: 'INV1',
+            user_product_id: 'MLAU1',
+            stock_erp: 10,
+            stock_full: 2,
+            ventas_full_7d: 1,
+            ventas_full_14d: 2,
+            ventas_full_21d: 3,
+            ventas_full_30d: 4,
+            override: null,
+            puede_editar_override: false,
+          },
+          {
+            producto_item_id: 1,
+            ean: 'EAN-A',
+            descripcion: 'Producto A',
+            inventory_id: 'INV2',
+            user_product_id: 'MLAU2',
+            stock_erp: 10,
+            stock_full: 1,
+            ventas_full_7d: 0,
+            ventas_full_14d: 1,
+            ventas_full_21d: 1,
+            ventas_full_30d: 2,
+            override: 5,
+            puede_editar_override: false,
+          },
+        ],
+        puede_editar_override: false,
+      },
+    });
+
+    render(<GestionFull />);
+
+    await waitFor(() => {
+      expect(screen.getByText('INV1')).toBeInTheDocument();
+    });
+    expect(screen.getByText('INV2')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Gestión Full' })).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith(
+      '/gestion-full',
+      expect.objectContaining({
+        params: expect.objectContaining({ limit: 200, offset: 0 }),
+      }),
+    );
+  });
+
+  it('patches override on blur when the row is editable', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        total: 1,
+        items: [
+          {
+            producto_item_id: 1,
+            ean: 'EAN-A',
+            descripcion: 'Producto A',
+            inventory_id: 'INV1',
+            user_product_id: 'MLAU1',
+            override: null,
+            puede_editar_override: true,
+          },
+        ],
+        puede_editar_override: true,
+      },
+    });
+    api.patch.mockResolvedValue({ data: { inventory_id: 'INV1', override: 9 } });
+
+    render(<GestionFull />);
+
+    const input = await screen.findByLabelText('Override INV1');
+    fireEvent.change(input, { target: { value: '9' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(api.patch).toHaveBeenCalledWith('/gestion-full/INV1', { cantidad: 9 });
+    });
+  });
+});
