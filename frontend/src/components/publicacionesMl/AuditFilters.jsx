@@ -12,6 +12,9 @@ const inputMoment = (value, endOfDay) => {
   return `${moment}T${endOfDay ? '23:59' : '00:00'}`;
 };
 
+// The room the panel keeps from the screen's right edge.
+const PANEL_MARGIN = 16;
+
 /**
  * The "Auditoría:" group of the Publicaciones ML filter card: Productos' "Filtros de Auditoría" (user who changed
  * the product, kind of change, date range), behind one button like the presence filters, so the card does not grow
@@ -20,9 +23,6 @@ const inputMoment = (value, endOfDay) => {
  *
  * @param {{filters: object, setFilters: (updates: object) => void, labelClassName?: string}} props
  */
-// The room the panel keeps from the screen's right edge.
-const PANEL_MARGIN = 16;
-
 export default function AuditFilters({ filters, setFilters, labelClassName }) {
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState(null);
