@@ -26,6 +26,8 @@ export default function GruposTab({ version = 0, onGruposCambiados = () => {} })
     return recargar();
   };
   const grupo = panel?.id != null ? (grupos?.find((g) => g.id === panel.id) ?? panel.inicial) : null;
+  // Once the list has the created group, `inicial` is dropped: a later reload without it closes the panel too.
+  if (panel?.inicial && grupos?.some((g) => g.id === panel.id)) setPanel({ id: panel.id });
   // A reload without the open group (someone else deleted it) closes the panel instead of turning it into "Nuevo".
   if (panel?.id != null && grupos && !grupo) setPanel(null);
 

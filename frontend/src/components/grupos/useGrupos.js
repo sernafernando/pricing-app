@@ -3,8 +3,8 @@ import { offsetGruposAPI } from '../../services/offsetGruposAPI';
 
 /**
  * The offset groups with what each reaches (`GET /offset-grupos` + `GET /offset-grupos-alcance`) and the filter
- * options (asked once, again after a failure). A new `version` reloads. `recargar` asks the groups and their reach again: every change calls it, so the preview
- * follows the filters.
+ * options (asked once, again after a failure). A new `version` reloads. `recargar` asks the groups and their
+ * reach again: every change calls it, so the preview follows the filters.
  */
 export function useGrupos(version = 0) {
   const [grupos, setGrupos] = useState(null);

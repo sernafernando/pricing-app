@@ -114,6 +114,23 @@ describe('GruposTab — list', () => {
     expect(screen.queryByRole('button', { name: 'Crear grupo' })).not.toBeInTheDocument();
   });
 
+  it('a just-created group someone else deletes closes the panel on the next reload', async () => {
+    const user = userEvent.setup();
+    const NUEVO = { id: 3, nombre: 'Mercusys', descripcion: null, filtros: [] };
+    offsetGruposAPI.crear.mockResolvedValue({ data: NUEVO });
+    const { rerender } = render(<GruposTab version={0} />);
+    await fila('TP-Link redes');
+    await user.click(screen.getByRole('button', { name: 'Nuevo grupo' }));
+    const panel = screen.getByRole('complementary', { name: 'Grupo' });
+    offsetGruposAPI.listar.mockResolvedValue({ data: [TPLINK, VACIO, NUEVO] });
+    await user.type(within(panel).getByLabelText('Nombre'), 'Mercusys');
+    await user.click(within(panel).getByRole('button', { name: 'Crear grupo' }));
+    expect(await screen.findByRole('cell', { name: /Mercusys/ })).toBeInTheDocument();
+    offsetGruposAPI.listar.mockResolvedValue({ data: [TPLINK, VACIO] });
+    rerender(<GruposTab version={1} />);
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Grupo' })).not.toBeInTheDocument());
+  });
+
   it('when the filter options fail it says so, and the next reload asks them again', async () => {
     offsetGruposAPI.opciones.mockRejectedValueOnce(new Error('500'));
     const { rerender } = render(<GruposTab version={0} />);
