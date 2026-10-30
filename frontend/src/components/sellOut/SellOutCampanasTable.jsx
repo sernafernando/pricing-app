@@ -8,13 +8,28 @@ import repartoStyles from './SellOutReparto.module.css';
 
 const DIA = { day: '2-digit', month: '2-digit', year: 'numeric' };
 
-/** The sell-out campaigns (`GET /sell-out/campanas`), with what each one credited; "Ver campaña" opens it (`onSelect`). */
-export default function SellOutCampanasTable({ campanas, selectedId, onSelect }) {
+/**
+ * The sell-out campaigns (`GET /sell-out/campanas`), with what each one credited; "Ver campaña" opens it (`onSelect`).
+ * With `seleccion` (a `Map` keyed by id, `SellOutAnularMasivo`) each row and the header get a checkbox.
+ */
+export default function SellOutCampanasTable({ campanas, selectedId, onSelect, seleccion, onToggle, paginaSeleccionada, onTogglePagina }) {
+  const seleccionable = seleccion != null;
   return (
     <div className={styles.scroller}>
       <table className={styles.table}>
         <thead>
           <tr>
+            {seleccionable && (
+              <th>
+                <input
+                  type="checkbox"
+                  aria-label="Seleccionar la página"
+                  checked={paginaSeleccionada}
+                  onChange={onTogglePagina}
+                  disabled={campanas.length === 0}
+                />
+              </th>
+            )}
             <th>Campaña</th>
             <th>Beneficio</th>
             <th>Vigencia</th>
@@ -26,13 +41,23 @@ export default function SellOutCampanasTable({ campanas, selectedId, onSelect })
         <tbody>
           {campanas.length === 0 && (
             <tr>
-              <td colSpan={6} className={styles.empty}>
+              <td colSpan={seleccionable ? 7 : 6} className={styles.empty}>
                 No hay campañas de sell out.
               </td>
             </tr>
           )}
           {campanas.map((campana) => (
             <tr key={campana.id} className={selectedId === campana.id ? styles.rowSelected : ''}>
+              {seleccionable && (
+                <td>
+                  <input
+                    type="checkbox"
+                    aria-label={`Seleccionar ${campana.nombre}`}
+                    checked={seleccion.has(campana.id)}
+                    onChange={() => onToggle(campana)}
+                  />
+                </td>
+              )}
               <td>
                 <div>{campana.nombre}</div>
                 {campana.offset_origen_id != null && <div className={styles.sub}>{`Del offset #${campana.offset_origen_id}`}</div>}

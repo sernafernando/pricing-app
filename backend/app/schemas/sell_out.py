@@ -144,6 +144,16 @@ class SellOutAnularIn(BaseModel):
     motivo: Optional[str] = Field(default=None, max_length=MOTIVO_MAX)
 
 
+class SellOutAnularMasivoIn(BaseModel):
+    ids: list[int]  # empty or over `ANULAR_MASIVO_MAX` is refused by the router with a readable message
+    motivo: Optional[str] = Field(default=None, max_length=MOTIVO_MAX)
+
+
+class SellOutAnularMasivoOut(BaseModel):
+    anuladas: list[int]
+    omitidas: list[int]  # already voided: skipped, not an error
+
+
 class SellOutTipoCambioIn(BaseModel):
     tipo_cambio: Decimal = Field(**TIPO_CAMBIO)  # ARS per USD, the rate the brand paid at
 
