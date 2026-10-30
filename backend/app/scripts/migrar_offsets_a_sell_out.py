@@ -875,7 +875,7 @@ def _suelto(
     return [_Resultado(fila, offset, vencido=plan.vencido, nueva=True)]
 
 
-def _grupo_fijo_migrado(db: Session, grupo_id: int, offsets: list[OffsetGanancia], campana) -> list[_Resultado]:
+def _grupo_fijo_migrado(grupo_id: int, offsets: list[OffsetGanancia], campana) -> list[_Resultado]:
     """A re-run over a group of fixed amounts already migrated to a `monto_total` campaign: "ya migrado" while the
     campaign's total is still the sum of the group's offsets as they are now; otherwise (an amount changed, or an
     offset was added) the whole group goes to review."""
@@ -1041,7 +1041,7 @@ def _grupo(
     if ya is not None:
         campana = db.get(SellOutCampana, ya[0])
         if campana.tipo == "monto_total":
-            return _grupo_fijo_migrado(db, grupo_id, offsets, campana)
+            return _grupo_fijo_migrado(grupo_id, offsets, campana)
         return _grupo_migrado(db, grupo_id, offsets, ya[0])
     if all(o.tipo_offset == "monto_fijo" for o in offsets):
         plan = _planear_grupo_fijo(grupo_id, offsets, hoy, default, usuario_id)
