@@ -151,7 +151,13 @@ function useCampanas(enabled) {
     setQ(value);
     setOffset(0);
   }, []);
-  return { lista, error, q, buscar, offset, setOffset, pageSize, setPageSize, recargar };
+  // Always the current search and page: a callback kept by a request in flight (a bulk void) calls it later.
+  const recargarRef = useRef(recargar);
+  useEffect(() => {
+    recargarRef.current = recargar;
+  }, [recargar]);
+  const recargarActual = useCallback(() => recargarRef.current(), []);
+  return { lista, error, q, buscar, offset, setOffset, pageSize, setPageSize, recargar, recargarActual };
 }
 
 /**
@@ -588,7 +594,7 @@ export default function SellIn() {
                     selectedId={panel?.tipo === 'campana' ? panel.id : null}
                     onSelect={verCampana}
                     onAnuladas={(ids) => {
-                      campanas.recargar();
+                      campanas.recargarActual();
                       // The open campaign was just voided: read it again (a new key remounts the panel). Functional update:
                       // the panel may have been closed or changed while the request was in flight.
                       setPanel((actual) =>

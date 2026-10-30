@@ -495,6 +495,26 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     expect(screen.queryByRole('heading', { name: 'RB 8180', level: 2 })).not.toBeInTheDocument();
   });
 
+  it('a bulk void that answers after a new search reloads the current search, not the old one', async () => {
+    const user = userEvent.setup();
+    let responder;
+    sellOutAPI.anularVarias.mockReturnValue(new Promise((resolve) => (responder = resolve)));
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
+    await user.click(within(fila).getByRole('checkbox', { name: 'Seleccionar RB 8180' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Confirmar anulación' }));
+
+    await user.type(screen.getByPlaceholderText('Buscar campaña por nombre…'), 'Epson'); // while it is in flight
+    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenLastCalledWith(expect.objectContaining({ q: 'Epson' })));
+    const antes = sellOutAPI.listar.mock.calls.length;
+    responder({ data: { anuladas: [55], omitidas: [] } });
+
+    await waitFor(() => expect(sellOutAPI.listar.mock.calls.length).toBeGreaterThan(antes));
+    expect(sellOutAPI.listar).toHaveBeenLastCalledWith(expect.objectContaining({ q: 'Epson' }));
+  });
+
   it('"Actualizar" reloads the campaigns too', async () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
