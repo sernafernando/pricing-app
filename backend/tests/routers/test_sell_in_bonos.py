@@ -182,6 +182,13 @@ def test_list_is_paginated(client, gestor, productos):
     assert (page["total"], page["page"], page["page_size"]) == (3, 2, 2)
 
 
+@pytest.mark.parametrize("url", [BASE, "/api/sell-in/compras"])
+def test_the_lists_serve_the_200_rows_page_select_all_reads(client, gestor, url):
+    # "Seleccionar todo lo filtrado" pages both lists with page_size=200 (frontend sellInAnularMasivo.js).
+    assert client.get(url, params={"page_size": 200}, headers=gestor).status_code == 200
+    assert client.get(url, params={"page_size": 201}, headers=gestor).status_code == 422
+
+
 def test_get_reports_what_the_bonus_generated(client, gestor, productos, admin_user, db):
     data = _crear(client, gestor)
     for estado, cantidad in (("activa", 4), ("activa", 6), ("anulada", 100)):

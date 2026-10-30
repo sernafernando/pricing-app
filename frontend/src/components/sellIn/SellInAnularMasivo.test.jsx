@@ -55,6 +55,19 @@ describe('SellInAnularMasivo — selection bar and confirmation', () => {
     expect(screen.queryByText(/No se pudieron anular/)).not.toBeInTheDocument();
   });
 
+  it('that warning survives the selection being emptied by the page', async () => {
+    const user = userEvent.setup();
+    const p = props({ onHecho: vi.fn(() => { throw new Error('boom'); }) });
+    const { rerender } = render(<SellInAnularMasivo {...p} />);
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, anular 2' }));
+    await screen.findByRole('alert');
+
+    rerender(<SellInAnularMasivo {...p} seleccionados={[]} />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Se anularon, pero la pantalla no se pudo actualizar.');
+  });
+
   it('cancelling the confirmation voids nothing', async () => {
     const user = userEvent.setup();
     const p = props();

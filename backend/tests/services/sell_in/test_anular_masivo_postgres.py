@@ -90,3 +90,21 @@ def test_the_purchase_rows_are_locked_in_id_order_before_the_product_locks(engin
     assert sentencias.index("productos") == 1
     _, statement, _ = primera
     assert "ORDER BY sell_in_compras.id" in statement
+
+
+def test_a_refused_bulk_void_leaves_the_released_units_where_they_were(engine):
+    # The first purchase's recompute releases its units before the missing one is reached: the rollback must undo it.
+    a = _compra_de(engine, [(2964, 5, "100.00")])
+    w.venta(engine, "fuera", 2964, 2, w.date(2026, 10, 5))
+    with sessionmaker(bind=engine)() as db:
+        compras.get_costing().recompute(db, [2964])
+        db.commit()
+    antes = w.consumos(engine)
+    assert antes
+
+    with sessionmaker(bind=engine)() as db, pytest.raises(anular_masivo.AnulacionRechazada):
+        _anular(db, [a, 424242])
+
+    assert w.consumos(engine) == antes
+    with sessionmaker(bind=engine)() as db:
+        assert db.get(SellInCompra, a).estado != "anulada"

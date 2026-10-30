@@ -22,7 +22,8 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
   useEffect(() => {
     if (n === 0) {
       setConfirmando(false);
-      setError(null);
+      // A void that went through empties the selection itself: its warning is about what was done, so it stays.
+      setError((actual) => (actual?.trasAnular ? actual : null));
     }
   }, [n]);
 
@@ -65,7 +66,7 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
     try {
       onHecho(resultadoDeAnulacion(data, sustantivo), data);
     } catch {
-      setError({ mensaje: 'Se anularon, pero la pantalla no se pudo actualizar. Recargá la página.', rechazadas: [] });
+      setError({ mensaje: 'Se anularon, pero la pantalla no se pudo actualizar. Recargá la página.', rechazadas: [], trasAnular: true });
     }
   };
 
