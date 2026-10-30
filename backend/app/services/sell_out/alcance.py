@@ -33,7 +33,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
@@ -115,6 +115,12 @@ def productos_de_grupo(db: Session, grupo_id: int, item_ids: Iterable[int]) -> s
     f, p = OffsetGrupoFiltro, ProductoERP
     rows = db.query(p.item_id).join(f, filtro_alcanza(f, p)).filter(f.grupo_id == grupo_id, p.item_id.in_(ids))
     return {i for (i,) in rows.distinct()}
+
+
+def campanas_que_alcanzan(db: Session, item_ids: Any):
+    """The ids of the campaigns whose groups reach one of `item_ids` (a list or a selectable of product ids), as an
+    unexecuted query (a caller filters on it), with the same rule as `productos`."""
+    return _alcanzados(db, SellOutCampanaGrupo.campana_id).filter(ProductoERP.item_id.in_(item_ids))
 
 
 def productos(db: Session, campana_ids: Iterable[int]) -> Dict[int, Dict[int, Optional[Decimal]]]:

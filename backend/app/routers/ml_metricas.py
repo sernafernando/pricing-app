@@ -870,6 +870,23 @@ def _csv_line(
     return line
 
 
+REMANENTE_CSV_LABEL = "Sell out de montos totales sin producto (Sin asignar y Asignado sin ventas)"
+
+
+def _csv_remanente_line(header: List[str], remanente: Optional[board.Remanente]) -> Optional[list]:
+    """The CSV's closing line with what the monto total campaigns ending in the period add to the sell out with no
+    row to carry it (`board.Board.remanente`, T26b2): its label in the first column, the ARS in "Sell out" and the
+    campaigns still without a rate in "Sell out pendientes"; every other cell empty. None (no line, the file as
+    before) when nothing is added."""
+    if remanente is None or not remanente.suma:
+        return None
+    line: list = [""] * len(header)
+    line[0] = REMANENTE_CSV_LABEL
+    line[header.index("Sell out")] = _csv_money(round_money(remanente.monto_ars))
+    line[header.index("Sell out pendientes")] = remanente.pendientes
+    return line
+
+
 # The board's label of the ads column (`metricasMlColumns.js`), so the file reads like the screen.
 ADS_CSV_HEADER = "Publicidad (inversión)"
 
@@ -932,6 +949,8 @@ def export_board(
         with board.Board(first_db, f, through_leaves=grouped, scope_pairs=scope_pairs) as b:
             keys = keys_of(b, None)  # every row: `None` is no LIMIT
             first = rows_of(b, keys[:EXPORT_PAGE_SIZE])
+            # The monto total campaigns' amount no row carries (T26b2): one closing line, never inside a row.
+            remanente = b.remanente() if can_see_margin else None
 
     def fetch_page(page_keys: Sequence) -> List[board.Row]:
         with get_background_db() as page_db:
@@ -964,7 +983,9 @@ def export_board(
     header += ["Última venta", "Ageing (días)", "Stock"]
     # `tplink.solo`: the Gauss columns never reach the file (header and every line).
     kept = [i for i, name in enumerate(header) if not (tp_solo and name in TP_SOLO_DENY_CSV)]
+    full_header = header
     header = [header[i] for i in kept]
+    closing = _csv_remanente_line(full_header, remanente) if "Sell out" in header else None
 
     def stream():
         head = io.StringIO()
@@ -987,6 +1008,10 @@ def export_board(
                     return
             yield lines_of(rows)
             exported += len(rows)
+        if closing is not None:
+            buffer = io.StringIO()
+            csv.writer(buffer, delimiter=";").writerow([closing[i] for i in kept])
+            yield buffer.getvalue()
 
     by = f"por-{f.dimension}-" if grouped else ""
     filename = f"metricas-ml-{by}{f.date_from.isoformat()}-{f.date_to.isoformat()}.csv"

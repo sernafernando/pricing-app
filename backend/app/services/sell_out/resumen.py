@@ -24,19 +24,27 @@ Read only. Everything comes from what the allocator already wrote or holds:
   e.g. a product without VAT on a campaign loaded with VAT), with `motivo`.
 
 The query count is fixed for a whole page, whatever the number of campaigns.
+
+`remanentes` (T26b2, owner: "Está bien que sume al total"): what the
+`monto_total` campaigns ending in a period add to the Métricas ML totals with
+no sale row to carry it, see its docstring.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import func, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutConsumo, SellOutDirty
+from app.models.tipo_cambio import TipoCambio
+from app.services.sell_in.bonos import tasas_bna_por_fecha
 from app.services.sell_out import alcance, asignacion, campanas as campanas_service, queue, reparto
 from app.services.sell_out.tope import cents
 
@@ -145,24 +153,39 @@ def _recalculo(fila: Optional[SellOutDirty], en_curso: bool) -> dict:
     }
 
 
+def _montos_totales(
+    db: Session, total: List[SellOutCampana], *, todo_el_alcance: bool = False
+) -> Tuple[Dict[int, reparto.MontoTotal], Dict[int, set], Dict[int, Dict[int, Optional[Decimal]]]]:
+    """`(MontoTotal, products with a written row, reach {item_id: iva})` of each `monto_total` campaign, in at most
+    three queries. The reach is read for the campaigns loaded with VAT only (its rates), or for every one with
+    `todo_el_alcance`."""
+    ids = [c.id for c in total]
+    repartos = asignacion.repartos_item(db, total)
+    con_alcance = ids if todo_el_alcance else [c.id for c in total if c.monto_incluye_iva]
+    ivas = alcance.productos(db, con_alcance) if con_alcance else {}
+    con_ventas: Dict[int, set] = defaultdict(set)
+    rows = db.query(SellOutConsumo.campana_id, SellOutConsumo.item_id).filter(SellOutConsumo.campana_id.in_(ids))
+    for cid, item_id in rows.distinct():
+        con_ventas[cid].add(item_id)
+    mts = {
+        c.id: reparto.MontoTotal(
+            Decimal(c.monto_total), repartos.get(c.id, {}), c.monto_incluye_iva, ivas.get(c.id, {})
+        )
+        for c in total
+    }
+    return mts, con_ventas, ivas
+
+
 def _repartos(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
     """`{campana_id: reparto summary}` of the `monto_total` campaigns, in at most three queries for the page."""
     total = [c for c in campanas if c.tipo == "monto_total"]
     if not total:
         return {}
-    ids = [c.id for c in total]
-    repartos = asignacion.repartos_item(db, total)
-    con_iva = [c.id for c in total if c.monto_incluye_iva]
-    ivas = alcance.productos(db, con_iva) if con_iva else {}
-    con_ventas: Dict[int, set] = defaultdict(set)
-    rows = db.query(SellOutConsumo.campana_id, SellOutConsumo.item_id).filter(SellOutConsumo.campana_id.in_(ids))
-    for cid, item_id in rows.distinct():
-        con_ventas[cid].add(item_id)
+    mts, con_ventas, ivas = _montos_totales(db, total)
     salida = {}
     for c in total:
-        mt = reparto.MontoTotal(Decimal(c.monto_total), repartos.get(c.id, {}), c.monto_incluye_iva, ivas.get(c.id, {}))
         try:
-            r = reparto.resumen_monto_total(mt, con_ventas[c.id])
+            r = reparto.resumen_monto_total(mts[c.id], con_ventas[c.id])
         # The stored shares cannot be split as they stand; anything else surfaces.
         except reparto.RepartoInvalido as exc:
             if exc.causa == "sin_iva" and exc.item_id not in ivas.get(c.id, {}):
@@ -174,6 +197,103 @@ def _repartos(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
         asignado = cents(Decimal(c.monto_total)) - r["sin_asignar"]
         salida[c.id] = {"asignado": asignado, **r, "motivo": None}
     return salida
+
+
+@dataclass(frozen=True)
+class Remanente:
+    """`remanentes`' result: the known ARS (`monto_ars`), how many campaigns are left out because their USD amount
+    has no rate yet (`pendientes`, never read as 0) and how many are in at an estimated rate (`estimados`)."""
+
+    monto_ars: Decimal
+    pendientes: int
+    estimados: int
+
+    @property
+    def suma(self) -> bool:
+        """Whether it adds anything to the totals (a known amount, or one pending or estimated): the ONE test the
+        Métricas ML KPIs and the CSV closing line share."""
+        return bool(self.monto_ars or self.pendientes or self.estimados)
+
+
+def _ultima_bna(db: Session) -> Optional[Decimal]:
+    fila = (
+        db.query(TipoCambio.venta)
+        .filter(TipoCambio.moneda == "USD", TipoCambio.venta > 0)
+        .order_by(TipoCambio.fecha.desc(), TipoCambio.id.desc())
+        .first()
+    )
+    return Decimal(str(fila[0])) if fila else None
+
+
+def remanentes(db: Session, desde: date, hasta: date, item_ids: Any = None, *, visibles: Any = None) -> Remanente:
+    """What the ACTIVE `monto_total` campaigns whose `fecha_hasta` is in `desde`..`hasta` add to the Métricas ML
+    totals with no sale row to carry it (T26b2, S34/S35/S37): once per campaign, its "Asignado sin ventas" plus its
+    "Sin asignar", as the panel shows them (a share net of its own product's VAT when loaded with VAT, the
+    remainder as loaded, since it is applied to no product), in ARS. A campaign with nothing left adds nothing, and
+    needs no rate. A USD amount converts at the rate the allocator would give a sale on `fecha_hasta`
+    (`asignacion.tasa_en`: the campaign's own rate, the BNA of that date, or for `al_cobro` without its rate the
+    latest BNA, an estimate); with no rate it is pending, never 0. Shares that cannot be split as they stand count
+    nothing (the allocator fails the campaign too).
+
+    `item_ids` (a selectable or list of product ids, or None for every product): only the campaigns whose groups
+    reach one of them count (the board's filtered products).
+
+    `visibles` (a selectable or list of product ids, or None for a viewer who sees every product: the PM scope): a
+    scoped viewer gets only the "Asignado sin ventas" of the products they see, and the "Sin asignar" (it belongs
+    to no product) only of a campaign whose whole reach they see.
+
+    Statements: the lookup alone when no campaign matches; else at most eight, whatever the number of campaigns."""
+    c = SellOutCampana
+    ids_q = select(c.id).where(c.tipo == "monto_total", c.estado == "activa", c.fecha_hasta.between(desde, hasta))
+    if item_ids is not None:
+        ids_q = ids_q.where(c.id.in_(alcance.campanas_que_alcanzan(db, item_ids).subquery().select()))
+    ids = [int(i) for (i,) in db.execute(ids_q)]
+    if not ids:
+        return Remanente(Decimal("0"), 0, 0)
+    campanas = db.query(c).filter(c.id.in_(ids)).order_by(c.id).all()
+    mts, con_ventas, alcances = _montos_totales(db, campanas, todo_el_alcance=visibles is not None)
+    vistos: Optional[set] = None
+    if visibles is not None:
+        alcanzados = {i for productos in alcances.values() for i in productos}
+        p = ProductoERP
+        vistos = (
+            set(db.execute(select(p.item_id).where(p.item_id.in_(alcanzados), p.item_id.in_(visibles))).scalars())
+            if alcanzados
+            else set()
+        )
+    montos: Dict[int, Decimal] = {}
+    for x in campanas:
+        try:
+            por_producto = reparto.sin_ventas(mts[x.id], con_ventas[x.id])
+            sin_asignar = reparto.resumen_monto_total(mts[x.id], con_ventas[x.id])["sin_asignar"]
+        except reparto.RepartoInvalido:
+            continue
+        if vistos is None:
+            monto = sum(por_producto.values(), Decimal("0.00")) + sin_asignar
+        else:
+            monto = sum((v for i, v in por_producto.items() if i in vistos), Decimal("0.00"))
+            if set(alcances.get(x.id, {})) <= vistos:
+                monto += sin_asignar
+        if monto:
+            montos[x.id] = monto
+    usd = [x for x in campanas if x.moneda == "USD" and x.id in montos]
+    por_dia = tasas_bna_por_fecha(db, {x.fecha_hasta for x in usd if x.tc_modo == "dia_venta"})
+    actual = _ultima_bna(db) if any(x.tc_modo == "al_cobro" and x.tipo_cambio is None for x in usd) else None
+    total, pendientes, estimados = Decimal("0"), 0, 0
+    for x in campanas:
+        if x.id not in montos:
+            continue
+        monto = montos[x.id]
+        if x.moneda == "USD":
+            try:
+                tasa = asignacion.tasa_en(x, x.fecha_hasta, por_dia.get(x.fecha_hasta), actual)
+            except asignacion.SellOutAsignacionError:  # no rate yet
+                pendientes += 1
+                continue
+            monto = cents(monto * tasa)
+            estimados += int(ars_estimado(x))
+        total += monto
+    return Remanente(total, pendientes, estimados)
 
 
 def resumenes(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:

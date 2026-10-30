@@ -45,6 +45,13 @@ export default function SellOutReparto({ campana, editable = false, busy = false
   const enVivo = totalesDeReparto(total, filas, ajenos);
   // The hidden part is the server's rounded sum: with it the live totals are approximate.
   const aprox = (label) => (ajenos !== 0 ? `${label} aprox.` : label);
+  // T26b2 (S37): VAT comes off with each product's own rate when money is applied to it; the remainder is applied
+  // to no product, so it stays as loaded (with VAT when ticked) and counts in Métricas ML on the end date.
+  const fechaHasta = formatDateOnly(campana.fecha_hasta, DIA);
+  const ayudaSinAsignar =
+    'Con "Incluye IVA" tildado queda con IVA: se descuenta con el IVA de cada producto al asignarlo. Sin tildar, ' +
+    `tal como se cargó. Suma en los totales de Métricas ML el ${fechaHasta}.`;
+  const notaIva = campana.monto_incluye_iva ? 'con IVA: se descuenta al asignarlo a un producto' : null;
 
   const cambiar = (itemId, patch) => setFilas(filas.map((f) => (f.itemId === itemId ? { ...f, ...patch } : f)));
   const agregar = ({ producto }) => {
@@ -86,18 +93,22 @@ export default function SellOutReparto({ campana, editable = false, busy = false
           ['Asignado', resumen?.asignado],
           ['Asignado sin ventas', resumen?.asignado_sin_ventas],
           ['Sin asignar', resumen?.sin_asignar],
-        ].map(([label, value]) => (
-          <div key={label} className={panelStyles.campo}>
-            <dt>{label}</dt>
-            <dd>
-              <SellOutMonto value={value} moneda={moneda} />
-            </dd>
-          </div>
-        ))}
+        ].map(([label, value]) => {
+          const sinAsignar = label === 'Sin asignar';
+          return (
+            <div key={label} className={panelStyles.campo}>
+              <dt title={sinAsignar ? ayudaSinAsignar : undefined}>{label}</dt>
+              <dd>
+                <SellOutMonto value={value} moneda={moneda} />
+                {sinAsignar && notaIva && <span className={panelStyles.hint}> ({notaIva})</span>}
+              </dd>
+            </div>
+          );
+        })}
       </dl>
       {resumen?.motivo && <p className={panelStyles.error}>{resumen.motivo}</p>}
       <p className={panelStyles.hint}>
-        {`Lo sin asignar (y lo asignado a productos sin ventas) suma en los totales el ${formatDateOnly(campana.fecha_hasta, DIA)}, no en la fila de ningún producto.`}
+        {`Lo sin asignar (y lo asignado a productos sin ventas) suma en los totales el ${fechaHasta}, no en la fila de ningún producto.`}
       </p>
 
       {editable ? (
@@ -159,8 +170,9 @@ export default function SellOutReparto({ campana, editable = false, busy = false
             <span>
               {aprox('Asignado')} <SellOutMonto value={enVivo.asignado} moneda={moneda} />
             </span>
-            <span>
+            <span title={ayudaSinAsignar}>
               {aprox('Sin asignar')} <SellOutMonto value={enVivo.sinAsignar} moneda={moneda} />
+              {notaIva && ` (${notaIva})`}
             </span>
           </div>
           {error && (

@@ -137,6 +137,28 @@ describe('SellOutCampanaForm — kind change with stored shares (T26d)', () => {
 });
 
 describe('SellOutCampanaPanel — reparto of a monto total campaign (T26d)', () => {
+  it('"Sin asignar" explains its VAT rule and that it counts in Métricas ML on the end date (T26b2, S37)', async () => {
+    abrir(CAMPANA_MONTO_TOTAL);
+
+    await screen.findByRole('region', { name: 'Reparto del monto total' });
+    const sinAsignar = within(reparto()).getByText('Sin asignar', { selector: 'dt' });
+    expect(sinAsignar).toHaveAttribute(
+      'title',
+      'Con "Incluye IVA" tildado queda con IVA: se descuenta con el IVA de cada producto al asignarlo. Sin tildar, ' +
+        'tal como se cargó. Suma en los totales de Métricas ML el 31/12/2026.',
+    );
+    // Unticked: no VAT note next to the amount.
+    expect(resumen('Sin asignar')).not.toHaveTextContent('con IVA');
+  });
+
+  it('loaded with VAT, "Sin asignar" keeps it and says so: no shared nor guessed rate (T26b2, S37)', async () => {
+    abrir({ ...CAMPANA_MONTO_TOTAL, monto_incluye_iva: true });
+
+    await screen.findByRole('region', { name: 'Reparto del monto total' });
+    expect(resumen('Sin asignar')).toHaveTextContent('$ 300.000,00');
+    expect(resumen('Sin asignar')).toHaveTextContent('con IVA: se descuenta al asignarlo a un producto');
+  });
+
   it('read-only with sell_out.ver: the server summary, the note and the shares, nothing to edit', async () => {
     abrir(CAMPANA_MONTO_TOTAL);
 

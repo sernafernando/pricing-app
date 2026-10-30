@@ -84,6 +84,16 @@ class TestResumen:
             "sin_asignar": D("-400.00"),
         }
 
+    def test_loaded_with_vat_each_share_nets_its_own_product_vat_and_the_remainder_stays_as_loaded(self) -> None:
+        # Owner (S37, corrected): VAT comes off with each product's own rate when money is applied to it; the
+        # remainder is applied to no product, so it keeps its VAT (no shared nor guessed rate).
+        ivas = {1: D("21"), 2: D("10.5")}
+        c = MontoTotal(D("1000.00"), {1: (None, D("121.00")), 2: (None, D("110.50"))}, True, ivas)
+        assert resumen_monto_total(c, con_ventas=()) == {
+            "asignado_sin_ventas": D("200.00"),
+            "sin_asignar": D("768.50"),
+        }
+
     def test_nothing_shared_is_all_unassigned(self) -> None:
         assert reparto.resumen_monto_total(MontoTotal(D("5.00"), {}), con_ventas=()) == {
             "asignado_sin_ventas": D("0.00"),
