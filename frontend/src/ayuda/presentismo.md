@@ -10,11 +10,11 @@ Registra el presentismo del personal por día (presente, ausente, home office, v
 
 ## Cómo se usa
 
-Arriba hay dos pestañas: **Presentismo** y **ART**.
+Arriba hay dos pestañas: **Presentismo** y **Casos ART**.
 
-En **Presentismo** se elige un rango de fechas (por defecto la semana actual, lunes a viernes). Se muestra una grilla con empleados en filas y días en columnas; cada celda tiene una letra (P, A, HO, V, ART, L, F, FE). Si tenés permiso de gestión, podés editar las celdas. El botón **Imprimir** genera un documento (si tenés permiso).
+En **Presentismo** se elige un rango de fechas (por defecto la semana actual, lunes a viernes). Se muestra una grilla con empleados en filas y días en columnas; cada celda tiene una letra (P, A, HO, V, ART, L, F, FE). Si tenés permiso de gestión, podés editar las celdas. **Exportar Excel** descarga la grilla y **Registro de horarios** genera el documento imprimible (si tenés permiso de impresión).
 
-En **ART** se gestionan los casos de ART: fecha, empleado, estado (Abierto, En tratamiento, Alta médica, Cerrado) y otros datos.
+En **Casos ART** se gestionan los casos de ART: fecha, empleado, estado (Abierto, En tratamiento, Alta médica, Cerrado) y otros datos.
 
 ## Filtros y columnas
 
@@ -22,7 +22,9 @@ Filtros: rango de fechas. Sin columnas en presentismo (grilla).
 
 ## Botones y acciones
 
-- **Imprimir**: genera documento (si tenés permiso).
+- **Exportar Excel**: descarga la grilla de presentismo.
+- **Registro de horarios**: genera el documento imprimible por empleado (si tenés permiso de impresión).
+- **Cargar por rango**: carga vacaciones, licencia, ART, ausencia, home office o franco en un rango (si tenés permiso de gestión).
 - Editar celdas de presentismo (si tenés permiso de gestión).
 
 ## Preguntas frecuentes

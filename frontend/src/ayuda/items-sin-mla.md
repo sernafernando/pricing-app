@@ -22,7 +22,7 @@ En **Anomalías** se muestran las anomalías vinculadas (publicaciones vinculada
 
 En **Tienda Nube** se concilian los productos con Tienda Nube.
 
-El botón **Sincronizar ML** lanza una sincronización completa de publicaciones (con log en pantalla).
+En **Comparación Listas**, el botón **Sincronizar ML** lanza una sincronización completa de publicaciones (con log en pantalla).
 
 ## Filtros y columnas
 

@@ -12,9 +12,9 @@ Detecta, aprueba, liquida y gestiona las horas extras del personal, con pestaña
 
 Arriba hay cinco pestañas: **Pendientes**, **Aprobadas**, **Liquidadas**, **Anomalías** y **Alertas**.
 
-En **Pendientes** se listan las horas extras detectadas por período, con posibilidad de aprobar, rechazar o completar fichadas. En **Aprobadas** se ven las aprobadas (con posibilidad de liquidar). En **Liquidadas** se ven las liquidadas por período. En **Anomalías** se muestran los casos con error de fichadas o turno sin asignar. En **Alertas** se muestran alertas relacionadas.
+En **Pendientes** se listan las horas extras detectadas por período, con posibilidad de aprobar o rechazar. En **Aprobadas** se ven las aprobadas (con posibilidad de liquidar y reabrir). En **Liquidadas** se ven las liquidadas por período y se pueden exportar. En **Anomalías** se muestran los casos con error de fichadas o turno sin asignar, donde se puede asignar turno, completar la fichada o descartar el día. En **Alertas** se muestran alertas relacionadas.
 
-Si tenés permiso de gestión, podés aprobar, rechazar, liquidar, recalcular y completar fichadas. También hay modales para motivo, aprobación, completar fichada, recalcular y liquidar.
+Según tus permisos podés aprobar/rechazar, liquidar, recalcular y completar fichadas. También hay modales para motivo, aprobación, completar fichada, recalcular y liquidar.
 
 ## Filtros y columnas
 

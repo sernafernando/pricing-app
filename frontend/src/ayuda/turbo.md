@@ -17,7 +17,7 @@ Arriba de todo ves el título **🏍️ Turbo Routing** y dos botones:
 - **⚡ Refrescar Cache**: fuerza una actualización desde el ERP y después recarga los datos. Al terminar muestra **✅ Cache invalidado**.
 - **🔄 Actualizar**: vuelve a cargar la información de la pestaña que estés mirando.
 
-Debajo están las pestañas: **📦 Envíos Pendientes**, **📋 Asignaciones**, **🏍️ Motoqueros**, **🗺️ Mapa**, **📍 Zonas**, **📊 Estadísticas** y **🚫 Banlist**. Algunas muestran un número entre paréntesis con la cantidad de registros.
+Debajo están las pestañas: **📦 Envíos Pendientes**, **📋 Asignaciones**, **🏍️ Motoqueros**, **🗺️ Mapa**, **📍 Zonas**, **📊 Estadísticas** y **🚫 Banlist**. Algunas muestran un número con la cantidad de registros.
 
 ### 📦 Envíos Pendientes
 
@@ -47,7 +47,7 @@ La tabla **Resumen por Motoquero** muestra una fila por motoquero con su total, 
 
 Hacé clic en una fila para desplegar **Envíos de {nombre} ({cantidad})**. Ahí ves cada envío con su código, dirección, zona, destinatario, teléfono, estado (**Entregado**, **En camino** o **Pendiente**), horario de asignación y de entrega. El botón **Reasignar** aparece solo para los envíos que todavía no están entregados.
 
-Al reasignar se abre la ventana **Reasignar Envío** con los datos del envío y el motoquero actual. Elegí el nuevo motoquero en **Seleccionar nuevo motoquero:** y confirmá con **Confirmar**. Si elegís el mismo motoquero que ya tiene, el sistema avisa **El motoquero seleccionado es el mismo que el actual**. Si sale bien muestra **Envío reasignado correctamente**.
+Al reasignar se abre la ventana **Reasignar Envío** con los datos del envío y el motoquero actual. Elegí el nuevo motoquero en **Seleccionar nuevo motoquero:** (el actual no aparece en la lista) y confirmá con **Confirmar**. Si sale bien muestra **Envío reasignado correctamente**.
 
 ### 🏍️ Motoqueros
 

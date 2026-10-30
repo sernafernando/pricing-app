@@ -79,7 +79,7 @@ Al seleccionar al menos una etiqueta aparece una barra con la cantidad seleccion
 - **Quitar retornado**: solo aparece si entre las seleccionadas hay alguna retornada.
 - La **X** limpia la selección.
 
-Los botones **Flaggear**, **Quitar flag**, **Retornado** y **Quitar retornado** solo aparecen si tenés permiso para marcar envíos. Sin ese permiso podés consultar la lista, pero no marcarla.
+**Flaggear** y **Quitar flag** solo aparecen si tenés permiso para flaggear envíos; **Retornado** y **Quitar retornado**, si tenés permiso para marcar retornados. Sin esos permisos podés consultar la lista, pero no marcarla.
 
 ### Check Colecta
 

@@ -12,7 +12,7 @@ Gestiona la asignación de Product Managers (PMs) a pares marca-categoría, con 
 
 Arriba dice **Gestión PMs**. Se muestra la cantidad de pares marca-categoría, asignados, sin asignar y marcas únicas. Hay un buscador y un selector de vista agrupada (por PM o por marca).
 
-La tabla lista los pares marca-categoría con el PM asignado. Se puede asignar un PM a un par individual o de forma masiva por marca/categorías. El botón **Sincronizar** actualiza los pares desde el ERP.
+La tabla lista los pares marca-categoría con el PM asignado. Se puede asignar un PM a un par individual o de forma masiva por marca/categorías. El botón **Sincronizar Marcas** actualiza los pares desde el ERP.
 
 ## Filtros y columnas
 
@@ -22,7 +22,7 @@ Columnas: Marca, Categoría, PM asignado.
 
 ## Botones y acciones
 
-- **Sincronizar**: sincroniza pares marca-categoría desde el ERP.
+- **Sincronizar Marcas**: sincroniza pares marca-categoría desde el ERP.
 - Asignar PM (individual o masivo).
 
 ## Preguntas frecuentes

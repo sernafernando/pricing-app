@@ -14,9 +14,9 @@ Arriba dice **Ventas por Fuera** con cuatro pestañas: **Resumen**, **Detalle de
 
 La barra de filtros permite elegir rango de fechas (filtros rápidos), sucursales, vendedores y recargar.
 
-En **Resumen** se ven KPIs, rankings y gráficos. En **Detalle de Operaciones** se listan las operaciones con paginación. En **Rentabilidad** se muestra la rentabilidad. En **Admin** se gestionan las ventas por fuera (si tenés permiso).
+En **Resumen** se ven KPIs, rankings y gráficos. En **Detalle de Operaciones** se listan las operaciones con paginación. En **Rentabilidad** se muestra la rentabilidad. En **Admin** se gestionan las ventas por fuera (la pestaña solo aparece para administradores).
 
-La ganancia se muestra como * si no tenés permiso.
+La ganancia se muestra como *** si no tenés permiso.
 
 ## Filtros y columnas
 
@@ -27,7 +27,6 @@ Columnas de operaciones: fecha, código, producto, vendedor, cantidad, precios, 
 ## Botones y acciones
 
 - Recargar: actualiza datos.
-- Exportar: descarga operaciones.
 
 ## Preguntas frecuentes
 
