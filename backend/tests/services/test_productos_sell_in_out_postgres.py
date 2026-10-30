@@ -210,6 +210,17 @@ class TestCostBonus:
         assert (sell_in.bono_ids, sell_in.descuento_unit) == ([bono], 1500.0)
         assert sin_bono is None
 
+    def test_the_lot_viewer_names_the_cost_bonus_that_follows_the_last_lot(self, engine):
+        # With a current lot, the screens show the lot (rule 5); the viewer still says what applies once it runs out.
+        si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))
+        bono = _bono_costo(engine)
+
+        with sessionmaker(bind=engine)() as db:
+            sell_in = visor_lotes.bono_costo(db, ROUTER, HOY)
+
+        assert (sell_in.bono_ids, sell_in.descuento_unit) == ([bono], 1500.0)
+        assert _payload(engine).sell_in.compra_item_id is not None  # the screens are unchanged
+
     def test_a_percentage_with_vat_is_divided_by_the_product_rate(self, engine):
         # S33: "el tilde tendría que restar el iva"; the router's VAT is 21 %: 3 / 1.21 % of 50000.
         _bono_costo(engine, incluye_iva=True)

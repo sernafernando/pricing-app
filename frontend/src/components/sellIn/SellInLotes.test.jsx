@@ -64,18 +64,26 @@ beforeEach(() => {
 });
 
 describe('the lots', () => {
-  it('come in FIFO order, each with its purchase, date, units and unit discount, and its status', async () => {
+  it('come in FIFO order, each with its status, unit discount, units, the date it counts from and its purchase', async () => {
     renderLotes();
-    const filas = await screen.findAllByRole('row');
-    const datos = filas.slice(1).map((fila) => within(fila).getAllByRole('cell').map((celda) => celda.textContent));
+    const lista = await screen.findByRole('list', { name: 'Lotes en orden FIFO' });
+    const lotes = [...lista.children].map((item) => item.textContent);
 
     expect(sellInLotesAPI.lotes).toHaveBeenCalledWith(950);
-    expect(datos.map((celdas) => celdas[0])).toEqual(['1', '2', '3', '4']);
-    expect(datos.map((celdas) => celdas[1])).toEqual(['Agotado', 'Vigente', 'En cola', 'Desde 03/11']);
-    expect(datos[0]).toEqual(expect.arrayContaining(['#41 · Gauss SA · A-0001-1', '01/10/2026', '2', '2', '0', '$ 100,00']));
-    expect(datos[1]).toEqual(expect.arrayContaining(['$ 33,33', '3', '1', '2']));
+    expect(lotes).toHaveLength(4);
+    expect(lotes[0]).toContain('Lote 1');
+    expect(lotes[0]).toContain('Agotado');
+    expect(lotes[0]).toContain('$ 100,00 por unidad');
+    expect(lotes[0]).toContain('Quedan 0 de 2 · 2 usadas · desde 01/10/2026');
+    expect(lotes[0]).toContain('#41 · Gauss SA · A-0001-1');
+    expect(lotes[1]).toContain('Vigente');
+    expect(lotes[1]).toContain('$ 33,33 por unidad');
+    expect(lotes[1]).toContain('Quedan 2 de 3 · 1 usada');
+    expect(lotes[2]).toContain('En cola');
     // A USD purchase's discount is already in ARS (its own rate); the currency is said.
-    expect(datos[2]).toEqual(expect.arrayContaining(['#43 · Sin proveedor', '$ 10.000,00 (compra en USD)']));
+    expect(lotes[2]).toContain('$ 10.000,00 por unidad (compra en USD)');
+    expect(lotes[2]).toContain('#43 · Sin proveedor');
+    expect(lotes[3]).toContain('Desde 03/11');
   });
 
   it('say what the next sale gets: the current lot, its units left at that value, then the next one', async () => {
@@ -95,6 +103,22 @@ describe('the lots', () => {
     expect(
       await screen.findByText(
         'La próxima venta descuenta $ 33,33 por unidad (lote 2); queda 1 unidad a ese valor, después el costo vuelve al normal',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('with no next lot but a cost bonus, says the bonus applies after the current lot', async () => {
+    sellInLotesAPI.lotes.mockResolvedValue(
+      respuesta({
+        proxima: { numero: 2, compra_item_id: 502, descuento_unit: '33.333333', restantes: 2, siguiente: null },
+        bono_costo: { bono_ids: [7], descuento_unit: 1500 },
+      }),
+    );
+    renderLotes();
+
+    expect(
+      await screen.findByText(
+        'La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después aplica el bono de costo #7: $ 1.500,00 por unidad',
       ),
     ).toBeInTheDocument();
   });
@@ -158,7 +182,7 @@ describe('with no lot left', () => {
     renderLotes();
 
     expect(await screen.findByText('Este producto no tiene lotes de sell in. Ningún bono de costo aplica.')).toBeInTheDocument();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Lotes en orden FIFO' })).not.toBeInTheDocument();
   });
 });
 
@@ -210,6 +234,7 @@ describe('reading', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: 'Reintentar' }));
 
-    expect(await screen.findAllByRole('row')).toHaveLength(5);
+    const lista = await screen.findByRole('list', { name: 'Lotes en orden FIFO' });
+    expect(lista.children).toHaveLength(4);
   });
 });

@@ -26,6 +26,13 @@ function statusLabel(lote) {
   return `Desde ${day(lote.fecha_desde, { year: false })}`;
 }
 
+const bonoLabel = (bono) => bono.bono_ids.map((id) => `#${id}`).join(', ');
+
+function unitsLabel(lote) {
+  const usadas = lote.consumidas === 1 ? '1 usada' : `${lote.consumidas} usadas`;
+  return `Quedan ${lote.restantes} de ${lote.cantidad} · ${usadas} · desde ${day(lote.fecha_desde)}`;
+}
+
 function purchaseLabel(lote) {
   return [`#${lote.compra_id}`, lote.proveedor || 'Sin proveedor', ...lote.facturas].join(' · ');
 }
@@ -36,6 +43,7 @@ function NextSale({ proxima, bonoCosto, lotes }) {
   if (proxima) {
     const { siguiente } = proxima;
     let despues = 'el costo vuelve al normal';
+    if (!siguiente && bonoCosto) despues = `aplica el bono de costo ${bonoLabel(bonoCosto)}: ${money(bonoCosto.descuento_unit)} por unidad`;
     if (siguiente) {
       const desde = siguiente.estado === 'desde' ? ` (desde ${day(siguiente.fecha_desde, { year: false })})` : '';
       despues = `${money(siguiente.descuento_unit)}${desde}`;
@@ -55,7 +63,7 @@ function NextSale({ proxima, bonoCosto, lotes }) {
     sinLote = 'No quedan lotes con unidades: el costo vuelve al normal.';
   }
   const bono = bonoCosto
-    ? `Aplica el bono de costo ${bonoCosto.bono_ids.map((id) => `#${id}`).join(', ')}: descuenta ${money(bonoCosto.descuento_unit)} por unidad.`
+    ? `Aplica el bono de costo ${bonoLabel(bonoCosto)}: descuenta ${money(bonoCosto.descuento_unit)} por unidad.`
     : 'Ningún bono de costo aplica.';
   return <p className={styles.next}>{`${sinLote} ${bono}`}</p>;
 }
@@ -205,62 +213,36 @@ export default function SellInLotes({ productItemId, container = DefaultSection 
       <div className={styles.wrap}>
         <NextSale proxima={proxima} bonoCosto={bonoCosto} lotes={lotes} />
         {lotes.length > 0 && (
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th scope="col">Lote</th>
-                  <th scope="col">Estado</th>
-                  <th scope="col">Compra</th>
-                  <th scope="col">Desde</th>
-                  <th scope="col" className={styles.num}>Unid.</th>
-                  <th scope="col" className={styles.num}>Usadas</th>
-                  <th scope="col" className={styles.num}>Quedan</th>
-                  <th scope="col" className={styles.num}>Desc. x u.</th>
-                  <th scope="col">Ventas</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lotes.flatMap((lote) => {
-                  const abierto = open.has(lote.compra_item_id);
-                  const fila = (
-                    <tr key={lote.compra_item_id} className={styles[lote.estado]}>
-                      <td>{lote.numero}</td>
-                      <td className={`${styles.status} ${lote.estado === 'desde' ? styles.statusDesde : ''}`}>{statusLabel(lote)}</td>
-                      <td className={styles.purchase}>{purchaseLabel(lote)}</td>
-                      <td>{day(lote.fecha_desde)}</td>
-                      <td className={styles.num}>{lote.cantidad}</td>
-                      <td className={styles.num}>{lote.consumidas}</td>
-                      <td className={styles.num}>{lote.restantes}</td>
-                      <td className={styles.num}>
-                        {lote.moneda === 'ARS' ? money(lote.descuento_unit) : `${money(lote.descuento_unit)} (compra en ${lote.moneda})`}
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className={styles.toggle}
-                          aria-expanded={abierto}
-                          aria-label={`${abierto ? 'Ocultar' : 'Ver'} ventas del lote ${lote.numero}`}
-                          onClick={() => toggle(lote.compra_item_id)}
-                        >
-                          {abierto ? 'Ocultar' : 'Ver'}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                  if (!abierto) return [fila];
-                  return [
-                    fila,
-                    <tr key={`${lote.compra_item_id}-ventas`}>
-                      <td colSpan={9}>
-                        <LotSales productItemId={productItemId} lote={lote} />
-                      </td>
-                    </tr>,
-                  ];
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ol className={styles.lots} aria-label="Lotes en orden FIFO">
+            {lotes.map((lote) => {
+              const abierto = open.has(lote.compra_item_id);
+              return (
+                <li key={lote.compra_item_id} className={`${styles.lot} ${styles[lote.estado] ?? ''}`}>
+                  <div className={styles.lotHead}>
+                    <span className={styles.lotNumber}>{`Lote ${lote.numero}`}</span>
+                    <span className={`${styles.status} ${lote.estado === 'desde' ? styles.statusDesde : ''}`}>{statusLabel(lote)}</span>
+                    <span className={styles.discount}>
+                      {`${money(lote.descuento_unit)} por unidad${lote.moneda === 'ARS' ? '' : ` (compra en ${lote.moneda})`}`}
+                    </span>
+                  </div>
+                  <div className={styles.lotLine}>{unitsLabel(lote)}</div>
+                  <div className={styles.lotLine}>
+                    <span>{purchaseLabel(lote)}</span>
+                    <button
+                      type="button"
+                      className={styles.toggle}
+                      aria-expanded={abierto}
+                      aria-label={`${abierto ? 'Ocultar' : 'Ver'} ventas del lote ${lote.numero}`}
+                      onClick={() => toggle(lote.compra_item_id)}
+                    >
+                      {abierto ? 'Ocultar ventas' : 'Ver ventas'}
+                    </button>
+                  </div>
+                  {abierto && <LotSales productItemId={productItemId} lote={lote} />}
+                </li>
+              );
+            })}
+          </ol>
         )}
       </div>
     );

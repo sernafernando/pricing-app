@@ -6,6 +6,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import PublicationStatusPill from './publicacionesMl/PublicationStatusPill';
 import { Layers } from 'lucide-react';
 import SellInLotes from './sellIn/SellInLotes';
+import { canViewProductPrices } from './pricing/productPricePermissions';
 
 const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const { overlayRef, handleOverlayMouseDown, handleOverlayClick } = useModalClickOutside(onClose);
@@ -17,8 +18,8 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const puedeVerInfoML = tienePermiso('productos.ver_info_mercadolibre');
   const puedeVerInfoVentas = tienePermiso('productos.ver_info_ventas');
   const puedeVerInfoCompras = tienePermiso('productos.ver_info_compras');
-  // The sell-in lot viewer: the backend gates it with the product's view permission.
-  const puedeVerLotesSellIn = tienePermiso('productos.ver');
+  // The sell-in lot viewer: the backend gates it with the product panel's permissions (`PERMISOS_VER_PRODUCTO`).
+  const puedeVerLotesSellIn = canViewProductPrices(tienePermiso);
 
   // Tab info requiere al menos info básica o pricing
   const puedeVerTabInfo = puedeVerInfoBasica || puedeVerInfoPricing;

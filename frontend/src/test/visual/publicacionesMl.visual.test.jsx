@@ -1132,7 +1132,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
     }
 
     for (const { width, height } of VIEWPORTS) {
-      it(`${width}x${height} ${theme}: the product's sell-in lots scroll inside their own box, never the panel`, async () => {
+      it(`${width}x${height} ${theme}: the product's sell-in lots fit inside the panel`, async () => {
         const screen = await renderProducts({ width, height, theme });
         await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
         const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
@@ -1142,7 +1142,9 @@ describe('Publicaciones ML Producto view (visual)', () => {
         const section = next.element().closest('section');
         section.scrollIntoView();
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
-        expect(rect(section).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        for (const el of section.querySelectorAll('li, li span, li button')) {
+          expect(rect(el).right, el.textContent).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        }
         if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-lotes-${width}-${theme}.png` });
         screen.unmount();
       });

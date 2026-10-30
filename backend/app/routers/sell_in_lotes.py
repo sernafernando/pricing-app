@@ -22,11 +22,14 @@ router = APIRouter(
 @router.get("/{item_id}/lotes", response_model=LotesProductoOut)
 def lotes_de_producto(item_id: int, db: Session = Depends(get_db)) -> dict:
     """The product's lots of active purchases in the order the next sales take them, with today's status of each one
-    and what the next sale gets (`visor_lotes`); with no lot left, the cost bonus that applies instead, if any.
+    and what the next sale gets (`visor_lotes`); when the lots run out (now or after the current one), the cost bonus
+    that applies then, if any.
     Writes nothing."""
     hoy = date.today()
     visor = visor_lotes.lotes_de_producto(db, item_id, hoy)
-    bono = visor_lotes.bono_costo(db, item_id, hoy) if visor.proxima is None else None
+    # What applies once the lots run out: now (no lot has units) or after the current one (no next lot with units).
+    agotan = visor.proxima is None or visor.proxima.siguiente is None
+    bono = visor_lotes.bono_costo(db, item_id, hoy) if agotan else None
     return {"item_id": item_id, "lotes": visor.lotes, "proxima": visor.proxima, "bono_costo": bono}
 
 

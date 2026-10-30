@@ -15,6 +15,6 @@ Ahora se puede ver cómo va a aplicar el sell in de un producto. El costo se des
 
 1. En **Publicaciones ML**, abrir el panel de un producto: la sección **Lotes sell in** está en la pestaña Resumen.
 2. En **Productos**, abrir la información detallada de un producto y elegir la pestaña **Lotes sell in**.
-3. Tocar **Ver** en un lote para ver sus ventas.
+3. Tocar **Ver ventas** en un lote para ver sus ventas.
 
 > Es solo lectura: no cambia ningún costo ni lote.

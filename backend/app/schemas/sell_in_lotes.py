@@ -58,7 +58,7 @@ class LotesProductoOut(BaseModel):
     item_id: int
     lotes: List[LoteOut]
     proxima: Optional[ProximaVentaOut]  # None: no lot has units today, the cost is back to normal
-    bono_costo: Optional[BonoCostoOut] = None  # only without `proxima`: what applies instead, if anything
+    bono_costo: Optional[BonoCostoOut] = None  # when the lots run out (no `proxima`, or no `siguiente`): what applies
 
 
 class ConsumoLoteOut(BaseModel):
