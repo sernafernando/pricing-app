@@ -24,19 +24,27 @@ Read only. Everything comes from what the allocator already wrote or holds:
   e.g. a product without VAT on a campaign loaded with VAT), with `motivo`.
 
 The query count is fixed for a whole page, whatever the number of campaigns.
+
+`remanentes` (T26b2, owner: "Está bien que sume al total"): what the
+`monto_total` campaigns ending in a period add to the Métricas ML totals with
+no sale row to carry it, see its docstring.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import func, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutConsumo, SellOutDirty
+from app.models.tipo_cambio import TipoCambio
+from app.services.sell_in.bonos import tasas_bna_por_fecha
 from app.services.sell_out import alcance, asignacion, campanas as campanas_service, queue, reparto
 from app.services.sell_out.tope import cents
 
@@ -174,6 +182,70 @@ def _repartos(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:
         asignado = cents(Decimal(c.monto_total)) - r["sin_asignar"]
         salida[c.id] = {"asignado": asignado, **r, "motivo": None}
     return salida
+
+
+@dataclass(frozen=True)
+class Remanente:
+    """`remanentes`' result: the known ARS (`monto_ars`), how many campaigns are left out because their USD amount
+    has no rate yet (`pendientes`, never read as 0) and how many are in at an estimated rate (`estimados`)."""
+
+    monto_ars: Decimal
+    pendientes: int
+    estimados: int
+
+
+def _ultima_bna(db: Session) -> Optional[Decimal]:
+    fila = (
+        db.query(TipoCambio.venta)
+        .filter(TipoCambio.moneda == "USD", TipoCambio.venta > 0)
+        .order_by(TipoCambio.fecha.desc(), TipoCambio.id.desc())
+        .first()
+    )
+    return Decimal(str(fila[0])) if fila else None
+
+
+def remanentes(db: Session, desde: date, hasta: date, item_ids: Any = None) -> Remanente:
+    """What the ACTIVE `monto_total` campaigns whose `fecha_hasta` is in `desde`..`hasta` add to the Métricas ML
+    totals with no sale row to carry it (T26b2, S34/S35/S37): once per campaign, its "Asignado sin ventas" plus its
+    "Sin asignar", as the panel shows them (`_repartos`: a share net of its own product's VAT when loaded with VAT,
+    the remainder as loaded, since it is applied to no product), in ARS. A USD amount converts at the rate the
+    allocator would give a sale on `fecha_hasta` (`asignacion._tasa`: the campaign's own rate, the BNA of that
+    date, or for `al_cobro` without its rate the latest BNA, an estimate); with no rate it is pending, never 0.
+    Shares that cannot be split as they stand count nothing (the allocator fails the campaign too).
+
+    `item_ids` (a selectable or list of product ids, or None for every product): only the campaigns whose groups
+    reach one of them count (the board's filtered products).
+
+    Statements: the lookup alone when no campaign matches; else at most six, whatever the number of campaigns."""
+    c = SellOutCampana
+    ids_q = select(c.id).where(c.tipo == "monto_total", c.estado == "activa", c.fecha_hasta.between(desde, hasta))
+    if item_ids is not None:
+        ids_q = ids_q.where(c.id.in_(alcance.campanas_que_alcanzan(db, item_ids).subquery().select()))
+    ids = [int(i) for (i,) in db.execute(ids_q)]
+    if not ids:
+        return Remanente(Decimal("0"), 0, 0)
+    campanas = db.query(c).filter(c.id.in_(ids)).order_by(c.id).all()
+    repartos = _repartos(db, campanas)
+    usd = [x for x in campanas if x.moneda == "USD"]
+    por_dia = tasas_bna_por_fecha(db, {x.fecha_hasta for x in usd if x.tc_modo == "dia_venta"})
+    sin_tasa = any(x.tc_modo == "al_cobro" and x.tipo_cambio is None for x in usd)
+    tasas = asignacion._Tasas(por_dia, _ultima_bna(db) if sin_tasa else None)
+    total, pendientes, estimados = Decimal("0"), 0, 0
+    for x in campanas:
+        r = repartos[x.id]
+        if r["motivo"] is not None:
+            continue
+        monto = r["asignado_sin_ventas"] + r["sin_asignar"]
+        if x.moneda == "USD":
+            try:
+                tasa = asignacion._tasa(x, x.fecha_hasta, tasas)
+            except asignacion.SellOutAsignacionError:  # no rate yet
+                pendientes += 1
+                continue
+            monto = cents(monto * tasa)
+            estimados += int(ars_estimado(x))
+        total += monto
+    return Remanente(total, pendientes, estimados)
 
 
 def resumenes(db: Session, campanas: List[SellOutCampana]) -> Dict[int, dict]:

@@ -53,7 +53,8 @@ HOW A REQUEST RUNS (`with Board(db, f) as b:` -- see `__enter__`):
 A bounded number of statements per board request whatever the page size or
 the volume (a fixed set; plus 4 per pair axis that has a filter; plus up to 5
 when an MLA set, a PM scope or a search bounds the groups read: its lookups and
-the touched groups), pinned with the measured timings by
+the touched groups; plus, with `sell_in_out`, the KPIs' one lookup of the monto total campaigns ending in the
+period, and at most five more when some do, `Board.remanente`), pinned with the measured timings by
 `tests/services/ml_daily_metrics/test_board_volume_postgres.py`. With
 `product_item_id` (a product's publication sub-rows) both tables hold only
 that product's groups, reached through the frozen-cost product index: the
@@ -147,7 +148,7 @@ from app.services.product_facets import (
     product_combo_rows,
     product_facet_options,
 )
-from app.services.sell_out.resumen import ARS_FILA
+from app.services.sell_out.resumen import ARS_FILA, Remanente, remanentes
 
 # "group" is the "Agrupado" view: the pairs summed by `BoardFilter.dimension`.
 GROUP_BY = ("product", "publication", "group")
@@ -529,7 +530,7 @@ class SellInOut:
 
     @staticmethod
     def applies(r: Any) -> bool:
-        return bool(r.sell_in_lineas or r.sell_out_lineas)
+        return bool(r.sell_in_lineas or r.sell_out_lineas or getattr(r, "sell_out_remanente", None) is not None)
 
     @staticmethod
     def costo_sell_in(r: Any) -> Optional[Decimal]:
@@ -670,6 +671,9 @@ class Kpis:
     # How many sold lines carry a sell in / a sell out (`SellInOut.applies`).
     sell_in_lineas: Optional[int] = None
     sell_out_lineas: Optional[int] = None
+    # The part of `sell_out` no sale row carries: the monto total campaigns ending in the period (`Board.remanente`);
+    # None when none adds anything.
+    sell_out_remanente: Optional[Decimal] = None
 
     costo_sell_in = property(lambda self: SellInOut.costo_sell_in(self))
     total_gauss_sell = property(lambda self: SellInOut.total_gauss_sell(self))
@@ -2203,12 +2207,14 @@ class Board:
             return {}
         return dict(total_tp=_nullable_cents(r["tg_tp"]), tp_incompletos=int(r["tp_incompletos"] or 0))
 
-    def _sell_of(self, r: Any) -> Dict[str, Any]:
+    def _sell_of(self, r: Any, remanente: Optional[Remanente] = None) -> Dict[str, Any]:
         """The `Row`/`Kpis` sell in / sell out fields of a summed row: none with `sell_in_out` OFF, and no markup
-        population with "Costos TP" ON (see `SellInOut`)."""
+        population with "Costos TP" ON (see `SellInOut`). `remanente` (the KPIs only, `remanente`): added to the
+        sell out and its pending / estimated counts, never to the markup population (it has no sold line, so no
+        cost); `sell_out_remanente` says how much of the sell out it is."""
         if not self.sell:
             return {}
-        return dict(
+        sell = dict(
             sell_in=cents(r["sell_in"]),
             sell_out=cents(r["sell_out"]),
             m_sell_in=None if self.tp else cents(r["m_sell_in"]),
@@ -2218,6 +2224,29 @@ class Board:
             sell_in_lineas=int(r["sell_in_lineas"] or 0),
             sell_out_lineas=int(r["sell_out_lineas"] or 0),
         )
+        if remanente is not None and (remanente.monto_ars or remanente.pendientes or remanente.estimados):
+            sell["sell_out"] += remanente.monto_ars
+            sell["sell_out_pendientes"] += remanente.pendientes
+            sell["sell_out_estimados"] += remanente.estimados
+            sell["sell_out_remanente"] = remanente.monto_ars
+        return sell
+
+    def remanente(self) -> Optional[Remanente]:
+        """What the monto total campaigns ending in the period add to the totals with no row to carry it
+        (sell-in-sell-out T26b2, owner: "Está bien que sume al total"; `resumen.remanentes`): their "Asignado sin
+        ventas" and "Sin asignar", once per campaign, on its `fecha_hasta`, in ARS. None with `sell_in_out` OFF.
+
+        Filters: the UNFILTERED view (`is_unfiltered`, no node scope, no product) counts every such campaign; any
+        filter, PM scope, node or product narrows it to the campaigns whose groups reach a product of the pairs
+        that survive the filters (the very pairs the KPI rows sum), so a brand filter keeps its brand's campaigns
+        and drops the others'. One statement when no campaign ends in the period, never one per campaign."""
+        if not self.sell:
+            return None
+        items = None
+        if self.scope or self.product_item_id is not None or not is_unfiltered(self.f, self.scope_pairs):
+            joined, fp = self._members("", narrow=True)
+            items = select(fp.c.product).select_from(joined)
+        return remanentes(self.db, self.f.date_from, self.f.date_to, items)
 
     # ── the leaves of the whole tree: one row per (path, product), for the CSV ──
 
@@ -2425,7 +2454,7 @@ class Board:
             series_operations=s_operations,
             ads=ads,
             **self._tp_of(totals),
-            **self._sell_of(totals),
+            **self._sell_of(totals, self.remanente()),
         )
 
     def _operations(self, joined: Any, fp: Any, days: int) -> Tuple[int, int, List[int]]:

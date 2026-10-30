@@ -16,8 +16,10 @@ import pytest
 
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.models.offset_grupo import OffsetGrupo
+from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
-from app.models.sell_out import SellOutCampana, SellOutConsumo
+from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
 from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- fixtures
     URL,
     _frozen_clock,
@@ -208,6 +210,100 @@ class TestWithTheProfitView:
         assert (rows["Hub"]["Sell out"], rows["Hub"]["Sell out pendientes"]) == ("", "")
         # Where a sell out applies, its pending count stays a number.
         assert rows["Switch"]["Sell out pendientes"] == "1"
+
+
+def _monto_total(db, total: str, marca: str = "TP-Link", fecha_hasta: date = DIA) -> int:
+    """A `monto_total` ARS campaign over `marca` with no share: all of it "Sin asignar" (T26b2)."""
+    grupo = OffsetGrupo(nombre=f"Grupo {marca}")
+    db.add(grupo)
+    db.flush()
+    db.add(OffsetGrupoFiltro(grupo_id=grupo.id, marca=marca))
+    campana = SellOutCampana(
+        nombre="Monto total",
+        fecha_desde=DIA - timedelta(days=5),
+        fecha_hasta=fecha_hasta,
+        tipo="monto_total",
+        monto_unit=None,
+        monto_total=Decimal(total),
+        moneda="ARS",
+        usuario_id=_USUARIO[0],
+    )
+    db.add(campana)
+    db.flush()
+    db.add(SellOutCampanaGrupo(campana_id=campana.id, grupo_id=grupo.id))
+    db.commit()
+    return campana.id
+
+
+def _csv(client, headers, **params):
+    resp = client.get(
+        URL + "/export", params={"date_from": "2026-09-01", "date_to": "2026-09-30", **params}, headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    header, *lines = list(csv.reader(io.StringIO(resp.text.lstrip("\ufeff")), delimiter=";"))
+    return header, lines
+
+
+class TestMontoTotalRemainder:
+    """T26b2 (owner: "Está bien que sume al total"): a monto total campaign's amount no sale row carries counts ONCE in
+    the KPI sell out (and the totals with it) on its `fecha_hasta`, and in a closing line of the CSV, never in a row.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _ganancia(self, db, rol_admin, sells):
+        _grant(db, rol_admin, "ml_metricas.ver", "ml_metricas.ver_ganancia")
+        db.commit()
+
+    def test_the_kpi_sell_out_and_total_include_it_once_and_no_row_does(self, client, admin_auth_headers, db) -> None:
+        _monto_total(db, "100")
+
+        body = _get(client, admin_auth_headers)
+
+        figures = body["kpis"]["sell_in_out"]
+        assert (figures["sell_out"], figures["total_gauss"], figures["sell_out_pendientes"]) == (105.0, 185.0, 1)
+        rows = _by_key(body)
+        assert (rows["11"]["sell_in_out"]["sell_out"], rows["12"]["sell_in_out"]["sell_out"]) == (5.0, 0.0)
+
+    def test_a_negative_total_lowers_the_kpi(self, client, admin_auth_headers, db) -> None:
+        _monto_total(db, "-30")
+
+        assert _get(client, admin_auth_headers)["kpis"]["sell_in_out"]["total_gauss"] == 55.0
+
+    def test_an_end_date_outside_the_period_does_not_count(self, client, admin_auth_headers, db) -> None:
+        _monto_total(db, "100", fecha_hasta=date(2026, 10, 1))
+
+        assert _get(client, admin_auth_headers)["kpis"]["sell_in_out"]["sell_out"] == 5.0
+
+    def test_a_product_filter_counts_it_only_when_its_reach_meets_the_filtered_products(
+        self, client, admin_auth_headers, db
+    ) -> None:
+        _producto(db, 13, "Mouse", "Logi")
+        _pub(db, 3, "MLA3", 13, 57997)
+        _sale(db, 13, "MLA3", "20", "100")
+        db.commit()
+        _monto_total(db, "100")
+
+        tp = _get(client, admin_auth_headers, marcas="TP-Link")["kpis"]["sell_in_out"]
+        logi = _get(client, admin_auth_headers, marcas="Logi")["kpis"]["sell_in_out"]
+
+        assert tp["sell_out"] == 105.0
+        assert logi["sell_out"] is None
+
+    def test_the_csv_closes_with_it_and_its_rows_do_not_carry_it(self, client, admin_auth_headers, db) -> None:
+        _monto_total(db, "100")
+
+        header, lines = _csv(client, admin_auth_headers)
+
+        router = dict(zip(header, next(line for line in lines if "Router AX55" in line)))
+        assert router["Sell out"] == "5,00"
+        last = dict(zip(header, lines[-1]))
+        assert last["Producto"] == "Sell out de montos totales sin producto (Sin asignar y Asignado sin ventas)"
+        assert (last["Sell out"], last["Unidades"], last["Facturado"]) == ("100,00", "", "")
+
+    def test_without_a_monto_total_campaign_the_csv_has_no_closing_line(self, client, admin_auth_headers) -> None:
+        header, lines = _csv(client, admin_auth_headers)
+
+        assert len(lines) == 2 and all("sin producto" not in ";".join(line) for line in lines)
 
 
 class TestWithoutTheProfitView:
