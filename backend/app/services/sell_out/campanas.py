@@ -522,7 +522,8 @@ class SellOutAnulacionRechazada(SellOutError):
 
     def __init__(self, rechazadas: list[tuple[int, str]]) -> None:
         self.rechazadas = rechazadas
-        super().__init__(f"No se anuló ninguna campaña: {len(rechazadas)} no se pueden anular.")
+        cuantas = "1 no se puede" if len(rechazadas) == 1 else f"{len(rechazadas)} no se pueden"
+        super().__init__(f"No se anuló ninguna campaña: {cuantas} anular.")
 
 
 def anular_campanas(
