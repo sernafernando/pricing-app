@@ -88,6 +88,7 @@ def __getattr__(name: str) -> List[JobHandler]:
     global _ml_publications_registry
     if name == "ML_PUBLICATIONS_REGISTRY":
         if _ml_publications_registry is None:
+            from app.workers.handlers.gestion_full_inbound import inbound as gestion_full_inbound
             from app.workers.handlers.ml_ads import ads
             from app.workers.handlers.ml_billing import billing
             from app.workers.handlers.ml_promo_refresh import promo_refresh
@@ -118,6 +119,8 @@ def __getattr__(name: str) -> List[JobHandler]:
                 # ml-sync-pipeline S5: the per-minute freshness check (no ML call).
                 freshness,
                 billing,
+                # Gestión Full Target: Sat–Sun drip of INBOUND_RECEPTION snapshots.
+                gestion_full_inbound,
             ]
         return _ml_publications_registry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

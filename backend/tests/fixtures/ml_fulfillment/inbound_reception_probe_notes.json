@@ -1,0 +1,40 @@
+{
+  "notes": [
+    "Live probe 2026-10-30 (Publicar OAuth): date_from/date_to must be ISO YYYY-MM-DD; YYYYMMDD is rejected.",
+    "Max date range is 60 days per request; type must be INBOUND_RECEPTION (lowercase inbound_reception is invalid).",
+    "Quota entity: operation_kvs_ds_v2__fbm_seller_stock_operations (429 after a few calls).",
+    "Target qty = detail.available_quantity of the newest INBOUND_RECEPTION row."
+  ],
+  "params_contract": {
+    "path": "/stock/fulfillment/operations/search",
+    "seller_id": "REQUIRED",
+    "inventory_id": "REQUIRED",
+    "date_from": "YYYY-MM-DD",
+    "date_to": "YYYY-MM-DD",
+    "type": "INBOUND_RECEPTION",
+    "max_range_days": 60
+  },
+  "example_from_ml_docs": {
+    "id": 306705012,
+    "seller_id": 384324657,
+    "seller_product_id": "DEHW09303",
+    "date_created": "2020-06-18T17:55:42Z",
+    "type": "INBOUND_RECEPTION",
+    "detail": {
+      "available_quantity": 100,
+      "not_available_detail": []
+    },
+    "result": {
+      "total": 100,
+      "available_quantity": 100,
+      "not_available_quantity": 0,
+      "not_available_detail": []
+    },
+    "external_references": [
+      {
+        "type": "inbound_id",
+        "value": "0001"
+      }
+    ]
+  }
+}
