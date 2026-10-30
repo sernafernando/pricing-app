@@ -50,7 +50,9 @@ Arriba de la sección, la campaña muestra:
 - **Asignado sin ventas**: la parte de lo asignado que fue a productos sin ventas en las fechas de la campaña.
 - **Sin asignar**: lo que todavía no se le dio a ningún producto (monto total menos lo asignado, con el mismo signo).
 
-Lo sin asignar (y lo asignado a productos sin ventas) no se pierde: suma en los totales el día que termina la campaña, no en la fila de ningún producto. Si el reparto guardado no se puede calcular, la sección dice por qué.
+Con **Incluye IVA** tildado, el IVA se descuenta con el IVA de cada producto en el momento en que el monto se le asigna: cada producto usa el suyo, aunque sean distintos. Por eso lo asignado a productos sin ventas ya se ve sin IVA, y lo **Sin asignar** se ve tal como se cargó, con IVA, con la aclaración **con IVA: se descuenta al asignarlo a un producto**. Sin tildar, todo se usa tal como se cargó. Al pasar el mouse sobre **Sin asignar** se ve esta regla.
+
+Lo sin asignar (y lo asignado a productos sin ventas) no se pierde: suma en los totales de **Métricas ML** (el indicador de sell out, el total con sell in/out y una línea final del CSV) cuando el período incluye el día que termina la campaña, no en la fila de ningún producto. Con filtros (marca, categoría, producto, etc.) cuenta solo si la campaña alcanza alguno de los productos filtrados. Si el reparto guardado no se puede calcular, la sección dice por qué y no suma nada.
 
 ## Filtros y columnas
 
