@@ -8,25 +8,31 @@ export const ANULAR_MASIVO_MAX = 500; // `ANULAR_MASIVO_MAX` in backend/app/sche
 const PAGINA = 200; // the list endpoints' largest page
 
 /**
- * Every id of the filtered list. `listar` is the list API (`sellInAPI.listar` / `sellInBonosAPI.listar`), `params`
- * the filters it is showing with, `total` the count it showed. Throws a message to show when it cannot be trusted:
- * more than the bulk limit, an empty answer with filters active, or a count that moved while reading.
+ * Every voidable id of the filtered list. `listar` is the list API (`sellInAPI.listar` / `sellInBonosAPI.listar`),
+ * `params` the filters it is showing with, `total` the count it showed and `generadas` how many of those a brand
+ * bonus generated (purchases only): those are voided through their bonus, so they are left out. Throws a message to
+ * show when it cannot be trusted: more voidable ones than the bulk limit, an empty answer with filters active, or a
+ * count (total or generated) that moved while reading.
  */
-export async function resolverIdsFiltrados(listar, params, { total, filtrosActivos }) {
-  if (total > ANULAR_MASIVO_MAX) throw new Error(`Son ${total}: se pueden anular hasta ${ANULAR_MASIVO_MAX} por vez. Filtrá más.`);
+export async function resolverIdsFiltrados(listar, params, { total, generadas = 0, filtrosActivos }) {
+  const anulables = total - generadas;
+  if (anulables > ANULAR_MASIVO_MAX) throw new Error(`Son ${anulables}: se pueden anular hasta ${ANULAR_MASIVO_MAX} por vez. Filtrá más.`);
   const cambio = (n) => new Error(`La lista cambió mientras se seleccionaba (${n} de ${total}). Volvé a intentarlo.`);
-  const ids = [];
-  for (let page = 1; ids.length < total; page += 1) {
+  const items = [];
+  for (let page = 1; items.length < total; page += 1) {
     const { data } = await listar({ ...params, page, page_size: PAGINA });
-    const items = data?.items ?? [];
-    if (data?.total !== total) throw cambio(data?.total ?? ids.length);
-    if (items.length === 0) break;
-    ids.push(...items.map((item) => item.id));
+    const pagina = data?.items ?? [];
+    if (data?.total !== total) throw cambio(data?.total ?? items.length);
+    if ((data?.generadas ?? 0) !== generadas) throw cambio(items.length);
+    if (pagina.length === 0) break;
+    items.push(...pagina);
   }
-  const unicos = [...new Set(ids)];
-  if (unicos.length === 0 && filtrosActivos) throw new Error('No se pudo resolver lo filtrado: la lista vino vacía.');
-  if (unicos.length !== total || unicos.length !== ids.length) throw cambio(unicos.length);
-  return unicos;
+  const unicos = new Set(items.map((item) => item.id));
+  if (unicos.size === 0 && filtrosActivos) throw new Error('No se pudo resolver lo filtrado: la lista vino vacía.');
+  if (unicos.size !== total || unicos.size !== items.length) throw cambio(unicos.size);
+  const ids = items.filter((item) => item.origen !== 'bono_marca').map((item) => item.id);
+  if (ids.length !== anulables) throw cambio(unicos.size);
+  return ids;
 }
 
 /** The gendered words of a noun ("compra" / "bono"): its article and endings. */

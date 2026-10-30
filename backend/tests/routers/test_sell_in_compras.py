@@ -891,6 +891,28 @@ def test_anular_a_purchase_generated_by_a_brand_bonus_is_409(client, gestor, pro
     assert db.get(SellInCompra, data["id"]).estado == "activa"
 
 
+def test_the_list_counts_the_purchases_bonuses_generated_over_every_page(client, gestor, productos, admin_user, db):
+    # The bulk void's "todo lo filtrado" leaves them out (they are voided by their bonus): it needs how many there are.
+    bono = SellInBonoMarca(
+        marca="TP-LINK",
+        monto_unit=D("2"),
+        moneda="ARS",
+        fecha_desde=date(2026, 10, 1),
+        fecha_hasta=date(2026, 10, 31),
+        usuario_id=admin_user.id,
+    )
+    db.add(bono)
+    db.flush()
+    ids = [_crear(client, gestor)["id"] for _ in range(3)]
+    compra = db.get(SellInCompra, ids[0])
+    compra.origen, compra.bono_id = "bono_marca", bono.id
+    db.flush()
+
+    pagina = client.get(BASE, params={"aplica": "todas", "page": 2, "page_size": 1}, headers=gestor).json()
+
+    assert (pagina["total"], pagina["generadas"]) == (3, 1)
+
+
 # ── Anular masivo ───────────────────────────────────────────────────
 
 MASIVO = f"{BASE}/anular-masivo"

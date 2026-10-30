@@ -645,6 +645,26 @@ describe('SellIn page — bulk void (anular masivo)', () => {
     await waitFor(() => expect(paginaDeLaLista()).toBe(1));
   });
 
+  it('a purchase a bonus generated cannot be selected: no checkbox, and "todo lo filtrado" leaves it out and says so', async () => {
+    const user = userEvent.setup();
+    sellInAPI.listar.mockResolvedValue({ data: { ...LISTA, items: [LISTA.items[0], COMPRA_BONO], total: 2, generadas: 1 } });
+    sellInAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [LISTA.items[0].id], ya_anuladas: [] } });
+    renderWithRouter(<SellIn />);
+    await screen.findByRole('checkbox', { name: `Seleccionar compra #${LISTA.items[0].id}` });
+    expect(screen.queryByRole('checkbox', { name: `Seleccionar compra #${COMPRA_BONO.id}` })).not.toBeInTheDocument();
+    expect(screen.getByText('1 anulable; 1 generada por bonos no se puede anular a mano.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar la página de sell in' }));
+    expect(screen.getByText('1 seleccionado')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Limpiar selección' }));
+
+    await user.click(screen.getByRole('button', { name: 'Seleccionar todo lo filtrado (1)' }));
+    expect(await screen.findByText('1 seleccionado')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, anular 1' }));
+    expect(sellInAPI.anularMasivo).toHaveBeenCalledWith([LISTA.items[0].id], '');
+  });
+
   it('"Seleccionar todo lo filtrado" asks every page with the filters on screen', async () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />);

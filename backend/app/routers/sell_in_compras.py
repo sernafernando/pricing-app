@@ -156,8 +156,15 @@ def listar_compras(
     _user: Usuario = Depends(requiere_ver),
     db: Session = Depends(get_db),
 ) -> dict:
+    """One page of purchases. `generadas` counts the matching purchases (every page) a brand bonus generated."""
     compras, total = service.listar_compras(db, filtros, page=page, page_size=page_size)
-    return {"items": service.serializar(db, compras), "total": total, "page": page, "page_size": page_size}
+    return {
+        "items": service.serializar(db, compras),
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "generadas": service.contar_generadas(db, filtros),
+    }
 
 
 @router.get("/resumen", response_model=SellInCompraResumenOut)

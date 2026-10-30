@@ -43,4 +43,29 @@ describe('resolverIdsFiltrados — "todo lo filtrado" is fail-closed', () => {
     );
     expect(listar).not.toHaveBeenCalled();
   });
+
+  it('leaves out the purchases a bonus generated, and checks the rest against the voidable count', async () => {
+    const items = [{ id: 5 }, { id: 4, origen: 'bono_marca' }, { id: 3 }];
+    const listar = vi.fn(async () => ({ data: { items, total: 3, generadas: 1 } }));
+
+    await expect(resolverIdsFiltrados(listar, {}, { total: 3, generadas: 1, filtrosActivos: false })).resolves.toEqual([5, 3]);
+  });
+
+  it('refuses when the generated count moved since the page was shown', async () => {
+    const items = [{ id: 5 }, { id: 4, origen: 'bono_marca' }, { id: 3, origen: 'bono_marca' }];
+    const listar = vi.fn(async () => ({ data: { items, total: 3, generadas: 2 } }));
+
+    await expect(resolverIdsFiltrados(listar, {}, { total: 3, generadas: 1, filtrosActivos: false })).rejects.toThrow(
+      'La lista cambió mientras se seleccionaba',
+    );
+  });
+
+  it('the bulk limit counts only what can be voided', async () => {
+    const ids = Array.from({ length: 600 }, (_, i) => 1000 - i);
+    const listar = vi.fn(async ({ page, page_size: size }) => ({
+      data: { items: ids.slice((page - 1) * size, page * size).map((id) => ({ id, ...(id % 3 === 0 && { origen: 'bono_marca' }) })), total: 600, generadas: 200 },
+    }));
+
+    await expect(resolverIdsFiltrados(listar, {}, { total: 600, generadas: 200, filtrosActivos: false })).resolves.toHaveLength(400);
+  });
 });

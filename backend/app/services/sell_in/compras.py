@@ -640,6 +640,12 @@ def listar_compras(
     return compras, total
 
 
+def contar_generadas(db: Session, filtros: FiltrosCompras) -> int:
+    """How many of the matching purchases (every page) a brand bonus generated: they are voided only through their
+    bonus, so the bulk void's "todo lo filtrado" leaves them out."""
+    return _filtrada(db, filtros).filter(SellInCompra.origen == "bono_marca").count()
+
+
 def resumir_compras(db: Session, filtros: FiltrosCompras) -> dict:
     """Exact aggregates over EVERY matching purchase (not a page), in two set-based queries.
 

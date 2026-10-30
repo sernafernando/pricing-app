@@ -28,8 +28,11 @@ export function CheckPagina({ ids, seleccion, onTogglePagina, label }) {
  * The sell-in purchases list. The chevron opens a row into its lines; a click
  * elsewhere on the row selects it (`onSelect`, the detail panel). A purchase a
  * brand bonus generated carries a "Bono de marca" badge and links to its bonus (`onVerBono`). With `seleccion` (a Set)
- * each row gets a checkbox for the bulk void (`onToggle`, `onTogglePagina`).
+ * each voidable row gets a checkbox for the bulk void (`onToggle`, `onTogglePagina`).
  */
+/** A purchase a brand bonus generated is voided only through its bonus: it has no bulk-void checkbox. */
+const anulable = (compra) => compra.origen !== 'bono_marca';
+
 export default function SellInTable({ compras, selectedId, onSelect, onVerBono, seleccion, onToggle, onTogglePagina }) {
   const columnas = COLUMNS + (seleccion ? 1 : 0);
   const [abiertas, setAbiertas] = useState(() => new Set());
@@ -48,7 +51,7 @@ export default function SellInTable({ compras, selectedId, onSelect, onVerBono, 
           <tr>
             {seleccion && (
               <th>
-                <CheckPagina ids={compras.map((c) => c.id)} seleccion={seleccion} onTogglePagina={onTogglePagina} label="Seleccionar la página de sell in" />
+                <CheckPagina ids={compras.filter(anulable).map((c) => c.id)} seleccion={seleccion} onTogglePagina={onTogglePagina} label="Seleccionar la página de sell in" />
               </th>
             )}
             <th aria-label="Expandir" />
@@ -77,7 +80,9 @@ export default function SellInTable({ compras, selectedId, onSelect, onVerBono, 
                 <tr className={`${abierta ? styles.rowOpen : ''} ${selectedId === compra.id ? styles.rowSelected : ''}`}>
                   {seleccion && (
                     <td>
-                      <input type="checkbox" aria-label={`Seleccionar compra #${compra.id}`} checked={seleccion.has(compra.id)} onChange={() => onToggle(compra.id)} />
+                      {anulable(compra) && (
+                        <input type="checkbox" aria-label={`Seleccionar compra #${compra.id}`} checked={seleccion.has(compra.id)} onChange={() => onToggle(compra.id)} />
+                      )}
                     </td>
                   )}
                   <td>

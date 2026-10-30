@@ -212,6 +212,7 @@ class SellInCompraListOut(BaseModel):
     total: int
     page: int
     page_size: int
+    generadas: int = 0  # matching purchases a brand bonus generated (every page): not voidable by hand
 
 
 class SellInConteoAplica(BaseModel):

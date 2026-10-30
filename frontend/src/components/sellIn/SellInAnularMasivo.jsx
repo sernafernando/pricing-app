@@ -6,9 +6,10 @@ import styles from './SellInAnularMasivo.module.css';
  * The bulk void bar of a sell-in list: "N seleccionados", "Seleccionar todo lo filtrado (N)" and "Anular
  * seleccionados", which opens a confirmation pane saying how many records are voided and what is reversed
  * (`revierte`). A refused set (409) voids nothing and lists each refused record with its reason. `onHecho(mensaje,
- * data)` gets what happened and the API's answer (`anuladas`, `ya_anuladas`).
+ * data)` gets what happened and the API's answer (`anuladas`, `ya_anuladas`). `total` is how many of the filtered
+ * records can be voided; `nota` says why the rest cannot (purchases a bonus generated).
  */
-export default function SellInAnularMasivo({ sustantivo, seleccionados, total, revierte, onSeleccionarFiltrado, onLimpiar, anular, onHecho }) {
+export default function SellInAnularMasivo({ sustantivo, seleccionados, total, nota, revierte, onSeleccionarFiltrado, onLimpiar, anular, onHecho }) {
   const [confirmando, setConfirmando] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -79,6 +80,7 @@ export default function SellInAnularMasivo({ sustantivo, seleccionados, total, r
             {`Seleccionar todo lo filtrado (${total})`}
           </button>
         )}
+        {nota && <span className={styles.nota}>{nota}</span>}
         {n > 0 && (
           <>
             <button

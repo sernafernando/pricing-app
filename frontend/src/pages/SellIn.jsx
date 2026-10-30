@@ -28,6 +28,14 @@ const CAMPANAS_PAGE_SIZES = [10, 25, 50];
 const COMPRAS = { singular: 'compra', plural: 'compras' };
 const BONOS = { singular: 'bono', plural: 'bonos' };
 const REVIERTE_COMPRAS = 'Se liberan sus unidades: las ventas que tomaban pasan a las compras siguientes. Las compras que genera un bono de marca no se anulan acá.';
+/** Why "todo lo filtrado" leaves some purchases out: "N anulables; M generadas por bonos no se pueden anular a mano." */
+function notaGeneradas(anulables, generadas) {
+  if (!generadas) return null;
+  const a = anulables === 1 ? '1 anulable' : `${anulables} anulables`;
+  const g = generadas === 1 ? '1 generada por bonos no se puede anular a mano' : `${generadas} generadas por bonos no se pueden anular a mano`;
+  return `${a}; ${g}.`;
+}
+
 const REVIERTE_BONOS = 'Después se anulan las compras que generó cada bono, y un bono sobre el costo deja de aplicarse a sus ventas.';
 const PANEL_LABELS = { crear: 'Nuevo sell in', detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out' };
 const APLICA_LABELS = { si: 'Aplican', no: 'No aplican' };
@@ -243,7 +251,7 @@ export default function SellIn() {
   // "Todo lo filtrado" of the purchases, dropped when the filters changed while it was being read.
   const seleccionarComprasFiltradas = async () => {
     const desde = params;
-    const ids = await resolverIdsFiltrados(sellInAPI.listar, desde, { total: lista.total, filtrosActivos: true });
+    const ids = await resolverIdsFiltrados(sellInAPI.listar, desde, { total: lista.total, generadas: lista.generadas ?? 0, filtrosActivos: true });
     if (paramsRef.current !== desde) throw new Error('Los filtros cambiaron mientras se seleccionaba. Volvé a intentarlo.');
     selCompras.reemplazar(ids);
   };
@@ -572,7 +580,8 @@ export default function SellIn() {
                   <SellInAnularMasivo
                     sustantivo={COMPRAS}
                     seleccionados={[...selCompras.ids]}
-                    total={lista.total}
+                    total={lista.total - (lista.generadas ?? 0)}
+                    nota={notaGeneradas(lista.total - (lista.generadas ?? 0), lista.generadas ?? 0)}
                     revierte={REVIERTE_COMPRAS}
                     onSeleccionarFiltrado={seleccionarComprasFiltradas}
                     onLimpiar={selCompras.limpiar}
