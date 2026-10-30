@@ -11,6 +11,13 @@ price, and that credit is added to profit. The rules live in
   a day the campaign covers (`vigente_en`), free text (`q`) and group.
 - `PUT /{id}` replaces an active campaign (409 once voided). There is no
   delete: `POST /{id}/anular` voids it, once (409 on a second call).
+- `PUT /{id}/reparto` sets the split of a `monto_total` campaign among its
+  products (T26c, S34), with `sell_out.repartir` or `sell_out.gestionar`
+  (migration `20261216_sell_out_repartir_permiso`). A user who sees every
+  brand replaces the whole split; a PM (`sell_out.repartir` only) splits only
+  the products of their brands (`pm_scope`): another brand's product is a 403
+  naming it, and the shares they cannot see are kept; their response lists
+  only the shares of their brands (the summary is the campaign's aggregate).
 - `POST /{id}/tipo-cambio` sets or changes the rate of a USD `al_cobro`
   campaign when the brand pays, also after it ended (audited; 409 once voided).
   Until then its ARS figures are estimates at the current BNA rate (T7).
@@ -45,10 +52,12 @@ from app.schemas.sell_out import (
     SellOutCampanaListOut,
     SellOutCampanaOut,
     SellOutConsumosListOut,
+    SellOutRepartoIn,
     SellOutTipoCambioIn,
     Tipo,
 )
 from app.services.permisos_service import verificar_permiso
+from app.services.pm_scope import get_pares_marca_categoria_usuario
 from app.services.sell_out import campanas as service
 from app.services.sell_out import resumen
 
@@ -75,7 +84,10 @@ def _no_existe(campana_id: int) -> HTTPException:
 def _error(db: Session, exc: service.SellOutError) -> HTTPException:
     db.rollback()
     conflicto = (service.SellOutYaAnulada, service.SellOutRecalculando)
-    code = status.HTTP_409_CONFLICT if isinstance(exc, conflicto) else 422
+    if isinstance(exc, service.SellOutSinPermiso):
+        code = status.HTTP_403_FORBIDDEN
+    else:
+        code = status.HTTP_409_CONFLICT if isinstance(exc, conflicto) else 422
     return HTTPException(status_code=code, detail=str(exc))
 
 
@@ -187,3 +199,26 @@ def definir_tipo_cambio(
     if campana is None:
         raise _no_existe(campana_id)
     return resumen.serializar(db, [campana])[0]
+
+
+@router.put("/{campana_id}/reparto", response_model=SellOutCampanaOut)
+def repartir_campana(
+    campana_id: int,
+    data: SellOutRepartoIn,
+    user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Set the split of an active `monto_total` campaign among its products (module docstring)."""
+    pares = None
+    if not verificar_permiso(db, user, "sell_out.gestionar"):
+        if not verificar_permiso(db, user, "sell_out.repartir"):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permiso: sell_out.repartir")
+        alcance_pm = get_pares_marca_categoria_usuario(db, user)  # None: the user sees every brand
+        pares = None if alcance_pm is None else set(alcance_pm)
+    try:
+        campana = service.repartir(db, campana_id, data.repartos, user.id, pares)
+    except service.SellOutError as exc:
+        raise _error(db, exc) from exc
+    if campana is None:
+        raise _no_existe(campana_id)
+    return service.solo_sus_marcas(db, resumen.serializar(db, [campana])[0], pares)

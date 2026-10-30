@@ -13,7 +13,12 @@ for the `sell_out.drain` rebuild in the same transaction (`queue`). An edit also
 queues the campaigns that shared products with it BEFORE the edit, since
 afterwards the rebuild no longer finds them. A `por_unidad` campaign may give
 products of its groups their own amount (`items`, T22b), replaced with the rest
-on every edit and audited with it. The payment rate
+on every edit and audited with it. A `monto_total` campaign (T26c, S34/S35)
+carries one amount, split by hand among its products (`items` with a share,
+`reparto_porcentaje` or `reparto_monto`); its split also changes on its own
+(`repartir`, the PM's or an admin's split), where a PM only touches the
+products of their brands and keeps the others' shares. The shares are checked
+with the allocator's own rule (`reparto.validar`). The payment rate
 of an `al_cobro` campaign is set with `definir_tipo_cambio`, never by an edit.
 """
 
@@ -25,7 +30,7 @@ from decimal import Decimal
 from typing import Optional
 
 from pydantic import TypeAdapter
-from sqlalchemy import Numeric, or_
+from sqlalchemy import Numeric, func, or_
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
@@ -33,9 +38,9 @@ from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem
-from app.schemas.sell_out import SellOutCampanaIn
+from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaItemIn
 from app.services.sell_in.compras import contiene
-from app.services.sell_out import alcance, asignacion, queue
+from app.services.sell_out import alcance, asignacion, queue, reparto
 
 # Each NUMERIC column's scale as a quantum: `monto_unit` 0.01, `porcentaje` 0.0001, ...
 _QUANTUM = {
@@ -43,6 +48,12 @@ _QUANTUM = {
     for column in SellOutCampana.__table__.columns
     if isinstance(column.type, Numeric)
 }
+# The shares' own columns (`sell_out_campana_items`, T26).
+_QUANTUM.update(
+    (column.name, Decimal(1).scaleb(-column.type.scale))
+    for column in SellOutCampanaItem.__table__.columns
+    if column.name in ("reparto_porcentaje", "reparto_monto")
+)
 _INSTANTE = TypeAdapter(datetime)
 
 _CAMPOS = (
@@ -66,6 +77,10 @@ _CAMPOS = (
 
 class SellOutError(ValueError):
     """The request cannot be served as asked; the message is for the operator."""
+
+
+class SellOutSinPermiso(SellOutError):
+    """The user may not change what was asked (a PM splitting another brand's product)."""
 
 
 class SellOutYaAnulada(SellOutError):
@@ -137,11 +152,17 @@ def validar_campos(data: SellOutCampanaIn, actual: Optional[SellOutCampana] = No
             raise SellOutError("Una campaña por unidad necesita un monto por unidad mayor a 0")
         if data.porcentaje is not None:
             raise SellOutError("Una campaña por unidad no lleva porcentaje")
+        if data.monto_total is not None:
+            raise SellOutError("Una campaña por unidad no lleva monto total")
+    elif data.tipo == "monto_total":
+        _validar_monto_total(data)
     else:
         if data.porcentaje is None or not 0 < data.porcentaje <= 100:
             raise SellOutError("El porcentaje tiene que ser mayor a 0 y hasta 100")
         if data.monto_unit is not None:
             raise SellOutError("Una campaña por porcentaje no lleva monto por unidad")
+        if data.monto_total is not None:
+            raise SellOutError("Una campaña por porcentaje no lleva monto total")
         # The percentage applies to a base already without VAT, so the flag would do nothing.
         if data.monto_incluye_iva:
             raise SellOutError(
@@ -154,20 +175,54 @@ def validar_campos(data: SellOutCampanaIn, actual: Optional[SellOutCampana] = No
         raise SellOutError("El tope de unidades tiene que ser mayor a 0")
     if data.tope_monto is not None and data.tope_monto <= 0:
         raise SellOutError("El tope de monto tiene que ser mayor a 0")
-    _validar_items(data)
+    _validar_items(data.tipo, data.items)
 
 
-def _validar_items(data: SellOutCampanaIn) -> None:
-    """The per-product amounts, without the database; their reach is checked once the groups are stored."""
-    if data.items and data.tipo != "por_unidad":
+def _validar_monto_total(data: SellOutCampanaIn) -> None:
+    """A `monto_total` campaign: one amount, never 0 (negative: a deduction, S35), and nothing per unit or capped."""
+    if data.monto_total is None or data.monto_total == 0:
+        raise SellOutError("Una campaña por monto total necesita un monto total distinto de 0")
+    if data.monto_unit is not None:
+        raise SellOutError("Una campaña por monto total no lleva monto por unidad")
+    if data.porcentaje is not None:
+        raise SellOutError("Una campaña por monto total no lleva porcentaje")
+    if data.tope_unidades is not None or data.tope_monto is not None:
+        raise SellOutError("Una campaña por monto total no lleva topes: el monto total es el tope")
+
+
+def _validar_items(tipo: str, items: Optional[list[SellOutCampanaItemIn]]) -> None:
+    """The per-product amounts or shares, without the database; their reach is checked once the groups are stored,
+    and the shares' sign and sum against the total once they are (`_validar_suma`)."""
+    if items and tipo == "porcentaje":
         raise SellOutError("Una campaña por porcentaje no lleva montos por producto")
     vistos = set()
-    for item in data.items or []:
+    for item in items or []:
         if item.item_id in vistos:
-            raise SellOutError(f"El producto {item.item_id} tiene más de un monto")
+            que = "reparto" if tipo == "monto_total" else "monto"
+            raise SellOutError(f"El producto {item.item_id} tiene más de un {que}")
         vistos.add(item.item_id)
-        if item.monto_unit <= 0:
+        if tipo == "monto_total":
+            _validar_reparto(item)
+            continue
+        if item.reparto_porcentaje is not None or item.reparto_monto is not None:
+            raise SellOutError("Una campaña por unidad no lleva reparto por producto")
+        if item.monto_unit is None or item.monto_unit <= 0:
             raise SellOutError(f"El monto del producto {item.item_id} tiene que ser mayor a 0")
+
+
+def _validar_reparto(item: SellOutCampanaItemIn) -> None:
+    """One share of a `monto_total` campaign: a % (over 0, up to 100) or a fixed amount (not 0), never both."""
+    if item.monto_unit is not None:
+        raise SellOutError("Una campaña por monto total no lleva montos por unidad por producto")
+    porcentaje, monto = item.reparto_porcentaje, item.reparto_monto
+    if porcentaje is None and monto is None:
+        raise SellOutError(f"El producto {item.item_id} necesita un porcentaje o un monto de reparto")
+    if porcentaje is not None and monto is not None:
+        raise SellOutError(f"El producto {item.item_id} lleva un porcentaje o un monto de reparto, no los dos")
+    if porcentaje is not None and not 0 < porcentaje <= 100:
+        raise SellOutError("El porcentaje de reparto tiene que ser mayor a 0 y hasta 100")
+    if monto is not None and monto == 0:
+        raise SellOutError(f"El monto de reparto del producto {item.item_id} no puede ser 0")
 
 
 def _a_escala(campo: str, valor):
@@ -186,8 +241,25 @@ def _utc(instante: Optional[datetime]) -> Optional[datetime]:
     return instante.astimezone(timezone.utc)
 
 
+def _texto(valor) -> Optional[str]:
+    return None if valor is None else str(valor)
+
+
+def _item_auditado(item: dict) -> dict:
+    """A per-unit amount as before T26c; a share with both its columns."""
+    if item["monto_unit"] is not None:
+        return {"item_id": item["item_id"], "monto_unit": str(item["monto_unit"])}
+    return {
+        "item_id": item["item_id"],
+        "reparto_porcentaje": _texto(item["reparto_porcentaje"]),
+        "reparto_monto": _texto(item["reparto_monto"]),
+    }
+
+
 def _valores(campana: SellOutCampana, grupo_ids: list[int], items: list[dict]) -> dict:
     valores = {campo: getattr(campana, campo) for campo in _CAMPOS}
+    if campana.tipo == "monto_total":  # the other types' audit rows keep their shape
+        valores["monto_total"] = campana.monto_total
     for campo, valor in valores.items():
         if valor is not None and not isinstance(valor, (bool, int, str)):
             valores[campo] = str(valor)  # dates and decimals, JSON-safe
@@ -199,7 +271,7 @@ def _valores(campana: SellOutCampana, grupo_ids: list[int], items: list[dict]) -
         "tc_definido_en": definido,
         "estado": campana.estado,
         "grupo_ids": grupo_ids,
-        "items": [{"item_id": i["item_id"], "monto_unit": str(i["monto_unit"])} for i in items],
+        "items": [_item_auditado(i) for i in items],
     }
 
 
@@ -209,19 +281,35 @@ def _grupo_ids(db: Session, campana_id: int) -> list[int]:
 
 
 def _items(db: Session, campana_ids: list[int]) -> dict[int, list[dict]]:
-    """`{campana_id: [{item_id, monto_unit, codigo, descripcion}]}` by item_id, in one query; every asked campaign is
-    present. The product's code and description are for the screen (the audit keeps only id and amount)."""
+    """`{campana_id: [{item_id, monto_unit, codigo, descripcion, reparto_porcentaje, reparto_monto}]}` by item_id, in
+    one query; every asked campaign is present. The product's code and description are for the screen (the audit
+    keeps only id and amount or share)."""
     salida: dict[int, list[dict]] = {i: [] for i in campana_ids}
     if campana_ids:
         t = SellOutCampanaItem
         rows = (
-            db.query(t.campana_id, t.item_id, t.monto_unit, ProductoERP.codigo, ProductoERP.descripcion)
+            db.query(
+                t.campana_id,
+                t.item_id,
+                t.monto_unit,
+                ProductoERP.codigo,
+                ProductoERP.descripcion,
+                t.reparto_porcentaje,
+                t.reparto_monto,
+            )
             .outerjoin(ProductoERP, ProductoERP.item_id == t.item_id)
             .filter(t.campana_id.in_(campana_ids))
         )
-        for campana_id, item_id, monto, codigo, descripcion in rows.order_by(t.item_id):
+        for campana_id, item_id, monto, codigo, descripcion, porcentaje, reparto_monto in rows.order_by(t.item_id):
             salida[campana_id].append(
-                {"item_id": item_id, "monto_unit": Decimal(monto), "codigo": codigo, "descripcion": descripcion}
+                {
+                    "item_id": item_id,
+                    "monto_unit": None if monto is None else Decimal(monto),
+                    "codigo": codigo,
+                    "descripcion": descripcion,
+                    "reparto_porcentaje": None if porcentaje is None else Decimal(porcentaje),
+                    "reparto_monto": None if reparto_monto is None else Decimal(reparto_monto),
+                }
             )
     return salida
 
@@ -245,6 +333,7 @@ def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo
     previo = (campana.tc_modo, campana.tipo_cambio, campana.tc_definido_en)
     for campo in _CAMPOS:
         setattr(campana, campo, _a_escala(campo, getattr(data, campo)))
+    campana.monto_total = _a_escala("monto_total", data.monto_total)
     if campana.tc_modo == "al_cobro" and previo[0] == "al_cobro":
         campana.tipo_cambio, campana.tc_definido_en = previo[1], previo[2]  # an edit keeps the payment rate
     else:
@@ -261,34 +350,102 @@ def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo
 
 
 def _asignar_items(db: Session, campana: SellOutCampana, data: SellOutCampanaIn) -> None:
-    """Replace the per-product amounts with `data.items`, refusing (and rolling back) one SENT outside the reach of
-    the groups just stored. `data.items` None keeps the stored ones as they are, unless the campaign is no longer
-    per unit (they must be cleared explicitly with `[]`). A kept amount whose product left the reach (a group or
-    filter change) is credited nothing: the allocator only reaches the groups' products; re-sending it is refused
-    until the user removes it, which the panel shows."""
-    t = SellOutCampanaItem
+    """Replace the per-product amounts or shares with `data.items`, refusing (and rolling back) one SENT outside the
+    reach of the groups just stored. `data.items` None keeps the stored ones as they are, unless they no longer fit
+    the campaign's type (they must be cleared explicitly with `[]`). A kept amount whose product left the reach (a
+    group or filter change) is credited nothing: the allocator only reaches the groups' products; re-sending it is
+    refused until the user removes it, which the panel shows. A `monto_total` campaign's shares, sent or kept, are
+    then checked against its (maybe new) total (`_validar_suma`)."""
     if data.items is None:
-        if data.tipo != "por_unidad" and db.query(t.id).filter(t.campana_id == campana.id).first() is not None:
-            db.rollback()
-            raise SellOutError(
-                "Una campaña por porcentaje no lleva montos por producto: quitá los montos por producto para cambiarla"
-            )
-        return
-    if data.items:
+        _validar_tenidos(db, campana, data.tipo)
+    else:
+        _validar_alcance(db, campana, [item.item_id for item in data.items])
+        _guardar_items(db, campana, {item.item_id: _fila(item) for item in data.items})
+    if data.tipo == "monto_total":
+        _validar_suma(db, campana)
+
+
+def _validar_tenidos(db: Session, campana: SellOutCampana, tipo: str) -> None:
+    """The stored rows still fit the campaign's type: amounts only per unit, shares only on a fixed total."""
+    t = SellOutCampanaItem
+    filas = db.query(t.id).filter(t.campana_id == campana.id)
+    if tipo == "porcentaje":
+        mensaje = (
+            "Una campaña por porcentaje no lleva montos por producto: quitá los montos por producto para cambiarla"
+        )
+        ajenas = filas
+    elif tipo == "por_unidad":
+        mensaje = "Una campaña por unidad no lleva reparto por producto: quitá el reparto para cambiarla"
+        ajenas = filas.filter(t.monto_unit.is_(None))
+    else:
+        mensaje = (
+            "Una campaña por monto total no lleva montos por unidad por producto: "
+            "quitá los montos por producto para cambiarla"
+        )
+        ajenas = filas.filter(t.monto_unit.isnot(None))
+    if ajenas.first() is not None:
+        db.rollback()
+        raise SellOutError(mensaje)
+
+
+def _validar_alcance(db: Session, campana: SellOutCampana, item_ids: list[int]) -> None:
+    """Every product sent is inside the reach of the campaign's stored groups (T22b)."""
+    if item_ids:
         alcanzados = alcance.productos(db, [campana.id]).get(campana.id, {})
-        for item in data.items:
-            if item.item_id not in alcanzados:
+        for item_id in item_ids:
+            if item_id not in alcanzados:
                 db.rollback()
-                raise SellOutError(f"El producto {item.item_id} no está en los grupos de la campaña")
-    pedidos = {item.item_id: _a_escala("monto_unit", item.monto_unit) for item in data.items}
+                raise SellOutError(f"El producto {item_id} no está en los grupos de la campaña")
+
+
+def _fila(item: SellOutCampanaItemIn) -> dict:
+    """The row's three money columns at their scale (exactly one is set, `_validar_items`)."""
+    return {
+        "monto_unit": _a_escala("monto_unit", item.monto_unit),
+        "reparto_porcentaje": _a_escala("reparto_porcentaje", item.reparto_porcentaje),
+        "reparto_monto": _a_escala("reparto_monto", item.reparto_monto),
+    }
+
+
+def _guardar_items(
+    db: Session, campana: SellOutCampana, pedidos: dict[int, dict], conservar: frozenset = frozenset()
+) -> None:
+    """Store `pedidos` (`item_id -> _fila`) as the campaign's rows: the other stored rows are deleted, except the
+    ones in `conservar`, kept as they are."""
+    t = SellOutCampanaItem
     tenidos = {fila.item_id: fila for fila in db.query(t).filter(t.campana_id == campana.id)}
     for item_id, fila in tenidos.items():
+        if item_id in conservar:
+            continue
         if item_id not in pedidos:
             db.delete(fila)
-        elif fila.monto_unit != pedidos[item_id]:
-            fila.monto_unit = pedidos[item_id]
-    db.add_all(t(campana_id=campana.id, item_id=i, monto_unit=m) for i, m in pedidos.items() if i not in tenidos)
+            continue
+        for columna, valor in pedidos[item_id].items():
+            if getattr(fila, columna) != valor:
+                setattr(fila, columna, valor)
+    db.add_all(t(campana_id=campana.id, item_id=i, **fila) for i, fila in pedidos.items() if i not in tenidos)
     db.flush()
+
+
+def _validar_suma(db: Session, campana: SellOutCampana) -> None:
+    """The stored shares can be split as they stand, by the allocator's own rule (`reparto.validar`): a fixed share
+    has the total's sign and |sum of shares| <= |total|. Otherwise everything is rolled back."""
+    repartos = asignacion.repartos_item(db, [campana]).get(campana.id, {})
+    try:
+        reparto.validar(reparto.MontoTotal(Decimal(campana.monto_total), repartos))
+    except reparto.RepartoInvalido as exc:
+        db.rollback()
+        raise SellOutError(mensaje_reparto(exc)) from exc
+
+
+def mensaje_reparto(exc: reparto.RepartoInvalido) -> str:
+    """`reparto.RepartoInvalido` for the operator, in Spanish."""
+    if exc.causa == "signo":
+        return f"El reparto del producto {exc.item_id} tiene que tener el signo del monto total"
+    if exc.causa == "sin_iva":
+        return f"El producto {exc.item_id} no tiene IVA y el monto se cargó con IVA"
+    exceso = abs(exc.suma) - abs(exc.total)
+    return f"El reparto ({exc.suma}) supera el monto total ({exc.total}) en {exceso}"
 
 
 def crear_campana(
@@ -373,6 +530,73 @@ def definir_tipo_cambio(
     return campana
 
 
+def _de_sus_marcas(db: Session, item_ids: list[int], pares: set) -> tuple[set, dict]:
+    """The products among `item_ids` whose (marca, categoria) is one of the PM's `pares` (upper-cased by the
+    database, like `pm_scope`), and every product's code, for the messages. A product off the catalog is no one's."""
+    propios, codigos = set(), {}
+    if item_ids:
+        p = ProductoERP
+        rows = db.query(p.item_id, p.codigo, func.upper(p.marca), func.upper(p.categoria)).filter(
+            p.item_id.in_(set(item_ids))
+        )
+        for item_id, codigo, marca, categoria in rows:
+            codigos[item_id] = codigo
+            if (marca, categoria) in pares:
+                propios.add(item_id)
+    return propios, codigos
+
+
+def solo_sus_marcas(db: Session, fila: dict, pares: Optional[set]) -> dict:
+    """A serialized campaign as a brand-scoped PM may see it: only the shares of the products of their `pares`
+    (None: every brand, unchanged). The summary stays the campaign's, aggregated (no per-product amount)."""
+    if pares is None:
+        return fila
+    propios, _ = _de_sus_marcas(db, [i["item_id"] for i in fila["items"]], pares)
+    return {**fila, "items": [i for i in fila["items"] if i["item_id"] in propios]}
+
+
+def repartir(
+    db: Session, campana_id: int, repartos: list[SellOutCampanaItemIn], usuario_id: int, pares: Optional[set]
+) -> Optional[SellOutCampana]:
+    """Set the split of an active `monto_total` campaign among its products (S34). None when it does not exist.
+
+    `pares`: None for a user who sees every brand (an admin, `sell_out.gestionar`), whose `repartos` replace the
+    whole split; else the PM's (MARCA, CATEGORIA) pairs (`pm_scope`): a share of another brand's product is
+    refused (`SellOutSinPermiso`, nothing stored) and the stored shares of the products they cannot see are kept,
+    so `repartos` replace only theirs. The resulting split is checked as a whole (`_validar_suma`), audited (before
+    and after) and queued for `sell_out.drain`.
+    """
+    campana = db.query(SellOutCampana).filter(SellOutCampana.id == campana_id).with_for_update().first()
+    if campana is None:
+        return None
+    if campana.estado == "anulada":
+        raise SellOutError(f"La campaña {campana_id} está anulada")
+    if campana.tipo != "monto_total":
+        raise SellOutError("Solo las campañas por monto total se reparten por producto")
+    _validar_items("monto_total", repartos)
+    t = SellOutCampanaItem
+    tenidos = [i for (i,) in db.query(t.item_id).filter(t.campana_id == campana_id)]
+    conservar: frozenset = frozenset()
+    if pares is not None:
+        propios, codigos = _de_sus_marcas(db, [r.item_id for r in repartos] + tenidos, pares)
+        for item in repartos:
+            if item.item_id not in propios:
+                codigo = f" ({codigos[item.item_id]})" if codigos.get(item.item_id) else ""
+                raise SellOutSinPermiso(f"El producto {item.item_id}{codigo} no es de tus marcas")
+        conservar = frozenset(i for i in tenidos if i not in propios)
+    _validar_alcance(db, campana, [r.item_id for r in repartos])
+    grupo_ids = _grupo_ids(db, campana_id)
+    antes = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
+    _guardar_items(db, campana, {r.item_id: _fila(r) for r in repartos}, conservar)
+    _validar_suma(db, campana)
+    despues = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
+    _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, "Reparto del monto total")
+    _encolar(db, [campana_id])
+    db.commit()
+    db.refresh(campana)
+    return campana
+
+
 @dataclass(frozen=True)
 class FiltrosCampanas:
     estado: Optional[str] = None
@@ -438,6 +662,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
             created_at=c.created_at,
             updated_at=c.updated_at,
         )
+        fila["monto_total"] = c.monto_total  # returned for `monto_total` campaigns only (the schema drops it)
         fila["grupos"] = grupos[c.id]
         fila["items"] = items[c.id]
         salida.append(fila)
