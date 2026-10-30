@@ -587,6 +587,41 @@ describe('SellIn page — bulk void (anular masivo)', () => {
     expect(screen.getByRole('checkbox', { name: 'Seleccionar compra #1' })).not.toBeChecked();
   });
 
+  it('goes back to page 1 after a bulk void: what it voided leaves the list, so the page it was on may no longer exist', async () => {
+    const user = userEvent.setup();
+    sellInAPI.listar.mockResolvedValue({ data: { ...LISTA, total: 500 } });
+    sellInAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [1, 2], ya_anuladas: [] } });
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    await user.click(screen.getAllByRole('button', { name: 'Página 2' })[0]);
+    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ page: 2 })));
+
+    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar la página de sell in' }));
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(screen.getByRole('button', { name: 'Sí, anular 2' }));
+
+    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ page: 1 })));
+  });
+
+  it('the bonus list also goes back to page 1 after a bulk void', async () => {
+    const user = userEvent.setup();
+    sellInBonosAPI.listar.mockResolvedValue({ data: { ...BONOS_LISTA, total: 500 } });
+    sellInBonosAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [BONO.id], ya_anuladas: [] } });
+    // The list's own reads, not the active-bonus ones the purchase form takes (`estado: 'activa'`).
+    const paginaDeLaLista = () => sellInBonosAPI.listar.mock.calls.map(([p]) => p).filter((p) => !p?.estado).at(-1)?.page;
+    renderWithRouter(<SellIn />);
+    const bonos = await screen.findByRole('region', { name: 'Bonos de marca' });
+    await user.click(await within(bonos).findByRole('button', { name: 'Página 2' }));
+    await waitFor(() => expect(paginaDeLaLista()).toBe(2));
+
+    await user.click(within(bonos).getByRole('checkbox', { name: `Seleccionar bono #${BONO.id}` }));
+    await user.click(within(bonos).getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(within(bonos).getByRole('button', { name: 'Sí, anular 1' }));
+
+    await screen.findByRole('status');
+    await waitFor(() => expect(paginaDeLaLista()).toBe(1));
+  });
+
   it('"Seleccionar todo lo filtrado" asks every page with the filters on screen', async () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />);

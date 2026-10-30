@@ -65,3 +65,28 @@ def test_the_locks_of_every_product_are_taken_first_in_item_id_order(engine):
     assert locks[0] == [950, 2270, 2964]
     with sessionmaker(bind=engine)() as db:
         assert {db.get(SellInCompra, x).estado for x in (a, b)} == {"anulada"}
+
+
+def test_the_purchase_rows_are_locked_in_id_order_before_the_product_locks(engine):
+    # The single void locks its purchase row, then (in its recompute) the products: the bulk one keeps that order, or a
+    # single void and a bulk void of the same purchase would each wait on the lock the other holds.
+    a = _compra_de(engine, [(2964, 2, "100.00")])
+    b = _compra_de(engine, [(950, 2, "100.00")])
+    sentencias = []
+    with sessionmaker(bind=engine)() as db:
+        conn = db.connection()
+
+        @event.listens_for(conn, "before_cursor_execute")
+        def _capturar(_conn, _cursor, statement, parameters, _context, _many):
+            if "pg_advisory_xact_lock" in statement:
+                sentencias.append("productos")
+            elif "FOR UPDATE" in statement and "sell_in_compras" in statement:
+                sentencias.append(("compras", statement, parameters))
+
+        _anular(db, [b, a])
+
+    (primera, *_) = sentencias
+    assert primera != "productos"
+    assert sentencias.index("productos") == 1
+    _, statement, _ = primera
+    assert "ORDER BY sell_in_compras.id" in statement

@@ -281,7 +281,8 @@ export default function SellIn() {
     limpiarCompras();
   }, [params, limpiarCompras]);
 
-  // After a bulk void: the side panel of a record it voided closes (it read the record when it opened).
+  // After a bulk void: the side panel of a record it voided closes (it read the record when it opened). What it voided
+  // leaves the list, so the page it was on may no longer exist: `recargar` goes back to page 1.
   const anuladoMasivo = (seleccion, tipoPanel, recargar) => (mensaje, { anuladas }) => {
     seleccion.limpiar();
     setAviso(mensaje);
@@ -563,7 +564,8 @@ export default function SellIn() {
                     onLimpiar={selCompras.limpiar}
                     anular={sellInAPI.anularMasivo}
                     onHecho={anuladoMasivo(selCompras, 'detalle', () => {
-                      cargar();
+                      if (offset === 0) cargar();
+                      else setOffset(0);
                       bonosVigentes.recargar();
                     })}
                   />
@@ -624,7 +626,8 @@ export default function SellIn() {
                         onLimpiar={selBonos.limpiar}
                         anular={sellInBonosAPI.anularMasivo}
                         onHecho={anuladoMasivo(selBonos, 'bono', () => {
-                          bonos.recargar();
+                          if (bonos.offset === 0) bonos.recargar();
+                          else bonos.setOffset(0);
                           bonosVigentes.recargar();
                           cargar();
                         })}

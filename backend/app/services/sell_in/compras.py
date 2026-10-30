@@ -470,9 +470,15 @@ def bloquear_productos_de(db: Session, compra_ids: List[int]) -> None:
 
     One recompute per purchase would lock each purchase's products in the order the ids came, holding them all until
     the commit, and could deadlock a drain (or another bulk void) taking the same products in another order. A
-    session re-takes a lock it holds without waiting, so the recomputes then run as in the single void."""
+    session re-takes a lock it holds without waiting, so the recomputes then run as in the single void.
+
+    The purchase rows go first, in id order: the single void locks its row before its recompute locks the products, and
+    a bulk void taking them the other way round would deadlock a single void of one of its purchases."""
     if db.get_bind().dialect.name != "postgresql":
         return
+    db.query(SellInCompra.id).filter(SellInCompra.id.in_(list(compra_ids))).order_by(
+        SellInCompra.id
+    ).with_for_update().all()
     ids = sorted(
         item_id
         for (item_id,) in db.query(SellInCompraItem.item_id)
