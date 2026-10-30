@@ -1,4 +1,4 @@
-"""Migrate the legacy offsets (`offsets_ganancia`) to sell-out campaigns and sell-in cost bonuses (T15, T22, T25f).
+"""Migrate the legacy offsets (`offsets_ganancia`) to sell-out campaigns and sell-in cost bonuses (T15, T22, T25f, T26e).
 
 Owner: "Los offsets hay que migrar todo, lo que no se pueda migrar directo haceme
 un detalle y guardamelo en una tabla". Each offset of type `monto_por_unidad`
@@ -70,9 +70,25 @@ read-only), so the script passes it to `crear_bono` as a keyword argument:
 The CSV says "migrado a bono #N" ("se migraría a bono" in a dry run); the
 summary adds `bonos_creados` and `bono_ids`.
 
+Each `monto_fijo` offset becomes ONE `monto_total` campaign (T26e, S34/S35; owner:
+"si es un monto fijo que entre un monto fijo sin importar las unidades"), loaded
+through the same campaigns service and stamped with `offset_origen_id` like a
+per-unit one: `monto_total` = the offset's `monto` as is (positive: a credit;
+NEGATIVE: a deduction from profit, owner: "lenovo era una deducción de las
+ganancias por lo que debería ser un sell out negativo"), in its `moneda` (USD
+with the service's default FX mode), `monto_incluye_iva` unticked, its own new
+group (or, for a group of fixed amounts, the existing group plus the new group
+of its offsets' products outside its filters, with their SUM as the total: each
+legacy offset added its own amount), the same dates and expired / open-ended
+warnings. It gets NO shares: the whole total is "Sin asignar" until the PM or an
+admin splits it, and its CSV row says so. A zero amount, any cap (a monto total
+has none: it is its own cap), a skipped channel, or a group mixing currencies,
+periods or types goes to review. A re-run over a migrated group of fixed amounts
+is "ya migrado" while the campaign's total is still the group's sum; otherwise
+the whole group goes to review.
+
 Everything else is reported in the CSV and NOT migrated, each with its reason:
-`monto_fijo` (no campaign type holds a fixed total), a non-positive
-amount, no scope, no user (offset without `usuario_id` and no `--usuario-id`),
+a non-positive per-unit amount, no scope, no user (offset without `usuario_id` and no `--usuario-id`),
 what a campaign cannot represent (active or expired, single or any offset of a
 group: an ARS offset capped in USD, since a campaign in pesos holds no USD cap; an
 offset that skipped some channel, since a campaign covers every channel:
@@ -406,7 +422,7 @@ def _planear(
             return _Plan("Porcentaje negativo o cero")
         return _a_mano_suelto(offset, bonos or []) or _planear_bono(offset, hoy, fecha_hasta_default, usuario_id)
     if offset.tipo_offset == "monto_fijo":
-        return _Plan("Monto fijo: no tiene equivalente en una campaña por unidad")
+        return _planear_fijo(offset, hoy, fecha_hasta_default, usuario_id)
     if offset.tipo_offset != "monto_por_unidad":
         return _Plan(f"Tipo de offset desconocido: {offset.tipo_offset}")
     if offset.monto is None or offset.monto <= 0:
@@ -437,6 +453,114 @@ def _planear(
     except ValidationError as exc:
         return _Plan(f"Valor no válido en: {_campos(exc)}", error=True)
     return plan
+
+
+SIN_REPARTIR = "Sin repartir: lo reparte el PM o un administrador"
+MONTO_CERO = "Monto fijo en cero: no hay monto que migrar"
+CON_TOPE = "tope ({}): una campaña por monto total no lleva topes; revisar a mano"
+
+
+def _tope_fijo(offset: OffsetGanancia) -> Optional[str]:
+    """The caps of a fixed-amount offset, as the review reason names them, or None: a monto total has no caps."""
+    partes = []
+    if offset.max_unidades is not None:
+        partes.append(f"{offset.max_unidades} unidades")
+    if offset.max_monto_usd is not None:
+        partes.append(f"USD {csv_money(offset.max_monto_usd)}")
+    return ", ".join(partes) or None
+
+
+def _con_monto_total(
+    plan: _Plan,
+    nombre: str,
+    descripcion: str,
+    total: Decimal,
+    moneda: str,
+    grupo_ids: list[int],
+    condiciones: dict,
+    prefijo: str = "",
+) -> _Plan:
+    """`plan` with its `monto_total` campaign (no shares: everything "Sin asignar"), or the value it cannot hold."""
+    try:
+        plan.data = SellOutCampanaIn(
+            nombre=nombre[:NOMBRE_MAX],
+            descripcion=descripcion,
+            tipo="monto_total",
+            monto_total=total,
+            moneda=moneda,
+            monto_incluye_iva=False,
+            grupo_ids=grupo_ids,
+            **condiciones,
+        )
+    except ValidationError as exc:
+        return _Plan(f"{prefijo}Valor no válido en: {_campos(exc)}", error=True)
+    plan.avisos.append(SIN_REPARTIR)
+    return plan
+
+
+def _planear_fijo(offset: OffsetGanancia, hoy: date, fecha_hasta_default: date, usuario_id: Optional[int]) -> _Plan:
+    """A fixed-amount offset as ONE `monto_total` campaign over its own scope and dates: its amount as is, whatever
+    the units (owner: "si es un monto fijo que entre un monto fijo sin importar las unidades"); a negative one is a
+    deduction (S35). It carries no shares: the PM or an admin splits it later."""
+    if offset.monto is None or offset.monto == 0:
+        return _Plan(MONTO_CERO)
+    usuario = offset.usuario_id if offset.usuario_id is not None else usuario_id
+    if usuario is None:
+        return _Plan("Sin usuario: indicar --usuario-id")
+    if not any(getattr(offset, col) is not None for col, _ in _ALCANCE):
+        return _Plan("Sin alcance: no indica marca, categoría, subcategoría, producto ni grupo")
+    moneda = offset.moneda or "ARS"
+    tope = _tope_fijo(offset)
+    motivos = [f"Monto fijo con {CON_TOPE.format(tope)}"] if tope else []
+    canal = _irrepresentable([offset], None, moneda)
+    if canal is not None:
+        motivos.append(canal)
+    if motivos:
+        return _Plan(" | ".join(motivos))
+    plan = _Plan(usuario_id=usuario)
+    condiciones = _condiciones(plan, [offset], None, moneda, hoy, fecha_hasta_default)
+    texto = _texto(offset)
+    descripcion = f"Migrado del offset #{offset.id}" + (f": {texto}" if texto else "")
+    return _con_monto_total(
+        plan, texto or f"Offset #{offset.id}", descripcion, _monto(offset.monto), moneda, [], condiciones
+    )
+
+
+def _planear_grupo_fijo(
+    grupo_id: int, offsets: list[OffsetGanancia], hoy: date, fecha_hasta_default: date, usuario_id: Optional[int]
+) -> _Plan:
+    """A group of fixed-amount offsets (by id) as ONE `monto_total` campaign linked to the group: each legacy offset
+    adds its own amount, so the total is their sum; the products of its offsets outside its filters get a second
+    group (`_grupo`), as for a per-unit group. No shares, no caps."""
+    g = f"Grupo #{grupo_id}"
+    monedas = sorted({o.moneda or "ARS" for o in offsets})
+    if len(monedas) > 1:
+        return _Plan(f"{g}: mezcla monedas ({', '.join(monedas)})")
+    for o in offsets:
+        if o.monto is None or o.monto == 0:
+            return _Plan(f"{g}: el offset #{o.id} tiene monto cero")
+    for o in offsets:
+        tope = _tope_fijo(o)
+        if tope:
+            return _Plan(f"{g}: el offset #{o.id} tiene {CON_TOPE.format(tope)}")
+    total = sum((_monto(o.monto) for o in offsets), Decimal(0))
+    if total == 0:
+        return _Plan(f"{g}: sus montos fijos suman 0")
+    if len({(o.fecha_desde, o.fecha_hasta) for o in offsets}) > 1:
+        return _Plan(f"{g}: sus offsets tienen períodos distintos y una campaña tiene uno solo; revisar a mano")
+    usuario = next((o.usuario_id for o in offsets if o.usuario_id is not None), usuario_id)
+    if usuario is None:
+        return _Plan(f"{g}: sin usuario; indicar --usuario-id")
+    moneda = monedas[0]
+    motivo = _irrepresentable(offsets, None, moneda)
+    if motivo is not None:
+        return _Plan(f"{g}: {motivo}")
+    plan = _Plan(usuario_id=usuario)
+    condiciones = _condiciones(plan, offsets, None, moneda, hoy, fecha_hasta_default)
+    texto = _texto(offsets[0])
+    origen = ", ".join(f"#{o.id}" for o in offsets)
+    descripcion = f"Migrado de los offsets {origen} del grupo #{grupo_id}" + (f": {texto}" if texto else "")
+    return _con_monto_total(plan, texto or g, descripcion, total, moneda, [grupo_id], condiciones, f"{g}: ")
 
 
 def _planear_grupo(
@@ -751,6 +875,31 @@ def _suelto(
     return [_Resultado(fila, offset, vencido=plan.vencido, nueva=True)]
 
 
+def _grupo_fijo_migrado(grupo_id: int, offsets: list[OffsetGanancia], campana) -> list[_Resultado]:
+    """A re-run over a group of fixed amounts already migrated to a `monto_total` campaign: "ya migrado" while the
+    campaign's total is still the sum of the group's offsets as they are now; otherwise (an amount changed, or an
+    offset was added) the whole group goes to review. An added offset that is not a non-zero fixed amount (a
+    `porcentaje_costo`, or a fixed amount of 0 or with no amount) adds nothing to the sum, so it is checked first."""
+    g = f"Grupo #{grupo_id}"
+    ajenos = [o for o in offsets if o.tipo_offset != "monto_fijo" or not o.monto]
+    if ajenos:
+        motivo = (
+            f"{g}: se agregaron offsets que no son un monto fijo distinto de cero "
+            f"({', '.join(f'#{o.id}' for o in ajenos)}) después de migrar el grupo a la campaña #{campana.id}; "
+            "revisar a mano"
+        )
+        return [_Resultado(_fila(o, NO_MIGRADO, motivo=motivo), o, None, (motivo, [])) for o in offsets]
+    total = sum((_monto(o.monto) for o in offsets), Decimal(0))
+    if total == campana.monto_total:
+        avisos = [f"La campaña #{campana.id} está anulada"] if campana.estado == "anulada" else []
+        return [_Resultado(_fila(o, YA_MIGRADO, campana.id, avisos=avisos), o) for o in offsets]
+    motivo = (
+        f"{g}: el monto de sus offsets cambió después de migrar el grupo a la campaña #{campana.id} "
+        f"(campaña {csv_money(campana.monto_total)}, offsets {csv_money(total)}); revisar a mano"
+    )
+    return [_Resultado(_fila(o, NO_MIGRADO, motivo=motivo), o, None, (motivo, [])) for o in offsets]
+
+
 def _grupo_migrado(db: Session, grupo_id: int, offsets: list[OffsetGanancia], campana_id: int) -> list[_Resultado]:
     """A re-run over a group already migrated: an offset the campaign holds as it is now (its origin with the
     campaign's amount, or its product with that amount) is "ya migrado". One added to the group afterwards, or whose
@@ -781,13 +930,12 @@ def _grupo_migrado(db: Session, grupo_id: int, offsets: list[OffsetGanancia], ca
     return salida
 
 
-def _fuera_de_filtros(db: Session, grupo_id: int, items) -> list[int]:
-    """The per-product amounts the EXISTING group's filters do not reach, in offset order. The operator builds a group
+def _fuera_de_filtros(db: Session, grupo_id: int, pedidos: list[int]) -> list[int]:
+    """The products of the group's offsets the EXISTING group's filters do not reach, in offset order. The operator builds a group
     from filters and from the products of its offsets, and the legacy money path reaches both (`_consumo_grupos`),
     so these products belong to the group even when no filter covers them (a group may have no filters at all)."""
-    if not items:
+    if not pedidos:
         return []
-    pedidos = [item.item_id for item in items]
     alcanzados = alcance.productos_de_grupo(db, grupo_id, pedidos)
     return [item_id for item_id in pedidos if item_id not in alcanzados]
 
@@ -900,8 +1048,14 @@ def _grupo(
         .first()
     )
     if ya is not None:
+        campana = db.get(SellOutCampana, ya[0])
+        if campana.tipo == "monto_total":
+            return _grupo_fijo_migrado(grupo_id, offsets, campana)
         return _grupo_migrado(db, grupo_id, offsets, ya[0])
-    plan = _planear_grupo(grupo_id, offsets, hoy, default, usuario_id)
+    if all(o.tipo_offset == "monto_fijo" for o in offsets):
+        plan = _planear_grupo_fijo(grupo_id, offsets, hoy, default, usuario_id)
+    else:
+        plan = _planear_grupo(grupo_id, offsets, hoy, default, usuario_id)
     error = plan.motivo if plan.error else None
     if plan.data is None:
         return [
@@ -913,7 +1067,9 @@ def _grupo(
     campana_id = None
     avisos = list(plan.avisos)  # the moved products are only reported when the campaign is (or would be) created
     try:
-        fuera = _fuera_de_filtros(db, grupo_id, plan.data.items)
+        # The products of its offsets: per unit, exactly its `items` (each once, `_grupo_irregular`).
+        propios = list(dict.fromkeys(o.item_id for o in offsets if o.item_id is not None))
+        fuera = _fuera_de_filtros(db, grupo_id, propios)
         inexistentes = _inexistentes(db, fuera)
         if inexistentes:
             # `--apply` would fail on the new group's product FK; both runs refuse it the same way, before writing.

@@ -360,14 +360,16 @@ def test_an_offset_ending_today_is_still_active(engine, correr) -> None:
 # ── Not migrated ─────────────────────────────────────────────────────
 
 
-def test_a_fixed_amount_offset_is_not_migrated(engine, correr) -> None:
+def test_a_fixed_amount_offset_with_a_cap_is_not_migrated(engine, correr) -> None:
+    # T26e: a plain fixed amount migrates now (a monto total campaign); a capped one has no equivalent.
     _no_migrado(
         engine,
         correr,
-        "Monto fijo: no tiene equivalente en una campaña por unidad",
+        "Monto fijo con tope (10 unidades): una campaña por monto total no lleva topes; revisar a mano",
         marca="EPSON",
         tipo_offset="monto_fijo",
         monto=10000,
+        max_unidades=10,
     )
 
 
@@ -618,7 +620,10 @@ def test_apply_stores_each_offset_it_could_not_migrate_with_its_full_detail(engi
         "aplica_fuera": False,
         "aplica_tienda_nube": True,
         "usuario_id": 7,
-        "motivo": "Monto fijo: no tiene equivalente en una campaña por unidad",
+        "motivo": (
+            "Monto fijo con tope (50 unidades, USD 900,00): una campaña por monto total no lleva topes; "
+            "revisar a mano | No aplicaba a: fuera de ML; una campaña aplica a todos los canales"
+        ),
         "avisos": None,
     }
     assert fila["registrado_en"] is not None
@@ -637,7 +642,7 @@ def test_a_validation_error_is_stored_for_review_too(engine, correr) -> None:
 
 
 def test_a_rerun_updates_the_review_row_instead_of_adding_another(engine, correr) -> None:
-    offset_id = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=100)
+    offset_id = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=0)
     correr("--apply")
     with engine.begin() as conn:
         conn.execute(
@@ -667,7 +672,7 @@ def test_an_offset_that_migrates_later_leaves_the_review_table(engine, correr) -
 
 
 def test_the_dry_run_leaves_an_existing_review_table_as_it_was(engine, correr) -> None:
-    offset_id = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=100)
+    offset_id = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=100, max_unidades=10)
     correr("--apply")
     antes = _pendientes(engine)
     with engine.begin() as conn:
@@ -680,8 +685,8 @@ def test_the_dry_run_leaves_an_existing_review_table_as_it_was(engine, correr) -
 
 
 def test_a_failure_keeping_the_review_row_keeps_the_reason_and_fails_the_run(engine, correr, monkeypatch) -> None:
-    falla = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=100)
-    sana = _offset(engine, marca="LENOVO", tipo_offset="monto_fijo", monto=200)
+    falla = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=100, max_unidades=10)
+    sana = _offset(engine, marca="LENOVO", tipo_offset="monto_fijo", monto=200, max_unidades=10)
     real = script._guardar_pendiente
 
     def guardar(db, offset, motivo, avisos):
@@ -694,7 +699,9 @@ def test_a_failure_keeping_the_review_row_keeps_the_reason_and_fails_the_run(eng
     code, summary, filas = correr("--apply")
 
     assert code == 1
-    assert filas[falla]["motivo"] == "Monto fijo: no tiene equivalente en una campaña por unidad"
+    assert filas[falla]["motivo"] == (
+        "Monto fijo con tope (10 unidades): una campaña por monto total no lleva topes; revisar a mano"
+    )
     assert "No se actualizó la tabla de revisión" in filas[falla]["avisos"]
     assert list(_pendientes(engine)) == [sana]
     assert (summary["pendientes"], summary["con_error"]) == (1, [falla])
@@ -1356,13 +1363,13 @@ def test_only_the_bonos_covering_the_offset_dates_are_named(engine, correr) -> N
     assert (fila["motivo"], fila["avisos"]) == (f"ya cargado a mano como bono #{cubre}", "")
 
 
-def test_a_fixed_amount_offset_is_stored_for_review(engine, correr) -> None:
-    offset_id = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=10000)
+def test_a_zero_fixed_amount_offset_is_stored_for_review(engine, correr) -> None:
+    offset_id = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=0)
 
     code, _, filas = correr("--apply")
 
     assert code == 0
-    motivo = "Monto fijo: no tiene equivalente en una campaña por unidad"
+    motivo = "Monto fijo en cero: no hay monto que migrar"
     assert (filas[offset_id]["resultado"], filas[offset_id]["motivo"]) == ("no migrado", motivo)
     assert (_pendientes(engine)[offset_id]["motivo"], _campanas(engine)) == (motivo, [])
 
@@ -1725,26 +1732,31 @@ def test_a_cost_percentage_group_rerun_reports_its_offsets_migrated_and_a_later_
     assert (summary["ya_migrados"], summary["bonos_creados"], list(_pendientes(engine))) == (2, 0, [nuevo])
 
 
-def test_cost_bonuses_leave_the_per_unit_campaigns_and_the_fixed_amounts_as_they_were(engine, correr) -> None:
+def test_per_unit_cost_percentage_and_fixed_amount_offsets_each_migrate_their_own_way(engine, correr) -> None:
     por_unidad = _offset(engine, item_id=2964)
-    fijo = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=10000)
+    fijo = _offset(engine, marca="EPSON", tipo_offset="monto_fijo", monto=10000, moneda="ARS")
     pct = _pct(engine)
 
     code, summary, filas = correr("--apply")
 
     assert code == 0
-    [c], [b] = _campanas(engine), _bonos_costo(engine)
-    assert (c["offset_origen_id"], c["tipo"], b["offset_origen_id"]) == (por_unidad, "por_unidad", pct)
-    assert (filas[por_unidad]["resultado"], filas[por_unidad]["campana_id"]) == ("migrado", str(c["id"]))
-    assert (filas[fijo]["resultado"], filas[fijo]["motivo"]) == (
-        "no migrado",
-        "Monto fijo: no tiene equivalente en una campaña por unidad",
+    [c, f], [b] = _campanas(engine), _bonos_costo(engine)
+    assert (c["offset_origen_id"], c["tipo"], c["monto_unit"], c["monto_total"]) == (
+        por_unidad,
+        "por_unidad",
+        Decimal("3.50"),
+        None,
     )
+    assert (f["offset_origen_id"], f["tipo"], f["monto_total"]) == (fijo, "monto_total", Decimal("10000.00"))
+    assert (b["offset_origen_id"], b["porcentaje"], b["incluye_iva"]) == (pct, Decimal("2.71"), False)
+    assert (filas[por_unidad]["resultado"], filas[por_unidad]["avisos"]) == ("migrado", "")
+    assert (filas[fijo]["resultado"], filas[fijo]["campana_id"]) == ("migrado", str(f["id"]))
+    assert filas[pct]["resultado"] == f"migrado a bono #{b['id']}"
     assert (summary["migrados"], summary["campana_ids"], summary["bono_ids"], list(_pendientes(engine))) == (
-        2,
-        [c["id"]],
+        3,
+        [c["id"], f["id"]],
         [b["id"]],
-        [fijo],
+        [],
     )
 
 
@@ -1879,3 +1891,325 @@ def test_a_cost_percentage_group_a_bonus_cannot_hold_goes_to_review_whole(
         [],
         2,
     )
+
+
+# ── Fixed amount -> monto total campaign (T26e, S34/S35) ─────────────
+
+SIN_REPARTIR = "Sin repartir: lo reparte el PM o un administrador"
+MONTO_CERO = "Monto fijo en cero: no hay monto que migrar"
+CON_TOPE = "Monto fijo con tope ({}): una campaña por monto total no lleva topes; revisar a mano"
+
+
+def _fijo(engine: Engine, **values) -> int:
+    """A legacy fixed-amount offset like the owner's (46 HYPERX 856297,50 ARS over its brand)."""
+    return _offset(
+        engine,
+        **{
+            "marca": "EPSON",
+            "tipo_offset": "monto_fijo",
+            "monto": 856297.5,
+            "moneda": "ARS",
+            "descripcion": "Bono HYPERX",
+            **values,
+        },
+    )
+
+
+def _sin_valor(fila: dict) -> dict:
+    return {k: v for k, v in fila.items() if k not in ("resultado", "campana_id")}
+
+
+def test_a_fixed_amount_offset_becomes_one_monto_total_campaign_with_no_shares(engine, correr) -> None:
+    offset_id = _fijo(engine)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [c] = _campanas(engine)
+    assert (c["offset_origen_id"], c["tipo"], c["monto_total"], c["monto_unit"], c["porcentaje"]) == (
+        offset_id,
+        "monto_total",
+        Decimal("856297.50"),
+        None,
+        None,
+    )
+    assert (c["moneda"], c["tc_modo"], c["tipo_cambio"], c["monto_incluye_iva"]) == ("ARS", None, None, False)
+    assert (c["fecha_desde"], c["fecha_hasta"], c["tope_unidades"], c["tope_monto"]) == (
+        date(2026, 9, 1),
+        date(2026, 12, 15),
+        None,
+        None,
+    )
+    assert (c["nombre"], c["usuario_id"]) == ("Bono HYPERX", 7)
+    assert f"Migrado del offset #{offset_id}" in c["descripcion"]
+    [(grupo_id, _)] = _grupos_de(engine, c["id"])
+    assert _filtros(engine, grupo_id) == [("EPSON", None, None, None)]
+    assert _count(engine, "sell_out_campana_items") == 0  # everything "Sin asignar" for the PM or an admin
+    with engine.connect() as conn:  # audited and queued like any campaign the service loads
+        audit = conn.execute(text("SELECT valores_nuevos FROM auditoria")).scalar_one()
+        assert conn.execute(text("SELECT campana_id FROM sell_out_dirty")).scalar_one() == c["id"]
+    assert (audit["campana_id"], audit["offset_origen_id"], audit["monto_total"]) == (c["id"], offset_id, "856297.50")
+    assert filas[offset_id] == {
+        "offset_id": str(offset_id),
+        "tipo": "monto_fijo",
+        "descripcion": "Bono HYPERX",
+        "alcance": "marca EPSON",
+        "valor": "856297,50",
+        "moneda": "ARS",
+        "desde": "2026-09-01",
+        "hasta": "2026-12-15",
+        "resultado": "migrado",
+        "campana_id": str(c["id"]),
+        "motivo": "",
+        "avisos": SIN_REPARTIR,
+    }
+    assert (summary["migrados"], summary["campana_ids"], summary["pendientes"], summary["con_error"]) == (
+        1,
+        [c["id"]],
+        0,
+        [],
+    )
+    assert _pendientes(engine) == {}
+
+
+def test_a_negative_fixed_amount_becomes_a_negative_monto_total_deduction(engine, correr) -> None:
+    # Owner: "lenovo era una deducción de las ganancias por lo que debería ser un sell out negativo" (offset 50).
+    offset_id = _fijo(engine, marca="LENOVO", monto=-13662075, descripcion="CTA Y ORDEN", fecha_hasta=None)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [c] = _campanas(engine)
+    assert (c["tipo"], c["monto_total"], c["fecha_hasta"]) == (
+        "monto_total",
+        Decimal("-13662075.00"),
+        date(2026, 12, 31),
+    )
+    assert (filas[offset_id]["resultado"], filas[offset_id]["valor"]) == ("migrado", "-13662075,00")
+    assert filas[offset_id]["avisos"] == f"Sin fecha hasta: se usó 2026-12-31, revisar | {SIN_REPARTIR}"
+    assert summary["migrados"] == 1
+
+
+def test_a_zero_fixed_amount_goes_to_review(engine, correr) -> None:
+    _no_migrado(engine, correr, MONTO_CERO, marca="EPSON", tipo_offset="monto_fijo", monto=0)
+    assert list(_pendientes(engine).values())[0]["motivo"] == MONTO_CERO
+
+
+def test_a_usd_fixed_amount_gets_the_services_default_fx_mode(engine, correr) -> None:
+    offset_id = _fijo(engine, moneda="USD", monto=300000, tipo_cambio=1400)
+
+    _, _, filas = correr("--apply")
+
+    [c] = _campanas(engine)
+    assert (c["moneda"], c["tc_modo"], c["tipo_cambio"], c["monto_total"]) == (
+        "USD",
+        "al_cobro",
+        None,
+        Decimal("300000.00"),
+    )
+    assert filas[offset_id]["avisos"] == (
+        "El tipo de cambio del offset (1400,00) no se migró: la campaña queda con tipo de cambio al cobro | "
+        + SIN_REPARTIR
+    )
+
+
+def test_an_expired_fixed_amount_migrates_with_its_real_dates_and_a_warning(engine, correr) -> None:
+    offset_id = _fijo(engine, fecha_desde=date(2026, 3, 1), fecha_hasta=date(2026, 6, 30))
+
+    _, summary, filas = correr("--apply")
+
+    [c] = _campanas(engine)
+    assert (c["fecha_desde"], c["fecha_hasta"]) == (date(2026, 3, 1), date(2026, 6, 30))
+    assert filas[offset_id]["avisos"] == f"{VENCIDO.format('2026-06-30')} | {SIN_REPARTIR}"
+    assert summary["vencidos_migrados"] == [offset_id]
+    assert correr.err.splitlines()[-1] == (
+        f"AVISO: 1 offset(s) vencido(s) migrado(s) ({offset_id}): cambian las cifras históricas de sell out "
+        "en Métricas ML"
+    )
+
+
+@pytest.mark.parametrize(
+    "values,detalle",
+    [
+        ({"max_unidades": 500}, "500 unidades"),
+        ({"max_monto_usd": 900}, "USD 900,00"),
+        ({"max_unidades": 50, "max_monto_usd": 900}, "50 unidades, USD 900,00"),
+    ],
+    ids=["unidades", "usd", "ambos"],
+)
+def test_a_capped_fixed_amount_goes_to_review(engine, correr, values, detalle) -> None:
+    _no_migrado(engine, correr, CON_TOPE.format(detalle), marca="EPSON", tipo_offset="monto_fijo", monto=100, **values)
+
+
+def test_a_fixed_amount_that_skipped_a_channel_goes_to_review(engine, correr) -> None:
+    motivo = "No aplicaba a: Tienda Nube; una campaña aplica a todos los canales"
+    _no_migrado(engine, correr, motivo, marca="EPSON", tipo_offset="monto_fijo", monto=100, aplica_tienda_nube=False)
+
+
+def test_a_rerun_reports_the_migrated_fixed_amount_and_creates_nothing(engine, correr) -> None:
+    offset_id = _fijo(engine)
+    correr("--apply")
+    [c] = _campanas(engine)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert _campanas(engine) == [c] and _count(engine, "offset_grupos") == 1
+    assert (filas[offset_id]["resultado"], filas[offset_id]["campana_id"]) == ("ya migrado", str(c["id"]))
+    assert (summary["ya_migrados"], summary["migrados"], summary["pendientes"]) == (1, 0, 0)
+
+
+def test_the_dry_run_of_fixed_amounts_writes_nothing_and_reports_what_apply_does(engine, correr) -> None:
+    ids = [
+        _fijo(engine, marca="HYPERX", monto=856297.5),
+        _fijo(engine, marca="DVIGI", monto=503497.64, fecha_hasta=None),
+        _fijo(engine, marca="LENOVO", monto=-13662075),
+        _fijo(engine, marca="DVIGI", monto=300000, fecha_desde=date(2026, 1, 1), fecha_hasta=date(2026, 1, 31)),
+        _fijo(engine, marca="EPSON", monto=0),
+    ]
+    antes = {table: _count(engine, table) for table in _ESCRITAS}
+
+    code, seco, filas_seco = correr()
+
+    assert {table: _count(engine, table) for table in _ESCRITAS} == antes
+    assert code == 0
+    assert [filas_seco[i]["resultado"] for i in ids] == ["migraría (dry-run)"] * 4 + ["no migrado"]
+
+    code, aplicado, filas = correr("--apply")
+
+    assert code == 0
+    assert [filas[i]["resultado"] for i in ids] == ["migrado"] * 4 + ["no migrado"]
+    assert {i: _sin_valor(filas_seco[i]) for i in ids} == {i: _sin_valor(filas[i]) for i in ids}
+    assert (seco["migrarian"], seco["no_migrados"], seco["pendientes"], seco["vencidos_migrados"]) == (
+        aplicado["migrados"],
+        aplicado["no_migrados"],
+        aplicado["pendientes"],
+        aplicado["vencidos_migrados"],
+    )
+    assert [c["monto_total"] for c in _campanas(engine)] == [
+        Decimal("856297.50"),
+        Decimal("503497.64"),
+        Decimal("-13662075.00"),
+        Decimal("300000.00"),
+    ]
+    assert list(_pendientes(engine)) == [ids[4]]
+
+
+def test_a_fixed_amount_that_migrates_later_leaves_the_review_table(engine, correr) -> None:
+    offset_id = _fijo(engine, monto=0)
+    correr("--apply")
+    assert list(_pendientes(engine)) == [offset_id]
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE offsets_ganancia SET monto = 300000 WHERE id = :i"), {"i": offset_id})
+
+    _, summary, filas = correr("--apply")
+
+    assert filas[offset_id]["resultado"] == "migrado"
+    assert (_pendientes(engine), summary["pendientes"]) == ({}, 0)
+
+
+def test_a_group_of_fixed_amounts_becomes_one_monto_total_campaign_over_the_group_and_its_products(
+    engine, correr
+) -> None:
+    # Each legacy fixed offset adds its own amount: the campaign's total is their sum. 950 (MERCUSYS) is outside the
+    # group's TP-LINK filter: it goes to a new group of the same campaign, as for per-unit groups (T22g).
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ids = [
+        _fijo(engine, marca=None, grupo_id=grupo_id, monto=1000),
+        _fijo(engine, marca=None, grupo_id=grupo_id, item_id=950, monto=500.25),
+    ]
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    [c] = _campanas(engine)
+    assert (c["offset_origen_id"], c["tipo"], c["monto_total"]) == (ids[0], "monto_total", Decimal("1500.25"))
+    grupos = _grupos_de(engine, c["id"])
+    assert [g for g, _ in grupos][0] == grupo_id and len(grupos) == 2
+    assert _filtros(engine, grupos[1][0]) == [(None, None, None, 950)]
+    assert _count(engine, "sell_out_campana_items") == 0
+    fuera = FUERA_DE_FILTROS.format(g=grupo_id, items="950")
+    assert filas[ids[0]]["avisos"] == f"{SIN_REPARTIR} | {fuera}"
+    assert (
+        filas[ids[1]]["avisos"] == f"migrado en la campaña #{c['id']} del grupo #{grupo_id} | {SIN_REPARTIR} | {fuera}"
+    )
+    assert [filas[i]["resultado"] for i in ids] == ["migrado", "migrado"]
+    assert (summary["migrados"], summary["campana_ids"], _pendientes(engine)) == (2, [c["id"]], {})
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0 and _campanas(engine) == [c]
+    assert [(filas[i]["resultado"], filas[i]["campana_id"]) for i in ids] == [("ya migrado", str(c["id"]))] * 2
+
+    with engine.begin() as conn:  # an amount changed afterwards: the campaign no longer holds the group's total
+        conn.execute(text("UPDATE offsets_ganancia SET monto = 700 WHERE id = :i"), {"i": ids[1]})
+    _, _, filas = correr("--apply")
+    motivo = (
+        f"Grupo #{grupo_id}: el monto de sus offsets cambió después de migrar el grupo a la campaña #{c['id']} "
+        "(campaña 1500,25, offsets 1700,00); revisar a mano"
+    )
+    assert {i: (filas[i]["resultado"], filas[i]["motivo"]) for i in ids} == dict.fromkeys(ids, ("no migrado", motivo))
+
+
+_RECHAZOS_FIJOS = {
+    "cero": ([{}, {"item_id": 2964, "monto": 0}], "Grupo #{g}: el offset #{o1} tiene monto cero"),
+    "suma_cero": ([{"monto": 100}, {"item_id": 2964, "monto": -100}], "Grupo #{g}: sus montos fijos suman 0"),
+    "tope": (
+        [{}, {"item_id": 2964, "max_unidades": 10}],
+        "Grupo #{g}: el offset #{o1} tiene tope (10 unidades): una campaña por monto total no lleva topes; revisar a mano",
+    ),
+    "canales": (
+        [{}, {"item_id": 2964, "aplica_ml": False}],
+        "Grupo #{g}: No aplicaba a: ML; una campaña aplica a todos los canales",
+    ),
+    "fechas": (
+        [{}, {"item_id": 2964, "fecha_hasta": date(2026, 11, 30)}],
+        "Grupo #{g}: sus offsets tienen períodos distintos y una campaña tiene uno solo; revisar a mano",
+    ),
+    "monedas": ([{}, {"item_id": 2964, "moneda": "USD"}], "Grupo #{g}: mezcla monedas (ARS, USD)"),
+}
+
+
+@pytest.mark.parametrize(
+    "agregado",
+    [
+        {"tipo_offset": "porcentaje_costo", "porcentaje": 2, "monto": None},
+        {"tipo_offset": "monto_fijo", "monto": 0},
+    ],
+    ids=["porcentaje_sin_monto", "fijo_en_cero"],
+)
+def test_an_offset_added_to_a_migrated_fixed_group_without_an_amount_goes_to_review(engine, correr, agregado) -> None:
+    # GGA: the re-run compared only the sum of the amounts; an added offset that adds nothing to it (no monto, or 0)
+    # was reported "ya migrado" and left the review table though no campaign holds it.
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ids = [
+        _fijo(engine, marca=None, grupo_id=grupo_id, monto=1000),
+        _fijo(engine, marca=None, grupo_id=grupo_id, item_id=2964, monto=500),
+    ]
+    correr("--apply")
+    [c] = _campanas(engine)
+    nuevo = _offset(engine, grupo_id=grupo_id, item_id=2270, **agregado)
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert _campanas(engine) == [c]
+    todos = [*ids, nuevo]
+    assert {filas[i]["resultado"] for i in todos} == {"no migrado"}
+    assert set(_pendientes(engine)) == set(todos)
+
+
+@pytest.mark.parametrize("caso", list(_RECHAZOS_FIJOS))
+def test_a_group_of_fixed_amounts_that_cannot_be_modeled_goes_to_review_whole(engine, correr, caso) -> None:
+    valores, motivo = _RECHAZOS_FIJOS[caso]
+    grupo_id = w.grupo(engine, [{"marca": "TP-LINK"}])
+    ids = [_fijo(engine, marca=None, grupo_id=grupo_id, **v) for v in valores]
+    motivo = motivo.format(g=grupo_id, o1=ids[1])
+
+    code, summary, filas = correr("--apply")
+
+    assert code == 0
+    assert _campanas(engine) == [] and _count(engine, "offset_grupos") == 1
+    assert {i: (filas[i]["resultado"], filas[i]["motivo"]) for i in ids} == dict.fromkeys(ids, ("no migrado", motivo))
+    assert {i: p["motivo"] for i, p in _pendientes(engine).items()} == dict.fromkeys(ids, motivo)
+    assert (summary["no_migrados"], summary["pendientes"]) == (2, 2)
