@@ -92,6 +92,7 @@ from app.routers import (
     ml_publications_links,
     sell_in_bonos,
     sell_in_compras,
+    sell_in_lotes,
     sell_out_campanas,
     ml_ads,
     ml_publications_view,
@@ -403,6 +404,7 @@ app.include_router(productos_propios.router, prefix="/api")
 app.include_router(ml_item_overrides.router, prefix="/api")
 app.include_router(sell_in_compras.router, prefix="/api")
 app.include_router(sell_in_bonos.router, prefix="/api")
+app.include_router(sell_in_lotes.router, prefix="/api")
 app.include_router(sell_out_campanas.router, prefix="/api")
 app.include_router(ml_publications_view.router, prefix="/api")
 app.include_router(ml_ads.router, prefix="/api")
