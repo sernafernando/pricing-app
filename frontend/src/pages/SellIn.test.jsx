@@ -474,6 +474,27 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     expect(sellOutAPI.detalle).toHaveBeenLastCalledWith(55);
   });
 
+  it('a bulk void that answers after the panel was closed does not reopen it', async () => {
+    const user = userEvent.setup();
+    let responder;
+    sellOutAPI.anularVarias.mockReturnValue(new Promise((resolve) => (responder = resolve)));
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
+    await user.click(within(fila).getByRole('button', { name: 'Ver campaña' }));
+    await screen.findByRole('heading', { name: 'RB 8180', level: 2 });
+    await user.click(within(fila).getByRole('checkbox', { name: 'Seleccionar RB 8180' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Confirmar anulación' }));
+
+    await user.click(screen.getByRole('button', { name: 'Cerrar' })); // while the bulk void is in flight
+    expect(screen.queryByRole('heading', { name: 'RB 8180', level: 2 })).not.toBeInTheDocument();
+    responder({ data: { anuladas: [55], omitidas: [] } });
+
+    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('heading', { name: 'RB 8180', level: 2 })).not.toBeInTheDocument();
+  });
+
   it('"Actualizar" reloads the campaigns too', async () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });

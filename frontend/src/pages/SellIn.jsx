@@ -589,8 +589,13 @@ export default function SellIn() {
                     onSelect={verCampana}
                     onAnuladas={(ids) => {
                       campanas.recargar();
-                      // The open campaign was just voided: read it again (a new key remounts the panel).
-                      if (panel?.tipo === 'campana' && ids.includes(panel.id)) setPanel({ ...panel, version: (panel.version ?? 0) + 1 });
+                      // The open campaign was just voided: read it again (a new key remounts the panel). Functional update:
+                      // the panel may have been closed or changed while the request was in flight.
+                      setPanel((actual) =>
+                        actual?.tipo === 'campana' && ids.includes(actual.id)
+                          ? { ...actual, version: (actual.version ?? 0) + 1 }
+                          : actual,
+                      );
                     }}
                   />
                   <Pagination
