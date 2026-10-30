@@ -189,3 +189,11 @@ def test_no_cost_bonus_while_a_queued_lot_follows(client, lector, lineas, db, ad
 
     assert data["proxima"]["siguiente"]["estado"] == "en_cola"
     assert (data["bono_costo"], llamadas) == (None, [])
+
+
+def test_a_page_beyond_any_lot_is_rejected_not_a_server_error(client, lector, lineas) -> None:
+    # page x page_size is the SQL OFFSET: a huge page overflowed Postgres' bigint (DataError, 500).
+    url = f"{BASE}/4512/lotes/{lineas['vieja']}/consumos"
+
+    assert client.get(url, params={"page": 10**17}, headers=lector).status_code == 422
+    assert client.get(url, params={"page": 1_000_000, "page_size": 200}, headers=lector).status_code == 200

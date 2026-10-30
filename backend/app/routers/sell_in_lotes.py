@@ -55,7 +55,7 @@ def lotes_de_producto(
 def consumos_de_lote(
     item_id: int,
     compra_item_id: int,
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=1_000_000),  # bounds the SQL OFFSET (page x page_size) far below bigint
     page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
 ) -> dict:
