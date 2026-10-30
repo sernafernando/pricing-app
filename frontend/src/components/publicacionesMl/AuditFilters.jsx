@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { FilterX, History, X } from 'lucide-react';
 import api from '../../services/api';
 import { EMPTY_AUDIT_FILTERS, activeAuditChips, hasAuditFilter, kindLabel } from './auditFilters';
@@ -20,10 +20,14 @@ const inputMoment = (value, endOfDay) => {
  *
  * @param {{filters: object, setFilters: (updates: object) => void, labelClassName?: string}} props
  */
+// The room the panel keeps from the screen's right edge.
+const PANEL_MARGIN = 16;
+
 export default function AuditFilters({ filters, setFilters, labelClassName }) {
   const [open, setOpen] = useState(false);
   const [options, setOptions] = useState(null);
   const containerRef = useRef(null);
+  const panelRef = useRef(null);
   const needsOptions = open || filters.audit_usuarios.length > 0;
 
   useEffect(() => {
@@ -38,6 +42,15 @@ export default function AuditFilters({ filters, setFilters, labelClassName }) {
       alive = false;
     };
   }, [needsOptions, options]);
+
+  // The panel opens from the button's left edge; near the screen's right edge it slides left just enough to stay in.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!open || !panel) return;
+    panel.style.left = '';
+    const overflow = panel.getBoundingClientRect().right - (document.documentElement.clientWidth - PANEL_MARGIN);
+    if (overflow > 0) panel.style.left = `${-overflow}px`;
+  }, [open, options]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -85,7 +98,7 @@ export default function AuditFilters({ filters, setFilters, labelClassName }) {
           {chips.length > 0 && <span className={styles.count}>{chips.length}</span>}
         </button>
         {open && (
-          <div className={styles.panel} role="group" aria-label="Filtros de auditoría">
+          <div ref={panelRef} className={styles.panel} role="group" aria-label="Filtros de auditoría">
             {!options && <p className={styles.note}>Cargando…</p>}
             {options?.failed && <p className={styles.note}>No se pudieron cargar los usuarios y tipos.</p>}
             {options && !options.failed && (

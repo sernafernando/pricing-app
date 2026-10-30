@@ -83,10 +83,24 @@ const DEFAULT_TREE = vi.hoisted(() => ({
     skipped_edges: [],
   },
 }));
+// The reads of `api.get` the page makes: Productos' Tienda Nube card surcharge (the Web Transf. hint) and the
+// Auditoría panel's users and kinds, the long ones as in production; every other read, an empty list.
+const API_GETS = vi.hoisted(() => ({
+  '/markups-tienda/config/porcentaje_tarjeta_tn': { valor: 25 },
+  '/auditoria/usuarios': {
+    usuarios: [
+      { id: 1, nombre: 'Gabriel DeMarco' },
+      { id: 2, nombre: 'leandrorochagausson' },
+      { id: 3, nombre: 'Agustina Montivero' },
+    ],
+  },
+  '/auditoria/tipos-accion': {
+    tipos: ['modificar_precio_clasica', 'modificar_precio_web', 'modificar_porcentaje_rebate', 'desmarcar_out_of_cards', 'activar_web_transferencia'],
+  },
+}));
 vi.mock('../../services/api', () => ({
   default: {
-    // Productos' Tienda Nube card surcharge (the Web Transf. hint); every other read, an empty list.
-    get: vi.fn((url) => Promise.resolve({ data: url === '/markups-tienda/config/porcentaje_tarjeta_tn' ? { valor: 25 } : [] })),
+    get: vi.fn((url) => Promise.resolve({ data: API_GETS[url] ?? [] })),
     // Only the prearmadas badge posts here: two ready for every product asked.
     post: vi.fn((url, body) =>
       Promise.resolve({ data: { stats: Object.fromEntries((body?.items ?? []).map(({ item_id }) => [item_id, { exact: 2, upgrade: 0 }])) } }),
@@ -2262,5 +2276,34 @@ describe('row colors and the color layer (S8)', () => {
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/select-page-1366-${theme}.png` });
       screen.unmount();
     });
+  }
+});
+
+describe('Publicaciones ML Auditoría panel (visual)', () => {
+  beforeEach(() => {
+    canSeeMargin = false;
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
+  });
+
+  for (const { width, height } of VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the users and kinds show whole, with no sideways scroll, inside the screen`, async () => {
+        const screen = await renderPage({ width, height, theme });
+        await screen.getByRole('button', { name: 'Filtros de auditoría' }).click();
+        const panel = screen.getByRole('group', { name: 'Filtros de auditoría' });
+        await expect.element(panel.getByText('leandrorochagausson')).toBeVisible();
+        await expect.element(panel.getByText('Modificar Porcentaje Rebate')).toBeVisible();
+        const lists = [...panel.element().querySelectorAll('fieldset')].slice(0, 2).map((fieldset) => fieldset.lastElementChild);
+        expect(lists).toHaveLength(2);
+        for (const list of lists) {
+          expect(list.scrollWidth, list.textContent.slice(0, 30)).toBeLessThanOrEqual(list.clientWidth);
+          for (const option of list.children) expect(rect(option).right, option.textContent).toBeLessThanOrEqual(rect(list).right + 0.5);
+        }
+        expect(rect(panel.element()).right).toBeLessThanOrEqual(width);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/auditoria-${width}-${theme}.png`, element: panel.element() });
+        screen.unmount();
+      });
+    }
   }
 });
