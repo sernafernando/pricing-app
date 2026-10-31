@@ -120,7 +120,9 @@ _LIST_SQL = text(
       cf.ventas_colecta_flex_30d,
       inbound.cantidad AS target,
       o.cantidad AS override,
-      caja.unidades AS unidades_por_caja
+      caja.unidades AS unidades_por_caja,
+      ready.qty_pm AS qty_pm,
+      (ready.producto_item_id IS NOT NULL) AS pm_ready
     FROM linked
     JOIN productos_erp p ON p.item_id = linked.producto_item_id
     LEFT JOIN ml_user_product_stock st ON st.user_product_id = linked.user_product_id
@@ -129,6 +131,9 @@ _LIST_SQL = text(
     LEFT JOIN ml_fulfillment_last_inbound inbound ON inbound.inventory_id = linked.inventory_id
     LEFT JOIN gestion_full_override o ON o.inventory_id = linked.inventory_id
     LEFT JOIN gestion_full_unidades_caja caja ON caja.producto_item_id = linked.producto_item_id
+    LEFT JOIN gestion_full_pm_ready ready
+      ON ready.producto_item_id = linked.producto_item_id
+     AND ready.user_product_id = linked.user_product_id
     WHERE (
       :q = '' OR
       p.codigo ILIKE '%' || :q || '%' OR
@@ -206,6 +211,8 @@ def _row_dict(row: Any) -> dict[str, Any]:
         ),
         "override": getattr(row, "override", None),
         "unidades_por_caja": getattr(row, "unidades_por_caja", None),
+        "qty_pm": getattr(row, "qty_pm", None),
+        "pm_ready": bool(getattr(row, "pm_ready", False)),
         "puede_editar_override": False,
     }
 

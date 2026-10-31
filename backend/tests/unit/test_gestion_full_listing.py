@@ -29,6 +29,8 @@ def test_row_dict_maps_full_windows_and_leaves_later_fields_null() -> None:
         target=100,
         override=12,
         unidades_por_caja=6,
+        qty_pm=12,
+        pm_ready=True,
     )
     out = _row_dict(row)
     assert out["ean"] == "1210002615013"
@@ -40,6 +42,8 @@ def test_row_dict_maps_full_windows_and_leaves_later_fields_null() -> None:
     assert out["sugerido"] == 30  # min(100-6, stock_erp 30)
     assert out["override"] == 12
     assert out["unidades_por_caja"] == 6
+    assert out["qty_pm"] == 12
+    assert out["pm_ready"] is True
     assert out["puede_editar_override"] is False
 
 
