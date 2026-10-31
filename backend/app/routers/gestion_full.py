@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
+import io
 
 from app.api.deps import get_current_user, require_algun_permiso, require_permiso
 from app.core.database import get_db
@@ -20,6 +22,11 @@ from app.services.gestion_full.overrides import (
     resolve_producto_por_inventory_id,
     upsert_override,
     usuario_puede_editar_algun_override,
+)
+from app.services.gestion_full.excel_export import (
+    build_ml_full_xlsx,
+    build_ops_ean_xlsx,
+    mark_package_exported,
 )
 from app.services.gestion_full.package import (
     get_active_package,
@@ -473,6 +480,69 @@ def patch_package_qty_export(
         "qty_export_reason": line.qty_export_reason,
         "inbound_id": line.inbound_id,
     }
+
+
+@router.get(
+    "/package/export/ml",
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def get_package_export_ml(
+    db: Session = Depends(get_db),
+    _current_user: Usuario = Depends(get_current_user),
+) -> StreamingResponse:
+    """Download official ML Full Excel filled from the active package."""
+    pkg = get_active_package(db)
+    if pkg is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no hay paquete activo")
+    try:
+        payload = build_ml_full_xlsx(db, pkg)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from None
+    mark_package_exported(db, pkg)
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="envio-stock-full-ml.xlsx"',
+        },
+    )
+
+
+@router.get(
+    "/package/export/ops",
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def get_package_export_ops(
+    db: Session = Depends(get_db),
+    _current_user: Usuario = Depends(get_current_user),
+) -> StreamingResponse:
+    """Download ops Excel (EAN, descripción, qty_export) for the active package."""
+    pkg = get_active_package(db)
+    if pkg is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no hay paquete activo")
+    try:
+        payload = build_ops_ean_xlsx(db, pkg)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+    mark_package_exported(db, pkg)
+    return StreamingResponse(
+        io.BytesIO(payload),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="envio-stock-full-ops.xlsx"',
+        },
+    )
 
 
 @router.post(
