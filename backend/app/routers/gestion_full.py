@@ -21,6 +21,14 @@ from app.services.gestion_full.overrides import (
     upsert_override,
     usuario_puede_editar_algun_override,
 )
+from app.services.gestion_full.pm_ready import (
+    get_pm_ready,
+    is_line_locked,
+    load_row_for_ready,
+    mark_pm_ready,
+    resolve_ready_key_por_inventory_id,
+    unlock_pm_ready,
+)
 from app.services.gestion_full.unidades_caja import (
     clear_unidades_caja,
     import_unidades_caja_por_ean,
@@ -33,6 +41,7 @@ router = APIRouter(prefix="/gestion-full", tags=["gestion-full"])
 
 VIEW_PERMISOS = ["productos.ver", "ml_ops.ver"]
 PERM_DEPOSITOS = "gestion_full.depositos"
+PERM_GESTOR = "gestion_full.gestor"
 
 
 class GestionFullItem(BaseModel):
@@ -58,6 +67,8 @@ class GestionFullItem(BaseModel):
     sugerido: Optional[int] = None
     override: Optional[int] = None
     unidades_por_caja: Optional[int] = None
+    qty_pm: Optional[int] = None
+    pm_ready: bool = False
     puede_editar_override: bool = False
 
 
@@ -74,6 +85,10 @@ class GestionFullListResponse(BaseModel):
     puede_editar_caja: bool = Field(
         default=False,
         description="True when the caller has gestion_full.depositos.",
+    )
+    puede_gestor: bool = Field(
+        default=False,
+        description="True when the caller has gestion_full.gestor (unlock / export).",
     )
 
 
@@ -139,6 +154,23 @@ class GestionFullUnidadesCajaImportResponse(BaseModel):
     errors: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class GestionFullPmReadyBody(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    producto_item_id: int = Field(..., ge=1)
+    user_product_id: str = Field(..., min_length=1, max_length=128)
+
+
+class GestionFullPmReadyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    producto_item_id: int
+    user_product_id: str
+    inventory_id: str
+    qty_pm: int
+    pm_ready: bool = True
+
+
 @router.get(
     "",
     response_model=GestionFullListResponse,
@@ -173,13 +205,103 @@ def get_gestion_full(
         limit=limit,
         offset=offset,
     )
+    perms = PermisosService(db)
     for item in payload["items"]:
-        item["puede_editar_override"] = puede_editar_override_para(
-            current_user, db, item.get("marca"), item.get("categoria")
-        )
+        in_scope = puede_editar_override_para(current_user, db, item.get("marca"), item.get("categoria"))
+        item["puede_editar_override"] = in_scope and not item.get("pm_ready")
     payload["puede_editar_override"] = usuario_puede_editar_algun_override(current_user, db)
-    payload["puede_editar_caja"] = PermisosService(db).tiene_permiso(current_user, PERM_DEPOSITOS)
+    payload["puede_editar_caja"] = perms.tiene_permiso(current_user, PERM_DEPOSITOS)
+    payload["puede_gestor"] = perms.tiene_permiso(current_user, PERM_GESTOR)
     return payload
+
+
+@router.post(
+    "/ready",
+    response_model=GestionFullPmReadyResponse,
+    dependencies=[Depends(require_algun_permiso(VIEW_PERMISOS))],
+)
+def post_pm_ready(
+    body: GestionFullPmReadyBody,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """PM closes their part: freeze qty_pm and lock override on this ERP+MLAU line."""
+    preview = load_row_for_ready(
+        db,
+        producto_item_id=body.producto_item_id,
+        user_product_id=body.user_product_id,
+    )
+    if preview is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="fila Gestión Full no encontrada",
+        )
+    if not puede_editar_override_para(current_user, db, preview.get("marca"), preview.get("categoria")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sin permiso para cerrar esta línea",
+        )
+    try:
+        row = mark_pm_ready(
+            db,
+            producto_item_id=body.producto_item_id,
+            user_product_id=body.user_product_id,
+            usuario=current_user,
+        )
+    except LookupError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="fila Gestión Full no encontrada",
+        ) from None
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+    return {
+        "producto_item_id": row.producto_item_id,
+        "user_product_id": row.user_product_id,
+        "inventory_id": row.inventory_id,
+        "qty_pm": row.qty_pm,
+        "pm_ready": True,
+    }
+
+
+@router.post(
+    "/unlock",
+    response_model=GestionFullPmReadyResponse,
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def post_pm_unlock(
+    body: GestionFullPmReadyBody,
+    db: Session = Depends(get_db),
+    _current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Gestor unlocks a PM-ready line so the PM can edit override again."""
+    existing = get_pm_ready(
+        db,
+        producto_item_id=body.producto_item_id,
+        user_product_id=body.user_product_id,
+    )
+    if existing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="línea no está cerrada por el PM",
+        )
+    inventory_id = existing.inventory_id
+    qty_pm = existing.qty_pm
+    unlock_pm_ready(
+        db,
+        producto_item_id=body.producto_item_id,
+        user_product_id=body.user_product_id,
+    )
+    return {
+        "producto_item_id": body.producto_item_id,
+        "user_product_id": body.user_product_id,
+        "inventory_id": inventory_id,
+        "qty_pm": qty_pm,
+        "pm_ready": False,
+    }
 
 
 @router.post(
@@ -248,6 +370,17 @@ def patch_gestion_full_override(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sin permiso para editar override de este producto",
+        )
+
+    ready_key = resolve_ready_key_por_inventory_id(db, inventory_id)
+    if ready_key is not None and is_line_locked(
+        db,
+        producto_item_id=ready_key["producto_item_id"],
+        user_product_id=ready_key["user_product_id"],
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Línea cerrada por el PM; el gestor debe desbloquearla",
         )
 
     if body.cantidad is None:
