@@ -65,6 +65,7 @@ class TestMlPublicationsRegistry:
             "ml_publications.freshness",
             "ml_billing.sweep",
             "gestion_full.inbound",
+            "gestion_full.reconcile",
         ]
         assert registry.ML_PUBLICATIONS_REGISTRY[0] is ml_publications.refresh
         assert registry.ML_PUBLICATIONS_REGISTRY[1] is ml_publications.intake
@@ -79,6 +80,7 @@ class TestMlPublicationsRegistry:
         assert registry.ML_PUBLICATIONS_REGISTRY[10] is ml_publications.freshness
         assert registry.ML_PUBLICATIONS_REGISTRY[11] is ml_billing.billing
         assert registry.ML_PUBLICATIONS_REGISTRY[12].name == "gestion_full.inbound"
+        assert registry.ML_PUBLICATIONS_REGISTRY[13].name == "gestion_full.reconcile"
 
     def test_intake_runs_every_fifteen_seconds_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[1]
@@ -129,5 +131,6 @@ class TestProcessIsolation:
             "['ml_publications.refresh', 'ml_publications.intake', 'ml_publications.relink', "
             "'ml_publications.scan', 'ml_publications.missed_feeds', 'ml_publications.sweep', "
             "'ml_publications.verify', 'ml_publications.promo_refresh', 'ml_ads.ingest', 'promo_write.refresh', "
-            "'ml_publications.freshness', 'ml_billing.sweep', 'gestion_full.inbound'] True"
+            "'ml_publications.freshness', 'ml_billing.sweep', 'gestion_full.inbound', "
+            "'gestion_full.reconcile'] True"
         )
