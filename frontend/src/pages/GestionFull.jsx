@@ -4,6 +4,7 @@ import api from '../services/api';
 import { useDebounce } from '../hooks/useDebounce';
 import { usePermisos } from '../contexts/PermisosContext';
 import GestionFullDepositosTab from '../components/gestionFull/GestionFullDepositosTab';
+import GestionFullGestorTab from '../components/gestionFull/GestionFullGestorTab';
 import styles from './GestionFull.module.css';
 
 const GROUP_TONES = ['toneA', 'toneB', 'toneC'];
@@ -34,6 +35,7 @@ function overrideDraftValue(value) {
 export default function GestionFull() {
   const { tienePermiso } = usePermisos();
   const puedeDepositos = tienePermiso('gestion_full.depositos');
+  const puedeGestorPerm = tienePermiso('gestion_full.gestor');
   const [tab, setTab] = useState('plan');
   const [q, setQ] = useState('');
   const [marca, setMarca] = useState('');
@@ -213,9 +215,21 @@ export default function GestionFull() {
             Depósito
           </button>
         )}
+        {puedeGestorPerm && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'gestor'}
+            className={tab === 'gestor' ? styles.tabActive : styles.tab}
+            onClick={() => setTab('gestor')}
+          >
+            Envío
+          </button>
+        )}
       </div>
 
       {tab === 'depositos' && puedeDepositos ? <GestionFullDepositosTab /> : null}
+      {tab === 'gestor' && puedeGestorPerm ? <GestionFullGestorTab /> : null}
 
       {tab === 'plan' && (
       <>
