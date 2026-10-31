@@ -33,6 +33,8 @@ export default function GestionFull() {
   const [q, setQ] = useState('');
   const [marca, setMarca] = useState('');
   const [categoria, setCategoria] = useState('');
+  const [fullMode, setFullMode] = useState('en');
+  const [includeZeroStock, setIncludeZeroStock] = useState(false);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [drafts, setDrafts] = useState({});
@@ -54,6 +56,8 @@ export default function GestionFull() {
             q: debouncedQ || undefined,
             marca: marca || undefined,
             categoria: categoria || undefined,
+            full_mode: fullMode,
+            include_zero_stock: includeZeroStock,
             limit: 200,
             offset: 0,
           },
@@ -77,12 +81,14 @@ export default function GestionFull() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedQ, marca, categoria]);
+  }, [debouncedQ, marca, categoria, fullMode, includeZeroStock]);
 
   const clearFilters = () => {
     setQ('');
     setMarca('');
     setCategoria('');
+    setFullMode('en');
+    setIncludeZeroStock(false);
   };
 
   const onDraftChange = (inventoryId, value) => {
@@ -166,6 +172,27 @@ export default function GestionFull() {
           placeholder="Categoría (exacta)"
           aria-label="Categoría"
         />
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Presencia Full</span>
+          <select
+            className={styles.select}
+            value={fullMode}
+            onChange={(e) => setFullMode(e.target.value)}
+            aria-label="Presencia Full"
+          >
+            <option value="en">En Full</option>
+            <option value="fuera">Fuera de Full</option>
+            <option value="todos">Todos</option>
+          </select>
+        </label>
+        <label className={styles.check}>
+          <input
+            type="checkbox"
+            checked={includeZeroStock}
+            onChange={(e) => setIncludeZeroStock(e.target.checked)}
+          />
+          Mostrar sin stock ERP
+        </label>
         <button type="button" className={styles.clearBtn} onClick={clearFilters}>
           Limpiar
         </button>
@@ -245,7 +272,7 @@ export default function GestionFull() {
               {items.length === 0 && (
                 <tr>
                   <td colSpan={15} className={styles.empty}>
-                    Sin filas con inventory_id vinculado
+                    Sin filas para estos filtros
                   </td>
                 </tr>
               )}

@@ -46,6 +46,31 @@
   min-width: 10rem;
 }
 
+.select {
+  composes: input inputSm from '../styles/forms-tesla.css';
+  min-width: 8rem;
+}
+
+.filterField {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.filterLabel {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  user-select: none;
+}
+
 .clearBtn {
   composes: btn-secondary from '../styles/buttons-tesla.css';
   height: 2rem;

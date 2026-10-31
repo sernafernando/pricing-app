@@ -90,6 +90,35 @@ def test_list_gestion_full_passes_filters_and_pagination() -> None:
     assert params["q"] == "EAN"
     assert params["marca"] == "M"
     assert params["categoria"] == "C"
+    assert params["full_mode"] == "en"
+    assert params["include_zero_stock"] == 0
+
+
+def test_list_gestion_full_passes_full_mode_and_zero_stock_flag() -> None:
+    db = MagicMock()
+    count_result = MagicMock()
+    count_result.scalar.return_value = 0
+    list_result = MagicMock()
+    list_result.mappings.return_value.all.return_value = []
+    db.execute.side_effect = [count_result, list_result]
+
+    list_gestion_full(db, full_mode="fuera", include_zero_stock=True)
+    params = db.execute.call_args_list[0].args[1]
+    assert params["full_mode"] == "fuera"
+    assert params["include_zero_stock"] == 1
+
+
+def test_list_gestion_full_normalizes_invalid_full_mode_to_en() -> None:
+    db = MagicMock()
+    count_result = MagicMock()
+    count_result.scalar.return_value = 0
+    list_result = MagicMock()
+    list_result.mappings.return_value.all.return_value = []
+    db.execute.side_effect = [count_result, list_result]
+
+    list_gestion_full(db, full_mode="nope")
+    params = db.execute.call_args_list[0].args[1]
+    assert params["full_mode"] == "en"
 
 
 def test_list_gestion_full_clamps_limit() -> None:

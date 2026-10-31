@@ -7,14 +7,44 @@ windows, Colecta+Flex units from Ventas ML sale lines, last Full inbound
 Sugerido = max(0, target - stock_full): units to send to reach the last inbound
 qty. Null when Target is missing. stock_full today is ml_user_product_stock
 (meli_facility) for the row's user_product_id (usual 1:1 with inventory_id).
+
+Filters (defaults match envio-workflow-decisions D1 / D1b / D1c):
+  full_mode=en|fuera|todos — en Full = stock_full>0 OR ventas_full_30d>0
+  include_zero_stock — when false, hide stock_erp=0/null
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+FullMode = Literal["en", "fuera", "todos"]
+
+_VALID_FULL_MODES = frozenset({"en", "fuera", "todos"})
+
+_FILTER_SQL = """
+    AND (
+      :include_zero_stock = 1
+      OR COALESCE(p.stock, 0) > 0
+    )
+    AND (
+      :full_mode = 'todos'
+      OR (
+        :full_mode = 'en'
+        AND (
+          COALESCE(st.full_quantity, 0) > 0
+          OR COALESCE(r.units_30d, 0) > 0
+        )
+      )
+      OR (
+        :full_mode = 'fuera'
+        AND COALESCE(st.full_quantity, 0) = 0
+        AND COALESCE(r.units_30d, 0) = 0
+      )
+    )
+"""
 
 
 def _sugerido(target: Optional[int], stock_full: Optional[int]) -> Optional[int]:
@@ -25,8 +55,15 @@ def _sugerido(target: Optional[int], stock_full: Optional[int]) -> Optional[int]
     return max(0, int(target) - stock)
 
 
+def _normalize_full_mode(full_mode: str) -> FullMode:
+    mode = (full_mode or "en").strip().lower()
+    if mode not in _VALID_FULL_MODES:
+        return "en"
+    return mode  # type: ignore[return-value]
+
+
 _LIST_SQL = text(
-    """
+    f"""
     WITH linked AS (
       SELECT DISTINCT ON (l.producto_item_id, i.inventory_id)
         l.producto_item_id,
@@ -92,13 +129,14 @@ _LIST_SQL = text(
     )
     AND (:marca = '' OR p.marca = :marca)
     AND (:categoria = '' OR p.categoria = :categoria)
+    {_FILTER_SQL}
     ORDER BY p.codigo ASC, linked.inventory_id ASC
     LIMIT :limit OFFSET :offset
     """
 )
 
 _COUNT_SQL = text(
-    """
+    f"""
     WITH linked AS (
       SELECT DISTINCT ON (l.producto_item_id, i.inventory_id)
         l.producto_item_id,
@@ -116,6 +154,8 @@ _COUNT_SQL = text(
     SELECT COUNT(*)::int AS total
     FROM linked
     JOIN productos_erp p ON p.item_id = linked.producto_item_id
+    LEFT JOIN ml_user_product_stock st ON st.user_product_id = linked.user_product_id
+    LEFT JOIN ml_user_product_replenishment r ON r.user_product_id = linked.user_product_id
     WHERE (
       :q = '' OR
       p.codigo ILIKE '%' || :q || '%' OR
@@ -125,6 +165,7 @@ _COUNT_SQL = text(
     )
     AND (:marca = '' OR p.marca = :marca)
     AND (:categoria = '' OR p.categoria = :categoria)
+    {_FILTER_SQL}
     """
 )
 
@@ -160,6 +201,8 @@ def list_gestion_full(
     q: str = "",
     marca: str = "",
     categoria: str = "",
+    full_mode: str = "en",
+    include_zero_stock: bool = False,
     limit: int = 100,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -168,6 +211,8 @@ def list_gestion_full(
         "q": (q or "").strip(),
         "marca": (marca or "").strip(),
         "categoria": (categoria or "").strip(),
+        "full_mode": _normalize_full_mode(full_mode),
+        "include_zero_stock": 1 if include_zero_stock else 0,
         "limit": max(1, min(limit, 500)),
         "offset": max(0, offset),
     }
