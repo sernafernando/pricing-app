@@ -20,12 +20,7 @@ from app.models.gestion_full_package import (
 )
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 
-_TEMPLATE = (
-    Path(__file__).resolve().parents[2]
-    / "assets"
-    / "gestion_full"
-    / "envio-de-stock-full.xlsx"
-)
+_TEMPLATE = Path(__file__).resolve().parents[2] / "assets" / "gestion_full" / "envio-de-stock-full.xlsx"
 _SHEET = " Selección de productos"
 _DATA_START_ROW = 6
 
@@ -108,9 +103,7 @@ def assert_package_exportable(db: Session, package: GestionFullPackage) -> None:
         if caja is None:
             missing_caja.append(ln.producto_item_id)
     if missing_caja:
-        raise ValueError(
-            f"faltan unidades/caja en productos: {sorted(set(missing_caja))}"
-        )
+        raise ValueError(f"faltan unidades/caja en productos: {sorted(set(missing_caja))}")
 
 
 def build_ml_full_xlsx(db: Session, package: GestionFullPackage) -> bytes:
@@ -120,11 +113,7 @@ def build_ml_full_xlsx(db: Session, package: GestionFullPackage) -> bytes:
         raise FileNotFoundError(f"template missing: {_TEMPLATE}")
 
     enriched = _enrich_lines(db, list(package.lines))
-    rows = [
-        e
-        for e in enriched
-        if e["line"].qty_export >= 1 and e["seller_sku"] and e["mla_digits"]
-    ]
+    rows = [e for e in enriched if e["line"].qty_export >= 1 and e["seller_sku"] and e["mla_digits"]]
     if not rows:
         raise ValueError("ninguna línea exportable (SKU + MLA + qty≥1)")
 
