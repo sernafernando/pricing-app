@@ -25,6 +25,7 @@ from app.models.ml_publication_link import MlPublicationLink
 from app.models.producto_propio import ProductoPropio
 from app.models.ml_item_override import MlItemOverride
 from app.models.gestion_full_override import GestionFullOverride
+from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.models.ml_fulfillment_last_inbound import MlFulfillmentLastInbound
 from app.models.ml_item_relation import MlItemRelation
@@ -498,6 +499,7 @@ __all__ = [
     "ProductoPropio",
     "MlItemOverride",
     "GestionFullOverride",
+    "GestionFullPmReady",
     "GestionFullUnidadesCaja",
     "MlFulfillmentLastInbound",
 ]
