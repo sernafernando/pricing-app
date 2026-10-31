@@ -42,12 +42,17 @@ export default function GestionFull() {
   const [includeZeroStock, setIncludeZeroStock] = useState(false);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
+  const [puedeGestor, setPuedeGestor] = useState(false);
   const [drafts, setDrafts] = useState({});
   const [savingId, setSavingId] = useState(null);
+  const [readyBusyKey, setReadyBusyKey] = useState(null);
+  const [listNonce, setListNonce] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const debouncedQ = useDebounce(q, 300);
+
+  const rowKey = (row) => `${row.producto_item_id}-${row.user_product_id || row.inventory_id}`;
 
   useEffect(() => {
     if (tab !== 'plan') return undefined;
@@ -72,6 +77,7 @@ export default function GestionFull() {
         const nextItems = withGroupTones(data.items || []);
         setItems(nextItems);
         setTotal(data.total || 0);
+        setPuedeGestor(Boolean(data.puede_gestor));
         const nextDrafts = {};
         nextItems.forEach((row) => {
           nextDrafts[row.inventory_id] = overrideDraftValue(row.override);
@@ -87,7 +93,7 @@ export default function GestionFull() {
     return () => {
       cancelled = true;
     };
-  }, [tab, debouncedQ, marca, categoria, fullMode, includeZeroStock]);
+  }, [tab, debouncedQ, marca, categoria, fullMode, includeZeroStock, listNonce]);
 
   const clearFilters = () => {
     setQ('');
@@ -140,6 +146,42 @@ export default function GestionFull() {
       }));
     } finally {
       setSavingId(null);
+    }
+  };
+
+  const markReady = async (row) => {
+    if (!row.puede_editar_override || row.pm_ready) return;
+    const key = rowKey(row);
+    setReadyBusyKey(key);
+    setSaveError(null);
+    try {
+      await api.post('/gestion-full/ready', {
+        producto_item_id: row.producto_item_id,
+        user_product_id: row.user_product_id,
+      });
+      setListNonce((n) => n + 1);
+    } catch {
+      setSaveError(`No se pudo cerrar la línea ${row.inventory_id}`);
+    } finally {
+      setReadyBusyKey(null);
+    }
+  };
+
+  const unlockReady = async (row) => {
+    if (!puedeGestor || !row.pm_ready) return;
+    const key = rowKey(row);
+    setReadyBusyKey(key);
+    setSaveError(null);
+    try {
+      await api.post('/gestion-full/unlock', {
+        producto_item_id: row.producto_item_id,
+        user_product_id: row.user_product_id,
+      });
+      setListNonce((n) => n + 1);
+    } catch {
+      setSaveError(`No se pudo desbloquear ${row.inventory_id}`);
+    } finally {
+      setReadyBusyKey(null);
     }
   };
 
@@ -257,12 +299,14 @@ export default function GestionFull() {
                 <th>Target</th>
                 <th>Sugerido</th>
                 <th>Override</th>
+                <th>Qty PM</th>
+                <th>Listo</th>
               </tr>
             </thead>
             <tbody>
               {items.map((row) => (
                 <tr
-                  key={`${row.producto_item_id}-${row.user_product_id || row.inventory_id}`}
+                  key={rowKey(row)}
                   className={styles[row._tone]}
                 >
                   <td className={styles.mono}>{cell(row.ean)}</td>
@@ -305,11 +349,42 @@ export default function GestionFull() {
                       <span className={styles.muted}>{cell(row.override)}</span>
                     )}
                   </td>
+                  <td className={styles.num}>{cell(row.qty_pm)}</td>
+                  <td className={styles.readyCell}>
+                    {row.pm_ready ? (
+                      <>
+                        <span className={styles.readyBadge} title="Cerrado por el PM">
+                          Listo
+                        </span>
+                        {puedeGestor && (
+                          <button
+                            type="button"
+                            className={styles.unlockBtn}
+                            disabled={readyBusyKey === rowKey(row)}
+                            onClick={() => unlockReady(row)}
+                          >
+                            Desbloquear
+                          </button>
+                        )}
+                      </>
+                    ) : row.puede_editar_override ? (
+                      <button
+                        type="button"
+                        className={styles.readyBtn}
+                        disabled={readyBusyKey === rowKey(row)}
+                        onClick={() => markReady(row)}
+                      >
+                        Cerrar
+                      </button>
+                    ) : (
+                      <span className={styles.muted}>—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={16} className={styles.empty}>
+                  <td colSpan={18} className={styles.empty}>
                     Sin filas para estos filtros
                   </td>
                 </tr>

@@ -6,6 +6,7 @@ vi.mock('../services/api', () => ({
   default: {
     get: vi.fn(),
     patch: vi.fn(),
+    post: vi.fn(),
   },
 }));
 
@@ -25,6 +26,7 @@ describe('GestionFull', () => {
   beforeEach(() => {
     api.get.mockReset();
     api.patch.mockReset();
+    api.post.mockReset();
   });
 
   it('renders grouped rows centered and calls the list endpoint', async () => {
@@ -137,6 +139,48 @@ describe('GestionFull', () => {
 
     await waitFor(() => {
       expect(api.patch).toHaveBeenCalledWith('/gestion-full/INV1', { cantidad: 9 });
+    });
+  });
+
+  it('posts ready when Cerrar is clicked', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        total: 1,
+        items: [
+          {
+            producto_item_id: 1,
+            ean: 'EAN-A',
+            descripcion: 'Producto A',
+            inventory_id: 'INV1',
+            user_product_id: 'MLAU1',
+            override: 3,
+            sugerido: 8,
+            pm_ready: false,
+            puede_editar_override: true,
+          },
+        ],
+        puede_editar_override: true,
+        puede_gestor: false,
+      },
+    });
+    api.post.mockResolvedValue({
+      data: {
+        producto_item_id: 1,
+        user_product_id: 'MLAU1',
+        inventory_id: 'INV1',
+        qty_pm: 3,
+        pm_ready: true,
+      },
+    });
+
+    render(<GestionFull />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cerrar' }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/gestion-full/ready', {
+        producto_item_id: 1,
+        user_product_id: 'MLAU1',
+      });
     });
   });
 });

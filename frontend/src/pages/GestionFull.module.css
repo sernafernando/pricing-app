@@ -221,3 +221,31 @@
 .muted {
   color: var(--cf-text-tertiary);
 }
+
+.readyCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 5.5rem;
+}
+
+.readyBadge {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--success);
+}
+
+.readyBtn {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+  height: 1.75rem;
+  padding: 0 var(--spacing-xs);
+  font-size: var(--font-xs);
+}
+
+.unlockBtn {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+  height: 1.75rem;
+  padding: 0 var(--spacing-xs);
+  font-size: var(--font-xs);
+}

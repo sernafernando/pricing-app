@@ -22,14 +22,15 @@ Filtros:
 - **Presencia Full:** En Full (default) = Stock Full > 0 **o** ventas Full 30d > 0. Fuera de Full = ambos en 0. Todos = sin ese filtro.
 - **Mostrar sin stock ERP:** apagado por default; al activarlo incluye filas con Stock ERP 0.
 
-Columnas: EAN, Descripción, Código ML (inventory_id), Familia (MLAU), ventas Full 7/14/21/30 días, ventas Colecta+Flex 7 y 30 días, Stock ERP, U/caja (unidades por caja cerrada, por producto ERP), Stock Full, Target (última recepción inbound a Full según ML), Sugerido, Override.
+Columnas: EAN, Descripción, Código ML (inventory_id), Familia (MLAU), ventas Full 7/14/21/30 días, ventas Colecta+Flex 7 y 30 días, Stock ERP, U/caja (unidades por caja cerrada, por producto ERP), Stock Full, Target (última recepción inbound a Full según ML), Sugerido, Override, Qty PM, Listo.
 
 ## Botones y acciones
 
 - **Limpiar**: vuelve a búsqueda vacía, En Full, y oculta sin stock ERP.
 - **Sugerido**: `min(Target − Stock Full, Stock ERP)` (mínimo 0): cuánto mandar para volver al último envío, sin pasarse del stock físico. Sin Target queda vacío.
 - **Target**: se actualiza solo sábado y domingo (consulta gradual a ML del último ingreso a Full). Un admin puede forzar un refresh puntual.
-- **Override**: solo PM/sub-PM del producto o admin. Se guarda al salir del campo (o Enter). Vaciar y salir borra el override; si está vacío, vale el Sugerido.
+- **Override**: solo PM/sub-PM del producto o admin. Se guarda al salir del campo (o Enter). Vaciar y salir borra el override; si está vacío, vale el Sugerido. Queda bloqueado cuando la fila está **Listo**.
+- **Cerrar / Listo**: el PM congela Qty PM (`override` o Sugerido, tope stock ERP) y bloquea el override. Solo un usuario con `gestion_full.gestor` puede **Desbloquear**.
 
 ## Preguntas frecuentes
 
