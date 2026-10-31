@@ -113,11 +113,14 @@ def is_line_locked(
     user_product_id: str,
 ) -> bool:
     """True when PM ready row exists (override edits blocked)."""
-    return get_pm_ready(
-        db,
-        producto_item_id=producto_item_id,
-        user_product_id=user_product_id,
-    ) is not None
+    return (
+        get_pm_ready(
+            db,
+            producto_item_id=producto_item_id,
+            user_product_id=user_product_id,
+        )
+        is not None
+    )
 
 
 def load_row_for_ready(
@@ -127,13 +130,17 @@ def load_row_for_ready(
     user_product_id: str,
 ) -> Optional[dict[str, Any]]:
     """Listing metrics + marca/categoria for one ERP+MLAU row, or None."""
-    row = db.execute(
-        _ROW_FOR_READY_SQL,
-        {
-            "producto_item_id": producto_item_id,
-            "user_product_id": user_product_id,
-        },
-    ).mappings().first()
+    row = (
+        db.execute(
+            _ROW_FOR_READY_SQL,
+            {
+                "producto_item_id": producto_item_id,
+                "user_product_id": user_product_id,
+            },
+        )
+        .mappings()
+        .first()
+    )
     if row is None:
         return None
     return dict(row)
@@ -144,10 +151,14 @@ def resolve_ready_key_por_inventory_id(
     inventory_id: str,
 ) -> Optional[dict[str, Any]]:
     """ERP + MLAU (+ marca/categoria) for an inventory_id, or None."""
-    row = db.execute(
-        _RESOLVE_KEY_BY_INVENTORY_SQL,
-        {"inventory_id": inventory_id},
-    ).mappings().first()
+    row = (
+        db.execute(
+            _RESOLVE_KEY_BY_INVENTORY_SQL,
+            {"inventory_id": inventory_id},
+        )
+        .mappings()
+        .first()
+    )
     if row is None:
         return None
     return {
