@@ -23,6 +23,10 @@ from app.services.gestion_full.overrides import (
     upsert_override,
     usuario_puede_editar_algun_override,
 )
+from app.services.gestion_full.assign_inbound import (
+    assign_inbound_to_lines,
+    clear_inbound_ids,
+)
 from app.services.gestion_full.excel_export import (
     build_ml_full_xlsx,
     build_ops_ean_xlsx,
@@ -220,6 +224,13 @@ class GestionFullQtyExportBody(BaseModel):
     qty_export: int = Field(..., ge=0)
     reason: Optional[str] = Field(default=None, max_length=500)
     stock_erp: Optional[int] = Field(default=None, ge=0)
+
+
+class GestionFullAssignInboundBody(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    inbound_id: str = Field(..., min_length=1, max_length=64)
+    line_ids: list[int] = Field(..., min_length=1, max_length=500)
 
 
 @router.get(
@@ -475,6 +486,95 @@ def patch_package_qty_export(
         "qty_export": line.qty_export,
         "qty_export_reason": line.qty_export_reason,
         "inbound_id": line.inbound_id,
+    }
+
+
+@router.post(
+    "/package/assign-inbound",
+    response_model=GestionFullPackageResponse,
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def post_assign_inbound(
+    body: GestionFullAssignInboundBody,
+    db: Session = Depends(get_db),
+    _current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Assign inbound_id to selected package lines; hard-locks when all have one."""
+    pkg = get_active_package(db)
+    if pkg is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no hay paquete activo")
+    try:
+        assign_inbound_to_lines(
+            db,
+            pkg,
+            line_ids=body.line_ids,
+            inbound_id=body.inbound_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+    db.refresh(pkg)
+    return {
+        "id": pkg.id,
+        "week_monday": pkg.week_monday.isoformat(),
+        "status": pkg.status,
+        "lines": [
+            {
+                "id": ln.id,
+                "producto_item_id": ln.producto_item_id,
+                "user_product_id": ln.user_product_id,
+                "inventory_id": ln.inventory_id,
+                "qty_pm": ln.qty_pm,
+                "qty_export": ln.qty_export,
+                "qty_export_reason": ln.qty_export_reason,
+                "inbound_id": ln.inbound_id,
+            }
+            for ln in pkg.lines
+        ],
+    }
+
+
+@router.post(
+    "/package/clear-inbounds",
+    response_model=GestionFullPackageResponse,
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def post_clear_inbounds(
+    db: Session = Depends(get_db),
+    _current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Clear all inbound_ids so Excel can be regenerated (D6)."""
+    pkg = get_active_package(db)
+    if pkg is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no hay paquete activo")
+    try:
+        clear_inbound_ids(db, pkg)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+    db.refresh(pkg)
+    return {
+        "id": pkg.id,
+        "week_monday": pkg.week_monday.isoformat(),
+        "status": pkg.status,
+        "lines": [
+            {
+                "id": ln.id,
+                "producto_item_id": ln.producto_item_id,
+                "user_product_id": ln.user_product_id,
+                "inventory_id": ln.inventory_id,
+                "qty_pm": ln.qty_pm,
+                "qty_export": ln.qty_export,
+                "qty_export_reason": ln.qty_export_reason,
+                "inbound_id": ln.inbound_id,
+            }
+            for ln in pkg.lines
+        ],
     }
 
 
