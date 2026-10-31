@@ -251,9 +251,7 @@ def get_gestion_full(
     )
     perms = PermisosService(db)
     for item in payload["items"]:
-        in_scope = puede_editar_override_para(
-            current_user, db, item.get("marca"), item.get("categoria")
-        )
+        in_scope = puede_editar_override_para(current_user, db, item.get("marca"), item.get("categoria"))
         item["puede_editar_override"] = in_scope and not item.get("pm_ready")
     payload["puede_editar_override"] = usuario_puede_editar_algun_override(current_user, db)
     payload["puede_editar_caja"] = perms.tiene_permiso(current_user, PERM_DEPOSITOS)
@@ -282,9 +280,7 @@ def post_pm_ready(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="fila Gestión Full no encontrada",
         )
-    if not puede_editar_override_para(
-        current_user, db, preview.get("marca"), preview.get("categoria")
-    ):
+    if not puede_editar_override_para(current_user, db, preview.get("marca"), preview.get("categoria")):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sin permiso para cerrar esta línea",
