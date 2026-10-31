@@ -21,6 +21,12 @@ from app.services.gestion_full.overrides import (
     upsert_override,
     usuario_puede_editar_algun_override,
 )
+from app.services.gestion_full.package import (
+    get_active_package,
+    get_or_create_open_package,
+    set_qty_export,
+    upsert_package_line,
+)
 from app.services.gestion_full.pm_ready import (
     get_pm_ready,
     is_line_locked,
@@ -29,6 +35,7 @@ from app.services.gestion_full.pm_ready import (
     resolve_ready_key_por_inventory_id,
     unlock_pm_ready,
 )
+from app.models.gestion_full_package import GestionFullPackageLine
 from app.services.gestion_full.unidades_caja import (
     clear_unidades_caja,
     import_unidades_caja_por_ean,
@@ -171,6 +178,43 @@ class GestionFullPmReadyResponse(BaseModel):
     pm_ready: bool = True
 
 
+class GestionFullPackageLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    producto_item_id: int
+    user_product_id: str
+    inventory_id: str
+    qty_pm: int
+    qty_export: int
+    qty_export_reason: Optional[str] = None
+    inbound_id: Optional[str] = None
+
+
+class GestionFullPackageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    week_monday: str
+    status: str
+    lines: list[GestionFullPackageLineOut] = Field(default_factory=list)
+
+
+class GestionFullPackageLineBody(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    producto_item_id: int = Field(..., ge=1)
+    user_product_id: str = Field(..., min_length=1, max_length=128)
+
+
+class GestionFullQtyExportBody(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    qty_export: int = Field(..., ge=0)
+    reason: Optional[str] = Field(default=None, max_length=500)
+    stock_erp: Optional[int] = Field(default=None, ge=0)
+
+
 @router.get(
     "",
     response_model=GestionFullListResponse,
@@ -301,6 +345,129 @@ def post_pm_unlock(
         "inventory_id": inventory_id,
         "qty_pm": qty_pm,
         "pm_ready": False,
+    }
+
+
+@router.get(
+    "/package",
+    response_model=GestionFullPackageResponse,
+    dependencies=[Depends(require_algun_permiso(VIEW_PERMISOS))],
+)
+def get_package(db: Session = Depends(get_db)) -> dict[str, Any]:
+    """Return the active send package (open/exported) or 404."""
+    pkg = get_active_package(db)
+    if pkg is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no hay paquete activo",
+        )
+    return {
+        "id": pkg.id,
+        "week_monday": pkg.week_monday.isoformat(),
+        "status": pkg.status,
+        "lines": [
+            {
+                "id": ln.id,
+                "producto_item_id": ln.producto_item_id,
+                "user_product_id": ln.user_product_id,
+                "inventory_id": ln.inventory_id,
+                "qty_pm": ln.qty_pm,
+                "qty_export": ln.qty_export,
+                "qty_export_reason": ln.qty_export_reason,
+                "inbound_id": ln.inbound_id,
+            }
+            for ln in pkg.lines
+        ],
+    }
+
+
+@router.post(
+    "/package/lines",
+    response_model=GestionFullPackageLineOut,
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def post_package_line(
+    body: GestionFullPackageLineBody,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Add/refresh a package line from an existing PM-ready freeze."""
+    ready = get_pm_ready(
+        db,
+        producto_item_id=body.producto_item_id,
+        user_product_id=body.user_product_id,
+    )
+    if ready is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="la línea debe estar cerrada por el PM (ready)",
+        )
+    pkg = get_or_create_open_package(db, usuario=current_user)
+    if pkg.status == "locked":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="paquete hard-locked",
+        )
+    line = upsert_package_line(
+        db,
+        package=pkg,
+        producto_item_id=ready.producto_item_id,
+        user_product_id=ready.user_product_id,
+        inventory_id=ready.inventory_id,
+        qty_pm=ready.qty_pm,
+    )
+    return {
+        "id": line.id,
+        "producto_item_id": line.producto_item_id,
+        "user_product_id": line.user_product_id,
+        "inventory_id": line.inventory_id,
+        "qty_pm": line.qty_pm,
+        "qty_export": line.qty_export,
+        "qty_export_reason": line.qty_export_reason,
+        "inbound_id": line.inbound_id,
+    }
+
+
+@router.patch(
+    "/package/lines/{line_id}/qty-export",
+    response_model=GestionFullPackageLineOut,
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def patch_package_qty_export(
+    body: GestionFullQtyExportBody,
+    line_id: int = Path(..., ge=1),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Gestor adjusts qty_export (optional reason); writes audit."""
+    line = db.get(GestionFullPackageLine, line_id)
+    if line is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="línea no encontrada")
+    try:
+        line = set_qty_export(
+            db,
+            line=line,
+            qty_export=body.qty_export,
+            usuario=current_user,
+            reason=body.reason,
+            stock_erp=body.stock_erp,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+    return {
+        "id": line.id,
+        "producto_item_id": line.producto_item_id,
+        "user_product_id": line.user_product_id,
+        "inventory_id": line.inventory_id,
+        "qty_pm": line.qty_pm,
+        "qty_export": line.qty_export,
+        "qty_export_reason": line.qty_export_reason,
+        "inbound_id": line.inbound_id,
     }
 
 
