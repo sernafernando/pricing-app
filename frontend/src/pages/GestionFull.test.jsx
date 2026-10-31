@@ -72,9 +72,35 @@ describe('GestionFull', () => {
     expect(api.get).toHaveBeenCalledWith(
       '/gestion-full',
       expect.objectContaining({
-        params: expect.objectContaining({ limit: 200, offset: 0 }),
+        params: expect.objectContaining({
+          limit: 200,
+          offset: 0,
+          full_mode: 'en',
+          include_zero_stock: false,
+        }),
       }),
     );
+  });
+
+  it('sends fuera de Full and include_zero_stock when filters change', async () => {
+    api.get.mockResolvedValue({ data: { total: 0, items: [], puede_editar_override: false } });
+    render(<GestionFull />);
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText('Presencia Full'), { target: { value: 'fuera' } });
+    fireEvent.click(screen.getByLabelText('Mostrar sin stock ERP'));
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(
+        '/gestion-full',
+        expect.objectContaining({
+          params: expect.objectContaining({
+            full_mode: 'fuera',
+            include_zero_stock: true,
+          }),
+        }),
+      );
+    });
   });
 
   it('patches override on blur when the row is editable', async () => {

@@ -98,13 +98,31 @@ def get_gestion_full(
     q: str = Query("", description="Search EAN, description, inventory_id or MLAU"),
     marca: str = Query("", description="Exact brand filter"),
     categoria: str = Query("", description="Exact category filter"),
+    full_mode: str = Query(
+        "en",
+        description="en Full | fuera de Full | todos (en = stock_full>0 OR ventas Full 30d>0)",
+        pattern="^(en|fuera|todos)$",
+    ),
+    include_zero_stock: bool = Query(
+        False,
+        description="When false (default), hide rows with stock_erp 0/null",
+    ),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """List Full replenishment rows. Everyone with view permission sees all rows; filters are optional."""
-    payload = list_gestion_full(db, q=q, marca=marca, categoria=categoria, limit=limit, offset=offset)
+    """List Full replenishment rows. Defaults: en Full + hide zero ERP stock."""
+    payload = list_gestion_full(
+        db,
+        q=q,
+        marca=marca,
+        categoria=categoria,
+        full_mode=full_mode,
+        include_zero_stock=include_zero_stock,
+        limit=limit,
+        offset=offset,
+    )
     for item in payload["items"]:
         item["puede_editar_override"] = puede_editar_override_para(
             current_user, db, item.get("marca"), item.get("categoria")

@@ -10,19 +10,23 @@ Planifica cuánto mandar a Full: una fila por producto ERP y código Full (`inve
 
 ## Cómo se usa
 
-Arriba dice **Gestión Full**. La barra tiene búsqueda (EAN, descripción o inventory_id) y filtros opcionales de marca y categoría. Por defecto se ven todas las filas; los filtros son opcionales.
+Arriba dice **Gestión Full**. La barra tiene búsqueda (EAN, descripción o inventory_id), marca, categoría, presencia Full y el check de stock ERP.
 
-La tabla ordena por EAN y, si un mismo EAN tiene varios `inventory_id`, esas filas van siempre una debajo de la otra con el mismo tinte suave.
+Por defecto: **En Full** y **sin** filas con Stock ERP en 0. La tabla ordena por EAN y, si un mismo EAN tiene varios `inventory_id`, esas filas van juntas con el mismo tinte.
 
 ## Filtros y columnas
 
-Filtros: búsqueda libre, marca exacta, categoría exacta.
+Filtros:
+
+- Búsqueda libre, marca exacta, categoría exacta.
+- **Presencia Full:** En Full (default) = Stock Full > 0 **o** ventas Full 30d > 0. Fuera de Full = ambos en 0. Todos = sin ese filtro.
+- **Mostrar sin stock ERP:** apagado por default; al activarlo incluye filas con Stock ERP 0.
 
 Columnas: EAN, Descripción, Código ML (inventory_id), Familia (MLAU), ventas Full 7/14/21/30 días, ventas Colecta+Flex 7 y 30 días, Stock ERP, Stock Full, Target (última recepción inbound a Full según ML), Sugerido, Override.
 
 ## Botones y acciones
 
-- **Limpiar**: saca búsqueda y filtros.
+- **Limpiar**: vuelve a búsqueda vacía, En Full, y oculta sin stock ERP.
 - **Sugerido**: `Target − Stock Full` (mínimo 0): cuánto mandar para volver al último envío. Sin Target queda vacío.
 - **Target**: se actualiza solo sábado y domingo (consulta gradual a ML del último ingreso a Full). Un admin puede forzar un refresh puntual.
 - **Override**: solo PM/sub-PM del producto o admin. Se guarda al salir del campo (o Enter). Vaciar y salir borra el override; si está vacío, vale el Sugerido.
