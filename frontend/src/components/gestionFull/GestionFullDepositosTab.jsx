@@ -43,7 +43,15 @@ function uniqueByProducto(items) {
   return out;
 }
 
+function motivoLabel(row) {
+  const parts = [];
+  if (row.en_paquete) parts.push('Paquete');
+  if (row.pm_ready) parts.push('Listo');
+  return parts.length ? parts.join(' · ') : '—';
+}
+
 export default function GestionFullDepositosTab() {
+  const [mode, setMode] = useState('pendientes');
   const [q, setQ] = useState('');
   const [items, setItems] = useState([]);
   const [drafts, setDrafts] = useState({});
@@ -58,23 +66,36 @@ export default function GestionFullDepositosTab() {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.get('/gestion-full', {
-        params: {
-          q: debouncedQ || undefined,
-          full_mode: 'todos',
-          include_zero_stock: true,
-          limit: 200,
-          offset: 0,
-        },
-      });
-      const unique = uniqueByProducto(data.items || []);
-      setItems(unique);
-      const next = {};
-      unique.forEach((row) => {
-        next[row.producto_item_id] =
-          row.unidades_por_caja == null ? '' : String(row.unidades_por_caja);
-      });
-      setDrafts(next);
+      if (mode === 'pendientes') {
+        const { data } = await api.get('/gestion-full/unidades-caja/pendientes', {
+          params: { q: debouncedQ || undefined },
+        });
+        const list = data.items || [];
+        setItems(list);
+        const next = {};
+        list.forEach((row) => {
+          next[row.producto_item_id] = '';
+        });
+        setDrafts(next);
+      } else {
+        const { data } = await api.get('/gestion-full', {
+          params: {
+            q: debouncedQ || undefined,
+            full_mode: 'todos',
+            include_zero_stock: true,
+            limit: 200,
+            offset: 0,
+          },
+        });
+        const unique = uniqueByProducto(data.items || []);
+        setItems(unique);
+        const next = {};
+        unique.forEach((row) => {
+          next[row.producto_item_id] =
+            row.unidades_por_caja == null ? '' : String(row.unidades_por_caja);
+        });
+        setDrafts(next);
+      }
     } catch {
       setError('No se pudo cargar productos para depósito');
     } finally {
@@ -84,8 +105,8 @@ export default function GestionFullDepositosTab() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on search only
-  }, [debouncedQ]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on search/mode
+  }, [debouncedQ, mode]);
 
   const saveRow = async (row) => {
     const raw = (drafts[row.producto_item_id] ?? '').trim();
@@ -107,18 +128,27 @@ export default function GestionFullDepositosTab() {
         `/gestion-full/unidades-caja/${row.producto_item_id}`,
         { unidades: next },
       );
-      setItems((prev) =>
-        prev.map((item) =>
-          item.producto_item_id === row.producto_item_id
-            ? { ...item, unidades_por_caja: data.unidades_por_caja ?? null }
-            : item,
-        ),
-      );
-      setDrafts((prev) => ({
-        ...prev,
-        [row.producto_item_id]:
-          data.unidades_por_caja == null ? '' : String(data.unidades_por_caja),
-      }));
+      if (mode === 'pendientes' && data.unidades_por_caja != null) {
+        setItems((prev) => prev.filter((item) => item.producto_item_id !== row.producto_item_id));
+        setDrafts((prev) => {
+          const copy = { ...prev };
+          delete copy[row.producto_item_id];
+          return copy;
+        });
+      } else {
+        setItems((prev) =>
+          prev.map((item) =>
+            item.producto_item_id === row.producto_item_id
+              ? { ...item, unidades_por_caja: data.unidades_por_caja ?? null }
+              : item,
+          ),
+        );
+        setDrafts((prev) => ({
+          ...prev,
+          [row.producto_item_id]:
+            data.unidades_por_caja == null ? '' : String(data.unidades_por_caja),
+        }));
+      }
     } catch {
       setError(`No se pudo guardar U/caja de ${row.ean || row.producto_item_id}`);
     } finally {
@@ -153,10 +183,28 @@ export default function GestionFullDepositosTab() {
   return (
     <div className={styles.depositos}>
       <p className={styles.subtitle}>
-        Unidades por caja cerrada (por producto ERP). Pegá desde Sheets: EAN,unidades.
+        Unidades por caja cerrada (por producto ERP). Por defecto: pendientes del
+        paquete de la semana y/o Listo (para no trabar el Excel). Pegá desde Sheets:
+        EAN,unidades.
       </p>
 
       <div className={styles.filters}>
+        <div className={styles.modeToggle} role="group" aria-label="Vista depósito">
+          <button
+            type="button"
+            className={mode === 'pendientes' ? styles.tabActive : styles.tab}
+            onClick={() => setMode('pendientes')}
+          >
+            Pendientes
+          </button>
+          <button
+            type="button"
+            className={mode === 'todos' ? styles.tabActive : styles.tab}
+            onClick={() => setMode('todos')}
+          >
+            Todos
+          </button>
+        </div>
         <label className={styles.search}>
           <Search size={14} aria-hidden />
           <input
@@ -196,6 +244,7 @@ export default function GestionFullDepositosTab() {
               <tr>
                 <th>EAN</th>
                 <th>Descripción</th>
+                {mode === 'pendientes' && <th>Motivo</th>}
                 <th>U/caja</th>
               </tr>
             </thead>
@@ -204,6 +253,9 @@ export default function GestionFullDepositosTab() {
                 <tr key={row.producto_item_id}>
                   <td className={styles.mono}>{cell(row.ean)}</td>
                   <td className={styles.desc}>{cell(row.descripcion)}</td>
+                  {mode === 'pendientes' && (
+                    <td className={styles.meta}>{motivoLabel(row)}</td>
+                  )}
                   <td>
                     <input
                       className={styles.override}
@@ -230,8 +282,10 @@ export default function GestionFullDepositosTab() {
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={3} className={styles.empty}>
-                    Sin productos
+                  <td colSpan={mode === 'pendientes' ? 4 : 3} className={styles.empty}>
+                    {mode === 'pendientes'
+                      ? 'Sin pendientes de U/caja en paquete o Listo'
+                      : 'Sin productos'}
                   </td>
                 </tr>
               )}

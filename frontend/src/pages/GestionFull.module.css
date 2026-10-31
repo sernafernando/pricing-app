@@ -56,6 +56,12 @@
   flex: 1;
 }
 
+.modeToggle {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
 .importBlock {
   display: flex;
   flex-direction: column;

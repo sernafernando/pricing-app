@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.services.gestion_full.unidades_caja import (
     clear_unidades_caja,
     import_unidades_caja_por_ean,
+    list_pendientes_unidades_caja,
     upsert_unidades_caja,
 )
 
@@ -57,3 +58,48 @@ def test_import_unidades_caja_por_ean_skips_unknown() -> None:
     assert out["updated"] == 0
     assert len(out["errors"]) == 1
     db.commit.assert_not_called()
+
+
+def test_list_pendientes_unidades_caja_empty_when_no_candidates() -> None:
+    db = MagicMock()
+    with patch(
+        "app.services.gestion_full.unidades_caja.get_active_package",
+        return_value=None,
+    ):
+        db.query.return_value.distinct.return_value.all.return_value = []
+        assert list_pendientes_unidades_caja(db) == []
+
+
+def test_list_pendientes_unidades_caja_package_first_excludes_with_caja() -> None:
+    db = MagicMock()
+    pkg = SimpleNamespace(id=9)
+    product_pkg = SimpleNamespace(item_id=1, codigo="AAA", descripcion="En paquete")
+    product_ready = SimpleNamespace(item_id=2, codigo="BBB", descripcion="Solo ready")
+
+    package_q = MagicMock()
+    package_q.filter.return_value.distinct.return_value.all.return_value = [(1,)]
+    ready_q = MagicMock()
+    ready_q.distinct.return_value.all.return_value = [(2,), (1,)]
+    caja_q = MagicMock()
+    caja_q.filter.return_value.all.return_value = []
+    product_q = MagicMock()
+    product_q.filter.return_value.all.return_value = [product_ready, product_pkg]
+
+    queries = [package_q, ready_q, caja_q, product_q]
+
+    def query_router(*_args: object, **_kwargs: object) -> MagicMock:
+        if not queries:
+            raise AssertionError("unexpected extra db.query")
+        return queries.pop(0)
+
+    db.query.side_effect = query_router
+
+    with patch(
+        "app.services.gestion_full.unidades_caja.get_active_package",
+        return_value=pkg,
+    ):
+        items = list_pendientes_unidades_caja(db)
+
+    assert [i["producto_item_id"] for i in items] == [1, 2]
+    assert items[0]["en_paquete"] is True and items[0]["pm_ready"] is True
+    assert items[1]["en_paquete"] is False and items[1]["pm_ready"] is True

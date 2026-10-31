@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.models.gestion_full_package import GestionFullPackageLine
+from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
+from app.services.gestion_full.package import get_active_package
 
 
 def upsert_unidades_caja(
@@ -94,3 +97,77 @@ def import_unidades_caja_por_ean(
     if updated:
         db.commit()
     return {"updated": updated, "errors": errors}
+
+
+def list_pendientes_unidades_caja(
+    db: Session,
+    *,
+    q: Optional[str] = None,
+) -> list[dict[str, Any]]:
+    """ERP products missing units-per-box that are on the active package and/or PM-ready (D13).
+
+    Package membership uses lines with ``qty_export >= 1`` (same gate as export P8).
+    Ready membership is any ``gestion_full_pm_ready`` row for that ``producto_item_id``.
+    """
+    en_paquete: set[int] = set()
+    pkg = get_active_package(db)
+    if pkg is not None:
+        for (pid,) in (
+            db.query(GestionFullPackageLine.producto_item_id)
+            .filter(
+                GestionFullPackageLine.package_id == pkg.id,
+                GestionFullPackageLine.qty_export >= 1,
+            )
+            .distinct()
+            .all()
+        ):
+            en_paquete.add(int(pid))
+
+    pm_ready: set[int] = {int(pid) for (pid,) in db.query(GestionFullPmReady.producto_item_id).distinct().all()}
+
+    candidates = en_paquete | pm_ready
+    if not candidates:
+        return []
+
+    with_caja = {
+        int(pid)
+        for (pid,) in db.query(GestionFullUnidadesCaja.producto_item_id)
+        .filter(GestionFullUnidadesCaja.producto_item_id.in_(candidates))
+        .all()
+    }
+    missing = candidates - with_caja
+    if not missing:
+        return []
+
+    query = db.query(ProductoERP).filter(ProductoERP.item_id.in_(missing))
+    needle = (q or "").strip()
+    if needle:
+        like = f"%{needle}%"
+        query = query.filter(or_(ProductoERP.codigo.ilike(like), ProductoERP.descripcion.ilike(like)))
+    products = query.all()
+
+    items: list[dict[str, Any]] = []
+    for p in products:
+        pid = int(p.item_id)
+        in_pkg = pid in en_paquete
+        ready = pid in pm_ready
+        items.append(
+            {
+                "producto_item_id": pid,
+                "ean": p.codigo,
+                "descripcion": p.descripcion,
+                "en_paquete": in_pkg,
+                "pm_ready": ready,
+                "unidades_por_caja": None,
+            }
+        )
+
+    # Package blockers first, then ready-only; stable by EAN.
+    items.sort(
+        key=lambda row: (
+            0 if row["en_paquete"] else 1,
+            (row["ean"] or "").lower(),
+            row["producto_item_id"],
+        )
+    )
+    return items
