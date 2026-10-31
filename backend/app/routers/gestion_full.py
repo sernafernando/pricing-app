@@ -27,6 +27,8 @@ from app.services.gestion_full.assign_inbound import (
     assign_inbound_to_lines,
     clear_inbound_ids,
 )
+from app.models.gestion_full_envio import GestionFullEnvio
+from app.services.gestion_full.reconcile import envio_detail
 from app.services.gestion_full.excel_export import (
     build_ml_full_xlsx,
     build_ops_ean_xlsx,
@@ -487,6 +489,82 @@ def patch_package_qty_export(
         "qty_export_reason": line.qty_export_reason,
         "inbound_id": line.inbound_id,
     }
+
+
+class GestionFullEnvioListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    inbound_id: str
+    human_id: str
+    week_monday: str
+    package_id: int
+    reception_closed: bool
+    last_reception_at: Optional[str] = None
+
+
+class GestionFullEnvioDetailResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    inbound_id: str
+    human_id: str
+    week_monday: str
+    package_id: int
+    reception_closed_at: Optional[str] = None
+    last_reception_at: Optional[str] = None
+    lines: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@router.get(
+    "/envios",
+    response_model=list[GestionFullEnvioListItem],
+    dependencies=[Depends(require_algun_permiso(VIEW_PERMISOS))],
+)
+def get_envios(
+    include_closed: bool = Query(False),
+    db: Session = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """List local envíos (inbound_id) from Gestión Full packages."""
+    from app.services.gestion_full.assign_inbound import human_envio_id
+
+    q = db.query(GestionFullEnvio).order_by(GestionFullEnvio.created_at.desc())
+    if not include_closed:
+        q = q.filter(GestionFullEnvio.reception_closed_at.is_(None))
+    rows = q.limit(200).all()
+    out = []
+    for envio in rows:
+        pkg = envio.package
+        human = (
+            human_envio_id(pkg, envio.inbound_id)
+            if pkg is not None
+            else f"{envio.week_monday.strftime('%Y%m%d')}_{envio.inbound_id}"
+        )
+        out.append(
+            {
+                "inbound_id": envio.inbound_id,
+                "human_id": human,
+                "week_monday": envio.week_monday.isoformat(),
+                "package_id": envio.package_id,
+                "reception_closed": envio.reception_closed_at is not None,
+                "last_reception_at": envio.last_reception_at.isoformat() if envio.last_reception_at else None,
+            }
+        )
+    return out
+
+
+@router.get(
+    "/envios/{inbound_id}",
+    response_model=GestionFullEnvioDetailResponse,
+    dependencies=[Depends(require_algun_permiso(VIEW_PERMISOS))],
+)
+def get_envio_detail(
+    inbound_id: str = Path(..., min_length=1, max_length=64),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Declared vs received for one inbound_id."""
+    detail = envio_detail(db, inbound_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="envío no encontrado")
+    return detail
 
 
 @router.post(

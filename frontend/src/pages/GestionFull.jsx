@@ -5,6 +5,7 @@ import { useDebounce } from '../hooks/useDebounce';
 import { usePermisos } from '../contexts/PermisosContext';
 import GestionFullDepositosTab from '../components/gestionFull/GestionFullDepositosTab';
 import GestionFullGestorTab from '../components/gestionFull/GestionFullGestorTab';
+import GestionFullEnviosTab from '../components/gestionFull/GestionFullEnviosTab';
 import styles from './GestionFull.module.css';
 
 const GROUP_TONES = ['toneA', 'toneB', 'toneC'];
@@ -226,10 +227,20 @@ export default function GestionFull() {
             Envío
           </button>
         )}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'envios'}
+          className={tab === 'envios' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('envios')}
+        >
+          Consulta envíos
+        </button>
       </div>
 
       {tab === 'depositos' && puedeDepositos ? <GestionFullDepositosTab /> : null}
       {tab === 'gestor' && puedeGestorPerm ? <GestionFullGestorTab /> : null}
+      {tab === 'envios' ? <GestionFullEnviosTab /> : null}
 
       {tab === 'plan' && (
       <>
