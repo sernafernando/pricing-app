@@ -10,7 +10,7 @@ Planifica cuánto mandar a Full: una fila por producto ERP y familia MLAU, con C
 
 ## Cómo se usa
 
-Arriba dice **Gestión Full**. Hay pestañas **Planificación** y, con permiso `gestion_full.depositos`, **Depósito** (cargar U/caja e importar EAN,unidades). En Planificación: búsqueda, marca, categoría, presencia Full y el check de stock ERP.
+Arriba dice **Gestión Full**. Hay pestañas **Planificación**, con permiso `gestion_full.depositos` **Depósito** (U/caja e import), y con `gestion_full.gestor` **Envío** (armar paquete, Excel ML/ops, asignar inbound_id). En Planificación: búsqueda, marca, categoría, presencia Full y el check de stock ERP.
 
 Por defecto: **En Full** y **sin** filas con Stock ERP en 0. La tabla ordena por EAN y, si un mismo EAN tiene varios MLAU, esas filas van juntas con el mismo tinte.
 
@@ -31,6 +31,7 @@ Columnas: EAN, Descripción, Código ML (inventory_id), Familia (MLAU), ventas F
 - **Target**: se actualiza solo sábado y domingo (consulta gradual a ML del último ingreso a Full). Un admin puede forzar un refresh puntual.
 - **Override**: solo PM/sub-PM del producto o admin. Se guarda al salir del campo (o Enter). Vaciar y salir borra el override; si está vacío, vale el Sugerido. Queda bloqueado cuando la fila está **Listo**.
 - **Cerrar / Listo**: el PM congela Qty PM (`override` o Sugerido, tope stock ERP) y bloquea el override. Solo un usuario con `gestion_full.gestor` puede **Desbloquear**.
+- **Envío (gestor):** **Sumar líneas Listo** al paquete, descargar **Excel ML** / **Excel ops**, multi-selección + `inbound_id` → **Asignar**. Cuando todas tienen inbound, el paquete queda locked. **Limpiar inbounds** habilita regenerar Excel.
 
 ## Preguntas frecuentes
 
