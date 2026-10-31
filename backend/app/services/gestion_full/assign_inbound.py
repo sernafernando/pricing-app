@@ -63,6 +63,10 @@ def assign_inbound_to_lines(
     db.commit()
     for ln in updated:
         db.refresh(ln)
+
+    from app.services.gestion_full.reconcile import ensure_envio
+
+    ensure_envio(db, package=package, inbound_id=inbound)
     maybe_hard_lock(db, package)
     return updated
 
