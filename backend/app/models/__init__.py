@@ -25,6 +25,7 @@ from app.models.ml_publication_link import MlPublicationLink
 from app.models.producto_propio import ProductoPropio
 from app.models.ml_item_override import MlItemOverride
 from app.models.gestion_full_override import GestionFullOverride
+from app.models.gestion_full_envio import GestionFullEnvio, GestionFullInboundReceptionOp
 from app.models.gestion_full_package import (
     GestionFullPackage,
     GestionFullPackageLine,
@@ -504,6 +505,8 @@ __all__ = [
     "ProductoPropio",
     "MlItemOverride",
     "GestionFullOverride",
+    "GestionFullEnvio",
+    "GestionFullInboundReceptionOp",
     "GestionFullPackage",
     "GestionFullPackageLine",
     "GestionFullPmReady",
