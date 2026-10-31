@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_algun_permiso
+from app.api.deps import get_current_user, require_algun_permiso, require_permiso
 from app.core.database import get_db
+from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 from app.services.gestion_full.inbound import refresh_last_inbound
 from app.services.gestion_full.listing import list_gestion_full
@@ -20,11 +21,14 @@ from app.services.gestion_full.overrides import (
     upsert_override,
     usuario_puede_editar_algun_override,
 )
+from app.services.gestion_full.unidades_caja import clear_unidades_caja, upsert_unidades_caja
+from app.services.permisos_service import PermisosService
 from app.services.pm_scope import is_full_view
 
 router = APIRouter(prefix="/gestion-full", tags=["gestion-full"])
 
 VIEW_PERMISOS = ["productos.ver", "ml_ops.ver"]
+PERM_DEPOSITOS = "gestion_full.depositos"
 
 
 class GestionFullItem(BaseModel):
@@ -49,6 +53,7 @@ class GestionFullItem(BaseModel):
     target: Optional[int] = None
     sugerido: Optional[int] = None
     override: Optional[int] = None
+    unidades_por_caja: Optional[int] = None
     puede_editar_override: bool = False
 
 
@@ -61,6 +66,10 @@ class GestionFullListResponse(BaseModel):
     items: list[GestionFullItem]
     puede_editar_override: bool = Field(
         description="True when the caller may write at least one override (full-view or PM/sub-PM scope)."
+    )
+    puede_editar_caja: bool = Field(
+        default=False,
+        description="True when the caller has gestion_full.depositos.",
     )
 
 
@@ -87,6 +96,23 @@ class GestionFullTargetResponse(BaseModel):
     inventory_id: str
     target: Optional[int] = None
     occurred_at: Optional[str] = None
+
+
+class GestionFullUnidadesCajaBody(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    unidades: Optional[int] = Field(
+        default=None,
+        description="Units per closed box; null clears the stored value.",
+        ge=1,
+    )
+
+
+class GestionFullUnidadesCajaResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    producto_item_id: int
+    unidades_por_caja: Optional[int] = None
 
 
 @router.get(
@@ -128,7 +154,36 @@ def get_gestion_full(
             current_user, db, item.get("marca"), item.get("categoria")
         )
     payload["puede_editar_override"] = usuario_puede_editar_algun_override(current_user, db)
+    payload["puede_editar_caja"] = PermisosService(db).tiene_permiso(current_user, PERM_DEPOSITOS)
     return payload
+
+
+@router.patch(
+    "/unidades-caja/{producto_item_id}",
+    response_model=GestionFullUnidadesCajaResponse,
+    dependencies=[Depends(require_permiso(PERM_DEPOSITOS))],
+)
+def patch_unidades_caja(
+    body: GestionFullUnidadesCajaBody,
+    producto_item_id: int = Path(..., ge=1),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Upsert or clear units-per-closed-box for one ERP product."""
+    if db.get(ProductoERP, producto_item_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="producto ERP no encontrado")
+
+    if body.unidades is None:
+        clear_unidades_caja(db, producto_item_id=producto_item_id)
+        return {"producto_item_id": producto_item_id, "unidades_por_caja": None}
+
+    row = upsert_unidades_caja(
+        db,
+        producto_item_id=producto_item_id,
+        unidades=body.unidades,
+        usuario=current_user,
+    )
+    return {"producto_item_id": row.producto_item_id, "unidades_por_caja": row.unidades}
 
 
 @router.patch(
