@@ -219,6 +219,7 @@ export default function GestionFull() {
                 <th>C+F 7d</th>
                 <th>C+F 30d</th>
                 <th>Stock ERP</th>
+                <th>U/caja</th>
                 <th>Stock Full</th>
                 <th>Target</th>
                 <th>Sugerido</th>
@@ -244,6 +245,7 @@ export default function GestionFull() {
                   <td className={styles.num}>{cell(row.ventas_colecta_flex_7d)}</td>
                   <td className={styles.num}>{cell(row.ventas_colecta_flex_30d)}</td>
                   <td className={styles.num}>{cell(row.stock_erp)}</td>
+                  <td className={styles.num}>{cell(row.unidades_por_caja)}</td>
                   <td className={styles.num}>{cell(row.stock_full)}</td>
                   <td className={styles.num}>{cell(row.target)}</td>
                   <td className={styles.num}>{cell(row.sugerido)}</td>
@@ -274,7 +276,7 @@ export default function GestionFull() {
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={15} className={styles.empty}>
+                  <td colSpan={16} className={styles.empty}>
                     Sin filas para estos filtros
                   </td>
                 </tr>
