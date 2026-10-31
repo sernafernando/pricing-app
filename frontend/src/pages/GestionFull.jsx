@@ -227,7 +227,10 @@ export default function GestionFull() {
             </thead>
             <tbody>
               {items.map((row) => (
-                <tr key={`${row.producto_item_id}-${row.inventory_id}`} className={styles[row._tone]}>
+                <tr
+                  key={`${row.producto_item_id}-${row.user_product_id || row.inventory_id}`}
+                  className={styles[row._tone]}
+                >
                   <td className={styles.mono}>{cell(row.ean)}</td>
                   <td className={styles.desc} title={row.descripcion || ''}>
                     {cell(row.descripcion)}

@@ -1,12 +1,14 @@
-"""Read model for Gestión Full: one row per (ERP product, inventory_id).
+"""Read model for Gestión Full: one row per (ERP product, MLAU).
 
 Joins Publicaciones ML product links to ERP stock, Full replenishment sales
 windows, Colecta+Flex units from Ventas ML sale lines, last Full inbound
 (Target), and optional PM overrides.
 
-Sugerido = max(0, target - stock_full): units to send to reach the last inbound
-qty. Null when Target is missing. stock_full today is ml_user_product_stock
-(meli_facility) for the row's user_product_id (usual 1:1 with inventory_id).
+Row key: (producto_item_id, user_product_id). inventory_id is still selected
+(one Código ML per MLAU via DISTINCT ON) for display and Target/override joins.
+
+Sugerido = min(max(0, target - stock_full), stock_erp): replenish toward last
+inbound, never above ERP stock. Null when Target is missing.
 
 Filters (defaults match envio-workflow-decisions D1 / D1b / D1c):
   full_mode=en|fuera|todos — en Full = stock_full>0 OR ventas_full_30d>0
@@ -47,12 +49,16 @@ _FILTER_SQL = """
 """
 
 
-def _sugerido(target: Optional[int], stock_full: Optional[int]) -> Optional[int]:
-    """Units to replenish so Full stock reaches the last inbound (Target)."""
+def _sugerido(
+    target: Optional[int],
+    stock_full: Optional[int],
+    stock_erp: Optional[int] = None,
+) -> Optional[int]:
+    """Units to replenish toward Target, capped by ERP stock (P9)."""
     if target is None:
         return None
-    stock = int(stock_full or 0)
-    return max(0, int(target) - stock)
+    raw = max(0, int(target) - int(stock_full or 0))
+    return min(raw, max(0, int(stock_erp or 0)))
 
 
 def _normalize_full_mode(full_mode: str) -> FullMode:
@@ -65,7 +71,7 @@ def _normalize_full_mode(full_mode: str) -> FullMode:
 _LIST_SQL = text(
     f"""
     WITH linked AS (
-      SELECT DISTINCT ON (l.producto_item_id, i.inventory_id)
+      SELECT DISTINCT ON (l.producto_item_id, i.user_product_id)
         l.producto_item_id,
         i.inventory_id,
         i.user_product_id,
@@ -75,9 +81,10 @@ _LIST_SQL = text(
       WHERE l.producto_item_id IS NOT NULL
         AND l.variation_id = 0
         AND i.inventory_id IS NOT NULL
+        AND i.user_product_id IS NOT NULL
         AND i.never_existed IS NOT TRUE
         AND i.gone_at IS NULL
-      ORDER BY l.producto_item_id, i.inventory_id, i.item_id
+      ORDER BY l.producto_item_id, i.user_product_id, i.inventory_id, i.item_id
     ),
     colecta_flex AS (
       SELECT
@@ -130,7 +137,7 @@ _LIST_SQL = text(
     AND (:marca = '' OR p.marca = :marca)
     AND (:categoria = '' OR p.categoria = :categoria)
     {_FILTER_SQL}
-    ORDER BY p.codigo ASC, linked.inventory_id ASC
+    ORDER BY p.codigo ASC, linked.user_product_id ASC
     LIMIT :limit OFFSET :offset
     """
 )
@@ -138,7 +145,7 @@ _LIST_SQL = text(
 _COUNT_SQL = text(
     f"""
     WITH linked AS (
-      SELECT DISTINCT ON (l.producto_item_id, i.inventory_id)
+      SELECT DISTINCT ON (l.producto_item_id, i.user_product_id)
         l.producto_item_id,
         i.inventory_id,
         i.user_product_id
@@ -147,9 +154,10 @@ _COUNT_SQL = text(
       WHERE l.producto_item_id IS NOT NULL
         AND l.variation_id = 0
         AND i.inventory_id IS NOT NULL
+        AND i.user_product_id IS NOT NULL
         AND i.never_existed IS NOT TRUE
         AND i.gone_at IS NULL
-      ORDER BY l.producto_item_id, i.inventory_id, i.item_id
+      ORDER BY l.producto_item_id, i.user_product_id, i.inventory_id, i.item_id
     )
     SELECT COUNT(*)::int AS total
     FROM linked
@@ -189,7 +197,11 @@ def _row_dict(row: Any) -> dict[str, Any]:
         "ventas_colecta_flex_7d": getattr(row, "ventas_colecta_flex_7d", None),
         "ventas_colecta_flex_30d": getattr(row, "ventas_colecta_flex_30d", None),
         "target": getattr(row, "target", None),
-        "sugerido": _sugerido(getattr(row, "target", None), getattr(row, "stock_full", None)),
+        "sugerido": _sugerido(
+            getattr(row, "target", None),
+            getattr(row, "stock_full", None),
+            getattr(row, "stock_erp", None),
+        ),
         "override": getattr(row, "override", None),
         "puede_editar_override": False,
     }
@@ -206,7 +218,7 @@ def list_gestion_full(
     limit: int = 100,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """Paginated Gestión Full rows ordered by EAN then inventory_id (groups stay contiguous)."""
+    """Paginated Gestión Full rows ordered by EAN then MLAU (groups stay contiguous)."""
     params = {
         "q": (q or "").strip(),
         "marca": (marca or "").strip(),
