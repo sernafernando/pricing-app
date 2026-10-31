@@ -52,6 +52,7 @@ from app.models.gestion_full_package import GestionFullPackageLine
 from app.services.gestion_full.unidades_caja import (
     clear_unidades_caja,
     import_unidades_caja_por_ean,
+    list_pendientes_unidades_caja,
     upsert_unidades_caja,
 )
 from app.services.permisos_service import PermisosService
@@ -172,6 +173,23 @@ class GestionFullUnidadesCajaImportResponse(BaseModel):
 
     updated: int
     errors: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class GestionFullUnidadesCajaPendienteItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    producto_item_id: int
+    ean: Optional[str] = None
+    descripcion: Optional[str] = None
+    en_paquete: bool = False
+    pm_ready: bool = False
+    unidades_por_caja: Optional[int] = None
+
+
+class GestionFullUnidadesCajaPendientesResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[GestionFullUnidadesCajaPendienteItem]
 
 
 class GestionFullPmReadyBody(BaseModel):
@@ -717,6 +735,19 @@ def get_package_export_ops(
             "Content-Disposition": 'attachment; filename="envio-stock-full-ops.xlsx"',
         },
     )
+
+
+@router.get(
+    "/unidades-caja/pendientes",
+    response_model=GestionFullUnidadesCajaPendientesResponse,
+    dependencies=[Depends(require_permiso(PERM_DEPOSITOS))],
+)
+def get_unidades_caja_pendientes(
+    q: Optional[str] = Query(None, max_length=200),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Products missing U/caja that are on the active package and/or PM-ready (D13)."""
+    return {"items": list_pendientes_unidades_caja(db, q=q)}
 
 
 @router.post(
