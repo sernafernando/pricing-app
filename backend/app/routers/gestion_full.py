@@ -21,7 +21,11 @@ from app.services.gestion_full.overrides import (
     upsert_override,
     usuario_puede_editar_algun_override,
 )
-from app.services.gestion_full.unidades_caja import clear_unidades_caja, upsert_unidades_caja
+from app.services.gestion_full.unidades_caja import (
+    clear_unidades_caja,
+    import_unidades_caja_por_ean,
+    upsert_unidades_caja,
+)
 from app.services.permisos_service import PermisosService
 from app.services.pm_scope import is_full_view
 
@@ -115,6 +119,26 @@ class GestionFullUnidadesCajaResponse(BaseModel):
     unidades_por_caja: Optional[int] = None
 
 
+class GestionFullUnidadesCajaImportRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    ean: str = Field(..., min_length=1)
+    unidades: int = Field(..., ge=1)
+
+
+class GestionFullUnidadesCajaImportBody(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    rows: list[GestionFullUnidadesCajaImportRow] = Field(..., min_length=1, max_length=5000)
+
+
+class GestionFullUnidadesCajaImportResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    updated: int
+    errors: list[dict[str, Any]] = Field(default_factory=list)
+
+
 @router.get(
     "",
     response_model=GestionFullListResponse,
@@ -156,6 +180,24 @@ def get_gestion_full(
     payload["puede_editar_override"] = usuario_puede_editar_algun_override(current_user, db)
     payload["puede_editar_caja"] = PermisosService(db).tiene_permiso(current_user, PERM_DEPOSITOS)
     return payload
+
+
+@router.post(
+    "/unidades-caja/import",
+    response_model=GestionFullUnidadesCajaImportResponse,
+    dependencies=[Depends(require_permiso(PERM_DEPOSITOS))],
+)
+def post_unidades_caja_import(
+    body: GestionFullUnidadesCajaImportBody,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Bulk upsert units-per-box by ERP EAN (Sheet / CSV paste)."""
+    return import_unidades_caja_por_ean(
+        db,
+        rows=[r.model_dump() for r in body.rows],
+        usuario=current_user,
+    )
 
 
 @router.patch(

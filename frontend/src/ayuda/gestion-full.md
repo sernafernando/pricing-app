@@ -10,7 +10,7 @@ Planifica cuánto mandar a Full: una fila por producto ERP y familia MLAU, con C
 
 ## Cómo se usa
 
-Arriba dice **Gestión Full**. La barra tiene búsqueda (EAN, descripción o inventory_id), marca, categoría, presencia Full y el check de stock ERP.
+Arriba dice **Gestión Full**. Hay pestañas **Planificación** y, con permiso `gestion_full.depositos`, **Depósito** (cargar U/caja e importar EAN,unidades). En Planificación: búsqueda, marca, categoría, presencia Full y el check de stock ERP.
 
 Por defecto: **En Full** y **sin** filas con Stock ERP en 0. La tabla ordena por EAN y, si un mismo EAN tiene varios MLAU, esas filas van juntas con el mismo tinte.
 

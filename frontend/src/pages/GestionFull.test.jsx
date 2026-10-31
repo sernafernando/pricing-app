@@ -13,6 +13,12 @@ vi.mock('../hooks/useDebounce', () => ({
   useDebounce: (value) => value,
 }));
 
+vi.mock('../contexts/PermisosContext', () => ({
+  usePermisos: () => ({
+    tienePermiso: () => false,
+  }),
+}));
+
 import api from '../services/api';
 
 describe('GestionFull', () => {

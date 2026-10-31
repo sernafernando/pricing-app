@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
 import api from '../services/api';
 import { useDebounce } from '../hooks/useDebounce';
+import { usePermisos } from '../contexts/PermisosContext';
+import GestionFullDepositosTab from '../components/gestionFull/GestionFullDepositosTab';
 import styles from './GestionFull.module.css';
 
 const GROUP_TONES = ['toneA', 'toneB', 'toneC'];
@@ -30,6 +32,9 @@ function overrideDraftValue(value) {
 }
 
 export default function GestionFull() {
+  const { tienePermiso } = usePermisos();
+  const puedeDepositos = tienePermiso('gestion_full.depositos');
+  const [tab, setTab] = useState('plan');
   const [q, setQ] = useState('');
   const [marca, setMarca] = useState('');
   const [categoria, setCategoria] = useState('');
@@ -45,6 +50,7 @@ export default function GestionFull() {
   const debouncedQ = useDebounce(q, 300);
 
   useEffect(() => {
+    if (tab !== 'plan') return undefined;
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -81,7 +87,7 @@ export default function GestionFull() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedQ, marca, categoria, fullMode, includeZeroStock]);
+  }, [tab, debouncedQ, marca, categoria, fullMode, includeZeroStock]);
 
   const clearFilters = () => {
     setQ('');
@@ -144,6 +150,33 @@ export default function GestionFull() {
         <p className={styles.subtitle}>Reposición Full por producto</p>
       </header>
 
+      <div className={styles.tabs} role="tablist" aria-label="Gestión Full">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'plan'}
+          className={tab === 'plan' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('plan')}
+        >
+          Planificación
+        </button>
+        {puedeDepositos && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'depositos'}
+            className={tab === 'depositos' ? styles.tabActive : styles.tab}
+            onClick={() => setTab('depositos')}
+          >
+            Depósito
+          </button>
+        )}
+      </div>
+
+      {tab === 'depositos' && puedeDepositos ? <GestionFullDepositosTab /> : null}
+
+      {tab === 'plan' && (
+      <>
       <div className={styles.filters}>
         <label className={styles.search}>
           <Search size={14} aria-hidden />
@@ -284,6 +317,8 @@ export default function GestionFull() {
             </tbody>
           </table>
         </div>
+      )}
+      </>
       )}
     </div>
   );
