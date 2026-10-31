@@ -7,7 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.gestion_full.unidades_caja import clear_unidades_caja, upsert_unidades_caja
+from app.services.gestion_full.unidades_caja import (
+    clear_unidades_caja,
+    import_unidades_caja_por_ean,
+    upsert_unidades_caja,
+)
 
 
 def test_upsert_unidades_caja_rejects_below_one() -> None:
@@ -37,4 +41,19 @@ def test_clear_unidades_caja_noop_when_missing() -> None:
     db.get.return_value = None
     clear_unidades_caja(db, producto_item_id=1)
     db.delete.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_import_unidades_caja_por_ean_skips_unknown() -> None:
+    db = MagicMock()
+    db.execute.return_value.scalar_one_or_none.return_value = None
+    usuario = SimpleNamespace(id=1)
+
+    out = import_unidades_caja_por_ean(
+        db,
+        rows=[{"ean": "NOPE", "unidades": 2}],
+        usuario=usuario,
+    )
+    assert out["updated"] == 0
+    assert len(out["errors"]) == 1
     db.commit.assert_not_called()

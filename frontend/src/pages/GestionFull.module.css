@@ -27,6 +27,49 @@
   font-size: var(--font-sm);
 }
 
+.tabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  border-bottom: 1px solid var(--cf-border-default);
+  padding-bottom: var(--spacing-xs);
+}
+
+.tab {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+  height: 2rem;
+  padding: 0 var(--spacing-sm);
+  font-size: var(--font-sm);
+}
+
+.tabActive {
+  composes: btn-primary from '../styles/buttons-tesla.css';
+  height: 2rem;
+  padding: 0 var(--spacing-sm);
+  font-size: var(--font-sm);
+}
+
+.depositos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  min-height: 0;
+  flex: 1;
+}
+
+.importBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-width: 40rem;
+}
+
+.textarea {
+  composes: input from '../styles/forms-tesla.css';
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-sm);
+  resize: vertical;
+}
+
 .filters {
   display: flex;
   flex-wrap: wrap;
