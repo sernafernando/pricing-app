@@ -36,17 +36,19 @@ def test_row_dict_maps_full_windows_and_leaves_later_fields_null() -> None:
     assert out["ventas_colecta_flex_7d"] == 3
     assert out["ventas_colecta_flex_30d"] == 11
     assert out["target"] == 100
-    assert out["sugerido"] == 94  # 100 target - 6 stock_full
+    assert out["sugerido"] == 30  # min(100-6, stock_erp 30)
     assert out["override"] == 12
     assert out["puede_editar_override"] is False
 
 
-def test_sugerido_replenish_to_last_inbound() -> None:
-    assert _sugerido(100, 40) == 60
-    assert _sugerido(100, 100) == 0
-    assert _sugerido(100, 150) == 0
-    assert _sugerido(100, None) == 100
-    assert _sugerido(None, 40) is None
+def test_sugerido_replenish_to_last_inbound_capped_by_stock_erp() -> None:
+    assert _sugerido(100, 40, stock_erp=100) == 60
+    assert _sugerido(100, 40, stock_erp=10) == 10
+    assert _sugerido(100, 100, stock_erp=50) == 0
+    assert _sugerido(100, 150, stock_erp=50) == 0
+    assert _sugerido(100, None, stock_erp=80) == 80
+    assert _sugerido(100, 40, stock_erp=None) == 0
+    assert _sugerido(None, 40, stock_erp=10) is None
 
 
 def test_list_gestion_full_passes_filters_and_pagination() -> None:
