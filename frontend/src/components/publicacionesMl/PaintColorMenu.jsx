@@ -15,7 +15,7 @@ const plural = (n, one, many) => (n === 1 ? one : many);
  * Paints the checked rows on the layer on show (S8): a checked publication paints only itself, never its product
  * (`paintPublications`, seleccion-por-publicacion S3); a checked product row (Producto view) paints its product with
  * Productos' own batch endpoint. Productos' rule: on the global layer one publication needs `productos.marcar_color`,
- * anything more `productos.marcar_color_lote`; a team layer, membership (the layer selector lists only the user's
+ * anything more `productos.marcar_color_lote`, plus `productos.marcar_color` when it holds publications; a team layer, membership (the layer selector lists only the user's
  * teams, the backend checks it again). Each part that lands is reported shaped as its SSE event -- `onPaintedOwn`
  * the publications', `onPainted` the products' -- so the rows repaint without asking again. On a failure what did not
  * land stays as it was, the selection too, and the reason is shown.
@@ -49,7 +49,9 @@ export default function PaintColorMenu({ checked, offPageCount = 0, equipo, onPa
   const { itemIds, productIds } = checked;
   const n = itemIds.length + productIds.length;
   const onlyOne = productIds.length === 0 && itemIds.length === 1;
-  const allowed = equipo ? true : tienePermiso(onlyOne ? 'productos.marcar_color' : 'productos.marcar_color_lote');
+  // The backend's rule: any write of publications needs `productos.marcar_color`, every batch `marcar_color_lote`.
+  const needed = [...(itemIds.length > 0 ? ['productos.marcar_color'] : []), ...(onlyOne ? [] : ['productos.marcar_color_lote'])];
+  const allowed = equipo ? true : needed.every((permiso) => tienePermiso(permiso));
   if (n === 0 || !allowed) return <Toast toast={toast} onClose={hideToast} />;
 
   const label =

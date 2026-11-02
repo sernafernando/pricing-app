@@ -38,7 +38,7 @@ const setup = (props = {}) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  granted = new Set(['productos.marcar_color_lote']);
+  granted = new Set(['productos.marcar_color', 'productos.marcar_color_lote']);
   api.post.mockResolvedValue({ data: { count: 2 } });
   publicacionesMlAPI.paintColors.mockResolvedValue({ data: { count: 1 } });
 });
@@ -140,13 +140,12 @@ describe('PaintColorMenu', () => {
       expect(onPainted).toHaveBeenCalledWith({ data: { vista: 'ml', is_global: true, equipo_id: null, item_ids: [77], color: 'rojo' } });
     });
 
-    // A last batch of one would go through the one-row permission check instead of the batch one.
-    it('sends more than 500 publications in batches of at most 500, never a last one of one, each shown as it lands', async () => {
+    it('sends more than 500 publications in batches of 500, each one shown as it lands', async () => {
       const many = Array.from({ length: 501 }, (_, i) => `MLA${1000 + i}`);
       const { onPaintedOwn, user } = setup({ checked: publications(...many) });
       await user.click(screen.getByRole('button', { name: 'Pintar 501 publicaciones' }));
       await user.click(screen.getByRole('menuitem', { name: 'Urgente' }));
-      expect(publicacionesMlAPI.paintColors.mock.calls.map(([body]) => body.item_ids.length)).toEqual([499, 2]);
+      expect(publicacionesMlAPI.paintColors.mock.calls.map(([body]) => body.item_ids.length)).toEqual([500, 1]);
       expect(onPaintedOwn).toHaveBeenCalledTimes(2);
     });
 
@@ -172,13 +171,23 @@ describe('PaintColorMenu', () => {
       expect(screen.queryByRole('button', { name: /pintar/i })).not.toBeInTheDocument();
     });
 
-    // The backend asks the same for one MLA (`puede_escribir_layer`): the batch permission alone does not paint one.
-    it('with only productos.marcar_color_lote, one publication cannot be painted on the global layer, two can', () => {
+    // The backend's rule (`puede_escribir_layer`, `_puede_escribir_layer_lote`): every write of publications needs
+    // productos.marcar_color, several of them productos.marcar_color_lote too; products alone keep Productos' batch rule.
+    it('with only productos.marcar_color_lote, no publication can be painted on the global layer, products can', () => {
+      granted = new Set(['productos.marcar_color_lote']);
       const { unmount } = render(<PaintColorMenu checked={publications('MLA1')} equipo="" onPainted={vi.fn()} />);
       expect(screen.queryByRole('button', { name: /pintar/i })).not.toBeInTheDocument();
       unmount();
-      render(<PaintColorMenu checked={publications('MLA1', 'MLA2')} equipo="" onPainted={vi.fn()} />);
-      expect(screen.getByRole('button', { name: 'Pintar 2 publicaciones' })).toBeInTheDocument();
+      const { unmount: unmountTwo } = render(<PaintColorMenu checked={publications('MLA1', 'MLA2')} equipo="" onPainted={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: /pintar/i })).not.toBeInTheDocument();
+      unmountTwo();
+      const { unmount: unmountMixed } = render(
+        <PaintColorMenu checked={{ itemIds: ['MLA1'], productIds: [77] }} equipo="" onPainted={vi.fn()} />,
+      );
+      expect(screen.queryByRole('button', { name: /pintar/i })).not.toBeInTheDocument();
+      unmountMixed();
+      render(<PaintColorMenu checked={products(77, 78)} equipo="" onPainted={vi.fn()} />);
+      expect(screen.getByRole('button', { name: 'Pintar 2 productos' })).toBeInTheDocument();
     });
   });
 });
