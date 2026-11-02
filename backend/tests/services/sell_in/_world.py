@@ -34,6 +34,7 @@ from app.models.sell_in import (
     SellInCompraItem,
     SellInCompraPedido,
     SellInConsumo,
+    SellInModoProducto,
 )
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
@@ -52,6 +53,7 @@ TABLES = [
     SellInCompra.__table__,
     SellInCompraItem.__table__,
     SellInCompraPedido.__table__,
+    SellInModoProducto.__table__,  # a manual consumption's source
     SellInConsumo.__table__,
     SellInBonoConsumo.__table__,  # read by the drain's old-product lookup (`queue.products_of`)
     Auditoria.__table__,

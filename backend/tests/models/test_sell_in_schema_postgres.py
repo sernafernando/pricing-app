@@ -3,7 +3,8 @@ Followed by `20261107_sell_in_bonos_marca` (brand bonus, the purchases' origin
 columns and the bonus queue) and `20261112_sell_in_compras_porcentaje` (fixed
 amount or percentage) and `20261114_sell_in_bonos_alcance` (a bonus's scope and
 kind, and its models), so the parity check covers the tables as they are now
-(`20261115_sell_in_bono_queue_alcance` only replaces the queue's triggers).
+(`20261115_sell_in_bono_queue_alcance` only replaces the queue's triggers), and `20261227_sell_in_modos_producto`
+(a product's dated cost modes, and the manual consumptions that point at one).
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
 bare stand-ins of the tables it references (usuarios, proveedores,
@@ -39,9 +40,10 @@ _MIGRATIONS = [
         "20261212_sell_in_bono_costo",
         "20261215_sell_in_bono_acumulable",
         "20261217_drop_sell_in_compras_pedido_compra_id",
+        "20261227_sell_in_modos_producto",
     )
 ]
-TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos"}
+TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos", "sell_in_modos_producto"}
 BONO_TABLES = {"sell_in_bonos_marca", "sell_in_bono_dirty", "sell_in_bono_items", "sell_in_bono_consumos"}
 
 _STUBS = [
@@ -415,3 +417,97 @@ class TestSellInMigration:
             ).scalar_one()
         assert not ((TABLES | BONO_TABLES) & tables)
         assert functions == 0
+
+
+_INSERT_MODO = (
+    "INSERT INTO sell_in_modos_producto (item_id, modo, desde, cantidad, costo_unit, costo_base_unit, origen, "
+    "compra_id, usuario_id) VALUES (4512, :modo, DATE '2026-11-02', :cantidad, :costo, :base, :origen, :compra, 7) "
+    "RETURNING id"
+)
+_INSERT_CONSUMO_MODO = (
+    "INSERT INTO sell_in_consumos (compra_item_id, modo_id, canal, venta_ref, item_id, fecha_venta, unidades, "
+    "descuento_ars) VALUES (:line, :modo, 'ml', :ref, 4512, DATE '2026-11-03', 1, :descuento)"
+)
+
+
+def _modo(**overrides) -> dict:
+    row = {"modo": "ponderado", "cantidad": None, "costo": None, "base": None, "origen": "visor", "compra": None}
+    row.update(overrides)
+    return row
+
+
+_MANUAL = {"modo": "manual", "cantidad": 30, "costo": "52000", "base": "50000"}
+
+
+@pytest.mark.postgres
+class TestCostModes:
+    """`20261227_sell_in_modos_producto`: a product's dated cost modes (FIFO stays the default: no row)."""
+
+    @pytest.mark.parametrize("modo", ["fifo", "ponderado", "ultimo"])
+    def test_a_mode_without_a_manual_block_carries_no_quantity_nor_cost(self, engine, modo) -> None:
+        with engine.begin() as conn:
+            assert conn.execute(text(_INSERT_MODO), _modo(modo=modo)).scalar_one()
+        _rejects(engine, _INSERT_MODO, _modo(modo=modo, cantidad=30, costo="52000", base="50000"))
+
+    def test_a_manual_block_needs_a_positive_quantity_and_costs(self, engine) -> None:
+        with engine.begin() as conn:
+            assert conn.execute(text(_INSERT_MODO), _modo(**_MANUAL)).scalar_one()
+        _rejects(engine, _INSERT_MODO, _modo(**{**_MANUAL, "cantidad": None}))
+        _rejects(engine, _INSERT_MODO, _modo(**{**_MANUAL, "cantidad": 0}))
+        _rejects(engine, _INSERT_MODO, _modo(**{**_MANUAL, "costo": "0"}))
+        _rejects(engine, _INSERT_MODO, _modo(**{**_MANUAL, "base": None}))
+        _rejects(engine, _INSERT_MODO, _modo(**{**_MANUAL, "base": "-1"}))
+
+    def test_the_mode_and_its_origin_are_closed_sets(self, engine) -> None:
+        _rejects(engine, _INSERT_MODO, _modo(modo="promedio"))
+        _rejects(engine, _INSERT_MODO, _modo(origen="api"))
+
+    def test_a_mode_from_a_load_names_its_purchase(self, engine) -> None:
+        with engine.begin() as conn:
+            compra_id = _new_compra(conn)
+            assert conn.execute(text(_INSERT_MODO), _modo(origen="carga", compra=compra_id)).scalar_one()
+        _rejects(engine, _INSERT_MODO, _modo(origen="carga"))
+        _rejects(engine, _INSERT_MODO, _modo(compra=compra_id))
+
+    def test_a_manual_consumption_points_at_its_mode_and_may_raise_the_cost(self, engine) -> None:
+        # The owner's replacement cost above the current cost is a signed surcharge (D6 a).
+        with engine.begin() as conn:
+            modo_id = conn.execute(text(_INSERT_MODO), _modo(**_MANUAL)).scalar_one()
+            conn.execute(text(_INSERT_CONSUMO_MODO), {"line": None, "modo": modo_id, "ref": 1, "descuento": "-2000"})
+            compra_id = _new_compra(conn)
+            line = conn.execute(
+                text(_INSERT_ITEM),
+                {"compra": compra_id, "item": 4512, "cantidad": 10, "costo": "25000", "monto": "250000.00"},
+            ).scalar_one()
+        consumo = {"line": None, "modo": modo_id, "ref": 1, "descuento": "-2000"}
+        _rejects(engine, _INSERT_CONSUMO_MODO, consumo)  # one row per sale and manual block
+        _rejects(engine, _INSERT_CONSUMO_MODO, {**consumo, "ref": 2, "line": line})  # both sources
+        _rejects(engine, _INSERT_CONSUMO_MODO, {**consumo, "ref": 3, "modo": None})  # no source
+        # A purchase line's consumption still cannot be negative.
+        _rejects(engine, _INSERT_CONSUMO_MODO, {**consumo, "ref": 4, "line": line, "modo": None})
+
+    def test_a_mode_with_consumptions_cannot_be_deleted(self, engine) -> None:
+        with engine.begin() as conn:
+            modo_id = conn.execute(text(_INSERT_MODO), _modo(**_MANUAL)).scalar_one()
+            conn.execute(text(_INSERT_CONSUMO_MODO), {"line": None, "modo": modo_id, "ref": 1, "descuento": "100"})
+        _rejects(engine, "DELETE FROM sell_in_modos_producto WHERE id = :i", {"i": modo_id})
+
+    def test_downgrade_drops_the_modes_and_their_consumptions_and_restores_the_checks(self, engine) -> None:
+        with engine.begin() as conn:
+            modo_id = conn.execute(text(_INSERT_MODO), _modo(**_MANUAL)).scalar_one()
+            conn.execute(text(_INSERT_CONSUMO_MODO), {"line": None, "modo": modo_id, "ref": 1, "descuento": "-5"})
+        down = _load_migration(_MIGRATIONS[-1])
+        with engine.connect() as conn:
+            from alembic.operations import Operations
+            from alembic.runtime.migration import MigrationContext
+
+            ctx = MigrationContext.configure(conn)
+            with ctx.begin_transaction(), Operations.context(ctx):
+                down.downgrade()
+        with engine.connect() as conn:
+            assert "sell_in_modos_producto" not in {
+                r[0] for r in conn.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = current_schema()"))
+            }
+            assert "modo_id" not in _columns(conn, "sell_in_consumos")
+            assert conn.execute(text("SELECT count(*) FROM sell_in_consumos")).scalar_one() == 0
+        _rejects(engine, _INSERT_CONSUMO, {"compra_item": None, "canal": "ml", "ref": 9, "unidades": 1})

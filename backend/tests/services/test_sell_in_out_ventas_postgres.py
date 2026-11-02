@@ -29,6 +29,7 @@ from app.models.sell_in import (
     SellInCompraItem,
     SellInCompraPedido,
     SellInConsumo,
+    SellInModoProducto,
 )
 from app.models.sell_out import SellOutCampana, SellOutConsumo, SellOutPrograma
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
@@ -58,6 +59,7 @@ TABLES = [
     SellInCompra.__table__,
     SellInCompraItem.__table__,
     SellInCompraPedido.__table__,
+    SellInModoProducto.__table__,  # a manual consumption's source
     SellInConsumo.__table__,
     SellInBonoConsumo.__table__,
     SellOutPrograma.__table__,

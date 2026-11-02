@@ -206,6 +206,7 @@ from app.models.sell_in import (
     SellInCompraItem,
     SellInCompraPedido,
     SellInConsumo,
+    SellInModoProducto,
 )
 from app.models.sell_out import (
     SellOutCampana,
@@ -486,6 +487,7 @@ __all__ = [
     "SellInCompraItem",
     "SellInCompraPedido",
     "SellInConsumo",
+    "SellInModoProducto",
     "SellOutCampana",
     "SellOutCampanaGrupo",
     "SellOutCampanaItem",

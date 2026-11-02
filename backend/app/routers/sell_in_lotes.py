@@ -1,5 +1,5 @@
-"""Sell-in lot viewer per product (read only): the lots the next sales will consume, in FIFO order, and the sales
-each lot was consumed by. Behind the permission of the product panel, which already shows the sell-in figures."""
+"""Sell-in lot viewer per product (read only): the lots the next sales will consume, in FIFO order, the sales each
+lot was consumed by, and the product's dated cost modes. Behind the permission of the product panel, which already shows the sell-in figures."""
 
 from dataclasses import replace
 from datetime import date
@@ -12,8 +12,9 @@ from app.api.endpoints.productos_listing import PERMISOS_VER_PRODUCTO
 from app.core.database import get_db
 from app.models.usuario import Usuario
 from app.schemas.sell_in_lotes import ConsumosLoteOut, LotesProductoOut
+from app.schemas.sell_in_modos import ModosProductoOut
 from app.services.permisos_service import verificar_permiso
-from app.services.sell_in import visor_lotes
+from app.services.sell_in import modos, visor_lotes
 
 # Who sold each lot (supplier, invoices) is purchase information: Productos' "Últimas compras" permission.
 VER_COMPRAS = "productos.ver_info_compras"
@@ -62,3 +63,10 @@ def consumos_de_lote(
     """One page of the sales that consumed the lot, oldest first. A lot of another product answers an empty page."""
     items, total = visor_lotes.consumos_de_lote(db, item_id, compra_item_id, page=page, page_size=page_size)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/{item_id}/modos", response_model=ModosProductoOut)
+def modos_de_producto(item_id: int, db: Session = Depends(get_db)) -> dict:
+    """The product's sell-in cost modes, newest first, and the one governing today (none: FIFO, the default)."""
+    historial = modos.historial(db, item_id)
+    return {"item_id": item_id, "vigente": modos.vigente(historial, date.today()), "historial": historial}
