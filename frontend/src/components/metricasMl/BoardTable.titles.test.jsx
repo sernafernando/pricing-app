@@ -6,21 +6,22 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import BoardTable from './BoardTable';
 import { buildBoardColumns } from './metricasMlColumns';
+import { nodeId } from '../../utils/metricasMlLevels';
 
 const base = {
   units: 1, units_24h: 0, units_3d: 0, units_7d: 0, units_15d: 0, units_30d: 1, gross: 200, total_gauss: 30,
   markup_pct: 30, series_units_90d: [], series_markup_90d: [], alerts: [],
 };
 
-function renderRows(groupBy, rows) {
+function renderRows(groupBy, rows, { expanded = new Set(), subRows = {} } = {}) {
   render(
     <BoardTable
       rows={rows}
       columns={buildBoardColumns({ canSeeMargin: true, periodLabel: 'mes', groupBy })}
       groupBy={groupBy}
       canSeeMargin
-      expanded={new Set()}
-      subRows={{}}
+      expanded={expanded}
+      subRows={subRows}
       onToggleExpand={() => {}}
       sort="gross"
       sortDesc
@@ -53,5 +54,25 @@ describe('BoardTable meta tooltips', () => {
     ]);
     const descriptor = screen.getByText(/Full · Activa/);
     expect(descriptor.closest('[title]').getAttribute('title')).toMatch(/Full · Activa$/);
+  });
+
+  it('a product row says its SKU, brand and publication count in the tooltip', () => {
+    renderRows('product', [{ ...base, key: '11', product_item_id: 11, title: 'Router AX55', sku: 'SKU-11', marca: 'TP-Link', publications_count: 3 }]);
+    expect(screen.getByText('SKU-11').closest('[title]')).toHaveAttribute('title', 'SKU-11 · TP-Link · 3 publicaciones');
+  });
+
+  it("an expanded product's publication says its MLA, type, best mark and descriptor in the tooltip", () => {
+    const product = { ...base, key: '11', product_item_id: 11, title: 'Router AX55', sku: 'SKU-11', publications_count: 1 };
+    const pub = { ...base, key: 'MLA1', mla: 'MLA1', product_item_id: 11, title: 'Router AX55 Full', listing_type: 'gold_pro', listing_kind: 'cuotas_12', is_best: true, is_full: true, status: 'active' };
+    renderRows('product', [product], {
+      expanded: new Set([nodeId(['11'])]),
+      subRows: { [nodeId(['11'])]: { loading: false, rows: [pub] } },
+    });
+    expect(screen.getByText('MLA1').closest('[title]')).toHaveAttribute('title', 'MLA1 · 12 cuotas · Mejor · Full · Activa');
+  });
+
+  it("an Agrupado product's SKU line says its SKU and brand in the tooltip", () => {
+    renderRows('group', [{ ...base, key: 'p1', product_item_id: 11, title: 'Router AX55', sku: 'SKU-11', marca: 'TP-Link' }]);
+    expect(screen.getByText('SKU-11').closest('[title]')).toHaveAttribute('title', 'SKU-11 · TP-Link');
   });
 });

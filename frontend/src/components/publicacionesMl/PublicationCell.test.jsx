@@ -156,6 +156,29 @@ describe('PublicationCell meta tooltip', () => {
     expect(meta).toHaveAttribute('title', 'MLA9 · SKU AX55-SKU · Vínculo: Manual · EP-544-BK · Tienda: TP-Link · Full · Catálogo · 3 variaciones');
   });
 
+  it('names an SKU divergence in the meta line title', () => {
+    render(
+      <PublicationCell
+        item={makeItem({
+          item_id: 'MLA9',
+          title: 'Router',
+          seller_sku: 'AX55-SKU',
+          link: null,
+          store_label: null,
+          official_store_id: null,
+          is_full: false,
+          catalog_listing: false,
+          variations_count: 0,
+          sku_divergence: { kind: 'otro_producto', producto_item_id: 71, codigo: 'SKU-71', descripcion: 'Switch' },
+        })}
+      />,
+    );
+    expect(screen.getByText('MLA9').parentElement).toHaveAttribute(
+      'title',
+      'MLA9 · SKU AX55-SKU · SKU distinto del producto vinculado: Otro producto',
+    );
+  });
+
   it('repeats the meta line under the full title in the title tooltip, the big target to hover', () => {
     render(<PublicationCell item={makeItem({ item_id: 'MLA9', title: 'Router AX55', seller_sku: null, link: null, store_label: 'TP-Link', is_full: true, catalog_listing: false, variations_count: 0 })} />);
     expect(screen.getByText('Router AX55')).toHaveAttribute('title', 'Router AX55\nMLA9 · Tienda: TP-Link · Full');

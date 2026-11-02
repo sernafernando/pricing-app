@@ -1228,10 +1228,12 @@ describe('Publicaciones ML Producto view (visual)', () => {
     }
 
     // "Filas finas" (vistas-tipo-publicacion S5): a long name is cut, never its badges; the name is in its tooltip.
-    it(`1920x1080 ${theme}: dense, a long product name is cut with its tooltip and its badges stay whole`, async () => {
+    // Narrower screens too: the badges never squeeze the name to nothing (it keeps a place to hover).
+    for (const { width, height } of VIEWPORTS) {
+    it(`${width}x${height} ${theme}: dense, a long product name is cut with its tooltip and its badges stay whole`, async () => {
       localStorage.setItem('publicaciones-ml.filas-finas', 'true');
       try {
-        const screen = await renderProducts({ width: 1920, height: 1080, theme });
+        const screen = await renderProducts({ width, height, theme });
         const table = screen.getByRole('table', { name: /por producto/ });
         await expect.element(table.getByText('3 tramos · desde $37.800')).toBeVisible();
         expect(scrollerOf().closest('[data-density]').dataset.density).toBe('dense');
@@ -1240,6 +1242,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
         const name = [...cell.querySelectorAll('span[title]')].find((el) => el.textContent.startsWith('Sistema Mesh Deco X20'));
         expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
         expect(name.getAttribute('title')).toBe(name.textContent);
+        expect(rect(name).width).toBeGreaterThanOrEqual(40);
         for (const text of ['3 tramos · desde $37.800', '2 listas']) {
           const badge = [...row.querySelectorAll('span')].find((el) => el.textContent.trim() === text);
           expect(name.contains(badge), text).toBe(false);
@@ -1248,12 +1251,13 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(badge.scrollWidth, text).toBeLessThanOrEqual(badge.clientWidth + 1);
         }
         expect(overflowingCells(scrollerOf())).toEqual([]);
-        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-producto-1920-${theme}.png` });
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-producto-${width}-${theme}.png` });
         screen.unmount();
       } finally {
         localStorage.removeItem('publicaciones-ml.filas-finas');
       }
     });
+    }
 
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: a product row's catalog-competition badge sits beside its name, inside the cell`, async () => {

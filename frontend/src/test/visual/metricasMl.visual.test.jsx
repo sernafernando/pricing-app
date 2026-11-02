@@ -465,6 +465,10 @@ describe('Métricas ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () =
   // count, a publication's MLA line and its title, an Agrupado product's SKU line) is squeezed to nothing, nothing
   // spills out of its cell, and whatever is cut carries its whole text in a tooltip.
   const expectProductCellsReadable = (table) => {
+    // One thin line per row: a line that wrapped instead of being cut would show here.
+    for (const tr of table.querySelectorAll('tbody tr')) {
+      expect(tr.getBoundingClientRect().height, tr.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(32);
+    }
     const cells = [...table.querySelectorAll('tbody td[data-col-id="producto"]')];
     expect(cells.filter((td) => td.scrollWidth > td.clientWidth + 1).map((td) => td.textContent.trim().slice(0, 40))).toEqual([]);
     const tipped = [...table.querySelectorAll('td[data-col-id="producto"] div[title]')];

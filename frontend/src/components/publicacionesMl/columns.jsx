@@ -178,7 +178,7 @@ export function buildColumns({
       width: 104,
       render: (item) => <PublicationStatusPill status={item.status} gone={item.gone} subStatus={item.sub_status} />,
     },
-    { key: 'precio', header: 'Precio', width: 136, sortable: true, align: 'right', render: (item) => <PriceCell price={item.price} /> },
+    { key: 'precio', header: 'Precio', width: 150, sortable: true, align: 'right', render: (item) => <PriceCell price={item.price} /> },
     ...(prices && !agrupado
       ? priceColumns(priceMode, { prices, canSeeMargin, edit: priceEdit, onCalculate: onCalculatePrice, offsets: priceOffsets, tnCardPercent })
       : []),
@@ -251,7 +251,7 @@ export function buildColumns({
         key: 'facturado_30d',
         group: RESULTADO,
         header: 'Facturado 30D',
-        width: 150,
+        width: 170,
         sortable: true,
         align: 'right',
         render: (item) => <GrossCell metrics={item.metrics} />,
@@ -261,7 +261,7 @@ export function buildColumns({
           key: 'total_gauss_30d',
           group: RESULTADO,
           header: 'Total Gauss 30D',
-          width: 150,
+          width: 170,
           sortable: true,
           align: 'right',
           render: (item) => <TotalGaussCell metrics={item.metrics} />,
