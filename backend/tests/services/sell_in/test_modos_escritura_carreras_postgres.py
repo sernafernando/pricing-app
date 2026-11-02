@@ -150,7 +150,7 @@ def test_preview_equals_what_the_save_produces(engine: Engine, caso, previo, mod
     dif = sum((despues.get(k, Decimal(0)) - antes.get(k, Decimal(0)) for k in cambian), Decimal(0))
     assert (vista.ventas_cambian, vista.diferencia_ars) == (len(cambian), dif)
 
-    # Sales before `desde` stay byte for byte.
+    # One mode row more and one audit row (sales before `desde`: test_sales_before_desde_stay_byte_for_byte).
     assert _escalar(engine, "SELECT count(*) FROM sell_in_modos_producto") == (2 if previo else 1)
     assert _escalar(engine, "SELECT count(*) FROM auditoria") == 1
     dia = max(HOY, desde)

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -231,10 +230,7 @@ def _por_venta(db: Session, item_id: int) -> Dict[Tuple[str, int], Decimal]:
         .filter(t.item_id == item_id)
         .group_by(t.canal, t.venta_ref)
     )
-    salida: Dict[Tuple[str, int], Decimal] = defaultdict(Decimal)
-    for canal, ref, total in filas:
-        salida[(canal, ref)] = Decimal(total)
-    return dict(salida)
+    return {(canal, ref): Decimal(total) for canal, ref, total in filas}
 
 
 def _orden(montos: Dict[Tuple[str, int], Decimal]) -> List[list]:
