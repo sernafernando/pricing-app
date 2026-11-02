@@ -19,7 +19,7 @@ from app.models.publicacion_repair import (
     JOB_ENVIO,
     TRIGGER_PUBLICATIONS_FULL,
 )
-from app.services.ml_api_client import MercadoLibreAPIClient, ShippingWriteResult
+from app.services.ml_api_client import MercadoLibreAPIClient
 from app.services.publicacion_repair.constants import (
     FLEX_TAG,
     LOGISTIC_COLECTA,
