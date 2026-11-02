@@ -265,6 +265,13 @@
   font-weight: var(--font-semibold);
 }
 
+/* A price that is another row's, named instead of repeated. */
+.sameAs {
+  font-size: var(--font-xs);
+  font-weight: var(--font-normal);
+  color: var(--cf-text-secondary);
+}
+
 /* Markup chip, painted by markupTone (utils/ventasMlTone). */
 .chip {
   display: inline-block;

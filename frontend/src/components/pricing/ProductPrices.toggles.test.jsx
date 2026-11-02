@@ -99,9 +99,11 @@ describe('showing them', () => {
     });
     renderPrices({ permissions: NONE });
     const oferta = await priceOf('Mejor oferta');
-    expect(oferta).toHaveTextContent('$ 102.391,37');
     expect(oferta).not.toHaveTextContent('Aporte');
     expect(oferta).not.toHaveTextContent('Hasta');
+    // Its price is the rebate's: named, not repeated (no price twice in the tab, orchestrator 2026-11-02).
+    expect(oferta).toHaveTextContent('Igual al rebate');
+    expect(document.body.textContent.match(/102\.391,37/g)).toHaveLength(1);
   });
 
   it('is read-only without edit permission: no edit buttons, the checkbox disabled', async () => {

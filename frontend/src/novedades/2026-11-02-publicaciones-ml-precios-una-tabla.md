@@ -18,3 +18,4 @@ En **Publicaciones ML**, la pestaña **Precios** del panel ya no repite los prec
 
 - Los markups con offset y con sell in / sell out se ven solo con permiso para ver la ganancia.
 - El botón **Calcular** aparece solo con permiso para editar precios.
+- Cuando el rebate está fuera de tarjetas, la mejor oferta es el mismo rebate: en lugar de repetir el precio, la fila **Mejor oferta** dice *Igual al rebate*.

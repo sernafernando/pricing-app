@@ -23,15 +23,15 @@ vi.mock('../../../contexts/PermisosContext', () => ({
 // The same product as Productos' listing sends it, with its Tienda Nube price.
 const LISTED = { ...PRODUCTO_CON_REBATE_Y_OFERTA, tn_price: 99999, tn_has_promotion: false };
 
-const renderTab = ({ canSeeMargin = false, onCalculate = null } = {}) =>
-  render(
-    <PreciosTab
-      detail={{ product: { item_id: PRODUCTO_CON_REBATE_Y_OFERTA.item_id } }}
-      canSeeMargin={canSeeMargin}
-      onWritten={vi.fn()}
-      priceGroup={{ version: 0, onCalculate, tnCardPercent: 10 }}
-    />,
-  );
+const tab = ({ canSeeMargin = false, onCalculate = null, version = 0 } = {}) => (
+  <PreciosTab
+    detail={{ product: { item_id: PRODUCTO_CON_REBATE_Y_OFERTA.item_id } }}
+    canSeeMargin={canSeeMargin}
+    onWritten={vi.fn()}
+    priceGroup={{ version, onCalculate, tnCardPercent: 10 }}
+  />
+);
+const renderTab = (props) => render(tab(props));
 
 const loaded = async () => {
   await screen.findByRole('table', { name: 'Precios por plan' });
@@ -97,5 +97,18 @@ describe('PreciosTab (S2)', () => {
     expect(within(table).getByText('$ 98.500,50')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Calcular/ })).not.toBeInTheDocument();
     expect(screen.getByRole('row', { name: /^Web transferencia/ })).not.toHaveTextContent('99.999,00');
+  });
+
+  it('drops Calcular and the Tienda Nube price when a later read of the listing fails, keeping the prices', async () => {
+    const onCalculate = vi.fn();
+    const { rerender } = renderTab({ onCalculate });
+    await loaded();
+    expect(screen.getByRole('button', { name: /^Calcular el precio de/ })).toBeInTheDocument();
+    productosAPI.listar.mockRejectedValue(new Error('offline'));
+    // A write elsewhere bumps the list's version: the listing is read again, and fails.
+    rerender(tab({ onCalculate, version: 1 }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Calcular/ })).not.toBeInTheDocument());
+    expect(screen.getByRole('row', { name: /^Web transferencia/ })).not.toHaveTextContent('99.999,00');
+    expect(screen.getByRole('table', { name: 'Precios por plan' })).toHaveTextContent('$ 98.500,50');
   });
 });

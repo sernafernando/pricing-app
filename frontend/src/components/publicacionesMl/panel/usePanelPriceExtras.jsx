@@ -15,7 +15,8 @@ import useListPrices from '../useListPrices';
 export default function usePanelPriceExtras(productItemId, priceGroup) {
   const ids = useMemo(() => [productItemId], [productItemId]);
   const prices = useListPrices(ids, productItemId != null, priceGroup?.version ?? 0);
-  const product = prices.error ? null : (prices.byId.get(productItemId) ?? null);
+  // A failed read leaves no product (`useListPrices` drops them), so neither extra shows.
+  const product = prices.byId.get(productItemId) ?? null;
   const onCalculate = priceGroup?.onCalculate ?? null;
   if (!product) return { calculate: null, tnPrice: null };
   return {
