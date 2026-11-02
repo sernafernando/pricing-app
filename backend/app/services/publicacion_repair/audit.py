@@ -1,4 +1,9 @@
-"""Short-lived DB + queue side effects after a confirmed ML repair write."""
+"""Short-lived DB + queue side effects after a confirmed ML repair write.
+
+IMPORTANT: never return a live ORM instance from a closed `get_background_db`
+session — `commit` expires attributes and the next `run.id` access raises
+DetachedInstanceError. Callers pass/receive integer `run_id` only.
+"""
 
 from __future__ import annotations
 
@@ -19,23 +24,26 @@ from app.services.publicacion_repair.tracker import finish_run, record_event, st
 
 logger = logging.getLogger(__name__)
 
-# Soft cap per sync_full run so a bad night cannot fan out unbounded PUTs.
+# Soft cap per tick so a bad night cannot fan out unbounded ML writes.
 DEFAULT_MAX_WRITES_PER_RUN = 200
 DEFAULT_WRITE_PACING_SECONDS = 0.15
 
 
-def start_run_bg(*, job_type: str, trigger: str) -> PublicacionRepairRun:
+def start_run_bg(*, job_type: str, trigger: str) -> int:
+    """Create a repair run in a short session; return its id (never a detached ORM row)."""
     with get_background_db() as db:
-        return start_run(db, job_type=job_type, trigger=trigger)
+        run = start_run(db, job_type=job_type, trigger=trigger)
+        run_id = int(run.id)
+    return run_id
 
 
-def finish_run_bg(run: PublicacionRepairRun, **kwargs: Any) -> PublicacionRepairRun:
+def finish_run_bg(run_id: int, **kwargs: Any) -> None:
     with get_background_db() as db:
-        attached = db.get(PublicacionRepairRun, run.id)
+        attached = db.get(PublicacionRepairRun, run_id)
         if attached is None:
-            logger.error("repair run %s missing at finish", run.id)
-            return run
-        return finish_run(db, attached, **kwargs)
+            logger.error("repair run %s missing at finish", run_id)
+            return
+        finish_run(db, attached, **kwargs)
 
 
 def record_event_bg(**kwargs: Any) -> None:

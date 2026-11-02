@@ -229,7 +229,9 @@ async def lifespan(app: FastAPI):
         bg_tasks = [
             asyncio.create_task(sync_pedidos_preparacion_task()),
             asyncio.create_task(free_shipping_auto_fix_task()),
+            asyncio.create_task(publicacion_envio_repair_task()),
             asyncio.create_task(sync_sale_orders_task()),
+
             asyncio.create_task(ml_questions_ingest_task()),
             asyncio.create_task(ml_questions_draft_task()),
             asyncio.create_task(ml_questions_publish_task()),
@@ -688,6 +690,27 @@ async def free_shipping_auto_fix_task():
             logger.error("Free shipping auto-fix failed: %s", e, exc_info=True)
 
         # Esperar 5 minutos
+        await asyncio.sleep(300)
+
+
+async def publicacion_envio_repair_task():
+    """
+    Conditional envio repair tick: linked pubs × ml_items drift (ME2/pickup/Flex).
+    Same shell as free_shipping_auto_fix — not hooked on sync_ml_publications_full.
+    """
+    from app.services.publicacion_repair.envio import run_envio_repair
+
+    await asyncio.sleep(90)
+    logger.info("Background task started: publicacion_envio_repair (interval=300s)")
+
+    while True:
+        try:
+            stats = await run_envio_repair()
+            if stats.get("changed") or stats.get("errors"):
+                logger.info("Publicacion envio repair stats: %s", stats)
+        except Exception as e:
+            logger.error("Publicacion envio repair failed: %s", e, exc_info=True)
+
         await asyncio.sleep(300)
 
 

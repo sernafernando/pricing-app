@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -20,6 +19,7 @@ def _shipping(**overrides):
         "free_shipping": False,
         "store_pick_up": False,
         "tags": ["self_service_in"],
+        "status": "active",
     }
     base.update(overrides)
     return base
@@ -27,16 +27,17 @@ def _shipping(**overrides):
 
 @pytest.fixture
 def patched_audit(monkeypatch: pytest.MonkeyPatch):
-    run = SimpleNamespace(id=7)
     events: list[dict] = []
     shipping_logs: list[tuple] = []
     flex_logs: list[str] = []
+    finish_kw: dict = {}
 
-    monkeypatch.setattr(envio_mod.repair_audit, "start_run_bg", lambda **kw: run)
+    monkeypatch.setattr(envio_mod.repair_audit, "start_run_bg", lambda **kw: 7)
 
-    def _finish(run_obj, **kw):
-        run_obj.stats = kw
-        return run_obj
+    def _finish(run_id, **kw):
+        finish_kw.clear()
+        finish_kw["run_id"] = run_id
+        finish_kw.update(kw)
 
     monkeypatch.setattr(envio_mod.repair_audit, "finish_run_bg", _finish)
     monkeypatch.setattr(envio_mod.repair_audit, "record_event_bg", lambda **kw: events.append(kw))
@@ -52,11 +53,31 @@ def patched_audit(monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setattr(envio_mod.settings, "ML_PUB_KILL_SWITCH", False)
     monkeypatch.setattr(envio_mod.settings, "ML_ITEM_DATA_WRITE_ENABLED", True)
-    return run, events, shipping_logs, flex_logs
+    return finish_kw, events, shipping_logs, flex_logs
+
+
+def test_closed_status_skipped(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    _finish, events, *_ = patched_audit
+    monkeypatch.setattr(
+        envio_mod,
+        "_load_work_items",
+        lambda db: [("MLA_CLOSED", 1, _shipping(status="closed", mode="me1"))],
+    )
+
+    class Boom:
+        async def put_item_shipping(self, *a, **k):
+            raise AssertionError("must not write closed")
+
+        async def enable_item_flex(self, *a, **k):
+            raise AssertionError("must not write closed")
+
+    stats = asyncio.run(envio_mod.run_envio_repair(client=Boom(), pacing_seconds=0))
+    assert stats["skipped"] == 1
+    assert events[0]["detail"] == "status_not_modifiable"
 
 
 def test_free_shipping_mismatch_does_not_call_ml(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
-    _run, events, *_ = patched_audit
+    _finish, events, *_ = patched_audit
     monkeypatch.setattr(
         envio_mod,
         "_load_work_items",
@@ -70,13 +91,13 @@ def test_free_shipping_mismatch_does_not_call_ml(monkeypatch: pytest.MonkeyPatch
         async def enable_item_flex(self, *a, **k):
             raise AssertionError("must not enable flex")
 
-    stats = asyncio.run(envio_mod.run_envio_repair(MagicMock(), client=Boom(), pacing_seconds=0))
+    stats = asyncio.run(envio_mod.run_envio_repair(client=Boom(), pacing_seconds=0))
     assert stats["changed"] == 0
     assert events == []
 
 
 def test_full_skipped_no_ml(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
-    _run, events, *_ = patched_audit
+    _finish, events, *_ = patched_audit
     monkeypatch.setattr(
         envio_mod,
         "_load_work_items",
@@ -90,30 +111,27 @@ def test_full_skipped_no_ml(monkeypatch: pytest.MonkeyPatch, patched_audit) -> N
         async def enable_item_flex(self, *a, **k):
             raise AssertionError("must not touch Full")
 
-    stats = asyncio.run(envio_mod.run_envio_repair(MagicMock(), client=Boom(), pacing_seconds=0))
+    stats = asyncio.run(envio_mod.run_envio_repair(client=Boom(), pacing_seconds=0))
     assert stats["skipped"] == 1
     assert events[0]["detail"] == "full_fulfillment"
 
 
 def test_missing_flex_calls_flex_and_write_log(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
-    _run, events, shipping_logs, flex_logs = patched_audit
+    _finish, events, shipping_logs, flex_logs = patched_audit
     monkeypatch.setattr(
         envio_mod,
         "_load_work_items",
         lambda db: [("MLA_FLEX", 1, _shipping(tags=[]))],
     )
-    puts: list[dict] = []
 
     class Fake:
         async def put_item_shipping(self, mla, shipping):
-            puts.append(shipping)
-            return ShippingWriteResult(ok=True, status_code=200)
+            raise AssertionError("no shipping put needed")
 
         async def enable_item_flex(self, mla, site_id="MLA"):
             return ShippingWriteResult(ok=True, status_code=204)
 
-    stats = asyncio.run(envio_mod.run_envio_repair(MagicMock(), client=Fake(), pacing_seconds=0))
-    assert puts == []
+    stats = asyncio.run(envio_mod.run_envio_repair(client=Fake(), pacing_seconds=0))
     assert flex_logs == ["MLA_FLEX"]
     assert shipping_logs == []
     assert stats["changed"] == 1
@@ -121,7 +139,7 @@ def test_missing_flex_calls_flex_and_write_log(monkeypatch: pytest.MonkeyPatch, 
 
 
 def test_me1_put_logs_shipping_without_free_shipping(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
-    _run, events, shipping_logs, flex_logs = patched_audit
+    _finish, events, shipping_logs, flex_logs = patched_audit
     monkeypatch.setattr(
         envio_mod,
         "_load_work_items",
@@ -141,13 +159,13 @@ def test_me1_put_logs_shipping_without_free_shipping(monkeypatch: pytest.MonkeyP
         async def enable_item_flex(self, *a, **k):
             raise AssertionError("flex already present")
 
-    asyncio.run(envio_mod.run_envio_repair(MagicMock(), client=Fake(), pacing_seconds=0))
+    asyncio.run(envio_mod.run_envio_repair(client=Fake(), pacing_seconds=0))
     assert shipping_logs == [("MLA_ME1", {"mode": "me2", "local_pick_up": True})]
     assert flex_logs == []
 
 
 def test_kill_switch_blocks_all_writes(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
-    run, events, *_ = patched_audit
+    finish_kw, events, *_ = patched_audit
     monkeypatch.setattr(envio_mod.settings, "ML_PUB_KILL_SWITCH", True)
 
     class Boom:
@@ -157,14 +175,15 @@ def test_kill_switch_blocks_all_writes(monkeypatch: pytest.MonkeyPatch, patched_
         async def enable_item_flex(self, *a, **k):
             raise AssertionError("kill switch")
 
-    stats = asyncio.run(envio_mod.run_envio_repair(MagicMock(), client=Boom(), pacing_seconds=0))
+    stats = asyncio.run(envio_mod.run_envio_repair(client=Boom(), pacing_seconds=0))
     assert stats["scanned"] == 0
-    assert run.stats["error_message"] == "ML_PUB_KILL_SWITCH=true"
+    assert finish_kw["error_message"] == "ML_PUB_KILL_SWITCH=true"
     assert events == []
 
 
-def test_max_writes_cap(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
-    _run, events, shipping_logs, _flex = patched_audit
+def test_max_writes_cap_counts_attempts(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    """Cap counts items we attempt, including Flex refusals — not only full success."""
+    _finish, events, shipping_logs, _flex = patched_audit
     monkeypatch.setattr(
         envio_mod,
         "_load_work_items",
@@ -173,17 +192,20 @@ def test_max_writes_cap(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
             ("MLA_B", 2, _shipping(mode="me1", tags=["self_service_in"])),
         ],
     )
+    puts: list[str] = []
 
     class Fake:
         async def put_item_shipping(self, mla, shipping):
+            puts.append(mla)
             return ShippingWriteResult(ok=True, status_code=200)
 
         async def enable_item_flex(self, *a, **k):
             raise AssertionError("no flex")
 
     stats = asyncio.run(
-        envio_mod.run_envio_repair(MagicMock(), client=Fake(), max_writes=1, pacing_seconds=0)
+        envio_mod.run_envio_repair(client=Fake(), max_writes=1, pacing_seconds=0)
     )
+    assert puts == ["MLA_A"]
     assert stats["changed"] == 1
     assert stats["skipped"] == 1
     assert any(e.get("detail") == "max_writes_cap" for e in events)

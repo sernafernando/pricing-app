@@ -427,19 +427,8 @@ async def sync_ml_publications_full(db: Session = None):
                 f"Sincronización completa fallida: 0 publicaciones procesadas de {len(all_ids)}, {total_errors} errores"
             )
 
-        # Post-sync envio repair (linked pubs only). Never fail the sync on repair errors.
-        try:
-            from app.services.publicacion_repair.envio import run_envio_repair
-
-            repair_stats = await run_envio_repair(db, trigger="publications_full")
-            print(
-                "Envio repair: "
-                f"scanned={repair_stats['scanned']} changed={repair_stats['changed']} "
-                f"skipped={repair_stats['skipped']} errors={repair_stats['errors']}"
-            )
-        except Exception as repair_exc:
-            print(f"⚠ Envio repair skipped after sync: {repair_exc}")
-
+        # Envio/SKU repair runs as a background tick (ml_items drift × linked pubs),
+        # not at the end of this sync — see publicacion_repair + main.py tasks.
         return total_saved, total_updated, total_errors
 
     except Exception as e:
