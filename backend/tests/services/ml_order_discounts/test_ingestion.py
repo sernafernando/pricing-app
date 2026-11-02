@@ -79,9 +79,9 @@ class TestPendingOrders:
             payment(db, 5, 400, "0")  # zero coupon
             payment(db, 6, 500, "99.00", status="rejected")  # not relevant
         with session_factory() as db:
-            assert store.pending_orders(db, 10) == [200, 100]
+            assert store.pending_orders(db, 10, NOW) == [200, 100]
             assert store.pending_count(db) == 2
-            assert store.pending_orders(db, 1) == [200]
+            assert store.pending_orders(db, 1, NOW) == [200]
 
 
 class TestRun:
@@ -123,18 +123,53 @@ class TestRun:
             payment(db, 1, 100, "1.00")
         client = FakeClient({100: response(500, {"message": "boom"})})
         for attempt in range(1, store.MAX_ATTEMPTS + 1):
-            result = run(session_factory, client)
+            at = NOW + attempt * store.ERROR_RETRY
+            result = ingestion.run(
+                session_factory, client, now=lambda: at, deadline=at + timedelta(seconds=20), max_calls=30
+            )
             assert result.counts["error"] == 1
             (row,) = rows(session_factory, MlOrderDiscounts)
             assert (row.status, row.attempts) == ("error", attempt)
-        assert run(session_factory, client).calls == 0
+        far = NOW + 100 * store.ERROR_RETRY
+        assert ingestion.run(session_factory, client, now=lambda: far, deadline=far, max_calls=30).calls == 0
         assert len(client.paths) == store.MAX_ATTEMPTS
+
+    def test_an_error_waits_before_it_is_asked_again(self, session_factory) -> None:
+        with session_factory() as db:
+            payment(db, 1, 100, "1.00")
+        client = FakeClient({100: response(503, None)})
+        run(session_factory, client)
+        assert run(session_factory, client).calls == 0  # 30 s later, as the worker would: not yet
+        soon = NOW + store.ERROR_RETRY - timedelta(seconds=1)
+        assert ingestion.run(session_factory, client, now=lambda: soon, deadline=soon, max_calls=30).calls == 0
+        later = NOW + store.ERROR_RETRY
+        assert (
+            ingestion.run(
+                session_factory, client, now=lambda: later, deadline=later + timedelta(seconds=20), max_calls=30
+            ).calls
+            == 1
+        )
+
+    def test_a_body_that_cannot_be_stored_counts_an_error_and_the_run_goes_on(self, session_factory) -> None:
+        with session_factory() as db:
+            payment(db, 1, 100, "1.00", minutes=2)
+            payment(db, 2, 200, "1.00", minutes=1)
+        body = copy.deepcopy(fixture("discounts_top_coupon_1"))  # perturbed copy: a NUL Postgres JSONB refuses
+        body["details"][0]["items"][0]["id"] = "MLA\u0000"
+        client = FakeClient({100: response(200, body), 200: response(200, fixture("discounts_top_coupon_2"))})
+        result = run(session_factory, client)
+        assert (result.calls, result.counts["error"], result.counts["ok"]) == (2, 1, 1)
+        fetched = {row.order_id: row for row in rows(session_factory, MlOrderDiscounts)}
+        assert (fetched[100].status, fetched[100].attempts, fetched[100].body) == ("error", 1, None)
+        assert fetched[200].status == "ok"
 
     def test_an_ok_after_an_error_settles_the_order(self, session_factory) -> None:
         with session_factory() as db:
             payment(db, 1, 100, "1.00")
         run(session_factory, FakeClient({100: response(500, None)}))
-        run(session_factory, FakeClient({100: response(200, fixture("discounts_top_coupon_2"))}))
+        later = NOW + store.ERROR_RETRY
+        ok = FakeClient({100: response(200, fixture("discounts_top_coupon_2"))})
+        ingestion.run(session_factory, ok, now=lambda: later, deadline=later + timedelta(seconds=20), max_calls=30)
         (row,) = rows(session_factory, MlOrderDiscounts)
         assert (row.status, row.attempts) == ("ok", 2)
         assert len(rows(session_factory, MlOrderDiscountLine)) == 3
@@ -168,6 +203,19 @@ class TestRun:
         )
         (state,) = rows(session_factory, MlOrderDiscountsState)
         assert (state.consecutive_429, state.backoff_until) == (0, None)
+
+    def test_a_429_after_answers_in_the_same_run_still_grows_the_back_off(self, session_factory) -> None:
+        with session_factory() as db:
+            payment(db, 1, 100, "1.00", minutes=2)
+            payment(db, 2, 200, "1.00", minutes=1)
+            db.add(
+                MlOrderDiscountsState(id=store.STATE_ID, consecutive_429=1, backoff_until=NOW - timedelta(seconds=1))
+            )
+        client = FakeClient({100: response(200, fixture("discounts_top_coupon_1")), 200: response(429, None)})
+        result = run(session_factory, client)
+        assert result.backoff_until == NOW + timedelta(seconds=120)
+        (state,) = rows(session_factory, MlOrderDiscountsState)
+        assert state.consecutive_429 == 2
 
     def test_a_429_body_inside_a_200_also_backs_off(self, session_factory) -> None:
         with session_factory() as db:

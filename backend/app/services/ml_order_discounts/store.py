@@ -23,31 +23,35 @@ from app.services.ml_ventas_desglose.breakdown_service import RELEVANT_PAYMENT_S
 MAX_ATTEMPTS = 5
 STATE_ID = 1
 BACKOFF_BASE_SECONDS = 60.0
+# An error is asked again only after this wait, so a transient ML outage cannot spend every attempt in minutes.
+ERROR_RETRY = timedelta(hours=1)
 BACKOFF_CAP_SECONDS = 3600.0
 
 
-def _settled():  # noqa: ANN202 -- a SQL boolean expression
-    return exists().where(
-        MlOrderDiscounts.order_id == MlPaymentOps.order_id,
-        or_(MlOrderDiscounts.status != mapper.ERROR, MlOrderDiscounts.attempts >= MAX_ATTEMPTS),
-    )
+def _settled(now: Optional[datetime] = None):  # noqa: ANN202 -- a SQL boolean expression
+    """Settled orders are never asked again; with `now`, an `error` asked less than `ERROR_RETRY` ago also waits."""
+    done = or_(MlOrderDiscounts.status != mapper.ERROR, MlOrderDiscounts.attempts >= MAX_ATTEMPTS)
+    if now is not None:
+        done = or_(done, MlOrderDiscounts.fetched_at > now - ERROR_RETRY)
+    return exists().where(MlOrderDiscounts.order_id == MlPaymentOps.order_id, done)
 
 
-def _pending_filter():  # noqa: ANN202
+def _pending_filter(now: Optional[datetime] = None):  # noqa: ANN202
     return and_(
         MlPaymentOps.coupon_amount > 0,
         MlPaymentOps.status.in_(sorted(RELEVANT_PAYMENT_STATUSES)),
-        ~_settled(),
+        ~_settled(now),
     )
 
 
-def pending_orders(db: Session, limit: int) -> list[int]:
+def pending_orders(db: Session, limit: int, now: datetime) -> list[int]:
+    """The orders to ask for now: pending and, for an earlier error, past its `ERROR_RETRY` wait."""
     if limit <= 0:
         return []
     newest = func.max(MlPaymentOps.date_approved)
     stmt = (
         select(MlPaymentOps.order_id)
-        .where(_pending_filter())
+        .where(_pending_filter(now))
         .group_by(MlPaymentOps.order_id)
         .order_by(newest.desc().nulls_last(), MlPaymentOps.order_id.desc())
         .limit(limit)
@@ -56,6 +60,7 @@ def pending_orders(db: Session, limit: int) -> list[int]:
 
 
 def pending_count(db: Session) -> int:
+    """Every order not settled yet, errors waiting for their retry included (the backfill progress)."""
     stmt = select(func.count(func.distinct(MlPaymentOps.order_id))).where(_pending_filter())
     return int(db.execute(stmt).scalar() or 0)
 

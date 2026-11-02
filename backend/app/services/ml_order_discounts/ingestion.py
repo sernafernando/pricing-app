@@ -2,26 +2,34 @@
 
 Stop rules, in the order they are checked:
 - a persisted back-off still running (`ml_order_discounts_state.backoff_until`): no call at all;
-- a 429 (the HTTP one or the body's own): the run stops and the back-off grows (60 s doubling per consecutive 429 run, capped at 1 h, never
-  shorter than `Retry-After`), so a run of 429s spaces the runs out instead of retrying every interval;
+- a 429 (the HTTP one or the body's own): the run stops and the back-off grows (60 s doubling per consecutive
+  429 run, capped at 1 h, never shorter than `Retry-After`), so a run of 429s spaces the runs out instead of
+  retrying every interval;
 - 401 / no token / not configured: the run stops as `blocked`, nothing is counted against the order;
 - no HTTP answer (transport error) or the deadline: the run stops, nothing is counted against the order.
 Any other answer is written: `ok`, `none` (ML's 404 "Discount not found") or `error`, which is asked again on
-later runs until `store.MAX_ATTEMPTS`. The first answered call clears the back-off.
+later runs, at most every `store.ERROR_RETRY`, until `store.MAX_ATTEMPTS`; a body Postgres refuses is counted
+as an error with no body. A run answered with no 429 clears the back-off; a 429 after answers in the same
+run still grows it.
 
 The ML call is made with no DB session open; each answer is written in its own short transaction.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.services.ml_ads.ingestion import BLOCKED, RATE_LIMITED, SessionFactory, blocking_outcome
 from app.services.ml_order_discounts import mapper, store
 from app.services.ml_publications.ml_http import MlHttpClient
 from app.services.ml_publications.pacing import DEADLINE
+
+logger = logging.getLogger(__name__)
 
 FAMILY = "order_discounts"
 BACKOFF = "backoff"
@@ -70,7 +78,7 @@ def run(
             result.stopped, result.backoff_until = BACKOFF, until
             result.pending_left = store.pending_count(db)
             return result
-        orders = store.pending_orders(db, max_calls)
+        orders = store.pending_orders(db, max_calls, now())
     for order_id in orders:
         response = client.get(FAMILY, f"/orders/{order_id}/discounts", deadline=deadline)
         if response.error == DEADLINE:
@@ -91,11 +99,18 @@ def run(
             result.stopped = TRANSPORT
             break
         status = mapper.classify(response.status, response.body)
-        with session_factory() as db:
-            if result.calls == 1:
-                store.clear_backoff(db)
-            store.write_fetch(db, order_id, status, own_status, response.body, now())
+        try:
+            with session_factory() as db:
+                store.write_fetch(db, order_id, status, own_status, response.body, now())
+        except SQLAlchemyError as exc:
+            # A body Postgres refuses must not stay at the head of the queue: count an error attempt without it.
+            logger.warning("discounts of order %s not stored: %s", order_id, exc)
+            status = mapper.ERROR
+            with session_factory() as db:
+                store.write_fetch(db, order_id, status, own_status, None, now())
         result.counts[status] += 1
     with session_factory() as db:
+        if result.stopped != RATE_LIMITED and sum(result.counts.values()):
+            store.clear_backoff(db)  # a run answered with no 429 ends the 429 streak
         result.pending_left = store.pending_count(db)
     return result
