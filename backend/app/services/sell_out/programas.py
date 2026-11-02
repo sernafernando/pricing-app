@@ -140,6 +140,17 @@ def _referencia(programa_id: Optional[int], nombres: dict[int, str]) -> dict:
     return {"programa_id": programa_id, "programa": None if programa_id is None else nombres[programa_id]}
 
 
+def validar_asignable(db: Session, programa_id: int) -> SellOutPrograma:
+    """The program, which may take campaigns, share-locked until commit so it is not archived meanwhile.
+    `ProgramaNoExiste` for an unknown one; a `ProgramaError` (422) for an archived one."""
+    programa = db.query(SellOutPrograma).filter(SellOutPrograma.id == programa_id).with_for_update(read=True).first()
+    if programa is None:
+        raise ProgramaNoExiste(f"El programa {programa_id} no existe.")
+    if programa.estado == "archivado":
+        raise ProgramaError(f"El programa «{programa.nombre}» está archivado.")
+    return programa
+
+
 def asignar(db: Session, campana_ids: list[int], programa_id: Optional[int], usuario_id: int) -> tuple[int, int]:
     """Set (or clear, with None) the program of these campaigns, all or nothing, in one transaction. Returns
     `(asignadas, sin_cambio)`. `ProgramaNoExiste` for an unknown program; a `ProgramaError` (422) for an archived
@@ -147,12 +158,7 @@ def asignar(db: Session, campana_ids: list[int], programa_id: Optional[int], usu
     ids = sorted(set(campana_ids))
     nombres: dict[int, str] = {}
     if programa_id is not None:
-        programa = db.query(SellOutPrograma).filter(SellOutPrograma.id == programa_id).with_for_update(read=True)
-        programa = programa.first()
-        if programa is None:
-            raise ProgramaNoExiste(f"El programa {programa_id} no existe.")
-        if programa.estado == "archivado":
-            raise ProgramaError(f"El programa «{programa.nombre}» está archivado.")
+        validar_asignable(db, programa_id)
     # In id order, so concurrent assignments and edits lock in one order.
     campanas = (
         db.query(SellOutCampana).filter(SellOutCampana.id.in_(ids)).order_by(SellOutCampana.id).with_for_update().all()
