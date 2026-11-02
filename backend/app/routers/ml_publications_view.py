@@ -280,6 +280,8 @@ class ItemRowOut(BaseModel):
     status: Optional[str] = None
     sub_status: list[str]
     listing_type_id: Optional[str] = None
+    # clasica | clasica_cofinanciada | cuotas_3 | cuotas_6 | cuotas_9 | cuotas_12, else ML's raw listing type
+    listing_kind: Optional[str] = None
     catalog_listing: Optional[bool] = None
     logistic_type: Optional[str] = None
     is_full: bool

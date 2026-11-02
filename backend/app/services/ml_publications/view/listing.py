@@ -22,6 +22,7 @@ from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
+from app.services.ml_publications.listing_kind import listing_kind, listing_rank
 from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines
 from app.services.ml_publications.view.filters import (
@@ -61,6 +62,13 @@ from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, metric_
 STATEMENT_TIMEOUT = "8s"
 SORT_ACTIVITY = "actividad"
 SORT_MARKUP = "markup"  # not a column: the worst variation's markup, computed in Python (see `_list_by_markup`)
+
+
+def item_listing_kind() -> Any:
+    """The publication's kind (Clásica, 3/6/9/12 cuotas): what the type badge shows and `tipo` sorts by."""
+    return listing_kind(T.i.listing_type_id, T.i.tags, T.i.installments_campaign)
+
+
 # sort key -> (expression of the first ordering column, descending by default)
 SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     SORT_ACTIVITY: (lambda: T.i.last_trigger_received_at, True),
@@ -74,6 +82,8 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "codigo": (lambda: func.nullif(func.upper(T.p.codigo), ""), False),
     "marca": (lambda: func.nullif(normalized_text(T.p.marca), ""), False),
     "costo": (lambda: cost_in_pesos(), False),
+    # Clásica, then 3, 6, 9 and 12 cuotas (owner, 2026-11-02); the page sends its tiebreak as the next key
+    "tipo": (lambda: listing_rank(item_listing_kind()), False),
 }
 # Productos' price headers sort by the stored markup of that list (`productos_listing`), never by the price: the key is
 # the price column's (`priceColumns.jsx`), the worst markup first like `markup`
@@ -232,6 +242,7 @@ def row_columns(*, cost: bool = False) -> list[Any]:
         i.status,
         i.sub_status,
         i.listing_type_id,
+        item_listing_kind().label("listing_kind"),
         i.catalog_listing,
         i.logistic_type,
         i.official_store_id,
@@ -395,6 +406,7 @@ def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_eve
         "status": row.status,
         "sub_status": list(row.sub_status or []),
         "listing_type_id": row.listing_type_id,
+        "listing_kind": row.listing_kind,
         "catalog_listing": row.catalog_listing,
         "logistic_type": row.logistic_type,
         "is_full": row.logistic_type == FULFILLMENT,
