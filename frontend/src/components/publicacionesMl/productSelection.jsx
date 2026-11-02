@@ -7,7 +7,7 @@ import { selectionRow } from './useRowSelection';
  * leading the pinned cell at the row's depth. With `selection.togglePage` and rows on the page, the title's header
  * gets the page's checkbox.
  */
-export function withProductSelection(columns, selection) {
+export function withRowSelection(columns, selection) {
   return columns.map((column) =>
     column.key !== 'titulo'
       ? column

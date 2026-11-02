@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RowCheckbox } from './ProductCheckbox';
-import { withProductSelection } from './productSelection';
+import { withRowSelection } from './productSelection';
 import { buildColumns } from './columns';
 
 describe('RowCheckbox', () => {
@@ -36,7 +36,7 @@ describe('RowCheckbox', () => {
   });
 });
 
-describe('withProductSelection', () => {
+describe('withRowSelection', () => {
   const columns = [
     // The title render places `after` (the checkbox) after its own leading controls.
     { key: 'titulo', header: 'Publicación', render: (item, after) => <span>{after}{item.title}</span> },
@@ -45,7 +45,7 @@ describe('withProductSelection', () => {
 
   it("puts the publication's own checkbox in the title cell and leaves the other columns alone", async () => {
     const onToggle = vi.fn();
-    const wrapped = withProductSelection(columns, { checked: new Map([['i:MLA2', {}]]), onToggle });
+    const wrapped = withRowSelection(columns, { checked: new Map([['i:MLA2', {}]]), onToggle });
     expect(wrapped[1]).toBe(columns[1]);
     const { rerender } = render(wrapped[0].render({ item_id: 'MLA1', title: 'Router', link: { producto_item_id: 4101 } }));
     expect(screen.getByText('Router')).toBeInTheDocument();
@@ -59,7 +59,7 @@ describe('withProductSelection', () => {
   // state row (indented one level past the depth) lines up under the toggle.
   it('puts the checkbox after the variations toggle of a publication with variations', () => {
     const [titulo] = buildColumns({ expandedIds: new Set(), onToggleVariations: () => {} });
-    const [wrapped] = withProductSelection([titulo], { checked: new Map(), onToggle: () => {} });
+    const [wrapped] = withRowSelection([titulo], { checked: new Map(), onToggle: () => {} });
     render(wrapped.render({ item_id: 'MLA5', title: 'Router', variations_count: 2, link: { producto_item_id: 4101 } }));
     const toggle = screen.getByRole('button', { name: /variaciones de MLA5/ });
     const box = screen.getByRole('checkbox');

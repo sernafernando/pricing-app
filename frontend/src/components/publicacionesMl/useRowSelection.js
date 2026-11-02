@@ -23,7 +23,8 @@ const range = (rows, from, to) => rows.slice(Math.min(from, to), Math.max(from, 
  * Agrupado tree keeps its rows to itself) is checked with its product and publication all the same; with Shift it
  * checks every row between the last one toggled and this one. `extendTo` (Shift+arrows) checks
  * that range too, or just the row when the range has no start on show, and never unchecks. The selection outlives
- * the rows: another filter, page or view keeps it, with each row's product and publication as they were when checked.
+ * the rows: another filter, page or view keeps it. A checked row on show reads its product from the page, so a
+ * relinked publication resolves to its new product; one off the page keeps the product it had when last seen.
  *
  * `productIds` is the distinct products behind the checked rows (a product row's own, a publication's linked one),
  * for the per-product actions; `itemIds`, the checked publications. `togglePage` checks every row on show, or unchecks
@@ -86,11 +87,16 @@ export default function useRowSelection(order) {
     return [...checked.keys()].filter((key) => !shown.has(key)).length;
   }, [page, checked]);
 
+  // The checked rows as they are now: the page's entry for a row on show, the last one seen for the rest.
+  const current = useMemo(() => {
+    const shown = new Map(page.map((row) => [row.key, row]));
+    return [...checked.entries()].map(([key, row]) => shown.get(key) ?? row);
+  }, [page, checked]);
   const productIds = useMemo(
-    () => new Set([...checked.values()].map((row) => row.productId).filter((id) => id !== null && id !== undefined)),
-    [checked],
+    () => new Set(current.map((row) => row.productId).filter((id) => id !== null && id !== undefined)),
+    [current],
   );
-  const itemIds = useMemo(() => [...checked.values()].map((row) => row.itemId).filter(Boolean), [checked]);
+  const itemIds = useMemo(() => current.map((row) => row.itemId).filter(Boolean), [current]);
 
   const togglePage = useCallback(() => {
     const rows = pageRef.current;

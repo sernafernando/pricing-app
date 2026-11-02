@@ -41,7 +41,7 @@ import useRecalcularCuotasAuto from '../components/publicacionesMl/useRecalcular
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
-import { withProductSelection } from '../components/publicacionesMl/productSelection';
+import { withRowSelection } from '../components/publicacionesMl/productSelection';
 import useRowSelection, { selectionRow } from '../components/publicacionesMl/useRowSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';
@@ -445,8 +445,8 @@ export default function PublicacionesML() {
         : (data?.items ?? EMPTY_ROWS).map(selectionRow),
     [producto, productRows.rows, data],
   );
-  const productSelection = useRowSelection(agrupado ? EMPTY_ROWS : listedRows);
-  const { checked: checkedRows, productIds: checkedIds, itemIds: checkedItemIds, clear: clearChecked } = productSelection;
+  const rowSelection = useRowSelection(agrupado ? EMPTY_ROWS : listedRows);
+  const { checked: checkedRows, productIds: checkedIds, itemIds: checkedItemIds, clear: clearChecked } = rowSelection;
   // A price typed in a cell (S11c), and the rebate / web transfer edited in theirs (S1), are saved as Productos does;
   // the list is reloaded after it, as after a panel write (its prices with it).
   const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
@@ -546,10 +546,10 @@ export default function PublicacionesML() {
     [columns, columnVisibility],
   );
   const selection = useMemo(
-    () => ({ checked: checkedRows, onToggle: productSelection.onToggle, togglePage: productSelection.togglePage, pageState: productSelection.pageState }),
-    [checkedRows, productSelection.onToggle, productSelection.togglePage, productSelection.pageState],
+    () => ({ checked: checkedRows, onToggle: rowSelection.onToggle, togglePage: rowSelection.togglePage, pageState: rowSelection.pageState }),
+    [checkedRows, rowSelection.onToggle, rowSelection.togglePage, rowSelection.pageState],
   );
-  const selectableColumns = useMemo(() => withProductSelection(visibleColumns, selection), [visibleColumns, selection]);
+  const selectableColumns = useMemo(() => withRowSelection(visibleColumns, selection), [visibleColumns, selection]);
 
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
   // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
@@ -653,6 +653,7 @@ export default function PublicacionesML() {
       showToast('La publicación no tiene producto vinculado', 'error');
       return;
     }
+    // ponytail: paint still colors the whole product; per-publication color lands with publicacion_color (seleccion-por-publicacion S3)
     paintProduct(productId, color);
   };
   // The selection entry of a focused row. In the Producto view only a product or a publication row: its "more" and
@@ -664,7 +665,7 @@ export default function PublicacionesML() {
   };
   const extendRow = (key) => {
     const { key: rowKey } = selectionOfRow(key);
-    if (rowKey != null) productSelection.extendTo(rowKey);
+    if (rowKey != null) rowSelection.extendTo(rowKey);
   };
   // r / w / o (S9): flip the focused row's product rebate, web transfer or "fuera de tarjetas", as in Productos. They
   // write from the product's own figures (its stored percentages), so they wait for its prices.
@@ -777,7 +778,7 @@ export default function PublicacionesML() {
             checkedIds={checkedIds}
             checkedPublications={checkedItemIds.length}
             checkedRowCount={checkedRows.size}
-            offPageCount={agrupado ? 0 : productSelection.offPageCount}
+            offPageCount={agrupado ? 0 : rowSelection.offPageCount}
             onClearChecked={clearChecked}
             canSeeMargin={canSeeMargin}
             onDone={reloadList}
@@ -870,7 +871,7 @@ export default function PublicacionesML() {
             />
             <PaintColorMenu
               checkedIds={checkedIds}
-              offPageCount={agrupado ? 0 : productSelection.offPageCount}
+              offPageCount={agrupado ? 0 : rowSelection.offPageCount}
               equipo={rowFilters.equipo}
               onPainted={colorOverlay.apply}
               onClearChecked={clearChecked}

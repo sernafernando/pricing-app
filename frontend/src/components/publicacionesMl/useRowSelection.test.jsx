@@ -18,7 +18,7 @@ describe('useRowSelection (S12d, Productos useProductosSeleccion; seleccion-por-
     expect(checked(result)).toEqual([]);
   });
 
-  it('Shift checks every product between the last one toggled and this one, in the rows order', () => {
+  it('Shift checks every row between the last one toggled and this one, in the rows order', () => {
     const { result } = setup();
     act(() => result.current.onToggle(row(40)));
     act(() => result.current.onToggle(row(20), true));
@@ -31,7 +31,7 @@ describe('useRowSelection (S12d, Productos useProductosSeleccion; seleccion-por-
     expect(checked(result)).toEqual([30]);
   });
 
-  it('Shift from a product that is no longer on show is a plain toggle', () => {
+  it('Shift from a row that is no longer on show is a plain toggle', () => {
     const { result, rerender } = setup();
     act(() => result.current.onToggle(row(10)));
     rerender({ ids: [20, 30, 40] });
@@ -46,7 +46,7 @@ describe('useRowSelection (S12d, Productos useProductosSeleccion; seleccion-por-
     expect(checked(result)).toEqual([10, 20, 30]);
   });
 
-  it('extendTo (Shift+arrows) checks the range from the last product toggled, or just this one, and never unchecks', () => {
+  it('extendTo (Shift+arrows) checks the range from the last row toggled, or just this one, and never unchecks', () => {
     const { result, rerender } = setup();
     act(() => result.current.onToggle(row(10)));
     act(() => result.current.extendTo(key(30)));
@@ -61,7 +61,7 @@ describe('useRowSelection (S12d, Productos useProductosSeleccion; seleccion-por-
     expect(checked(result)).toEqual([10, 20, 30, 40, 60]);
   });
 
-  it('selecting the page checks every product on show and keeps the ones checked elsewhere', () => {
+  it('selecting the page checks every row on show and keeps the ones checked elsewhere', () => {
     const { result, rerender } = setup([1, 2]);
     act(() => result.current.onToggle(row(1)));
     rerender({ ids: [10, 20, null] });
@@ -82,7 +82,7 @@ describe('useRowSelection (S12d, Productos useProductosSeleccion; seleccion-por-
     expect(checked(result)).toEqual([1]);
   });
 
-  it('counts the checked products that are not on show', () => {
+  it('counts the checked rows that are not on show', () => {
     const { result, rerender } = setup([10, 20]);
     act(() => result.current.togglePage());
     expect(result.current.offPageCount).toBe(0);
@@ -90,7 +90,7 @@ describe('useRowSelection (S12d, Productos useProductosSeleccion; seleccion-por-
     expect(result.current.offPageCount).toBe(1);
   });
 
-  it('a page with no product has nothing to select', () => {
+  it('a page with no checkable row has nothing to select', () => {
     const { result } = setup([null, null]);
     expect(result.current.pageState).toBe('empty');
     act(() => result.current.togglePage());
@@ -129,7 +129,23 @@ describe('useRowSelection (S12d, Productos useProductosSeleccion; seleccion-por-
     expect(result.current.itemIds).toEqual(['MLA10']);
   });
 
-  it('a product row with no product has no key and cannot be checked', () => {
+  it('a checked row on show reads its product from the page, so a relinked publication resolves to its new product', () => {
+    const { result, rerender } = renderHook(({ order }) => useRowSelection(order), {
+      initialProps: { order: [{ key: key(10), productId: 4101, itemId: 'MLA10' }] },
+    });
+    act(() => result.current.onToggle({ key: key(10), productId: 4101, itemId: 'MLA10' }));
+    rerender({ order: [{ key: key(10), productId: 4102, itemId: 'MLA10' }] });
+    expect([...result.current.productIds]).toEqual([4102]);
+    rerender({ order: [{ key: key(10), productId: null, itemId: 'MLA10' }] });
+    expect([...result.current.productIds]).toEqual([]);
+    expect(result.current.itemIds).toEqual(['MLA10']);
+  });
+
+  it('a product row with no product has no key, and selecting the page leaves it unchecked', () => {
     expect(productKey(null)).toBeNull();
+    const { result } = setup([10, null]);
+    act(() => result.current.togglePage());
+    expect([...result.current.checked.keys()]).toEqual([key(10)]);
+    expect(result.current.pageState).toBe('all');
   });
 });
