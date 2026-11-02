@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Layers, Package } from 'lucide-react';
 import Sparkline from './Sparkline';
 import ListingKindBadge from '../publicacionesMl/ListingKindBadge';
+import { listingKindLabel } from '../publicacionesMl/listingKindLabels';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
 import {
   ageingTone,
@@ -240,7 +241,7 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
     // The last level of the tree is PRODUCTS: sku and brand over the title.
     return (
       <div className={styles.subProduct} style={indentStyle(depth)}>
-        <div className={styles.subLine}>
+        <div className={styles.subLine} title={[row.sku, row.marca].filter(Boolean).join(' · ') || undefined}>
           <CornerDownRight size={12} className={styles.subArrow} aria-hidden="true" />
           {row.sku && <span className={styles.sku}>{row.sku}</span>}
           {row.marca && (
@@ -259,7 +260,12 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
   if (isSub) {
     return (
       <div className={styles.subProduct}>
-        <div className={styles.subLine}>
+        <div
+          className={styles.subLine}
+          title={[row.mla, row.listing_kind && listingKindLabel(row.listing_kind), row.is_best && 'Mejor', publicationDescriptor(row)]
+            .filter(Boolean)
+            .join(' · ')}
+        >
           <CornerDownRight size={12} className={styles.subArrow} aria-hidden="true" />
           <span className={styles.mla}>{row.mla}</span>
           <ListingKindBadge kind={row.listing_kind} />

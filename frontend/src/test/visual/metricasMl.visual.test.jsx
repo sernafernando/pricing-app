@@ -461,16 +461,50 @@ describe('Métricas ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () =
     });
   }
 
-  // Under 1600px the Producto column is narrower: a long title must not squeeze the meta (SKU, marca, count) to
-  // nothing, or its tooltip has no place to hover.
-  it('1366x768 light: dense, the meta beside a long title keeps a visible width', async () => {
+  // Under 1600px the Producto column is narrower: no line beside another (a long title, the meta with SKU, marca and
+  // count, a publication's MLA line and its title, an Agrupado product's SKU line) is squeezed to nothing, nothing
+  // spills out of its cell, and whatever is cut carries its whole text in a tooltip.
+  const expectProductCellsReadable = (table) => {
+    const cells = [...table.querySelectorAll('tbody td[data-col-id="producto"]')];
+    expect(cells.filter((td) => td.scrollWidth > td.clientWidth + 1).map((td) => td.textContent.trim().slice(0, 40))).toEqual([]);
+    const tipped = [...table.querySelectorAll('td[data-col-id="producto"] div[title]')];
+    expect(tipped.length).toBeGreaterThan(0);
+    for (const el of tipped) expect(el.getBoundingClientRect().width, el.title).toBeGreaterThanOrEqual(40);
+    const cut = [...table.querySelectorAll('td[data-col-id="producto"] *')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+    for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+  };
+
+  it('1366x768 light: dense, every line of the Producto cell keeps a visible width, publications and the tree too', async () => {
     localStorage.setItem(KEY, 'true');
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-metricas/board' && config?.params?.group_by === 'group') {
+        return Promise.resolve({ data: { ...GROUP_BOARD_RESPONSE, dimension: config.params.dimension } });
+      }
+      if (url === '/ml-metricas/board/group-nodes') return Promise.resolve({ data: epsonNodesFor(config.params.path) });
+      // The longest MLA line there is: 12 cuotas, "Mejor", and a catálogo Full publication.
+      if (url.startsWith('/ml-metricas/board/products/')) {
+        const [first, ...rest] = EPSON_PUBLICATIONS.rows;
+        return Promise.resolve({
+          data: { ...EPSON_PUBLICATIONS, rows: [{ ...first, listing_kind: 'cuotas_12', is_catalog: true }, ...rest] },
+        });
+      }
+      return Promise.resolve(routeGet(url));
+    });
     const screen = await renderPage({ width: 1366, height: 768, theme: 'light' });
-    const table = document.querySelector('table');
-    expect(table.dataset.density).toBe('dense');
-    const metas = [...table.querySelectorAll('td[data-col-id="producto"] div[title]')];
-    expect(metas.length).toBeGreaterThan(0);
-    for (const meta of metas) expect(meta.getBoundingClientRect().width, meta.title).toBeGreaterThanOrEqual(40);
+    const table = () => document.querySelector('table');
+    expect(table().dataset.density).toBe('dense');
+    await screen.getByRole('button', { name: /Ver publicaciones de Impresora Multifunción Epson/ }).click();
+    await expect.element(screen.getByText('MLA2060835678')).toBeVisible();
+    expectProductCellsReadable(table());
+    await shot('board-dense-1366-light', { width: 1366, height: 768 });
+
+    await screen.getByRole('button', { name: 'Agrupado' }).click();
+    await screen.getByRole('button', { name: /Ver .* de Epson/ }).click();
+    await screen.getByRole('button', { name: /Ver .* de Impresoras/ }).click();
+    await screen.getByRole('button', { name: /Ver .* de Laser/ }).click();
+    await expect.element(screen.getByText(EPSON_GROUP_PRODUCTS.rows[0].sku)).toBeVisible();
+    expectProductCellsReadable(table());
+    await shot('board-dense-grouped-1366-light', { width: 1366, height: 768 });
     screen.unmount();
   });
 });

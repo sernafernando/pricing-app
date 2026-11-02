@@ -641,9 +641,21 @@ thead .colProducto {
   flex: 0 1 auto;
 }
 
-/* A publication's MLA line is short: it stays whole and its title takes what is left. */
+/* A publication's MLA line (or an Agrupado product's SKU line) gives way like the meta: one line of inline text cut
+   with "…", whole in its tooltip. The title beside it keeps a few characters, so both always have a place to hover. */
 .table[data-density='dense'] .subLine {
-  flex: none;
+  display: block;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.table[data-density='dense'] .subLine > * + * {
+  margin-left: 6px;
+}
+
+.table[data-density='dense'] .subLine > svg {
+  vertical-align: middle;
 }
 
 .table[data-density='dense'] .meta,
@@ -667,6 +679,7 @@ thead .colProducto {
 }
 
 .table[data-density='dense'] .subTitle {
+  min-width: 7em;
   padding-left: 0;
 }
 
