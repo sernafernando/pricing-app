@@ -18,8 +18,10 @@ from app.services.gestion_full.assign_inbound import (
 
 def _db_returning(pkg: object) -> MagicMock:
     db = MagicMock()
-    db.query.return_value.filter.return_value.with_for_update.return_value.one.return_value = pkg
+    db.query.return_value.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = pkg
     db.get.return_value = None
+    # clear_inbound orphan check: no remaining line refs
+    db.query.return_value.filter.return_value.count.return_value = 0
     return db
 
 
@@ -44,6 +46,8 @@ def test_assign_rejects_open_package() -> None:
 
 
 def test_assign_then_hard_lock() -> None:
+    from unittest.mock import patch
+
     ln1 = SimpleNamespace(
         id=1,
         inbound_id=None,
@@ -63,17 +67,20 @@ def test_assign_then_hard_lock() -> None:
         status="exported",
         exported_at=None,
         locked_at=None,
+        week_monday=date(2026, 10, 26),
         lines=[ln1, ln2],
     )
     db = _db_returning(pkg)
 
-    assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A")
-    assert ln1.inbound_id == "A"
-    assert pkg.status == "exported"  # not all assigned yet
+    with patch("app.services.gestion_full.reconcile.ensure_envio") as ensure:
+        assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A")
+        assert ln1.inbound_id == "A"
+        assert pkg.status == "exported"  # not all assigned yet
+        ensure.assert_called()
 
-    assign_inbound_to_lines(db, pkg, line_ids=[2], inbound_id="B")
-    assert ln2.inbound_id == "B"
-    assert pkg.status == "locked"
+        assign_inbound_to_lines(db, pkg, line_ids=[2], inbound_id="B")
+        assert ln2.inbound_id == "B"
+        assert pkg.status == "locked"
 
 
 def test_maybe_hard_lock_ignores_zero_qty_lines() -> None:
@@ -98,7 +105,7 @@ def test_maybe_hard_lock_ignores_zero_qty_lines() -> None:
             ),
         ],
     )
-    db.query.return_value.filter.return_value.with_for_update.return_value.one.return_value = pkg
+    db.query.return_value.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = pkg
     db.get.return_value = None
 
     out = maybe_hard_lock(db, pkg)
@@ -123,7 +130,7 @@ def test_maybe_hard_lock_consumes_pm_ready() -> None:
         lines=[ln],
     )
     db = MagicMock()
-    db.query.return_value.filter.return_value.with_for_update.return_value.one.return_value = pkg
+    db.query.return_value.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = pkg
     db.get.return_value = ready
 
     maybe_hard_lock(db, pkg)
@@ -141,6 +148,44 @@ def test_maybe_hard_lock_noop_partial() -> None:
             SimpleNamespace(inbound_id=None, qty_export=3),
         ],
     )
-    db.query.return_value.filter.return_value.with_for_update.return_value.one.return_value = pkg
+    db.query.return_value.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = pkg
     assert maybe_hard_lock(db, pkg) is None
     assert pkg.status == "exported"
+
+
+def test_clear_inbound_closes_orphan_envio() -> None:
+    from datetime import UTC, datetime
+
+    ln = SimpleNamespace(id=1, inbound_id="ORPHAN-1", qty_export=2)
+    pkg = SimpleNamespace(id=1, status="exported", exported_at=datetime(2026, 10, 27, tzinfo=UTC), lines=[ln])
+    envio = SimpleNamespace(
+        inbound_id="ORPHAN-1",
+        reception_closed_at=None,
+        last_reception_at=None,
+    )
+    db = _db_returning(pkg)
+    db.get.return_value = envio
+
+    n = clear_inbound_ids(db, pkg)
+    assert n == 1
+    assert ln.inbound_id is None
+    assert envio.reception_closed_at is not None
+    db.flush.assert_called()
+    db.commit.assert_called_once()
+
+
+def test_clear_inbound_keeps_envio_that_already_received() -> None:
+    from datetime import UTC, datetime
+
+    ln = SimpleNamespace(id=1, inbound_id="GOT-STOCK", qty_export=2)
+    pkg = SimpleNamespace(id=1, status="exported", exported_at=datetime(2026, 10, 27, tzinfo=UTC), lines=[ln])
+    envio = SimpleNamespace(
+        inbound_id="GOT-STOCK",
+        reception_closed_at=None,
+        last_reception_at=datetime(2026, 10, 28, tzinfo=UTC),
+    )
+    db = _db_returning(pkg)
+    db.get.return_value = envio
+
+    clear_inbound_ids(db, pkg)
+    assert envio.reception_closed_at is None
