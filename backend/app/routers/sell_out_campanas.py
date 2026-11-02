@@ -33,7 +33,8 @@ price, and that credit is added to profit. The rules live in
   rebuild the apply queues would take from and give to each campaign: it runs the drain's own rebuild inside the
   request and rolls everything back, so the lines, units and money (per currency in the totals) that leave and
   enter are exact on the same data, caps, stacking and fixed-total splits included. Linked campaigns whose credit
-  moves are listed in `vinculadas` (`en_seleccion` False when not selected). A rebuild that would fail is a 422.
+  moves are listed in `vinculadas` (`en_seleccion` False when not selected). A rebuild that would fail is a 422;
+  one behind a running drain or in a lock cycle (each wait bounded to 2 s) is the busy 409, nothing written.
 - A brand-scoped PM (`sell_out.repartir` without `sell_out.gestionar`) reads
   a `monto_total` campaign's shares of their brands only, in the list, the
   detail and the `PUT /{id}/reparto` response, so what they read is what they

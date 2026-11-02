@@ -32,8 +32,12 @@ that can be edited, simulated on their own. A rebuild that would fail (a product
 without a rate) is refused with the reason in Spanish and the campaign's name, as the drain would charge it.
 
 The preview holds what the apply holds, for the whole rebuild: the campaigns' row locks, their queue rows and the
-rebuild's per-campaign locks. Meanwhile a single edit of one of them (a linked one included) may wait and get the
-409 «se está recalculando» after `queue.LOCK_TIMEOUT`.
+rebuild's per-campaign locks, which it takes before reading the stored lines, so the "before" side is what the
+rebuild starts from. Each of its own waits is bounded by `queue.LOCK_TIMEOUT` (2 s): behind a running drain, or in
+a lock cycle with another writer (40P01), it is the busy 409 «Reintentar en unos segundos», nothing written.
+Meanwhile, a single edit of one of those campaigns that has a queue row waits for it and gets the same 409 after
+`queue.LOCK_TIMEOUT` (or on a deadlock); one with NO queue row waits on the campaign row itself (the preview's
+queue insert holds a key-share lock on it), past those 2 s, until the preview ends.
 """
 
 from __future__ import annotations
@@ -48,7 +52,7 @@ from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutConsumo
-from app.services.sell_out import asignacion, reparto
+from app.services.sell_out import asignacion, queue, reparto
 from app.services.sell_out import campanas as base
 from app.services.sell_out.campanas import DEADLOCK, REINTENTAR, SellOutError, SellOutRecalculando
 
@@ -219,13 +223,26 @@ def _simular(
         editadas, sin_cambio, otras = _aplicar(db, editadas + sin_cambio, cambios, usuario_id)
         rechazadas = rechazadas + otras
     tocadas = asignacion.vinculadas(db, editadas)  # what `recalcular` rebuilds: links are by product, not dates
-    antes = _consumos(db, tocadas)
     try:
-        asignacion.recalcular(db, editadas)
+        # Every wait of the rebuild is bounded like the queue's: the loop's row locks are held meanwhile.
+        with queue.lock_timeout(db, queue.LOCK_TIMEOUT):
+            if tocadas and db.get_bind().dialect.name == "postgresql":
+                # The rebuild's own per-campaign locks, taken BEFORE reading what is stored, so no drain rebuilds
+                # them between that read and the simulated rebuild (`recalcular` takes them again: re-entrant).
+                db.execute(asignacion.LOCK_SQL, {"ns": asignacion.LOCK_NAMESPACE, "ids": tocadas})
+            antes = _consumos(db, tocadas)
+            asignacion.recalcular(db, editadas)
+            despues = _consumos(db, tocadas)
     except asignacion.SellOutAsignacionError as exc:
         db.rollback()
         raise SellOutError(_motivo_recalculo(db, exc)) from exc
-    despues = _consumos(db, tocadas)
+    except DBAPIError as exc:
+        if getattr(exc.orig, "pgcode", None) not in (DEADLOCK, queue.LOCK_NOT_AVAILABLE):
+            raise
+        db.rollback()  # a drain rebuilding them, or a lock cycle with another writer: busy, retry
+        raise SellOutRecalculando(
+            f"Otra operación está recalculando o modificando estas campañas en este momento. {REINTENTAR}"
+        ) from exc
     return editadas, sin_cambio, rechazadas, {cid: _diferencia(antes[cid], despues[cid]) for cid in tocadas}
 
 
