@@ -139,7 +139,8 @@ DOWNGRADE = [
 
 
 def _run(statements: List[str]) -> None:
-    # Plain SQL (works in offline `--sql` mode); restores the caller's lock_timeout.
+    # Restores the caller's lock_timeout. The permission seeding (`_con_permisos`) inspects the live connection,
+    # so this revision runs online only, as every deploy does.
     op.execute("SELECT set_config('sell_in_modos.lock_timeout_previo', current_setting('lock_timeout'), true)")
     op.execute(f"SELECT set_config('lock_timeout', '{LOCK_TIMEOUT}', true)")
     for statement in statements:
