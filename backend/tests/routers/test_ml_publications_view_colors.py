@@ -313,6 +313,15 @@ class TestPublicationOwnColor:
         assert client.get(stats_url, headers=reader, params=by_product).json()["stats"]["total"] == 1
         assert client.get(stats_url, headers=reader, params={"colores": "azul"}).json()["stats"]["total"] == 0
 
+    def test_the_brand_facet_counts_a_publication_kept_by_its_own_color(self, client, pg, db, reader, layers) -> None:
+        # MLA4 is painted azul on its own on 77, a rojo TP-Link product: the list keeps it, so its brand counts it.
+        seed_rows(pg, fill_sibling)
+        self.paint(db, layers["global"], "MLA4", "azul")
+        response = client.get(ITEMS_URL, headers=reader, params={"colores": "azul", "facets": "true"})
+        assert response.status_code == 200, response.text
+        assert set(item["item_id"] for item in response.json()["items"]) == {"MLA2", "MLA4"}
+        assert response.json()["facets"]["marcas"] == {"TP-LINK": 1, "UBIQUITI": 1}
+
     def test_product_rows_keep_the_products_color(self, client, pg, db, reader, layers) -> None:
         seed_rows(pg, fill_sibling)
         self.paint(db, layers["global"], "MLA4", "azul")
