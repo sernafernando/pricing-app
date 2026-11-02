@@ -24,7 +24,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.sell_out import SellOutCampana, SellOutPrograma
-from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaItemIn
+from app.schemas.sell_out import ITEMS_MAX, NOMBRE_MAX, SellOutCampanaIn, SellOutCampanaItemIn
 from app.services.sell_out import alcance, campanas
 
 MESES = (
@@ -99,15 +99,24 @@ def borrador(db: Session, campana_id: int) -> Optional[SellOutCampanaIn]:
             reparto_porcentaje=i["reparto_porcentaje"],
             reparto_monto=i["reparto_monto"],
         )
-        for i in campanas._items(db, [campana.id])[campana.id]
+        for i in campanas.items_de(db, [campana.id])[campana.id]
         if i["item_id"] in alcanzados and campana.tipo != "porcentaje"
     ]
+    if len(items) > ITEMS_MAX:
+        # A PM's `repartir` keeps the other brands' shares, so a campaign can hold more than a create takes.
+        raise campanas.SellOutError(
+            f"La campaña tiene {len(items)} productos con monto propio o reparto: una renovación copia hasta "
+            f"{ITEMS_MAX}. Cargá la nueva campaña a mano o reducí el reparto."
+        )
+    nombre = nombre_renovado(campana.nombre, desde)
+    if len(nombre) > NOMBRE_MAX:  # a longer month ("mayo" -> "julio") past the column: keep the original, editable
+        nombre = campana.nombre
     programa_id = None
     if campana.programa_id is not None:
         programa = db.get(SellOutPrograma, campana.programa_id)
         programa_id = programa.id if programa is not None and programa.estado == "activo" else None
     return SellOutCampanaIn(
-        nombre=nombre_renovado(campana.nombre, desde),
+        nombre=nombre,
         descripcion=campana.descripcion,
         fecha_desde=desde,
         fecha_hasta=hasta,
@@ -123,7 +132,7 @@ def borrador(db: Session, campana_id: int) -> Optional[SellOutCampanaIn]:
         tope_monto=campana.tope_monto,
         acumulable=campana.acumulable,
         monto_incluye_iva=campana.monto_incluye_iva,
-        grupo_ids=campanas._grupo_ids(db, campana.id),
+        grupo_ids=campanas.grupo_ids_de(db, campana.id),
         items=items,
         programa_id=programa_id,
     )

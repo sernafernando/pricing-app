@@ -276,12 +276,12 @@ def _valores(campana: SellOutCampana, grupo_ids: list[int], items: list[dict]) -
     }
 
 
-def _grupo_ids(db: Session, campana_id: int) -> list[int]:
+def grupo_ids_de(db: Session, campana_id: int) -> list[int]:
     rows = db.query(SellOutCampanaGrupo.grupo_id).filter(SellOutCampanaGrupo.campana_id == campana_id)
     return [gid for (gid,) in rows.order_by(SellOutCampanaGrupo.id)]
 
 
-def _items(db: Session, campana_ids: list[int]) -> dict[int, list[dict]]:
+def items_de(db: Session, campana_ids: list[int]) -> dict[int, list[dict]]:
     """`{campana_id: [{item_id, monto_unit, codigo, descripcion, reparto_porcentaje, reparto_monto}]}` by item_id, in
     one query; every asked campaign is present. The product's code and description are for the screen (the audit
     keeps only id and amount or share)."""
@@ -353,7 +353,7 @@ def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo
     db.query(SellOutCampanaGrupo).filter(
         SellOutCampanaGrupo.campana_id == campana.id, SellOutCampanaGrupo.grupo_id.notin_(grupo_ids)
     ).delete(synchronize_session=False)
-    tenidos = set(_grupo_ids(db, campana.id))
+    tenidos = set(grupo_ids_de(db, campana.id))
     db.add_all(SellOutCampanaGrupo(campana_id=campana.id, grupo_id=g) for g in grupo_ids if g not in tenidos)
     db.flush()
     _asignar_items(db, campana, data)
@@ -480,7 +480,7 @@ def crear_campana(
     campana = SellOutCampana(usuario_id=usuario_id, offset_origen_id=offset_origen_id, programa_id=data.programa_id)
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)
-    valores = _valores(campana, grupo_ids, _items(db, [campana.id])[campana.id])
+    valores = _valores(campana, grupo_ids, items_de(db, [campana.id])[campana.id])
     if offset_origen_id is not None:
         valores["offset_origen_id"] = offset_origen_id
     if data.programa_id is not None:
@@ -506,10 +506,10 @@ def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario
     if campana is None:
         return None
     grupo_ids = validar(db, data, campana)
-    antes = _valores(campana, _grupo_ids(db, campana_id), _items(db, [campana_id])[campana_id])
+    antes = _valores(campana, grupo_ids_de(db, campana_id), items_de(db, [campana_id])[campana_id])
     compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
     _asignar(db, campana, data, grupo_ids)
-    despues = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
+    despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues)
     _encolar(db, [campana_id, *compartian])
     db.commit()
@@ -521,7 +521,7 @@ def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optio
     """The void step of a locked, active campaign, without committing: shared by the single and the bulk void
     (whose audit row says so with `es_masivo`)."""
     campana.estado = "anulada"
-    valores = _valores(campana, _grupo_ids(db, campana.id), _items(db, [campana.id])[campana.id])
+    valores = _valores(campana, grupo_ids_de(db, campana.id), items_de(db, [campana.id])[campana.id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, valores, motivo, masivo=masivo)
     _encolar(db, [campana.id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
 
@@ -615,8 +615,8 @@ def definir_tipo_cambio(
         raise SellOutError("Solo las campañas en USD con tipo de cambio al cobro definen el tipo de cambio después")
     if tipo_cambio <= 0:
         raise SellOutError("El tipo de cambio tiene que ser mayor a 0")
-    grupo_ids = _grupo_ids(db, campana_id)
-    items = _items(db, [campana_id])[campana_id]
+    grupo_ids = grupo_ids_de(db, campana_id)
+    items = items_de(db, [campana_id])[campana_id]
     antes = _valores(campana, grupo_ids, items)
     campana.tipo_cambio = _a_escala("tipo_cambio", tipo_cambio)
     campana.tc_definido_en = datetime.now(timezone.utc)
@@ -689,11 +689,11 @@ def repartir(
                 raise SellOutSinPermiso(f"El producto {item.item_id}{codigo} no es de tus marcas")
         conservar = frozenset(i for i in tenidos if i not in propios)
     _validar_alcance(db, campana, [r.item_id for r in repartos])
-    grupo_ids = _grupo_ids(db, campana_id)
-    antes = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
+    grupo_ids = grupo_ids_de(db, campana_id)
+    antes = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _guardar_items(db, campana, {r.item_id: _fila(r) for r in repartos}, conservar)
     _validar_suma(db, campana)
-    despues = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
+    despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, "Reparto del monto total")
     _encolar(db, [campana_id])
     db.commit()
@@ -772,7 +772,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         )
         for campana_id, gid, nombre in rows:
             grupos[campana_id].append({"id": gid, "nombre": nombre})
-    items = _items(db, ids)
+    items = items_de(db, ids)
     de_programa = programas.programas_de(db, campanas)
     salida = []
     for c in campanas:
