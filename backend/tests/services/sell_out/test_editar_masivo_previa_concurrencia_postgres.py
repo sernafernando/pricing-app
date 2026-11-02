@@ -103,21 +103,12 @@ def _advisory_count(engine: Engine) -> int:
         ).scalar()
 
 
-def _sequences(engine: Engine) -> dict:
-    with engine.connect() as conn:
-        schema = conn.execute(text("SELECT current_schema()")).scalar()
-        return {
-            r[0]: r[1]
-            for r in conn.execute(
-                text("SELECT sequencename, last_value FROM pg_sequences WHERE schemaname = :s"), {"s": schema}
-            )
-        }
-
-
 # ── 1. No trace ─────────────────────────────────────────────────────
 
 
 def test_trace_success_path_no_commit_no_notify_no_lock_no_data(engine: Engine) -> None:
+    """No commit, no NOTIFY, no advisory lock left and every table identical. Sequences are not transactional: the
+    rolled-back inserts consume ids, like any rolled-back write."""
     g = w.grupo(engine, [ROUTERS])
     a = w.campana(engine, [g], nombre="A", tope_unidades=3)
     b = w.campana(engine, [g], nombre="B")
@@ -131,7 +122,6 @@ def test_trace_success_path_no_commit_no_notify_no_lock_no_data(engine: Engine) 
         a=b,
     )
     antes = _all_tables(engine)
-    seq_antes = _sequences(engine)
 
     commits: list[int] = []
 
@@ -161,7 +151,6 @@ def test_trace_success_path_no_commit_no_notify_no_lock_no_data(engine: Engine) 
     assert notificaciones == []
     assert _all_tables(engine) == antes
     assert _advisory_count(engine) == 0
-    print("SEQUENCES before", seq_antes, "after", _sequences(engine))
 
 
 # ── 2. Differential: independent of the module's `_diferencia` ──────
@@ -287,8 +276,8 @@ def test_pending_work_is_shown_as_if_the_edit_moved_it(engine: Engine) -> None:
 
     previa = _previa(engine, [a], acumulable=False)  # the edit by itself moves nothing
 
-    print("PENDING", previa["cambian"][0]["entran"])
     assert previa["cambian"][0]["entran"]["lineas"] == 1
+    assert previa["cambian"][0]["incluye_pendientes"] is True  # labelled: pending work, not this edit
 
 
 # ── 3. Concurrency ──────────────────────────────────────────────────
@@ -350,9 +339,8 @@ def test_a_drain_of_a_voided_campaign_deadlocking_the_preview_is_a_retry(engine:
         drain.close()
     hilo.join(10)
     exc = resultado.get("exc")
-    print("PREVIEW RESULT", type(exc).__name__ if exc else "ok", getattr(getattr(exc, "orig", None), "pgcode", None))
-    print("DRAIN ERROR", type(drain_error).__name__ if drain_error else None)
     assert exc is None or isinstance(exc, service.SellOutError), f"unhandled in the router: {exc!r}"
+    assert exc is None or drain_error is None  # Postgres aborts one side of the cycle, never both
 
 
 def test_a_preview_behind_a_running_rebuild_gives_up_within_the_queue_bound(engine: Engine) -> None:
@@ -387,6 +375,43 @@ def test_a_preview_behind_a_running_rebuild_gives_up_within_the_queue_bound(engi
     assert isinstance(resultado.get("exc"), service.SellOutRecalculando), resultado
     assert str(resultado["exc"]) == (
         "Otra operación está recalculando o modificando estas campañas en este momento. Reintentar en unos segundos."
+    )
+    assert _all_tables(engine) == antes
+
+
+def test_a_preview_behind_a_held_campaign_row_gives_up_within_the_queue_bound(engine: Engine) -> None:
+    """Another preview or bulk edit holds A's row until it ends: the preview waits at most `queue.LOCK_TIMEOUT` for
+    it, then is the busy 409 naming A, nothing written; never the 60 s statement timeout (a 500)."""
+    g = w.grupo(engine, [ROUTERS])
+    a = w.campana(engine, [g], nombre="A")
+    _consumir(engine)
+    antes = _all_tables(engine)
+
+    otro = _session(engine)
+    otro.execute(text("SELECT 1 FROM sell_out_campanas WHERE id = :a FOR UPDATE"), {"a": a})
+    resultado: dict = {}
+
+    def _preview() -> None:
+        t = time.monotonic()
+        try:
+            resultado["ok"] = _previa(engine, [a], fecha_hasta=date(2026, 12, 31))
+        except BaseException as exc:  # noqa: BLE001
+            resultado["exc"] = exc
+        resultado["t"] = time.monotonic() - t
+
+    hilo = threading.Thread(target=_preview)
+    hilo.start()
+    hilo.join(15)
+    otro.rollback()
+    otro.close()
+    hilo.join(10)
+
+    assert resultado["t"] < 8, resultado
+    exc = resultado.get("exc")
+    assert isinstance(exc, edicion_masiva.SellOutEdicionRechazada) and exc.reintentar, resultado
+    assert str(exc) == (
+        f"No se editó ninguna campaña: otra operación está modificando la campaña {a} en este momento. "
+        "Reintentar en unos segundos."
     )
     assert _all_tables(engine) == antes
 
@@ -442,7 +467,6 @@ def test_during_a_preview_writers_and_drain(engine: Engine, monkeypatch: pytest.
     editor = threading.Thread(target=_edit)
     editor.start()
     time.sleep(3)
-    print("LINKED EDIT still waiting after 3 s:", editor.is_alive())
     assert editor.is_alive()
 
     # The apply of the same campaign waits for the preview, then edits the current row.
@@ -466,7 +490,8 @@ def test_during_a_preview_writers_and_drain(engine: Engine, monkeypatch: pytest.
     hilo.join(10)
     otro.join(10)
     editor.join(10)
-    print("APPLY waited", round(aplicada["t"], 2), "EDIT waited", round(editada["t"], 2))
+    if "exc" not in editada:
+        assert editada["t"] > 3  # no queue row: it waited on the campaign row past the 2 s bound
     assert salida["p"]["cambian"][0]["salen"]["lineas"] == 1
     # The apply and the single edit of its linked campaign lock in opposite orders: at most one is the victim, a
     # retry, and the other goes through.
@@ -531,8 +556,6 @@ def test_single_edit_of_a_linked_campaign_with_a_queue_row_deadlocks_with_the_pr
     hilo.join(15)
     editor.join(15)
     pre, ed = salida.get("exc"), editada.get("exc")
-    print("PREVIEW", type(pre).__name__ if pre else "ok", getattr(getattr(pre, "orig", None), "pgcode", None))
-    print("SINGLE EDIT", type(ed).__name__ if ed else "ok", getattr(getattr(ed, "orig", None), "pgcode", None))
     assert pre is None or isinstance(pre, service.SellOutError), repr(pre)
     assert ed is None or isinstance(ed, service.SellOutError), repr(ed)
 

@@ -33,8 +33,17 @@ without a rate) is refused with the reason in Spanish and the campaign's name, a
 
 The preview holds what the apply holds, for the whole rebuild: the campaigns' row locks, their queue rows and the
 rebuild's per-campaign locks, which it takes before reading the stored lines, so the "before" side is what the
-rebuild starts from. Each of its own waits is bounded by `queue.LOCK_TIMEOUT` (2 s): behind a running drain, or in
-a lock cycle with another writer (40P01), it is the busy 409 «Reintentar en unos segundos», nothing written.
+rebuild starts from. Each wait it makes for a lock is bounded by `queue.LOCK_TIMEOUT` (2 s): the selected campaigns'
+row locks (another preview or bulk edit holding them), their queue rows (a running drain batch), and the rebuild's
+per-campaign locks and the row locks its writes need (a drain rebuilding them). Past the bound, or in a lock cycle
+with another writer (40P01), it is the busy 409 «Reintentar en unos segundos», nothing written. The apply bounds
+only the queue rows' wait; it waits for the row locks.
+
+Pending work: the rebuild the preview runs starts from the stored lines; a campaign with a queue row before the
+preview (a sale, a rate or another change not drained yet) has stored lines that are behind, so its numbers also
+include that pending work. Such a campaign is flagged `incluye_pendientes`, and the response carries the notice
+«incluye cambios pendientes que no causa esta edición» (`aviso_pendientes`); the numbers stay as the rebuild gives
+them (no second rebuild to separate them).
 Meanwhile, a single edit of one of those campaigns that has a queue row waits for it and gets the same 409 after
 `queue.LOCK_TIMEOUT` (or on a deadlock); one with NO queue row waits on the campaign row itself (the preview's
 queue insert holds a key-share lock on it), past those 2 s, until the preview ends.
@@ -51,7 +60,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
-from app.models.sell_out import SellOutCampana, SellOutConsumo
+from app.models.sell_out import SellOutCampana, SellOutConsumo, SellOutDirty
 from app.services.sell_out import asignacion, queue, reparto
 from app.services.sell_out import campanas as base
 from app.services.sell_out.campanas import DEADLOCK, REINTENTAR, SellOutError, SellOutRecalculando
@@ -94,11 +103,12 @@ def _editar_una(db: Session, campana: SellOutCampana, cambios: dict, usuario_id:
 
 
 def _aplicar(
-    db: Session, campana_ids: list[int], cambios: dict, usuario_id: int
+    db: Session, campana_ids: list[int], cambios: dict, usuario_id: int, espera: Optional[str] = None
 ) -> tuple[list[int], list[int], list[Rechazada]]:
     """The bulk edit without committing: `(editadas, sin_cambio, rechazadas)`. A refusal may have rolled the
     session back (the step's own rules do); the loop goes on to name every refused campaign, the outcome of each
-    depending only on its own stored values. A busy campaign raises the retry refusal, rolled back."""
+    depending only on its own stored values. A busy campaign raises the retry refusal, rolled back. `espera`
+    bounds the wait for each campaign's row lock (the preview's `queue.LOCK_TIMEOUT`); the apply waits for it."""
     ids = sorted(set(campana_ids))
     nombres = dict(db.query(SellOutCampana.id, SellOutCampana.nombre).filter(SellOutCampana.id.in_(ids)))
     rechazadas: list[Rechazada] = [(cid, None, f"La campaña {cid} no existe") for cid in ids if cid not in nombres]
@@ -110,7 +120,11 @@ def _aplicar(
     for campana_id in (cid for cid in ids if cid in nombres):
         nombre = nombres[campana_id]
         try:
-            campana = base.bloquear(db, campana_id)
+            if espera is None:
+                campana = base.bloquear(db, campana_id)
+            else:
+                with queue.lock_timeout(db, espera):
+                    campana = base.bloquear(db, campana_id)
             compartian = [c for c in vinculos[campana_id] if c != campana_id and c not in encoladas]
             if _editar_una(db, campana, cambios, usuario_id, compartian):
                 editadas.append(campana_id)
@@ -125,8 +139,8 @@ def _aplicar(
             raise SellOutEdicionRechazada([busy, *rechazadas], mensaje) from exc
         except SellOutError as exc:  # voided (`SellOutYaAnulada`), inverted dates, any rule of the step
             rechazadas.append((campana_id, nombre, str(exc)))
-        except DBAPIError as exc:
-            if getattr(exc.orig, "pgcode", None) != DEADLOCK:
+        except DBAPIError as exc:  # a lock cycle, or (bounded by `espera`) a row another writer holds
+            if getattr(exc.orig, "pgcode", None) not in (DEADLOCK, queue.LOCK_NOT_AVAILABLE):
                 raise
             db.rollback()
             mensaje = (
@@ -212,15 +226,30 @@ def _motivo_recalculo(db: Session, exc: asignacion.SellOutAsignacionError) -> st
     return f"La edición no se puede recalcular: {quien} {porque}"
 
 
+AVISO_PENDIENTES = "incluye cambios pendientes que no causa esta edición"
+
+
+def _pendientes(db: Session, campana_ids: list[int]) -> set[int]:
+    """The asked campaigns and those linked to them that have a queue row now: their stored lines are behind, so
+    the rebuild the preview runs also does that pending work. ONE query over the queue, plus the links."""
+    tocadas = asignacion.vinculadas(db, campana_ids)
+    if not tocadas:
+        return set()
+    filas = db.query(SellOutDirty.campana_id).filter(SellOutDirty.campana_id.in_(tocadas))
+    return {int(cid) for (cid,) in filas}
+
+
 def _simular(
     db: Session, campana_ids: list[int], cambios: dict, usuario_id: int
-) -> tuple[list[int], list[int], list[Rechazada], dict[int, dict]]:
+) -> tuple[list[int], list[int], list[Rechazada], dict[int, dict], set[int]]:
     """The loop, then the rebuild the drain would run for it, in the open transaction: `(editadas, sin_cambio,
-    rechazadas, {campana_id: {salen, entran}})` over the edited and every linked campaign. The caller rolls back."""
-    editadas, sin_cambio, rechazadas = _aplicar(db, campana_ids, cambios, usuario_id)
+    rechazadas, {campana_id: {salen, entran}}, pendientes)` over the edited and every linked campaign; `pendientes`
+    are those of them with a queue row BEFORE the loop (module docstring). The caller rolls back."""
+    pendientes = _pendientes(db, campana_ids)
+    editadas, sin_cambio, rechazadas = _aplicar(db, campana_ids, cambios, usuario_id, queue.LOCK_TIMEOUT)
     if rechazadas:  # a refusal may have rolled the loop back: simulate the editable ones on their own
         db.rollback()
-        editadas, sin_cambio, otras = _aplicar(db, editadas + sin_cambio, cambios, usuario_id)
+        editadas, sin_cambio, otras = _aplicar(db, editadas + sin_cambio, cambios, usuario_id, queue.LOCK_TIMEOUT)
         rechazadas = rechazadas + otras
     tocadas = asignacion.vinculadas(db, editadas)  # what `recalcular` rebuilds: links are by product, not dates
     try:
@@ -243,7 +272,8 @@ def _simular(
         raise SellOutRecalculando(
             f"Otra operación está recalculando o modificando estas campañas en este momento. {REINTENTAR}"
         ) from exc
-    return editadas, sin_cambio, rechazadas, {cid: _diferencia(antes[cid], despues[cid]) for cid in tocadas}
+    diferencias = {cid: _diferencia(antes[cid], despues[cid]) for cid in tocadas}
+    return editadas, sin_cambio, rechazadas, diferencias, pendientes
 
 
 def _se_mueve(diferencia: dict) -> bool:
@@ -262,7 +292,7 @@ def previa_edicion(db: Session, campana_ids: list[int], cambios: dict, usuario_i
     """What `editar_campanas` and the rebuild it queues would do, writing nothing (module docstring). Raises the
     same retry refusal when a campaign is busy; the other refusals are listed, not raised."""
     try:
-        editadas, sin_cambio, rechazadas, diferencias = _simular(db, campana_ids, cambios, usuario_id)
+        editadas, sin_cambio, rechazadas, diferencias, pendientes = _simular(db, campana_ids, cambios, usuario_id)
     finally:
         db.rollback()
     seleccion = set(campana_ids)
@@ -271,7 +301,7 @@ def previa_edicion(db: Session, campana_ids: list[int], cambios: dict, usuario_i
     cambian, vinculadas = [], []
     for cid in movidas:  # read before the rollback below, which expires them (one SELECT each otherwise)
         c = campanas[cid]
-        fila = {"id": c.id, "nombre": c.nombre, "moneda": c.moneda}
+        fila = {"id": c.id, "nombre": c.nombre, "moneda": c.moneda, "incluye_pendientes": cid in pendientes}
         if cid in editadas:
             fila.update({campo: cambios.get(campo, getattr(c, campo)) for campo in CAMPOS})
         else:
@@ -297,6 +327,7 @@ def previa_edicion(db: Session, campana_ids: list[int], cambios: dict, usuario_i
         "totales": totales,
         "cambian": cambian,
         "vinculadas": vinculadas,
+        "aviso_pendientes": AVISO_PENDIENTES if any(f["incluye_pendientes"] for f in filas) else None,
         "sin_cambio": sin_cambio,
         "rechazadas": [{"id": i, "nombre": n, "motivo": m} for i, n, m in sorted(rechazadas, key=lambda r: r[0])],
     }

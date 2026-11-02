@@ -469,6 +469,7 @@ def test_turning_a_campaign_non_stackable_takes_units_from_a_linked_campaign_out
             "nombre": "MODELO 8180",
             "moneda": "ARS",
             "en_seleccion": False,
+            "incluye_pendientes": False,
             "salen": {"lineas": 1, "unidades": 2, "monto": Decimal("20.00")},
             "entran": {"lineas": 0, "unidades": 0, "monto": Decimal(0)},
         }
@@ -624,6 +625,58 @@ def test_each_rebuild_refusal_is_explained_from_its_fields(
         _previa(engine, [cid], fecha_hasta=date(2026, 12, 31))
 
     assert str(exc.value) == f"La edición no se puede recalcular: {mensaje}"
+
+
+AVISO = "incluye cambios pendientes que no causa esta edición"
+
+
+def _pendiente(engine: Engine, cid: int) -> None:
+    """A queue row nobody drained yet: the stored lines of `cid` are behind."""
+    w.execute(engine, "INSERT INTO sell_out_dirty (campana_id) VALUES (:c)", c=cid)
+
+
+def test_a_campaign_with_pending_work_is_flagged_and_its_numbers_are_unchanged(engine: Engine) -> None:
+    con = w.campana(engine, [w.grupo(engine, [ROUTERS])], nombre="Rebate Q4 2026")
+    sin = w.campana(engine, [w.grupo(engine, [SWITCHES])], nombre="MODELO 8180")
+    w.venta(engine, "fuera", ROUTER, 2, date(2026, 11, 10))
+    _consumir(engine)
+    w.venta(engine, "fuera", ROUTER, 1, date(2026, 11, 12))  # inside the dates, not drained yet
+    _pendiente(engine, con)
+
+    previa, real = _comparar(engine, [con, sin], acumulable=False)  # the edit by itself moves nothing
+
+    por_id = {c["id"]: c for c in previa["cambian"]}
+    assert (por_id[con]["incluye_pendientes"], por_id[sin]["incluye_pendientes"]) == (True, False)
+    assert previa["aviso_pendientes"] == AVISO
+    assert _vista(previa) == _movidas(real, previa)  # the numbers, as before the flag: the pending line included
+    assert por_id[con]["entran"] == {"lineas": 1, "unidades": 1, "monto": Decimal("10.00")}
+
+
+def test_a_linked_campaign_with_pending_work_is_flagged_in_vinculadas(engine: Engine) -> None:
+    g = w.grupo(engine, [ROUTERS])
+    elegida = w.campana(engine, [g], nombre="Rebate Q4 2026")
+    vinculada = w.campana(engine, [g], nombre="MODELO 8180")
+    w.venta(engine, "fuera", ROUTER, 2, date(2026, 11, 10))
+    _consumir(engine)
+    _pendiente(engine, vinculada)
+
+    previa, real = _comparar(engine, [elegida], acumulable=False)
+
+    assert _vista(previa) == _movidas(real, previa)
+    [fila] = previa["vinculadas"]
+    assert (fila["id"], fila["incluye_pendientes"]) == (vinculada, True)
+    assert previa["cambian"][0]["incluye_pendientes"] is False
+    assert previa["aviso_pendientes"] == AVISO
+
+
+def test_no_pending_work_no_flag_and_no_notice(engine: Engine) -> None:
+    cid = w.campana(engine, [w.grupo(engine, [ROUTERS])])
+    _consumir(engine)
+
+    previa = _previa(engine, [cid], acumulable=False)
+
+    assert previa["cambian"][0]["incluye_pendientes"] is False
+    assert previa["aviso_pendientes"] is None
 
 
 def _lecturas(engine: Engine, monkeypatch: pytest.MonkeyPatch, ids: list[int]) -> int:

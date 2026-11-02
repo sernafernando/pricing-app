@@ -165,11 +165,13 @@ def test_the_preview_lists_what_changes_and_names_the_refused_without_writing(cl
                 "fecha_desde": "2026-11-01",
                 "fecha_hasta": "2026-11-30",
                 "acumulable": False,
+                "incluye_pendientes": False,
                 "salen": cero,
                 "entran": cero,
             }
         ],
         "vinculadas": [],
+        "aviso_pendientes": None,
         "sin_cambio": [igual],
         "rechazadas": [{"id": 999999, "nombre": None, "motivo": "La campaña 999999 no existe"}],
     }

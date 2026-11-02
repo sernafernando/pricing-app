@@ -208,6 +208,12 @@ class SellOutEdicionCampanaPreviaOut(BaseModel):
     fecha_desde: date
     fecha_hasta: date
     acumulable: bool
+    incluye_pendientes: bool = Field(
+        description=(
+            "It had a queue row before the preview: its numbers also include pending work this edit does not "
+            "cause («incluye cambios pendientes que no causa esta edición»)."
+        )
+    )
     salen: SellOutEdicionMovimientoOut
     entran: SellOutEdicionMovimientoOut
 
@@ -220,6 +226,12 @@ class SellOutEdicionVinculadaPreviaOut(BaseModel):
     nombre: str
     moneda: Moneda
     en_seleccion: bool  # False: not among the selected campaigns
+    incluye_pendientes: bool = Field(
+        description=(
+            "It had a queue row before the preview: its numbers also include pending work this edit does not "
+            "cause («incluye cambios pendientes que no causa esta edición»)."
+        )
+    )
     salen: SellOutEdicionMovimientoOut
     entran: SellOutEdicionMovimientoOut
 
@@ -250,6 +262,8 @@ class SellOutEdicionPreviaOut(BaseModel):
     totales: SellOutEdicionTotalesOut
     cambian: list[SellOutEdicionCampanaPreviaOut]
     vinculadas: list[SellOutEdicionVinculadaPreviaOut]
+    # «incluye cambios pendientes que no causa esta edición» when a listed campaign `incluye_pendientes`; else None.
+    aviso_pendientes: Optional[str] = None
     sin_cambio: list[int]
     rechazadas: list[SellOutEdicionRechazadaOut]
 
