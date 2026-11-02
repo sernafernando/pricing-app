@@ -12,13 +12,14 @@ policy) is the caller's job (`schedule.py`).
 
 from __future__ import annotations
 
+import logging
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Callable, Mapping, NoReturn, Optional
-from zoneinfo import ZoneInfo
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -26,9 +27,11 @@ from app.services.ml_ads import endpoints, mapper, store
 from app.services.ml_publications.pacing import DEADLINE
 from app.services.ml_publications.ml_http import OUTCOME_NO_TOKEN, OUTCOME_NOT_CONFIGURED, MlResponse
 
+logger = logging.getLogger(__name__)
+
 SessionFactory = Callable[[], AbstractContextManager[Session]]
 
-LOCAL_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+LOCAL_TZ = mapper.ACCOUNT_TZ
 MAX_ATTEMPTS_PER_DAY = 5
 CENT = Decimal("0.01")
 
@@ -364,16 +367,27 @@ class _DisplayRun(_DayRun):
         try:
             self._open()
             listing = self._call(endpoints.display_campaigns_request(self.advertiser_id, self.day))
-            with self.session_factory() as db:
-                store.upsert_display_catalog(
-                    db, mapper.map_display_catalog(self.advertiser_id, listing), now=self.now()
-                )
+            self._store_catalog(listing)
             campaigns = mapper.parse_display_campaigns(listing)
             for campaign_id in (c for c in campaigns if c > self.groups_offset):
                 self._read_campaign(campaign_id)
             return self._close_display(len(campaigns))
         except _Stop as stop:
             return self._result(stop.outcome)
+
+    def _store_catalog(self, listing: Mapping[str, Any]) -> None:
+        """The catalog is names and dates; the day's figures matter more, so a failed write is rolled back to its
+        savepoint, logged, and the day goes on (the next run writes the catalog again)."""
+        with self.session_factory() as db:
+            try:
+                with db.begin_nested():
+                    store.upsert_display_catalog(
+                        db, mapper.map_display_catalog(self.advertiser_id, listing), now=self.now()
+                    )
+            except SQLAlchemyError as exc:
+                logger.warning(
+                    "Display catalog of advertiser %s on %s not stored: %s", self.advertiser_id, self.day, exc
+                )
 
     def verify(self) -> StepResult:
         raise NotImplementedError("Display days are refreshed, not verified: it has no cheap summary call")

@@ -17,6 +17,9 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Mapping, Optional
+from zoneinfo import ZoneInfo
+
+ACCOUNT_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
 ACTIVITY_METRICS = (
     "cost",
@@ -178,6 +181,15 @@ def _timestamp(value: Any) -> Optional[datetime]:
         return None
 
 
+def _account_timestamp(value: Any) -> Optional[datetime]:
+    """A Display catalog date, naive on the account clock as ML sends them; one with an offset (`...Z`) is moved
+    to that clock first, so every stored date reads the same way."""
+    parsed = _timestamp(value)
+    if parsed is None or parsed.tzinfo is None:
+        return parsed
+    return parsed.astimezone(ACCOUNT_TZ).replace(tzinfo=None)
+
+
 def map_campaigns(
     advertiser_id: int, day: date, results: list[Any]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -293,8 +305,8 @@ def map_display_catalog(advertiser_id: int, body: Mapping[str, Any]) -> list[Dis
             status=_text(entry.get("status")),
             goal=_text(entry.get("goal")),
             site_id=_text(entry.get("site_id")),
-            start_date=_timestamp(entry.get("start_date")),
-            end_date=_timestamp(entry.get("end_date")),
+            start_date=_account_timestamp(entry.get("start_date")),
+            end_date=_account_timestamp(entry.get("end_date")),
             raw=entry,
         )
     return [rows[i] for i in sorted(rows)]

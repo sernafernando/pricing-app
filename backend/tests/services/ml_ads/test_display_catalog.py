@@ -12,7 +12,7 @@ from datetime import date, datetime
 import pytest
 import sqlalchemy as sa
 
-from app.models.ml_ads import MlAdsDisplayCampaign
+from app.models.ml_ads import MlAdsDisplayCampaign, MlAdsDisplayCampaignDay
 from app.services.ml_ads import ingestion, mapper
 from tests.services.ml_ads.captures import load
 from tests.services.ml_ads.replay import FakeClock, Replay, make_client
@@ -91,3 +91,33 @@ def test_a_display_day_stores_the_catalog_and_a_second_run_updates_it_in_place(
     again = next(r for r in rows if r.campaign_id == 340339)
     assert again.name == "B110creativa v2"
     assert again.updated_at > updated_at
+
+
+def test_a_utc_date_is_stored_naive_on_the_account_clock_like_the_rest() -> None:
+    body = load("display_day_2026_10_05_25713.json")["campaigns"]["body"]
+    body["results"][0]["start_date"] = "2026-09-11T18:00:00.000Z"  # perturbed: the captured 15:00 local, in UTC
+
+    row = next(r for r in mapper.map_display_catalog(GAUSS, body) if r.campaign_id == 340339)
+
+    assert row.start_date == datetime(2026, 9, 11, 15, 0) and row.start_date.tzinfo is None
+    assert row.end_date == datetime(2026, 9, 30, 23, 59, 59)  # the captured naive date is unchanged
+
+
+@pytest.mark.postgres
+def test_a_catalog_write_error_keeps_the_display_day_and_is_logged(
+    session_factory, pg_ads_db, monkeypatch, caplog
+) -> None:
+    replay = Replay(FakeClock(), {})
+    broken = load("display_day_2026_10_05_25713.json")["campaigns"]["body"]
+    broken["results"][0]["goal"] = "x" * 41  # perturbed: longer than the catalog column
+    replay.display[GAUSS]["campaigns"] = broken
+
+    with caplog.at_level("WARNING", logger="app.services.ml_ads.ingestion"):
+        assert _step(session_factory, replay, monkeypatch).outcome == "closed"
+
+    assert _catalog(pg_ads_db) == []
+    cost = pg_ads_db.execute(
+        sa.select(MlAdsDisplayCampaignDay.consumed_budget).where(MlAdsDisplayCampaignDay.campaign_id == 335306)
+    ).scalar_one()
+    assert str(cost) == "27226.79"
+    assert any("Display catalog" in r.getMessage() and str(GAUSS) in r.getMessage() for r in caplog.records)
