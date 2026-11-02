@@ -179,3 +179,28 @@ def test_a_manual_block_leaves_its_product_out_of_the_next_sale_without_breaking
         vigentes = get_costing().vigentes(db, [950, 2964], NOV1)
 
     assert list(vigentes) == [2964] and vigentes[2964].compra_item_id == otra
+
+
+def test_a_replay_that_breaks_skips_its_product_without_breaking_the_others(engine: Engine) -> None:
+    # Another transaction can raise a line's consumed units between the two reads: the replay then fails on its maths.
+    from sqlalchemy import text
+
+    (diez,) = w.compra(engine, [(950, 10, "100.00")], date(2026, 10, 1))
+    (otra,) = w.compra(engine, [(2964, 10, "100.00")], date(2026, 10, 1))
+    w.modo(engine, 950, "ponderado", OCT20)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sell_in_consumos (compra_item_id, canal, venta_ref, item_id, fecha_venta, unidades, "
+                "descuento_ars) VALUES (:l, 'fuera', :r, 950, :f, :u, :d)"
+            ),
+            [
+                {"l": diez, "r": 1, "f": date(2026, 10, 5), "u": 10, "d": 100},
+                {"l": diez, "r": 2, "f": OCT25, "u": 5, "d": 0},
+            ],
+        )
+
+    with sessionmaker(bind=engine)() as db:
+        vigentes = get_costing().vigentes(db, [950, 2964], NOV1)
+
+    assert list(vigentes) == [2964] and vigentes[2964].compra_item_id == otra

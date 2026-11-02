@@ -264,15 +264,16 @@ class FifoPurchaseCosting:
         con_modos = {item_id: item for item_id, item in lotes.items() if item_id in periodos}
         filas = self._filas_guardadas(db, [lote.compra_item_id for item in con_modos.values() for lote in item])
         for item_id, item in con_modos.items():
+            indice = {lote.compra_item_id: i for i, lote in enumerate(item)}
             try:
                 dinero = Dinero(item, periodos[item_id])
-            except ValueError as exc:
+                for linea, fecha, unidades in filas.get(item_id, []):
+                    dinero.fila(fecha, indice[linea], unidades)
+                proximo = dinero.proximo(hoy)
+            except (ValueError, ArithmeticError) as exc:
+                # A mode the replay does not support yet, or lines read mid-change by another transaction.
                 logger.warning("sell in: next sale of product %s not computed: %s", item_id, exc)
                 continue
-            indice = {lote.compra_item_id: i for i, lote in enumerate(item)}
-            for linea, fecha, unidades in filas.get(item_id, []):
-                dinero.fila(fecha, indice[linea], unidades)
-            proximo = dinero.proximo(hoy)
             if proximo is not None:
                 i, monto, sobre, restantes = proximo
                 salida[item_id] = LoteVigente(item[i].compra_item_id, unit_discount(monto, sobre), restantes)
