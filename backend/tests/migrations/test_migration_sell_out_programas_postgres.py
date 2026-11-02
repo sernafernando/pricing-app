@@ -195,12 +195,13 @@ def test_no_migration_creates_a_trigger_on_the_campaigns_but_updated_at() -> Non
 @pytest.mark.postgres
 def test_the_migrated_campaigns_table_carries_only_the_updated_at_trigger(after) -> None:
     """On the schema these revisions build: the only trigger on `sell_out_campanas` keeps `updated_at`."""
-    triggers = {
-        r[0]
-        for r in after.connect().execute(
-            text("SELECT tgname FROM pg_trigger WHERE tgrelid = 'sell_out_campanas'::regclass AND NOT tgisinternal")
-        )
-    }
+    with after.connect() as conn:
+        triggers = {
+            r[0]
+            for r in conn.execute(
+                text("SELECT tgname FROM pg_trigger WHERE tgrelid = 'sell_out_campanas'::regclass AND NOT tgisinternal")
+            )
+        }
     assert triggers == {"sell_out_campanas_updated_at"}
 
 
