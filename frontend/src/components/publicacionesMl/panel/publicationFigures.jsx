@@ -17,7 +17,8 @@ const money = (value) => {
  */
 export function publicationFigures(row, { canSeeMargin, canSeeSales }) {
   const stock = row.stock ?? {};
-  const split = stock.full == null && stock.own == null ? null : `Full ${count(stock.full) ?? 0} · propio ${count(stock.own) ?? 0}`;
+  // An unknown side reads "—", never 0: it is not a real zero.
+  const split = stock.full == null && stock.own == null ? null : `Full ${count(stock.full) ?? '—'} · propio ${count(stock.own) ?? '—'}`;
   const price = money(row.price?.amount);
   const figures = [
     {

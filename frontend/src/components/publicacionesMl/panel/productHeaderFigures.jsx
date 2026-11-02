@@ -1,3 +1,4 @@
+import { PRODUCT_HEADER_COLUMNS as COLUMNS } from '../productFigures';
 import { count } from './format';
 
 /**
@@ -10,14 +11,14 @@ export function productHeaderFigures(summary, columns) {
   const byKey = new Map(columns.map((column) => [column.key, column]));
   const draw = (key) => byKey.get(key)?.render({ metrics: summary.metrics });
   const figures = [{ key: 'stock', label: 'Stock', value: summary.stock == null ? null : count(summary.stock) }];
-  if (byKey.has('unidades_30d')) {
+  if (byKey.has(COLUMNS.sales)) {
     figures.push({
       key: 'sales',
       label: 'Ventas 30 días',
-      value: draw('unidades_30d'),
-      note: byKey.has('facturado_30d') ? <>Facturado {draw('facturado_30d')}</> : null,
+      value: draw(COLUMNS.sales),
+      note: byKey.has(COLUMNS.billed) ? <>Facturado {draw(COLUMNS.billed)}</> : null,
     });
   }
-  if (byKey.has('markup_30d')) figures.push({ key: 'markup', label: 'Markup 30 días', value: draw('markup_30d') });
+  if (byKey.has(COLUMNS.markup)) figures.push({ key: 'markup', label: 'Markup 30 días', value: draw(COLUMNS.markup) });
   return figures;
 }

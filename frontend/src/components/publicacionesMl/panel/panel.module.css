@@ -32,7 +32,8 @@
    value and an optional note. Values never wrap. */
 .figureList {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  /* Wide enough for an eight-digit amount; fewer per line before one would spill. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
   gap: var(--spacing-xs);
   margin: 0;
 }
@@ -85,12 +86,12 @@
 }
 
 .figureNote {
-  overflow: hidden;
   font-family: var(--font-sans, inherit);
   font-size: var(--font-xs);
   font-weight: var(--font-normal, 400);
   color: var(--cf-text-secondary);
-  text-overflow: ellipsis;
+  /* A long note (a big billed amount) wraps rather than losing digits. */
+  white-space: normal;
 }
 
 .identity {

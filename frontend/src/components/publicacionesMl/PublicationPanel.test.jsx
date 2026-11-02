@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, render, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PublicationPanel from './PublicationPanel';
+import { MARKUP_REASONS } from './markupReasons';
 import { resetPromoPulls } from '../promociones/promoPullTtl';
 import { preciosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { DETAIL_LINKED, DETAIL_RESPONSE, DETAIL_RESPONSE_MARGIN, ITEM_LINK, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
@@ -578,6 +579,32 @@ describe('header figures (S1)', () => {
     return term.nextElementSibling.textContent;
   };
   const labels = () => within(figures()).queryAllByRole('term').map((dt) => dt.textContent);
+
+  it('an unknown side of the stock split reads "—", never 0', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow({ stock: { available: 14, full: null, own: 14 } }) });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(figure('Stock')).toContain('Full — · propio 14');
+  });
+
+  it('with ver_ganancia and no markup, a dash under the price that says why; a range reads as one', async () => {
+    canSeeMargin = true;
+    publicacionesMlAPI.detail.mockResolvedValue({
+      data: { ...withRow({ markup: { min: null, max: null, reason: 'sin_costo', partial: 0 } }), markup_breakdown: null },
+    });
+    const { unmount } = renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    const empty = within(figures()).getByText('—', { exact: false, selector: 'span[title]' });
+    expect(empty).toHaveAttribute('title', MARKUP_REASONS.sin_costo);
+    expect(figure('Precio y markup')).not.toMatch(/\b0(,0)?%/);
+    unmount();
+    publicacionesMlAPI.detail.mockResolvedValue({
+      data: { ...withRow({ markup: { min: 8.5, max: 21, worst: 8.5, any_negative: false, reason: 'ok', partial: 0 } }), markup_breakdown: null },
+    });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(figure('Precio y markup')).toContain('8,5% – 21,0%');
+  });
 
   it('shows the price, Stock and Ventas 30 días from the row; without ver_ganancia, no markup under the price', async () => {
     publicacionesMlAPI.detail.mockResolvedValue({ data: withRow(SALES) });
