@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import time, timedelta
 
 from app.workers import registry
-from app.workers.handlers import ml_ads, ml_billing, ml_publications
+from app.workers.handlers import ml_ads, ml_billing, ml_order_discounts, ml_publications
 from app.workers.handlers.combos_sync import sync as combos_sync
 from app.workers.handlers.ml_orders_quarantine import quarantine_retry
 from app.workers.handlers.order_metrics import divergence, drain, reconcile
@@ -64,6 +64,7 @@ class TestMlPublicationsRegistry:
             "promo_write.refresh",
             "ml_publications.freshness",
             "ml_billing.sweep",
+            "ml_orders.discounts",
         ]
         assert registry.ML_PUBLICATIONS_REGISTRY[0] is ml_publications.refresh
         assert registry.ML_PUBLICATIONS_REGISTRY[1] is ml_publications.intake
@@ -77,6 +78,13 @@ class TestMlPublicationsRegistry:
         assert registry.ML_PUBLICATIONS_REGISTRY[9] is promo_write_refresh
         assert registry.ML_PUBLICATIONS_REGISTRY[10] is ml_publications.freshness
         assert registry.ML_PUBLICATIONS_REGISTRY[11] is ml_billing.billing
+        assert registry.ML_PUBLICATIONS_REGISTRY[12] is ml_order_discounts.discounts
+
+    def test_order_discounts_runs_every_thirty_seconds_and_is_not_notify_driven(self) -> None:
+        handler = registry.ML_PUBLICATIONS_REGISTRY[12]
+        assert handler.interval == timedelta(seconds=30)
+        assert handler.run_at_local is None
+        assert handler.channels == ()
 
     def test_intake_runs_every_fifteen_seconds_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[1]
@@ -127,5 +135,5 @@ class TestProcessIsolation:
             "['ml_publications.refresh', 'ml_publications.intake', 'ml_publications.relink', "
             "'ml_publications.scan', 'ml_publications.missed_feeds', 'ml_publications.sweep', "
             "'ml_publications.verify', 'ml_publications.promo_refresh', 'ml_ads.ingest', 'promo_write.refresh', "
-            "'ml_publications.freshness', 'ml_billing.sweep'] True"
+            "'ml_publications.freshness', 'ml_billing.sweep', 'ml_orders.discounts'] True"
         )
