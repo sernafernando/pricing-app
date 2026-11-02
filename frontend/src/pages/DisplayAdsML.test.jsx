@@ -4,7 +4,7 @@
  * Data: `src/test/fixtures/mlAdsDisplay.js`, built from the real captures.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import DisplayAdsML from './DisplayAdsML';
 import api from '../services/api';
@@ -31,12 +31,31 @@ describe('DisplayAdsML', () => {
     api.get.mockResolvedValue({ data: DISPLAY_REPORT });
   });
 
-  it('asks the Display report for the chosen range', async () => {
+  it('asks the Display report from the first of the month to today', async () => {
+    const today = new Date();
+    const iso = (d) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     render(<DisplayAdsML />);
     await waitFor(() => expect(api.get).toHaveBeenCalled());
-    const [path, { params }] = api.get.mock.calls[0];
-    expect(path).toBe('/ml-ads/display');
-    expect(params.date_from <= params.date_to).toBe(true);
+    expect(api.get).toHaveBeenCalledWith('/ml-ads/display', {
+      params: { date_from: iso(new Date(today.getFullYear(), today.getMonth(), 1)), date_to: iso(today) },
+    });
+  });
+
+  it('an inverted range asks for nothing and hides the last report', async () => {
+    render(<DisplayAdsML />);
+    await screen.findByText('XeroxB110');
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2099-01-01' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('Elegí un rango válido');
+    expect(screen.queryByText('XeroxB110')).not.toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns when Display days of the range are missing', async () => {
+    const missing = [{ source: 'display', advertiser_id: 25713, day: '2026-10-05', status: null }];
+    api.get.mockResolvedValue({ data: { ...DISPLAY_REPORT, coverage: { ...DISPLAY_REPORT.coverage, missing_days: missing } } });
+    render(<DisplayAdsML />);
+    expect(await screen.findByText(/Faltan 1 día de Display/)).toBeInTheDocument();
   });
 
   it('shows each campaign with its catalog, figures and computed ratios', async () => {
@@ -63,7 +82,7 @@ describe('DisplayAdsML', () => {
     expect(row.queryByText('0,00 %')).not.toBeInTheDocument();
   });
 
-  it('sums the period in the KPIs and the Total row, without summing reach across campaigns', async () => {
+  it('sums the period in the KPIs and the Total row, reach included as the sum of each day', async () => {
     render(<DisplayAdsML />);
     const kpis = within(await screen.findByRole('region', { name: 'Resumen de Display' }));
     expect(kpis.getByText('$ 4.456.152,77')).toBeInTheDocument();
@@ -74,7 +93,7 @@ describe('DisplayAdsML', () => {
     expect(kpis.getByText('43,61')).toBeInTheDocument();
     const total = within(screen.getByText('Total').closest('tr'));
     expect(total.getByText('$ 4.456.152,77')).toBeInTheDocument();
-    expect(total.queryByText('678.288')).not.toBeInTheDocument();
+    expect(total.getByText('678.288')).toBeInTheDocument();
   });
 
   it('filters by search and by status without a new request', async () => {

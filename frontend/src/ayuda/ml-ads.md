@@ -48,8 +48,8 @@ El buscador filtra por nombre o ID de campaña y el filtro **Todas / Activas / P
 Columnas: Campaña (con su ID), Objetivo, Estado, Desde, Hasta, Costo, Impresiones, Clics, Alcance, CTR, CPC, CPM, Ventas atribuidas, Unidades, ROAS. La fila **Total** suma las campañas visibles y recalcula CTR, CPC, CPM y ROAS sobre esas sumas.
 
 - Un **—** en CTR, CPC, CPM o ROAS quiere decir que no hay base para calcularlo (por ejemplo, una campaña sin clics no tiene CPC). No es cero.
-- El **Alcance** es por campaña: no se suma en el Total porque la misma persona alcanzada por dos campañas contaría dos veces.
-- Si faltan días de Display sin guardar en el rango, aparece un aviso: las cifras pueden estar incompletas.
+- El **Alcance**, como las demás cifras, es la suma del alcance de cada día: una persona alcanzada dos días (o por dos campañas) cuenta dos veces.
+- Si faltan días de Display sin guardar en el rango, aparece un aviso: las cifras pueden estar incompletas. Si **Desde** queda después de **Hasta**, la pantalla pide un rango válido y no muestra cifras.
 
 MercadoLibre conserva solo 90 días de métricas de Display; por eso se guardan a diario.
 

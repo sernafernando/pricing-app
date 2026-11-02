@@ -7,7 +7,8 @@
  * is drawn over the range (a day without a stored row is a gap, not zero); the toolbar filters the loaded rows.
  *
  * Layout from the Stitch screen "ML Ads - Display (Campaña y Rendimiento)", with the shell and tokens of Aportes.
- * Reach is per campaign only: the same person reached by two campaigns would count twice in a sum.
+ * Reach, like every figure, is the sum of each day's (ML gives no unique reach over a range): one person reached on
+ * two days, or by two campaigns, counts twice. The column says so.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AlertTriangle, Info, Search } from 'lucide-react';
@@ -40,7 +41,7 @@ const formatCtr = (value) => (value === null || value === undefined ? '—' : `$
 const formatRoas = (value) => (value === null || value === undefined ? '—' : RATIO.format(value));
 const formatRatioMoney = (value) => (value === null || value === undefined ? '—' : formatSignedMoney(value));
 
-const SUMMED = ['cost', 'prints', 'clicks', 'attributed_amount', 'attributed_units'];
+const SUMMED = ['cost', 'prints', 'clicks', 'reach', 'attributed_amount', 'attributed_units'];
 
 /** The visible rows' sums with their ratios recomputed the backend's way (ratios never add up). */
 function totalsOf(rows) {
@@ -54,12 +55,15 @@ function totalsOf(rows) {
   };
 }
 
-/** Every day of the range, ISO; a range of 366 days at most (the API's own limit). */
+// The API accepts a range spanning 366 days, both ends included: 367 calendar days at most.
+const MAX_DAYS = 367;
+
+/** Every day of the range, ISO, both ends included. */
 function daysOf(from, to) {
   const days = [];
   const cursor = new Date(`${from}T12:00:00`);
   const end = new Date(`${to}T12:00:00`);
-  while (cursor <= end && days.length < 367) {
+  while (cursor <= end && days.length < MAX_DAYS) {
     days.push(isoDay(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
@@ -154,7 +158,7 @@ export default function DisplayAdsML() {
     setLoadError(null);
     try {
       const { data } = await api.get('/ml-ads/display', { params: { date_from: range.from, date_to: range.to } });
-      if (request === latestRequest.current) setReport(data ?? null);
+      if (request === latestRequest.current) setReport(data ? { ...data, range: { ...range } } : null);
     } catch (err) {
       if (request !== latestRequest.current) return;
       setReport(null);
@@ -162,7 +166,7 @@ export default function DisplayAdsML() {
     } finally {
       if (request === latestRequest.current) setLoading(false);
     }
-  }, [range.from, range.to]);
+  }, [range]);
 
   const rangoValido = Boolean(range.from && range.to && range.from <= range.to);
 
@@ -180,7 +184,9 @@ export default function DisplayAdsML() {
     );
   }
 
-  const campaigns = report?.campaigns ?? [];
+  // An invalid range asks for nothing, and the last report (of another range) is not shown as if it were this one.
+  const shown = rangoValido ? report : null;
+  const campaigns = shown?.campaigns ?? [];
   const count = (status) => campaigns.filter((c) => c.status === status).length;
   const segments = [
     { value: 'all', label: `Todas ${campaigns.length}` },
@@ -194,9 +200,9 @@ export default function DisplayAdsML() {
       (segment === 'all' || c.status === segment),
   );
   const totals = totalsOf(visible);
-  const period = report?.totals;
+  const period = shown?.totals;
   const show = (render) => (loading || !period ? '—' : render(period));
-  const missing = (report?.coverage?.missing_days ?? []).filter((d) => d.source === 'display').length;
+  const missing = (shown?.coverage?.missing_days ?? []).filter((d) => d.source === 'display').length;
 
   return (
     <div className={shell.container}>
@@ -261,7 +267,7 @@ export default function DisplayAdsML() {
         </div>
       </section>
 
-      {report && <DailyCost daily={report.daily} range={range} />}
+      {shown && <DailyCost daily={shown.daily} range={shown.range} />}
 
       <div className={shell.toolbar}>
         <label className={shell.search}>
@@ -281,6 +287,11 @@ export default function DisplayAdsML() {
         </span>
       </div>
 
+      {!rangoValido && (
+        <div className={shell.alertError} role="alert">
+          <AlertTriangle size={16} /> Elegí un rango válido: Desde tiene que ser anterior o igual a Hasta.
+        </div>
+      )}
       {loadError && (
         <div className={shell.alertError} role="alert">
           <AlertTriangle size={16} /> {loadError}
@@ -305,7 +316,9 @@ export default function DisplayAdsML() {
               <th className={shell.num}>Costo</th>
               <th className={shell.num}>Impresiones</th>
               <th className={shell.num}>Clics</th>
-              <th className={shell.num}>Alcance</th>
+              <th className={shell.num} title="Suma del alcance de cada día: una persona alcanzada dos días cuenta dos veces">
+                Alcance
+              </th>
               <th className={shell.num}>CTR</th>
               <th className={shell.num}>CPC</th>
               <th className={shell.num}>CPM</th>
@@ -325,7 +338,7 @@ export default function DisplayAdsML() {
                 <td colSpan={COLUMNS} className={shell.muted}>Ninguna campaña coincide con los filtros.</td>
               </tr>
             )}
-            {!loading && campaigns.length === 0 && !loadError && (
+            {!loading && rangoValido && campaigns.length === 0 && !loadError && (
               <tr>
                 <td colSpan={COLUMNS} className={shell.muted}>Todavía no hay campañas de Display sincronizadas.</td>
               </tr>
@@ -380,9 +393,7 @@ export default function DisplayAdsML() {
                 <td className={shell.num}>{formatSignedMoney(totals.cost)}</td>
                 <td className={shell.num}>{formatInt(totals.prints)}</td>
                 <td className={shell.num}>{formatInt(totals.clicks)}</td>
-                <td className={`${shell.num} ${shell.muted}`} title="El alcance no se suma entre campañas">
-                  —
-                </td>
+                <td className={shell.num}>{formatInt(totals.reach)}</td>
                 <td className={shell.num}>{formatCtr(totals.ctr)}</td>
                 <td className={shell.num}>{formatRatioMoney(totals.cpc)}</td>
                 <td className={shell.num}>{formatRatioMoney(totals.cpm)}</td>

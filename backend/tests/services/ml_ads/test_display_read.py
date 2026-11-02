@@ -82,9 +82,18 @@ class TestDisplayReport:
         assert totals.roas == Decimal("5399874.93") / Decimal("121938.82")
         assert totals.ctr == Decimal(91) / Decimal(47969)
 
-    def test_the_daily_cost_is_one_point_per_stored_day(self, db) -> None:
+    def test_the_daily_cost_is_one_point_per_stored_day_and_a_day_without_rows_is_absent(self, db) -> None:
         _seed(db)
-        assert read.display_report(db, DAY, DAY).daily == [read.DisplayDayCost(DAY, Decimal("121938.82"))]
+        # DERIVED: the captured 335306 day copied two days later (DAY + 1 stays without rows).
+        fact = next(f for f in display_facts() if f.campaign_id == 335306)
+        later = DAY + timedelta(days=2)
+        store.upsert_display_days(db, [replace(fact, day=later, raw={**fact.raw, "date": later.isoformat()})], now=NOW)
+        report = read.display_report(db, DAY, later)
+        assert report.daily == [
+            read.DisplayDayCost(DAY, Decimal("121938.82")),
+            read.DisplayDayCost(later, Decimal("27226.79")),
+        ]
+        assert _campaign(report, 335306).reach == 2 * 3498  # summed per day, like every figure
 
     def test_outside_the_range_the_figures_are_zero_and_there_are_no_days(self, db) -> None:
         _seed(db)
@@ -105,3 +114,11 @@ class TestDisplayReport:
             0,
             Decimal(0),
         )
+
+    def test_a_non_numeric_attribution_reads_zero_instead_of_failing(self, db) -> None:
+        # DERIVED: the captured 335306 day with its attribution sent as text.
+        fact = next(f for f in display_facts() if f.campaign_id == 335306)
+        raw = {**fact.raw, "event_time": {**fact.raw["event_time"], "direct_amount": "n/a", "units_quantity": None}}
+        store.upsert_display_days(db, [replace(fact, raw=raw)], now=NOW)
+        row = _campaign(read.display_report(db, DAY, DAY), 335306)
+        assert (row.cost, row.attributed_amount, row.attributed_units) == (Decimal("27226.79"), Decimal(0), 0)

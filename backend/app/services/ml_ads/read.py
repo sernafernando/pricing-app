@@ -11,9 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Literal, Mapping, Optional, Sequence
+from typing import Any, Literal, Mapping, Optional, Sequence
 
-from sqlalchemy import BigInteger, Numeric, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.ml_ads import (
@@ -286,7 +286,9 @@ def ads_account_level(db: Session, date_from: date, date_to: date) -> AccountLev
 @dataclass(frozen=True)
 class DisplayFigures:
     """Summed Display figures with their ratios. Ratios are computed here (ML's own `ctr` is 0.0 even with
-    clicks); a ratio whose base is zero is None. Attributed sales are ML's `event_time` attribution."""
+    clicks); a ratio whose base is zero is None. Attributed sales are ML's `event_time` attribution. `reach` is the
+    sum of each day's reach, like every other figure: ML gives no unique reach over a range, so one person reached
+    on two days (or by two campaigns) counts twice."""
 
     cost: Decimal
     prints: int
@@ -342,11 +344,25 @@ class DisplayReport:
 _ZERO_FIGURES = dict(cost=Decimal(0), prints=0, clicks=0, reach=0, attributed_amount=Decimal(0), attributed_units=0)
 
 
+def _attribution(raw: Any) -> tuple[Decimal, int]:
+    """`(sales, units)` of one stored day's `event_time`; a missing or non-numeric value adds zero."""
+    event_time = raw.get("event_time") if isinstance(raw, Mapping) else None
+    if not isinstance(event_time, Mapping):
+        return Decimal(0), 0
+
+    def number(value: Any) -> Optional[Decimal]:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return Decimal(str(value))
+
+    amount, units = number(event_time.get("direct_amount")), number(event_time.get("units_quantity"))
+    return amount or Decimal(0), int(units or 0)
+
+
 def display_report(db: Session, date_from: date, date_to: date) -> DisplayReport:
     """The Display tab: every catalog campaign (zero when it had no day in range) plus any campaign with days
     and no catalog row, by cost descending; the period totals; and the stored days' cost."""
     D, C = MlAdsDisplayCampaignDay, MlAdsDisplayCampaign
-    event_time = D.raw["event_time"]
     in_range = D.day.between(date_from, date_to)
     figures = {
         (advertiser, campaign): dict(
@@ -354,10 +370,10 @@ def display_report(db: Session, date_from: date, date_to: date) -> DisplayReport
             prints=int(prints),
             clicks=int(clicks),
             reach=int(reach),
-            attributed_amount=amount or Decimal(0),
-            attributed_units=int(units or 0),
+            attributed_amount=Decimal(0),
+            attributed_units=0,
         )
-        for advertiser, campaign, cost, prints, clicks, reach, amount, units in db.execute(
+        for advertiser, campaign, cost, prints, clicks, reach in db.execute(
             select(
                 D.advertiser_id,
                 D.campaign_id,
@@ -365,13 +381,15 @@ def display_report(db: Session, date_from: date, date_to: date) -> DisplayReport
                 func.sum(D.prints),
                 func.sum(D.clicks),
                 func.sum(D.reach),
-                func.sum(event_time["direct_amount"].astext.cast(Numeric(18, 2))),
-                func.sum(event_time["units_quantity"].astext.cast(BigInteger)),
             )
             .where(in_range)
             .group_by(D.advertiser_id, D.campaign_id)
         ).all()
     }
+    for advertiser, campaign, raw in db.execute(select(D.advertiser_id, D.campaign_id, D.raw).where(in_range)).all():
+        amount, units = _attribution(raw)
+        figures[(advertiser, campaign)]["attributed_amount"] += amount
+        figures[(advertiser, campaign)]["attributed_units"] += units
     catalog = {(row.advertiser_id, row.campaign_id): row for row in db.scalars(select(C)).all()}
 
     def _day(value: Optional[datetime]) -> Optional[date]:
