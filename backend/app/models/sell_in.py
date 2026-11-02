@@ -307,9 +307,8 @@ class SellInConsumo(Base):
 class SellInModoProducto(Base):
     """One change of a product's sell-in cost mode, from `desde` on (append-only: a migration trigger refuses UPDATE and
     DELETE). No row means FIFO. The governing row of a sale is the latest with `desde <= sale date` (ties: the higher
-    `id`). A
-    `manual` row carries the typed quantity and unit cost and the product's cost frozen when it was saved; the other
-    modes carry none. `origen = 'carga'`: made from a sell-in load, which `compra_id` names."""
+    `id`). A `manual` row carries the typed quantity and unit cost and the product's cost frozen when it was saved;
+    the other modes carry none. `origen = 'carga'`: made from a sell-in load, which `compra_id` names."""
 
     __tablename__ = "sell_in_modos_producto"
     __table_args__ = (
