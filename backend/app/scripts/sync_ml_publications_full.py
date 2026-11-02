@@ -34,6 +34,7 @@ from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.services.ml_api_client import MercadoLibreAPIClient
 from app.services.ml_multiget import BULK_ITEMS_PATH, MAX_IDS_PER_CALL, parse_multiget
+from app.services.ml_publications.mappers import attribute_value_name
 
 # El access token vive en la DB del ml-webhook (única fuente de OAuth para ML);
 # este cliente solo lo lee/cachea, nunca hace el intercambio de refresh_token.
@@ -96,13 +97,8 @@ def extraer_datos_publicacion(item):
     elif not campaign:
         campaign = "-"
 
-    # Buscar SKU
-    seller_sku = None
-    attributes = item.get("attributes", [])
-    for attr in attributes:
-        if attr.get("id") == "SELLER_SKU":
-            seller_sku = attr.get("value_id")
-            break
+    # SELLER_SKU is free-text: ML often leaves value_id null; the SKU lives in value_name.
+    seller_sku = attribute_value_name(item.get("attributes"), "SELLER_SKU")
 
     # Intentar obtener item_id del SKU
     item_id = None
@@ -112,11 +108,22 @@ def extraer_datos_publicacion(item):
     return campaign, seller_sku, item_id
 
 
+def _shipping_tags(shipping: dict):
+    """Normalize shipping.tags to a list of strings, or None."""
+    tags = shipping.get("tags")
+    if not isinstance(tags, list):
+        return None
+    return [str(tag) for tag in tags if tag is not None]
+
+
 def sanitizar_datos_ml(item, campaign, seller_sku, item_id):
     """
     Sanitiza los datos de ML antes de enviarlos a PostgreSQL.
     Convierte tipos para evitar InvalidTextRepresentation.
     """
+    shipping = item.get("shipping") if isinstance(item.get("shipping"), dict) else {}
+    mode = shipping.get("mode")
+    logistic_type = shipping.get("logistic_type")
     return {
         "title": str(item.get("title", ""))[:500] if item.get("title") else None,
         "price": safe_numeric(item.get("price")),
@@ -129,6 +136,12 @@ def sanitizar_datos_ml(item, campaign, seller_sku, item_id):
         "installments_campaign": str(campaign)[:100] if campaign else None,
         "seller_sku": str(seller_sku)[:100] if seller_sku else None,
         "item_id": safe_int(item_id),
+        "shipping_mode": str(mode)[:50] if mode else None,
+        "logistic_type": str(logistic_type)[:50] if logistic_type else None,
+        "local_pick_up": shipping.get("local_pick_up") if isinstance(shipping.get("local_pick_up"), bool) else None,
+        "free_shipping": shipping.get("free_shipping") if isinstance(shipping.get("free_shipping"), bool) else None,
+        "store_pick_up": shipping.get("store_pick_up") if isinstance(shipping.get("store_pick_up"), bool) else None,
+        "shipping_tags": _shipping_tags(shipping),
         "snapshot_date": datetime.now(),
     }
 
