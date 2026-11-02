@@ -217,6 +217,14 @@ class TestRun:
         (state,) = rows(session_factory, MlOrderDiscountsState)
         assert state.consecutive_429 == 2
 
+    def test_a_retry_after_http_date_is_honored(self, session_factory) -> None:
+        with session_factory() as db:
+            payment(db, 1, 100, "1.00")
+        date = "Mon, 02 Nov 2026 15:10:00 GMT"  # 600 s after NOW
+        run(session_factory, FakeClient({100: response(429, None, headers={"retry-after": date})}))
+        (state,) = rows(session_factory, MlOrderDiscountsState)
+        assert state.backoff_until == NOW + timedelta(seconds=600)
+
     def test_a_429_body_inside_a_200_also_backs_off(self, session_factory) -> None:
         with session_factory() as db:
             payment(db, 1, 100, "1.00")
@@ -256,6 +264,9 @@ class TestRun:
 class TestBackoffSeconds:
     def test_doubles_per_run_and_caps_at_an_hour(self) -> None:
         assert [store.backoff_seconds(n) for n in (1, 2, 3, 7, 20)] == [60, 120, 240, 3600, 3600]
+
+    def test_a_long_429_streak_stays_at_the_cap_instead_of_overflowing(self) -> None:
+        assert store.backoff_seconds(5000) == 3600
 
     def test_a_retry_after_longer_than_the_cap_is_honored_up_to_a_day(self) -> None:
         assert store.backoff_seconds(1, 7200) == 7200

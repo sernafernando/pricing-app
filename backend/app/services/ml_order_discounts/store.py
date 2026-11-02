@@ -92,7 +92,8 @@ def backoff_until(db: Session) -> Optional[datetime]:
 def backoff_seconds(consecutive_429: int, retry_after: Optional[float] = None) -> float:
     """60 s doubling per consecutive 429 run, capped at one hour; never shorter than ML's `Retry-After`, which is
     honored up to a day (a bigger value is taken as a broken header, not a request to stop for longer)."""
-    delay = min(BACKOFF_BASE_SECONDS * 2 ** (consecutive_429 - 1), BACKOFF_CAP_SECONDS)
+    exponent = min(max(consecutive_429 - 1, 0), 16)  # 60 s * 2**16 is far past the cap; never overflows a float
+    delay = min(BACKOFF_BASE_SECONDS * 2**exponent, BACKOFF_CAP_SECONDS)
     return max(delay, min(retry_after or 0.0, RETRY_AFTER_CAP_SECONDS))
 
 

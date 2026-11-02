@@ -27,7 +27,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.services.ml_ads.ingestion import BLOCKED, RATE_LIMITED, SessionFactory, blocking_outcome
 from app.services.ml_order_discounts import mapper, store
 from app.services.ml_publications.ml_http import MlHttpClient
-from app.services.ml_publications.pacing import DEADLINE
+from app.services.ml_publications.pacing import DEADLINE, parse_retry_after
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +56,6 @@ class RunResult:
         }
 
 
-def _retry_after(headers: Any) -> Optional[float]:
-    try:
-        return float(headers.get("retry-after"))
-    except (AttributeError, TypeError, ValueError):
-        return None  # absent, or an HTTP date: the doubling alone decides
-
-
 def run(
     session_factory: SessionFactory,
     client: MlHttpClient,
@@ -89,7 +82,9 @@ def run(
         blocking = blocking_outcome(response)
         if blocking == RATE_LIMITED or own_status == 429:
             with session_factory() as db:
-                _, result.backoff_until = store.record_429(db, now(), _retry_after(response.headers))
+                _, result.backoff_until = store.record_429(
+                    db, now(), parse_retry_after(response.headers.get("retry-after"), now())
+                )
             result.stopped = RATE_LIMITED
             break
         if blocking == BLOCKED or own_status == 401:
