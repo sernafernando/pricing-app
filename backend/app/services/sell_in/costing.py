@@ -270,8 +270,8 @@ class FifoPurchaseCosting:
                 for linea, fecha, unidades in filas.get(item_id, []):
                     dinero.fila(fecha, indice[linea], unidades)
                 proximo = dinero.proximo(hoy)
-            except (ValueError, ArithmeticError) as exc:
-                # A mode the replay does not support yet, or lines read mid-change by another transaction.
+            except (ValueError, ArithmeticError, KeyError) as exc:
+                # A mode the replay does not support yet, or rows read mid-change by another transaction.
                 logger.warning("sell in: next sale of product %s not computed: %s", item_id, exc)
                 continue
             if proximo is not None:

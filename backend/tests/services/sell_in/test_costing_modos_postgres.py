@@ -204,3 +204,26 @@ def test_a_replay_that_breaks_skips_its_product_without_breaking_the_others(engi
         vigentes = get_costing().vigentes(db, [950, 2964], NOV1)
 
     assert list(vigentes) == [2964] and vigentes[2964].compra_item_id == otra
+
+
+def test_a_stored_row_of_another_products_line_skips_only_its_product(engine: Engine) -> None:
+    # A line read mid-change can leave a stored row whose line is not among its product's lots.
+    from sqlalchemy import text
+
+    w.compra(engine, [(950, 10, "100.00")], date(2026, 10, 1))
+    (otra,) = w.compra(engine, [(2964, 10, "100.00")], date(2026, 10, 1))
+    w.modo(engine, 950, "ponderado", OCT20)
+    w.modo(engine, 2964, "ponderado", OCT20)  # both products replay, so the row's line is read
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sell_in_consumos (compra_item_id, canal, venta_ref, item_id, fecha_venta, unidades, "
+                "descuento_ars) VALUES (:l, 'fuera', 1, 950, :f, 1, 10)"
+            ),
+            {"l": otra, "f": OCT25},
+        )
+
+    with sessionmaker(bind=engine)() as db:
+        vigentes = get_costing().vigentes(db, [950, 2964], NOV1)
+
+    assert list(vigentes) == [2964] and vigentes[2964].compra_item_id == otra
