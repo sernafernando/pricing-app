@@ -246,10 +246,15 @@ def queued(engine: Engine) -> List[Tuple[str, int]]:
 
 def esperar_bloqueado_por(engine: Engine, pid: int) -> None:
     """Until another session waits on a lock the backend `pid` holds, so a concurrency test never orders its two
-    waits by timing."""
+    waits by timing. Each poll ends its transaction: pg_stat_activity is a snapshot cached for the whole transaction,
+    so a waiter whose backend starts after the first poll would never be seen."""
     limite = monotonic() + 20
+    consulta = text("SELECT count(*) FROM pg_stat_activity WHERE :pid = ANY(pg_blocking_pids(pid))")
     with engine.connect() as conn:
-        consulta = text("SELECT count(*) FROM pg_stat_activity WHERE :pid = ANY(pg_blocking_pids(pid))")
-        while conn.execute(consulta, {"pid": pid}).scalar() == 0:
+        while True:
+            esperando = conn.execute(consulta, {"pid": pid}).scalar()
+            conn.rollback()
+            if esperando:
+                return
             assert monotonic() < limite, f"nothing ever waited on backend {pid}"
             sleep(0.05)

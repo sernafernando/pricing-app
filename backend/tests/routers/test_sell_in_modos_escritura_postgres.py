@@ -116,14 +116,15 @@ def test_a_deadlock_with_a_reconcile_deleting_a_line_answers_409_to_retry(engine
 
     hilo = threading.Thread(target=salvar)
     hilo.start()
-    si.esperar_bloqueado_por(engine, pid)  # the save holds the product's lock and waits for the deleted line's rows
     try:
+        si.esperar_bloqueado_por(engine, pid)  # the save holds the product's lock and waits for the deleted line's rows
         reconcile.execute(text("SELECT pg_advisory_xact_lock(:n, :i)"), {"n": LOCK_NAMESPACE, "i": R})
     except OperationalError:
         pass  # never expected: the save is the one stopped
-    tx.rollback()  # the reconcile is undone either way: only the save's outcome is under test
-    reconcile.close()
-    hilo.join(30)
+    finally:
+        tx.rollback()  # the reconcile is undone whatever happened, so the save and the teardown never hang on it
+        reconcile.close()
+        hilo.join(30)
 
     [res] = salida
     assert isinstance(res, HTTPException), repr(res)
