@@ -44,7 +44,9 @@ preview (a sale, a rate or another change not drained yet) has stored lines that
 include that pending work. A listed campaign with a queue row is flagged `incluye_pendientes`. The response carries
 the notice «incluye cambios pendientes que no causa esta edición» (`aviso_pendientes`) when ANY campaign the rebuild
 touches is pending, listed or not: an edited or linked one, one whose own lines do not move, or a voided one not
-drained yet that reaches their products (its lines still hold units the rebuild hands to the others). The numbers
+drained yet that reaches their products (its lines still hold units the rebuild hands to the others). The queue is
+read before the loop (which queues), and matched after it against what the rebuild touches: a selected campaign with
+no change or refused, and its links, are not rebuilt, so their queue rows raise no notice. The numbers
 stay as the rebuild gives them (no second rebuild to separate them).
 Meanwhile, a single edit of one of those campaigns that has a queue row waits for it and gets the same 409 after
 `queue.LOCK_TIMEOUT` (or on a deadlock); one with NO queue row waits on the campaign row itself (the preview's
@@ -231,18 +233,23 @@ def _motivo_recalculo(db: Session, exc: asignacion.SellOutAsignacionError) -> st
 AVISO_PENDIENTES = "incluye cambios pendientes que no causa esta edición"
 
 
-def _pendientes(db: Session, campana_ids: list[int]) -> set[int]:
-    """The campaigns with a queue row whose pending work the preview's rebuild also does: the asked ones and every
-    active one linked to them, plus any other queued campaign, a voided one included, that reaches one of their
-    products (a voided campaign's stored lines still hold units the rebuild hands to the others). ONE query over the
-    queue, plus the links and, only when some queued campaign is outside them, the reach of those."""
-    tocadas = set(asignacion.vinculadas(db, campana_ids))
-    en_cola = {int(cid) for (cid,) in db.query(SellOutDirty.campana_id)} if tocadas else set()
-    pendientes = en_cola & tocadas
-    ajenas = en_cola - tocadas
-    if ajenas:
-        productos = alcance.productos(db, tocadas | ajenas)
-        mios = set().union(*(productos.get(cid, {}).keys() for cid in tocadas))
+def _en_cola(db: Session) -> set[int]:
+    """Every campaign with a queue row, read BEFORE the loop (whose own queueing dirties the queue). ONE query."""
+    return {int(cid) for (cid,) in db.query(SellOutDirty.campana_id)}
+
+
+def _pendientes(db: Session, tocadas: list[int], en_cola: set[int]) -> set[int]:
+    """Of `en_cola` (read before the loop), the campaigns whose pending work the preview's rebuild also does: those
+    it rebuilds (`tocadas`, the edited ones and every active one linked to them), plus any other queued campaign, a
+    voided one included, that reaches one of their products (a voided campaign's stored lines still hold units the
+    rebuild hands to the others). The selected campaigns with no change or refused are not rebuilt: they do not
+    count. The reach of the other queued campaigns is read only when there are some."""
+    rebuilt = set(tocadas)
+    pendientes = en_cola & rebuilt
+    ajenas = en_cola - rebuilt
+    if rebuilt and ajenas:
+        productos = alcance.productos(db, rebuilt | ajenas)
+        mios = set().union(*(productos.get(cid, {}).keys() for cid in rebuilt))
         pendientes |= {cid for cid in ajenas if productos.get(cid, {}).keys() & mios}
     return pendientes
 
@@ -252,14 +259,15 @@ def _simular(
 ) -> tuple[list[int], list[int], list[Rechazada], dict[int, dict], set[int]]:
     """The loop, then the rebuild the drain would run for it, in the open transaction: `(editadas, sin_cambio,
     rechazadas, {campana_id: {salen, entran}}, pendientes)` over the edited and every linked campaign; `pendientes`
-    are those of them with a queue row BEFORE the loop (module docstring). The caller rolls back."""
-    pendientes = _pendientes(db, campana_ids)
+    are those the rebuild touches with a queue row BEFORE the loop (module docstring). The caller rolls back."""
+    en_cola = _en_cola(db)
     editadas, sin_cambio, rechazadas = _aplicar(db, campana_ids, cambios, usuario_id, queue.LOCK_TIMEOUT)
     if rechazadas:  # a refusal may have rolled the loop back: simulate the editable ones on their own
         db.rollback()
         editadas, sin_cambio, otras = _aplicar(db, editadas + sin_cambio, cambios, usuario_id, queue.LOCK_TIMEOUT)
         rechazadas = rechazadas + otras
     tocadas = asignacion.vinculadas(db, editadas)  # what `recalcular` rebuilds: links are by product, not dates
+    pendientes = _pendientes(db, tocadas, en_cola)
     try:
         # Every wait of the rebuild is bounded like the queue's: the loop's row locks are held meanwhile.
         with queue.lock_timeout(db, queue.LOCK_TIMEOUT):

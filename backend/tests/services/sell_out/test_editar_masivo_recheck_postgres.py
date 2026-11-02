@@ -206,7 +206,6 @@ def test_item4_natural_race_real_drain_never_a_raw_error(engine: Engine) -> None
         _drain(engine)
     assert sum(resultados.values()) == 10
     assert all(status in (200, 409) for status, _ in resultados), resultados
-    assert sum(resultados.values()) == 10 and all(status in (200, 409) for status, _ in resultados)
 
 
 # ── Item 5: a preview against a single write of a linked campaign with a queue row ──
@@ -300,7 +299,6 @@ def test_item5_natural_race_edits_and_previews_only_retries(engine: Engine) -> N
         resultados[(p.res[0], type(e.exc).__name__)] += 1
     assert sum(resultados.values()) == 12
     assert all(status in (200, 409) for status, _ in resultados), resultados
-    assert sum(resultados.values()) == 12 and all(status in (200, 409) for status, _ in resultados)
 
 
 # ── Item 6: bounded waits ──

@@ -708,6 +708,37 @@ def test_pending_work_of_a_campaign_whose_own_lines_do_not_move_raises_the_notic
     assert previa["aviso_pendientes"] == AVISO
 
 
+def test_pending_work_of_a_selected_campaign_the_rebuild_does_not_touch_raises_no_notice(engine: Engine) -> None:
+    """b has no change, a queue row, another product and no link to a: the rebuild runs over a only."""
+    a = w.campana(engine, [w.grupo(engine, [ROUTERS])], nombre="Rebate Q4 2026")
+    b = w.campana(engine, [w.grupo(engine, [SWITCHES])], nombre="MODELO 8180", acumulable=False)
+    _consumir(engine)
+    _pendiente(engine, b)
+
+    previa = _previa(engine, [a, b], acumulable=False)
+
+    assert ([c["id"] for c in previa["cambian"]], previa["sin_cambio"]) == ([a], [b])
+    assert previa["aviso_pendientes"] is None
+
+
+@pytest.mark.parametrize("como", ["sin_cambio", "rechazada"])
+def test_a_queued_campaign_with_nothing_to_rebuild_raises_no_notice(engine: Engine, como: str) -> None:
+    """Nothing changes, so nothing is rebuilt: a queued campaign that has no change, or is refused, is no notice."""
+    if como == "sin_cambio":
+        cid = w.campana(engine, [w.grupo(engine, [ROUTERS])], acumulable=False)
+        cambios: dict = {"acumulable": False}
+    else:
+        cid = w.campana(engine, [w.grupo(engine, [ROUTERS])], hasta=date(2026, 11, 30))
+        cambios = {"fecha_desde": date(2026, 12, 15)}  # it would end before it starts: refused
+    _consumir(engine)
+    _pendiente(engine, cid)
+
+    previa = _previa(engine, [cid], **cambios)
+
+    assert previa["cambian"] == [] and previa["vinculadas"] == []
+    assert previa["aviso_pendientes"] is None
+
+
 def test_no_pending_work_no_flag_and_no_notice(engine: Engine) -> None:
     cid = w.campana(engine, [w.grupo(engine, [ROUTERS])])
     _consumir(engine)
