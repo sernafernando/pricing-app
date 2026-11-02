@@ -187,7 +187,10 @@ def _account_timestamp(value: Any) -> Optional[datetime]:
     parsed = _timestamp(value)
     if parsed is None or parsed.tzinfo is None:
         return parsed
-    return parsed.astimezone(ACCOUNT_TZ).replace(tzinfo=None)
+    try:
+        return parsed.astimezone(ACCOUNT_TZ).replace(tzinfo=None)
+    except OverflowError:  # e.g. a zero date `0001-01-01T00:00:00Z`; the value is still in `raw`
+        return None
 
 
 def map_campaigns(

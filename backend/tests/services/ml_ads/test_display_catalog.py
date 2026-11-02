@@ -121,3 +121,12 @@ def test_a_catalog_write_error_keeps_the_display_day_and_is_logged(
     ).scalar_one()
     assert str(cost) == "27226.79"
     assert any("Display catalog" in r.getMessage() and str(GAUSS) in r.getMessage() for r in caplog.records)
+
+
+def test_a_utc_date_out_of_range_reads_none_instead_of_raising() -> None:
+    body = load("display_day_2026_10_05_25713.json")["campaigns"]["body"]
+    body["results"][0]["start_date"] = "0001-01-01T00:00:00Z"  # perturbed: a zero date with an offset
+
+    row = next(r for r in mapper.map_display_catalog(GAUSS, body) if r.campaign_id == 340339)
+
+    assert row.start_date is None and row.raw["start_date"] == "0001-01-01T00:00:00Z"
