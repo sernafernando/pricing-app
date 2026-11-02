@@ -47,8 +47,13 @@ function pictureLinks(pictures) {
   );
 }
 
-/** What `ml_items` holds about the publication that the other sections do not already say. */
-export function MercadoLibreSection({ item }) {
+/**
+ * What `ml_items` holds about the publication that the other sections do not already say. Its base and original
+ * prices only when they are not an amount the panel already shows (`shownPrices`: the price and the regular price).
+ */
+export function MercadoLibreSection({ item, shownPrices = [] }) {
+  const shown = new Set(shownPrices.filter((value) => value != null).map(Number));
+  const isNew = (value) => value == null || !shown.has(Number(value));
   return (
     <Section title="Datos de Mercado Libre">
       <Fields>
@@ -60,8 +65,8 @@ export function MercadoLibreSection({ item }) {
         <Field label="Moneda">{orNull(item.currency_id)}</Field>
         <Field label="SKU del vendedor">{orNull(item.seller_sku)}</Field>
         <Field label="Campo personalizado">{orNull(item.seller_custom_field)}</Field>
-        <Field label="Precio base">{amount(item.base_price)}</Field>
-        <Field label="Precio original">{amount(item.original_price)}</Field>
+        {isNew(item.base_price) && <Field label="Precio base">{amount(item.base_price)}</Field>}
+        {isNew(item.original_price) && <Field label="Precio original">{amount(item.original_price)}</Field>}
         <Field label="Cantidad inicial">{count(item.initial_quantity)}</Field>
         <Field label="Vendidas">{count(item.sold_quantity)}</Field>
         <Field label="Inventario">{orNull(item.inventory_id)}</Field>
@@ -72,7 +77,6 @@ export function MercadoLibreSection({ item }) {
         <Field label="Fin">{date(item.stop_time)}</Field>
         <Field label="Finalizada">{date(item.end_time)}</Field>
         <Field label="Vencimiento">{date(item.expiration_time)}</Field>
-        {item.last_error && <Field label="Último error">{item.last_error}</Field>}
       </Fields>
     </Section>
   );
