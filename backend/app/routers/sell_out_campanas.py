@@ -27,7 +27,12 @@ price, and that credit is added to profit. The rules live in
   `sin_cambio` and write nothing. All or nothing like the bulk void: the refusal `EDICION_RECHAZADA` names each
   refused campaign (`rechazadas`: id, name and why: unknown, voided, dates ending before they start, a rule of
   the edit), a 422; a 409 (retry) when one is being rebuilt or deadlocks with a concurrent writer. Not
-  brand-scoped either: `gestionar` is the per-record check.
+  brand-scoped either: `gestionar` is the per-record check. `POST /editar-masivo/previa`, same body and
+  permission, writes nothing and says what the apply would do on the same data: which campaigns change, which
+  have no change, the refused ones (listed with the same reasons, not raised; busy is the same 409), and per
+  campaign the applied sales that leave (outside the new dates: lines, units, amount in its currency, totals per
+  currency) and the sales that enter (in the days the new dates add: lines and units, an upper bound when a cap
+  or a non-stackable campaign binds; the amount is known after the rebuild).
 - A brand-scoped PM (`sell_out.repartir` without `sell_out.gestionar`) reads
   a `monto_total` campaign's shares of their brands only, in the list, the
   detail and the `PUT /{id}/reparto` response, so what they read is what they
@@ -76,6 +81,7 @@ from app.schemas.sell_out import (
     SellOutCampanaListOut,
     SellOutCampanaOut,
     SellOutConsumosListOut,
+    SellOutEdicionPreviaOut,
     SellOutEditarMasivoIn,
     SellOutEditarMasivoOut,
     SellOutRepartoIn,
@@ -265,6 +271,22 @@ def _edicion_rechazada(exc: edicion_masiva.SellOutEdicionRechazada) -> HTTPExcep
     rechazadas = [{"id": i, "nombre": nombre, "motivo": motivo} for i, nombre, motivo in exc.rechazadas]
     detail = {"code": "EDICION_RECHAZADA", "message": str(exc), "rechazadas": rechazadas}
     return HTTPException(status_code=409 if exc.reintentar else 422, detail=detail)
+
+
+@router.post("/editar-masivo/previa", response_model=SellOutEdicionPreviaOut)
+def previa_edicion_masiva(
+    data: SellOutEditarMasivoIn,
+    user: Usuario = Depends(requiere_gestionar),
+    db: Session = Depends(get_db),
+) -> dict:
+    """What the bulk edit would do, writing nothing (module docstring): refused campaigns are listed, not raised."""
+    cambios = _validar_masivo(data)
+    try:
+        return edicion_masiva.previa_edicion(db, data.campana_ids, cambios, user.id)
+    except edicion_masiva.SellOutEdicionRechazada as exc:
+        raise _edicion_rechazada(exc) from exc
+    except service.SellOutError as exc:
+        raise _error(db, exc) from exc
 
 
 @router.post("/editar-masivo", response_model=SellOutEditarMasivoOut)

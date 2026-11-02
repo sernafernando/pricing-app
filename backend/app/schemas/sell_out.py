@@ -184,6 +184,62 @@ class SellOutEdicionRechazadaOut(BaseModel):
     motivo: str
 
 
+class SellOutEdicionSalenOut(BaseModel):
+    """Applied sales dated outside the new dates: the rebuild drops them."""
+
+    lineas: int
+    unidades: int
+    monto: Decimal  # in the campaign currency
+
+
+class SellOutEdicionEntranOut(BaseModel):
+    """Sales the new dates add. An upper bound: a cap, or a non-stackable campaign sharing the products, can credit
+    fewer units, and their amount is known after the rebuild (`edicion_masiva`)."""
+
+    lineas: int
+    unidades: int
+
+
+class SellOutEdicionCampanaPreviaOut(BaseModel):
+    id: int
+    nombre: str
+    moneda: Moneda
+    # The values the campaign would have.
+    fecha_desde: date
+    fecha_hasta: date
+    acumulable: bool
+    salen: SellOutEdicionSalenOut
+    entran: SellOutEdicionEntranOut
+
+
+class SellOutEdicionMontoOut(BaseModel):
+    moneda: Moneda
+    monto: Decimal
+
+
+class SellOutEdicionSalenTotalOut(BaseModel):
+    lineas: int
+    unidades: int
+    montos: list[SellOutEdicionMontoOut]  # per currency, only the currencies with sales that leave
+
+
+class SellOutEdicionTotalesOut(BaseModel):
+    cambian: int
+    sin_cambio: int
+    rechazadas: int
+    salen: SellOutEdicionSalenTotalOut
+    entran: SellOutEdicionEntranOut
+
+
+class SellOutEdicionPreviaOut(BaseModel):
+    """What the bulk edit would do on the same data, written nothing. `rechazadas` makes the apply refuse it all."""
+
+    totales: SellOutEdicionTotalesOut
+    cambian: list[SellOutEdicionCampanaPreviaOut]
+    sin_cambio: list[int]
+    rechazadas: list[SellOutEdicionRechazadaOut]
+
+
 class SellOutTipoCambioIn(BaseModel):
     tipo_cambio: Decimal = Field(**TIPO_CAMBIO)  # ARS per USD, the rate the brand paid at
 

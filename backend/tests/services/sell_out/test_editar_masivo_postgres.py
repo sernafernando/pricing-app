@@ -1,8 +1,9 @@
-"""Bulk edit of sell-out campaigns (edición masiva M1, S2-S5), on Postgres (`_world`).
+"""Bulk edit of sell-out campaigns and its preview (edición masiva M1, S2-S5), on Postgres (`_world`).
 
 Each row goes through the single edit's own step (`campanas.editar_campana_sin_commit`): the full body is rebuilt
 from the stored campaign and only the filled fields (`fecha_desde`, `fecha_hasta`, `acumulable`) are overlaid. All
-or nothing, every refused row named.
+or nothing, every refused row named. The preview writes nothing, and its numbers match what the apply and the
+`sell_out.drain` rebuild do on the same data (pinned below, with what it cannot know when a cap binds).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from sqlalchemy.orm import sessionmaker
 from app.models.auditoria import TipoAccion
 from app.models.sell_out import SellOutCampana
 from app.schemas.sell_out import SellOutCampanaIn
-from app.services.sell_out import edicion_masiva
+from app.services.sell_out import asignacion, edicion_masiva, queue
 from app.services.sell_out import campanas as service
 from tests.services.sell_out import _world as w
 
@@ -87,6 +88,28 @@ def _queued(engine: Engine) -> list[int]:
 def _editar(engine: Engine, ids, **cambios):
     with _session(engine) as db:
         return edicion_masiva.editar_campanas(db, ids, cambios, USUARIO)
+
+
+def _previa(engine: Engine, ids, **cambios) -> dict:
+    with _session(engine) as db:
+        return edicion_masiva.previa_edicion(db, ids, cambios, USUARIO)
+
+
+def _drain(engine: Engine) -> None:
+    """What the `sell_out.drain` handler does with one batch: claim, rebuild, ack, in one transaction."""
+    with _session(engine) as db:
+        claimed = queue.claim_batch(db, queue.BATCH_SIZE)
+        asignacion.recalcular(db, claimed)
+        queue.ack(db, claimed)
+        db.commit()
+
+
+def _consumir(engine: Engine) -> None:
+    """The world's starting `sell_out_consumos`: campaigns written with SQL were never queued."""
+    with _session(engine) as db:
+        queue.enqueue(db, [cid for (cid,) in db.query(SellOutCampana.id)])
+        db.commit()
+    _drain(engine)
 
 
 # ── The single edit, through the step ───────────────────────────────
@@ -278,3 +301,93 @@ def test_a_campaign_already_with_the_values_is_sin_cambio_and_writes_nothing(eng
     assert _fila(engine, igual) == antes  # not even `updated_at`
     assert [v["campana_id"] for v, _ in _audits(engine)] == [distinta]
     assert _queued(engine) == [distinta]
+
+
+# ── The preview ─────────────────────────────────────────────────────
+
+
+def _snapshot(engine: Engine) -> tuple:
+    with engine.connect() as conn:
+        return tuple(
+            conn.execute(text(f"SELECT * FROM {tabla} ORDER BY 1")).all()
+            for tabla in ("sell_out_campanas", "sell_out_campana_items", "sell_out_consumos", "auditoria")
+        ) + (w.queued(engine),)
+
+
+def test_the_preview_writes_nothing(engine: Engine) -> None:
+    g = w.grupo(engine, [ROUTERS])
+    a = w.campana(engine, [g])
+    invertida = w.campana(engine, [g], desde=date(2026, 12, 1), hasta=date(2026, 12, 31))
+    w.venta(engine, "fuera", ROUTER, 2, date(2026, 11, 20))
+    _consumir(engine)
+    antes = _snapshot(engine)
+
+    previa = _previa(engine, [a, invertida, 999999], fecha_hasta=date(2026, 11, 10))
+
+    assert _snapshot(engine) == antes
+    assert [c["id"] for c in previa["cambian"]] == [a]
+    assert [r["id"] for r in previa["rechazadas"]] == [invertida, 999999]
+
+
+def _claves(engine: Engine, cid: int) -> dict:
+    return {(c[1], c[2]): c for c in w.consumos(engine, cid)}
+
+
+def test_the_preview_matches_what_the_apply_and_the_rebuild_do_when_no_cap_binds(engine: Engine) -> None:
+    g = w.grupo(engine, [ROUTERS])
+    ars = w.campana(engine, [g], nombre="Rebate Q4 2026")
+    usd = w.campana(engine, [g], nombre="MARCA PROG 3.0", moneda="USD", tc_modo="fijo", tipo_cambio="1000")
+    w.venta(engine, "fuera", ROUTER, 4, date(2026, 10, 25))  # enters: the new start is earlier
+    w.venta(engine, "ml", ROUTER, 1, date(2026, 10, 28))  # enters
+    w.venta(engine, "fuera", ROUTER, 2, date(2026, 11, 10))  # stays
+    w.venta(engine, "tn", ROUTER, 3, date(2026, 11, 25))  # leaves: the new end is earlier
+    w.venta(engine, "fuera", ROUTER, 5, date(2026, 12, 5))  # outside both ranges
+    _consumir(engine)
+    antes = {cid: _claves(engine, cid) for cid in (ars, usd)}
+    cambios = {"fecha_desde": date(2026, 10, 20), "fecha_hasta": date(2026, 11, 15)}
+
+    previa = _previa(engine, [ars, usd], **cambios)
+    _editar(engine, [ars, usd], **cambios)
+    _drain(engine)
+
+    por_id = {c["id"]: c for c in previa["cambian"]}
+    for cid in (ars, usd):
+        despues = _claves(engine, cid)
+        salieron = [antes[cid][k] for k in antes[cid].keys() - despues.keys()]
+        entraron = [despues[k] for k in despues.keys() - antes[cid].keys()]
+        assert por_id[cid]["salen"] == {
+            "lineas": len(salieron),
+            "unidades": sum(c[5] for c in salieron),
+            "monto": sum((c[6] for c in salieron), Decimal(0)),
+        }
+        assert por_id[cid]["entran"] == {"lineas": len(entraron), "unidades": sum(c[5] for c in entraron)}
+        assert (len(salieron), len(entraron)) == (1, 2)
+    totales = previa["totales"]
+    assert totales["salen"]["lineas"] == 2 and totales["entran"] == {"lineas": 4, "unidades": 10}
+    assert {m["moneda"]: m["monto"] for m in totales["salen"]["montos"]} == {
+        "ARS": Decimal("30.00"),
+        "USD": Decimal("30.00"),
+    }
+
+
+def test_when_a_cap_binds_the_preview_entran_is_an_upper_bound(engine: Engine) -> None:
+    """What the preview cannot know: the cap is shared in sale order, so an earlier sale that enters takes units
+    from a later one already credited. `entran` counts every sale the new dates add, not what the cap leaves."""
+    g = w.grupo(engine, [ROUTERS])
+    cid = w.campana(engine, [g], tope_unidades=3)
+    w.venta(engine, "fuera", ROUTER, 3, date(2026, 11, 10))  # credited today, it fills the cap
+    w.venta(engine, "fuera", ROUTER, 4, date(2026, 10, 25))  # enters, earlier: it takes the cap
+    _consumir(engine)
+    antes = _claves(engine, cid)
+
+    previa = _previa(engine, [cid], fecha_desde=date(2026, 10, 20))
+    _editar(engine, [cid], fecha_desde=date(2026, 10, 20))
+    _drain(engine)
+
+    despues = _claves(engine, cid)
+    [detalle] = previa["cambian"]
+    assert detalle["entran"] == {"lineas": 1, "unidades": 4}  # the whole sale
+    entraron = [despues[k] for k in despues.keys() - antes.keys()]
+    assert [c[5] for c in entraron] == [3]  # only what the cap leaves
+    assert detalle["salen"]["lineas"] == 0  # inside the new dates: the preview does not see the cap move it
+    assert antes.keys() - despues.keys()  # yet the 11-10 line lost its units to the earlier sale
