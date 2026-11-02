@@ -580,6 +580,24 @@ describe('header figures (S1)', () => {
   };
   const labels = () => within(figures()).queryAllByRole('term').map((dt) => dt.textContent);
 
+  it('has no Ventas 30 días figure while the detail does not send its sales (an older backend)', async () => {
+    const { sales_30d: _omitted, ...row } = { ...ITEMS[0], ...SALES };
+    publicacionesMlAPI.detail.mockResolvedValue({ data: makeDetail({ row }) });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(labels()).toEqual(['Precio', 'Stock']);
+  });
+
+  it('says the markup range is partial when some variations have no cost, as the table does', async () => {
+    canSeeMargin = true;
+    publicacionesMlAPI.detail.mockResolvedValue({
+      data: { ...withRow({ markup: { ...MARKUP, partial: 2 } }), markup_breakdown: null },
+    });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(within(figures()).getByTitle('2 variaciones sin costo no entran en el rango')).toHaveTextContent('(parcial)');
+  });
+
   it('an unknown side of the stock split reads "—", never 0', async () => {
     publicacionesMlAPI.detail.mockResolvedValue({ data: withRow({ stock: { available: 14, full: null, own: 14 } }) });
     renderPanel({ tab: 'resumen' });
@@ -648,7 +666,7 @@ describe('header figures (S1)', () => {
   });
 
   it('shows a dash, never 0, when the detail has no sales figure for a viewer who may see it', async () => {
-    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow({}) });
+    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow({ sales_30d: { units: null, gross: null } }) });
     renderPanel({ tab: 'resumen' });
     await screen.findByRole('region', { name: 'Cifras de la publicación' });
     expect(figure('Ventas 30 días')).toBe('—');

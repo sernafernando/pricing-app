@@ -15,13 +15,13 @@ import styles from './panel.module.css';
 export default function PanelFigures({ label, caption, figures }) {
   if (figures.length === 0) return null;
   return (
-    <section className={styles.figures} aria-label={label}>
+    <section aria-label={label}>
       <dl className={styles.figureList}>
         {figures.map((figure) => (
           <div key={figure.key} className={styles.figure}>
             <dt className={figure.hideLabel ? styles.visuallyHidden : styles.figureLabel}>{figure.label}</dt>
             <dd className={styles.figureValue}>
-              {figure.value == null ? <span className={cellStyles.empty}>—</span> : figure.value}
+              <span className={styles.figureAmount}>{figure.value == null ? <span className={cellStyles.empty}>—</span> : figure.value}</span>
               {figure.note && <span className={styles.figureNote}>{figure.note}</span>}
             </dd>
           </div>

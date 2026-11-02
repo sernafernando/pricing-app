@@ -1,5 +1,5 @@
 import { MARKUP_REASONS, UNKNOWN_REASON } from './markupReasons';
-import { formatMarkupRange } from './markupRange';
+import { formatMarkupRange, partialRangeTitle } from './markupRange';
 import styles from './cells.module.css';
 
 /** Markup of a publication (`row.markup`, only with `ml_metricas.ver_ganancia`). */
@@ -21,7 +21,7 @@ export default function MarkupCell({ markup }) {
       {partial > 0 && (
         <span
           className={styles.note}
-          title={`${partial} ${partial === 1 ? 'variación sin costo no entra' : 'variaciones sin costo no entran'} en el rango`}
+          title={partialRangeTitle(partial)}
         >
           (parcial)
         </span>

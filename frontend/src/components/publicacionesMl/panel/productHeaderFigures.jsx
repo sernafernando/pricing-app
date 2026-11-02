@@ -10,7 +10,7 @@ import { count } from './format';
 export function productHeaderFigures(summary, columns) {
   const byKey = new Map(columns.map((column) => [column.key, column]));
   const draw = (key) => byKey.get(key)?.render({ metrics: summary.metrics });
-  const figures = [{ key: 'stock', label: 'Stock', value: summary.stock == null ? null : count(summary.stock) }];
+  const figures = [{ key: 'stock', label: 'Stock', value: count(summary.stock) }];
   if (byKey.has(COLUMNS.sales)) {
     figures.push({
       key: 'sales',

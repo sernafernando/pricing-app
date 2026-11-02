@@ -59,6 +59,10 @@
   display: flex;
   flex-direction: column;
   margin: 0;
+}
+
+/* The figure itself: monospaced so amounts line up; its note keeps the panel's font. */
+.figureAmount {
   font-family: var(--font-mono);
   font-size: var(--font-base);
   font-weight: var(--font-semibold);
@@ -67,8 +71,14 @@
 }
 
 .figureMarkup {
+  font-family: var(--font-mono);
   font-size: var(--font-sm);
   color: var(--tone-success-fg);
+}
+
+.figurePartial {
+  font-weight: var(--font-normal, 400);
+  color: var(--cf-text-secondary);
 }
 
 .figureMarkup[data-negative] {
@@ -86,7 +96,6 @@
 }
 
 .figureNote {
-  font-family: var(--font-sans, inherit);
   font-size: var(--font-xs);
   font-weight: var(--font-normal, 400);
   color: var(--cf-text-secondary);

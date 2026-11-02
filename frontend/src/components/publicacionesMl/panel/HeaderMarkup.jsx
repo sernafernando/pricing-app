@@ -1,4 +1,4 @@
-import { formatMarkupRange } from '../markupRange';
+import { formatMarkupRange, partialRangeTitle } from '../markupRange';
 import { MARKUP_REASONS, UNKNOWN_REASON } from '../markupReasons';
 import cellStyles from '../cells.module.css';
 import styles from './panel.module.css';
@@ -15,10 +15,18 @@ export default function HeaderMarkup({ markup }) {
       </span>
     );
   }
+  const partial = markup.partial ?? 0;
   return (
     <span className={styles.figureMarkup} data-negative={markup.any_negative ? '' : undefined} title="Markup">
       <span className={styles.visuallyHidden}>Markup </span>
       {formatMarkupRange(markup.min, markup.max)}
+      {/* As the table: a range that leaves variations without a cost out says so. */}
+      {partial > 0 && (
+        <span className={styles.figurePartial} title={partialRangeTitle(partial)}>
+          {' '}
+          (parcial)
+        </span>
+      )}
     </span>
   );
 }

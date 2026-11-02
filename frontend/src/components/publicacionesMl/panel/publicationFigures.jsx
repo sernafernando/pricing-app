@@ -12,8 +12,8 @@ const money = (value) => {
  * markup right below in another colour, without labels (owner: "si vos ponés
  * $100.000 y abajo 5% y con colores distintos se entiende cual es el precio y cual
  * el markup"); the markup only with `ml_metricas.ver_ganancia`. Then Stock, and
- * Ventas 30 días only with `ml_metricas.ver` (the table's own figures). The body
- * does not repeat them.
+ * Ventas 30 días only with `ml_metricas.ver` (the table's own figures), and only once
+ * the detail sends them (`sales_30d`, absent from an older backend).
  */
 export function publicationFigures(row, { canSeeMargin, canSeeSales }) {
   const stock = row.stock ?? {};
@@ -35,7 +35,7 @@ export function publicationFigures(row, { canSeeMargin, canSeeSales }) {
     },
     { key: 'stock', label: 'Stock', value: count(stock.available), note: split },
   ];
-  if (canSeeSales) {
+  if (canSeeSales && row.sales_30d !== undefined) {
     const sales = row.sales_30d;
     figures.push({
       key: 'sales',
