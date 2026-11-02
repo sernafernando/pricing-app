@@ -234,3 +234,17 @@ def test_a_stored_row_of_another_products_line_falls_back_to_its_fifo_line(engin
 
     assert vigentes[950].compra_item_id == diez  # its FIFO line, at the line's own value
     assert vigentes[2964].compra_item_id == otra
+
+
+def test_the_lot_viewer_falls_back_to_fifo_with_the_panels_when_the_modes_cannot_be_replayed(engine: Engine) -> None:
+    from app.services.sell_in import visor_lotes
+
+    diez, _ = _dos_lotes(engine)
+    w.modo(engine, 950, "manual", OCT20, cantidad=30, costo_unit="52000", costo_base_unit="50000")
+
+    with sessionmaker(bind=engine)() as db:
+        proxima = visor_lotes.lotes_de_producto(db, 950, NOV1).proxima
+
+    # Each line at its own value, and the line at 8 still comes after: the FIFO order the panels fell back to.
+    assert (proxima.compra_item_id, proxima.descuento_unit, proxima.restantes) == (diez, Decimal("10.00"), 100)
+    assert proxima.siguiente is not None and proxima.siguiente.descuento_unit == Decimal("8.00")

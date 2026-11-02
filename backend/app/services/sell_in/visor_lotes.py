@@ -9,7 +9,7 @@ own rate, as costing converts it).
 Status of a line: `vigente` is the one `costing.vigentes` returns for today (the next sale takes it); `agotado` has
 no units left; `desde` counts from a date after today; `en_cola` has units left and waits behind the current one.
 Nothing here is computed differently from the costing: the order, the units left and the rounding are its own.
-Under a weighted or last-price mode (`costing.periodos`) the next sale's value is the one `costing.vigentes` gives
+Under a weighted or last-price mode (`LoteVigente.en_pool`) the next sale's value is the one `costing.vigentes` gives
 (the pool's), not the current line's own; see `_proxima`.
 """
 
@@ -32,7 +32,6 @@ from app.schemas.sell_in_out_producto import SellInProducto
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 from app.services.sell_in.costing import LoteVigente, get_costing
-from app.services.sell_in.fifo import periodo_en
 from app.services.sell_in.split import unit_discount
 
 Estado = Literal["vigente", "en_cola", "agotado", "desde"]
@@ -124,8 +123,7 @@ def lotes_de_producto(db: Session, item_id: int, hoy: date) -> VisorLotes:
                 estado=estado,
             )
         )
-    en_pool = periodo_en(costing.periodos(db, [item_id]).get(item_id, []), hoy)[1] != "fifo"
-    return VisorLotes(filas, _proxima(filas, vigente if en_pool else None))
+    return VisorLotes(filas, _proxima(filas, vigente if vigente is not None and vigente.en_pool else None))
 
 
 def bono_costo(db: Session, item_id: int, hoy: date) -> Optional[SellInProducto]:

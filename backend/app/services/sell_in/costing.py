@@ -84,7 +84,7 @@ from app.models.ml_sale_line import MlSaleLine
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo, SellInModoProducto
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
-from app.services.sell_in.fifo import Consumo, Dinero, Lote, Periodo, Venta, asignar, orden_fifo
+from app.services.sell_in.fifo import Consumo, Dinero, Lote, Periodo, Venta, asignar, orden_fifo, periodo_en
 from app.services.sell_in.split import unit_discount
 
 logger = logging.getLogger(__name__)
@@ -146,6 +146,9 @@ class LoteVigente:
     compra_item_id: int
     descuento_unit_ars: Decimal  # rounded like `split.unit_discount`
     unidades_restantes: int
+    # True when a weighted or last-price mode governs and its replay gave the value: every unit of the lines that
+    # count goes at it. False under FIFO, or when the replay could not run and the line's own value stands.
+    en_pool: bool = False
 
 
 def utc_date(value) -> date:
@@ -275,7 +278,8 @@ class FifoPurchaseCosting:
                 continue
             if proximo is not None:
                 i, monto, sobre, restantes = proximo
-                salida[item_id] = LoteVigente(item[i].compra_item_id, unit_discount(monto, sobre), restantes)
+                en_pool = periodo_en(periodos[item_id], hoy)[1] != "fifo"
+                salida[item_id] = LoteVigente(item[i].compra_item_id, unit_discount(monto, sobre), restantes, en_pool)
         return salida
 
     @staticmethod
