@@ -25,6 +25,11 @@ pytestmark = pytest.mark.postgres
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, numero VARCHAR(32) NOT NULL)",
+    # What the Marca filter reads for the scopes that are not 'marca' (bonos_alcance.alcanza_marcas): empty here.
+    "CREATE TABLE productos_erp (item_id INTEGER PRIMARY KEY, marca VARCHAR(100), categoria VARCHAR(100))",
+    "CREATE TABLE pedido_compra_lineas_facturadas (id BIGSERIAL PRIMARY KEY, pedido_id BIGINT, item_id INTEGER)",
+    "CREATE TABLE pedido_compra_ingresos (id BIGSERIAL PRIMARY KEY, pedido_id BIGINT, item_id INTEGER)",
+    "CREATE TABLE sell_in_bono_items (id BIGSERIAL PRIMARY KEY, bono_id BIGINT, item_id INTEGER)",
     "INSERT INTO usuarios VALUES (7)",
 ]
 
