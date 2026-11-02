@@ -1,0 +1,21 @@
+---
+description: No AI attribution in git commits or PR bodies for Pricing App
+alwaysApply: true
+---
+
+# No AI commit / PR attribution
+
+Pricing App does not keep AI attribution in git history or pull request bodies.
+
+## Do not
+
+- Add `Co-authored-by: Cursor` (or any `Co-authored-by` for an AI / agent).
+- Pass `git commit --trailer "Co-authored-by: Cursor ..."`.
+- Put "Made with Cursor" (or equivalent) in PR bodies, commit messages, or commit trailers.
+
+## Do
+
+- Use normal Conventional Commit messages only.
+- If a tool injects an AI trailer, strip it before push.
+
+This matches team review policy: human-authored history, no agent co-author trailers.
