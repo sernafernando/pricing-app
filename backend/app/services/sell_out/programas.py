@@ -42,9 +42,16 @@ class ProgramaDuplicado(ProgramaError):
 # ── Programs ───────────────────────────────────────────────────────
 
 
-def listar(db: Session, estado: Optional[str] = None, programa_id: Optional[int] = None) -> list[dict]:
+def listar(
+    db: Session,
+    estado: Optional[str] = None,
+    programa_id: Optional[int] = None,
+    *,
+    page: Optional[int] = None,
+    page_size: Optional[int] = None,
+) -> list[dict]:
     """Every program (or just `programa_id`) by name, with its campaigns' count, active count and date span, in
-    one query."""
+    one query; with `page` / `page_size`, only that page (cut in SQL)."""
     p, c = SellOutPrograma, SellOutCampana
     query = (
         db.query(
@@ -64,7 +71,10 @@ def listar(db: Session, estado: Optional[str] = None, programa_id: Optional[int]
         query = query.filter(p.estado == estado)
     if programa_id is not None:
         query = query.filter(p.id == programa_id)
-    filas = query.order_by(func.lower(p.nombre), p.id).all()
+    query = query.order_by(func.lower(p.nombre), p.id)
+    if page is not None and page_size is not None:
+        query = query.offset((page - 1) * page_size).limit(page_size)
+    filas = query.all()
     return [
         {
             "id": pid,
@@ -78,6 +88,14 @@ def listar(db: Session, estado: Optional[str] = None, programa_id: Optional[int]
         }
         for pid, nombre, descripcion, estado_, campanas, activas, desde, hasta in filas
     ]
+
+
+def contar(db: Session, estado: Optional[str] = None) -> int:
+    """How many programs `listar` would return without a page."""
+    query = db.query(func.count(SellOutPrograma.id))
+    if estado:
+        query = query.filter(SellOutPrograma.estado == estado)
+    return query.scalar() or 0
 
 
 def detalle(db: Session, programa_id: int) -> dict:
@@ -161,7 +179,12 @@ def asignar(db: Session, campana_ids: list[int], programa_id: Optional[int], usu
         validar_asignable(db, programa_id)
     # In id order, so concurrent assignments and edits lock in one order.
     campanas = (
-        db.query(SellOutCampana).filter(SellOutCampana.id.in_(ids)).order_by(SellOutCampana.id).with_for_update().all()
+        db.query(SellOutCampana)
+        .filter(SellOutCampana.id.in_(ids))
+        .order_by(SellOutCampana.id)
+        # FOR NO KEY UPDATE: metadata only, so it never waits on the FOR KEY SHARE every consumo insert takes.
+        .with_for_update(key_share=True)
+        .all()
     )
     faltan = sorted(set(ids) - {c.id for c in campanas})
     if faltan:

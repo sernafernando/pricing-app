@@ -66,15 +66,15 @@ def _auditoria(db: Session) -> list[Auditoria]:
 
 
 def test_the_list_counts_each_program_campaigns_in_one_query(engine, Sesion) -> None:
-    epson = _programa(Sesion, "EPSON PROG")
+    marca = _programa(Sesion, "MARCA PROG")
     rebate = _programa(Sesion, "Rebate", "archivado")
     _programa(Sesion, "aaa vacío")
     ids = [
-        _campana(engine, "EPSON PROG 24", date(2024, 1, 1), date(2024, 12, 31), estado="anulada"),
-        _campana(engine, "EPSON PROG 25", date(2025, 1, 1), date(2025, 12, 31)),
-        _campana(engine, "EPSON PROG 26", date(2026, 1, 1), date(2026, 3, 31)),
+        _campana(engine, "MARCA PROG 24", date(2024, 1, 1), date(2024, 12, 31), estado="anulada"),
+        _campana(engine, "MARCA PROG 25", date(2025, 1, 1), date(2025, 12, 31)),
+        _campana(engine, "MARCA PROG 26", date(2026, 1, 1), date(2026, 3, 31)),
     ]
-    w.execute(engine, "UPDATE sell_out_campanas SET programa_id = :p", p=epson)
+    w.execute(engine, "UPDATE sell_out_campanas SET programa_id = :p", p=marca)
     _campana(engine, "Rebate Q4 2024", date(2024, 10, 1), date(2024, 12, 31), programa_id=rebate)
     _campana(engine, "TP-Link 2% noviembre", date(2026, 11, 1), date(2026, 11, 30))
     assert len(ids) == 3
@@ -84,7 +84,7 @@ def test_the_list_counts_each_program_campaigns_in_one_query(engine, Sesion) -> 
     assert len(vistas) == 1
     assert [(f["nombre"], f["estado"], f["campanas"], f["activas"], f["desde"], f["hasta"]) for f in filas] == [
         ("aaa vacío", "activo", 0, 0, None, None),
-        ("EPSON PROG", "activo", 3, 2, date(2024, 1, 1), date(2026, 3, 31)),
+        ("MARCA PROG", "activo", 3, 2, date(2024, 1, 1), date(2026, 3, 31)),
         ("Rebate", "archivado", 1, 1, date(2024, 10, 1), date(2024, 12, 31)),
     ]
     with Sesion() as db:
@@ -92,16 +92,16 @@ def test_the_list_counts_each_program_campaigns_in_one_query(engine, Sesion) -> 
 
 
 def test_a_duplicate_name_found_only_by_the_unique_index_is_the_same_409(Sesion, monkeypatch) -> None:
-    _programa(Sesion, "EPSON PROG")
+    _programa(Sesion, "MARCA PROG")
     monkeypatch.setattr(programas, "_duplicado", lambda *args, **kwargs: None)  # a concurrent insert won the race
-    with Sesion() as db, pytest.raises(programas.ProgramaDuplicado, match="«Epson Prog»"):
-        programas.crear(db, SellOutProgramaIn(nombre="Epson Prog"), USUARIO)
+    with Sesion() as db, pytest.raises(programas.ProgramaDuplicado, match="«Marca Prog»"):
+        programas.crear(db, SellOutProgramaIn(nombre="Marca Prog"), USUARIO)
 
 
 def test_assign_is_audited_bulk_queues_nothing_and_keeps_the_money(engine, Sesion) -> None:
-    programa = _programa(Sesion, "EPSON PROG")
-    activa = _campana(engine, "EPSON PROG 25", date(2025, 1, 1), date(2025, 12, 31))
-    anulada = _campana(engine, "EPSON PROG 24", date(2024, 1, 1), date(2024, 12, 31), estado="anulada")
+    programa = _programa(Sesion, "MARCA PROG")
+    activa = _campana(engine, "MARCA PROG 25", date(2025, 1, 1), date(2025, 12, 31))
+    anulada = _campana(engine, "MARCA PROG 24", date(2024, 1, 1), date(2024, 12, 31), estado="anulada")
     w.clear_queue(engine)
     with engine.connect() as conn:
         dinero = conn.execute(text("SELECT id, estado, monto_unit FROM sell_out_campanas ORDER BY id")).all()
@@ -118,7 +118,7 @@ def test_assign_is_audited_bulk_queues_nothing_and_keeps_the_money(engine, Sesio
         assert [(f.valores_anteriores, f.valores_nuevos, f.es_masivo, f.item_id, f.usuario_id) for f in filas] == [
             (
                 {"campana_id": cid, "programa_id": None, "programa": None},
-                {"campana_id": cid, "programa_id": programa, "programa": "EPSON PROG"},
+                {"campana_id": cid, "programa_id": programa, "programa": "MARCA PROG"},
                 True,
                 None,
                 USUARIO,
@@ -131,13 +131,13 @@ def test_assign_is_audited_bulk_queues_nothing_and_keeps_the_money(engine, Sesio
 
 
 def test_assign_is_all_or_nothing(engine, Sesion) -> None:
-    epson = _programa(Sesion, "EPSON PROG")
+    marca = _programa(Sesion, "MARCA PROG")
     archivado = _programa(Sesion, "Rebate", "archivado")
-    campana = _campana(engine, "EPSON PROG 25", date(2025, 1, 1), date(2025, 12, 31))
+    campana = _campana(engine, "MARCA PROG 25", date(2025, 1, 1), date(2025, 12, 31))
 
     with Sesion() as db:
         with pytest.raises(programas.ProgramaError, match="^La campaña 999999 no existe.$"):
-            programas.asignar(db, [campana, 999999], epson, USUARIO)
+            programas.asignar(db, [campana, 999999], marca, USUARIO)
         with pytest.raises(programas.ProgramaNoExiste):
             programas.asignar(db, [campana], 999999, USUARIO)
         with pytest.raises(programas.ProgramaError, match="«Rebate» está archivado"):
@@ -148,12 +148,12 @@ def test_assign_is_all_or_nothing(engine, Sesion) -> None:
 
 
 def test_editing_a_campaign_keeps_its_program(engine, Sesion) -> None:
-    programa = _programa(Sesion, "EPSON PROG")
+    programa = _programa(Sesion, "MARCA PROG")
     grupo = w.grupo(engine, [{"marca": "TP-LINK"}])
-    campana = w.campana(engine, [grupo], nombre="EPSON PROG 25", programa_id=programa)
+    campana = w.campana(engine, [grupo], nombre="MARCA PROG 25", programa_id=programa)
     data = SellOutCampanaIn.model_validate(
         {
-            "nombre": "EPSON PROG 25 bis",
+            "nombre": "MARCA PROG 25 bis",
             "fecha_desde": date(2026, 11, 1),
             "fecha_hasta": date(2026, 11, 30),
             "tipo": "por_unidad",
@@ -167,17 +167,17 @@ def test_editing_a_campaign_keeps_its_program(engine, Sesion) -> None:
     with Sesion() as db:
         fila = campanas.serializar(db, [db.get(SellOutCampana, campana)])[0]
     assert (fila["nombre"], fila["programa_id"], fila["programa"]) == (
-        "EPSON PROG 25 bis",
+        "MARCA PROG 25 bis",
         programa,
-        {"id": programa, "nombre": "EPSON PROG"},
+        {"id": programa, "nombre": "MARCA PROG"},
     )
 
 
 def test_a_page_of_campaigns_reads_their_programs_in_one_query(engine, Sesion) -> None:
-    epson = _programa(Sesion, "EPSON PROG")
+    marca = _programa(Sesion, "MARCA PROG")
     rebate = _programa(Sesion, "Rebate")
     ids = [
-        _campana(engine, "EPSON PROG 25", date(2025, 1, 1), date(2025, 12, 31), programa_id=epson),
+        _campana(engine, "MARCA PROG 25", date(2025, 1, 1), date(2025, 12, 31), programa_id=marca),
         _campana(engine, "Rebate Q4 2024", date(2024, 10, 1), date(2024, 12, 31), programa_id=rebate),
         _campana(engine, "TP-Link 2% noviembre", date(2026, 11, 1), date(2026, 11, 30)),
     ]
@@ -187,7 +187,7 @@ def test_a_page_of_campaigns_reads_their_programs_in_one_query(engine, Sesion) -
             filas = campanas.serializar(db, pagina)
     assert sum("sell_out_programas" in v for v in vistas) == 1
     assert [f["programa"] for f in filas] == [
-        {"id": epson, "nombre": "EPSON PROG"},
+        {"id": marca, "nombre": "MARCA PROG"},
         {"id": rebate, "nombre": "Rebate"},
         None,
     ]
@@ -197,17 +197,17 @@ def test_suggestions_group_campaigns_without_a_program_by_identical_dates(engine
     """Production's repeated names (2026-11-02 read) share their dates and differ only in what they apply to; the
     families of names that carry their per-unit amount share a date range. So a suggestion is a date range with 2 or
     more campaigns, named by the words all its names start with."""
-    epson = date(2026, 8, 1), date(2026, 12, 31)
+    marca = date(2026, 8, 1), date(2026, 12, 31)
     sp = date(2025, 11, 1), date(2026, 12, 31)
-    programa = _programa(Sesion, "EPSON PROG")
+    programa = _programa(Sesion, "MARCA PROG")
     e = [
-        _campana(engine, "EPSON PROGRAM1", *epson),
-        _campana(engine, "EPSON PROG 3.0", *epson),
-        _campana(engine, "EPSON PROGRAM1", *epson, estado="anulada"),
-        _campana(engine, "EPSON PROGR 7.5", *epson),
+        _campana(engine, "MARCA PROGRAM1", *marca),
+        _campana(engine, "MARCA PROG 3.0", *marca),
+        _campana(engine, "MARCA PROGRAM1", *marca, estado="anulada"),
+        _campana(engine, "MARCA PROGR 7.5", *marca),
     ]
-    _campana(engine, "EPSON PROG 12", *epson, programa_id=programa)  # already in a program
-    s = [_campana(engine, "520 / 580 SP", *sp), _campana(engine, "530/720", *sp), _campana(engine, "520 / 580 SP", *sp)]
+    _campana(engine, "MARCA PROG 12", *marca, programa_id=programa)  # already in a program
+    s = [_campana(engine, "M20 / M80 SP", *sp), _campana(engine, "M30/M70", *sp), _campana(engine, "M20 / M80 SP", *sp)]
     _campana(engine, "RB 8180", date(2026, 1, 1), date(2026, 12, 31))  # alone in its dates
 
     with Sesion() as db:
@@ -215,42 +215,13 @@ def test_suggestions_group_campaigns_without_a_program_by_identical_dates(engine
     assert [
         (g["base"], g["fecha_desde"], g["fecha_hasta"], g["nombres"], [c["id"] for c in g["campanas"]]) for g in grupos
     ] == [
-        ("EPSON", *epson, 3, [e[1], e[3], e[0], e[2]]),  # by name ignoring case, then id
+        ("MARCA", *marca, 3, [e[1], e[3], e[0], e[2]]),  # by name ignoring case, then id
         ("Del 01/11/2025 al 31/12/2026", *sp, 2, [s[0], s[2], s[1]]),
     ]
     assert grupos[0]["campanas"][3] == {
         "id": e[2],
-        "nombre": "EPSON PROGRAM1",
+        "nombre": "MARCA PROGRAM1",
         "fecha_desde": date(2026, 8, 1),
         "fecha_hasta": date(2026, 12, 31),
         "estado": "anulada",
     }
-
-
-def test_editar_campana_keeps_the_stored_program(engine, Sesion) -> None:
-    """`editar_campana` is a full replace and `SellOutCampanaIn` carries no program: the stored one stays, and only
-    the edit's own fields change (its `updated_at` moves, as on any edit)."""
-    programa = _programa(Sesion, "Programa de prueba")
-    grupo = w.grupo(engine, [{"marca": "TP-LINK"}])
-    cid = w.campana(engine, [grupo], date(2026, 8, 1), date(2026, 12, 31), nombre="Campaña", programa_id=programa)
-    with Sesion() as db:
-        antes = db.get(SellOutCampana, cid).updated_at
-    data = SellOutCampanaIn(
-        nombre="Campaña editada",
-        fecha_desde=date(2026, 8, 1),
-        fecha_hasta=date(2026, 10, 31),
-        tipo="por_unidad",
-        monto_unit="10",
-        moneda="ARS",
-        grupo_ids=[grupo],
-    )
-    with Sesion() as db:
-        campanas.editar_campana(db, cid, data, USUARIO)
-    with Sesion() as db:
-        campana = db.get(SellOutCampana, cid)
-        assert (campana.nombre, campana.fecha_hasta, campana.programa_id) == (
-            "Campaña editada",
-            date(2026, 10, 31),
-            programa,
-        )
-        assert campana.updated_at > antes

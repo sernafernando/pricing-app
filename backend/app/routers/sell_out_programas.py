@@ -68,8 +68,9 @@ def listar_programas(
     _user: Usuario = Depends(requiere_ver),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Programs by name, with their campaigns' counts and date span, one page at a time."""
-    return _pagina(service.listar(db, estado), page, page_size)
+    """Programs by name, with their campaigns' counts and date span, one page at a time (cut in SQL)."""
+    items = service.listar(db, estado, page=page, page_size=page_size)
+    return {"items": items, "total": service.contar(db, estado), "page": page, "page_size": page_size}
 
 
 @router.get("/sugerencias", response_model=SellOutSugerenciaListOut)

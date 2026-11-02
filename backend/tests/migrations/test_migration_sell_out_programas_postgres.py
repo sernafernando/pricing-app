@@ -82,7 +82,7 @@ def after(before) -> Engine:
     return before
 
 
-def _campana(engine: Engine, nombre: str = "EPSON PROG 24", **cols) -> int:
+def _campana(engine: Engine, nombre: str = "MARCA PROG 24", **cols) -> int:
     names = "".join(f", {k}" for k in cols)
     params = "".join(f", :{k}" for k in cols)
     with engine.begin() as conn:
@@ -96,7 +96,7 @@ def _campana(engine: Engine, nombre: str = "EPSON PROG 24", **cols) -> int:
         ).scalar_one()
 
 
-def _programa(engine: Engine, nombre: str = "EPSON PROG", **cols) -> int:
+def _programa(engine: Engine, nombre: str = "MARCA PROG", **cols) -> int:
     names = "".join(f", {k}" for k in cols)
     params = "".join(f", :{k}" for k in cols)
     with engine.begin() as conn:
@@ -122,7 +122,7 @@ def test_this_revision_chains_on_the_pedido_compra_drop() -> None:
 
 @pytest.mark.postgres
 def test_upgrade_leaves_existing_campaigns_untouched_and_without_a_program(before) -> None:
-    _campana(before, "EPSON PROG 24")
+    _campana(before, "MARCA PROG 24")
     _campana(before, "Rebate Q4 2024", estado="anulada")
     with before.connect() as conn:
         antes = [tuple(r) for r in conn.execute(text(_CAMPANAS))]
@@ -147,9 +147,9 @@ def test_a_program_starts_active_and_its_state_is_a_closed_set(after) -> None:
 
 @pytest.mark.postgres
 def test_a_program_name_is_unique_ignoring_case(after) -> None:
-    _programa(after, "EPSON PROG")
+    _programa(after, "MARCA PROG")
     with pytest.raises(IntegrityError):
-        _programa(after, "epson prog")
+        _programa(after, "marca prog")
 
 
 @pytest.mark.postgres

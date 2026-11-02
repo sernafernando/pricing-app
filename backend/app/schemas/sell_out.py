@@ -308,13 +308,15 @@ def _nombre_programa(valor: Optional[str]) -> Optional[str]:
     valor = valor.strip()
     if not valor:
         raise ValueError("El nombre del programa no puede estar vacío.")
+    if len(valor) > NOMBRE_MAX:  # counted after trimming: surrounding spaces never make a name too long
+        raise ValueError(f"El nombre del programa admite hasta {NOMBRE_MAX} caracteres.")
     return valor
 
 
 class SellOutProgramaIn(BaseModel):
     """`POST /`: a new program. The name is trimmed, not empty and unique ignoring case (a 409 otherwise)."""
 
-    nombre: str = Field(max_length=NOMBRE_MAX)
+    nombre: str
     descripcion: Optional[str] = None
 
     _nombre = field_validator("nombre")(_nombre_programa)
@@ -323,7 +325,7 @@ class SellOutProgramaIn(BaseModel):
 class SellOutProgramaPatchIn(BaseModel):
     """`PATCH /{id}`: only the fields sent change. `nombre` and `estado` cannot be null; `descripcion` can."""
 
-    nombre: Optional[str] = Field(default=None, max_length=NOMBRE_MAX)
+    nombre: Optional[str] = None
     descripcion: Optional[str] = None
     estado: Optional[EstadoPrograma] = None
 
