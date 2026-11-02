@@ -178,8 +178,8 @@ def _simular(
         r[0] for r in db.query(SellInModoProducto.id).filter(SellInModoProducto.item_id == item_id).order_by("id")
     ]
     lotes = [
-        [l.compra_item_id, l.fecha.isoformat(), l.cantidad, str(l.descuento_ars)]
-        for l in costing.lotes(db, [item_id]).get(item_id, [])
+        [lote.compra_item_id, lote.fecha.isoformat(), lote.cantidad, str(lote.descuento_ars)]
+        for lote in costing.lotes(db, [item_id]).get(item_id, [])
     ]
     antes = _por_venta(db, item_id)
     sin_antes = costing.sin_asignar(db, item_id, hoy)

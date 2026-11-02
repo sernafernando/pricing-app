@@ -306,8 +306,10 @@ def test_two_saves_racing_only_one_lands(engine: Engine) -> None:
             salida.append(("raw", repr(exc)))
 
     hilos = [threading.Thread(target=salvar) for _ in range(2)]
-    [h.start() for h in hilos]
-    [h.join(30) for h in hilos]
+    for hilo in hilos:
+        hilo.start()
+    for hilo in hilos:
+        hilo.join(30)
     assert sorted(s[0] for s in salida) == ["409", "ok"], salida
     assert _escalar(engine, "SELECT count(*) FROM sell_in_modos_producto") == 1
     assert _escalar(engine, "SELECT count(*) FROM auditoria") == 1
