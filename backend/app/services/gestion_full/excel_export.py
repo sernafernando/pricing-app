@@ -167,6 +167,7 @@ def build_ops_ean_xlsx(db: Session, package: GestionFullPackage) -> bytes:
     wb.save(buf)
     return buf.getvalue()
 
+
 def mark_package_exported(db: Session, package: GestionFullPackage) -> GestionFullPackage:
     """Flip open → exported on successful download (idempotent if already exported)."""
     if package.status == PACKAGE_STATUS_OPEN:
