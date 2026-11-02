@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from datetime import UTC
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.gestion_full_package import (
@@ -15,6 +16,7 @@ from app.models.gestion_full_package import (
     GestionFullPackageLine,
     GestionFullQtyExportAudit,
 )
+from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 
 
@@ -31,6 +33,10 @@ def get_active_package(db: Session) -> Optional[GestionFullPackage]:
         .order_by(GestionFullPackage.id.desc())
         .first()
     )
+
+
+def _package_for_update(db: Session, package_id: int) -> GestionFullPackage:
+    return db.query(GestionFullPackage).filter(GestionFullPackage.id == package_id).with_for_update().one()
 
 
 def get_or_create_open_package(
@@ -51,7 +57,14 @@ def get_or_create_open_package(
         created_by_id=usuario.id,
     )
     db.add(pkg)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = get_active_package(db)
+        if existing is not None:
+            return existing
+        raise
     db.refresh(pkg)
     return pkg
 
@@ -68,6 +81,8 @@ def upsert_package_line(
     """Add or refresh a line; qty_export defaults to qty_pm on create."""
     if qty_pm < 0:
         raise ValueError("qty_pm must be >= 0")
+
+    _package_for_update(db, package.id)
 
     line = (
         db.query(GestionFullPackageLine)
@@ -99,6 +114,13 @@ def upsert_package_line(
     return line
 
 
+def _stock_erp_for_line(db: Session, line: GestionFullPackageLine) -> int:
+    prod = db.get(ProductoERP, line.producto_item_id)
+    if prod is None or prod.stock is None:
+        return 0
+    return max(0, int(prod.stock))
+
+
 def set_qty_export(
     db: Session,
     *,
@@ -108,16 +130,20 @@ def set_qty_export(
     reason: Optional[str] = None,
     stock_erp: Optional[int] = None,
 ) -> GestionFullPackageLine:
-    """Gestor adjusts qty_export (capped by stock_erp when provided); writes audit."""
-    pkg = line.package or db.get(GestionFullPackage, line.package_id)
-    if pkg is not None and pkg.status == PACKAGE_STATUS_LOCKED:
+    """Gestor adjusts qty_export capped by server ``productos_erp.stock``; writes audit.
+
+    ``stock_erp`` is ignored when provided by clients — cap always comes from the DB.
+    """
+    del stock_erp  # never trust client-supplied stock
+    pkg = _package_for_update(db, line.package_id)
+    if pkg.status == PACKAGE_STATUS_LOCKED:
         raise PermissionError("package hard-locked")
     if qty_export < 0:
         raise ValueError("qty_export must be >= 0")
-    capped = qty_export
-    if stock_erp is not None:
-        capped = min(qty_export, max(0, int(stock_erp)))
+    capped = min(qty_export, _stock_erp_for_line(db, line))
 
+    # Re-bind line under the same session after package lock.
+    line = db.get(GestionFullPackageLine, line.id) or line
     old = line.qty_export
     if old == capped and (reason or None) == (line.qty_export_reason or None):
         return line
