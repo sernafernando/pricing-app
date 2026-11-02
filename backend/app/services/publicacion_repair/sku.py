@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from sqlalchemy.orm import Session
 
@@ -99,9 +99,12 @@ async def run_sku_repair(
     client: Optional[MLWebhookClient] = None,
     max_writes: int = repair_audit.DEFAULT_MAX_WRITES_PER_RUN,
     pacing_seconds: float = repair_audit.DEFAULT_WRITE_PACING_SECONDS,
+    before_write: Optional[Callable[[], bool]] = None,
+    on_rate_limited: Optional[Callable[[Optional[str]], None]] = None,
 ) -> dict[str, int]:
     """Scan linked pubs; PUT SELLER_SKU when ml_items.seller_sku drifts from ERP codigo."""
     del db
+    _ = on_rate_limited  # put_item_data does not yet surface Retry-After; kept for worker API parity
     run_id = repair_audit.start_run_bg(job_type=JOB_SKU, trigger=trigger)
     scanned = changed = skipped = errors = 0
     writes_done = 0
@@ -180,6 +183,17 @@ async def run_sku_repair(
                     detail="max_writes_cap",
                 )
                 continue
+            if before_write is not None and not before_write():
+                skipped += 1
+                repair_audit.record_event_bg(
+                    run_id=run_id,
+                    mla_id=mla,
+                    item_id=item_id,
+                    action=ACTION_SKIPPED,
+                    before=before,
+                    detail="pacer_deadline",
+                )
+                break
 
             writes_done += 1
             result = await ml.put_item_data(mla, seller_sku_payload(erp_codigo))

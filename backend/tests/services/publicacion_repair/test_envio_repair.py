@@ -181,6 +181,38 @@ def test_kill_switch_blocks_all_writes(monkeypatch: pytest.MonkeyPatch, patched_
     assert events == []
 
 
+def test_before_write_false_stops_run(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    _finish, events, *_ = patched_audit
+    monkeypatch.setattr(
+        envio_mod,
+        "_load_work_items",
+        lambda db: [
+            ("MLA_A", 1, _shipping(mode="me1", tags=["self_service_in"])),
+            ("MLA_B", 2, _shipping(mode="me1", tags=["self_service_in"])),
+        ],
+    )
+    puts: list[str] = []
+
+    class Fake:
+        async def put_item_shipping(self, mla, shipping):
+            puts.append(mla)
+            return ShippingWriteResult(ok=True, status_code=200)
+
+        async def enable_item_flex(self, *a, **k):
+            raise AssertionError("no flex")
+
+    stats = asyncio.run(
+        envio_mod.run_envio_repair(
+            client=Fake(),
+            pacing_seconds=0,
+            before_write=lambda: False,
+        )
+    )
+    assert puts == []
+    assert any(e.get("detail") == "pacer_deadline" for e in events)
+    assert stats["skipped"] >= 1
+
+
 def test_max_writes_cap_counts_attempts(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
     """Cap counts items we attempt, including Flex refusals — not only full success."""
     _finish, events, shipping_logs, _flex = patched_audit

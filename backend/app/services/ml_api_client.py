@@ -24,6 +24,7 @@ class ShippingWriteResult:
     detail: Optional[str] = None
     not_allowed: bool = False
     body: Optional[Dict[str, Any]] = None
+    retry_after: Optional[str] = None
 
 
 _FLEX_ALREADY_PHRASES = (
@@ -729,6 +730,7 @@ class MercadoLibreAPIClient:
                 status_code=response.status_code,
                 detail=f"http_{response.status_code}: {text_body}"[:300],
                 not_allowed=not_allowed,
+                retry_after=response.headers.get("Retry-After") if response.status_code == 429 else None,
             )
         except Exception as e:
             logger.error("Error put_item_shipping for %s: %s", item_id, e)
@@ -759,6 +761,7 @@ class MercadoLibreAPIClient:
                 status_code=response.status_code,
                 detail=f"http_{response.status_code}: {text_body}"[:300],
                 not_allowed=not_allowed,
+                retry_after=response.headers.get("Retry-After") if response.status_code == 429 else None,
             )
         except Exception as e:
             logger.error("Error enable_item_flex for %s: %s", item_id, e)

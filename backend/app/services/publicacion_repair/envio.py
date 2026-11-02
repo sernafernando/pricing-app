@@ -10,7 +10,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -221,11 +221,16 @@ async def run_envio_repair(
     client: Optional[MercadoLibreAPIClient] = None,
     max_writes: int = repair_audit.DEFAULT_MAX_WRITES_PER_RUN,
     pacing_seconds: float = repair_audit.DEFAULT_WRITE_PACING_SECONDS,
+    before_write: Optional[Callable[[], bool]] = None,
+    on_rate_limited: Optional[Callable[[Optional[str]], None]] = None,
 ) -> dict[str, int]:
     """Repair ME2/colecta/Flex/local_pick_up for linked pubs. Never free_shipping / Full.
 
     `db` is ignored (kept for call-site compat); all DB work uses short background sessions
     so ML HTTP never runs inside an open Pricing transaction.
+
+    `before_write`: optional gate (e.g. shared worker Pacer). Return False to stop the run.
+    `on_rate_limited`: optional callback with Retry-After when ML returns 429.
     """
     del db  # explicit: do not pin a caller session across HTTP
     run_id = repair_audit.start_run_bg(job_type=JOB_ENVIO, trigger=trigger)
@@ -283,6 +288,17 @@ async def run_envio_repair(
                     detail="max_writes_cap",
                 )
                 continue
+            if before_write is not None and not before_write():
+                skipped += 1
+                repair_audit.record_event_bg(
+                    run_id=run_id,
+                    mla_id=mla,
+                    item_id=item_id,
+                    action=ACTION_SKIPPED,
+                    before=before,
+                    detail="pacer_deadline",
+                )
+                break
 
             # Count every item we attempt to write (success or ML refusal), not only full success.
             writes_done += 1
@@ -295,6 +311,8 @@ async def run_envio_repair(
                 if "free_shipping" in payload or "tags" in payload:
                     raise RuntimeError("forbidden shipping keys leaked into PUT payload")
                 result = await ml.put_item_shipping(mla, payload)
+                if result.status_code == 429 and on_rate_limited is not None:
+                    on_rate_limited(result.retry_after)
                 if result.ok:
                     details.append("shipping_put")
                     repair_audit.after_shipping_changed(mla, payload)
@@ -330,6 +348,8 @@ async def run_envio_repair(
 
             if plan.enable_flex:
                 flex = await ml.enable_item_flex(mla)
+                if flex.status_code == 429 and on_rate_limited is not None:
+                    on_rate_limited(flex.retry_after)
                 if flex.ok:
                     details.append("flex_enabled")
                     repair_audit.after_flex_enabled(mla)
