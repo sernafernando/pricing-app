@@ -47,6 +47,11 @@ def ensure_envio(
             row.week_monday = package.week_monday
             reopened = True
         if reopened:
+            # Restart the 3-day no-news window. Otherwise a re-assigned inbound whose
+            # last_reception_at is already >3d old closes on the first empty ML tick.
+            row.last_polled_at = None
+            if row.last_reception_at is not None:
+                row.last_reception_at = datetime.now(UTC)
             if commit:
                 db.commit()
                 db.refresh(row)
