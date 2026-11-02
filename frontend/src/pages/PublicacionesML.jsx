@@ -991,6 +991,7 @@ export default function PublicacionesML() {
             open={Boolean(filters.sel || filters.prod)}
             onClose={closePanel}
             width="lg"
+            resizeKey="publicaciones-ml"
             ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
             panel={
               filters.sel ? (
