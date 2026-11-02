@@ -19,6 +19,7 @@ from app.models.gestion_full_package import (
     GestionFullPackageLine,
 )
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
+from app.models.producto import ProductoERP
 
 _TEMPLATE = Path(__file__).resolve().parents[2] / "assets" / "gestion_full" / "envio-de-stock-full.xlsx"
 _SHEET = " Selección de productos"
@@ -168,11 +169,53 @@ def build_ops_ean_xlsx(db: Session, package: GestionFullPackage) -> bytes:
     return buf.getvalue()
 
 
+def recap_qty_export_to_stock(db: Session, package: GestionFullPackage) -> int:
+    """Clamp each line's qty_export to current ``productos_erp.stock``. Returns changed count."""
+    changed = 0
+    for ln in package.lines:
+        prod = db.get(ProductoERP, ln.producto_item_id)
+        stock = max(0, int(prod.stock if prod is not None and prod.stock is not None else 0))
+        if ln.qty_export > stock:
+            ln.qty_export = stock
+            changed += 1
+    return changed
+
+
+def prepare_package_for_export(db: Session, package: GestionFullPackage) -> GestionFullPackage:
+    """Row-lock, re-cap qty_export to ERP stock, flush — call **before** building Excel bytes.
+
+    The first download must already reflect the stock cap (D6); building before re-cap
+    shipped uncapped qty while the DB was corrected only on mark_package_exported.
+    """
+    pkg = (
+        db.query(GestionFullPackage)
+        .filter(GestionFullPackage.id == package.id)
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
+    if pkg.status == PACKAGE_STATUS_LOCKED:
+        raise ValueError("paquete hard-locked")
+    recap_qty_export_to_stock(db, pkg)
+    db.flush()
+    return pkg
+
+
 def mark_package_exported(db: Session, package: GestionFullPackage) -> GestionFullPackage:
-    """Flip open → exported on successful download (idempotent if already exported)."""
-    if package.status == PACKAGE_STATUS_OPEN:
-        package.status = PACKAGE_STATUS_EXPORTED
-        package.exported_at = datetime.now(UTC)
-        db.commit()
-        db.refresh(package)
-    return package
+    """Re-cap qty_export to stock_erp, then flip open → exported (idempotent if exported)."""
+    pkg = (
+        db.query(GestionFullPackage)
+        .filter(GestionFullPackage.id == package.id)
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
+    if pkg.status == PACKAGE_STATUS_LOCKED:
+        raise ValueError("paquete hard-locked")
+    recap_qty_export_to_stock(db, pkg)
+    if pkg.status == PACKAGE_STATUS_OPEN:
+        pkg.status = PACKAGE_STATUS_EXPORTED
+        pkg.exported_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(pkg)
+    return pkg

@@ -60,3 +60,40 @@ def test_write_text_cell_forces_string_not_formula() -> None:
     assert cell.value == dangerous
     assert cell.data_type == "s"
     assert cell.data_type != "f"
+
+
+def test_recap_qty_export_to_stock() -> None:
+    from app.services.gestion_full.excel_export import recap_qty_export_to_stock
+
+    ln_hi = SimpleNamespace(producto_item_id=1, qty_export=20)
+    ln_ok = SimpleNamespace(producto_item_id=2, qty_export=3)
+    pkg = SimpleNamespace(lines=[ln_hi, ln_ok])
+    db = MagicMock()
+
+    def _get(_model: object, key: object) -> object:
+        if key == 1:
+            return SimpleNamespace(stock=3)
+        if key == 2:
+            return SimpleNamespace(stock=10)
+        return None
+
+    db.get.side_effect = _get
+    assert recap_qty_export_to_stock(db, pkg) == 1
+    assert ln_hi.qty_export == 3
+    assert ln_ok.qty_export == 3
+
+
+def test_prepare_package_for_export_recaps_before_flush() -> None:
+    from app.services.gestion_full.excel_export import prepare_package_for_export
+
+    ln = SimpleNamespace(producto_item_id=1, qty_export=20)
+    pkg_in = SimpleNamespace(id=9, status="open", lines=[ln])
+    pkg_locked = SimpleNamespace(id=9, status="open", lines=[ln])
+    db = MagicMock()
+    db.query.return_value.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = pkg_locked
+    db.get.return_value = SimpleNamespace(stock=3)
+
+    out = prepare_package_for_export(db, pkg_in)
+    assert out is pkg_locked
+    assert ln.qty_export == 3
+    db.flush.assert_called_once()
