@@ -33,6 +33,23 @@ _RESOLVE_PRODUCT_SQL = text(
 )
 
 
+def puede_editar_con_pares(
+    pares: Optional[list],
+    marca: Optional[str],
+    categoria: Optional[str],
+) -> bool:
+    """True when preloaded ``pares`` allows writing an override for marca/categoria.
+
+    ``pares`` is the return of ``get_pares_marca_categoria_usuario`` (``None`` = full view).
+    """
+    if pares is None:
+        return True
+    if not pares:
+        return False
+    key = ((marca or "").upper(), (categoria or "").upper())
+    return key in {(m.upper(), c.upper()) for m, c in pares}
+
+
 def puede_editar_override_para(
     usuario: Usuario,
     db: Session,
@@ -40,13 +57,11 @@ def puede_editar_override_para(
     categoria: Optional[str],
 ) -> bool:
     """True when the user may write an override for a product with this marca/categoria."""
-    pares = get_pares_marca_categoria_usuario(db, usuario)
-    if pares is None:
-        return True
-    if not pares:
-        return False
-    key = ((marca or "").upper(), (categoria or "").upper())
-    return key in set(pares)
+    return puede_editar_con_pares(
+        get_pares_marca_categoria_usuario(db, usuario),
+        marca,
+        categoria,
+    )
 
 
 def usuario_puede_editar_algun_override(usuario: Usuario, db: Session) -> bool:
