@@ -1,8 +1,8 @@
 """Sell-out programs: the higher level that groups campaigns (campaign system S1; "Programa" on screen).
 
-A program groups the campaigns that are one deal renewed over time or split by what each applies to (production,
-2026-11-02: "EPSON PROGRAM1" x13, "EPSON PROG 3.0", "EPSON PROGR 7.5", ... all 2026-08-01..2026-12-31; the number is
-the amount, not a period). It is metadata only: no allocator, cap or money path reads `programa_id`, so assigning
+A program groups the campaigns that are one deal renewed over time or split by what each applies to (in production
+one name repeated over many products, or a family of names that carry their per-unit amount, all over the same
+dates). It is metadata only: no allocator, cap or money path reads `programa_id`, so assigning
 or clearing it queues nothing in `sell_out_dirty` and works on active and voided campaigns alike. Existing campaigns
 are assigned by hand: `sugerencias` only proposes groups of campaigns without a program that share the exact same
 dates (the repeated names do, and differ only in what they apply to), never applies them.
@@ -202,7 +202,7 @@ def programas_de(db: Session, campanas: list[SellOutCampana]) -> dict[int, dict]
 
 
 def _palabras_comunes(nombres: list[str]) -> str:
-    """The leading words every name starts with, ignoring case ("EPSON PROG 3.0" and "EPSON PROGRAM1": "EPSON"),
+    """The leading words every name starts with, ignoring case ("MARCA PROG 3.0" and "MARCA PROGRAM1": "MARCA"),
     in the first name's spelling; "" when they share none."""
     listas = [nombre.split() for nombre in nombres]
     comunes = []

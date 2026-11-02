@@ -225,3 +225,32 @@ def test_suggestions_group_campaigns_without_a_program_by_identical_dates(engine
         "fecha_hasta": date(2026, 12, 31),
         "estado": "anulada",
     }
+
+
+def test_editar_campana_keeps_the_program_and_its_updated_at_moves(engine, Sesion) -> None:
+    """`editar_campana` is a full replace and `SellOutCampanaIn` carries no program: the stored one stays."""
+    from app.models.sell_out import SellOutCampana
+    from app.schemas.sell_out import SellOutCampanaIn
+    from app.services.sell_out import campanas
+
+    programa = _programa(Sesion, "Programa de prueba")
+    grupo = w.grupo(engine, [{"marca": "TP-LINK"}])
+    cid = w.campana(engine, [grupo], date(2026, 8, 1), date(2026, 12, 31), nombre="Campaña", programa_id=programa)
+    data = SellOutCampanaIn(
+        nombre="Campaña editada",
+        fecha_desde=date(2026, 8, 1),
+        fecha_hasta=date(2026, 10, 31),
+        tipo="por_unidad",
+        monto_unit="10",
+        moneda="ARS",
+        grupo_ids=[grupo],
+    )
+    with Sesion() as db:
+        campanas.editar_campana(db, cid, data, USUARIO)
+    with Sesion() as db:
+        campana = db.get(SellOutCampana, cid)
+        assert (campana.nombre, campana.fecha_hasta, campana.programa_id) == (
+            "Campaña editada",
+            date(2026, 10, 31),
+            programa,
+        )

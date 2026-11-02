@@ -1,7 +1,8 @@
 """Router: sell-out programs (`/api/sell-out/programas`), campaign system S1 ("Programa" on screen).
 
-A program groups the campaigns that are one deal renewed over time or split by what each applies to (production:
-"EPSON PROGRAM1" x13, "EPSON PROG 3.0", "EPSON PROGR 7.5", ... over the same dates). It is metadata only: the
+A program groups the campaigns that are one deal renewed over time or split by what each applies to (one name
+repeated over many products, or a family of names that carry their per-unit amount, over the same dates). It is
+metadata only: the
 money of a campaign never depends on it. The rules live in `app.services.sell_out.programas`; this module is HTTP
 only.
 
