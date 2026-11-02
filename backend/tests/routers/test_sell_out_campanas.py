@@ -243,6 +243,51 @@ def test_list_filters_by_state_validity_text_and_group(client, gestor, grupos) -
     assert client.get(BASE, params={"page_size": 1}, headers=gestor).json()["total"] == 3
 
 
+def test_list_filters_by_currency_period_overlap_and_brand(client, gestor, grupos, db) -> None:
+    """Sell-out list filters the Sell out tab lacked (campanas-sistema S3): moneda; a period [desde, hasta]
+    that overlaps the campaign's dates; and marca, the brand of a product its groups reach (the campaign rule)."""
+    from app.models.offset_grupo_filtro import OffsetGrupoFiltro
+    from app.models.producto import ProductoERP
+
+    db.add_all(
+        [
+            ProductoERP(item_id=2964, codigo="C2964", descripcion="Archer", marca="TP-LINK", categoria="Routers"),
+            ProductoERP(item_id=3100, codigo="C3100", descripcion="L3250", marca="EPSON", categoria="Impresoras"),
+            OffsetGrupoFiltro(grupo_id=grupos[0], marca="TP-LINK"),
+            OffsetGrupoFiltro(grupo_id=grupos[1], item_id=3100),
+        ]
+    )
+    db.flush()
+    nov = _crear(client, gestor, grupos, moneda="ARS")
+    dic = _crear(
+        client,
+        gestor,
+        grupos,
+        nombre="Epson diciembre",
+        fecha_desde="2026-12-01",
+        fecha_hasta="2026-12-31",
+        grupo_ids=grupos[1:],
+        moneda="USD",
+        tc_modo="al_cobro",
+    )
+
+    def ids(**params) -> list[int]:
+        resp = client.get(BASE, params=params, headers=gestor)
+        assert resp.status_code == 200, resp.text
+        return [c["id"] for c in resp.json()["items"]]
+
+    assert ids(moneda="USD") == [dic["id"]]
+    assert ids(moneda="ARS") == [nov["id"]]
+    assert ids(desde="2026-11-20", hasta="2026-12-05") == [dic["id"], nov["id"]]
+    assert ids(desde="2026-12-01") == [dic["id"]]
+    assert ids(hasta="2026-11-30") == [nov["id"]]
+    assert ids(desde="2027-01-01", hasta="2027-03-31") == []
+    assert ids(marca="EPSON") == [dic["id"]]
+    assert ids(marca="TP-LINK", moneda="USD") == []
+    assert ids(marca="SAMSUNG") == []
+    assert client.get(BASE, params={"desde": "2026-12-31", "hasta": "2026-12-01"}, headers=gestor).status_code == 422
+
+
 def test_get_one_and_unknown_is_404(client, lector, gestor, grupos) -> None:
     out = _crear(client, gestor, grupos)
     assert client.get(f"{BASE}/{out['id']}", headers=lector).json() == out

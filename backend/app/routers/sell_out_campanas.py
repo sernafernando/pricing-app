@@ -58,6 +58,7 @@ from app.models.sell_out import SellOutCampana
 from app.models.usuario import Usuario
 from app.schemas.sell_out import (
     Estado,
+    Moneda,
     SellOutAnularIn,
     SellOutAnularMasivoIn,
     SellOutAnularMasivoOut,
@@ -120,12 +121,28 @@ def listar_campanas(
     vigente_en: Optional[date] = Query(None, description="Campaigns whose date range includes this day"),
     q: Optional[str] = Query(None, max_length=200, description="Name or description"),
     grupo_id: Optional[int] = Query(None),
+    moneda: Optional[Moneda] = Query(None),
+    desde: Optional[date] = Query(None, description="With hasta: campaigns whose dates overlap [desde, hasta]"),
+    hasta: Optional[date] = Query(None),
+    marca: Optional[str] = Query(None, max_length=100, description="Brand of a product the campaign's groups reach"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     user: Usuario = Depends(requiere_ver),
     db: Session = Depends(get_db),
 ) -> dict:
-    filtros = service.FiltrosCampanas(estado=estado, vigente_en=vigente_en, q=q, grupo_id=grupo_id, tipo=tipo)
+    if desde and hasta and desde > hasta:
+        raise HTTPException(status_code=422, detail="La fecha desde no puede ser posterior a la fecha hasta.")
+    filtros = service.FiltrosCampanas(
+        estado=estado,
+        vigente_en=vigente_en,
+        q=q,
+        grupo_id=grupo_id,
+        tipo=tipo,
+        moneda=moneda,
+        desde=desde,
+        hasta=hasta,
+        marca=marca,
+    )
     campanas, total = service.listar_campanas(db, filtros, page=page, page_size=page_size)
     items = service.solo_sus_marcas(db, resumen.serializar(db, campanas), _pares_reparto(db, user))
     return {"items": items, "total": total, "page": page, "page_size": page_size}
