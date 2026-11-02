@@ -42,7 +42,7 @@ import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublica
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { withProductSelection } from '../components/publicacionesMl/productSelection';
-import useProductSelection from '../components/publicacionesMl/useProductSelection';
+import useRowSelection, { productKey, publicationKey } from '../components/publicacionesMl/useRowSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';
 import useTnCardPercent from '../components/publicacionesMl/useTnCardPercent';
@@ -151,6 +151,13 @@ const STOCK_LABELS = {
 };
 
 const EMPTY_ROWS = [];
+// A row for the selection: a publication (`item_id`) checks itself; a product node (`productoItemId`) its product.
+const selectionRow = (row) =>
+  row == null
+    ? { key: null, productId: null, itemId: null }
+    : row.item_id
+      ? { key: publicationKey(row.item_id), productId: row.link?.producto_item_id ?? null, itemId: row.item_id }
+      : { key: productKey(row.productoItemId), productId: row.productoItemId ?? null, itemId: null };
 
 // Métricas ML's order (Producto | Publicación | Agrupado). The publication list stays the default: it is this
 // screen's own unit, and every link without `vista` already opens it.
@@ -435,11 +442,18 @@ export default function PublicacionesML() {
   // Productos' "markup con offsets" under the clásica markup: the offsets are about the cost, so only with the margin.
   // Also for the panels' Precios tab: in the tree, which has no price columns, only while a panel is open.
   const listOffsets = useListOffsets(canSeePrices && canSeeMargin && (!agrupado || Boolean(filters.sel || filters.prod)));
-  // The products checked for the bulk pricing actions (a publication checks its linked product), as in Productos
-  // (S12d): Shift+click checks a range of the rows on show, the title header checks the page, and the selection
-  // outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page there.
-  const productSelection = useProductSelection(agrupado ? EMPTY_ROWS : listedProductIds);
-  const { checked: checkedIds, clear: clearChecked } = productSelection;
+  // The rows checked for the bulk actions: a publication checks itself, a product row (Producto view) its product.
+  // As in Productos (S12d), Shift+click checks a range of the rows on show, the title header checks the page, and the
+  // selection outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page.
+  const listedRows = useMemo(
+    () =>
+      producto
+        ? productRows.rows.map((row) => selectionRow(row.type === 'node' ? row.node : row.type === 'item' ? row.item : null))
+        : (data?.items ?? EMPTY_ROWS).map(selectionRow),
+    [producto, productRows.rows, data],
+  );
+  const productSelection = useRowSelection(agrupado ? EMPTY_ROWS : listedRows);
+  const { checked: checkedRows, productIds: checkedIds, itemIds: checkedItemIds, clear: clearChecked } = productSelection;
   // A price typed in a cell (S11c), and the rebate / web transfer edited in theirs (S1), are saved as Productos does;
   // the list is reloaded after it, as after a panel write (its prices with it).
   const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
@@ -539,8 +553,8 @@ export default function PublicacionesML() {
     [columns, columnVisibility],
   );
   const selection = useMemo(
-    () => ({ checked: checkedIds, onToggle: productSelection.onToggle, togglePage: productSelection.togglePage, pageState: productSelection.pageState }),
-    [checkedIds, productSelection.onToggle, productSelection.togglePage, productSelection.pageState],
+    () => ({ checked: checkedRows, onToggle: productSelection.onToggle, togglePage: productSelection.togglePage, pageState: productSelection.pageState }),
+    [checkedRows, productSelection.onToggle, productSelection.togglePage, productSelection.pageState],
   );
   const selectableColumns = useMemo(() => withProductSelection(visibleColumns, selection), [visibleColumns, selection]);
 
@@ -649,8 +663,9 @@ export default function PublicacionesML() {
     paintProduct(productId, color);
   };
   const extendRow = (key) => {
-    const productId = productIdOfRow(key);
-    if (productId != null) productSelection.extendTo(productId);
+    const row = producto ? productRows.rows.find((candidate) => candidate.id === key) : null;
+    const rowKey = row?.type === 'node' ? productKey(row.node.productoItemId) : publicationKey(row?.item?.item_id ?? key);
+    if (rowKey != null) productSelection.extendTo(rowKey);
   };
   // r / w / o (S9): flip the focused row's product rebate, web transfer or "fuera de tarjetas", as in Productos. They
   // write from the product's own figures (its stored percentages), so they wait for its prices.
@@ -761,6 +776,7 @@ export default function PublicacionesML() {
           <BulkActions
             filters={rowFilters}
             checkedIds={checkedIds}
+            checkedPublications={checkedItemIds.length}
             offPageCount={agrupado ? 0 : productSelection.offPageCount}
             onClearChecked={clearChecked}
             canSeeMargin={canSeeMargin}
