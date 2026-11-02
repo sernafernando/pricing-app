@@ -149,11 +149,15 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     return () => window.removeEventListener('resize', update);
   }, [open, resizable]);
 
-  // The bounds a gesture moves within. They stretch to include where it
-  // starts: on a narrow window the default width can sit outside them, and a
-  // step must never jump the divider the opposite way.
-  const boundsFrom = (start, max) => ({ min: Math.min(PANEL_MIN_WIDTH, start), max: Math.max(max, start) });
-  const clampWidth = (value, bounds) => Math.min(Math.max(Math.round(value), bounds.min), bounds.max);
+  // Where a step or drag from `start` towards `target` lands: within the same
+  // bounds the CSS clamp applies, so the saved width is the one on screen.
+  // `null` when it would not move the divider the asked way, which happens
+  // on a narrow window whose default width already sits outside the bounds.
+  const moveTo = (start, target, max) => {
+    if (target === start) return null;
+    const next = Math.min(Math.max(Math.round(target), PANEL_MIN_WIDTH), max);
+    return (target > start ? next > start : next < start) ? next : null;
+  };
 
   // Steps and drags start from the width on screen, which the CSS clamp may
   // have narrowed below a width saved on a wider window.
@@ -161,10 +165,9 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     const box = measure();
-    const step = e.key === 'ArrowLeft' ? RESIZE_STEP : -RESIZE_STEP;
-    const next = clampWidth(box.width + step, boundsFrom(box.width, box.max));
+    const next = moveTo(box.width, box.width + (e.key === 'ArrowLeft' ? RESIZE_STEP : -RESIZE_STEP), box.max);
     setMeasured(box);
-    if (next === Math.round(box.width)) return;
+    if (next === null) return;
     setPanelWidth(next);
     saveWidth(resizeKey, next);
   };
@@ -175,13 +178,14 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     const box = measure();
     const startX = e.clientX;
     const startWidth = box.width;
-    const bounds = boundsFrom(startWidth, box.max);
+    const widthBefore = panelWidth;
     let latest = null;
     setMeasured(box);
     // On the window, not the handle: a fast drag leaves the thin handle behind.
     const move = (event) => {
-      latest = clampWidth(startWidth + startX - event.clientX, bounds);
-      setPanelWidth(latest);
+      latest = moveTo(startWidth, startWidth + startX - event.clientX, box.max);
+      // Back where it started (or pushed the way it cannot go): as before the drag.
+      setPanelWidth(latest ?? widthBefore);
     };
     const end = () => {
       window.removeEventListener('pointermove', move);
@@ -197,7 +201,10 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
 
   const resized = resizable && panelWidth !== null;
   const valueNow = panelWidth === null ? measured.width : Math.min(panelWidth, measured.max);
-  const valueBounds = boundsFrom(valueNow, measured.max);
+  // On a narrow window the default width can sit outside the bounds; the
+  // reported range still contains it.
+  const valueMin = Math.min(PANEL_MIN_WIDTH, valueNow);
+  const valueMax = Math.max(measured.max, valueNow);
   const gridStyle = resized
     ? {
         '--split-panel-drag-width': `${panelWidth}px`,
@@ -226,8 +233,8 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
           aria-orientation="vertical"
           aria-label="Ancho del panel"
           aria-valuenow={valueNow}
-          aria-valuemin={valueBounds.min}
-          aria-valuemax={valueBounds.max}
+          aria-valuemin={valueMin}
+          aria-valuemax={valueMax}
           tabIndex={0}
           onKeyDown={handleSeparatorKeyDown}
           onPointerDown={handlePointerDown}

@@ -314,8 +314,9 @@ describe('resizing (opt-in by resizeKey)', () => {
     await userEvent.keyboard('{ArrowLeft}');
     expect(dragWidth(container)).toBe('');
     expect(localStorage.getItem(STORAGE)).toBeNull();
+    // Right narrows it, onto the widest the table's minimum allows.
     await userEvent.keyboard('{ArrowRight}');
-    expect(dragWidth(container)).toBe(`${378 - RESIZE_STEP}px`);
+    expect(dragWidth(container)).toBe(`${GRID - TABLE_MIN_WIDTH}px`);
     unmount();
 
     // Already under the panel's minimum: right must not widen it, left widens it.
@@ -326,8 +327,32 @@ describe('resizing (opt-in by resizeKey)', () => {
     separator().focus();
     await userEvent.keyboard('{ArrowRight}');
     expect(dragWidth(second.container)).toBe('');
+    // Left lands on the panel's minimum, the narrowest width the layout shows.
     await userEvent.keyboard('{ArrowLeft}');
-    expect(dragWidth(second.container)).toBe(`${340 + RESIZE_STEP}px`);
+    expect(dragWidth(second.container)).toBe(`${PANEL_MIN_WIDTH}px`);
+    expect(localStorage.getItem(STORAGE)).toBe(String(PANEL_MIN_WIDTH));
+  });
+
+  it.each([
+    ['ArrowLeft', 884, 420.42],
+    ['ArrowRight', 800, 340.2],
+  ])('a fractional default width outside the bounds is not resized the wrong way by %s', async (key, grid, panel) => {
+    GRID = grid;
+    PANEL = panel;
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    separator().focus();
+    await userEvent.keyboard(`{${key}}`);
+    expect(dragWidth(container)).toBe('');
+    expect(localStorage.getItem(STORAGE)).toBeNull();
+  });
+
+  it('a click that jitters without moving sideways is not a resize', () => {
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    fireEvent.pointerDown(separator(), { button: 0, clientX: 1000, clientY: 300 });
+    fireEvent.pointerMove(window, { clientX: 1000, clientY: 304 });
+    fireEvent.pointerUp(window, { clientX: 1000, clientY: 304 });
+    expect(dragWidth(container)).toBe('');
+    expect(localStorage.getItem(STORAGE)).toBeNull();
   });
 
   it('the bounds follow the window when it is resized', () => {
