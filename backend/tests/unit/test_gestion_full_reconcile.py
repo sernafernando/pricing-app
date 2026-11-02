@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.services.gestion_full.reconcile import CLOSE_AFTER_IDLE, _op_from_ml_row, reconcile_envio
+
+_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "ml_fulfillment" / "inbound_reception_probe_notes.json"
 
 
 def test_op_from_ml_row_parses_inbound_reception() -> None:
@@ -23,6 +27,19 @@ def test_op_from_ml_row_parses_inbound_reception() -> None:
     assert parsed["operation_id"] == 99
     assert parsed["cantidad"] == 4
     assert parsed["inventory_id"] == "INV1"
+
+
+def test_op_from_ml_row_parses_captured_live_operation() -> None:
+    """Fernando: load captured_live_operation from the probe fixture (not only synthetic rows)."""
+    payload = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+    row = payload["captured_live_operation"]
+    inventory_id = str(row.get("inventory_id") or "ZLKG92545")
+    parsed = _op_from_ml_row(row, inventory_id=inventory_id)
+    assert parsed is not None
+    assert parsed["inbound_id"] == "79909756"
+    assert parsed["operation_id"] == 7604247737135372849
+    assert parsed["cantidad"] == 12
+    assert parsed["inventory_id"] == inventory_id
 
 
 def test_op_from_ml_row_skips_other_types() -> None:
@@ -202,3 +219,39 @@ def test_handler_fails_when_every_envio_errors() -> None:
         result = handler.run(ctx)
     assert result.success is False
     assert result.detail["results"][0]["error"] is True
+
+
+def test_list_open_envios_orders_last_polled_nulls_first() -> None:
+    from app.services.gestion_full.reconcile import list_open_envios
+
+    db = MagicMock()
+    filtered = db.query.return_value.filter.return_value
+    filtered.order_by.return_value.all.return_value = []
+    list_open_envios(db)
+    assert filtered.order_by.called
+    # SQLAlchemy ClauseList — stringify args to pin nullsfirst + created_at + inbound_id
+    ordered = " ".join(str(a) for a in filtered.order_by.call_args[0])
+    assert "last_polled_at" in ordered
+    assert "created_at" in ordered
+
+
+def test_reconcile_dedupes_inventory_ids() -> None:
+    """Two package lines sharing inventory_id must not double-call ML (IntegrityError risk)."""
+    db = MagicMock()
+    db.query.return_value.filter_by.return_value.all.return_value = [
+        SimpleNamespace(inventory_id="INV-DUP"),
+        SimpleNamespace(inventory_id="INV-DUP"),
+    ]
+    client = MagicMock()
+    client.get.return_value = SimpleNamespace(status=200, body={"results": []})
+    envio = SimpleNamespace(
+        inbound_id="INB-1",
+        package_id=1,
+        reception_closed_at=None,
+        last_reception_at=None,
+        last_polled_at=None,
+    )
+    now = datetime(2026, 11, 2, tzinfo=UTC)
+    with patch("app.core.config.settings.ML_USER_ID", "1"):
+        reconcile_envio(db, envio, client=client, now=now)
+    assert client.get.call_count == 1

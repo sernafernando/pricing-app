@@ -77,6 +77,9 @@ def test_assign_then_hard_lock() -> None:
         assert ln1.inbound_id == "A"
         assert pkg.status == "exported"  # not all assigned yet
         ensure.assert_called()
+        # Same transaction as assign: ensure_envio must flush, not commit alone.
+        assert ensure.call_args.kwargs.get("commit") is False
+        assert db.commit.call_count >= 1
 
         assign_inbound_to_lines(db, pkg, line_ids=[2], inbound_id="B")
         assert ln2.inbound_id == "B"

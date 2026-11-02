@@ -119,3 +119,16 @@ def test_prepare_package_for_export_ok_when_stock_covers_qty() -> None:
     assert out is pkg_locked
     assert ln.qty_export == 3
     db.flush.assert_called_once()
+
+
+def test_export_routes_call_prepare_before_build() -> None:
+    """Fernando: removing prepare from the route must fail this test."""
+    import inspect
+
+    from app.routers import gestion_full as mod
+
+    for fn in (mod.get_package_export_ml, mod.get_package_export_ops):
+        src = inspect.getsource(fn)
+        assert "prepare_package_for_export" in src
+        build = "build_ml_full_xlsx" if fn is mod.get_package_export_ml else "build_ops_ean_xlsx"
+        assert src.index("prepare_package_for_export") < src.index(build)
