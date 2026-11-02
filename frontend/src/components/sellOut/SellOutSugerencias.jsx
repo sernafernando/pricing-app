@@ -4,6 +4,7 @@ import { StatusPill } from '../kit';
 import { sellOutProgramasAPI } from '../../services/sellOutAPI';
 import { apiMessage } from '../sellIn/sellInFormat';
 import { claveSugerencia, fechasDe, nombreNormalizado, plural, textoActivas, textoAsignadas } from './sellOutProgramas';
+import { ASIGNAR_MAX } from './sellOutSeleccion';
 import { useFocoAtrapado } from './useFocoAtrapado';
 import styles from './SellOutSugerencias.module.css';
 
@@ -30,6 +31,8 @@ function Tarjeta({ sugerencia, onDescartar, onProgramaCreado, onCreado }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [creado, setCreado] = useState(null); // created on a try whose assignment then failed: a retry only assigns
+  // Checked before anything is sent, so no program is created for an assignment the API would refuse.
+  const demasiadas = sugerencia.campanas.length > ASIGNAR_MAX;
   const activas = sugerencia.campanas.filter((c) => c.estado === 'activa').length;
   const fechas = fechasDe(sugerencia.fecha_desde, sugerencia.fecha_hasta);
   const Chevron = abierta ? ChevronDown : ChevronRight;
@@ -90,6 +93,7 @@ function Tarjeta({ sugerencia, onDescartar, onProgramaCreado, onCreado }) {
           ))}
         </ul>
       )}
+      {demasiadas && <p className={styles.error}>{`Se pueden asignar hasta ${ASIGNAR_MAX} campañas por vez.`}</p>}
       {error && (
         <p className={styles.error} role="alert">
           <AlertCircle size={14} aria-hidden="true" /> {error}
@@ -99,7 +103,7 @@ function Tarjeta({ sugerencia, onDescartar, onProgramaCreado, onCreado }) {
         <button type="button" className="btn-tesla outline sm" onClick={onDescartar} disabled={busy}>
           Descartar
         </button>
-        <button type="button" className="btn-tesla primary sm" onClick={crear} disabled={busy || nombre.trim() === ''}>
+        <button type="button" className="btn-tesla primary sm" onClick={crear} disabled={busy || demasiadas || nombre.trim() === ''}>
           Crear programa y asignar
         </button>
       </div>

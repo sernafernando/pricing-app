@@ -1362,6 +1362,22 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
     expect(abrir).toHaveFocus();
   });
 
+  it('a suggestion with more than 500 campaigns cannot be created and assigned at once', async () => {
+    const grande = {
+      ...SUGERENCIAS.items[0],
+      campanas: Array.from({ length: 501 }, (_, i) => ({ ...SUGERENCIAS.items[0].campanas[0], id: 2000 + i })),
+    };
+    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: { ...SUGERENCIAS, items: [grande], total: 1 } });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
+    const card = tarjeta('01/08/2026', '31/10/2026');
+    expect(card).toHaveTextContent('Se pueden asignar hasta 500 campañas por vez.');
+    expect(within(card).getByRole('button', { name: 'Crear programa y asignar' })).toBeDisabled();
+    expect(within(card).getByRole('button', { name: 'Descartar' })).toBeEnabled();
+    expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
+  });
+
   it('"Descartar" hides that card only, for this session, and writes nothing', async () => {
     sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
     const user = userEvent.setup();

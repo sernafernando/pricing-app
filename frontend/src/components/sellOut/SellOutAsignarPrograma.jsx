@@ -11,9 +11,9 @@ import styles from './SellOutAsignarPrograma.module.css';
 /**
  * "Asignar a programa (N campañas)" (Stitch programas/modal): to an active program, or to a new one it creates first
  * (`POST /sell-out/programas`, then `POST /asignar`). The API's refusals (an archived program, a duplicate name,
- * unknown campaigns) show inline and the dialog stays open. Above `ASIGNAR_MAX` campaigns «Asignar» is disabled. Closes only with X or "Cancelar". `onProgramaCreado()` runs right after a create. `onAsignadas(texto)`
- * gets the result line. The focus stays inside while it is open and goes back to the button that opened it
- * (`useFocoAtrapado`).
+ * unknown campaigns) show inline and the dialog stays open. Above `ASIGNAR_MAX` campaigns «Asignar» is disabled. Closes
+ * only with X or "Cancelar". `onProgramaCreado()` runs right after a create. `onAsignadas(texto)` gets the result line.
+ * The focus stays inside while it is open and goes back to the button that opened it (`useFocoAtrapado`).
  */
 export default function SellOutAsignarPrograma({ campanaIds, programas, onClose, onAsignadas, onProgramaCreado }) {
   const id = useId();
@@ -42,7 +42,10 @@ export default function SellOutAsignarPrograma({ campanaIds, programas, onClose,
       } else if (creado && creado.nombre === nombreLimpio) {
         destino = creado;
       } else {
-        const { data } = await sellOutProgramasAPI.crear({ nombre: nombreLimpio, descripcion: descripcion.trim() || null });
+        const { data } = await sellOutProgramasAPI.crear({
+          nombre: nombreLimpio,
+          descripcion: descripcion.trim() || null,
+        });
         destino = data;
         setCreado(data);
         onProgramaCreado?.(); // the page's filter and this select see it, whatever the assignment does
@@ -66,7 +69,14 @@ export default function SellOutAsignarPrograma({ campanaIds, programas, onClose,
 
   return (
     <div className="modal-overlay-tesla">
-      <div ref={foco.ref} onKeyDown={foco.onKeyDown} className="modal-tesla sm" role="dialog" aria-modal="true" aria-labelledby={`${id}-titulo`}>
+      <div
+        ref={foco.ref}
+        onKeyDown={foco.onKeyDown}
+        className="modal-tesla sm"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`${id}-titulo`}
+      >
         <div className="modal-header-tesla">
           <h2 id={`${id}-titulo`} className="modal-title-tesla">
             {titulo}
@@ -144,10 +154,13 @@ export default function SellOutAsignarPrograma({ campanaIds, programas, onClose,
             {errorEn('nuevo')}
           </div>
           {demasiadas && (
-            <p className="modal-alert warning" role="alert">{`Se pueden asignar hasta ${ASIGNAR_MAX} campañas por vez.`}</p>
+            <p className="modal-alert warning" role="alert">
+              {`Se pueden asignar hasta ${ASIGNAR_MAX} campañas por vez.`}
+            </p>
           )}
           <p className="modal-alert info">
-            <Info size={14} aria-hidden="true" /> Asignar un programa no cambia la plata de las campañas: solo las agrupa.
+            <Info size={14} aria-hidden="true" />
+            {' Asignar un programa no cambia la plata de las campañas: solo las agrupa.'}
           </p>
         </div>
         <div className="modal-footer-tesla">

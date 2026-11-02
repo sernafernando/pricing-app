@@ -52,7 +52,10 @@ function CampanasDelGrupo({ grupo, filtros, version, columnas, seleccion, onTogg
         />
       ))}
       {lista.total > lista.items.length &&
-        aviso(`Se muestran ${lista.items.length} de ${lista.total} campañas: filtrá por este programa en la vista Lista para verlas todas.`)}
+        aviso(
+          `Se muestran ${lista.items.length} de ${lista.total} campañas: ` +
+            'filtrá por este programa en la vista Lista para verlas todas.',
+        )}
     </>
   );
 }
@@ -85,10 +88,10 @@ function Grupo({ grupo, abierto, onAlternar, ...resto }) {
 
 /**
  * The "Por programa" view of the sell-out campaigns (campanas-sistema slice E): one row per program with campaigns
- * under the list's filters (`GET /sell-out/campanas/por-programa`, so a program with none is not shown and the
- * request count stays one per page of groups), then "Sin programa". Expanding a group reads its campaigns with the
- * same filters plus the program, shown with the flat list's row (checkbox, "Ver campaña", "Renovar"). A new `version` reads
- * the groups and the open ones again. `seleccion` / `onToggle` come from the bulk bar; without them there are no
+ * under the list's filters (`GET /sell-out/campanas/por-programa`, so a program with none is not shown and the request
+ * count stays one per page of groups), then "Sin programa". Expanding a group reads its campaigns with the same filters
+ * plus the program, shown with the flat list's row (checkbox, "Ver campaña", "Renovar"). A new `version` reads the
+ * groups and the open ones again. `seleccion` / `onToggle` come from the bulk bar; without them there are no
  * checkboxes.
  */
 export default function SellOutPorPrograma({ filtros, version, seleccion, onToggle, selectedId, onSelect, onRenovar }) {
