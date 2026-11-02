@@ -1128,7 +1128,8 @@ def items_ask(
         description=(
             "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, codigo, marca, "
             "tipo (Clásica, 3, 6, 9, 12 cuotas), costo and the list headers lista_clasica, lista_rebate, "
-            "lista_oferta, lista_web (ver_ganancia), markup (ver_ganancia); Métricas ML's figures over the whole filtered set (ml_metricas.ver): facturado_30d, "
+            "lista_oferta, lista_web (ver_ganancia), markup (ver_ganancia); Métricas ML's figures over the whole "
+            "filtered set (ml_metricas.ver): facturado_30d, "
             "unidades_7d, unidades_30d, markup_30d and total_gauss_30d (also ver_ganancia). Several keys as csv "
             "(multi-column sort), any combination"
         ),
