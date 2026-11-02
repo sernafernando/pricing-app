@@ -65,7 +65,19 @@ class GestionFullReconcileHandler:
                 logger.exception("gestion_full.reconcile failed for %s", inbound_id)
                 results.append({"inbound_id": inbound_id, "error": True})
 
-        all_failed = bool(results) and all(isinstance(r, dict) and r.get("error") for r in results)
+        # Exceptions set error=True; all-429 (ml_fail>0, ml_ok==0) must also fail the job
+        # so the worker does not report success when every envío hit ML errors.
+        def _failed(r: object) -> bool:
+            if not isinstance(r, dict):
+                return True
+            if r.get("error"):
+                return True
+            if r.get("skipped"):
+                return False
+            inventories = r.get("inventories") or []
+            return bool(inventories) and int(r.get("ml_fail") or 0) > 0 and int(r.get("ml_ok") or 0) == 0
+
+        all_failed = bool(results) and all(_failed(r) for r in results)
         return JobResult(
             success=not all_failed,
             detail={"reconciled": len(results), "results": results},

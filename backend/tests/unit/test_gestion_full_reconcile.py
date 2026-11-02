@@ -176,6 +176,8 @@ def test_ensure_envio_reopens_closed_row() -> None:
         package_id=1,
         week_monday=None,
         reception_closed_at=datetime(2026, 10, 30, tzinfo=UTC),
+        last_reception_at=None,
+        last_polled_at=datetime(2026, 10, 29, tzinfo=UTC),
     )
     pkg = SimpleNamespace(id=1, week_monday=datetime(2026, 10, 26, tzinfo=UTC).date())
     db = MagicMock()
@@ -184,6 +186,7 @@ def test_ensure_envio_reopens_closed_row() -> None:
     out = ensure_envio(db, package=pkg, inbound_id="SAME", commit=False)
     assert out is closed
     assert closed.reception_closed_at is None
+    assert closed.last_polled_at is None
     db.flush.assert_called_once()
     db.add.assert_not_called()
 
@@ -221,7 +224,49 @@ def test_handler_fails_when_every_envio_errors() -> None:
     assert result.detail["results"][0]["error"] is True
 
 
+def test_handler_fails_when_every_envio_is_all_429() -> None:
+    """Please-check: all-429 must not report JobResult(success=True)."""
+    from app.workers.handlers.gestion_full_reconcile import GestionFullReconcileHandler
+
+    class _SessionCM:
+        def __enter__(self) -> MagicMock:
+            db = MagicMock()
+            db.get.return_value = SimpleNamespace(inbound_id="INB-1")
+            return db
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    handler = GestionFullReconcileHandler(
+        client_factory=lambda _p: MagicMock(),
+        session_factory=_SessionCM,
+        now=lambda: datetime(2026, 10, 31, tzinfo=UTC),
+    )
+    ctx = SimpleNamespace(stop_requested=lambda: False)
+    with (
+        patch(
+            "app.workers.handlers.gestion_full_reconcile.list_open_envios",
+            return_value=[SimpleNamespace(inbound_id="INB-1")],
+        ),
+        patch(
+            "app.workers.handlers.gestion_full_reconcile.reconcile_envio",
+            return_value={
+                "inbound_id": "INB-1",
+                "inserted": 0,
+                "closed": False,
+                "ml_ok": 0,
+                "ml_fail": 1,
+                "inventories": ["INV-1"],
+            },
+        ),
+    ):
+        result = handler.run(ctx)
+    assert result.success is False
+
+
 def test_list_open_envios_orders_last_polled_nulls_first() -> None:
+    from sqlalchemy.sql import operators
+
     from app.services.gestion_full.reconcile import list_open_envios
 
     db = MagicMock()
@@ -229,10 +274,54 @@ def test_list_open_envios_orders_last_polled_nulls_first() -> None:
     filtered.order_by.return_value.all.return_value = []
     list_open_envios(db)
     assert filtered.order_by.called
-    # SQLAlchemy ClauseList — stringify args to pin nullsfirst + created_at + inbound_id
-    ordered = " ".join(str(a) for a in filtered.order_by.call_args[0])
-    assert "last_polled_at" in ordered
-    assert "created_at" in ordered
+    # Pin ASC + nullsfirst — `.desc()` / nullslast mutations must fail this test.
+    args = filtered.order_by.call_args[0]
+    assert len(args) >= 3
+    first, second, third = args[0], args[1], args[2]
+    assert "last_polled_at" in str(first)
+    assert first.modifier is operators.nulls_first_op
+    assert first.element.modifier is operators.asc_op
+    assert "created_at" in str(second)
+    assert second.modifier is operators.asc_op
+    assert "inbound_id" in str(third)
+    assert third.modifier is operators.asc_op
+
+
+def test_ensure_envio_reopen_resets_idle_clock() -> None:
+    """Reopened envío with old last_reception_at must not close on the next empty tick."""
+    from app.services.gestion_full.reconcile import ensure_envio, reconcile_envio
+
+    old_reception = datetime(2026, 10, 20, tzinfo=UTC)
+    closed = SimpleNamespace(
+        inbound_id="SAME",
+        package_id=1,
+        week_monday=None,
+        reception_closed_at=datetime(2026, 10, 30, tzinfo=UTC),
+        last_reception_at=old_reception,
+        last_polled_at=datetime(2026, 10, 29, tzinfo=UTC),
+    )
+    pkg = SimpleNamespace(id=1, week_monday=datetime(2026, 10, 26, tzinfo=UTC).date())
+    db = MagicMock()
+    db.get.return_value = closed
+
+    ensure_envio(db, package=pkg, inbound_id="SAME", commit=False)
+    assert closed.reception_closed_at is None
+    assert closed.last_polled_at is None
+    assert closed.last_reception_at is not None
+    assert closed.last_reception_at >= old_reception
+    assert closed.last_reception_at != old_reception
+
+    # First empty ML tick after reopen must stay open (idle clock restarted).
+    db.query.return_value.filter_by.return_value.all.return_value = [
+        SimpleNamespace(inventory_id="INV-1"),
+    ]
+    client = MagicMock()
+    client.get.return_value = SimpleNamespace(status=200, body={"results": []})
+    now = datetime(2026, 11, 2, tzinfo=UTC)
+    with patch("app.core.config.settings.ML_USER_ID", "1"):
+        out = reconcile_envio(db, closed, client=client, now=now)
+    assert out["closed"] is False
+    assert closed.reception_closed_at is None
 
 
 def test_reconcile_dedupes_inventory_ids() -> None:
