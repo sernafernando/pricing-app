@@ -1,7 +1,7 @@
 """The sell-in lots of a product, as the next sales will consume them (read only).
 
-Owner: "podríamos tener un visualizador de lotes? para saber como van a aplicar?". The sell-in cost is FIFO by lot,
-not weighted: each sale takes the units of the oldest line with units left, so the viewer lists a product's lines of
+Owner: "podríamos tener un visualizador de lotes? para saber como van a aplicar?". Each sale takes the units of the
+oldest line with units left (FIFO), whatever the product's cost mode, so the viewer lists a product's lines of
 active purchases in that order (`costing.lotes`, sorted by `fifo.orden_fifo`) with what the stored consumptions took
 from each one (`costing.unidades_usadas`) and the unit discount `split.unit_discount` gives it (a USD purchase at its
 own rate, as costing converts it).
@@ -9,6 +9,8 @@ own rate, as costing converts it).
 Status of a line: `vigente` is the one `costing.vigentes` returns for today (the next sale takes it); `agotado` has
 no units left; `desde` counts from a date after today; `en_cola` has units left and waits behind the current one.
 Nothing here is computed differently from the costing: the order, the units left and the rounding are its own.
+Under a weighted or last-price mode (`costing.periodos`) the next sale's value is the one `costing.vigentes` gives
+(the pool's), not the current line's own; see `_proxima`.
 """
 
 from __future__ import annotations

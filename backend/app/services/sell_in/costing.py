@@ -134,6 +134,10 @@ class SellInCosting(Protocol):
         """`{compra_item_id: units the stored consumptions took}`, for the lines that have any (read only)."""
         ...
 
+    def periodos(self, db: Session, ids: List[int]) -> Dict[int, List[Periodo]]:
+        """`{item_id: its dated cost modes, oldest first}` for the products that have any; without, FIFO (read only)."""
+        ...
+
 
 @dataclass(frozen=True)
 class LoteVigente:
