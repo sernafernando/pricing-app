@@ -475,6 +475,16 @@ class TestGroupedViewReview:
                 resp = client.get(
                     URL, params={"sort": sort, "sort_dir": direction, **GROUP, **flags}, headers=admin_auth_headers
                 )
+                if sort == "listing_kind":
+                    # A group is no publication: the listing type order is refused there, on the board and below it.
+                    assert resp.status_code == 422, (direction, resp.text)
+                    below = client.get(
+                        NODES,
+                        params={"path": _path("EPSON"), "sort": sort, "sort_dir": direction, **GROUP},
+                        headers=admin_auth_headers,
+                    )
+                    assert below.status_code == 422, (direction, below.text)
+                    continue
                 assert resp.status_code == 200, (sort, direction, resp.text)
                 for path in (["EPSON"], ["EPSON", "CAT", "1"]):
                     below = client.get(
