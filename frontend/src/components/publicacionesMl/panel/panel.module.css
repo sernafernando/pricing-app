@@ -331,6 +331,8 @@
   padding: var(--spacing-sm) var(--spacing-md);
   list-style: none;
   font-size: var(--font-sm);
+  /* A long unbroken last error (a URL, a JSON body) wraps instead of overflowing the panel. */
+  overflow-wrap: anywhere;
   color: var(--tone-warning-fg);
   background: var(--tone-warning-bg);
   border-radius: var(--radius-md);

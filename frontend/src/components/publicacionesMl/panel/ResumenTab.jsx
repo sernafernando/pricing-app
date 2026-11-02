@@ -29,7 +29,8 @@ function AttentionSection({ detail, canSeeMargin }) {
   for (const code of detail.subStatus) signals.push(`Subestado de Mercado Libre: ${code}`);
   if (detail.item?.last_error) signals.push(`Último error de Mercado Libre: ${detail.item.last_error}`);
   if (row.link?.state === 'conflicto') signals.push('El vínculo con el producto está en conflicto');
-  if (!row.link || row.link.state === 'sin_producto') signals.push('Sin producto vinculado');
+  // An unknown link (none sent) is not a signal; only a link evaluated without a product is.
+  if (row.link?.state === 'sin_producto') signals.push('Sin producto vinculado');
   if (canSeeMargin && row.markup?.any_negative) signals.push('Markup negativo');
   if (signals.length === 0) return null;
   return (

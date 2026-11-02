@@ -87,6 +87,12 @@ describe('the attention row (real signals only)', () => {
     expect(attentionItems()).toContain('Sin producto vinculado');
   });
 
+  it('an unknown link is not a signal: only a link ML says has no product is', () => {
+    renderTab(makeDetail({ row: makeItem({ ...ITEMS[0], link: null }) }));
+    expect(attention()).not.toBeInTheDocument();
+    expect(valueOf('Producto vinculado', 'Estado')).toHaveTextContent(DASH);
+  });
+
   it('flags a negative markup only to who may see it', () => {
     const row = makeItem({ ...ITEMS[0], markup: { min: -3, max: -3, worst: -3, any_negative: true, reason: 'ok', partial: 0 } });
     renderTab(makeDetail({ row }), { canSeeMargin: true });
