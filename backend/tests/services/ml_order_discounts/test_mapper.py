@@ -64,3 +64,11 @@ class TestLines:
         lines = mapper.map_lines(5, body)
         assert [line.detail_index for line in lines] == [1, 2]
         assert lines[0].coupon_id is None
+
+
+class TestOnlyDiscountNotFoundIsNone:
+    def test_another_404_is_an_error(self) -> None:
+        body = copy.deepcopy(fixture("discounts_not_found"))  # perturbed copy: a 404 that is not "no discounts"
+        body.update(error="not_found", message="Order not found")
+        assert mapper.classify(404, body) == mapper.ERROR
+        assert mapper.classify(404, None) == mapper.ERROR

@@ -16,6 +16,7 @@ from typing import Any, Mapping, Optional
 OK = "ok"
 NONE = "none"
 ERROR = "error"
+NOT_FOUND_ERROR = "discount_not_found"  # the only 404 that means "this sale has no discounts"
 
 
 @dataclass(frozen=True)
@@ -61,10 +62,11 @@ def body_status(http_status: int, body: Any) -> int:
 
 
 def classify(http_status: int, body: Any) -> str:
-    """`ok` for a readable body, `none` for ML's "Discount not found" 404, `error` for anything else."""
+    """`ok` for a readable body, `none` for ML's "Discount not found" 404 (any other 404 is an error, so a sale is
+    never settled as discount-free by an unrelated not-found), `error` for anything else."""
     status = body_status(http_status, body)
     if status == 404:
-        return NONE
+        return NONE if _mapping(body).get("error") == NOT_FOUND_ERROR else ERROR
     if 200 <= status < 300 and isinstance(_mapping(body).get("details"), list):
         return OK
     return ERROR
