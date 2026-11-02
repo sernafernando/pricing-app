@@ -34,6 +34,10 @@ import styles from './SplitPanelLayout.module.css';
 
 const WIDTHS = ['md', 'lg'];
 
+// Pixels. The minimums keep both sides readable: a panel narrower than 360
+// no longer fits its tab strip and key/value rows, and a table narrower than
+// 480 shows little more than its pinned first column. One arrow press moves
+// the divider 16.
 export const PANEL_MIN_WIDTH = 360;
 export const TABLE_MIN_WIDTH = 480;
 export const RESIZE_STEP = 16;
@@ -86,7 +90,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   const [panelWidth, setPanelWidth] = useState(() => loadWidth(resizeKey));
   const [measured, setMeasured] = useState({ width: 0, max: PANEL_MIN_WIDTH });
   // Cancels the drag in progress, if any: back to the width before it, nothing saved.
-  const stopDragRef = useRef(null);
+  const cancelDragRef = useRef(null);
   const openerRef = useRef(null);
   const panelRef = useRef(null);
   // Whether focus is in the panel or on <body>. Tracked live because by the
@@ -140,7 +144,9 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   // The default width (token, capped at `--split-panel-cap`) always stays
   // reachable, even where it leaves the table under its minimum: otherwise
   // narrowing would be one-way. The CSS track has the same upper bound, and
-  // both values are read from the stylesheet, which owns them.
+  // both values are read from the stylesheet, which owns them: the width
+  // token must be in px and the cap in vw, or the bound falls back to the
+  // table's minimum alone.
   const defaultWidth = () => {
     if (!gridRef.current) return 0;
     const style = getComputedStyle(gridRef.current);
@@ -170,7 +176,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
       observer?.disconnect();
       window.removeEventListener('resize', update);
       // Closing mid-drag cancels the drag: the release afterwards saves nothing.
-      stopDragRef.current?.();
+      cancelDragRef.current?.();
     };
     // `measure` only reads refs: re-subscribing whenever it changes identity would add nothing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,7 +209,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
 
   const handlePointerDown = (e) => {
     // One drag at a time: a second touch or pen while dragging starts nothing.
-    if (e.button !== 0 || stopDragRef.current) return;
+    if (e.button !== 0 || cancelDragRef.current) return;
     e.preventDefault();
     // preventDefault also blocks the focus a press gives, and the arrows need it.
     handleRef.current?.focus();
@@ -230,7 +236,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', end);
       window.removeEventListener('pointercancel', cancel);
-      stopDragRef.current = null;
+      cancelDragRef.current = null;
     };
     function end(event) {
       if (event.pointerId !== pointerId) return;
@@ -243,7 +249,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
       stop();
       setPanelWidth(widthBefore);
     }
-    stopDragRef.current = cancel;
+    cancelDragRef.current = cancel;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', cancel);

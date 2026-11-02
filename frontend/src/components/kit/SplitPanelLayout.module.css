@@ -7,7 +7,8 @@
    panel never covers a row. */
 
 /* The default panel's cap. One source: SplitPanelLayout.jsx reads it back to
-   keep the keyboard and drag bounds equal to the track below. */
+   keep the keyboard and drag bounds equal to the track below, so it must stay
+   a plain vw value. */
 .grid {
   --split-panel-cap: 42vw;
   display: grid;

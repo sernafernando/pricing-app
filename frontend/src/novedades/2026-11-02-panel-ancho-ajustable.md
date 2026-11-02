@@ -16,5 +16,5 @@ En **Publicaciones ML** ahora se puede cambiar el ancho del panel de detalle. Ar
 ## Para tener en cuenta
 
 - Ni la tabla ni el panel se pueden achicar por debajo de un ancho mínimo, para que los dos sigan siendo legibles. El panel siempre puede volver a su ancho de siempre: en una ventana angosta, donde ese ancho o el mínimo del panel no dejan lugar al mínimo de la tabla, la tabla queda más chica.
-- Hasta que se arrastre por primera vez, el panel tiene el mismo ancho que antes.
+- Hasta que se cambia el ancho por primera vez (arrastrando o con las flechas), el panel tiene el mismo ancho que antes.
 - El ancho queda guardado por navegador: en otra computadora o en otro navegador el panel arranca con el ancho de siempre.
