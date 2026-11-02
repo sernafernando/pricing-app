@@ -542,6 +542,9 @@ class TestCostModes:
             modo_id = conn.execute(text(_INSERT_MODO), _modo(**_MANUAL)).scalar_one()
             conn.execute(text(_INSERT_CONSUMO_MODO), {"line": None, "modo": modo_id, "ref": 1, "descuento": "100"})
         _rejects(engine, "DELETE FROM sell_in_modos_producto WHERE id = :i", {"i": modo_id})
+        # The append-only trigger refuses first; the foreign key holds on its own too, without the trigger.
+        with engine.connect() as conn:
+            assert "ON DELETE RESTRICT" in _fk_rule(conn, "sell_in_consumos", "modo_id")
 
     def test_downgrade_drops_the_modes_and_their_consumptions_and_restores_the_checks(self, engine) -> None:
         with engine.begin() as conn:

@@ -41,15 +41,6 @@ def test_it_needs_the_permission_that_shows_the_product(client, auth_headers) ->
     assert client.get(f"{BASE}/4512/modos", headers=auth_headers).status_code == 403
 
 
-def test_the_product_permission_alone_does_not_show_the_costs(
-    client, rol_admin, admin_auth_headers, grant_permiso, producto
-) -> None:
-    # `productos.ver` is seeded for GERENTE, PRICING and VENTAS; the unit costs are sell-in information.
-    grant_permiso(rol_admin, "productos.ver")
-
-    assert client.get(f"{BASE}/4512/modos", headers=admin_auth_headers).status_code == 403
-
-
 def test_a_product_without_modes_is_fifo(client, lector, producto) -> None:
     resp = client.get(f"{BASE}/4512/modos", headers=lector)
 

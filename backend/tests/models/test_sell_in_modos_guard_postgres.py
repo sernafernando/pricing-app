@@ -45,7 +45,7 @@ def _foto(engine):  # noqa: F811
         )
 
 
-def test_only_the_two_expected_user_triggers_guard_the_tables(engine) -> None:  # noqa: F811
+def test_only_the_three_expected_user_triggers_guard_the_tables(engine) -> None:  # noqa: F811
     with engine.connect() as conn:
         filas = conn.execute(
             text(
