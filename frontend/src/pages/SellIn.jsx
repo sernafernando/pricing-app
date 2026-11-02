@@ -12,11 +12,12 @@ import SellInAnularMasivo from '../components/sellIn/SellInAnularMasivo';
 import SellInBonoPanel from '../components/sellIn/SellInBonoPanel';
 import SellInBonosTable from '../components/sellIn/SellInBonosTable';
 import SellInDetailPanel from '../components/sellIn/SellInDetailPanel';
+import SellInFiltrosExtra from '../components/sellIn/SellInFiltrosExtra';
 import SellInNuevoPanel from '../components/sellIn/SellInNuevoPanel';
 import SellInResumen from '../components/sellIn/SellInResumen';
 import SellInTable from '../components/sellIn/SellInTable';
 import { resolverIdsFiltrados } from '../components/sellIn/sellInAnularMasivo';
-import { buildSellInParams } from '../components/sellIn/sellInFormat';
+import { buildBonosParams, buildSellInParams } from '../components/sellIn/sellInFormat';
 import { useSeleccionMasiva } from '../components/sellIn/useSeleccionMasiva';
 import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
 import SellOutAnularMasivo from '../components/sellOut/SellOutAnularMasivo';
@@ -40,12 +41,12 @@ function notaGeneradas(anulables, generadas) {
 const REVIERTE_BONOS = 'Después se anulan las compras que generó cada bono, y un bono sobre el costo deja de aplicarse a sus ventas.';
 const PANEL_LABELS = { crear: 'Nuevo sell in', detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out' };
 const APLICA_LABELS = { si: 'Aplican', no: 'No aplican' };
-const EMPTY_FILTERS = { aplica: 'si', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', filtro: '' };
+const EMPTY_FILTERS = { aplica: 'si', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', filtro: '', producto: null, proveedor: null };
 const TIPO_LABELS = { compra: 'Por compra', bono: 'Bono de marca' };
-// The two counts measure different lists: the bonus list takes none of the purchase filters.
+// The two counts measure different lists: the bonus list takes the filters a bonus has (`buildBonosParams`).
 const TIPO_HINTS = {
   compra: 'Los sell in por compra con los filtros de arriba',
-  bono: 'Todos los bonos de marca cargados: los filtros de arriba no los cuentan',
+  bono: 'Los bonos de marca con los filtros de arriba, salvo Aplicación, Producto y Proveedor',
 };
 // The active bonuses the summary cards add up.
 // ponytail: brands and reached purchases count only the first 200 active bonuses; ask the backend for those totals if active bonuses ever pass 200
@@ -70,24 +71,33 @@ function useMarcas(enabled) {
   return marcas;
 }
 
-/** The brand bonuses page by page (`GET /sell-in/bonos`, newest first); `recargar` asks again. */
-function useBonos(enabled) {
+/**
+ * The brand bonuses page by page (`GET /sell-in/bonos`, newest first) with `filtros` (`buildBonosParams`); other
+ * filters go back to page 1. `recargar` asks again.
+ */
+function useBonos(enabled, filtros) {
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(BONOS_PAGE_SIZES[0]);
   const [lista, setLista] = useState(null);
   const [error, setError] = useState(null);
   const requestRef = useRef(0);
+  // Other filters are another list: back to page 1, adjusted while rendering (no request for the old page).
+  const [filtrosVistos, setFiltrosVistos] = useState(filtros);
+  if (filtrosVistos !== filtros) {
+    setFiltrosVistos(filtros);
+    setOffset(0);
+  }
   const recargar = useCallback(async () => {
     if (!enabled) return;
     const requestId = ++requestRef.current;
     setError(null);
     try {
-      const { data } = await sellInBonosAPI.listar({ page: Math.floor(offset / pageSize) + 1, page_size: pageSize });
+      const { data } = await sellInBonosAPI.listar({ ...filtros, page: Math.floor(offset / pageSize) + 1, page_size: pageSize });
       if (requestId === requestRef.current) setLista(data);
     } catch {
       if (requestId === requestRef.current) setError('No se pudieron cargar los bonos de marca.');
     }
-  }, [enabled, offset, pageSize]);
+  }, [enabled, filtros, offset, pageSize]);
   useEffect(() => {
     recargar();
   }, [recargar]);
@@ -193,7 +203,14 @@ export default function SellIn() {
   const puedeVer = tienePermiso('sell_in.ver');
   const puedeGestionar = tienePermiso('sell_in.gestionar');
   const marcas = useMarcas(puedeVer);
-  const bonos = useBonos(puedeVer);
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const { q: filtroQ, marcas: filtroMarcas, moneda: filtroMoneda, estado: filtroEstado, desde: filtroDesde, hasta: filtroHasta } = filters;
+  // Only the filters a bonus has: picking a product or supplier does not ask the bonuses again.
+  const bonosParams = useMemo(
+    () => buildBonosParams({ q: filtroQ, marcas: filtroMarcas, moneda: filtroMoneda, estado: filtroEstado, desde: filtroDesde, hasta: filtroHasta }),
+    [filtroQ, filtroMarcas, filtroMoneda, filtroEstado, filtroDesde, filtroHasta],
+  );
+  const bonos = useBonos(puedeVer, bonosParams);
   const bonosVigentes = useBonosVigentes(puedeVer);
   const puedeVerSellOut = tienePermiso('sell_out.ver');
   const campanas = useCampanas(puedeVer && puedeVerSellOut);
@@ -209,7 +226,6 @@ export default function SellIn() {
   const tabUrl = searchParams.get('tab');
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
   const [tipo, setTipo] = useState('');
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [lista, setLista] = useState(null);
@@ -262,6 +278,19 @@ export default function SellIn() {
     paramsRef.current = params;
   }, [params]);
 
+  const bonosParamsRef = useRef(bonosParams);
+  useEffect(() => {
+    bonosParamsRef.current = bonosParams;
+  }, [bonosParams]);
+
+  // "Todo lo filtrado" of the bonuses, with the same filters as their list; dropped when they changed meanwhile.
+  const seleccionarBonosFiltrados = async () => {
+    const desde = bonosParams;
+    const ids = await resolverIdsFiltrados(sellInBonosAPI.listar, desde, { total: bonos.lista.total, filtrosActivos: Object.keys(desde).length > 0 });
+    if (bonosParamsRef.current !== desde) throw new Error('Los filtros cambiaron mientras se seleccionaba. Volvé a intentarlo.');
+    selBonos.reemplazar(ids);
+  };
+
   // "Todo lo filtrado" of the purchases, dropped when the filters changed while it was being read.
   const seleccionarComprasFiltradas = async () => {
     const desde = params;
@@ -302,6 +331,10 @@ export default function SellIn() {
   useEffect(() => {
     limpiarCompras();
   }, [params, limpiarCompras]);
+  const limpiarBonos = selBonos.limpiar;
+  useEffect(() => {
+    limpiarBonos();
+  }, [bonosParams, limpiarBonos]);
 
   // After a bulk void: the side panel of a record it voided closes (it read the record when it opened). What it voided
   // leaves the list, so the page it was on may no longer exist: each list goes back to page 1. The void can take a
@@ -573,6 +606,9 @@ export default function SellIn() {
                 </label>
               </div>
               <div className={styles.filterBand}>
+                <SellInFiltrosExtra producto={filters.producto} proveedor={filters.proveedor} onChange={setFilter} />
+              </div>
+              <div className={styles.filterBand}>
                 <div className={styles.facetRow}>
                   <span className={styles.filterLabel}>Aplicación:</span>
                   <FacetChips
@@ -677,9 +713,7 @@ export default function SellIn() {
                         seleccionados={[...selBonos.ids]}
                         total={bonos.lista.total}
                         revierte={REVIERTE_BONOS}
-                        onSeleccionarFiltrado={async () =>
-                          selBonos.reemplazar(await resolverIdsFiltrados(sellInBonosAPI.listar, {}, { total: bonos.lista.total, filtrosActivos: false }))
-                        }
+                        onSeleccionarFiltrado={seleccionarBonosFiltrados}
                         onLimpiar={selBonos.limpiar}
                         anular={sellInBonosAPI.anularMasivo}
                         onHecho={anuladoMasivo(selBonos, 'bono', recargarBonosRef)}
