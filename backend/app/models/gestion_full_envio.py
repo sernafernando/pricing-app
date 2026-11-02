@@ -33,7 +33,7 @@ class GestionFullEnvio(Base):
     week_monday = Column(Date, nullable=False)
     reception_closed_at = Column(DateTime(timezone=True), nullable=True)
     last_reception_at = Column(DateTime(timezone=True), nullable=True)
-    last_polled_at = Column(DateTime(timezone=True), nullable=True)
+    last_polled_at = Column(DateTime(timezone=True), nullable=True, index=True)
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),

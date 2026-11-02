@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.gestion_full_package import (
+    PACKAGE_STATUS_EXPORTED,
     PACKAGE_STATUS_LOCKED,
     PACKAGE_STATUS_OPEN,
     GestionFullPackage,
@@ -86,12 +87,16 @@ def upsert_package_line(
     inventory_id: str,
     qty_pm: int,
 ) -> GestionFullPackageLine:
-    """Add or refresh a line; qty_export defaults to qty_pm on create."""
+    """Add or refresh a line; auto qty_export capped to ERP stock."""
     if qty_pm < 0:
         raise ValueError("qty_pm must be >= 0")
 
-    _package_for_update(db, package.id)
+    pkg = _package_for_update(db, package.id)
+    if pkg.status == PACKAGE_STATUS_LOCKED:
+        raise PermissionError("package hard-locked")
 
+    stock = _stock_erp_for_item(db, producto_item_id)
+    capped = min(int(qty_pm), stock)
     line = (
         db.query(GestionFullPackageLine)
         .filter_by(
@@ -108,15 +113,18 @@ def upsert_package_line(
             user_product_id=user_product_id,
             inventory_id=inventory_id,
             qty_pm=qty_pm,
-            qty_export=qty_pm,
+            qty_export=capped,
         )
         db.add(line)
     else:
         line.inventory_id = inventory_id
         line.qty_pm = qty_pm
-        # Keep gestor qty_export if already adjusted; else mirror qty_pm.
+        # Keep gestor qty_export if already adjusted; else mirror capped qty_pm.
         if line.qty_export_updated_by_id is None:
-            line.qty_export = qty_pm
+            if pkg.status == PACKAGE_STATUS_EXPORTED:
+                line.qty_export = min(int(line.qty_export), stock)
+            else:
+                line.qty_export = capped
     db.commit()
     db.refresh(line)
     return line
@@ -136,14 +144,15 @@ def add_all_ready_lines_to_package(
 ) -> tuple[GestionFullPackage, int]:
     """Upsert every ``gestion_full_pm_ready`` row into the active package (one transaction).
 
-    Auto ``qty_export`` (no gestor touch) is capped to ERP stock so "Sumar líneas Listo"
-    cannot undo a prior export re-cap.
+    Auto ``qty_export`` (no gestor touch) is capped to ERP stock. On an **exported**
+    package, Sumar only ever lowers qty_export (never raises above the Excel amount).
     """
     pkg = get_or_create_open_package(db, usuario=usuario)
     pkg = _package_for_update(db, pkg.id)
     if pkg.status == PACKAGE_STATUS_LOCKED:
         raise PermissionError("package hard-locked")
 
+    exported = pkg.status == PACKAGE_STATUS_EXPORTED
     ready_rows = db.query(GestionFullPmReady).all()
     touched = 0
     for ready in ready_rows:
@@ -175,12 +184,17 @@ def add_all_ready_lines_to_package(
             line.inventory_id = ready.inventory_id
             line.qty_pm = ready.qty_pm
             if line.qty_export_updated_by_id is None:
-                line.qty_export = capped
+                # Exported: only cap down so Excel qty stays the ceiling.
+                line.qty_export = min(int(line.qty_export), stock) if exported else capped
         touched += 1
     # Re-cap again after upserts (stock may be lower than any auto value).
     from app.services.gestion_full.excel_export import recap_qty_export_to_stock
 
     recap_qty_export_to_stock(db, pkg)
+    # Stock→0 on the last unassigned shippable line must hard-lock like set_qty_export.
+    from app.services.gestion_full.assign_inbound import maybe_hard_lock
+
+    maybe_hard_lock(db, pkg, already_locked=True)
     db.commit()
     db.refresh(pkg)
     return pkg, touched
@@ -211,26 +225,31 @@ def set_qty_export(
         raise ValueError("qty_export must be >= 0")
     capped = min(qty_export, _stock_erp_for_line(db, line))
 
-    # Re-bind line under the same session after package lock.
-    line = db.get(GestionFullPackageLine, line.id) or line
-    old = line.qty_export
-    if old == capped and (reason or None) == (line.qty_export_reason or None):
-        return line
-
-    line.qty_export = capped
-    line.qty_export_reason = reason
-    line.qty_export_updated_by_id = usuario.id
-    line.qty_export_updated_at = datetime.now(UTC)
-    db.add(
-        GestionFullQtyExportAudit(
-            package_line_id=line.id,
-            old_qty=old,
-            new_qty=capped,
-            reason=reason,
-            updated_by_id=usuario.id,
-        )
+    # Re-bind line under lock; populate_existing so concurrent PATCH isn't stale.
+    line = (
+        db.query(GestionFullPackageLine)
+        .filter(GestionFullPackageLine.id == line.id)
+        .populate_existing()
+        .with_for_update()
+        .one()
     )
-    # Zeroing the last unassigned shippable line must hard-lock when peers already have inbound.
+    old = line.qty_export
+    qty_unchanged = old == capped and (reason or None) == (line.qty_export_reason or None)
+    if not qty_unchanged:
+        line.qty_export = capped
+        line.qty_export_reason = reason
+        line.qty_export_updated_by_id = usuario.id
+        line.qty_export_updated_at = datetime.now(UTC)
+        db.add(
+            GestionFullQtyExportAudit(
+                package_line_id=line.id,
+                old_qty=old,
+                new_qty=capped,
+                reason=reason,
+                updated_by_id=usuario.id,
+            )
+        )
+    # Always evaluate hard-lock (even when qty unchanged — e.g. PATCH 0 no-op after Sumar).
     from app.services.gestion_full.assign_inbound import maybe_hard_lock
 
     maybe_hard_lock(db, pkg, already_locked=True)

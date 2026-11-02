@@ -69,8 +69,13 @@ def clear_inbound_ids(db: Session, package: GestionFullPackage) -> int:
             if refs > 0:
                 continue
             envio = db.get(GestionFullEnvio, inbound_id)
-            if envio is not None and envio.reception_closed_at is None:
-                envio.reception_closed_at = now
+            if envio is None or envio.reception_closed_at is not None:
+                continue
+            # Keep envíos that already received stock open — re-assign of the same
+            # inbound must be able to resume reconcile (Fernando round-3 #1).
+            if envio.last_reception_at is not None:
+                continue
+            envio.reception_closed_at = now
         db.commit()
     return n
 

@@ -158,7 +158,11 @@ def test_clear_inbound_closes_orphan_envio() -> None:
 
     ln = SimpleNamespace(id=1, inbound_id="ORPHAN-1", qty_export=2)
     pkg = SimpleNamespace(id=1, status="exported", exported_at=datetime(2026, 10, 27, tzinfo=UTC), lines=[ln])
-    envio = SimpleNamespace(inbound_id="ORPHAN-1", reception_closed_at=None)
+    envio = SimpleNamespace(
+        inbound_id="ORPHAN-1",
+        reception_closed_at=None,
+        last_reception_at=None,
+    )
     db = _db_returning(pkg)
     db.get.return_value = envio
 
@@ -168,3 +172,20 @@ def test_clear_inbound_closes_orphan_envio() -> None:
     assert envio.reception_closed_at is not None
     db.flush.assert_called()
     db.commit.assert_called_once()
+
+
+def test_clear_inbound_keeps_envio_that_already_received() -> None:
+    from datetime import UTC, datetime
+
+    ln = SimpleNamespace(id=1, inbound_id="GOT-STOCK", qty_export=2)
+    pkg = SimpleNamespace(id=1, status="exported", exported_at=datetime(2026, 10, 27, tzinfo=UTC), lines=[ln])
+    envio = SimpleNamespace(
+        inbound_id="GOT-STOCK",
+        reception_closed_at=None,
+        last_reception_at=datetime(2026, 10, 28, tzinfo=UTC),
+    )
+    db = _db_returning(pkg)
+    db.get.return_value = envio
+
+    clear_inbound_ids(db, pkg)
+    assert envio.reception_closed_at is None

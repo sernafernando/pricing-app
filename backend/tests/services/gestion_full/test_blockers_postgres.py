@@ -29,6 +29,7 @@ from app.models.gestion_full_package import (
 )
 from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
+from app.models.producto import ProductoERP
 from app.services.gestion_full.assign_inbound import (
     assign_inbound_to_lines,
     clear_inbound_ids,
@@ -40,7 +41,7 @@ from app.services.gestion_full.excel_export import (
     prepare_package_for_export,
 )
 from app.services.gestion_full.package import add_all_ready_lines_to_package, set_qty_export
-from app.services.gestion_full.reconcile import list_open_envios, reconcile_envio
+from app.services.gestion_full.reconcile import ensure_envio, list_open_envios, reconcile_envio
 from app.workers.context import WorkerContext
 from app.workers.handlers.gestion_full_reconcile import GestionFullReconcileHandler
 from tests.conftest import (
@@ -51,6 +52,7 @@ from tests.conftest import (
 )
 
 _ORM_TABLES = [
+    ProductoERP.__table__,
     GestionFullPackage.__table__,
     GestionFullPackageLine.__table__,
     GestionFullQtyExportAudit.__table__,
@@ -65,25 +67,6 @@ _STUB_DDL = (
     CREATE TABLE usuarios (
       id SERIAL PRIMARY KEY,
       nombre TEXT NOT NULL DEFAULT 't'
-    )
-    """,
-    """
-    CREATE TABLE productos_erp (
-      item_id INTEGER PRIMARY KEY,
-      codigo TEXT,
-      descripcion TEXT,
-      marca TEXT,
-      categoria TEXT,
-      subcategoria_id INTEGER,
-      costo DOUBLE PRECISION,
-      moneda_costo VARCHAR(3) DEFAULT 'ARS',
-      iva DOUBLE PRECISION DEFAULT 21.0,
-      envio DOUBLE PRECISION DEFAULT 0.0,
-      stock INTEGER DEFAULT 0,
-      activo BOOLEAN DEFAULT TRUE,
-      fecha_sync TIMESTAMPTZ DEFAULT now(),
-      updated_at TIMESTAMPTZ,
-      hash_datos VARCHAR(64)
     )
     """,
     """
@@ -689,5 +672,148 @@ class TestRound2Blockers:
             assert pkg.status == PACKAGE_STATUS_LOCKED
             assert db.get(GestionFullPmReady, (101, "MLAU1")) is None
             assert db.get(GestionFullPmReady, (102, "MLAU2")) is None
+        finally:
+            db.close()
+
+
+@pytest.mark.postgres
+class TestRound3Blockers:
+    def test_reassign_same_inbound_reopens_envio(self, pg_engine: Engine) -> None:
+        """Round-3 #1: Limpiar must not permanently kill a never-received envío on re-assign."""
+        db = _session(pg_engine)
+        try:
+            _seed_product(db)
+            pkg = _seed_exported_package(db, inbound_id="SAME-INB")
+            line_id = pkg.lines[0].id
+            envio = GestionFullEnvio(
+                inbound_id="SAME-INB",
+                package_id=pkg.id,
+                week_monday=pkg.week_monday,
+            )
+            db.add(envio)
+            db.commit()
+            db.refresh(pkg)
+
+            clear_inbound_ids(db, pkg)
+            db.refresh(envio)
+            assert envio.reception_closed_at is not None
+
+            # Re-export path: open→exported again for assign gate
+            pkg.status = PACKAGE_STATUS_EXPORTED
+            pkg.exported_at = datetime(2026, 10, 28, tzinfo=UTC)
+            db.commit()
+            db.refresh(pkg)
+
+            ensure_envio(db, package=pkg, inbound_id="SAME-INB", commit=False)
+            db.refresh(envio)
+            assert envio.reception_closed_at is None
+            assert "SAME-INB" in [e.inbound_id for e in list_open_envios(db)]
+
+            # assign also reopens via ensure_envio(commit=False) in same txn
+            assign_inbound_to_lines(db, pkg, line_ids=[line_id], inbound_id="SAME-INB")
+            db.refresh(envio)
+            assert envio.reception_closed_at is None
+            assert pkg.status == PACKAGE_STATUS_LOCKED
+        finally:
+            db.close()
+
+    def test_sumar_stock_zero_hard_locks(self, pg_engine: Engine) -> None:
+        """Round-3 #2: Sumar capping last unassigned line to 0 must hard-lock."""
+        db = _session(pg_engine)
+        try:
+            _seed_product(db, item_id=101, stock=50)
+            _seed_product(db, item_id=102, codigo="SKU-102", stock=0)
+            pkg = GestionFullPackage(
+                week_monday=date(2026, 10, 26),
+                status=PACKAGE_STATUS_EXPORTED,
+                exported_at=datetime(2026, 10, 27, tzinfo=UTC),
+            )
+            db.add(pkg)
+            db.flush()
+            db.add(
+                GestionFullPackageLine(
+                    package_id=pkg.id,
+                    producto_item_id=101,
+                    user_product_id="MLAU1",
+                    inventory_id="INV-1",
+                    qty_pm=5,
+                    qty_export=5,
+                    inbound_id="INB-1",
+                )
+            )
+            db.add(
+                GestionFullPackageLine(
+                    package_id=pkg.id,
+                    producto_item_id=102,
+                    user_product_id="MLAU2",
+                    inventory_id="INV-2",
+                    qty_pm=5,
+                    qty_export=5,
+                    inbound_id=None,
+                )
+            )
+            db.add(
+                GestionFullPmReady(
+                    producto_item_id=101,
+                    user_product_id="MLAU1",
+                    inventory_id="INV-1",
+                    qty_pm=5,
+                )
+            )
+            db.add(
+                GestionFullPmReady(
+                    producto_item_id=102,
+                    user_product_id="MLAU2",
+                    inventory_id="INV-2",
+                    qty_pm=5,
+                )
+            )
+            db.execute(text("INSERT INTO usuarios (id, nombre) VALUES (3, 'gestor')"))
+            db.commit()
+            db.refresh(pkg)
+
+            add_all_ready_lines_to_package(db, usuario=SimpleNamespace(id=3))
+            db.refresh(pkg)
+            assert pkg.status == PACKAGE_STATUS_LOCKED
+            assert db.get(GestionFullPmReady, (101, "MLAU1")) is None
+        finally:
+            db.close()
+
+    def test_sumar_exported_does_not_raise_above_excel(self, pg_engine: Engine) -> None:
+        """Round-3 #3: stock rise after export must not bump qty_export via Sumar."""
+        db = _session(pg_engine)
+        try:
+            _seed_product(db, stock=10)
+            pkg = GestionFullPackage(
+                week_monday=date(2026, 10, 26),
+                status=PACKAGE_STATUS_EXPORTED,
+                exported_at=datetime(2026, 10, 27, tzinfo=UTC),
+            )
+            db.add(pkg)
+            db.flush()
+            db.add(
+                GestionFullPackageLine(
+                    package_id=pkg.id,
+                    producto_item_id=101,
+                    user_product_id="MLAU1",
+                    inventory_id="INV-1",
+                    qty_pm=20,
+                    qty_export=3,
+                )
+            )
+            db.add(
+                GestionFullPmReady(
+                    producto_item_id=101,
+                    user_product_id="MLAU1",
+                    inventory_id="INV-1",
+                    qty_pm=20,
+                )
+            )
+            db.execute(text("INSERT INTO usuarios (id, nombre) VALUES (4, 'gestor')"))
+            db.commit()
+            db.refresh(pkg)
+
+            out_pkg, _ = add_all_ready_lines_to_package(db, usuario=SimpleNamespace(id=4))
+            assert out_pkg.lines[0].qty_export == 3
         finally:
             db.close()
