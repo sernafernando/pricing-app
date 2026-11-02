@@ -1019,7 +1019,11 @@ describe('Publicaciones ML Producto view (visual)', () => {
           if (r.width === 0) continue;
           expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
         }
-        const figures = [...panel.querySelectorAll('dd')].filter((el) => el.textContent.trim());
+        // Every piece of text keeps to one line. A value may stack two of them on purpose (the last sale's date over
+        // "hace N días", a header figure over its note), so each innermost element is measured, not the whole <dd>.
+        const figures = [...panel.querySelectorAll('dd')]
+          .flatMap((dd) => (dd.children.length === 0 ? [dd] : [...dd.querySelectorAll('*')].filter((el) => el.children.length === 0)))
+          .filter((el) => el.textContent.trim());
         expect(figures.length).toBeGreaterThan(0);
         expect(wrapped(figures)).toEqual([]);
         // The product row is the highlighted one, and it was not expanded.
@@ -1501,14 +1505,16 @@ const PANEL_VIEWPORTS = [
 ];
 
 // The panel opens on Promos (owner, 2026-11-02); these tests read Resumen unless they ask for another tab.
-const renderWithPanel = async ({ width, height, theme, margin = false, tab = 'resumen', linked = false, detailExtra = {} }) => {
+const renderWithPanel = async ({ width, height, theme, margin = false, tab = 'resumen', linked = false, detailExtra = {}, rowExtra = {} }) => {
   canSeeMargin = margin;
   const base = { ...MANY[0], is_full: true, variations_count: 3 };
   publicacionesMlAPI.items.mockResolvedValue({
     data: margin ? { ...MARGIN_RESPONSE, items: [{ ...base, markup: MARGIN_ITEMS[1].markup }, ...MANY.slice(1)] } : { ...RESPONSE, items: [base, ...MANY.slice(1)] },
   });
   const detail = linked ? (margin ? DETAIL_LINKED_MARGIN : DETAIL_LINKED) : margin ? DETAIL_RESPONSE_MARGIN : DETAIL_RESPONSE;
-  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...detail, ...detailExtra, row: base } });
+  // The detail's row carries the same figures as the list row (with ver_ganancia, its markup).
+  const row = { ...base, ...(margin ? { markup: MARGIN_ITEMS[1].markup } : {}), ...rowExtra };
+  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...detail, ...detailExtra, row } });
   publicacionesMlAPI.events.mockResolvedValue({ data: EVENTS_RESPONSE });
   publicacionesMlAPI.history.mockImplementation((itemId, params) =>
     Promise.resolve({ data: params?.tecnicos ? HISTORY_TECNICOS_RESPONSE : HISTORY_RESPONSE }),
@@ -1633,6 +1639,61 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         screen.unmount();
       });
     }
+  }
+
+  for (const { width, height } of PANEL_VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the header keeps the price over its markup, and stays while Resumen scrolls (S1)`, async () => {
+        const screen = await renderWithPanel({ width, height, theme, margin: true, linked: true });
+        await expect.element(screen.getByRole('region', { name: 'Cifras de la publicación' }).getByTitle('Markup')).toBeVisible();
+        const panel = panelOf();
+        const strip = panel.querySelector('section[aria-label="Cifras de la publicación"]');
+        const price = strip.querySelector('[title="Precio"]');
+        const markup = strip.querySelector('[title="Markup"]');
+        // One block: the markup right under the price, both inside the panel.
+        expect(rect(markup).top).toBeGreaterThanOrEqual(rect(price).bottom - 0.5);
+        expect(Math.abs(rect(markup).left - rect(price).left)).toBeLessThan(1);
+        expect(getComputedStyle(markup).color).not.toBe(getComputedStyle(price).color);
+        for (const el of [price, markup]) expect(rect(el).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-resumen-${width}-${theme}.png`, element: panel });
+        // The header stays at the top of the panel while the body scrolls under it (the panel really scrolls).
+        const header = panel.querySelector('header');
+        const top = rect(header).top;
+        expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight);
+        panel.scrollTo({ top: panel.scrollHeight });
+        await frame();
+        expect(panel.scrollTop).toBeGreaterThan(0);
+        expect(Math.abs(rect(header).top - top)).toBeLessThan(1);
+        expect(rect(price).top).toBeGreaterThanOrEqual(rect(panel).top - 0.5);
+        screen.unmount();
+      });
+    }
+  }
+
+  for (const theme of THEMES) {
+    it(`1366x768 ${theme}: big amounts stay whole inside their header figure`, async () => {
+      const screen = await renderWithPanel({
+        width: 1366,
+        height: 768,
+        theme,
+        margin: true,
+        rowExtra: {
+          price: { ...MANY[0].price, amount: 12345678.9 },
+          stock: { available: 123456, full: 100000, own: 23456 },
+          sales_30d: { units: 123456, gross: 98765432.1 },
+        },
+      });
+      const strip = screen.getByRole('region', { name: 'Cifras de la publicación' });
+      await expect.element(strip.getByTitle('Markup')).toBeVisible();
+      for (const box of strip.element().querySelectorAll('dd')) {
+        const edge = rect(box.parentElement).right;
+        for (const part of box.querySelectorAll('span')) {
+          expect(rect(part).right, part.textContent).toBeLessThanOrEqual(edge + 0.5);
+        }
+      }
+      expect(wrapped([strip.element().querySelector('[title="Precio"]')])).toEqual([]);
+      screen.unmount();
+    });
   }
 
   for (const { width, height } of PANEL_VIEWPORTS) {

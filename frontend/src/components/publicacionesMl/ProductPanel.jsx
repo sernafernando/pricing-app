@@ -7,11 +7,13 @@ import ProductPrices from '../pricing/ProductPrices';
 import ListPriceGroup from './panel/ListPriceGroup';
 import { canViewProductPrices, pricePermissions } from '../pricing/productPricePermissions';
 import { buildColumns } from './columns';
-import { PRODUCT_FIGURES } from './productFigures';
+import { PRODUCT_FIGURES, PRODUCT_HEADER_FIGURES } from './productFigures';
+import { productHeaderFigures } from './panel/productHeaderFigures';
 import { describeLoadError } from './loadErrors';
 import MarkupCell from './MarkupCell';
 import { UnitsCell } from './MetricsCells';
 import PublicationStatusPill from './PublicationStatusPill';
+import PanelFigures from './panel/PanelFigures';
 import PanelShell from './panel/PanelShell';
 import PanelTabs from './panel/PanelTabs';
 import ProductBanAction from './panel/ProductBanAction';
@@ -132,9 +134,11 @@ export default function ProductPanel({
     productItemId == null ? [RESUMEN] : canViewProductPrices(tienePermiso) ? [PRECIOS, RESUMEN, CAMBIOS] : [RESUMEN, CAMBIOS];
   // Precios first when the product has it (owner, 2026-11-02), else Resumen.
   const activeKey = (openTab.productKey === productKey && tabs.find((tab) => tab.key === openTab.key)?.key) || tabs[0].key;
-  const figures = buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin, producto: true }).filter((column) =>
+  const figureColumns = buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin, producto: true }).filter((column) =>
     PRODUCT_FIGURES.has(column.key),
   );
+  // Stock, sales and markup ride in the header on every tab (S1); Cifras keeps the rest, never both.
+  const figures = figureColumns.filter((column) => !PRODUCT_HEADER_FIGURES.has(column.key));
 
   return (
     <PanelShell
@@ -152,6 +156,15 @@ export default function ProductPanel({
             {productItemId != null && <ProductPrearmadas key={productItemId} productItemId={productItemId} />}
             <span className={styles.count}>{publicationsLabel(summary.count)}</span>
           </div>
+        )
+      }
+      figures={
+        summary && (
+          <PanelFigures
+            label="Cifras del producto"
+            caption={canSeeSales ? 'Con los filtros actuales' : null}
+            figures={productHeaderFigures(summary, figureColumns)}
+          />
         )
       }
       onClose={onClose}
