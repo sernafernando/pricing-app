@@ -1,13 +1,15 @@
-"""Envio repair: drift from latest snapshots vs ENVIO_TARGET; PUT only failures."""
+"""Envio repair: ME2 + local pickup + colecta/Flex — never free_shipping, never Full."""
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
 from app.models.publicacion_ml import PublicacionML
 from app.models.publicacion_repair import (
@@ -17,11 +19,34 @@ from app.models.publicacion_repair import (
     JOB_ENVIO,
     TRIGGER_PUBLICATIONS_FULL,
 )
-from app.services.ml_api_client import MercadoLibreAPIClient
-from app.services.publicacion_repair.constants import ENVIO_TARGET, ENVIO_TARGET_TAGS
+from app.services.ml_api_client import MercadoLibreAPIClient, ShippingWriteResult
+from app.services.publicacion_repair.constants import (
+    FLEX_TAG,
+    LOGISTIC_COLECTA,
+    LOGISTIC_FLEX,
+    LOGISTIC_FULL,
+    LOGISTIC_LEAVE_ALONE,
+    MODE_ME2,
+)
 from app.services.publicacion_repair.tracker import finish_run, record_event, start_run
 
 logger = logging.getLogger(__name__)
+
+# Keys that must never appear on a repair shipping PUT.
+_FORBIDDEN_WRITE_KEYS = frozenset({"free_shipping", "tags", "store_pick_up"})
+
+
+@dataclass
+class EnvioPlan:
+    """What to do for one publication. empty plan + skip_reason => no ML writes."""
+
+    skip_reason: Optional[str] = None
+    shipping_put: dict[str, Any] = field(default_factory=dict)
+    enable_flex: bool = False
+
+    @property
+    def needs_write(self) -> bool:
+        return bool(self.shipping_put) or self.enable_flex
 
 
 def shipping_from_snapshot(snap: MLPublicationSnapshot) -> dict[str, Any]:
@@ -40,24 +65,56 @@ def shipping_from_snapshot(snap: MLPublicationSnapshot) -> dict[str, Any]:
     }
 
 
-def tags_match(actual: Any, expected: tuple[str, ...] = ENVIO_TARGET_TAGS) -> bool:
-    if not isinstance(actual, list):
-        return False
-    return {str(t) for t in actual if t is not None} == set(expected)
+def has_flex(current: dict[str, Any]) -> bool:
+    tags = current.get("tags") if isinstance(current.get("tags"), list) else []
+    if FLEX_TAG in {str(t) for t in tags}:
+        return True
+    return current.get("logistic_type") == LOGISTIC_FLEX
 
 
-def shipping_matches_target(current: dict[str, Any], target: dict[str, Any] = ENVIO_TARGET) -> bool:
-    if current.get("mode") != target["mode"]:
-        return False
-    if current.get("logistic_type") != target["logistic_type"]:
-        return False
+def has_colecta(current: dict[str, Any]) -> bool:
+    return current.get("logistic_type") == LOGISTIC_COLECTA
+
+
+def is_full(current: dict[str, Any]) -> bool:
+    return current.get("logistic_type") == LOGISTIC_FULL
+
+
+def shipping_incomplete(current: dict[str, Any]) -> bool:
+    """Pre-migration / never-hydrated shipping: do not invent a PUT from nulls."""
+    return current.get("mode") is None and current.get("logistic_type") is None
+
+
+def plan_envio_repair(current: dict[str, Any]) -> EnvioPlan:
+    """Decide ML writes. Never touches free_shipping; never writes Full."""
+    if is_full(current):
+        return EnvioPlan(skip_reason="full_fulfillment")
+    if shipping_incomplete(current):
+        return EnvioPlan(skip_reason="incomplete_snapshot")
+
+    put: dict[str, Any] = {}
+    if current.get("mode") != MODE_ME2:
+        put["mode"] = MODE_ME2
     if current.get("local_pick_up") is not True:
-        return False
-    if current.get("free_shipping") is not True:
-        return False
-    if current.get("store_pick_up") is not False:
-        return False
-    return tags_match(current.get("tags"), tuple(target["tags"]))
+        put["local_pick_up"] = True
+
+    logistic = current.get("logistic_type")
+    if not has_colecta(current) and logistic not in LOGISTIC_LEAVE_ALONE:
+        # Missing colecta and not Flex/Places/Full primary — set cross_docking.
+        put["logistic_type"] = LOGISTIC_COLECTA
+
+    for key in _FORBIDDEN_WRITE_KEYS:
+        put.pop(key, None)
+
+    return EnvioPlan(
+        shipping_put=put,
+        enable_flex=not has_flex(current),
+    )
+
+
+def sanitize_shipping_put(shipping: dict[str, Any]) -> dict[str, Any]:
+    """Drop forbidden keys even if a caller passes them by mistake."""
+    return {k: v for k, v in shipping.items() if k not in _FORBIDDEN_WRITE_KEYS and v is not None}
 
 
 def latest_snapshots_for_mlas(db: Session, mlas: list[str]) -> dict[str, MLPublicationSnapshot]:
@@ -88,16 +145,15 @@ def linked_publicaciones(db: Session) -> list[PublicacionML]:
     return db.query(PublicacionML).filter(PublicacionML.activo.is_(True)).all()
 
 
-def ml_shipping_payload(target: dict[str, Any] = ENVIO_TARGET) -> dict[str, Any]:
-    """Body fields sent to ML. Tags included; if ML rejects, caller records error/skip."""
-    return {
-        "mode": target["mode"],
-        "logistic_type": target["logistic_type"],
-        "local_pick_up": target["local_pick_up"],
-        "free_shipping": target["free_shipping"],
-        "store_pick_up": target["store_pick_up"],
-        "tags": list(target["tags"]),
-    }
+def _safe_record(db: Session, **kwargs: Any) -> None:
+    try:
+        record_event(db, **kwargs)
+    except Exception:
+        logger.exception("repair event insert failed mla=%s", kwargs.get("mla_id"))
+        try:
+            db.rollback()
+        except Exception:
+            logger.exception("rollback after event failure failed")
 
 
 async def run_envio_repair(
@@ -106,10 +162,35 @@ async def run_envio_repair(
     trigger: str = TRIGGER_PUBLICATIONS_FULL,
     client: Optional[MercadoLibreAPIClient] = None,
 ) -> dict[str, int]:
-    """Scan linked pubs; PUT shipping only when latest snapshot drifts from ENVIO_TARGET."""
+    """Repair ME2/colecta/Flex/local_pick_up for linked pubs. Never free_shipping / Full."""
     run = start_run(db, job_type=JOB_ENVIO, trigger=trigger)
     scanned = changed = skipped = errors = 0
     fatal: Optional[str] = None
+
+    if settings.ML_PUB_KILL_SWITCH:
+        finish_run(
+            db,
+            run,
+            scanned=0,
+            changed=0,
+            skipped=0,
+            errors=0,
+            error_message="ML_PUB_KILL_SWITCH=true",
+        )
+        return {"scanned": 0, "changed": 0, "skipped": 0, "errors": 0}
+
+    if not settings.ML_ITEM_DATA_WRITE_ENABLED:
+        finish_run(
+            db,
+            run,
+            scanned=0,
+            changed=0,
+            skipped=0,
+            errors=0,
+            error_message="ML_ITEM_DATA_WRITE_ENABLED=false",
+        )
+        return {"scanned": 0, "changed": 0, "skipped": 0, "errors": 0}
+
     ml = client or MercadoLibreAPIClient()
 
     try:
@@ -117,13 +198,15 @@ async def run_envio_repair(
         mlas = [p.mla for p in pubs if p.mla]
         snaps = latest_snapshots_for_mlas(db, mlas)
         scanned = len(pubs)
+        # Release the read snapshot before HTTP writes (avoid long-held tx).
+        db.commit()
 
         for pub in pubs:
             mla = pub.mla
             snap = snaps.get(mla)
             if snap is None:
                 skipped += 1
-                record_event(
+                _safe_record(
                     db,
                     run_id=run.id,
                     mla_id=mla,
@@ -134,50 +217,115 @@ async def run_envio_repair(
                 continue
 
             before = shipping_from_snapshot(snap)
-            if shipping_matches_target(before):
-                continue
-
-            result = await ml.put_item_shipping(mla, ml_shipping_payload())
-            if result.ok:
-                changed += 1
-                record_event(
-                    db,
-                    run_id=run.id,
-                    mla_id=mla,
-                    item_id=pub.item_id,
-                    action=ACTION_CHANGED,
-                    before=before,
-                    after=ml_shipping_payload(),
-                    detail=None,
-                )
-            elif result.not_allowed:
+            plan = plan_envio_repair(before)
+            if plan.skip_reason:
                 skipped += 1
-                record_event(
+                _safe_record(
                     db,
                     run_id=run.id,
                     mla_id=mla,
                     item_id=pub.item_id,
                     action=ACTION_SKIPPED,
                     before=before,
-                    after=ml_shipping_payload(),
-                    detail=result.detail or "ml_not_allowed",
+                    detail=plan.skip_reason,
                 )
-            else:
-                errors += 1
-                record_event(
+                continue
+            if not plan.needs_write:
+                continue
+
+            after: dict[str, Any] = {"shipping_put": plan.shipping_put, "enable_flex": plan.enable_flex}
+            write_ok = True
+            details: list[str] = []
+
+            if plan.shipping_put:
+                payload = sanitize_shipping_put(plan.shipping_put)
+                assert "free_shipping" not in payload
+                assert "tags" not in payload
+                result = await ml.put_item_shipping(mla, payload)
+                if result.ok:
+                    details.append("shipping_put")
+                elif result.not_allowed:
+                    write_ok = False
+                    skipped += 1
+                    _safe_record(
+                        db,
+                        run_id=run.id,
+                        mla_id=mla,
+                        item_id=pub.item_id,
+                        action=ACTION_SKIPPED,
+                        before=before,
+                        after=after,
+                        detail=result.detail or "ml_not_allowed",
+                    )
+                    continue
+                else:
+                    write_ok = False
+                    errors += 1
+                    _safe_record(
+                        db,
+                        run_id=run.id,
+                        mla_id=mla,
+                        item_id=pub.item_id,
+                        action=ACTION_ERROR,
+                        before=before,
+                        after=after,
+                        detail=result.detail or "ml_error",
+                    )
+                    continue
+
+            if plan.enable_flex:
+                flex = await ml.enable_item_flex(mla)
+                if flex.ok:
+                    details.append("flex_enabled")
+                elif flex.not_allowed:
+                    write_ok = False
+                    skipped += 1
+                    _safe_record(
+                        db,
+                        run_id=run.id,
+                        mla_id=mla,
+                        item_id=pub.item_id,
+                        action=ACTION_SKIPPED,
+                        before=before,
+                        after=after,
+                        detail=flex.detail or "flex_not_allowed",
+                    )
+                    continue
+                else:
+                    write_ok = False
+                    errors += 1
+                    _safe_record(
+                        db,
+                        run_id=run.id,
+                        mla_id=mla,
+                        item_id=pub.item_id,
+                        action=ACTION_ERROR,
+                        before=before,
+                        after=after,
+                        detail=flex.detail or "flex_error",
+                    )
+                    continue
+
+            if write_ok:
+                changed += 1
+                _safe_record(
                     db,
                     run_id=run.id,
                     mla_id=mla,
                     item_id=pub.item_id,
-                    action=ACTION_ERROR,
+                    action=ACTION_CHANGED,
                     before=before,
-                    after=ml_shipping_payload(),
-                    detail=result.detail or "ml_error",
+                    after=after,
+                    detail=",".join(details) or None,
                 )
     except Exception as exc:
         fatal = str(exc)[:500]
         logger.exception("envio repair failed run_id=%s", run.id)
         errors += 1
+        try:
+            db.rollback()
+        except Exception:
+            logger.exception("rollback after envio repair failure failed")
 
     finish_run(
         db,
