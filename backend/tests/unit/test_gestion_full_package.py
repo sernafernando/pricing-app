@@ -48,7 +48,7 @@ def test_upsert_package_line_rejects_negative() -> None:
 def test_upsert_package_line_creates() -> None:
     db = MagicMock()
     db.query.return_value.filter_by.return_value.one_or_none.return_value = None
-    pkg = SimpleNamespace(id=9)
+    pkg = SimpleNamespace(id=9, status="open")
     line = upsert_package_line(
         db,
         package=pkg,
