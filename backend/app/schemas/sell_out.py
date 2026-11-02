@@ -96,7 +96,7 @@ class SellOutRepartoIn(BaseModel):
 
 
 class SellOutCampanaIn(BaseModel):
-    """Create, and full replace on edit."""
+    """Create, and full replace on edit; also the renewal draft (`GET /{id}/renovacion`)."""
 
     nombre: str = Field(max_length=NOMBRE_MAX)
     descripcion: Optional[str] = None
@@ -124,6 +124,9 @@ class SellOutCampanaIn(BaseModel):
     # (`monto_total`, see `SellOutCampanaItemIn`). Absent (None)
     # keeps the stored ones, so a client that does not send them never wipes them; `[]` clears them.
     items: Optional[list[SellOutCampanaItemIn]] = Field(default=None, max_length=ITEMS_MAX)
+    # Its program (campaign system S1), on create only: absent or None means none. An edit ignores it and keeps the
+    # stored one; assignment goes through `POST /api/sell-out/programas/asignar`, which audits it.
+    programa_id: Optional[int] = Field(default=None, ge=INT_MIN, le=INT_MAX)
 
     @model_validator(mode="wrap")
     @classmethod

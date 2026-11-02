@@ -469,14 +469,22 @@ def _importe(valor: Decimal) -> str:
 def crear_campana(
     db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
 ) -> SellOutCampana:
-    """`offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`)."""
+    """`offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`).
+
+    `data.programa_id`, when set, must name a program that takes campaigns (`programas.validar_asignable`: a
+    `ProgramaNoExiste` or `ProgramaError`, nothing stored); it is stored and in the audit row, which keeps its shape
+    without one."""
     grupo_ids = validar(db, data)
-    campana = SellOutCampana(usuario_id=usuario_id, offset_origen_id=offset_origen_id)
+    if data.programa_id is not None:
+        programas.validar_asignable(db, data.programa_id)
+    campana = SellOutCampana(usuario_id=usuario_id, offset_origen_id=offset_origen_id, programa_id=data.programa_id)
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)
     valores = _valores(campana, grupo_ids, _items(db, [campana.id])[campana.id])
     if offset_origen_id is not None:
         valores["offset_origen_id"] = offset_origen_id
+    if data.programa_id is not None:
+        valores["programa_id"] = data.programa_id
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, valores)
     _encolar(db, [campana.id])
     db.commit()
@@ -492,7 +500,8 @@ def _bloquear(db: Session, campana_id: int) -> Optional[SellOutCampana]:
 
 
 def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario_id: int) -> Optional[SellOutCampana]:
-    """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided."""
+    """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided. Its program
+    is kept: a `data.programa_id` sent is ignored (assignment is `programas.asignar`, audited on its own)."""
     campana = _bloquear(db, campana_id)
     if campana is None:
         return None
