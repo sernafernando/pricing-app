@@ -234,6 +234,72 @@ def test_add_all_ready_exported_does_not_raise_when_stock_rises() -> None:
     assert existing.qty_export == 3
 
 
+def test_add_all_ready_exported_skips_new_listo_lines() -> None:
+    """After Excel download, new PM Listo rows wait for the next shipment."""
+    from app.services.gestion_full.package import add_all_ready_lines_to_package
+
+    existing = SimpleNamespace(
+        inventory_id="INV1",
+        qty_pm=5,
+        qty_export=5,
+        qty_export_updated_by_id=None,
+    )
+    pkg = SimpleNamespace(id=9, status="exported", lines=[existing])
+    db = MagicMock()
+    ready_existing = SimpleNamespace(
+        producto_item_id=1,
+        user_product_id="MLAU1",
+        inventory_id="INV1",
+        qty_pm=5,
+    )
+    ready_new = SimpleNamespace(
+        producto_item_id=2,
+        user_product_id="MLAU2",
+        inventory_id="INV2",
+        qty_pm=6,
+    )
+    ready_q = MagicMock()
+    ready_q.all.return_value = [ready_existing, ready_new]
+    line_q = MagicMock()
+
+    def _one_or_none(**kwargs: object) -> object | None:
+        if kwargs.get("producto_item_id") == 1:
+            return existing
+        return None
+
+    line_q.filter_by.side_effect = lambda **kw: MagicMock(one_or_none=lambda: _one_or_none(**kw))
+
+    def _query(model: object) -> MagicMock:
+        name = getattr(model, "__name__", "")
+        if name == "GestionFullPmReady":
+            return ready_q
+        if name == "GestionFullPackageLine":
+            return line_q
+        return _pkg_lock_query(pkg)
+
+    db.query.side_effect = _query
+    db.get.return_value = SimpleNamespace(stock=10)
+    with (
+        patch(
+            "app.services.gestion_full.package.get_or_create_open_package",
+            return_value=pkg,
+        ),
+        patch(
+            "app.services.gestion_full.excel_export.recap_qty_export_to_stock",
+            return_value=0,
+        ),
+        patch(
+            "app.services.gestion_full.assign_inbound.maybe_hard_lock",
+            return_value=None,
+        ),
+    ):
+        _pkg, touched = add_all_ready_lines_to_package(db, usuario=SimpleNamespace(id=1))
+    assert touched == 1
+    db.add.assert_not_called()
+    db.flush.assert_called()
+    db.expire.assert_called()
+
+
 def test_set_qty_export_caps_and_audits() -> None:
     from app.services.gestion_full.package import set_qty_export
 

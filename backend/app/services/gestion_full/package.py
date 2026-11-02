@@ -107,6 +107,10 @@ def upsert_package_line(
         .one_or_none()
     )
     if line is None:
+        if pkg.status == PACKAGE_STATUS_EXPORTED:
+            raise ValueError(
+                "paquete ya exportado: líneas Listo nuevas van al próximo envío"
+            )
         line = GestionFullPackageLine(
             package_id=package.id,
             producto_item_id=producto_item_id,
@@ -145,7 +149,8 @@ def add_all_ready_lines_to_package(
     """Upsert every ``gestion_full_pm_ready`` row into the active package (one transaction).
 
     Auto ``qty_export`` (no gestor touch) is capped to ERP stock. On an **exported**
-    package, Sumar only ever lowers qty_export (never raises above the Excel amount).
+    package, new Listo rows are skipped (they wait for the next shipment); existing
+    lines only ever lower qty_export (never raise above the Excel amount).
     """
     pkg = get_or_create_open_package(db, usuario=usuario)
     pkg = _package_for_update(db, pkg.id)
@@ -170,6 +175,9 @@ def add_all_ready_lines_to_package(
             .one_or_none()
         )
         if line is None:
+            # After Excel download, PM Listo changes wait for the next shipment.
+            if exported:
+                continue
             db.add(
                 GestionFullPackageLine(
                     package_id=pkg.id,
@@ -187,6 +195,9 @@ def add_all_ready_lines_to_package(
                 # Exported: only cap down so Excel qty stays the ceiling.
                 line.qty_export = min(int(line.qty_export), stock) if exported else capped
         touched += 1
+    # autoflush=False: make new lines visible to recap / hard-lock identity map.
+    db.flush()
+    db.expire(pkg, ["lines"])
     # Re-cap again after upserts (stock may be lower than any auto value).
     from app.services.gestion_full.excel_export import recap_qty_export_to_stock
 
