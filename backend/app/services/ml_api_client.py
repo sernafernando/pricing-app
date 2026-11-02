@@ -1,7 +1,8 @@
 import httpx
 import os
 import time
-from typing import Dict, Optional, List
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, List
 import logging
 
 from sqlalchemy import text
@@ -11,6 +12,17 @@ from app.core.database import get_mlwebhook_engine
 from app.services.ml_multiget import BULK_ITEMS_PATH, chunked, parse_multiget
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ShippingWriteResult:
+    """Outcome of PUT /items/{id} shipping for publication repair."""
+
+    ok: bool
+    status_code: Optional[int] = None
+    detail: Optional[str] = None
+    not_allowed: bool = False
+    body: Optional[Dict[str, Any]] = None
 
 
 class QuestionNotFoundError(Exception):
@@ -649,6 +661,38 @@ class MercadoLibreAPIClient:
         except Exception as e:
             logger.error("Error updating shipping for %s: %s", item_id, e)
             return None
+
+    async def put_item_shipping(self, item_id: str, shipping: Dict[str, Any]) -> ShippingWriteResult:
+        """PUT `/items/{id}` with a shipping object (publication repair).
+
+        Classifies 400/403/422 as `not_allowed` (skip); other non-200 as error.
+        """
+        try:
+            token = await self.get_access_token()
+            payload = {"shipping": {k: v for k, v in shipping.items() if v is not None}}
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.put(
+                    f"{self.base_url}/items/{item_id}",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            text_body = response.text[:500] if response.text else ""
+            if response.status_code == 200:
+                try:
+                    body = response.json()
+                except Exception:
+                    body = None
+                return ShippingWriteResult(ok=True, status_code=200, body=body if isinstance(body, dict) else None)
+            not_allowed = response.status_code in (400, 403, 422)
+            return ShippingWriteResult(
+                ok=False,
+                status_code=response.status_code,
+                detail=f"http_{response.status_code}: {text_body}"[:300],
+                not_allowed=not_allowed,
+            )
+        except Exception as e:
+            logger.error("Error put_item_shipping for %s: %s", item_id, e)
+            return ShippingWriteResult(ok=False, detail=f"exception: {str(e)[:200]}")
 
     async def get_user_items(self, user_id: Optional[str] = None, limit: int = 50) -> List[Dict]:
         """Obtiene los items de un usuario
