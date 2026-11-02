@@ -359,6 +359,34 @@ describe('resizing (opt-in by resizeKey)', () => {
     expect(dragWidth(container)).toBe(`${336 + RESIZE_STEP}px`);
   });
 
+  it('a saved width under the bounds the CSS now draws is reported as drawn', () => {
+    withStylesheet({ '--split-panel-width': '560px', '--split-panel-cap': '100vw' });
+    localStorage.setItem(STORAGE, '352');
+    PANEL = PANEL_MIN_WIDTH; // the CSS lower bound raised it
+    renderLayout({ resizeKey: 'pubml' });
+    expect(separator()).toHaveAttribute('aria-valuenow', String(PANEL_MIN_WIDTH));
+    expect(separator()).toHaveAttribute('aria-valuemin', String(PANEL_MIN_WIDTH));
+  });
+
+  it('a fractional default under the panel minimum: a step that cannot move it saves nothing', async () => {
+    withStylesheet({ '--split-panel-width': '335.58px', '--split-panel-cap': '100vw' });
+    PANEL = 335.58;
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    separator().focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(dragWidth(container)).toBe('');
+    expect(localStorage.getItem(STORAGE)).toBeNull();
+  });
+
+  it('a width token not in px or a cap not in vw is not trusted: the bounds are the two minimums alone', async () => {
+    withStylesheet({ '--split-panel-width': '35rem', '--split-panel-cap': '42vw' });
+    PANEL = PANEL_MIN_WIDTH;
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    separator().focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(dragWidth(container)).toBe('');
+  });
+
   it('without the stylesheet the bounds are the two minimums alone', async () => {
     GRID = 840;
     PANEL = 378;

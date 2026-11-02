@@ -152,9 +152,11 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   const defaultWidth = () => {
     if (!gridRef.current) return 0;
     const style = getComputedStyle(gridRef.current);
-    const token = Number.parseFloat(style.getPropertyValue('--split-panel-width'));
-    const capVw = Number.parseFloat(style.getPropertyValue('--split-panel-cap'));
-    return Number.isFinite(token) && Number.isFinite(capVw) ? Math.floor(Math.min(token, (window.innerWidth * capVw) / 100)) : 0;
+    const token = style.getPropertyValue('--split-panel-width').trim();
+    const cap = style.getPropertyValue('--split-panel-cap').trim();
+    if (!/^[\d.]+px$/.test(token) || !/^[\d.]+vw$/.test(cap)) return 0;
+    // Not rounded: a floored default would let a step "move" a divider the CSS keeps still.
+    return Math.min(Number.parseFloat(token), (window.innerWidth * Number.parseFloat(cap)) / 100);
   };
 
   const measure = () => {
@@ -267,7 +269,9 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   };
 
   const resized = resizable && panelWidth !== null;
-  const valueNow = panelWidth === null ? measured.width : Math.min(panelWidth, measured.max);
+  // A saved width is reported as the CSS draws it, clamped to both bounds.
+  const valueNow =
+    panelWidth === null ? measured.width : Math.min(Math.max(panelWidth, measured.min), measured.max);
   // On a narrow window the default width can sit outside the bounds; the
   // reported range still contains it.
   const valueMin = Math.min(measured.min, valueNow);
