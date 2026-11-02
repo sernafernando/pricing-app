@@ -15,7 +15,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.routers import sell_in_lotes as router
 from app.schemas.sell_in_modos import ModoConfirmarIn, ModoIn
@@ -45,7 +45,7 @@ def _clean(engine: Engine, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     si.clean(engine)
 
 
-def _s(engine: Engine):
+def _s(engine: Engine) -> Session:
     return sessionmaker(bind=engine, autoflush=False)()
 
 

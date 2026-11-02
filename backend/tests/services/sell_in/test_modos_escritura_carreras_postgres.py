@@ -8,12 +8,12 @@ import hashlib
 import threading
 from datetime import date
 from decimal import Decimal
-from typing import Iterator
+from typing import Any, Iterable, Iterator
 
 import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.services.sell_in import bonos_costo, modos
 from app.services.sell_in.costing import LOCK_NAMESPACE, get_costing
@@ -40,7 +40,7 @@ def _clean(engine: Engine) -> Iterator[None]:
     si.clean(engine)
 
 
-def _s(engine: Engine):
+def _s(engine: Engine) -> Session:
     return sessionmaker(bind=engine, autoflush=False)()
 
 
@@ -91,7 +91,7 @@ def _confirm(engine: Engine, modo: str, desde: date, huella: str, hoy: date = HO
     return modo_id
 
 
-def _escalar(engine: Engine, q: str):
+def _escalar(engine: Engine, q: str) -> Any:
     with engine.connect() as c:
         return c.execute(text(q)).scalar()
 
@@ -377,7 +377,7 @@ def test_a_failing_cost_bonus_follow_up_still_saves_one_row_one_audit(engine: En
 
     llamadas = []
 
-    def falla(db, item_ids):
+    def falla(db: Session, item_ids: Iterable[int]) -> None:
         llamadas.append(set(item_ids))
         raise OperationalError("x", {}, Exception("canceling statement due to lock timeout"))
 

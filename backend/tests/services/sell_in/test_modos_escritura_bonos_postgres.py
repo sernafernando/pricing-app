@@ -7,11 +7,11 @@ from __future__ import annotations
 import time
 from datetime import date
 from decimal import Decimal
-from typing import Iterator
+from typing import Any, Iterator
 
 import pytest
 from sqlalchemy import Engine, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.services.sell_in import modos
 from app.services.sell_in.costing import LOCK_NAMESPACE, get_costing
@@ -36,25 +36,25 @@ def _clean(engine: Engine) -> Iterator[None]:
     b.clean(engine)
 
 
-def _s(engine: Engine):
+def _s(engine: Engine) -> Session:
     return sessionmaker(bind=engine, autoflush=False)()
 
 
-def _vista(engine, modo, desde):
+def _vista(engine: Engine, modo: str, desde: date) -> modos.VistaPrevia:
     with _s(engine) as db:
         vista = modos.vista_previa(db, R, modo, desde, HOY, 7)
         db.rollback()
     return vista
 
 
-def _salvar(engine, modo, desde, huella):
+def _salvar(engine: Engine, modo: str, desde: date, huella: str) -> int:
     with _s(engine) as db:
         modo_id = modos.confirmar(db, R, modo, desde, HOY, 7, huella)
         db.commit()
     return modo_id
 
 
-def _n(engine, q):
+def _n(engine: Engine, q: str) -> Any:
     with engine.connect() as c:
         return c.execute(text(q)).scalar()
 
