@@ -460,4 +460,17 @@ describe('Métricas ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () =
       screen.unmount();
     });
   }
+
+  // Under 1600px the Producto column is narrower: a long title must not squeeze the meta (SKU, marca, count) to
+  // nothing, or its tooltip has no place to hover.
+  it('1366x768 light: dense, the meta beside a long title keeps a visible width', async () => {
+    localStorage.setItem(KEY, 'true');
+    const screen = await renderPage({ width: 1366, height: 768, theme: 'light' });
+    const table = document.querySelector('table');
+    expect(table.dataset.density).toBe('dense');
+    const metas = [...table.querySelectorAll('td[data-col-id="producto"] div[title]')];
+    expect(metas.length).toBeGreaterThan(0);
+    for (const meta of metas) expect(meta.getBoundingClientRect().width, meta.title).toBeGreaterThanOrEqual(40);
+    screen.unmount();
+  });
 });

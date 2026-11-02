@@ -2344,6 +2344,10 @@ describe('row colors and the color layer (S8)', () => {
         const sparks = [...scrollerOf().querySelectorAll('td svg[aria-label$="90 días"]')];
         expect(sparks.length).toBeGreaterThan(0);
         for (const spark of sparks) expect(spark.getBoundingClientRect().height).toBeLessThanOrEqual(16.5);
+        // What dense mode hides (struck price, promotion, "Sin stock ERP") takes no room on the line.
+        const hidden = [...scrollerOf().querySelectorAll('[data-dense-hidden]')];
+        expect(hidden.length).toBeGreaterThan(0);
+        for (const el of hidden) expect(el.getClientRects().length, el.textContent).toBe(0);
         // The meta line is cut inside its own box (whole in the title's tooltip): no cell spills, nothing cut lacks a title.
         const spilling = [...scrollerOf().querySelectorAll('tbody td')].filter((td) => td.scrollWidth > td.clientWidth + 1);
         expect(spilling.map((td) => td.textContent.trim().slice(0, 40))).toEqual([]);

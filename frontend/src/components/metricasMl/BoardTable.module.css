@@ -655,9 +655,10 @@ thead .colProducto {
 }
 
 /* A flex box never draws an ellipsis: dense, the meta is one line of inline text cut with "…" (whole in its
-   tooltip). */
+   tooltip). It keeps a few characters even beside a long title, so there is always something to hover. */
 .table[data-density='dense'] .meta {
   display: block;
+  min-width: 7em;
   white-space: nowrap;
 }
 

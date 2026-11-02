@@ -46,4 +46,12 @@ describe('BoardTable meta tooltips', () => {
     const descriptor = screen.getByText(/Full · Activa/);
     expect(descriptor.closest('[title]').getAttribute('title')).toMatch(/Full · Activa · Router AX55$/);
   });
+
+  it('a publication row without a title says only its descriptor', () => {
+    renderRows('publication', [
+      { ...base, key: 'MLA2', mla: 'MLA2', title: null, listing_type: 'gold_special', is_full: true, status: 'active' },
+    ]);
+    const descriptor = screen.getByText(/Full · Activa/);
+    expect(descriptor.closest('[title]').getAttribute('title')).toMatch(/Full · Activa$/);
+  });
 });

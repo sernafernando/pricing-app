@@ -302,7 +302,7 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
           title={
             isProduct
               ? [row.sku, row.marca, pubsText].filter(Boolean).join(' · ')
-              : `${publicationDescriptor(row)} · ${row.title}`
+              : [publicationDescriptor(row), row.title].filter(Boolean).join(' · ')
           }
         >
           {isProduct ? (
