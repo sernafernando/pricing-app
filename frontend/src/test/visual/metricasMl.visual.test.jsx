@@ -28,6 +28,7 @@ import {
   epsonNodesFor,
   GROUP_BOARD_RESPONSE,
 } from './metricasMlFixtures';
+import { ADS_KPIS } from '../../components/metricasMl/adsFixtures';
 
 vi.mock('react-router-dom', async () => ({
   // The page keeps its filters in the URL (U1): an in-memory query, empty at the start.
@@ -394,6 +395,21 @@ describe('Métricas ML hideable KPI cards (visual)', () => {
       await expect.poll(() => strip()).toBeNull();
       await expect.element(screen.getByRole('button', { name: 'Indicadores' })).toBeVisible();
       await shot(`kpis-hidden-all-${theme}`, { width: 1920, height: 1080 });
+      screen.unmount();
+    });
+
+    it(`1920x1080 ${theme}: hiding Publicidad (ML Ads) takes the ads block off the page`, async () => {
+      api.get.mockImplementation((url) =>
+        Promise.resolve(url === '/ml-metricas/board' ? { data: { ...BOARD_RESPONSE, kpis: { ...BOARD_RESPONSE.kpis, ads: ADS_KPIS } } } : routeGet(url)),
+      );
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      const block = () => document.querySelector('section[aria-label="Publicidad (ML Ads)"]');
+      await expect.poll(() => block()).not.toBeNull();
+      await screen.getByRole('button', { name: 'Indicadores' }).click();
+      await screen.getByRole('group', { name: 'Elegir indicadores visibles' }).getByRole('checkbox', { name: 'Publicidad (ML Ads)' }).click();
+      await expect.poll(() => block()).toBeNull();
+      // Only the block goes: the cards stay.
+      expect(document.querySelector('section[aria-label="Indicadores del período"]')).not.toBeNull();
       screen.unmount();
     });
   }
