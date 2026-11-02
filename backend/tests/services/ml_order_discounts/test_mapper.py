@@ -86,3 +86,9 @@ def test_an_amount_too_big_for_decimal_or_float_maps_to_none_instead_of_raising(
     body["details"][0]["items"][0]["amounts"] = {"seller": 1e30, "total": 10**400}
     (coupon, _offer) = mapper.map_lines(1, body)
     assert (coupon.amount_seller, coupon.amount_total) == (None, None)
+
+
+def test_a_body_status_outside_http_codes_is_ignored() -> None:
+    body = copy.deepcopy(fixture("discounts_not_found"))  # perturbed copy: a status no HTTP code (or column) holds
+    body["status"] = 10**12
+    assert mapper.body_status(200, body) == 200

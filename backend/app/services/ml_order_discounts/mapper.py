@@ -62,9 +62,10 @@ def _mapping(value: Any) -> Mapping[str, Any]:
 
 
 def body_status(http_status: int, body: Any) -> int:
-    """ML's own status: an error body's numeric `status` when it has one, else the HTTP status."""
+    """ML's own status: an error body's numeric `status` (an HTTP error code, 400..599) when it has one, else the
+    HTTP status."""
     own = _int(_mapping(body).get("status"))
-    return own if own is not None and own >= 400 else http_status
+    return own if own is not None and 400 <= own <= 599 else http_status
 
 
 def classify(http_status: int, body: Any) -> str:

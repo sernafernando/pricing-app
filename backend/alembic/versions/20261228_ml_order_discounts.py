@@ -1,7 +1,7 @@
 """ml_order_discounts, ml_order_discount_lines, ml_order_discounts_state (ml-ads-cupones-display T3a)
 
 Revision ID: 20261228_ml_order_discounts
-Revises: 20261226_ml_ads_display_catalog
+Revises: 20261225_sell_out_programas
 Create Date: 2026-11-02
 
 Per-sale discounts from `GET /orders/{order_id}/discounts`: the body as ML sent it per order, the lines derived
@@ -19,7 +19,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "20261228_ml_order_discounts"
-down_revision: Union[str, None] = "20261226_ml_ads_display_catalog"
+down_revision: Union[str, None] = "20261225_sell_out_programas"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

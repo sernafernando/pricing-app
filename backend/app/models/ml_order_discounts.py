@@ -57,7 +57,7 @@ class MlOrderDiscountLine(Base):
 
 class MlOrderDiscountsState(Base):
     """The ingestion's back-off (single row, `id` 1): consecutive 429 runs and the instant before which no run
-    calls ML. Reset by the first answered call."""
+    calls ML. Reset by a run answered with no 429."""
 
     __tablename__ = "ml_order_discounts_state"
 
