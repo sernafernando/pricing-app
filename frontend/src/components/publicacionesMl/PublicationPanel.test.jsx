@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, render, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PublicationPanel from './PublicationPanel';
+import { resetPromoPulls } from '../promociones/promoPullTtl';
 import { preciosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { DETAIL_LINKED, DETAIL_RESPONSE, DETAIL_RESPONSE_MARGIN, ITEM_LINK, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
 
@@ -72,6 +73,8 @@ const renderPanel = (props = {}) =>
   render(<PublicationPanel itemId="MLA1100000001" tab="" onTabChange={vi.fn()} onClose={vi.fn()} {...props} />);
 
 beforeEach(() => {
+  // Promos opens first and pulls; the pull TTL is module-wide, so each test starts with none.
+  resetPromoPulls();
   canSeeMargin = false;
   canManage = true;
   canSeePromos = true;

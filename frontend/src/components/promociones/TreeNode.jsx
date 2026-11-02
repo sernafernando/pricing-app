@@ -19,6 +19,7 @@ import { usePermisos } from '../../contexts/PermisosContext';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import { useTreeViewStore } from '../../store/treeViewStore';
 import styles from './promociones.module.css';
+import { markPromoPulled } from './promoPullTtl';
 
 // Backend-computed price formatting for the applied promo's price — kept
 // local/minimal (no currency-conversion concerns here, unlike
@@ -274,6 +275,7 @@ function TreeNode({
     try {
       const { data } = await promocionesAPI.refreshItemPromociones(node.mla);
       if (data?.ok) {
+        markPromoPulled(node.mla);
         // The entry also feeds the promo filter bar's derived types, so
         // dropping the stale one keeps that from showing what the server just
         // replaced. Safe even if we unmounted; state updates are guarded.

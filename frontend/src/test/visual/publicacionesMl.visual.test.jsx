@@ -20,6 +20,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
 import { useTreeViewStore } from '../../store/treeViewStore';
+import { resetPromoPulls } from '../../components/promociones/promoPullTtl';
 import { equiposAPI, mlItemOverridesAPI, offsetsGananciaAPI, preciosAPI, productosAPI, productosPropiosAPI, promocionesAPI, publicacionesMlAPI, pxqAPI } from '../../services/api';
 import { PRODUCTO_CON_REBATE_Y_OFERTA, SELL_IN_OUT } from '../../components/pricing/ProductPrices.fixtures';
 import {
@@ -339,6 +340,8 @@ const wrapped = (elements) =>
 
 // Every suite shows the strip unless it says otherwise.
 beforeEach(() => {
+  // Promos opens first and pulls; the pull TTL is module-wide, so each test starts with none.
+  resetPromoPulls();
   canSeeKpis = true;
   publicacionesMlAPI.kpis.mockReset();
   publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE });

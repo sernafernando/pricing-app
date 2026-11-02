@@ -118,7 +118,7 @@ function capitalize(text) {
  * Lazily fetches `GET /promociones/item/{mla}` on first mount (i.e. on
  * first expand — the parent conditionally mounts this component).
  */
-function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlobalFilter = false, onApplied }) {
+function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlobalFilter = false, onApplied, onPulled }) {
   // The pull endpoint is a READ (it reconciles our mirror from ML and never
   // writes to ML) and requires `promos.ver`. It used to require
   // `promos.escribir`, which left read-only users looking at an unrefreshed
@@ -157,6 +157,10 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
   // yields a newer object, which wins).
   const [pull, setPull] = useState(null); // { forMla, status: 'running' | 'done', forMirror?, data? }
   const pulledForRef = useRef(null);
+  const onPulledRef = useRef(onPulled);
+  useEffect(() => {
+    onPulledRef.current = onPulled;
+  }, [onPulled]);
   const aliveRef = useRef(true);
   // Id of the latest pull started; a pull that is not the latest when it settles is ignored (the panel
   // moved to another MLA, even one it already pulled before).
@@ -207,6 +211,8 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
         // The filter bar derives its promo types from these entries.
         promosCacheRef.current.set(mla, { status: 'ok', data: merged });
         setPull({ forMla: mla, status: 'done', forMirror: mirror, data: merged });
+        // Only a pull ML answered, and that this mount still wanted, counts as done.
+        if (!merged.refreshFailed) onPulledRef.current?.(mla);
       });
   }, [shouldPull, mirror, loading, error, mla, promosCacheRef, readMirror]);
 

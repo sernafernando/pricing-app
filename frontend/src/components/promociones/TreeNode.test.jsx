@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TreeNode from './TreeNode';
+import { markPromoPulled, promoPulledRecently, resetPromoPulls } from './promoPullTtl';
 import { promocionesAPI } from '../../services/api';
 import { useTreeViewStore } from '../../store/treeViewStore';
 import { seedTiendasOficiales } from '../../test/tiendasOficialesFixtures';
@@ -372,6 +373,26 @@ describe('TreeNode promo refresh button (per-MLA manual refresh)', () => {
     await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
 
     expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_CAT');
+  });
+
+  it('goes to ML even for an MLA pulled less than 5 minutes ago, and a successful refresh starts its TTL again', async () => {
+    resetPromoPulls();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      markPromoPulled('MLA_CAT');
+      promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+      renderNode(buildMlaTree());
+      const user = await expandToMla();
+      now.mockReturnValue(1_000_000 + 60_000);
+      await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
+      expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_CAT');
+      // Restarted at the refresh, not at the earlier pull.
+      now.mockReturnValue(1_000_000 + 5 * 60_000 + 1);
+      await waitFor(() => expect(promoPulledRecently('MLA_CAT')).toBe(true));
+    } finally {
+      now.mockRestore();
+      resetPromoPulls();
+    }
   });
 
   it('disables the button while the refresh is in-flight', async () => {

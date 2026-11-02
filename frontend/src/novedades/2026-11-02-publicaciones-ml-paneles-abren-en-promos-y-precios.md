@@ -17,3 +17,4 @@ En **Publicaciones ML**, el panel de una publicación ahora abre directo en **Pr
 - Sin permiso para ver promociones, el panel de una publicación abre en **Precios**. Si tampoco se pueden ver precios, o la publicación no tiene un producto vinculado, abre en **Resumen**.
 - El panel de un producto abre en **Resumen** cuando no hay precios para mostrar (por ejemplo, en **Sin producto**).
 - Un enlace que ya indica la pestaña la sigue abriendo esa pestaña.
+- Para no saturar la conexión con Mercado Libre, la pestaña **Promos** actualiza las promociones de una publicación como máximo una vez cada 5 minutos. Mientras tanto muestra lo último que se trajo. Después de aplicar o quitar una promoción, la próxima vez que se abre vuelve a actualizar.
