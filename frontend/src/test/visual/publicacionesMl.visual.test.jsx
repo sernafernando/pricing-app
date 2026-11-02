@@ -1019,7 +1019,11 @@ describe('Publicaciones ML Producto view (visual)', () => {
           if (r.width === 0) continue;
           expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
         }
-        const figures = [...panel.querySelectorAll('dd')].filter((el) => el.textContent.trim());
+        // Every piece of text keeps to one line. A value may stack two of them on purpose (the last sale's date over
+        // "hace N días", a header figure over its note), so each innermost element is measured, not the whole <dd>.
+        const figures = [...panel.querySelectorAll('dd')]
+          .flatMap((dd) => (dd.children.length === 0 ? [dd] : [...dd.querySelectorAll('*')].filter((el) => el.children.length === 0)))
+          .filter((el) => el.textContent.trim());
         expect(figures.length).toBeGreaterThan(0);
         expect(wrapped(figures)).toEqual([]);
         // The product row is the highlighted one, and it was not expanded.
