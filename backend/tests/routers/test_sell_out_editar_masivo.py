@@ -147,14 +147,14 @@ def test_the_preview_lists_what_changes_and_names_the_refused_without_writing(cl
     resp = client.post(PREVIA, json={"campana_ids": [a, igual, 999999], "acumulable": False}, headers=gestor)
 
     assert resp.status_code == 200, resp.text
-    cero = {"lineas": 0, "unidades": 0}
+    cero = {"lineas": 0, "unidades": 0, "monto": "0"}
     assert resp.json() == {
         "totales": {
             "cambian": 1,
             "sin_cambio": 1,
             "rechazadas": 1,
-            "salen": {**cero, "montos": []},
-            "entran": cero,
+            "salen": {"lineas": 0, "unidades": 0, "montos": []},
+            "entran": {"lineas": 0, "unidades": 0, "montos": []},
         },
         "cambian": [
             {
@@ -164,10 +164,11 @@ def test_the_preview_lists_what_changes_and_names_the_refused_without_writing(cl
                 "fecha_desde": "2026-11-01",
                 "fecha_hasta": "2026-11-30",
                 "acumulable": False,
-                "salen": {**cero, "monto": "0"},
+                "salen": cero,
                 "entran": cero,
             }
         ],
+        "vinculadas": [],
         "sin_cambio": [igual],
         "rechazadas": [{"id": 999999, "nombre": None, "motivo": "La campaña 999999 no existe"}],
     }

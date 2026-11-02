@@ -12,38 +12,37 @@ named with its reason (`SellOutEdicionRechazada`): an unknown id, a voided one, 
 start, any rule of the step with its own message. A campaign being rebuilt (`SellOutRecalculando`) or a deadlock
 with another writer (40P01) stops the loop and makes the refusal a retry, with the bulk void's messages.
 
-`previa_edicion` writes nothing: it runs the very same loop and always rolls it back, so its `cambian`,
-`sin_cambio` and `rechazadas` are what the apply would do, then reads, for each campaign that changes:
+`previa_edicion` writes nothing. Inside one transaction that it always rolls back, it runs the very same loop, so its
+`cambian`, `sin_cambio` and `rechazadas` are what the apply would do. Then it runs the very rebuild the
+`sell_out.drain` worker would run for what the apply queues (`asignacion.recalcular` over the edited campaigns,
+which takes every active campaign sharing products with them; it neither commits nor touches the queue), and
+diffs `sell_out_consumos` before and after, line by line, per campaign:
 
-- `salen`: its applied sales (`sell_out_consumos`) dated outside the new dates, in lines, units and amount (in
-  the campaign's currency). With no other change they are exactly the lines the rebuild drops. A `monto_total`
-  campaign spreads each product's share over the product's sales left in its dates (`reparto.repartir`), so a
-  product that keeps at least one sale in the new dates (credited, or entering) keeps its whole share, moved to
-  those sales: its leaving lines carry no money out. Only the share of a product left with NO sale in the new
-  dates leaves (it becomes the campaign's unassigned money, counted on `fecha_hasta`).
-- `entran`: the sales (not returns) of the products it reaches (`alcance.productos`; for a `monto_total` campaign
-  only the products with a share, as the allocator does) dated in the days the new dates add, read like the
-  allocator reads them (`alcance.ventas`, every channel), without the sales of a percentage campaign whose base is
-  not recorded yet (`asignacion.base_desconocida`). Lines and units only: their amount is known after the rebuild
-  (on a `monto_total` campaign they dilute the rows already credited, they add no money).
-  It is an UPPER bound: when a cap binds, or a non-stackable campaign sharing the products holds the units, the
-  rebuild credits less, and an earlier sale that enters may take units from a later line already credited (which
-  `salen` does not count, being inside the new dates). Turning `acumulable` alone moves neither.
+- `salen`: lines gone, and the units and money the remaining or gone lines lost;
+- `entran`: new lines, and the units and money new or remaining lines gained;
+
+money in each campaign's currency, totals per currency. So caps (an earlier sale taking a later line's units, or
+units a shorter range frees going to a later sale already inside), stacking (`acumulable`: the units a
+non-stackable campaign holds are taken from the linked campaigns after it) and a fixed total's split (a share
+moved between a product's sales, or a share with no sale credited by a sale that enters) come out as the rebuild
+does them. A linked campaign whose credit moves is listed in `vinculadas`, `en_seleccion` False when it was not
+selected. While any campaign is refused, the apply changes nothing; the numbers are then those of the campaigns
+that can be edited, simulated on their own. A rebuild that would fail (a product without VAT, a USD campaign
+without a rate) is refused as an error, as the drain would charge it.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.models.sell_out import SellOutCampana, SellOutConsumo
-from app.services.sell_out import alcance, asignacion
+from app.services.sell_out import asignacion
 from app.services.sell_out import campanas as base
 from app.services.sell_out.campanas import DEADLOCK, REINTENTAR, SellOutError, SellOutRecalculando
 
@@ -132,132 +131,109 @@ def editar_campanas(db: Session, campana_ids: list[int], cambios: dict, usuario_
     return editadas, sin_cambio
 
 
-def _dias_nuevos(desde: date, hasta: date, nuevo_desde: date, nuevo_hasta: date) -> list[tuple[date, date]]:
-    """The days of [nuevo_desde, nuevo_hasta] outside [desde, hasta], as at most two ranges."""
-    rangos = [
-        (nuevo_desde, min(nuevo_hasta, desde - timedelta(days=1))),
-        (max(nuevo_desde, hasta + timedelta(days=1)), nuevo_hasta),
-    ]
-    return [(a, b) for a, b in rangos if a <= b]
+Consumos = dict[int, dict[tuple[str, int], tuple[int, Decimal]]]  # campana_id -> (canal, venta_ref) -> (units, money)
 
 
-def _salen(db: Session, campanas: list[SellOutCampana], cambios: dict) -> dict[int, dict]:
-    """`{campana_id: {lineas, unidades, monto, por_item, quedan}}` of the applied sales dated outside the new dates,
-    ONE query: `por_item` is their amount per product, `quedan` the products with a credited sale inside them."""
-    salida = {
-        c.id: {"lineas": 0, "unidades": 0, "monto": Decimal(0), "por_item": defaultdict(Decimal), "quedan": set()}
-        for c in campanas
-    }
-    if not campanas:
-        return salida
-    t = SellOutConsumo
-    rows = (
-        db.query(t.campana_id, t.item_id, t.fecha_venta, func.count(), func.sum(t.unidades), func.sum(t.monto))
-        .filter(t.campana_id.in_(list(salida)))
-        .group_by(t.campana_id, t.item_id, t.fecha_venta)
-    )
-    por_id = {c.id: c for c in campanas}
-    for cid, item_id, dia, lineas, unidades, monto in rows:
-        c, fila = por_id[cid], salida[cid]
-        if cambios.get("fecha_desde", c.fecha_desde) <= dia <= cambios.get("fecha_hasta", c.fecha_hasta):
-            fila["quedan"].add(item_id)
-            continue
-        fila["lineas"] += lineas
-        fila["unidades"] += int(unidades)
-        fila["monto"] += Decimal(monto)
-        fila["por_item"][item_id] += Decimal(monto)
+def _consumos(db: Session, campana_ids: list[int]) -> Consumos:
+    """The campaigns' stored lines, ONE query; every asked campaign is present."""
+    salida: Consumos = {cid: {} for cid in campana_ids}
+    if campana_ids:
+        t = SellOutConsumo
+        filas = db.query(t.campana_id, t.canal, t.venta_ref, t.unidades, t.monto).filter(t.campana_id.in_(campana_ids))
+        for cid, canal, ref, unidades, monto in filas:
+            salida[cid][(canal, ref)] = (int(unidades), Decimal(monto))
     return salida
 
 
-def _monto_que_sale(campana: SellOutCampana, salen: dict, entran_items: set) -> Decimal:
-    """The money the campaign stops crediting: every leaving line's, except on a `monto_total` campaign, where only
-    the share of a product left with no sale in the new dates leaves (module docstring)."""
-    if campana.tipo != "monto_total":
-        return salen["monto"]
-    sigue = salen["quedan"] | entran_items
-    return sum((m for item, m in salen["por_item"].items() if item not in sigue), Decimal(0))
+def _diferencia(antes: dict, despues: dict) -> dict:
+    """`{salen, entran}` of one campaign: lines gone or new, and the units and money each line lost or gained."""
+    salen = {"lineas": 0, "unidades": 0, "monto": Decimal(0)}
+    entran = {"lineas": 0, "unidades": 0, "monto": Decimal(0)}
+    for clave in antes.keys() | despues.keys():
+        previo, nuevo = antes.get(clave), despues.get(clave)
+        salen["lineas"] += previo is not None and nuevo is None
+        entran["lineas"] += nuevo is not None and previo is None
+        unidades = (nuevo[0] if nuevo else 0) - (previo[0] if previo else 0)
+        monto = (nuevo[1] if nuevo else Decimal(0)) - (previo[1] if previo else Decimal(0))
+        salen["unidades"] += max(-unidades, 0)
+        entran["unidades"] += max(unidades, 0)
+        salen["monto"] += max(-monto, Decimal(0))
+        entran["monto"] += max(monto, Decimal(0))
+    return {"salen": salen, "entran": entran}
 
 
-def _entran(db: Session, campanas: list[SellOutCampana], cambios: dict) -> tuple[dict[int, dict], dict[int, set]]:
-    """`{campana_id: {lineas, unidades}}` of the sales the new dates add (module docstring), and `{campana_id:
-    products of those sales}`: one reach query, one shares query and ONE `alcance.ventas` read over every
-    campaign's added days."""
-    salida = {c.id: {"lineas": 0, "unidades": 0} for c in campanas}
-    items_entran: dict[int, set] = {c.id: set() for c in campanas}
-    dias = {
-        c.id: _dias_nuevos(
-            c.fecha_desde,
-            c.fecha_hasta,
-            cambios.get("fecha_desde", c.fecha_desde),
-            cambios.get("fecha_hasta", c.fecha_hasta),
-        )
-        for c in campanas
-    }
-    con_dias = [c for c in campanas if dias[c.id]]
-    if not con_dias:
-        return salida, items_entran
-    productos = alcance.productos(db, [c.id for c in con_dias])
-    repartos = asignacion.repartos_item(db, con_dias)
-    alcanzados = {
-        c.id: {i for i in productos.get(c.id, {}) if c.tipo != "monto_total" or i in repartos.get(c.id, {})}
-        for c in con_dias
-    }
-    items = set().union(*alcanzados.values())
-    if not items:
-        return salida, items_entran
-    rangos = [r for c in con_dias for r in dias[c.id]]
-    ventas = alcance.ventas(db, items, min(a for a, _ in rangos), max(b for _, b in rangos))
-    for c in con_dias:
-        for v in ventas:
-            if v.unidades <= 0 or v.item_id not in alcanzados[c.id] or asignacion.base_desconocida(c, v):
-                continue
-            if any(a <= v.fecha <= b for a, b in dias[c.id]):
-                salida[c.id]["lineas"] += 1
-                salida[c.id]["unidades"] += v.unidades
-                items_entran[c.id].add(v.item_id)
-    return salida, items_entran
+def _simular(
+    db: Session, campana_ids: list[int], cambios: dict, usuario_id: int
+) -> tuple[list[int], list[int], list[Rechazada], dict[int, dict]]:
+    """The loop, then the rebuild the drain would run for it, in the open transaction: `(editadas, sin_cambio,
+    rechazadas, {campana_id: {salen, entran}})` over the edited and every linked campaign. The caller rolls back."""
+    editadas, sin_cambio, rechazadas = _aplicar(db, campana_ids, cambios, usuario_id)
+    if rechazadas:  # a refusal may have rolled the loop back: simulate the editable ones on their own
+        db.rollback()
+        editadas, sin_cambio, otras = _aplicar(db, editadas + sin_cambio, cambios, usuario_id)
+        rechazadas = rechazadas + otras
+    tocadas = asignacion.vinculadas(db, editadas)  # what `recalcular` rebuilds: links are by product, not dates
+    antes = _consumos(db, tocadas)
+    try:
+        asignacion.recalcular(db, editadas)
+    except asignacion.SellOutAsignacionError as exc:
+        db.rollback()
+        raise SellOutError(f"La edición no se puede recalcular: {exc}") from exc
+    despues = _consumos(db, tocadas)
+    return editadas, sin_cambio, rechazadas, {cid: _diferencia(antes[cid], despues[cid]) for cid in tocadas}
+
+
+def _se_mueve(diferencia: dict) -> bool:
+    return any(diferencia["salen"].values()) or any(diferencia["entran"].values())
+
+
+def _montos(filas: list[dict], lado: str) -> list[dict]:
+    por_moneda: dict[str, Decimal] = defaultdict(Decimal)
+    for fila in filas:
+        if fila[lado]["lineas"] or fila[lado]["unidades"] or fila[lado]["monto"]:
+            por_moneda[fila["moneda"]] += fila[lado]["monto"]
+    return [{"moneda": m, "monto": por_moneda[m]} for m in sorted(por_moneda)]
 
 
 def previa_edicion(db: Session, campana_ids: list[int], cambios: dict, usuario_id: int) -> dict:
-    """What `editar_campanas` would do, writing nothing (module docstring): the same loop, always rolled back, then
-    the sales that leave and enter each campaign that changes, with the totals (the amount per currency). Raises
-    the same retry refusal when a campaign is busy; the other refusals are listed, not raised."""
+    """What `editar_campanas` and the rebuild it queues would do, writing nothing (module docstring). Raises the
+    same retry refusal when a campaign is busy; the other refusals are listed, not raised."""
     try:
-        editadas, sin_cambio, rechazadas = _aplicar(db, campana_ids, cambios, usuario_id)
+        editadas, sin_cambio, rechazadas, diferencias = _simular(db, campana_ids, cambios, usuario_id)
     finally:
         db.rollback()
-    campanas = db.query(SellOutCampana).filter(SellOutCampana.id.in_(editadas)).order_by(SellOutCampana.id).all()
-    salen = _salen(db, campanas, cambios)
-    entran, items_entran = _entran(db, campanas, cambios)
-    montos: dict[str, Decimal] = defaultdict(Decimal)
-    cambian = []
-    for c in campanas:  # read before the rollback below, which expires them (one SELECT each otherwise)
-        sale = {"lineas": salen[c.id]["lineas"], "unidades": salen[c.id]["unidades"]}
-        sale["monto"] = _monto_que_sale(c, salen[c.id], items_entran[c.id])
-        if sale["lineas"]:
-            montos[c.moneda] += sale["monto"]
-        nuevos = {campo: cambios.get(campo, getattr(c, campo)) for campo in CAMPOS}
-        cambian.append(
-            {"id": c.id, "nombre": c.nombre, "moneda": c.moneda, **nuevos, "salen": sale, "entran": entran[c.id]}
-        )
+    seleccion = set(campana_ids)
+    movidas = sorted(set(editadas) | {cid for cid, d in diferencias.items() if _se_mueve(d)})
+    campanas = {c.id: c for c in db.query(SellOutCampana).filter(SellOutCampana.id.in_(movidas))}
+    cambian, vinculadas = [], []
+    for cid in movidas:  # read before the rollback below, which expires them (one SELECT each otherwise)
+        c = campanas[cid]
+        fila = {"id": c.id, "nombre": c.nombre, "moneda": c.moneda}
+        if cid in editadas:
+            fila.update({campo: cambios.get(campo, getattr(c, campo)) for campo in CAMPOS})
+        else:
+            fila["en_seleccion"] = cid in seleccion
+        fila.update(diferencias.get(cid) or _diferencia({}, {}))
+        (cambian if cid in editadas else vinculadas).append(fila)
     db.rollback()  # nothing to keep: release the snapshot instead of holding it until the session closes
+    filas = cambian + vinculadas
     totales = {
         "cambian": len(cambian),
         "sin_cambio": len(sin_cambio),
         "rechazadas": len(rechazadas),
-        "salen": {
-            "lineas": sum(c["salen"]["lineas"] for c in cambian),
-            "unidades": sum(c["salen"]["unidades"] for c in cambian),
-            "montos": [{"moneda": m, "monto": montos[m]} for m in sorted(montos)],
-        },
-        "entran": {
-            "lineas": sum(e["lineas"] for e in entran.values()),
-            "unidades": sum(e["unidades"] for e in entran.values()),
+        **{
+            lado: {
+                "lineas": sum(f[lado]["lineas"] for f in filas),
+                "unidades": sum(f[lado]["unidades"] for f in filas),
+                "montos": _montos(filas, lado),
+            }
+            for lado in ("salen", "entran")
         },
     }
     return {
         "totales": totales,
         "cambian": cambian,
+        "vinculadas": vinculadas,
         "sin_cambio": sin_cambio,
         "rechazadas": [{"id": i, "nombre": n, "motivo": m} for i, n, m in sorted(rechazadas, key=lambda r: r[0])],
     }

@@ -29,10 +29,11 @@ price, and that credit is added to profit. The rules live in
   the edit), a 422; a 409 (retry) when one is being rebuilt or deadlocks with a concurrent writer. Not
   brand-scoped either: `gestionar` is the per-record check. `POST /editar-masivo/previa`, same body and
   permission, writes nothing and says what the apply would do on the same data: which campaigns change, which
-  have no change, the refused ones (listed with the same reasons, not raised; busy is the same 409), and per
-  campaign the applied sales that leave (outside the new dates: lines, units, amount in its currency, totals per
-  currency) and the sales that enter (in the days the new dates add: lines and units, an upper bound when a cap
-  or a non-stackable campaign binds; the amount is known after the rebuild).
+  have no change, the refused ones (listed with the same reasons, not raised; busy is the same 409), and what the
+  rebuild the apply queues would take from and give to each campaign: it runs the drain's own rebuild inside the
+  request and rolls everything back, so the lines, units and money (per currency in the totals) that leave and
+  enter are exact on the same data, caps, stacking and fixed-total splits included. Linked campaigns whose credit
+  moves are listed in `vinculadas` (`en_seleccion` False when not selected). A rebuild that would fail is a 422.
 - A brand-scoped PM (`sell_out.repartir` without `sell_out.gestionar`) reads
   a `monto_total` campaign's shares of their brands only, in the list, the
   detail and the `PUT /{id}/reparto` response, so what they read is what they

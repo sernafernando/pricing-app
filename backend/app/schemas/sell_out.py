@@ -184,23 +184,15 @@ class SellOutEdicionRechazadaOut(BaseModel):
     motivo: str
 
 
-class SellOutEdicionSalenOut(BaseModel):
-    """Applied sales dated outside the new dates: the rebuild drops them. `monto` is the money the campaign stops
-    crediting, in its currency. On a `monto_total` campaign that is only the share of the products left with no
-    sale in the new dates (it becomes unassigned money, on `fecha_hasta`): a product that keeps a sale keeps its
-    whole share, moved to its remaining sales (`edicion_masiva`)."""
+class SellOutEdicionMovimientoOut(BaseModel):
+    """What the rebuild after the edit takes from (`salen`) or gives to (`entran`) one campaign, simulated with the
+    drain's own rebuild and rolled back (`edicion_masiva`): lines gone (or new), and the units and money, in the
+    campaign currency, its lines lose (or gain). Exact on the same data: caps, stacking and a fixed total's split
+    included (a `monto_total` share moved between a product's sales shows on both sides)."""
 
     lineas: int
     unidades: int
     monto: Decimal
-
-
-class SellOutEdicionEntranOut(BaseModel):
-    """Sales the new dates add. An upper bound: a cap, or a non-stackable campaign sharing the products, can credit
-    fewer units, and their amount is known after the rebuild (`edicion_masiva`)."""
-
-    lineas: int
-    unidades: int
 
 
 class SellOutEdicionCampanaPreviaOut(BaseModel):
@@ -211,8 +203,20 @@ class SellOutEdicionCampanaPreviaOut(BaseModel):
     fecha_desde: date
     fecha_hasta: date
     acumulable: bool
-    salen: SellOutEdicionSalenOut
-    entran: SellOutEdicionEntranOut
+    salen: SellOutEdicionMovimientoOut
+    entran: SellOutEdicionMovimientoOut
+
+
+class SellOutEdicionVinculadaPreviaOut(BaseModel):
+    """A campaign the edit does not change but whose credit the rebuild moves: it shares products with an edited one
+    (a cap or `acumulable` decides who holds the units)."""
+
+    id: int
+    nombre: str
+    moneda: Moneda
+    en_seleccion: bool  # False: not among the selected campaigns
+    salen: SellOutEdicionMovimientoOut
+    entran: SellOutEdicionMovimientoOut
 
 
 class SellOutEdicionMontoOut(BaseModel):
@@ -220,25 +224,27 @@ class SellOutEdicionMontoOut(BaseModel):
     monto: Decimal
 
 
-class SellOutEdicionSalenTotalOut(BaseModel):
+class SellOutEdicionMovimientoTotalOut(BaseModel):
     lineas: int
     unidades: int
-    montos: list[SellOutEdicionMontoOut]  # per currency, only the currencies with sales that leave
+    montos: list[SellOutEdicionMontoOut]  # per currency, only the currencies with something that moves
 
 
 class SellOutEdicionTotalesOut(BaseModel):
     cambian: int
     sin_cambio: int
     rechazadas: int
-    salen: SellOutEdicionSalenTotalOut
-    entran: SellOutEdicionEntranOut
+    salen: SellOutEdicionMovimientoTotalOut  # over `cambian` and `vinculadas`
+    entran: SellOutEdicionMovimientoTotalOut
 
 
 class SellOutEdicionPreviaOut(BaseModel):
-    """What the bulk edit would do on the same data, written nothing. `rechazadas` makes the apply refuse it all."""
+    """What the bulk edit and the rebuild it queues would do on the same data, written nothing. While `rechazadas`
+    is not empty the apply refuses it all; the numbers are those of the campaigns that can be edited."""
 
     totales: SellOutEdicionTotalesOut
     cambian: list[SellOutEdicionCampanaPreviaOut]
+    vinculadas: list[SellOutEdicionVinculadaPreviaOut]
     sin_cambio: list[int]
     rechazadas: list[SellOutEdicionRechazadaOut]
 

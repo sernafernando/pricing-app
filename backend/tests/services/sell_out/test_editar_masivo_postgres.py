@@ -304,14 +304,72 @@ def test_a_campaign_already_with_the_values_is_sin_cambio_and_writes_nothing(eng
 
 
 # ── The preview ─────────────────────────────────────────────────────
+#
+# The preview runs the edit AND the rebuild the drain would run, then rolls both back: its numbers must equal, line
+# for line, what the apply plus a drain do on the same data, linked campaigns outside the selection included.
+
+TABLAS = (
+    "sell_out_campanas",
+    "sell_out_campana_grupos",
+    "sell_out_campana_items",
+    "sell_out_consumos",
+    "sell_out_dirty",
+    "auditoria",
+)
 
 
 def _snapshot(engine: Engine) -> tuple:
     with engine.connect() as conn:
-        return tuple(
-            conn.execute(text(f"SELECT * FROM {tabla} ORDER BY 1")).all()
-            for tabla in ("sell_out_campanas", "sell_out_campana_items", "sell_out_consumos", "auditoria")
-        ) + (w.queued(engine),)
+        return tuple(conn.execute(text(f"SELECT * FROM {tabla} ORDER BY 1")).all() for tabla in TABLAS)
+
+
+def _claves(engine: Engine, cid: int) -> dict:
+    return {(c[1], c[2]): c for c in w.consumos(engine, cid)}
+
+
+def _diferencia(antes: dict, despues: dict) -> dict:
+    """What the rebuild took away from and gave to one campaign: lines gone or new, units and money down or up."""
+    cero = {"lineas": 0, "unidades": 0, "monto": Decimal(0)}
+    salen, entran = dict(cero), dict(cero)
+    for clave in antes.keys() | despues.keys():
+        previo, nuevo = antes.get(clave), despues.get(clave)
+        salen["lineas"] += previo is not None and nuevo is None
+        entran["lineas"] += nuevo is not None and previo is None
+        unidades = (nuevo[5] if nuevo else 0) - (previo[5] if previo else 0)
+        monto = (nuevo[6] if nuevo else Decimal(0)) - (previo[6] if previo else Decimal(0))
+        salen["unidades"] += max(-unidades, 0)
+        entran["unidades"] += max(unidades, 0)
+        salen["monto"] += max(-monto, Decimal(0))
+        entran["monto"] += max(monto, Decimal(0))
+    return {"salen": salen, "entran": entran}
+
+
+def _comparar(engine: Engine, ids: list[int], **cambios) -> tuple[dict, dict]:
+    """Preview (asserting it leaves every table byte-identical), then apply and drain: `(previa, {campana_id:
+    what really left and entered})` over every campaign with consumptions."""
+    with engine.connect() as conn:
+        todas = [cid for (cid,) in conn.execute(text("SELECT id FROM sell_out_campanas ORDER BY id"))]
+    antes_tablas = _snapshot(engine)
+    antes = {cid: _claves(engine, cid) for cid in todas}
+    previa = _previa(engine, ids, **cambios)
+    assert _snapshot(engine) == antes_tablas
+    _editar(engine, ids, **cambios)
+    _drain(engine)
+    real = {cid: _diferencia(antes[cid], _claves(engine, cid)) for cid in todas}
+    return previa, real
+
+
+def _vista(previa: dict) -> dict:
+    """`{campana_id: {salen, entran}}` of every campaign the preview lists, selected or linked."""
+    return {c["id"]: {"salen": c["salen"], "entran": c["entran"]} for c in previa["cambian"] + previa["vinculadas"]}
+
+
+def _movidas(real: dict, previa: dict) -> dict:
+    """The edited campaigns (always listed) and every other campaign whose consumptions moved."""
+    editadas = {c["id"] for c in previa["cambian"]}
+    return {
+        cid: d for cid, d in real.items() if cid in editadas or any(d["salen"].values()) or any(d["entran"].values())
+    }
 
 
 def test_the_preview_writes_nothing(engine: Engine) -> None:
@@ -327,13 +385,10 @@ def test_the_preview_writes_nothing(engine: Engine) -> None:
     assert _snapshot(engine) == antes
     assert [c["id"] for c in previa["cambian"]] == [a]
     assert [r["id"] for r in previa["rechazadas"]] == [invertida, 999999]
+    assert previa["cambian"][0]["salen"] == {"lineas": 1, "unidades": 2, "monto": Decimal("20.00")}
 
 
-def _claves(engine: Engine, cid: int) -> dict:
-    return {(c[1], c[2]): c for c in w.consumos(engine, cid)}
-
-
-def test_the_preview_matches_what_the_apply_and_the_rebuild_do_when_no_cap_binds(engine: Engine) -> None:
+def test_the_preview_equals_the_apply_and_the_rebuild_when_no_cap_binds(engine: Engine) -> None:
     g = w.grupo(engine, [ROUTERS])
     ars = w.campana(engine, [g], nombre="Rebate Q4 2026")
     usd = w.campana(engine, [g], nombre="MARCA PROG 3.0", moneda="USD", tc_modo="fijo", tipo_cambio="1000")
@@ -343,60 +398,81 @@ def test_the_preview_matches_what_the_apply_and_the_rebuild_do_when_no_cap_binds
     w.venta(engine, "tn", ROUTER, 3, date(2026, 11, 25))  # leaves: the new end is earlier
     w.venta(engine, "fuera", ROUTER, 5, date(2026, 12, 5))  # outside both ranges
     _consumir(engine)
-    antes = {cid: _claves(engine, cid) for cid in (ars, usd)}
-    cambios = {"fecha_desde": date(2026, 10, 20), "fecha_hasta": date(2026, 11, 15)}
 
-    previa = _previa(engine, [ars, usd], **cambios)
-    _editar(engine, [ars, usd], **cambios)
-    _drain(engine)
+    previa, real = _comparar(engine, [ars, usd], fecha_desde=date(2026, 10, 20), fecha_hasta=date(2026, 11, 15))
 
-    por_id = {c["id"]: c for c in previa["cambian"]}
-    for cid in (ars, usd):
-        despues = _claves(engine, cid)
-        salieron = [antes[cid][k] for k in antes[cid].keys() - despues.keys()]
-        entraron = [despues[k] for k in despues.keys() - antes[cid].keys()]
-        assert por_id[cid]["salen"] == {
-            "lineas": len(salieron),
-            "unidades": sum(c[5] for c in salieron),
-            "monto": sum((c[6] for c in salieron), Decimal(0)),
-        }
-        assert por_id[cid]["entran"] == {"lineas": len(entraron), "unidades": sum(c[5] for c in entraron)}
-        assert (len(salieron), len(entraron)) == (1, 2)
+    assert _vista(previa) == _movidas(real, previa)
+    assert real[ars]["salen"] == {"lineas": 1, "unidades": 3, "monto": Decimal("30.00")}
+    assert real[ars]["entran"] == {"lineas": 2, "unidades": 5, "monto": Decimal("50.00")}
+    assert previa["vinculadas"] == []
     totales = previa["totales"]
-    assert totales["salen"]["lineas"] == 2 and totales["entran"] == {"lineas": 4, "unidades": 10}
-    assert {m["moneda"]: m["monto"] for m in totales["salen"]["montos"]} == {
-        "ARS": Decimal("30.00"),
-        "USD": Decimal("30.00"),
-    }
+    assert (totales["salen"]["lineas"], totales["entran"]["lineas"], totales["entran"]["unidades"]) == (2, 4, 10)
+    assert totales["salen"]["montos"] == [
+        {"moneda": "ARS", "monto": Decimal("30.00")},
+        {"moneda": "USD", "monto": Decimal("30.00")},
+    ]
+    assert totales["entran"]["montos"] == [
+        {"moneda": "ARS", "monto": Decimal("50.00")},
+        {"moneda": "USD", "monto": Decimal("50.00")},
+    ]
 
 
-def test_when_a_cap_binds_the_preview_entran_is_an_upper_bound(engine: Engine) -> None:
-    """What the preview cannot know: the cap is shared in sale order, so an earlier sale that enters takes units
-    from a later one already credited. `entran` counts every sale the new dates add, not what the cap leaves."""
+def test_an_earlier_sale_entering_under_a_full_cap_takes_the_units_of_a_later_line(engine: Engine) -> None:
     g = w.grupo(engine, [ROUTERS])
     cid = w.campana(engine, [g], tope_unidades=3)
     w.venta(engine, "fuera", ROUTER, 3, date(2026, 11, 10))  # credited today, it fills the cap
     w.venta(engine, "fuera", ROUTER, 4, date(2026, 10, 25))  # enters, earlier: it takes the cap
     _consumir(engine)
-    antes = _claves(engine, cid)
 
-    previa = _previa(engine, [cid], fecha_desde=date(2026, 10, 20))
-    _editar(engine, [cid], fecha_desde=date(2026, 10, 20))
-    _drain(engine)
+    previa, real = _comparar(engine, [cid], fecha_desde=date(2026, 10, 20))
 
-    despues = _claves(engine, cid)
-    [detalle] = previa["cambian"]
-    assert detalle["entran"] == {"lineas": 1, "unidades": 4}  # the whole sale
-    entraron = [despues[k] for k in despues.keys() - antes.keys()]
-    assert [c[5] for c in entraron] == [3]  # only what the cap leaves
-    assert detalle["salen"]["lineas"] == 0  # inside the new dates: the preview does not see the cap move it
-    assert antes.keys() - despues.keys()  # yet the 11-10 line lost its units to the earlier sale
+    assert _vista(previa) == _movidas(real, previa)
+    assert real[cid]["salen"] == {"lineas": 1, "unidades": 3, "monto": Decimal("30.00")}
+    assert real[cid]["entran"] == {"lineas": 1, "unidades": 3, "monto": Decimal("30.00")}
+
+
+def test_units_a_shortened_range_frees_under_a_full_cap_go_to_a_later_sale_already_inside(engine: Engine) -> None:
+    g = w.grupo(engine, [ROUTERS])
+    cid = w.campana(engine, [g], tope_unidades=3)
+    w.venta(engine, "fuera", ROUTER, 3, date(2026, 11, 5))  # credited, it fills the cap
+    w.venta(engine, "fuera", ROUTER, 4, date(2026, 11, 20))  # inside the dates, not credited: no cap left
+    _consumir(engine)
+
+    previa, real = _comparar(engine, [cid], fecha_desde=date(2026, 11, 10))
+
+    assert _vista(previa) == _movidas(real, previa)
+    assert real[cid]["salen"] == {"lineas": 1, "unidades": 3, "monto": Decimal("30.00")}
+    assert real[cid]["entran"] == {"lineas": 1, "unidades": 3, "monto": Decimal("30.00")}  # no credit is lost
+
+
+def test_turning_a_campaign_non_stackable_takes_units_from_a_linked_campaign_outside_the_selection(
+    engine: Engine,
+) -> None:
+    g = w.grupo(engine, [ROUTERS])
+    elegida = w.campana(engine, [g], nombre="Rebate Q4 2026")  # lower id: it takes precedence
+    vinculada = w.campana(engine, [g], nombre="MODELO 8180")  # not selected, shares the product
+    w.venta(engine, "fuera", ROUTER, 2, date(2026, 11, 10))
+    _consumir(engine)
+
+    previa, real = _comparar(engine, [elegida], acumulable=False)
+
+    assert _vista(previa) == _movidas(real, previa)
+    assert previa["vinculadas"] == [
+        {
+            "id": vinculada,
+            "nombre": "MODELO 8180",
+            "moneda": "ARS",
+            "en_seleccion": False,
+            "salen": {"lineas": 1, "unidades": 2, "monto": Decimal("20.00")},
+            "entran": {"lineas": 0, "unidades": 0, "monto": Decimal(0)},
+        }
+    ]
+    assert previa["totales"]["salen"]["lineas"] == 1
 
 
 def test_a_monto_total_campaign_loses_only_the_share_of_products_left_with_no_sale(engine: Engine) -> None:
     """A fixed total spreads each product's share over the sales left in the dates (`reparto.repartir`): a product
-    that keeps a sale keeps its whole share, moved; only the share of a product left with NO sale becomes unassigned.
-    An entering sale dilutes the rows already credited, it adds no money."""
+    that keeps a sale keeps its whole share, moved; only the share of a product left with NO sale goes."""
     g = w.grupo(engine, [ROUTERS, SWITCHES])
     cid = w.monto_total(engine, [g], "1000", nombre="Rebate Q4 2026")
     w.reparto(engine, cid, ROUTER, porcentaje="60")
@@ -406,26 +482,28 @@ def test_a_monto_total_campaign_loses_only_the_share_of_products_left_with_no_sa
     w.venta(engine, "fuera", SWITCH, 1, date(2026, 11, 25))  # leaves, SWITCH has no sale left: 400 unassigned
     w.venta(engine, "fuera", ROUTER, 1, date(2026, 10, 25))  # enters, diluting ROUTER's rows
     _consumir(engine)
-    antes = _claves(engine, cid)
-    cambios = {"fecha_desde": date(2026, 10, 20), "fecha_hasta": date(2026, 11, 15)}
 
-    previa = _previa(engine, [cid], **cambios)
-    _editar(engine, [cid], **cambios)
-    _drain(engine)
+    previa, real = _comparar(engine, [cid], fecha_desde=date(2026, 10, 20), fecha_hasta=date(2026, 11, 15))
 
-    despues = _claves(engine, cid)
-    salieron = [antes[k] for k in antes.keys() - despues.keys()]
-    entraron = [despues[k] for k in despues.keys() - antes.keys()]
-    credito = sum((c[6] for c in antes.values()), Decimal(0)) - sum((c[6] for c in despues.values()), Decimal(0))
-    [detalle] = previa["cambian"]
-    assert detalle["salen"] == {
-        "lineas": len(salieron),
-        "unidades": sum(c[5] for c in salieron),
-        "monto": credito,
-    }
-    assert detalle["salen"]["monto"] == Decimal("400.00")
-    assert detalle["entran"] == {"lineas": len(entraron), "unidades": sum(c[5] for c in entraron)}
-    assert previa["totales"]["salen"]["montos"] == [{"moneda": "ARS", "monto": Decimal("400.00")}]
+    assert _vista(previa) == _movidas(real, previa)
+    neto = real[cid]["entran"]["monto"] - real[cid]["salen"]["monto"]
+    assert neto == Decimal("-400.00")  # only SWITCH's share stops being credited
+
+
+def test_a_sale_entering_on_a_share_that_had_no_sale_credits_the_whole_share(engine: Engine) -> None:
+    g = w.grupo(engine, [ROUTERS, SWITCHES])
+    cid = w.monto_total(engine, [g], "1000")
+    w.reparto(engine, cid, ROUTER, porcentaje="60")
+    w.reparto(engine, cid, SWITCH, porcentaje="40")  # no sale in the dates: unassigned today
+    w.venta(engine, "fuera", ROUTER, 2, date(2026, 11, 10))
+    w.venta(engine, "fuera", SWITCH, 1, date(2026, 10, 25))  # enters: SWITCH's 400 is credited
+    _consumir(engine)
+
+    previa, real = _comparar(engine, [cid], fecha_desde=date(2026, 10, 20))
+
+    assert _vista(previa) == _movidas(real, previa)
+    assert real[cid]["entran"] == {"lineas": 1, "unidades": 1, "monto": Decimal("400.00")}
+    assert previa["totales"]["entran"]["montos"] == [{"moneda": "ARS", "monto": Decimal("400.00")}]
 
 
 def _lecturas(engine: Engine, monkeypatch: pytest.MonkeyPatch, ids: list[int]) -> int:
