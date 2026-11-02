@@ -296,10 +296,11 @@ def _column_order(key: str, descending: bool) -> tuple[Any, ...]:
     """One column key and its tie-break, if any (`SORT_TIES`), missing values last in either direction."""
     expressions = [SORT_COLUMNS[key][0](), *((SORT_TIES[key](),) if key in SORT_TIES else ())]
     ordered = tuple((expression.desc() if descending else expression.asc()).nulls_last() for expression in expressions)
-    if key == "tipo":
+    if key == "tipo" and descending:
         # Another ML type, then no type at all, go last either way: only the known kinds turn around (as the board).
+        # Ascending already puts them last; descending maps the known ranks 0..4 onto 4..0 in ONE ascending term.
         rank = listing_rank(item_listing_kind())
-        return (case((rank >= OTHER_RANK, rank), else_=0).asc(), *ordered)
+        return (case((rank >= OTHER_RANK, rank), else_=(OTHER_RANK - 1) - rank).asc(), *ordered[1:])
     return ordered
 
 
