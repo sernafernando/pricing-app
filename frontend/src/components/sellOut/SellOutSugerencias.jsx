@@ -35,6 +35,11 @@ function Tarjeta({ sugerencia, onDescartar, onProgramaCreado, onCreado }) {
   const demasiadas = sugerencia.campanas.length > ASIGNAR_MAX;
   const activas = sugerencia.campanas.filter((c) => c.estado === 'activa').length;
   const fechas = fechasDe(sugerencia.fecha_desde, sugerencia.fecha_hasta);
+  const resumen = [
+    fechas,
+    plural(sugerencia.campanas.length, 'campaña', 'campañas'),
+    plural(sugerencia.nombres, 'nombre', 'nombres'),
+  ].join(' · ');
   const Chevron = abierta ? ChevronDown : ChevronRight;
 
   const crear = async () => {
@@ -72,7 +77,7 @@ function Tarjeta({ sugerencia, onDescartar, onProgramaCreado, onCreado }) {
         {activas > 0 && <StatusPill tone="success">{textoActivas(activas)}</StatusPill>}
       </div>
       <p className={styles.meta}>
-        {`${fechas} · ${plural(sugerencia.campanas.length, 'campaña', 'campañas')} · ${plural(sugerencia.nombres, 'nombre', 'nombres')}`}
+        {resumen}
       </p>
       <button
         type="button"
@@ -88,7 +93,9 @@ function Tarjeta({ sugerencia, onDescartar, onProgramaCreado, onCreado }) {
           {porNombre(sugerencia.campanas).map((g) => (
             <li key={`${g.nombre}|${g.estado}`}>
               <span>{g.cuantas > 1 ? `${g.nombre} (×${g.cuantas})` : g.nombre}</span>
-              <StatusPill tone={g.estado === 'activa' ? 'success' : 'danger'}>{g.estado === 'activa' ? 'Activa' : 'Anulada'}</StatusPill>
+              <StatusPill tone={g.estado === 'activa' ? 'success' : 'danger'}>
+                {g.estado === 'activa' ? 'Activa' : 'Anulada'}
+              </StatusPill>
             </li>
           ))}
         </ul>
@@ -103,7 +110,12 @@ function Tarjeta({ sugerencia, onDescartar, onProgramaCreado, onCreado }) {
         <button type="button" className="btn-tesla outline sm" onClick={onDescartar} disabled={busy}>
           Descartar
         </button>
-        <button type="button" className="btn-tesla primary sm" onClick={crear} disabled={busy || demasiadas || nombre.trim() === ''}>
+        <button
+          type="button"
+          className="btn-tesla primary sm"
+          onClick={crear}
+          disabled={busy || demasiadas || nombre.trim() === ''}
+        >
           Crear programa y asignar
         </button>
       </div>
@@ -117,7 +129,14 @@ function Drawer({ visibles, aviso, onCerrar, onDescartar, onProgramaCreado, onCr
   const foco = useFocoAtrapado();
   return (
     <div className={`modal-overlay-tesla ${styles.fondo}`}>
-      <aside ref={foco.ref} onKeyDown={foco.onKeyDown} className={styles.drawer} role="dialog" aria-modal="true" aria-labelledby={tituloId}>
+      <aside
+        ref={foco.ref}
+        onKeyDown={foco.onKeyDown}
+        className={styles.drawer}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={tituloId}
+      >
         <header className={styles.cabecera}>
           <Sparkles size={18} aria-hidden="true" />
           <h2 id={tituloId}>Sugerencias de programa</h2>
@@ -142,8 +161,8 @@ function Drawer({ visibles, aviso, onCerrar, onDescartar, onProgramaCreado, onCr
             />
           ))}
           <p className={styles.nota}>
-            Las sugerencias agrupan campañas sin programa con exactamente las mismas fechas. No se aplica nada hasta que lo
-            confirmes.
+            Las sugerencias agrupan campañas sin programa con exactamente las mismas fechas. No se aplica nada hasta
+            que lo confirmes.
           </p>
         </div>
       </aside>
@@ -180,7 +199,10 @@ export default function SellOutSugerencias({ version, descartadas, onDescartar, 
       {visibles.length > 0 && (
         <div className={styles.banner}>
           <Info size={16} aria-hidden="true" />
-          <span>{`${plural(visibles.length, 'sugerencia', 'sugerencias')} de programa: campañas sin programa con las mismas fechas`}</span>
+          <span>
+            {`${plural(visibles.length, 'sugerencia', 'sugerencias')} de programa: ` +
+              'campañas sin programa con las mismas fechas'}
+          </span>
           <button type="button" className="btn-tesla primary sm" onClick={() => setAbierto(true)}>
             Ver sugerencias
           </button>

@@ -1247,6 +1247,40 @@ describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
     expect(sellOutProgramasAPI.listar).toHaveBeenLastCalledWith({ page: 2, page_size: 200 });
   });
 
+  it('assigning the last page of "Sin programa" moves the list to the last page that still has campaigns', async () => {
+    conProgramas();
+    let total = 13;
+    sellOutAPI.listar.mockImplementation(async ({ page, page_size: size }) => {
+      const desde = (page - 1) * size;
+      const items = Array.from({ length: Math.max(0, Math.min(size, total - desde)) }, (_, i) => ({
+        ...CAMPANA_MIGRADA,
+        id: 500 + desde + i,
+        nombre: `MODELO ${8180 + desde + i}`,
+      }));
+      return { data: { items, total, page, page_size: size } };
+    });
+    sellOutProgramasAPI.asignar.mockImplementation(async (ids) => {
+      total -= ids.length;
+      return { data: { asignadas: ids.length, sin_cambio: 0 } };
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
+    await user.selectOptions(await within(filtros).findByLabelText('Programa'), 'sin');
+    const seccion = screen.getByRole('region', { name: 'Campañas de sell out' });
+    await user.click(await within(seccion).findByRole('button', { name: 'Página 2' }));
+    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar la página' }));
+    expect(within(seccion).getByText('3 seleccionadas')).toBeInTheDocument();
+    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
+    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (3 campañas)' });
+    await user.selectOptions(within(dialogo).getByLabelText('Programa'), '7');
+    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
+
+    expect(await within(seccion).findByText('MODELO 8180')).toBeInTheDocument();
+    expect(within(seccion).queryByText('No hay campañas de sell out.')).not.toBeInTheDocument();
+    expect(lastParams(sellOutAPI.listar)).toEqual({ sin_programa: true, page: 1, page_size: 10 });
+  });
+
   it('without sell_out.gestionar there is no "Asignar a programa"', async () => {
     conProgramas();
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');

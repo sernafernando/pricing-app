@@ -164,7 +164,10 @@ function useCampanas(enabled) {
     const params = { page: Math.floor(offset / pageSize) + 1, page_size: pageSize };
     try {
       const { data } = await sellOutAPI.listar({ ...paramsDeFiltros(filtros), ...params });
-      if (requestId === requestRef.current) setLista(data);
+      if (requestId !== requestRef.current) return;
+      setLista(data);
+      // A reload can leave the page past the end (its campaigns were assigned or voided): go to the last one with data.
+      if (data.total > 0 && offset >= data.total) setOffset((Math.ceil(data.total / pageSize) - 1) * pageSize);
     } catch {
       if (requestId === requestRef.current) setError('No se pudieron cargar las campañas de sell out.');
     }
