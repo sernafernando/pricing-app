@@ -305,7 +305,7 @@ CLAVES_PREVIAS = {
 }  # fmt: skip
 
 
-def _programa(db, admin_user, nombre: str = "EPSON PROG") -> SellOutPrograma:
+def _programa(db, admin_user, nombre: str = "MARCA PROG") -> SellOutPrograma:
     programa = SellOutPrograma(nombre=nombre, usuario_id=admin_user.id)
     db.add(programa)
     db.flush()
@@ -313,7 +313,7 @@ def _programa(db, admin_user, nombre: str = "EPSON PROG") -> SellOutPrograma:
 
 
 def test_list_and_detail_keep_their_keys_and_carry_no_program_until_assigned(client, gestor, grupos) -> None:
-    out = _crear(client, gestor, grupos, nombre="EPSON PROG 24")
+    out = _crear(client, gestor, grupos, nombre="MARCA PROG 24")
     assert set(out) == CLAVES_PREVIAS | {"programa_id", "programa"}
     assert (out["programa_id"], out["programa"]) == (None, None)
     assert client.get(f"{BASE}/{out['id']}", headers=gestor).json() == out
@@ -321,9 +321,9 @@ def test_list_and_detail_keep_their_keys_and_carry_no_program_until_assigned(cli
 
 
 def test_list_and_detail_carry_the_program_of_each_campaign(client, gestor, grupos, db, admin_user) -> None:
-    epson = _programa(db, admin_user, "EPSON PROG")
+    epson = _programa(db, admin_user, "MARCA PROG")
     rebate = _programa(db, admin_user, "Rebate")
-    a = _crear(client, gestor, grupos, nombre="EPSON PROG 24")
+    a = _crear(client, gestor, grupos, nombre="MARCA PROG 24")
     b = _crear(client, gestor, grupos, nombre="Rebate Q4 2024")
     c = _crear(client, gestor, grupos, nombre="TP-Link 2% noviembre")
     db.get(SellOutCampana, a["id"]).programa_id = epson.id
@@ -331,7 +331,7 @@ def test_list_and_detail_carry_the_program_of_each_campaign(client, gestor, grup
     db.flush()
 
     items = {x["id"]: x for x in client.get(BASE, headers=gestor).json()["items"]}
-    assert items[a["id"]]["programa"] == {"id": epson.id, "nombre": "EPSON PROG"}
+    assert items[a["id"]]["programa"] == {"id": epson.id, "nombre": "MARCA PROG"}
     assert (items[b["id"]]["programa_id"], items[b["id"]]["programa"]) == (
         rebate.id,
         {"id": rebate.id, "nombre": "Rebate"},
@@ -339,19 +339,19 @@ def test_list_and_detail_carry_the_program_of_each_campaign(client, gestor, grup
     assert items[c["id"]]["programa"] is None
     assert client.get(f"{BASE}/{a['id']}", headers=gestor).json()["programa"] == {
         "id": epson.id,
-        "nombre": "EPSON PROG",
+        "nombre": "MARCA PROG",
     }
 
 
 def test_editing_a_campaign_keeps_its_program(client, gestor, grupos, db, admin_user) -> None:
     """`PUT` is a full replace of what `SellOutCampanaIn` carries; the program is not part of it."""
     programa = _programa(db, admin_user)
-    out = _crear(client, gestor, grupos, nombre="EPSON PROG 24")
+    out = _crear(client, gestor, grupos, nombre="MARCA PROG 24")
     db.get(SellOutCampana, out["id"]).programa_id = programa.id
     db.flush()
-    resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, nombre="EPSON PROG 24 bis"), headers=gestor)
+    resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, nombre="MARCA PROG 24 bis"), headers=gestor)
     assert resp.status_code == 200, resp.text
-    assert (resp.json()["nombre"], resp.json()["programa_id"]) == ("EPSON PROG 24 bis", programa.id)
+    assert (resp.json()["nombre"], resp.json()["programa_id"]) == ("MARCA PROG 24 bis", programa.id)
     db.expire_all()
     assert db.get(SellOutCampana, out["id"]).programa_id == programa.id
 

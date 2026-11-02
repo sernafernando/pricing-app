@@ -305,7 +305,7 @@ def test_suggestions_group_campaigns_without_a_program_by_identical_dates(client
 
     e = [marca("MARCA PROG 3.0"), marca("MARCA PROGRAM1"), marca("MARCA PROGRAM1")]
     asignada = marca("MARCA PROGR 7.5")
-    _campana(client, gestor, grupo, "RB 8180", fecha_desde="2026-01-01", fecha_hasta="2026-12-31")  # alone
+    _campana(client, gestor, grupo, "MODELO 8180", fecha_desde="2026-01-01", fecha_hasta="2026-12-31")  # alone
     _asignar(client, gestor, [asignada["id"]], _programa(client, gestor, "MARCA PROG")["id"])
 
     resp = client.get(f"{BASE}/sugerencias", headers=gestor)
