@@ -41,6 +41,7 @@ from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn, SellInBonoModeloIn
+from app.services.sell_in.bonos_alcance import alcanza_marcas
 from app.services.sell_in.compras import contiene
 
 _CAMPOS = (
@@ -415,7 +416,7 @@ class FiltrosBonos:
     estado: Optional[str] = None
     marca: Optional[str] = None  # exact
     q: Optional[str] = None  # the bonus's description or brand, case-insensitive substring
-    marcas: Optional[list[str]] = None  # exact, any of them
+    marcas: Optional[list[str]] = None  # bonuses whose scope reaches a product of any of them (alcanza_marcas)
     moneda: Optional[str] = None
     fecha_desde: Optional[date] = None  # the bonus's own range overlaps the period, inclusive
     fecha_hasta: Optional[date] = None
@@ -427,8 +428,9 @@ def listar_bonos(
     """One page of bonuses, newest first.
 
     The period keeps a bonus whose `fecha_desde`..`fecha_hasta` (invoice dates; sale dates on a 'costo_venta'
-    bonus) overlaps it, bounds included; one bound alone keeps those that reach past it. `marcas` is the
-    bonus's own `marca`, so it only finds 'marca'-scope bonuses, like the exact `marca`."""
+    bonus) overlaps it, bounds included; one bound alone keeps those that reach past it. `marcas` keeps the
+    bonuses whose scope reaches a product of those brands, whatever the scope (`bonos_alcance.alcanza_marcas`);
+    the exact `marca` stays the bonus's own brand."""
     query = db.query(SellInBonoMarca)
     if filtros.estado is not None:
         query = query.filter(SellInBonoMarca.estado == filtros.estado)
@@ -438,7 +440,7 @@ def listar_bonos(
     if q:
         query = query.filter(or_(contiene(SellInBonoMarca.descripcion, q), contiene(SellInBonoMarca.marca, q)))
     if filtros.marcas:
-        query = query.filter(SellInBonoMarca.marca.in_(filtros.marcas))
+        query = query.filter(alcanza_marcas(filtros.marcas))
     if filtros.moneda is not None:
         query = query.filter(SellInBonoMarca.moneda == filtros.moneda)
     if filtros.fecha_desde is not None:
