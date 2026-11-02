@@ -18,7 +18,7 @@ Out of scope unless asked: UI nueva, PUTs inside RefreshHandler, unificar envío
 - T1 — S1-S2 — route: inline — status: done — #1985 tip `2dec315b6`.
 - T2 — S3 — route: inline — status: done — #1987 tip envio tick + detached/cap.
 - T3 — S4 — route: inline — status: done — #1988 SKU tick + kill switch + stale.
-- T4 — S5 — route: inline — status: in_progress — `#1989` worker-ml + Pacer.
+- T4 — S5 — route: inline — status: done — #2030 tip `32c682a01` worker-ml + Pacer.
 
 ## Log
 
