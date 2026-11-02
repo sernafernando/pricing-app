@@ -1897,27 +1897,32 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     }
   }
 
-  // Precios: the Precios view's own price group on top (owner, 2026-10-28), the list's cells inside the panel.
+  // Precios (S2): one table, a row per plan with Lista ML and PVP side by side; Calcular ends the reference line and
+  // the Tienda Nube price sits by the web transfer. Every price once, none wrapping, all inside the panel.
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Precios tab opens with the list's price group, Normal, Cuotas and PVP inside the panel`, async () => {
+      it(`${width}x${height} ${theme}: the Precios tab is one table, a row per plan, every price once and on one line`, async () => {
         preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
         offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
         try {
           const screen = await renderWithPanel({ width, height, theme, tab: 'precios', linked: true, margin: true });
-          const group = screen.getByRole('region', { name: 'Precios de la lista' });
-          await expect.element(group.getByText('189.999,00').first()).toBeVisible();
+          const table = screen.getByRole('table', { name: 'Precios por plan' });
+          await expect.element(table.getByText('$ 98.500,50')).toBeVisible();
           const panel = panelOf();
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
-          const tables = [...group.element().querySelectorAll('table')];
-          expect(tables.map((table) => table.querySelector('caption').textContent)).toEqual(['Normal', 'Cuotas', 'PVP']);
-          for (const table of tables) expect(rect(table).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
-          // Each cell's content stays inside its own cell, as in the list.
-          expect(overflowingCells(group.element())).toEqual([]);
-          await expect.element(group.getByRole('button', { name: 'Calcular el precio de Router Archer AX55' })).toBeVisible();
+          expect(screen.getByRole('region', { name: 'Precios de la lista' }).query()).toBeNull();
+          const references = screen.getByRole('group', { name: 'Referencias del producto' });
+          await expect.element(references.getByRole('button', { name: 'Calcular el precio de Router Archer AX55' })).toBeVisible();
+          const transfer = screen.getByRole('row', { name: /^Web transferencia/ });
+          await expect.element(transfer).toHaveTextContent('249.999,00');
+          // No price or markup breaks over two lines. Whether the table fits the panel's width depends on the host's
+          // typeface (see the markup chips test below): that fit is checked by hand on a screenshot.
+          expect(wrapped(table.element().querySelectorAll('td[data-entry] > div:first-child > span:first-child, td[data-entry] [data-tone]'))).toEqual([]);
+          const amounts = panel.querySelector('[role="tabpanel"]').textContent.match(/\$ ?[\d.]+,\d{2}/g) ?? [];
+          expect(amounts.filter((amount, index) => amounts.indexOf(amount) !== index)).toEqual([]);
           if (PRODUCT_SHOTS_DIR) {
-            group.element().scrollIntoView({ block: 'start' });
-            await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-precios-lista-${width}-${theme}.png`, element: panel });
+            table.element().scrollIntoView({ block: 'start' });
+            await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-precios-plan-${width}-${theme}.png`, element: panel });
           }
           screen.unmount();
         } finally {
@@ -1928,45 +1933,10 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     }
   }
 
-  // Precios: the web transfer's % and its lock in the panel's price group too, inside their cell.
-  for (const theme of THEMES) {
-    it(`1920x1080 ${theme}: the Precios tab shows the web transfer's % and its lock under the price, inside the cell`, async () => {
-      preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
-      offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
-      try {
-        const screen = await renderWithPanel({ width: 1920, height: 1080, theme, tab: 'precios', linked: true, margin: true });
-        const group = screen.getByRole('region', { name: 'Precios de la lista' });
-        const lock = group.getByRole('img', { name: '% conservado en cambios masivos' });
-        await expect.element(lock).toBeVisible();
-        const line = lock.element().closest('[data-price-detail]');
-        expect(line.textContent).toBe('(+6,5%)');
-        const cell = line.closest('td');
-        // The Tienda Nube price above it carries its transfer hint here too (the page hands the group tnCardPercent).
-        expect(cell.textContent).toContain('$183.999,20 transf.');
-        for (const part of [line, lock.element()]) {
-          expect(rect(part).left).toBeGreaterThanOrEqual(rect(cell).left - 0.5);
-          expect(rect(part).right).toBeLessThanOrEqual(rect(cell).right + 0.5);
-        }
-        // The group's cells are transparent: measure against the first ancestor that paints.
-        let backdrop = cell;
-        while (getComputedStyle(backdrop).backgroundColor === 'rgba(0, 0, 0, 0)') backdrop = backdrop.parentElement;
-        expect(contrastRatio(getComputedStyle(line).color, getComputedStyle(backdrop).backgroundColor)).toBeGreaterThanOrEqual(4.5);
-        if (PRODUCT_SHOTS_DIR) {
-          cell.scrollIntoView({ block: 'center' });
-          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-web-transf-percent-1920-${theme}.png`, element: panelOf() });
-        }
-        screen.unmount();
-      } finally {
-        preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
-        offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
-      }
-    });
-  }
-
-  // Precios: cost card, one accented card per list, markup chips by the app scale (markupTone).
+  // Precios: the reference line with the cost, each plan's markups as chips by the app scale (markupTone).
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Precios tab shows cost with offset and with sell in, every markup as toned chips and fits the panel`, async () => {
+      it(`${width}x${height} ${theme}: the Precios tab shows cost with offset and with sell in, every markup of each plan as toned chips and fits the panel`, async () => {
         preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
         offsetsGananciaAPI.vigentes.mockResolvedValue({
           data: [{ id: 7, marca: 'TP-LINK', tipo_offset: 'porcentaje_costo', porcentaje: 10, descripcion: 'Rebate TP-Link con una descripción larga', grupo_id: null }],
@@ -1978,25 +1948,19 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
 
           const facts = panel.querySelector('[aria-label="Referencias del producto"]');
-          expect(getComputedStyle(facts).backgroundColor).toBe(tokenColor('--tone-neutral-bg'));
+          const table = panel.querySelector('table[aria-label="Precios por plan"]');
 
-          const groups = [...panel.querySelectorAll('section[data-list]')];
-          expect(groups.map((g) => getComputedStyle(g).borderLeftColor)).toEqual([
-            tokenColor('--tone-info-fg'),
-            tokenColor('--tone-purple-fg'),
-            tokenColor('--tone-warning-fg'),
-          ]);
-
-          const row = (label) => [...panel.querySelectorAll('section[data-list] tbody tr')].find((tr) => (tr.querySelector('th').getAttribute('aria-label') ?? tr.querySelector('th').textContent) === label);
-          const chip = (label, col) => row(label).querySelector(`[data-col="${col}"] [data-tone]`);
+          const chip = (label, col) => table.querySelector(`[data-entry-label="${label}"] [data-col="${col}"] [data-tone]`);
           expect(getComputedStyle(chip('Clásica', 'markup')).color).toBe(tokenColor('--tone-success-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).color).toBe(tokenColor('--tone-danger-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).backgroundColor).toBe(tokenColor('--tone-danger-bg'));
           expect(chip('Clásica', 'markup-offset').textContent).toBe('31,56%');
           expect(chip('Clásica', 'markup-sell-in-out').textContent).toBe('28,80%');
           expect(facts).toHaveTextContent('$ 60.000,00');
-          // Readable on the card in both themes.
-          const card = getComputedStyle(groups[0]).backgroundColor;
+          // Readable on the panel in both themes: the table paints nothing of its own.
+          let backdrop = table;
+          while (getComputedStyle(backdrop).backgroundColor === 'rgba(0, 0, 0, 0)') backdrop = backdrop.parentElement;
+          const card = getComputedStyle(backdrop).backgroundColor;
           for (const label of ['Clásica', '12 cuotas']) {
             expect(contrastRatio(getComputedStyle(chip(label, 'markup')).color, card)).toBeGreaterThanOrEqual(3);
           }
@@ -2004,9 +1968,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           // Figures on one line. Whether every list fits the panel's width depends on the typeface the host
           // resolves (the suite loads none, see pxqPanel.visual.test.jsx): the CI runner's fallback is about a
           // quarter wider than a desktop's, so that fit is checked by hand on a screenshot, not here.
-          const figures = [...panel.querySelectorAll('section[data-list] tbody td')].filter((td) => /\d/.test(td.textContent));
-          expect(figures.filter((td) => getComputedStyle(td).whiteSpace !== 'nowrap').map((td) => td.textContent)).toEqual([]);
-          expect(wrapped(panel.querySelectorAll('section[data-list] [data-tone]'))).toEqual([]);
+          expect(wrapped(table.querySelectorAll('td[data-entry] [data-tone]'))).toEqual([]);
           // Rebate, best offer and web transferencia: chips by the same scale, details wrap under the label.
           const extras = [...panel.querySelectorAll('section[data-list="extras"] tbody tr')];
           expect(getComputedStyle(extras[0].querySelector('[data-tone]')).color).toBe(tokenColor('--tone-success-fg'));

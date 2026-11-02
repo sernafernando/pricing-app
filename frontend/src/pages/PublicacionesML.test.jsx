@@ -2786,68 +2786,72 @@ describe("Productos' Sin MLA in the Producto view", () => {
   });
 });
 
-describe("the panels' Precios tab shows the list's price group (owner, 2026-10-28)", () => {
-  const PRICED = [
-    {
-      item_id: 4101,
-      descripcion: 'Router Archer AX55',
-      precio_lista_ml: 12345.5,
-      markup: 21.5,
-      precio_3_cuotas: 13000,
-      precio_pvp: 15000,
-      mejor_oferta_precio: 11999,
-      participa_rebate: true,
-      precio_rebate: 12500,
-    },
-  ];
+describe("the panels' Precios tab: one table, a row per plan (S2)", () => {
+  // What Productos' listing sends: Calcular opens the pricing on it.
+  const LISTED = { item_id: 4101, descripcion: 'Router Archer AX55', codigo: 'ARCHER-AX55', costo: 10000, moneda_costo: 'ARS', iva: 21, tn_price: 99999 };
+  // GET /productos/{item_id}: the prices the table shows.
+  const PRODUCT = {
+    item_id: 4101,
+    codigo: 'ARCHER-AX55',
+    descripcion: 'Router Archer AX55',
+    precio_lista_ml: 12345.5,
+    markup: 21.5,
+    precio_3_cuotas: 13000,
+    precio_pvp: 15000,
+  };
   beforeEach(() => {
     productosAPI.listar.mockReset();
-    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+    productosAPI.listar.mockResolvedValue({ data: { productos: [LISTED], total: 1 } });
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCT });
     preciosAPI.setRapido.mockClear();
     publicacionesMlAPI.detail.mockImplementation(() => Promise.resolve({ data: { ...DETAIL_LINKED, row: ITEMS[0] } }));
   });
-  const group = async () => {
-    const panel = await screen.findByRole('complementary', { name: /Detalle de/ });
-    return within(panel).findByRole('region', { name: 'Precios de la lista' });
+  // The table, once the listing's own request (Calcular, the Tienda Nube price) has arrived too.
+  const plans = async (panelName = /Detalle de/) => {
+    const panel = await screen.findByRole('complementary', { name: panelName });
+    const table = await within(panel).findByRole('table', { name: 'Precios por plan' });
+    await waitFor(() => expect(within(panel).getByRole('row', { name: /^Web transferencia/ })).toHaveTextContent('99.999,00'));
+    return table;
   };
 
-  it("a publication's Precios tab has every list price of the Precios view: Normal, Cuotas and PVP", async () => {
+  it("a publication's Precios tab shows Lista ML and PVP of each plan once, and no separate list group", async () => {
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
-    const prices = await group();
-    for (const header of ['Precio Clásica', 'Precio Rebate', 'Mejor Oferta', 'Web Transf.', '3 Cuotas', '12 Cuotas', 'Precio PVP', 'PVP 3 Cuotas']) {
-      expect(within(prices).getAllByRole('columnheader', { name: header }).length).toBeGreaterThan(0);
-    }
-    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
-    expect(within(prices).getByText('15.000,00')).toBeInTheDocument();
+    const table = await plans();
+    expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Plan', 'Lista ML', 'PVP']);
+    expect(await within(table).findAllByText('$ 12.345,50')).toHaveLength(1);
+    expect(within(table).getAllByText('$ 15.000,00')).toHaveLength(1);
+    expect(screen.queryByRole('region', { name: 'Precios de la lista' })).not.toBeInTheDocument();
   });
 
-  it("edits a price with the list's own editor and handlers, and reads it again", async () => {
+  it('edits a price in its plan row, saves it and reads the prices again', async () => {
     const user = userEvent.setup();
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
-    const prices = await group();
-    await user.click((await within(prices).findAllByRole('button', { name: /^Editar Precio Clásica/ }))[0]);
-    const input = within(prices).getByRole('textbox', { name: 'Precio Clásica' });
+    const table = await plans();
+    await user.click(await within(table).findByRole('button', { name: 'Editar Clásica' }));
+    const input = within(table).getByRole('textbox', { name: 'Clásica' });
     await user.clear(input);
-    const asked = productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length;
-    productosAPI.listar.mockResolvedValue({ data: { productos: [{ ...PRICED[0], precio_lista_ml: 15000 }], total: 1 } });
-    await user.type(input, '15000{Enter}');
-    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 15000 })));
-    expect(await screen.findByText('Precio guardado.')).toBeInTheDocument();
-    // The group reads the product's prices again and shows the saved one.
-    await waitFor(() => expect(productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length).toBeGreaterThan(asked));
-    expect((await within(prices).findAllByText('15.000,00')).length).toBeGreaterThan(0);
+    const read = preciosAPI.obtenerProducto.mock.calls.length;
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCT, precio_lista_ml: 16000 } });
+    const listed = productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length;
+    await user.type(input, '16000{Enter}');
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 16000 })));
+    expect(await screen.findByText(/^Precio guardado/)).toBeInTheDocument();
+    await waitFor(() => expect(preciosAPI.obtenerProducto.mock.calls.length).toBeGreaterThan(read));
+    // The listing too, so Calcular opens on the saved prices.
+    await waitFor(() => expect(productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length).toBeGreaterThan(listed));
+    expect(await within(table).findByText('$ 16.000,00')).toBeInTheDocument();
   });
 
-  it('without a price edit permission the group reads only: no editor, no Calcular', async () => {
+  it('without a price edit permission the table reads only: no editor, no Calcular', async () => {
     canEditPrices = false;
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
-    const prices = await group();
-    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
-    expect(within(prices).queryByRole('button', { name: /^Editar/ })).not.toBeInTheDocument();
-    expect(within(prices).queryByRole('button', { name: /^Calcular/ })).not.toBeInTheDocument();
+    const table = await plans();
+    expect(await within(table).findByText('$ 12.345,50')).toBeInTheDocument();
+    expect(within(table).queryByRole('button', { name: /^Editar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Calcular/ })).not.toBeInTheDocument();
   });
 
-  it('the Agrupado tree asks no offsets until a panel opens', async () => {
+  it('the Agrupado tree asks no offsets: it has no price columns', async () => {
     canSeeMargin = true;
     offsetsGananciaAPI.vigentes.mockClear();
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
@@ -2855,21 +2859,23 @@ describe("the panels' Precios tab shows the list's price group (owner, 2026-10-2
     expect(offsetsGananciaAPI.vigentes).not.toHaveBeenCalled();
   });
 
-  it("Calcular opens Productos' pricing modal on the product", async () => {
+  it("Calcular, in the product's reference line, opens Productos' pricing modal on the product", async () => {
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
-    const prices = await group();
-    await userEvent.click(await within(prices).findByRole('button', { name: 'Calcular el precio de Router Archer AX55' }));
+    await plans();
+    const references = screen.getByRole('group', { name: 'Referencias del producto' });
+    await userEvent.click(await within(references).findByRole('button', { name: 'Calcular el precio de Router Archer AX55' }));
     // PricingModalTesla, titled with the product as in Productos.
     await waitFor(() => expect(document.querySelector('.modal-tesla')).toHaveTextContent('Router Archer AX55'));
   });
 
-  it("a product's Precios tab has the same group", async () => {
+  it("a product's Precios tab has the same table", async () => {
     publicacionesMlAPI.products.mockReset();
     publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto&prod=4101'] });
     const panel = await screen.findByRole('complementary', { name: 'Detalle del producto' });
     await userEvent.click(await within(panel).findByRole('tab', { name: 'Precios' }));
-    const prices = await within(panel).findByRole('region', { name: 'Precios de la lista' });
-    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
+    const table = await plans('Detalle del producto');
+    expect(within(table).getByText('$ 12.345,50')).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Calcular el precio de Router Archer AX55' })).toBeInTheDocument();
   });
 });
