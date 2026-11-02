@@ -29,7 +29,7 @@ import { DIMENSION_OPTIONS, MARGIN_COLUMNS, buildBoardColumns } from '../compone
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
-import { DEFAULT_PRESET, defaultView, readMetricasUrl, writeMetricasUrl } from '../utils/metricasMlUrl';
+import { DEFAULT_PRESET, defaultView, readMetricasUrl, sortOnGroupChange, writeMetricasUrl } from '../utils/metricasMlUrl';
 import { nodeId } from '../utils/metricasMlLevels';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
 import { exportMetricasSheets, isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -338,6 +338,12 @@ export default function MetricasML() {
   ]);
 
   // Changing WHAT is filtered resets WHERE you are: page 1, nothing open.
+  // The sort follows the grouping while it is the default one: by publication, the listing type (Clásica first).
+  const changeGroupBy = (value) => {
+    setSort((prev) => sortOnGroupChange(prev, groupBy, value));
+    setGroupBy(value);
+  };
+
   const withReset = (setter) => (...args) => {
     setter(...args);
     setOffset(0);
@@ -664,7 +670,7 @@ export default function MetricasML() {
           <div className={styles.segments}>
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>Agrupar por:</span>
-              <SegmentedControl label="Agrupar por" options={GROUP_OPTIONS} value={groupBy} onChange={withReset(setGroupBy)} />
+              <SegmentedControl label="Agrupar por" options={GROUP_OPTIONS} value={groupBy} onChange={withReset(changeGroupBy)} />
             </div>
             {groupBy === 'group' && (
               <div className={styles.filterGroup}>

@@ -211,6 +211,12 @@ const TOGGLE_PERMISSION = {
   tarjetas: ['canToggleOutOfCards', 'fuera de tarjetas'],
 };
 
+/** A request's params without its sort: the tree's one-row facets request orders nothing. */
+function withoutSort({ orden, dir, ...params }) {
+  void orden, dir;
+  return params;
+}
+
 export default function PublicacionesML() {
   const { tienePermiso } = usePermisos();
   // The markup column, filters and sort exist only for this permission (S68.1).
@@ -304,7 +310,7 @@ export default function PublicacionesML() {
   // sorted, so its one-row facets request never asks for a Métricas sort (a ranking of the whole set).
   const requestKey = JSON.stringify(
     ownRows
-      ? { ...buildItemsParams(rowFilters, 1, { canSeeMargin: false }), offset: 0 }
+      ? { ...withoutSort(buildItemsParams(rowFilters, 1, { canSeeMargin: false })), offset: 0 }
       : buildItemsParams(rowFilters, pageSize, { canSeeMargin, canSeeSales }),
   );
 

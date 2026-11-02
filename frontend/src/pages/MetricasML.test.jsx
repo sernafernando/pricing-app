@@ -151,7 +151,8 @@ describe('MetricasML page', () => {
 
     const best = (await screen.findByText('MLA2060835678')).closest('tr');
     expect(within(best).getByText('Mejor')).toBeInTheDocument();
-    expect(within(best).getByText('Clásica · Full · Activa')).toBeInTheDocument();
+    expect(within(best).getByText('Clásica')).toBeInTheDocument();
+    expect(within(best).getByText('Full · Activa')).toBeInTheDocument();
     const call = api.get.mock.calls.find(([url]) => url === '/ml-metricas/board/products/4101/publications');
     expect(call[1].params).toMatchObject({ comparar_con: 'periodo_anterior', date_from: lastBoardParams().date_from });
     expect(call[1].params.limit).toBeUndefined();
