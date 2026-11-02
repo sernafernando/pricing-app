@@ -280,6 +280,8 @@ class ItemRowOut(BaseModel):
     status: Optional[str] = None
     sub_status: list[str]
     listing_type_id: Optional[str] = None
+    # clasica | clasica_cofinanciada | cuotas_3 | cuotas_6 | cuotas_9 | cuotas_12, else ML's raw listing type
+    listing_kind: Optional[str] = None
     catalog_listing: Optional[bool] = None
     logistic_type: Optional[str] = None
     is_full: bool
@@ -1124,8 +1126,10 @@ def items_ask(
     orden: Optional[str] = Query(
         None,
         description=(
-            "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, markup "
-            "(ver_ganancia); Métricas ML's figures over the whole filtered set (ml_metricas.ver): facturado_30d, "
+            "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, codigo, marca, "
+            "tipo (Clásica, 3, 6, 9, 12 cuotas), costo and the list headers lista_clasica, lista_rebate, "
+            "lista_oferta, lista_web (ver_ganancia), markup (ver_ganancia); Métricas ML's figures over the whole "
+            "filtered set (ml_metricas.ver): facturado_30d, "
             "unidades_7d, unidades_30d, markup_30d and total_gauss_30d (also ver_ganancia). Several keys as csv "
             "(multi-column sort), any combination"
         ),
