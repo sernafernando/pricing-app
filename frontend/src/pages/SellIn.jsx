@@ -21,6 +21,8 @@ import { useSeleccionMasiva } from '../components/sellIn/useSeleccionMasiva';
 import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
 import SellOutAnularMasivo from '../components/sellOut/SellOutAnularMasivo';
 import SellOutFiltros from '../components/sellOut/SellOutFiltros';
+import SellOutPorPrograma from '../components/sellOut/SellOutPorPrograma';
+import { useProgramas } from '../components/sellOut/useProgramas';
 import { FILTROS_CAMPANAS_VACIOS, paramsDeFiltros } from '../components/sellOut/sellOutFiltros';
 import GruposTab from '../components/grupos/GruposTab';
 import styles from './SellIn.module.css';
@@ -207,6 +209,12 @@ export default function SellIn() {
   // A group created, changed or deleted in the Grupos tab: the campaign form's groups are asked again.
   const [cambiosGrupos, setCambiosGrupos] = useState(0);
   const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut, versionGrupos + cambiosGrupos);
+  // An assignment or a program created from a suggestion bumps it: programs, groups and suggestions are asked again.
+  const [versionProgramas, setVersionProgramas] = useState(0);
+  const programas = useProgramas(puedeVer && puedeVerSellOut, versionGrupos + versionProgramas);
+  // "Ver: Por programa | Lista" lives in the URL (`?vista=`) like the tab; by default grouped once a program exists.
+  const vistaUrl = searchParams.get('vista');
+  const vista = ['programas', 'lista'].includes(vistaUrl) ? vistaUrl : programas.length > 0 ? 'programas' : 'lista';
   const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeGestionarGrupos ? [TAB_GRUPOS] : [])];
   const tabUrl = searchParams.get('tab');
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
@@ -256,6 +264,19 @@ export default function SellIn() {
       },
       { replace: true },
     );
+  };
+  const cambiarVista = (next) =>
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set('vista', next);
+        return params;
+      },
+      { replace: true },
+    );
+  const programasCambiaron = () => {
+    campanas.recargarActual();
+    setVersionProgramas((v) => v + 1);
   };
 
   const params = useMemo(() => buildSellInParams({ ...filters, aplica: filters.aplica || 'todas' }), [filters]);
@@ -717,7 +738,15 @@ export default function SellIn() {
               <h2 id="sell-out-campanas-titulo" className={styles.srOnly}>
                 Campañas de sell out
               </h2>
-              <SellOutFiltros filtros={campanas.filtros} onChange={campanas.filtrar} marcas={marcas} grupos={gruposOffset} />
+              <SellOutFiltros
+                filtros={campanas.filtros}
+                onChange={campanas.filtrar}
+                marcas={marcas}
+                grupos={gruposOffset}
+                programas={programas}
+                vista={vista}
+                onVista={cambiarVista}
+              />
               {campanas.error && (
                 <div className={styles.errorBar} role="alert">
                   <ShieldAlert size={16} /> {campanas.error}
@@ -743,19 +772,30 @@ export default function SellIn() {
                           : actual,
                       );
                     }}
+                    programas={programas}
+                    onAsignadas={programasCambiaron}
+                    renderTabla={
+                      vista === 'programas'
+                        ? (props) => (
+                            <SellOutPorPrograma filtros={paramsDeFiltros(campanas.filtros)} version={versionProgramas} {...props} />
+                          )
+                        : undefined
+                    }
                   />
-                  <Pagination
-                    total={campanas.lista.total}
-                    offset={campanas.offset}
-                    pageSize={campanas.pageSize}
-                    onOffsetChange={campanas.setOffset}
-                    onPageSizeChange={(size) => {
-                      campanas.setPageSize(size);
-                      campanas.setOffset(0);
-                    }}
-                    pageSizeOptions={CAMPANAS_PAGE_SIZES}
-                    summary={<span>{campanas.lista.total} campañas</span>}
-                  />
+                  {vista === 'lista' && (
+                    <Pagination
+                      total={campanas.lista.total}
+                      offset={campanas.offset}
+                      pageSize={campanas.pageSize}
+                      onOffsetChange={campanas.setOffset}
+                      onPageSizeChange={(size) => {
+                        campanas.setPageSize(size);
+                        campanas.setOffset(0);
+                      }}
+                      pageSizeOptions={CAMPANAS_PAGE_SIZES}
+                      summary={<span>{campanas.lista.total} campañas</span>}
+                    />
+                  )}
                 </>
               )}
             </section>

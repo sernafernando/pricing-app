@@ -41,6 +41,8 @@ export const CAMPANA_MIGRADA = {
   updated_at: '2026-10-22T15:10:00Z',
   grupos: [{ id: 301, nombre: 'Offset #48: RB 8180' }],
   items: [],
+  programa_id: null,
+  programa: null,
   resumen: RESUMEN_BASE,
 };
 
@@ -190,3 +192,83 @@ export const RENOVACION_MONTO_TOTAL = {
   ],
   programa_id: null,
 };
+
+// ── Programs (campanas-sistema slice E): `app/schemas/sell_out.py` SellOutPrograma*, SellOutGrupoPrograma*,
+// SellOutSugerencia*.
+
+export const PROGRAMA_MARCA = {
+  id: 7,
+  nombre: 'MARCA PROG',
+  descripcion: null,
+  estado: 'activo',
+  campanas: 3,
+  activas: 2,
+  desde: '2026-08-01',
+  hasta: '2026-10-31',
+  nombres: 2,
+};
+
+export const PROGRAMA_ARCHIVADO = {
+  ...PROGRAMA_MARCA,
+  id: 8,
+  nombre: 'Modelos SP',
+  estado: 'archivado',
+  campanas: 1,
+  activas: 1,
+  nombres: 1,
+  desde: '2025-11-01',
+};
+
+export const PROGRAMAS_LISTA = { items: [PROGRAMA_MARCA, PROGRAMA_ARCHIVADO], total: 2, page: 1, page_size: 200 };
+export const PROGRAMAS_VACIO = { items: [], total: 0, page: 1, page_size: 200 };
+
+/** `GET /sell-out/campanas/por-programa`: only MARCA PROG has campaigns under the filters; one has no program. */
+export const GRUPOS_POR_PROGRAMA = {
+  items: [{ programa_id: 7, nombre: 'MARCA PROG', campanas: 3, activas: 2, nombres: 2, desde: '2026-08-01', hasta: '2026-10-31' }],
+  total: 1,
+  page: 1,
+  page_size: 50,
+  sin_programa: { programa_id: null, nombre: null, campanas: 1, activas: 1, nombres: 1, desde: '2026-01-01', hasta: '2026-12-31' },
+};
+
+const DEL_PROGRAMA = { programa_id: 7, programa: { id: 7, nombre: 'MARCA PROG' }, offset_origen_id: null };
+
+export const CAMPANAS_DEL_PROGRAMA = {
+  items: [
+    { ...CAMPANA_MIGRADA, ...DEL_PROGRAMA, id: 71, nombre: 'MARCA PROG 3.0', fecha_desde: '2026-08-01', fecha_hasta: '2026-10-31' },
+    { ...CAMPANA_MIGRADA, ...DEL_PROGRAMA, id: 72, nombre: 'MARCA PROGRAM1', fecha_desde: '2026-08-01', fecha_hasta: '2026-10-31' },
+  ],
+  total: 2,
+  page: 1,
+  page_size: 200,
+};
+
+const sugerida = (id, nombre, desde, hasta, estado = 'activa') => ({ id, nombre, fecha_desde: desde, fecha_hasta: hasta, estado });
+
+/** `GET /sell-out/programas/sugerencias`: card 1 shares a prefix, card 2 does not (its `base` is the date range). */
+export const SUGERENCIAS = {
+  items: [
+    {
+      base: 'MARCA',
+      fecha_desde: '2026-08-01',
+      fecha_hasta: '2026-10-31',
+      nombres: 2,
+      campanas: [
+        sugerida(81, 'MARCA PROGRAM1', '2026-08-01', '2026-10-31'),
+        sugerida(82, 'MARCA PROGRAM1', '2026-08-01', '2026-10-31'),
+        sugerida(83, 'MARCA PROG 3.0', '2026-08-01', '2026-10-31', 'anulada'),
+      ],
+    },
+    {
+      base: 'Del 01/11/2025 al 31/10/2026',
+      fecha_desde: '2025-11-01',
+      fecha_hasta: '2026-10-31',
+      nombres: 2,
+      campanas: [sugerida(91, 'M20 / M80 SP', '2025-11-01', '2026-10-31'), sugerida(92, 'MODELO 8180', '2025-11-01', '2026-10-31')],
+    },
+  ],
+  total: 2,
+  page: 1,
+  page_size: 200,
+};
+export const SUGERENCIAS_VACIO = { items: [], total: 0, page: 1, page_size: 200 };

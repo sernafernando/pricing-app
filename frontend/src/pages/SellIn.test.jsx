@@ -6,9 +6,19 @@ import { renderWithRouter } from '../test/renderWithRouter';
 import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, RESUMEN } from '../components/sellIn/sellInFixtures';
-import { sellOutAPI } from '../services/sellOutAPI';
+import { sellOutAPI, sellOutProgramasAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
-import { CAMPANA_MIGRADA, CAMPANAS_LISTA, CONSUMOS_USD, RENOVACION_MIGRADA } from '../components/sellOut/sellOutFixtures';
+import {
+  CAMPANA_MIGRADA,
+  CAMPANAS_DEL_PROGRAMA,
+  CAMPANAS_LISTA,
+  CONSUMOS_USD,
+  GRUPOS_POR_PROGRAMA,
+  PROGRAMAS_LISTA,
+  PROGRAMAS_VACIO,
+  RENOVACION_MIGRADA,
+  SUGERENCIAS_VACIO,
+} from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
 
 vi.mock('../services/sellInAPI', () => ({
@@ -42,7 +52,9 @@ vi.mock('../services/sellOutAPI', () => ({
     consumos: vi.fn(),
     anularVarias: vi.fn(),
     renovacion: vi.fn(),
+    porPrograma: vi.fn(),
   },
+  sellOutProgramasAPI: { listar: vi.fn(), crear: vi.fn(), asignar: vi.fn(), sugerencias: vi.fn() },
 }));
 
 vi.mock('../services/offsetGruposAPI', () => ({
@@ -72,6 +84,9 @@ beforeEach(() => {
   sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
   sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
   sellOutAPI.grupos.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
+  sellOutAPI.porPrograma.mockResolvedValue({ data: GRUPOS_POR_PROGRAMA });
+  sellOutProgramasAPI.listar.mockResolvedValue({ data: PROGRAMAS_VACIO });
+  sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS_VACIO });
   offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
   offsetGruposAPI.alcance.mockResolvedValue({ data: [{ grupo_id: 1, productos: 3, campanas: [] }] });
   offsetGruposAPI.opciones.mockResolvedValue({ data: { marcas: [], categorias: [], subcategorias: [] } });
@@ -877,5 +892,176 @@ describe('SellIn page — bulk void (anular masivo)', () => {
     expect(screen.queryByRole('complementary', { name: 'Detalle del sell in' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: 'Seleccionar compra #2' }));
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
+
+// ── Programs (campanas-sistema slice E) ─────────────────────────────
+
+const conProgramas = () => sellOutProgramasAPI.listar.mockResolvedValue({ data: PROGRAMAS_LISTA });
+const filaDeGrupo = (nombre) => screen.getByRole('button', { name: new RegExp(`^${nombre}`) }).closest('tr');
+
+describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
+  it('without programs the flat list and its filter defaults are as before: no Programa filter and no view toggle', async () => {
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
+    expect(await screen.findByText('RB 8180')).toBeInTheDocument();
+    await waitFor(() => expect(sellOutProgramasAPI.listar).toHaveBeenCalled());
+    expect(lastParams(sellOutAPI.listar)).toEqual({ page: 1, page_size: 10 });
+    expect(within(filtros).getByLabelText('Moneda')).toHaveValue('');
+    expect(within(filtros).getByLabelText('Estado')).toHaveValue('');
+    expect(within(filtros).queryByLabelText('Programa')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Ver' })).not.toBeInTheDocument();
+    expect(sellOutAPI.porPrograma).not.toHaveBeenCalled();
+  });
+
+  it('the Programa filter sends programa_id, or sin_programa for "Sin programa", back on page 1', async () => {
+    conProgramas();
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
+    const programa = await within(filtros).findByLabelText('Programa');
+    expect(within(programa).getAllByRole('option').map((o) => o.textContent)).toEqual(['Todos', 'Sin programa', 'MARCA PROG', 'Modelos SP']);
+    await user.selectOptions(programa, '7');
+    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ programa_id: 7, page: 1, page_size: 10 }));
+    await user.selectOptions(programa, 'sin');
+    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ sin_programa: true, page: 1, page_size: 10 }));
+  });
+
+  it('"Seleccionar todo lo filtrado" resolves the campaigns with the program filter too', async () => {
+    conProgramas();
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
+    await user.selectOptions(await within(filtros).findByLabelText('Programa'), '7');
+    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ programa_id: 7, page: 1, page_size: 10 }));
+    await user.click(await screen.findByRole('button', { name: 'Seleccionar todo lo filtrado (2)' }));
+    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ programa_id: 7, page: 1, page_size: 200 }));
+    expect(await screen.findByText('2 seleccionadas')).toBeInTheDocument();
+  });
+
+  it('with programs the list opens grouped "Por programa": a row per program with its counts, then "Sin programa"', async () => {
+    conProgramas();
+    renderWithRouter(
+      <>
+        <SellIn />
+        <Ubicacion />
+      </>,
+      { initialEntries: ['/sell-in?tab=sell-out'] },
+    );
+    const ver = await screen.findByRole('group', { name: 'Ver' });
+    expect(within(ver).getByRole('button', { name: 'Por programa' })).toHaveAttribute('aria-pressed', 'true');
+    const marca = await waitFor(() => filaDeGrupo('MARCA PROG'));
+    expect(marca).toHaveTextContent('3 campañas · 2 nombres · 01/08/2026 – 31/10/2026');
+    expect(marca).toHaveTextContent('2 activas');
+    expect(filaDeGrupo('Sin programa')).toHaveTextContent('1 campaña · 1 nombre · 01/01/2026 – 31/12/2026');
+    expect(screen.queryByText('RB 8180')).not.toBeInTheDocument(); // collapsed
+    expect(lastParams(sellOutAPI.porPrograma)).toEqual({ page: 1, page_size: 50 });
+
+    await userEvent.setup().click(within(ver).getByRole('button', { name: 'Lista' }));
+    expect(await screen.findByText('RB 8180')).toBeInTheDocument();
+    expect(screen.getByTestId('ubicacion')).toHaveTextContent('vista=lista');
+  });
+
+  it('expanding a group asks its campaigns with the active filters plus the program, or sin_programa', async () => {
+    conProgramas();
+    sellOutAPI.listar.mockImplementation(async (p) => ({ data: p.programa_id === 7 ? CAMPANAS_DEL_PROGRAMA : CAMPANAS_LISTA }));
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
+    await user.selectOptions(within(filtros).getByLabelText('Estado'), 'activa');
+    await waitFor(() => expect(lastParams(sellOutAPI.porPrograma)).toEqual({ estado: 'activa', page: 1, page_size: 50 }));
+
+    await user.click(await waitFor(() => screen.getByRole('button', { name: /^MARCA PROG/ })));
+    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenLastCalledWith({ estado: 'activa', programa_id: 7, page: 1, page_size: 200 }));
+    const fila = (await screen.findByText('MARCA PROG 3.0')).closest('tr');
+    expect(within(fila).getByRole('checkbox', { name: 'Seleccionar MARCA PROG 3.0' })).toBeInTheDocument();
+    expect(within(fila).getByRole('button', { name: 'Ver campaña' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^MARCA PROG/ })).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(screen.getByRole('button', { name: /^Sin programa/ }));
+    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenLastCalledWith({ estado: 'activa', sin_programa: true, page: 1, page_size: 200 }));
+    expect(await screen.findByText('RB 8180')).toBeInTheDocument();
+  });
+
+  it('a program without campaigns under the filters gets no group row', async () => {
+    conProgramas(); // MARCA PROG and Modelos SP exist; only MARCA PROG has campaigns under the filters
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await waitFor(() => filaDeGrupo('MARCA PROG'));
+    expect(screen.queryByRole('button', { name: /^Modelos SP/ })).not.toBeInTheDocument();
+  });
+
+  it('"Asignar a programa" assigns the selected campaigns to an active program and reloads the list and groups', async () => {
+    conProgramas();
+    sellOutProgramasAPI.asignar.mockResolvedValue({ data: { asignadas: 1, sin_cambio: 1 } });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
+    await user.click(within(seccion).getByRole('checkbox', { name: 'Seleccionar TP-Link 2% noviembre' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
+
+    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (2 campañas)' });
+    expect(dialogo).toHaveTextContent('Asignar un programa no cambia la plata de las campañas: solo las agrupa.');
+    const select = within(dialogo).getByLabelText('Programa');
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Elegí un programa', 'MARCA PROG']); // archived ones are not offered
+    const listados = sellOutAPI.listar.mock.calls.length;
+    const agrupados = sellOutAPI.porPrograma.mock.calls.length;
+    await user.selectOptions(select, '7');
+    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
+
+    expect(sellOutProgramasAPI.asignar).toHaveBeenCalledWith([55, 60], 7);
+    expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
+    expect(await within(seccion).findByRole('status')).toHaveTextContent('1 campaña asignada a «MARCA PROG». 1 ya lo tenía.');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(within(seccion).getByRole('checkbox', { name: 'Seleccionar RB 8180' })).not.toBeChecked();
+    await waitFor(() => expect(sellOutAPI.listar.mock.calls.length).toBeGreaterThan(listados));
+    expect(sellOutAPI.porPrograma.mock.calls.length).toBe(agrupados); // the flat view asks no groups
+  });
+
+  it('"Programa nuevo" creates the program, then assigns the campaigns to it', async () => {
+    conProgramas();
+    sellOutProgramasAPI.crear.mockResolvedValue({ data: { ...PROGRAMAS_LISTA.items[0], id: 12, nombre: 'MODELOS SP', campanas: 0, activas: 0, nombres: 0 } });
+    sellOutProgramasAPI.asignar.mockResolvedValue({ data: { asignadas: 1, sin_cambio: 0 } });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
+    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
+    await user.click(within(dialogo).getByRole('radio', { name: 'Programa nuevo' }));
+    await user.type(within(dialogo).getByLabelText('Nombre'), '  MODELOS SP ');
+    await user.type(within(dialogo).getByLabelText('Descripción (opcional)'), 'Modelos de la marca');
+    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
+
+    await waitFor(() => expect(sellOutProgramasAPI.asignar).toHaveBeenCalledWith([55], 12));
+    expect(sellOutProgramasAPI.crear).toHaveBeenCalledWith({ nombre: 'MODELOS SP', descripcion: 'Modelos de la marca' });
+    expect(sellOutProgramasAPI.crear.mock.invocationCallOrder[0]).toBeLessThan(sellOutProgramasAPI.asignar.mock.invocationCallOrder[0]);
+    expect(await within(seccion).findByRole('status')).toHaveTextContent('1 campaña asignada a «MODELOS SP».');
+  });
+
+  it('the API refusal (an archived program) shows inline in the dialog, which stays open', async () => {
+    conProgramas();
+    sellOutProgramasAPI.asignar.mockRejectedValue({
+      response: { status: 422, data: { error: { message: 'El programa «MARCA PROG» está archivado.' } } },
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
+    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
+    await user.selectOptions(within(dialogo).getByLabelText('Programa'), '7');
+    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
+
+    expect(await within(dialogo).findByRole('alert')).toHaveTextContent('El programa «MARCA PROG» está archivado.');
+    expect(within(seccion).getByRole('checkbox', { name: 'Seleccionar RB 8180' })).toBeChecked();
+  });
+
+  it('without sell_out.gestionar there is no "Asignar a programa"', async () => {
+    conProgramas();
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    await screen.findByText('RB 8180');
+    expect(screen.queryByRole('button', { name: 'Asignar a programa' })).not.toBeInTheDocument();
   });
 });
