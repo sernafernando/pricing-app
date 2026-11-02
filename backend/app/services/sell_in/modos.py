@@ -191,11 +191,11 @@ def _simular(
     despues = _por_venta(db, item_id)
     # What the product is left with once the new row governs: from `desde` when it is still to come.
     dia = max(hoy, desde)
-    vigente = costing.vigentes(db, [item_id], dia).get(item_id)
+    queda = costing.vigentes(db, [item_id], dia).get(item_id)
     cambian = [k for k in antes.keys() | despues.keys() if antes.get(k, Decimal(0)) != despues.get(k, Decimal(0))]
     diferencia = sum((despues.get(k, Decimal(0)) - antes.get(k, Decimal(0)) for k in cambian), Decimal("0.00"))
-    unidades = vigente.unidades_restantes if vigente is not None else 0
-    descuento = vigente.descuento_unit_ars if vigente is not None else None
+    unidades = queda.unidades_restantes if queda is not None else 0
+    descuento = queda.descuento_unit_ars if queda is not None else None
     sin_despues = costing.sin_asignar(db, item_id, dia)
     # Everything the preview shows, and what it was computed from (every lot, those counting after `dia` included).
     contenido = [

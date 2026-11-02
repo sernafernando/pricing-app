@@ -72,6 +72,20 @@ def _filas(engine: Engine) -> tuple:
         )
 
 
+def _esperar_bloqueado_por(engine: Engine, pid: int) -> None:
+    """Until another session waits on a lock `pid` holds, so the order of the two waits never depends on timing."""
+    limite = time.monotonic() + 20
+    with engine.connect() as c:
+        while (
+            c.execute(
+                text("SELECT count(*) FROM pg_stat_activity WHERE :pid = ANY(pg_blocking_pids(pid))"), {"pid": pid}
+            ).scalar()
+            == 0
+        ):
+            assert time.monotonic() < limite, "the save never waited on the reconcile"
+            time.sleep(0.05)
+
+
 def _mundo(engine: Engine) -> int:
     si.compra(engine, [(R, 100, "1000.00")], D(2026, 10, 1))
     linea = si.compra(engine, [(R, 100, "800.00")], D(2026, 10, 2))[0]
@@ -104,6 +118,7 @@ def test_a_deadlock_with_a_reconcile_deleting_a_line_answers_409_to_retry(engine
     reconcile = engine.connect()
     tx = reconcile.begin()
     reconcile.execute(text("DELETE FROM sell_in_compra_items WHERE id = :l"), {"l": linea})
+    pid = reconcile.execute(text("SELECT pg_backend_pid()")).scalar()
 
     def salvar() -> None:
         try:
@@ -113,11 +128,11 @@ def test_a_deadlock_with_a_reconcile_deleting_a_line_answers_409_to_retry(engine
 
     hilo = threading.Thread(target=salvar)
     hilo.start()
-    time.sleep(0.3)  # the save holds the product's lock and waits for the deleted line's consumptions
+    _esperar_bloqueado_por(engine, pid)  # the save holds the product's lock and waits for the deleted line's rows
     try:
         reconcile.execute(text("SELECT pg_advisory_xact_lock(:n, :i)"), {"n": LOCK_NAMESPACE, "i": R})
     except OperationalError:
-        pass  # had Postgres picked the reconcile, the save would land; the save waited first, so it is the one
+        pass  # Postgres breaks the cycle in the session that waited first: the save, so the reconcile goes on
     tx.rollback()  # the reconcile is undone either way: only the save's outcome is under test
     reconcile.close()
     hilo.join(30)
