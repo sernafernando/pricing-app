@@ -723,25 +723,75 @@ describe('opening a publication', () => {
     expect(row).not.toHaveAttribute('aria-current');
   });
 
-  it.each([
-    ['Alt', { altKey: true }, 'https://vendedores.mercadolibre.com.ar/publicaciones?page=1&sort=DEFAULT&search=1100000001'],
-    [
-      'Shift',
-      { shiftKey: true },
-      'https://vendedores.mercadolibre.com.ar/publicaciones/listado/promos?page=1&search=1100000001',
-    ],
-  ])('%s+click anywhere on the row opens the seller panel, like Ctrl+click, and does not select it', async (_, keys, url) => {
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
-    try {
+  // Alt and Shift go through the same side panel as Ctrl (owner: "el alt y el
+  // shift en publicaciones ml hoy se abren en una ventana aparte en vez de usar
+  // el sistema del side panel que usa el ctrl"), so these run the real helper.
+  describe('Alt+click (seller listing) and Shift+click (promotions) use the ML side panel', () => {
+    const LISTING = 'https://vendedores.mercadolibre.com.ar/publicaciones?page=1&sort=DEFAULT&search=1100000001';
+    const PROMOS = 'https://vendedores.mercadolibre.com.ar/publicaciones/listado/promos?page=1&search=1100000001';
+    let open;
+    let post;
+
+    beforeEach(async () => {
+      const real = await vi.importActual('../utils/mlSidePanel');
+      openInMlPanel.mockImplementation(real.openInMlPanel);
+      open = vi.spyOn(window, 'open').mockImplementation(() => null);
+      post = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      delete document.documentElement.dataset.mlPanel;
+      open.mockRestore();
+      post.mockRestore();
+    });
+
+    it.each([
+      ['Alt', { altKey: true }, LISTING],
+      ['Shift', { shiftKey: true }, PROMOS],
+    ])('with the extension, %s+click posts ml-open with its URL, opens no window and does not select the row', async (_, keys, url) => {
+      document.documentElement.dataset.mlPanel = '1';
       await page();
       const row = screen.getByText('MLA1100000001').closest('tr');
       fireEvent.click(row, keys);
-      expect(open).toHaveBeenCalledWith(url, '_blank', 'noopener,noreferrer');
-      expect(openInMlPanel).not.toHaveBeenCalled();
+      expect(post).toHaveBeenCalledWith({ type: 'ml-open', url }, window.location.origin);
+      expect(open).not.toHaveBeenCalled();
       expect(row).not.toHaveAttribute('aria-current');
-    } finally {
-      open.mockRestore();
-    }
+    });
+
+    it.each([
+      ['Alt', { altKey: true }, LISTING],
+      ['Shift', { shiftKey: true }, PROMOS],
+    ])('without the extension, %s+click falls back to a new tab', async (_, keys, url) => {
+      await page();
+      fireEvent.click(screen.getByText('MLA1100000001').closest('tr'), keys);
+      expect(open).toHaveBeenCalledWith(url, '_blank', 'noopener,noreferrer');
+      expect(post).not.toHaveBeenCalled();
+    });
+
+    it('Shift+click still clears the text selection it extends over the table', async () => {
+      document.documentElement.dataset.mlPanel = '1';
+      await page();
+      const removeAllRanges = vi.fn();
+      const getSelection = vi.spyOn(window, 'getSelection').mockReturnValue({ removeAllRanges });
+      try {
+        fireEvent.click(screen.getByText('MLA1100000001').closest('tr'), { shiftKey: true });
+        expect(removeAllRanges).toHaveBeenCalled();
+      } finally {
+        getSelection.mockRestore();
+      }
+    });
+
+    it.each([
+      ['Alt', { altKey: true }],
+      ['Shift', { shiftKey: true }],
+    ])('a publication with no usable MLA opens nothing on %s+click', async (_, keys) => {
+      document.documentElement.dataset.mlPanel = '1';
+      respond({ ...ITEMS_RESPONSE, items: [ITEMS[0], { ...ITEMS[1], item_id: 'MLA' }], total: 2 });
+      await page();
+      fireEvent.click(screen.getByText(/Cartucho Epson 544/).closest('tr'), keys);
+      expect(post).not.toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalled();
+    });
   });
 
   it('Cmd+click does the same (S66.2)', async () => {
