@@ -1,6 +1,6 @@
 """A product's sell-in cost modes, read only (`GET /api/sell-in/productos/{item_id}/modos`): the dated history and
-the mode governing today. No row means FIFO, the default ("Para sell in vamos a mantener el FIFO"). Behind the same
-permission as the lot viewer, which will show the mode."""
+the mode governing today. No row means FIFO, the default ("Para sell in vamos a mantener el FIFO"). Behind the lot
+viewer's permission plus `sell_in.ver`: the rows carry the typed and frozen unit costs."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ HOY = date.today()
 @pytest.fixture()
 def lector(rol_admin, admin_auth_headers, grant_permiso) -> dict:
     grant_permiso(rol_admin, "productos.ver")
+    grant_permiso(rol_admin, "sell_in.ver")
     return admin_auth_headers
 
 
@@ -38,6 +39,15 @@ def _modo(db, usuario_id: int, modo: str, desde: date, **manual) -> int:
 
 def test_it_needs_the_permission_that_shows_the_product(client, auth_headers) -> None:
     assert client.get(f"{BASE}/4512/modos", headers=auth_headers).status_code == 403
+
+
+def test_the_product_permission_alone_does_not_show_the_costs(
+    client, rol_admin, admin_auth_headers, grant_permiso, producto
+) -> None:
+    # `productos.ver` is seeded for GERENTE, PRICING and VENTAS; the unit costs are sell-in information.
+    grant_permiso(rol_admin, "productos.ver")
+
+    assert client.get(f"{BASE}/4512/modos", headers=admin_auth_headers).status_code == 403
 
 
 def test_a_product_without_modes_is_fifo(client, lector, producto) -> None:

@@ -1,5 +1,6 @@
 """Sell-in lot viewer per product (read only): the lots the next sales will consume, in FIFO order, the sales each
-lot was consumed by, and the product's dated cost modes. Behind the permission of the product panel, which already shows the sell-in figures."""
+lot was consumed by, and the product's dated cost modes. Behind the permission of the product panel, which already
+shows the sell-in figures; the modes, which carry typed and frozen unit costs, also need `sell_in.ver`."""
 
 from dataclasses import replace
 from datetime import date
@@ -7,7 +8,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_algun_permiso
+from app.api.deps import get_current_user, require_algun_permiso, require_permiso
 from app.api.endpoints.productos_listing import PERMISOS_VER_PRODUCTO
 from app.core.database import get_db
 from app.models.usuario import Usuario
@@ -65,7 +66,7 @@ def consumos_de_lote(
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
-@router.get("/{item_id}/modos", response_model=ModosProductoOut)
+@router.get("/{item_id}/modos", response_model=ModosProductoOut, dependencies=[Depends(require_permiso("sell_in.ver"))])
 def modos_de_producto(item_id: int, db: Session = Depends(get_db)) -> dict:
     """The product's sell-in cost modes, newest first, and the one governing today (none: FIFO, the default)."""
     historial = modos.historial(db, item_id)

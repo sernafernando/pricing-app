@@ -270,7 +270,8 @@ class SellInCompraItem(Base):
 class SellInConsumo(Base):
     """Units of one sale that took part of a sell in. The source is a purchase line (`compra_item_id`) or, for a
     manual block, its cost-mode row (`modo_id`): exactly one. Only a manual consumption may be negative (a manual
-    cost above the product's frozen cost raises the sale's cost)."""
+    cost above the product's frozen cost raises the sale's cost); a migration trigger refuses a `modo_id` that is not
+    a `manual` row of the same product."""
 
     __tablename__ = "sell_in_consumos"
     __table_args__ = (
@@ -304,8 +305,9 @@ class SellInConsumo(Base):
 
 
 class SellInModoProducto(Base):
-    """One change of a product's sell-in cost mode, from `desde` on (append-only, never edited nor deleted). No row
-    means FIFO. The governing row of a sale is the latest with `desde <= sale date` (ties: the latest created). A
+    """One change of a product's sell-in cost mode, from `desde` on (append-only: a migration trigger refuses UPDATE and
+    DELETE). No row means FIFO. The governing row of a sale is the latest with `desde <= sale date` (ties: the higher
+    `id`). A
     `manual` row carries the typed quantity and unit cost and the product's cost frozen when it was saved; the other
     modes carry none. `origen = 'carga'`: made from a sell-in load, which `compra_id` names."""
 

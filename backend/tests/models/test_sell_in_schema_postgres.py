@@ -486,6 +486,42 @@ class TestCostModes:
         # A purchase line's consumption still cannot be negative.
         _rejects(engine, _INSERT_CONSUMO_MODO, {**consumo, "ref": 4, "line": line, "modo": None})
 
+    @pytest.mark.parametrize("modo", ["fifo", "ponderado", "ultimo"])
+    @pytest.mark.parametrize("descuento", ["-2000", "100"])
+    def test_only_a_manual_block_is_a_consumption_source(self, engine, modo, descuento) -> None:
+        # A wrong sign in money must not depend on the costing code being right: the database refuses it.
+        with engine.begin() as conn:
+            modo_id = conn.execute(text(_INSERT_MODO), _modo(modo=modo)).scalar_one()
+        _rejects(engine, _INSERT_CONSUMO_MODO, {"line": None, "modo": modo_id, "ref": 1, "descuento": descuento})
+
+    def test_a_consumption_takes_only_its_own_products_manual_block(self, engine) -> None:
+        with engine.begin() as conn:
+            otro = conn.execute(
+                text(_INSERT_MODO.replace("VALUES (4512,", "VALUES (4513,")), _modo(**_MANUAL)
+            ).scalar_one()
+        _rejects(engine, _INSERT_CONSUMO_MODO, {"line": None, "modo": otro, "ref": 1, "descuento": "-2000"})
+
+    def test_a_consumption_cannot_be_moved_onto_another_source(self, engine) -> None:
+        with engine.begin() as conn:
+            manual = conn.execute(text(_INSERT_MODO), _modo(**_MANUAL)).scalar_one()
+            ponderado = conn.execute(text(_INSERT_MODO), _modo()).scalar_one()
+            conn.execute(text(_INSERT_CONSUMO_MODO), {"line": None, "modo": manual, "ref": 1, "descuento": "-2000"})
+        _rejects(engine, "UPDATE sell_in_consumos SET modo_id = :m", {"m": ponderado})
+
+    @pytest.mark.parametrize(
+        "statement",
+        [
+            "UPDATE sell_in_modos_producto SET desde = DATE '2026-01-01' WHERE id = :i",
+            "UPDATE sell_in_modos_producto SET modo = 'fifo', cantidad = NULL, costo_unit = NULL, "
+            "costo_base_unit = NULL WHERE id = :i",
+            "DELETE FROM sell_in_modos_producto WHERE id = :i",
+        ],
+    )
+    def test_the_modes_are_append_only(self, engine, statement) -> None:
+        with engine.begin() as conn:
+            modo_id = conn.execute(text(_INSERT_MODO), _modo(**_MANUAL)).scalar_one()
+        _rejects(engine, statement, {"i": modo_id})
+
     def test_every_foreign_key_of_the_modes_has_an_index(self, engine) -> None:
         with engine.connect() as conn:
             indexdefs = (
