@@ -15,7 +15,8 @@ tables).
 
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
+from contextlib import contextmanager
+from typing import Any, Iterator, Optional, Sequence
 
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
@@ -37,6 +38,16 @@ def needs_margin(key: str) -> bool:
     return METRIC_SORTS[key][1]
 
 
+@contextmanager
+def board_rows(db: Session, mla_source: Any) -> Iterator[Any]:
+    """The Board's publication rows over the 30-day window for the MLAs of `mla_source`, keyed by `rk` (the MLA);
+    the Board's temp tables live as long as the block."""
+    first, last = row_metrics.window(board.today_business())
+    f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
+    with board.Board(db, f, scope_pairs=None) as b:
+        yield b.rows()
+
+
 def ranked_page(
     db: Session, mla_source: Any, key: str, descending: bool, limit: Optional[int], offset: int
 ) -> list[str]:
@@ -46,7 +57,7 @@ def ranked_page(
     f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
     with board.Board(db, f, scope_pairs=None) as b:
         rows = b.rows()
-        figure = _figure(rows, key)
+        figure = metric_figure(rows, key)
         ordered = figure.desc() if descending else figure.asc()
         query = (
             select(b.mla_set.c.mla)
@@ -58,7 +69,7 @@ def ranked_page(
         return [mla for (mla,) in db.execute(query)]
 
 
-def _figure(rows: Any, key: str) -> Any:
+def metric_figure(rows: Any, key: str) -> Any:
     """The figure `key` names, only for a publication that sold in the window (null otherwise: last in either way)."""
     return case((rows.c.units > 0, rows.c[METRIC_SORTS[key][0]]), else_=None)
 
@@ -70,7 +81,7 @@ def metric_figures(db: Session, mla_source: Any, keys: Sequence[str]) -> dict[st
     f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
     with board.Board(db, f, scope_pairs=None) as b:
         rows = b.rows()
-        query = select(b.mla_set.c.mla, *(_figure(rows, key) for key in keys)).outerjoin(
+        query = select(b.mla_set.c.mla, *(metric_figure(rows, key) for key in keys)).outerjoin(
             rows, rows.c.rk == b.mla_set.c.mla
         )
         found = db.execute(query).all()

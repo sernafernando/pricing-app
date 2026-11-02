@@ -57,7 +57,14 @@ from app.services.ml_publications.view.markup_service import (
     compute_markups,
     product_markup,
 )
-from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, metric_figures, needs_margin, ranked_page
+from app.services.ml_publications.view.metrics_sort import (
+    METRIC_SORTS,
+    board_rows,
+    metric_figure,
+    metric_figures,
+    needs_margin,
+    ranked_page,
+)
 
 STATEMENT_TIMEOUT = "8s"
 SORT_ACTIVITY = "actividad"
@@ -344,6 +351,24 @@ def _by_figures(
     return list(db.execute(query).scalars())
 
 
+def _ranked_with_columns(db: Session, source: Any, sort: Sort, limit: Optional[int], offset: int) -> list[str]:
+    """Column keys and ONE Métricas figure (Publicaciones ML's default, `tipo,facturado_30d`): the Board's rows join
+    `source` in the database and one statement orders and cuts the page -- never every MLA's figure shipped out and
+    back as the arrays of `_by_figures`."""
+    with board_rows(db, source) as rows:
+        order: list[Any] = []
+        for key, descending in sort.pairs:
+            if key in METRIC_SORTS:
+                figure = metric_figure(rows, key)
+                order.append((figure.desc() if descending else figure.asc()).nulls_last())
+            else:
+                order.extend(_column_order(key, descending))
+        query = (
+            source.outerjoin(rows, rows.c.rk == T.i.item_id).order_by(*order, T.i.item_id).limit(limit).offset(offset)
+        )
+        return list(db.execute(query).scalars())
+
+
 def _figured_ids(
     db: Session,
     source: Any,
@@ -357,6 +382,8 @@ def _figured_ids(
     orders."""
     if len(sort.keys) == 1 and sort.key in METRIC_SORTS:
         return ranked_page(db, source, sort.key, sort.descending, limit, offset)
+    if len(sort.figure_keys) == 1 and sort.figure_keys[0] in METRIC_SORTS:
+        return _ranked_with_columns(db, source, sort, limit, offset)
     metric_keys = [key for key in sort.figure_keys if key in METRIC_SORTS]
     metrics = metric_figures(db, source, metric_keys) if metric_keys else {}
     figures = {key: (worst or {}) if key == SORT_MARKUP else metrics[key] for key in sort.figure_keys}
