@@ -7,7 +7,8 @@ import itertools
 from typing import Optional
 
 import pytest
-from sqlalchemy import Text, literal, select
+from sqlalchemy import Text, column, literal, select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import ARRAY
 
 from app.services.ml_publications.listing_kind import listing_kind, listing_rank
@@ -25,7 +26,7 @@ TAGS = [
     ["pcj-co-funded", "3x_campaign"],
     ["good_quality_thumbnail"],
 ]
-CAMPAIGNS = [None, "3x_campaign", "6x_campaign", "9x_campaign", "12x_campaign", "24x_campaign"]
+CAMPAIGNS = [None, "", "3x_campaign", "6x_campaign", "9x_campaign", "12x_campaign", "24x_campaign"]
 
 
 def _expected(listing_type_id: Optional[str], tags: list, campaign: Optional[str]) -> Optional[str]:
@@ -78,3 +79,11 @@ def test_the_rank_orders_clasica_then_3_6_9_12_cuotas_then_other_types_then_none
         "free",
         None,
     ]
+
+
+def test_the_rank_reads_each_campaign_tag_position_a_bounded_number_of_times() -> None:
+    # Publicaciones ML orders its whole filtered set by the rank of an expression (no temp table to read a column
+    # from): each CASE branch that repeats the kind repeats every campaign-tag lookup under it.
+    kind = listing_kind(column("listing_type_id"), column("tags"), column("installments_campaign"))
+    sql = str(select(listing_rank(kind)).compile(dialect=postgresql.dialect()))
+    assert sql.count("array_position") <= 48

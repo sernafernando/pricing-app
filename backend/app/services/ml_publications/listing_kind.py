@@ -56,10 +56,11 @@ def listing_kind(listing_type_id: Any, tags: Any, sale_terms_campaign: Any) -> A
     whatever type its column carries, so `@>` and `array_position` compile as array operators."""
     tags = func.coalesce(type_coerce(tags, ARRAY(Text)), literal([], ARRAY(Text)))
     campaign = _campaign(tags, sale_terms_campaign)
+    # A simple CASE reads the campaign once for all its values: the publications list orders its whole set by this.
     gold_pro = case(
-        (campaign.is_(None), literal("cuotas_6")),
-        *((campaign == value, literal(kind)) for value, kind in _KIND_BY_CAMPAIGN.items()),
-        else_=listing_type_id,
+        {value: literal(kind) for value, kind in _KIND_BY_CAMPAIGN.items()},
+        value=campaign,
+        else_=case((campaign.is_(None), literal("cuotas_6")), else_=listing_type_id),
     )
     return case(
         (
@@ -81,9 +82,10 @@ def listing_kind_from_type(listing_type_id: Any) -> Any:
 
 
 def listing_rank(kind: Any) -> Any:
-    """The sort rank of a kind: the known kinds in installments order, then any other type, then none."""
+    """The sort rank of a kind: the known kinds in installments order, then any other type, then none. A simple
+    CASE reads the kind once for all the known ones."""
     return case(
-        *((kind == name, literal(rank, Integer)) for name, rank in KIND_RANKS.items()),
-        (kind.isnot(None), literal(OTHER_RANK, Integer)),
-        else_=literal(NO_TYPE_RANK, Integer),
+        {name: literal(rank, Integer) for name, rank in KIND_RANKS.items()},
+        value=kind,
+        else_=case((kind.is_(None), literal(NO_TYPE_RANK, Integer)), else_=literal(OTHER_RANK, Integer)),
     )
