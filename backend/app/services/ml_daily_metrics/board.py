@@ -1927,10 +1927,10 @@ class Board:
             # Same rule: the sell in lowers the Gauss cost, so "Costos TP" has no markup with sell in / sell out.
             raise ValueError("sort=markup_sell has no markup with costos_tp: the sell in is on the Gauss cost")
         if self.f.sort == "listing_kind":
-            # Rows with no rank (the group view's nodes) are ordered by the unique key alone.
             rank = rows.c.get("listing_rank")
             if rank is None:
-                return (rows.c.rk.asc(),)
+                # The group view's nodes have no kind: the router answers 422 first, never a silent other order.
+                raise ValueError("sort=listing_kind has no rank on the group view")
             # Another ML type, then no type at all, go last either way: only the known kinds turn around.
             residual = case((rank >= OTHER_RANK, rank), else_=0)
             return (
