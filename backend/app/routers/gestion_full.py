@@ -33,6 +33,7 @@ from app.services.gestion_full.excel_export import (
     build_ml_full_xlsx,
     build_ops_ean_xlsx,
     mark_package_exported,
+    prepare_package_for_export,
 )
 from app.services.gestion_full.package import (
     add_all_ready_lines_to_package,
@@ -696,6 +697,7 @@ def get_package_export_ml(
     if pkg is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no hay paquete activo")
     try:
+        pkg = prepare_package_for_export(db, pkg)
         payload = build_ml_full_xlsx(db, pkg)
     except ValueError as exc:
         raise HTTPException(
@@ -730,6 +732,7 @@ def get_package_export_ops(
     if pkg is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no hay paquete activo")
     try:
+        pkg = prepare_package_for_export(db, pkg)
         payload = build_ops_ean_xlsx(db, pkg)
     except ValueError as exc:
         raise HTTPException(

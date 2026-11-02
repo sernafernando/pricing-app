@@ -181,9 +181,35 @@ def recap_qty_export_to_stock(db: Session, package: GestionFullPackage) -> int:
     return changed
 
 
+def prepare_package_for_export(db: Session, package: GestionFullPackage) -> GestionFullPackage:
+    """Row-lock, re-cap qty_export to ERP stock, flush — call **before** building Excel bytes.
+
+    The first download must already reflect the stock cap (D6); building before re-cap
+    shipped uncapped qty while the DB was corrected only on mark_package_exported.
+    """
+    pkg = (
+        db.query(GestionFullPackage)
+        .filter(GestionFullPackage.id == package.id)
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
+    if pkg.status == PACKAGE_STATUS_LOCKED:
+        raise ValueError("paquete hard-locked")
+    recap_qty_export_to_stock(db, pkg)
+    db.flush()
+    return pkg
+
+
 def mark_package_exported(db: Session, package: GestionFullPackage) -> GestionFullPackage:
     """Re-cap qty_export to stock_erp, then flip open → exported (idempotent if exported)."""
-    pkg = db.query(GestionFullPackage).filter(GestionFullPackage.id == package.id).with_for_update().one()
+    pkg = (
+        db.query(GestionFullPackage)
+        .filter(GestionFullPackage.id == package.id)
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
     if pkg.status == PACKAGE_STATUS_LOCKED:
         raise ValueError("paquete hard-locked")
     recap_qty_export_to_stock(db, pkg)

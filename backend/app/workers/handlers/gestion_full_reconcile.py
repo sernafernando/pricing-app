@@ -65,8 +65,9 @@ class GestionFullReconcileHandler:
                 logger.exception("gestion_full.reconcile failed for %s", inbound_id)
                 results.append({"inbound_id": inbound_id, "error": True})
 
+        all_failed = bool(results) and all(isinstance(r, dict) and r.get("error") for r in results)
         return JobResult(
-            success=True,
+            success=not all_failed,
             detail={"reconciled": len(results), "results": results},
         )
 
