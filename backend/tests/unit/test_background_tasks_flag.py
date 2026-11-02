@@ -21,6 +21,7 @@ TASK_FACTORIES = (
     "sync_pedidos_preparacion_task",
     "free_shipping_auto_fix_task",
     "publicacion_envio_repair_task",
+    "publicacion_sku_repair_task",
     "sync_sale_orders_task",
     "ml_questions_ingest_task",
     "ml_questions_draft_task",
