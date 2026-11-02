@@ -30,6 +30,7 @@ from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.services.gestion_full.assign_inbound import assign_inbound_to_lines, maybe_hard_lock
 from app.services.gestion_full.excel_export import build_ml_full_xlsx, build_ops_ean_xlsx
+from app.services.gestion_full.reconcile import reconcile_envio
 from app.workers.context import WorkerContext
 from app.workers.handlers.gestion_full_reconcile import GestionFullReconcileHandler
 from tests.conftest import (
@@ -364,5 +365,129 @@ class TestExcelStringCells:
             assert sku_cell.data_type == "s"
             assert inv_cell.value == "INV-1"
             assert inv_cell.data_type == "s"
+        finally:
+            db.close()
+
+
+def _seed_open_envio(
+    db: Session, *, inbound_id: str = "INB-REC", last_reception_at: datetime | None = None
+) -> GestionFullEnvio:
+    _seed_product(db)
+    pkg = _seed_exported_package(db, inbound_id=inbound_id)
+    envio = GestionFullEnvio(
+        inbound_id=inbound_id,
+        package_id=pkg.id,
+        week_monday=pkg.week_monday,
+        last_reception_at=last_reception_at,
+    )
+    db.add(envio)
+    db.commit()
+    db.refresh(envio)
+    return envio
+
+
+@pytest.mark.postgres
+class TestReconcileEnvioPostgres:
+    def test_inserts_reception_op_and_sets_last_reception(
+        self, pg_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db = _session(pg_engine)
+        try:
+            envio = _seed_open_envio(db, inbound_id="INB-INS")
+            reception = {
+                "id": 9001,
+                "type": "INBOUND_RECEPTION",
+                "date_created": "2026-10-30T12:00:00Z",
+                "detail": {"available_quantity": 7},
+                "external_references": [{"type": "inbound_id", "value": "INB-INS"}],
+            }
+            client = MagicMock()
+            client.get.return_value = SimpleNamespace(status=200, body={"results": [reception]})
+            monkeypatch.setattr("app.core.config.settings.ML_USER_ID", "1")
+            now = datetime(2026, 10, 31, tzinfo=UTC)
+
+            out = reconcile_envio(db, envio, client=client, now=now)
+
+            assert out["inserted"] == 1
+            assert out["closed"] is False
+            op = db.query(GestionFullInboundReceptionOp).filter_by(operation_id=9001).one()
+            assert op.cantidad == 7
+            assert op.inbound_id == "INB-INS"
+            assert envio.last_reception_at is not None
+
+            # Idempotent on same operation_id
+            out2 = reconcile_envio(db, envio, client=client, now=now)
+            assert out2["inserted"] == 0
+            assert db.query(GestionFullInboundReceptionOp).filter_by(operation_id=9001).count() == 1
+        finally:
+            db.close()
+
+    def test_closes_after_idle_from_last_reception(self, pg_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
+        db = _session(pg_engine)
+        try:
+            now = datetime(2026, 11, 2, tzinfo=UTC)
+            envio = _seed_open_envio(
+                db,
+                inbound_id="INB-CLOSE",
+                last_reception_at=now - timedelta(days=4),
+            )
+            client = MagicMock()
+            client.get.return_value = SimpleNamespace(status=200, body={"results": []})
+            monkeypatch.setattr("app.core.config.settings.ML_USER_ID", "1")
+
+            out = reconcile_envio(db, envio, client=client, now=now)
+
+            assert out["closed"] is True
+            assert envio.reception_closed_at == now
+            db.refresh(envio)
+            assert envio.reception_closed_at == now
+        finally:
+            db.close()
+
+    def test_does_not_close_when_ml_fails_even_if_idle(
+        self, pg_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db = _session(pg_engine)
+        try:
+            now = datetime(2026, 11, 2, tzinfo=UTC)
+            envio = _seed_open_envio(
+                db,
+                inbound_id="INB-429",
+                last_reception_at=now - timedelta(days=5),
+            )
+            client = MagicMock()
+            client.get.return_value = SimpleNamespace(status=429, body={"message": "rate"})
+            monkeypatch.setattr("app.core.config.settings.ML_USER_ID", "1")
+
+            out = reconcile_envio(db, envio, client=client, now=now)
+
+            assert out["closed"] is False
+            assert out["ml_fail"] == 1
+            assert envio.reception_closed_at is None
+        finally:
+            db.close()
+
+    def test_does_not_close_never_received_even_if_old(
+        self, pg_engine: Engine, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db = _session(pg_engine)
+        try:
+            now = datetime(2026, 11, 2, tzinfo=UTC)
+            envio = _seed_open_envio(db, inbound_id="INB-NEVER", last_reception_at=None)
+            # Force old created_at so a created_at-based clock would wrongly close.
+            db.execute(
+                text("UPDATE gestion_full_envio SET created_at = :ts WHERE inbound_id = :id"),
+                {"ts": now - timedelta(days=10), "id": "INB-NEVER"},
+            )
+            db.commit()
+            db.refresh(envio)
+            client = MagicMock()
+            client.get.return_value = SimpleNamespace(status=200, body={"results": []})
+            monkeypatch.setattr("app.core.config.settings.ML_USER_ID", "1")
+
+            out = reconcile_envio(db, envio, client=client, now=now)
+
+            assert out["closed"] is False
+            assert envio.reception_closed_at is None
         finally:
             db.close()

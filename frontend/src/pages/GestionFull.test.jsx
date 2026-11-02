@@ -14,10 +14,24 @@ vi.mock('../hooks/useDebounce', () => ({
   useDebounce: (value) => value,
 }));
 
+const tienePermisoMock = vi.fn(() => false);
+
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
-    tienePermiso: () => false,
+    tienePermiso: (...args) => tienePermisoMock(...args),
   }),
+}));
+
+vi.mock('../components/gestionFull/GestionFullDepositosTab', () => ({
+  default: () => <div>Depósito tab body</div>,
+}));
+
+vi.mock('../components/gestionFull/GestionFullGestorTab', () => ({
+  default: () => <div>Envío tab body</div>,
+}));
+
+vi.mock('../components/gestionFull/GestionFullEnviosTab', () => ({
+  default: () => <div>Consulta envíos body</div>,
 }));
 
 import api from '../services/api';
@@ -27,6 +41,8 @@ describe('GestionFull', () => {
     api.get.mockReset();
     api.patch.mockReset();
     api.post.mockReset();
+    tienePermisoMock.mockReset();
+    tienePermisoMock.mockImplementation(() => false);
   });
 
   it('renders grouped rows centered and calls the list endpoint', async () => {
@@ -182,5 +198,35 @@ describe('GestionFull', () => {
         user_product_id: 'MLAU1',
       });
     });
+  });
+
+  it('hides Depósito and Envío tabs without permissions; always shows Consulta envíos', async () => {
+    api.get.mockResolvedValue({ data: { total: 0, items: [], puede_editar_override: false } });
+    render(<GestionFull />);
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+
+    expect(screen.queryByRole('tab', { name: 'Depósito' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Envío' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Consulta envíos' })).toBeInTheDocument();
+  });
+
+  it('shows Depósito tab when gestion_full.depositos is granted', async () => {
+    tienePermisoMock.mockImplementation((code) => code === 'gestion_full.depositos');
+    api.get.mockResolvedValue({ data: { total: 0, items: [], puede_editar_override: false } });
+    render(<GestionFull />);
+
+    const tab = await screen.findByRole('tab', { name: 'Depósito' });
+    fireEvent.click(tab);
+    expect(screen.getByText('Depósito tab body')).toBeInTheDocument();
+  });
+
+  it('shows Envío tab when gestion_full.gestor is granted', async () => {
+    tienePermisoMock.mockImplementation((code) => code === 'gestion_full.gestor');
+    api.get.mockResolvedValue({ data: { total: 0, items: [], puede_editar_override: false } });
+    render(<GestionFull />);
+
+    const tab = await screen.findByRole('tab', { name: 'Envío' });
+    fireEvent.click(tab);
+    expect(screen.getByText('Envío tab body')).toBeInTheDocument();
   });
 });
