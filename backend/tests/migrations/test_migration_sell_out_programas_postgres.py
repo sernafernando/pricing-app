@@ -149,7 +149,7 @@ def test_a_program_starts_active_and_its_state_is_a_closed_set(after) -> None:
 def test_a_program_name_is_unique_ignoring_case(after) -> None:
     _programa(after, "MARCA PROG")
     with pytest.raises(IntegrityError):
-        _programa(after, "epson prog")
+        _programa(after, "marca prog")
 
 
 @pytest.mark.postgres
