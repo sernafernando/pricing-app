@@ -47,8 +47,9 @@ def test_upsert_package_line_rejects_negative() -> None:
 
 def test_upsert_package_line_creates() -> None:
     db = MagicMock()
-    db.query.return_value.filter_by.return_value.one_or_none.return_value = None
     pkg = SimpleNamespace(id=9)
+    db.query.return_value.filter.return_value.with_for_update.return_value.one.return_value = pkg
+    db.query.return_value.filter_by.return_value.one_or_none.return_value = None
     line = upsert_package_line(
         db,
         package=pkg,
@@ -72,8 +73,20 @@ def test_set_qty_export_caps_and_audits() -> None:
         package=SimpleNamespace(status="open"),
         qty_export=10,
         qty_export_reason=None,
+        producto_item_id=99,
     )
+    pkg = SimpleNamespace(id=1, status="open")
     db = MagicMock()
+    db.query.return_value.filter.return_value.with_for_update.return_value.one.return_value = pkg
+
+    def _get(_model: object, key: object) -> object:
+        if key == 99:
+            return SimpleNamespace(stock=20)
+        if key == 5:
+            return line
+        return None
+
+    db.get.side_effect = _get
     usuario = SimpleNamespace(id=2)
     out = set_qty_export(
         db,
@@ -81,7 +94,7 @@ def test_set_qty_export_caps_and_audits() -> None:
         qty_export=50,
         usuario=usuario,
         reason="ajuste",
-        stock_erp=20,
+        stock_erp=999,  # client value ignored
     )
     assert out.qty_export == 20
     assert out.qty_export_reason == "ajuste"
