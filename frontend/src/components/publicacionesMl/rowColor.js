@@ -39,7 +39,7 @@ function layerColor(item, field, painted, ownPainted) {
   const ownColor = ownPainted && field in ownPainted ? ownPainted[field] : (item[own] ?? null);
   if (ownColor) return ownColor;
   if (painted && field in painted) return painted[field];
-  return (own in item ? item[product] : item[shown]) ?? null;
+  return (item[own] != null ? item[product] : item[shown]) ?? null;
 }
 
 /** A publication row (`/view/items`). */

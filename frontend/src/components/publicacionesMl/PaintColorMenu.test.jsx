@@ -140,12 +140,13 @@ describe('PaintColorMenu', () => {
       expect(onPainted).toHaveBeenCalledWith({ data: { vista: 'ml', is_global: true, equipo_id: null, item_ids: [77], color: 'rojo' } });
     });
 
-    it('sends more than 500 publications in batches of 500, each one shown as it lands', async () => {
+    // A last batch of one would go through the one-row permission check instead of the batch one.
+    it('sends more than 500 publications in batches of at most 500, never a last one of one, each shown as it lands', async () => {
       const many = Array.from({ length: 501 }, (_, i) => `MLA${1000 + i}`);
       const { onPaintedOwn, user } = setup({ checked: publications(...many) });
       await user.click(screen.getByRole('button', { name: 'Pintar 501 publicaciones' }));
       await user.click(screen.getByRole('menuitem', { name: 'Urgente' }));
-      expect(publicacionesMlAPI.paintColors.mock.calls.map(([body]) => body.item_ids.length)).toEqual([500, 1]);
+      expect(publicacionesMlAPI.paintColors.mock.calls.map(([body]) => body.item_ids.length)).toEqual([499, 2]);
       expect(onPaintedOwn).toHaveBeenCalledTimes(2);
     });
 
@@ -169,6 +170,15 @@ describe('PaintColorMenu', () => {
       unmount();
       render(<PaintColorMenu checked={publications('MLA1', 'MLA2')} equipo="" onPainted={vi.fn()} />);
       expect(screen.queryByRole('button', { name: /pintar/i })).not.toBeInTheDocument();
+    });
+
+    // The backend asks the same for one MLA (`puede_escribir_layer`): the batch permission alone does not paint one.
+    it('with only productos.marcar_color_lote, one publication cannot be painted on the global layer, two can', () => {
+      const { unmount } = render(<PaintColorMenu checked={publications('MLA1')} equipo="" onPainted={vi.fn()} />);
+      expect(screen.queryByRole('button', { name: /pintar/i })).not.toBeInTheDocument();
+      unmount();
+      render(<PaintColorMenu checked={publications('MLA1', 'MLA2')} equipo="" onPainted={vi.fn()} />);
+      expect(screen.getByRole('button', { name: 'Pintar 2 publicaciones' })).toBeInTheDocument();
     });
   });
 });

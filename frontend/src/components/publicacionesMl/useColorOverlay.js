@@ -19,16 +19,17 @@ export default function useColorOverlay(equipo, rowsKey = '') {
   const [overlay, setOverlay] = useState({ key, colors: EMPTY, own: EMPTY });
 
   const update = useCallback(
-    (data, map) => {
+    (data, slice) => {
       if (!data?.item_ids?.length) return;
       const onShow = equipo ? !data.is_global && String(data.equipo_id) === String(equipo) : Boolean(data.is_global);
       const field = onShow ? 'marcado' : data.is_global && equipo ? 'hintGlobal' : null;
       if (!field) return;
       setOverlay((current) => {
         const fresh = current.key === key ? current : { key, colors: EMPTY, own: EMPTY };
-        const colors = new Map(fresh[map]);
-        for (const id of data.item_ids) colors.set(String(id), { ...colors.get(String(id)), [field]: data.color ?? null });
-        return { ...fresh, [map]: colors };
+        // `slice`: 'colors' (keyed by product id) or 'own' (keyed by MLA).
+        const next = new Map(fresh[slice]);
+        for (const id of data.item_ids) next.set(String(id), { ...next.get(String(id)), [field]: data.color ?? null });
+        return { ...fresh, [slice]: next };
       });
     },
     [equipo, key],

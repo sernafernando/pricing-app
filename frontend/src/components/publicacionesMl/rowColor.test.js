@@ -79,9 +79,22 @@ describe("a publication's own color (seleccion-por-publicacion S3)", () => {
   });
 
   it('on a team layer its own global color hints it, and its product shows through once unpainted', () => {
-    const hinted = { item_id: 'MLA4', link: { producto_item_id: 77 }, color_hint_global: 'gris', color_hint_global_propio: 'gris' };
+    const hinted = {
+      item_id: 'MLA4',
+      link: { producto_item_id: 77 },
+      color_hint_global: 'gris',
+      color_hint_global_propio: 'gris',
+      color_hint_global_producto: 'rojo',
+    };
     expect(itemRowTone(hinted)).toMatchObject({ marker: 'var(--product-inactive-bg)' });
-    expect(itemRowTone(hinted, undefined, new Map([['MLA4', { hintGlobal: null }]]))).toBeNull();
+    expect(itemRowTone(hinted, undefined, new Map([['MLA4', { hintGlobal: null }]]))).toMatchObject({
+      marker: 'var(--product-urgent-bg)',
+    });
+  });
+
+  it('a row whose own color comes as null shows its product color', () => {
+    const unpainted = { item_id: 'MLA5', link: { producto_item_id: 77 }, color_marcado: 'rojo', color_propio: null, color_producto: null };
+    expect(itemRowTone(unpainted)).toMatchObject({ background: 'var(--product-urgent-bg)' });
   });
 
   it('reaches the publications of the trees too', () => {

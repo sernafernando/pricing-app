@@ -1860,6 +1860,41 @@ describe('bulk actions over products (S6)', () => {
     expect(api.patch).not.toHaveBeenCalled();
   });
 
+  it('in the Producto view a digit on a product row paints its product, not its publications (S4)', async () => {
+    publicacionesMlAPI.paintColors.mockClear();
+    api.patch.mockClear();
+    api.patch.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    await productView();
+    pickProduct('Router Archer AX55').closest('tr').focus();
+    await user.keyboard('1');
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/productos/4101/color', { color: 'rojo' }, { params: {} }));
+    expect(publicacionesMlAPI.paintColors).not.toHaveBeenCalled();
+  });
+
+  it('in the Producto view a digit on an open product\'s "Ver más" row paints nothing', async () => {
+    publicacionesMlAPI.paintColors.mockClear();
+    api.patch.mockClear();
+    const user = userEvent.setup();
+    await productView();
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    (await screen.findByRole('button', { name: /^Ver más/ })).closest('tr').focus();
+    await user.keyboard('1');
+    expect(publicacionesMlAPI.paintColors).not.toHaveBeenCalled();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('in the Producto view a publication of an open product repaints when someone paints it on its own (S3)', async () => {
+    const user = userEvent.setup();
+    await productView();
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    const row = () => pick('MLA1100000001').closest('tr');
+    await waitFor(() => expect(row()).not.toHaveAttribute('data-tone'));
+    act(() => sse.own({ data: { is_global: true, equipo_id: 1, item_ids: ['MLA1100000001'], color: 'rojo' } }));
+    expect(row()).toHaveAttribute('data-tone');
+    expect(pick('MLA1100000002').closest('tr')).not.toHaveAttribute('data-tone');
+  });
+
   it('in the Producto view a product row checks the product; "Sin producto" cannot be checked (S4)', async () => {
     await productView();
     await userEvent.click(pickProduct('Router Archer AX55'));
@@ -2790,6 +2825,19 @@ describe('painting from the keyboard (S8)', () => {
     await waitFor(() => expect(firstRow()).toHaveAttribute('data-tone'));
     expect(publicacionesMlAPI.paintColors).toHaveBeenCalledWith({ item_ids: ['MLA1100000001'], color: 'verde', equipo_id: 12 });
     expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('0 takes the focused publication\'s own color off, so it shows its product\'s again (S3)', async () => {
+    publicacionesMlAPI.paintColors.mockResolvedValue({ data: { count: 1, color: null } });
+    // Painted azul on its own; its product is rojo.
+    respond({ ...ITEMS_RESPONSE, items: [{ ...ITEMS[0], color_marcado: 'azul', color_propio: 'azul', color_producto: 'rojo' }], total: 1 });
+    const user = userEvent.setup();
+    await page();
+    expect(firstRow()).toHaveAttribute('title', 'Color: Info');
+    firstRow().focus();
+    await user.keyboard('0');
+    await waitFor(() => expect(publicacionesMlAPI.paintColors).toHaveBeenCalledWith({ item_ids: ['MLA1100000001'], color: null }));
+    await waitFor(() => expect(firstRow()).toHaveAttribute('title', 'Color: Urgente'));
   });
 
   it('paints a publication with no product too: its color is its own', async () => {
