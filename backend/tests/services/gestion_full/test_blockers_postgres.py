@@ -505,7 +505,7 @@ class TestReconcileEnvioPostgres:
 @pytest.mark.postgres
 class TestRound2Blockers:
     def test_first_export_excel_uses_stock_cap(self, pg_engine: Engine) -> None:
-        """Blocker 1: re-cap before build so F6 matches stock on the first download."""
+        """Export prepare refuses when stock < qty_export (gestor must fix package)."""
         db = _session(pg_engine)
         try:
             _seed_product(db, stock=3)
@@ -527,8 +527,16 @@ class TestRound2Blockers:
             db.commit()
             db.refresh(pkg)
 
+            with pytest.raises(ValueError, match="stock ERP insuficiente"):
+                prepare_package_for_export(db, pkg)
+
+            # After gestor lowers qty to stock, export proceeds with F6 = 3.
+            db.rollback()
+            db.refresh(pkg)
+            pkg.lines[0].qty_export = 3
+            db.commit()
+            db.refresh(pkg)
             pkg = prepare_package_for_export(db, pkg)
-            assert pkg.lines[0].qty_export == 3
             raw = build_ml_full_xlsx(db, pkg)
             wb = load_workbook(io.BytesIO(raw))
             ws = wb[" Selección de productos"]
