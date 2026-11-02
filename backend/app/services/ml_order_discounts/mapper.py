@@ -9,6 +9,7 @@ ignored and a missing one maps to None (the whole body is stored anyway).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Mapping, Optional
@@ -46,8 +47,8 @@ def _text(value: Any) -> Optional[str]:
 
 
 def _money(value: Any) -> Optional[Decimal]:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None  # NaN / Infinity (Python's json accepts them) would raise on quantize
     return Decimal(str(value)).quantize(Decimal("0.01"))
 
 

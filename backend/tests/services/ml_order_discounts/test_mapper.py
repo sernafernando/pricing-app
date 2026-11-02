@@ -72,3 +72,10 @@ class TestOnlyDiscountNotFoundIsNone:
         body.update(error="not_found", message="Order not found")
         assert mapper.classify(404, body) == mapper.ERROR
         assert mapper.classify(404, None) == mapper.ERROR
+
+
+def test_a_non_finite_amount_maps_to_none_instead_of_raising() -> None:
+    body = copy.deepcopy(fixture("discounts_top_coupon_1"))  # perturbed copy: Python's json reads NaN / Infinity
+    body["details"][0]["items"][0]["amounts"] = {"seller": float("nan"), "total": float("inf")}
+    (coupon, _offer) = mapper.map_lines(1, body)
+    assert (coupon.amount_seller, coupon.amount_total) == (None, None)
