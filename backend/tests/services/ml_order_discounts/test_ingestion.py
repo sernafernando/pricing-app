@@ -101,6 +101,7 @@ class TestRun:
             "stopped": None,
             "backoff_until": None,
             "pending_left": 0,
+            "exhausted": 0,
         }
         assert client.paths == ["/orders/100/discounts", "/orders/200/discounts"]
         fetched = {row.order_id: row for row in rows(session_factory, MlOrderDiscounts)}
@@ -121,7 +122,7 @@ class TestRun:
     def test_errors_are_retried_until_the_attempt_limit(self, session_factory) -> None:
         with session_factory() as db:
             payment(db, 1, 100, "1.00")
-        client = FakeClient({100: response(500, {"message": "boom"})})
+        client = FakeClient({100: response(400, {"message": "bad request"})})
         for attempt in range(1, store.MAX_ATTEMPTS + 1):
             at = NOW + attempt * store.ERROR_RETRY
             result = ingestion.run(
@@ -131,8 +132,29 @@ class TestRun:
             (row,) = rows(session_factory, MlOrderDiscounts)
             assert (row.status, row.attempts) == ("error", attempt)
         far = NOW + 100 * store.ERROR_RETRY
-        assert ingestion.run(session_factory, client, now=lambda: far, deadline=far, max_calls=30).calls == 0
+        result = ingestion.run(session_factory, client, now=lambda: far, deadline=far, max_calls=30)
+        assert result.calls == 0 and result.exhausted == 1  # settled by its attempts, and reported as such
+        assert result.as_detail()["exhausted"] == 1
         assert len(client.paths) == store.MAX_ATTEMPTS
+
+    @pytest.mark.parametrize(
+        ("answer", "status"), [(response(503, {"message": "down"}), 503), (response(200, {"status": 502}), 502)]
+    )
+    def test_an_ml_server_error_stops_and_defers_the_order_without_counting_an_attempt(
+        self, session_factory, answer, status
+    ) -> None:
+        """A 5xx is ML's outage, not the order's: an outage of a few hours must not spend every attempt and
+        settle the orders for good."""
+        with session_factory() as db:
+            payment(db, 1, 100, "1.00", minutes=2)
+            payment(db, 2, 101, "1.00", minutes=1)
+        client = FakeClient({100: answer, 101: response(200, fixture("discounts_top_coupon_1"))})
+        result = run(session_factory, client)
+        assert result.stopped == "unavailable" and result.calls == 1 and result.pending_left == 2
+        assert result.unavailable_status == status
+        (row,) = rows(session_factory, MlOrderDiscounts)
+        assert (row.order_id, row.status, row.attempts, row.body, row.fetched_at) == (100, "error", 0, None, NOW)
+        assert result.counts == {"ok": 0, "none": 0, "error": 0}
 
     def test_an_error_waits_before_it_is_asked_again(self, session_factory) -> None:
         with session_factory() as db:
@@ -166,7 +188,7 @@ class TestRun:
     def test_an_ok_after_an_error_settles_the_order(self, session_factory) -> None:
         with session_factory() as db:
             payment(db, 1, 100, "1.00")
-        run(session_factory, FakeClient({100: response(500, None)}))
+        run(session_factory, FakeClient({100: response(400, None)}))
         later = NOW + store.ERROR_RETRY
         ok = FakeClient({100: response(200, fixture("discounts_top_coupon_2"))})
         ingestion.run(session_factory, ok, now=lambda: later, deadline=later + timedelta(seconds=20), max_calls=30)

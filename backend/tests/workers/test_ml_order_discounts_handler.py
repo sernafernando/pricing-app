@@ -139,3 +139,35 @@ def test_blocked_or_transport_waits_a_minute_before_calling_again(monkeypatch) -
         at[0] = NOW + module.IDLE_PAUSE
         h.run(ctx())
         assert calls == [NOW, NOW + module.IDLE_PAUSE], stopped
+
+
+def test_an_ml_server_error_is_reported_and_waits_a_minute(monkeypatch) -> None:
+    monkeypatch.setattr(module.settings, "ML_ADS_ENABLED", True)
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(1)
+        return ingestion.RunResult(calls=1, stopped=ingestion.UNAVAILABLE, unavailable_status=503)
+
+    monkeypatch.setattr(ingestion, "run", fake_run)
+    h = handler()
+    first = h.run(ctx())
+    assert first.success and first.error == "ML answered 503"
+    assert h.run(ctx()).error == "ML answered 503" and calls == [1]  # no new query within the minute
+
+
+def test_a_run_answered_only_with_errors_is_reported(monkeypatch) -> None:
+    monkeypatch.setattr(module.settings, "ML_ADS_ENABLED", True)
+    result = ingestion.RunResult(calls=3)
+    result.counts["error"] = 3
+    monkeypatch.setattr(ingestion, "run", lambda *a, **k: result)
+    outcome = handler().run(ctx())
+    assert outcome.success and outcome.error == "every answer was an error (3)"
+
+
+def test_a_run_with_some_answers_stored_reports_no_error(monkeypatch) -> None:
+    monkeypatch.setattr(module.settings, "ML_ADS_ENABLED", True)
+    result = ingestion.RunResult(calls=3)
+    result.counts.update({"ok": 1, "error": 2})
+    monkeypatch.setattr(ingestion, "run", lambda *a, **k: result)
+    assert handler().run(ctx()).error is None

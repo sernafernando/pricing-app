@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from app.core import database
 from app.core.config import settings
 from app.services.ml_ads.ingestion import BLOCKED, SessionFactory
-from app.services.ml_order_discounts import ingestion
+from app.services.ml_order_discounts import ingestion, mapper
 from app.services.ml_publications.ml_http import MlHttpClient
 from app.services.ml_publications.pacing import Pacer
 from app.workers.context import JobResult, WorkerContext
@@ -88,19 +88,23 @@ class OrderDiscountsHandler:
             error = "missing or rejected ML credentials"
         elif result.stopped == ingestion.TRANSPORT:
             error = f"no HTTP answer from ML: {result.transport_error}"
+        elif result.stopped == ingestion.UNAVAILABLE:
+            error = f"ML answered {result.unavailable_status}"
+        elif result.counts[mapper.ERROR] and not result.counts[mapper.OK] + result.counts[mapper.NONE]:
+            error = f"every answer was an error ({result.counts[mapper.ERROR]})"
         self._last_error = error
         return JobResult(success=True, detail=self._last_detail, error=error)
 
     def _idle(self, result: ingestion.RunResult) -> Optional[datetime]:
-        """When the next run may query again: a minute after an empty queue, a block or a transport failure; the
-        back-off's end (at most a minute)."""
+        """When the next run may query again: a minute after an empty queue, a block, a transport failure or an ML
+        server error; the back-off's end (at most a minute)."""
         pause_end = self._now() + IDLE_PAUSE
         if result.stopped == ingestion.BACKOFF:
             return min(result.backoff_until, pause_end) if result.backoff_until else pause_end
         if result.stopped is None and result.calls == 0:
             return pause_end
-        if result.stopped in (BLOCKED, ingestion.TRANSPORT):
-            return pause_end  # credentials or the network will not be back in 5 s: never hammer ML meanwhile
+        if result.stopped in (BLOCKED, ingestion.TRANSPORT, ingestion.UNAVAILABLE):
+            return pause_end  # credentials, the network or ML will not be back in 5 s: never hammer ML meanwhile
         return None
 
 

@@ -195,7 +195,7 @@ def test_full_backfill_calls_each_order_exactly_once(session_factory):
 @pytest.mark.postgres
 def test_error_retries_hourly_five_times_and_poison_does_not_block(session_factory):
     seed(session_factory, 3)
-    answers = {1: response(200, GOOD), 2: response(200, GOOD), 3: response(500, {"status": 500})}  # 3 is the newest
+    answers = {1: response(200, GOOD), 2: response(200, GOOD), 3: response(400, {"status": 400})}  # 3 is the newest
     client = FakeClient(answers)
     calls_at = []
     for minutes in range(0, 60 * 8, 10):
@@ -238,7 +238,7 @@ def test_a_head_order_that_always_times_out_does_not_block_the_queue(session_fac
         ("401body", lambda r: httpx.Response(200, json={"status": 401, "error": "x"}), "blocked", None, 1),
         ("429body", lambda r: httpx.Response(200, json={"status": 429, "error": "x"}), "rate_limited", None, 1),
         ("badjson", lambda r: httpx.Response(200, content=b"<html>"), None, "error", 2),
-        ("502", lambda r: httpx.Response(502, content=b"<html>"), None, "error", 2),
+        ("502", lambda r: httpx.Response(502, content=b"<html>"), "unavailable", "error", 1),  # deferred like transport
         ("403", lambda r: httpx.Response(403, json={"status": 403}), None, "error", 2),
     ],
 )
@@ -263,7 +263,7 @@ def test_stop_rules(session_factory, name, fn, stopped, row_status, http_calls):
         assert got == []
     else:
         assert {r.status for r in got} == {row_status}
-        if stopped == "transport":
+        if stopped in ("transport", "unavailable"):
             assert [r.attempts for r in got] == [0]
     if name == "429":
         assert res.backoff_until == clock.now() + timedelta(seconds=120)

@@ -58,6 +58,8 @@ def downgrade():
 
 @pytest.fixture()
 def scratch(tmp_path, monkeypatch):
+    if not os.environ.get("POSTGRES_TEST_URL"):
+        pytest.skip("POSTGRES_TEST_URL is not set")
     base_url = make_url(os.environ["POSTGRES_TEST_URL"])
     name = f"discounts_mig_{uuid4().hex[:8]}"
     admin = sa.create_engine(base_url, isolation_level="AUTOCOMMIT")

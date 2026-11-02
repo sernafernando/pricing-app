@@ -70,6 +70,14 @@ def pending_count(db: Session) -> int:
     return int(db.execute(stmt).scalar() or 0)
 
 
+def exhausted_count(db: Session) -> int:
+    """Orders settled as `error` after `MAX_ATTEMPTS`: never asked again, so they are reported with each run."""
+    stmt = select(func.count()).where(
+        MlOrderDiscounts.status == mapper.ERROR, MlOrderDiscounts.attempts >= MAX_ATTEMPTS
+    )
+    return int(db.execute(stmt).scalar() or 0)
+
+
 def write_fetch(db: Session, order_id: int, status: str, http_status: int, body: Any, at: datetime) -> None:
     """Upsert the order's fetch and replace its lines. An `error` keeps counting attempts; `ok`/`none` settle it."""
     # `null()`: a missing body is SQL NULL (`body IS NULL`), never the JSON value `null`.

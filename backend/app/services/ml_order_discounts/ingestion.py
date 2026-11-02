@@ -6,8 +6,10 @@ Stop rules, in the order they are checked:
   429 run, capped at 1 h, never shorter than `Retry-After` up to a day), so a run of 429s spaces the runs out instead of
   retrying every interval;
 - 401 / no token / not configured: the run stops as `blocked`, nothing is counted against the order;
-- no HTTP answer (transport error): the run stops and the order goes behind the others for `store.ERROR_RETRY`
-  without counting an attempt, so an order that always times out never holds the queue;
+- no HTTP answer (transport error), or a 5xx (the HTTP one or the body's own: ML's outage, not the order's): the
+  run stops (`transport` / `unavailable`) and the order goes behind the others for `store.ERROR_RETRY` without
+  counting an attempt, so an outage of a few hours never settles the orders for good and an order that always
+  times out never holds the queue;
 - the deadline, or the worker asked to stop (`should_stop`): the run stops, nothing is written;
 - another run already in progress in this process: nothing is done (`busy`).
 Any other answer is written: `ok`, `none` (ML's 404 "Discount not found") or `error`, which is asked again on
@@ -42,6 +44,7 @@ _RUN_LOCK = (
     threading.Lock()
 )  # the handler has its own thread; this keeps a second run in this process from asking twice
 TRANSPORT = "transport"
+UNAVAILABLE = "unavailable"
 
 
 @dataclass
@@ -52,6 +55,8 @@ class RunResult:
     backoff_until: Optional[datetime] = None
     pending_left: Optional[int] = None
     transport_error: Optional[str] = None  # the client's error when ML gave no HTTP answer
+    unavailable_status: Optional[int] = None  # ML's 5xx that stopped the run
+    exhausted: Optional[int] = None  # orders settled as `error` after `store.MAX_ATTEMPTS`
 
     def as_detail(self) -> Dict[str, Any]:
         return {
@@ -62,6 +67,7 @@ class RunResult:
             "stopped": self.stopped,
             "backoff_until": self.backoff_until and self.backoff_until.isoformat(),
             "pending_left": self.pending_left,
+            "exhausted": self.exhausted,
         }
 
 
@@ -97,6 +103,7 @@ def _run(
         if until is not None and until > now():
             result.stopped, result.backoff_until = BACKOFF, until
             result.pending_left = store.pending_count(db)
+            result.exhausted = store.exhausted_count(db)
             return result
         orders = store.pending_orders(db, max_calls, now())
     for order_id in orders:
@@ -122,6 +129,11 @@ def _run(
                 store.defer(db, order_id, now())
             result.stopped, result.transport_error = TRANSPORT, response.error
             break
+        if 500 <= own_status <= 599:
+            with session_factory() as db:
+                store.defer(db, order_id, now())
+            result.stopped, result.unavailable_status = UNAVAILABLE, own_status
+            break
         status = mapper.classify(response.status, response.body)
         try:
             with session_factory() as db:
@@ -137,4 +149,5 @@ def _run(
         if result.stopped != RATE_LIMITED and sum(result.counts.values()):
             store.clear_backoff(db)  # a run answered with no 429 ends the 429 streak
         result.pending_left = store.pending_count(db)
+        result.exhausted = store.exhausted_count(db)
     return result
