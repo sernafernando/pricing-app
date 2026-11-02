@@ -143,8 +143,9 @@ class RecomputeResult:
     pendientes_base: Dict[int, int] = field(default_factory=dict)
 
 
-def _vinculadas(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana], Productos, List[int]]:
-    """The asked campaigns plus every active one sharing a product with them, transitively, in id order."""
+def _cargar(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana], Productos, Dict[int, List[int]]]:
+    """The asked campaigns and every active one, their reach (ONE query each), and `{item_id: active campaigns
+    reaching it}`, the index the closure walks."""
     campanas = {
         c.id: c
         for c in db.query(SellOutCampana)
@@ -152,16 +153,32 @@ def _vinculadas(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana],
         .populate_existing()
     }
     productos = alcance.productos(db, campanas)
-    activas = [c for c in campanas.values() if c.estado == "activa"]
+    por_item: Dict[int, List[int]] = {}
+    for cid, c in campanas.items():
+        if c.estado == "activa":
+            for item_id in productos.get(cid, {}):
+                por_item.setdefault(item_id, []).append(cid)
+    return campanas, productos, por_item
+
+
+def _cierre(productos: Productos, por_item: Dict[int, List[int]], ids: Iterable[int]) -> List[int]:
+    """`ids` plus every active campaign sharing a product with them, transitively, in id order: each campaign is
+    visited once, through the products it reaches."""
     vistas = set(ids)
-    pendientes = [i for i in ids if i in productos]
+    pendientes = [i for i in vistas if i in productos]
     while pendientes:
-        mios = productos[pendientes.pop()].keys()
-        for otra in activas:
-            if otra.id not in vistas and mios & productos.get(otra.id, {}).keys():
-                vistas.add(otra.id)
-                pendientes.append(otra.id)
-    return campanas, productos, sorted(vistas)
+        for item_id in productos[pendientes.pop()]:
+            for otra in por_item.get(item_id, ()):  # a voided asked campaign may reach what no active one does
+                if otra not in vistas:
+                    vistas.add(otra)
+                    pendientes.append(otra)
+    return sorted(vistas)
+
+
+def _vinculadas(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana], Productos, List[int]]:
+    """The asked campaigns plus every active one sharing a product with them, transitively, in id order."""
+    campanas, productos, por_item = _cargar(db, ids)
+    return campanas, productos, _cierre(productos, por_item, ids)
 
 
 def vinculadas(db: Session, campana_ids: Iterable[int]) -> List[int]:
@@ -169,6 +186,27 @@ def vinculadas(db: Session, campana_ids: Iterable[int]) -> List[int]:
     what `recalcular` would rebuild right now. A group edit captures it BEFORE the edit (S3)."""
     ids = sorted({int(i) for i in campana_ids})
     return _vinculadas(db, ids)[2] if ids else []
+
+
+def vinculadas_por_campana(db: Session, campana_ids: Iterable[int]) -> Dict[int, List[int]]:
+    """`{campana_id: vinculadas(db, [campana_id])}` for each given campaign, loading the campaigns and their reach
+    ONCE (the bulk edit; one call per campaign would load them all again each time). Active campaigns linked
+    together share one closure, computed once."""
+    ids = sorted({int(i) for i in campana_ids})
+    if not ids:
+        return {}
+    campanas, productos, por_item = _cargar(db, ids)
+    salida: Dict[int, List[int]] = {}
+    for cid in ids:
+        if cid in salida:
+            continue
+        cierre = _cierre(productos, por_item, [cid])
+        salida[cid] = cierre
+        if cid in campanas and campanas[cid].estado == "activa":  # the link is symmetric among active ones
+            for otra in cierre:
+                if otra in ids:
+                    salida.setdefault(otra, cierre)
+    return salida
 
 
 def montos_item(db: Session, campanas: Iterable[SellOutCampana]) -> Montos:

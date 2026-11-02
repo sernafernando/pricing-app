@@ -73,7 +73,7 @@ def _fecha(dia: date) -> str:
     return dia.strftime("%d/%m/%Y")
 
 
-def _editar_una(db: Session, campana: SellOutCampana, cambios: dict, usuario_id: int) -> bool:
+def _editar_una(db: Session, campana: SellOutCampana, cambios: dict, usuario_id: int, compartian: list[int]) -> bool:
     """One locked, active campaign: False when it already has the values; else its edit step, True."""
     if all(getattr(campana, campo) == valor for campo, valor in cambios.items()):
         return False
@@ -85,7 +85,7 @@ def _editar_una(db: Session, campana: SellOutCampana, cambios: dict, usuario_id:
             f"antes que la fecha desde ({_fecha(desde)})"
         )
     data = base.entrada_guardada(db, campana).model_copy(update=cambios)
-    base.editar_campana_sin_commit(db, campana.id, data, usuario_id, es_masivo=True)
+    base.editar_campana_sin_commit(db, campana.id, data, usuario_id, es_masivo=True, compartian=compartian)
     return True
 
 
@@ -100,11 +100,19 @@ def _aplicar(
     rechazadas: list[Rechazada] = [(cid, None, f"La campaña {cid} no existe") for cid in ids if cid not in nombres]
     editadas: list[int] = []
     sin_cambio: list[int] = []
+    # Links are by product: a date or `acumulable` change moves none, so the whole batch's are read once up front.
+    vinculos = asignacion.vinculadas_por_campana(db, [cid for cid in ids if cid in nombres])
+    encoladas: set[int] = set()  # queued by an earlier row of this transaction: queueing them again changes nothing
     for campana_id in (cid for cid in ids if cid in nombres):
         nombre = nombres[campana_id]
         try:
             campana = base.bloquear(db, campana_id)
-            (editadas if _editar_una(db, campana, cambios, usuario_id) else sin_cambio).append(campana_id)
+            compartian = [c for c in vinculos[campana_id] if c != campana_id and c not in encoladas]
+            if _editar_una(db, campana, cambios, usuario_id, compartian):
+                editadas.append(campana_id)
+                encoladas.update([campana_id, *compartian])
+            else:
+                sin_cambio.append(campana_id)
         except SellOutRecalculando as exc:  # `_encolar` already rolled back
             mensaje = (
                 f"No se editó ninguna campaña: la campaña {campana_id} ({nombre}) se está recalculando. {REINTENTAR}"

@@ -157,7 +157,10 @@ class SellOutAnularMasivoOut(BaseModel):
 class SellOutEditarMasivoIn(BaseModel):
     """`POST /editar-masivo[/previa]`: the campaigns and the fields to set on all of them; an absent or null field
     is not filled and keeps each campaign's stored value. An empty or too large selection, or no field filled, is
-    refused by the router with a readable message."""
+    refused by the router with a readable message. Any other field (another column, a typo) is a 422: never
+    silently dropped."""
+
+    model_config = ConfigDict(extra="forbid")
 
     campana_ids: list[int]
     fecha_desde: Optional[date] = None

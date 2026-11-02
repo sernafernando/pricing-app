@@ -594,6 +594,29 @@ def test_a_campaign_being_recalculated_is_a_409_with_a_neutral_message_and_nothi
     assert (actual["nombre"], actual["estado"], actual["tipo_cambio"]) == (out["nombre"], "activa", None)
 
 
+def test_a_deadlock_on_a_single_edit_is_the_busy_409_and_nothing_changes(client, gestor, grupos, monkeypatch) -> None:
+    """Postgres breaks a lock cycle with a bulk edit or a preview (40P01): a retry, never a 500."""
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.sell_out import campanas as service
+
+    out = _crear(client, gestor, grupos)
+
+    class _Deadlock(Exception):
+        pgcode = "40P01"
+
+    def _en_deadlock(db, campana_ids) -> None:
+        raise DBAPIError("INSERT INTO sell_out_dirty ...", {}, _Deadlock())
+
+    monkeypatch.setattr(service, "_encolar", _en_deadlock)
+
+    resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, nombre="Otra"), headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    assert _message(resp) == "Otra operación está modificando la campaña en este momento. Reintentar en unos segundos."
+    assert client.get(f"{BASE}/{out['id']}", headers=gestor).json()["nombre"] == out["nombre"]
+
+
 # ── Bulk void (`POST /anular`) ──────────────────────────────────────
 
 MASIVO = f"{BASE}/anular"
