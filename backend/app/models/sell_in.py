@@ -320,6 +320,8 @@ class SellInModoProducto(Base):
         ),
         CheckConstraint("(origen = 'carga') = (compra_id IS NOT NULL)", name="ck_sell_in_modos_producto_compra"),
         Index("ix_sell_in_modos_producto_item_desde", "item_id", "desde", "id"),
+        Index("ix_sell_in_modos_producto_compra_id", "compra_id", postgresql_where=text("compra_id IS NOT NULL")),
+        Index("ix_sell_in_modos_producto_usuario_id", "usuario_id"),
     )
 
     id = Column(BigInteger, primary_key=True)

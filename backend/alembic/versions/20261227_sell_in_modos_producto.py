@@ -19,8 +19,6 @@ y otro permiso aparte para poder setear cantidad y costo a mano". Design: handof
   `sell_in.costo_retroactivo` (backdate a mode), ADMIN only (owner, 2026-11-02). Seeded only where the permission
   tables exist, so the sell-in schema tests can run the chain without them.
 
-Nothing reads the new table yet: the costing keeps writing FIFO until the replay lands.
-
 LOCK NOTE: the `sell_in_consumos` changes take an ACCESS EXCLUSIVE lock (the new CHECKs scan the table once; the
 column is nullable without a default: no rewrite). The sell-in drain reads and writes it, so they run with
 `lock_timeout = '5s'` and the deploy is retried; the previous value is saved and restored, as in 20261217.
@@ -111,6 +109,9 @@ UPGRADE = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_sell_in_modos_producto_item_desde ON sell_in_modos_producto (item_id, desde, id)",
+    "CREATE INDEX IF NOT EXISTS ix_sell_in_modos_producto_compra_id ON sell_in_modos_producto (compra_id) "
+    "WHERE compra_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_sell_in_modos_producto_usuario_id ON sell_in_modos_producto (usuario_id)",
     "ALTER TABLE sell_in_consumos ADD COLUMN IF NOT EXISTS modo_id BIGINT "
     "REFERENCES sell_in_modos_producto (id) ON DELETE RESTRICT",
     "ALTER TABLE sell_in_consumos ALTER COLUMN compra_item_id DROP NOT NULL",

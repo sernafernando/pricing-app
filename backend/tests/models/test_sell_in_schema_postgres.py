@@ -486,6 +486,21 @@ class TestCostModes:
         # A purchase line's consumption still cannot be negative.
         _rejects(engine, _INSERT_CONSUMO_MODO, {**consumo, "ref": 4, "line": line, "modo": None})
 
+    def test_every_foreign_key_of_the_modes_has_an_index(self, engine) -> None:
+        with engine.connect() as conn:
+            indexdefs = (
+                conn.execute(
+                    text(
+                        "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() "
+                        "AND tablename = 'sell_in_modos_producto'"
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        for columna in ("(item_id, desde, id)", "(compra_id)", "(usuario_id)"):
+            assert any(columna in d for d in indexdefs), columna
+
     def test_a_mode_with_consumptions_cannot_be_deleted(self, engine) -> None:
         with engine.begin() as conn:
             modo_id = conn.execute(text(_INSERT_MODO), _modo(**_MANUAL)).scalar_one()
