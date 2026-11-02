@@ -122,6 +122,22 @@ describe('SellOutCampanaPanel — Renovar', () => {
     expect(sellOutAPI.repartir).not.toHaveBeenCalled();
   });
 
+  it('"No copiar el reparto" drops the copied split, so a renewal with other groups or total can still be saved', async () => {
+    const user = userEvent.setup();
+    sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MONTO_TOTAL });
+    sellOutAPI.renovacion.mockResolvedValue({ data: RENOVACION_MONTO_TOTAL });
+    sellOutAPI.crear.mockResolvedValue({ data: { ...CAMPANA_MONTO_TOTAL, id: 98 } });
+    renderPanel(70);
+
+    await user.click(await screen.findByRole('button', { name: 'Renovar' }));
+    await user.click(await screen.findByRole('button', { name: 'No copiar el reparto' }));
+    expect(screen.queryByText(/se copia al guardar/)).not.toBeInTheDocument();
+    expect(screen.getByText('El reparto se carga después, desde la campaña guardada.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Guardar campaña' }));
+    expect(sellOutAPI.crear).toHaveBeenCalledTimes(1);
+    expect(sellOutAPI.crear.mock.calls[0][0]).not.toHaveProperty('items');
+  });
+
   it('"Cancelar" goes back to the original campaign without saving anything', async () => {
     const user = userEvent.setup();
     sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });

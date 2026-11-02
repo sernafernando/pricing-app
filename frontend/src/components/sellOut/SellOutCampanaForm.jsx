@@ -101,9 +101,14 @@ export default function SellOutCampanaForm({ valores, onChange, grupos, copiaDe 
           </p>
           {copiados > 0 && (
             <p className={styles.hint}>
-              {`El reparto del monto total (${copiados === 1 ? '1 producto' : `${copiados} productos`}) se copia al guardar.`}
+              {`El reparto del monto total (${copiados === 1 ? '1 producto' : `${copiados} productos`}) se copia al guardar.`}{' '}
+              {/* With other groups or a smaller total the copied split may no longer fit: it can be left out. */}
+              <button type="button" className="btn-tesla ghost sm" onClick={() => set({ repartosCopiados: [], repartoDescartado: true })}>
+                No copiar el reparto
+              </button>
             </p>
           )}
+          {valores.repartoDescartado && <p className={styles.hint}>El reparto se carga después, desde la campaña guardada.</p>}
         </>
       )}
       {porUnidad && numero('montoUnit', 'Monto por unidad')}
