@@ -119,8 +119,8 @@ def permiso_faltante(modo: str, desde: date, hoy: date, tiene: Callable[[str], b
 
 
 def vista_previa(db: Session, item_id: int, modo: str, desde: date, hoy: date, usuario_id: int) -> VistaPrevia:
-    """What saving `modo` from `desde` would do, with nothing saved: the simulation runs in a savepoint rolled back.
-    Takes the product's recompute lock until the caller's transaction ends."""
+    """What saving `modo` from `desde` would do, with nothing saved: the simulation runs in a savepoint rolled back,
+    which also releases the product's recompute lock it took."""
     savepoint = db.begin_nested()
     try:
         vista, _ = _simular(db, item_id, modo, desde, hoy, usuario_id)

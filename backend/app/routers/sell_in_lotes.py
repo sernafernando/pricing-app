@@ -104,7 +104,7 @@ def vista_previa_modo(
     except ValueError as exc:  # the product's history cannot be replayed (a manual block, until it lands)
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-    db.rollback()  # releases the product's recompute lock
+    db.rollback()  # nothing to keep: the preview's savepoint was already rolled back
     return vista
 
 
