@@ -131,3 +131,20 @@ def test_a_stored_sale_after_today_is_behind_the_next_sale(engine) -> None:  # n
     with _sesion(engine) as db:
         vig = get_costing().vigentes(db, [ROUTER], HOY)[ROUTER]
     assert (vig.descuento_unit_ars, vig.unidades_restantes, vig.en_pool) == (Decimal("6.000000"), 190, True)
+
+
+def test_the_viewer_never_promises_a_lot_already_inside_the_pool(engine) -> None:  # noqa: F811
+    # The Nov 20 lot is already in the pool the Nov 20 sale left (190 at 6.00): only a later lot comes after it.
+    si.compra(engine, [(ROUTER, 100, "1000.00")], D(2026, 10, 1))
+    si.compra(engine, [(ROUTER, 100, "200.00")], D(2026, 11, 20))
+    si.modo(engine, ROUTER, "ponderado", D(2026, 10, 1))
+    si.venta(engine, "fuera", ROUTER, 10, D(2026, 11, 20))
+    assert not _recompute(engine, ROUTER).failed
+    with _sesion(engine) as db:
+        prox = visor_lotes.lotes_de_producto(db, ROUTER, HOY).proxima
+    assert (prox.descuento_unit, prox.restantes, prox.siguiente) == (Decimal("6.000000"), 190, None)
+    si.compra(engine, [(ROUTER, 10, "60.00")], D(2026, 12, 1))
+    with _sesion(engine) as db:
+        prox = visor_lotes.lotes_de_producto(db, ROUTER, HOY).proxima
+    # 1140 + 60 over 200 units from Dec 1.
+    assert (prox.siguiente.numero, prox.siguiente.descuento_unit) == (3, Decimal("6.000000"))

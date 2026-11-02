@@ -152,6 +152,9 @@ class LoteVigente:
     en_pool: bool = False
     # Under a pool, what a sale on the next lot's start date gets once that lot joins it; None otherwise.
     siguiente_unit_ars: Optional[Decimal] = None
+    # The day the next sale is valued on: `hoy`, or the latest stored sale when one is dated later. Lots counting by
+    # then are already inside the pool.
+    dia: Optional[date] = None
 
 
 def utc_date(value) -> date:
@@ -287,7 +290,7 @@ class FifoPurchaseCosting:
                 en_pool = periodo_en(periodos[item_id], dia)[1] != "fifo"
                 siguiente = self._siguiente(dinero, item, periodos[item_id], dia) if en_pool else None
                 salida[item_id] = LoteVigente(
-                    item[i].compra_item_id, unit_discount(monto, sobre), restantes, en_pool, siguiente
+                    item[i].compra_item_id, unit_discount(monto, sobre), restantes, en_pool, siguiente, dia
                 )
         return salida
 

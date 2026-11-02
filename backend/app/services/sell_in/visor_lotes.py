@@ -149,7 +149,7 @@ def _proxima(filas: List[LoteVisor], pool: Optional[LoteVigente] = None) -> Opti
     if actual is None:
         return None
     despues = next(
-        (x for x in filas[actual.numero :] if x.restantes > 0 and (pool is None or x.estado == "desde")), None
+        (x for x in filas[actual.numero :] if x.restantes > 0 and (pool is None or _despues_del_pool(x, pool))), None
     )
     siguiente = None
     if despues is not None:
@@ -162,6 +162,11 @@ def _proxima(filas: List[LoteVisor], pool: Optional[LoteVigente] = None) -> Opti
             actual.numero, actual.compra_item_id, pool.descuento_unit_ars, pool.unidades_restantes, siguiente
         )
     return ProximaVenta(actual.numero, actual.compra_item_id, actual.descuento_unit, actual.restantes, siguiente)
+
+
+def _despues_del_pool(fila: LoteVisor, pool: LoteVigente) -> bool:
+    """A line comes after the pool only if it starts counting after the day the pool's value is for."""
+    return fila.estado == "desde" and (pool.dia is None or fila.fecha_desde > pool.dia)
 
 
 def _compras(db: Session, compra_ids: List[int]) -> Dict[int, Tuple[Optional[str], List[str], str]]:
