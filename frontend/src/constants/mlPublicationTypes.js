@@ -12,6 +12,7 @@ export const ML_PUBLICATION_TYPE_LABELS = {
   14: '6 Cuotas',
   13: '9 Cuotas',
   23: '12 Cuotas',
+  12: 'PVP',
 };
 
 /**
@@ -19,6 +20,17 @@ export const ML_PUBLICATION_TYPE_LABELS = {
  */
 export function getPublicationTypeLabel(pricelistId) {
   return ML_PUBLICATION_TYPE_LABELS[pricelistId] || 'Desconocido';
+}
+
+/**
+ * Prefer persisted `lista_nombre`; fall back to the pricelist_id map.
+ * @param {{ lista_nombre?: string | null, pricelist_id?: number | null } | null | undefined} price
+ */
+export function publicationListLabel(price) {
+  const named = price?.lista_nombre?.trim();
+  if (named) return named;
+  if (price?.pricelist_id == null) return null;
+  return getPublicationTypeLabel(price.pricelist_id);
 }
 
 export default ML_PUBLICATION_TYPE_LABELS;

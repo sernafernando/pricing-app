@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
 import {
+  Check,
   ChevronDown,
   Download,
   FileDown,
@@ -980,7 +981,8 @@ export default function PublicacionesML() {
               title="Recalcular las cuotas al guardar un precio (Alt+R)"
               onClick={autoRecalc.toggle}
             >
-              {autoRecalc.enabled ? '✓ ' : ''}Auto-recalcular
+              {autoRecalc.enabled ? <Check size={14} aria-hidden="true" /> : null}
+              Auto-recalcular
             </button>
           )}
           <button
@@ -1083,8 +1085,8 @@ export default function PublicacionesML() {
           <SplitPanelLayout
             open={Boolean(filters.sel || filters.prod)}
             onClose={closePanel}
-            width="lg"
-            resizeKey="publicaciones-ml"
+            width={ponerPreciosMode ? 'md' : 'lg'}
+            resizeKey={ponerPreciosMode ? 'publicaciones-ml-poner-precios' : 'publicaciones-ml'}
             ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
             panel={
               filters.sel ? (
@@ -1098,6 +1100,7 @@ export default function PublicacionesML() {
                   onBack={filters.prod ? backToProduct : undefined}
                   backLabel={backLabel}
                   priceGroup={canSeePrices ? priceGroup : null}
+                  ponerPreciosMode={ponerPreciosMode}
                 />
               ) : filters.prod ? (
                 <ProductPanel

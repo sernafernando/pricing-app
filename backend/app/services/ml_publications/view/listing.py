@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.models.marca_pm import MarcaPM
 from app.models.ml_publications import MlItemSellerPromotions
 from app.models.ml_tienda_oficial import MlTiendaOficial
+from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
 from app.services.ml_publications.listing_kind import NO_TYPE_RANK, OTHER_RANK, listing_kind, listing_rank
@@ -275,6 +276,15 @@ def row_columns(*, cost: bool = False) -> list[Any]:
                 MlItemSellerPromotions.hay_mejores_ofertas.is_(True),
             )
         ).label("hay_mejores_ofertas"),
+        # ERP list for this MLA (`publicaciones_ml`), not ML listing_type_id.
+        select(PublicacionML.pricelist_id)
+        .where(PublicacionML.mla == i.item_id)
+        .scalar_subquery()
+        .label("erp_pricelist_id"),
+        select(PublicacionML.lista_nombre)
+        .where(PublicacionML.mla == i.item_id)
+        .scalar_subquery()
+        .label("lista_nombre"),
         link_state().label("link_state"),
         l.producto_item_id,
         # the LINK's product: `T.p` also names a publication linked per variation only (`filters.primary_product`),
@@ -419,9 +429,8 @@ def _price(row: Any) -> dict[str, Any]:
         "regular_amount": row.regular_amount if source == "sale_price" else None,
         "promotion_type": row.promotion_type if source == "sale_price" else None,
         "campaign": row.campaign_id if source == "sale_price" else None,
-        # ponytail: pricelist_id stays null: the list's markup block does not expose the list that prices the
-        # row; the detail's breakdown (P8a) does
-        "pricelist_id": None,
+        "pricelist_id": getattr(row, "erp_pricelist_id", None),
+        "lista_nombre": getattr(row, "lista_nombre", None),
     }
 
 

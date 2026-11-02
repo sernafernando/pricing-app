@@ -147,7 +147,9 @@ class PriceOut(BaseModel):
     regular_amount: Optional[float] = None
     promotion_type: Optional[str] = None
     campaign: Optional[str] = None
+    # ERP list from `publicaciones_ml` (not ML listing_type_id).
     pricelist_id: Optional[int] = None
+    lista_nombre: Optional[str] = None
 
 
 class StockOut(BaseModel):
@@ -296,6 +298,7 @@ class ItemRowOut(BaseModel):
     gone: bool
     gone_at: Optional[datetime] = None
     price: PriceOut
+    hay_mejores_ofertas: bool = False
     stock: StockOut
     erp_stock: ErpStockOut
     link: LinkOut
