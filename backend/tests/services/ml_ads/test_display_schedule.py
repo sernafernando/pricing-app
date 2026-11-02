@@ -123,6 +123,21 @@ class TestSchedule:
         ]
         assert pg_ads_db.get(MlAdsDayLedger, ("product_ads", GAUSS, yesterday)).status == "closed"
 
+    def test_an_unreadable_display_listing_skips_display_only(
+        self, session_factory, pg_ads_db, monkeypatch, window
+    ) -> None:
+        window(1)
+        replay = _replay()
+        replay.display_advertisers_body = {**replay.display_advertisers_body, "advertisers": 5}  # perturbed shape
+
+        tick = _tick(session_factory, replay, monkeypatch)
+
+        assert (tick.display_steps, replay.display_calls()) == ([], [])
+        assert tick.display_error == "DISPLAY advertisers: error"
+        assert (tick.stopped, tick.complete) == (None, False)
+        assert [(s.advertiser_id, s.outcome) for s in tick.steps] == [(GAUSS, "closed"), (TPLINK, "closed")]
+        assert len(tick.brand_steps) == 2
+
     def test_closed_display_days_are_not_fetched_again(self, session_factory, monkeypatch, window) -> None:
         window(1)
         replay = _replay()

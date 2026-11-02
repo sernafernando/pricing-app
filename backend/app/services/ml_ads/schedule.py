@@ -197,7 +197,11 @@ def _run_display(
     stops the run; any other failure skips Display for this run (reported, run left incomplete), never the rest.
     See `_run_account_level`.
     """
-    targets, outcome, calls = ingestion.list_advertisers(client, deadline=deadline, now=now, product="DISPLAY")
+    try:
+        targets, outcome, calls = ingestion.list_advertisers(client, deadline=deadline, now=now, product="DISPLAY")
+    except Exception:  # noqa: BLE001 -- an unreadable listing must never break the rest of the run
+        logger.exception("DISPLAY advertisers listing failed")
+        targets, outcome, calls = [], ingestion.ERROR, 1
     result.calls += calls
     if outcome in _STOPS:
         _stopped(result, outcome)
