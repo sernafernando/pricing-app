@@ -15,6 +15,7 @@ from app.models.gestion_full_package import (
     GestionFullPackageLine,
     GestionFullQtyExportAudit,
 )
+from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 
 
@@ -99,6 +100,13 @@ def upsert_package_line(
     return line
 
 
+def _stock_erp_for_line(db: Session, line: GestionFullPackageLine) -> int:
+    prod = db.get(ProductoERP, line.producto_item_id)
+    if prod is None or prod.stock is None:
+        return 0
+    return max(0, int(prod.stock))
+
+
 def set_qty_export(
     db: Session,
     *,
@@ -108,15 +116,17 @@ def set_qty_export(
     reason: Optional[str] = None,
     stock_erp: Optional[int] = None,
 ) -> GestionFullPackageLine:
-    """Gestor adjusts qty_export (capped by stock_erp when provided); writes audit."""
+    """Gestor adjusts qty_export capped by server ``productos_erp.stock``; writes audit.
+
+    ``stock_erp`` from the client is ignored — cap always comes from the DB (#1977).
+    """
+    del stock_erp  # never trust client-supplied stock
     pkg = line.package or db.get(GestionFullPackage, line.package_id)
     if pkg is not None and pkg.status == PACKAGE_STATUS_LOCKED:
         raise PermissionError("package hard-locked")
     if qty_export < 0:
         raise ValueError("qty_export must be >= 0")
-    capped = qty_export
-    if stock_erp is not None:
-        capped = min(qty_export, max(0, int(stock_erp)))
+    capped = min(qty_export, _stock_erp_for_line(db, line))
 
     old = line.qty_export
     if old == capped and (reason or None) == (line.qty_export_reason or None):

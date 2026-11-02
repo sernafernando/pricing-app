@@ -72,8 +72,10 @@ def test_set_qty_export_caps_and_audits() -> None:
         package=SimpleNamespace(status="open"),
         qty_export=10,
         qty_export_reason=None,
+        producto_item_id=99,
     )
     db = MagicMock()
+    db.get.return_value = SimpleNamespace(stock=20)
     usuario = SimpleNamespace(id=2)
     out = set_qty_export(
         db,
@@ -81,7 +83,7 @@ def test_set_qty_export_caps_and_audits() -> None:
         qty_export=50,
         usuario=usuario,
         reason="ajuste",
-        stock_erp=20,
+        stock_erp=999,  # client value ignored — server stock wins
     )
     assert out.qty_export == 20
     assert out.qty_export_reason == "ajuste"
