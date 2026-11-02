@@ -40,10 +40,12 @@ with another writer (40P01), it is the busy 409 «Reintentar en unos segundos»,
 only the queue rows' wait; it waits for the row locks.
 
 Pending work: the rebuild the preview runs starts from the stored lines; a campaign with a queue row before the
-preview (a sale, a rate or another change not drained yet) has stored lines that are behind, so its numbers also
-include that pending work. Such a campaign is flagged `incluye_pendientes`, and the response carries the notice
-«incluye cambios pendientes que no causa esta edición» (`aviso_pendientes`); the numbers stay as the rebuild gives
-them (no second rebuild to separate them).
+preview (a sale, a rate or another change not drained yet) has stored lines that are behind, so the numbers also
+include that pending work. A listed campaign with a queue row is flagged `incluye_pendientes`. The response carries
+the notice «incluye cambios pendientes que no causa esta edición» (`aviso_pendientes`) when ANY campaign the rebuild
+touches is pending, listed or not: an edited or linked one, one whose own lines do not move, or a voided one not
+drained yet that reaches their products (its lines still hold units the rebuild hands to the others). The numbers
+stay as the rebuild gives them (no second rebuild to separate them).
 Meanwhile, a single edit of one of those campaigns that has a queue row waits for it and gets the same 409 after
 `queue.LOCK_TIMEOUT` (or on a deadlock); one with NO queue row waits on the campaign row itself (the preview's
 queue insert holds a key-share lock on it), past those 2 s, until the preview ends.
@@ -61,7 +63,7 @@ from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutConsumo, SellOutDirty
-from app.services.sell_out import asignacion, queue, reparto
+from app.services.sell_out import alcance, asignacion, queue, reparto
 from app.services.sell_out import campanas as base
 from app.services.sell_out.campanas import DEADLOCK, REINTENTAR, SellOutError, SellOutRecalculando
 
@@ -230,13 +232,19 @@ AVISO_PENDIENTES = "incluye cambios pendientes que no causa esta edición"
 
 
 def _pendientes(db: Session, campana_ids: list[int]) -> set[int]:
-    """The asked campaigns and those linked to them that have a queue row now: their stored lines are behind, so
-    the rebuild the preview runs also does that pending work. ONE query over the queue, plus the links."""
-    tocadas = asignacion.vinculadas(db, campana_ids)
-    if not tocadas:
-        return set()
-    filas = db.query(SellOutDirty.campana_id).filter(SellOutDirty.campana_id.in_(tocadas))
-    return {int(cid) for (cid,) in filas}
+    """The campaigns with a queue row whose pending work the preview's rebuild also does: the asked ones and every
+    active one linked to them, plus any other queued campaign, a voided one included, that reaches one of their
+    products (a voided campaign's stored lines still hold units the rebuild hands to the others). ONE query over the
+    queue, plus the links and, only when some queued campaign is outside them, the reach of those."""
+    tocadas = set(asignacion.vinculadas(db, campana_ids))
+    en_cola = {int(cid) for (cid,) in db.query(SellOutDirty.campana_id)} if tocadas else set()
+    pendientes = en_cola & tocadas
+    ajenas = en_cola - tocadas
+    if ajenas:
+        productos = alcance.productos(db, tocadas | ajenas)
+        mios = set().union(*(productos.get(cid, {}).keys() for cid in tocadas))
+        pendientes |= {cid for cid in ajenas if productos.get(cid, {}).keys() & mios}
+    return pendientes
 
 
 def _simular(
@@ -327,7 +335,8 @@ def previa_edicion(db: Session, campana_ids: list[int], cambios: dict, usuario_i
         "totales": totales,
         "cambian": cambian,
         "vinculadas": vinculadas,
-        "aviso_pendientes": AVISO_PENDIENTES if any(f["incluye_pendientes"] for f in filas) else None,
+        # Any pending campaign the rebuild touches, listed or not (a voided one, one whose own lines do not move).
+        "aviso_pendientes": AVISO_PENDIENTES if pendientes else None,
         "sin_cambio": sin_cambio,
         "rechazadas": [{"id": i, "nombre": n, "motivo": m} for i, n, m in sorted(rechazadas, key=lambda r: r[0])],
     }

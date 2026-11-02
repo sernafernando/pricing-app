@@ -36,8 +36,9 @@ price, and that credit is added to profit. The rules live in
   moves are listed in `vinculadas` (`en_seleccion` False when not selected). A rebuild that would fail is a 422;
   one that waits more than 2 s for a selected campaign's row (another preview or bulk edit), a queue row (a
   running drain) or the rebuild's locks, or is in a lock cycle, is the busy 409, nothing written. A campaign with
-  pending work (a queue row before the preview) is flagged `incluye_pendientes`, with the notice
-  `aviso_pendientes` («incluye cambios pendientes que no causa esta edición»): its numbers include that work.
+  pending work (a queue row before the preview) is flagged `incluye_pendientes`; the notice
+  `aviso_pendientes` («incluye cambios pendientes que no causa esta edición») appears when any campaign the
+  rebuild touches is pending, listed or not (a voided one not drained yet included): the numbers include it.
 - A brand-scoped PM (`sell_out.repartir` without `sell_out.gestionar`) reads
   a `monto_total` campaign's shares of their brands only, in the list, the
   detail and the `PUT /{id}/reparto` response, so what they read is what they

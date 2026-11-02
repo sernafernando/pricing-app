@@ -262,7 +262,8 @@ class SellOutEdicionPreviaOut(BaseModel):
     totales: SellOutEdicionTotalesOut
     cambian: list[SellOutEdicionCampanaPreviaOut]
     vinculadas: list[SellOutEdicionVinculadaPreviaOut]
-    # «incluye cambios pendientes que no causa esta edición» when a listed campaign `incluye_pendientes`; else None.
+    # «incluye cambios pendientes que no causa esta edición» when any campaign the rebuild touches has pending work
+    # (a queue row before the preview), listed or not: a voided one not drained yet included; else None.
     aviso_pendientes: Optional[str] = None
     sin_cambio: list[int]
     rechazadas: list[SellOutEdicionRechazadaOut]

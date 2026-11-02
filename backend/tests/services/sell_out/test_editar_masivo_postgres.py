@@ -669,6 +669,45 @@ def test_a_linked_campaign_with_pending_work_is_flagged_in_vinculadas(engine: En
     assert previa["aviso_pendientes"] == AVISO
 
 
+def test_a_voided_campaign_not_drained_yet_raises_the_notice(engine: Engine) -> None:
+    """V held the units and was voided; its queue row is not drained. It is outside the links (only active
+    campaigns link), yet the rebuild gives A the units V no longer takes: pending work, noticed."""
+    g = w.grupo(engine, [ROUTERS])
+    v = w.campana(engine, [g], nombre="MODELO 8180", acumulable=False)  # lower id: it holds the units
+    a = w.campana(engine, [g], nombre="Rebate Q4 2026", acumulable=False)
+    w.venta(engine, "fuera", ROUTER, 2, date(2026, 11, 10))
+    _consumir(engine)
+    with _session(engine) as db:
+        service.anular_campana(db, v, USUARIO, "baja")  # queues V, nobody drains it
+
+    previa = _previa(engine, [a], fecha_hasta=date(2026, 12, 31))
+
+    [fila] = previa["cambian"]
+    assert fila["entran"] == {"lineas": 1, "unidades": 2, "monto": Decimal("20.00")}  # the units V freed
+    assert fila["incluye_pendientes"] is False  # A itself has no queue row
+    assert previa["aviso_pendientes"] == AVISO
+
+
+def test_pending_work_of_a_campaign_whose_own_lines_do_not_move_raises_the_notice(engine: Engine) -> None:
+    """M has a queue row and its own lines do not move, so it is not listed; the undrained sale it cannot take goes
+    to L. L's numbers include M's pending work: noticed, though M is not listed."""
+    g = w.grupo(engine, [ROUTERS])
+    a = w.campana(engine, [g], nombre="Rebate Q4 2026", desde=date(2026, 12, 1), hasta=date(2026, 12, 20))
+    m = w.campana(engine, [g], nombre="MARCA PROG 3.0", acumulable=False, tope_unidades=1)
+    l_ = w.campana(engine, [g], nombre="MODELO 8180", acumulable=False)
+    w.venta(engine, "fuera", ROUTER, 1, date(2026, 11, 10))
+    _consumir(engine)
+    w.venta(engine, "fuera", ROUTER, 1, date(2026, 11, 12))  # not drained yet
+    _pendiente(engine, m)
+
+    previa = _previa(engine, [a], fecha_hasta=date(2026, 12, 25))
+
+    listadas = {f["id"]: f for f in previa["cambian"] + previa["vinculadas"]}
+    assert m not in listadas
+    assert listadas[l_]["entran"]["lineas"] == 1 and listadas[l_]["incluye_pendientes"] is False
+    assert previa["aviso_pendientes"] == AVISO
+
+
 def test_no_pending_work_no_flag_and_no_notice(engine: Engine) -> None:
     cid = w.campana(engine, [w.grupo(engine, [ROUTERS])])
     _consumir(engine)
