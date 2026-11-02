@@ -5,16 +5,19 @@ import { apiMessage } from '../sellIn/sellInFormat';
 import panelStyles from '../sellIn/SellInPanel.module.css';
 import { plural, textoAsignadas } from './sellOutProgramas';
 import { ASIGNAR_MAX } from './sellOutSeleccion';
+import { useFocoAtrapado } from './useFocoAtrapado';
 import styles from './SellOutAsignarPrograma.module.css';
 
 /**
  * "Asignar a programa (N campañas)" (Stitch programas/modal): to an active program, or to a new one it creates first
  * (`POST /sell-out/programas`, then `POST /asignar`). The API's refusals (an archived program, a duplicate name,
  * unknown campaigns) show inline and the dialog stays open. Above `ASIGNAR_MAX` campaigns «Asignar» is disabled. Closes only with X or "Cancelar". `onProgramaCreado()` runs right after a create. `onAsignadas(texto)`
- * gets the result line.
+ * gets the result line. The focus stays inside while it is open and goes back to the button that opened it
+ * (`useFocoAtrapado`).
  */
 export default function SellOutAsignarPrograma({ campanaIds, programas, onClose, onAsignadas, onProgramaCreado }) {
   const id = useId();
+  const foco = useFocoAtrapado();
   const activos = programas.filter((p) => p.estado === 'activo');
   const [modo, setModo] = useState(activos.length > 0 ? 'existente' : 'nuevo');
   const [programaId, setProgramaId] = useState('');
@@ -63,7 +66,7 @@ export default function SellOutAsignarPrograma({ campanaIds, programas, onClose,
 
   return (
     <div className="modal-overlay-tesla">
-      <div className="modal-tesla sm" role="dialog" aria-modal="true" aria-labelledby={`${id}-titulo`}>
+      <div ref={foco.ref} onKeyDown={foco.onKeyDown} className="modal-tesla sm" role="dialog" aria-modal="true" aria-labelledby={`${id}-titulo`}>
         <div className="modal-header-tesla">
           <h2 id={`${id}-titulo`} className="modal-title-tesla">
             {titulo}
@@ -79,6 +82,7 @@ export default function SellOutAsignarPrograma({ campanaIds, programas, onClose,
                 type="radio"
                 name={`${id}-modo`}
                 checked={modo === 'existente'}
+                data-foco-inicial={modo === 'existente' || undefined}
                 onChange={() => setModo('existente')}
                 disabled={activos.length === 0}
               />
@@ -105,7 +109,13 @@ export default function SellOutAsignarPrograma({ campanaIds, programas, onClose,
           </div>
           <div className={styles.opcion}>
             <label className={styles.radio}>
-              <input type="radio" name={`${id}-modo`} checked={modo === 'nuevo'} onChange={() => setModo('nuevo')} />
+              <input
+                type="radio"
+                name={`${id}-modo`}
+                checked={modo === 'nuevo'}
+                data-foco-inicial={modo === 'nuevo' || undefined}
+                onChange={() => setModo('nuevo')}
+              />
               Programa nuevo
             </label>
             <label className={styles.srOnly} htmlFor={`${id}-nombre`}>

@@ -1213,6 +1213,40 @@ describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
     expect(lastParams(sellOutAPI.porPrograma)).toEqual({ page: 1, page_size: 50 });
   });
 
+  it('the assign dialog takes the focus, keeps Tab inside and gives it back to "Asignar a programa" on close', async () => {
+    conProgramas();
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
+    const abrir = within(seccion).getByRole('button', { name: 'Asignar a programa' });
+    await user.click(abrir);
+    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
+    await waitFor(() => expect(dialogo).toContainElement(document.activeElement));
+    for (let i = 0; i < 8; i += 1) {
+      await user.tab();
+      expect(dialogo).toContainElement(document.activeElement);
+    }
+    await user.tab({ shift: true });
+    expect(dialogo).toContainElement(document.activeElement);
+    await user.click(within(dialogo).getByRole('button', { name: 'Cancelar' }));
+    expect(abrir).toHaveFocus();
+  });
+
+  it('the Programa filter and the dialog offer every program, past the first page of 200', async () => {
+    const programa = (i) => ({ ...PROGRAMAS_LISTA.items[0], id: 1000 + i, nombre: `MARCA PROG ${String(i).padStart(3, '0')}` });
+    sellOutProgramasAPI.listar.mockImplementation(async ({ page, page_size: size }) => {
+      const desde = (page - 1) * size;
+      const items = Array.from({ length: Math.max(0, Math.min(size, 201 - desde)) }, (_, i) => programa(desde + i));
+      return { data: { items, total: 201, page, page_size: size } };
+    });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
+    const select = await within(filtros).findByLabelText('Programa');
+    await waitFor(() => expect(within(select).getByRole('option', { name: 'MARCA PROG 200' })).toBeInTheDocument());
+    expect(sellOutProgramasAPI.listar).toHaveBeenLastCalledWith({ page: 2, page_size: 200 });
+  });
+
   it('without sell_out.gestionar there is no "Asignar a programa"', async () => {
     conProgramas();
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
@@ -1310,6 +1344,22 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
     await waitFor(() => expect(sellOutProgramasAPI.asignar).toHaveBeenCalledTimes(2));
     expect(sellOutProgramasAPI.crear).toHaveBeenCalledTimes(1);
     expect(sellOutProgramasAPI.asignar).toHaveBeenLastCalledWith([81, 82, 83], 15);
+  });
+
+  it('the drawer takes the focus, keeps Tab inside and gives it back to "Ver sugerencias" on close', async () => {
+    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const abrir = await screen.findByRole('button', { name: 'Ver sugerencias' });
+    await user.click(abrir);
+    const drawer = screen.getByRole('dialog', { name: 'Sugerencias de programa' });
+    await waitFor(() => expect(drawer).toContainElement(document.activeElement));
+    for (let i = 0; i < 12; i += 1) {
+      await user.tab();
+      expect(drawer).toContainElement(document.activeElement);
+    }
+    await user.click(within(drawer).getByRole('button', { name: 'Cerrar sugerencias' }));
+    expect(abrir).toHaveFocus();
   });
 
   it('"Descartar" hides that card only, for this session, and writes nothing', async () => {
