@@ -37,14 +37,19 @@
 /* Once the operator resized, the 42vw cap lifts and the chosen width rules,
    bounded so neither side drops below its minimum (also when the window
    shrinks after the width was saved). On a window too narrow for both
-   minimums, `clamp()` lets the panel's minimum win and the table gives way. */
+   minimums, `clamp()` lets the panel's minimum win and the table gives way.
+   The upper bound never falls below the default width, so a panel narrowed
+   where the default already crowds the table can always widen back to it. */
 .grid[data-resized].open {
   grid-template-columns:
     minmax(0, 1fr) var(--split-panel-gap)
     clamp(
       var(--split-panel-min-width),
       var(--split-panel-drag-width),
-      calc(100% - var(--split-panel-gap) - var(--split-table-min-width))
+      max(
+        calc(100% - var(--split-panel-gap) - var(--split-table-min-width)),
+        min(var(--split-panel-width), 42vw)
+      )
     );
 }
 

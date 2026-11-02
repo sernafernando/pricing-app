@@ -287,7 +287,7 @@ describe('resizing (opt-in by resizeKey)', () => {
   it('dragging moves the divider by the distance dragged, and the width is remembered on release', () => {
     const { container } = renderLayout({ resizeKey: 'pubml' });
     fireEvent.pointerDown(separator(), { button: 0, clientX: 1000 });
-    fireEvent.pointerMove(window, { clientX: 900 });
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 900 });
     expect(dragWidth(container)).toBe(`${PANEL + 100}px`);
     fireEvent.pointerUp(window, { clientX: 900 });
     expect(localStorage.getItem(STORAGE)).toBe(String(PANEL + 100));
@@ -349,7 +349,7 @@ describe('resizing (opt-in by resizeKey)', () => {
   it('a click that jitters without moving sideways is not a resize', () => {
     const { container } = renderLayout({ resizeKey: 'pubml' });
     fireEvent.pointerDown(separator(), { button: 0, clientX: 1000, clientY: 300 });
-    fireEvent.pointerMove(window, { clientX: 1000, clientY: 304 });
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 1000, clientY: 304 });
     fireEvent.pointerUp(window, { clientX: 1000, clientY: 304 });
     expect(dragWidth(container)).toBe('');
     expect(localStorage.getItem(STORAGE)).toBeNull();
@@ -363,18 +363,58 @@ describe('resizing (opt-in by resizeKey)', () => {
         <div>table content</div>
       </SplitPanelLayout>,
     );
-    fireEvent.pointerMove(window, { pointerId: 1, clientX: 900 });
+    fireEvent.pointerMove(window, { buttons: 1, pointerId: 1, clientX: 900 });
     fireEvent.pointerUp(window, { pointerId: 1, clientX: 900 });
     expect(localStorage.getItem(STORAGE)).toBeNull();
+  });
+
+  it('closing the panel after dragging drops the unsaved width: it reopens as it was', () => {
+    const layout = (open) => (
+      <SplitPanelLayout open={open} panel={<div>panel content</div>} onClose={vi.fn()} ariaLabel="Detalle" resizeKey="pubml">
+        <div>table content</div>
+      </SplitPanelLayout>
+    );
+    const view = render(layout(true));
+    fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 1000 });
+    fireEvent.pointerMove(window, { buttons: 1, pointerId: 1, clientX: 900 });
+    expect(dragWidth(view.container)).toBe(`${PANEL + 100}px`);
+    view.rerender(layout(false));
+    view.rerender(layout(true));
+    expect(dragWidth(view.container)).toBe('');
+    expect(localStorage.getItem(STORAGE)).toBeNull();
+  });
+
+  it('a drag the browser cancels goes back to where it started and saves nothing', () => {
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 1000 });
+    fireEvent.pointerMove(window, { buttons: 1, pointerId: 1, clientX: 900 });
+    fireEvent.pointerCancel(window, { pointerId: 1 });
+    expect(dragWidth(container)).toBe('');
+    expect(localStorage.getItem(STORAGE)).toBeNull();
+  });
+
+  it('a move with the button already up ends a drag whose release got lost, and the handle takes presses again', () => {
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 1000 });
+    fireEvent.pointerMove(window, { buttons: 1, pointerId: 1, clientX: 900 });
+    // No pointerup ever arrives (a context menu ate it); the mouse just hovers on.
+    fireEvent.pointerMove(window, { buttons: 0, pointerId: 1, clientX: 700 });
+    expect(dragWidth(container)).toBe(`${PANEL + 100}px`);
+    expect(localStorage.getItem(STORAGE)).toBe(String(PANEL + 100));
+
+    fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 1000 });
+    fireEvent.pointerMove(window, { buttons: 1, pointerId: 1, clientX: 950 });
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 950 });
+    expect(localStorage.getItem(STORAGE)).toBe(String(PANEL + 50));
   });
 
   it('follows only the pointer that started the drag; a second touch starts nothing', () => {
     const { container } = renderLayout({ resizeKey: 'pubml' });
     fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 1000 });
     fireEvent.pointerDown(separator(), { button: 0, pointerId: 2, clientX: 500 });
-    fireEvent.pointerMove(window, { pointerId: 2, clientX: 300 });
+    fireEvent.pointerMove(window, { buttons: 1, pointerId: 2, clientX: 300 });
     expect(dragWidth(container)).toBe('');
-    fireEvent.pointerMove(window, { pointerId: 1, clientX: 900 });
+    fireEvent.pointerMove(window, { buttons: 1, pointerId: 1, clientX: 900 });
     fireEvent.pointerUp(window, { pointerId: 2, clientX: 300 });
     fireEvent.pointerUp(window, { pointerId: 1, clientX: 900 });
     expect(dragWidth(container)).toBe(`${PANEL + 100}px`);

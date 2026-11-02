@@ -142,7 +142,7 @@ describe('SplitPanelLayout resizing (visual)', () => {
     const x = box.left + box.width / 2;
     const y = box.top + 50;
     handle().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: x, clientY: y }));
-    window.dispatchEvent(new PointerEvent('pointermove', { clientX: x + dx, clientY: y }));
+    window.dispatchEvent(new PointerEvent('pointermove', { buttons: 1, clientX: x + dx, clientY: y }));
     window.dispatchEvent(new PointerEvent('pointerup', { clientX: x + dx, clientY: y }));
     await frame();
   };
@@ -191,11 +191,38 @@ describe('SplitPanelLayout resizing (visual)', () => {
     screen.unmount();
   });
 
-  it('a width saved on a wide screen still leaves the table its minimum on a narrow one', async () => {
+  it('when the default width leaves the table under its minimum, narrowing is not one-way: it widens back to the default', async () => {
+    await page.viewport(1366, 700);
+    setTheme('light');
+    // A grid much narrower than the viewport: 42vw still allows the 560px token, the table's minimum does not.
+    const screen = await render(
+      <div style={{ width: 900 }}>
+        <SplitPanelLayout open onClose={() => {}} width="lg" ariaLabel="Detalle" resizeKey={KEY} panel={<div>Panel</div>}>
+          <div style={{ height: 200 }}>Tabla</div>
+        </SplitPanelLayout>
+      </div>,
+    );
+    await frame();
+    const defaultWidth = rect(document.querySelector('aside')).width;
+    expect(defaultWidth).toBeCloseTo(tokenPx('--split-panel-width-lg'), 0);
+    await drag(100);
+    expect(rect(document.querySelector('aside')).width).toBeCloseTo(defaultWidth - 100, 0);
+    await drag(-300);
+    expect(rect(document.querySelector('aside')).width).toBeCloseTo(defaultWidth, 0);
+    screen.unmount();
+  });
+
+  it('a width saved on a wide screen is no wider on a narrow one than the table minimum or the default allow', async () => {
+    const plain = await mount({ width: 1000, open: true });
+    await frame();
+    const defaultTable = rect(scrollerOf()).width;
+    plain.unmount();
+
     localStorage.setItem(`split-panel-width:${KEY}`, '1200');
     const screen = await mount({ width: 1000, open: true, resizeKey: KEY });
     await frame();
-    expect(rect(scrollerOf()).width).toBeGreaterThanOrEqual(TABLE_MIN_WIDTH - 1);
+    // The table keeps its minimum, or at worst what the default panel already leaves it.
+    expect(rect(scrollerOf()).width).toBeGreaterThanOrEqual(Math.min(TABLE_MIN_WIDTH, defaultTable) - 1);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1000);
     screen.unmount();
   });

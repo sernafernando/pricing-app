@@ -83,7 +83,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   // `null` until the operator resizes: the panel keeps its token width.
   const [panelWidth, setPanelWidth] = useState(() => loadWidth(resizeKey));
   const [measured, setMeasured] = useState({ width: 0, max: PANEL_MIN_WIDTH });
-  // Ends the drag in progress, if any, without saving.
+  // Cancels the drag in progress, if any: back to the width before it, nothing saved.
   const stopDragRef = useRef(null);
   const openerRef = useRef(null);
   const panelRef = useRef(null);
@@ -135,12 +135,20 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open, onClose]);
 
+  // The default width (token, capped at 42vw) always stays reachable, even
+  // where it leaves the table under its minimum: otherwise narrowing would be
+  // one-way. The CSS track has the same upper bound.
+  const defaultWidth = () => {
+    const token = Number.parseFloat(gridRef.current ? getComputedStyle(gridRef.current).getPropertyValue('--split-panel-width') : '');
+    return Number.isFinite(token) ? Math.floor(Math.min(token, window.innerWidth * 0.42)) : 0;
+  };
+
   const measure = () => {
     const grid = gridRef.current?.getBoundingClientRect().width ?? 0;
     const handle = handleRef.current?.getBoundingClientRect().width ?? 0;
     return {
       width: panelRef.current?.getBoundingClientRect().width ?? 0,
-      max: Math.max(PANEL_MIN_WIDTH, Math.floor(grid - handle - TABLE_MIN_WIDTH)),
+      max: Math.max(PANEL_MIN_WIDTH, Math.floor(grid - handle - TABLE_MIN_WIDTH), defaultWidth()),
     };
   };
 
@@ -155,9 +163,11 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     return () => {
       observer?.disconnect();
       window.removeEventListener('resize', update);
-      // Closing mid-drag ends the drag: the release afterwards saves nothing.
+      // Closing mid-drag cancels the drag: the release afterwards saves nothing.
       stopDragRef.current?.();
     };
+    // `measure` only reads refs: re-subscribing whenever it changes identity would add nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, resizable]);
 
   // Where a step or drag from `start` towards `target` lands: within the same
@@ -201,6 +211,11 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     // On the window, not the handle: a fast drag leaves the thin handle behind.
     const move = (event) => {
       if (event.pointerId !== pointerId) return;
+      // The button is already up: the release got lost (a context menu ate it). End the drag here.
+      if (event.buttons === 0) {
+        end(event);
+        return;
+      }
       latest = moveTo(startWidth, startWidth + startX - event.clientX, box.max);
       // Back where it started (or pushed the way it cannot go): as before the drag.
       setPanelWidth(latest ?? widthBefore);
@@ -208,7 +223,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', end);
-      window.removeEventListener('pointercancel', end);
+      window.removeEventListener('pointercancel', cancel);
       stopDragRef.current = null;
     };
     function end(event) {
@@ -217,10 +232,15 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
       // A click without a drag is not a resize: the default width stays.
       if (latest !== null) saveWidth(resizeKey, latest);
     }
-    stopDragRef.current = stop;
+    function cancel(event) {
+      if (event && event.pointerId !== pointerId) return;
+      stop();
+      setPanelWidth(widthBefore);
+    }
+    stopDragRef.current = cancel;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
-    window.addEventListener('pointercancel', end);
+    window.addEventListener('pointercancel', cancel);
   };
 
   const resized = resizable && panelWidth !== null;

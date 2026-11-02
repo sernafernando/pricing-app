@@ -2028,7 +2028,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
       const before = rect(panelOf()).width;
       const x = rect(handle).left + rect(handle).width / 2;
       handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: x, clientY: 300 }));
-      window.dispatchEvent(new PointerEvent('pointermove', { clientX: x - 160, clientY: 300 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { buttons: 1, clientX: x - 160, clientY: 300 }));
       window.dispatchEvent(new PointerEvent('pointerup', { clientX: x - 160, clientY: 300 }));
       await frame();
       const panel = rect(panelOf());
