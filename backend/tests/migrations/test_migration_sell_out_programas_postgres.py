@@ -111,13 +111,13 @@ def _scalar(engine: Engine, sql: str, **params):
         return conn.execute(text(sql), params).scalar()
 
 
-def test_this_revision_chains_on_the_pedido_compra_drop() -> None:
+def test_this_revision_chains_on_the_ml_ads_display_catalog() -> None:
     config = Config(os.path.join(_BACKEND_ROOT, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(_BACKEND_ROOT, "alembic"))
     script = ScriptDirectory.from_config(config)
     revision = script.get_revision(_REVISION)
     assert revision is not None
-    assert revision.down_revision == "20261217_drop_sell_in_compras_pedido_compra_id"
+    assert revision.down_revision == "20261226_ml_ads_display_catalog"
 
 
 @pytest.mark.postgres
