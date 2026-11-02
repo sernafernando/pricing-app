@@ -13,7 +13,7 @@ from decimal import Decimal
 from typing import Iterator
 
 import pytest
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.auditoria import TipoAccion
@@ -391,3 +391,73 @@ def test_when_a_cap_binds_the_preview_entran_is_an_upper_bound(engine: Engine) -
     assert [c[5] for c in entraron] == [3]  # only what the cap leaves
     assert detalle["salen"]["lineas"] == 0  # inside the new dates: the preview does not see the cap move it
     assert antes.keys() - despues.keys()  # yet the 11-10 line lost its units to the earlier sale
+
+
+def test_a_monto_total_campaign_loses_only_the_share_of_products_left_with_no_sale(engine: Engine) -> None:
+    """A fixed total spreads each product's share over the sales left in the dates (`reparto.repartir`): a product
+    that keeps a sale keeps its whole share, moved; only the share of a product left with NO sale becomes unassigned.
+    An entering sale dilutes the rows already credited, it adds no money."""
+    g = w.grupo(engine, [ROUTERS, SWITCHES])
+    cid = w.monto_total(engine, [g], "1000", nombre="Rebate Q4 2026")
+    w.reparto(engine, cid, ROUTER, porcentaje="60")
+    w.reparto(engine, cid, SWITCH, porcentaje="40")
+    w.venta(engine, "fuera", ROUTER, 2, date(2026, 11, 10))  # stays: ROUTER keeps its 600
+    w.venta(engine, "fuera", ROUTER, 2, date(2026, 11, 25))  # leaves, its money moves to the other ROUTER sales
+    w.venta(engine, "fuera", SWITCH, 1, date(2026, 11, 25))  # leaves, SWITCH has no sale left: 400 unassigned
+    w.venta(engine, "fuera", ROUTER, 1, date(2026, 10, 25))  # enters, diluting ROUTER's rows
+    _consumir(engine)
+    antes = _claves(engine, cid)
+    cambios = {"fecha_desde": date(2026, 10, 20), "fecha_hasta": date(2026, 11, 15)}
+
+    previa = _previa(engine, [cid], **cambios)
+    _editar(engine, [cid], **cambios)
+    _drain(engine)
+
+    despues = _claves(engine, cid)
+    salieron = [antes[k] for k in antes.keys() - despues.keys()]
+    entraron = [despues[k] for k in despues.keys() - antes.keys()]
+    credito = sum((c[6] for c in antes.values()), Decimal(0)) - sum((c[6] for c in despues.values()), Decimal(0))
+    [detalle] = previa["cambian"]
+    assert detalle["salen"] == {
+        "lineas": len(salieron),
+        "unidades": sum(c[5] for c in salieron),
+        "monto": credito,
+    }
+    assert detalle["salen"]["monto"] == Decimal("400.00")
+    assert detalle["entran"] == {"lineas": len(entraron), "unidades": sum(c[5] for c in entraron)}
+    assert previa["totales"]["salen"]["montos"] == [{"moneda": "ARS", "monto": Decimal("400.00")}]
+
+
+def _lecturas(engine: Engine, monkeypatch: pytest.MonkeyPatch, ids: list[int]) -> int:
+    """Statements the preview runs AFTER its rolled-back loop (whose step is per campaign, like the apply's)."""
+    sentencias: list[str] = []
+    marca: list[int] = []
+    aplicar = edicion_masiva._aplicar
+
+    def _marcar(*args, **kwargs):
+        resultado = aplicar(*args, **kwargs)
+        marca.append(len(sentencias))
+        return resultado
+
+    def _contar(conn, cursor, statement, parameters, context, executemany) -> None:
+        sentencias.append(statement)
+
+    monkeypatch.setattr(edicion_masiva, "_aplicar", _marcar)
+    event.listen(engine, "before_cursor_execute", _contar)
+    try:
+        _previa(engine, ids, fecha_hasta=date(2026, 12, 31))
+    finally:
+        event.remove(engine, "before_cursor_execute", _contar)
+    return len(sentencias) - marca[0]
+
+
+def test_the_preview_reads_with_a_fixed_number_of_queries_whatever_the_number_of_campaigns(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    g = w.grupo(engine, [ROUTERS])
+    ids = [w.campana(engine, [g], nombre=f"MODELO 8180 {n}") for n in range(6)]
+    w.venta(engine, "fuera", ROUTER, 1, date(2026, 11, 10))
+    w.venta(engine, "fuera", ROUTER, 1, date(2026, 12, 10))
+    _consumir(engine)
+
+    assert _lecturas(engine, monkeypatch, ids[:2]) == _lecturas(engine, monkeypatch, ids)

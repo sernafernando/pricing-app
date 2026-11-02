@@ -185,11 +185,14 @@ class SellOutEdicionRechazadaOut(BaseModel):
 
 
 class SellOutEdicionSalenOut(BaseModel):
-    """Applied sales dated outside the new dates: the rebuild drops them."""
+    """Applied sales dated outside the new dates: the rebuild drops them. `monto` is the money the campaign stops
+    crediting, in its currency. On a `monto_total` campaign that is only the share of the products left with no
+    sale in the new dates (it becomes unassigned money, on `fecha_hasta`): a product that keeps a sale keeps its
+    whole share, moved to its remaining sales (`edicion_masiva`)."""
 
     lineas: int
     unidades: int
-    monto: Decimal  # in the campaign currency
+    monto: Decimal
 
 
 class SellOutEdicionEntranOut(BaseModel):
