@@ -3,7 +3,7 @@ import { AlertCircle, Info, X } from 'lucide-react';
 import { sellOutProgramasAPI } from '../../services/sellOutAPI';
 import { apiMessage } from '../sellIn/sellInFormat';
 import panelStyles from '../sellIn/SellInPanel.module.css';
-import { plural, textoAsignadas } from './sellOutProgramas';
+import { RESPALDOS_DE_FOCO, plural, textoAsignadas } from './sellOutProgramas';
 import { ASIGNAR_MAX } from './sellOutSeleccion';
 import { useFocoAtrapado } from './useFocoAtrapado';
 import styles from './SellOutAsignarPrograma.module.css';
@@ -17,7 +17,7 @@ import styles from './SellOutAsignarPrograma.module.css';
  */
 export default function SellOutAsignarPrograma({ campanaIds, programas, onClose, onAsignadas, onProgramaCreado }) {
   const id = useId();
-  const foco = useFocoAtrapado();
+  const foco = useFocoAtrapado(RESPALDOS_DE_FOCO);
   const activos = programas.filter((p) => p.estado === 'activo');
   const [modo, setModo] = useState(activos.length > 0 ? 'existente' : 'nuevo');
   const [programaId, setProgramaId] = useState('');

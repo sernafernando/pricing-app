@@ -9,22 +9,34 @@ const enfocables = (contenedor) =>
 /**
  * Focus for a dialog that is mounted while open (the "Asignar a programa" modal, the suggestions drawer): on mount
  * the focus moves inside (to `[data-foco-inicial]`, or the first enabled control), Tab and Shift+Tab wrap inside,
- * and on unmount it goes back to what had it before (the button that opened it). Returns the `onKeyDown` for the
- * dialog's root and the `ref` to put on it.
+ * and on unmount it goes back to what had it before (the button that opened it). When that is gone, it goes to the
+ * first of the `respaldos` selectors that exists, made focusable with `tabindex="-1"` when it is not. Returns the
+ * `onKeyDown` for the dialog's root and the `ref` to put on it.
  *
  * Not `ModalTesla`'s trap: it reads the controls once when it opens, so a control that is disabled then (like
  * "Asignar" before a program is chosen) or enabled later breaks the wrap and Tab walks out to the page.
  */
-export function useFocoAtrapado() {
+export function useFocoAtrapado(respaldos = []) {
   const ref = useRef(null);
   useEffect(() => {
     const anterior = document.activeElement;
     const contenedor = ref.current;
-    const inicial = contenedor?.querySelector('[data-foco-inicial]:not(:disabled)') ?? (contenedor && enfocables(contenedor)[0]);
+    const inicial =
+      contenedor?.querySelector('[data-foco-inicial]:not(:disabled)') ?? (contenedor && enfocables(contenedor)[0]);
     inicial?.focus();
     return () => {
-      if (anterior?.isConnected) anterior.focus();
+      if (anterior?.isConnected) {
+        anterior.focus();
+        return;
+      }
+      // The opener is gone (the selection emptied, or no suggestion is left): the first landmark that exists.
+      const destino = respaldos.map((selector) => document.querySelector(selector)).find(Boolean);
+      if (!destino) return;
+      if (!destino.matches(ENFOCABLES)) destino.setAttribute('tabindex', '-1');
+      destino.focus();
     };
+    // Mount-only: the dialog is mounted while open, and `respaldos` is a fixed list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onKeyDown = (e) => {

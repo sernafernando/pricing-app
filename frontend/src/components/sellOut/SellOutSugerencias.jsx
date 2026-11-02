@@ -3,7 +3,15 @@ import { AlertCircle, ChevronDown, ChevronRight, Info, Sparkles, X } from 'lucid
 import { StatusPill } from '../kit';
 import { sellOutProgramasAPI } from '../../services/sellOutAPI';
 import { apiMessage } from '../sellIn/sellInFormat';
-import { claveSugerencia, fechasDe, nombreNormalizado, plural, textoActivas, textoAsignadas } from './sellOutProgramas';
+import {
+  RESPALDOS_DE_FOCO,
+  claveSugerencia,
+  fechasDe,
+  nombreNormalizado,
+  plural,
+  textoActivas,
+  textoAsignadas,
+} from './sellOutProgramas';
 import { ASIGNAR_MAX } from './sellOutSeleccion';
 import { useFocoAtrapado } from './useFocoAtrapado';
 import styles from './SellOutSugerencias.module.css';
@@ -126,7 +134,7 @@ function Tarjeta({ sugerencia, onDescartar, onProgramaCreado, onCreado }) {
 /** The drawer itself, mounted while open so its focus handling (`useFocoAtrapado`) starts and ends with it. */
 function Drawer({ visibles, aviso, onCerrar, onDescartar, onProgramaCreado, onCreado }) {
   const tituloId = useId();
-  const foco = useFocoAtrapado();
+  const foco = useFocoAtrapado(RESPALDOS_DE_FOCO);
   return (
     <div className={`modal-overlay-tesla ${styles.fondo}`}>
       <aside

@@ -15,9 +15,9 @@ export const VISTAS = [
 /** How many columns the campaigns table has: the checkbox one only with a selection. */
 export const columnasCampanas = (seleccionable) => (seleccionable ? 7 : 6);
 
-/** «3 campañas · 2 nombres · 01/08/2026 – 31/10/2026», a group row's (or a suggestion's) summary. */
+/** «3 campañas · 2 nombres · 01/08/2026 – 31/10/2026», a program group row's summary. */
 export function resumenDeGrupo({ campanas, nombres, desde, hasta }) {
-  return `${plural(campanas, 'campaña', 'campañas')} · ${plural(nombres, 'nombre', 'nombres')} · ${fechasDe(desde, hasta)}`;
+  return [plural(campanas, 'campaña', 'campañas'), plural(nombres, 'nombre', 'nombres'), fechasDe(desde, hasta)].join(' · ');
 }
 
 /** «2 activas», a group's pill. */
@@ -40,3 +40,6 @@ export const nombreNormalizado = (nombre) => nombre.split(/\s+/).filter(Boolean)
 
 /** A suggestion's identity: its dates, which the backend groups by (exactly the same dates). */
 export const claveSugerencia = (s) => `${s.fecha_desde}|${s.fecha_hasta}`;
+
+/** Where the focus goes when a dialog's opener is gone: the campaigns heading, else the filter card. */
+export const RESPALDOS_DE_FOCO = ['#sell-out-campanas-titulo', '[aria-label="Filtros de campañas"]'];

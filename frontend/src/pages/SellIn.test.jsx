@@ -1281,6 +1281,23 @@ describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
     expect(lastParams(sellOutAPI.listar)).toEqual({ sin_programa: true, page: 1, page_size: 10 });
   });
 
+  it('when the opener is gone after assigning, the focus goes to the campaigns heading, not the page body', async () => {
+    conProgramas();
+    sellOutProgramasAPI.asignar.mockResolvedValue({ data: { asignadas: 1, sin_cambio: 0 } });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
+    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
+    await user.selectOptions(within(dialogo).getByLabelText('Programa'), '7');
+    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
+
+    await within(seccion).findByRole('status');
+    expect(within(seccion).queryByRole('button', { name: 'Asignar a programa' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Campañas de sell out' })).toHaveFocus();
+  });
+
   it('without sell_out.gestionar there is no "Asignar a programa"', async () => {
     conProgramas();
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
@@ -1410,6 +1427,19 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
     expect(within(card).getByRole('button', { name: 'Crear programa y asignar' })).toBeDisabled();
     expect(within(card).getByRole('button', { name: 'Descartar' })).toBeEnabled();
     expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
+  });
+
+  it('when no suggestion is left, closing the drawer puts the focus on the campaigns heading', async () => {
+    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
+    const drawer = screen.getByRole('dialog', { name: 'Sugerencias de programa' });
+    await user.click(within(tarjeta('01/08/2026', '31/10/2026')).getByRole('button', { name: 'Descartar' }));
+    await user.click(within(tarjeta('01/11/2025', '31/10/2026')).getByRole('button', { name: 'Descartar' }));
+    expect(screen.queryByRole('button', { name: 'Ver sugerencias' })).not.toBeInTheDocument();
+    await user.click(within(drawer).getByRole('button', { name: 'Cerrar sugerencias' }));
+    expect(screen.getByRole('heading', { name: 'Campañas de sell out' })).toHaveFocus();
   });
 
   it('"Descartar" hides that card only, for this session, and writes nothing', async () => {

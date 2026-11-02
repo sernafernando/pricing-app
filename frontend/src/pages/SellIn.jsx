@@ -216,9 +216,9 @@ export default function SellIn() {
   // An assignment or a program created from a suggestion bumps it: programs, groups and suggestions are asked again.
   const [versionProgramas, setVersionProgramas] = useState(0);
   const programas = useProgramas(puedeVer && puedeVerSellOut, versionGrupos + versionProgramas);
-  // "Ver: Por programa | Lista" lives in the URL (`?vista=`) like the tab; by default grouped once a program exists.
   // The suggestions "Descartar" hid, for this session only (nothing is stored).
   const [descartadas, setDescartadas] = useState(() => new Set());
+  // "Ver: Por programa | Lista" lives in the URL (`?vista=`) like the tab; by default grouped once a program exists.
   const vistaUrl = searchParams.get('vista');
   const vista = ['programas', 'lista'].includes(vistaUrl) ? vistaUrl : programas.length > 0 ? 'programas' : 'lista';
   const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeGestionarGrupos ? [TAB_GRUPOS] : [])];
