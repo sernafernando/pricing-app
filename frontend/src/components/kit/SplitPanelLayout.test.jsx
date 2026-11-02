@@ -219,7 +219,7 @@ describe('resizing (opt-in by resizeKey)', () => {
   afterEach(() => vi.restoreAllMocks());
 
   const separator = () => screen.getByRole('separator', { name: 'Ancho del panel' });
-  const dragWidth = (container) => container.firstChild.style.getPropertyValue('--split-panel-drag-width');
+  const dragWidth = (container) => container.firstChild.style.getPropertyValue('--split-panel-chosen-width');
 
   it('without resizeKey there is no handle, so the other screens stay as they are', () => {
     const { container } = renderLayout();
@@ -559,6 +559,28 @@ describe('resizing (opt-in by resizeKey)', () => {
     GRID = 1200;
     act(() => window.dispatchEvent(new Event('resize')));
     expect(separator()).toHaveAttribute('aria-valuemax', String(1200 - TABLE_MIN_WIDTH));
+  });
+
+  it('the bounds follow the grid when it changes width without the window doing so (sidebar, scrollbar)', () => {
+    let notify;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback) {
+          notify = callback;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    try {
+      renderLayout({ resizeKey: 'pubml' });
+      GRID = 1300;
+      act(() => notify([]));
+      expect(separator()).toHaveAttribute('aria-valuemax', String(1300 - TABLE_MIN_WIDTH));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('opens at the width remembered by this browser', () => {

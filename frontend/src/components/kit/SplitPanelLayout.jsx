@@ -278,7 +278,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   const valueMax = Math.max(measured.max, valueNow);
   const gridStyle = resized
     ? {
-        '--split-panel-drag-width': `${panelWidth}px`,
+        '--split-panel-chosen-width': `${panelWidth}px`,
         '--split-panel-min-width': `${PANEL_MIN_WIDTH}px`,
         '--split-table-min-width': `${TABLE_MIN_WIDTH}px`,
       }

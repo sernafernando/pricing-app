@@ -51,7 +51,7 @@
     minmax(0, 1fr) var(--split-panel-gap)
     clamp(
       min(var(--split-panel-min-width), var(--split-panel-default)),
-      var(--split-panel-drag-width),
+      var(--split-panel-chosen-width),
       max(
         calc(100% - var(--split-panel-gap) - var(--split-table-min-width)),
         var(--split-panel-default),
