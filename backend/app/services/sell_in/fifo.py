@@ -31,8 +31,9 @@ A sale gives back the units it took LAST first, each to its own purchase line.
 Freed units go to LATER sales, FIFO. A return finding nothing to free frees
 nothing.
 
-Two passes: units first (events in order), then money per purchase line over
-its final holders in sale order, so a fully used line still adds up exactly.
+Two passes: units first (events in order), then money over the final
+holdings in sale order (within a sale, lot by lot in FIFO order), so a fully
+used line still adds up exactly.
 
 Cost modes (owner, 2026-11-02; handoffs `sell-in-costos-propuesta.md`): dated
 `Periodo`s change only the MONEY pass. Units still come out of the lots in
@@ -119,7 +120,7 @@ def _escalon(total: Decimal, unidades: int, desde: int, hasta: int) -> Decimal:
     return _cents(total * hasta / unidades) - _cents(total * desde / unidades)
 
 
-def _periodo(periodos: List[Periodo], fecha: date) -> Tuple[int, str]:
+def periodo_en(periodos: List[Periodo], fecha: date) -> Tuple[int, str]:
     """(index, mode) of the period governing `fecha`; (-1, 'fifo') before the first one."""
     actual = (-1, "fifo")
     for i, periodo in enumerate(periodos):
@@ -151,7 +152,7 @@ class Dinero:
         return sum(1 for lote in self.lotes if lote.fecha <= fecha)
 
     def fila(self, fecha: date, i: int, unidades: int) -> Decimal:
-        n, modo = _periodo(self.periodos, fecha)
+        n, modo = periodo_en(self.periodos, fecha)
         if modo == "fifo":
             seg = self._lote_seg.get(i)
             if seg is None or seg[0] != n:
@@ -172,7 +173,7 @@ class Dinero:
         if not libres:
             return None
         primero = libres[0]
-        n, modo = _periodo(self.periodos, fecha)
+        n, modo = periodo_en(self.periodos, fecha)
         if modo == "fifo":
             lote = self.lotes[primero]
             return primero, lote.descuento_ars, lote.cantidad, lote.cantidad - self.usadas[primero]

@@ -70,6 +70,7 @@ recomputing a product from scratch needs no derived table.
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
@@ -85,6 +86,8 @@ from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
 from app.services.sell_in.fifo import Consumo, Dinero, Lote, Periodo, Venta, asignar, orden_fifo
 from app.services.sell_in.split import unit_discount
+
+logger = logging.getLogger(__name__)
 
 # First key of the two-key advisory lock; the second is the product's item_id.
 LOCK_NAMESPACE = 0x5E11
@@ -234,11 +237,13 @@ class FifoPurchaseCosting:
     def vigentes(self, db: Session, item_ids: Iterable[int], hoy: date) -> Dict[int, LoteVigente]:
         """The first line in FIFO order (`fifo`: `fecha`, `compra_id`, `compra_item_id`) counting on or
         before `hoy` with units the stored consumptions left; a product whose lines are used up is
-        absent: its cost is back to normal. Two queries, whatever the number of products.
+        absent: its cost is back to normal. Three queries (lines, units used, cost modes), whatever the
+        number of products.
 
         A product with cost modes replays its stored consumptions through `fifo.Dinero`, so the value is the one
         the mode governing `hoy` gives (the weighted pool, or the newest lot for every unit left); its line is still
-        the FIFO one the units come from. Two more queries, only for those products."""
+        the FIFO one the units come from. One more query, only when some product has modes. A product whose modes
+        cannot be replayed here (a manual block, until it lands) is left out and logged, never the whole batch."""
         lotes = self.lotes(db, item_ids)
         usadas = self.unidades_usadas(db, [lote.compra_item_id for item in lotes.values() for lote in item])
         periodos = self.periodos(db, sorted(lotes))
@@ -255,7 +260,11 @@ class FifoPurchaseCosting:
         con_modos = {item_id: item for item_id, item in lotes.items() if item_id in periodos}
         filas = self._filas_guardadas(db, [lote.compra_item_id for item in con_modos.values() for lote in item])
         for item_id, item in con_modos.items():
-            dinero = Dinero(item, periodos[item_id])
+            try:
+                dinero = Dinero(item, periodos[item_id])
+            except ValueError as exc:
+                logger.warning("sell in: next sale of product %s not computed: %s", item_id, exc)
+                continue
             indice = {lote.compra_item_id: i for i, lote in enumerate(item)}
             for linea, fecha, unidades in filas.get(item_id, []):
                 dinero.fila(fecha, indice[linea], unidades)

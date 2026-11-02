@@ -148,3 +148,34 @@ def test_a_manual_block_is_not_applied_yet_and_fails_only_its_product(engine: En
 
     assert list(result.failed) == [950]
     assert w.consumos(engine) == []
+
+
+def test_the_lot_viewer_tells_the_same_next_sale_as_the_panels(engine: Engine) -> None:
+    from app.services.sell_in import visor_lotes
+
+    _, ocho = _dos_lotes(engine)
+    w.venta(engine, "fuera", 950, 100, OCT20)
+    w.modo(engine, 950, "ponderado", date(2026, 10, 15))
+    _recompute(engine)
+
+    with sessionmaker(bind=engine)() as db:
+        proxima = visor_lotes.lotes_de_producto(db, 950, NOV1).proxima
+
+    # Every unit left is in the weighted pool: no "after that" value of another lot.
+    assert (proxima.compra_item_id, proxima.descuento_unit, proxima.restantes, proxima.siguiente) == (
+        ocho,
+        Decimal("9.00"),
+        100,
+        None,
+    )
+
+
+def test_a_manual_block_leaves_its_product_out_of_the_next_sale_without_breaking_the_others(engine: Engine) -> None:
+    _dos_lotes(engine)
+    (otra,) = w.compra(engine, [(2964, 10, "100.00")], date(2026, 10, 1))
+    w.modo(engine, 950, "manual", OCT20, cantidad=30, costo_unit="52000", costo_base_unit="50000")
+
+    with sessionmaker(bind=engine)() as db:
+        vigentes = get_costing().vigentes(db, [950, 2964], NOV1)
+
+    assert list(vigentes) == [2964] and vigentes[2964].compra_item_id == otra

@@ -29,7 +29,8 @@ from app.models.sell_in import SellInCompra, SellInCompraPedido, SellInConsumo
 from app.schemas.sell_in_out_producto import SellInProducto
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
-from app.services.sell_in.costing import get_costing
+from app.services.sell_in.costing import LoteVigente, get_costing
+from app.services.sell_in.fifo import periodo_en
 from app.services.sell_in.split import unit_discount
 
 Estado = Literal["vigente", "en_cola", "agotado", "desde"]
@@ -121,7 +122,8 @@ def lotes_de_producto(db: Session, item_id: int, hoy: date) -> VisorLotes:
                 estado=estado,
             )
         )
-    return VisorLotes(filas, _proxima(filas))
+    en_pool = periodo_en(costing.periodos(db, [item_id]).get(item_id, []), hoy)[1] != "fifo"
+    return VisorLotes(filas, _proxima(filas, vigente if en_pool else None))
 
 
 def bono_costo(db: Session, item_id: int, hoy: date) -> Optional[SellInProducto]:
@@ -139,14 +141,23 @@ def bono_costo(db: Session, item_id: int, hoy: date) -> Optional[SellInProducto]
     return sell_in if sell_in is not None and sell_in.bono_id is not None else None
 
 
-def _proxima(filas: List[LoteVisor]) -> Optional[ProximaVenta]:
+def _proxima(filas: List[LoteVisor], pool: Optional[LoteVigente] = None) -> Optional[ProximaVenta]:
+    """The current line's discount and units left, then the next line with units. Under a weighted or last-price
+    mode (`pool`: what `costing.vigentes` gives) every unit of the lines that count goes at the pool's value, so only a
+    line that counts from a later date can come after it."""
     actual = next((x for x in filas if x.estado == "vigente"), None)
     if actual is None:
         return None
-    despues = next((x for x in filas[actual.numero :] if x.restantes > 0), None)
+    despues = next(
+        (x for x in filas[actual.numero :] if x.restantes > 0 and (pool is None or x.estado == "desde")), None
+    )
     siguiente = None
     if despues is not None:
         siguiente = Siguiente(despues.numero, despues.descuento_unit, despues.fecha_desde, despues.estado)
+    if pool is not None:
+        return ProximaVenta(
+            actual.numero, actual.compra_item_id, pool.descuento_unit_ars, pool.unidades_restantes, siguiente
+        )
     return ProximaVenta(actual.numero, actual.compra_item_id, actual.descuento_unit, actual.restantes, siguiente)
 
 
