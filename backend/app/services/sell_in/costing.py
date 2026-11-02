@@ -275,8 +275,6 @@ class FifoPurchaseCosting:
                 for linea, fecha, unidades in filas.get(item_id, []):
                     dinero.fila(fecha, indice[linea], unidades)
                 proximo = dinero.proximo(hoy)
-                futuro = next((lote for lote in item if lote.fecha > hoy), None)
-                despues = dinero.proximo(futuro.fecha) if futuro is not None else None
             except (ValueError, ArithmeticError, KeyError) as exc:
                 # A mode the replay does not support yet, or rows read mid-change by another transaction.
                 logger.warning("sell in: next sale of product %s not computed: %s", item_id, exc)
@@ -284,11 +282,25 @@ class FifoPurchaseCosting:
             if proximo is not None:
                 i, monto, sobre, restantes = proximo
                 en_pool = periodo_en(periodos[item_id], hoy)[1] != "fifo"
-                siguiente = unit_discount(despues[1], despues[2]) if en_pool and despues is not None else None
+                siguiente = self._siguiente(dinero, item, periodos[item_id], hoy) if en_pool else None
                 salida[item_id] = LoteVigente(
                     item[i].compra_item_id, unit_discount(monto, sobre), restantes, en_pool, siguiente
                 )
         return salida
+
+    @staticmethod
+    def _siguiente(dinero: Dinero, item: List[Lote], periodos: List[Periodo], hoy: date) -> Optional[Decimal]:
+        """What a sale on the next lot's start date gets once that lot joins the pool; None when no lot starts later,
+        when FIFO governs that date (the lot is then at its own value), or when that date cannot be replayed (a
+        manual row before it): today's value stands either way."""
+        futuro = next((lote for lote in item if lote.fecha > hoy), None)
+        if futuro is None or periodo_en(periodos, futuro.fecha)[1] == "fifo":
+            return None
+        try:
+            despues = dinero.proximo(futuro.fecha)
+        except (ValueError, ArithmeticError, KeyError):
+            return None
+        return unit_discount(despues[1], despues[2]) if despues is not None else None
 
     @staticmethod
     def _filas_guardadas(db: Session, lineas: List[int]) -> Dict[int, List[Tuple[int, date, int]]]:
