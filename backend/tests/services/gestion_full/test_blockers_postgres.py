@@ -832,6 +832,7 @@ class TestRound3Blockers:
         try:
             _seed_product(db, item_id=101, stock=50)
             _seed_product(db, item_id=102, codigo="SKU-102", stock=6)
+            _seed_product(db, item_id=103, codigo="SKU-103", stock=8)
             pkg = GestionFullPackage(
                 week_monday=date(2026, 10, 26),
                 status=PACKAGE_STATUS_EXPORTED,
@@ -839,6 +840,7 @@ class TestRound3Blockers:
             )
             db.add(pkg)
             db.flush()
+            # Line already in Excel: assigned.
             db.add(
                 GestionFullPackageLine(
                     package_id=pkg.id,
@@ -848,6 +850,18 @@ class TestRound3Blockers:
                     qty_pm=5,
                     qty_export=5,
                     inbound_id="INB-1",
+                )
+            )
+            # Line already in Excel: still needs inbound (keeps package exported).
+            db.add(
+                GestionFullPackageLine(
+                    package_id=pkg.id,
+                    producto_item_id=102,
+                    user_product_id="MLAU2",
+                    inventory_id="INV-2",
+                    qty_pm=4,
+                    qty_export=4,
+                    inbound_id=None,
                 )
             )
             db.add(
@@ -863,7 +877,16 @@ class TestRound3Blockers:
                     producto_item_id=102,
                     user_product_id="MLAU2",
                     inventory_id="INV-2",
-                    qty_pm=6,
+                    qty_pm=4,
+                )
+            )
+            # New Listo after export — must NOT enter this package.
+            db.add(
+                GestionFullPmReady(
+                    producto_item_id=103,
+                    user_product_id="MLAU3",
+                    inventory_id="INV-3",
+                    qty_pm=8,
                 )
             )
             db.execute(text("INSERT INTO usuarios (id, nombre) VALUES (5, 'gestor')"))
@@ -872,9 +895,9 @@ class TestRound3Blockers:
 
             out_pkg, touched = add_all_ready_lines_to_package(db, usuario=SimpleNamespace(id=5))
             db.refresh(out_pkg)
-            assert touched == 1
-            assert len(out_pkg.lines) == 1
+            assert touched == 2  # existing lines only
+            assert len(out_pkg.lines) == 2
             assert out_pkg.status == PACKAGE_STATUS_EXPORTED
-            assert db.get(GestionFullPmReady, (102, "MLAU2")) is not None
+            assert db.get(GestionFullPmReady, (103, "MLAU3")) is not None
         finally:
             db.close()
