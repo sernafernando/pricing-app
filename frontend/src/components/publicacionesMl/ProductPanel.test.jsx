@@ -148,7 +148,8 @@ describe('ProductPanel', () => {
     // An empty tree unless a test gives one.
     productosAPI.getProductoTree.mockReset();
     productosAPI.getProductoTree.mockResolvedValue({ data: { item_id: 4101, tree: { level: 0, kind: 'producto', children: [] } } });
-    granted = new Set(['productos.ver']);
+    // No price permission: the panel opens on Resumen, which most of these tests read.
+    granted = new Set();
   });
 
   it('asks the hook for the product under the page filters', () => {
@@ -443,11 +444,23 @@ describe('ProductPanel', () => {
   describe('tabs', () => {
     const tab = (name) => screen.queryByRole('tab', { name });
 
-    it('opens on Resumen, with the figures and the publications', () => {
+    beforeEach(() => {
+      granted = new Set(['productos.ver']);
+    });
+
+    it('opens on Precios, first, when the product has prices to show (S2)', () => {
       renderPanel();
       expect(screen.getByRole('tablist', { name: 'Secciones del producto' })).toBeInTheDocument();
+      expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Precios', 'Resumen', 'Cambios']);
+      expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByTestId('product-prices')).toBeInTheDocument();
+      expect(figures()).not.toBeInTheDocument();
+    });
+
+    it('opens on Resumen, with the figures and the publications, without a price permission (S2)', () => {
+      granted = new Set();
+      renderPanel();
       expect(tab('Resumen')).toHaveAttribute('aria-selected', 'true');
-      expect(tab('Precios')).toHaveAttribute('aria-selected', 'false');
       expect(figures()).toBeInTheDocument();
       expect(screen.getByRole('region', { name: 'Publicaciones' })).toBeInTheDocument();
       expect(screen.queryByTestId('product-prices')).not.toBeInTheDocument();
@@ -494,12 +507,12 @@ describe('ProductPanel', () => {
 
     it('moves between tabs with the arrow keys', async () => {
       renderPanel();
-      tab('Resumen').focus();
+      tab('Precios').focus();
       await userEvent.keyboard('{ArrowRight}');
-      expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
-      expect(tab('Precios')).toHaveFocus();
-      await userEvent.keyboard('{Home}');
       expect(tab('Resumen')).toHaveAttribute('aria-selected', 'true');
+      expect(tab('Resumen')).toHaveFocus();
+      await userEvent.keyboard('{Home}');
+      expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
     });
 
     it('has no Precios without a price permission', () => {
@@ -529,11 +542,19 @@ describe('ProductPanel', () => {
       expect(tab('Cambios')).not.toBeInTheDocument();
     });
 
-    it('goes back to Resumen when another product is opened', async () => {
+    it('opens another product on Precios again (S2)', async () => {
       const { reopen } = renderPanel();
-      await userEvent.click(tab('Precios'));
+      await userEvent.click(tab('Cambios'));
       useProductPanel.mockReturnValue(hookState({ summary: readProduct(makeProductRow({ key: '4102', product_item_id: 4102 })) }));
       reopen('4102');
+      expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('opens another product on Resumen when it has no Precios (S2)', async () => {
+      const { reopen } = renderPanel();
+      await userEvent.click(tab('Cambios'));
+      useProductPanel.mockReturnValue(hookState({ productKey: '0', summary: NO_PRODUCT }));
+      reopen('0');
       expect(tab('Resumen')).toHaveAttribute('aria-selected', 'true');
       expect(figures()).toBeInTheDocument();
     });

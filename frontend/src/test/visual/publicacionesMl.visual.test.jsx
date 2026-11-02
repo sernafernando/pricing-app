@@ -856,6 +856,12 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
   }
 });
 
+// A product's panel opens on Precios (owner, 2026-11-02): these tests read its Resumen, so they open it first.
+const openProductResumen = async (screen) => {
+  await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+  await screen.getByRole('complementary', { name: 'Detalle del producto' }).getByRole('tab', { name: 'Resumen' }).click();
+};
+
 const renderProducts = async ({ width, height, theme, rows, entry = '/ml-publicaciones?vista=producto' }) => {
   canSeeMargin = true;
   publicacionesMlAPI.items.mockResolvedValue({ data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3), total: 130 } });
@@ -993,7 +999,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: a click on a product opens its panel beside the table, its figures and publications inside it`, async () => {
         const screen = await renderProducts({ width, height, theme });
-        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        await openProductResumen(screen);
         await expect.element(screen.getByRole('complementary', { name: 'Detalle del producto' }).getByText('Cifras')).toBeVisible();
         const panel = document.querySelector('[data-split-panel]');
         // The product's publications are Productos' tree: its row opens with "Expandir <title>".
@@ -1048,7 +1054,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           },
         });
         const screen = await renderProducts({ width, height, theme });
-        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        await openProductResumen(screen);
         const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
         await expect.element(aside.getByText('Las publicaciones tienen SKUs distintos: ARCHER-AX55, ARCHER-AX55-V2')).toBeVisible();
         const panel = document.querySelector('[data-split-panel]');
@@ -1099,7 +1105,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: the product panel's Cambios tab lists the app's changes inside the panel`, async () => {
         const screen = await renderProducts({ width, height, theme });
-        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        await openProductResumen(screen);
         const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
         await aside.getByRole('tab', { name: 'Cambios' }).click();
         await expect.element(aside.getByText('Precio Clásica')).toBeVisible();
@@ -1117,7 +1123,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: the product's last purchases fit inside the panel`, async () => {
         const screen = await renderProducts({ width, height, theme });
-        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        await openProductResumen(screen);
         const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
         await expect.element(aside.getByText('Distribuidora Norte')).toBeVisible();
         const panel = document.querySelector('[data-split-panel]');
@@ -1135,7 +1141,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: the product's sell-in lots fit inside the panel`, async () => {
         const screen = await renderProducts({ width, height, theme });
-        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        await openProductResumen(screen);
         const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
         const next = aside.getByText(/^La próxima venta descuenta \$ 980,33 por unidad \(lote 2\)/);
         await expect.element(next).toBeVisible();
@@ -1171,7 +1177,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           publicacionesMlAPI.items.mockResolvedValue({
             data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3).map((item, i) => ({ ...item, catalog_listing: i === 0 })), total: 3 },
           });
-          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          await openProductResumen(screen);
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           await aside.getByRole('button', { name: /^Competencia de catálogo de / }).click();
           await expect.element(aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
@@ -1238,7 +1244,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: the product's prearmadas badge fits in the panel header`, async () => {
         const screen = await renderProducts({ width, height, theme });
-        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        await openProductResumen(screen);
         const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
         await expect.element(aside.getByText('2 listas')).toBeVisible();
         const panel = document.querySelector('[data-split-panel]');
@@ -1269,7 +1275,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
         pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA1100000005', tiers: [] } });
         try {
           const screen = await renderProducts({ width, height, theme });
-          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          await openProductResumen(screen);
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           await aside.getByRole('button', { name: /^Precios mayoristas de / }).first().click();
           const section = aside.getByRole('heading', { name: 'Precios mayoristas' }).element().closest('section');
@@ -1297,7 +1303,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
         offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
         try {
           const screen = await renderProducts({ width, height, theme });
-          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          await openProductResumen(screen);
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           await aside.getByRole('tab', { name: 'Precios' }).click();
           await expect.element(aside.getByText('Nunca recalcular')).toBeVisible();
@@ -1322,7 +1328,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
 
       it(`${width}x${height} ${theme}: the product's ban and its confirmation fit inside the panel`, async () => {
         const screen = await renderProducts({ width, height, theme });
-        await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+        await openProductResumen(screen);
         const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
         await aside.getByRole('button', { name: 'Agregar a la banlist' }).click();
         await expect.element(aside.getByLabelText('Palabra de verificación')).toBeVisible();
@@ -1344,7 +1350,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
         offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
         try {
           const screen = await renderProducts({ width, height, theme });
-          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          await openProductResumen(screen);
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           await aside.getByRole('tab', { name: 'Precios' }).click();
           await expect.element(aside.getByText('$ 64.000,00')).toBeVisible();
@@ -1353,7 +1359,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
           expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
           const tabs = [...panel.querySelectorAll('[role="tab"]')];
-          expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Precios', 'Cambios']);
+          expect(tabs.map((tab) => tab.textContent)).toEqual(['Precios', 'Resumen', 'Cambios']);
           for (const tab of tabs) expect(rect(tab).right).toBeLessThanOrEqual(box.right + 0.5);
           expect(panel.textContent).not.toContain('Cifras');
           if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-precios-${width}-${theme}.png` });
@@ -1403,7 +1409,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
         pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA1100000001', tiers: [] } });
         try {
           const screen = await renderProducts({ width, height, theme });
-          await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
+          await openProductResumen(screen);
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           const section = aside.getByRole('region', { name: 'Publicaciones' });
           await expect.element(section.getByRole('button', { name: 'Expandir todo' })).toBeVisible();
@@ -1491,7 +1497,8 @@ const PANEL_VIEWPORTS = [
   { width: 1920, height: 1080 },
 ];
 
-const renderWithPanel = async ({ width, height, theme, margin = false, tab = '', linked = false, detailExtra = {} }) => {
+// The panel opens on Promos (owner, 2026-11-02); these tests read Resumen unless they ask for another tab.
+const renderWithPanel = async ({ width, height, theme, margin = false, tab = 'resumen', linked = false, detailExtra = {} }) => {
   canSeeMargin = margin;
   const base = { ...MANY[0], is_full: true, variations_count: 3 };
   publicacionesMlAPI.items.mockResolvedValue({
@@ -1588,7 +1595,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
         }
         const tabs = [...panel.querySelectorAll('[role="tab"]')];
-        expect(tabs.map((tab) => tab.textContent)).toEqual(['Resumen', 'Datos', 'Variaciones', 'Full', 'Promos', 'Eventos', 'Historial', 'Producto']);
+        expect(tabs.map((tab) => tab.textContent)).toEqual(['Promos', 'Resumen', 'Datos', 'Variaciones', 'Full', 'Eventos', 'Historial', 'Producto']);
         // One row of tabs: they all start at the same height.
         expect(new Set(tabs.map((tab) => Math.round(rect(tab).top))).size).toBe(1);
         // The footer sits inside the panel's box even though the content is taller than the panel.
@@ -1601,6 +1608,17 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         await frame();
         expect(rect(footer).bottom).toBeLessThanOrEqual(box.bottom + 0.5);
         expect(rect(footer).top).toBeGreaterThanOrEqual(box.top);
+        screen.unmount();
+      });
+
+      it(`${width}x${height} ${theme}: without a tab in the URL the panel opens on Promos, first in the strip (S1)`, async () => {
+        const screen = await renderWithPanel({ width, height, theme, tab: '' });
+        const promos = screen.getByRole('tab', { name: 'Promos' });
+        await expect.element(promos).toHaveAttribute('aria-selected', 'true');
+        const strip = panelOf().querySelector('[role="tablist"]');
+        expect(strip.querySelector('[role="tab"]').textContent).toBe('Promos');
+        expect(rect(strip).right).toBeLessThanOrEqual(rect(panelOf()).right + 0.5);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-opens-promos-${width}-${theme}.png` });
         screen.unmount();
       });
 
@@ -1947,13 +1965,15 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
       squeeze.textContent = '[data-split-panel] [role="tablist"] { max-width: 240px; }';
       document.head.append(squeeze);
       try {
-        const screen = await renderWithPanel({ width: 1366, height: 768, theme, tab: 'promociones' });
+        // A tab at the far end of the strip, so keeping it in view takes a scroll.
+        const screen = await renderWithPanel({ width: 1366, height: 768, theme, tab: 'historial' });
         const strip = panelOf().querySelector('[role="tablist"]');
         const tabs = [...strip.querySelectorAll('[role="tab"]')];
         expect(strip.scrollWidth).toBeGreaterThan(strip.clientWidth + 1);
         expect(new Set(tabs.map((tab) => Math.round(rect(tab).top))).size).toBe(1);
         const open = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true');
-        expect(open.textContent).toBe('Promos');
+        expect(open.textContent).toBe('Historial');
+        expect(strip.scrollLeft).toBeGreaterThan(0);
         expect(rect(open).left).toBeGreaterThanOrEqual(rect(strip).left - 0.5);
         expect(rect(open).right).toBeLessThanOrEqual(rect(strip).right + 0.5);
         screen.unmount();

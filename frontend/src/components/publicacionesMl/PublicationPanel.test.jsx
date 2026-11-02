@@ -273,9 +273,30 @@ describe('tabs', () => {
     expect(onTabChange).toHaveBeenCalledWith('ganancia');
   });
 
-  it('the default registry has Resumen', async () => {
+  it('the default registry opens on Promos (S1)', async () => {
+    renderPanel();
+    expect(await screen.findByRole('tab', { name: 'Promos' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('opens on Precios without promos.ver, for a linked product (S1)', async () => {
+    canSeePromos = false;
+    publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_LINKED });
+    renderPanel();
+    expect(await screen.findByRole('tab', { name: 'Precios' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('opens on Resumen without promos.ver and without a price permission (S1)', async () => {
+    canSeePromos = false;
+    canSeeProducts = false;
+    publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_LINKED });
     renderPanel();
     expect(await screen.findByRole('tab', { name: 'Resumen' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('a tab in the URL keeps winning over the default (S1)', async () => {
+    renderPanel({ tab: 'resumen' });
+    expect(await screen.findByRole('tab', { name: 'Resumen' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Promos' })).toHaveAttribute('aria-selected', 'false');
   });
 
   it('the default registry shows Full for a Full publication and Variaciones for one with variations', async () => {
@@ -342,8 +363,8 @@ describe('the panel itself', () => {
 });
 
 describe('the Promociones tab', () => {
-  it('is offered with promos.ver and asks ML for nothing until somebody opens it (the throttle is shared)', async () => {
-    renderPanel();
+  it('is offered with promos.ver and asks ML for nothing while another tab is open (the throttle is shared)', async () => {
+    renderPanel({ tab: 'resumen' });
     await screen.findByRole('tab', { name: 'Promos' });
     expect(promocionesAPI.refreshItemPromociones).not.toHaveBeenCalled();
     expect(promocionesAPI.getPromocionesItem).not.toHaveBeenCalled();

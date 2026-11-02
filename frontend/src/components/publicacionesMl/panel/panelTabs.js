@@ -18,12 +18,11 @@ import VariacionesTab from './VariacionesTab';
  *
  * Eventos and Historial load their own pages when opened (they cost a request
  * only when somebody looks at them), and so does Datos; Producto vinculado reads the detail.
+ *
+ * The order is the panel's: it opens on the first tab that exists (owner, 2026-11-02: promos or prices first),
+ * so Promos, then Precios, then Resumen. A new tab goes here, where it should sit.
  */
 export const PANEL_TABS = [
-  { key: 'resumen', label: 'Resumen', isVisible: () => true, Component: ResumenTab },
-  { key: 'datos', label: 'Datos', isVisible: () => true, Component: DatosTab },
-  { key: 'variaciones', label: 'Variaciones', isVisible: ({ detail }) => detail.variationsCount > 0, Component: VariacionesTab },
-  { key: 'full', label: 'Full', isVisible: ({ detail }) => detail.isFull || detail.replenishment != null, Component: FullTab },
   { key: 'promociones', label: 'Promos', isVisible: ({ canViewPromos }) => Boolean(canViewPromos), Component: PromocionesTab },
   {
     key: 'precios',
@@ -31,6 +30,10 @@ export const PANEL_TABS = [
     isVisible: ({ detail, canViewPrices }) => Boolean(canViewPrices) && detail.product != null,
     Component: PreciosTab,
   },
+  { key: 'resumen', label: 'Resumen', isVisible: () => true, Component: ResumenTab },
+  { key: 'datos', label: 'Datos', isVisible: () => true, Component: DatosTab },
+  { key: 'variaciones', label: 'Variaciones', isVisible: ({ detail }) => detail.variationsCount > 0, Component: VariacionesTab },
+  { key: 'full', label: 'Full', isVisible: ({ detail }) => detail.isFull || detail.replenishment != null, Component: FullTab },
   { key: 'eventos', label: 'Eventos', isVisible: () => true, Component: EventosTab },
   { key: 'historial', label: 'Historial', isVisible: () => true, Component: HistorialTab },
   { key: 'producto', label: 'Producto', isVisible: () => true, Component: ProductoVinculadoTab },

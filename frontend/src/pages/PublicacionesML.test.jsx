@@ -40,6 +40,9 @@ vi.mock('../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   productosPropiosAPI: { get: vi.fn(() => new Promise(() => {})), save: vi.fn() },
+  // The publication panel opens on Promos (owner, 2026-11-02): its promotions never answer here, these tests are
+  // about the panel's opening and closing.
+  promocionesAPI: { getPromocionesItem: vi.fn(() => new Promise(() => {})), refreshItemPromociones: vi.fn(() => new Promise(() => {})) },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn() },
   productosAPI: {
     // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
@@ -1447,6 +1450,8 @@ describe('the product panel', () => {
     const user = userEvent.setup();
     await products('/ml-publicaciones?vista=producto&prod=4101');
     const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    // The panel opens on Precios; its publications are under Resumen.
+    await user.click(await within(opened).findByRole('tab', { name: 'Resumen' }));
     await user.click(await within(opened).findByRole('button', { name: 'Abrir MLA1100000001' }));
 
     const detail = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
