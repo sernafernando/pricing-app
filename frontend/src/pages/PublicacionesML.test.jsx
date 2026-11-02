@@ -1677,12 +1677,33 @@ describe('bulk actions over products (S6)', () => {
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 2 publicaciones marcadas)' })).toBeEnabled();
   });
 
-  it('a publication with no product can be checked, and the price actions say it has none', async () => {
+  it('a publication with no product can be checked; the price actions say it has none and can clear it', async () => {
     SAME_PRODUCT();
     await page();
-    await userEvent.click(pick('MLA1100000004'));
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000004'));
     expect(pick('MLA1100000004')).toBeChecked();
-    expect(await screen.findByRole('button', { name: 'Acciones masivas (0 productos de 1 publicación marcada)' })).toBeDisabled();
+    // Never the filter's products: it opens on a panel that says why and offers to clear the selection.
+    await user.click(await screen.findByRole('button', { name: 'Acciones masivas (0 productos de 1 publicación marcada)' }));
+    expect(screen.getByText('Las publicaciones marcadas no tienen producto vinculado.')).toBeInTheDocument();
+    for (const item of screen.getAllByRole('menuitem')) expect(item).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /Limpiar selección/ }));
+    expect(pick('MLA1100000004')).not.toBeChecked();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' })).toBeEnabled();
+  });
+
+  it('in the Agrupado tree a checked publication counts with its product, never as the whole filter', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.groups.mockResolvedValue({
+      data: groupsResponse('producto', [
+        { kind: 'producto', key: '9', label: 'Router Z', count: 1, leaf: true, params: { producto: '9' } },
+      ]),
+    });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await user.click(await screen.findByRole('button', { name: /Abrir Router Z/ }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' }));
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Pintar 1 producto' })).toBeInTheDocument();
   });
 
   // S12d: as in Productos, the selection outlives the list it was picked from.
@@ -1769,10 +1790,24 @@ describe('bulk actions over products (S6)', () => {
     expect(pickProduct('Router Archer AX55')).not.toBeChecked();
     expect(pick('MLA1100000002')).not.toBeChecked();
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeEnabled();
-    // Checking the product row too still counts the product once.
+    // Checking the product row too still counts the product once, now from two rows.
     await user.click(pickProduct('Router Archer AX55'));
     expect(pick('MLA1100000001')).toBeChecked();
-    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 2 filas marcadas)' })).toBeEnabled();
+  });
+
+  it('in the Producto view Shift+Down over an open product and its "more" row checks only real rows', async () => {
+    const user = userEvent.setup();
+    await productView();
+    // Open, the product lists a page of its 235 publications and then a "more" row, which is focusable too.
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' });
+    await user.click(pickProduct('Router Archer AX55'));
+    pickProduct('Router Archer AX55').closest('tr').focus();
+    await user.keyboard(`{Shift>}${'{ArrowDown}'.repeat(12)}{/Shift}`);
+    await user.click(screen.getByRole('button', { name: /^Acciones masivas/ }));
+    // A row that is not a product nor a publication would be counted as checked off the page.
+    expect(screen.queryByText(/no está en esta página|no están en esta página/)).not.toBeInTheDocument();
   });
 });
 

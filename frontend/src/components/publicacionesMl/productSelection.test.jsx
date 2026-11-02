@@ -13,22 +13,23 @@ describe('RowCheckbox', () => {
   it('toggles the row it names; with Shift it asks for a range (S12d)', async () => {
     const onToggle = vi.fn();
     const user = userEvent.setup();
-    render(<RowCheckbox rowKey="i:MLA1" checked={false} onToggle={onToggle} label="MLA1" />);
+    const row = { key: 'i:MLA1', productId: 4101, itemId: 'MLA1' };
+    render(<RowCheckbox row={row} checked={false} onToggle={onToggle} label="MLA1" />);
     await user.click(screen.getByRole('checkbox', { name: 'Seleccionar la publicación MLA1' }));
-    expect(onToggle).toHaveBeenLastCalledWith('i:MLA1', false);
+    expect(onToggle).toHaveBeenLastCalledWith(row, false);
     await user.keyboard('{Shift>}');
     await user.click(screen.getByRole('checkbox', { name: 'Seleccionar la publicación MLA1' }));
     await user.keyboard('{/Shift}');
-    expect(onToggle).toHaveBeenLastCalledWith('i:MLA1', true);
+    expect(onToggle).toHaveBeenLastCalledWith(row, true);
   });
 
   it('a product row names the product', () => {
-    render(<RowCheckbox rowKey="p:4101" product checked={false} onToggle={() => {}} label="Router" />);
+    render(<RowCheckbox row={{ key: 'p:4101', productId: 4101, itemId: null }} product checked={false} onToggle={() => {}} label="Router" />);
     expect(screen.getByRole('checkbox', { name: 'Seleccionar el producto Router' })).toBeEnabled();
   });
 
   it('is disabled, with the reason, when the row has no key (a product row with no product)', () => {
-    render(<RowCheckbox rowKey={null} product checked={false} onToggle={() => {}} label="Sin producto" />);
+    render(<RowCheckbox row={{ key: null, productId: null, itemId: null }} product checked={false} onToggle={() => {}} label="Sin producto" />);
     const box = screen.getByRole('checkbox');
     expect(box).toBeDisabled();
     expect(box).toHaveAttribute('title', expect.stringMatching(/sin producto/i));
@@ -49,7 +50,7 @@ describe('withProductSelection', () => {
     const { rerender } = render(wrapped[0].render({ item_id: 'MLA1', title: 'Router', link: { producto_item_id: 4101 } }));
     expect(screen.getByText('Router')).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole('checkbox'));
-    expect(onToggle).toHaveBeenCalledWith('i:MLA1', false);
+    expect(onToggle).toHaveBeenCalledWith({ key: 'i:MLA1', productId: 4101, itemId: 'MLA1' }, false);
     rerender(wrapped[0].render({ item_id: 'MLA2', title: 'Tinta', link: { producto_item_id: 4102 } }));
     expect(screen.getByRole('checkbox')).toBeChecked();
   });

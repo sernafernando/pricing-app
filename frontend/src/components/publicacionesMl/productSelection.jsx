@@ -1,5 +1,5 @@
 import { PageCheckbox, SelectionCheckbox } from './ProductCheckbox';
-import { publicationKey } from './useRowSelection';
+import { selectionRow } from './useRowSelection';
 
 /**
  * `columns` with the publication's own checkbox in the title cell; the other columns are untouched. The title
@@ -20,7 +20,7 @@ export function withProductSelection(columns, selection) {
           render: (item) =>
             column.render(
               item,
-              <SelectionCheckbox rowKey={publicationKey(item.item_id)} label={item.item_id} selection={selection} />,
+              <SelectionCheckbox row={selectionRow(item)} label={item.item_id} selection={selection} />,
             ),
         },
   );

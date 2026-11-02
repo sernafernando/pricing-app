@@ -4,15 +4,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 export const publicationKey = (itemId) => `i:${itemId}`;
 export const productKey = (productId) => (productId == null ? null : `p:${productId}`);
 
+/** The selection entry of a row: a publication (`item_id`) checks itself; a product node (`productoItemId`) its product. */
+export const selectionRow = (row) =>
+  row == null
+    ? { key: null, productId: null, itemId: null }
+    : row.item_id
+      ? { key: publicationKey(row.item_id), productId: row.link?.producto_item_id ?? null, itemId: row.item_id }
+      : { key: productKey(row.productoItemId), productId: row.productoItemId ?? null, itemId: null };
+
 const indexOf = (rows, key) => rows.findIndex((row) => row.key === key);
-const rowOf = (rows, key) => rows.find((row) => row.key === key) ?? { key, productId: null, itemId: null };
 const range = (rows, from, to) => rows.slice(Math.min(from, to), Math.max(from, to) + 1);
 
 /**
  * The rows checked in Publicaciones ML, as Productos' selection (`useProductosSeleccion`) but per ROW: a publication
  * checks itself, not its product, and a product row (Producto view) checks its product. `order` is the rows on show,
- * `{ key, productId, itemId }` each (repeats allowed; a null key cannot be checked): a toggle checks or unchecks one
- * row; with Shift it checks every row between the last one toggled and this one. `extendTo` (Shift+arrows) checks
+ * `{ key, productId, itemId }` each (`selectionRow`; repeats allowed; a null key cannot be checked): a toggle checks
+ * or unchecks one row -- `onToggle(row, extend)`, given the row's own entry, so a row the hook was not given (the
+ * Agrupado tree keeps its rows to itself) is checked with its product and publication all the same; with Shift it
+ * checks every row between the last one toggled and this one. `extendTo` (Shift+arrows) checks
  * that range too, or just the row when the range has no start on show, and never unchecks. The selection outlives
  * the rows: another filter, page or view keeps it, with each row's product and publication as they were when checked.
  *
@@ -37,14 +46,15 @@ export default function useRowSelection(order) {
     pageRef.current = page;
   }, [page]);
 
-  const onToggle = useCallback((key, extend = false) => {
+  const onToggle = useCallback((entry, extend = false) => {
+    const { key } = entry;
     const rows = pageRef.current;
     const from = indexOf(rows, anchor.current);
     const to = indexOf(rows, key);
     setChecked((current) => {
       const next = new Map(current);
       if (extend && from !== -1 && to !== -1) range(rows, from, to).forEach((row) => next.set(row.key, row));
-      else if (!next.delete(key)) next.set(key, rowOf(rows, key));
+      else if (!next.delete(key)) next.set(key, entry);
       return next;
     });
     anchor.current = key;
@@ -59,7 +69,7 @@ export default function useRowSelection(order) {
     setChecked((current) => {
       const next = new Map(current);
       if (from !== -1 && to !== -1) range(rows, from, to).forEach((row) => next.set(row.key, row));
-      else next.set(key, rowOf(rows, key));
+      else if (rows[to]) next.set(key, rows[to]);
       return next;
     });
     anchor.current = key;

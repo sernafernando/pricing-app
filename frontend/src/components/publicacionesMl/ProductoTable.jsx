@@ -5,7 +5,7 @@ import VariationRows from './VariationRows';
 import { treeRowTone } from './rowColor';
 import { BranchState, NodeCount, NodeTitle } from './NodeCells';
 import { SelectionCheckbox } from './ProductCheckbox';
-import { productKey } from './useRowSelection';
+import { selectionRow } from './useRowSelection';
 import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
 import PrearmadaBadge from '../PrearmadaBadge';
 import PxqTramosBadge from '../PxqTramosBadge';
@@ -88,7 +88,7 @@ export default function ProductoTable({
             if (column.key === 'titulo') {
               // The checkbox follows the node's toggle, so the toggle stays at the row's depth.
               const after = selection ? (
-                <SelectionCheckbox rowKey={productKey(row.node.productoItemId)} product label={row.node.label} selection={selection} />
+                <SelectionCheckbox row={selectionRow(row.node)} product label={row.node.label} selection={selection} />
               ) : null;
               const { node } = row;
               const badges = (

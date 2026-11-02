@@ -35,12 +35,14 @@ const plural = (n, one, many) => (n === 1 ? one : many);
  */
 // `openRequest` ({ key, at }: a new `at` per request) opens an action's modal as its menu item would -- Ctrl+K and
 // Ctrl+Shift+P, as in Productos. An action the user may not run opens nothing; a set not ready yet says why.
-// `checkedIds`: the products behind the checked rows; `checkedPublications`: how many of those rows are publications.
+// `checkedIds`: the products behind the checked rows; `checkedRowCount`: how many rows are checked, and
+// `checkedPublications`: how many of them are publications (the rest are product rows of the Producto view).
 // `offPageCount`: how many checked rows the list does not show now (the selection outlives filters and pages).
 export default function BulkActions({
   filters,
   checkedIds,
   checkedPublications = 0,
+  checkedRowCount = checkedPublications,
   offPageCount = 0,
   onClearChecked,
   canSeeMargin,
@@ -77,9 +79,15 @@ export default function BulkActions({
   }
   const n = itemIds.length;
   const m = checkedPublications;
+  const rows = Math.max(checkedRowCount, m);
+  // A product row and a publication checked together are rows, not "publications": one publication has one product.
+  const from =
+    rows > m
+      ? `${rows} ${plural(rows, 'fila marcada', 'filas marcadas')}`
+      : `${m} ${plural(m, 'publicación marcada', 'publicaciones marcadas')}`;
   const scope = checked
     ? m > 0
-      ? `${n} ${plural(n, 'producto', 'productos')} de ${m} ${plural(m, 'publicación marcada', 'publicaciones marcadas')}`
+      ? `${n} ${plural(n, 'producto', 'productos')} de ${from}`
       : `${n} ${plural(n, 'producto seleccionado', 'productos seleccionados')}`
     : reason
       ? null
@@ -153,7 +161,8 @@ export default function BulkActions({
         aria-expanded={open}
         aria-label={scope ? `Acciones masivas (${scope})` : 'Acciones masivas'}
         title={reason ?? `Cambia el precio de ${scope}, en todas sus publicaciones`}
-        disabled={Boolean(reason)}
+        // A checked selection with nothing to act on still opens: its panel says why and holds "Limpiar selección".
+        disabled={Boolean(reason) && !checked}
         onClick={() => setOpen((was) => !was)}
       >
         <Layers size={14} aria-hidden="true" />
@@ -166,10 +175,18 @@ export default function BulkActions({
           <p className={styles.scope}>
             Sobre {checked ? scope : `los ${scope} del filtro`}
           </p>
+          {reason && <p className={styles.note}>{reason}</p>}
           {nota && <p className={styles.note}>{nota}</p>}
           <div role="menu" aria-label="Acciones masivas" className={styles.menu}>
             {actions.map((action) => (
-              <button key={action.key} type="button" role="menuitem" className={styles.item} onClick={() => openModal(action.key)}>
+              <button
+                key={action.key}
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                disabled={Boolean(reason)}
+                onClick={() => openModal(action.key)}
+              >
                 {action.label}
               </button>
             ))}

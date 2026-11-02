@@ -42,7 +42,7 @@ import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublica
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { withProductSelection } from '../components/publicacionesMl/productSelection';
-import useRowSelection, { productKey, publicationKey } from '../components/publicacionesMl/useRowSelection';
+import useRowSelection, { selectionRow } from '../components/publicacionesMl/useRowSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';
 import useTnCardPercent from '../components/publicacionesMl/useTnCardPercent';
@@ -151,13 +151,6 @@ const STOCK_LABELS = {
 };
 
 const EMPTY_ROWS = [];
-// A row for the selection: a publication (`item_id`) checks itself; a product node (`productoItemId`) its product.
-const selectionRow = (row) =>
-  row == null
-    ? { key: null, productId: null, itemId: null }
-    : row.item_id
-      ? { key: publicationKey(row.item_id), productId: row.link?.producto_item_id ?? null, itemId: row.item_id }
-      : { key: productKey(row.productoItemId), productId: row.productoItemId ?? null, itemId: null };
 
 // Métricas ML's order (Producto | Publicación | Agrupado). The publication list stays the default: it is this
 // screen's own unit, and every link without `vista` already opens it.
@@ -662,9 +655,15 @@ export default function PublicacionesML() {
     }
     paintProduct(productId, color);
   };
+  // The selection entry of a focused row. In the Producto view only a product or a publication row: its "more" and
+  // state rows are focusable too, and check nothing.
+  const selectionOfRow = (key) => {
+    if (!producto) return selectionRow(items.find((item) => item.item_id === key));
+    const row = productRows.rows.find((candidate) => candidate.id === key);
+    return selectionRow(row?.type === 'node' ? row.node : row?.type === 'item' ? row.item : null);
+  };
   const extendRow = (key) => {
-    const row = producto ? productRows.rows.find((candidate) => candidate.id === key) : null;
-    const rowKey = row?.type === 'node' ? productKey(row.node.productoItemId) : publicationKey(row?.item?.item_id ?? key);
+    const { key: rowKey } = selectionOfRow(key);
     if (rowKey != null) productSelection.extendTo(rowKey);
   };
   // r / w / o (S9): flip the focused row's product rebate, web transfer or "fuera de tarjetas", as in Productos. They
@@ -708,7 +707,7 @@ export default function PublicacionesML() {
     onCycleLayer: cycleLayer,
     onCycleMode: canSeePrices && precios ? cyclePriceMode : undefined,
     onToggleRow: canSeePrices && !agrupado ? toggleRow : undefined,
-    // Shift+Up / Shift+Down check the row moved to, from the last product checked (S12d, as in Productos).
+    // Shift+Up / Shift+Down check the row moved to, from the last row checked (S12d, as in Productos).
     onExtendRow: agrupado ? undefined : extendRow,
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
     // While an export runs the key is still taken from the browser, and starts nothing.
@@ -777,6 +776,7 @@ export default function PublicacionesML() {
             filters={rowFilters}
             checkedIds={checkedIds}
             checkedPublications={checkedItemIds.length}
+            checkedRowCount={checkedRows.size}
             offPageCount={agrupado ? 0 : productSelection.offPageCount}
             onClearChecked={clearChecked}
             canSeeMargin={canSeeMargin}
