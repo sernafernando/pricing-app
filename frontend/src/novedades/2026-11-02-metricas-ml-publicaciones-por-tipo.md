@@ -10,7 +10,7 @@ En **Métricas ML**, al expandir un producto, sus publicaciones aparecen ordenad
 
 1. Abrir **Reportes → Métricas ML**.
 2. Expandir un producto con la flecha de su fila.
-3. Las publicaciones del producto aparecen agrupadas por tipo, en el orden de arriba. Dentro de cada tipo se mantiene el orden elegido en la tabla, por ejemplo por facturación.
+3. Las publicaciones del producto aparecen agrupadas por tipo, en el orden de arriba. Dentro de cada tipo van de mayor a menor facturación.
 
 ## Para tener en cuenta
 
