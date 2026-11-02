@@ -248,3 +248,38 @@ def test_the_lot_viewer_falls_back_to_fifo_with_the_panels_when_the_modes_cannot
     # Each line at its own value, and the line at 8 still comes after: the FIFO order the panels fell back to.
     assert (proxima.compra_item_id, proxima.descuento_unit, proxima.restantes) == (diez, Decimal("10.00"), 100)
     assert proxima.siguiente is not None and proxima.siguiente.descuento_unit == Decimal("8.00")
+
+
+def test_the_next_sale_reweighs_the_pool_with_a_lot_bought_after_the_last_sale(engine: Engine) -> None:
+    (diez,) = w.compra(engine, [(950, 100, "1000.00")], date(2026, 10, 1))
+    w.compra(engine, [(950, 50, "200.00")], OCT25)
+    w.venta(engine, "fuera", 950, 50, OCT20)
+    w.modo(engine, 950, "ponderado", date(2026, 10, 15))
+    _recompute(engine)
+
+    with sessionmaker(bind=engine)() as db:
+        vigente = get_costing().vigentes(db, [950], NOV1)[950]
+
+    # The pool still holds 500 for 50 units; the lot at 4 joins with 200 for 50: 700 over 100 units.
+    assert (vigente.compra_item_id, vigente.descuento_unit_ars, vigente.unidades_restantes) == (
+        diez,
+        Decimal("7.00"),
+        100,
+    )
+
+
+def test_the_next_sale_under_a_mode_that_starts_after_the_last_sale_weighs_what_is_left(engine: Engine) -> None:
+    diez, _ = _dos_lotes(engine)
+    w.venta(engine, "fuera", 950, 50, OCT20)
+    w.modo(engine, 950, "ponderado", OCT25)
+    _recompute(engine)
+
+    with sessionmaker(bind=engine)() as db:
+        vigente = get_costing().vigentes(db, [950], NOV1)[950]
+
+    # No sale under the mode yet: 50 left at 10 and 100 at 8, 1300 over 150 units.
+    assert (vigente.compra_item_id, vigente.descuento_unit_ars, vigente.unidades_restantes) == (
+        diez,
+        Decimal("8.666667"),
+        150,
+    )

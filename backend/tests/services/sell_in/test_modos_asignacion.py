@@ -96,3 +96,14 @@ def test_two_modes_on_the_same_day_the_one_saved_last_governs() -> None:
     consumos = asignar(DOS_LOTES, ventas, [Periodo(NOV2, "ultimo"), Periodo(NOV2, "fifo")])
 
     assert consumos == asignar(DOS_LOTES, ventas)
+
+
+def test_a_re_based_lot_hands_out_exactly_its_total_with_odd_cents() -> None:
+    # 100.01 over 2 units: the first unit took 50.01 (cumulative rounding); the re-base must start from the 50.00 left,
+    # not from the unrounded 50.005, or the lot hands out 100.02.
+    lotes = [_lote(1, 2, "100.01")]
+    ventas = [_venta(5, 1, OCT20), _venta(7, 1, OCT30)]
+
+    consumos = _por_venta(asignar(lotes, ventas, [Periodo(OCT25, "fifo")]))
+
+    assert consumos == {5: [(1, 1, Decimal("50.01"))], 7: [(1, 1, Decimal("50.00"))]}

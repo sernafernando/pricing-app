@@ -144,8 +144,10 @@ class Dinero:
         self._seg: Optional[list] = None
 
     def _base_propia(self, i: int) -> Decimal:
+        """The lot's own money left: its total minus what cumulative rounding gave the units already used, so a lot
+        re-based mid-way still hands out exactly its total once used up."""
         lote = self.lotes[i]
-        return lote.descuento_ars * (lote.cantidad - self.usadas[i]) / lote.cantidad
+        return lote.descuento_ars - _cents(lote.descuento_ars * self.usadas[i] / lote.cantidad)
 
     def _cuentan(self, fecha: date) -> int:
         """How many lots (FIFO order, dates never decrease) count on `fecha`."""
