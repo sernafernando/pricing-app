@@ -89,7 +89,9 @@ def clean(engine: Engine) -> None:
     with engine.begin() as conn:
         for table in ("ml_order_items_ops", "ventas_fuera_ml_metricas", "ventas_tienda_nube_metricas", "auditoria"):
             conn.execute(text(f"DELETE FROM {table}"))  # ml_sale_lines go with their items
-        conn.execute(text("DELETE FROM sell_in_compras"))  # cascades to items and consumptions
+        conn.execute(text("DELETE FROM sell_in_consumos"))  # a manual block's go with neither purchase nor line
+        conn.execute(text("DELETE FROM sell_in_modos_producto"))
+        conn.execute(text("DELETE FROM sell_in_compras"))  # cascades to items
         conn.execute(text("DELETE FROM sell_dirty"))
 
 
@@ -132,6 +134,25 @@ def compra(
             ).scalar()
             for item, cantidad, monto in lineas
         ]
+
+
+def modo(engine: Engine, item_id: int, modo: str, desde: date, **manual) -> int:
+    """A cost-mode row of `item_id` from `desde` on (a manual one takes `cantidad`, `costo_unit`, `costo_base_unit`)."""
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "INSERT INTO sell_in_modos_producto (item_id, modo, desde, cantidad, costo_unit, costo_base_unit, "
+                "usuario_id) VALUES (:i, :m, :d, :q, :c, :b, 7) RETURNING id"
+            ),
+            {
+                "i": item_id,
+                "m": modo,
+                "d": desde,
+                "q": manual.get("cantidad"),
+                "c": manual.get("costo_unit"),
+                "b": manual.get("costo_base_unit"),
+            },
+        ).scalar()
 
 
 def venta(
