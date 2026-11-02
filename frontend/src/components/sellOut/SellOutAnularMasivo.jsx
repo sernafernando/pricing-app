@@ -185,6 +185,7 @@ export default function SellOutAnularMasivo({
           campanaIds={[...seleccion.keys()]}
           programas={programas}
           onClose={() => setAsignando(false)}
+          onProgramaCreado={() => onAsignadas?.()}
           onAsignadas={(texto) => {
             setAsignando(false);
             cambiar(new Map());

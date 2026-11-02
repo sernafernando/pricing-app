@@ -110,6 +110,12 @@ export default function SellOutPorPrograma({ filtros, version, seleccion, onTogg
     };
   }, [clave, version, offset, pageSize]);
 
+  // A reload can leave the page past the end (its last groups' campaigns moved): go to the last page with groups.
+  const fueraDeRango = datos != null && datos.total > 0 && offset >= datos.total;
+  useEffect(() => {
+    if (fueraDeRango) setOffset((Math.ceil(datos.total / pageSize) - 1) * pageSize);
+  }, [fueraDeRango, datos, pageSize]);
+
   if (error) {
     return (
       <div className={styles.aviso} role="alert">

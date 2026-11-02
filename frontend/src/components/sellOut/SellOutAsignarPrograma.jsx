@@ -10,10 +10,10 @@ import styles from './SellOutAsignarPrograma.module.css';
 /**
  * "Asignar a programa (N campañas)" (Stitch programas/modal): to an active program, or to a new one it creates first
  * (`POST /sell-out/programas`, then `POST /asignar`). The API's refusals (an archived program, a duplicate name,
- * unknown campaigns) show inline and the dialog stays open. Above `ASIGNAR_MAX` campaigns «Asignar» is disabled. Closes only with X or "Cancelar". `onAsignadas(texto)`
+ * unknown campaigns) show inline and the dialog stays open. Above `ASIGNAR_MAX` campaigns «Asignar» is disabled. Closes only with X or "Cancelar". `onProgramaCreado()` runs right after a create. `onAsignadas(texto)`
  * gets the result line.
  */
-export default function SellOutAsignarPrograma({ campanaIds, programas, onClose, onAsignadas }) {
+export default function SellOutAsignarPrograma({ campanaIds, programas, onClose, onAsignadas, onProgramaCreado }) {
   const id = useId();
   const activos = programas.filter((p) => p.estado === 'activo');
   const [modo, setModo] = useState(activos.length > 0 ? 'existente' : 'nuevo');
@@ -42,6 +42,7 @@ export default function SellOutAsignarPrograma({ campanaIds, programas, onClose,
         const { data } = await sellOutProgramasAPI.crear({ nombre: nombreLimpio, descripcion: descripcion.trim() || null });
         destino = data;
         setCreado(data);
+        onProgramaCreado?.(); // the page's filter and this select see it, whatever the assignment does
       }
       const { data } = await sellOutProgramasAPI.asignar(campanaIds, destino.id);
       onAsignadas(textoAsignadas(data, destino.nombre));

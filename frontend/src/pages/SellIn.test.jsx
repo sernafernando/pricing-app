@@ -1159,6 +1159,60 @@ describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
     expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
   });
 
+  it('a program created whose assignment then fails is offered at once, and a retry does not create it again', async () => {
+    const NUEVO = { ...PROGRAMAS_LISTA.items[0], id: 12, nombre: 'MODELOS SP', campanas: 0, activas: 0, nombres: 0 };
+    let creado = false;
+    sellOutProgramasAPI.listar.mockImplementation(async () => ({
+      data: { ...PROGRAMAS_LISTA, items: creado ? [...PROGRAMAS_LISTA.items, NUEVO] : PROGRAMAS_LISTA.items },
+    }));
+    sellOutProgramasAPI.crear.mockImplementation(async () => {
+      creado = true;
+      return { data: NUEVO };
+    });
+    sellOutProgramasAPI.asignar.mockRejectedValue({ response: { status: 422, data: { error: { message: 'La campaña 55 no existe.' } } } });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
+    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
+    await user.click(within(dialogo).getByRole('radio', { name: 'Programa nuevo' }));
+    await user.type(within(dialogo).getByLabelText('Nombre'), 'MODELOS SP');
+    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
+    expect(await within(dialogo).findByRole('alert')).toHaveTextContent('La campaña 55 no existe.');
+
+    const filtros = screen.getByRole('region', { name: 'Filtros de campañas' });
+    await waitFor(() => expect(within(within(filtros).getByLabelText('Programa')).getByRole('option', { name: 'MODELOS SP' })).toBeInTheDocument());
+    await user.click(within(dialogo).getByRole('button', { name: 'Cancelar' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
+    const otra = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
+    await user.selectOptions(within(otra).getByLabelText('Programa'), '12');
+    await user.click(within(otra).getByRole('button', { name: 'Asignar' }));
+    await waitFor(() => expect(sellOutProgramasAPI.asignar).toHaveBeenCalledTimes(2));
+    expect(sellOutProgramasAPI.asignar).toHaveBeenLastCalledWith([55], 12);
+    expect(sellOutProgramasAPI.crear).toHaveBeenCalledTimes(1);
+  });
+
+  it('when a reload leaves the page of groups past the end, it goes to the last page that has groups', async () => {
+    conProgramas();
+    const grupo = (i) => ({ ...GRUPOS_POR_PROGRAMA.items[0], programa_id: 100 + i, nombre: `MARCA PROG ${String(i).padStart(2, '0')}` });
+    let total = 51;
+    sellOutAPI.porPrograma.mockImplementation(async ({ page, page_size: size }) => {
+      const desde = (page - 1) * size;
+      const items = Array.from({ length: Math.max(0, Math.min(size, total - desde)) }, (_, i) => grupo(desde + i));
+      return { data: { items, total, page, page_size: size, sin_programa: null } };
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await user.click(await screen.findByRole('button', { name: 'Página 2' }));
+    expect(await screen.findByRole('button', { name: 'MARCA PROG 50' })).toBeInTheDocument();
+
+    total = 50; // its only program's campaigns were moved elsewhere
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+    expect(await screen.findByRole('button', { name: 'MARCA PROG 49' })).toBeInTheDocument();
+    expect(lastParams(sellOutAPI.porPrograma)).toEqual({ page: 1, page_size: 50 });
+  });
+
   it('without sell_out.gestionar there is no "Asignar a programa"', async () => {
     conProgramas();
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
