@@ -7,14 +7,40 @@ function cell(value) {
   return value;
 }
 
+/** With responseType blob, error bodies arrive as Blob — parse JSON detail. */
+async function messageFromBlobError(err, genericError) {
+  const data = err?.response?.data;
+  if (data && typeof data.text === 'function') {
+    try {
+      const parsed = JSON.parse(await data.text());
+      const detail = parsed?.detail;
+      if (typeof detail === 'string' && detail) return detail;
+      if (Array.isArray(detail) && detail.length) {
+        return detail
+          .map((item) => (typeof item === 'string' ? item : item?.msg))
+          .filter(Boolean)
+          .join('; ');
+      }
+    } catch {
+      // not JSON — fall through
+    }
+  }
+  if (typeof data?.detail === 'string' && data.detail) return data.detail;
+  return genericError;
+}
+
 async function downloadBlob(path, filename) {
-  const { data } = await api.get(path, { responseType: 'blob' });
-  const url = URL.createObjectURL(data);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  try {
+    const { data } = await api.get(path, { responseType: 'blob' });
+    const url = URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    throw new Error(await messageFromBlobError(err, `No se pudo exportar`));
+  }
 }
 
 export default function GestionFullGestorTab() {
@@ -136,7 +162,7 @@ export default function GestionFullGestorTab() {
       setMsg(`Descarga ${filename} lista`);
       setNonce((n) => n + 1);
     } catch (err) {
-      setError(err?.response?.data?.detail || `No se pudo exportar (${kind})`);
+      setError(err?.message || `No se pudo exportar (${kind})`);
     } finally {
       setBusy(false);
     }
