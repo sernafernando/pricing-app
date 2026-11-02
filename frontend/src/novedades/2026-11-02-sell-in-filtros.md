@@ -18,4 +18,5 @@ En la pestaña **Sell in** las compras ahora se filtran también por **Producto*
 - **Producto** y **Proveedor** filtran solo las compras. Un bono no tiene proveedor: alcanza una marca, una categoría, modelos o una operación.
 - **Aplicación** (aplican / no aplican) sigue siendo solo de las compras.
 - En los bonos, la búsqueda mira la descripción y la marca del bono, y las fechas muestran los bonos cuyo rango se cruza con el período elegido.
+- En los bonos, **Marca** muestra todos los que alcanzan productos de esa marca, sea por marca, categoría, modelos u operación.
 - Las tarjetas de **Bonos de marca vigentes** cuentan siempre todos los bonos activos, sin importar los filtros.
