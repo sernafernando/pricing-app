@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from app.services.gestion_full.overrides import (
+    puede_editar_con_pares,
     puede_editar_override_para,
     usuario_puede_editar_algun_override,
 )
@@ -42,3 +43,11 @@ def test_puede_editar_empty_scope() -> None:
     ):
         assert puede_editar_override_para(usuario, db, "TP-LINK", "Camaras") is False
         assert usuario_puede_editar_algun_override(usuario, db) is False
+
+
+def test_puede_editar_con_pares_reuses_preloaded_scope() -> None:
+    pares = [("TP-LINK", "CAMARAS")]
+    assert puede_editar_con_pares(pares, "tp-link", "camaras") is True
+    assert puede_editar_con_pares(pares, "OTRA", "Camaras") is False
+    assert puede_editar_con_pares(None, "X", "Y") is True
+    assert puede_editar_con_pares([], "X", "Y") is False

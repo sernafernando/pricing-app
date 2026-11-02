@@ -18,10 +18,10 @@ from app.services.gestion_full.inbound import refresh_last_inbound
 from app.services.gestion_full.listing import list_gestion_full
 from app.services.gestion_full.overrides import (
     clear_override,
+    puede_editar_con_pares,
     puede_editar_override_para,
     resolve_producto_por_inventory_id,
     upsert_override,
-    usuario_puede_editar_algun_override,
 )
 from app.services.gestion_full.excel_export import (
     build_ml_full_xlsx,
@@ -49,7 +49,7 @@ from app.services.gestion_full.unidades_caja import (
     upsert_unidades_caja,
 )
 from app.services.permisos_service import PermisosService
-from app.services.pm_scope import is_full_view
+from app.services.pm_scope import get_pares_marca_categoria_usuario, is_full_view
 
 router = APIRouter(prefix="/gestion-full", tags=["gestion-full"])
 
@@ -257,10 +257,11 @@ def get_gestion_full(
         offset=offset,
     )
     perms = PermisosService(db)
+    pares = get_pares_marca_categoria_usuario(db, current_user)
     for item in payload["items"]:
-        in_scope = puede_editar_override_para(current_user, db, item.get("marca"), item.get("categoria"))
+        in_scope = puede_editar_con_pares(pares, item.get("marca"), item.get("categoria"))
         item["puede_editar_override"] = in_scope and not item.get("pm_ready")
-    payload["puede_editar_override"] = usuario_puede_editar_algun_override(current_user, db)
+    payload["puede_editar_override"] = pares is None or bool(pares)
     payload["puede_editar_caja"] = perms.tiene_permiso(current_user, PERM_DEPOSITOS)
     payload["puede_gestor"] = perms.tiene_permiso(current_user, PERM_GESTOR)
     return payload
