@@ -22,6 +22,7 @@ import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
 import SellOutAnularMasivo from '../components/sellOut/SellOutAnularMasivo';
 import SellOutFiltros from '../components/sellOut/SellOutFiltros';
 import SellOutPorPrograma from '../components/sellOut/SellOutPorPrograma';
+import SellOutSugerencias from '../components/sellOut/SellOutSugerencias';
 import { useProgramas } from '../components/sellOut/useProgramas';
 import { FILTROS_CAMPANAS_VACIOS, paramsDeFiltros } from '../components/sellOut/sellOutFiltros';
 import GruposTab from '../components/grupos/GruposTab';
@@ -213,6 +214,8 @@ export default function SellIn() {
   const [versionProgramas, setVersionProgramas] = useState(0);
   const programas = useProgramas(puedeVer && puedeVerSellOut, versionGrupos + versionProgramas);
   // "Ver: Por programa | Lista" lives in the URL (`?vista=`) like the tab; by default grouped once a program exists.
+  // The suggestions "Descartar" hid, for this session only (nothing is stored).
+  const [descartadas, setDescartadas] = useState(() => new Set());
   const vistaUrl = searchParams.get('vista');
   const vista = ['programas', 'lista'].includes(vistaUrl) ? vistaUrl : programas.length > 0 ? 'programas' : 'lista';
   const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeGestionarGrupos ? [TAB_GRUPOS] : [])];
@@ -747,6 +750,14 @@ export default function SellIn() {
                 vista={vista}
                 onVista={cambiarVista}
               />
+              {puedeGestionarSellOut && (
+                <SellOutSugerencias
+                  version={versionGrupos + versionProgramas}
+                  descartadas={descartadas}
+                  onDescartar={(clave) => setDescartadas((actual) => new Set(actual).add(clave))}
+                  onCambio={programasCambiaron}
+                />
+              )}
               {campanas.error && (
                 <div className={styles.errorBar} role="alert">
                   <ShieldAlert size={16} /> {campanas.error}

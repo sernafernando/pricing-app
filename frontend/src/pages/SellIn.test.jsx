@@ -17,6 +17,7 @@ import {
   PROGRAMAS_LISTA,
   PROGRAMAS_VACIO,
   RENOVACION_MIGRADA,
+  SUGERENCIAS,
   SUGERENCIAS_VACIO,
 } from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
@@ -1063,5 +1064,89 @@ describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
     await screen.findByText('RB 8180');
     expect(screen.queryByRole('button', { name: 'Asignar a programa' })).not.toBeInTheDocument();
+  });
+});
+
+describe('SellIn page — program suggestions (campanas-sistema slice E)', () => {
+  const BANNER = '2 sugerencias de programa: campañas sin programa con las mismas fechas';
+  const tarjeta = (desde, hasta) => screen.getByRole('group', { name: `Sugerencia del ${desde} al ${hasta}` });
+
+  it('the banner shows with sell_out.gestionar and suggestions, and not without either', async () => {
+    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
+    const { unmount } = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    expect(await screen.findByText(BANNER)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ver sugerencias' })).toBeInTheDocument();
+    expect(lastParams(sellOutProgramasAPI.sugerencias)).toEqual({ page: 1, page_size: 200 });
+    unmount();
+
+    vi.clearAllMocks();
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
+    const lector = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await screen.findByText('RB 8180');
+    expect(screen.queryByText(BANNER)).not.toBeInTheDocument();
+    expect(sellOutProgramasAPI.sugerencias).not.toHaveBeenCalled();
+    lector.unmount();
+
+    mockTienePermiso.mockReturnValue(true);
+    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS_VACIO });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await waitFor(() => expect(sellOutProgramasAPI.sugerencias).toHaveBeenCalled());
+    await screen.findByText('RB 8180');
+    expect(screen.queryByText(/sugerencias? de programa/)).not.toBeInTheDocument();
+  });
+
+  it('"Crear programa y asignar" creates the program with the edited name, assigns its campaigns and refreshes', async () => {
+    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
+    sellOutProgramasAPI.crear
+      .mockRejectedValueOnce({ response: { status: 409, data: { error: { message: 'Ya existe un programa llamado «MARCA».' } } } })
+      .mockResolvedValueOnce({ data: { id: 15, nombre: 'MARCA PROG', descripcion: null, estado: 'activo', campanas: 0, activas: 0, desde: null, hasta: null, nombres: 0 } });
+    sellOutProgramasAPI.asignar.mockResolvedValue({ data: { asignadas: 3, sin_cambio: 0 } });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
+
+    const drawer = screen.getByRole('dialog', { name: 'Sugerencias de programa' });
+    expect(drawer).toHaveTextContent('Las sugerencias agrupan campañas sin programa con exactamente las mismas fechas. No se aplica nada hasta que lo confirmes.');
+    expect(within(drawer).getAllByRole('textbox', { name: 'Nombre del programa' }).map((i) => i.value)).toEqual([
+      'MARCA',
+      'Del 01/11/2025 al 31/10/2026',
+    ]);
+    const primera = tarjeta('01/08/2026', '31/10/2026');
+    expect(primera).toHaveTextContent('01/08/2026 – 31/10/2026 · 3 campañas · 2 nombres');
+    expect(primera).toHaveTextContent('2 activas');
+    await user.click(within(primera).getByRole('button', { name: 'Ver campañas' }));
+    expect(within(primera).getByText('MARCA PROGRAM1 (×2)').closest('li')).toHaveTextContent('Activa');
+    expect(within(primera).getByText('MARCA PROG 3.0').closest('li')).toHaveTextContent('Anulada');
+
+    await user.click(within(primera).getByRole('button', { name: 'Crear programa y asignar' }));
+    expect(await within(primera).findByRole('alert')).toHaveTextContent('Ya existe un programa llamado «MARCA».');
+    expect(sellOutProgramasAPI.asignar).not.toHaveBeenCalled();
+
+    const nombre = within(primera).getByRole('textbox', { name: 'Nombre del programa' });
+    await user.clear(nombre);
+    await user.type(nombre, 'MARCA PROG');
+    const sugerencias = sellOutProgramasAPI.sugerencias.mock.calls.length;
+    const programas = sellOutProgramasAPI.listar.mock.calls.length;
+    await user.click(within(primera).getByRole('button', { name: 'Crear programa y asignar' }));
+
+    await waitFor(() => expect(sellOutProgramasAPI.asignar).toHaveBeenCalledWith([81, 82, 83], 15));
+    expect(sellOutProgramasAPI.crear).toHaveBeenLastCalledWith({ nombre: 'MARCA PROG' });
+    expect(await within(drawer).findByRole('status')).toHaveTextContent('3 campañas asignadas a «MARCA PROG».');
+    await waitFor(() => expect(sellOutProgramasAPI.sugerencias.mock.calls.length).toBeGreaterThan(sugerencias));
+    expect(sellOutProgramasAPI.listar.mock.calls.length).toBeGreaterThan(programas);
+  });
+
+  it('"Descartar" hides that card only, for this session, and writes nothing', async () => {
+    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
+    await user.click(within(tarjeta('01/08/2026', '31/10/2026')).getByRole('button', { name: 'Descartar' }));
+
+    expect(screen.queryByRole('group', { name: 'Sugerencia del 01/08/2026 al 31/10/2026' })).not.toBeInTheDocument();
+    expect(tarjeta('01/11/2025', '31/10/2026')).toBeInTheDocument();
+    expect(screen.getByText('1 sugerencia de programa: campañas sin programa con las mismas fechas')).toBeInTheDocument();
+    expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
+    expect(sellOutProgramasAPI.asignar).not.toHaveBeenCalled();
   });
 });

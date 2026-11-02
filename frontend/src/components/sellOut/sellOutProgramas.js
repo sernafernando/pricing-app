@@ -17,8 +17,7 @@ export const columnasCampanas = (seleccionable) => (seleccionable ? 7 : 6);
 
 /** «3 campañas · 2 nombres · 01/08/2026 – 31/10/2026», a group row's (or a suggestion's) summary. */
 export function resumenDeGrupo({ campanas, nombres, desde, hasta }) {
-  const fechas = `${formatDateOnly(desde, DIA)} – ${formatDateOnly(hasta, DIA)}`;
-  return `${plural(campanas, 'campaña', 'campañas')} · ${plural(nombres, 'nombre', 'nombres')} · ${fechas}`;
+  return `${plural(campanas, 'campaña', 'campañas')} · ${plural(nombres, 'nombre', 'nombres')} · ${fechasDe(desde, hasta)}`;
 }
 
 /** «2 activas», a group's pill. */
@@ -32,3 +31,12 @@ export function textoAsignadas({ asignadas, sin_cambio: sinCambio }, nombre) {
 }
 
 export { plural };
+
+/** «01/08/2026 – 31/10/2026». */
+export const fechasDe = (desde, hasta) => `${formatDateOnly(desde, DIA)} – ${formatDateOnly(hasta, DIA)}`;
+
+/** A campaign name as the backend's `nombres` compares it: ignoring case and repeated spaces. */
+export const nombreNormalizado = (nombre) => nombre.split(/\s+/).filter(Boolean).join(' ').toLowerCase();
+
+/** A suggestion's identity: its dates, which the backend groups by (exactly the same dates). */
+export const claveSugerencia = (s) => `${s.fecha_desde}|${s.fecha_hasta}`;

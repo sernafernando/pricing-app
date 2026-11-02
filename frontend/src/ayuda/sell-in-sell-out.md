@@ -100,11 +100,23 @@ Para el próximo trimestre no hace falta cargar la campaña de cero. En **Ver ca
 - **Fechas**: por defecto, el trimestre calendario siguiente al que contiene la fecha hasta de la original (por ejemplo, una que termina el 15/11/2026 o el 31/12/2026 propone del 01/01/2027 al 31/03/2027). Se pueden cambiar.
 - **Nombre**: si termina en un período, se avanza al nuevo trimestre («Rebate Q4 2026» → «Rebate Q1 2027», «Rebate 4Q26» → «Rebate 1Q27», «Campaña noviembre 2026» → «Campaña enero 2027»). Si no, queda igual (por ejemplo «Promo modelo 3.0»). Se puede editar.
 
+- **Programa**: la copia queda en el mismo programa que la original mientras ese programa esté activo. Si está archivado, la copia queda sin programa.
+
 La campaña original no cambia: sigue como estaba, con su historial y lo que acreditó.
+
+### Programas
+
+Un **programa** agrupa campañas de sell out que son el mismo acuerdo: las que se renuevan cada trimestre o las que se cargaron con el mismo nombre y un número porque aplican a cosas distintas. Asignar un programa **no cambia la plata** de las campañas: lo que acreditan, sus topes y la ganancia siguen igual. Solo las agrupa.
+
+- **Ver: Por programa | Lista** (en la tarjeta de filtros, cuando hay programas): **Por programa** muestra una fila por programa con «N campañas · M nombres · desde – hasta» y cuántas están activas, y al final **Sin programa**. Tocar la fila la abre y lista sus campañas, con las mismas columnas, casillas y **Ver campaña** que la lista. **Lista** es la lista de siempre. La vista elegida queda en la dirección de la página. Si hay al menos un programa, se abre en **Por programa**.
+- Los grupos siguen los filtros: los números de cada fila y las campañas que muestra son los que cumplen los filtros, y un programa sin campañas que los cumplan no aparece.
+- **Filtro Programa**: **Todos**, **Sin programa** o un programa. También vale para **Seleccionar todo lo filtrado**.
+- **Asignar a programa** (quien gestiona campañas): marcá campañas, o usá **Seleccionar todo lo filtrado**, y tocá **Asignar a programa** en la barra de selección. Elegí un **Programa existente** (solo los activos) o un **Programa nuevo** con nombre y descripción opcional, que se crea y se asigna en el mismo paso. Si el programa está archivado o el nombre ya existe, el aviso aparece en el mismo cuadro y no se asigna nada. Al terminar se muestra, por ejemplo, «3 campañas asignadas a «Programa». 1 ya lo tenía.».
+- **Sugerencias de programa** (quien gestiona campañas): cuando hay campañas sin programa con **exactamente las mismas fechas**, arriba de la lista aparece «N sugerencias de programa: campañas sin programa con las mismas fechas». **Ver sugerencias** abre un panel con una tarjeta por grupo: un nombre propuesto (las palabras con que empiezan todos los nombres, o las fechas si no comparten ninguna), que se puede editar, sus fechas, cuántas campañas y nombres tiene, y la lista de campañas. **Crear programa y asignar** crea el programa y le asigna esas campañas. **Descartar** oculta la tarjeta hasta que vuelvas a abrir la página; no se guarda nada. No se aplica nada hasta que lo confirmes.
 
 ## Filtros y columnas
 
-Sell in: fechas, marca, moneda, estado, aplicación, tipo. Sell out: período, nombre, estado, tipo, moneda, marca y grupo. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan.
+Sell in: fechas, marca, moneda, estado, aplicación, tipo. Sell out: período, nombre, estado, tipo, moneda, marca, grupo y programa. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan.
 
 ## Botones y acciones
 
