@@ -3,7 +3,7 @@ export const nounOf = (groupBy) => ({ publication: 'Publicaciones', group: 'Grup
 // and `sell_out` are null otherwise). `costo` never decides it: it is the cost WITHOUT sell in, there for any
 // sale; the cost with sell in only exists with a sell in. The "C/ sell in/out" lines follow the same rule
 // through `total_gauss`, which the backend leaves null when neither applies.
-export const hasSellCard = (sell) => Boolean(sell && (sell.sell_in != null || sell.sell_out != null));
+const hasSellCard = (sell) => Boolean(sell && (sell.sell_in != null || sell.sell_out != null));
 
 /**
  * The KPIs this viewer sees on the board right now, in the strip's order, for the "Indicadores" picker:

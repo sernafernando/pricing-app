@@ -4,7 +4,7 @@
 
 ## Resumen ejecutivo
 
-En **Métricas ML** y en **Publicaciones ML** ahora se puede elegir qué tarjetas de KPI se ven, una por una, con el botón **Indicadores** del encabezado. Ocultar una tarjeta no cambia ningún número: las que quedan ocupan el lugar libre. La elección queda guardada en el navegador.
+En **Métricas ML** y en **Publicaciones ML** ahora se puede elegir qué tarjetas de KPI se ven, una por una, con el botón **Indicadores** del encabezado. Ocultar una tarjeta no cambia ningún número: las demás se reacomodan en la fila. La elección queda guardada en el navegador.
 
 ## Cómo se usa
 
