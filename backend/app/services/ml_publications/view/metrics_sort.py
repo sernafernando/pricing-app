@@ -39,13 +39,13 @@ def needs_margin(key: str) -> bool:
 
 
 @contextmanager
-def board_rows(db: Session, mla_source: Any) -> Iterator[Any]:
-    """The Board's publication rows over the 30-day window for the MLAs of `mla_source`, keyed by `rk` (the MLA);
-    the Board's temp tables live as long as the block."""
+def publication_board(db: Session, mla_source: Any) -> Iterator[board.Board]:
+    """The Board by publication over the 30-day window, for the MLAs of `mla_source` (its `mla_set`); its rows are
+    keyed by `rk` (the MLA) and its temp tables live as long as the block."""
     first, last = row_metrics.window(board.today_business())
     f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
     with board.Board(db, f, scope_pairs=None) as b:
-        yield b.rows()
+        yield b
 
 
 def ranked_page(
@@ -53,9 +53,7 @@ def ranked_page(
 ) -> list[str]:
     """The MLAs of `mla_source` (a one-column select of the filtered set) at `[offset, offset + limit)` once ranked
     by the figure `key` names (`limit` None: every MLA from `offset` on)."""
-    first, last = row_metrics.window(board.today_business())
-    f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
-    with board.Board(db, f, scope_pairs=None) as b:
+    with publication_board(db, mla_source) as b:
         rows = b.rows()
         figure = metric_figure(rows, key)
         ordered = figure.desc() if descending else figure.asc()
@@ -77,9 +75,7 @@ def metric_figure(rows: Any, key: str) -> Any:
 def metric_figures(db: Session, mla_source: Any, keys: Sequence[str]) -> dict[str, dict[str, Any]]:
     """For each key of `keys`, every MLA of `mla_source` with the figure it names (None when it has none), for a
     sort with more keys: one Board run however many figures the sort names."""
-    first, last = row_metrics.window(board.today_business())
-    f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
-    with board.Board(db, f, scope_pairs=None) as b:
+    with publication_board(db, mla_source) as b:
         rows = b.rows()
         query = select(b.mla_set.c.mla, *(metric_figure(rows, key) for key in keys)).outerjoin(
             rows, rows.c.rk == b.mla_set.c.mla

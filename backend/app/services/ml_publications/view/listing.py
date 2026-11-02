@@ -59,10 +59,10 @@ from app.services.ml_publications.view.markup_service import (
 )
 from app.services.ml_publications.view.metrics_sort import (
     METRIC_SORTS,
-    board_rows,
     metric_figure,
     metric_figures,
     needs_margin,
+    publication_board,
     ranked_page,
 )
 
@@ -355,7 +355,8 @@ def _ranked_with_columns(db: Session, source: Any, sort: Sort, limit: Optional[i
     """Column keys and ONE Métricas figure (Publicaciones ML's default, `tipo,facturado_30d`): the Board's rows join
     `source` in the database and one statement orders and cuts the page -- never every MLA's figure shipped out and
     back as the arrays of `_by_figures`."""
-    with board_rows(db, source) as rows:
+    with publication_board(db, source) as b:
+        rows = b.rows()
         order: list[Any] = []
         for key, descending in sort.pairs:
             if key in METRIC_SORTS:
