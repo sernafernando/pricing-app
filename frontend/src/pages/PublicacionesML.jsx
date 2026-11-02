@@ -453,6 +453,15 @@ export default function PublicacionesML() {
   );
   const rowSelection = useRowSelection(agrupado ? EMPTY_ROWS : listedRows);
   const { checked: checkedRows, productIds: checkedIds, itemIds: checkedItemIds, clear: clearChecked } = rowSelection;
+  // Pause / activate act on exactly the checked rows: each checked publication, and every publication of a checked
+  // product row (S2); never the other publications of a checked publication's product.
+  const checkedStatus = useMemo(
+    () => ({
+      itemIds: checkedItemIds,
+      productIds: [...checkedRows.values()].filter((row) => !row.itemId).map((row) => row.productId),
+    }),
+    [checkedRows, checkedItemIds],
+  );
   // A price typed in a cell (S11c), and the rebate / web transfer edited in theirs (S1), are saved as Productos does;
   // the list is reloaded after it, as after a panel write (its prices with it).
   const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
@@ -785,7 +794,7 @@ export default function PublicacionesML() {
             onDone={reloadList}
             openRequest={bulkRequest}
           />
-          {!sinMla && <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} />}
+          {!sinMla && <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} checked={checkedStatus} />}
           <ColumnPicker table={pickerTable} />
           {kpiOptions.length > 0 && (
             <ColumnPicker table={kpiPicker} label="Indicadores" icon={Gauge} groupLabel="Elegir indicadores visibles" />
