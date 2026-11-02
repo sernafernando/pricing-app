@@ -37,7 +37,14 @@ def get_active_package(db: Session) -> Optional[GestionFullPackage]:
 
 
 def _package_for_update(db: Session, package_id: int) -> GestionFullPackage:
-    return db.query(GestionFullPackage).filter(GestionFullPackage.id == package_id).with_for_update().one()
+    """Row-lock and refresh identity map so status checks see concurrent commits."""
+    return (
+        db.query(GestionFullPackage)
+        .filter(GestionFullPackage.id == package_id)
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
 
 
 def get_or_create_open_package(
@@ -115,22 +122,35 @@ def upsert_package_line(
     return line
 
 
+def _stock_erp_for_item(db: Session, producto_item_id: int) -> int:
+    prod = db.get(ProductoERP, producto_item_id)
+    if prod is None or prod.stock is None:
+        return 0
+    return max(0, int(prod.stock))
+
+
 def add_all_ready_lines_to_package(
     db: Session,
     *,
     usuario: Usuario,
 ) -> tuple[GestionFullPackage, int]:
-    """Upsert every ``gestion_full_pm_ready`` row into the active package (one transaction)."""
+    """Upsert every ``gestion_full_pm_ready`` row into the active package (one transaction).
+
+    Auto ``qty_export`` (no gestor touch) is capped to ERP stock so "Sumar líneas Listo"
+    cannot undo a prior export re-cap.
+    """
     pkg = get_or_create_open_package(db, usuario=usuario)
+    pkg = _package_for_update(db, pkg.id)
     if pkg.status == PACKAGE_STATUS_LOCKED:
         raise PermissionError("package hard-locked")
-    _package_for_update(db, pkg.id)
 
     ready_rows = db.query(GestionFullPmReady).all()
     touched = 0
     for ready in ready_rows:
         if ready.qty_pm < 0:
             continue
+        stock = _stock_erp_for_item(db, ready.producto_item_id)
+        capped = min(int(ready.qty_pm), stock)
         line = (
             db.query(GestionFullPackageLine)
             .filter_by(
@@ -148,25 +168,26 @@ def add_all_ready_lines_to_package(
                     user_product_id=ready.user_product_id,
                     inventory_id=ready.inventory_id,
                     qty_pm=ready.qty_pm,
-                    qty_export=ready.qty_pm,
+                    qty_export=capped,
                 )
             )
         else:
             line.inventory_id = ready.inventory_id
             line.qty_pm = ready.qty_pm
             if line.qty_export_updated_by_id is None:
-                line.qty_export = ready.qty_pm
+                line.qty_export = capped
         touched += 1
+    # Re-cap again after upserts (stock may be lower than any auto value).
+    from app.services.gestion_full.excel_export import recap_qty_export_to_stock
+
+    recap_qty_export_to_stock(db, pkg)
     db.commit()
     db.refresh(pkg)
     return pkg, touched
 
 
 def _stock_erp_for_line(db: Session, line: GestionFullPackageLine) -> int:
-    prod = db.get(ProductoERP, line.producto_item_id)
-    if prod is None or prod.stock is None:
-        return 0
-    return max(0, int(prod.stock))
+    return _stock_erp_for_item(db, line.producto_item_id)
 
 
 def set_qty_export(
@@ -209,6 +230,10 @@ def set_qty_export(
             updated_by_id=usuario.id,
         )
     )
+    # Zeroing the last unassigned shippable line must hard-lock when peers already have inbound.
+    from app.services.gestion_full.assign_inbound import maybe_hard_lock
+
+    maybe_hard_lock(db, pkg, already_locked=True)
     db.commit()
     db.refresh(line)
     return line

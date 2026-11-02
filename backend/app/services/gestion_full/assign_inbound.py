@@ -18,8 +18,14 @@ from app.models.gestion_full_pm_ready import GestionFullPmReady
 
 
 def _package_for_update(db: Session, package: GestionFullPackage) -> GestionFullPackage:
-    """Row-lock the package for assign / clear / hard-lock."""
-    return db.query(GestionFullPackage).filter(GestionFullPackage.id == package.id).with_for_update().one()
+    """Row-lock and refresh identity map so status checks see concurrent commits."""
+    return (
+        db.query(GestionFullPackage)
+        .filter(GestionFullPackage.id == package.id)
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
 
 
 def _consume_pm_ready_for_package(db: Session, package: GestionFullPackage) -> int:
@@ -34,19 +40,41 @@ def _consume_pm_ready_for_package(db: Session, package: GestionFullPackage) -> i
 
 
 def clear_inbound_ids(db: Session, package: GestionFullPackage) -> int:
-    """Clear all inbound assignments (required before Excel regenerate)."""
+    """Clear all inbound assignments (required before Excel regenerate).
+
+    Closes local envío rows that no longer have any package line referencing them,
+    so "Limpiar inbounds" cannot leave forever-open orphans starving the reconcile batch.
+    """
+    from app.models.gestion_full_envio import GestionFullEnvio
+
     pkg = _package_for_update(db, package)
     if pkg.status == PACKAGE_STATUS_LOCKED:
         raise PermissionError("package hard-locked")
     n = 0
+    cleared: set[str] = set()
     for ln in pkg.lines:
         if ln.inbound_id is not None:
+            cleared.add(str(ln.inbound_id))
             ln.inbound_id = None
             n += 1
     if n:
         if pkg.status == PACKAGE_STATUS_EXPORTED:
             pkg.status = PACKAGE_STATUS_OPEN
             pkg.exported_at = None
+        # autoflush=False in production — flush so the ref count sees cleared lines.
+        db.flush()
+        now = datetime.now(UTC)
+        for inbound_id in cleared:
+            refs = (
+                db.query(GestionFullPackageLine)
+                .filter(GestionFullPackageLine.inbound_id == inbound_id)
+                .count()
+            )
+            if refs > 0:
+                continue
+            envio = db.get(GestionFullEnvio, inbound_id)
+            if envio is not None and envio.reception_closed_at is None:
+                envio.reception_closed_at = now
         db.commit()
     return n
 
@@ -88,14 +116,15 @@ def assign_inbound_to_lines(
         raise LookupError(f"líneas no del paquete: {sorted(missing)}")
 
     maybe_hard_lock(db, pkg, already_locked=True)
+
+    from app.services.gestion_full.reconcile import ensure_envio
+
+    # Same transaction as assign + hard-lock (no window with locked package and no envío).
+    ensure_envio(db, package=pkg, inbound_id=inbound, commit=False)
     db.commit()
     for ln in updated:
         db.refresh(ln)
     db.refresh(pkg)
-
-    from app.services.gestion_full.reconcile import ensure_envio
-
-    ensure_envio(db, package=pkg, inbound_id=inbound)
     return updated
 
 

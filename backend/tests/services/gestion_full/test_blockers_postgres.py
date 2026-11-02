@@ -25,12 +25,22 @@ from app.models.gestion_full_package import (
     PACKAGE_STATUS_LOCKED,
     GestionFullPackage,
     GestionFullPackageLine,
+    GestionFullQtyExportAudit,
 )
 from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
-from app.services.gestion_full.assign_inbound import assign_inbound_to_lines, maybe_hard_lock
-from app.services.gestion_full.excel_export import build_ml_full_xlsx, build_ops_ean_xlsx
-from app.services.gestion_full.reconcile import reconcile_envio
+from app.services.gestion_full.assign_inbound import (
+    assign_inbound_to_lines,
+    clear_inbound_ids,
+    maybe_hard_lock,
+)
+from app.services.gestion_full.excel_export import (
+    build_ml_full_xlsx,
+    build_ops_ean_xlsx,
+    prepare_package_for_export,
+)
+from app.services.gestion_full.package import add_all_ready_lines_to_package, set_qty_export
+from app.services.gestion_full.reconcile import list_open_envios, reconcile_envio
 from app.workers.context import WorkerContext
 from app.workers.handlers.gestion_full_reconcile import GestionFullReconcileHandler
 from tests.conftest import (
@@ -43,6 +53,7 @@ from tests.conftest import (
 _ORM_TABLES = [
     GestionFullPackage.__table__,
     GestionFullPackageLine.__table__,
+    GestionFullQtyExportAudit.__table__,
     GestionFullPmReady.__table__,
     GestionFullUnidadesCaja.__table__,
     GestionFullEnvio.__table__,
@@ -96,8 +107,11 @@ def pg_engine(monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
                 conn.execute(text(ddl))
             for table in _ORM_TABLES:
                 table.create(bind=conn)
-        # get_background_db() always uses SessionLocal / DATABASE_URL — point it here.
-        monkeypatch.setattr("app.core.database.SessionLocal", sessionmaker(bind=engine))
+        # Match production SessionLocal (autoflush=False) so IntegrityError / flush bugs surface.
+        monkeypatch.setattr(
+            "app.core.database.SessionLocal",
+            sessionmaker(bind=engine, autocommit=False, autoflush=False),
+        )
         yield engine
     finally:
         engine.dispose()
@@ -108,7 +122,7 @@ def pg_engine(monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
 
 
 def _session(engine: Engine) -> Session:
-    return sessionmaker(bind=engine)()
+    return sessionmaker(bind=engine, autocommit=False, autoflush=False)()
 
 
 def _seed_product(
@@ -489,5 +503,180 @@ class TestReconcileEnvioPostgres:
 
             assert out["closed"] is False
             assert envio.reception_closed_at is None
+            assert envio.last_polled_at == now
+        finally:
+            db.close()
+
+
+@pytest.mark.postgres
+class TestRound2Blockers:
+    def test_first_export_excel_uses_stock_cap(self, pg_engine: Engine) -> None:
+        """Blocker 1: re-cap before build so F6 matches stock on the first download."""
+        db = _session(pg_engine)
+        try:
+            _seed_product(db, stock=3)
+            _seed_ml_item(db)
+            db.add(GestionFullUnidadesCaja(producto_item_id=101, unidades=1))
+            pkg = GestionFullPackage(week_monday=date(2026, 10, 26), status="open")
+            db.add(pkg)
+            db.flush()
+            db.add(
+                GestionFullPackageLine(
+                    package_id=pkg.id,
+                    producto_item_id=101,
+                    user_product_id="MLAU1",
+                    inventory_id="INV-1",
+                    qty_pm=20,
+                    qty_export=20,
+                )
+            )
+            db.commit()
+            db.refresh(pkg)
+
+            pkg = prepare_package_for_export(db, pkg)
+            assert pkg.lines[0].qty_export == 3
+            raw = build_ml_full_xlsx(db, pkg)
+            wb = load_workbook(io.BytesIO(raw))
+            ws = wb[" Selección de productos"]
+            assert ws.cell(6, 6).value == "3"
+        finally:
+            db.close()
+
+    def test_sumar_listo_does_not_undo_stock_cap(self, pg_engine: Engine) -> None:
+        """Blocker 2: from-ready keeps auto qty_export at min(qty_pm, stock)."""
+        db = _session(pg_engine)
+        try:
+            _seed_product(db, stock=3)
+            pkg = GestionFullPackage(
+                week_monday=date(2026, 10, 26),
+                status=PACKAGE_STATUS_EXPORTED,
+                exported_at=datetime(2026, 10, 27, tzinfo=UTC),
+            )
+            db.add(pkg)
+            db.flush()
+            db.add(
+                GestionFullPackageLine(
+                    package_id=pkg.id,
+                    producto_item_id=101,
+                    user_product_id="MLAU1",
+                    inventory_id="INV-1",
+                    qty_pm=20,
+                    qty_export=3,  # already re-capped on export; no gestor touch
+                )
+            )
+            db.add(
+                GestionFullPmReady(
+                    producto_item_id=101,
+                    user_product_id="MLAU1",
+                    inventory_id="INV-1",
+                    qty_pm=20,
+                )
+            )
+            db.execute(text("INSERT INTO usuarios (id, nombre) VALUES (1, 'gestor')"))
+            db.commit()
+            db.refresh(pkg)
+
+            usuario = SimpleNamespace(id=1)
+            out_pkg, touched = add_all_ready_lines_to_package(db, usuario=usuario)
+            assert touched == 1
+            assert out_pkg.lines[0].qty_export == 3
+        finally:
+            db.close()
+
+    def test_clear_inbound_closes_orphans_and_batch_rotates(self, pg_engine: Engine) -> None:
+        """Blocker 3: clear closes envíos; list_open_envios prefers oldest last_polled_at."""
+        db = _session(pg_engine)
+        try:
+            _seed_product(db)
+            pkg = _seed_exported_package(db, inbound_id="INB-OLD")
+            env_old = GestionFullEnvio(
+                inbound_id="INB-OLD",
+                package_id=pkg.id,
+                week_monday=pkg.week_monday,
+                last_polled_at=datetime(2026, 10, 1, tzinfo=UTC),
+            )
+            env_new = GestionFullEnvio(
+                inbound_id="INB-NEW",
+                package_id=pkg.id,
+                week_monday=pkg.week_monday,
+                last_polled_at=None,
+            )
+            db.add_all([env_old, env_new])
+            db.commit()
+            db.refresh(pkg)
+
+            clear_inbound_ids(db, pkg)
+            db.refresh(env_old)
+            assert env_old.reception_closed_at is not None
+            # INB-NEW was never on a line — still open; null last_polled sorts first
+            open_ids = [e.inbound_id for e in list_open_envios(db)]
+            assert open_ids[0] == "INB-NEW"
+            assert "INB-OLD" not in open_ids
+        finally:
+            db.close()
+
+    def test_set_qty_export_zero_triggers_hard_lock(self, pg_engine: Engine) -> None:
+        """Blocker 4: zeroing the last unassigned shippable line hard-locks."""
+        db = _session(pg_engine)
+        try:
+            _seed_product(db, item_id=101, stock=50)
+            _seed_product(db, item_id=102, codigo="SKU-102", stock=50)
+            pkg = GestionFullPackage(
+                week_monday=date(2026, 10, 26),
+                status=PACKAGE_STATUS_EXPORTED,
+                exported_at=datetime(2026, 10, 27, tzinfo=UTC),
+            )
+            db.add(pkg)
+            db.flush()
+            ln1 = GestionFullPackageLine(
+                package_id=pkg.id,
+                producto_item_id=101,
+                user_product_id="MLAU1",
+                inventory_id="INV-1",
+                qty_pm=5,
+                qty_export=5,
+                inbound_id="INB-1",
+            )
+            ln2 = GestionFullPackageLine(
+                package_id=pkg.id,
+                producto_item_id=102,
+                user_product_id="MLAU2",
+                inventory_id="INV-2",
+                qty_pm=5,
+                qty_export=5,
+                inbound_id=None,
+            )
+            db.add_all([ln1, ln2])
+            db.add(
+                GestionFullPmReady(
+                    producto_item_id=101,
+                    user_product_id="MLAU1",
+                    inventory_id="INV-1",
+                    qty_pm=5,
+                )
+            )
+            db.add(
+                GestionFullPmReady(
+                    producto_item_id=102,
+                    user_product_id="MLAU2",
+                    inventory_id="INV-2",
+                    qty_pm=5,
+                )
+            )
+            db.execute(text("INSERT INTO usuarios (id, nombre) VALUES (9, 'gestor')"))
+            db.commit()
+            db.refresh(pkg)
+            db.refresh(ln2)
+
+            set_qty_export(
+                db,
+                line=ln2,
+                qty_export=0,
+                usuario=SimpleNamespace(id=9),
+            )
+            db.refresh(pkg)
+            assert pkg.status == PACKAGE_STATUS_LOCKED
+            assert db.get(GestionFullPmReady, (101, "MLAU1")) is None
+            assert db.get(GestionFullPmReady, (102, "MLAU2")) is None
         finally:
             db.close()
