@@ -212,7 +212,8 @@
   padding-bottom: var(--space-1);
 }
 
-.densityToggle[aria-pressed='true'] {
+/* Above `.btn-tesla.outline:hover`, so the pressed look shows right after the click (as on Métricas ML). */
+.headerActions :global(.btn-tesla).densityToggle[aria-pressed='true'] {
   color: var(--cf-accent-blue);
   background: var(--cf-accent-blue-light);
   border-color: var(--cf-accent-blue);
