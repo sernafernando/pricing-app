@@ -55,21 +55,21 @@ export default function SellInFiltrosExtra({ producto, proveedor, onChange, conP
         }
       />
       {conProveedor && (
-      <Filtro
-        label="Proveedor"
-        valor={proveedor}
-        texto={proveedor?.nombre}
-        quitar={{ label: 'Quitar proveedor', onClick: () => onChange({ proveedor: null }) }}
-        buscador={
-          <SellInBuscador
-            label="Proveedor"
-            placeholder="Buscar proveedor…"
-            buscar={buscarProveedores}
-            onPick={(opcion) => onChange({ proveedor: opcion.proveedor })}
-            errorMessage="No se pudieron buscar proveedores."
-          />
-        }
-      />
+        <Filtro
+          label="Proveedor"
+          valor={proveedor}
+          texto={proveedor?.nombre}
+          quitar={{ label: 'Quitar proveedor', onClick: () => onChange({ proveedor: null }) }}
+          buscador={
+            <SellInBuscador
+              label="Proveedor"
+              placeholder="Buscar proveedor…"
+              buscar={buscarProveedores}
+              onPick={(opcion) => onChange({ proveedor: opcion.proveedor })}
+              errorMessage="No se pudieron buscar proveedores."
+            />
+          }
+        />
       )}
     </>
   );
