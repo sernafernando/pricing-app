@@ -83,17 +83,39 @@ def test_recap_qty_export_to_stock() -> None:
     assert ln_ok.qty_export == 3
 
 
-def test_prepare_package_for_export_recaps_before_flush() -> None:
+def test_assert_ship_qty_within_stock_rejects_shortfall() -> None:
+    from app.services.gestion_full.excel_export import assert_ship_qty_within_stock
+
+    ln = SimpleNamespace(producto_item_id=7, qty_export=5)
+    pkg = SimpleNamespace(lines=[ln])
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(stock=2)
+    with pytest.raises(ValueError, match="stock ERP insuficiente"):
+        assert_ship_qty_within_stock(db, pkg)
+
+
+def test_prepare_package_for_export_refuses_when_stock_below_qty() -> None:
     from app.services.gestion_full.excel_export import prepare_package_for_export
 
     ln = SimpleNamespace(producto_item_id=1, qty_export=20)
-    pkg_in = SimpleNamespace(id=9, status="open", lines=[ln])
     pkg_locked = SimpleNamespace(id=9, status="open", lines=[ln])
     db = MagicMock()
     db.query.return_value.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = pkg_locked
     db.get.return_value = SimpleNamespace(stock=3)
+    with pytest.raises(ValueError, match="stock ERP insuficiente"):
+        prepare_package_for_export(db, SimpleNamespace(id=9))
+    db.flush.assert_not_called()
 
-    out = prepare_package_for_export(db, pkg_in)
+
+def test_prepare_package_for_export_ok_when_stock_covers_qty() -> None:
+    from app.services.gestion_full.excel_export import prepare_package_for_export
+
+    ln = SimpleNamespace(producto_item_id=1, qty_export=3)
+    pkg_locked = SimpleNamespace(id=9, status="open", lines=[ln])
+    db = MagicMock()
+    db.query.return_value.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = pkg_locked
+    db.get.return_value = SimpleNamespace(stock=3)
+    out = prepare_package_for_export(db, SimpleNamespace(id=9))
     assert out is pkg_locked
     assert ln.qty_export == 3
     db.flush.assert_called_once()
