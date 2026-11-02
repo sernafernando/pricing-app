@@ -443,10 +443,11 @@ describe('resizing (opt-in by resizeKey)', () => {
   });
 
   it('storage that throws neither breaks the screen nor stops resizing', async () => {
-    vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+    // The test setup stubs localStorage with a plain object, so spying on it replaces the methods.
+    const getItem = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
       throw new Error('blocked');
     });
-    vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+    const setItem = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('blocked');
     });
     const errors = [];
@@ -461,6 +462,8 @@ describe('resizing (opt-in by resizeKey)', () => {
       separator().focus();
       await userEvent.keyboard('{ArrowLeft}');
       expect(dragWidth(container)).toBe(`${PANEL + RESIZE_STEP}px`);
+      expect(getItem).toHaveBeenCalled();
+      expect(setItem).toHaveBeenCalled();
       expect(errors).toEqual([]);
     } finally {
       window.removeEventListener('error', onError);

@@ -23,7 +23,9 @@
  *    another row meanwhile, yanking focus back would be hostile.
  *  - With `resizeKey` the operator can drag the divider (or focus it and use
  *    the arrows) to trade table width for panel width. Both sides keep a
- *    minimum, the width is remembered in this browser under that key, and
+ *    minimum, except that the panel's minimum and its default width always
+ *    stay reachable even when the table then gets less than its own. The
+ *    width is remembered in this browser under that key, and
  *    until someone resizes, the panel keeps its usual token width. Without
  *    the prop nothing changes: no handle, same columns.
  */
@@ -135,12 +137,16 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open, onClose]);
 
-  // The default width (token, capped at 42vw) always stays reachable, even
-  // where it leaves the table under its minimum: otherwise narrowing would be
-  // one-way. The CSS track has the same upper bound.
+  // The default width (token, capped at `--split-panel-cap`) always stays
+  // reachable, even where it leaves the table under its minimum: otherwise
+  // narrowing would be one-way. The CSS track has the same upper bound, and
+  // both values are read from the stylesheet, which owns them.
   const defaultWidth = () => {
-    const token = Number.parseFloat(gridRef.current ? getComputedStyle(gridRef.current).getPropertyValue('--split-panel-width') : '');
-    return Number.isFinite(token) ? Math.floor(Math.min(token, window.innerWidth * 0.42)) : 0;
+    if (!gridRef.current) return 0;
+    const style = getComputedStyle(gridRef.current);
+    const token = Number.parseFloat(style.getPropertyValue('--split-panel-width'));
+    const capVw = Number.parseFloat(style.getPropertyValue('--split-panel-cap'));
+    return Number.isFinite(token) && Number.isFinite(capVw) ? Math.floor(Math.min(token, (window.innerWidth * capVw) / 100)) : 0;
   };
 
   const measure = () => {

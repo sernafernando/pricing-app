@@ -6,7 +6,10 @@
    `min(<token>, 42vw)`, so even at 1000px the table keeps its share and the
    panel never covers a row. */
 
+/* The default panel's cap. One source: SplitPanelLayout.jsx reads it back to
+   keep the keyboard and drag bounds equal to the track below. */
 .grid {
+  --split-panel-cap: 42vw;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
@@ -24,13 +27,13 @@
 }
 
 .open {
-  grid-template-columns: minmax(0, 1fr) min(var(--split-panel-width), 42vw);
+  grid-template-columns: minmax(0, 1fr) min(var(--split-panel-width), var(--split-panel-cap));
 }
 
 /* Resizable: the gap becomes the drag handle's own column, so the default
    geometry (table, gap, panel at its token width) is the same as above. */
 .grid[data-resizable].open {
-  grid-template-columns: minmax(0, 1fr) var(--split-panel-gap) min(var(--split-panel-width), 42vw);
+  grid-template-columns: minmax(0, 1fr) var(--split-panel-gap) min(var(--split-panel-width), var(--split-panel-cap));
   column-gap: 0;
 }
 
@@ -48,7 +51,7 @@
       var(--split-panel-drag-width),
       max(
         calc(100% - var(--split-panel-gap) - var(--split-table-min-width)),
-        min(var(--split-panel-width), 42vw)
+        min(var(--split-panel-width), var(--split-panel-cap))
       )
     );
 }
