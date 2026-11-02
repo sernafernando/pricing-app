@@ -386,9 +386,13 @@ describe('TreeNode promo refresh button (per-MLA manual refresh)', () => {
       now.mockReturnValue(1_000_000 + 60_000);
       await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
       expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_CAT');
+      // Wait for the refresh to settle BEFORE moving the clock, so the mark is stamped at the refresh time.
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i })).not.toBeDisabled(),
+      );
       // Restarted at the refresh, not at the earlier pull.
       now.mockReturnValue(1_000_000 + 5 * 60_000 + 1);
-      await waitFor(() => expect(promoPulledRecently('MLA_CAT')).toBe(true));
+      expect(promoPulledRecently('MLA_CAT')).toBe(true);
     } finally {
       now.mockRestore();
       resetPromoPulls();

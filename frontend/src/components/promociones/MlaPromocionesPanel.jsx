@@ -112,6 +112,8 @@ function capitalize(text) {
  * (without arguments) at the ~5s and ~65s mirror re-reads, including after a
  * rejected write. A host that shows data the write changes (price, markup) re-reads
  * it; the re-reads are idempotent.
+ * `onPulled(mla)` (optional) is called once a background pull ML answered
+ * settles for this mount (not on a failed or abandoned one).
  * `ignoreGlobalFilter` is for a host that is not a Productos tree (the
  * Publicaciones ML side panel): the shared type/name filter belongs to the
  * page whose filter bar sets it, and showing "Sin promos del tipo filtrado"
@@ -271,7 +273,8 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
   // An EMPTY mirror is only "no promos" when ML agrees (incident 2026-10-05:
   // 0 mirror rows, 9 live promos). The mirror read stays fast and mirror-only;
   // the panel asks ML separately AFTER rendering. Keyed by the `data` object
-  // so a reload re-asks, and a stale answer for an older read is ignored.
+  // so a reload re-asks (unless ML confirmed "none" less than 5 minutes ago,
+  // `promoPullTtl`), and a stale answer for an older read is ignored.
   // A failed refresh already means "unconfirmed": no extra call then.
   // `mlCheckState` is one explicit value: 'idle' (nothing to confirm),
   // 'checking', 'confirmed' or 'unconfirmed'. An answer recorded for another

@@ -10,7 +10,7 @@
  * The "no promotions" confirmation for an empty mirror is also a live ML call, so ML's YES gets the same TTL
  * (an unconfirmed or failed answer asks again on the next open).
  */
-export const PROMO_PULL_TTL_MS = 5 * 60 * 1000;
+const PROMO_PULL_TTL_MS = 5 * 60 * 1000;
 
 const pulledAt = new Map();
 const confirmedEmptyAt = new Map();
@@ -21,9 +21,7 @@ export const markPromoPulled = (mla) => {
   pulledAt.set(mla, Date.now());
 };
 
-export const promoPulledRecently = (mla) => {
-  return isRecent(pulledAt.get(mla));
-};
+export const promoPulledRecently = (mla) => isRecent(pulledAt.get(mla));
 
 export const markPromoEmptyConfirmed = (mla) => {
   confirmedEmptyAt.set(mla, Date.now());
