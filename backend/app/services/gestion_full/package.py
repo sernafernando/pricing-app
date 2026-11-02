@@ -108,9 +108,7 @@ def upsert_package_line(
     )
     if line is None:
         if pkg.status == PACKAGE_STATUS_EXPORTED:
-            raise ValueError(
-                "paquete ya exportado: líneas Listo nuevas van al próximo envío"
-            )
+            raise ValueError("paquete ya exportado: líneas Listo nuevas van al próximo envío")
         line = GestionFullPackageLine(
             package_id=package.id,
             producto_item_id=producto_item_id,
