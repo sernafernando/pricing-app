@@ -41,3 +41,18 @@ def test_pick_last_inbound_takes_newest_reception() -> None:
 def test_pick_last_inbound_empty() -> None:
     assert pick_last_inbound([]) is None
     assert pick_last_inbound([{"type": "SALE_CONFIRMATION", "detail": {"available_quantity": 1}}]) is None
+
+
+def test_pick_last_inbound_parses_captured_live_operation() -> None:
+    """Fernando please-check: load captured_live_operation from the probe fixture."""
+    import json
+    from pathlib import Path
+
+    fixture = Path(__file__).resolve().parents[1] / "fixtures/ml_fulfillment/inbound_reception_probe_notes.json"
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    row = payload["captured_live_operation"]
+    picked = pick_last_inbound([row])
+    assert picked is not None
+    assert picked["inbound_id"] == "79909756"
+    assert picked["operation_id"] == 7604247737135372849
+    assert picked["cantidad"] == 12
