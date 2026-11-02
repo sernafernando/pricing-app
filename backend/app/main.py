@@ -231,7 +231,6 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(free_shipping_auto_fix_task()),
             asyncio.create_task(publicacion_envio_repair_task()),
             asyncio.create_task(sync_sale_orders_task()),
-
             asyncio.create_task(ml_questions_ingest_task()),
             asyncio.create_task(ml_questions_draft_task()),
             asyncio.create_task(ml_questions_publish_task()),
