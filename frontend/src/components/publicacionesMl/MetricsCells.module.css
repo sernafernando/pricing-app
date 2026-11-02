@@ -100,7 +100,13 @@
   border-color: var(--tone-danger-border);
 }
 
-/* "Filas finas" (the page marks the table `data-density='dense'`): the date alone, "hace N días" in its tooltip. */
+/* "Filas finas" (the page marks the table `data-density='dense'`): smaller sparklines (their own class, never other
+   icons such as the price lock), and the date alone, "hace N días" in its tooltip. */
+:global([data-density='dense']) .sparkline {
+  width: auto;
+  height: 16px;
+}
+
 :global([data-density='dense']) .ago {
   display: none;
 }

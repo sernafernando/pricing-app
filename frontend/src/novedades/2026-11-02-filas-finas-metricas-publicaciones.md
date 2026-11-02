@@ -15,5 +15,6 @@
 ## Para tener en cuenta
 
 - La elección queda guardada en este navegador, por separado para cada pantalla. Por defecto se ven las filas de siempre.
-- Con **Filas finas** cada dato queda en una sola línea: lo que no entra (un título largo, el precio tachado, la promoción, "hace N días" o "Sin stock ERP") se ve completo al pasar el mouse.
+- Con **Filas finas**, un título largo y la línea de datos de debajo se cortan con "…" y se ven completos al pasar el mouse sobre el título.
+- En **Publicaciones ML**, el precio tachado, la promoción, "hace N días" y "Sin stock ERP" pasan al cartel que aparece al pasar el mouse sobre su celda. El cartel "precio de Productos" y los detalles de precio de la vista **Precios** siguen a la vista.
 - Solo cambia cómo se ve la tabla: los números, los filtros y las columnas son los mismos.

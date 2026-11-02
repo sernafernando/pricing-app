@@ -685,7 +685,7 @@ thead .colProducto {
   justify-content: flex-start;
 }
 
-.table[data-density='dense'] td svg[role='img'] {
+.table[data-density='dense'] .sparkline {
   width: auto;
   height: 16px;
 }

@@ -109,7 +109,11 @@ export default function PublicationCell({ item }) {
         {item.thumbnail && <img src={item.thumbnail} alt="" loading="lazy" className={styles.image} />}
       </div>
       <div className={styles.info}>
-        <span className={`${styles.title} ${item.title ? '' : styles.titleEmpty}`} title={item.title ?? undefined}>
+        {/* The title is the big target to hover: its tooltip repeats the meta line, whose own parts have tooltips. */}
+        <span
+          className={`${styles.title} ${item.title ? '' : styles.titleEmpty}`}
+          title={[item.title ?? 'Sin título', metaTitle].filter(Boolean).join('\n')}
+        >
           {item.title ?? 'Sin título'}
         </span>
         <span className={styles.meta} title={metaTitle || undefined}>

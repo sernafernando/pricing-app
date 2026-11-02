@@ -2331,6 +2331,33 @@ describe('row colors and the color layer (S8)', () => {
     });
   }
 
+  // "Filas finas" (vistas-tipo-publicacion S5) shrinks the sparklines only: the lock icon keeps its 10px.
+  for (const theme of ['light', 'dark']) {
+    it(`1920x1080 ${theme}: dense Precios view, sparklines shrink but the lock icon keeps its size`, async () => {
+      localStorage.setItem('publicaciones-ml.filas-finas', 'true');
+      try {
+        const screen = await renderPage({ width: 1920, height: 1080, theme, entry: PRECIOS });
+        const lock = screen.getByRole('img', { name: '% conservado en cambios masivos' }).first();
+        await expect.element(lock).toBeVisible();
+        expect(scrollerOf().closest('[data-density]').dataset.density).toBe('dense');
+        expect(lock.element().getBoundingClientRect().height).toBeLessThanOrEqual(10.5);
+        const sparks = [...scrollerOf().querySelectorAll('td svg[aria-label$="90 días"]')];
+        expect(sparks.length).toBeGreaterThan(0);
+        for (const spark of sparks) expect(spark.getBoundingClientRect().height).toBeLessThanOrEqual(16.5);
+        // The meta line is cut inside its own box (whole in the title's tooltip): no cell spills, nothing cut lacks a title.
+        const spilling = [...scrollerOf().querySelectorAll('tbody td')].filter((td) => td.scrollWidth > td.clientWidth + 1);
+        expect(spilling.map((td) => td.textContent.trim().slice(0, 40))).toEqual([]);
+        const cut = [...scrollerOf().querySelectorAll('td[data-column="titulo"] span')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+        for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+        lock.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-precios-1920-${theme}.png` });
+        screen.unmount();
+      } finally {
+        localStorage.removeItem('publicaciones-ml.filas-finas');
+      }
+    });
+  }
+
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: the rebate and web transfer editors open inside their cell, every control in view`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });

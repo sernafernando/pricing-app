@@ -349,7 +349,14 @@ function renderCell(colId, row, ctx) {
       const weeks = weeklySums(row.series_units_90d);
       const tone = weeks.length > 1 ? deltaTone(weeks.at(-1) - weeks.at(-2)) : null;
       return (
-        <Sparkline values={weeks} width={isSub ? 80 : 96} height={isSub ? 22 : 28} tone={tone} label="Unidades por semana, 90 días" />
+        <Sparkline
+          values={weeks}
+          width={isSub ? 80 : 96}
+          height={isSub ? 22 : 28}
+          tone={tone}
+          className={styles.sparkline}
+          label="Unidades por semana, 90 días"
+        />
       );
     }
     case 'markup': {
@@ -365,6 +372,7 @@ function renderCell(colId, row, ctx) {
           width={isSub ? 100 : 120}
           height={isSub ? 24 : 32}
           tone={deltaTone(row.markup_delta_pp)}
+          className={styles.sparkline}
           label="Markup diario, 90 días"
         />
       );

@@ -11,7 +11,8 @@ export default function PriceCell({ price }) {
   if (price?.amount == null) return <span className={styles.empty}>—</span>;
   const hasRegular = price.regular_amount != null && Number(price.regular_amount) !== Number(price.amount);
   const promotion = [price.promotion_type, price.campaign].filter(Boolean).join(' · ');
-  // "Filas finas" keeps only the price on its line: the struck price and the promotion stay in the tooltip.
+  // "Filas finas" hides the struck price and the promotion text: both stay in this tooltip. The "precio de Productos"
+  // badge stays visible under the price.
   const detail = [hasRegular && `Antes ${formatAmount(price.regular_amount)}`, promotion].filter(Boolean).join(' · ');
   return (
     <div className={`${styles.stack} ${styles.stackEnd}`} title={detail || undefined}>

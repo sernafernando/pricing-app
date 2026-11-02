@@ -212,11 +212,6 @@
   padding-bottom: var(--space-1);
 }
 
-.tableDensity[data-density='dense'] :global(td svg[role='img']) {
-  width: auto;
-  height: 16px;
-}
-
 .densityToggle[aria-pressed='true'] {
   color: var(--cf-accent-blue);
   background: var(--cf-accent-blue-light);

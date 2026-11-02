@@ -155,4 +155,14 @@ describe('PublicationCell meta tooltip', () => {
     const meta = screen.getByText('MLA9').parentElement;
     expect(meta).toHaveAttribute('title', 'MLA9 · SKU AX55-SKU · Vínculo: Manual · EP-544-BK · Tienda: TP-Link · Full · Catálogo · 3 variaciones');
   });
+
+  it('repeats the meta line under the full title in the title tooltip, the big target to hover', () => {
+    render(<PublicationCell item={makeItem({ item_id: 'MLA9', title: 'Router AX55', seller_sku: null, link: null, store_label: 'TP-Link', is_full: true, catalog_listing: false, variations_count: 0 })} />);
+    expect(screen.getByText('Router AX55')).toHaveAttribute('title', 'Router AX55\nMLA9 · Tienda: TP-Link · Full');
+  });
+
+  it('an untitled publication still gets the meta line in its title tooltip', () => {
+    render(<PublicationCell item={makeItem({ item_id: 'MLA9', title: null, seller_sku: null, link: null, store_label: null, official_store_id: null, is_full: false, catalog_listing: false, variations_count: 0 })} />);
+    expect(screen.getByText('Sin título')).toHaveAttribute('title', 'Sin título\nMLA9');
+  });
 });
