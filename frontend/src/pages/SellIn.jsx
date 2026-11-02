@@ -51,6 +51,8 @@ const TIPO_HINTS = {
 // The active bonuses the summary cards add up.
 // ponytail: brands and reached purchases count only the first 200 active bonuses; ask the backend for those totals if active bonuses ever pass 200
 const BONOS_VIGENTES_MAX = 200;
+// The permissions of `GET /administracion/proveedores`, the Proveedor filter's search (`_PERMISOS_LECTURA_PROVEEDOR`).
+const PERMISOS_PROVEEDORES = ['administracion.ver_proveedores', 'administracion.ver_ordenes_compra', 'administracion.gestionar_ordenes_compra'];
 const TAB_SELL_OUT = 'sell-out';
 const TAB_GRUPOS = 'grupos';
 
@@ -95,7 +97,11 @@ function useBonos(enabled, filtros) {
       const { data } = await sellInBonosAPI.listar({ ...filtros, page: Math.floor(offset / pageSize) + 1, page_size: pageSize });
       if (requestId === requestRef.current) setLista(data);
     } catch {
-      if (requestId === requestRef.current) setError('No se pudieron cargar los bonos de marca.');
+      // Like the purchases: no rows of other filters under the error (they could be ticked and voided).
+      if (requestId === requestRef.current) {
+        setLista(null);
+        setError('No se pudieron cargar los bonos de marca.');
+      }
     }
   }, [enabled, filtros, offset, pageSize]);
   useEffect(() => {
@@ -606,7 +612,12 @@ export default function SellIn() {
                 </label>
               </div>
               <div className={styles.filterBand}>
-                <SellInFiltrosExtra producto={filters.producto} proveedor={filters.proveedor} onChange={setFilter} />
+                <SellInFiltrosExtra
+                  producto={filters.producto}
+                  proveedor={filters.proveedor}
+                  onChange={setFilter}
+                  conProveedor={PERMISOS_PROVEEDORES.some((codigo) => tienePermiso(codigo))}
+                />
               </div>
               <div className={styles.filterBand}>
                 <div className={styles.facetRow}>

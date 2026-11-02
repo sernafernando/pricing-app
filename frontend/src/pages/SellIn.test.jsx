@@ -317,6 +317,29 @@ describe('SellIn page — the top filters also filter the brand bonuses (S4)', (
   });
 });
 
+describe('SellIn page — what the new Sell in filters show when something is missing (S4)', () => {
+  it('a failed bonos reload after a filter change shows the error and not the bonos of the previous filters', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    expect(await screen.findByText('Bono anulado')).toBeInTheDocument();
+    sellInBonosAPI.listar.mockImplementation(async (params) =>
+      params?.page_size === 200 ? { data: { items: [BONO], total: 1, page: 1, page_size: 200 } } : Promise.reject(new Error('caído')),
+    );
+    await user.selectOptions(within(screen.getByRole('region', { name: 'Filtros' })).getByLabelText('Moneda'), 'USD');
+    expect(await screen.findByText('No se pudieron cargar los bonos de marca.')).toBeInTheDocument();
+    expect(screen.queryByText('Bono anulado')).not.toBeInTheDocument();
+  });
+
+  it('without a permission to read suppliers there is no Proveedor filter (its search would answer 403); Producto stays', async () => {
+    mockTienePermiso.mockImplementation((codigo) => !codigo.startsWith('administracion.'));
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    const filtros = screen.getByRole('region', { name: 'Filtros' });
+    expect(within(filtros).queryByRole('group', { name: 'Proveedor' })).not.toBeInTheDocument();
+    expect(within(filtros).getByRole('group', { name: 'Producto' })).toBeInTheDocument();
+  });
+});
+
 describe('SellIn page — Producto and Proveedor filters of the purchases (S4)', () => {
   beforeEach(() => {
     productosAPI.listar.mockResolvedValue({ data: { productos: PRODUCTOS, total: 2, page: 1, page_size: 10 } });

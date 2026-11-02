@@ -12,7 +12,7 @@ Gestiona las promociones de compra (sell in) que bajan el costo de una compra, l
 
 En **Sell in** podés filtrar por fechas, búsqueda, marca, moneda (ARS/USD), estado (Activa/Anulada), **Producto**, **Proveedor** y aplicación (aplican/no aplican). También podés filtrar por tipo: **Por compra** o **Bono de marca**. La tabla muestra las compras y, debajo, los bonos de marca. Arriba hay tarjetas de resumen.
 
-- **Producto** y **Proveedor** se buscan y se eligen de la lista de resultados; la cruz al lado del elegido lo quita. Filtran solo las compras: las que tienen ese producto en alguna línea o son de ese proveedor.
+- **Producto** y **Proveedor** se buscan y se eligen de la lista de resultados; la cruz al lado del elegido lo quita. Filtran solo las compras: las que tienen ese producto en alguna línea o son de ese proveedor. **Proveedor** aparece si tenés permiso para ver proveedores u órdenes de compra (administracion.ver_proveedores, administracion.ver_ordenes_compra o administracion.gestionar_ordenes_compra).
 - Los bonos de marca siguen la búsqueda (descripción o marca del bono), la marca, la moneda, el estado y las fechas. Con fechas, se ven los bonos cuyo rango de fechas se cruza con el período elegido, aunque sea un solo día. Aplicación, Producto y Proveedor no filtran los bonos: un bono no tiene "aplica" y alcanza una marca, una categoría, modelos o una operación, no un proveedor.
 - Las tarjetas de bonos vigentes cuentan siempre todos los bonos activos, con cualquier filtro.
 

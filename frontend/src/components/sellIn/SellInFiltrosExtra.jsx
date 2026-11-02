@@ -34,8 +34,9 @@ function Filtro({ label, valor, texto, quitar, buscador }) {
  * The Sell in list's product and supplier filters (`item_id`, `proveedor_id` on the purchases, their summary and
  * "todo lo filtrado"). `producto` is a catalog row (`item_id`, `codigo`, `descripcion`), `proveedor` a supplier
  * (`id`, `nombre`); `onChange({ producto })` / `onChange({ proveedor })` with the picked one, or null to clear it.
+ * `conProveedor` false hides the supplier filter: without a supplier-read permission its search answers 403.
  */
-export default function SellInFiltrosExtra({ producto, proveedor, onChange }) {
+export default function SellInFiltrosExtra({ producto, proveedor, onChange, conProveedor = true }) {
   return (
     <>
       <Filtro
@@ -53,6 +54,7 @@ export default function SellInFiltrosExtra({ producto, proveedor, onChange }) {
           />
         }
       />
+      {conProveedor && (
       <Filtro
         label="Proveedor"
         valor={proveedor}
@@ -68,6 +70,7 @@ export default function SellInFiltrosExtra({ producto, proveedor, onChange }) {
           />
         }
       />
+      )}
     </>
   );
 }
