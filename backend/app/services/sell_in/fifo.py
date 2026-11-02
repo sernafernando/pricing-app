@@ -33,6 +33,24 @@ nothing.
 
 Two passes: units first (events in order), then money per purchase line over
 its final holders in sale order, so a fully used line still adds up exactly.
+
+Cost modes (owner, 2026-11-02; handoffs `sell-in-costos-propuesta.md`): dated
+`Periodo`s change only the MONEY pass. Units still come out of the lots in
+FIFO order, so every lot keeps its consumed and left units. The period whose
+`desde` is the latest on or before a sale's date governs it (same `desde`: the
+later in the list); before the first one, FIFO.
+- `fifo`: each lot's units at the lot's own value, by cumulative rounding.
+- `ponderado` ("si compro 100 unidades a 10 y 100 a 8, ponderar eso en 200 a
+  9"): the units left in every lot that already counts form one pool at one
+  weighted value, by cumulative rounding over the pool. A lot that starts
+  counting later joins it: what the pool still holds plus that lot, over the
+  units left. The pool hands out exactly what it holds.
+- `ultimo` ("que el costo sea el del último también combinando las
+  cantidades"): every unit at the unit value of the newest lot that counts;
+  this does NOT hand out what the lots hold (owner accepted, 2026-11-02).
+Entering a period re-bases each lot left on its own value (its whole discount
+times the share of its units left), so a sale before a period's `desde` keeps
+exactly what it got before that period existed.
 """
 
 from __future__ import annotations
@@ -62,6 +80,14 @@ def orden_fifo(lote: Lote) -> Tuple[date, int, int]:
 
 
 @dataclass(frozen=True)
+class Periodo:
+    """A product's cost mode from `desde` on (`fifo`, `ponderado`, `ultimo`); see the module docstring."""
+
+    desde: date
+    modo: str
+
+
+@dataclass(frozen=True)
 class Venta:
     """A sale line (`unidades > 0`) or a return (`unidades < 0`). A return's
     `objetivo` is the `(canal, venta_ref)` of the sale it reverses, when the
@@ -88,10 +114,99 @@ def _cents(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
-def _tramo(lote: Lote, desde: int, hasta: int) -> Decimal:
-    """The discount of units [desde, hasta) of `lote`."""
-    total = lote.descuento_ars
-    return _cents(total * hasta / lote.cantidad) - _cents(total * desde / lote.cantidad)
+def _escalon(total: Decimal, unidades: int, desde: int, hasta: int) -> Decimal:
+    """Units [desde, hasta) of `total` spread over `unidades`, by cumulative rounding."""
+    return _cents(total * hasta / unidades) - _cents(total * desde / unidades)
+
+
+def _periodo(periodos: List[Periodo], fecha: date) -> Tuple[int, str]:
+    """(index, mode) of the period governing `fecha`; (-1, 'fifo') before the first one."""
+    actual = (-1, "fifo")
+    for i, periodo in enumerate(periodos):
+        if periodo.desde <= fecha:
+            actual = (i, periodo.modo)
+    return actual
+
+
+class Dinero:
+    """The money pass: what each (sale, lot, units) row carries under the cost modes, fed in sale order."""
+
+    def __init__(self, lotes: List[Lote], periodos: Iterable[Periodo] = ()) -> None:
+        self.lotes = lotes
+        self.periodos = list(periodos)
+        for periodo in self.periodos:
+            if periodo.modo not in ("fifo", "ponderado", "ultimo"):
+                raise ValueError(f"cost mode {periodo.modo!r} is not supported here")
+        self.usadas = [0] * len(lotes)
+        self._lote_seg: Dict[int, Tuple[int, int, Decimal, int]] = {}  # lot -> (period, start units, base, units)
+        # The pool of a `ponderado` / `ultimo` period: [period, lots counting, base money, base units, units taken].
+        self._seg: Optional[list] = None
+
+    def _base_propia(self, i: int) -> Decimal:
+        lote = self.lotes[i]
+        return lote.descuento_ars * (lote.cantidad - self.usadas[i]) / lote.cantidad
+
+    def _cuentan(self, fecha: date) -> int:
+        """How many lots (FIFO order, dates never decrease) count on `fecha`."""
+        return sum(1 for lote in self.lotes if lote.fecha <= fecha)
+
+    def fila(self, fecha: date, i: int, unidades: int) -> Decimal:
+        n, modo = _periodo(self.periodos, fecha)
+        if modo == "fifo":
+            seg = self._lote_seg.get(i)
+            if seg is None or seg[0] != n:
+                seg = (n, self.usadas[i], self._base_propia(i), self.lotes[i].cantidad - self.usadas[i])
+                self._lote_seg[i] = seg
+            k = self.usadas[i] - seg[1]
+            monto = _escalon(seg[2], seg[3], k, k + unidades)
+        else:
+            monto = self._pool(n, modo, fecha, unidades)
+        self.usadas[i] += unidades
+        return monto
+
+    def proximo(self, fecha: date) -> Optional[Tuple[int, Decimal, int, int]]:
+        """What the next sale on `fecha` gets after the rows fed so far, without feeding it: `(lot the units come
+        from, money, units it spreads over, units left at that value)`; None when no lot that counts has units."""
+        cuentan = self._cuentan(fecha)
+        libres = [j for j in range(cuentan) if self.lotes[j].cantidad - self.usadas[j] > 0]
+        if not libres:
+            return None
+        primero = libres[0]
+        n, modo = _periodo(self.periodos, fecha)
+        if modo == "fifo":
+            lote = self.lotes[primero]
+            return primero, lote.descuento_ars, lote.cantidad, lote.cantidad - self.usadas[primero]
+        unidades = sum(self.lotes[j].cantidad - self.usadas[j] for j in libres)
+        if modo == "ultimo":
+            ultimo = self.lotes[cuentan - 1]
+            return primero, ultimo.descuento_ars, ultimo.cantidad, unidades
+        seg = self._seg if self._seg is not None and self._seg[0] == n else None
+        if seg is None or seg[1] != cuentan:
+            desde, base = (0, Decimal(0)) if seg is None else (seg[1], seg[2] - _cents(seg[2] * seg[4] / seg[3]))
+            base += sum((self._base_propia(j) for j in range(desde, cuentan)), Decimal(0))
+            return primero, base, unidades, unidades
+        return primero, seg[2] - _cents(seg[2] * seg[4] / seg[3]), unidades, unidades
+
+    def _pool(self, n: int, modo: str, fecha: date, unidades: int) -> Decimal:
+        cuentan = self._cuentan(fecha)
+        seg = self._seg if self._seg is not None and self._seg[0] == n else None  # a new period re-bases
+        if seg is None or seg[1] != cuentan:
+            libres = sum(self.lotes[j].cantidad - self.usadas[j] for j in range(cuentan))
+            if modo == "ultimo":
+                ultimo = self.lotes[cuentan - 1]
+                seg = [n, cuentan, ultimo.descuento_ars / ultimo.cantidad, 1, 0]  # a unit value over unit steps
+            else:
+                desde = 0
+                base = Decimal(0)
+                if seg is not None:  # lots start counting mid-period: what the pool still holds, plus them
+                    desde = seg[1]
+                    base = seg[2] - _cents(seg[2] * seg[4] / seg[3])
+                base += sum((self._base_propia(j) for j in range(desde, cuentan)), Decimal(0))
+                seg = [n, cuentan, base, libres, 0]
+            self._seg = seg
+        k = seg[4]
+        seg[4] += unidades
+        return _escalon(seg[2], seg[3], k, k + unidades)
 
 
 Clave = Tuple[str, int]
@@ -151,8 +266,9 @@ def _validar(lotes: List[Lote], ventas: List[Venta]) -> None:
         vistas.add(clave)
 
 
-def asignar(lotes: Iterable[Lote], ventas: Iterable[Venta]) -> List[Consumo]:
-    """The consumptions of ONE product: its active purchase lines against its sales and returns."""
+def asignar(lotes: Iterable[Lote], ventas: Iterable[Venta], periodos: Iterable[Periodo] = ()) -> List[Consumo]:
+    """The consumptions of ONE product: its active purchase lines against its sales and returns, under its dated
+    cost modes (`periodos`, oldest first; none: FIFO)."""
     lotes = sorted(lotes, key=orden_fifo)
     ventas = sorted(ventas, key=lambda v: (v.fecha, v.unidades < 0, v.canal, v.venta_ref))
     _validar(lotes, ventas)
@@ -161,27 +277,23 @@ def asignar(lotes: Iterable[Lote], ventas: Iterable[Venta]) -> List[Consumo]:
     fechas = {(v.canal, v.venta_ref): v.fecha for v in ventas}
     tenencia = _unidades(lotes, ventas)
 
-    # Pass 2, money: each line's units are spread over its final holders in sale order.
-    por_lote: Dict[int, Dict[Clave, int]] = {}
-    for clave, tomado in tenencia.items():
-        for i, unidades in tomado:
-            por_lote.setdefault(i, {})
-            por_lote[i][clave] = por_lote[i].get(clave, 0) + unidades
+    # Pass 2, money: the final holdings in sale order (within a sale, FIFO lot order), so a fully used line still
+    # adds up exactly under FIFO and the money a period hands out only depends on the sales before it.
+    dinero = Dinero(lotes, periodos)
     consumos: List[Consumo] = []
-    for i, holders in por_lote.items():
-        lote = lotes[i]
-        usadas = 0
-        for clave in sorted(holders, key=lambda c: (fechas[c], c[0], c[1])):
-            unidades = holders[clave]
+    for clave in sorted(tenencia, key=lambda c: (fechas[c], c[0], c[1])):
+        por_lote: Dict[int, int] = {}
+        for i, unidades in tenencia[clave]:
+            por_lote[i] = por_lote.get(i, 0) + unidades
+        for i in sorted(por_lote):
             consumos.append(
                 Consumo(
-                    compra_item_id=lote.compra_item_id,
+                    compra_item_id=lotes[i].compra_item_id,
                     canal=clave[0],
                     venta_ref=clave[1],
                     fecha_venta=fechas[clave],
-                    unidades=unidades,
-                    descuento_ars=_tramo(lote, usadas, usadas + unidades),
+                    unidades=por_lote[i],
+                    descuento_ars=dinero.fila(fechas[clave], i, por_lote[i]),
                 )
             )
-            usadas += unidades
     return sorted(consumos, key=lambda c: (fechas[(c.canal, c.venta_ref)], c.canal, c.venta_ref, c.compra_item_id))

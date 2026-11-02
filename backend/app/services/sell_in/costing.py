@@ -80,10 +80,10 @@ from sqlalchemy import delete, func, insert, text
 from sqlalchemy.orm import Session
 
 from app.models.ml_sale_line import MlSaleLine
-from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
+from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo, SellInModoProducto
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
-from app.services.sell_in.fifo import Consumo, Lote, Venta, asignar, orden_fifo
+from app.services.sell_in.fifo import Consumo, Dinero, Lote, Periodo, Venta, asignar, orden_fifo
 from app.services.sell_in.split import unit_discount
 
 # First key of the two-key advisory lock; the second is the product's item_id.
@@ -205,11 +205,19 @@ class FifoPurchaseCosting:
         lotes = self._lotes(db, ids)
         ventas = self._ventas(db, lotes)
         guardados = self._guardados(db, ids)
+        periodos = self.periodos(db, ids)
 
         for item_id in ids:
             # The whole per-product work (allocation AND write) runs inside the
             # isolation, so one product's bad data never aborts the batch.
-            args = (db, item_id, lotes.get(item_id, []), ventas.get(item_id, []), guardados.get(item_id, {}))
+            args = (
+                db,
+                item_id,
+                lotes.get(item_id, []),
+                ventas.get(item_id, []),
+                guardados.get(item_id, {}),
+                periodos.get(item_id, []),
+            )
             if isolate_failures:
                 try:
                     with db.begin_nested():
@@ -226,17 +234,52 @@ class FifoPurchaseCosting:
     def vigentes(self, db: Session, item_ids: Iterable[int], hoy: date) -> Dict[int, LoteVigente]:
         """The first line in FIFO order (`fifo`: `fecha`, `compra_id`, `compra_item_id`) counting on or
         before `hoy` with units the stored consumptions left; a product whose lines are used up is
-        absent: its cost is back to normal. Two queries, whatever the number of products."""
+        absent: its cost is back to normal. Two queries, whatever the number of products.
+
+        A product with cost modes replays its stored consumptions through `fifo.Dinero`, so the value is the one
+        the mode governing `hoy` gives (the weighted pool, or the newest lot for every unit left); its line is still
+        the FIFO one the units come from. Two more queries, only for those products."""
         lotes = self.lotes(db, item_ids)
         usadas = self.unidades_usadas(db, [lote.compra_item_id for item in lotes.values() for lote in item])
+        periodos = self.periodos(db, sorted(lotes))
         salida: Dict[int, LoteVigente] = {}
         for item_id, item in lotes.items():
+            if item_id in periodos:
+                continue
             for lote in item:
                 restantes = lote.cantidad - usadas.get(lote.compra_item_id, 0)
                 if lote.fecha <= hoy and restantes > 0:
                     descuento = unit_discount(lote.descuento_ars, lote.cantidad)
                     salida[item_id] = LoteVigente(lote.compra_item_id, descuento, restantes)
                     break
+        con_modos = {item_id: item for item_id, item in lotes.items() if item_id in periodos}
+        filas = self._filas_guardadas(db, [lote.compra_item_id for item in con_modos.values() for lote in item])
+        for item_id, item in con_modos.items():
+            dinero = Dinero(item, periodos[item_id])
+            indice = {lote.compra_item_id: i for i, lote in enumerate(item)}
+            for linea, fecha, unidades in filas.get(item_id, []):
+                dinero.fila(fecha, indice[linea], unidades)
+            proximo = dinero.proximo(hoy)
+            if proximo is not None:
+                i, monto, sobre, restantes = proximo
+                salida[item_id] = LoteVigente(item[i].compra_item_id, unit_discount(monto, sobre), restantes)
+        return salida
+
+    @staticmethod
+    def _filas_guardadas(db: Session, lineas: List[int]) -> Dict[int, List[Tuple[int, date, int]]]:
+        """`{item_id: [(line, sale date, units), ...]}` of the stored consumptions of `lineas`, in sale order (the
+        order of one sale's lines does not change what the money pass is left with)."""
+        if not lineas:
+            return {}
+        t = SellInConsumo
+        filas = (
+            db.query(t.item_id, t.compra_item_id, t.fecha_venta, t.unidades)
+            .filter(t.compra_item_id.in_(lineas))
+            .order_by(t.item_id, t.fecha_venta, t.canal, t.venta_ref, t.compra_item_id)
+        )
+        salida: Dict[int, List[Tuple[int, date, int]]] = defaultdict(list)
+        for item_id, linea, fecha, unidades in filas:
+            salida[item_id].append((linea, fecha, unidades))
         return salida
 
     def lotes(self, db: Session, item_ids: Iterable[int]) -> Dict[int, List[Lote]]:
@@ -255,11 +298,30 @@ class FifoPurchaseCosting:
         filas = db.query(t.compra_item_id, func.sum(t.unidades)).filter(t.compra_item_id.in_(lineas))
         return {linea: int(unidades) for linea, unidades in filas.group_by(t.compra_item_id)}
 
+    @staticmethod
+    def periodos(db: Session, ids: List[int]) -> Dict[int, List[Periodo]]:
+        """`{item_id: its cost modes, oldest first}` (`sell_in_modos_producto`; same `desde`: by id, the one saved
+        last after), for the products that have any; a product without is FIFO."""
+        if not ids:
+            return {}
+        m = SellInModoProducto
+        filas = db.query(m.item_id, m.desde, m.modo).filter(m.item_id.in_(ids)).order_by(m.item_id, m.desde, m.id)
+        periodos: Dict[int, List[Periodo]] = defaultdict(list)
+        for item_id, desde, modo in filas:
+            periodos[item_id].append(Periodo(desde, modo))
+        return periodos
+
     @classmethod
     def _producto(
-        cls, db: Session, item_id: int, lotes: List[Lote], ventas: List[Venta], guardados: Dict[_Key, tuple]
+        cls,
+        db: Session,
+        item_id: int,
+        lotes: List[Lote],
+        ventas: List[Venta],
+        guardados: Dict[_Key, tuple],
+        periodos: List[Periodo],
     ) -> Tuple[int, int]:
-        return cls._escribir(db, item_id, asignar(lotes, ventas), guardados)
+        return cls._escribir(db, item_id, asignar(lotes, ventas, periodos), guardados)
 
     @staticmethod
     def _lotes(db: Session, ids: List[int]) -> Dict[int, List[Lote]]:
