@@ -14,15 +14,13 @@ brand from its stored data: it stays in the list whatever brand is picked.
 
 from __future__ import annotations
 
-import uuid
-from contextlib import contextmanager
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.database import Base
 from app.services.sell_in import bonos_crud
+from tests.services.sell_in._bonos_schema import bonos_schema
 
 pytestmark = pytest.mark.postgres
 
@@ -41,35 +39,8 @@ _STUBS = [
 ]
 
 
-@contextmanager
 def _schema():
-    from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable, _restore_pristine_pg_types
-
-    if not _postgres_reachable():
-        pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
-    schema = f"sell_in_bm_{uuid.uuid4().hex[:8]}"
-    admin = create_engine(POSTGRES_TEST_URL, isolation_level="AUTOCOMMIT")
-    with admin.connect() as conn:
-        conn.execute(text(f"CREATE SCHEMA {schema}"))
-    eng = create_engine(POSTGRES_TEST_URL, connect_args={"options": f"-csearch_path={schema}"})
-    tables = [Base.metadata.tables["sell_in_bonos_marca"], Base.metadata.tables["sell_in_bono_items"]]
-    found = {column: column.type for table in tables for column in table.columns}
-    try:
-        with eng.begin() as conn:
-            for statement in _STUBS:
-                conn.execute(text(statement))
-        _restore_pristine_pg_types(tables)
-        try:
-            Base.metadata.create_all(bind=eng, tables=tables)
-        finally:
-            for column, column_type in found.items():
-                column.type = column_type
-        yield eng
-    finally:
-        eng.dispose()
-        with admin.connect() as conn:
-            conn.execute(text(f"DROP SCHEMA {schema} CASCADE"))
-        admin.dispose()
+    return bonos_schema("sell_in_bm", ["sell_in_bonos_marca", "sell_in_bono_items"], _STUBS)
 
 
 def _bono(conn, alcance: str, *, marca=None, categoria=None, pedido_id=None, modelos=()) -> int:

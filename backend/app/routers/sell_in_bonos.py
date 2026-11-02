@@ -9,7 +9,8 @@ is HTTP only over `app.services.sell_in.bonos_crud`.
 - Reads (`GET ""`, `GET /{id}`) need `sell_in.ver`; load, edit and void need
   `sell_in.gestionar` (the sell-in permissions: a bonus lowers product cost).
 - The author comes from the token, never from the body.
-- `GET ""` is paginated, newest first, filtered by estado, brand (exact `marca`, or several in `marcas`), free
+- `GET ""` is paginated, newest first, filtered by estado, brand (`marcas`: every bonus whose scope reaches one of
+  those brands, `bonos_alcance.alcanza_marcas`; the older exact `marca`: the bonus's own brand), free
   text over the description or brand (`q`), currency and a period its date range overlaps (an inverted one is
   a 422): the Sell in tab's top filters but `aplica`, which a bonus does not have.
   Every bonus carries its models, its operation's number and what it generated
@@ -85,7 +86,9 @@ def listar_bonos(
     estado: Optional[Estado] = Query(None),
     marca: Optional[str] = Query(None, max_length=100, description="Exact brand"),
     q: Optional[str] = Query(None, max_length=200, description="Free text: the bonus's description or brand"),
-    marcas: Optional[str] = Query(None, max_length=2000, description="CSV of brands, exact match"),
+    marcas: Optional[str] = Query(
+        None, max_length=2000, description="CSV of brands: bonuses whose scope reaches one of them"
+    ),
     moneda: Optional[Moneda] = Query(None),
     fecha_desde: Optional[date] = Query(None, description="The bonus's date range overlaps the period, inclusive"),
     fecha_hasta: Optional[date] = Query(None, description="The bonus's date range overlaps the period, inclusive"),
