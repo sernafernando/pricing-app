@@ -85,7 +85,7 @@ def listar_bonos(
     estado: Optional[Estado] = Query(None),
     marca: Optional[str] = Query(None, max_length=100, description="Exact brand"),
     q: Optional[str] = Query(None, max_length=200, description="Free text: the bonus's description or brand"),
-    marcas: Optional[str] = Query(None, description="CSV of brands, exact match"),
+    marcas: Optional[str] = Query(None, max_length=2000, description="CSV of brands, exact match"),
     moneda: Optional[Moneda] = Query(None),
     fecha_desde: Optional[date] = Query(None, description="The bonus's date range overlaps the period, inclusive"),
     fecha_hasta: Optional[date] = Query(None, description="The bonus's date range overlaps the period, inclusive"),

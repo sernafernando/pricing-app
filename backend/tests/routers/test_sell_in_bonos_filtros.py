@@ -134,3 +134,8 @@ def test_the_filters_add_up_with_estado_and_paging(client, gestor, productos):
     assert page["total"] == 2
     assert [b["id"] for b in page["items"]] == [viejo]
     assert _ids(client, gestor, q="rebate", moneda="USD", estado="activa") == [nuevo, viejo]
+
+
+def test_marcas_has_a_length_cap_like_q_and_marca(client, gestor, productos):
+    assert client.get(BASE, params={"marcas": "X" * 2001}, headers=gestor).status_code == 422
+    assert client.get(BASE, params={"marcas": "TP-LINK,EPSON"}, headers=gestor).status_code == 200
