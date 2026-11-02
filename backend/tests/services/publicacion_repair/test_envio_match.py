@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+from app.services.ml_api_client import _flex_already_enabled
 from app.services.publicacion_repair.envio import (
     has_colecta,
     has_flex,
+    is_ml_item_stale,
     plan_envio_repair,
     sanitize_shipping_put,
     shipping_from_snapshot,
@@ -36,6 +39,24 @@ def test_full_is_always_skipped() -> None:
     plan = plan_envio_repair(_base(logistic_type="fulfillment", tags=[]))
     assert plan.skip_reason == "full_fulfillment"
     assert not plan.needs_write
+
+
+def test_stale_ml_item_skipped() -> None:
+    old = datetime.now(timezone.utc) - timedelta(days=30)
+    plan = plan_envio_repair(_base(fetched_at=old, mode="me1"))
+    assert plan.skip_reason == "stale_ml_item"
+    assert not plan.needs_write
+
+
+def test_null_fetched_at_is_stale() -> None:
+    assert is_ml_item_stale(None) is True
+
+
+def test_flex_already_requires_flex_signal() -> None:
+    assert _flex_already_enabled('{"message":"already in flex"}') is True
+    assert _flex_already_enabled('{"message":"Item already enabled for flex"}') is True
+    assert _flex_already_enabled('{"message":"field already exists"}') is False
+    assert _flex_already_enabled('{"message":"already"}') is False
 
 
 def test_incomplete_snapshot_skipped() -> None:

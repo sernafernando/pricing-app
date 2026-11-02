@@ -6,7 +6,13 @@ Sample MLA905437269 informed the original brief but is NOT fetched at runtime.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, Final
+
+# Do not write from ml_items that have not been refreshed within this window.
+# Fernando: a 30-day-old row must not get a PUT; continuous refresh should keep
+# linked items well under this. Never-fetched (fetched_at NULL) counts as stale.
+MAX_ML_ITEM_FETCH_AGE: Final[timedelta] = timedelta(days=7)
 
 # Read-only signals (persist/log only — never PUT these in envio repair).
 FLEX_TAG: Final[str] = "self_service_in"

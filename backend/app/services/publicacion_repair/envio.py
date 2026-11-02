@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import func
@@ -34,6 +35,7 @@ from app.services.publicacion_repair.constants import (
     LOGISTIC_FLEX,
     LOGISTIC_FULL,
     LOGISTIC_LEAVE_ALONE,
+    MAX_ML_ITEM_FETCH_AGE,
     MODE_ME2,
 )
 
@@ -94,7 +96,23 @@ def shipping_from_ml_item(item: MlItem) -> dict[str, Any]:
         "store_pick_up": ship.get("store_pick_up"),
         "tags": tag_list,
         "status": item.status,
+        "fetched_at": item.fetched_at,
     }
+
+
+def is_ml_item_stale(
+    fetched_at: Any,
+    *,
+    now: Optional[datetime] = None,
+) -> bool:
+    """True when ml_items.fetched_at is missing or older than MAX_ML_ITEM_FETCH_AGE."""
+    if fetched_at is None:
+        return True
+    if not isinstance(fetched_at, datetime):
+        return True
+    current = now or datetime.now(timezone.utc)
+    ts = fetched_at if fetched_at.tzinfo is not None else fetched_at.replace(tzinfo=timezone.utc)
+    return (current - ts) > MAX_ML_ITEM_FETCH_AGE
 
 
 def has_flex(current: dict[str, Any]) -> bool:
@@ -122,6 +140,9 @@ def plan_envio_repair(current: dict[str, Any]) -> EnvioPlan:
     status = current.get("status")
     if status is not None and status not in MODIFIABLE_STATUSES:
         return EnvioPlan(skip_reason="status_not_modifiable")
+    # Production always sets fetched_at; unit fixtures may omit the key.
+    if "fetched_at" in current and is_ml_item_stale(current.get("fetched_at")):
+        return EnvioPlan(skip_reason="stale_ml_item")
     if is_full(current):
         return EnvioPlan(skip_reason="full_fulfillment")
     if shipping_incomplete(current):
