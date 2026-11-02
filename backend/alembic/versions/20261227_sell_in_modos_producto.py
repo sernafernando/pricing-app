@@ -24,12 +24,14 @@ y otro permiso aparte para poder setear cantidad y costo a mano". Design: handof
   tables exist, so the sell-in schema tests can run the chain without them.
 
 LOCK NOTE: the `sell_in_consumos` changes take an ACCESS EXCLUSIVE lock held to the end of the transaction. The
-column is nullable without a default (no rewrite), but each of the two new CHECKs and each of the two new indexes reads
-the whole table once while it is locked (measured: about 1.5 s on 3M rows). The sell-in drain reads and writes it, so they run with
-`lock_timeout = '5s'` and the deploy is retried; the previous value is saved and restored, as in 20261217.
+column is nullable without a default (no rewrite), but each of the two new CHECKs and each of the two new indexes
+reads the whole table once while it is locked (measured: about 1.5 s on 3M rows). The sell-in drain reads and writes
+it, so they run with `lock_timeout = '5s'` and the deploy is retried; the previous value is saved and restored, as in
+20261217.
 
-Downgrade: drops the manual consumptions (they would break the restored NOT NULL and CHECK; the FIFO-only costing
-rebuilds a product's consumptions on its next recompute), then the column, the table and the permissions.
+Downgrade: drops the manual consumptions (they would break the restored NOT NULL and CHECK), then the triggers, the
+column, the table and the permissions. Rows valued under `ponderado` or `ultimo` keep their amounts, and the dropped
+manual units are not re-allocated, until each product's next recompute (FIFO-only then); nothing is enqueued.
 """
 
 from typing import List, Sequence, Union
@@ -50,25 +52,25 @@ PERMISOS = [
         "sell_in.costo_ponderado",
         "Sell in: ponderar el costo (PPP)",
         "Elegir que el sell in de un producto pondere las unidades y el valor de sus lotes en vez de usar FIFO.",
-        82,
+        87,
     ),
     (
         "sell_in.costo_ultimo",
         "Sell in: costo del último lote",
         "Elegir que todas las unidades que quedan de un producto tomen el valor de su lote más reciente.",
-        83,
+        88,
     ),
     (
         "sell_in.costo_manual",
         "Sell in: cantidad y costo a mano",
         "Cargar a mano la cantidad y el costo (por ejemplo, el de reposición) del sell in de un producto.",
-        85,
+        89,
     ),
     (
         "sell_in.costo_retroactivo",
         "Sell in: aplicar un modo de costo hacia atrás",
         "Aplicar un modo de costo de sell in desde una fecha pasada; cambia ventas ya registradas.",
-        86,
+        90,
     ),
 ]
 ROLES = ("ADMIN",)
