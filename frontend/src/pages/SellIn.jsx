@@ -774,7 +774,7 @@ export default function SellIn() {
                     selectedId={panel?.tipo === 'campana' ? panel.id : null}
                     onSelect={verCampana}
                     onAnuladas={(ids) => {
-                      campanas.recargarActual();
+                      programasCambiaron(); // the groups' active counts changed too
                       // The open campaign was just voided: read it again (a new key remounts the panel). Functional update:
                       // the panel may have been closed or changed while the request was in flight.
                       setPanel((actual) =>
