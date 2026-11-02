@@ -479,7 +479,9 @@ export function buildKpiParams(filters, periodo) {
 export function buildProductIdsParams(filters) {
   const { periodo, ...params } = buildKpiParams(filters);
   void periodo;
-  return { ...params, ...sinMlaParam(filters) };
+  // The Producto view's rows keep their product's color: its bulk set and cards ask `colores` the same way.
+  const byProduct = filters.vista === 'producto' && params.colores ? { color_por_producto: true } : {};
+  return { ...params, ...sinMlaParam(filters), ...byProduct };
 }
 
 /**

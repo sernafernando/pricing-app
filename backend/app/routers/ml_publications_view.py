@@ -269,8 +269,8 @@ class LastEventOut(BaseModel):
 
 class ItemRowOut(BaseModel):
     item_id: str
-    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set
-    # (services/ml_publication_colors.py).
+    # The row's effective color (Productos' team layers, `equipo_id`): the publication's own, otherwise its linked
+    # product's; present only when set (services/ml_publication_colors.py).
     color_marcado: Optional[str] = None
     color_hint_global: Optional[str] = None
     color_hint_equipo_inicial: Optional[str] = None
@@ -738,11 +738,15 @@ def _sin_mla_count_or_none(db: Session, f: PublicationFilter) -> Optional[int]:
 
 
 def _attach_colors(
-    auth_db: Session, layer: colors.ColorLayer, rows: list[dict[str, Any]], product_of: Callable[[dict[str, Any]], Any]
+    auth_db: Session,
+    layer: colors.ColorLayer,
+    rows: list[dict[str, Any]],
+    product_of: Callable[[dict[str, Any]], Any],
+    item_of: Optional[Callable[[dict[str, Any]], Any]] = None,
 ) -> None:
     """The row colors, with the list's own answer to a read over `statement_timeout`: the same 503."""
     try:
-        colors.attach_colors(auth_db, layer, rows, product_of)
+        colors.attach_colors(auth_db, layer, rows, product_of, item_of)
     except DBAPIError as exc:
         if (slow := _database_error(exc)) is not None:
             raise slow from exc
@@ -815,6 +819,9 @@ def filter_query(
     out_of_cards: Optional[bool] = Query(None, description="the linked product is marked out of cards"),
     oferta_por_producto: Optional[bool] = Query(
         None, description="ask con_oferta of the product (any of its publications), as the Producto view does"
+    ),
+    color_por_producto: Optional[bool] = Query(
+        None, description="ask `colores` of the product's color only, as the Producto view's rows do"
     ),
     con_precio: Optional[bool] = Query(None, description="the linked product has a list price (false: it has none)"),
     nuevos_ultimos_7_dias: Optional[bool] = Query(
@@ -893,6 +900,7 @@ def filter_query(
             tn_no_publicado=tn_no_publicado,
             out_of_cards=out_of_cards,
             oferta_por_producto=oferta_por_producto,
+            color_por_producto=color_por_producto,
             con_precio=con_precio,
             nuevos_ultimos_7_dias=nuevos_ultimos_7_dias,
             markup_clasica_positivo=markup_clasica_positivo,
@@ -1207,7 +1215,8 @@ def get_items(
     auth_db: Session = Depends(get_db),
     status_provider: Callable[[], dict[str, Any]] = Depends(get_status_provider),
 ) -> dict[str, Any]:
-    """One page of publications (one row per MLA) with the honest-state block, each with its product's row color."""
+    """One page of publications (one row per MLA) with the honest-state block, each with its effective row color (its
+    own, otherwise its product's)."""
     timer = Timer("items")
     layer = colors.resolve_layer(auth_db, user, equipo_id)  # first: a team the user is not in is a 403
     can_see_margin, can_see_sales, sort = ask.can_see_margin, ask.can_see_sales, ask.sort
@@ -1247,7 +1256,13 @@ def get_items(
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
     with timer.stage("colors"):
-        _attach_colors(auth_db, layer, page.items, lambda item: (item.get("link") or {}).get("producto_item_id"))
+        _attach_colors(
+            auth_db,
+            layer,
+            page.items,
+            lambda item: (item.get("link") or {}).get("producto_item_id"),
+            lambda item: item.get("item_id"),  # a publication's own color wins (seleccion-por-publicacion S3)
+        )
     with timer.stage("status"):
         data_state = status_provider()
     response.headers["Server-Timing"] = timer.server_timing()

@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import pytest
 
-from app.models.equipo import Equipo, EquipoMiembro, ProductoColor
+from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, PublicacionColor
 from app.models.producto import ProductoERP
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import VER, seed_rows
 from tests.routers.test_ml_publications_view_kpis import pg, view_pg  # noqa: F401
 from tests.routers.test_ml_publications_view_presence import fill
 from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
+from tests.services.ml_publications.view import seed
 from tests.services.ml_publications.view.test_groups_postgres import seed_catalog
 
 pytestmark = pytest.mark.postgres
@@ -204,6 +205,111 @@ class TestColorFilter:
     def test_without_it_nothing_changes(self, client, pg, reader, layers) -> None:
         seed_rows(pg, fill)
         assert set(items(client, reader)) == {"MLA1", "MLA2", "MLA3"}
+
+
+def fill_sibling(conn) -> None:
+    """`fill` plus MLA4, a second publication of product 77 (MLA1's)."""
+    fill(conn)
+    seed.add_item(conn, "MLA4", status="active")
+    seed.add_link(conn, "MLA4", 77)
+
+
+class TestPublicationOwnColor:
+    """seleccion-por-publicacion S3: a publication painted on its own (`publicacion_color`) shows its own color on
+    that layer; without one it shows its product's. The other publications of the product and the product rows keep
+    the product's color."""
+
+    def paint(self, db, equipo_id: int, item_id: str, color: str) -> None:
+        db.add(PublicacionColor(equipo_id=equipo_id, item_id=item_id, color_ml=color))
+        db.flush()
+
+    def test_its_own_color_wins_over_its_products_and_the_siblings_keep_the_products(
+        self, client, pg, db, reader, layers
+    ) -> None:
+        seed_rows(pg, fill_sibling)
+        self.paint(db, layers["global"], "MLA4", "azul")
+        self.paint(db, layers["global"], "MLA3", "gris")  # no product: its own color still shows
+        assert items(client, reader) == {
+            "MLA1": {"color_marcado": "rojo"},
+            "MLA2": {"color_marcado": "azul"},
+            "MLA3": {"color_marcado": "gris"},
+            "MLA4": {"color_marcado": "azul"},
+        }
+
+    def test_on_a_team_layer_its_own_team_and_global_colors_win_each_on_its_layer(
+        self, client, pg, db, reader, layers
+    ) -> None:
+        seed_rows(pg, fill_sibling)
+        self.paint(db, layers["team"], "MLA4", "naranja")
+        self.paint(db, layers["global"], "MLA4", "gris")
+        self.paint(db, layers["other"], "MLA1", "purpura")  # another team's color never shows here
+        assert items(client, reader, equipo_id=layers["team"])["MLA4"] == {
+            "color_marcado": "naranja",
+            "color_hint_global": "gris",
+            "color_hint_equipo_inicial": "V",
+        }
+        assert items(client, reader, equipo_id=layers["team"])["MLA1"] == {
+            "color_marcado": "verde",
+            "color_hint_global": "rojo",
+            "color_hint_equipo_inicial": "V",
+        }
+
+    def test_the_color_filter_follows_the_effective_color(self, client, pg, db, reader, layers) -> None:
+        seed_rows(pg, fill_sibling)
+        self.paint(db, layers["global"], "MLA4", "azul")  # its product is rojo
+        self.paint(db, layers["global"], "MLA3", "gris")  # no product
+        assert set(items(client, reader, colores="rojo")) == {"MLA1"}
+        assert set(items(client, reader, colores="azul")) == {"MLA2", "MLA4"}
+        assert set(items(client, reader, colores="gris")) == {"MLA3"}
+        assert set(items(client, reader, colores="sin_color")) == set()
+        assert set(items(client, reader, colores="verde", equipo_id=layers["team"])) == {"MLA1", "MLA4"}
+        self.paint(db, layers["team"], "MLA4", "naranja")
+        assert set(items(client, reader, colores="verde", equipo_id=layers["team"])) == {"MLA1"}
+        assert set(items(client, reader, colores="sin_color", equipo_id=layers["team"])) == {"MLA2", "MLA3"}
+
+    def test_with_a_catalog_filter_and_in_the_tree_it_is_the_same_effective_color(
+        self, client, pg, db, reader, layers
+    ) -> None:
+        # The catalog filter and the tree check the color on the linked product too: an own color passes there.
+        seed_rows(pg, fill_sibling)
+        self.paint(db, layers["global"], "MLA4", "azul")  # its product 77 (TP-Link) is rojo
+        assert set(items(client, reader, colores="azul", marcas="TP-Link")) == {"MLA4"}
+        assert set(items(client, reader, colores="rojo", marcas="TP-Link")) == {"MLA1"}
+        response = client.get(GROUPS_URL, headers=reader, params={"colores": "azul"})
+        assert response.status_code == 200, response.text
+        assert {node["key"]: node["count"] for node in response.json()["nodes"]} == {"TP-LINK": 1, "UBIQUITI": 1}
+
+    def test_the_bulk_price_set_takes_the_product_of_a_publication_kept_by_its_own_color(
+        self, client, pg, db, reader, layers
+    ) -> None:
+        # The operator sees MLA4 under `colores=azul`: the bulk action reaches its product, as it reaches MLA2's.
+        seed_rows(pg, fill_sibling)
+        self.paint(db, layers["global"], "MLA4", "azul")
+        response = client.get(PRODUCT_IDS_URL, headers=reader, params={"colores": "azul"})
+        assert response.status_code == 200, response.text
+        assert response.json()["item_ids"] == [77, 78]
+
+    def test_the_producto_view_reads_only_product_colors_even_when_every_publication_is_painted(
+        self, client, pg, db, reader, layers
+    ) -> None:
+        # 78 is azul and its only publication MLA2 is painted rojo on its own: the product row is still azul, whole.
+        seed_rows(pg, fill_sibling)
+        self.paint(db, layers["global"], "MLA2", "rojo")
+        assert set(products(client, reader, colores="azul")) == {"78"}
+        assert "78" not in products(client, reader, colores="rojo")
+        response = client.get(PRODUCTS_URL, headers=reader, params={"colores": "rojo"})
+        assert {row["key"]: row["publications_count"] for row in response.json()["rows"]} == {"77": 2}
+        # Its bulk set and cards ask the same (`color_por_producto`), so they act on exactly its rows.
+        by_product = {"colores": "azul", "color_por_producto": "true"}
+        response = client.get(PRODUCT_IDS_URL, headers=reader, params=by_product)
+        assert response.status_code == 200, response.text
+        assert response.json()["item_ids"] == [78]
+
+    def test_product_rows_keep_the_products_color(self, client, pg, db, reader, layers) -> None:
+        seed_rows(pg, fill_sibling)
+        self.paint(db, layers["global"], "MLA4", "azul")
+        assert products(client, reader)["77"] == {"color_marcado": "rojo"}
+        assert set(products(client, reader, colores="azul")) == {"78"}
 
 
 def test_the_filter_colors_are_exactly_productos_colors() -> None:

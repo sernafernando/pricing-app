@@ -791,7 +791,10 @@ def _brand_counts(db: Session, f: PublicationFilter) -> dict:
         build_base_select(f, brand, count.label("n"), skip="marcas")
         .join(pl, pl.c.item_id == T.i.item_id)
         .outerjoin(pp, pp.item_id == pl.c.producto_item_id)
-        .where(brand.isnot(None), *linked_product_conditions(replace(f, marcas=()), pl.c.producto_item_id, pp))
+        .where(
+            brand.isnot(None),
+            *linked_product_conditions(replace(f, marcas=()), pl.c.producto_item_id, pp, T.i.item_id),
+        )
         .group_by(brand)
         .order_by(count.desc(), brand)
         .limit(FACET_MAX_BRANDS)
