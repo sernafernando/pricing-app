@@ -15,10 +15,11 @@ y otro permiso aparte para poder setear cantidad y costo a mano". Design: handof
 - `sell_in_consumos.modo_id`: a manual block's units are consumed from its mode row, not from a purchase line, so a
   consumption has exactly one source (`compra_item_id` or `modo_id`). Only a manual consumption may be negative: a
   manual cost above the frozen cost raises the sale's cost (owner, 2026-11-02).
-- Two triggers keep that sign rule in the database, not in the costing code: `sell_in_consumos_modo_manual` refuses a
-  consumption whose `modo_id` is not a `manual` row of the same product, and `sell_in_modos_producto_append_only`
-  refuses UPDATE and DELETE on the modes, so the row checked at insert cannot change afterwards. A trigger rather than
-  a composite FK: the FK would need a copy of `modo` on every consumption plus a matching UNIQUE on the modes.
+- Triggers keep that sign rule in the database, not in the costing code: `sell_in_consumos_modo_manual` refuses a
+  consumption whose `modo_id` is not a `manual` row of the same product, and the `sell_in_modos_producto` triggers
+  refuse UPDATE, DELETE and TRUNCATE on the modes, so the row checked at insert cannot change afterwards. A trigger
+  rather than a composite FK: the FK would need a copy of `modo` on every consumption plus a matching UNIQUE on the
+  modes.
 - Permissions `sell_in.costo_ponderado`, `sell_in.costo_ultimo`, `sell_in.costo_manual` and
   `sell_in.costo_retroactivo` (backdate a mode), ADMIN only (owner, 2026-11-02). Seeded only where the permission
   tables exist, so the sell-in schema tests can run the chain without them.
@@ -134,6 +135,9 @@ UPGRADE = [
     """
     CREATE OR REPLACE FUNCTION sell_in_modos_producto_append_only() RETURNS TRIGGER AS $trg$
     BEGIN
+        IF TG_LEVEL = 'STATEMENT' THEN
+            RAISE EXCEPTION 'sell_in_modos_producto is append-only: % refused', TG_OP USING ERRCODE = 'check_violation';
+        END IF;
         RAISE EXCEPTION 'sell_in_modos_producto is append-only: % refused on id %', TG_OP, OLD.id
             USING ERRCODE = 'check_violation';
     END;
@@ -142,6 +146,10 @@ UPGRADE = [
     "DROP TRIGGER IF EXISTS trg_sell_in_modos_producto_append_only ON sell_in_modos_producto",
     "CREATE TRIGGER trg_sell_in_modos_producto_append_only BEFORE UPDATE OR DELETE ON sell_in_modos_producto "
     "FOR EACH ROW EXECUTE FUNCTION sell_in_modos_producto_append_only()",
+    # Row triggers do not see TRUNCATE (CASCADE included); a statement trigger does.
+    "DROP TRIGGER IF EXISTS trg_sell_in_modos_producto_no_truncate ON sell_in_modos_producto",
+    "CREATE TRIGGER trg_sell_in_modos_producto_no_truncate BEFORE TRUNCATE ON sell_in_modos_producto "
+    "FOR EACH STATEMENT EXECUTE FUNCTION sell_in_modos_producto_append_only()",
     """
     CREATE OR REPLACE FUNCTION sell_in_consumos_modo_manual() RETURNS TRIGGER AS $trg$
     BEGIN
@@ -172,7 +180,7 @@ DOWNGRADE = [
     "ALTER TABLE sell_in_consumos DROP CONSTRAINT IF EXISTS ck_sell_in_consumos_origen",
     "ALTER TABLE sell_in_consumos ALTER COLUMN compra_item_id SET NOT NULL",
     "ALTER TABLE sell_in_consumos DROP COLUMN IF EXISTS modo_id",
-    "DROP TABLE IF EXISTS sell_in_modos_producto",  # its append-only trigger goes with it
+    "DROP TABLE IF EXISTS sell_in_modos_producto",  # its append-only triggers go with it
     "DROP FUNCTION IF EXISTS sell_in_modos_producto_append_only()",
 ]
 
