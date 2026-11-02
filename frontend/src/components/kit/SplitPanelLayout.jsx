@@ -196,7 +196,9 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   // Where a step or drag from `start` towards `target` lands: within the same
   // bounds the CSS clamp applies, so the saved width is the one on screen.
   // `null` when it would not move the divider the asked way, which happens
-  // on a narrow window whose default width already sits outside the bounds.
+  // when the start sits outside the bounds: a grid narrower than the default
+  // panel plus the handle, or bounds of the minimums alone because the
+  // stylesheet values couldn't be read.
   const moveTo = (start, target, bounds) => {
     if (target === start) return null;
     const next = Math.min(Math.max(Math.round(target), bounds.min), bounds.max);
@@ -279,8 +281,8 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   // A saved width is reported as the CSS draws it, clamped to both bounds.
   const valueNow =
     panelWidth === null ? measured.width : Math.min(Math.max(panelWidth, measured.min), measured.max);
-  // On a narrow window the default width can sit outside the bounds; the
-  // reported range still contains it.
+  // The unresized width can sit outside the bounds (a grid narrower than the
+  // default panel, or unread stylesheet values); the reported range still contains it.
   const valueMin = Math.min(measured.min, valueNow);
   const valueMax = Math.max(measured.max, valueNow);
   const gridStyle = resized
