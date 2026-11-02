@@ -8,6 +8,7 @@ shapes. The rules and the preview's numbers are proven on Postgres by
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
@@ -182,7 +183,7 @@ def test_a_campaign_being_rebuilt_is_a_409_with_the_retry_message(client, gestor
 
     a = _crear(client, gestor, grupos, nombre="MARCA PROG 3.0")
 
-    def _recalculando(db, campana_ids):
+    def _recalculando(db: Session, campana_ids: list[int]) -> None:
         db.rollback()
         raise service.SellOutRecalculando("La campaña se está recalculando. Reintentar en unos segundos.")
 
@@ -211,7 +212,7 @@ def test_a_deadlock_is_a_409_with_the_retry_message(client, gestor, grupos, monk
     class _Deadlock(Exception):
         pgcode = "40P01"
 
-    def _en_deadlock(db, campana_ids):
+    def _en_deadlock(db: Session, campana_ids: list[int]) -> None:
         raise DBAPIError("UPDATE sell_out_dirty ...", {}, _Deadlock())
 
     monkeypatch.setattr(service, "_encolar", _en_deadlock)

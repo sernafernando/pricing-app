@@ -18,21 +18,27 @@ with another writer (40P01) stops the loop and makes the refusal a retry, with t
 which takes every active campaign sharing products with them; it neither commits nor touches the queue), and
 diffs `sell_out_consumos` before and after, line by line, per campaign:
 
-- `salen`: lines gone, and the units and money the remaining or gone lines lost;
-- `entran`: new lines, and the units and money new or remaining lines gained;
+- `salen`: lines gone, the units lines lost, and the signed money of the lines that leave or shrink;
+- `entran`: new lines, the units lines gained, and the signed money of the lines that enter or grow;
 
-money in each campaign's currency, totals per currency. So caps (an earlier sale taking a later line's units, or
+money in each campaign's currency, totals per currency, always on the line's side: a deduction's (`monto_total`
+below 0) leaving line is negative `salen` money, never positive `entran` money. So caps (an earlier sale taking a later line's units, or
 units a shorter range frees going to a later sale already inside), stacking (`acumulable`: the units a
 non-stackable campaign holds are taken from the linked campaigns after it) and a fixed total's split (a share
 moved between a product's sales, or a share with no sale credited by a sale that enters) come out as the rebuild
 does them. A linked campaign whose credit moves is listed in `vinculadas`, `en_seleccion` False when it was not
 selected. While any campaign is refused, the apply changes nothing; the numbers are then those of the campaigns
 that can be edited, simulated on their own. A rebuild that would fail (a product without VAT, a USD campaign
-without a rate) is refused as an error, as the drain would charge it.
+without a rate) is refused with the reason in Spanish and the campaign's name, as the drain would charge it.
+
+The preview holds what the apply holds, for the whole rebuild: the campaigns' row locks, their queue rows and the
+rebuild's per-campaign locks. Meanwhile a single edit of one of them (a linked one included) may wait and get the
+409 «se está recalculando» after `queue.LOCK_TIMEOUT`.
 """
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -41,8 +47,9 @@ from typing import Optional
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
+from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutConsumo
-from app.services.sell_out import asignacion
+from app.services.sell_out import asignacion, reparto
 from app.services.sell_out import campanas as base
 from app.services.sell_out.campanas import DEADLOCK, REINTENTAR, SellOutError, SellOutRecalculando
 
@@ -146,20 +153,60 @@ def _consumos(db: Session, campana_ids: list[int]) -> Consumos:
 
 
 def _diferencia(antes: dict, despues: dict) -> dict:
-    """`{salen, entran}` of one campaign: lines gone or new, and the units and money each line lost or gained."""
+    """`{salen, entran}` of one campaign: lines gone or new, the units each line lost or gained, and the signed money
+    of the lines that leave, enter, shrink or grow, kept on the line's side (a deduction's leaving -100 line is
+    `salen` -100, never +100 entering)."""
     salen = {"lineas": 0, "unidades": 0, "monto": Decimal(0)}
     entran = {"lineas": 0, "unidades": 0, "monto": Decimal(0)}
     for clave in antes.keys() | despues.keys():
         previo, nuevo = antes.get(clave), despues.get(clave)
-        salen["lineas"] += previo is not None and nuevo is None
-        entran["lineas"] += nuevo is not None and previo is None
         unidades = (nuevo[0] if nuevo else 0) - (previo[0] if previo else 0)
-        monto = (nuevo[1] if nuevo else Decimal(0)) - (previo[1] if previo else Decimal(0))
         salen["unidades"] += max(-unidades, 0)
         entran["unidades"] += max(unidades, 0)
-        salen["monto"] += max(-monto, Decimal(0))
-        entran["monto"] += max(monto, Decimal(0))
+        if nuevo is None:
+            salen["lineas"] += 1
+            salen["monto"] += previo[1]
+        elif previo is None:
+            entran["lineas"] += 1
+            entran["monto"] += nuevo[1]
+        elif abs(nuevo[1]) < abs(previo[1]):  # the line shrinks: what it no longer credits leaves
+            salen["monto"] += previo[1] - nuevo[1]
+        elif abs(nuevo[1]) > abs(previo[1]):
+            entran["monto"] += nuevo[1] - previo[1]
     return {"salen": salen, "entran": entran}
+
+
+_CAMPANA = re.compile(r"^campaign (\d+): (.*)$", re.DOTALL)
+_SIN_TASA = re.compile(r"^no BNA rate to convert the sale of (\S+)$")
+_SIN_IVA = re.compile(r"^product (\d+) has no VAT rate$")
+
+
+def _motivo_recalculo(db: Session, exc: asignacion.SellOutAsignacionError) -> str:
+    """`exc` (the allocator's English message, `campaign <id>: <why>`) for the operator: the campaign by its name and
+    the reason in Spanish; an invalid split with `campanas.mensaje_reparto`. Read after the rollback."""
+    encontrado = _CAMPANA.match(str(exc))
+    if encontrado is None:
+        return "La edición no se puede recalcular."
+    cid, causa = int(encontrado.group(1)), encontrado.group(2)
+    campana = db.get(SellOutCampana, cid)
+    quien = f"la campaña {campana.nombre}" if campana is not None else f"la campaña {cid}"
+    if isinstance(exc.__cause__, reparto.RepartoInvalido):
+        porque = base.mensaje_reparto(exc.__cause__)
+        return f"La edición no se puede recalcular: en {quien}, {porque[0].lower()}{porque[1:]}"
+    if sin_iva := _SIN_IVA.match(causa):
+        item_id = int(sin_iva.group(1))
+        producto = db.get(ProductoERP, item_id)
+        codigo = f" ({producto.codigo})" if producto is not None and producto.codigo else ""
+        porque = f"se carga con IVA y el producto {item_id}{codigo} no tiene IVA"
+    elif causa == "a product it reaches has no VAT rate":
+        porque = "se carga con IVA y un producto que alcanza no tiene IVA"
+    elif sin_tasa := _SIN_TASA.match(causa):
+        porque = f"no hay cotización BNA para convertir la venta del {_fecha(date.fromisoformat(sin_tasa.group(1)))}"
+    elif causa.endswith("campaign never gives a negative amount"):
+        porque = "daría un monto negativo, y solo una campaña por monto total puede ser negativa"
+    else:
+        porque = "tiene un reparto que no se puede aplicar"
+    return f"La edición no se puede recalcular: {quien} {porque}"
 
 
 def _simular(
@@ -178,7 +225,7 @@ def _simular(
         asignacion.recalcular(db, editadas)
     except asignacion.SellOutAsignacionError as exc:
         db.rollback()
-        raise SellOutError(f"La edición no se puede recalcular: {exc}") from exc
+        raise SellOutError(_motivo_recalculo(db, exc)) from exc
     despues = _consumos(db, tocadas)
     return editadas, sin_cambio, rechazadas, {cid: _diferencia(antes[cid], despues[cid]) for cid in tocadas}
 

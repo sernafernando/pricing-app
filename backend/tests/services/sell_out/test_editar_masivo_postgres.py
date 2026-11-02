@@ -2,8 +2,8 @@
 
 Each row goes through the single edit's own step (`campanas.editar_campana_sin_commit`): the full body is rebuilt
 from the stored campaign and only the filled fields (`fecha_desde`, `fecha_hasta`, `acumulable`) are overlaid. All
-or nothing, every refused row named. The preview writes nothing, and its numbers match what the apply and the
-`sell_out.drain` rebuild do on the same data (pinned below, with what it cannot know when a cap binds).
+or nothing, every refused row named. The preview writes nothing, and its numbers equal, line for line, what the
+apply plus the `sell_out.drain` rebuild do on the same data: caps, stacking and fixed-total splits included.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Iterator
 
 import pytest
 from sqlalchemy import Engine, event, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.auditoria import TipoAccion
 from app.models.sell_out import SellOutCampana
@@ -45,7 +45,7 @@ def _clean(engine: Engine) -> Iterator[None]:
     w.clean(engine)
 
 
-def _session(engine: Engine):
+def _session(engine: Engine) -> Session:
     return sessionmaker(bind=engine, autoflush=False)()  # like production's `SessionLocal`
 
 
@@ -85,12 +85,12 @@ def _queued(engine: Engine) -> list[int]:
     return [row[0] for row in w.queued(engine)]
 
 
-def _editar(engine: Engine, ids, **cambios):
+def _editar(engine: Engine, ids: list[int], **cambios: object) -> tuple[list[int], list[int]]:
     with _session(engine) as db:
         return edicion_masiva.editar_campanas(db, ids, cambios, USUARIO)
 
 
-def _previa(engine: Engine, ids, **cambios) -> dict:
+def _previa(engine: Engine, ids: list[int], **cambios: object) -> dict:
     with _session(engine) as db:
         return edicion_masiva.previa_edicion(db, ids, cambios, USUARIO)
 
@@ -328,23 +328,29 @@ def _claves(engine: Engine, cid: int) -> dict:
 
 
 def _diferencia(antes: dict, despues: dict) -> dict:
-    """What the rebuild took away from and gave to one campaign: lines gone or new, units and money down or up."""
+    """What the rebuild took away from and gave to one campaign: lines gone or new, units down or up, and the signed
+    money of the lines that leave, enter, shrink or grow (a deduction's lines are negative)."""
     cero = {"lineas": 0, "unidades": 0, "monto": Decimal(0)}
     salen, entran = dict(cero), dict(cero)
     for clave in antes.keys() | despues.keys():
         previo, nuevo = antes.get(clave), despues.get(clave)
-        salen["lineas"] += previo is not None and nuevo is None
-        entran["lineas"] += nuevo is not None and previo is None
         unidades = (nuevo[5] if nuevo else 0) - (previo[5] if previo else 0)
-        monto = (nuevo[6] if nuevo else Decimal(0)) - (previo[6] if previo else Decimal(0))
         salen["unidades"] += max(-unidades, 0)
         entran["unidades"] += max(unidades, 0)
-        salen["monto"] += max(-monto, Decimal(0))
-        entran["monto"] += max(monto, Decimal(0))
+        if nuevo is None:
+            salen["lineas"] += 1
+            salen["monto"] += previo[6]
+        elif previo is None:
+            entran["lineas"] += 1
+            entran["monto"] += nuevo[6]
+        elif abs(nuevo[6]) < abs(previo[6]):
+            salen["monto"] += previo[6] - nuevo[6]
+        elif abs(nuevo[6]) > abs(previo[6]):
+            entran["monto"] += nuevo[6] - previo[6]
     return {"salen": salen, "entran": entran}
 
 
-def _comparar(engine: Engine, ids: list[int], **cambios) -> tuple[dict, dict]:
+def _comparar(engine: Engine, ids: list[int], **cambios: object) -> tuple[dict, dict]:
     """Preview (asserting it leaves every table byte-identical), then apply and drain: `(previa, {campana_id:
     what really left and entered})` over every campaign with consumptions."""
     with engine.connect() as conn:
@@ -506,13 +512,61 @@ def test_a_sale_entering_on_a_share_that_had_no_sale_credits_the_whole_share(eng
     assert previa["totales"]["entran"]["montos"] == [{"moneda": "ARS", "monto": Decimal("400.00")}]
 
 
+def test_a_negative_monto_total_keeps_each_line_money_on_the_line_side(engine: Engine) -> None:
+    """A deduction's lines are negative: a leaving -100 line is `salen` -100, never +100 entering."""
+    g = w.grupo(engine, [ROUTERS])
+    cid = w.monto_total(engine, [g], "-200", nombre="Rebate Q4 2026")
+    w.reparto(engine, cid, ROUTER, porcentaje="100")
+    w.venta(engine, "fuera", ROUTER, 1, date(2026, 11, 10))  # stays, takes the whole -200
+    w.venta(engine, "fuera", ROUTER, 1, date(2026, 11, 25))  # leaves with its -100
+    _consumir(engine)
+
+    previa, real = _comparar(engine, [cid], fecha_hasta=date(2026, 11, 15))
+
+    assert _vista(previa) == _movidas(real, previa)
+    assert real[cid]["salen"] == {"lineas": 1, "unidades": 1, "monto": Decimal("-100.00")}
+    assert real[cid]["entran"] == {"lineas": 0, "unidades": 0, "monto": Decimal("-100.00")}  # the stayer grew
+    assert previa["totales"]["salen"]["montos"] == [{"moneda": "ARS", "monto": Decimal("-100.00")}]
+    assert previa["totales"]["entran"]["montos"] == [{"moneda": "ARS", "monto": Decimal("-100.00")}]
+
+
+SIN_IVA = 9999  # a product with no VAT rate: a campaign loaded with VAT cannot be rebuilt over its sales
+
+
+def test_a_rebuild_that_would_fail_is_refused_in_spanish_naming_the_campaign(engine: Engine) -> None:
+    w.execute(
+        engine,
+        "INSERT INTO productos_erp (item_id, codigo, descripcion, marca, categoria) "
+        "VALUES (:i, 'C9999', 'Producto', 'MARCA PROG', 'Routers')",
+        i=SIN_IVA,
+    )
+    try:
+        cid = w.campana(engine, [w.grupo(engine, [{"item_id": SIN_IVA}])], nombre="Rebate Q4 2026")
+        w.execute(engine, "UPDATE sell_out_campanas SET monto_incluye_iva = true")
+        w.venta(engine, "fuera", SIN_IVA, 1, date(2026, 12, 10))  # outside today: the rebuild does not fail yet
+        _consumir(engine)
+        antes = _snapshot(engine)
+
+        with pytest.raises(service.SellOutError) as exc:
+            _previa(engine, [cid], fecha_hasta=date(2026, 12, 31))
+
+        assert str(exc.value) == (
+            "La edición no se puede recalcular: la campaña Rebate Q4 2026 se carga con IVA y el producto 9999 "
+            "(C9999) no tiene IVA"
+        )
+        assert _snapshot(engine) == antes
+    finally:
+        w.clean(engine)  # its group's filter references the product
+        w.execute(engine, "DELETE FROM productos_erp WHERE item_id = :i", i=SIN_IVA)
+
+
 def _lecturas(engine: Engine, monkeypatch: pytest.MonkeyPatch, ids: list[int]) -> int:
     """Statements the preview runs AFTER its rolled-back loop (whose step is per campaign, like the apply's)."""
     sentencias: list[str] = []
     marca: list[int] = []
     aplicar = edicion_masiva._aplicar
 
-    def _marcar(*args, **kwargs):
+    def _marcar(*args: object, **kwargs: object) -> tuple:
         resultado = aplicar(*args, **kwargs)
         marca.append(len(sentencias))
         return resultado

@@ -188,7 +188,9 @@ class SellOutEdicionMovimientoOut(BaseModel):
     """What the rebuild after the edit takes from (`salen`) or gives to (`entran`) one campaign, simulated with the
     drain's own rebuild and rolled back (`edicion_masiva`): lines gone (or new), and the units and money, in the
     campaign currency, its lines lose (or gain). Exact on the same data: caps, stacking and a fixed total's split
-    included (a `monto_total` share moved between a product's sales shows on both sides)."""
+    included (a `monto_total` share moved between a product's sales shows on both sides). `monto` is the signed
+    credit of the lines that leave or shrink (`salen`) or enter or grow (`entran`), kept on the line's side: a
+    deduction's (negative `monto_total`) leaving -100 line is `salen` -100, not `entran` +100."""
 
     lineas: int
     unidades: int
