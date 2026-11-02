@@ -1,4 +1,4 @@
-"""Schemas of the sell-out campaigns API (`/api/sell-out/campanas`).
+"""Schemas of the sell-out campaigns API (`/api/sell-out/campanas`) and its programs (`/api/sell-out/programas`).
 
 Only the shape is validated here (types and closed choices), like the sell-in
 schemas. The rules that mirror the database CHECKs (amount by type, percentage
@@ -26,6 +26,7 @@ from pydantic import (
     ModelWrapValidatorHandler,
     SerializerFunctionWrapHandler,
     ValidationError,
+    field_validator,
     model_serializer,
     model_validator,
 )
@@ -38,11 +39,13 @@ TcModo = Literal["al_cobro", "fijo", "dia_venta"]
 Estado = Literal["activa", "anulada"]
 Canal = Literal["ml", "fuera", "tn"]
 EstadoRecalculo = Literal["al_dia", "en_cola", "recalculando", "fallida"]
+EstadoPrograma = Literal["activo", "archivado"]
 
 NOMBRE_MAX = 200
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
 GRUPOS_MAX = 50
 ITEMS_MAX = 500
+ASIGNAR_MAX = 500  # campaigns per program assignment
 INT_MIN, INT_MAX = -(2**31), 2**31 - 1  # INTEGER
 
 # Each NUMERIC(precision, scale) column as (max_digits, decimal_places).
@@ -215,6 +218,11 @@ class SellOutResumenOut(BaseModel):
         return salida
 
 
+class SellOutProgramaRefOut(BaseModel):
+    id: int
+    nombre: str
+
+
 class SellOutCampanaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -239,6 +247,9 @@ class SellOutCampanaOut(BaseModel):
     estado: Estado
     usuario_id: int
     offset_origen_id: Optional[int] = None  # read-only: the legacy offset it was migrated from (T15)
+    # Its program (metadata only), set with `POST /api/sell-out/programas/asignar`, never by an edit.
+    programa_id: Optional[int] = None
+    programa: Optional[SellOutProgramaRefOut] = None
     created_at: datetime
     updated_at: datetime
     grupos: list[SellOutGrupoOut]
@@ -283,3 +294,82 @@ class SellOutConsumosListOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ── Programs (`/api/sell-out/programas`, campaign system S1) ───────────
+
+
+def _nombre_programa(valor: Optional[str]) -> Optional[str]:
+    if valor is None:
+        return None
+    valor = valor.strip()
+    if not valor:
+        raise ValueError("El nombre del programa no puede estar vacío.")
+    return valor
+
+
+class SellOutProgramaIn(BaseModel):
+    """`POST /`: a new program. The name is trimmed, not empty and unique ignoring case (a 409 otherwise)."""
+
+    nombre: str = Field(max_length=NOMBRE_MAX)
+    descripcion: Optional[str] = None
+
+    _nombre = field_validator("nombre")(_nombre_programa)
+
+
+class SellOutProgramaPatchIn(BaseModel):
+    """`PATCH /{id}`: only the fields sent change. `nombre` and `estado` cannot be null; `descripcion` can."""
+
+    nombre: Optional[str] = Field(default=None, max_length=NOMBRE_MAX)
+    descripcion: Optional[str] = None
+    estado: Optional[EstadoPrograma] = None
+
+    _nombre = field_validator("nombre")(_nombre_programa)
+
+    @model_validator(mode="after")
+    def _sin_nulos(self) -> "SellOutProgramaPatchIn":
+        for campo in ("nombre", "estado"):
+            if campo in self.model_fields_set and getattr(self, campo) is None:
+                raise ValueError(f"El campo {campo} no puede ser nulo.")
+        return self
+
+
+class SellOutProgramaOut(BaseModel):
+    """A program with what its campaigns span: how many (`campanas`), how many are active (`activas`), the
+    earliest start (`desde`) and the latest end (`hasta`); None dates while it has no campaign."""
+
+    id: int
+    nombre: str
+    descripcion: Optional[str]
+    estado: EstadoPrograma
+    campanas: int
+    activas: int
+    desde: Optional[date]
+    hasta: Optional[date]
+
+
+class SellOutAsignarIn(BaseModel):
+    """`POST /asignar`: set the program of these campaigns, or clear it with `programa_id: null` (required)."""
+
+    campana_ids: list[int] = Field(min_length=1, max_length=ASIGNAR_MAX)
+    programa_id: Optional[int]
+
+
+class SellOutAsignarOut(BaseModel):
+    asignadas: int  # campaigns whose program changed
+    sin_cambio: int  # already had it
+
+
+class SellOutSugerenciaCampanaOut(BaseModel):
+    id: int
+    nombre: str
+    fecha_desde: date
+    fecha_hasta: date
+    estado: Estado
+
+
+class SellOutSugerenciaOut(BaseModel):
+    """Campaigns without a program sharing a base name (`programas.nombre_base`): a proposal, never applied."""
+
+    base: str
+    campanas: list[SellOutSugerenciaCampanaOut]

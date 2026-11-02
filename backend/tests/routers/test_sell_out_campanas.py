@@ -14,7 +14,7 @@ import pytest
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
+from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutPrograma
 
 BASE = "/api/sell-out/campanas"
 VER = "sell_out.ver"
@@ -292,6 +292,75 @@ def test_get_one_and_unknown_is_404(client, lector, gestor, grupos) -> None:
     out = _crear(client, gestor, grupos)
     assert client.get(f"{BASE}/{out['id']}", headers=lector).json() == out
     assert client.get(f"{BASE}/999999", headers=lector).status_code == 404
+
+
+# ── Program (campaign system S1) ────────────────────────────────────
+
+# Every key a campaign carried before programs existed.
+CLAVES_PREVIAS = {
+    "id", "nombre", "descripcion", "fecha_desde", "fecha_hasta", "tipo", "monto_unit", "porcentaje",
+    "base_porcentaje", "moneda", "tc_modo", "tipo_cambio", "tc_definido_en", "tope_unidades", "tope_monto",
+    "acumulable", "monto_incluye_iva", "estado", "usuario_id", "offset_origen_id", "created_at", "updated_at",
+    "grupos", "items", "resumen",
+}  # fmt: skip
+
+
+def _programa(db, admin_user, nombre: str = "EPSON PROG") -> SellOutPrograma:
+    programa = SellOutPrograma(nombre=nombre, usuario_id=admin_user.id)
+    db.add(programa)
+    db.flush()
+    return programa
+
+
+def test_list_and_detail_keep_their_keys_and_carry_no_program_until_assigned(client, gestor, grupos) -> None:
+    out = _crear(client, gestor, grupos, nombre="EPSON PROG 24")
+    assert set(out) == CLAVES_PREVIAS | {"programa_id", "programa"}
+    assert (out["programa_id"], out["programa"]) == (None, None)
+    assert client.get(f"{BASE}/{out['id']}", headers=gestor).json() == out
+    assert client.get(BASE, headers=gestor).json()["items"] == [out]
+
+
+def test_list_and_detail_carry_the_program_of_each_campaign(client, gestor, grupos, db, admin_user) -> None:
+    epson = _programa(db, admin_user, "EPSON PROG")
+    rebate = _programa(db, admin_user, "Rebate")
+    a = _crear(client, gestor, grupos, nombre="EPSON PROG 24")
+    b = _crear(client, gestor, grupos, nombre="Rebate Q4 2024")
+    c = _crear(client, gestor, grupos, nombre="TP-Link 2% noviembre")
+    db.get(SellOutCampana, a["id"]).programa_id = epson.id
+    db.get(SellOutCampana, b["id"]).programa_id = rebate.id
+    db.flush()
+
+    items = {x["id"]: x for x in client.get(BASE, headers=gestor).json()["items"]}
+    assert items[a["id"]]["programa"] == {"id": epson.id, "nombre": "EPSON PROG"}
+    assert (items[b["id"]]["programa_id"], items[b["id"]]["programa"]) == (
+        rebate.id,
+        {"id": rebate.id, "nombre": "Rebate"},
+    )
+    assert items[c["id"]]["programa"] is None
+    assert client.get(f"{BASE}/{a['id']}", headers=gestor).json()["programa"] == {
+        "id": epson.id,
+        "nombre": "EPSON PROG",
+    }
+
+
+def test_editing_a_campaign_keeps_its_program(client, gestor, grupos, db, admin_user) -> None:
+    """`PUT` is a full replace of what `SellOutCampanaIn` carries; the program is not part of it."""
+    programa = _programa(db, admin_user)
+    out = _crear(client, gestor, grupos, nombre="EPSON PROG 24")
+    db.get(SellOutCampana, out["id"]).programa_id = programa.id
+    db.flush()
+    resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, nombre="EPSON PROG 24 bis"), headers=gestor)
+    assert resp.status_code == 200, resp.text
+    assert (resp.json()["nombre"], resp.json()["programa_id"]) == ("EPSON PROG 24 bis", programa.id)
+    db.expire_all()
+    assert db.get(SellOutCampana, out["id"]).programa_id == programa.id
+
+
+def test_the_edit_audit_keeps_its_shape(client, gestor, grupos, db) -> None:
+    out = _crear(client, gestor, grupos)
+    client.put(f"{BASE}/{out['id']}", json=_body(grupos, nombre="Renombrada"), headers=gestor)
+    audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_OUT_CAMPANA_EDITADA).one()
+    assert "programa_id" not in audit.valores_anteriores and "programa_id" not in audit.valores_nuevos
 
 
 # ── What each campaign credited (T7 S5) ─────────────────────────────

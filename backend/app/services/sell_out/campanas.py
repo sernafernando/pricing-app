@@ -41,7 +41,7 @@ from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem
 from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaItemIn
 from app.services.sell_in.compras import contiene
-from app.services.sell_out import alcance, asignacion, queue, reparto
+from app.services.sell_out import alcance, asignacion, programas, queue, reparto
 
 # Each NUMERIC column's scale as a quantum: `monto_unit` 0.01, `porcentaje` 0.0001, ...
 _QUANTUM = {
@@ -750,8 +750,8 @@ def listar_campanas(
 
 
 def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
-    """Each campaign with its groups (id and name, in link order) and its per-product amounts (by item_id),
-    in one query each for the whole page."""
+    """Each campaign with its groups (id and name, in link order), its per-product amounts (by item_id) and its
+    program (`{id, nombre}` or None; metadata, never part of an edit), in one query each for the whole page."""
     ids = [c.id for c in campanas]
     grupos: dict[int, list[dict]] = {i: [] for i in ids}
     if ids:
@@ -764,6 +764,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         for campana_id, gid, nombre in rows:
             grupos[campana_id].append({"id": gid, "nombre": nombre})
     items = _items(db, ids)
+    de_programa = programas.programas_de(db, campanas)
     salida = []
     for c in campanas:
         fila = {campo: getattr(c, campo) for campo in _CAMPOS}
@@ -779,5 +780,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         fila["monto_total"] = c.monto_total  # returned for `monto_total` campaigns only (the schema drops it)
         fila["grupos"] = grupos[c.id]
         fila["items"] = items[c.id]
+        fila["programa_id"] = c.programa_id
+        fila["programa"] = de_programa.get(c.programa_id)
         salida.append(fila)
     return salida

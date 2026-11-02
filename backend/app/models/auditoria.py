@@ -44,6 +44,9 @@ class TipoAccion(str, enum.Enum):
     SELL_OUT_CAMPANA_EDITADA = "sell_out_campana_editada"
     SELL_OUT_CAMPANA_ANULADA = "sell_out_campana_anulada"
     SELL_OUT_CAMPANA_TC_DEFINIDO = "sell_out_campana_tc_definido"
+    # sell out: one row per campaign whose program changed (campaign system S1; `item_id` NULL, `campana_id` and the
+    # program before/after travel in the values). Same VARCHAR(50) column: no DDL.
+    SELL_OUT_CAMPANA_PROGRAMA = "sell_out_campana_programa"
 
 
 class Auditoria(Base):
