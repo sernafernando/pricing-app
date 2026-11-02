@@ -3,7 +3,9 @@
     "Live probe 2026-10-30 (Publicar OAuth): date_from/date_to must be ISO YYYY-MM-DD; YYYYMMDD is rejected.",
     "Max date range is 60 days per request; type must be INBOUND_RECEPTION (lowercase inbound_reception is invalid).",
     "Quota entity: operation_kvs_ds_v2__fbm_seller_stock_operations (429 after a few calls).",
-    "Target qty = detail.available_quantity of the newest INBOUND_RECEPTION row."
+    "Target qty = detail.available_quantity of the newest INBOUND_RECEPTION row.",
+    "captured_live_operation: live body via ml-webhook /api/ml/render on 2026-11-02 for inventory ZLKG92545 / inbound 79909756.",
+    "example_from_ml_docs kept only as ML documentation sample; prefer captured_live_operation for parser/shape proof."
   ],
   "params_contract": {
     "path": "/stock/fulfillment/operations/search",
@@ -13,6 +15,46 @@
     "date_to": "YYYY-MM-DD",
     "type": "INBOUND_RECEPTION",
     "max_range_days": 60
+  },
+  "parser_contract_used_by_reconcile": {
+    "required_fields": [
+      "id",
+      "type",
+      "date_created",
+      "detail.available_quantity",
+      "external_references[].type=inbound_id",
+      "external_references[].value"
+    ],
+    "type_must_equal": "INBOUND_RECEPTION",
+    "source": "Live probe notes 2026-10-30 + reconcile._op_from_ml_row"
+  },
+  "captured_live_operation": {
+    "date_created": "2026-10-28T03:06:38Z",
+    "detail": {
+      "available_quantity": 12,
+      "not_available_detail": []
+    },
+    "external_references": [
+      {
+        "type": "inbound_id",
+        "value": "79909756"
+      }
+    ],
+    "id": 7604247737135372849,
+    "inventory_id": "ZLKG92545",
+    "result": {
+      "available_quantity": 112,
+      "not_available_detail": [
+        {
+          "quantity": 1,
+          "status": "lost"
+        }
+      ],
+      "not_available_quantity": 1,
+      "total": 113
+    },
+    "seller_id": 413658225,
+    "type": "INBOUND_RECEPTION"
   },
   "example_from_ml_docs": {
     "id": 306705012,
@@ -36,5 +78,25 @@
         "value": "0001"
       }
     ]
+  },
+  "captured_live_meta": {
+    "captured_at": "2026-11-02",
+    "via": "https://ml-webhook.gaussonline.com.ar/api/ml/render",
+    "request": {
+      "path": "/stock/fulfillment/operations/search",
+      "seller_id": "413658225",
+      "inventory_id": "ZLKG92545",
+      "date_from": "2026-09-04",
+      "date_to": "2026-11-02",
+      "type": "INBOUND_RECEPTION",
+      "inbound_id_target": "79909756"
+    },
+    "http_status": 200,
+    "results_count": 30,
+    "paging": {
+      "limit": null,
+      "scroll": null,
+      "total": 30
+    }
   }
 }
