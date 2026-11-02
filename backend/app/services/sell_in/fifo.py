@@ -60,7 +60,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -203,6 +203,9 @@ class Dinero:
         """Enters, in date order, every period that starts on or before `fecha`."""
         while self._pendientes and self.periodos[self._pendientes[0]].desde <= fecha:
             periodo = self.periodos[self._pendientes.pop(0)]
+            if self._modo != "fifo":
+                # The pool takes in the lots that started counting before the new period, sold from or not.
+                self._unir(periodo.desde - timedelta(days=1))
             cuentan = self._cuentan(periodo.desde)
             if periodo.modo == "fifo":
                 if self._modo != "fifo":

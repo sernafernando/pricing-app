@@ -155,15 +155,7 @@ def test_a_second_weighted_row_is_a_no_op_for_a_weighted_product() -> None:
 
 def test_a_fifo_row_on_a_fifo_product_changes_no_cent() -> None:
     rng = random.Random(23)
-    distintos = 0
-    peor_fila = peor_total = Decimal(0)
     for _ in range(3000):
         lotes, ventas = _mundo(rng)
         l, v = _nuevo(lotes, ventas)
-        a = asignar(l, v)
-        b = asignar(l, v, [Periodo(D0 + timedelta(days=rng.randint(0, 60)), "fifo")])
-        distintos += a != b
-        for x, y in zip(a, b):
-            peor_fila = max(peor_fila, abs(x.descuento_ars - y.descuento_ars))
-        peor_total = max(peor_total, abs(sum(x.descuento_ars for x in a) - sum(y.descuento_ars for y in b)))
-    assert distintos == 0
+        assert asignar(l, v, [Periodo(D0 + timedelta(days=rng.randint(0, 60)), "fifo")]) == asignar(l, v)

@@ -142,7 +142,7 @@ def test_a_future_row_governs_nothing_yet(engine: Engine) -> None:
         60,
         False,
     )
-    assert venta
+    assert {c[2] for c in filas} == {venta}  # the rows that stayed are that sale's
 
 
 def test_a_refused_recompute_leaves_every_row_alone(engine: Engine) -> None:
@@ -199,7 +199,6 @@ def test_the_batch_never_reads_more_than_nine_queries(engine: Engine) -> None:
         conn = db.connection()
         event.listen(conn, "before_cursor_execute", lambda *a: statements.append(a[2]))
         batch = resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
-    print("QUERIES", len(statements))
     assert batch.sell_in[ROUTER].en_pool
     assert batch.bonos_costo, "the cost-bonus query must have run for the measure to mean anything"
     assert len(statements) <= 9, "\n---\n".join(statements)

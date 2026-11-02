@@ -120,3 +120,16 @@ def test_a_weighted_row_re_weighs_what_a_last_price_period_left() -> None:
 
     assert sum(x[2] for x in consumos[5]) == Decimal("600.00")
     assert sum(x[2] for x in consumos[7]) == Decimal("1200.00")
+
+
+def test_a_lot_bought_under_last_price_re_anchors_it_with_or_without_sales_before_the_next_row() -> None:
+    # 100 at 10 (Oct 1), 100 at 8 (Oct 5), `ultimo` from Oct 2, `ponderado` from Oct 10: on Oct 5 every unit is worth
+    # 8, so the 150 sold on Oct 20 carry 1200, whether or not a unit was sold in between.
+    lotes = [_lote(1, 100, "1000"), _lote(2, 100, "800", fecha=date(2026, 10, 5))]
+    periodos = [Periodo(date(2026, 10, 2), "ultimo"), Periodo(date(2026, 10, 10), "ponderado")]
+
+    sin_venta = _por_venta(asignar(lotes, [_venta(7, 150, OCT20)], periodos))
+    con_venta = _por_venta(asignar(lotes, [_venta(5, 1, date(2026, 10, 6)), _venta(7, 150, OCT20)], periodos))
+
+    assert sum(x[2] for x in sin_venta[7]) == Decimal("1200.00")
+    assert sum(x[2] for x in con_venta[7]) == Decimal("1200.00")
