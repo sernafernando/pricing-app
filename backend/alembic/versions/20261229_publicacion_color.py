@@ -1,7 +1,7 @@
 """publicacion_color: per-team ML color of one publication (seleccion-por-publicacion S3)
 
 Revision ID: 20261229_publicacion_color
-Revises: 20261225_sell_out_programas
+Revises: 20261227_sell_in_modos_producto
 Create Date: 2026-11-02
 
 Owner: "los colores lo mismo aplican a todo el producto, eso debería cambiar ahora". Publicaciones ML paints one
@@ -26,7 +26,7 @@ from typing import List, Sequence, Union
 from alembic import op
 
 revision: str = "20261229_publicacion_color"
-down_revision: Union[str, None] = "20261225_sell_out_programas"
+down_revision: Union[str, None] = "20261227_sell_in_modos_producto"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

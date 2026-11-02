@@ -63,12 +63,14 @@ def after(before) -> Engine:
     return before
 
 
-def test_this_revision_chains_on_the_sell_out_programs() -> None:
+def test_this_revision_chains_on_the_sell_in_modos_producto_revision() -> None:
     config = Config(os.path.join(_BACKEND_ROOT, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(_BACKEND_ROOT, "alembic"))
-    revision = ScriptDirectory.from_config(config).get_revision("20261229_publicacion_color")
+    scripts = ScriptDirectory.from_config(config)
+    revision = scripts.get_revision("20261229_publicacion_color")
     assert revision is not None
-    assert revision.down_revision == "20261225_sell_out_programas"
+    # Not get_heads() == [this]: a later revision must not break this test.
+    assert revision.down_revision == "20261227_sell_in_modos_producto"
 
 
 @pytest.mark.postgres
