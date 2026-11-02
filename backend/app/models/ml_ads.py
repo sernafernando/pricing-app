@@ -7,6 +7,7 @@ Days are ad days in the account's local (Argentina) calendar:
 - `ml_ads_ad_group_days`: the ad-group grain of a day, with the drill status of its `/ads` pages.
 - `ml_ads_item_days`: the (ad group, item) grain, the one the Board joins on.
 - `ml_ads_display_campaign_days` and `ml_ads_brand_days`: account-level Display and Brand Ads (PR 3), never MLA-level.
+- `ml_ads_display_campaigns`: the latest Display campaign catalog, as `display/campaigns` lists it.
 - `ml_ads_campaigns` (latest catalog, not per day) and `ml_ads_campaign_days` (metrics per day): the Product Ads
   campaigns that the day's `campaigns/search` call lists.
 
@@ -148,6 +149,29 @@ class MlAdsDisplayCampaignDay(Base):
     reach = Column(BigInteger, nullable=False, server_default="0", default=0)
     raw = Column(JSONB, nullable=False)
     fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class MlAdsDisplayCampaign(Base):
+    """The latest catalog of one Display campaign, as the day step's `display/campaigns` call lists it.
+
+    Keyed by the advertiser whose listing was requested (ADS-3). Dates are naive, as ML sends them; `raw` is the
+    whole list entry. Last write wins.
+    """
+
+    __tablename__ = "ml_ads_display_campaigns"
+
+    advertiser_id = Column(BigInteger, primary_key=True)
+    campaign_id = Column(BigInteger, primary_key=True)
+
+    name = Column(Text, nullable=True)
+    type = Column(String(40), nullable=True)
+    status = Column(String(40), nullable=True)
+    goal = Column(String(40), nullable=True)
+    site_id = Column(String(10), nullable=True)
+    start_date = Column(DateTime, nullable=True)
+    end_date = Column(DateTime, nullable=True)
+    raw = Column(JSONB, nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class MlAdsBrandDay(Base):

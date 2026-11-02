@@ -125,15 +125,15 @@ def verify_ads_day(
 
 
 def list_advertisers(
-    client: Any, *, deadline: Optional[datetime], now: Callable[[], datetime]
+    client: Any, *, deadline: Optional[datetime], now: Callable[[], datetime], product: str = "PADS"
 ) -> tuple[list[int], Optional[str], int]:
-    """`(ids, outcome, calls)`: the Product Ads advertisers (possibly none), or why the run must stop.
+    """`(ids, outcome, calls)`: the advertisers of `product` (possibly none), or why the run must stop.
 
     A 200 with an empty list is a valid answer (nothing to ingest); only an unreadable one is an `error`.
     """
     if deadline is not None and now() >= deadline:
         return [], DEADLINE_HIT, 0
-    request = endpoints.advertisers_request("PADS")
+    request = endpoints.advertisers_request(product)
     response = client.get(request.family, request.path, request.params, deadline=deadline, headers=request.headers)
     if response.error == DEADLINE:
         return [], DEADLINE_HIT, 0
@@ -364,6 +364,10 @@ class _DisplayRun(_DayRun):
         try:
             self._open()
             listing = self._call(endpoints.display_campaigns_request(self.advertiser_id, self.day))
+            with self.session_factory() as db:
+                store.upsert_display_catalog(
+                    db, mapper.map_display_catalog(self.advertiser_id, listing), now=self.now()
+                )
             campaigns = mapper.parse_display_campaigns(listing)
             for campaign_id in (c for c in campaigns if c > self.groups_offset):
                 self._read_campaign(campaign_id)

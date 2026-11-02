@@ -253,6 +253,53 @@ def parse_display_campaigns(body: Mapping[str, Any]) -> list[int]:
     return sorted({i for i in ids if isinstance(i, int) and not isinstance(i, bool)})
 
 
+@dataclass(frozen=True)
+class DisplayCampaignFact:
+    """One Display campaign of the `display/campaigns` list: its catalog, not a figure."""
+
+    advertiser_id: int
+    campaign_id: int
+    name: Optional[str]
+    type: Optional[str]
+    status: Optional[str]
+    goal: Optional[str]
+    site_id: Optional[str]
+    start_date: Optional[datetime]
+    end_date: Optional[datetime]
+    raw: Mapping[str, Any]
+
+
+def _text(value: Any) -> Optional[str]:
+    return value if isinstance(value, str) else None
+
+
+def map_display_catalog(advertiser_id: int, body: Mapping[str, Any]) -> list[DisplayCampaignFact]:
+    """The catalog rows of `display/campaigns`, keyed by the advertiser whose list was requested (ADS-3).
+
+    The same entries as `parse_display_campaigns`: one without a numeric id is ignored, a repeated id keeps the last.
+    """
+    rows: dict[int, DisplayCampaignFact] = {}
+    for entry in body.get("results") or []:
+        if not isinstance(entry, Mapping):
+            continue
+        campaign_id = entry.get("id")
+        if not isinstance(campaign_id, int) or isinstance(campaign_id, bool):
+            continue
+        rows[campaign_id] = DisplayCampaignFact(
+            advertiser_id=advertiser_id,
+            campaign_id=campaign_id,
+            name=_text(entry.get("name")),
+            type=_text(entry.get("type")),
+            status=_text(entry.get("status")),
+            goal=_text(entry.get("goal")),
+            site_id=_text(entry.get("site_id")),
+            start_date=_timestamp(entry.get("start_date")),
+            end_date=_timestamp(entry.get("end_date")),
+            raw=entry,
+        )
+    return [rows[i] for i in sorted(rows)]
+
+
 def map_display_metrics(advertiser_id: int, campaign_id: int, day: date, body: Mapping[str, Any]) -> list[DisplayFact]:
     """The campaign's row for `day`. A row dated otherwise is not this day's fact; no activity, no row."""
     facts = []

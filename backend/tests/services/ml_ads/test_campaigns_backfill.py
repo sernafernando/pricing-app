@@ -137,7 +137,7 @@ class TestCampaignsBackfill:
         again = _tick(session_factory, replay, monkeypatch)
 
         assert (again.campaigns_steps, again.complete) == ([], True)
-        assert [r.url.path for r in replay.requests[already:]] == ["/advertising/advertisers"]
+        assert [r.url.path for r in replay.requests[already:]] == ["/advertising/advertisers"] * 2  # PADS, then DISPLAY
 
     def test_a_campaigns_failure_never_breaks_the_other_sources(
         self, session_factory, pg_ads_db, monkeypatch, closed_window
