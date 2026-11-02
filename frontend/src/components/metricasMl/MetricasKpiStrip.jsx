@@ -16,7 +16,7 @@ import { deltaTone, formatDeltaPct, formatDeltaPp, formatPct, formatRatio, forma
 import { originalAmount } from '../../utils/metricasMlAds';
 import { TP_MARKUP_HINT, tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
 import { sellOutEstimatedTitle, sellOutPendingTitle } from '../../utils/metricasMlSell';
-import { hasSellCard, metricasKpiOptions, nounOf } from './metricasKpiOptions';
+import { metricasKpiOptions, nounOf } from './metricasKpiOptions';
 import styles from './MetricasKpiStrip.module.css';
 
 /**
@@ -176,7 +176,6 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
   const tp = canSeeMargin ? (kpis.total_tp ?? null) : null;
   // `kpis.sell_in_out` exists only with the profit view (never for `tplink.solo`).
   const sell = canSeeMargin ? (kpis.sell_in_out ?? null) : null;
-  const sellCard = hasSellCard(sell);
   const ageingTotal = ageing.up_to_30 + ageing.from_31_to_60 + ageing.over_60;
   const activePct = pctOf(withSales.value, withSales.of_total);
 
@@ -311,8 +310,6 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
       className={styles.cards}
       aria-label="Indicadores del período"
       aria-busy={loading}
-      data-tp={tp ? '' : undefined}
-      data-sell={sellCard ? '' : undefined}
       style={{ '--kpi-count': shown.length }}
     >
       {shown.map(({ id }) => (

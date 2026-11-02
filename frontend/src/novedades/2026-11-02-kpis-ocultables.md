@@ -15,6 +15,6 @@ En **Métricas ML** y en **Publicaciones ML** ahora se puede elegir qué tarjeta
 ## Para tener en cuenta
 
 - Al principio se ven todas las tarjetas.
-- La lista muestra solo las tarjetas que se ven en esa pantalla: por ejemplo, **Total TP** aparece cuando están activos los costos TP, y **Total Gauss** y **Markup** solo con permiso para ver la ganancia.
+- La lista muestra solo las tarjetas que se ven en esa pantalla: por ejemplo, **Total TP** aparece cuando están activos los costos TP, y en Publicaciones ML **Total Gauss** y **Markup** solo aparecen con permiso para ver la ganancia.
 - La elección es por pantalla y por navegador: en otra computadora o en otro navegador se ven todas otra vez.
 - Si se ocultan todas, la fila de tarjetas desaparece. En Publicaciones ML el selector de **Período** sigue visible, porque también afecta al resto de la pantalla.

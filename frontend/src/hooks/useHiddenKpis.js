@@ -21,17 +21,15 @@ export default function useHiddenKpis(storageKey, options) {
 
   const toggle = useCallback(
     (id) => {
-      setHidden((current) => {
-        const next = current.includes(id) ? current.filter((hiddenId) => hiddenId !== id) : [...current, id];
-        try {
-          localStorage.setItem(storageKey, JSON.stringify(next));
-        } catch {
-          // Storage unavailable (private mode, quota): the choice lasts until the reload.
-        }
-        return next;
-      });
+      const next = hidden.includes(id) ? hidden.filter((hiddenId) => hiddenId !== id) : [...hidden, id];
+      setHidden(next);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {
+        // Storage unavailable (private mode, quota): the choice lasts until the reload.
+      }
     },
-    [storageKey],
+    [hidden, storageKey],
   );
 
   const isVisible = useCallback((id) => !hidden.includes(id), [hidden]);
