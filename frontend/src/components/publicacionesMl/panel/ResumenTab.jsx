@@ -1,5 +1,4 @@
 import { formatPct } from '../../../utils/metricasMlFormat';
-import PublicationStatusPill from '../PublicationStatusPill';
 import { MARKUP_REASONS, UNKNOWN_REASON } from '../markupReasons';
 import cellStyles from '../cells.module.css';
 import { amount, count, date, orNull } from './format';
@@ -18,17 +17,75 @@ import {
 import styles from './panel.module.css';
 import { sellInOrigen } from '../../../utils/sellInOrigen';
 
-function PublicationSection({ detail }) {
+/**
+ * What needs the operator now, only from real signals (orchestrator 2026-11-02): ML took the
+ * publication down or flags it, the last write failed, the link is broken, or it sells at a loss.
+ * No thresholds of our own. Absent when there is nothing to say.
+ */
+function AttentionSection({ detail, canSeeMargin }) {
   const { row } = detail;
-  const store = row.store_label ?? (row.official_store_id == null ? null : `Tienda ${row.official_store_id}`);
+  const signals = [];
+  if (row.gone) signals.push(row.gone_at ? `Eliminada de Mercado Libre el ${date(row.gone_at)}` : 'Eliminada de Mercado Libre');
+  for (const code of detail.subStatus) signals.push(`Subestado de Mercado Libre: ${code}`);
+  if (detail.item?.last_error) signals.push(`Último error de Mercado Libre: ${detail.item.last_error}`);
+  if (row.link?.state === 'conflicto') signals.push('El vínculo con el producto está en conflicto');
+  // An unknown link (none sent) is not a signal; only a link evaluated without a product is.
+  if (row.link?.state === 'sin_producto') signals.push('Sin producto vinculado');
+  if (canSeeMargin && row.markup?.any_negative) signals.push('Markup negativo');
+  if (signals.length === 0) return null;
   return (
-    <Section title="Publicación">
+    <Section title="Atención">
+      <ul className={styles.attention}>
+        {signals.map((text) => (
+          <li key={text}>{text}</li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+/** The breakdown of the stock; its total is in the panel header. */
+function StockSection({ detail }) {
+  const stock = detail.row.stock ?? {};
+  return (
+    <Section title="Stock">
+      <Fields shortValues>
+        <Field label="Full">{count(stock.full)}</Field>
+        <Field label="Propio">{count(stock.own)}</Field>
+        {(detail.stockLocations ?? []).map((place) => (
+          <Field key={place.type} label={label(STOCK_LOCATION_LABELS, place.type)}>
+            {count(place.quantity)}
+          </Field>
+        ))}
+        <Field label="Stock ERP">{count(detail.row.erp_stock?.quantity)}</Field>
+        <Field label="Actualizado">{date(detail.stockAsOf ?? stock.as_of)}</Field>
+      </Fields>
+    </Section>
+  );
+}
+
+function LinkSection({ link }) {
+  return (
+    <Section title="Producto vinculado">
       <Fields>
-        <Field label="Estado">
-          {row.status || row.gone ? <PublicationStatusPill status={row.status} gone={row.gone} subStatus={detail.subStatus} /> : null}
-        </Field>
-        <Field label="Subestado">{detail.subStatus.length > 0 ? detail.subStatus.join(', ') : null}</Field>
-        {row.gone && <Field label="Eliminada el">{date(row.gone_at)}</Field>}
+        <Field label="Estado">{label(LINK_STATE_LABELS, link?.state)}</Field>
+        <Field label="Código">{orNull(link?.codigo)}</Field>
+        <Field label="Producto">{orNull(link?.descripcion)}</Field>
+      </Fields>
+    </Section>
+  );
+}
+
+/** What the publication is, read once and seldom: quiet, in two columns when the panel is wide. */
+function PublicationDataSection({ detail }) {
+  const { row } = detail;
+  const price = row.price;
+  const store = row.store_label ?? (row.official_store_id == null ? null : `Tienda ${row.official_store_id}`);
+  const promotion = [price?.promotion_type, price?.campaign].filter(Boolean).join(' · ');
+  const hasRegular = price?.regular_amount != null && Number(price.regular_amount) !== Number(price.amount);
+  return (
+    <Section title="Datos de la publicación">
+      <Fields columns quiet>
         <Field label="Condición">{label(CONDITION_LABELS, detail.condition)}</Field>
         <Field label="Tipo">{label(LISTING_TYPE_LABELS, row.listing_type_id)}</Field>
         <Field label="Catálogo">{row.catalog_listing == null ? null : row.catalog_listing ? 'Sí' : 'No'}</Field>
@@ -39,6 +96,9 @@ function PublicationSection({ detail }) {
         <Field label="Producto de usuario">{orNull(row.user_product_id)}</Field>
         <Field label="Variaciones">{row.variations_count > 0 ? row.variations_count : null}</Field>
         <Field label="Salud">{detail.health == null ? null : formatPct(detail.health * 100)}</Field>
+        <Field label="Origen del precio">{price?.amount == null ? null : label(PRICE_SOURCE_LABELS, price.source)}</Field>
+        <Field label="Precio regular">{hasRegular ? amount(price.regular_amount) : null}</Field>
+        <Field label="Promoción">{promotion || null}</Field>
         <Field label="Etiquetas">
           {detail.tags.length > 0 ? (
             <span className={styles.tags}>
@@ -53,52 +113,6 @@ function PublicationSection({ detail }) {
         <Field label="Creada">{date(detail.dateCreated)}</Field>
         <Field label="Modificada en ML">{date(detail.mlLastUpdated)}</Field>
         <Field label="Sincronizada">{date(detail.fetchedAt)}</Field>
-      </Fields>
-    </Section>
-  );
-}
-
-function PriceSection({ price }) {
-  const promotion = [price?.promotion_type, price?.campaign].filter(Boolean).join(' · ');
-  const hasRegular = price?.regular_amount != null && Number(price.regular_amount) !== Number(price.amount);
-  return (
-    <Section title="Precio">
-      <Fields>
-        <Field label="Precio">{amount(price?.amount)}</Field>
-        <Field label="Origen">{price?.amount == null ? null : label(PRICE_SOURCE_LABELS, price.source)}</Field>
-        <Field label="Precio regular">{hasRegular ? amount(price.regular_amount) : null}</Field>
-        <Field label="Promoción">{promotion || null}</Field>
-      </Fields>
-    </Section>
-  );
-}
-
-function StockSection({ detail }) {
-  const stock = detail.row.stock ?? {};
-  return (
-    <Section title="Stock ML">
-      <Fields>
-        <Field label="Disponible">{count(stock.available)}</Field>
-        <Field label="Full">{count(stock.full)}</Field>
-        <Field label="Propio">{count(stock.own)}</Field>
-        {(detail.stockLocations ?? []).map((place) => (
-          <Field key={place.type} label={label(STOCK_LOCATION_LABELS, place.type)}>
-            {count(place.quantity)}
-          </Field>
-        ))}
-        <Field label="Actualizado">{date(detail.stockAsOf ?? stock.as_of)}</Field>
-      </Fields>
-    </Section>
-  );
-}
-
-function LinkSection({ link }) {
-  return (
-    <Section title="Vínculo">
-      <Fields>
-        <Field label="Estado">{label(LINK_STATE_LABELS, link?.state)}</Field>
-        <Field label="Código">{orNull(link?.codigo)}</Field>
-        <Field label="Producto">{orNull(link?.descripcion)}</Field>
       </Fields>
     </Section>
   );
@@ -162,29 +176,47 @@ function SellInOutMarkup({ sellInOut }) {
   );
 }
 
-function MarkupSection({ breakdown, reason, sellInOut }) {
+/**
+ * An amount with a quieter fact after it; either may be missing. Both missing is null, so `Field` draws "—"
+ * (a plain function, not a component: `Field` must see the null).
+ */
+function withAside(value, aside) {
+  if (value == null && !aside) return null;
+  return (
+    <>
+      {value}
+      {aside && <span className={styles.aside}>{value == null ? aside : ` · ${aside}`}</span>}
+    </>
+  );
+}
+
+/**
+ * Rentabilidad: the sum from the price down to the markup (Precio on top, Markup last: the one repeat
+ * of the header, allowed because they are the ends of the sum), then what it was computed on, quieter.
+ */
+function RentabilidadSection({ breakdown, reason, sellInOut, publicationPriceSource }) {
   if (breakdown == null) {
     return (
-      <Section title="Markup">
+      <Section title="Rentabilidad">
         <p className={styles.note}>{MARKUP_REASONS[reason] ?? UNKNOWN_REASON}</p>
       </Section>
     );
   }
-  const negative = breakdown.markup != null && breakdown.markup < 0;
+  // The origin of the price the sum starts from, only when Datos de la publicación does not already say it (a
+  // variation's price, say): never repeated, never lost.
+  const priceOrigin = breakdown.price_source === publicationPriceSource ? null : label(PRICE_SOURCE_LABELS, breakdown.price_source);
   return (
-    <Section title="Markup">
+    <Section title="Rentabilidad">
       <Fields>
-        <Field label="Precio">{amount(breakdown.price)}</Field>
-        <Field label="Origen del precio">{label(PRICE_SOURCE_LABELS, breakdown.price_source)}</Field>
-        <Field label="Unidad calculada">
-          {breakdown.variation_id == null ? 'La publicación' : `Variación ${breakdown.variation_id}`}
+        <Field label="Precio">
+          {withAside(amount(breakdown.price), priceOrigin)}
         </Field>
-        <Field label="Cuotas">{count(breakdown.installments)}</Field>
-        <Field label="Lista de precios">{count(breakdown.pricelist_id)}</Field>
-        <Field label="Comisión">{breakdown.comision_pct == null ? null : formatPct(breakdown.comision_pct)}</Field>
-        <Field label="Comisión total">{amount(breakdown.comision_total)}</Field>
-        <Field label="Costo de envío">{amount(breakdown.costo_envio)}</Field>
-        <Field label="Origen del envío">{label(SHIPPING_SOURCE_LABELS, breakdown.envio_source)}</Field>
+        <Field label="Comisión">
+          {withAside(amount(breakdown.comision_total), breakdown.comision_pct == null ? null : formatPct(breakdown.comision_pct))}
+        </Field>
+        <Field label="Costo de envío">
+          {withAside(amount(breakdown.costo_envio), label(SHIPPING_SOURCE_LABELS, breakdown.envio_source))}
+        </Field>
         <Field label="Precio limpio">{amount(breakdown.limpio)}</Field>
         <Field label="Costo">{amount(breakdown.costo_ars)}</Field>
         {sellInOut && (
@@ -192,37 +224,49 @@ function MarkupSection({ breakdown, reason, sellInOut }) {
             <SellInCost sellIn={sellInOut.sell_in} />
           </Field>
         )}
-        <Field label="Markup">
-          {breakdown.markup == null ? null : (
-            <span className={cellStyles.markup} data-negative={negative ? '' : undefined}>
-              {formatPct(breakdown.markup)}
-            </span>
-          )}
-        </Field>
+        <Field label="Markup">{breakdown.markup == null ? null : <MarkupValue value={breakdown.markup} />}</Field>
         {sellInOut && (
           <Field label="Markup c/ sell in/out">
             <SellInOutMarkup sellInOut={sellInOut} />
           </Field>
         )}
       </Fields>
+      <Fields quiet>
+        <Field label="Unidad calculada">
+          {breakdown.variation_id == null ? 'La publicación' : `Variación ${breakdown.variation_id}`}
+        </Field>
+        <Field label="Cuotas">{count(breakdown.installments)}</Field>
+        <Field label="Lista de precios">{count(breakdown.pricelist_id)}</Field>
+      </Fields>
     </Section>
   );
 }
 
-/** Resumen: everything the publication is, in the order an operator reads it. */
+/**
+ * Resumen (S4): what needs attention, the Rentabilidad sum, Stock beside the linked product, then
+ * the quiet data. Total stock, sales and the status live in the panel header, not here; price and markup
+ * only come back as the two ends of the Rentabilidad sum.
+ */
 export default function ResumenTab({ detail, canSeeMargin }) {
   const { row } = detail;
   return (
     <>
-      <PublicationSection detail={detail} />
-      <PriceSection price={row.price} />
-      <StockSection detail={detail} />
-      <LinkSection link={row.link} />
-      <MercadoLibreSection item={detail.item} />
-      <BodySection extra={detail.extra} />
+      <AttentionSection detail={detail} canSeeMargin={canSeeMargin} />
       {canSeeMargin && (
-        <MarkupSection breakdown={detail.markupBreakdown} reason={row.markup?.reason} sellInOut={detail.sellInOut} />
+        <RentabilidadSection
+          breakdown={detail.markupBreakdown}
+          reason={row.markup?.reason}
+          sellInOut={detail.sellInOut}
+          publicationPriceSource={row.price?.amount == null ? null : row.price.source}
+        />
       )}
+      <div className={styles.pair}>
+        <StockSection detail={detail} />
+        <LinkSection link={row.link} />
+      </div>
+      <PublicationDataSection detail={detail} />
+      <MercadoLibreSection item={detail.item} shownPrices={[row.price?.amount, row.price?.regular_amount]} />
+      <BodySection extra={detail.extra} />
     </>
   );
 }

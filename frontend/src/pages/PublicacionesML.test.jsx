@@ -43,7 +43,7 @@ vi.mock('../services/api', () => ({
   // The publication panel opens on Promos (owner, 2026-11-02): its promotions never answer here, these tests are
   // about the panel's opening and closing.
   promocionesAPI: { getPromocionesItem: vi.fn(() => new Promise(() => {})), refreshItemPromociones: vi.fn(() => new Promise(() => {})) },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn() },
   productosAPI: {
     // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
     getProductoTree: vi.fn(() =>
@@ -191,7 +191,7 @@ afterAll(resetTiendasOficiales);
 describe('the list', () => {
   it('asks for the first page of 50, with facets, and renders one row per MLA', async () => {
     await page();
-    expect(lastParams()).toEqual({ orden: 'facturado_30d', dir: 'desc', limit: 50, offset: 0, facets: true });
+    expect(lastParams()).toEqual({ orden: 'tipo,facturado_30d', dir: 'asc,desc', limit: 50, offset: 0, facets: true });
     expect(screen.getByText(/Router TP-Link Archer AX55/)).toBeInTheDocument();
     expect(screen.getByText('MLA1100000004')).toBeInTheDocument();
     expect(screen.getByText('mostrando 1-50 de 235 publicaciones')).toBeInTheDocument();
@@ -384,19 +384,22 @@ describe('sorting and paging', () => {
     expect(within(header(/^Facturado 30D/)).getByTestId('sort-order')).toHaveTextContent('3');
   });
 
-  it('defaults to Facturado 30D, highest first, like Métricas: the whole set ranked by the backend', async () => {
+  // Owner, 2026-11-02: "primero ordene las clásicas, después las 3 cuotas, después las 6, etc".
+  it('defaults to the listing type, then Facturado 30D highest first: the whole set ranked by the backend', async () => {
     await page();
-    expect(lastParams()).toMatchObject({ orden: 'facturado_30d' });
-    expect(screen.getByRole('columnheader', { name: /Facturado 30D/ })).toHaveAttribute('aria-sort', 'descending');
+    expect(lastParams()).toMatchObject({ orden: 'tipo,facturado_30d', dir: 'asc,desc' });
+    expect(screen.getByRole('columnheader', { name: /Tipo/ })).toHaveAttribute('aria-sort', 'ascending');
+    const facturado = screen.getByRole('columnheader', { name: /^Facturado 30D/ });
+    expect(within(facturado).getByTestId('sort-order')).toHaveTextContent('2');
   });
 
-  it('without ml_metricas.ver the default stays the activity, newest first (its column is in the picker)', async () => {
+  it('without ml_metricas.ver the default is the listing type, then the activity, newest first', async () => {
     canSeeKpis = false;
     await page();
-    expect(lastParams()).not.toHaveProperty('orden');
+    expect(lastParams()).toMatchObject({ orden: 'tipo,actividad', dir: 'asc,desc' });
     await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Última actividad' }));
-    expect(screen.getByRole('columnheader', { name: /Última actividad/ })).toHaveAttribute('aria-sort', 'descending');
+    expect(within(screen.getByRole('columnheader', { name: /Última actividad/ })).getByTestId('sort-order')).toHaveTextContent('2');
   });
 
   it('each Métricas figure sorts the list, highest first', async () => {
@@ -419,8 +422,8 @@ describe('sorting and paging', () => {
 
   it('a shared link with a margin sort opens with the default sort for who cannot see margins', async () => {
     await page('/ml-publicaciones?orden=markup_30d&dir=asc');
-    expect(lastParams()).toMatchObject({ orden: 'facturado_30d', dir: 'desc' });
-    expect(screen.getByRole('columnheader', { name: /Facturado 30D/ })).toHaveAttribute('aria-sort', 'descending');
+    expect(lastParams()).toMatchObject({ orden: 'tipo,facturado_30d', dir: 'asc,desc' });
+    expect(screen.getByRole('columnheader', { name: /Tipo/ })).toHaveAttribute('aria-sort', 'ascending');
   });
 });
 
@@ -910,8 +913,8 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
     for (const params of calls()) {
       expect(params).not.toHaveProperty('markup_neg');
       expect(params).not.toHaveProperty('markup_min');
-      // The markup sort is dropped: the list asks for its default (Facturado 30D, the user sees the sales).
-      expect(params.orden).toBe('facturado_30d');
+      // The markup sort is dropped: the list asks for its default (the type, then Facturado 30D: the user sees the sales).
+      expect(params.orden).toBe('tipo,facturado_30d');
     }
     await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
     expect(screen.queryByRole('checkbox', { name: 'Markup actual' })).not.toBeInTheDocument();
@@ -1647,7 +1650,9 @@ describe('the product filters (Marca, Categoría, Subcategoría, PM)', () => {
 });
 
 describe('bulk actions over products (S6)', () => {
-  const pick = (mla) => screen.getByRole('checkbox', { name: `Seleccionar el producto de ${mla}` });
+  // Each publication checks itself, not its product (seleccion-por-publicacion S1); a product row checks its product.
+  const pick = (mla) => screen.getByRole('checkbox', { name: `Seleccionar la publicación ${mla}` });
+  const pickProduct = (label) => screen.getByRole('checkbox', { name: `Seleccionar el producto ${label}` });
 
   it('asks the products of the filter and shows their count', async () => {
     await page('/ml-publicaciones?estado=active');
@@ -1655,28 +1660,137 @@ describe('bulk actions over products (S6)', () => {
     expect(publicacionesMlAPI.productIds.mock.calls.at(-1)[0]).toEqual({ estado: 'active' });
   });
 
-  it('checking a publication checks its product; a publication with no product cannot be checked', async () => {
+  // Two publications of product 4101 (MLA1100000001 and MLA1100000009), one of 4102, one without a product.
+  const SAME_PRODUCT = () =>
+    respond({
+      ...ITEMS_RESPONSE,
+      items: [ITEMS[0], ITEMS[1], { ...ITEMS[0], item_id: 'MLA1100000009' }, ITEMS[3]],
+      total: 4,
+    });
+
+  it('checking a publication checks only that publication, not the other one of its product (S1)', async () => {
+    SAME_PRODUCT();
     await page();
     await userEvent.click(pick('MLA1100000001'));
-    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeEnabled();
     expect(pick('MLA1100000001')).toBeChecked();
-    expect(pick('MLA1100000004')).toBeDisabled();
+    expect(pick('MLA1100000009')).not.toBeChecked();
+    // Prices stay per product: the checked publications resolve to their linked products (S5).
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeEnabled();
+    await userEvent.click(pick('MLA1100000009'));
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 2 publicaciones marcadas)' })).toBeEnabled();
+  });
+
+  it('pausing with one publication checked sends that publication only, not the other one of its product (S2)', async () => {
+    SAME_PRODUCT();
+    publicacionesMlAPI.statusItemIdsChecked.mockResolvedValue({ data: { item_ids: ['MLA1100000001'], count: 1, no_aplican: 0 } });
+    publicacionesMlAPI.statusBulk.mockResolvedValue({ data: { results: [{ item_id: 'MLA1100000001', status: 'submitted', message: null }] } });
+    await page();
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000001'));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    await user.click(await screen.findByRole('button', { name: 'Confirmar' }));
+    await waitFor(() => expect(publicacionesMlAPI.statusBulk).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusItemIdsChecked).toHaveBeenCalledWith({ target: 'paused', item_ids: ['MLA1100000001'], producto_ids: [] });
+    expect(publicacionesMlAPI.statusItemIds).not.toHaveBeenCalled();
+    expect(publicacionesMlAPI.statusBulk.mock.calls).toEqual([[{ status: 'paused', item_ids: ['MLA1100000001'] }]]);
+  });
+
+  it('a publication with no product can be checked; the price actions say it has none and can clear it', async () => {
+    SAME_PRODUCT();
+    await page();
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000004'));
+    expect(pick('MLA1100000004')).toBeChecked();
+    // Never the filter's products: it opens on a panel that says why and offers to clear the selection.
+    await user.click(await screen.findByRole('button', { name: 'Acciones masivas (0 productos de 1 publicación marcada)' }));
+    expect(screen.getByText('Las publicaciones marcadas no tienen producto vinculado.')).toBeInTheDocument();
+    for (const item of screen.getAllByRole('menuitem')) expect(item).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /Limpiar selección/ }));
+    expect(pick('MLA1100000004')).not.toBeChecked();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' })).toBeEnabled();
+  });
+
+  it('in the Agrupado tree a checked publication counts with its product, never as the whole filter', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.groups.mockResolvedValue({
+      data: groupsResponse('producto', [
+        { kind: 'producto', key: '9', label: 'Router Z', count: 1, leaf: true, params: { producto: '9' } },
+      ]),
+    });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await user.click(await screen.findByRole('button', { name: /Abrir Router Z/ }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' }));
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Pintar 1 producto' })).toBeInTheDocument();
+  });
+
+  it('a filter that hides the checked row keeps exactly it and does not fall back to the filter', async () => {
+    SAME_PRODUCT();
+    publicacionesMlAPI.statusItemIdsChecked.mockResolvedValue({ data: { item_ids: ['MLA1100000001'], count: 1, no_aplican: 0 } });
+    publicacionesMlAPI.statusBulk.mockResolvedValue({ data: { results: [{ item_id: 'MLA1100000001', status: 'submitted', message: null }] } });
+    await page();
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000001'));
+    respond({ ...ITEMS_RESPONSE, items: [ITEMS[1]], total: 1 });
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await user.click(within(estado).getByRole('button', { name: /Activas/ }));
+    await waitFor(() => expect(lastParams().estado).toBe('active'));
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' })).toBeNull());
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    await user.click(await screen.findByRole('button', { name: 'Confirmar' }));
+    await waitFor(() => expect(publicacionesMlAPI.statusBulk).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusItemIdsChecked.mock.calls).toEqual([[{ target: 'paused', item_ids: ['MLA1100000001'], producto_ids: [] }]]);
+    expect(publicacionesMlAPI.statusItemIds).not.toHaveBeenCalled();
+    expect(publicacionesMlAPI.statusBulk.mock.calls).toEqual([[{ status: 'paused', item_ids: ['MLA1100000001'] }]]);
+  });
+
+  it('unchecking everything goes back to the filter label and the GET, never a POST with nothing', async () => {
+    SAME_PRODUCT();
+    publicacionesMlAPI.statusItemIds.mockResolvedValue({ data: { item_ids: [], count: 0, no_aplican: 0 } });
+    await page();
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000001'));
+    await user.click(pick('MLA1100000001'));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar las del filtro' }));
+    await waitFor(() => expect(publicacionesMlAPI.statusItemIds).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusItemIdsChecked).not.toHaveBeenCalled();
+    expect(publicacionesMlAPI.statusBulk).not.toHaveBeenCalled();
+  });
+
+  it('a publication checked in the Agrupado tree is sent alone, without its product', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.statusItemIdsChecked.mockResolvedValue({ data: { item_ids: [], count: 0, no_aplican: 1 } });
+    publicacionesMlAPI.groups.mockResolvedValue({
+      data: groupsResponse('producto', [
+        { kind: 'producto', key: '9', label: 'Router Z', count: 1, leaf: true, params: { producto: '9' } },
+      ]),
+    });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await user.click(await screen.findByRole('button', { name: /Abrir Router Z/ }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' }));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    await waitFor(() => expect(publicacionesMlAPI.statusItemIdsChecked).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusItemIdsChecked.mock.calls).toEqual([[{ target: 'paused', item_ids: ['MLA1100000001'], producto_ids: [] }]]);
   });
 
   // S12d: as in Productos, the selection outlives the list it was picked from.
-  it('a filter change keeps the checked products', async () => {
+  it('a filter change keeps the checked publications', async () => {
     await page();
     await userEvent.click(pick('MLA1100000001'));
-    await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' });
+    await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' });
     const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
     await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
     await waitFor(() => expect(lastParams().estado).toBe('active'));
-    expect(screen.getByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeInTheDocument();
     expect(pick('MLA1100000001')).toBeChecked();
   });
 
-  // Three publications, three products, one with none in the middle of the range.
-  const THREE = () =>
+  // Four publications: the range covers the ones in between, whatever their product.
+  const FOUR = () =>
     respond({
       ...ITEMS_RESPONSE,
       items: [
@@ -1688,50 +1802,106 @@ describe('bulk actions over products (S6)', () => {
       total: 4,
     });
 
-  it('Shift+click checks every product between the last one checked and this one, as in Productos', async () => {
-    THREE();
+  it('Shift+click checks every publication between the last one checked and this one, as in Productos', async () => {
+    FOUR();
     await page();
     const user = userEvent.setup();
     await user.click(pick('MLA1100000001'));
     await user.keyboard('{Shift>}');
     await user.click(pick('MLA1100000009'));
     await user.keyboard('{/Shift}');
-    expect(await screen.findByRole('button', { name: 'Acciones masivas (3 productos seleccionados)' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (3 productos de 4 publicaciones marcadas)' })).toBeEnabled();
+    expect(pick('MLA1100000007')).toBeChecked();
     expect(pick('MLA1100000008')).toBeChecked();
-    expect(pick('MLA1100000007')).not.toBeChecked();
   });
 
-  it("the title header's checkbox checks the page's products, and unchecks them when they all are", async () => {
-    THREE();
+  it("the title header's checkbox checks the page's rows, and unchecks them when they all are", async () => {
+    FOUR();
     await page();
-    const all = screen.getByRole('checkbox', { name: 'Seleccionar los productos de la página' });
+    const all = screen.getByRole('checkbox', { name: 'Seleccionar las filas de la página' });
     await userEvent.click(all);
-    expect(await screen.findByRole('button', { name: 'Acciones masivas (3 productos seleccionados)' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (3 productos de 4 publicaciones marcadas)' })).toBeEnabled();
     expect(all).toBeChecked();
     await userEvent.click(all);
     expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' })).toBeEnabled();
     expect(pick('MLA1100000001')).not.toBeChecked();
   });
 
-  it('Shift+Down checks the product of the row it moves to', async () => {
-    THREE();
+  it('Shift+Down checks the publication of the row it moves to', async () => {
+    FOUR();
     await page();
     const user = userEvent.setup();
     await user.click(pick('MLA1100000001'));
     pick('MLA1100000001').closest('tr').focus();
     await user.keyboard('{Shift>}{ArrowDown}{ArrowDown}{/Shift}');
-    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos seleccionados)' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos de 3 publicaciones marcadas)' })).toBeEnabled();
+    expect(pick('MLA1100000007')).toBeChecked();
     expect(pick('MLA1100000008')).toBeChecked();
   });
 
-  it('in the Producto view a product row checks the product; "Sin producto" cannot be checked', async () => {
+  const productView = async () => {
     publicacionesMlAPI.products.mockReset();
     publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120 }) });
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto'] });
     await screen.findByText('Router Archer AX55');
-    await userEvent.click(pick('Router Archer AX55'));
+  };
+
+  it('in the Producto view a product row checks the product; "Sin producto" cannot be checked (S4)', async () => {
+    await productView();
+    await userEvent.click(pickProduct('Router Archer AX55'));
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeEnabled();
-    expect(pick('Sin producto')).toBeDisabled();
+    expect(pickProduct('Sin producto')).toBeDisabled();
+  });
+
+  it('in the Producto view pausing a checked product row sends its product, no publication of it (S2, S4)', async () => {
+    const user = userEvent.setup();
+    await productView();
+    await user.click(pickProduct('Router Archer AX55'));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar las de 1 fila marcada' }));
+    await screen.findByRole('region', { name: 'Pausar o activar publicaciones' });
+    const [body] = publicacionesMlAPI.statusItemIdsChecked.mock.calls.at(-1);
+    expect(body).toEqual({ target: 'paused', item_ids: [], producto_ids: [4101] });
+  });
+
+  it('in the Producto view a publication inside an expanded product checks only itself (S4)', async () => {
+    const user = userEvent.setup();
+    await productView();
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' }));
+    expect(pickProduct('Router Archer AX55')).not.toBeChecked();
+    expect(pick('MLA1100000002')).not.toBeChecked();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeEnabled();
+    // Checking the product row too still counts the product once, now from two rows.
+    await user.click(pickProduct('Router Archer AX55'));
+    expect(pick('MLA1100000001')).toBeChecked();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 2 filas marcadas)' })).toBeEnabled();
+  });
+
+  it('partly checked product: only the checked child is sent, no product id', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.statusItemIdsChecked.mockResolvedValue({ data: { item_ids: [], count: 0, no_aplican: 1 } });
+    await productView();
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' }));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    await waitFor(() => expect(publicacionesMlAPI.statusItemIdsChecked).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusItemIdsChecked.mock.calls).toEqual([[{ target: 'paused', item_ids: ['MLA1100000001'], producto_ids: [] }]]);
+  });
+
+  it('in the Producto view Shift+Down over an open product and its "more" row checks only real rows', async () => {
+    const user = userEvent.setup();
+    await productView();
+    // Open, the product lists a page of its 235 publications and then a "more" row, which is focusable too.
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' });
+    await user.click(pickProduct('Router Archer AX55'));
+    pickProduct('Router Archer AX55').closest('tr').focus();
+    await user.keyboard(`{Shift>}${'{ArrowDown}'.repeat(12)}{/Shift}`);
+    await user.click(screen.getByRole('button', { name: /^Acciones masivas/ }));
+    // A row that is not a product nor a publication would be counted as checked off the page.
+    expect(screen.queryByText(/no está en esta página|no están en esta página/)).not.toBeInTheDocument();
   });
 });
 
@@ -2398,7 +2568,7 @@ describe('painting colors (S8)', () => {
   it('paints the checked products from the list, without asking the list again', async () => {
     await page();
     const asked = publicacionesMlAPI.items.mock.calls.length;
-    await userEvent.click(within(firstRow()).getByRole('checkbox', { name: /Seleccionar el producto de/ }));
+    await userEvent.click(within(firstRow()).getByRole('checkbox', { name: /Seleccionar la publicación/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Pintar 1 producto' }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'OK' }));
     await waitFor(() => expect(firstRow()).toHaveAttribute('data-tone'));
@@ -2707,68 +2877,72 @@ describe("Productos' Sin MLA in the Producto view", () => {
   });
 });
 
-describe("the panels' Precios tab shows the list's price group (owner, 2026-10-28)", () => {
-  const PRICED = [
-    {
-      item_id: 4101,
-      descripcion: 'Router Archer AX55',
-      precio_lista_ml: 12345.5,
-      markup: 21.5,
-      precio_3_cuotas: 13000,
-      precio_pvp: 15000,
-      mejor_oferta_precio: 11999,
-      participa_rebate: true,
-      precio_rebate: 12500,
-    },
-  ];
+describe("the panels' Precios tab: one table, a row per plan (S2)", () => {
+  // What Productos' listing sends: Calcular opens the pricing on it.
+  const LISTED = { item_id: 4101, descripcion: 'Router Archer AX55', codigo: 'ARCHER-AX55', costo: 10000, moneda_costo: 'ARS', iva: 21, tn_price: 99999 };
+  // GET /productos/{item_id}: the prices the table shows.
+  const PRODUCT = {
+    item_id: 4101,
+    codigo: 'ARCHER-AX55',
+    descripcion: 'Router Archer AX55',
+    precio_lista_ml: 12345.5,
+    markup: 21.5,
+    precio_3_cuotas: 13000,
+    precio_pvp: 15000,
+  };
   beforeEach(() => {
     productosAPI.listar.mockReset();
-    productosAPI.listar.mockResolvedValue({ data: { productos: PRICED, total: 1 } });
+    productosAPI.listar.mockResolvedValue({ data: { productos: [LISTED], total: 1 } });
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCT });
     preciosAPI.setRapido.mockClear();
     publicacionesMlAPI.detail.mockImplementation(() => Promise.resolve({ data: { ...DETAIL_LINKED, row: ITEMS[0] } }));
   });
-  const group = async () => {
-    const panel = await screen.findByRole('complementary', { name: /Detalle de/ });
-    return within(panel).findByRole('region', { name: 'Precios de la lista' });
+  // The table, once the listing's own request (Calcular, the Tienda Nube price) has arrived too.
+  const plans = async (panelName = /Detalle de/) => {
+    const panel = await screen.findByRole('complementary', { name: panelName });
+    const table = await within(panel).findByRole('table', { name: 'Precios por plan' });
+    await waitFor(() => expect(within(panel).getByRole('row', { name: /^Web transferencia/ })).toHaveTextContent('99.999,00'));
+    return table;
   };
 
-  it("a publication's Precios tab has every list price of the Precios view: Normal, Cuotas and PVP", async () => {
+  it("a publication's Precios tab shows Lista ML and PVP of each plan once, and no separate list group", async () => {
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
-    const prices = await group();
-    for (const header of ['Precio Clásica', 'Precio Rebate', 'Mejor Oferta', 'Web Transf.', '3 Cuotas', '12 Cuotas', 'Precio PVP', 'PVP 3 Cuotas']) {
-      expect(within(prices).getAllByRole('columnheader', { name: header }).length).toBeGreaterThan(0);
-    }
-    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
-    expect(within(prices).getByText('15.000,00')).toBeInTheDocument();
+    const table = await plans();
+    expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Plan', 'Lista ML', 'PVP']);
+    expect(await within(table).findAllByText('$ 12.345,50')).toHaveLength(1);
+    expect(within(table).getAllByText('$ 15.000,00')).toHaveLength(1);
+    expect(screen.queryByRole('region', { name: 'Precios de la lista' })).not.toBeInTheDocument();
   });
 
-  it("edits a price with the list's own editor and handlers, and reads it again", async () => {
+  it('edits a price in its plan row, saves it and reads the prices again', async () => {
     const user = userEvent.setup();
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
-    const prices = await group();
-    await user.click((await within(prices).findAllByRole('button', { name: /^Editar Precio Clásica/ }))[0]);
-    const input = within(prices).getByRole('textbox', { name: 'Precio Clásica' });
+    const table = await plans();
+    await user.click(await within(table).findByRole('button', { name: 'Editar Clásica' }));
+    const input = within(table).getByRole('textbox', { name: 'Clásica' });
     await user.clear(input);
-    const asked = productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length;
-    productosAPI.listar.mockResolvedValue({ data: { productos: [{ ...PRICED[0], precio_lista_ml: 15000 }], total: 1 } });
-    await user.type(input, '15000{Enter}');
-    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 15000 })));
-    expect(await screen.findByText('Precio guardado.')).toBeInTheDocument();
-    // The group reads the product's prices again and shows the saved one.
-    await waitFor(() => expect(productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length).toBeGreaterThan(asked));
-    expect((await within(prices).findAllByText('15.000,00')).length).toBeGreaterThan(0);
+    const read = preciosAPI.obtenerProducto.mock.calls.length;
+    preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCT, precio_lista_ml: 16000 } });
+    const listed = productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length;
+    await user.type(input, '16000{Enter}');
+    await waitFor(() => expect(preciosAPI.setRapido).toHaveBeenCalledWith(expect.objectContaining({ item_id: 4101, precio: 16000 })));
+    expect(await screen.findByText(/^Precio guardado/)).toBeInTheDocument();
+    await waitFor(() => expect(preciosAPI.obtenerProducto.mock.calls.length).toBeGreaterThan(read));
+    // The listing too, so Calcular opens on the saved prices.
+    await waitFor(() => expect(productosAPI.listar.mock.calls.filter(([params]) => params.item_ids === '4101').length).toBeGreaterThan(listed));
+    expect(await within(table).findByText('$ 16.000,00')).toBeInTheDocument();
   });
 
-  it('without a price edit permission the group reads only: no editor, no Calcular', async () => {
+  it('without a price edit permission the table reads only: no editor, no Calcular', async () => {
     canEditPrices = false;
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
-    const prices = await group();
-    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
-    expect(within(prices).queryByRole('button', { name: /^Editar/ })).not.toBeInTheDocument();
-    expect(within(prices).queryByRole('button', { name: /^Calcular/ })).not.toBeInTheDocument();
+    const table = await plans();
+    expect(await within(table).findByText('$ 12.345,50')).toBeInTheDocument();
+    expect(within(table).queryByRole('button', { name: /^Editar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Calcular/ })).not.toBeInTheDocument();
   });
 
-  it('the Agrupado tree asks no offsets until a panel opens', async () => {
+  it('the Agrupado tree asks no offsets: it has no price columns', async () => {
     canSeeMargin = true;
     offsetsGananciaAPI.vigentes.mockClear();
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
@@ -2776,21 +2950,23 @@ describe("the panels' Precios tab shows the list's price group (owner, 2026-10-2
     expect(offsetsGananciaAPI.vigentes).not.toHaveBeenCalled();
   });
 
-  it("Calcular opens Productos' pricing modal on the product", async () => {
+  it("Calcular, in the product's reference line, opens Productos' pricing modal on the product", async () => {
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?sel=MLA1100000001&tab=precios'] });
-    const prices = await group();
-    await userEvent.click(await within(prices).findByRole('button', { name: 'Calcular el precio de Router Archer AX55' }));
+    await plans();
+    const references = screen.getByRole('group', { name: 'Referencias del producto' });
+    await userEvent.click(await within(references).findByRole('button', { name: 'Calcular el precio de Router Archer AX55' }));
     // PricingModalTesla, titled with the product as in Productos.
     await waitFor(() => expect(document.querySelector('.modal-tesla')).toHaveTextContent('Router Archer AX55'));
   });
 
-  it("a product's Precios tab has the same group", async () => {
+  it("a product's Precios tab has the same table", async () => {
     publicacionesMlAPI.products.mockReset();
     publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse() });
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto&prod=4101'] });
     const panel = await screen.findByRole('complementary', { name: 'Detalle del producto' });
     await userEvent.click(await within(panel).findByRole('tab', { name: 'Precios' }));
-    const prices = await within(panel).findByRole('region', { name: 'Precios de la lista' });
-    expect((await within(prices).findAllByText('12.345,50')).length).toBeGreaterThan(0);
+    const table = await plans('Detalle del producto');
+    expect(within(table).getByText('$ 12.345,50')).toBeInTheDocument();
+    expect(within(panel).getByRole('button', { name: 'Calcular el precio de Router Archer AX55' })).toBeInTheDocument();
   });
 });

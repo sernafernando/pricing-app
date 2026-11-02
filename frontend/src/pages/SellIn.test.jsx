@@ -5,7 +5,7 @@ import { useLocation } from 'react-router-dom';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
-import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, RESUMEN } from '../components/sellIn/sellInFixtures';
+import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, PRODUCTOS, RESUMEN } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
 import { CAMPANA_MIGRADA, CAMPANAS_LISTA, CONSUMOS_USD } from '../components/sellOut/sellOutFixtures';
@@ -20,6 +20,7 @@ vi.mock('../services/sellInAPI', () => ({
     crear: vi.fn(),
     anular: vi.fn(),
     anularMasivo: vi.fn(),
+    proveedores: vi.fn(),
   },
   sellInBonosAPI: {
     listar: vi.fn(),
@@ -159,7 +160,7 @@ describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
     const chips = await screen.findByRole('group', { name: 'Tipo' });
     expect(await within(chips).findByRole('button', { name: 'Bono de marca · 2' })).toHaveAttribute(
       'title',
-      'Todos los bonos de marca cargados: los filtros de arriba no los cuentan',
+      'Los bonos de marca con los filtros de arriba, salvo Aplicación, Producto y Proveedor',
     );
     expect(within(chips).getByRole('button', { name: 'Por compra · 2' })).toHaveAttribute('title', 'Los sell in por compra con los filtros de arriba');
   });
@@ -244,6 +245,130 @@ describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
     const alcanzadas = within(cards).getByText('Compras alcanzadas').parentElement;
     expect(alcanzadas).toHaveTextContent('18');
     expect(alcanzadas).toHaveTextContent('por bonos de marca');
+  });
+});
+
+// The bonus list's own page requests: not the active bonuses of the summary cards nor "todo lo filtrado" (200 rows).
+const listadosDeLaListaDeBonos = () => sellInBonosAPI.listar.mock.calls.map(([params]) => params).filter((params) => params.page_size !== 200);
+// The supplier search's answer (`GET /administracion/proveedores`), as SellInCreatePanel.test.jsx reads it.
+const PROVEEDORES = { proveedores: [{ id: 7, nombre: 'TP-Link', cuit: '30-1' }], total: 1, page: 1, page_size: 10 };
+
+describe('SellIn page — the top filters also filter the brand bonuses (S4)', () => {
+  it('the bonus list follows search, brand, currency, estado and dates, never Aplicación, and goes back to page 1', async () => {
+    const user = userEvent.setup();
+    sellInBonosAPI.listar.mockResolvedValue({ data: { ...BONOS_LISTA, total: 500 } });
+    renderWithRouter(<SellIn />);
+    const bonos = await screen.findByRole('region', { name: 'Bonos de marca' });
+    await user.click(await within(bonos).findByRole('button', { name: 'Página 2' }));
+    await waitFor(() => expect(listadosDeLaListaDeBonos().at(-1)).toEqual({ page: 2, page_size: 10 }));
+
+    await user.selectOptions(screen.getByLabelText('Moneda'), 'USD');
+    await user.selectOptions(screen.getByLabelText('Estado'), 'anulada');
+    await waitFor(() => expect(screen.getByRole('option', { name: 'TP-Link' })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText('Marca'), 'TP-Link');
+    await user.type(screen.getByPlaceholderText('Buscar por descripción, proveedor o producto…'), 'rebate');
+    await user.click(screen.getByTitle('Seleccionar rango personalizado'));
+    await user.type(screen.getByLabelText('Desde'), '2026-10-01');
+    await user.type(screen.getByLabelText('Hasta'), '2026-10-31');
+    await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+    await user.click(within(screen.getByRole('group', { name: 'Aplicación' })).getByRole('button', { name: /Todas/ }));
+
+    const esperados = { q: 'rebate', marcas: 'TP-Link', moneda: 'USD', estado: 'anulada', fecha_desde: '2026-10-01', fecha_hasta: '2026-10-31' };
+    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual({ ...esperados, aplica: 'todas', page: 1, page_size: 50 }));
+    expect(listadosDeLaListaDeBonos().at(-1)).toEqual({ ...esperados, page: 1, page_size: 10 });
+  });
+
+  it('the active bonuses of the summary cards still ask only estado=activa, whatever the filters', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    await user.selectOptions(screen.getByLabelText('Moneda'), 'USD');
+    await user.selectOptions(screen.getByLabelText('Estado'), 'anulada');
+    await waitFor(() => expect(listadosDeLaListaDeBonos().at(-1)).toEqual({ moneda: 'USD', estado: 'anulada', page: 1, page_size: 10 }));
+
+    const vigentes = sellInBonosAPI.listar.mock.calls.map(([params]) => params).filter((params) => params.page_size === 200);
+    expect(vigentes.length).toBeGreaterThan(0);
+    vigentes.forEach((params) => expect(params).toEqual({ estado: 'activa', page: 1, page_size: 200 }));
+  });
+
+  it('the bonuses\' "Seleccionar todo lo filtrado" asks every page with the filters on screen', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    await user.selectOptions(screen.getByLabelText('Moneda'), 'USD');
+    await waitFor(() => expect(listadosDeLaListaDeBonos().at(-1)).toEqual({ moneda: 'USD', page: 1, page_size: 10 }));
+    sellInBonosAPI.listar.mockClear();
+
+    const bonos = screen.getByRole('region', { name: 'Bonos de marca' });
+    await user.click(within(bonos).getByRole('button', { name: 'Seleccionar todo lo filtrado (2)' }));
+
+    expect(await within(bonos).findByText('2 seleccionados')).toBeInTheDocument();
+    expect(sellInBonosAPI.listar).toHaveBeenCalledWith({ moneda: 'USD', page: 1, page_size: 200 });
+  });
+
+  it('other bonus filters drop the bonuses checked under the previous ones', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    await user.click(await screen.findByRole('checkbox', { name: `Seleccionar bono #${BONO.id}` }));
+    const bonos = screen.getByRole('region', { name: 'Bonos de marca' });
+    expect(within(bonos).getByText('1 seleccionado')).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Moneda'), 'USD');
+    await waitFor(() => expect(within(bonos).queryByText('1 seleccionado')).not.toBeInTheDocument());
+  });
+});
+
+describe('SellIn page — what the new Sell in filters show when something is missing (S4)', () => {
+  it('a failed bonos reload after a filter change shows the error and not the bonos of the previous filters', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    expect(await screen.findByText('Bono anulado')).toBeInTheDocument();
+    sellInBonosAPI.listar.mockImplementation(async (params) =>
+      params?.page_size === 200 ? { data: { items: [BONO], total: 1, page: 1, page_size: 200 } } : Promise.reject(new Error('caído')),
+    );
+    await user.selectOptions(within(screen.getByRole('region', { name: 'Filtros' })).getByLabelText('Moneda'), 'USD');
+    expect(await screen.findByText('No se pudieron cargar los bonos de marca.')).toBeInTheDocument();
+    expect(screen.queryByText('Bono anulado')).not.toBeInTheDocument();
+  });
+
+  it('without a permission to read suppliers there is no Proveedor filter (its search would answer 403); Producto stays', async () => {
+    mockTienePermiso.mockImplementation((codigo) => !codigo.startsWith('administracion.'));
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    const filtros = screen.getByRole('region', { name: 'Filtros' });
+    expect(within(filtros).queryByRole('group', { name: 'Proveedor' })).not.toBeInTheDocument();
+    expect(within(filtros).getByRole('group', { name: 'Producto' })).toBeInTheDocument();
+  });
+});
+
+describe('SellIn page — Producto and Proveedor filters of the purchases (S4)', () => {
+  beforeEach(() => {
+    productosAPI.listar.mockResolvedValue({ data: { productos: PRODUCTOS, total: 2, page: 1, page_size: 10 } });
+    sellInAPI.proveedores.mockResolvedValue({ data: PROVEEDORES });
+  });
+
+  it('filter the purchases, their summary and "todo lo filtrado" by id, and not the bonuses', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />);
+    await screen.findByText('Bonificación Q4 switches');
+    const filtros = screen.getByRole('region', { name: 'Filtros' });
+
+    await user.type(within(within(filtros).getByRole('group', { name: 'Producto' })).getByRole('searchbox'), 'sw');
+    await user.click(await within(filtros).findByRole('button', { name: /SW-8 · Switch 8 bocas/ }));
+    await user.type(within(within(filtros).getByRole('group', { name: 'Proveedor' })).getByRole('searchbox'), 'tp');
+    await user.click(await within(filtros).findByRole('button', { name: /TP-Link/ }));
+
+    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual({ aplica: 'si', item_id: 4512, proveedor_id: 7, page: 1, page_size: 50 }));
+    expect(lastParams(sellInAPI.resumen)).toEqual({ aplica: 'si', item_id: 4512, proveedor_id: 7 });
+    expect(listadosDeLaListaDeBonos().at(-1)).toEqual({ page: 1, page_size: 10 });
+    expect(within(filtros).getByText('SW-8 · Switch 8 bocas')).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole('button', { name: 'Seleccionar todo lo filtrado (2)' })[0]);
+    expect(lastParams(sellInAPI.listar)).toEqual({ aplica: 'si', item_id: 4512, proveedor_id: 7, page: 1, page_size: 200 });
+
+    await user.click(within(filtros).getByRole('button', { name: 'Quitar producto' }));
+    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual({ aplica: 'si', proveedor_id: 7, page: 1, page_size: 50 }));
+    await user.click(within(filtros).getByRole('button', { name: 'Quitar proveedor' }));
+    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual({ aplica: 'si', page: 1, page_size: 50 }));
   });
 });
 

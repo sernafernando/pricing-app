@@ -949,6 +949,7 @@ export const publicacionesMlAPI = {
   setItemStatus: (itemId, status) => api.post(`/ml-publications/items/${encodeURIComponent(itemId)}/status`, { status }),
   // Bulk pause / activate: the MLAs of the filtered set that can take `target`, then the writes in batches.
   statusItemIds: (params, config) => api.get('/ml-publications/view/status-item-ids', { params, ...config }),
+  statusItemIdsChecked: (body) => api.post('/ml-publications/view/status-item-ids/checked', body),
   statusBulk: (body) => api.post('/ml-publications/items/status-bulk', body),
   // The KPI strip over the MLAs the filters select (`ml_metricas.ver`). `config.signal` aborts a stale request.
   kpis: (params, config) => api.get('/ml-publications/view/kpis', { params, ...config }),

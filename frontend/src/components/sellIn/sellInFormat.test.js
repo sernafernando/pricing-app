@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { apiMessage, buildSellInParams, formatMonto, formatPorcentaje, sumaManual } from './sellInFormat';
+import { apiMessage, buildBonosParams, buildSellInParams, formatMonto, formatPorcentaje, sumaManual } from './sellInFormat';
 
 describe('buildSellInParams', () => {
   it('sends only the filters that are set, marcas as CSV', () => {
@@ -26,6 +26,37 @@ describe('buildSellInParams', () => {
 
   it('drops empty values', () => {
     expect(buildSellInParams({ aplica: '', q: '   ', marcas: [], moneda: '', estado: '', desde: '', hasta: '' })).toEqual({});
+    expect(buildSellInParams({ aplica: 'si', producto: null, proveedor: null })).toEqual({ aplica: 'si' });
+  });
+
+  it('sends the picked product and supplier by id', () => {
+    expect(buildSellInParams({ aplica: 'si', producto: { item_id: 4512, codigo: 'SW-8' }, proveedor: { id: 7, nombre: 'TP-Link' } })).toEqual({
+      aplica: 'si',
+      item_id: 4512,
+      proveedor_id: 7,
+    });
+  });
+});
+
+describe('buildBonosParams', () => {
+  it('sends the Sell in filters a bonus has: never aplica, product or supplier', () => {
+    expect(
+      buildBonosParams({
+        aplica: 'si',
+        q: '  rebate ',
+        marcas: ['TP-Link'],
+        moneda: 'USD',
+        estado: 'activa',
+        desde: '2026-10-01',
+        hasta: '2026-10-31',
+        producto: { item_id: 4512 },
+        proveedor: { id: 7 },
+      }),
+    ).toEqual({ q: 'rebate', marcas: 'TP-Link', moneda: 'USD', estado: 'activa', fecha_desde: '2026-10-01', fecha_hasta: '2026-10-31' });
+  });
+
+  it('drops empty values', () => {
+    expect(buildBonosParams({ aplica: 'todas', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', producto: null, proveedor: null })).toEqual({});
   });
 });
 

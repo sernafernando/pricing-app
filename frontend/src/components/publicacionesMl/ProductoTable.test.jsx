@@ -229,14 +229,15 @@ describe('opening a product', () => {
     render(<Harness />);
     await user.click(await screen.findByRole('button', { name: /Abrir Router Archer AX55/ }));
     await screen.findByText('Publicación MLA1');
-    expect(itemCalls()).toEqual([{ estado: 'active', producto: '4101', limit: 100, offset: 0 }]);
+    // Its publications by listing type, Clásica first (owner, 2026-11-02), then the most recent activity.
+    expect(itemCalls()).toEqual([{ estado: 'active', producto: '4101', orden: 'tipo,actividad', dir: 'asc,desc', limit: 100, offset: 0 }]);
   });
 
   it('opens the "Sin producto" bucket with sin_producto', async () => {
     const user = userEvent.setup();
     render(<Harness />);
     await user.click(await screen.findByRole('button', { name: /Abrir Sin producto/ }));
-    await waitFor(() => expect(itemCalls()).toEqual([{ estado: 'active', sin_producto: 'true', limit: 100, offset: 0 }]));
+    await waitFor(() => expect(itemCalls()).toEqual([{ estado: 'active', sin_producto: 'true', orden: 'tipo,actividad', dir: 'asc,desc', limit: 100, offset: 0 }]));
   });
 
   it('keeps what it loaded: closing and opening again asks for nothing', async () => {

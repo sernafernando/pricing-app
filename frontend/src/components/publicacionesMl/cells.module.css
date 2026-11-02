@@ -285,6 +285,7 @@
   align-items: baseline;
 }
 
+.tnLabel,
 .tnHint,
 .tnRegular {
   font-size: var(--font-xs);

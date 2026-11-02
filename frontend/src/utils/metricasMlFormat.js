@@ -90,7 +90,8 @@ export const AGEING_BUCKET_TONES = { up_to_30: 'good', from_31_to_60: 'low', ove
 /** `Clásica · Full · Activa` -- what the design writes next to an MLA. */
 export function publicationDescriptor(pub) {
   const parts = [];
-  if (pub.listing_type) parts.push(LISTING_LABELS[pub.listing_type] || pub.listing_type);
+  // With the listing kind, the row shows its type as a badge (Clásica, 3 cuotas...); an older backend sends only the type.
+  if (pub.listing_type && !pub.listing_kind) parts.push(LISTING_LABELS[pub.listing_type] || pub.listing_type);
   if (pub.is_catalog) parts.push('Catálogo');
   if (pub.is_full) parts.push('Full');
   parts.push(pub.status ? STATUS_LABELS[pub.status] || pub.status : 'Sin estado');

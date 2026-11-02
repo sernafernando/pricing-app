@@ -42,7 +42,7 @@ from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem
 from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaItemIn
 from app.services.sell_in.compras import contiene
-from app.services.sell_out import alcance, asignacion, queue, reparto
+from app.services.sell_out import alcance, asignacion, programas, queue, reparto
 
 # Each NUMERIC column's scale as a quantum: `monto_unit` 0.01, `porcentaje` 0.0001, ...
 _QUANTUM = {
@@ -299,12 +299,12 @@ def _valores(campana: SellOutCampana, grupo_ids: list[int], items: list[dict]) -
     }
 
 
-def _grupo_ids(db: Session, campana_id: int) -> list[int]:
+def grupo_ids_de(db: Session, campana_id: int) -> list[int]:
     rows = db.query(SellOutCampanaGrupo.grupo_id).filter(SellOutCampanaGrupo.campana_id == campana_id)
     return [gid for (gid,) in rows.order_by(SellOutCampanaGrupo.id)]
 
 
-def _items(db: Session, campana_ids: list[int]) -> dict[int, list[dict]]:
+def items_de(db: Session, campana_ids: list[int]) -> dict[int, list[dict]]:
     """`{campana_id: [{item_id, monto_unit, codigo, descripcion, reparto_porcentaje, reparto_monto}]}` by item_id, in
     one query; every asked campaign is present. The product's code and description are for the screen (the audit
     keeps only id and amount or share)."""
@@ -376,7 +376,7 @@ def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo
     db.query(SellOutCampanaGrupo).filter(
         SellOutCampanaGrupo.campana_id == campana.id, SellOutCampanaGrupo.grupo_id.notin_(grupo_ids)
     ).delete(synchronize_session=False)
-    tenidos = set(_grupo_ids(db, campana.id))
+    tenidos = set(grupo_ids_de(db, campana.id))
     db.add_all(SellOutCampanaGrupo(campana_id=campana.id, grupo_id=g) for g in grupo_ids if g not in tenidos)
     db.flush()
     _asignar_items(db, campana, data)
@@ -492,14 +492,22 @@ def _importe(valor: Decimal) -> str:
 def crear_campana(
     db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
 ) -> SellOutCampana:
-    """`offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`)."""
+    """`offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`).
+
+    `data.programa_id`, when set, must name a program that takes campaigns (`programas.validar_asignable`: a
+    `ProgramaNoExiste` or `ProgramaError`, nothing stored); it is stored and in the audit row, which keeps its shape
+    without one."""
     grupo_ids = validar(db, data)
-    campana = SellOutCampana(usuario_id=usuario_id, offset_origen_id=offset_origen_id)
+    if data.programa_id is not None:
+        programas.validar_asignable(db, data.programa_id)
+    campana = SellOutCampana(usuario_id=usuario_id, offset_origen_id=offset_origen_id, programa_id=data.programa_id)
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)
-    valores = _valores(campana, grupo_ids, _items(db, [campana.id])[campana.id])
+    valores = _valores(campana, grupo_ids, items_de(db, [campana.id])[campana.id])
     if offset_origen_id is not None:
         valores["offset_origen_id"] = offset_origen_id
+    if data.programa_id is not None:
+        valores["programa_id"] = data.programa_id
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, valores)
     _encolar(db, [campana.id])
     db.commit()
@@ -530,7 +538,8 @@ def editar_campana_sin_commit(
 ) -> Optional[SellOutCampana]:
     """The edit step of an active campaign, without committing: lock, validation, full replace of its fields,
     groups and items, one audit row (`es_masivo` for the bulk edit, `edicion_masiva`) and queueing. Shared by the
-    single and the bulk edit. None when it does not exist; `SellOutYaAnulada` when voided.
+    single and the bulk edit. None when it does not exist; `SellOutYaAnulada` when voided. Its program is kept:
+    a `data.programa_id` sent is ignored (assignment is `programas.asignar`, audited on its own).
 
     `compartian`: the campaigns to queue with it, when the caller already knows them (the bulk edit computes the
     links of the whole batch once, `asignacion.vinculadas_por_campana`); else those sharing products with it now,
@@ -539,11 +548,11 @@ def editar_campana_sin_commit(
     if campana is None:
         return None
     grupo_ids = validar(db, data, campana)
-    antes = _valores(campana, _grupo_ids(db, campana_id), _items(db, [campana_id])[campana_id])
+    antes = _valores(campana, grupo_ids_de(db, campana_id), items_de(db, [campana_id])[campana_id])
     if compartian is None:
         compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
     _asignar(db, campana, data, grupo_ids)
-    despues = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
+    despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, masivo=es_masivo)
     _encolar(db, [campana_id, *compartian])
     return campana
@@ -579,7 +588,7 @@ def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optio
     """The void step of a locked, active campaign, without committing: shared by the single and the bulk void
     (whose audit row says so with `es_masivo`)."""
     campana.estado = "anulada"
-    valores = _valores(campana, _grupo_ids(db, campana.id), _items(db, [campana.id])[campana.id])
+    valores = _valores(campana, grupo_ids_de(db, campana.id), items_de(db, [campana.id])[campana.id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, valores, motivo, masivo=masivo)
     _encolar(db, [campana.id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
 
@@ -676,8 +685,8 @@ def definir_tipo_cambio(
         raise SellOutError("Solo las campañas en USD con tipo de cambio al cobro definen el tipo de cambio después")
     if tipo_cambio <= 0:
         raise SellOutError("El tipo de cambio tiene que ser mayor a 0")
-    grupo_ids = _grupo_ids(db, campana_id)
-    items = _items(db, [campana_id])[campana_id]
+    grupo_ids = grupo_ids_de(db, campana_id)
+    items = items_de(db, [campana_id])[campana_id]
     antes = _valores(campana, grupo_ids, items)
     campana.tipo_cambio = _a_escala("tipo_cambio", tipo_cambio)
     campana.tc_definido_en = datetime.now(timezone.utc)
@@ -751,11 +760,11 @@ def repartir(
                 raise SellOutSinPermiso(f"El producto {item.item_id}{codigo} no es de tus marcas")
         conservar = frozenset(i for i in tenidos if i not in propios)
     _validar_alcance(db, campana, [r.item_id for r in repartos])
-    grupo_ids = _grupo_ids(db, campana_id)
-    antes = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
+    grupo_ids = grupo_ids_de(db, campana_id)
+    antes = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _guardar_items(db, campana, {r.item_id: _fila(r) for r in repartos}, conservar)
     _validar_suma(db, campana)
-    despues = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
+    despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, "Reparto del monto total")
     _encolar(db, [campana_id])
     db.commit()
@@ -821,8 +830,8 @@ def listar_campanas(
 
 
 def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
-    """Each campaign with its groups (id and name, in link order) and its per-product amounts (by item_id),
-    in one query each for the whole page."""
+    """Each campaign with its groups (id and name, in link order), its per-product amounts (by item_id) and its
+    program (`{id, nombre}` or None; metadata, never part of an edit), in one query each for the whole page."""
     ids = [c.id for c in campanas]
     grupos: dict[int, list[dict]] = {i: [] for i in ids}
     if ids:
@@ -834,7 +843,8 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         )
         for campana_id, gid, nombre in rows:
             grupos[campana_id].append({"id": gid, "nombre": nombre})
-    items = _items(db, ids)
+    items = items_de(db, ids)
+    de_programa = programas.programas_de(db, campanas)
     salida = []
     for c in campanas:
         fila = {campo: getattr(c, campo) for campo in _CAMPOS}
@@ -850,5 +860,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         fila["monto_total"] = c.monto_total  # returned for `monto_total` campaigns only (the schema drops it)
         fila["grupos"] = grupos[c.id]
         fila["items"] = items[c.id]
+        fila["programa_id"] = c.programa_id
+        fila["programa"] = de_programa.get(c.programa_id)
         salida.append(fila)
     return salida
