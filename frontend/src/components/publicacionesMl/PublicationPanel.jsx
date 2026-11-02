@@ -66,6 +66,7 @@ export default function PublicationPanel({
   const canViewPromos = tienePermiso('promos.ver');
   const canViewPrices = canViewProductPrices(tienePermiso);
   const canEditPrice = ['canEditClasica', 'canEditMlCuotas'].some((flag) => pricePermissions(tienePermiso)[flag]);
+  const canWritePromos = tienePermiso('promos.escribir');
   const { status, detail, error, reload, refresh } = usePublicationDetail(itemId, { canSeeMargin });
   // A write in a tab (a promotion, a product price) changes what the detail and the
   // list row show: re-read both, the detail silently so the tab keeps its state.
@@ -115,7 +116,16 @@ export default function PublicationPanel({
       error={status === 'error' ? describeError(error) : null}
       onRetry={reload}
     >
-      {status === 'ready' && ponerPreciosMode && <PonerPreciosBody detail={detail} canEditPrice={canEditPrice} />}
+      {status === 'ready' && ponerPreciosMode && (
+        <PonerPreciosBody
+          detail={detail}
+          itemId={itemId}
+          canEditPrice={canEditPrice}
+          canWritePromos={canWritePromos}
+          onWritten={handleWritten}
+          onLeavePub={onClose}
+        />
+      )}
 
       {status === 'ready' && !ponerPreciosMode && active && (
         <PanelTabs tabs={available} activeKey={active.key} onTabChange={onTabChange} label="Secciones de la publicación">

@@ -37,7 +37,8 @@ Flujo paralelo para cargar precios rápido. Al activarlo:
 - Se ocultan los KPIs y las tarjetas de arriba, y la vista pasa a **Publicaciones** (no agrupado).
 - Queda un juego fijo de columnas (estado, precio, ventas, markups, ageing, stocks, código, marca).
 - Podés **Minimizar filtros** para ganar espacio en la lista.
-- Al hacer clic en una fila, el panel lateral (~un tercio) abre **sin pestañas**: lista ERP, precio actual y un campo para el nuevo precio. Entrar y sugerir promociones llega en el siguiente paso del feature.
+- Al hacer clic en una fila, el panel lateral (~un tercio) abre **sin pestañas**: lista ERP, precio actual y un campo para el nuevo precio.
+- **Enter** en el nuevo precio: lo guarda en Pricing y te propone la mejor candidata **SMART**, la mejor **DEAL** y la **Premium** del mes (si hay). Elegís **una** sola; se activa en Mercado Libre y se actualiza Pricing, y el panel se cierra.
 
 ## Botones y acciones
 
