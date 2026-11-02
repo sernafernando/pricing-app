@@ -9,8 +9,8 @@ publication (MLA) in a team layer. Its effective color is its own row here, othe
 `producto_color.color_ml` in that layer. `producto_color` is untouched and nothing is migrated: every product keeps
 its color, and every publication keeps showing it until someone paints that publication.
 
-- `publicacion_color`: `equipo_id` (FK `equipo.id`), `item_id` VARCHAR(30) (the MLA; no FK, the publications live in
-  the ML store database), `color_ml` VARCHAR(20) NOT NULL (unpainting deletes the row), `updated_by` (FK
+- `publicacion_color`: `equipo_id` (FK `equipo.id`), `item_id` VARCHAR(30) (the MLA; no FK to `ml_items`, a color may
+  outlive its publication there), `color_ml` VARCHAR(20) NOT NULL (unpainting deletes the row), `updated_by` (FK
   `usuarios.id`), `updated_at`. Unique (`equipo_id`, `item_id`); indexed by each FK column and `item_id`.
 
 DOWNGRADE refuses (RAISE, nothing changed) while a row exists: dropping it would silently lose painted colors.
