@@ -8,7 +8,7 @@ Cada publicación muestra una etiqueta con su tipo: **Clásica**, **3 cuotas**, 
 
 ## Cómo se usa
 
-1. En **Publicaciones ML**, la nueva columna **Tipo** muestra la etiqueta. La tabla arranca ordenada por tipo y, dentro de cada tipo, por facturación. Al expandir un producto, sus publicaciones siguen el mismo orden.
+1. En **Publicaciones ML**, la nueva columna **Tipo** muestra la etiqueta. La tabla arranca ordenada por tipo y, dentro de cada tipo, por facturación. Al expandir un producto, sus publicaciones también salen ordenadas por tipo y, dentro de cada tipo, por última actividad.
 2. En **Reportes → Métricas ML**, la etiqueta aparece al lado del MLA, tanto al expandir un producto como al agrupar por **Publicación**. Agrupada por publicación, la tabla arranca ordenada por tipo.
 3. Para ordenar por otra cosa, hacer clic en el título de esa columna.
 
