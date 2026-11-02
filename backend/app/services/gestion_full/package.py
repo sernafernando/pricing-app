@@ -9,6 +9,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.gestion_full_package import (
+    PACKAGE_STATUS_EXPORTED,
     PACKAGE_STATUS_LOCKED,
     PACKAGE_STATUS_OPEN,
     GestionFullPackage,
@@ -80,6 +81,10 @@ def upsert_package_line(
         .one_or_none()
     )
     if line is None:
+        if package.status == PACKAGE_STATUS_EXPORTED:
+            raise ValueError(
+                "paquete ya exportado: líneas Listo nuevas van al próximo envío"
+            )
         line = GestionFullPackageLine(
             package_id=package.id,
             producto_item_id=producto_item_id,
