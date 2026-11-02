@@ -761,6 +761,9 @@ def get_group_nodes(
     f = _margin_gate(f, can_see_margin)
     if tp_solo and f.dimension != TP_SOLO_DIMENSION:
         raise HTTPException(status_code=422, detail=f"tplink.solo: sólo se agrupa por {TP_SOLO_DIMENSION}")
+    if f.sort == "listing_kind":
+        # The grouped view whatever `group_by` says: the same refusal as the board's (see `board_filter`).
+        raise HTTPException(status_code=422, detail="sort=listing_kind no aplica a la vista agrupada")
     scope = _parse_path(path, f.dimension)
     levels = groups.levels_of(f.dimension)
     leaf = len(scope) == len(levels) - 1
