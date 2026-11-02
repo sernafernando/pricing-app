@@ -76,14 +76,17 @@ def checked_status_item_ids(db: Session, item_ids: list[str], producto_ids: list
     """The checked rows' publications that can take `target`: exactly `item_ids` (each checked publication alone,
     never widened to the other publications of its product) plus every publication linked to one of `producto_ids`
     (a checked product row of the Producto view). No filter takes part. A checked MLA that is not in `ml_items`, or
-    cannot take the status (another status, or deleted), is counted in `no_aplican` and never named. Raises
+    cannot take the status (another status, none, deleted, or a ghost), is counted in `no_aplican` and never named. Raises
     `TooManyPublications` over `MAX_STATUS_ITEM_IDS`, never truncates."""
     asked = list(dict.fromkeys(item_ids))
     picked = or_(
         T.i.item_id == any_(literal(asked, ARRAY(Text))),
         has_product(list(dict.fromkeys(producto_ids))) if producto_ids else literal(False),
     )
-    eligible = and_(T.i.status == SOURCE_STATUS[target], not_(deleted())).label("eligible")
+    # A NULL status makes the comparison NULL: coalesced, it is a publication that cannot take the status, counted.
+    # A ghost (ML says it never existed) is left out as on the filter path, counted too.
+    can_take = and_(T.i.status == SOURCE_STATUS[target], not_(deleted()), T.i.never_existed.isnot(True))
+    eligible = func.coalesce(can_take, False).label("eligible")
     members = select(T.i.item_id.label("mla"), eligible).select_from(T.i).where(picked).subquery("m")
     found = _eligible_capped(db, members)
     known = set(db.execute(select(members.c.mla)).scalars())

@@ -1692,6 +1692,11 @@ def get_status_item_ids(
 CheckedItemId = Annotated[str, StringConstraints(pattern=admin.ITEM_ID_PATTERN)]
 
 
+# A product id is a positive int4 in the store (`producto_item_id`): one outside that range is a 422 here, never a
+# 500 from Postgres.
+CheckedProductId = Annotated[int, Field(gt=0, le=2**31 - 1)]
+
+
 class CheckedStatusItemIdsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")  # no filter takes part: a stray filter field is refused, not ignored
 
@@ -1699,7 +1704,7 @@ class CheckedStatusItemIdsRequest(BaseModel):
     # Only a ceiling against abusive payloads (a "Todos" page shows up to `listing.MAX_LIMIT` rows): the bulk cap
     # counts the publications that can take the status, so going over it is `_over_cap`'s 422 naming the count.
     item_ids: list[CheckedItemId] = Field(default_factory=list, max_length=listing.MAX_LIMIT)
-    producto_ids: list[int] = Field(default_factory=list, max_length=listing.MAX_LIMIT)
+    producto_ids: list[CheckedProductId] = Field(default_factory=list, max_length=listing.MAX_LIMIT)
 
     @model_validator(mode="after")
     def _something_checked(self) -> "CheckedStatusItemIdsRequest":
