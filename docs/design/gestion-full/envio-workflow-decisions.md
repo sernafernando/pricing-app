@@ -197,7 +197,10 @@ Tab in Gestión Full. **Manual assign** (no auto-import match of SC table requir
 | Default `qty_export` | Equals PM decision (`override ?? sugerido`, capped by stock). All export fields pre-populated; **only** changes when Gestor edits `qty_export`. |
 | First export gate | Gestor can export **without** every PM having closed their part. Still needs unidades/caja on included lines (P8). |
 | Regenerate | Allowed only if **no** `inbound_id`s assigned on the package. If any exist, Gestor must **clear them** before regenerate. |
-| After export + **all** lines have `inbound_id` | Package hard-locked (D3). If a PM later edits qty (on unlocked / next-cycle lines), that change is for **next week** — does not mutate the locked package. |
+| After export + **all shippable lines** (`qty_export ≥ 1`) have `inbound_id` | Package hard-locked (D3). Lines with `qty_export` 0 are not in the Excel and do not block the lock. Assign requires status `exported` first. |
+| **Before** every shippable line has `inbound_id` | Gestor may still correct: edit `qty_export`, unlock a PM line, clear inbounds + regenerate Excel, re-assign. Week cycle still open. |
+| **On hard-lock** | Consume/`delete` `gestion_full_pm_ready` for the package lines (release PM input for **next** week). Manual “Desbloquear” remains for mid-cycle corrections **before** full assign — it is not the only path to next week. Export also re-caps `qty_export` to current `stock_erp`. |
+| After hard-lock | If a PM later edits qty (on next-cycle lines), that change is for **next week** — does not mutate the locked package. |
 
 ### D7 — Shipments tab — **DECIDED** (minimal)
 
@@ -344,3 +347,4 @@ Re-estimate after S4 (state model): if slices run heavy, expect **15–16**; if 
 - **2026-10-31** — Decision pass complete for v1 workflow opens (checklist all checked).
 - **2026-10-31** — D1c/D1d/D1e: default solo `stock_erp>0` (+ checkbox sin stock); row key **ERP+MLAU**; segundo Excel EAN/desc/cantidad.
 - **2026-10-31** — D13: Depósito prioriza faltantes U/caja en **paquete de la semana** y/o **ready** (anti-lock export); shipped as follow-up PR on tip #1982.
+- **2026-11-02** — Hard-lock = all `qty_export≥1` lines have inbound; consumes `pm_ready`; assign only when `exported`; export re-caps to `stock_erp` (Fernando blockers #1978/#1979/#1982).
