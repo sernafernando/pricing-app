@@ -13,7 +13,7 @@
  *
  *   pnpm exec vitest run --project=visual publicacionesMl
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
@@ -2316,6 +2316,8 @@ describe('Publicaciones ML hideable KPI cards (visual)', () => {
     publicacionesMlAPI.items.mockReset();
     publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
   });
+  // The browser's storage outlives the file: leave every card visible for the suites that run next.
+  afterEach(() => localStorage.removeItem('publicaciones-ml.kpis-ocultos'));
 
   for (const theme of THEMES) {
     it(`1920x1080 ${theme}: hidden cards leave the row with no gap, and with every card hidden the Período stays`, async () => {

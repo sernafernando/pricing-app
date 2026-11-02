@@ -15,7 +15,7 @@
  *
  *   VITE_METRICAS_SHOTS_DIR=/abs/dir pnpm exec vitest run --project=visual metricasMl
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { setTheme, tokenColor } from './visualHelpers';
@@ -372,6 +372,8 @@ describe('Métricas ML hideable KPI cards (visual)', () => {
     api.get.mockReset();
     api.get.mockImplementation((url) => Promise.resolve(routeGet(url)));
   });
+  // The browser's storage outlives the file: leave every card visible for the suites that run next.
+  afterEach(() => localStorage.removeItem('metricas-ml.kpis-ocultos'));
 
   for (const theme of THEMES) {
     it(`1920x1080 ${theme}: hidden cards leave the row with no gap, and with every card hidden the picker stays`, async () => {
