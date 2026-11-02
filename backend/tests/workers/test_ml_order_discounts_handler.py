@@ -61,3 +61,60 @@ def test_a_failing_run_is_reported_not_raised_every_time(monkeypatch) -> None:
     for _ in range(2):
         result = h.run(ctx())
         assert not result.success and result.error == "RuntimeError: db down"
+
+
+def test_an_idle_run_spaces_the_next_query_by_a_minute(monkeypatch) -> None:
+    monkeypatch.setattr(module.settings, "ML_ADS_ENABLED", True)
+    calls = []
+    at = [NOW]
+
+    def fake_run(*args, **kwargs):
+        calls.append(at[0])
+        return ingestion.RunResult(calls=0, pending_left=0)  # an empty queue
+
+    monkeypatch.setattr(ingestion, "run", fake_run)
+    h = module.OrderDiscountsHandler(
+        client_factory=lambda pacer: object(), session_factory=lambda: None, now=lambda: at[0]
+    )
+    first = h.run(ctx())
+    at[0] = NOW + timedelta(seconds=30)
+    second = h.run(ctx())
+    assert calls == [NOW] and second.success
+    assert second.detail == {**first.detail, "idle_until": (NOW + module.IDLE_PAUSE).isoformat()}
+    at[0] = NOW + module.IDLE_PAUSE
+    h.run(ctx())
+    assert calls == [NOW, NOW + module.IDLE_PAUSE]
+
+
+def test_a_back_off_spaces_the_next_query_until_it_ends_or_a_minute(monkeypatch) -> None:
+    monkeypatch.setattr(module.settings, "ML_ADS_ENABLED", True)
+    calls = []
+    at = [NOW]
+    ends = NOW + timedelta(seconds=20)
+
+    def fake_run(*args, **kwargs):
+        calls.append(at[0])
+        return ingestion.RunResult(stopped=ingestion.BACKOFF, backoff_until=ends, pending_left=3)
+
+    monkeypatch.setattr(ingestion, "run", fake_run)
+    h = module.OrderDiscountsHandler(
+        client_factory=lambda pacer: object(), session_factory=lambda: None, now=lambda: at[0]
+    )
+    h.run(ctx())
+    at[0] = NOW + timedelta(seconds=19)
+    h.run(ctx())
+    at[0] = ends
+    h.run(ctx())
+    assert calls == [NOW, ends]
+
+
+def test_a_run_with_work_does_not_pause(monkeypatch) -> None:
+    monkeypatch.setattr(module.settings, "ML_ADS_ENABLED", True)
+    calls = []
+    monkeypatch.setattr(
+        ingestion, "run", lambda *a, **k: calls.append(1) or ingestion.RunResult(calls=3, pending_left=9)
+    )
+    h = handler()
+    h.run(ctx())
+    h.run(ctx())
+    assert calls == [1, 1]

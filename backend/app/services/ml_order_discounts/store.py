@@ -14,6 +14,7 @@ from typing import Any, Optional
 from sqlalchemy import and_, delete, exists, func, null, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.ml_order_discounts import MlOrderDiscountLine, MlOrderDiscounts, MlOrderDiscountsState
 from app.models.ml_payments import MlPaymentOps
@@ -29,7 +30,7 @@ BACKOFF_CAP_SECONDS = 3600.0
 RETRY_AFTER_CAP_SECONDS = 86400.0
 
 
-def _settled(now: Optional[datetime] = None):  # noqa: ANN202 -- a SQL boolean expression
+def _settled(now: Optional[datetime] = None) -> ColumnElement[bool]:
     """Settled orders are never asked again; with `now`, an `error` asked less than `ERROR_RETRY` ago also waits."""
     done = or_(MlOrderDiscounts.status != mapper.ERROR, MlOrderDiscounts.attempts >= MAX_ATTEMPTS)
     if now is not None:
@@ -37,7 +38,7 @@ def _settled(now: Optional[datetime] = None):  # noqa: ANN202 -- a SQL boolean e
     return exists().where(MlOrderDiscounts.order_id == MlPaymentOps.order_id, done)
 
 
-def _pending_filter(now: Optional[datetime] = None):  # noqa: ANN202
+def _pending_filter(now: Optional[datetime] = None) -> ColumnElement[bool]:
     return and_(
         MlPaymentOps.coupon_amount > 0,
         MlPaymentOps.status.in_(sorted(RELEVANT_PAYMENT_STATUSES)),

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, time as dtime, timedelta, timezone
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from app.core import database
 from app.core.config import settings
@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 DISCOUNTS_HANDLER = "ml_orders.discounts"
 RUN_BUDGET = timedelta(seconds=60)
 PER_RUN = 30  # 60 s at the gate's one call every 2 s
+# With nothing to ask (empty queue) or a back-off running, the next run waits up to this long instead of
+# querying `ml_payments_ops` every `interval`: the backfill pace is untouched, the idle cost is one query a minute.
+IDLE_PAUSE = timedelta(seconds=60)
 
 
 class OrderDiscountsHandler:
@@ -52,10 +55,14 @@ class OrderDiscountsHandler:
         self._client: Optional[MlHttpClient] = None
         self._session_factory: SessionFactory = session_factory or (lambda: database.get_background_db())
         self._now = now or (lambda: datetime.now(timezone.utc))
+        self._idle_until: Optional[datetime] = None
+        self._last_detail: Dict[str, Any] = {}
 
     def run(self, ctx: WorkerContext) -> JobResult:
         if not settings.ML_ADS_ENABLED:
             return disabled_outcome()
+        if self._idle_until is not None and self._now() < self._idle_until:
+            return JobResult(success=True, detail={**self._last_detail, "idle_until": self._idle_until.isoformat()})
         if self._client is None:
             self._client = self._client_factory(self.pacer)
         deadline = min(ctx.deadline, self._now() + RUN_BUDGET)
@@ -72,12 +79,23 @@ class OrderDiscountsHandler:
             logger.exception("order discounts run failed")
             error = f"{type(exc).__name__}: {exc}"[:300]
             return JobResult(success=False, detail={"error": error}, error=error)
+        self._idle_until = self._idle(result)
+        self._last_detail = result.as_detail()
         error = None
         if result.stopped == BLOCKED:
             error = "missing or rejected ML credentials"
         elif result.stopped == ingestion.TRANSPORT:
             error = f"no HTTP answer from ML: {result.transport_error}"
-        return JobResult(success=True, detail=result.as_detail(), error=error)
+        return JobResult(success=True, detail=self._last_detail, error=error)
+
+    def _idle(self, result: ingestion.RunResult) -> Optional[datetime]:
+        """When the next run may query again: a minute after an empty queue, the back-off's end (at most a minute)."""
+        pause_end = self._now() + IDLE_PAUSE
+        if result.stopped == ingestion.BACKOFF:
+            return min(result.backoff_until, pause_end) if result.backoff_until else pause_end
+        if result.stopped is None and result.calls == 0:
+            return pause_end
+        return None
 
 
 # One in-process ML budget with the other handlers of this worker.
