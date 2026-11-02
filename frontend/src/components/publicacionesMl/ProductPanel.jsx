@@ -80,9 +80,8 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * Precios mounts the product's prices (the same `ProductPrices` a publication's Precios tab mounts), and under them
  * its instalment settings (`ProductCuotasConfig`, whose save recalculates the instalments: the prices are read
  * again and the list reloaded), for whoever may see them, and Cambios the changes made to the
- * product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. Opening another
- * product goes back to
- * Resumen. A price write reloads the page's list (`onListReload`).
+ * product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. The panel opens on
+ * Precios when it exists, else on Resumen, and so does opening another product. A price write reloads the page's list (`onListReload`).
  *
  * @param {object} props
  * @param {object} props.filters The page's filters.
@@ -92,6 +91,10 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * @param {boolean} [props.canSeeSales] `ml_metricas.ver`.
  * @param {boolean} [props.canSeeMargin] `ml_metricas.ver_ganancia`.
  * @param {() => void} [props.onListReload] Asks the page to reload its list (a price write changes price and markup).
+ * @param {{productKey: string, key: string | null} | null} [props.tabState] The open tab, kept by the page: the panel
+ *   unmounts while one of its publications is open, and "Volver" must land on the tab it left (Resumen, where the
+ *   publications are). Without it the panel keeps the tab itself.
+ * @param {(tabState: {productKey: string, key: string}) => void} [props.onTabStateChange]
  */
 export default function ProductPanel({
   filters,
@@ -102,6 +105,8 @@ export default function ProductPanel({
   canSeeMargin = false,
   onListReload,
   priceGroup = null,
+  tabState = null,
+  onTabStateChange,
 }) {
   const { summary, items, loading, error, reload, loadMore, hasMore } = useProductPanel(filters, productKey);
   const { tienePermiso } = usePermisos();
@@ -110,8 +115,10 @@ export default function ProductPanel({
   const promosCacheRef = useRef(new Map());
   const catalogCompetitionCacheRef = useRef(new Map());
   const pxqCacheRef = useRef(new Map());
-  // The open tab belongs to the product it was opened on: another product starts on Resumen.
-  const [openTab, setOpenTab] = useState({ productKey, key: RESUMEN.key });
+  // The open tab belongs to the product it was opened on: another product starts on its first tab.
+  const [ownTab, setOwnTab] = useState({ productKey, key: null });
+  const openTab = tabState ?? ownTab;
+  const setOpenTab = onTabStateChange ?? setOwnTab;
   // Bumped when the instalment settings recalculated the instalments: `ProductPrices` reads its prices again (an open
   // price edit stays as typed).
   const [pricesReadAgain, setPricesReadAgain] = useState(0);
@@ -122,8 +129,9 @@ export default function ProductPanel({
   const withoutProduct = productKey === NO_PRODUCT_KEY;
   const productItemId = summary?.productoItemId;
   const tabs =
-    productItemId == null ? [RESUMEN] : canViewProductPrices(tienePermiso) ? [RESUMEN, PRECIOS, CAMBIOS] : [RESUMEN, CAMBIOS];
-  const activeKey = (openTab.productKey === productKey && tabs.find((tab) => tab.key === openTab.key)?.key) || RESUMEN.key;
+    productItemId == null ? [RESUMEN] : canViewProductPrices(tienePermiso) ? [PRECIOS, RESUMEN, CAMBIOS] : [RESUMEN, CAMBIOS];
+  // Precios first when the product has it (owner, 2026-11-02), else Resumen.
+  const activeKey = (openTab.productKey === productKey && tabs.find((tab) => tab.key === openTab.key)?.key) || tabs[0].key;
   const figures = buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin, producto: true }).filter((column) =>
     PRODUCT_FIGURES.has(column.key),
   );

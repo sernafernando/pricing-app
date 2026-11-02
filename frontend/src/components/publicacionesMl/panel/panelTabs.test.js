@@ -10,8 +10,19 @@ import { DETAIL_RESPONSE, PRODUCT, makeDetail } from '../../../test/visual/publi
 const keysFor = (raw, context = {}) => visibleTabs(PANEL_TABS, { detail: readDetail(raw), canSeeMargin: false, canManage: false, ...context }).map((tab) => tab.key);
 
 describe('the registry', () => {
-  it('opens on Resumen and lists the history tabs after the data ones', () => {
-    const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 3, is_full: true } });
+  it('puts Promos, then Precios, before Resumen, and the history tabs after the data ones (S1)', () => {
+    const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 3, is_full: true }, product: PRODUCT });
+    expect(keysFor(raw, { canViewPromos: true, canViewPrices: true })).toEqual([
+      'promociones',
+      'precios',
+      'resumen',
+      'datos',
+      'variaciones',
+      'full',
+      'eventos',
+      'historial',
+      'producto',
+    ]);
     expect(keysFor(raw)).toEqual(['resumen', 'datos', 'variaciones', 'full', 'eventos', 'historial', 'producto']);
   });
 
@@ -30,9 +41,9 @@ describe('the registry', () => {
 describe('Promociones', () => {
   const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 0, is_full: false }, replenishment: null });
 
-  it('exists only for who can read promotions, between Full and Eventos', () => {
+  it('exists only for who can read promotions, first', () => {
     expect(keysFor(raw, { canViewPromos: false })).not.toContain('promociones');
-    expect(keysFor(raw, { canViewPromos: true })).toEqual(['resumen', 'datos', 'promociones', 'eventos', 'historial', 'producto']);
+    expect(keysFor(raw, { canViewPromos: true })).toEqual(['promociones', 'resumen', 'datos', 'eventos', 'historial', 'producto']);
   });
 
   it('is labelled "Promos" so the strip keeps its slack', () => {
@@ -43,9 +54,9 @@ describe('Promociones', () => {
 describe('Precios', () => {
   const raw = makeDetail({ row: { ...DETAIL_RESPONSE.row, variations_count: 0, is_full: false }, replenishment: null, product: PRODUCT });
 
-  it('exists only for who can see products, before Eventos', () => {
+  it('exists only for who can see products, before Resumen', () => {
     expect(keysFor(raw, { canViewPrices: false })).not.toContain('precios');
-    expect(keysFor(raw, { canViewPrices: true })).toEqual(['resumen', 'datos', 'precios', 'eventos', 'historial', 'producto']);
+    expect(keysFor(raw, { canViewPrices: true })).toEqual(['precios', 'resumen', 'datos', 'eventos', 'historial', 'producto']);
   });
 
   it('does not exist without a linked product', () => {

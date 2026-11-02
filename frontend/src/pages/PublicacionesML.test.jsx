@@ -40,6 +40,9 @@ vi.mock('../services/api', () => ({
     interceptors: { request: { use: vi.fn() }, response: { use: vi.fn() } },
   },
   productosPropiosAPI: { get: vi.fn(() => new Promise(() => {})), save: vi.fn() },
+  // The publication panel opens on Promos (owner, 2026-11-02): its promotions never answer here, these tests are
+  // about the panel's opening and closing.
+  promocionesAPI: { getPromocionesItem: vi.fn(() => new Promise(() => {})), refreshItemPromociones: vi.fn(() => new Promise(() => {})) },
   publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn() },
   productosAPI: {
     // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
@@ -1447,14 +1450,18 @@ describe('the product panel', () => {
     const user = userEvent.setup();
     await products('/ml-publicaciones?vista=producto&prod=4101');
     const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    // The panel opens on Precios; its publications are under Resumen.
+    await user.click(await within(opened).findByRole('tab', { name: 'Resumen' }));
     await user.click(await within(opened).findByRole('button', { name: 'Abrir MLA1100000001' }));
 
     const detail = await screen.findByRole('complementary', { name: 'Detalle de la publicación' });
     expect(productPanel()).not.toBeInTheDocument();
     await user.click(within(detail).getByRole('button', { name: 'Volver a Router Archer AX55' }));
 
-    expect(await screen.findByRole('complementary', { name: 'Detalle del producto' })).toBeInTheDocument();
+    const back = await screen.findByRole('complementary', { name: 'Detalle del producto' });
     expect(publicationPanel()).not.toBeInTheDocument();
+    // Back where the operator was: Resumen, to open the next publication without another click.
+    expect(await within(back).findByRole('tab', { name: 'Resumen' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it("with a color filter on another team's layer, the panel asks its product on the list's own layer", async () => {
@@ -1491,6 +1498,32 @@ describe('the product panel', () => {
     const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
     await user.click(within(estado).getByRole('button', { name: /Activas/ }));
     await waitFor(() => expect(productPanel()).not.toBeInTheDocument());
+  });
+
+  // The tab "Volver" restores is only for the trip to one of its publications and back.
+  it('closed and opened again, it opens on Precios, not on the tab it was closed on', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&prod=4101');
+    const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    await user.click(await within(opened).findByRole('tab', { name: 'Resumen' }));
+    await user.click(within(opened).getByRole('button', { name: 'Cerrar panel' }));
+    await waitFor(() => expect(productPanel()).not.toBeInTheDocument());
+    await user.click(rowOf('Router Archer AX55'));
+    const again = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    expect(await within(again).findByRole('tab', { name: 'Precios' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('closed by a filter change and opened again, it opens on Precios', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&prod=4101');
+    const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    await user.click(await within(opened).findByRole('tab', { name: 'Resumen' }));
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await user.click(within(estado).getByRole('button', { name: /Activas/ }));
+    await waitFor(() => expect(productPanel()).not.toBeInTheDocument());
+    await user.click(await screen.findByText('Router Archer AX55'));
+    const again = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    expect(await within(again).findByRole('tab', { name: 'Precios' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('the Agrupado view still opens its nodes on a click, with no product panel', async () => {

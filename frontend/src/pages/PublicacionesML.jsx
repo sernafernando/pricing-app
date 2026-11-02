@@ -548,9 +548,17 @@ export default function PublicacionesML() {
   // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
   // The Producto view sorts the products by their own figures (`effectiveProductSort`).
   const sort = producto ? productRows.sort : headerSort(effectiveSortKeys(filters, { canSeeSales, canSeeMargin }));
+  // The product panel's open tab outlives the panel, which unmounts while one of its publications is open, so
+  // "Volver" lands on the tab it left. Only for that trip: picking a product, or closing the panel (the close
+  // button or a filter change), starts it again on its first tab.
+  const [productTab, setProductTab] = useState(null);
+  if (!filters.prod && productTab) setProductTab(null);
   // A publication's panel takes the place of its product's (`sel` over `prod`); closing either closes the panel.
   const closePanel = () => setFilters({ sel: '', tab: '', prod: '' });
-  const selectProduct = (key) => setFilters({ prod: key, sel: '', tab: '' });
+  const selectProduct = (key) => {
+    setProductTab(null);
+    setFilters({ prod: key, sel: '', tab: '' });
+  };
   const selectProductItem = (itemId) => setFilters({ sel: itemId, tab: '' });
   const backToProduct = () => setFilters({ sel: '', tab: '' });
   const backLabel = filters.prod
@@ -1006,6 +1014,8 @@ export default function PublicacionesML() {
                   canSeeMargin={canSeeMargin}
                   onListReload={reloadList}
                   priceGroup={canSeePrices ? priceGroup : null}
+                  tabState={productTab}
+                  onTabStateChange={setProductTab}
                 />
               ) : null
             }

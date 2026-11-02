@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PromocionesTab from './PromocionesTab';
+import { resetPromoPulls } from '../../promociones/promoPullTtl';
 import { promocionesAPI } from '../../../services/api';
 import { usePromoFilterStore } from '../../../store/promoFilterStore';
 import { readDetail } from './detailModel';
@@ -46,6 +47,8 @@ const renderTab = (itemId = 'MLA1100000001', props = {}) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The pull TTL lives at module scope, on purpose: every test starts with no MLA pulled.
+  resetPromoPulls();
   permisosMock.denied = [];
   usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
   promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: PROMOTIONS } });
@@ -142,5 +145,88 @@ describe('after a write', () => {
     await user.click(await screen.findByRole('button', { name: /^desaplicar$/i }));
     await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
     await waitFor(() => expect(onPromoApplied).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('the pull TTL (5 minutes per MLA)', () => {
+  const FIVE_MINUTES = 5 * 60 * 1000;
+  const openAndClose = async (itemId = 'MLA1100000001') => {
+    const view = renderTab(itemId);
+    await screen.findByText('Smart promo');
+    await waitFor(() => expect(screen.queryByText(/actualizando/i)).not.toBeInTheDocument());
+    view.unmount();
+  };
+
+  it('does not pull again an MLA it pulled less than 5 minutes ago, even after a remount, and pulls again after', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      await openAndClose();
+      expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
+      now.mockReturnValue(1_000_000 + FIVE_MINUTES - 1);
+      const readsBefore = promocionesAPI.getPromocionesItem.mock.calls.length;
+      await openAndClose();
+      expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
+      // The mirror is still read on every open.
+      expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(readsBefore + 1);
+      now.mockReturnValue(1_000_000 + FIVE_MINUTES);
+      await openAndClose();
+      expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('keeps one TTL per MLA: another publication still pulls', async () => {
+    await openAndClose('MLA1100000001');
+    await openAndClose('MLA1100000002');
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failed pull starts no TTL: the next open pulls again', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: false, motivo: 'proxy caído' } });
+    await openAndClose();
+    await openAndClose();
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2);
+  });
+
+  it('a pull cancelled by closing the tab starts no TTL: the next open pulls again', async () => {
+    let answer;
+    promocionesAPI.refreshItemPromociones.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const view = renderTab();
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1));
+    view.unmount();
+    answer({ data: { ok: true } });
+    // Let the abandoned pull run to its end (its re-read of the mirror) before opening again.
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2));
+    await openAndClose();
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2);
+  });
+
+  it('an apply clears the MLA from the TTL: the next open pulls again', async () => {
+    const user = userEvent.setup();
+    const DEAL = { promotion_id: 'D1', promotion_type: 'DEAL', name: 'Deal promo', price: 80, status: 'candidate' };
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [DEAL] } });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
+    const view = renderTab();
+    await user.click(await screen.findByRole('button', { name: /^aplicar$/i }));
+    await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+    await waitFor(() => expect(promocionesAPI.postPromocionItem).toHaveBeenCalled());
+    view.unmount();
+    renderTab();
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2));
+  });
+
+  it('a removal clears the MLA from the TTL: the next open pulls again', async () => {
+    const user = userEvent.setup();
+    const STARTED = { promotion_id: 'D1', promotion_type: 'DEAL', name: 'Deal promo', price: 80, status: 'started' };
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [STARTED] } });
+    promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'reconciled_applied' } });
+    const view = renderTab();
+    await user.click(await screen.findByRole('button', { name: /^desaplicar$/i }));
+    await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+    await waitFor(() => expect(promocionesAPI.deletePromocionItem).toHaveBeenCalled());
+    view.unmount();
+    renderTab();
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2));
   });
 });
