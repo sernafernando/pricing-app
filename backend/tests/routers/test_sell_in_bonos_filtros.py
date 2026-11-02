@@ -1,7 +1,8 @@
 """Router: the brand-bonus list's filters (`GET /api/sell-in/bonos`), sell-in filters S4.
 
 The Sell in tab's top filters also filter the bonus list: free text over the
-bonus's description or brand (`q`), several brands (`marcas`, CSV, exact), the
+bonus's description or brand (`q`), several brands (`marcas`, CSV: the bonuses whose scope reaches them, proven per scope on Postgres in
+`tests/services/sell_in/test_bonos_marca_alcance_postgres.py`), the
 currency, the state and a date range that keeps the bonuses whose own
 `fecha_desde`..`fecha_hasta` range overlaps it. The exact `marca` keeps working.
 Non-ASCII case folding is proven on Postgres
