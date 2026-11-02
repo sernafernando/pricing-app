@@ -118,3 +118,24 @@ def test_a_run_with_work_does_not_pause(monkeypatch) -> None:
     h.run(ctx())
     h.run(ctx())
     assert calls == [1, 1]
+
+
+def test_blocked_or_transport_waits_a_minute_before_calling_again(monkeypatch) -> None:
+    monkeypatch.setattr(module.settings, "ML_ADS_ENABLED", True)
+    for stopped in ("blocked", "transport"):
+        calls = []
+        at = [NOW]
+        monkeypatch.setattr(
+            ingestion, "run", lambda *a, **k: calls.append(at[0]) or ingestion.RunResult(calls=1, stopped=stopped)
+        )
+        h = module.OrderDiscountsHandler(
+            client_factory=lambda pacer: object(), session_factory=lambda: None, now=lambda: at[0]
+        )
+        first = h.run(ctx())
+        at[0] = NOW + timedelta(seconds=30)
+        second = h.run(ctx())
+        assert calls == [NOW], stopped
+        assert second.error == first.error and second.error  # the pause keeps reporting why
+        at[0] = NOW + module.IDLE_PAUSE
+        h.run(ctx())
+        assert calls == [NOW, NOW + module.IDLE_PAUSE], stopped

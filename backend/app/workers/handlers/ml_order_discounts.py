@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 DISCOUNTS_HANDLER = "ml_orders.discounts"
 RUN_BUDGET = timedelta(seconds=60)
 PER_RUN = 30  # 60 s at the gate's one call every 2 s
-# With nothing to ask (empty queue) or a back-off running, the next run waits up to this long instead of
+# With nothing to ask (empty queue), a back-off, a block or a transport failure, the next run waits up to this long instead of
 # querying `ml_payments_ops` every `interval`: the backfill pace is untouched, the idle cost is one query a minute.
 IDLE_PAUSE = timedelta(seconds=60)
 
@@ -57,12 +57,14 @@ class OrderDiscountsHandler:
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._idle_until: Optional[datetime] = None
         self._last_detail: Dict[str, Any] = {}
+        self._last_error: Optional[str] = None
 
     def run(self, ctx: WorkerContext) -> JobResult:
         if not settings.ML_ADS_ENABLED:
             return disabled_outcome()
         if self._idle_until is not None and self._now() < self._idle_until:
-            return JobResult(success=True, detail={**self._last_detail, "idle_until": self._idle_until.isoformat()})
+            detail = {**self._last_detail, "idle_until": self._idle_until.isoformat()}
+            return JobResult(success=True, detail=detail, error=self._last_error)
         if self._client is None:
             self._client = self._client_factory(self.pacer)
         deadline = min(ctx.deadline, self._now() + RUN_BUDGET)
@@ -86,15 +88,19 @@ class OrderDiscountsHandler:
             error = "missing or rejected ML credentials"
         elif result.stopped == ingestion.TRANSPORT:
             error = f"no HTTP answer from ML: {result.transport_error}"
+        self._last_error = error
         return JobResult(success=True, detail=self._last_detail, error=error)
 
     def _idle(self, result: ingestion.RunResult) -> Optional[datetime]:
-        """When the next run may query again: a minute after an empty queue, the back-off's end (at most a minute)."""
+        """When the next run may query again: a minute after an empty queue, a block or a transport failure; the
+        back-off's end (at most a minute)."""
         pause_end = self._now() + IDLE_PAUSE
         if result.stopped == ingestion.BACKOFF:
             return min(result.backoff_until, pause_end) if result.backoff_until else pause_end
         if result.stopped is None and result.calls == 0:
             return pause_end
+        if result.stopped in (BLOCKED, ingestion.TRANSPORT):
+            return pause_end  # credentials or the network will not be back in 5 s: never hammer ML meanwhile
         return None
 
 

@@ -422,8 +422,14 @@ def test_migration_round_trip_and_no_drift(pg_engine):
     for n in NAMES:
         Base.metadata.tables[n].to_metadata(md)
     drop = "DROP TABLE IF EXISTS " + ", ".join(NAMES) + " CASCADE"
+    drop_index = "DROP INDEX IF EXISTS ix_ml_payments_ops_coupon_order_id"
+    from app.models.ml_payments import MlPaymentOps
+
+    # The migration indexes `ml_payments_ops`: create it here so the test never depends on another test's tables.
+    MlPaymentOps.__table__.create(bind=pg_engine, checkfirst=True)
     with pg_engine.begin() as conn:
         conn.execute(sa.text(drop))
+        conn.execute(sa.text(drop_index))
     with pg_engine.connect() as conn:
         ctx = MigrationContext.configure(
             conn,
@@ -450,6 +456,7 @@ def test_migration_round_trip_and_no_drift(pg_engine):
             op_obj._remove_proxy()
             with pg_engine.begin() as cleanup:
                 cleanup.execute(sa.text(drop))
+                cleanup.execute(sa.text(drop_index))
 
 
 def test_billing_schedule_unchanged():
