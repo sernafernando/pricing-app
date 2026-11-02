@@ -24,10 +24,11 @@ of an `al_cobro` campaign is set with `definir_tipo_cambio`, never by an edit.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Callable, Concatenate, Optional, ParamSpec, TypeVar
 
 from pydantic import TypeAdapter
 from sqlalchemy import Numeric, func, or_
@@ -103,6 +104,28 @@ def _encolar(db: Session, campana_ids: list[int]) -> None:
             raise
         db.rollback()
         raise SellOutRecalculando("La campaña se está recalculando. Reintentar en unos segundos.") from exc
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _deadlock_es_ocupada(operacion: Callable[Concatenate[Session, _P], _R]) -> Callable[Concatenate[Session, _P], _R]:
+    """A single write (edit, void, rate, split) that Postgres picks as a deadlock victim (40P01: a bulk edit or its
+    preview holding this campaign's queue row while waiting for its row) is the busy refusal `SellOutRecalculando`,
+    rolled back with nothing stored, never a raw error. The bulk operations keep their own 40P01 messages."""
+
+    @functools.wraps(operacion)
+    def envuelta(db: Session, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        try:
+            return operacion(db, *args, **kwargs)
+        except DBAPIError as exc:
+            if getattr(exc.orig, "pgcode", None) != DEADLOCK:
+                raise
+            db.rollback()
+            raise SellOutRecalculando(OCUPADA) from exc
+
+    return envuelta
 
 
 def _validar_tc(data: SellOutCampanaIn, actual: Optional[SellOutCampana]) -> None:
@@ -523,17 +546,12 @@ def editar_campana_sin_commit(
     return campana
 
 
+@_deadlock_es_ocupada
 def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario_id: int) -> Optional[SellOutCampana]:
     """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided;
-    `SellOutRecalculando` (nothing stored, retry) when it is being rebuilt or Postgres breaks a deadlock with
-    another writer (40P01: a bulk edit or a preview holding the queue rows it needs)."""
-    try:
-        campana = editar_campana_sin_commit(db, campana_id, data, usuario_id)
-    except DBAPIError as exc:
-        if getattr(exc.orig, "pgcode", None) != DEADLOCK:
-            raise
-        db.rollback()
-        raise SellOutRecalculando(f"Otra operación está modificando la campaña en este momento. {REINTENTAR}") from exc
+    `SellOutRecalculando` (nothing stored, retry) when it is being rebuilt or loses a deadlock with another writer
+    (`_deadlock_es_ocupada`)."""
+    campana = editar_campana_sin_commit(db, campana_id, data, usuario_id)
     if campana is None:
         return None
     db.commit()
@@ -563,6 +581,7 @@ def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optio
     _encolar(db, [campana.id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
 
 
+@_deadlock_es_ocupada
 def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellOutCampana]:
     """Void a campaign. None when it does not exist; `SellOutYaAnulada` on a second call."""
     campana = bloquear(db, campana_id)
@@ -576,6 +595,7 @@ def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Option
 
 REINTENTAR = "Reintentar en unos segundos."
 DEADLOCK = "40P01"  # deadlock_detected: Postgres aborted the transaction to break a lock cycle with another writer
+OCUPADA = f"Otra operación está modificando la campaña en este momento. {REINTENTAR}"
 
 
 class SellOutAnulacionRechazada(SellOutError):
@@ -638,6 +658,7 @@ def anular_campanas(
     return anuladas, omitidas
 
 
+@_deadlock_es_ocupada
 def definir_tipo_cambio(
     db: Session, campana_id: int, tipo_cambio: Decimal, usuario_id: int
 ) -> Optional[SellOutCampana]:
@@ -697,6 +718,7 @@ def solo_sus_marcas(db: Session, filas: list[dict], pares: Optional[set]) -> lis
     ]
 
 
+@_deadlock_es_ocupada
 def repartir(
     db: Session, campana_id: int, repartos: list[SellOutCampanaItemIn], usuario_id: int, pares: Optional[set]
 ) -> Optional[SellOutCampana]:

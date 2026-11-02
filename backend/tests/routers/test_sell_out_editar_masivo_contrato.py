@@ -58,8 +58,8 @@ def test_a_field_outside_the_three_is_refused_not_silently_dropped(client, gesto
     cid = _crear(client, gestor, grupos)
     r = client.post(EDITAR, json={"campana_ids": [cid], "acumulable": False, **extra}, headers=gestor)
     fila = client.get(f"{BASE}/{cid}", headers=gestor).json()
-    print("EXTRA", extra, r.status_code, fila["monto_unit"], fila["nombre"], fila["acumulable"])
     assert r.status_code == 422, r.text
+    assert (fila["monto_unit"], fila["nombre"], fila["acumulable"]) == ("10.00", "R", True)  # nothing applied
 
 
 def test_only_an_unknown_field_is_a_422(client, gestor, grupos) -> None:
@@ -72,6 +72,10 @@ def test_cap_counts_distinct_and_exactly_500_passes_the_cap(client, gestor, grup
     cid = _crear(client, gestor, grupos)
     r = client.post(EDITAR, json={"campana_ids": list(range(1, 502)), "acumulable": False}, headers=gestor)
     assert r.status_code == 422
+    # Exactly 500 distinct ids pass the cap: the 499 unknown ones are then refused by name, not by the cap.
+    r = client.post(EDITAR, json={"campana_ids": [cid, *range(10_001, 10_500)], "acumulable": False}, headers=gestor)
+    assert r.status_code == 422 and r.json()["error"]["code"] == "EDICION_RECHAZADA", r.text
+    assert len(r.json()["error"]["rechazadas"]) == 499
     r = client.post(EDITAR, json={"campana_ids": [cid] * 600, "acumulable": False}, headers=gestor)
     assert r.status_code == 200 and r.json() == {"editadas": [cid], "sin_cambio": []}
     assert client.get(f"{BASE}/{cid}", headers=gestor).json()["acumulable"] is False

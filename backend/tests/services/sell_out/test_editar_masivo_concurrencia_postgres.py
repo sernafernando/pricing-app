@@ -7,9 +7,11 @@ the cost of a full batch.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Callable, Iterator
 
 import pytest
@@ -17,7 +19,7 @@ from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.sell_out import SellOutCampana
-from app.schemas.sell_out import SellOutCampanaIn
+from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaItemIn
 from app.services.sell_out import asignacion, edicion_masiva, queue
 from app.services.sell_out import campanas as service
 from app.workers.context import WorkerContext
@@ -196,7 +198,7 @@ def _mundo(engine: Engine) -> dict:
     w.reparto(engine, c3, SWITCH, monto="300")
     c4 = w.campana(engine, [r], nombre="c4", moneda="USD", tc_modo="al_cobro", monto_unit="2.00")
     with _s(engine) as db:
-        service.definir_tipo_cambio(db, c4, __import__("decimal").Decimal("1450.5"), U)
+        service.definir_tipo_cambio(db, c4, Decimal("1450.5"), U)
     w.execute(engine, "UPDATE sell_out_campanas SET tc_definido_en = '2026-10-30 12:00:00+00' WHERE id = :c", c=c4)
     c5 = w.campana(engine, [s], nombre="c5", moneda="USD", tc_modo="fijo", tipo_cambio="1400", monto_incluye_iva=True)
     c6 = w.campana(engine, [r], nombre="c6 fuera seleccion", tope_unidades=4, acumulable=False)  # linked, not selected
@@ -321,7 +323,7 @@ def test_bulk_does_not_overwrite_a_single_edit_committed_while_it_waited(engine:
     a, b = _dos(engine)
     with _s(engine) as otro:
         otro.expire_on_commit = False
-        data = _edit_cuerpo(otro, b, nombre="B editada", monto_unit=__import__("decimal").Decimal("25"))
+        data = _edit_cuerpo(otro, b, nombre="B editada", monto_unit=Decimal("25"))
         service.editar_campana_sin_commit(otro, b, data, U)  # holds b's row, uncommitted
         bulk = Hilo("bulk", lambda db: edicion_masiva.editar_campanas(db, [a, b], {"fecha_hasta": H31}, U), engine)
         bulk.start()
@@ -332,7 +334,6 @@ def test_bulk_does_not_overwrite_a_single_edit_committed_while_it_waited(engine:
     assert not bulk.is_alive()
     assert bulk.exc is None, repr(bulk.exc)
     f = _fila(engine, b)
-    print("LOST-UPDATE", f["nombre"], f["monto_unit"], f["fecha_hasta"])
     assert (f["nombre"], str(f["monto_unit"]), f["fecha_hasta"]) == ("B editada", "25.00", H31)
 
 
@@ -348,7 +349,6 @@ def test_bulk_does_not_overwrite_a_bulk_committed_while_it_waited(engine: Engine
     bulk.join(20)
     assert bulk.exc is None, repr(bulk.exc)
     f = _fila(engine, b)
-    print("LOST-UPDATE-BULK", f["acumulable"], f["fecha_hasta"])
     assert (f["acumulable"], f["fecha_hasta"]) == (False, H31)
 
 
@@ -366,7 +366,6 @@ def test_sin_cambio_is_not_decided_on_a_value_read_before_the_lock(engine: Engin
         otro.commit()
     bulk.join(20)
     assert bulk.exc is None, repr(bulk.exc)
-    print("SINCAMBIO", bulk.res, _fila(engine, b)["fecha_hasta"])
     assert _fila(engine, b)["fecha_hasta"] == pedido
 
 
@@ -425,7 +424,6 @@ def test_bulk_vs_bulk_overlapping_different_orders_natural_race(engine: Engine) 
         if t1.exc is None and t2.exc is None:
             filas = [_fila(engine, c) for c in ids[3:]]
             perdidas += sum(1 for f in filas if (f["fecha_hasta"], f["acumulable"]) != (h1, h2))
-    print("BULKxBULK ok", ok, "perdidas", perdidas, "audit-extra", audits, "errores", errores[:2])
     assert errores == [] and audits == 0
     assert perdidas == 0
 
@@ -473,9 +471,85 @@ def test_bulk_vs_single_real_lock_cycle(engine: Engine, monkeypatch, victima: st
         bulk.start()
     single.join(20), bulk.join(20)
     assert not single.is_alive() and not bulk.is_alive()
-    print("CYCLE", victima, "single:", repr(single.exc)[:140], "bulk:", repr(bulk.exc)[:140], bulk.res)
-    for t in (single, bulk):
-        assert t.exc is None or isinstance(t.exc, service.SellOutError), f"{t.name}: raw {type(t.exc).__name__}"
+    # The one that waited first detects the cycle and is the victim, a retry; the other goes through.
+    if victima == "single":
+        assert isinstance(single.exc, service.SellOutRecalculando), repr(single.exc)
+        assert bulk.exc is None and bulk.res == (sorted([x, y]), [])
+    else:
+        assert isinstance(bulk.exc, edicion_masiva.SellOutEdicionRechazada) and bulk.exc.reintentar, repr(bulk.exc)
+        assert single.exc is None
+        assert _fila(engine, x)["nombre"] == "X editada"
+
+
+OCUPADA = "Otra operación está modificando la campaña en este momento. Reintentar en unos segundos."
+
+
+def _escritura_simple(engine: Engine, cual: str, x: int):
+    """The single write on x the test races, and a reader of what it would change."""
+    if cual == "anular":
+        return (lambda db: service.anular_campana(db, x, U, "baja")), (lambda: _fila(engine, x)["estado"])
+    if cual == "tipo_cambio":
+        return (lambda db: service.definir_tipo_cambio(db, x, Decimal("1500"), U)), (
+            lambda: _fila(engine, x)["tipo_cambio"]
+        )
+    repartos = [SellOutCampanaItemIn(item_id=ROUTER, reparto_porcentaje=Decimal("50"))]
+
+    def _items() -> list:
+        with engine.connect() as c:
+            return c.execute(
+                text("SELECT item_id, reparto_porcentaje FROM sell_out_campana_items WHERE campana_id = :c"), {"c": x}
+            ).all()
+
+    return (lambda db: service.repartir(db, x, repartos, U, None)), _items
+
+
+@pytest.mark.parametrize("cual", ["anular", "tipo_cambio", "repartir"])
+def test_a_single_write_deadlocked_by_a_bulk_edit_is_the_busy_409_and_writes_nothing(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch, cual: str
+) -> None:
+    """A real cycle. Bulk [y, x] (y linked to x): row y, the queue rows of y AND x, then row x. The single void,
+    rate or split of x: row x, then x's queue row. The single waits first, so Postgres picks it as the victim."""
+    g = w.grupo(engine, [ROUTERS])
+    y = w.campana(engine, [g], nombre="Y")
+    if cual == "anular":
+        x = w.campana(engine, [g], nombre="X")
+    elif cual == "tipo_cambio":
+        x = w.campana(engine, [g], nombre="X", moneda="USD", tc_modo="al_cobro")
+    else:
+        x = w.monto_total(engine, [g], "100", nombre="X")
+        w.reparto(engine, x, ROUTER, porcentaje="40")
+    w.execute(engine, "INSERT INTO sell_out_dirty (campana_id) VALUES (:y), (:x)", y=y, x=x)  # pending re-queues
+    escribir, leer = _escritura_simple(engine, cual, x)
+    antes = leer()
+    original_enc, original_bloq = service._encolar, service.bloquear
+    single_con_fila, seguir_single = threading.Event(), threading.Event()
+
+    def enc(db, ids) -> None:
+        if threading.current_thread().name == "single":
+            single_con_fila.set()
+            seguir_single.wait(5)
+        original_enc(db, ids)
+
+    def bloq(db, cid):
+        if threading.current_thread().name == "bulk" and cid == x:
+            seguir_single.set()
+            time.sleep(0.4)  # the single starts waiting first: its deadlock check fires first
+        return original_bloq(db, cid)
+
+    monkeypatch.setattr(service, "_encolar", enc)
+    monkeypatch.setattr(service, "bloquear", bloq)
+    single = Hilo("single", escribir, engine)
+    bulk = Hilo("bulk", lambda db: edicion_masiva.editar_campanas(db, [x, y], {"fecha_hasta": H31}, U), engine)
+    single.start()
+    assert single_con_fila.wait(5)
+    bulk.start()
+    single.join(20), bulk.join(20)
+
+    assert not single.is_alive() and not bulk.is_alive()
+    assert isinstance(single.exc, service.SellOutRecalculando), repr(single.exc)
+    assert str(single.exc) == OCUPADA
+    assert bulk.exc is None and bulk.res == (sorted([x, y]), [])
+    assert leer() == antes  # the single wrote nothing
 
 
 def test_retry_after_409_applies_once_and_audits_once(engine: Engine, monkeypatch) -> None:
@@ -542,16 +616,6 @@ def test_bulk_vs_the_real_rebuild_writer(engine: Engine, monkeypatch, primero: s
     bulk.start()
     bulk.join(20), drain.join(25)
     assert not bulk.is_alive() and not drain.is_alive()
-    print(
-        "REBUILD",
-        primero,
-        "bulk:",
-        repr(bulk.exc)[:120],
-        bulk.res,
-        "drain:",
-        results and results[0].detail,
-        w.queued(engine),
-    )
     assert bulk.exc is None or (isinstance(bulk.exc, edicion_masiva.SellOutEdicionRechazada) and bulk.exc.reintentar)
     monkeypatch.setattr(asignacion, "recalcular", real_rec)
     monkeypatch.setattr(service, "_encolar", real_enc)
@@ -577,15 +641,28 @@ def test_a_row_with_over_50_groups_is_edited_its_stored_groups_are_not_re_capped
     assert _fila(engine, cid)["acumulable"] is False
 
 
-def test_500_linked_rows_stay_well_under_the_statement_timeout(engine: Engine) -> None:
+def test_500_linked_rows_read_their_links_once_and_queue_each_campaign_once(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The cap is 500 per request, every row holding its lock until the commit: the links of the batch are read
-    once (`asignacion.vinculadas_por_campana`), so the cost grows with the rows, not with their square."""
+    ONCE (`asignacion.vinculadas_por_campana`), so the cost grows with the rows, not with their square (before:
+    200 rows 13 s, 500 never finished). The clock bound is generous and skipped in CI (shared runners)."""
     g = w.grupo(engine, [ROUTERS])  # every campaign linked to every other: the worst case
     ids = [w.campana(engine, [g]) for _ in range(500)]
-    t0 = time.time()
+    cargas: list[int] = []
+    cargar = asignacion._cargar
+
+    def _contar(db, pedidas):
+        cargas.append(len(pedidas))
+        return cargar(db, pedidas)
+
+    monkeypatch.setattr(asignacion, "_cargar", _contar)
+    t0 = time.monotonic()
     with _s(engine) as db:
         assert edicion_masiva.editar_campanas(db, ids, {"fecha_hasta": H31}, U) == (ids, [])
-    segundos = time.time() - t0
-    print(f"COST n=500 bulk {segundos:.2f}s")
-    assert segundos < 20  # the statement_timeout is 60 s
+    segundos = time.monotonic() - t0
+
+    assert cargas == [500]  # one load for the whole batch, none per row
     assert sorted(c for c, *_ in w.queued(engine)) == ids
+    if not os.environ.get("CI"):
+        assert segundos < 30, segundos  # about 6 s on the test server; the statement_timeout is 60 s
