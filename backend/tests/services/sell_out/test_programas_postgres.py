@@ -195,8 +195,8 @@ def test_a_page_of_campaigns_reads_their_programs_in_one_query(engine, Sesion) -
 
 def test_suggestions_group_campaigns_without_a_program_by_identical_dates(engine, Sesion) -> None:
     """Production's repeated names (2026-11-02 read) share their dates and differ only in what they apply to; the
-    families ("EPSON PROG 3.0", "EPSON PROGR 7.5", ...: the number is the amount, not a period) share a date range.
-    So a suggestion is a date range with 2 or more campaigns, named by the words all its names start with."""
+    families of names that carry their per-unit amount share a date range. So a suggestion is a date range with 2 or
+    more campaigns, named by the words all its names start with."""
     epson = date(2026, 8, 1), date(2026, 12, 31)
     sp = date(2025, 11, 1), date(2026, 12, 31)
     programa = _programa(Sesion, "EPSON PROG")
@@ -225,3 +225,32 @@ def test_suggestions_group_campaigns_without_a_program_by_identical_dates(engine
         "fecha_hasta": date(2026, 12, 31),
         "estado": "anulada",
     }
+
+
+def test_editar_campana_keeps_the_stored_program(engine, Sesion) -> None:
+    """`editar_campana` is a full replace and `SellOutCampanaIn` carries no program: the stored one stays, and only
+    the edit's own fields change (its `updated_at` moves, as on any edit)."""
+    programa = _programa(Sesion, "Programa de prueba")
+    grupo = w.grupo(engine, [{"marca": "TP-LINK"}])
+    cid = w.campana(engine, [grupo], date(2026, 8, 1), date(2026, 12, 31), nombre="Campaña", programa_id=programa)
+    with Sesion() as db:
+        antes = db.get(SellOutCampana, cid).updated_at
+    data = SellOutCampanaIn(
+        nombre="Campaña editada",
+        fecha_desde=date(2026, 8, 1),
+        fecha_hasta=date(2026, 10, 31),
+        tipo="por_unidad",
+        monto_unit="10",
+        moneda="ARS",
+        grupo_ids=[grupo],
+    )
+    with Sesion() as db:
+        campanas.editar_campana(db, cid, data, USUARIO)
+    with Sesion() as db:
+        campana = db.get(SellOutCampana, cid)
+        assert (campana.nombre, campana.fecha_hasta, campana.programa_id) == (
+            "Campaña editada",
+            date(2026, 10, 31),
+            programa,
+        )
+        assert campana.updated_at > antes
