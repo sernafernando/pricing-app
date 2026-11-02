@@ -1,7 +1,7 @@
 """sell in: a product's dated cost modes (weighted, last, manual) and their permissions
 
 Revision ID: 20261227_sell_in_modos_producto
-Revises: 20261226_ml_ads_display_catalog
+Revises: 20261225_sell_out_programas
 Create Date: 2026-11-02
 
 Owner: "Para sell in vamos a mantener el FIFO pero además quiero un sistema que con un permiso aparte se pueda elegir
@@ -41,7 +41,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261227_sell_in_modos_producto"
-down_revision: Union[str, None] = "20261226_ml_ads_display_catalog"
+down_revision: Union[str, None] = "20261225_sell_out_programas"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
