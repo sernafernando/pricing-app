@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.sell_in import SellInConsumo, SellInModoProducto
 from app.models.usuario import Usuario
+from app.services.sell_in import bonos_costo
 from app.services.sell_in.costing import get_costing
 
 # The modes written here; `manual` (typed quantity and cost) lands in its own slice.
@@ -141,6 +142,7 @@ def confirmar(db: Session, item_id: int, modo: str, desde: date, hoy: date, usua
         savepoint.rollback()
         raise
     savepoint.commit()
+    bonos_costo.seguir_fifo(db, [item_id])  # like every write that moves the FIFO outside the drain
     db.add(
         Auditoria(
             item_id=item_id,
@@ -181,12 +183,14 @@ def _simular(
     db.flush()
     costing.recompute(db, [item_id], isolate_failures=False)
     despues = _por_venta(db, item_id)
-    vigente = costing.vigentes(db, [item_id], hoy).get(item_id)
+    # What the product is left with once the new row governs: from `desde` when it is still to come.
+    dia = max(hoy, desde)
+    vigente = costing.vigentes(db, [item_id], dia).get(item_id)
     cambian = [k for k in antes.keys() | despues.keys() if antes.get(k, Decimal(0)) != despues.get(k, Decimal(0))]
     diferencia = sum((despues.get(k, Decimal(0)) - antes.get(k, Decimal(0)) for k in cambian), Decimal("0.00"))
     unidades = vigente.unidades_restantes if vigente is not None else 0
     descuento = vigente.descuento_unit_ars if vigente is not None else None
-    sin_despues = costing.sin_asignar(db, item_id, hoy)
+    sin_despues = costing.sin_asignar(db, item_id, dia)
     # Everything the preview shows, and what it was computed from: a purchase that moves no sale still moves these.
     contenido = [
         modo,

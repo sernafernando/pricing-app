@@ -47,8 +47,8 @@ class VistaPreviaOut(BaseModel):
 
     ventas_cambian: int  # recorded sales whose sell in changes
     diferencia_ars: Decimal  # their new sell in minus the current one (negative: less sell in)
-    unidades_restantes: int  # the units the next sale draws from, after the change
+    unidades_restantes: int  # the units the next sale draws from, after the change (from `desde` when to come)
     descuento_unit: Optional[Decimal]  # their unit value; None: no unit left
     sin_asignar_antes: Decimal  # ARS the lots hold that no unit hands out (positive) or handed beyond them, today
-    sin_asignar_despues: Decimal  # the same after the change
+    sin_asignar_despues: Decimal  # the same once the change governs (from `desde` when to come)
     huella: str  # send it back to confirm

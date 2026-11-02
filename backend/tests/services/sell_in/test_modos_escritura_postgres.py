@@ -163,6 +163,22 @@ def test_last_price_shows_what_it_hands_out_beyond_the_lots(engine: Engine) -> N
 
 
 @pytest.mark.parametrize(
+    ("modo", "valor", "unidades", "sin_asignar"),
+    [("ultimo", Decimal("8.000000"), 110, Decimal("200.00")), ("ponderado", Decimal("9.818182"), 110, Decimal("0.00"))],
+)
+def test_a_future_mode_is_previewed_as_it_will_stand_from_its_date(
+    engine: Engine, modo, valor, unidades, sin_asignar
+) -> None:
+    # Today FIFO gives the first lot's 100 at 10.00; from tomorrow the mode governs all 110 (1080 held).
+    si.compra(engine, [(ROUTER, 100, "1000.00")], D(2026, 10, 1))
+    si.compra(engine, [(ROUTER, 10, "80.00")], D(2026, 10, 2))
+
+    vista = _vista(engine, modo, D(2026, 11, 11))
+
+    assert (vista.unidades_restantes, vista.descuento_unit, vista.sin_asignar_despues) == (unidades, valor, sin_asignar)
+
+
+@pytest.mark.parametrize(
     ("modo", "desde", "tiene", "falta"),
     [
         ("ponderado", HOY, {"sell_in.costo_ultimo"}, "sell_in.costo_ponderado"),
