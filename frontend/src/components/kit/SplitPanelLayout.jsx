@@ -149,7 +149,11 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     return () => window.removeEventListener('resize', update);
   }, [open, resizable]);
 
-  const clampWidth = (value, max) => Math.min(Math.max(Math.round(value), PANEL_MIN_WIDTH), max);
+  // The bounds a gesture moves within. They stretch to include where it
+  // starts: on a narrow window the default width can sit outside them, and a
+  // step must never jump the divider the opposite way.
+  const boundsFrom = (start, max) => ({ min: Math.min(PANEL_MIN_WIDTH, start), max: Math.max(max, start) });
+  const clampWidth = (value, bounds) => Math.min(Math.max(Math.round(value), bounds.min), bounds.max);
 
   // Steps and drags start from the width on screen, which the CSS clamp may
   // have narrowed below a width saved on a wider window.
@@ -157,8 +161,10 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     const box = measure();
-    const next = clampWidth(box.width + (e.key === 'ArrowLeft' ? RESIZE_STEP : -RESIZE_STEP), box.max);
+    const step = e.key === 'ArrowLeft' ? RESIZE_STEP : -RESIZE_STEP;
+    const next = clampWidth(box.width + step, boundsFrom(box.width, box.max));
     setMeasured(box);
+    if (next === Math.round(box.width)) return;
     setPanelWidth(next);
     saveWidth(resizeKey, next);
   };
@@ -169,11 +175,12 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     const box = measure();
     const startX = e.clientX;
     const startWidth = box.width;
+    const bounds = boundsFrom(startWidth, box.max);
     let latest = null;
     setMeasured(box);
     // On the window, not the handle: a fast drag leaves the thin handle behind.
     const move = (event) => {
-      latest = clampWidth(startWidth + startX - event.clientX, box.max);
+      latest = clampWidth(startWidth + startX - event.clientX, bounds);
       setPanelWidth(latest);
     };
     const end = () => {
@@ -189,6 +196,8 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   };
 
   const resized = resizable && panelWidth !== null;
+  const valueNow = panelWidth === null ? measured.width : Math.min(panelWidth, measured.max);
+  const valueBounds = boundsFrom(valueNow, measured.max);
   const gridStyle = resized
     ? {
         '--split-panel-drag-width': `${panelWidth}px`,
@@ -216,9 +225,9 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
           role="separator"
           aria-orientation="vertical"
           aria-label="Ancho del panel"
-          aria-valuenow={panelWidth === null ? measured.width : Math.min(panelWidth, measured.max)}
-          aria-valuemin={PANEL_MIN_WIDTH}
-          aria-valuemax={measured.max}
+          aria-valuenow={valueNow}
+          aria-valuemin={valueBounds.min}
+          aria-valuemax={valueBounds.max}
           tabIndex={0}
           onKeyDown={handleSeparatorKeyDown}
           onPointerDown={handlePointerDown}

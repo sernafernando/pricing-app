@@ -259,12 +259,18 @@ describe('resizing (opt-in by resizeKey)', () => {
   });
 
   it('never goes past either minimum', async () => {
-    PANEL = PANEL_MIN_WIDTH;
+    // A step that would cross a minimum lands on it.
+    PANEL = PANEL_MIN_WIDTH + 4;
     const { container } = renderLayout({ resizeKey: 'pubml' });
     separator().focus();
     await userEvent.keyboard('{ArrowRight}');
     expect(dragWidth(container)).toBe(`${PANEL_MIN_WIDTH}px`);
 
+    PANEL = GRID - TABLE_MIN_WIDTH - 4;
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(dragWidth(container)).toBe(`${GRID - TABLE_MIN_WIDTH}px`);
+
+    // Already on it, the step does nothing.
     PANEL = GRID - TABLE_MIN_WIDTH;
     await userEvent.keyboard('{ArrowLeft}');
     expect(dragWidth(container)).toBe(`${GRID - TABLE_MIN_WIDTH}px`);
@@ -289,12 +295,39 @@ describe('resizing (opt-in by resizeKey)', () => {
 
   it('a saved width wider than the window allows reports the width it can have and steps from the one on screen', async () => {
     localStorage.setItem(STORAGE, '1300');
+    // The CSS clamp shows the panel at the widest the window allows.
+    PANEL = GRID - TABLE_MIN_WIDTH;
     const { container } = renderLayout({ resizeKey: 'pubml' });
-    expect(separator()).toHaveAttribute('aria-valuenow', String(GRID - TABLE_MIN_WIDTH));
+    expect(separator()).toHaveAttribute('aria-valuenow', String(PANEL));
     separator().focus();
     await userEvent.keyboard('{ArrowRight}');
-    // The panel on screen is 560 wide (the CSS clamp): one step right narrows it, it is not lost against 1300.
+    // One step right narrows what is on screen; it is not lost against 1300.
     expect(dragWidth(container)).toBe(`${PANEL - RESIZE_STEP}px`);
+  });
+
+  it('on a narrow window whose default panel is outside the bounds, each key still moves the divider its way', async () => {
+    // Too wide for the table's minimum: left must not narrow it, right narrows it.
+    GRID = 840;
+    PANEL = 378;
+    const { container, unmount } = renderLayout({ resizeKey: 'pubml' });
+    separator().focus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(dragWidth(container)).toBe('');
+    expect(localStorage.getItem(STORAGE)).toBeNull();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(dragWidth(container)).toBe(`${378 - RESIZE_STEP}px`);
+    unmount();
+
+    // Already under the panel's minimum: right must not widen it, left widens it.
+    localStorage.clear();
+    GRID = 800;
+    PANEL = 340;
+    const second = renderLayout({ resizeKey: 'pubml' });
+    separator().focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(dragWidth(second.container)).toBe('');
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(dragWidth(second.container)).toBe(`${340 + RESIZE_STEP}px`);
   });
 
   it('the bounds follow the window when it is resized', () => {
