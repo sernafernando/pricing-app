@@ -1,6 +1,6 @@
 # Publicaciones ML: los paneles abren en Promos y Precios
 
-Área: Reportes
+Área: Publicaciones
 
 ## Resumen ejecutivo
 
