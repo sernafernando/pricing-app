@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -300,6 +301,14 @@ def test_add_all_ready_exported_skips_new_listo_lines() -> None:
     db.expire.assert_called()
 
 
+def test_package_locks_require_populate_existing() -> None:
+    """Fernando please-check: removing `.populate_existing()` must fail this test."""
+    from app.services.gestion_full import package as mod
+
+    assert ".populate_existing()" in inspect.getsource(mod._package_for_update)
+    assert ".populate_existing()" in inspect.getsource(mod.set_qty_export)
+
+
 def test_set_qty_export_caps_and_audits() -> None:
     from app.services.gestion_full.package import set_qty_export
 
@@ -313,14 +322,18 @@ def test_set_qty_export_caps_and_audits() -> None:
     )
     pkg = SimpleNamespace(id=1, status="open")
     db = MagicMock()
+    line_filter = MagicMock()
+    line_filter.populate_existing.return_value.with_for_update.return_value.one.return_value = line
+    pkg_query = _pkg_lock_query(pkg)
+    pkg_filter = pkg_query.filter.return_value
 
     def _query(model: object) -> MagicMock:
         name = getattr(model, "__name__", "")
         if name == "GestionFullPackageLine":
             m = MagicMock()
-            m.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = line
+            m.filter.return_value = line_filter
             return m
-        return _pkg_lock_query(pkg)
+        return pkg_query
 
     db.query.side_effect = _query
     db.get.return_value = SimpleNamespace(stock=20)
@@ -342,6 +355,8 @@ def test_set_qty_export_caps_and_audits() -> None:
     assert db.add.call_count >= 1
     lock.assert_called_once()
     db.commit.assert_called_once()
+    line_filter.populate_existing.assert_called()
+    pkg_filter.populate_existing.assert_called()
 
 
 def test_set_qty_export_noop_still_tries_hard_lock() -> None:
