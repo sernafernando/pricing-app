@@ -509,8 +509,11 @@ def crear_campana(
 
 def bloquear(db: Session, campana_id: int) -> Optional[SellOutCampana]:
     """The campaign locked until the transaction ends (`FOR UPDATE`). None when it does not exist;
-    `SellOutYaAnulada` when voided."""
-    campana = db.query(SellOutCampana).filter(SellOutCampana.id == campana_id).with_for_update().first()
+    `SellOutYaAnulada` when voided. `populate_existing`: a campaign the session already holds gets the values the
+    locked read returns, so an edit is never built from values another writer has since replaced."""
+    campana = (
+        db.query(SellOutCampana).filter(SellOutCampana.id == campana_id).populate_existing().with_for_update().first()
+    )
     if campana is not None and campana.estado == "anulada":
         raise SellOutYaAnulada(f"La campaña {campana_id} está anulada")
     return campana

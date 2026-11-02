@@ -666,3 +666,16 @@ def test_500_linked_rows_read_their_links_once_and_queue_each_campaign_once(
     assert sorted(c for c, *_ in w.queued(engine)) == ids
     if not os.environ.get("CI"):
         assert segundos < 30, segundos  # about 6 s on the test server; the statement_timeout is 60 s
+
+
+def test_the_row_lock_reads_the_committed_values_not_a_stale_instance_of_the_session(engine: Engine) -> None:
+    """`bloquear` reloads the locked row (`populate_existing`): a campaign the session loaded before another writer
+    committed comes back with the values committed, so the step never rebuilds an edit from stale ones."""
+    cid = w.campana(engine, [w.grupo(engine, [ROUTERS])], nombre="Rebate Q4 2026")
+    with _s(engine) as db:
+        vieja = db.get(SellOutCampana, cid)  # kept referenced: the identity map holds it weakly
+        assert vieja.nombre == "Rebate Q4 2026"
+        # Another writer commits; READ COMMITTED: the next statement of this transaction sees it.
+        w.execute(engine, "UPDATE sell_out_campanas SET nombre = 'MODELO 8180' WHERE id = :c", c=cid)
+        bloqueada = service.bloquear(db, cid)
+        assert bloqueada is vieja and bloqueada.nombre == "MODELO 8180"
