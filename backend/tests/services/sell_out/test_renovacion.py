@@ -40,12 +40,12 @@ def test_the_next_calendar_quarter_after_the_end_date(fecha_hasta, esperado) -> 
         ("Bono 2Q26", date(2026, 7, 1), "Bono 3Q26"),
         ("Bono abril 2026", date(2026, 7, 1), "Bono julio 2026"),
         # Production's names are models and amounts, not periods: unchanged.
-        ("EPSON PROGRAM1", date(2027, 1, 1), "EPSON PROGRAM1"),
-        ("EPSON PROG 3.0", date(2027, 1, 1), "EPSON PROG 3.0"),
-        ("520 / 580 SP", date(2027, 1, 1), "520 / 580 SP"),
-        ("RB 8180", date(2027, 1, 1), "RB 8180"),
-        ("2602 SDW", date(2027, 1, 1), "2602 SDW"),
-        ("m111w/111a", date(2027, 1, 1), "m111w/111a"),
+        ("MARCA PROGRAM1", date(2027, 1, 1), "MARCA PROGRAM1"),
+        ("MARCA PROG 3.0", date(2027, 1, 1), "MARCA PROG 3.0"),
+        ("M20 / M80 SP", date(2027, 1, 1), "M20 / M80 SP"),
+        ("MODELO 8180", date(2027, 1, 1), "MODELO 8180"),
+        ("M60 SDW", date(2027, 1, 1), "M60 SDW"),
+        ("m11w/11a", date(2027, 1, 1), "m11w/11a"),
         # A period that is not at the end is not touched either.
         ("Q4 2026 Rebate TP-Link", date(2027, 1, 1), "Q4 2026 Rebate TP-Link"),
     ],

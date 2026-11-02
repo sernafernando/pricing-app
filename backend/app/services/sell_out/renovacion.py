@@ -70,7 +70,7 @@ def _como(original: str, palabra: str) -> str:
 
 def nombre_renovado(nombre: str, desde: date) -> str:
     """`nombre` with its trailing period advanced to the quarter starting on `desde`; any other name exactly as it
-    is (production's are models and amounts, like "EPSON PROG 3.0" or "RB 8180"). A month becomes the quarter's
+    is (production's are models and amounts, like "MARCA PROG 3.0" or "MODELO 8180"). A month becomes the quarter's
     first month."""
     trimestre = (desde.month - 1) // 3 + 1
     if m := _TRIMESTRE.search(nombre):

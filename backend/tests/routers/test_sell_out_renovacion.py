@@ -37,24 +37,24 @@ def lector(db, rol_admin, admin_auth_headers, grant_permiso):
 
 @pytest.fixture()
 def grupos(db) -> list[int]:
-    """Two groups: TP-Link (router and switch) and Epson (ink)."""
-    marcas = {ROUTER: "TP-LINK", SWITCH: "TP-LINK", TINTA: "EPSON"}
+    """Two groups: TP-Link (router and switch) and Marca (ink)."""
+    marcas = {ROUTER: "TP-LINK", SWITCH: "TP-LINK", TINTA: "MARCA"}
     db.add_all(
         ProductoERP(item_id=i, codigo=f"C{i}", descripcion=f"P{i}", marca=m, categoria="X", iva=21.0)
         for i, m in marcas.items()
     )
-    tplink, epson = OffsetGrupo(nombre="TP-Link redes"), OffsetGrupo(nombre="Epson tintas")
-    db.add_all([tplink, epson])
+    tplink, marca = OffsetGrupo(nombre="TP-Link redes"), OffsetGrupo(nombre="Marca tintas")
+    db.add_all([tplink, marca])
     db.flush()
     db.add_all(
         [
             OffsetGrupoFiltro(grupo_id=tplink.id, item_id=ROUTER),
             OffsetGrupoFiltro(grupo_id=tplink.id, item_id=SWITCH),
-            OffsetGrupoFiltro(grupo_id=epson.id, item_id=TINTA),
+            OffsetGrupoFiltro(grupo_id=marca.id, item_id=TINTA),
         ]
     )
     db.flush()
-    return [tplink.id, epson.id]
+    return [tplink.id, marca.id]
 
 
 def _programa(db, admin_user, nombre: str = "Rebate TP-Link", estado: str = "activo") -> SellOutPrograma:

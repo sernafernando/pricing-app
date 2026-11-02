@@ -98,7 +98,7 @@ Para el próximo trimestre no hace falta cargar la campaña de cero. En **Ver ca
 - **Se copia**: el tipo y su monto (por unidad, porcentaje o monto total), la base del porcentaje, la moneda, el modo de tipo de cambio (el valor solo si es **Fijo**), los topes, **Acumulable**, **El monto incluye IVA**, la descripción, los grupos, los **Montos por producto**, el **Reparto del monto total** (se guarda junto con la campaña) y el programa, si sigue activo.
 - **No se copia**: el estado, lo que acreditó, el tipo de cambio **Al cobro** que se definió al cobrar, el offset de origen ni el historial de cambios. Tampoco los productos que ya no están en los grupos.
 - **Fechas**: por defecto, el trimestre calendario siguiente al que contiene la fecha hasta de la original (por ejemplo, una que termina el 15/11/2026 o el 31/12/2026 propone del 01/01/2027 al 31/03/2027). Se pueden cambiar.
-- **Nombre**: si termina en un período, se avanza al nuevo trimestre («Rebate Q4 2026» → «Rebate Q1 2027», «Rebate 4Q26» → «Rebate 1Q27», «Campaña noviembre 2026» → «Campaña enero 2027»). Si no, queda igual (por ejemplo «EPSON PROG 3.0»). Se puede editar.
+- **Nombre**: si termina en un período, se avanza al nuevo trimestre («Rebate Q4 2026» → «Rebate Q1 2027», «Rebate 4Q26» → «Rebate 1Q27», «Campaña noviembre 2026» → «Campaña enero 2027»). Si no, queda igual (por ejemplo «Promo modelo 3.0»). Se puede editar.
 
 La campaña original no cambia: sigue como estaba, con su historial y lo que acreditó.
 
