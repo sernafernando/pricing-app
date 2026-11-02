@@ -71,5 +71,8 @@ def test_a_failing_run_is_reported_not_raised(monkeypatch) -> None:
         raise RuntimeError("db down")
 
     monkeypatch.setattr(ingestion, "run", boom)
-    result = handler(Clock()).run(ctx())
+    h = handler(Clock())
+    result = h.run(ctx())
     assert not result.success and result.error == "RuntimeError: db down"
+    # The calls of a failed run are unknown: the whole minute's budget is taken as spent.
+    assert h.run(ctx()).detail == {"calls": 0, "stopped": "rate_cap"}

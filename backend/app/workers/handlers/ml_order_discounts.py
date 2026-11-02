@@ -75,6 +75,7 @@ class OrderDiscountsHandler:
             )
         except Exception as exc:  # noqa: BLE001 -- the worker keeps running; the data is the cursor, the next run resumes
             logger.exception("order discounts run failed")
+            self._calls.extend([self._monotonic()] * budget)  # its calls are unknown: take the budget as spent
             error = f"{type(exc).__name__}: {exc}"[:300]
             return JobResult(success=False, detail={"error": error}, error=error)
         self._calls.extend([self._monotonic()] * result.calls)
