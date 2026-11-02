@@ -57,6 +57,10 @@
   box-shadow: var(--cf-card-shadow);
 }
 
+.filterChevronCollapsed {
+  transform: rotate(-90deg);
+}
+
 .filterBand {
   display: flex;
   align-items: center;
