@@ -38,7 +38,9 @@ logger = logging.getLogger(__name__)
 FAMILY = ORDER_DISCOUNTS_FAMILY
 BACKOFF = "backoff"
 BUSY = "busy"
-_RUN_LOCK = threading.Lock()  # the runtime runs one handler at a time; this keeps two runs from asking twice
+_RUN_LOCK = (
+    threading.Lock()
+)  # the handler has its own thread; this keeps a second run in this process from asking twice
 TRANSPORT = "transport"
 
 

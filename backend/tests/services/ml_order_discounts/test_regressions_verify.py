@@ -4,6 +4,8 @@ scheduling, concurrency and the migration round trip."""
 
 from __future__ import annotations
 
+import re
+
 import copy
 import threading
 from datetime import datetime, timedelta, timezone
@@ -416,10 +418,14 @@ def test_migration_round_trip_and_no_drift(pg_engine):
     assert len(_script_directory().get_heads()) == 1
     print("heads", _script_directory().get_heads())
     migration = _load_migration()
+    index_migration = _load_migration("20261228_ml_pay_ops_coupon_idx")
     source = Path(migration.__file__).read_text()
     assert "ForeignKey" not in source and "alter_" not in source
-    # The only raw SQL is the payments index, built and dropped CONCURRENTLY: no data change.
-    assert source.count("op.execute(") == 2 and source.count("INDEX CONCURRENTLY IF") == 2
+    assert "op.execute(" not in source  # the tables revision runs no raw SQL
+    # The index revision's only raw SQL is the index, built and dropped CONCURRENTLY, and its lock_timeout.
+    index_source = Path(index_migration.__file__).read_text()
+    executed = re.findall(r'op\.execute\(\s*f?"([^"]*)', index_source)
+    assert executed and all("INDEX CONCURRENTLY IF" in sql or "lock_timeout" in sql for sql in executed), executed
     md = sa.MetaData()
     for n in NAMES:
         Base.metadata.tables[n].to_metadata(md)
@@ -445,13 +451,17 @@ def test_migration_round_trip_and_no_drift(pg_engine):
             before = set(sa.inspect(conn).get_table_names())
             conn.commit()
             for _ in range(2):
-                # `autocommit_block` (the CONCURRENTLY index) needs the migration's own transaction.
+                # `autocommit_block` (the CONCURRENTLY index revision) needs the migration's own transaction.
                 with Operations.context(ctx), ctx.begin_transaction():
                     migration.upgrade()
+                with Operations.context(ctx), ctx.begin_transaction():
+                    index_migration.upgrade()
                 diff = compare_metadata(ctx, md)
                 print("drift:", diff)
                 assert diff == []
                 conn.commit()
+                with Operations.context(ctx), ctx.begin_transaction():
+                    index_migration.downgrade()
                 with Operations.context(ctx), ctx.begin_transaction():
                     migration.downgrade()
                 assert set(sa.inspect(conn).get_table_names()) == before
