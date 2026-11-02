@@ -4,6 +4,8 @@ cuotas) agree with `pricelist_resolver` on every input combination, on real Post
 from __future__ import annotations
 
 import itertools
+import re
+from pathlib import Path
 from typing import Optional
 
 import pytest
@@ -11,7 +13,7 @@ from sqlalchemy import Text, column, literal, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import ARRAY
 
-from app.services.ml_publications.listing_kind import listing_kind, listing_rank
+from app.services.ml_publications.listing_kind import KIND_LABELS, KIND_RANKS, kind_label, listing_kind, listing_rank
 from app.services.ml_publications.pricelist_resolver import REASON_COFINANCIADA, REASON_OK, resolve_pricelist
 
 KIND_BY_PRICELIST = {4: "clasica", 17: "cuotas_3", 14: "cuotas_6", 13: "cuotas_9", 23: "cuotas_12"}
@@ -87,3 +89,43 @@ def test_the_rank_reads_each_campaign_tag_position_a_bounded_number_of_times() -
     kind = listing_kind(column("listing_type_id"), column("tags"), column("installments_campaign"))
     sql = str(select(listing_rank(kind)).compile(dialect=postgresql.dialect()))
     assert sql.count("array_position") <= 48
+
+
+# The list's Tipo badge, whose words the CSV repeats (`KIND_LABELS`).
+BADGE = Path(__file__).resolve().parents[4] / "frontend/src/components/publicacionesMl/ListingKindBadge.jsx"
+
+
+def _badge_labels() -> dict[str, str]:
+    """The badge's `KINDS` labels and its `OTHER_TYPES` names, read from its source."""
+    source = BADGE.read_text(encoding="utf-8")
+    kinds = re.search(r"const KINDS = \{(.*?)\n\};", source, re.S).group(1)
+    others = re.search(r"const OTHER_TYPES = \{(.*?)\n\};", source, re.S).group(1)
+    labels = dict(re.findall(r"(\w+): \{ label: '([^']+)'", kinds))
+    labels.update(re.findall(r"(\w+): '([^']+)'", others))
+    return labels
+
+
+def test_the_csv_words_are_the_badge_words() -> None:
+    assert KIND_LABELS == _badge_labels()
+
+
+def test_every_ranked_kind_reads_as_a_word_and_an_unnamed_type_keeps_its_id() -> None:
+    assert {kind: kind_label(kind) for kind in KIND_RANKS} == {
+        "clasica": "Clásica",
+        "clasica_cofinanciada": "Clásica",
+        "cuotas_3": "3 cuotas",
+        "cuotas_6": "6 cuotas",
+        "cuotas_9": "9 cuotas",
+        "cuotas_12": "12 cuotas",
+    }
+    # ML's other types by ML's names; `gold_pro` stays a kind only with a campaign the resolver does not know.
+    assert [kind_label(kind) for kind in ("free", "bronze", "silver", "gold", "gold_premium", "gold_pro")] == [
+        "Gratuita",
+        "Bronce",
+        "Plata",
+        "Oro",
+        "Oro Premium",
+        "Premium",
+    ]
+    assert kind_label("some_new_type") == "some_new_type"
+    assert kind_label(None) is None

@@ -30,7 +30,7 @@ Orden: las publicaciones arrancan ordenadas por tipo (primero las Clásicas, des
 
 ## Botones y acciones
 
-- **Exportar CSV / Exportar a Sheets**: descarga el conjunto filtrado.
+- **Exportar CSV / Exportar a Sheets**: descarga el conjunto filtrado. La columna **Tipo** del archivo dice lo mismo que la de la pantalla (**Clásica**, **3 cuotas**, …), no el código de Mercado Libre.
 - Selector de columnas: elige qué columnas mostrar.
 - **Indicadores**: elige qué tarjetas de KPI mostrar (todas visibles por defecto). Lista solo las que se ven en la pantalla; ocultar una no cambia ningún número. La elección queda guardada en este navegador.
 - **Equipos**: gestiona equipos de color.

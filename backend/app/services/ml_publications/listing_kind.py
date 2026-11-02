@@ -14,7 +14,7 @@ CASE over the same three inputs; a parity test pins the two together.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import Integer, Text, case, func, literal, type_coerce
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -28,6 +28,23 @@ KIND_RANKS: dict[str, int] = {
     "cuotas_6": 2,
     "cuotas_9": 3,
     "cuotas_12": 4,
+}
+# What each kind reads as, with ML's other listing types by the names ML gives them: the same words as the list's
+# Tipo badge (frontend `ListingKindBadge`), so a file says what the screen says; a test reads the badge and pins the
+# two together. A co-funded Clásica reads as Clásica; `gold_pro` stays a kind only with an unknown campaign.
+KIND_LABELS: dict[str, str] = {
+    "clasica": "Clásica",
+    "clasica_cofinanciada": "Clásica",
+    "cuotas_3": "3 cuotas",
+    "cuotas_6": "6 cuotas",
+    "cuotas_9": "9 cuotas",
+    "cuotas_12": "12 cuotas",
+    "free": "Gratuita",
+    "bronze": "Bronce",
+    "silver": "Plata",
+    "gold": "Oro",
+    "gold_premium": "Oro Premium",
+    "gold_pro": "Premium",
 }
 OTHER_RANK = 5
 NO_TYPE_RANK = 6
@@ -89,3 +106,8 @@ def listing_rank(kind: Any) -> Any:
         value=kind,
         else_=case((kind.is_(None), literal(NO_TYPE_RANK, Integer)), else_=literal(OTHER_RANK, Integer)),
     )
+
+
+def kind_label(kind: Optional[str]) -> Optional[str]:
+    """A kind as people read it (`KIND_LABELS`); a type nobody named keeps ML's id, and none stays None."""
+    return KIND_LABELS.get(kind, kind) if kind else kind
