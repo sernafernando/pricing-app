@@ -22,7 +22,29 @@ def test_extraer_seller_sku_uses_value_name_when_value_id_null() -> None:
     _campaign, seller_sku, item_id = extraer_datos_publicacion(item)
 
     assert seller_sku == "840006603337"
-    assert item_id == 840006603337
+    # EANs match ProductoERP.codigo, not item_id — never derive item_id from SKU.
+    assert item_id is None
+
+
+def test_extraer_does_not_crash_on_unicode_digit_sku() -> None:
+    """str.isdigit() is True for '²' but we must not int() it or abort sync."""
+    item = {
+        "listing_type_id": "gold_special",
+        "sale_terms": [],
+        "attributes": [
+            {
+                "id": "SELLER_SKU",
+                "name": "SKU",
+                "value_id": None,
+                "value_name": "²",
+            }
+        ],
+    }
+
+    _campaign, seller_sku, item_id = extraer_datos_publicacion(item)
+
+    assert seller_sku == "²"
+    assert item_id is None
 
 
 def test_sanitizar_persists_shipping_fields() -> None:
@@ -45,9 +67,10 @@ def test_sanitizar_persists_shipping_fields() -> None:
         },
     }
 
-    datos = sanitizar_datos_ml(item, campaign="Clásica", seller_sku="840006603337", item_id=840006603337)
+    datos = sanitizar_datos_ml(item, campaign="Clásica", seller_sku="840006603337", item_id=None)
 
     assert datos["seller_sku"] == "840006603337"
+    assert datos["item_id"] is None
     assert datos["shipping_mode"] == "me2"
     assert datos["logistic_type"] == "cross_docking"
     assert datos["local_pick_up"] is True

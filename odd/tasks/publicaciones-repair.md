@@ -1,28 +1,26 @@
 # publicaciones-repair
 
-Objective: Persist ML shipping fields + fix seller_sku on publication snapshots (PR1), then repair envío (PR2) and SKU (PR3) jobs hooked after `sync_ml_publications_full`.
-Branch: `feat/publicaciones-repair` (base `upstream/main`). Delivery: `auto-chain` / `stacked-to-main` (PRs ≤400 lines to `sernafernando/pricing-app:main`). Runner: `pytest` under `backend/`.
+Objective: Persist ML shipping fields + fix seller_sku on publication snapshots (PR1), then repair envío (PR2) and SKU (PR3) as **conditional ticks** (ml_items drift × linked pubs), not hooked on the publications sync cron.
+Branch: stacked `feat/publicaciones-repair` → `-02-tracker` → `-02-envio` → `-03-sku`. Delivery: `auto-chain` / `stacked-to-main`. Runner: `pytest` under `backend/`.
 
 ## Specs
 
-- S1: Extender el sync que YA trae el item de ML: `sync_ml_publications_full` (y el path de snapshots / incremental si aplica el mismo writer). Persistir en Pricing (preferencia: `ml_publication_snapshots`) estos campos de `shipping`: `mode`, `logistic_type`, `local_pick_up`, `free_shipping`, `store_pick_up`, `tags` (shipping tags; p.ej. lista/JSON). Migración Alembic + actualizar writers del sync. Sin crontab nuevo.
-- S2: Bug: `seller_sku` llega null en muchos snapshots aunque ML tiene SELLER_SKU. Ejemplo: MLA905437269 tiene SKU `840006603337` en ML y en `publicaciones_ml.codigo`, pero snapshots recientes tienen `seller_sku` null. Arreglar el parseo/persistencia. (Root cause: writers leen `value_id`; ML deja `value_id` null y el SKU vive en `value_name` — mismo patrón que `attribute_value_name` en `ml_publications.mappers`.)
-- S3 (PR2, later): Job repair envíos — universo `publicaciones_ml`; drift desde DB vs constantes objetivo; ML solo para corregir; tracker `publicacion_repair_run` / `publicacion_repair_event`; enganche al final de `sync_ml_publications_full`.
-- S4 (PR3, later): Job repair SKUs — misma cáscara; `job_type=sku`; detectar desde DB; solo escribir en ML lo roto. Contraste: `seller_sku` (snapshot/ML) vs **código ERP del vínculo** de ese MLA; universo **solo publicaciones efectivamente vinculadas** (`publicaciones_ml` / link ERP). PR1 solo persiste bien el SKU leído de ML — no repara.
+- S1: Persist shipping on `ml_publication_snapshots` via sync writers. Migración Alembic (re-parent to main head before merge).
+- S2: `seller_sku` from `value_name` (not `value_id`). Do **not** derive snapshot `item_id` from free-text SKU/EAN. Never use `str.isdigit()` for int conversion of SKUs.
+- S3: Envío repair — universo `publicaciones_ml` activas ∩ `ml_items` (status active/paused, not Full); drift vs política ME2/local_pick_up/colecta-Flex; never write free_shipping/tags/store_pick_up. Trigger: background tick (free_shipping-style), **not** end of `sync_ml_publications_full`. Tracker + short sessions + write_log + refresh + attempt cap + kill switches.
+- S4: SKU repair — mismas vinculadas; drift `ml_items.seller_sku` ≠ `ProductoERP.codigo`; ERP codigo wins. Same tick shell; honor `ML_PUB_KILL_SWITCH` + `ML_ITEM_DATA_WRITE_ENABLED`.
 
-Out of scope unless asked: UI nueva, crons nuevos, unificar envíos+SKU en un mega-job, tocar `auditoria` de precios.
+Out of scope unless asked: UI nueva, PUTs inside RefreshHandler, unificar envío+SKU en un mega-job, tocar `auditoria` de precios.
 
 ## Tasks
 
-- T1 — S1-S2 — route: inline — status: done — commit: bf1e30adc (+ docs 344ba0e84) — PR https://github.com/sernafernando/pricing-app/pull/1985 — Persist shipping columns on `ml_publication_snapshots` + fix seller_sku parse in sync writers + migration + focused tests. GREEN: 8 passed.
-- T2 — S3 — route: inline — status: pending — Envios repair job + tracker tables + hook.
-- T3 — S4 — route: inline — status: pending — SKU repair job on same tracker.
+- T1 — S1-S2 — route: inline — status: in_progress — #1985 — Fernando follow-ups: no EAN→item_id, ²-safe parse on this branch, re-parent migration.
+- T2 — S3 — route: inline — status: in_progress — #1986/#1987 — Envío tick + detached/cap fixes; unhook sync_full.
+- T3 — S4 — route: inline — status: in_progress — #1988 — SKU tick + kill switch; unhook sync_full.
 
 ## Log
 
-- L1: Gabe brief (change agent handoff): PR1 persist shipping + fix SKU sync; PR2 envio repair; PR3 sku repair; chained sequential; no Cursor/AI attribution; Metabase for DB reads.
-- L2: Exploration: `extraer_datos_publicacion` / legacy sync use `attr.get("value_id")` for SELLER_SKU; fixture and mappers docstring confirm value lives in `value_name`. Metabase: MLA905437269 recent snapshots have `seller_sku` null. Snapshot table has no shipping columns yet. Alembic head: `20261217_drop_sell_in_compras_pedido_compra_id`.
-- L3: Live ML confirms mixed shapes — some items have value_id=value_name (snap OK), others value_id null (snap null). ~9.7k snap_null with ml_items SKU present (last day).
-- L4: T1 implemented — model + alembic `20261218_ml_pub_snapshots_shipping`; writers use `attribute_value_name` + shipping fields; legacy sync reuses full helpers; README updated. Risk: item 1 (migration).
-- L5: Gabe: continuar bugfix (PR1 persist); el PR posterior de repair SKU debe contrastar vs código ERP del vínculo MLA, solo vinculadas. Authorized `--no-verify` for GGA (Claude CLI missing).
-- L6: Gabe: push+open PR1; PR2/PR3 stacked to that when developed. Opened #1985 → main. Monitor state-dir `/tmp/pr-stack-monitors/publicaciones-repair`.
+- L1: Gabe brief: PR1 persist + SKU parse; PR2 envio; PR3 sku; chained; no AI attribution; Metabase.
+- L7: Fernando hold — full-template PUT wrong. Gabe: free_shipping persist-only; ME2+Flex+pickup; never Full.
+- L8: Gabe+Chicho: do **not** mount repair on sync_full cron; mount on tick with condition = drift on `ml_items` × linked `publicaciones_ml` (free_shipping pattern). Outlet unlinked → excluded. Habit SKUs (RE200) may be overwritten with ERP codigo.
+- L9: Fernando #1985 (18:44): value_name OK; need ² fix on PR1, stop EAN→item_id, re-parent migration. #1987 (18:55): DetachedInstanceError on run.id; cap counts only successes; SKU ignores kill switch; plus prior blockers.

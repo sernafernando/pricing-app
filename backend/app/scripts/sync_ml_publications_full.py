@@ -100,10 +100,10 @@ def extraer_datos_publicacion(item):
     # SELLER_SKU is free-text: ML often leaves value_id null; the SKU lives in value_name.
     seller_sku = attribute_value_name(item.get("attributes"), "SELLER_SKU")
 
-    # Intentar obtener item_id del SKU
+    # Never derive ERP item_id from SELLER_SKU: real SKUs are often EANs that match
+    # ProductoERP.codigo, not item_id. Nothing should treat a free-text SKU as item_id.
+    # (Also: str.isdigit() is True for Unicode digits like "²" but int() raises.)
     item_id = None
-    if seller_sku and str(seller_sku).isdigit():
-        item_id = int(seller_sku)
 
     return campaign, seller_sku, item_id
 
