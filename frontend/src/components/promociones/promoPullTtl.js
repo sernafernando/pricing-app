@@ -1,8 +1,9 @@
 /**
- * When each MLA's promotions were last pulled from ML in this browser tab. The Publicaciones ML panel opens on
- * Promos (owner, 2026-11-02), and every pull goes through a throttle shared with sales-webhook processing:
- * clicking through rows must not cost a pull per click. Module scope on purpose: the tab remounts per MLA
- * (`key={itemId}`), and component state would forget every pull.
+ * When each MLA's promotions were last pulled successfully from ML in this browser tab, by the Publicaciones ML
+ * Promos tab or the Productos refresh button (the Productos tree's pull on expand does not mark it: at worst one
+ * extra pull). The Publicaciones ML panel opens on Promos (owner, 2026-11-02), and every pull goes through a
+ * throttle shared with sales-webhook processing: clicking through rows must not cost a pull per click. Module
+ * scope on purpose: the tab remounts per MLA (`key={itemId}`), and component state would forget every pull.
  *
  * Only a successful pull starts the TTL (a failed or abandoned one retries on the next open); a write
  * (apply/remove) forgets the MLA; the manual refresh button always pulls, and its success restarts the TTL.

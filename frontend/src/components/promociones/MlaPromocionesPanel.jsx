@@ -8,8 +8,8 @@ import { matchesPromoFilter } from './promoFilterPredicate';
 import { resolvePromoName } from './resolvePromoName';
 import PromoApplyControl from './PromoApplyControl';
 import { formatRelativeAge, promoDisplayPrice } from './promoDisplayPrice';
-import styles from './promociones.module.css';
 import { forgetPromoPull, markPromoEmptyConfirmed, promoEmptyConfirmedRecently } from './promoPullTtl';
+import styles from './promociones.module.css';
 
 const NO_TYPES = [];
 const NO_NAMES = {};

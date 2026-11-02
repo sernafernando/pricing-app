@@ -18,8 +18,8 @@ import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import { useTreeViewStore } from '../../store/treeViewStore';
-import styles from './promociones.module.css';
 import { markPromoPulled } from './promoPullTtl';
+import styles from './promociones.module.css';
 
 // Backend-computed price formatting for the applied promo's price — kept
 // local/minimal (no currency-conversion concerns here, unlike
