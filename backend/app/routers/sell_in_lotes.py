@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_algun_permiso, require_permiso
@@ -18,6 +19,10 @@ from app.schemas.sell_in_lotes import ConsumosLoteOut, LotesProductoOut
 from app.schemas.sell_in_modos import ModoConfirmarIn, ModoIn, ModoProductoOut, ModosProductoOut, VistaPreviaOut
 from app.services.permisos_service import verificar_permiso
 from app.services.sell_in import modos, visor_lotes
+
+# Another writer held the product: deadlock_detected, lock_not_available, query_canceled (a statement_timeout while
+# waiting for the product's lock). Nothing was saved; the same request can be retried.
+OCUPADO = frozenset({"40P01", "55P03", "57014"})
 
 # Who sold each lot (supplier, invoices) is purchase information: Productos' "Últimas compras" permission.
 VER_COMPRAS = "productos.ver_info_compras"
@@ -86,6 +91,16 @@ def _validar_cambio(db: Session, usuario: Usuario, item_id: int, body: ModoIn, h
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
 
 
+def _ocupado(db: Session, exc: DBAPIError) -> HTTPException:
+    """409 to retry when another writer held the product (`OCUPADO`); any other database error goes on as it was."""
+    db.rollback()
+    if getattr(exc.orig, "pgcode", None) not in OCUPADO:
+        raise exc
+    return HTTPException(
+        status.HTTP_409_CONFLICT, "Another operation is changing the product right now: try again in a few seconds"
+    )
+
+
 @router.post(
     "/{item_id}/modos/vista-previa",
     response_model=VistaPreviaOut,
@@ -96,7 +111,7 @@ def vista_previa_modo(
 ) -> modos.VistaPrevia:
     """The mandatory preview of a mode change (D2): the recorded sales whose sell in changes and by how much, the
     units and unit value left, and the ARS the lots hold that no unit hands out. Nothing is saved; the fingerprint
-    goes back with the confirm."""
+    goes back with the confirm. 409 to retry when another writer held the product."""
     hoy = date.today()
     _validar_cambio(db, usuario, item_id, body, hoy)
     try:
@@ -104,6 +119,8 @@ def vista_previa_modo(
     except ValueError as exc:  # the product's history cannot be replayed (a manual block, until it lands)
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except DBAPIError as exc:
+        raise _ocupado(db, exc) from exc
     db.rollback()  # nothing to keep: the preview's savepoint was already rolled back
     return vista
 
@@ -118,7 +135,8 @@ def confirmar_modo(
     item_id: int, body: ModoConfirmarIn, db: Session = Depends(get_db), usuario: Usuario = Depends(get_current_user)
 ) -> modos.ModoProducto:
     """Saves the mode change the preview showed, recomputes the product and audits it. 409 when anything moved since
-    the preview (a sale, a purchase, another mode row, a new day): preview again."""
+    the preview (a sale, a purchase, another mode row, a new day): preview again; also 409, to retry, when another
+    writer held the product."""
     hoy = date.today()
     _validar_cambio(db, usuario, item_id, body, hoy)
     try:
@@ -129,5 +147,7 @@ def confirmar_modo(
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except DBAPIError as exc:
+        raise _ocupado(db, exc) from exc
     db.commit()
     return next(fila for fila in modos.historial(db, item_id) if fila.id == modo_id)

@@ -151,7 +151,7 @@ def test_back_to_fifo_from_a_pool_shows_what_no_unit_will_hand_out(engine: Engin
     assert (vista.sin_asignar_antes, vista.sin_asignar_despues) == (Decimal("0.00"), Decimal("100.00"))
 
 
-def test_last_price_shows_what_it_hands_out_beyond_the_lots(engine: Engine) -> None:
+def test_a_cheaper_last_price_leaves_ars_no_unit_hands_out(engine: Engine) -> None:
     # D5's example: 100 left at 10 plus a new lot of 10 at 8 gives 110 at 8: 880 handed out against 1080 held.
     si.compra(engine, [(ROUTER, 100, "1000.00")], D(2026, 10, 1))
     si.compra(engine, [(ROUTER, 10, "80.00")], D(2026, 10, 2))
@@ -160,6 +160,17 @@ def test_last_price_shows_what_it_hands_out_beyond_the_lots(engine: Engine) -> N
 
     assert (vista.unidades_restantes, vista.descuento_unit) == (110, Decimal("8.000000"))
     assert vista.sin_asignar_despues == Decimal("200.00")
+
+
+def test_a_dearer_last_price_hands_out_beyond_the_lots(engine: Engine) -> None:
+    # 100 left at 8 plus a new lot of 10 at 10 gives 110 at 10: 1100 handed out against 900 held, 200 beyond them.
+    si.compra(engine, [(ROUTER, 100, "800.00")], D(2026, 10, 1))
+    si.compra(engine, [(ROUTER, 10, "100.00")], D(2026, 10, 2))
+
+    vista = _vista(engine, "ultimo", D(2026, 10, 15))
+
+    assert (vista.unidades_restantes, vista.descuento_unit) == (110, Decimal("10.000000"))
+    assert vista.sin_asignar_despues == Decimal("-200.00")
 
 
 @pytest.mark.parametrize(

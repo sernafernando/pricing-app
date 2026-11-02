@@ -8,7 +8,9 @@ ordered by id, so the one saved last wins. Design: handoffs `sell-in-costos-prop
 A change goes through a mandatory preview (D2): the recompute itself runs with the new row inside a savepoint that is
 rolled back, and reports the recorded sales whose sell in changes, the ARS difference, the units and unit value left,
 and the ARS the lots hold that no unit hands out. The confirm runs the same simulation and saves it only if its
-fingerprint is the preview's; anything that moved in between (a sale, a purchase, another mode row) refuses it.
+fingerprint is the preview's; anything that moved in between (a sale, a purchase or a line of one, another mode row, a
+new day) refuses it, a purchase that counts only after the preview's date included: under `ultimo` it re-values the
+units left once it counts.
 """
 
 from __future__ import annotations
@@ -176,6 +178,10 @@ def _simular(
     previos = [
         r[0] for r in db.query(SellInModoProducto.id).filter(SellInModoProducto.item_id == item_id).order_by("id")
     ]
+    lotes = [
+        [l.compra_item_id, l.fecha.isoformat(), l.cantidad, str(l.descuento_ars)]
+        for l in costing.lotes(db, [item_id]).get(item_id, [])
+    ]
     antes = _por_venta(db, item_id)
     sin_antes = costing.sin_asignar(db, item_id, hoy)
     fila = SellInModoProducto(item_id=item_id, modo=modo, desde=desde, usuario_id=usuario_id, origen="visor")
@@ -191,12 +197,13 @@ def _simular(
     unidades = vigente.unidades_restantes if vigente is not None else 0
     descuento = vigente.descuento_unit_ars if vigente is not None else None
     sin_despues = costing.sin_asignar(db, item_id, dia)
-    # Everything the preview shows, and what it was computed from: a purchase that moves no sale still moves these.
+    # Everything the preview shows, and what it was computed from (every lot, those counting after `dia` included).
     contenido = [
         modo,
         desde.isoformat(),
         hoy.isoformat(),
         previos,
+        lotes,
         _orden(antes),
         _orden(despues),
         unidades,

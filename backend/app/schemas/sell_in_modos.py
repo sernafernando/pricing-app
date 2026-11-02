@@ -34,6 +34,9 @@ class ModosProductoOut(BaseModel):
 
 
 class ModoIn(BaseModel):
+    # A field this change does not take (a manual quantity or cost, the origin, the user) is refused, never dropped.
+    model_config = ConfigDict(extra="forbid")
+
     modo: Modo  # `manual` is refused here until its own slice lands
     desde: date  # before today only with `sell_in.costo_retroactivo`
 
