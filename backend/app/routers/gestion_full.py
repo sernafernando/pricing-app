@@ -18,10 +18,10 @@ from app.services.gestion_full.inbound import refresh_last_inbound
 from app.services.gestion_full.listing import list_gestion_full
 from app.services.gestion_full.overrides import (
     clear_override,
+    puede_editar_con_pares,
     puede_editar_override_para,
     resolve_producto_por_inventory_id,
     upsert_override,
-    usuario_puede_editar_algun_override,
 )
 from app.services.gestion_full.assign_inbound import (
     assign_inbound_to_lines,
@@ -35,6 +35,7 @@ from app.services.gestion_full.excel_export import (
     mark_package_exported,
 )
 from app.services.gestion_full.package import (
+    add_all_ready_lines_to_package,
     get_active_package,
     get_or_create_open_package,
     set_qty_export,
@@ -56,7 +57,7 @@ from app.services.gestion_full.unidades_caja import (
     upsert_unidades_caja,
 )
 from app.services.permisos_service import PermisosService
-from app.services.pm_scope import is_full_view
+from app.services.pm_scope import get_pares_marca_categoria_usuario, is_full_view
 
 router = APIRouter(prefix="/gestion-full", tags=["gestion-full"])
 
@@ -238,6 +239,14 @@ class GestionFullPackageLineBody(BaseModel):
     user_product_id: str = Field(..., min_length=1, max_length=128)
 
 
+class GestionFullAddReadyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    package_id: int
+    status: str
+    touched: int
+
+
 class GestionFullQtyExportBody(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -288,10 +297,11 @@ def get_gestion_full(
         offset=offset,
     )
     perms = PermisosService(db)
+    pares = get_pares_marca_categoria_usuario(db, current_user)
     for item in payload["items"]:
-        in_scope = puede_editar_override_para(current_user, db, item.get("marca"), item.get("categoria"))
+        in_scope = puede_editar_con_pares(pares, item.get("marca"), item.get("categoria"))
         item["puede_editar_override"] = in_scope and not item.get("pm_ready")
-    payload["puede_editar_override"] = usuario_puede_editar_algun_override(current_user, db)
+    payload["puede_editar_override"] = pares is None or bool(pares)
     payload["puede_editar_caja"] = perms.tiene_permiso(current_user, PERM_DEPOSITOS)
     payload["puede_gestor"] = perms.tiene_permiso(current_user, PERM_GESTOR)
     return payload
@@ -417,6 +427,23 @@ def get_package(db: Session = Depends(get_db)) -> dict[str, Any]:
             for ln in pkg.lines
         ],
     }
+
+
+@router.post(
+    "/package/lines/from-ready",
+    response_model=GestionFullAddReadyResponse,
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def post_package_lines_from_ready(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Add/refresh every PM-ready row into the active package (server-side, no 500 cap)."""
+    try:
+        pkg, touched = add_all_ready_lines_to_package(db, usuario=current_user)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+    return {"package_id": pkg.id, "status": pkg.status, "touched": touched}
 
 
 @router.post(
