@@ -366,3 +366,34 @@ describe('Métricas ML "Agrupado" view (visual)', () => {
     }
   }
 });
+
+describe('Métricas ML hideable KPI cards (visual)', () => {
+  beforeEach(() => {
+    localStorage.removeItem('metricas-ml.kpis-ocultos');
+    api.get.mockReset();
+    api.get.mockImplementation((url) => Promise.resolve(routeGet(url)));
+  });
+
+  for (const theme of THEMES) {
+    it(`1920x1080 ${theme}: hidden cards leave the row with no gap, and with every card hidden the picker stays`, async () => {
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      const strip = () => document.querySelector('section[aria-label="Indicadores del período"]');
+      const picker = screen.getByRole('button', { name: 'Indicadores' });
+      await picker.click();
+      const group = screen.getByRole('group', { name: 'Elegir indicadores visibles' });
+      await group.getByRole('checkbox', { name: 'Total Gauss' }).click();
+      await group.getByRole('checkbox', { name: 'Ageing promedio' }).click();
+      const cards = [...strip().children];
+      expect(cards).toHaveLength(5);
+      expect(new Set(cards.map((card) => card.getBoundingClientRect().top)).size).toBe(1);
+      expect(Math.abs(cards.at(-1).getBoundingClientRect().right - strip().getBoundingClientRect().right)).toBeLessThan(1);
+      await shot(`kpis-hidden-two-${theme}`, { width: 1920, height: 1080 });
+
+      for (const checkbox of document.querySelectorAll('[aria-label="Elegir indicadores visibles"] input:checked')) checkbox.click();
+      await expect.poll(() => strip()).toBeNull();
+      await expect.element(screen.getByRole('button', { name: 'Indicadores' })).toBeVisible();
+      await shot(`kpis-hidden-all-${theme}`, { width: 1920, height: 1080 });
+      screen.unmount();
+    });
+  }
+});

@@ -2307,3 +2307,36 @@ describe('Publicaciones ML Auditoría panel (visual)', () => {
     }
   }
 });
+
+describe('Publicaciones ML hideable KPI cards (visual)', () => {
+  beforeEach(() => {
+    localStorage.removeItem('publicaciones-ml.kpis-ocultos');
+    canSeeMargin = true;
+    publicacionesMlAPI.kpis.mockResolvedValue({ data: KPIS_RESPONSE_MARGIN });
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
+  });
+
+  for (const theme of THEMES) {
+    it(`1920x1080 ${theme}: hidden cards leave the row with no gap, and with every card hidden the Período stays`, async () => {
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      const strip = document.querySelector('section[aria-label="Indicadores de las publicaciones"]');
+      const cards = () => strip.querySelector('div[class*="cards"]');
+      await expect.poll(() => cards()?.children.length).toBe(6);
+      await screen.getByRole('button', { name: 'Indicadores' }).click();
+      const group = screen.getByRole('group', { name: 'Elegir indicadores visibles' });
+      await group.getByRole('checkbox', { name: 'Markup promedio' }).click();
+      const row = [...cards().children];
+      expect(row).toHaveLength(5);
+      expect(new Set(row.map((card) => rect(card).top)).size).toBe(1);
+      expect(Math.abs(rect(row.at(-1)).right - rect(cards()).right)).toBeLessThan(1);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/kpis-hidden-one-${theme}.png` });
+
+      for (const checkbox of document.querySelectorAll('[aria-label="Elegir indicadores visibles"] input:checked')) checkbox.click();
+      await expect.poll(() => cards()).toBeNull();
+      await expect.element(screen.getByRole('group', { name: 'Período' })).toBeVisible();
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/kpis-hidden-all-${theme}.png` });
+      screen.unmount();
+    });
+  }
+});

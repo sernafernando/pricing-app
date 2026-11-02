@@ -28,6 +28,7 @@ Columnas: configurables con el selector de columnas (incluye código, descripci�
 
 - **Exportar CSV / Exportar a Sheets**: descarga el conjunto filtrado.
 - Selector de columnas: elige qué columnas mostrar.
+- **Indicadores**: elige qué tarjetas de KPI mostrar (todas visibles por defecto). Lista solo las que se ven en la pantalla; ocultar una no cambia ningún número. La elección queda guardada en este navegador.
 - **Equipos**: gestiona equipos de color.
 - Editar precios en línea (✓ guarda, ✗ cancela).
 - Asignar color a un producto o a varios seleccionados.

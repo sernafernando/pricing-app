@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useId } from 'react';
 import { Columns3 } from 'lucide-react';
 import styles from './ColumnPicker.module.css';
 
@@ -17,10 +17,13 @@ import styles from './ColumnPicker.module.css';
  * repeated here -- the list grew once already (Producto and Total Gauss for
  * the information they carry, then alerta, orden and neto for the CONTROLS
  * they hold) and a copy of it here would just rot.
+ *
+ * `label`, `icon` and `groupLabel` let the same picker list other things a page shows or hides (the KPI
+ * cards' "Indicadores"); each instance gets its own popover id, so two can sit side by side.
  */
-const POPOVER_ID = 'ventas-ml-column-picker';
-
-export default function ColumnPicker({ table }) {
+export default function ColumnPicker({ table, label = 'Columnas', icon = Columns3, groupLabel = 'Elegir columnas visibles' }) {
+  const Icon = icon;
+  const popoverId = useId();
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
   const triggerRef = useRef(null);
@@ -63,11 +66,11 @@ export default function ColumnPicker({ table }) {
         ref={triggerRef}
         className="btn-tesla outline sm"
         aria-expanded={open}
-        aria-controls={POPOVER_ID}
+        aria-controls={popoverId}
         onClick={() => setOpen((prev) => !prev)}
       >
-        <Columns3 size={14} />
-        Columnas
+        <Icon size={14} />
+        {label}
       </button>
       {/* `role="group"`, NOT `role="menu"`: a `menu` expects
           `menuitemcheckbox` children with full arrow-key navigation, and these
@@ -76,7 +79,7 @@ export default function ColumnPicker({ table }) {
           not implement, which is worse than claiming nothing. A group of
           native checkboxes is already announced correctly. */}
       {open && (
-        <div id={POPOVER_ID} className={styles.popover} role="group" aria-label="Elegir columnas visibles">
+        <div id={popoverId} className={styles.popover} role="group" aria-label={groupLabel}>
           {toggleableColumns.map((col) => (
             <label key={col.id} className={styles.option}>
               <input
