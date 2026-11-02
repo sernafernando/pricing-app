@@ -30,7 +30,7 @@ from app.models.sell_in import (
     SellInCompraPedido,
     SellInConsumo,
 )
-from app.models.sell_out import SellOutCampana, SellOutConsumo
+from app.models.sell_out import SellOutCampana, SellOutConsumo, SellOutPrograma
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.services import sell_in_out_ventas
 from tests.services.sell._schema import throwaway_schema
@@ -60,6 +60,7 @@ TABLES = [
     SellInCompraPedido.__table__,
     SellInConsumo.__table__,
     SellInBonoConsumo.__table__,
+    SellOutPrograma.__table__,
     SellOutCampana.__table__,
     SellOutConsumo.__table__,
     VentaFueraMLMetrica.__table__,
