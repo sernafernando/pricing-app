@@ -7,6 +7,7 @@ import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, RESUMEN } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI } from '../services/sellOutAPI';
+import { offsetGruposAPI } from '../services/offsetGruposAPI';
 import { CAMPANA_MIGRADA, CAMPANAS_LISTA, CONSUMOS_USD } from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
 
@@ -43,6 +44,10 @@ vi.mock('../services/sellOutAPI', () => ({
   },
 }));
 
+vi.mock('../services/offsetGruposAPI', () => ({
+  offsetGruposAPI: { listar: vi.fn(), alcance: vi.fn(), opciones: vi.fn(), crear: vi.fn() },
+}));
+
 const mockTienePermiso = vi.fn();
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: (codigo) => mockTienePermiso(codigo), cargandoPermisos: false }),
@@ -66,6 +71,9 @@ beforeEach(() => {
   sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
   sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
   sellOutAPI.grupos.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
+  offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
+  offsetGruposAPI.alcance.mockResolvedValue({ data: [{ grupo_id: 1, productos: 3, campanas: [] }] });
+  offsetGruposAPI.opciones.mockResolvedValue({ data: { marcas: [], categorias: [], subcategorias: [] } });
 });
 
 /** Prints where the router is, so a test can read the tab the URL keeps. */
@@ -236,6 +244,44 @@ describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
     const alcanzadas = within(cards).getByText('Compras alcanzadas').parentElement;
     expect(alcanzadas).toHaveTextContent('18');
     expect(alcanzadas).toHaveTextContent('por bonos de marca');
+  });
+});
+
+describe('SellIn page — Grupos tab (T30)', () => {
+  it('with config.editar_constantes a Grupos tab lists the groups and keeps itself in the URL', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <SellIn />
+        <Ubicacion />
+      </>,
+    );
+    await screen.findByText('Bonificación Q4 switches');
+    expect(offsetGruposAPI.listar).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('tab', { name: 'Grupos' }));
+    expect(screen.getByRole('tab', { name: 'Grupos' })).toHaveAttribute('aria-selected', 'true');
+    const panel = screen.getByRole('tabpanel', { name: 'Grupos' });
+    expect(await within(panel).findByText('TP-Link redes')).toBeInTheDocument();
+    expect(screen.queryByText('Bonificación Q4 switches')).not.toBeInTheDocument();
+    expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=grupos');
+  });
+
+  it('"Actualizar" on the Grupos tab reloads the groups too', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
+    expect(await screen.findByText('TP-Link redes')).toBeInTheDocument();
+    expect(offsetGruposAPI.listar).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+    await waitFor(() => expect(offsetGruposAPI.listar).toHaveBeenCalledTimes(2));
+    expect(offsetGruposAPI.alcance).toHaveBeenCalledTimes(2);
+  });
+
+  it('without config.editar_constantes there is no Grupos tab, and ?tab=grupos falls back to Sell in', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'config.editar_constantes');
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
+    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Grupos' })).not.toBeInTheDocument();
+    expect(offsetGruposAPI.listar).not.toHaveBeenCalled();
   });
 });
 
@@ -524,6 +570,33 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole('button', { name: /Actualizar/ }));
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
+  it('a group created in Grupos is offered in "Nueva campaña" without reloading the page', async () => {
+    const user = userEvent.setup();
+    const NUEVO = { id: 3, nombre: 'Mercusys', descripcion: null, filtros: [] };
+    offsetGruposAPI.crear.mockResolvedValue({ data: NUEVO });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
+    expect(await screen.findByText('TP-Link redes')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Nuevo grupo' }));
+    const panel = screen.getByRole('complementary', { name: 'Grupo' });
+    sellOutAPI.grupos.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }, NUEVO] });
+    offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }, NUEVO] });
+    await user.type(within(panel).getByLabelText('Nombre'), 'Mercusys');
+    await user.click(within(panel).getByRole('button', { name: 'Crear grupo' }));
+    await waitFor(() => expect(offsetGruposAPI.crear).toHaveBeenCalled());
+
+    await user.click(screen.getByRole('tab', { name: /Sell out/ }));
+    await user.click(await screen.findByRole('button', { name: /Nueva campaña/ }));
+    expect(await screen.findByRole('checkbox', { name: 'Mercusys' })).toBeInTheDocument();
+  });
+
+  it('"Actualizar" also asks again the groups a new campaign can reach', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await waitFor(() => expect(sellOutAPI.grupos).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+    await waitFor(() => expect(sellOutAPI.grupos).toHaveBeenCalledTimes(2));
   });
 
   it('"Nueva campaña" opens the form with the offset groups; saving shows the new campaign and reloads the list', async () => {

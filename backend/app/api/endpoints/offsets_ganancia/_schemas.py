@@ -1,6 +1,6 @@
 from typing import List, Optional
 from datetime import date
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class OffsetGrupoFiltroCreate(BaseModel):
@@ -35,6 +35,43 @@ class OffsetGrupoResponse(BaseModel):
     filtros: List[OffsetGrupoFiltroResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class OffsetGrupoUpdate(BaseModel):
+    """Only the fields sent change; an empty description clears it."""
+
+    nombre: Optional[str] = Field(default=None, max_length=100)
+    descripcion: Optional[str] = Field(default=None, max_length=255)
+
+
+class AlcancePrevioIn(BaseModel):
+    """One filter row to add and/or the id of one to remove; nothing is saved."""
+
+    agregar: Optional[OffsetGrupoFiltroCreate] = None
+    quitar_filtro_id: Optional[int] = None
+
+
+class AlcancePrevio(BaseModel):
+    antes: int
+    despues: int
+
+
+class OffsetGrupoEditado(BaseModel):
+    id: int
+    nombre: str
+    descripcion: Optional[str] = None
+
+
+class CampanaDeGrupo(BaseModel):
+    id: int
+    nombre: str
+    estado: str
+
+
+class AlcanceGrupo(BaseModel):
+    grupo_id: int
+    productos: int
+    campanas: List[CampanaDeGrupo]
 
 
 class OffsetGananciaCreate(BaseModel):

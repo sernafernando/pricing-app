@@ -2,11 +2,11 @@
 
 Área: Productos
 Ruta: Productos → Sell in / Sell out
-Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Sell out pide además sell_out.ver).
+Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Sell out pide además sell_out.ver, y la pestaña Grupos, permiso de edición de constantes: config.editar_constantes).
 
 ## Para qué sirve
 
-Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene dos pestañas: **Sell in** y **Sell out**.
+Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene tres pestañas: **Sell in**, **Sell out** y **Grupos** (los grupos de productos que alcanzan las campañas).
 
 ## Cómo se usa
 
@@ -19,6 +19,21 @@ En **Sell out** se listan las campañas (buscables por nombre), con paginación.
 Para anular varias campañas de una vez (pide permiso de gestión de campañas, sell_out.gestionar): marcá la casilla de cada fila, la casilla del encabezado para toda la página, o **Seleccionar todo lo filtrado (N)** para todas las que coinciden con la búsqueda. La barra muestra cuántas hay seleccionadas; **Anular seleccionados** pide confirmación, dice cuántas se anulan y permite un motivo. El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban. Es todo o nada: si alguna no se puede anular, no se anula ninguna y el mensaje dice cuál y por qué. Si una se está recalculando, el mensaje la nombra y se puede reintentar en unos segundos. Las que ya estaban anuladas se omiten y el resultado las cuenta aparte. Se pueden anular hasta 500 por vez.
 
 El botón **Actualizar** recarga todo.
+
+### Grupos de productos
+
+Las campañas de sell out alcanzan productos a través de **grupos**. En la pestaña **Grupos** se listan todos, con su descripción, sus filtros, cuántos productos alcanzan hoy y qué campañas los usan (las anuladas se cuentan aparte).
+
+- **Nuevo grupo** pide nombre y descripción; después se le agregan filtros.
+- **Editar** abre el panel lateral: ahí se cambia el nombre o la descripción (**Guardar nombre**), se agregan filtros y se quitan.
+- Cada **filtro** es una fila con marca, categoría, subcategoría y/o un producto (buscado por código o descripción). Un producto entra en el grupo si cumple **alguna** fila; dentro de una fila tiene que cumplir **todos** los campos elegidos. Un grupo sin filtros no alcanza productos.
+- Después de cada cambio se vuelve a contar cuántos productos alcanza el grupo.
+- Cambiar los filtros de un grupo cambia los productos que alcanzan las campañas que lo usan: esas campañas se recalculan solas.
+- Si una campaña **activa** usa el grupo, **Agregar filtro** y **Quitar** no guardan enseguida: primero el panel avisa qué campañas activas se van a recalcular y cuántos productos alcanza el grupo antes y después del cambio (por ejemplo, "Productos alcanzados: 42 → 30."). **Confirmar cambio** lo guarda; **Cancelar** no cambia nada. Sin campañas activas, el cambio se guarda enseguida.
+- **Eliminar grupo** no se puede en estos casos, y el mensaje dice por qué:
+  - Lo usa una campaña activa: el mensaje la nombra; hay que quitar el grupo de la campaña antes.
+  - Solo lo usan campañas anuladas: el mensaje las nombra. El grupo queda guardado porque es parte del historial de esas campañas.
+  - Lo usa un offset, o tiene consumo de offsets registrado (lo que esos offsets ya aplicaron en ventas).
 
 ### Anular varios a la vez
 
@@ -68,11 +83,11 @@ Lo sin asignar (y lo asignado a productos sin ventas) no se pierde: suma en los 
 
 ## Filtros y columnas
 
-Sell in: fechas, marca, moneda, estado, aplicación, tipo. Sell out: búsqueda por nombre.
+Sell in: fechas, marca, moneda, estado, aplicación, tipo. Sell out: búsqueda por nombre. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan.
 
 ## Botones y acciones
 
-- **Nuevo sell in** / **Nueva campaña**: crean registros (según permiso).
+- **Nuevo sell in** / **Nueva campaña** / **Nuevo grupo**: crean registros (según permiso).
 - Tocar una fila: abre el panel lateral de detalle.
 - **Actualizar**: recarga datos.
 
@@ -80,6 +95,12 @@ Sell in: fechas, marca, moneda, estado, aplicación, tipo. Sell out: búsqueda p
 
 **¿Por qué no veo la pestaña Sell out?**
 Pide un permiso adicional (sell_out.ver). Pedíselo a un administrador.
+
+**¿Por qué no veo la pestaña Grupos?**
+Pide permiso de edición de constantes (config.editar_constantes), el mismo que gestionar offsets. Pedíselo a un administrador.
+
+**¿Por qué no puedo eliminar un grupo?**
+Lo usa una campaña de sell out, un offset, o tiene consumo de offsets registrado. Si lo usa una campaña activa, el mensaje la nombra: quitá el grupo de esa campaña y volvé a intentar. Si solo lo usan campañas anuladas, el grupo queda guardado porque es parte de su historial.
 
 **¿Qué diferencia hay entre sell in y sell out?**
 Sell in baja el costo de la compra; sell out suma ganancia por campaña (o la descuenta, si es un monto total negativo).
