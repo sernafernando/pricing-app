@@ -123,6 +123,8 @@ def reconcile_envio(
         .all()
     ]
     inserted = 0
+    ml_ok = 0
+    ml_fail = 0
     # Reuse last-inbound walk but collect via client search windows — lean: one lookback call path
     # using fetch_last_inbound which only returns newest; instead walk one 60d window via client.
     from app.core.config import settings
@@ -145,9 +147,12 @@ def reconcile_envio(
                 },
             )
         except Exception:  # noqa: BLE001 -- keep poller alive
+            ml_fail += 1
             continue
         if response.status != 200 or not isinstance(response.body, dict):
+            ml_fail += 1
             continue
+        ml_ok += 1
         results = response.body.get("results") or []
         if not isinstance(results, list):
             continue
@@ -162,9 +167,11 @@ def reconcile_envio(
                 if envio.last_reception_at is None or parsed["occurred_at"] > envio.last_reception_at:
                     envio.last_reception_at = parsed["occurred_at"]
 
+    # Idle-close only after at least one reception was seen, and never when this tick
+    # had ML failures (e.g. all-429 must not close an envío that never received).
     closed = False
-    anchor = envio.last_reception_at or envio.created_at
-    if anchor is not None:
+    anchor = envio.last_reception_at
+    if anchor is not None and ml_fail == 0 and (ml_ok > 0 or not inv_ids):
         if anchor.tzinfo is None:
             anchor = anchor.replace(tzinfo=UTC)
         if now_dt - anchor >= CLOSE_AFTER_IDLE:
@@ -176,6 +183,8 @@ def reconcile_envio(
         "inbound_id": envio.inbound_id,
         "inserted": inserted,
         "closed": closed,
+        "ml_ok": ml_ok,
+        "ml_fail": ml_fail,
         "inventories": inv_ids,
     }
 

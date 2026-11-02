@@ -27,6 +27,7 @@ export default function GestionFullGestorTab() {
   const [inboundId, setInboundId] = useState('');
   const [busy, setBusy] = useState(false);
   const [nonce, setNonce] = useState(0);
+  const [qtyDraft, setQtyDraft] = useState(() => ({}));
 
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +39,7 @@ export default function GestionFullGestorTab() {
         if (!cancelled) {
           setPkg(data);
           setSelected(new Set());
+          setQtyDraft({});
         }
       } catch (err) {
         if (!cancelled) {
@@ -64,6 +66,8 @@ export default function GestionFullGestorTab() {
     if (filter === 'sin') return !ln.inbound_id;
     return true;
   });
+
+  const locked = pkg?.status === 'locked';
 
   const toggle = (id) => {
     setSelected((prev) => {
@@ -143,30 +147,48 @@ export default function GestionFullGestorTab() {
     setMsg(null);
     setError(null);
     try {
-      const { data } = await api.get('/gestion-full', {
-        params: { full_mode: 'todos', include_zero_stock: true, limit: 500, offset: 0 },
-      });
-      const ready = (data.items || []).filter((r) => r.pm_ready);
-      if (ready.length === 0) {
+      const { data } = await api.post('/gestion-full/package/lines/from-ready');
+      if (!data.touched) {
         setError('No hay filas con Listo para agregar al paquete');
         return;
       }
-      let added = 0;
-      for (const row of ready) {
-        try {
-          await api.post('/gestion-full/package/lines', {
-            producto_item_id: row.producto_item_id,
-            user_product_id: row.user_product_id,
-          });
-          added += 1;
-        } catch {
-          // skip rows that already fail (e.g. duplicate / not ready race)
-        }
-      }
-      setMsg(`Agregadas/actualizadas ${added} línea(s) al paquete`);
+      setMsg(`Agregadas/actualizadas ${data.touched} línea(s) al paquete`);
       setNonce((n) => n + 1);
-    } catch {
-      setError('No se pudieron agregar líneas Listo al paquete');
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'No se pudieron agregar líneas Listo al paquete');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveQtyExport = async (line) => {
+    if (locked) return;
+    const raw = qtyDraft[line.id];
+    const next =
+      raw === undefined || raw === '' ? line.qty_export : Number.parseInt(String(raw), 10);
+    if (Number.isNaN(next) || next < 0) {
+      setError('Qty export debe ser un entero ≥ 0');
+      return;
+    }
+    if (next === line.qty_export) {
+      setQtyDraft((prev) => {
+        const copy = { ...prev };
+        delete copy[line.id];
+        return copy;
+      });
+      return;
+    }
+    setBusy(true);
+    setMsg(null);
+    setError(null);
+    try {
+      await api.patch(`/gestion-full/package/lines/${line.id}/qty-export`, {
+        qty_export: next,
+      });
+      setMsg(`Qty export línea ${line.id} → ${next}`);
+      setNonce((n) => n + 1);
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'No se pudo guardar qty export');
     } finally {
       setBusy(false);
     }
@@ -213,12 +235,12 @@ export default function GestionFullGestorTab() {
           onChange={(e) => setInboundId(e.target.value)}
           placeholder="inbound_id (SC)"
           aria-label="inbound_id"
-          disabled={busy || pkg?.status === 'locked'}
+          disabled={busy || locked}
         />
         <button
           type="button"
           className={styles.readyBtn}
-          disabled={busy || selected.size === 0 || !inboundId.trim() || pkg?.status === 'locked'}
+          disabled={busy || selected.size === 0 || !inboundId.trim() || locked}
           onClick={assign}
         >
           Asignar a selección ({selected.size})
@@ -240,7 +262,7 @@ export default function GestionFullGestorTab() {
                     checked={lines.length > 0 && selected.size === lines.length}
                     onChange={toggleAll}
                     aria-label="Seleccionar todas"
-                    disabled={pkg.status === 'locked'}
+                    disabled={locked}
                   />
                 </th>
                 <th>Código ML</th>
@@ -259,13 +281,36 @@ export default function GestionFullGestorTab() {
                       checked={selected.has(ln.id)}
                       onChange={() => toggle(ln.id)}
                       aria-label={`Seleccionar línea ${ln.id}`}
-                      disabled={pkg.status === 'locked'}
+                      disabled={locked}
                     />
                   </td>
                   <td className={styles.mono}>{cell(ln.inventory_id)}</td>
                   <td className={styles.mono}>{cell(ln.user_product_id)}</td>
                   <td className={styles.num}>{cell(ln.qty_pm)}</td>
-                  <td className={styles.num}>{cell(ln.qty_export)}</td>
+                  <td className={styles.num}>
+                    {locked ? (
+                      cell(ln.qty_export)
+                    ) : (
+                      <input
+                        className={styles.input}
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={qtyDraft[ln.id] ?? ln.qty_export}
+                        onChange={(e) =>
+                          setQtyDraft((prev) => ({ ...prev, [ln.id]: e.target.value }))
+                        }
+                        onBlur={() => saveQtyExport(ln)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        aria-label={`Qty export línea ${ln.id}`}
+                        disabled={busy}
+                      />
+                    )}
+                  </td>
                   <td className={styles.mono}>{cell(ln.inbound_id)}</td>
                 </tr>
               ))}

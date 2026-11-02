@@ -16,6 +16,7 @@ from app.models.gestion_full_package import (
     GestionFullPackageLine,
     GestionFullQtyExportAudit,
 )
+from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 
@@ -112,6 +113,53 @@ def upsert_package_line(
     db.commit()
     db.refresh(line)
     return line
+
+
+def add_all_ready_lines_to_package(
+    db: Session,
+    *,
+    usuario: Usuario,
+) -> tuple[GestionFullPackage, int]:
+    """Upsert every ``gestion_full_pm_ready`` row into the active package (one transaction)."""
+    pkg = get_or_create_open_package(db, usuario=usuario)
+    if pkg.status == PACKAGE_STATUS_LOCKED:
+        raise PermissionError("package hard-locked")
+    _package_for_update(db, pkg.id)
+
+    ready_rows = db.query(GestionFullPmReady).all()
+    touched = 0
+    for ready in ready_rows:
+        if ready.qty_pm < 0:
+            continue
+        line = (
+            db.query(GestionFullPackageLine)
+            .filter_by(
+                package_id=pkg.id,
+                producto_item_id=ready.producto_item_id,
+                user_product_id=ready.user_product_id,
+            )
+            .one_or_none()
+        )
+        if line is None:
+            db.add(
+                GestionFullPackageLine(
+                    package_id=pkg.id,
+                    producto_item_id=ready.producto_item_id,
+                    user_product_id=ready.user_product_id,
+                    inventory_id=ready.inventory_id,
+                    qty_pm=ready.qty_pm,
+                    qty_export=ready.qty_pm,
+                )
+            )
+        else:
+            line.inventory_id = ready.inventory_id
+            line.qty_pm = ready.qty_pm
+            if line.qty_export_updated_by_id is None:
+                line.qty_export = ready.qty_pm
+        touched += 1
+    db.commit()
+    db.refresh(pkg)
+    return pkg, touched
 
 
 def _stock_erp_for_line(db: Session, line: GestionFullPackageLine) -> int:
