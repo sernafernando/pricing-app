@@ -1395,7 +1395,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
           expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
           const tabs = [...panel.querySelectorAll('[role="tab"]')];
-          expect(tabs.map((tab) => tab.textContent)).toEqual(['Precios', 'Resumen', 'Cambios']);
+          expect(tabs.map((tab) => tab.textContent)).toEqual(['Precios', 'Resumen', 'Promos', 'PxQ', 'Cambios']);
           for (const tab of tabs) expect(rect(tab).right).toBeLessThanOrEqual(box.right + 0.5);
           expect(panel.textContent).not.toContain('Cifras');
           if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-precios-${width}-${theme}.png` });

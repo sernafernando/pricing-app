@@ -625,6 +625,18 @@ describe('ProductPanel', () => {
       expect(screen.queryByRole('button', { name: 'Ver más' })).not.toBeInTheDocument();
     });
 
+    it('shows a failed read of the publications on Promos and PxQ with its retry, not an empty tab', async () => {
+      granted = new Set(['promos.ver', 'pxq.ver']);
+      const { state } = renderPanel({ state: hookState({ items: [], error: { response: { status: 500 } } }) });
+      for (const name of ['Promos', 'PxQ']) {
+        await userEvent.click(tab(name));
+        expect(screen.getByRole('alert')).toHaveTextContent('No se pudo cargar el producto.');
+        expect(screen.queryByText('Ninguna publicación coincide con los filtros.')).not.toBeInTheDocument();
+      }
+      await userEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
+      expect(state.reload).toHaveBeenCalledTimes(1);
+    });
+
     it('has no Precios without a price permission', () => {
       granted = new Set();
       renderPanel();
