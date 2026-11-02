@@ -17,10 +17,7 @@ from app.models.gestion_full_package import (
     GestionFullPackageLine,
     GestionFullQtyExportAudit,
 )
-<<<<<<< HEAD
 from app.models.gestion_full_pm_ready import GestionFullPmReady
-=======
->>>>>>> feat/gestion-full-13-excel-export
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 
@@ -133,19 +130,13 @@ def upsert_package_line(
     return line
 
 
-<<<<<<< HEAD
 def _stock_erp_for_item(db: Session, producto_item_id: int) -> int:
     prod = db.get(ProductoERP, producto_item_id)
-=======
-def _stock_erp_for_line(db: Session, line: GestionFullPackageLine) -> int:
-    prod = db.get(ProductoERP, line.producto_item_id)
->>>>>>> feat/gestion-full-13-excel-export
     if prod is None or prod.stock is None:
         return 0
     return max(0, int(prod.stock))
 
 
-<<<<<<< HEAD
 def add_all_ready_lines_to_package(
     db: Session,
     *,
@@ -213,8 +204,6 @@ def _stock_erp_for_line(db: Session, line: GestionFullPackageLine) -> int:
     return _stock_erp_for_item(db, line.producto_item_id)
 
 
-=======
->>>>>>> feat/gestion-full-13-excel-export
 def set_qty_export(
     db: Session,
     *,
@@ -226,19 +215,11 @@ def set_qty_export(
 ) -> GestionFullPackageLine:
     """Gestor adjusts qty_export capped by server ``productos_erp.stock``; writes audit.
 
-<<<<<<< HEAD
     ``stock_erp`` is ignored when provided by clients — cap always comes from the DB.
     """
     del stock_erp  # never trust client-supplied stock
     pkg = _package_for_update(db, line.package_id)
     if pkg.status == PACKAGE_STATUS_LOCKED:
-=======
-    ``stock_erp`` from the client is ignored — cap always comes from the DB (#1977).
-    """
-    del stock_erp  # never trust client-supplied stock
-    pkg = line.package or db.get(GestionFullPackage, line.package_id)
-    if pkg is not None and pkg.status == PACKAGE_STATUS_LOCKED:
->>>>>>> feat/gestion-full-13-excel-export
         raise PermissionError("package hard-locked")
     if qty_export < 0:
         raise ValueError("qty_export must be >= 0")

@@ -247,7 +247,6 @@ def test_set_qty_export_caps_and_audits() -> None:
     )
     pkg = SimpleNamespace(id=1, status="open")
     db = MagicMock()
-<<<<<<< HEAD
 
     def _query(model: object) -> MagicMock:
         name = getattr(model, "__name__", "")
@@ -272,18 +271,6 @@ def test_set_qty_export_caps_and_audits() -> None:
             reason="ajuste",
             stock_erp=999,  # client value ignored
         )
-=======
-    db.get.return_value = SimpleNamespace(stock=20)
-    usuario = SimpleNamespace(id=2)
-    out = set_qty_export(
-        db,
-        line=line,
-        qty_export=50,
-        usuario=usuario,
-        reason="ajuste",
-        stock_erp=999,  # client value ignored — server stock wins
-    )
->>>>>>> feat/gestion-full-13-excel-export
     assert out.qty_export == 20
     assert out.qty_export_reason == "ajuste"
     assert db.add.call_count >= 1
