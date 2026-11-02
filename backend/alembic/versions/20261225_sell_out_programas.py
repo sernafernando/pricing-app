@@ -1,7 +1,7 @@
 """sell out: programs group campaigns (sell_out_programas, sell_out_campanas.programa_id)
 
 Revision ID: 20261225_sell_out_programas
-Revises: 20261217_drop_sell_in_compras_pedido_compra_id
+Revises: 20261226_ml_ads_display_catalog
 Create Date: 2026-11-02
 
 Campaign system, slice A (S1). Owner: "hay que hacer un sistema de campañas, como ves hoy tenemos varias que se
@@ -38,7 +38,7 @@ from typing import List, Sequence, Union
 from alembic import op
 
 revision: str = "20261225_sell_out_programas"
-down_revision: Union[str, None] = "20261217_drop_sell_in_compras_pedido_compra_id"
+down_revision: Union[str, None] = "20261226_ml_ads_display_catalog"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
