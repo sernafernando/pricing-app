@@ -39,14 +39,35 @@ def _consume_pm_ready_for_package(db: Session, package: GestionFullPackage) -> i
     return deleted
 
 
+def _close_orphan_envios(db: Session, cleared: set[str]) -> None:
+    """Close never-received envíos with no remaining line refs (no-op before envío model)."""
+    try:
+        from app.models.gestion_full_envio import GestionFullEnvio
+    except ImportError:
+        # Stack PRs before #1981 do not ship gestion_full_envio yet.
+        return
+
+    now = datetime.now(UTC)
+    for inbound_id in cleared:
+        refs = db.query(GestionFullPackageLine).filter(GestionFullPackageLine.inbound_id == inbound_id).count()
+        if refs > 0:
+            continue
+        envio = db.get(GestionFullEnvio, inbound_id)
+        if envio is None or envio.reception_closed_at is not None:
+            continue
+        # Keep envíos that already received stock open — re-assign of the same
+        # inbound must be able to resume reconcile (Fernando round-3 #1).
+        if envio.last_reception_at is not None:
+            continue
+        envio.reception_closed_at = now
+
+
 def clear_inbound_ids(db: Session, package: GestionFullPackage) -> int:
     """Clear all inbound assignments (required before Excel regenerate).
 
     Closes local envío rows that no longer have any package line referencing them,
     so "Limpiar inbounds" cannot leave forever-open orphans starving the reconcile batch.
     """
-    from app.models.gestion_full_envio import GestionFullEnvio
-
     pkg = _package_for_update(db, package)
     if pkg.status == PACKAGE_STATUS_LOCKED:
         raise PermissionError("package hard-locked")
@@ -63,19 +84,7 @@ def clear_inbound_ids(db: Session, package: GestionFullPackage) -> int:
             pkg.exported_at = None
         # autoflush=False in production — flush so the ref count sees cleared lines.
         db.flush()
-        now = datetime.now(UTC)
-        for inbound_id in cleared:
-            refs = db.query(GestionFullPackageLine).filter(GestionFullPackageLine.inbound_id == inbound_id).count()
-            if refs > 0:
-                continue
-            envio = db.get(GestionFullEnvio, inbound_id)
-            if envio is None or envio.reception_closed_at is not None:
-                continue
-            # Keep envíos that already received stock open — re-assign of the same
-            # inbound must be able to resume reconcile (Fernando round-3 #1).
-            if envio.last_reception_at is not None:
-                continue
-            envio.reception_closed_at = now
+        _close_orphan_envios(db, cleared)
         db.commit()
     return n
 
@@ -118,10 +127,14 @@ def assign_inbound_to_lines(
 
     maybe_hard_lock(db, pkg, already_locked=True)
 
-    from app.services.gestion_full.reconcile import ensure_envio
+    try:
+        from app.services.gestion_full.reconcile import ensure_envio
+    except ImportError:
+        ensure_envio = None  # type: ignore[assignment]
 
-    # Same transaction as assign + hard-lock (no window with locked package and no envío).
-    ensure_envio(db, package=pkg, inbound_id=inbound, commit=False)
+    # Same transaction as assign + hard-lock when reconcile exists (#1981+).
+    if ensure_envio is not None:
+        ensure_envio(db, package=pkg, inbound_id=inbound, commit=False)
     db.commit()
     for ln in updated:
         db.refresh(ln)
