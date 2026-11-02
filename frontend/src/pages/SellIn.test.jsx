@@ -1094,6 +1094,71 @@ describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
     expect(within(fila).queryByRole('button', { name: 'Renovar' })).not.toBeInTheDocument();
   });
 
+  it('a renewal saved from a grouped row shows up in its group, and the groups are read again', async () => {
+    conProgramas();
+    const NUEVA = { ...CAMPANAS_DEL_PROGRAMA.items[0], id: 96, nombre: 'MARCA PROG 3.0 Q1', fecha_desde: '2027-01-01', fecha_hasta: '2027-03-31' };
+    let guardada = false;
+    sellOutAPI.listar.mockImplementation(async (p) => {
+      if (p.programa_id !== 7) return { data: CAMPANAS_LISTA };
+      const items = guardada ? [NUEVA, ...CAMPANAS_DEL_PROGRAMA.items] : CAMPANAS_DEL_PROGRAMA.items;
+      return { data: { ...CAMPANAS_DEL_PROGRAMA, items, total: items.length } };
+    });
+    sellOutAPI.renovacion.mockResolvedValue({ data: RENOVACION_MIGRADA });
+    sellOutAPI.crear.mockImplementation(async () => {
+      guardada = true;
+      return { data: NUEVA };
+    });
+    sellOutAPI.detalle.mockImplementation(async (id) => ({ data: id === 96 ? NUEVA : CAMPANAS_DEL_PROGRAMA.items[0] }));
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await user.click(await waitFor(() => screen.getByRole('button', { name: /^MARCA PROG/ })));
+    const fila = (await screen.findByText('MARCA PROG 3.0')).closest('tr');
+    await user.click(within(fila).getByRole('button', { name: 'Renovar' }));
+    await screen.findByText(/Copia de/);
+    const agrupados = sellOutAPI.porPrograma.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'Guardar campaña' }));
+
+    const seccion = screen.getByRole('region', { name: 'Campañas de sell out' });
+    expect(await within(seccion).findByText('MARCA PROG 3.0 Q1')).toBeInTheDocument();
+    expect(sellOutAPI.porPrograma.mock.calls.length).toBeGreaterThan(agrupados);
+  });
+
+  it('"Actualizar" reads the program groups again', async () => {
+    conProgramas();
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await waitFor(() => filaDeGrupo('MARCA PROG'));
+    const agrupados = sellOutAPI.porPrograma.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+    await waitFor(() => expect(sellOutAPI.porPrograma.mock.calls.length).toBeGreaterThan(agrupados));
+  });
+
+  it('more than 500 campaigns cannot be assigned at once, and no program is created for them', async () => {
+    conProgramas();
+    const TOTAL = 501;
+    sellOutAPI.listar.mockImplementation(async ({ page, page_size: size }) => {
+      const desde = (page - 1) * size;
+      const items = Array.from({ length: Math.max(0, Math.min(size, TOTAL - desde)) }, (_, i) => ({
+        ...CAMPANA_MIGRADA,
+        id: 1000 + desde + i,
+        nombre: `MODELO ${desde + i}`,
+      }));
+      return { data: { items, total: TOTAL, page, page_size: size } };
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
+    await user.click(await screen.findByRole('button', { name: `Seleccionar todo lo filtrado (${TOTAL})` }));
+    await user.click(await screen.findByRole('button', { name: 'Asignar a programa' }));
+    const dialogo = screen.getByRole('dialog', { name: `Asignar a programa (${TOTAL} campañas)` });
+    expect(dialogo).toHaveTextContent('Se pueden asignar hasta 500 campañas por vez.');
+    await user.selectOptions(within(dialogo).getByLabelText('Programa'), '7');
+    expect(within(dialogo).getByRole('button', { name: 'Asignar' })).toBeDisabled();
+    await user.click(within(dialogo).getByRole('radio', { name: 'Programa nuevo' }));
+    await user.type(within(dialogo).getByLabelText('Nombre'), 'MARCA PROG 2');
+    expect(within(dialogo).getByRole('button', { name: 'Asignar' })).toBeDisabled();
+    expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
+  });
+
   it('without sell_out.gestionar there is no "Asignar a programa"', async () => {
     conProgramas();
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
@@ -1170,6 +1235,27 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
     expect(await within(drawer).findByRole('status')).toHaveTextContent('3 campañas asignadas a «MARCA PROG».');
     await waitFor(() => expect(sellOutProgramasAPI.sugerencias.mock.calls.length).toBeGreaterThan(sugerencias));
     expect(sellOutProgramasAPI.listar.mock.calls.length).toBeGreaterThan(programas);
+  });
+
+  it('when the assignment fails after the create, a retry only assigns, and the new program is read at once', async () => {
+    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
+    sellOutProgramasAPI.crear.mockResolvedValue({ data: { id: 15, nombre: 'MARCA', descripcion: null, estado: 'activo', campanas: 0, activas: 0, desde: null, hasta: null, nombres: 0 } });
+    sellOutProgramasAPI.asignar
+      .mockRejectedValueOnce({ response: { status: 422, data: { error: { message: 'La campaña 83 no existe.' } } } })
+      .mockResolvedValueOnce({ data: { asignadas: 3, sin_cambio: 0 } });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
+    const primera = tarjeta('01/08/2026', '31/10/2026');
+    const programas = sellOutProgramasAPI.listar.mock.calls.length;
+    await user.click(within(primera).getByRole('button', { name: 'Crear programa y asignar' }));
+
+    expect(await within(primera).findByRole('alert')).toHaveTextContent('La campaña 83 no existe.');
+    await waitFor(() => expect(sellOutProgramasAPI.listar.mock.calls.length).toBeGreaterThan(programas));
+    await user.click(within(primera).getByRole('button', { name: 'Crear programa y asignar' }));
+    await waitFor(() => expect(sellOutProgramasAPI.asignar).toHaveBeenCalledTimes(2));
+    expect(sellOutProgramasAPI.crear).toHaveBeenCalledTimes(1);
+    expect(sellOutProgramasAPI.asignar).toHaveBeenLastCalledWith([81, 82, 83], 15);
   });
 
   it('"Descartar" hides that card only, for this session, and writes nothing', async () => {

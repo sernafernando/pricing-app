@@ -98,7 +98,9 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
     if (!renovarPendiente.current || campana === null || !puedeGestionar) return;
     renovarPendiente.current = false;
     renovar();
-  });
+    // `renovar` is a new function each render; the ref guard runs it once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campana, puedeGestionar]);
 
   const dejarDeRenovar = () => {
     setRenovando(null);

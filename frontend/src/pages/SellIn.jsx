@@ -526,7 +526,7 @@ export default function SellIn() {
               puedeGestionar={puedeGestionarSellOut}
               onSaved={(campana) => {
                 if (campana.id !== panel.id) verCampana(campana.id); // a new one, or a renewal's copy
-                campanas.recargar();
+                programasCambiaron(); // the list, and the groups and suggestions: a save may move any of them
               }}
               onClose={cerrarPanel}
             />
@@ -797,7 +797,7 @@ export default function SellIn() {
                     renderTabla={
                       vista === 'programas'
                         ? (props) => (
-                            <SellOutPorPrograma filtros={paramsDeFiltros(campanas.filtros)} version={versionProgramas} {...props} />
+                            <SellOutPorPrograma filtros={paramsDeFiltros(campanas.filtros)} version={versionGrupos + versionProgramas} {...props} />
                           )
                         : undefined
                     }

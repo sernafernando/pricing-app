@@ -21,12 +21,13 @@ function porNombre(campanas) {
   return [...grupos.values()];
 }
 
-function Tarjeta({ sugerencia, onDescartar, onCreado }) {
+function Tarjeta({ sugerencia, onDescartar, onProgramaCreado, onCreado }) {
   const id = useId();
   const [nombre, setNombre] = useState(sugerencia.base);
   const [abierta, setAbierta] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [creado, setCreado] = useState(null); // created on a try whose assignment then failed: a retry only assigns
   const activas = sugerencia.campanas.filter((c) => c.estado === 'activa').length;
   const fechas = fechasDe(sugerencia.fecha_desde, sugerencia.fecha_hasta);
   const Chevron = abierta ? ChevronDown : ChevronRight;
@@ -35,7 +36,12 @@ function Tarjeta({ sugerencia, onDescartar, onCreado }) {
     setBusy(true);
     setError(null);
     try {
-      const { data: programa } = await sellOutProgramasAPI.crear({ nombre: nombre.trim() });
+      let programa = creado && creado.nombre === nombre.trim() ? creado : null;
+      if (!programa) {
+        ({ data: programa } = await sellOutProgramasAPI.crear({ nombre: nombre.trim() }));
+        setCreado(programa);
+        onProgramaCreado(); // the Programa filter and the modal see it, whatever the assignment does
+      }
       const { data } = await sellOutProgramasAPI.asignar(
         sugerencia.campanas.map((c) => c.id),
         programa.id,
@@ -165,6 +171,7 @@ export default function SellOutSugerencias({ version, descartadas, onDescartar, 
                   key={claveSugerencia(s)}
                   sugerencia={s}
                   onDescartar={() => onDescartar(claveSugerencia(s))}
+                  onProgramaCreado={onCambio}
                   onCreado={(texto) => {
                     setAviso(texto);
                     onCambio();

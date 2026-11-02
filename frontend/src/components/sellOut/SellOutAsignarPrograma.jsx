@@ -4,12 +4,13 @@ import { sellOutProgramasAPI } from '../../services/sellOutAPI';
 import { apiMessage } from '../sellIn/sellInFormat';
 import panelStyles from '../sellIn/SellInPanel.module.css';
 import { plural, textoAsignadas } from './sellOutProgramas';
+import { ASIGNAR_MAX } from './sellOutSeleccion';
 import styles from './SellOutAsignarPrograma.module.css';
 
 /**
  * "Asignar a programa (N campañas)" (Stitch programas/modal): to an active program, or to a new one it creates first
  * (`POST /sell-out/programas`, then `POST /asignar`). The API's refusals (an archived program, a duplicate name,
- * unknown campaigns) show inline and the dialog stays open. Closes only with X or "Cancelar". `onAsignadas(texto)`
+ * unknown campaigns) show inline and the dialog stays open. Above `ASIGNAR_MAX` campaigns «Asignar» is disabled. Closes only with X or "Cancelar". `onAsignadas(texto)`
  * gets the result line.
  */
 export default function SellOutAsignarPrograma({ campanaIds, programas, onClose, onAsignadas }) {
@@ -24,7 +25,9 @@ export default function SellOutAsignarPrograma({ campanaIds, programas, onClose,
   const [error, setError] = useState(null);
 
   const nombreLimpio = nombre.trim();
-  const listo = modo === 'existente' ? programaId !== '' : nombreLimpio !== '';
+  // Checked before anything is sent, so a new program is never created for an assignment the API would refuse.
+  const demasiadas = campanaIds.length > ASIGNAR_MAX;
+  const listo = !demasiadas && (modo === 'existente' ? programaId !== '' : nombreLimpio !== '');
 
   const asignar = async () => {
     setBusy(true);
@@ -129,6 +132,9 @@ export default function SellOutAsignarPrograma({ campanaIds, programas, onClose,
             />
             {errorEn('nuevo')}
           </div>
+          {demasiadas && (
+            <p className="modal-alert warning" role="alert">{`Se pueden asignar hasta ${ASIGNAR_MAX} campañas por vez.`}</p>
+          )}
           <p className="modal-alert info">
             <Info size={14} aria-hidden="true" /> Asignar un programa no cambia la plata de las campañas: solo las agrupa.
           </p>
