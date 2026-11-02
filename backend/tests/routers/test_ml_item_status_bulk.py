@@ -13,6 +13,7 @@ Same harness as `/product-ids`: the store in a throwaway Postgres schema.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import event
 
 from app.routers import ml_item_status as status_router
 from app.services import ml_item_status_write_service as write_service
@@ -229,6 +230,22 @@ class TestCheckedStatusItemIds:
             "count": 0,
             "no_aplican": 2,
         }
+
+    def test_it_writes_nothing(self, client, three, allowed, pg) -> None:
+        # A POST only to carry the checked MLAs: no statement it runs on the store changes a row.
+        statements: list[str] = []
+
+        def record(conn, cursor, statement, *args) -> None:
+            statements.append(statement)
+
+        event.listen(pg, "before_cursor_execute", record)
+        try:
+            assert checked(client, allowed, target="paused", item_ids=["MLA1"], producto_ids=[77])["count"] == 3
+        finally:
+            event.remove(pg, "before_cursor_execute", record)
+        assert statements, "the checked set was read from the store"
+        writes = [s for s in statements if s.lstrip().split(None, 1)[0].upper() in {"INSERT", "UPDATE", "DELETE"}]
+        assert writes == []
 
     def test_a_publication_and_its_product_row_both_checked_count_it_once(self, client, three, allowed) -> None:
         assert checked(client, allowed, target="paused", item_ids=["MLA1"], producto_ids=[77])["count"] == 3
