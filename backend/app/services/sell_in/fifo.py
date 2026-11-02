@@ -247,7 +247,9 @@ class Dinero:
             seg[3] += unidades
             monto = _escalon(seg[1], seg[2], k, k + unidades)
         self.usadas[i] += unidades
-        return monto
+        # A used-up lot carries the half cent rounding gave it beyond its total (-0.005 at most) into what comes next;
+        # only lots of a few thousandths, or none, can fail to cover it, and a row never goes below zero for that.
+        return max(monto, Decimal("0.00"))
 
     def proximo(self, fecha: date) -> Optional[Tuple[int, Decimal, int, int]]:
         """What the next sale on `fecha` gets after the rows fed so far, without feeding it: `(lot the units come

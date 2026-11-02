@@ -159,3 +159,12 @@ def test_a_fifo_row_on_a_fifo_product_changes_no_cent() -> None:
         lotes, ventas = _mundo(rng)
         l, v = _nuevo(lotes, ventas)
         assert asignar(l, v, [Periodo(D0 + timedelta(days=rng.randint(0, 60)), "fifo")]) == asignar(l, v)
+
+
+def test_a_used_up_lot_of_a_few_thousandths_never_leaves_a_negative_row() -> None:
+    # 0.125 rounds up to 0.13 on its only unit: the half cent it never held must not reach the pool as -0.005.
+    a = Lote(1, 1, date(2026, 10, 1), 1, Decimal("0.125"))
+    b = Lote(2, 2, date(2026, 10, 2), 1, Decimal("0"))
+    ventas = [Venta("fuera", 1, date(2026, 10, 5), 1), Venta("fuera", 2, date(2026, 10, 20), 1)]
+    filas = asignar([a, b], ventas, [Periodo(date(2026, 10, 10), "ponderado")])
+    assert [c.descuento_ars for c in filas] == [Decimal("0.13"), Decimal("0.00")]
