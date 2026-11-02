@@ -149,21 +149,20 @@ def build_ops_ean_xlsx(db: Session, package: GestionFullPackage) -> bytes:
     """Simple ops sheet: EAN, descripción, cantidad (qty_export)."""
     assert_package_exportable(db, package)
     enriched = _enrich_lines(db, list(package.lines))
+    rows = [e for e in enriched if e["line"].qty_export >= 1]
+    if not rows:
+        raise ValueError("ninguna línea exportable (qty≥1)")
     wb = Workbook()
     ws = wb.active
     ws.title = "Envio"
     _write_text_cell(ws, 1, 1, "EAN")
     _write_text_cell(ws, 1, 2, "Descripcion")
     _write_text_cell(ws, 1, 3, "Cantidad")
-    row_i = 2
-    for e in enriched:
+    for row_i, e in enumerate(rows, start=2):
         ln = e["line"]
-        if ln.qty_export < 1:
-            continue
         _write_text_cell(ws, row_i, 1, e["ean"] or "")
         _write_text_cell(ws, row_i, 2, e["descripcion"] or "")
         _write_text_cell(ws, row_i, 3, int(ln.qty_export))
-        row_i += 1
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -181,11 +180,33 @@ def recap_qty_export_to_stock(db: Session, package: GestionFullPackage) -> int:
     return changed
 
 
-def prepare_package_for_export(db: Session, package: GestionFullPackage) -> GestionFullPackage:
-    """Row-lock, re-cap qty_export to ERP stock, flush — call **before** building Excel bytes.
+def assert_ship_qty_within_stock(db: Session, package: GestionFullPackage) -> None:
+    """Raise when any shippable line (qty_export ≥ 1) exceeds current ERP stock.
 
-    The first download must already reflect the stock cap (D6); building before re-cap
-    shipped uncapped qty while the DB was corrected only on mark_package_exported.
+    Export must not silently shrink qty: the gestor removes or lowers those SKUs first.
+    """
+    short: list[int] = []
+    for ln in package.lines:
+        qty = int(ln.qty_export or 0)
+        if qty < 1:
+            continue
+        prod = db.get(ProductoERP, ln.producto_item_id)
+        stock = max(0, int(prod.stock if prod is not None and prod.stock is not None else 0))
+        if stock < qty:
+            short.append(int(ln.producto_item_id))
+    if short:
+        ids = sorted(set(short))
+        raise ValueError(
+            "stock ERP insuficiente para la qty a enviar en productos "
+            f"{ids}; sacalos del paquete o bajá qty export antes de exportar"
+        )
+
+
+def prepare_package_for_export(db: Session, package: GestionFullPackage) -> GestionFullPackage:
+    """Row-lock and validate stock covers qty_export before building Excel bytes.
+
+    Refuses the download when ERP stock is below qty a enviar (gestor must fix the package).
+    A no-op re-cap remains as a race guard after the assert.
     """
     pkg = (
         db.query(GestionFullPackage)
@@ -196,6 +217,7 @@ def prepare_package_for_export(db: Session, package: GestionFullPackage) -> Gest
     )
     if pkg.status == PACKAGE_STATUS_LOCKED:
         raise ValueError("paquete hard-locked")
+    assert_ship_qty_within_stock(db, pkg)
     recap_qty_export_to_stock(db, pkg)
     db.flush()
     return pkg
