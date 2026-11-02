@@ -169,10 +169,11 @@ def _simular(
     if modo not in MODOS_ESCRITOS:
         raise ModoInvalido(f"cost mode {modo!r} cannot be set here")
     costing = get_costing()
+    # The recompute takes the product's lock first, so the rows read next are the ones a concurrent change left.
+    costing.recompute(db, [item_id], isolate_failures=False)  # what is stored, brought up to date
     previos = [
         r[0] for r in db.query(SellInModoProducto.id).filter(SellInModoProducto.item_id == item_id).order_by("id")
     ]
-    costing.recompute(db, [item_id], isolate_failures=False)  # what is stored, brought up to date
     antes = _por_venta(db, item_id)
     sin_antes = costing.sin_asignar(db, item_id, hoy)
     fila = SellInModoProducto(item_id=item_id, modo=modo, desde=desde, usuario_id=usuario_id, origen="visor")
@@ -183,19 +184,30 @@ def _simular(
     vigente = costing.vigentes(db, [item_id], hoy).get(item_id)
     cambian = [k for k in antes.keys() | despues.keys() if antes.get(k, Decimal(0)) != despues.get(k, Decimal(0))]
     diferencia = sum((despues.get(k, Decimal(0)) - antes.get(k, Decimal(0)) for k in cambian), Decimal("0.00"))
-    huella = hashlib.sha256(
-        json.dumps(
-            [modo, desde.isoformat(), hoy.isoformat(), previos, _orden(antes), _orden(despues)], separators=(",", ":")
-        ).encode()
-    ).hexdigest()
+    unidades = vigente.unidades_restantes if vigente is not None else 0
+    descuento = vigente.descuento_unit_ars if vigente is not None else None
+    sin_despues = costing.sin_asignar(db, item_id, hoy)
+    # Everything the preview shows, and what it was computed from: a purchase that moves no sale still moves these.
+    contenido = [
+        modo,
+        desde.isoformat(),
+        hoy.isoformat(),
+        previos,
+        _orden(antes),
+        _orden(despues),
+        unidades,
+        str(descuento),
+        str(sin_antes),
+        str(sin_despues),
+    ]
     vista = VistaPrevia(
         ventas_cambian=len(cambian),
         diferencia_ars=diferencia,
-        unidades_restantes=vigente.unidades_restantes if vigente is not None else 0,
-        descuento_unit=vigente.descuento_unit_ars if vigente is not None else None,
+        unidades_restantes=unidades,
+        descuento_unit=descuento,
         sin_asignar_antes=sin_antes,
-        sin_asignar_despues=costing.sin_asignar(db, item_id, hoy),
-        huella=huella,
+        sin_asignar_despues=sin_despues,
+        huella=hashlib.sha256(json.dumps(contenido, separators=(",", ":")).encode()).hexdigest(),
     )
     return vista, fila
 

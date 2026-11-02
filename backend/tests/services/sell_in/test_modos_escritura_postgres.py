@@ -124,6 +124,19 @@ def test_a_sale_recorded_after_the_preview_refuses_the_confirm(engine: Engine) -
     assert _modos(engine) == [] and _auditoria(engine) == [] and si.consumos(engine) == antes
 
 
+def test_a_purchase_loaded_after_the_preview_refuses_the_confirm_even_with_no_sale(engine: Engine) -> None:
+    _dos_lotes(engine)
+    vista = _vista(engine, "ponderado", D(2026, 10, 15))
+    si.compra(engine, [(ROUTER, 50, "100.00")], D(2026, 10, 3))
+
+    with _sesion(engine) as db:
+        with pytest.raises(modos.HuellaVencida):
+            modos.confirmar(db, ROUTER, "ponderado", D(2026, 10, 15), HOY, USUARIO, vista.huella)
+        db.rollback()
+
+    assert _modos(engine) == [] and _auditoria(engine) == []
+
+
 def test_back_to_fifo_from_a_pool_shows_what_no_unit_will_hand_out(engine: Engine) -> None:
     # The pool sold 100 at 9.00 (900); back to FIFO the first lot is used up and the second holds its own 800: of
     # the 1800 the lots hold, 100 is never handed out (D2: the preview shows it).
