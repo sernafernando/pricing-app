@@ -44,6 +44,8 @@ def test_assign_rejects_open_package() -> None:
 
 
 def test_assign_then_hard_lock() -> None:
+    from unittest.mock import patch
+
     ln1 = SimpleNamespace(
         id=1,
         inbound_id=None,
@@ -63,17 +65,20 @@ def test_assign_then_hard_lock() -> None:
         status="exported",
         exported_at=None,
         locked_at=None,
+        week_monday=date(2026, 10, 26),
         lines=[ln1, ln2],
     )
     db = _db_returning(pkg)
 
-    assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A")
-    assert ln1.inbound_id == "A"
-    assert pkg.status == "exported"  # not all assigned yet
+    with patch("app.services.gestion_full.reconcile.ensure_envio") as ensure:
+        assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A")
+        assert ln1.inbound_id == "A"
+        assert pkg.status == "exported"  # not all assigned yet
+        ensure.assert_called()
 
-    assign_inbound_to_lines(db, pkg, line_ids=[2], inbound_id="B")
-    assert ln2.inbound_id == "B"
-    assert pkg.status == "locked"
+        assign_inbound_to_lines(db, pkg, line_ids=[2], inbound_id="B")
+        assert ln2.inbound_id == "B"
+        assert pkg.status == "locked"
 
 
 def test_maybe_hard_lock_ignores_zero_qty_lines() -> None:
