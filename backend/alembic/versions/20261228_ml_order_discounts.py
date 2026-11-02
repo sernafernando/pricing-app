@@ -6,8 +6,8 @@ Create Date: 2026-11-02
 
 Per-sale discounts from `GET /orders/{order_id}/discounts`: the body as ML sent it per order, the lines derived
 from it (one per detail and item: coupon id, campaign, funder amounts) and the single back-off row of the
-ingestion, plus a partial index on `ml_payments_ops` (`coupon_amount > 0`) for the pending query. No existing
-data changes; downgrade drops exactly these three tables and the index.
+ingestion, plus a partial index on `ml_payments_ops` (`coupon_amount > 0`) for the pending query, built
+CONCURRENTLY. No existing data changes; downgrade drops exactly these three tables and the index.
 
 down_revision must be the single alembic head of origin/main at merge; re-chain it if main advanced.
 """
@@ -58,13 +58,6 @@ def upgrade() -> None:
     )
     op.create_index("ix_ml_order_discount_lines_order_id", "ml_order_discount_lines", ["order_id"])
     op.create_index("ix_ml_order_discount_lines_coupon_id", "ml_order_discount_lines", ["coupon_id"])
-    # The pending query reads only the payments with a coupon: a partial index, created with no data change.
-    op.create_index(
-        "ix_ml_payments_ops_coupon_order_id",
-        "ml_payments_ops",
-        ["order_id"],
-        postgresql_where=sa.text("coupon_amount > 0"),
-    )
     op.create_table(
         "ml_order_discounts_state",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -72,11 +65,19 @@ def upgrade() -> None:
         sa.Column("backoff_until", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
+    # The pending query reads only the payments with a coupon: a partial index on a table that keeps receiving
+    # writes, so CONCURRENTLY (no write lock; it cannot run inside a transaction), as in 20260710_add_index_mlo_cd.
+    with op.get_context().autocommit_block():
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_ml_payments_ops_coupon_order_id "
+            "ON ml_payments_ops (order_id) WHERE coupon_amount > 0"
+        )
 
 
 def downgrade() -> None:
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS ix_ml_payments_ops_coupon_order_id")
     op.drop_table("ml_order_discounts_state")
-    op.drop_index("ix_ml_payments_ops_coupon_order_id", table_name="ml_payments_ops")
     op.drop_index("ix_ml_order_discount_lines_coupon_id", table_name="ml_order_discount_lines")
     op.drop_index("ix_ml_order_discount_lines_order_id", table_name="ml_order_discount_lines")
     op.drop_table("ml_order_discount_lines")

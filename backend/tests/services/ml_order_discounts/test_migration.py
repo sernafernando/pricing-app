@@ -66,6 +66,21 @@ def test_the_pending_query_has_a_partial_index_on_coupon_payments() -> None:
     assert str(index.dialect_options["postgresql"]["where"]) == "ml_payments_ops.coupon_amount > :coupon_amount_1"
 
 
+def test_the_models_are_registered_in_the_models_package() -> None:
+    """alembic/env.py builds target_metadata from `from app.models import *`: a missing model would be dropped by
+    the next autogenerate."""
+    import app.models as models
+
+    assert {"MlOrderDiscounts", "MlOrderDiscountLine", "MlOrderDiscountsState"} <= set(models.__all__)
+
+
+def test_the_payments_index_is_built_concurrently() -> None:
+    source = (Path(_BACKEND_ROOT) / "alembic" / "versions" / f"{_REVISION}.py").read_text()
+    assert "autocommit_block()" in source
+    assert "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_ml_payments_ops_coupon_order_id" in source
+    assert "DROP INDEX CONCURRENTLY IF EXISTS ix_ml_payments_ops_coupon_order_id" in source
+
+
 def test_exact_columns_and_primary_keys() -> None:
     from app.core.database import Base
     from app.models import ml_order_discounts  # noqa: F401
@@ -93,12 +108,14 @@ def test_upgrade_matches_the_models_and_downgrade_drops_exactly_them(pg_engine) 
         conn.execute(sa.text(drop))
         conn.execute(sa.text("DROP INDEX IF EXISTS ix_ml_payments_ops_coupon_order_id"))
     with pg_engine.connect() as conn:
-        op_obj = Operations(MigrationContext.configure(conn))
-        op_obj._install_proxy()
+        # The payments index is built CONCURRENTLY in an `autocommit_block`, which needs the migration's own
+        # transaction: same pattern as tests/unit/test_migration_ml_items_last_trigger_index.py.
+        ctx = MigrationContext.configure(conn)
         try:
             before = set(sa.inspect(conn).get_table_names())
-            migration.upgrade()
             conn.commit()
+            with Operations.context(ctx), ctx.begin_transaction():
+                migration.upgrade()
             inspector = sa.inspect(conn)
             assert set(inspector.get_table_names()) == before | set(TABLES)
             for name, (columns, primary_key) in TABLES.items():
@@ -115,14 +132,15 @@ def test_upgrade_matches_the_models_and_downgrade_drops_exactly_them(pg_engine) 
                 sa.text("SELECT indexdef FROM pg_indexes WHERE indexname = 'ix_ml_payments_ops_coupon_order_id'")
             ).scalar()
             assert predicate is not None and "WHERE (coupon_amount > (0)" in predicate
-            migration.downgrade()
             conn.commit()
+            with Operations.context(ctx), ctx.begin_transaction():
+                migration.downgrade()
             assert set(sa.inspect(conn).get_table_names()) == before
             assert "ix_ml_payments_ops_coupon_order_id" not in {
                 i["name"] for i in sa.inspect(conn).get_indexes("ml_payments_ops")
             }
         finally:
-            op_obj._remove_proxy()
+            conn.rollback()
             with pg_engine.begin() as cleanup:
                 cleanup.execute(sa.text(drop))
                 cleanup.execute(sa.text("DROP INDEX IF EXISTS ix_ml_payments_ops_coupon_order_id"))
