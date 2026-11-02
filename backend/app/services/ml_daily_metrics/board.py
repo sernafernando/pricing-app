@@ -938,10 +938,12 @@ class Board:
         if self.sqlite:
             kind = listing_kind_from_type(M.mlp_listing_type_id)
         else:
-            item = aliased(MlItem, name="kind_item")
-            source = source.outerjoin(item, item.item_id == M.mlp_publicationID)
+            # A Core alias, never the ORM entity: the Postgres fixtures run the Board while the shared Column types
+            # are patched for SQLite, and an ORM alias built then could leave `ml_items` mapped with those types.
+            item = MlItem.__table__.alias("kind_item")
+            source = source.outerjoin(item, item.c.item_id == M.mlp_publicationID)
             kind = listing_kind(
-                func.coalesce(item.listing_type_id, M.mlp_listing_type_id), item.tags, item.installments_campaign
+                func.coalesce(item.c.listing_type_id, M.mlp_listing_type_id), item.c.tags, item.c.installments_campaign
             )
         return (
             select(
