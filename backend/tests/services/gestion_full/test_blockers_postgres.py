@@ -825,3 +825,56 @@ class TestRound3Blockers:
             assert out_pkg.lines[0].qty_export == 3
         finally:
             db.close()
+
+    def test_sumar_exported_skips_new_listo_lines(self, pg_engine: Engine) -> None:
+        """After Excel download, new PM Listo waits for the next shipment (no lock steal)."""
+        db = _session(pg_engine)
+        try:
+            _seed_product(db, item_id=101, stock=50)
+            _seed_product(db, item_id=102, codigo="SKU-102", stock=6)
+            pkg = GestionFullPackage(
+                week_monday=date(2026, 10, 26),
+                status=PACKAGE_STATUS_EXPORTED,
+                exported_at=datetime(2026, 10, 27, tzinfo=UTC),
+            )
+            db.add(pkg)
+            db.flush()
+            db.add(
+                GestionFullPackageLine(
+                    package_id=pkg.id,
+                    producto_item_id=101,
+                    user_product_id="MLAU1",
+                    inventory_id="INV-1",
+                    qty_pm=5,
+                    qty_export=5,
+                    inbound_id="INB-1",
+                )
+            )
+            db.add(
+                GestionFullPmReady(
+                    producto_item_id=101,
+                    user_product_id="MLAU1",
+                    inventory_id="INV-1",
+                    qty_pm=5,
+                )
+            )
+            db.add(
+                GestionFullPmReady(
+                    producto_item_id=102,
+                    user_product_id="MLAU2",
+                    inventory_id="INV-2",
+                    qty_pm=6,
+                )
+            )
+            db.execute(text("INSERT INTO usuarios (id, nombre) VALUES (5, 'gestor')"))
+            db.commit()
+            db.refresh(pkg)
+
+            out_pkg, touched = add_all_ready_lines_to_package(db, usuario=SimpleNamespace(id=5))
+            db.refresh(out_pkg)
+            assert touched == 1
+            assert len(out_pkg.lines) == 1
+            assert out_pkg.status == PACKAGE_STATUS_EXPORTED
+            assert db.get(GestionFullPmReady, (102, "MLAU2")) is not None
+        finally:
+            db.close()
