@@ -243,6 +243,16 @@ describe('Rentabilidad (ver_ganancia only): from the price down to the markup', 
     expect(valueOf('Rentabilidad', 'Costo de envío')).toHaveTextContent('ERP');
   });
 
+  it('a breakdown figure with neither its amount nor its aside reads "—"', () => {
+    renderTab(
+      makeDetail({
+        markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, comision_total: null, comision_pct: null, costo_envio: null, envio_source: null, price: null },
+      }),
+      { canSeeMargin: true },
+    );
+    for (const name of ['Precio', 'Comisión', 'Costo de envío']) expect(valueOf('Rentabilidad', name)).toHaveTextContent(DASH);
+  });
+
   it('a negative markup is flagged', () => {
     renderTab(makeDetail({ markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, markup: -3.2 } }), { canSeeMargin: true });
     expect(valueOf('Rentabilidad', 'Markup')).toHaveTextContent('-3,2%');

@@ -175,8 +175,11 @@ function SellInOutMarkup({ sellInOut }) {
   );
 }
 
-/** An amount with a quieter fact after it; either may be missing, and only both missing reads "—". */
-function WithAside({ value, aside }) {
+/**
+ * An amount with a quieter fact after it; either may be missing. Both missing is null, so `Field` draws "—"
+ * (a plain function, not a component: `Field` must see the null).
+ */
+function withAside(value, aside) {
   if (value == null && !aside) return null;
   return (
     <>
@@ -205,13 +208,13 @@ function RentabilidadSection({ breakdown, reason, sellInOut, publicationPriceSou
     <Section title="Rentabilidad">
       <Fields>
         <Field label="Precio">
-          <WithAside value={amount(breakdown.price)} aside={priceOrigin} />
+          {withAside(amount(breakdown.price), priceOrigin)}
         </Field>
         <Field label="Comisión">
-          <WithAside value={amount(breakdown.comision_total)} aside={breakdown.comision_pct == null ? null : formatPct(breakdown.comision_pct)} />
+          {withAside(amount(breakdown.comision_total), breakdown.comision_pct == null ? null : formatPct(breakdown.comision_pct))}
         </Field>
         <Field label="Costo de envío">
-          <WithAside value={amount(breakdown.costo_envio)} aside={label(SHIPPING_SOURCE_LABELS, breakdown.envio_source)} />
+          {withAside(amount(breakdown.costo_envio), label(SHIPPING_SOURCE_LABELS, breakdown.envio_source))}
         </Field>
         <Field label="Precio limpio">{amount(breakdown.limpio)}</Field>
         <Field label="Costo">{amount(breakdown.costo_ars)}</Field>
