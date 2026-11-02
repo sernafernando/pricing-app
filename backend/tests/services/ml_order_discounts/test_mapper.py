@@ -79,3 +79,10 @@ def test_a_non_finite_amount_maps_to_none_instead_of_raising() -> None:
     body["details"][0]["items"][0]["amounts"] = {"seller": float("nan"), "total": float("inf")}
     (coupon, _offer) = mapper.map_lines(1, body)
     assert (coupon.amount_seller, coupon.amount_total) == (None, None)
+
+
+def test_an_amount_too_big_for_decimal_or_float_maps_to_none_instead_of_raising() -> None:
+    body = copy.deepcopy(fixture("discounts_top_coupon_1"))  # perturbed copy of a real body
+    body["details"][0]["items"][0]["amounts"] = {"seller": 1e30, "total": 10**400}
+    (coupon, _offer) = mapper.map_lines(1, body)
+    assert (coupon.amount_seller, coupon.amount_total) == (None, None)
