@@ -52,7 +52,10 @@ describe('DisplayAdsML', () => {
   });
 
   it('warns when Display days of the range are missing', async () => {
-    const missing = [{ source: 'display', advertiser_id: 25713, day: '2026-10-05', status: null }];
+    const missing = [
+      { source: 'display', advertiser_id: 25713, day: '2026-10-05', status: null },
+      { source: 'display', advertiser_id: 714700, day: '2026-10-05', status: null },
+    ];
     api.get.mockResolvedValue({ data: { ...DISPLAY_REPORT, coverage: { ...DISPLAY_REPORT.coverage, missing_days: missing } } });
     render(<DisplayAdsML />);
     expect(await screen.findByText(/Faltan 1 día de Display/)).toBeInTheDocument();

@@ -364,32 +364,19 @@ def display_report(db: Session, date_from: date, date_to: date) -> DisplayReport
     and no catalog row, by cost descending; the period totals; and each closed or stored day's cost."""
     D, C = MlAdsDisplayCampaignDay, MlAdsDisplayCampaign
     in_range = D.day.between(date_from, date_to)
-    figures = {
-        (advertiser, campaign): dict(
-            cost=cost,
-            prints=int(prints),
-            clicks=int(clicks),
-            reach=int(reach),
-            attributed_amount=Decimal(0),
-            attributed_units=0,
-        )
-        for advertiser, campaign, cost, prints, clicks, reach in db.execute(
-            select(
-                D.advertiser_id,
-                D.campaign_id,
-                func.sum(D.consumed_budget),
-                func.sum(D.prints),
-                func.sum(D.clicks),
-                func.sum(D.reach),
-            )
-            .where(in_range)
-            .group_by(D.advertiser_id, D.campaign_id)
-        ).all()
-    }
-    for advertiser, campaign, raw in db.execute(select(D.advertiser_id, D.campaign_id, D.raw).where(in_range)).all():
+    # One pass over the range's day rows: the figures add up per campaign, the attribution is read from `raw`.
+    figures: dict[tuple[int, int], dict[str, Any]] = {}
+    for advertiser, campaign, cost, prints, clicks, reach, raw in db.execute(
+        select(D.advertiser_id, D.campaign_id, D.consumed_budget, D.prints, D.clicks, D.reach, D.raw).where(in_range)
+    ).all():
+        row = figures.setdefault((advertiser, campaign), dict(_ZERO_FIGURES))
         amount, units = _attribution(raw)
-        figures[(advertiser, campaign)]["attributed_amount"] += amount
-        figures[(advertiser, campaign)]["attributed_units"] += units
+        row["cost"] += cost
+        row["prints"] += int(prints)
+        row["clicks"] += int(clicks)
+        row["reach"] += int(reach)
+        row["attributed_amount"] += amount
+        row["attributed_units"] += units
     catalog = {(row.advertiser_id, row.campaign_id): row for row in db.scalars(select(C)).all()}
 
     def _day(value: Optional[datetime]) -> Optional[date]:
@@ -416,7 +403,8 @@ def display_report(db: Session, date_from: date, date_to: date) -> DisplayReport
         **{name: sum((getattr(c, name) for c in campaigns), _ZERO_FIGURES[name]) for name in _ZERO_FIGURES}
     )
     # A Display day the ledger closed without rows had no activity: zero, not a gap (owner Q4). A day with no
-    # covered ledger row was never fetched and stays absent (the coverage reports it).
+    # covered ledger row was never fetched and stays absent. With several advertisers, a day closed for one and
+    # still missing for another shows what is stored; the coverage lists the missing advertiser-day.
     cost_by_day = dict(db.execute(select(D.day, func.sum(D.consumed_budget)).where(in_range).group_by(D.day)).all())
     closed = db.scalars(
         select(MlAdsDayLedger.day)

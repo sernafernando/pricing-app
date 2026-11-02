@@ -56,8 +56,8 @@ function totalsOf(rows) {
   };
 }
 
-// The API accepts a range spanning 366 days, both ends included: 367 calendar days at most.
-const MAX_DAYS = 367;
+// The API accepts at most 366 calendar days, both ends included (`MAX_DAYS` in routers/ml_ads.py).
+const MAX_DAYS = 366;
 
 /** Every day of the range, ISO, both ends included. */
 function daysOf(from, to) {
@@ -203,7 +203,9 @@ export default function DisplayAdsML() {
   const totals = totalsOf(visible);
   const period = shown?.totals;
   const show = (render) => (loading || !period ? '—' : render(period));
-  const missing = (shown?.coverage?.missing_days ?? []).filter((d) => d.source === 'display').length;
+  // Coverage lists one row per advertiser and day; the notice counts days.
+  const missing = new Set((shown?.coverage?.missing_days ?? []).filter((d) => d.source === 'display').map((d) => d.day))
+    .size;
 
   return (
     <div className={shell.container}>
