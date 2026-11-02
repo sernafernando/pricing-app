@@ -53,12 +53,12 @@
   gap: 0;
 }
 
-:global([data-density='dense']) .nameLine {
-  flex-wrap: nowrap;
-}
-
+/* The name starts from a few characters (3em) and grows into whatever its badges leave: one line while that fits.
+   When the badges leave less than that (a wider font, many badges, a deep indent), they go to a second line instead
+   of squeezing the name to nothing. */
 :global([data-density='dense']) .nodeLabel {
-  min-width: 0;
+  flex: 1 1 3em;
+  min-width: 3em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

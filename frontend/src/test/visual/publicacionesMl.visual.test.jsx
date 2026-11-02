@@ -1229,8 +1229,10 @@ describe('Publicaciones ML Producto view (visual)', () => {
 
     // "Filas finas" (vistas-tipo-publicacion S5): a long name is cut, never its badges; the name is in its tooltip.
     // Narrower screens too: the badges never squeeze the name to nothing (it keeps a place to hover).
-    for (const { width, height } of VIEWPORTS) {
-    it(`${width}x${height} ${theme}: dense, a long product name is cut with its tooltip and its badges stay whole`, async () => {
+    // `wider` stands in for a wider fallback font (the CI runner has no Inter either): the badges grow, and the name
+    // still keeps its minimum; the badges then go to a second line instead of squeezing it.
+    for (const { width, height, wider } of VIEWPORTS.flatMap((v) => [{ ...v, wider: false }, { ...v, wider: true }])) {
+    it(`${width}x${height} ${theme}: dense, a long product name is cut with its tooltip and its badges stay whole${wider ? ' (wider font)' : ''}`, async () => {
       localStorage.setItem('publicaciones-ml.filas-finas', 'true');
       try {
         const screen = await renderProducts({ width, height, theme });
@@ -1240,18 +1242,31 @@ describe('Publicaciones ML Producto view (visual)', () => {
         const row = rowWith(scrollerOf(), 'Sistema Mesh Deco X20');
         const cell = row.querySelector('td');
         const name = [...cell.querySelectorAll('span[title]')].find((el) => el.textContent.startsWith('Sistema Mesh Deco X20'));
-        expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+        const badges = ['3 tramos · desde $37.800', '2 listas'].map((text) => [
+          text,
+          [...row.querySelectorAll('span')].find((el) => el.textContent.trim() === text),
+        ]);
+        if (wider) {
+          for (const [, badge] of badges) badge.style.letterSpacing = '3px';
+          await frame();
+        }
+        // Cut or whole, the name is in its tooltip and never squeezed under a few characters.
         expect(name.getAttribute('title')).toBe(name.textContent);
-        expect(rect(name).width).toBeGreaterThanOrEqual(40);
-        for (const text of ['3 tramos · desde $37.800', '2 listas']) {
-          const badge = [...row.querySelectorAll('span')].find((el) => el.textContent.trim() === text);
+        expect(rect(name).width).toBeGreaterThanOrEqual(Math.min(40, name.scrollWidth));
+        if (!wider) expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+        for (const [text, badge] of badges) {
           expect(name.contains(badge), text).toBe(false);
           expect(rect(badge).width, text).toBeGreaterThan(0);
           expect(rect(badge).right, text).toBeLessThanOrEqual(rect(cell).right + 0.5);
           expect(badge.scrollWidth, text).toBeLessThanOrEqual(badge.clientWidth + 1);
         }
         expect(overflowingCells(scrollerOf())).toEqual([]);
-        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-producto-${width}-${theme}.png` });
+        if (PRODUCT_SHOTS_DIR) {
+          await page.screenshot({
+            path: `${PRODUCT_SHOTS_DIR}/filas-finas-producto-${width}-${theme}${wider ? '-wider' : ''}.png`,
+            element: row,
+          });
+        }
         screen.unmount();
       } finally {
         localStorage.removeItem('publicaciones-ml.filas-finas');
