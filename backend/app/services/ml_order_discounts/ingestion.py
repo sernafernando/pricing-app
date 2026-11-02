@@ -8,7 +8,7 @@ Stop rules, in the order they are checked:
 - 401 / no token / not configured: the run stops as `blocked`, nothing is counted against the order;
 - no HTTP answer (transport error): the run stops and the order goes behind the others for `store.ERROR_RETRY`
   without counting an attempt, so an order that always times out never holds the queue;
-- the deadline: the run stops, nothing is written;
+- the deadline, or the worker asked to stop (`should_stop`): the run stops, nothing is written;
 - another run already in progress in this process: nothing is done (`busy`).
 Any other answer is written: `ok`, `none` (ML's 404 "Discount not found") or `error`, which is asked again on
 later runs, at most every `store.ERROR_RETRY`, until `store.MAX_ATTEMPTS`; a body Postgres refuses is counted
@@ -49,6 +49,7 @@ class RunResult:
     stopped: Optional[str] = None
     backoff_until: Optional[datetime] = None
     pending_left: Optional[int] = None
+    transport_error: Optional[str] = None  # the client's error when ML gave no HTTP answer
 
     def as_detail(self) -> Dict[str, Any]:
         return {
@@ -69,11 +70,12 @@ def run(
     now: Callable[[], datetime],
     deadline: datetime,
     max_calls: int,
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> RunResult:
     if not _RUN_LOCK.acquire(blocking=False):
         return RunResult(stopped=BUSY)
     try:
-        return _run(session_factory, client, now=now, deadline=deadline, max_calls=max_calls)
+        return _run(session_factory, client, now=now, deadline=deadline, max_calls=max_calls, should_stop=should_stop)
     finally:
         _RUN_LOCK.release()
 
@@ -85,6 +87,7 @@ def _run(
     now: Callable[[], datetime],
     deadline: datetime,
     max_calls: int,
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> RunResult:
     result = RunResult()
     with session_factory() as db:
@@ -95,7 +98,7 @@ def _run(
             return result
         orders = store.pending_orders(db, max_calls, now())
     for order_id in orders:
-        response = client.get(FAMILY, f"/orders/{order_id}/discounts", deadline=deadline)
+        response = client.get(FAMILY, f"/orders/{order_id}/discounts", deadline=deadline, should_stop=should_stop)
         if response.error == DEADLINE:
             result.stopped = DEADLINE
             break
@@ -115,7 +118,7 @@ def _run(
         if response.status == 0:
             with session_factory() as db:
                 store.defer(db, order_id, now())
-            result.stopped = TRANSPORT
+            result.stopped, result.transport_error = TRANSPORT, response.error
             break
         status = mapper.classify(response.status, response.body)
         try:

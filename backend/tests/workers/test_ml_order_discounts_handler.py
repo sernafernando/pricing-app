@@ -18,7 +18,7 @@ def handler() -> module.OrderDiscountsHandler:
 
 
 def ctx() -> WorkerContext:
-    return WorkerContext(deadline=NOW + timedelta(seconds=30))
+    return WorkerContext(deadline=NOW + timedelta(seconds=module.discounts.deadline_seconds))
 
 
 def test_disabled_without_ml_ads(monkeypatch) -> None:
@@ -33,13 +33,13 @@ def test_asks_for_at_most_per_run_orders_within_the_run_budget_and_returns_the_s
     monkeypatch.setattr(module.settings, "ML_ADS_ENABLED", True)
     seen = []
 
-    def fake_run(session_factory, client, *, now, deadline, max_calls):
-        seen.append((max_calls, deadline))
+    def fake_run(session_factory, client, *, now, deadline, max_calls, should_stop):
+        seen.append((max_calls, deadline, should_stop()))
         return ingestion.RunResult(calls=max_calls, pending_left=7)
 
     monkeypatch.setattr(ingestion, "run", fake_run)
     result = handler().run(ctx())
-    assert seen == [(module.PER_RUN, NOW + timedelta(seconds=20))]
+    assert seen == [(module.PER_RUN, NOW + module.RUN_BUDGET, False)]
     assert result.success and result.detail["calls"] == module.PER_RUN and result.detail["pending_left"] == 7
 
 

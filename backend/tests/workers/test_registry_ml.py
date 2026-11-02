@@ -80,9 +80,10 @@ class TestMlPublicationsRegistry:
         assert registry.ML_PUBLICATIONS_REGISTRY[11] is ml_billing.billing
         assert registry.ML_PUBLICATIONS_REGISTRY[12] is ml_order_discounts.discounts
 
-    def test_order_discounts_runs_every_thirty_seconds_and_is_not_notify_driven(self) -> None:
+    def test_order_discounts_runs_in_its_own_thread_five_seconds_apart_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[12]
-        assert handler.interval == timedelta(seconds=30)
+        assert handler.own_thread is True
+        assert handler.interval == timedelta(seconds=5)
         assert handler.run_at_local is None
         assert handler.channels == ()
 

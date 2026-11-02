@@ -1,10 +1,12 @@
 """`ml_orders.discounts`: per-sale discounts (`GET /orders/{order_id}/discounts`) of the sales paid with a coupon.
 
-Scheduled by the existing ML worker every 30 s, no cron, gated by `ML_ADS_ENABLED` (the Cupones tab is part of
-ML Ads). Its own pacer family, `order_discounts`, with a dedicated pacer gate of 30 calls per minute (one call
-every 2 s, a quarter of the global 2/s), so the backfill never takes the budget of the other ML handlers and
-never bursts. A run asks for at most `PER_RUN` orders inside `RUN_BUDGET`. The cursor is the data
-itself (`services/ml_order_discounts/store.py`); the run summary lands in `worker_job_state.detail.last_result`.
+Runs in its own thread of the existing ML worker (`own_thread`), no cron: its runs wait on the pacer gate, so
+they must never delay the handlers of the shared pass. Gated by `ML_ADS_ENABLED` (the Cupones tab is part of
+ML Ads). Its own pacer family, `order_discounts`, has a dedicated gate of 30 calls per minute (one call every
+2 s, a quarter of the global 2/s), so the backfill never takes the budget of the other ML handlers and never
+bursts. Runs of up to `PER_RUN` orders inside `RUN_BUDGET` follow each other `interval` apart, which keeps the
+pace close to the gate (28.7 calls per minute measured with a simulated clock). The cursor is the data itself
+(`services/ml_order_discounts/store.py`); the run summary lands in `worker_job_state.detail.last_result`.
 """
 
 from __future__ import annotations
@@ -25,15 +27,17 @@ from app.workers.handlers.ml_publications import disabled_outcome, refresh
 logger = logging.getLogger(__name__)
 
 DISCOUNTS_HANDLER = "ml_orders.discounts"
-RUN_BUDGET = timedelta(seconds=20)
-PER_RUN = 10  # 20 s at the gate's one call every 2 s
+RUN_BUDGET = timedelta(seconds=60)
+PER_RUN = 30  # 60 s at the gate's one call every 2 s
 
 
 class OrderDiscountsHandler:
     name = DISCOUNTS_HANDLER
     channels: Tuple[str, ...] = ()
-    interval: Optional[timedelta] = timedelta(seconds=30)
+    interval: Optional[timedelta] = timedelta(seconds=5)  # the pause between runs of its own thread
     run_at_local: Optional[dtime] = None
+    own_thread = True
+    deadline_seconds = RUN_BUDGET.total_seconds() + 15  # the runtime's deadline must outlast the run budget
 
     def __init__(
         self,
@@ -57,13 +61,22 @@ class OrderDiscountsHandler:
         deadline = min(ctx.deadline, self._now() + RUN_BUDGET)
         try:
             result = ingestion.run(
-                self._session_factory, self._client, now=self._now, deadline=deadline, max_calls=PER_RUN
+                self._session_factory,
+                self._client,
+                now=self._now,
+                deadline=deadline,
+                max_calls=PER_RUN,
+                should_stop=ctx.stop_requested,
             )
         except Exception as exc:  # noqa: BLE001 -- the worker keeps running; the data is the cursor, the next run resumes
             logger.exception("order discounts run failed")
             error = f"{type(exc).__name__}: {exc}"[:300]
             return JobResult(success=False, detail={"error": error}, error=error)
-        error = "missing or rejected ML credentials" if result.stopped == BLOCKED else None
+        error = None
+        if result.stopped == BLOCKED:
+            error = "missing or rejected ML credentials"
+        elif result.stopped == ingestion.TRANSPORT:
+            error = f"no HTTP answer from ML: {result.transport_error}"
         return JobResult(success=True, detail=result.as_detail(), error=error)
 
 

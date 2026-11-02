@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.models.ml_order_discounts import MlOrderDiscountLine, MlOrderDiscounts, MlOrderDiscountsState
 from app.services.ml_order_discounts import ingestion, mapper, store
 from app.services.ml_publications.ml_http import MlHttpClient
-from app.services.ml_publications.pacing import Pacer
+from app.services.ml_publications.pacing import DEADLINE, Pacer
 from app.workers.context import WorkerContext
 from app.workers.handlers import ml_order_discounts as handler_module
 from app.workers.handlers.ml_order_discounts import OrderDiscountsHandler
@@ -461,7 +461,7 @@ def test_billing_schedule_unchanged():
     names = [h.name for h in registry.ML_PUBLICATIONS_REGISTRY]
     assert names.index("ml_billing.sweep") == 11 and names[-1] == "ml_orders.discounts"
     assert billing.interval is None and billing.run_at_local == time(5, 17) and billing.catch_up_interval == CATCH_UP
-    assert not getattr(handler_module.discounts, "own_thread", False)
+    assert handler_module.discounts.own_thread is True  # its paced runs never take a turn in the shared pass
 
 
 @pytest.mark.postgres
@@ -472,3 +472,78 @@ def test_a_refused_body_is_stored_as_sql_null(session_factory):
     run_once(session_factory, FakeClient({1: response(200, body)}), FakeClock())
     with session_factory() as db:
         assert db.execute(text("SELECT count(*) FROM ml_order_discounts WHERE body IS NULL")).scalar() == 1
+
+
+# ---- own thread ---------------------------------------------------------------------------------
+def test_runs_in_its_own_thread_never_in_the_shared_pass():
+    assert handler_module.discounts.own_thread is True
+    assert handler_module.discounts.deadline_seconds > handler_module.RUN_BUDGET.total_seconds()
+
+
+@pytest.mark.postgres
+def test_own_thread_pace_is_close_to_the_gate_and_never_above_it(session_factory):
+    """The runtime's own-thread loop: run, then wait `interval`. Measured over 10 minutes."""
+    seed(session_factory, 400)
+    clock = FakeClock()
+    pacer = Pacer(clock=clock)
+    at = []
+
+    def transport(request):
+        at.append(clock.t)
+        return httpx.Response(200, json=GOOD)
+
+    client = MlHttpClient(
+        pacer=pacer,
+        transport=httpx.MockTransport(transport),
+        token_loader=lambda: {"access_token": "t", "expires_epoch": 9e12},
+        now=clock.now,
+    )
+    h = OrderDiscountsHandler(
+        client_factory=lambda p: client, pacer=pacer, session_factory=session_factory, now=clock.now
+    )
+    end = clock.t + 600
+    while clock.t < end:
+        h.run(WorkerContext(deadline=clock.now() + timedelta(seconds=h.deadline_seconds)))
+        clock.advance(h.interval.total_seconds())
+    per_minute = len([t for t in at if t < end]) / 10
+    print("measured calls per minute", per_minute)
+    assert 25 <= per_minute <= 30
+    assert max(sum(1 for t in at if s <= t < s + 60) for s in at) <= 30
+
+
+@pytest.mark.postgres
+def test_a_transport_outage_is_reported_as_an_error(session_factory):
+    seed(session_factory, 1)
+    h = OrderDiscountsHandler(
+        client_factory=lambda p: FakeClient({1: response(0, None, error="ConnectError")}),
+        pacer=Pacer(),
+        session_factory=session_factory,
+        now=lambda: NOW,
+    )
+    r = h.run(WorkerContext(deadline=NOW + timedelta(seconds=60)))
+    assert r.detail["stopped"] == "transport" and r.error == "no HTTP answer from ML: ConnectError"
+
+
+@pytest.mark.postgres
+def test_a_stop_request_ends_the_run_without_more_calls(session_factory):
+    seed(session_factory, 5)
+    client = FakeClient({i: response(200, GOOD) for i in range(1, 6)})
+    stop = []
+    original = client.get
+
+    def get(*args, **kwargs):
+        if kwargs.get("should_stop") and kwargs["should_stop"]():
+            return response(0, None, error=DEADLINE)
+        stop.append(1)  # the worker is asked to stop after the first call
+        return original(*args, **kwargs)
+
+    client.get = get
+    r = ingestion.run(
+        session_factory,
+        client,
+        now=lambda: NOW,
+        deadline=NOW + timedelta(seconds=60),
+        max_calls=5,
+        should_stop=lambda: bool(stop),
+    )
+    assert r.calls == 1 and r.stopped == "deadline"
