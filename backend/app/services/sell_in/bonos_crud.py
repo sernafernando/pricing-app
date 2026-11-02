@@ -33,7 +33,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -41,6 +41,7 @@ from app.models.pedido_compra import PedidoCompra
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInBonoItem, SellInBonoMarca, SellInCompra, SellInCompraItem
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn, SellInBonoModeloIn
+from app.services.sell_in.compras import contiene
 
 _CAMPOS = (
     "alcance",
@@ -408,19 +409,42 @@ def anular_bono_sin_commit(
 
 @dataclass(frozen=True)
 class FiltrosBonos:
+    """The bonus list's filters, the Sell in tab's top filters but `aplica`. Every field is optional (None = no
+    filter)."""
+
     estado: Optional[str] = None
-    marca: Optional[str] = None
+    marca: Optional[str] = None  # exact
+    q: Optional[str] = None  # the bonus's description or brand, case-insensitive substring
+    marcas: Optional[list[str]] = None  # exact, any of them
+    moneda: Optional[str] = None
+    fecha_desde: Optional[date] = None  # the bonus's own range overlaps the period, inclusive
+    fecha_hasta: Optional[date] = None
 
 
 def listar_bonos(
     db: Session, filtros: FiltrosBonos, *, page: int = 1, page_size: int = 50
 ) -> tuple[list[SellInBonoMarca], int]:
-    """One page of bonuses, newest first."""
+    """One page of bonuses, newest first.
+
+    The period keeps a bonus whose `fecha_desde`..`fecha_hasta` (invoice dates; sale dates on a 'costo_venta'
+    bonus) overlaps it, bounds included; one bound alone keeps those that reach past it. `marcas` is the
+    bonus's own `marca`, so it only finds 'marca'-scope bonuses, like the exact `marca`."""
     query = db.query(SellInBonoMarca)
     if filtros.estado is not None:
         query = query.filter(SellInBonoMarca.estado == filtros.estado)
     if filtros.marca:
         query = query.filter(SellInBonoMarca.marca == filtros.marca.strip())
+    q = (filtros.q or "").strip()
+    if q:
+        query = query.filter(or_(contiene(SellInBonoMarca.descripcion, q), contiene(SellInBonoMarca.marca, q)))
+    if filtros.marcas:
+        query = query.filter(SellInBonoMarca.marca.in_(filtros.marcas))
+    if filtros.moneda is not None:
+        query = query.filter(SellInBonoMarca.moneda == filtros.moneda)
+    if filtros.fecha_desde is not None:
+        query = query.filter(SellInBonoMarca.fecha_hasta >= filtros.fecha_desde)
+    if filtros.fecha_hasta is not None:
+        query = query.filter(SellInBonoMarca.fecha_desde <= filtros.fecha_hasta)
     total = query.count()
     bonos = query.order_by(SellInBonoMarca.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return bonos, total

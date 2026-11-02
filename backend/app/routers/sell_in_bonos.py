@@ -9,7 +9,9 @@ is HTTP only over `app.services.sell_in.bonos_crud`.
 - Reads (`GET ""`, `GET /{id}`) need `sell_in.ver`; load, edit and void need
   `sell_in.gestionar` (the sell-in permissions: a bonus lowers product cost).
 - The author comes from the token, never from the body.
-- `GET ""` is paginated, newest first, filtered by estado and brand (exact).
+- `GET ""` is paginated, newest first, filtered by estado, brand (exact `marca`, or several in `marcas`), free
+  text over the description or brand (`q`), currency and a period its date range overlaps (an inverted one is
+  a 422): the Sell in tab's top filters but `aplica`, which a bonus does not have.
   Every bonus carries its models, its operation's number and what it generated
   so far (active purchases, units, amount in its currency and per currency).
 - Edit is a full replace (`PUT /{id}`) of an active bonus; a voided one is a 409.
@@ -28,6 +30,7 @@ is HTTP only over `app.services.sell_in.bonos_crud`.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
@@ -42,6 +45,7 @@ from app.schemas.sell_in_bonos import (
     ALCANCE_LIMITE,
     ALCANCE_LIMITE_MAX,
     Estado,
+    Moneda,
     SellInBonoAlcanceOut,
     SellInBonoAnularIn,
     SellInBonoIn,
@@ -80,14 +84,33 @@ def crear_bono(data: SellInBonoIn, user: Usuario = Depends(requiere_gestionar), 
 def listar_bonos(
     estado: Optional[Estado] = Query(None),
     marca: Optional[str] = Query(None, max_length=100, description="Exact brand"),
+    q: Optional[str] = Query(None, max_length=200, description="Free text: the bonus's description or brand"),
+    marcas: Optional[str] = Query(None, description="CSV of brands, exact match"),
+    moneda: Optional[Moneda] = Query(None),
+    fecha_desde: Optional[date] = Query(None, description="The bonus's date range overlaps the period, inclusive"),
+    fecha_hasta: Optional[date] = Query(None, description="The bonus's date range overlaps the period, inclusive"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     _user: Usuario = Depends(requiere_ver),
     db: Session = Depends(get_db),
 ) -> dict:
-    bonos, total = service.listar_bonos(
-        db, service.FiltrosBonos(estado=estado, marca=marca), page=page, page_size=page_size
+    """One page of bonuses, newest first, with the Sell in tab's filters (all but `aplica`)."""
+    if fecha_desde is not None and fecha_hasta is not None and fecha_hasta < fecha_desde:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="La fecha hasta no puede ser anterior a la fecha desde",
+        )
+    lista_marcas = [m.strip() for m in (marcas or "").split(",") if m.strip()]
+    filtros = service.FiltrosBonos(
+        estado=estado,
+        marca=marca,
+        q=q,
+        marcas=lista_marcas or None,
+        moneda=moneda,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
     )
+    bonos, total = service.listar_bonos(db, filtros, page=page, page_size=page_size)
     return {"items": service.serializar(db, bonos), "total": total, "page": page, "page_size": page_size}
 
 
