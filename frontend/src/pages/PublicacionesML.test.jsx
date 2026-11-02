@@ -43,7 +43,7 @@ vi.mock('../services/api', () => ({
   // The publication panel opens on Promos (owner, 2026-11-02): its promotions never answer here, these tests are
   // about the panel's opening and closing.
   promocionesAPI: { getPromocionesItem: vi.fn(() => new Promise(() => {})), refreshItemPromociones: vi.fn(() => new Promise(() => {})) },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() },
   productosAPI: {
     // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
     getProductoTree: vi.fn(() =>
@@ -95,11 +95,13 @@ vi.mock('../components/EquiposModal', () => ({
     ) : null,
 }));
 
-// The color events (`producto_color:changed`) are pushed by each test through the captured listener.
-const sse = { listener: null };
+// The color events (`producto_color:changed`, and a publication's own `publicacion_color:changed`) are pushed by
+// each test through the captured listeners.
+const sse = { listener: null, own: null };
 vi.mock('../hooks/useSSEChannel', () => ({
   useSSEChannel: (channel, callback) => {
     if (channel === 'producto_color:changed') sse.listener = callback;
+    if (channel === 'publicacion_color:changed') sse.own = callback;
   },
 }));
 
@@ -1722,7 +1724,7 @@ describe('bulk actions over products (S6)', () => {
     await user.click(await screen.findByRole('button', { name: /Abrir Router Z/ }));
     await user.click(await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' }));
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Pintar 1 producto' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pintar 1 publicación' })).toBeInTheDocument(); // paint is per row (S3)
   });
 
   it('a filter that hides the checked row keeps exactly it and does not fall back to the filter', async () => {
@@ -1845,6 +1847,18 @@ describe('bulk actions over products (S6)', () => {
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto'] });
     await screen.findByText('Router Archer AX55');
   };
+
+  it('in the Producto view a digit on the "Sin producto" row paints nothing and says how to paint those (S3)', async () => {
+    publicacionesMlAPI.paintColors.mockClear();
+    api.patch.mockClear();
+    const user = userEvent.setup();
+    await productView();
+    pickProduct('Sin producto').closest('tr').focus();
+    await user.keyboard('1');
+    expect(await screen.findByText('Las publicaciones sin producto se pintan de a una: abrí la fila')).toBeInTheDocument();
+    expect(publicacionesMlAPI.paintColors).not.toHaveBeenCalled();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
 
   it('in the Producto view a product row checks the product; "Sin producto" cannot be checked (S4)', async () => {
     await productView();
@@ -2565,16 +2579,29 @@ describe('painting colors (S8)', () => {
     expect(firstRow()).toHaveAttribute('data-tone');
   });
 
-  it('paints the checked products from the list, without asking the list again', async () => {
+  it('paints the checked publication alone, never its product, without asking the list again (S3)', async () => {
+    publicacionesMlAPI.paintColors.mockResolvedValue({ data: { count: 1, color: 'verde' } });
+    api.post.mockClear();
     await page();
     const asked = publicacionesMlAPI.items.mock.calls.length;
     await userEvent.click(within(firstRow()).getByRole('checkbox', { name: /Seleccionar la publicación/ }));
-    await userEvent.click(screen.getByRole('button', { name: 'Pintar 1 producto' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Pintar 1 publicación' }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'OK' }));
     await waitFor(() => expect(firstRow()).toHaveAttribute('data-tone'));
-    expect(api.post).toHaveBeenCalledWith('/productos/actualizar-color-lote', { item_ids: [4101], color: 'verde' });
+    expect(publicacionesMlAPI.paintColors).toHaveBeenCalledWith({ item_ids: ['MLA1100000001'], color: 'verde' });
+    expect(api.post).not.toHaveBeenCalledWith('/productos/actualizar-color-lote', expect.anything());
     expect(publicacionesMlAPI.items.mock.calls.length).toBe(asked);
     expect(screen.queryByRole('button', { name: /Pintar/ })).not.toBeInTheDocument();
+  });
+
+  it('repaints only the publication someone paints on its own, by MLA, never the rest of its product (S3)', async () => {
+    // MLA1100000009 is a second publication of MLA1100000001's product.
+    respond({ ...ITEMS_RESPONSE, items: [ITEMS[0], { ...ITEMS[0], item_id: 'MLA1100000009' }], total: 2 });
+    await page();
+    const second = () => screen.getByText('MLA1100000009').closest('tr');
+    act(() => sse.own({ data: { is_global: true, equipo_id: 1, item_ids: ['MLA1100000001'], color: 'rojo' } }));
+    expect(firstRow()).toHaveAttribute('data-tone');
+    expect(second()).not.toHaveAttribute('data-tone');
   });
 });
 
@@ -2752,24 +2779,26 @@ describe('keyboard export', () => {
 describe('painting from the keyboard (S8)', () => {
   const firstRow = () => screen.getByText('MLA1100000001').closest('tr');
 
-  it("a digit paints the focused publication's product on the layer on show, as Productos' quick colors", async () => {
+  it('a digit paints the focused publication alone on the layer on show, never its product (S3)', async () => {
+    publicacionesMlAPI.paintColors.mockResolvedValue({ data: { count: 1, color: 'verde' } });
+    api.patch.mockClear();
     const user = userEvent.setup();
     await page('/ml-publicaciones?equipo=12');
     await screen.findByRole('option', { name: 'Ventas' });
     firstRow().focus();
     await user.keyboard('4');
     await waitFor(() => expect(firstRow()).toHaveAttribute('data-tone'));
-    expect(api.patch).toHaveBeenCalledWith('/productos/4101/color', { color: 'verde' }, { params: { equipo_id: 12 } });
+    expect(publicacionesMlAPI.paintColors).toHaveBeenCalledWith({ item_ids: ['MLA1100000001'], color: 'verde', equipo_id: 12 });
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
-  it('says so for a publication with no product, and paints nothing', async () => {
+  it('paints a publication with no product too: its color is its own', async () => {
+    publicacionesMlAPI.paintColors.mockResolvedValue({ data: { count: 1, color: 'rojo' } });
     const user = userEvent.setup();
-    api.patch.mockClear();
     await page();
     screen.getByText('MLA1100000003').closest('tr').focus();
     await user.keyboard('1');
-    expect(await screen.findByText('La publicación no tiene producto vinculado')).toBeInTheDocument();
-    expect(api.patch).not.toHaveBeenCalled();
+    await waitFor(() => expect(publicacionesMlAPI.paintColors).toHaveBeenCalledWith({ item_ids: ['MLA1100000003'], color: 'rojo' }));
   });
 
   it('F7 / F6 step through Global and the teams, and say which layer is on', async () => {

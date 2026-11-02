@@ -271,10 +271,14 @@ class LastEventOut(BaseModel):
 class ItemRowOut(BaseModel):
     item_id: str
     # The row's effective color (Productos' team layers, `equipo_id`): the publication's own, otherwise its linked
-    # product's; present only when set (services/ml_publication_colors.py).
+    # product's; present only when set (services/ml_publication_colors.py). Painted on its own, the two parts apart.
     color_marcado: Optional[str] = None
     color_hint_global: Optional[str] = None
     color_hint_equipo_inicial: Optional[str] = None
+    color_propio: Optional[str] = None
+    color_producto: Optional[str] = None
+    color_hint_global_propio: Optional[str] = None
+    color_hint_global_producto: Optional[str] = None
     title: Optional[str] = None
     thumbnail: Optional[str] = None
     permalink: Optional[str] = None

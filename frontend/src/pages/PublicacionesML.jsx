@@ -30,6 +30,7 @@ import { PREARMADAS_LIMITE, usePrearmadasStats } from '../hooks/usePrearmadasSta
 import { useEquipos } from '../hooks/useEquipos';
 import EquiposModal from '../components/EquiposModal';
 import usePaintProduct from '../components/publicacionesMl/usePaintProduct';
+import usePaintPublication from '../components/publicacionesMl/usePaintPublication';
 import ProductoTable from '../components/publicacionesMl/ProductoTable';
 import BulkActions from '../components/publicacionesMl/BulkActions';
 import BulkStatusActions from '../components/publicacionesMl/BulkStatusActions';
@@ -288,7 +289,11 @@ export default function PublicacionesML() {
   // anyone -- repaints them without asking the list again (the trees would close their open branches).
   const colorOverlay = useColorOverlay(rowFilters.equipo, filterKey);
   useSSEChannel('producto_color:changed', colorOverlay.apply);
-  const getItemTone = useCallback((item) => itemRowTone(item, colorOverlay.colors), [colorOverlay.colors]);
+  useSSEChannel('publicacion_color:changed', colorOverlay.applyOwn);
+  const getItemTone = useCallback(
+    (item) => itemRowTone(item, colorOverlay.colors, colorOverlay.own),
+    [colorOverlay.colors, colorOverlay.own],
+  );
 
   const pageSize = filters.limite;
   const agrupado = filters.vista === 'agrupado';
@@ -629,6 +634,7 @@ export default function PublicacionesML() {
   const items = data?.items ?? EMPTY_ROWS;
   // The copy shortcuts act on the focused publication of the list (the Producto and Agrupado rows load their own).
   const paintProduct = usePaintProduct({ equipo: rowFilters.equipo, onPainted: colorOverlay.apply, showToast });
+  const paintPublication = usePaintPublication({ equipo: rowFilters.equipo, onPainted: colorOverlay.applyOwn, showToast });
   // The product of a focused row: a publication's linked product, or the product row itself (Producto view). The
   // Agrupado tree keeps its rows to itself.
   const productIdOfRow = (key) => {
@@ -653,18 +659,20 @@ export default function PublicacionesML() {
     }
     setInfoProductId(productId);
   };
+  // A digit paints the focused row as what it is (S3, S4): a publication alone, never its product; a product row
+  // (Producto view) its product.
   const paintRow = (key, color) => {
     if (agrupado) {
       showToast('Pintar con el teclado funciona en las vistas Publicaciones, Precios y Producto', 'error');
       return;
     }
-    const productId = productIdOfRow(key);
-    if (productId == null) {
-      showToast('La publicación no tiene producto vinculado', 'error');
-      return;
+    const { itemId, productId } = selectionOfRow(key);
+    if (itemId) paintPublication(itemId, color);
+    else if (productId != null) paintProduct(productId, color);
+    else if (producto && productRows.rows.find((row) => row.id === key)?.type === 'node') {
+      // The "Sin producto" row: no product to paint, its publications are painted one by one.
+      showToast('Las publicaciones sin producto se pintan de a una: abrí la fila', 'error');
     }
-    // ponytail: paint still colors the whole product; per-publication color lands with publicacion_color (seleccion-por-publicacion S3)
-    paintProduct(productId, color);
   };
   // The selection entry of a focused row. In the Producto view only a product or a publication row: its "more" and
   // state rows are focusable too, and check nothing.
@@ -880,10 +888,11 @@ export default function PublicacionesML() {
               labelClassName={styles.filterLabel}
             />
             <PaintColorMenu
-              checkedIds={checkedIds}
+              checked={checkedStatus}
               offPageCount={agrupado ? 0 : rowSelection.offPageCount}
               equipo={rowFilters.equipo}
               onPainted={colorOverlay.apply}
+              onPaintedOwn={colorOverlay.applyOwn}
               onClearChecked={clearChecked}
             />
             {/* Icon-only: the toolbar's first row has no room for a label at 1366 px. */}
@@ -1055,6 +1064,7 @@ export default function PublicacionesML() {
                 columns={selectableColumns}
                 selection={selection}
                 colorOverlay={colorOverlay.colors}
+                ownColorOverlay={colorOverlay.own}
                 prearmadasStats={prearmadasStats}
                 listingById={listPrices.byId}
                 canSeeMargin={canSeeMargin}
@@ -1077,6 +1087,7 @@ export default function PublicacionesML() {
                 familias={filters.familias === '1'}
                 dimension={filters.agrupar}
                 colorOverlay={colorOverlay.colors}
+                ownColorOverlay={colorOverlay.own}
                 canSeeMargin={canSeeMargin}
                 expandedIds={expandedIds}
                 onSelectItem={handleRowClick}

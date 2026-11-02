@@ -6,7 +6,9 @@ import { COLORES_DISPONIBLES } from '../../utils/productosConstants';
  * The shape is `TableShell`'s `getRowTone`.
  *
  * `overlay` (see `useColorOverlay`) holds what was painted since the rows loaded, by product id: a field it has
- * (`marcado`, `hintGlobal`; null = cleared) wins over the row's own.
+ * (`marcado`, `hintGlobal`; null = cleared) wins over the row's own. A publication may also be painted on its own
+ * (seleccion-por-publicacion S3): its own color wins over its product's, and `ownOverlay` (by MLA) holds the own colors
+ * painted since, a null one falling back to the product's.
  */
 const COLOR_BY_ID = new Map(COLORES_DISPONIBLES.filter((c) => c.id).map((c) => [c.id, c]));
 
@@ -24,13 +26,36 @@ function toneOver(overlay, productId, marcado, hintGlobal) {
   return toneOf('marcado' in painted ? painted.marcado : marcado, 'hintGlobal' in painted ? painted.hintGlobal : hintGlobal);
 }
 
+// The row fields of each layer's color: the shown one, and its two parts on a row painted on its own.
+const LAYER_FIELDS = {
+  marcado: { shown: 'color_marcado', own: 'color_propio', product: 'color_producto' },
+  hintGlobal: { shown: 'color_hint_global', own: 'color_hint_global_propio', product: 'color_hint_global_producto' },
+};
+
+// One layer's color of a publication row: its own (overlay first), otherwise its product's (overlay first). On a row
+// not painted on its own, the shown color is its product's.
+function layerColor(item, field, painted, ownPainted) {
+  const { shown, own, product } = LAYER_FIELDS[field];
+  const ownColor = ownPainted && field in ownPainted ? ownPainted[field] : (item[own] ?? null);
+  if (ownColor) return ownColor;
+  if (painted && field in painted) return painted[field];
+  return (own in item ? item[product] : item[shown]) ?? null;
+}
+
 /** A publication row (`/view/items`). */
-export const itemRowTone = (item, overlay) =>
-  toneOver(overlay, item.link?.producto_item_id, item.color_marcado, item.color_hint_global);
+export function itemRowTone(item, overlay, ownOverlay) {
+  const productId = item.link?.producto_item_id;
+  const painted = productId != null ? overlay?.get(String(productId)) : undefined;
+  const ownPainted = item.item_id != null ? ownOverlay?.get(String(item.item_id)) : undefined;
+  return toneOf(
+    layerColor(item, 'marcado', painted, ownPainted),
+    layerColor(item, 'hintGlobal', painted, ownPainted),
+  );
+}
 
 /** A row of the Producto / Agrupado trees: its publications and its product nodes carry the color. */
-export function treeRowTone(row, overlay) {
-  if (row.type === 'item') return itemRowTone(row.item, overlay);
+export function treeRowTone(row, overlay, ownOverlay) {
+  if (row.type === 'item') return itemRowTone(row.item, overlay, ownOverlay);
   if (row.type === 'node' && row.node.kind === 'producto') {
     return toneOver(overlay, row.node.productoItemId, row.node.colorMarcado, row.node.colorHintGlobal);
   }
