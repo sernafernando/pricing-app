@@ -72,11 +72,25 @@ def test_assign_then_hard_lock() -> None:
     )
     db = _db_returning(pkg)
 
+    try:
+        import app.services.gestion_full.reconcile  # noqa: F401
+    except ImportError:
+        # Stack 14 CI: reconcile/envío land in #1981 — assign still hard-locks alone.
+        assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A")
+        assert ln1.inbound_id == "A"
+        assign_inbound_to_lines(db, pkg, line_ids=[2], inbound_id="B")
+        assert ln2.inbound_id == "B"
+        assert pkg.status == "locked"
+        return
+
     with patch("app.services.gestion_full.reconcile.ensure_envio") as ensure:
         assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A")
         assert ln1.inbound_id == "A"
         assert pkg.status == "exported"  # not all assigned yet
         ensure.assert_called()
+        # Same transaction as assign: ensure_envio must flush, not commit alone.
+        assert ensure.call_args.kwargs.get("commit") is False
+        assert db.commit.call_count >= 1
 
         assign_inbound_to_lines(db, pkg, line_ids=[2], inbound_id="B")
         assert ln2.inbound_id == "B"
@@ -154,6 +168,7 @@ def test_maybe_hard_lock_noop_partial() -> None:
 
 
 def test_clear_inbound_closes_orphan_envio() -> None:
+    pytest.importorskip("app.models.gestion_full_envio")
     from datetime import UTC, datetime
 
     ln = SimpleNamespace(id=1, inbound_id="ORPHAN-1", qty_export=2)
@@ -175,6 +190,7 @@ def test_clear_inbound_closes_orphan_envio() -> None:
 
 
 def test_clear_inbound_keeps_envio_that_already_received() -> None:
+    pytest.importorskip("app.models.gestion_full_envio")
     from datetime import UTC, datetime
 
     ln = SimpleNamespace(id=1, inbound_id="GOT-STOCK", qty_export=2)
