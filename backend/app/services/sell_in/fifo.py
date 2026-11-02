@@ -169,7 +169,8 @@ class Dinero:
         """The lot's own money left: its total minus what cumulative rounding gave the units already used, so a lot
         re-based mid-way still hands out exactly its total once used up."""
         lote = self.lotes[i]
-        return lote.descuento_ars - _cents(lote.descuento_ars * self.usadas[i] / lote.cantidad)
+        # Never below zero: rounding up on a lot of a few thousandths can hand out more than it holds.
+        return max(lote.descuento_ars - _cents(lote.descuento_ars * self.usadas[i] / lote.cantidad), Decimal(0))
 
     def _resto_fifo(self, i: int) -> Decimal:
         seg = self._lote_seg.get(i)
