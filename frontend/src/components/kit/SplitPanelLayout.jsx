@@ -72,6 +72,7 @@ function isEditableElement(el) {
  * @param {'md'|'lg'} [props.width='md'] 460px / 560px (capped at 42vw).
  * @param {string} [props.ariaLabel] Accessible name of the panel.
  * @param {string} [props.resizeKey] Turns on resizing; the width is remembered per browser under this key.
+ *   Read once on mount, so keep it constant for the life of the layout.
  * @param {import('react').ReactNode} props.children The list.
  */
 export default function SplitPanelLayout({ open, panel, onClose, width = 'md', ariaLabel, resizeKey, children }) {
@@ -82,6 +83,8 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   // `null` until the operator resizes: the panel keeps its token width.
   const [panelWidth, setPanelWidth] = useState(() => loadWidth(resizeKey));
   const [measured, setMeasured] = useState({ width: 0, max: PANEL_MIN_WIDTH });
+  // Ends the drag in progress, if any, without saving.
+  const stopDragRef = useRef(null);
   const openerRef = useRef(null);
   const panelRef = useRef(null);
   // Whether focus is in the panel or on <body>. Tracked live because by the
@@ -145,8 +148,16 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     if (!open || !resizable) return undefined;
     const update = () => setMeasured(measure());
     update();
+    // The grid can change width without the window doing so (sidebar, scrollbar).
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(gridRef.current);
     window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+      // Closing mid-drag ends the drag: the release afterwards saves nothing.
+      stopDragRef.current?.();
+    };
   }, [open, resizable]);
 
   // Where a step or drag from `start` towards `target` lands: within the same
@@ -163,6 +174,8 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   // have narrowed below a width saved on a wider window.
   const handleSeparatorKeyDown = (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    // Alt+arrow and the like belong to the browser (history, text navigation).
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.preventDefault();
     const box = measure();
     const next = moveTo(box.width, box.width + (e.key === 'ArrowLeft' ? RESIZE_STEP : -RESIZE_STEP), box.max);
@@ -173,9 +186,13 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   };
 
   const handlePointerDown = (e) => {
-    if (e.button !== 0) return;
+    // One drag at a time: a second touch or pen while dragging starts nothing.
+    if (e.button !== 0 || stopDragRef.current) return;
     e.preventDefault();
+    // preventDefault also blocks the focus a press gives, and the arrows need it.
+    handleRef.current?.focus();
     const box = measure();
+    const { pointerId } = e;
     const startX = e.clientX;
     const startWidth = box.width;
     const widthBefore = panelWidth;
@@ -183,17 +200,24 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     setMeasured(box);
     // On the window, not the handle: a fast drag leaves the thin handle behind.
     const move = (event) => {
+      if (event.pointerId !== pointerId) return;
       latest = moveTo(startWidth, startWidth + startX - event.clientX, box.max);
       // Back where it started (or pushed the way it cannot go): as before the drag.
       setPanelWidth(latest ?? widthBefore);
     };
-    const end = () => {
+    const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', end);
       window.removeEventListener('pointercancel', end);
+      stopDragRef.current = null;
+    };
+    function end(event) {
+      if (event.pointerId !== pointerId) return;
+      stop();
       // A click without a drag is not a resize: the default width stays.
       if (latest !== null) saveWidth(resizeKey, latest);
-    };
+    }
+    stopDragRef.current = stop;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', end);

@@ -355,6 +355,78 @@ describe('resizing (opt-in by resizeKey)', () => {
     expect(localStorage.getItem(STORAGE)).toBeNull();
   });
 
+  it('closing the panel mid-drag ends the drag: the release afterwards saves nothing', () => {
+    const view = renderLayout({ resizeKey: 'pubml' });
+    fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 1000 });
+    view.rerender(
+      <SplitPanelLayout open={false} panel={<div>panel content</div>} onClose={vi.fn()} ariaLabel="Detalle" resizeKey="pubml">
+        <div>table content</div>
+      </SplitPanelLayout>,
+    );
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 900 });
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 900 });
+    expect(localStorage.getItem(STORAGE)).toBeNull();
+  });
+
+  it('follows only the pointer that started the drag; a second touch starts nothing', () => {
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 1000 });
+    fireEvent.pointerDown(separator(), { button: 0, pointerId: 2, clientX: 500 });
+    fireEvent.pointerMove(window, { pointerId: 2, clientX: 300 });
+    expect(dragWidth(container)).toBe('');
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 900 });
+    fireEvent.pointerUp(window, { pointerId: 2, clientX: 300 });
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 900 });
+    expect(dragWidth(container)).toBe(`${PANEL + 100}px`);
+    expect(localStorage.getItem(STORAGE)).toBe(String(PANEL + 100));
+  });
+
+  it('pressing the handle focuses it, so the arrows work right after a drag', () => {
+    renderLayout({ resizeKey: 'pubml' });
+    fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 1000 });
+    expect(separator()).toHaveFocus();
+    fireEvent.pointerUp(window, { pointerId: 1, clientX: 1000 });
+  });
+
+  it.each(['Alt', 'Meta', 'Control', 'Shift'])('leaves %s + arrow to the browser', async (modifier) => {
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    separator().focus();
+    const notPrevented = fireEvent.keyDown(separator(), {
+      key: 'ArrowLeft',
+      altKey: modifier === 'Alt',
+      metaKey: modifier === 'Meta',
+      ctrlKey: modifier === 'Control',
+      shiftKey: modifier === 'Shift',
+    });
+    expect(notPrevented).toBe(true);
+    expect(dragWidth(container)).toBe('');
+  });
+
+  it('storage that throws neither breaks the screen nor stops resizing', async () => {
+    vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    const errors = [];
+    const onError = (event) => {
+      event.preventDefault();
+      errors.push(event.error);
+    };
+    window.addEventListener('error', onError);
+    try {
+      const { container } = renderLayout({ resizeKey: 'pubml' });
+      expect(dragWidth(container)).toBe('');
+      separator().focus();
+      await userEvent.keyboard('{ArrowLeft}');
+      expect(dragWidth(container)).toBe(`${PANEL + RESIZE_STEP}px`);
+      expect(errors).toEqual([]);
+    } finally {
+      window.removeEventListener('error', onError);
+    }
+  });
+
   it('the bounds follow the window when it is resized', () => {
     renderLayout({ resizeKey: 'pubml' });
     GRID = 1200;
