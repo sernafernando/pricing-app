@@ -132,6 +132,18 @@ def test_the_listing_kind_sort_descending_puts_the_highest_installments_first(ki
 
 
 @pytest.mark.postgres
+def test_the_listing_kind_sort_keeps_another_type_last_in_both_directions(kinds_catalog) -> None:
+    # Another ML type (`free`) and no type at all sort last whatever the direction: only the known kinds turn around.
+    kinds_catalog.execute(
+        text("UPDATE ml_items SET listing_type_id = 'free', tags = NULL WHERE item_id = 'MLA9000011'")
+    )
+    descending = [row.mla for row in _page(kinds_catalog, sort="listing_kind", sort_desc=True)]
+    ascending = [row.mla for row in _page(kinds_catalog, sort="listing_kind", sort_desc=False)]
+    assert descending[-1] == "MLA9000011"
+    assert ascending[-1] == "MLA9000011"
+
+
+@pytest.mark.postgres
 def test_product_rows_sorted_by_listing_kind_follow_their_best_publication(kinds_catalog) -> None:
     # Product FIRST+1 has a co-funded Clásica (rank 0) and sells more; FIRST has a plain Clásica (rank 0) too: a tie
     # on the rank, settled by the gross. With no Clásica left, FIRST+1's best is a 3 cuotas and FIRST's a 6 cuotas.

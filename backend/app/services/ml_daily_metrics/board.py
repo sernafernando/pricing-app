@@ -142,7 +142,7 @@ from app.services.ml_daily_metrics.sales import (
 )
 from app.services.ml_orders_ingestion.mode_resolution import modo_logistico_expr
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
-from app.services.ml_publications.listing_kind import listing_kind, listing_kind_from_type, listing_rank
+from app.services.ml_publications.listing_kind import OTHER_RANK, listing_kind, listing_kind_from_type, listing_rank
 from app.services.ml_sales_query.filters import NO_STORE, SalesFilter, _resolve_pm_pairs, build_scope
 from app.services.product_facets import (
     ProductFacetOptions,
@@ -1929,7 +1929,10 @@ class Board:
             rank = rows.c.get("listing_rank")
             if rank is None:
                 return (rows.c.rk.asc(),)
+            # Another ML type, then no type at all, go last either way: only the known kinds turn around.
+            residual = case((rank >= OTHER_RANK, rank), else_=0)
             return (
+                residual.asc(),
                 rank.desc() if self.f.sort_desc else rank.asc(),
                 rows.c.gross.desc().nulls_last(),
                 rows.c.rk.asc(),
