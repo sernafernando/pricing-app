@@ -526,24 +526,22 @@ def test_a_transport_outage_is_reported_as_an_error(session_factory):
 
 @pytest.mark.postgres
 def test_a_stop_request_ends_the_run_without_more_calls(session_factory):
+    """Through the real client and pacer: the stop asked after the first call ends the wait for the next slot."""
     seed(session_factory, 5)
-    client = FakeClient({i: response(200, GOOD) for i in range(1, 6)})
-    stop = []
-    original = client.get
+    clock = FakeClock()
+    calls = []
 
-    def get(*args, **kwargs):
-        if kwargs.get("should_stop") and kwargs["should_stop"]():
-            return response(0, None, error=DEADLINE)
-        stop.append(1)  # the worker is asked to stop after the first call
-        return original(*args, **kwargs)
+    def transport(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, json=GOOD)
 
-    client.get = get
     r = ingestion.run(
         session_factory,
-        client,
-        now=lambda: NOW,
-        deadline=NOW + timedelta(seconds=60),
+        real_client(clock, transport),
+        now=clock.now,
+        deadline=clock.now() + timedelta(seconds=60),
         max_calls=5,
-        should_stop=lambda: bool(stop),
+        should_stop=lambda: bool(calls),
     )
-    assert r.calls == 1 and r.stopped == "deadline"
+    assert len(calls) == 1 and r.calls == 1 and r.stopped == DEADLINE
+    assert [row.status for row in rows(session_factory, MlOrderDiscounts)] == ["ok"]
