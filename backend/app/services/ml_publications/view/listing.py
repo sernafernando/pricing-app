@@ -16,13 +16,14 @@ from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional
 
 from sqlalchemy import ARRAY, Numeric, Text, and_, any_, case, cast, func, literal, select, text, true
+from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
-from app.services.ml_publications.listing_kind import OTHER_RANK, listing_kind, listing_rank
+from app.services.ml_publications.listing_kind import NO_TYPE_RANK, OTHER_RANK, listing_kind, listing_rank
 from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines
 from app.services.ml_publications.view.filters import (
@@ -292,15 +293,21 @@ def row_columns(*, cost: bool = False) -> list[Any]:
     ]
 
 
+# The `tipo` rank (0..6, `listing_kind.KIND_RANKS`) descending: the known kinds 0..4 turned around, another ML type
+# (OTHER_RANK) and no type at all (NO_TYPE_RANK) still last. Postgres arrays are 1-based: rank r reads item r + 1.
+DESCENDING_RANKS = [*range(OTHER_RANK - 1, -1, -1), OTHER_RANK, NO_TYPE_RANK]
+
+
 def _column_order(key: str, descending: bool) -> tuple[Any, ...]:
     """One column key and its tie-break, if any (`SORT_TIES`), missing values last in either direction."""
     expressions = [SORT_COLUMNS[key][0](), *((SORT_TIES[key](),) if key in SORT_TIES else ())]
     ordered = tuple((expression.desc() if descending else expression.asc()).nulls_last() for expression in expressions)
     if key == "tipo" and descending:
         # Another ML type, then no type at all, go last either way: only the known kinds turn around (as the board).
-        # Ascending already puts them last; descending maps the known ranks 0..4 onto 4..0 in ONE ascending term.
+        # Ascending already puts them last; descending looks each rank up in DESCENDING_RANKS, one ascending term
+        # that reads the kind once.
         rank = listing_rank(item_listing_kind())
-        return (case((rank >= OTHER_RANK, rank), else_=(OTHER_RANK - 1) - rank).asc(), *ordered[1:])
+        return (pg_array(DESCENDING_RANKS)[rank + 1].asc(), *ordered[1:])
     return ordered
 
 
@@ -379,9 +386,9 @@ def _figured_ids(
     offset: int,
     worst: Optional[Mapping[str, Any]] = None,
 ) -> list[str]:
-    """A sort with figure keys over `source`: a Métricas figure alone is the Board's ranking; any other combination
-    takes each figure (`worst`, the markup's, priced by the caller; the Métricas ones from one Board run) then
-    orders."""
+    """A sort with figure keys over `source`: a Métricas figure alone is the Board's ranking; column keys with one
+    Métricas figure join the Board's rows in one statement (`_ranked_with_columns`); any other combination takes
+    each figure (`worst`, the markup's, priced by the caller; the Métricas ones from one Board run) then orders."""
     if len(sort.keys) == 1 and sort.key in METRIC_SORTS:
         return ranked_page(db, source, sort.key, sort.descending, limit, offset)
     if len(sort.figure_keys) == 1 and sort.figure_keys[0] in METRIC_SORTS:

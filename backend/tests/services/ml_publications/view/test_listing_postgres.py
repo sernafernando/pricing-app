@@ -1034,6 +1034,14 @@ class TestListingKind:
         assert order[:4] == ["MLA1", "MLA5", "MLA3", "MLA4"]
         assert order[-1] == "MLA7"
 
+    def test_the_tipo_order_reads_the_listing_kind_once_in_either_direction(self) -> None:
+        from sqlalchemy.dialects import postgresql
+
+        for descending in (False, True):
+            clauses = listing._column_order("tipo", descending)
+            sql = " ".join(str(c.compile(dialect=postgresql.dialect())) for c in clauses)
+            assert sql.count("array_position") <= 48, (descending, sql.count("array_position"))
+
     def test_the_tipo_sort_defaults_to_ascending(self) -> None:
         assert listing.parse_sort("tipo", None) == listing.Sort("tipo", descending=False)
 
