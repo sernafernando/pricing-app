@@ -551,7 +551,7 @@ export default function PublicacionesML() {
   const selectableColumns = useMemo(() => withProductSelection(visibleColumns, selection), [visibleColumns, selection]);
 
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
-  // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
+  // the listing type, then Facturado 30D for who sees the sales (like Métricas) or the activity otherwise.
   // The Producto view sorts the products by their own figures (`effectiveProductSort`).
   const sort = producto ? productRows.sort : headerSort(effectiveSortKeys(filters, { canSeeSales, canSeeMargin }));
   // A publication's panel takes the place of its product's (`sel` over `prod`); closing either closes the panel.
