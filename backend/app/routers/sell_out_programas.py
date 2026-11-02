@@ -1,7 +1,7 @@
 """Router: sell-out programs (`/api/sell-out/programas`), campaign system S1 ("Programa" on screen).
 
-A program groups the campaigns that are one deal renewed over time ("EPSON PROG 24", "EPSON PROG 25", ...). It is
-metadata only: the money of a campaign never depends on it. The rules live in `app.services.sell_out.programas`;
+A program groups the campaigns that are one deal renewed over time or split by what each applies to (production:
+"EPSON PROGRAM1" x13, "EPSON PROG 3.0", "EPSON PROGR 7.5", ... over the same dates). It is metadata only: the money of a campaign never depends on it. The rules live in `app.services.sell_out.programas`;
 this module is HTTP only.
 
 - Reads need `sell_out.ver`; create, edit and assign need `sell_out.gestionar`, the campaigns' own permissions (no
@@ -13,7 +13,9 @@ this module is HTTP only.
 - `POST /asignar` (`{"campana_ids": [...], "programa_id": id | null}`) sets or clears the program of up to 500
   campaigns, active or voided, all or nothing, with one audit row per changed campaign. Unknown campaigns are a 422
   naming them, an unknown program a 404, an archived one a 422. It queues no rebuild.
-- `GET /sugerencias` proposes groups of campaigns without a program that share a base name; nothing is applied.
+- `GET /sugerencias` proposes groups of campaigns without a program that share their exact dates (`fecha_desde`,
+  `fecha_hasta`), each with a proposed name (`base`: the words all its names start with, or its date range);
+  nothing is applied.
 """
 
 from __future__ import annotations
