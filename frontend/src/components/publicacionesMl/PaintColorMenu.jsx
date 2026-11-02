@@ -16,7 +16,7 @@ const plural = (n, one, many) => (n === 1 ? one : many);
  * teams, the backend checks it again). On success `onPainted` gets the change shaped as the SSE event Productos
  * publishes, so the rows repaint without asking again; on failure nothing changes and the reason is shown.
  */
-// `offPageCount`: how many checked products the list does not show now (the selection outlives filters and pages).
+// `checkedIds`: the products behind the checked rows. `offPageCount`: how many checked rows the list does not show now (the selection outlives filters and pages).
 export default function PaintColorMenu({ checkedIds, offPageCount = 0, equipo, onPainted, onClearChecked }) {
   const { tienePermiso } = usePermisos();
   const { toast, showToast, hideToast } = useToast();
@@ -114,7 +114,7 @@ export default function PaintColorMenu({ checkedIds, offPageCount = 0, equipo, o
           {offPageCount > 0 && (
             // Read as the menu's description: a menu holds only its items.
             <p id={noteId} role="none" className={styles.note}>
-              {offPageCount} {plural(offPageCount, 'producto seleccionado no está', 'productos seleccionados no están')} en esta página
+              {offPageCount} {plural(offPageCount, 'fila marcada no está', 'filas marcadas no están')} en esta página
             </p>
           )}
           {COLORES_DISPONIBLES.map((c) => (

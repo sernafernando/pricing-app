@@ -41,8 +41,8 @@ import useRecalcularCuotasAuto from '../components/publicacionesMl/useRecalcular
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
-import { withProductSelection } from '../components/publicacionesMl/productSelection';
-import useProductSelection from '../components/publicacionesMl/useProductSelection';
+import { withRowSelection } from '../components/publicacionesMl/rowSelection';
+import useRowSelection, { selectionRow } from '../components/publicacionesMl/useRowSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';
 import useTnCardPercent from '../components/publicacionesMl/useTnCardPercent';
@@ -435,11 +435,18 @@ export default function PublicacionesML() {
   // Productos' "markup con offsets" under the clásica markup: the offsets are about the cost, so only with the margin.
   // Also for the panels' Precios tab: in the tree, which has no price columns, only while a panel is open.
   const listOffsets = useListOffsets(canSeePrices && canSeeMargin && (!agrupado || Boolean(filters.sel || filters.prod)));
-  // The products checked for the bulk pricing actions (a publication checks its linked product), as in Productos
-  // (S12d): Shift+click checks a range of the rows on show, the title header checks the page, and the selection
-  // outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page there.
-  const productSelection = useProductSelection(agrupado ? EMPTY_ROWS : listedProductIds);
-  const { checked: checkedIds, clear: clearChecked } = productSelection;
+  // The rows checked for the bulk actions: a publication checks itself, a product row (Producto view) its product.
+  // As in Productos (S12d), Shift+click checks a range of the rows on show, the title header checks the page, and the
+  // selection outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page.
+  const listedRows = useMemo(
+    () =>
+      producto
+        ? productRows.rows.map((row) => selectionRow(row.type === 'node' ? row.node : row.type === 'item' ? row.item : null))
+        : (data?.items ?? EMPTY_ROWS).map(selectionRow),
+    [producto, productRows.rows, data],
+  );
+  const rowSelection = useRowSelection(agrupado ? EMPTY_ROWS : listedRows);
+  const { checked: checkedRows, productIds: checkedIds, itemIds: checkedItemIds, clear: clearChecked } = rowSelection;
   // A price typed in a cell (S11c), and the rebate / web transfer edited in theirs (S1), are saved as Productos does;
   // the list is reloaded after it, as after a panel write (its prices with it).
   const priceEditor = useInlinePriceEdit({ onWritten: reloadList });
@@ -539,10 +546,10 @@ export default function PublicacionesML() {
     [columns, columnVisibility],
   );
   const selection = useMemo(
-    () => ({ checked: checkedIds, onToggle: productSelection.onToggle, togglePage: productSelection.togglePage, pageState: productSelection.pageState }),
-    [checkedIds, productSelection.onToggle, productSelection.togglePage, productSelection.pageState],
+    () => ({ checked: checkedRows, onToggle: rowSelection.onToggle, togglePage: rowSelection.togglePage, pageState: rowSelection.pageState }),
+    [checkedRows, rowSelection.onToggle, rowSelection.togglePage, rowSelection.pageState],
   );
-  const selectableColumns = useMemo(() => withProductSelection(visibleColumns, selection), [visibleColumns, selection]);
+  const selectableColumns = useMemo(() => withRowSelection(visibleColumns, selection), [visibleColumns, selection]);
 
   // What the list really applies: a sort the user may not ask for (a shared link) falls back on the default --
   // Facturado 30D for who sees the sales, like Métricas; the activity otherwise.
@@ -646,11 +653,19 @@ export default function PublicacionesML() {
       showToast('La publicación no tiene producto vinculado', 'error');
       return;
     }
+    // ponytail: paint still colors the whole product; per-publication color lands with publicacion_color (seleccion-por-publicacion S3)
     paintProduct(productId, color);
   };
+  // The selection entry of a focused row. In the Producto view only a product or a publication row: its "more" and
+  // state rows are focusable too, and check nothing.
+  const selectionOfRow = (key) => {
+    if (!producto) return selectionRow(items.find((item) => item.item_id === key));
+    const row = productRows.rows.find((candidate) => candidate.id === key);
+    return selectionRow(row?.type === 'node' ? row.node : row?.type === 'item' ? row.item : null);
+  };
   const extendRow = (key) => {
-    const productId = productIdOfRow(key);
-    if (productId != null) productSelection.extendTo(productId);
+    const { key: rowKey } = selectionOfRow(key);
+    if (rowKey != null) rowSelection.extendTo(rowKey);
   };
   // r / w / o (S9): flip the focused row's product rebate, web transfer or "fuera de tarjetas", as in Productos. They
   // write from the product's own figures (its stored percentages), so they wait for its prices.
@@ -693,7 +708,7 @@ export default function PublicacionesML() {
     onCycleLayer: cycleLayer,
     onCycleMode: canSeePrices && precios ? cyclePriceMode : undefined,
     onToggleRow: canSeePrices && !agrupado ? toggleRow : undefined,
-    // Shift+Up / Shift+Down check the row moved to, from the last product checked (S12d, as in Productos).
+    // Shift+Up / Shift+Down check the row moved to, from the last row checked (S12d, as in Productos).
     onExtendRow: agrupado ? undefined : extendRow,
     findRow: (key) => (ownRows ? undefined : items.find((item) => item.item_id === key)),
     // While an export runs the key is still taken from the browser, and starts nothing.
@@ -761,7 +776,9 @@ export default function PublicacionesML() {
           <BulkActions
             filters={rowFilters}
             checkedIds={checkedIds}
-            offPageCount={agrupado ? 0 : productSelection.offPageCount}
+            checkedPublications={checkedItemIds.length}
+            checkedRowCount={checkedRows.size}
+            offPageCount={agrupado ? 0 : rowSelection.offPageCount}
             onClearChecked={clearChecked}
             canSeeMargin={canSeeMargin}
             onDone={reloadList}
@@ -854,7 +871,7 @@ export default function PublicacionesML() {
             />
             <PaintColorMenu
               checkedIds={checkedIds}
-              offPageCount={agrupado ? 0 : productSelection.offPageCount}
+              offPageCount={agrupado ? 0 : rowSelection.offPageCount}
               equipo={rowFilters.equipo}
               onPainted={colorOverlay.apply}
               onClearChecked={clearChecked}

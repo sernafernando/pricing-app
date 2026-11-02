@@ -1647,7 +1647,9 @@ describe('the product filters (Marca, Categoría, Subcategoría, PM)', () => {
 });
 
 describe('bulk actions over products (S6)', () => {
-  const pick = (mla) => screen.getByRole('checkbox', { name: `Seleccionar el producto de ${mla}` });
+  // Each publication checks itself, not its product (seleccion-por-publicacion S1); a product row checks its product.
+  const pick = (mla) => screen.getByRole('checkbox', { name: `Seleccionar la publicación ${mla}` });
+  const pickProduct = (label) => screen.getByRole('checkbox', { name: `Seleccionar el producto ${label}` });
 
   it('asks the products of the filter and shows their count', async () => {
     await page('/ml-publicaciones?estado=active');
@@ -1655,28 +1657,69 @@ describe('bulk actions over products (S6)', () => {
     expect(publicacionesMlAPI.productIds.mock.calls.at(-1)[0]).toEqual({ estado: 'active' });
   });
 
-  it('checking a publication checks its product; a publication with no product cannot be checked', async () => {
+  // Two publications of product 4101 (MLA1100000001 and MLA1100000009), one of 4102, one without a product.
+  const SAME_PRODUCT = () =>
+    respond({
+      ...ITEMS_RESPONSE,
+      items: [ITEMS[0], ITEMS[1], { ...ITEMS[0], item_id: 'MLA1100000009' }, ITEMS[3]],
+      total: 4,
+    });
+
+  it('checking a publication checks only that publication, not the other one of its product (S1)', async () => {
+    SAME_PRODUCT();
     await page();
     await userEvent.click(pick('MLA1100000001'));
-    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeEnabled();
     expect(pick('MLA1100000001')).toBeChecked();
-    expect(pick('MLA1100000004')).toBeDisabled();
+    expect(pick('MLA1100000009')).not.toBeChecked();
+    // Prices stay per product: the checked publications resolve to their linked products (S5).
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeEnabled();
+    await userEvent.click(pick('MLA1100000009'));
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 2 publicaciones marcadas)' })).toBeEnabled();
+  });
+
+  it('a publication with no product can be checked; the price actions say it has none and can clear it', async () => {
+    SAME_PRODUCT();
+    await page();
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000004'));
+    expect(pick('MLA1100000004')).toBeChecked();
+    // Never the filter's products: it opens on a panel that says why and offers to clear the selection.
+    await user.click(await screen.findByRole('button', { name: 'Acciones masivas (0 productos de 1 publicación marcada)' }));
+    expect(screen.getByText('Las publicaciones marcadas no tienen producto vinculado.')).toBeInTheDocument();
+    for (const item of screen.getAllByRole('menuitem')) expect(item).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /Limpiar selección/ }));
+    expect(pick('MLA1100000004')).not.toBeChecked();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' })).toBeEnabled();
+  });
+
+  it('in the Agrupado tree a checked publication counts with its product, never as the whole filter', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.groups.mockResolvedValue({
+      data: groupsResponse('producto', [
+        { kind: 'producto', key: '9', label: 'Router Z', count: 1, leaf: true, params: { producto: '9' } },
+      ]),
+    });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await user.click(await screen.findByRole('button', { name: /Abrir Router Z/ }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' }));
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Pintar 1 producto' })).toBeInTheDocument();
   });
 
   // S12d: as in Productos, the selection outlives the list it was picked from.
-  it('a filter change keeps the checked products', async () => {
+  it('a filter change keeps the checked publications', async () => {
     await page();
     await userEvent.click(pick('MLA1100000001'));
-    await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' });
+    await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' });
     const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
     await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
     await waitFor(() => expect(lastParams().estado).toBe('active'));
-    expect(screen.getByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeInTheDocument();
     expect(pick('MLA1100000001')).toBeChecked();
   });
 
-  // Three publications, three products, one with none in the middle of the range.
-  const THREE = () =>
+  // Four publications: the range covers the ones in between, whatever their product.
+  const FOUR = () =>
     respond({
       ...ITEMS_RESPONSE,
       items: [
@@ -1688,50 +1731,83 @@ describe('bulk actions over products (S6)', () => {
       total: 4,
     });
 
-  it('Shift+click checks every product between the last one checked and this one, as in Productos', async () => {
-    THREE();
+  it('Shift+click checks every publication between the last one checked and this one, as in Productos', async () => {
+    FOUR();
     await page();
     const user = userEvent.setup();
     await user.click(pick('MLA1100000001'));
     await user.keyboard('{Shift>}');
     await user.click(pick('MLA1100000009'));
     await user.keyboard('{/Shift}');
-    expect(await screen.findByRole('button', { name: 'Acciones masivas (3 productos seleccionados)' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (3 productos de 4 publicaciones marcadas)' })).toBeEnabled();
+    expect(pick('MLA1100000007')).toBeChecked();
     expect(pick('MLA1100000008')).toBeChecked();
-    expect(pick('MLA1100000007')).not.toBeChecked();
   });
 
-  it("the title header's checkbox checks the page's products, and unchecks them when they all are", async () => {
-    THREE();
+  it("the title header's checkbox checks the page's rows, and unchecks them when they all are", async () => {
+    FOUR();
     await page();
-    const all = screen.getByRole('checkbox', { name: 'Seleccionar los productos de la página' });
+    const all = screen.getByRole('checkbox', { name: 'Seleccionar las filas de la página' });
     await userEvent.click(all);
-    expect(await screen.findByRole('button', { name: 'Acciones masivas (3 productos seleccionados)' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (3 productos de 4 publicaciones marcadas)' })).toBeEnabled();
     expect(all).toBeChecked();
     await userEvent.click(all);
     expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos)' })).toBeEnabled();
     expect(pick('MLA1100000001')).not.toBeChecked();
   });
 
-  it('Shift+Down checks the product of the row it moves to', async () => {
-    THREE();
+  it('Shift+Down checks the publication of the row it moves to', async () => {
+    FOUR();
     await page();
     const user = userEvent.setup();
     await user.click(pick('MLA1100000001'));
     pick('MLA1100000001').closest('tr').focus();
     await user.keyboard('{Shift>}{ArrowDown}{ArrowDown}{/Shift}');
-    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos seleccionados)' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (2 productos de 3 publicaciones marcadas)' })).toBeEnabled();
+    expect(pick('MLA1100000007')).toBeChecked();
     expect(pick('MLA1100000008')).toBeChecked();
   });
 
-  it('in the Producto view a product row checks the product; "Sin producto" cannot be checked', async () => {
+  const productView = async () => {
     publicacionesMlAPI.products.mockReset();
     publicacionesMlAPI.products.mockResolvedValue({ data: productsResponse(undefined, { total: 120 }) });
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=producto'] });
     await screen.findByText('Router Archer AX55');
-    await userEvent.click(pick('Router Archer AX55'));
+  };
+
+  it('in the Producto view a product row checks the product; "Sin producto" cannot be checked (S4)', async () => {
+    await productView();
+    await userEvent.click(pickProduct('Router Archer AX55'));
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeEnabled();
-    expect(pick('Sin producto')).toBeDisabled();
+    expect(pickProduct('Sin producto')).toBeDisabled();
+  });
+
+  it('in the Producto view a publication inside an expanded product checks only itself (S4)', async () => {
+    const user = userEvent.setup();
+    await productView();
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' }));
+    expect(pickProduct('Router Archer AX55')).not.toBeChecked();
+    expect(pick('MLA1100000002')).not.toBeChecked();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeEnabled();
+    // Checking the product row too still counts the product once, now from two rows.
+    await user.click(pickProduct('Router Archer AX55'));
+    expect(pick('MLA1100000001')).toBeChecked();
+    expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 2 filas marcadas)' })).toBeEnabled();
+  });
+
+  it('in the Producto view Shift+Down over an open product and its "more" row checks only real rows', async () => {
+    const user = userEvent.setup();
+    await productView();
+    // Open, the product lists a page of its 235 publications and then a "more" row, which is focusable too.
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' });
+    await user.click(pickProduct('Router Archer AX55'));
+    pickProduct('Router Archer AX55').closest('tr').focus();
+    await user.keyboard(`{Shift>}${'{ArrowDown}'.repeat(12)}{/Shift}`);
+    await user.click(screen.getByRole('button', { name: /^Acciones masivas/ }));
+    // A row that is not a product nor a publication would be counted as checked off the page.
+    expect(screen.queryByText(/no está en esta página|no están en esta página/)).not.toBeInTheDocument();
   });
 });
 
@@ -2398,7 +2474,7 @@ describe('painting colors (S8)', () => {
   it('paints the checked products from the list, without asking the list again', async () => {
     await page();
     const asked = publicacionesMlAPI.items.mock.calls.length;
-    await userEvent.click(within(firstRow()).getByRole('checkbox', { name: /Seleccionar el producto de/ }));
+    await userEvent.click(within(firstRow()).getByRole('checkbox', { name: /Seleccionar la publicación/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Pintar 1 producto' }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'OK' }));
     await waitFor(() => expect(firstRow()).toHaveAttribute('data-tone'));

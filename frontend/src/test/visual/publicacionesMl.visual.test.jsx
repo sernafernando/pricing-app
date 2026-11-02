@@ -2236,7 +2236,7 @@ describe('row colors and the color layer (S8)', () => {
       painted.scrollIntoView({ block: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/row-colors-1366-${theme}.png` });
       // With a product checked, the Pintar button joins the band and still fits it.
-      await screen.getByRole('checkbox', { name: /Seleccionar el producto de/ }).first().click();
+      await screen.getByRole('checkbox', { name: /Seleccionar la publicación/ }).first().click();
       await expect.element(screen.getByRole('button', { name: 'Pintar 1 producto' })).toBeVisible();
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
       if (PRODUCT_SHOTS_DIR) {
@@ -2399,7 +2399,7 @@ describe('row colors and the color layer (S8)', () => {
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: the page's checkbox sits on the title header's line, before its sort button, and is clickable`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme });
-      const all = screen.getByRole('checkbox', { name: 'Seleccionar los productos de la página' });
+      const all = screen.getByRole('checkbox', { name: 'Seleccionar las filas de la página' });
       await expect.element(all).toBeVisible();
       all.element().scrollIntoView({ block: 'center', inline: 'nearest' });
       const header = all.element().closest('th');
