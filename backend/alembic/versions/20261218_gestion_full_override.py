@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261218_gestion_full_override"
-down_revision: Union[str, None] = "20261217_drop_sell_in_compras_pedido_compra_id"
+down_revision: Union[str, None] = "20261227_sell_in_modos_producto"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
