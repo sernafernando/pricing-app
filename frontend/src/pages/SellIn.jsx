@@ -493,7 +493,7 @@ export default function SellIn() {
               grupos={gruposOffset}
               puedeGestionar={puedeGestionarSellOut}
               onSaved={(campana) => {
-                if (panel.id === null) verCampana(campana.id);
+                if (campana.id !== panel.id) verCampana(campana.id); // a new one, or a renewal's copy
                 campanas.recargar();
               }}
               onClose={cerrarPanel}

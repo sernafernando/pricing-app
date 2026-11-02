@@ -14,6 +14,8 @@ export const sellOutAPI = {
   consumos: (id, params) => api.get(`${CAMPANAS}/${id}/consumos`, { params }),
   crear: (body) => api.post(CAMPANAS, body),
   editar: (id, body) => api.put(`${CAMPANAS}/${id}`, body),
+  // The renewal draft of a campaign, active or voided: a NEW campaign in the shape `crear` takes. It writes nothing.
+  renovacion: (id) => api.get(`${CAMPANAS}/${id}/renovacion`),
   anular: (id, motivo) => api.post(`${CAMPANAS}/${id}/anular`, { motivo: motivo?.trim() || null }),
   // Bulk void, all or nothing: `{ anuladas, omitidas }`; a refusal is a 422 with `error.rechazadas: [{ id, motivo }]`.
   anularVarias: (ids, motivo) => api.post(`${CAMPANAS}/anular`, { ids, motivo: motivo?.trim() || null }),

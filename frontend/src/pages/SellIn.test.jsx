@@ -8,7 +8,7 @@ import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, RESUMEN } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
-import { CAMPANA_MIGRADA, CAMPANAS_LISTA, CONSUMOS_USD } from '../components/sellOut/sellOutFixtures';
+import { CAMPANA_MIGRADA, CAMPANAS_LISTA, CONSUMOS_USD, RENOVACION_MIGRADA } from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
 
 vi.mock('../services/sellInAPI', () => ({
@@ -41,6 +41,7 @@ vi.mock('../services/sellOutAPI', () => ({
     grupos: vi.fn(),
     consumos: vi.fn(),
     anularVarias: vi.fn(),
+    renovacion: vi.fn(),
   },
 }));
 
@@ -658,6 +659,29 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
 
     expect(await screen.findByRole('heading', { name: 'Epson diciembre', level: 2 })).toBeInTheDocument();
     expect(sellOutAPI.detalle).toHaveBeenCalledWith(95);
+    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
+  });
+
+  it('"Renovar" saves the copy as a new campaign and shows it like "Nueva campaña"; the original is not edited', async () => {
+    const user = userEvent.setup();
+    const NUEVA = { ...CAMPANA_MIGRADA, id: 96, fecha_desde: '2027-01-01', fecha_hasta: '2027-03-31' };
+    sellOutAPI.renovacion.mockResolvedValue({ data: RENOVACION_MIGRADA });
+    sellOutAPI.crear.mockResolvedValue({ data: NUEVA });
+    sellOutAPI.detalle.mockImplementation(async (id) => ({ data: id === 96 ? NUEVA : CAMPANA_MIGRADA }));
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
+    const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
+    await user.click(within(fila).getByRole('button', { name: 'Ver campaña' }));
+    await user.click(await screen.findByRole('button', { name: 'Renovar' }));
+    expect(await screen.findByText('Copia de «RB 8180». Revisá fechas y montos antes de guardar.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Guardar campaña' }));
+
+    await waitFor(() => expect(sellOutAPI.detalle).toHaveBeenCalledWith(96));
+    expect(await screen.findByRole('heading', { name: 'RB 8180', level: 2 })).toBeInTheDocument();
+    expect(await screen.findByLabelText('Desde')).toHaveValue('2027-01-01');
+    expect(screen.queryByText(/Copia de/)).not.toBeInTheDocument();
+    expect(sellOutAPI.editar).not.toHaveBeenCalled();
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
   });
 
