@@ -38,6 +38,7 @@ from app.services.ml_promotions_service import (
     fetch_promotion_items,
     fetch_promotions,
 )
+from app.services.ml_promotions_hay_mejores import descartar_hay_mejores_ofertas
 from app.services.ml_promotions_write_service import enroll_one_item, remove_one_item
 from app.services.ml_publication_status_service import GONE, NEVER_EXISTED, NO_ML_DATA, fetch_publication_status_by_mla
 from app.services.ml_webhook_client import ml_webhook_client
@@ -783,6 +784,26 @@ def inscribir_item_en_promocion(
             db, mla_id, body.promotion_type, live_promo or {}, price=outcome.get("precio_aplicado")
         )
     return EnrollResult(**outcome)
+
+
+class DescartarHayMejoresResult(BaseModel):
+    mla: str
+    descartado: bool
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.post("/item/{mla_id}/descartar-hay-mejores", response_model=DescartarHayMejoresResult)
+def descartar_hay_mejores(
+    mla_id: str,
+    current_user: Usuario = Depends(require_promos_write()),
+    db: Session = Depends(get_db),
+) -> DescartarHayMejoresResult:
+    """Clear hay-mejores flag; fingerprint blocks instant re-flag. Requires promos.escribir."""
+    ok = descartar_hay_mejores_ofertas(db, mla_id)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Publicación sin datos de promociones")
+    db.commit()
+    return DescartarHayMejoresResult(mla=mla_id, descartado=True)
 
 
 @router.delete("/item/{mla_id}", response_model=RemoveResult)
