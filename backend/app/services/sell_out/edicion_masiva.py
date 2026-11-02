@@ -38,7 +38,6 @@ rebuild's per-campaign locks. Meanwhile a single edit of one of them (a linked o
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -176,33 +175,25 @@ def _diferencia(antes: dict, despues: dict) -> dict:
     return {"salen": salen, "entran": entran}
 
 
-_CAMPANA = re.compile(r"^campaign (\d+): (.*)$", re.DOTALL)
-_SIN_TASA = re.compile(r"^no BNA rate to convert the sale of (\S+)$")
-_SIN_IVA = re.compile(r"^product (\d+) has no VAT rate$")
-
-
 def _motivo_recalculo(db: Session, exc: asignacion.SellOutAsignacionError) -> str:
-    """`exc` (the allocator's English message, `campaign <id>: <why>`) for the operator: the campaign by its name and
-    the reason in Spanish; an invalid split with `campanas.mensaje_reparto`. Read after the rollback."""
-    encontrado = _CAMPANA.match(str(exc))
-    if encontrado is None:
-        return "La edición no se puede recalcular."
-    cid, causa = int(encontrado.group(1)), encontrado.group(2)
-    campana = db.get(SellOutCampana, cid)
-    quien = f"la campaña {campana.nombre}" if campana is not None else f"la campaña {cid}"
-    if isinstance(exc.__cause__, reparto.RepartoInvalido):
+    """`exc` for the operator, from its fields (`campana_id`, `causa`, `item_id`, `fecha`): the campaign by its name
+    and the reason in Spanish; an invalid split with `campanas.mensaje_reparto`. Read after the rollback."""
+    campana = db.get(SellOutCampana, exc.campana_id)
+    quien = f"la campaña {campana.nombre}" if campana is not None else f"la campaña {exc.campana_id}"
+    if exc.causa == "reparto_invalido" and isinstance(exc.__cause__, reparto.RepartoInvalido):
         porque = base.mensaje_reparto(exc.__cause__)
         return f"La edición no se puede recalcular: en {quien}, {porque[0].lower()}{porque[1:]}"
-    if sin_iva := _SIN_IVA.match(causa):
-        item_id = int(sin_iva.group(1))
-        producto = db.get(ProductoERP, item_id)
+    if exc.causa == "producto_sin_iva" and exc.item_id is not None:
+        producto = db.get(ProductoERP, exc.item_id)
         codigo = f" ({producto.codigo})" if producto is not None and producto.codigo else ""
-        porque = f"se carga con IVA y el producto {item_id}{codigo} no tiene IVA"
-    elif causa == "a product it reaches has no VAT rate":
+        porque = f"se carga con IVA y el producto {exc.item_id}{codigo} no tiene IVA"
+    elif exc.causa == "producto_sin_iva":
         porque = "se carga con IVA y un producto que alcanza no tiene IVA"
-    elif sin_tasa := _SIN_TASA.match(causa):
-        porque = f"no hay cotización BNA para convertir la venta del {_fecha(date.fromisoformat(sin_tasa.group(1)))}"
-    elif causa.endswith("campaign never gives a negative amount"):
+    elif exc.causa == "sin_tipo_cambio" and exc.fecha is not None:
+        porque = f"no tiene cotización BNA para convertir la venta del {_fecha(exc.fecha)}"
+    elif exc.causa == "sin_tipo_cambio":
+        porque = "no tiene cotización BNA para convertir sus ventas"
+    elif exc.causa == "monto_negativo":
         porque = "daría un monto negativo, y solo una campaña por monto total puede ser negativa"
     else:
         porque = "tiene un reparto que no se puede aplicar"

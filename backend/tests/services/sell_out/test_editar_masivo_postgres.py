@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Iterator
+from typing import Iterator, Optional
 
 import pytest
 from sqlalchemy import Engine, event, text
@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models.auditoria import TipoAccion
 from app.models.sell_out import SellOutCampana
 from app.schemas.sell_out import SellOutCampanaIn
-from app.services.sell_out import asignacion, edicion_masiva, queue
+from app.services.sell_out import asignacion, edicion_masiva, queue, reparto
 from app.services.sell_out import campanas as service
 from tests.services.sell_out import _world as w
 
@@ -558,6 +558,72 @@ def test_a_rebuild_that_would_fail_is_refused_in_spanish_naming_the_campaign(eng
     finally:
         w.clean(engine)  # its group's filter references the product
         w.execute(engine, "DELETE FROM productos_erp WHERE item_id = :i", i=SIN_IVA)
+
+
+@pytest.mark.parametrize(
+    ("causa", "item_id", "fecha", "origen", "mensaje"),
+    [
+        (
+            "sin_tipo_cambio",
+            None,
+            date(2026, 11, 2),
+            None,
+            "la campaña Rebate Q4 2026 no tiene cotización BNA para convertir la venta del 02/11/2026",
+        ),
+        (
+            "producto_sin_iva",
+            ROUTER,
+            None,
+            None,
+            "la campaña Rebate Q4 2026 se carga con IVA y el producto 2964 (C2964) no tiene IVA",
+        ),
+        (
+            "producto_sin_iva",
+            None,
+            None,
+            None,
+            "la campaña Rebate Q4 2026 se carga con IVA y un producto que alcanza no tiene IVA",
+        ),
+        (
+            "reparto_invalido",
+            ROUTER,
+            None,
+            reparto.RepartoInvalido("x", causa="signo", item_id=ROUTER),
+            "en la campaña Rebate Q4 2026, el reparto del producto 2964 tiene que tener el signo del monto total",
+        ),
+        (
+            "monto_negativo",
+            None,
+            None,
+            None,
+            "la campaña Rebate Q4 2026 daría un monto negativo, y solo una campaña por monto total puede ser negativa",
+        ),
+    ],
+)
+def test_each_rebuild_refusal_is_explained_from_its_fields(
+    engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    causa: str,
+    item_id: Optional[int],
+    fecha: Optional[date],
+    origen: Optional[Exception],
+    mensaje: str,
+) -> None:
+    """The reason comes from the error's fields (`campana_id`, `causa`, `item_id`, `fecha`), never from its text."""
+    cid = w.campana(engine, [w.grupo(engine, [ROUTERS])], nombre="Rebate Q4 2026")
+
+    def _falla(db: Session, campana_ids: list[int]) -> None:
+        error = asignacion.SellOutAsignacionError(
+            "texto interno que nadie lee", campana_id=cid, causa=causa, item_id=item_id, fecha=fecha
+        )
+        raise error from origen
+
+    monkeypatch.setattr(asignacion, "recalcular", _falla)
+
+    with pytest.raises(service.SellOutError) as exc:
+        _previa(engine, [cid], fecha_hasta=date(2026, 12, 31))
+
+    assert str(exc.value) == f"La edición no se puede recalcular: {mensaje}"
 
 
 def _lecturas(engine: Engine, monkeypatch: pytest.MonkeyPatch, ids: list[int]) -> int:
