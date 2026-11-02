@@ -783,11 +783,11 @@ describe('opening a publication', () => {
     });
 
     it.each([
-      ['Alt', { altKey: true }, 'with'],
-      ['Alt', { altKey: true }, 'without'],
-      ['Shift', { shiftKey: true }, 'with'],
-      ['Shift', { shiftKey: true }, 'without'],
-    ])('a publication with no usable MLA opens nothing on %s+click, %s the extension', async (_, keys, extension) => {
+      { modifier: 'Alt', keys: { altKey: true }, extension: 'with' },
+      { modifier: 'Alt', keys: { altKey: true }, extension: 'without' },
+      { modifier: 'Shift', keys: { shiftKey: true }, extension: 'with' },
+      { modifier: 'Shift', keys: { shiftKey: true }, extension: 'without' },
+    ])('a publication with no usable MLA opens nothing on $modifier+click, $extension the extension', async ({ keys, extension }) => {
       if (extension === 'with') document.documentElement.dataset.mlPanel = '1';
       respond({ ...ITEMS_RESPONSE, items: [ITEMS[0], { ...ITEMS[1], item_id: 'MLA' }], total: 2 });
       await page();
