@@ -144,7 +144,7 @@ def bono_costo(db: Session, item_id: int, hoy: date) -> Optional[SellInProducto]
 def _proxima(filas: List[LoteVisor], pool: Optional[LoteVigente] = None) -> Optional[ProximaVenta]:
     """The current line's discount and units left, then the next line with units. Under a weighted or last-price
     mode (`pool`: what `costing.vigentes` gives) every unit of the lines that count goes at the pool's value, so only a
-    line that counts from a later date can come after it."""
+    line that counts from a later date can come after it, at what a sale on that date gets once it joins."""
     actual = next((x for x in filas if x.estado == "vigente"), None)
     if actual is None:
         return None
@@ -153,7 +153,10 @@ def _proxima(filas: List[LoteVisor], pool: Optional[LoteVigente] = None) -> Opti
     )
     siguiente = None
     if despues is not None:
-        siguiente = Siguiente(despues.numero, despues.descuento_unit, despues.fecha_desde, despues.estado)
+        valor = despues.descuento_unit
+        if pool is not None and pool.siguiente_unit_ars is not None:
+            valor = pool.siguiente_unit_ars  # the later line joins the pool on its date
+        siguiente = Siguiente(despues.numero, valor, despues.fecha_desde, despues.estado)
     if pool is not None:
         return ProximaVenta(
             actual.numero, actual.compra_item_id, pool.descuento_unit_ars, pool.unidades_restantes, siguiente

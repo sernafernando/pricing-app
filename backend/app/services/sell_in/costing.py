@@ -76,7 +76,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, Iterable, List, Protocol, Tuple, runtime_checkable
+from typing import Dict, Iterable, List, Optional, Protocol, Tuple, runtime_checkable
 
 from sqlalchemy import delete, func, insert, text
 from sqlalchemy.orm import Session
@@ -150,6 +150,8 @@ class LoteVigente:
     # True when a weighted or last-price mode governs and its replay gave the value: every unit of the lines that
     # count goes at it. False under FIFO, or when the replay could not run and the line's own value stands.
     en_pool: bool = False
+    # Under a pool, what a sale on the next lot's start date gets once that lot joins it; None otherwise.
+    siguiente_unit_ars: Optional[Decimal] = None
 
 
 def utc_date(value) -> date:
@@ -273,6 +275,8 @@ class FifoPurchaseCosting:
                 for linea, fecha, unidades in filas.get(item_id, []):
                     dinero.fila(fecha, indice[linea], unidades)
                 proximo = dinero.proximo(hoy)
+                futuro = next((lote for lote in item if lote.fecha > hoy), None)
+                despues = dinero.proximo(futuro.fecha) if futuro is not None else None
             except (ValueError, ArithmeticError, KeyError) as exc:
                 # A mode the replay does not support yet, or rows read mid-change by another transaction.
                 logger.warning("sell in: next sale of product %s not computed: %s", item_id, exc)
@@ -280,7 +284,10 @@ class FifoPurchaseCosting:
             if proximo is not None:
                 i, monto, sobre, restantes = proximo
                 en_pool = periodo_en(periodos[item_id], hoy)[1] != "fifo"
-                salida[item_id] = LoteVigente(item[i].compra_item_id, unit_discount(monto, sobre), restantes, en_pool)
+                siguiente = unit_discount(despues[1], despues[2]) if en_pool and despues is not None else None
+                salida[item_id] = LoteVigente(
+                    item[i].compra_item_id, unit_discount(monto, sobre), restantes, en_pool, siguiente
+                )
         return salida
 
     @staticmethod

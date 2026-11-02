@@ -112,15 +112,41 @@ def test_the_viewer_and_the_panels_agree_on_every_mode(engine: Engine) -> None:
         si.clean(engine)
 
 
-def test_under_a_pool_only_a_future_lot_comes_after(engine: Engine) -> None:
-    _dos_lotes(engine)
-    (futuro,) = si.compra(engine, [(ROUTER, 10, "60.00")], D(2026, 12, 1))
-    si.modo(engine, ROUTER, "ponderado", D(2026, 10, 15))
+def test_under_a_pool_only_a_future_lot_comes_after_at_what_a_sale_on_its_date_gets(engine: Engine) -> None:
+    # The future lot joins the pool on its date: 1800 + 60 over 210 units under `ponderado`; the newest lot under
+    # `ultimo` is the future one itself.
+    for modo, valor, despues in (
+        ("ponderado", Decimal("9.00"), Decimal("8.857143")),
+        ("ultimo", Decimal("8.00"), Decimal("6.00")),
+    ):
+        _dos_lotes(engine)
+        si.compra(engine, [(ROUTER, 10, "60.00")], D(2026, 12, 1))
+        si.modo(engine, ROUTER, modo, D(2026, 10, 15))
+        with _sesion(engine) as db:
+            prox = visor_lotes.lotes_de_producto(db, ROUTER, HOY).proxima
+        assert prox.restantes == 200 and prox.descuento_unit == valor, modo
+        assert prox.siguiente is not None and prox.siguiente.estado == "desde", modo
+        assert prox.siguiente.descuento_unit == despues, modo
+        si.clean(engine)
+
+
+def test_a_future_manual_row_governs_nothing_yet(engine: Engine) -> None:
+    diez, _ = _dos_lotes(engine)
+    venta = si.venta(engine, "fuera", ROUTER, 40, D(2026, 10, 20))
+    si.modo(engine, ROUTER, "manual", D(2026, 12, 1), cantidad=30, costo_unit="52000", costo_base_unit="50000")
+
+    r = _recompute(engine, ROUTER)
+
+    assert not r.failed
+    assert si.consumos(engine) == [(diez, "fuera", venta, ROUTER, 40, Decimal("400.00"))]
     with _sesion(engine) as db:
-        prox = visor_lotes.lotes_de_producto(db, ROUTER, HOY).proxima
-    assert prox.restantes == 200 and prox.descuento_unit == Decimal("9.00")
-    assert prox.siguiente is not None and prox.siguiente.estado == "desde"
-    assert prox.siguiente.descuento_unit == Decimal("6.00")
+        vig = get_costing().vigentes(db, [ROUTER], HOY)[ROUTER]
+    assert (vig.compra_item_id, vig.descuento_unit_ars, vig.unidades_restantes, vig.en_pool) == (
+        diez,
+        Decimal("10.000000"),
+        60,
+        False,
+    )
 
 
 def test_a_future_row_governs_nothing_yet(engine: Engine) -> None:
