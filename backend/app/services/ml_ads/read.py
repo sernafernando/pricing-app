@@ -13,10 +13,16 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal, Mapping, Optional, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import Numeric, func, select
 from sqlalchemy.orm import Session
 
-from app.models.ml_ads import MlAdsBrandDay, MlAdsDayLedger, MlAdsDisplayCampaignDay, MlAdsItemDay
+from app.models.ml_ads import (
+    MlAdsBrandDay,
+    MlAdsDayLedger,
+    MlAdsDisplayCampaign,
+    MlAdsDisplayCampaignDay,
+    MlAdsItemDay,
+)
 from app.services.ml_ads.ingestion import LOCAL_TZ
 from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_ads.owner import NO_PRODUCT, ads_owner_select
@@ -275,6 +281,127 @@ def ads_account_level(db: Session, date_from: date, date_to: date) -> AccountLev
         select(func.sum(B.cost), func.sum(B.prints), func.sum(B.clicks)).where(B.day.between(date_from, date_to))
     ).one()
     return AccountLevel(display, BrandTotals(brand_cost or Decimal(0), brand_prints or 0, brand_clicks or 0))
+
+
+@dataclass(frozen=True)
+class DisplayFigures:
+    """Summed Display figures with their ratios. Ratios are computed here (ML's own `ctr` is 0.0 even with
+    clicks); a ratio whose base is zero is None. Attributed sales are ML's `event_time` attribution."""
+
+    cost: Decimal
+    prints: int
+    clicks: int
+    reach: int
+    attributed_amount: Decimal
+    attributed_units: int
+
+    @property
+    def ctr(self) -> Optional[Decimal]:
+        return Decimal(self.clicks) / Decimal(self.prints) if self.prints else None
+
+    @property
+    def cpc(self) -> Optional[Decimal]:
+        return self.cost / self.clicks if self.clicks else None
+
+    @property
+    def cpm(self) -> Optional[Decimal]:
+        return self.cost * 1000 / self.prints if self.prints else None
+
+    @property
+    def roas(self) -> Optional[Decimal]:
+        return self.attributed_amount / self.cost if self.cost else None
+
+
+@dataclass(frozen=True)
+class DisplayCampaignReport(DisplayFigures):
+    advertiser_id: int = 0
+    campaign_id: int = 0
+    name: Optional[str] = None
+    type: Optional[str] = None
+    goal: Optional[str] = None
+    status: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+
+@dataclass(frozen=True)
+class DisplayDayCost:
+    day: date
+    cost: Decimal
+
+
+@dataclass(frozen=True)
+class DisplayReport:
+    totals: DisplayFigures
+    campaigns: list[DisplayCampaignReport]
+    daily: list[DisplayDayCost]
+
+
+_ZERO_FIGURES = dict(cost=Decimal(0), prints=0, clicks=0, reach=0, attributed_amount=Decimal(0), attributed_units=0)
+
+
+def display_report(db: Session, date_from: date, date_to: date) -> DisplayReport:
+    """The Display tab: every catalog campaign (zero when it had no day in range) plus any campaign with days
+    and no catalog row, by cost descending; the period totals; and the stored days' cost."""
+    D, C = MlAdsDisplayCampaignDay, MlAdsDisplayCampaign
+    event_time = D.raw["event_time"]
+    in_range = D.day.between(date_from, date_to)
+    figures = {
+        (advertiser, campaign): dict(
+            cost=cost,
+            prints=int(prints),
+            clicks=int(clicks),
+            reach=int(reach),
+            attributed_amount=amount or Decimal(0),
+            attributed_units=int(units or 0),
+        )
+        for advertiser, campaign, cost, prints, clicks, reach, amount, units in db.execute(
+            select(
+                D.advertiser_id,
+                D.campaign_id,
+                func.sum(D.consumed_budget),
+                func.sum(D.prints),
+                func.sum(D.clicks),
+                func.sum(D.reach),
+                func.sum(event_time["direct_amount"].astext.cast(Numeric(16, 2))),
+                func.sum(event_time["units_quantity"].astext.cast(Numeric)),
+            )
+            .where(in_range)
+            .group_by(D.advertiser_id, D.campaign_id)
+        ).all()
+    }
+    catalog = {(row.advertiser_id, row.campaign_id): row for row in db.scalars(select(C)).all()}
+
+    def _day(value: Optional[datetime]) -> Optional[date]:
+        return value.date() if value else None
+
+    campaigns = []
+    for key in catalog.keys() | figures.keys():
+        entry = catalog.get(key)
+        campaigns.append(
+            DisplayCampaignReport(
+                **figures.get(key, _ZERO_FIGURES),
+                advertiser_id=key[0],
+                campaign_id=key[1],
+                name=entry.name if entry else None,
+                type=entry.type if entry else None,
+                goal=entry.goal if entry else None,
+                status=entry.status if entry else None,
+                start_date=_day(entry.start_date) if entry else None,
+                end_date=_day(entry.end_date) if entry else None,
+            )
+        )
+    campaigns.sort(key=lambda c: (-c.cost, c.advertiser_id, c.campaign_id))
+    totals = DisplayFigures(
+        **{name: sum((getattr(c, name) for c in campaigns), _ZERO_FIGURES[name]) for name in _ZERO_FIGURES}
+    )
+    daily = [
+        DisplayDayCost(day, cost)
+        for day, cost in db.execute(
+            select(D.day, func.sum(D.consumed_budget)).where(in_range).group_by(D.day).order_by(D.day)
+        ).all()
+    ]
+    return DisplayReport(totals, campaigns, daily)
 
 
 def ads_coverage(db: Session, date_from: date, date_to: date, *, today: Optional[date] = None) -> Coverage:

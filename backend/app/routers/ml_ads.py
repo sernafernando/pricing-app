@@ -9,6 +9,9 @@ writes are the brand contributions the team loads.
 - `GET /ml-ads/by-product`: the read-time sum of those rows per owner, "sin producto" included. `product_ids` narrows.
 - `GET /ml-ads/account-level`: Display per campaign (subtractable: its IVA basis is measured) and Brand Ads
   (informational only, no net cost). Never attributed to an MLA.
+- `GET /ml-ads/display`: the Display tab (ml-ads-cupones-display S7): every Display campaign with its catalog, its
+  summed figures, computed ratios (CTR, CPC, CPM, ROAS; null without a base) and ML-attributed sales; the period
+  totals; and the cost of each stored day.
 - `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with its brand contributions, its cost in the range
   (ml-ads-brand-contribution S8) and what those contributions cover of it (ml-ads-contribution-redesign S6).
   `GET /ml-ads/contributions/preview` answers what a contribution would cover, taking the create body as its query.
@@ -127,6 +130,42 @@ class BrandOut(BaseModel):
     cost_informational: float
     prints: int
     clicks: int
+
+
+class DisplayFiguresOut(BaseModel):
+    cost: float
+    prints: int
+    clicks: int
+    reach: int
+    attributed_amount: float
+    attributed_units: int
+    ctr: Optional[float]
+    cpc: Optional[float]
+    cpm: Optional[float]
+    roas: Optional[float]
+
+
+class DisplayCampaignReportOut(DisplayFiguresOut):
+    advertiser_id: int
+    campaign_id: int
+    name: Optional[str]
+    type: Optional[str]
+    goal: Optional[str]
+    status: Optional[str]
+    start_date: Optional[date]
+    end_date: Optional[date]
+
+
+class DisplayDayOut(BaseModel):
+    day: date
+    cost: float
+
+
+class DisplayReportOut(BaseModel):
+    coverage: CoverageOut
+    totals: DisplayFiguresOut
+    campaigns: list[DisplayCampaignReportOut]
+    daily: list[DisplayDayOut]
 
 
 class AccountLevelOut(BaseModel):
@@ -263,6 +302,50 @@ def get_account_level(w: Window = Depends(window), db: Session = Depends(get_db)
             ],
         ),
         brand=BrandOut(cost_informational=_money(brand.cost_informational), prints=brand.prints, clicks=brand.clicks),
+    )
+
+
+def _ratio(value: Optional[Decimal]) -> Optional[float]:
+    return None if value is None else float(value)
+
+
+def _figures(row: read.DisplayFigures) -> dict:
+    return dict(
+        cost=_money(row.cost),
+        prints=row.prints,
+        clicks=row.clicks,
+        reach=row.reach,
+        attributed_amount=_money(row.attributed_amount),
+        attributed_units=row.attributed_units,
+        ctr=_ratio(row.ctr),
+        cpc=_ratio(row.cpc),
+        cpm=_ratio(row.cpm),
+        roas=_ratio(row.roas),
+    )
+
+
+@router.get("/display", response_model=DisplayReportOut)
+def get_display(w: Window = Depends(window), db: Session = Depends(get_db)) -> DisplayReportOut:
+    """The Display tab: campaigns by cost (catalog ones with no day in range read zero), totals and daily cost."""
+    got = read.display_report(db, w.date_from, w.date_to)
+    return DisplayReportOut(
+        coverage=_coverage(w, db),
+        totals=DisplayFiguresOut(**_figures(got.totals)),
+        campaigns=[
+            DisplayCampaignReportOut(
+                **_figures(c),
+                advertiser_id=c.advertiser_id,
+                campaign_id=c.campaign_id,
+                name=c.name,
+                type=c.type,
+                goal=c.goal,
+                status=c.status,
+                start_date=c.start_date,
+                end_date=c.end_date,
+            )
+            for c in got.campaigns
+        ],
+        daily=[DisplayDayOut(day=d.day, cost=_money(d.cost)) for d in got.daily],
     )
 
 
