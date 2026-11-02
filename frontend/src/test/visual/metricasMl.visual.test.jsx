@@ -452,6 +452,10 @@ describe('Métricas ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () =
       const titles = table.querySelectorAll('td[data-col-id="producto"] span[title], td[data-col-id="producto"] div[title]');
       expect(titles.length).toBeGreaterThan(0);
       for (const el of titles) expect(el.getClientRects().length, el.textContent).toBe(1);
+      // Anything cut in the Producto cell (title, meta, publication title) carries its whole text in a tooltip.
+      const cut = [...table.querySelectorAll('td[data-col-id="producto"] *')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+      expect(cut.length).toBeGreaterThan(0);
+      for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1920);
       screen.unmount();
     });

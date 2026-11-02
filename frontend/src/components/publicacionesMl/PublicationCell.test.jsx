@@ -134,3 +134,25 @@ describe('PublicationCell SKU divergence', () => {
     expect(screen.queryByLabelText(/SKU distinto/)).not.toBeInTheDocument();
   });
 });
+
+// "Filas finas" cuts the meta line to one line: everything on it must be readable in its tooltip.
+describe('PublicationCell meta tooltip', () => {
+  it('names the MLA, SKU, link, store and tags in the meta line title', () => {
+    render(
+      <PublicationCell
+        item={makeItem({
+          item_id: 'MLA9',
+          title: 'Router',
+          seller_sku: 'AX55-SKU',
+          link: { state: 'manual', producto_item_id: 4102, codigo: 'EP-544-BK', descripcion: null, marca: null },
+          store_label: 'TP-Link',
+          is_full: true,
+          catalog_listing: true,
+          variations_count: 3,
+        })}
+      />,
+    );
+    const meta = screen.getByText('MLA9').parentElement;
+    expect(meta).toHaveAttribute('title', 'MLA9 · SKU AX55-SKU · Vínculo: Manual · EP-544-BK · Tienda: TP-Link · Full · Catálogo · 3 variaciones');
+  });
+});

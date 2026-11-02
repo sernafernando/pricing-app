@@ -654,6 +654,17 @@ thead .colProducto {
   text-overflow: ellipsis;
 }
 
+/* A flex box never draws an ellipsis: dense, the meta is one line of inline text cut with "…" (whole in its
+   tooltip). */
+.table[data-density='dense'] .meta {
+  display: block;
+  white-space: nowrap;
+}
+
+.table[data-density='dense'] .meta > * + * {
+  margin-left: 6px;
+}
+
 .table[data-density='dense'] .subTitle {
   padding-left: 0;
 }

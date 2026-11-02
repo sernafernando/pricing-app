@@ -215,7 +215,7 @@ function GroupCell({ row, depth, expanded, onToggle }) {
             {row.title}
           </span>
         </div>
-        <div className={styles.meta}>
+        <div className={styles.meta} title={groupCounts(row)}>
           <span>{groupCounts(row)}</span>
         </div>
       </div>
@@ -297,7 +297,14 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
           {!isProduct && <ListingKindBadge kind={row.listing_kind} />}
           <ProductBadges row={row} canSeeMargin={canSeeMargin} />
         </div>
-        <div className={styles.meta} title={isProduct ? [row.sku, row.marca, pubsText].filter(Boolean).join(' · ') : undefined}>
+        <div
+          className={styles.meta}
+          title={
+            isProduct
+              ? [row.sku, row.marca, pubsText].filter(Boolean).join(' · ')
+              : `${publicationDescriptor(row)} · ${row.title}`
+          }
+        >
           {isProduct ? (
             <>
               {row.sku && <span className={styles.sku}>{row.sku}</span>}

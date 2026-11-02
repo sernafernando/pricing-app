@@ -88,6 +88,21 @@ export default function PublicationCell({ item }) {
     item.catalog_listing && 'Catálogo',
     item.variations_count > 0 && `${item.variations_count} variaciones`,
   ].filter(Boolean);
+  // Everything the meta line says, for its tooltip: "Filas finas" cuts the line to one row.
+  const link = LINK_STATES[item.link?.state];
+  const divergence = SKU_DIVERGENCE_KINDS[item.sku_divergence?.kind];
+  const store = storeName(item);
+  const metaTitle = [
+    item.item_id,
+    item.seller_sku && `SKU ${item.seller_sku}`,
+    divergence && `SKU distinto del producto vinculado: ${divergence.label}`,
+    link && `Vínculo: ${link.label}`,
+    link && item.link.codigo,
+    store && `Tienda: ${store}`,
+    ...tags,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <div className={styles.cell}>
       <div className={styles.thumbnail} aria-hidden="true">
@@ -97,7 +112,7 @@ export default function PublicationCell({ item }) {
         <span className={`${styles.title} ${item.title ? '' : styles.titleEmpty}`} title={item.title ?? undefined}>
           {item.title ?? 'Sin título'}
         </span>
-        <span className={styles.meta}>
+        <span className={styles.meta} title={metaTitle || undefined}>
           {/* Mouse-only shortcuts on the row; the links beside it are the keyboard path. */}
           <span className={styles.mla} title={MLA_SHORTCUTS}>
             {item.item_id}

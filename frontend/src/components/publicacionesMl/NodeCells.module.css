@@ -14,6 +14,19 @@
   min-width: 0;
 }
 
+/* The name and its badges (prearmadas, PxQ tiers, catalog). */
+.nameLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-1);
+  min-width: 0;
+}
+
+.nameLine > :not(.nodeLabel) {
+  flex-shrink: 0;
+}
+
 .nodeLabel {
   font-weight: var(--font-semibold);
   color: var(--cf-text-primary);
@@ -40,7 +53,12 @@
   gap: 0;
 }
 
+:global([data-density='dense']) .nameLine {
+  flex-wrap: nowrap;
+}
+
 :global([data-density='dense']) .nodeLabel {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

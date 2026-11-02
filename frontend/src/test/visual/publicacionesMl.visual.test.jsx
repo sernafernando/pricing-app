@@ -1227,6 +1227,34 @@ describe('Publicaciones ML Producto view (visual)', () => {
       });
     }
 
+    // "Filas finas" (vistas-tipo-publicacion S5): a long name is cut, never its badges; the name is in its tooltip.
+    it(`1920x1080 ${theme}: dense, a long product name is cut with its tooltip and its badges stay whole`, async () => {
+      localStorage.setItem('publicaciones-ml.filas-finas', 'true');
+      try {
+        const screen = await renderProducts({ width: 1920, height: 1080, theme });
+        const table = screen.getByRole('table', { name: /por producto/ });
+        await expect.element(table.getByText('3 tramos · desde $37.800')).toBeVisible();
+        expect(scrollerOf().closest('[data-density]').dataset.density).toBe('dense');
+        const row = rowWith(scrollerOf(), 'Sistema Mesh Deco X20');
+        const cell = row.querySelector('td');
+        const name = [...cell.querySelectorAll('span[title]')].find((el) => el.textContent.startsWith('Sistema Mesh Deco X20'));
+        expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+        expect(name.getAttribute('title')).toBe(name.textContent);
+        for (const text of ['3 tramos · desde $37.800', '2 listas']) {
+          const badge = [...row.querySelectorAll('span')].find((el) => el.textContent.trim() === text);
+          expect(name.contains(badge), text).toBe(false);
+          expect(rect(badge).width, text).toBeGreaterThan(0);
+          expect(rect(badge).right, text).toBeLessThanOrEqual(rect(cell).right + 0.5);
+          expect(badge.scrollWidth, text).toBeLessThanOrEqual(badge.clientWidth + 1);
+        }
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-producto-1920-${theme}.png` });
+        screen.unmount();
+      } finally {
+        localStorage.removeItem('publicaciones-ml.filas-finas');
+      }
+    });
+
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: a product row's catalog-competition badge sits beside its name, inside the cell`, async () => {
         const screen = await renderProducts({ width, height, theme });
@@ -2472,6 +2500,10 @@ describe('Publicaciones ML "Filas finas" (visual, vistas-tipo-publicacion S5)', 
       expect(rect(firstRow()).height).toBeLessThan(normalHeight * 0.75);
       expect(rect(firstRow()).height).toBeLessThanOrEqual(44);
 
+      // Anything cut in the Publicación cell (title or meta line) is readable in its own tooltip.
+      const cut = [...scroller.querySelectorAll('td[data-column="titulo"] span')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+      expect(cut.length).toBeGreaterThan(0);
+      for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
       const titles = [...scroller.querySelectorAll('td[data-column="titulo"] span[title]')];
       expect(titles.length).toBeGreaterThan(0);
       expect(wrapped(titles)).toEqual([]);

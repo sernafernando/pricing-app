@@ -33,12 +33,15 @@ export function NodeTitle({ row, onToggle, after = null, badges = null }) {
       </button>
       {after}
       <div className={styles.nodeText}>
-        <span
-          className={styles.nodeLabel}
-          title={node.label}
-          data-muted={node.withoutProduct || node.key === '__none__' ? '' : undefined}
-        >
-          {node.label}
+        {/* The badges are the name's siblings: "Filas finas" cuts only the name (whole in its tooltip), never them. */}
+        <span className={styles.nameLine}>
+          <span
+            className={styles.nodeLabel}
+            title={node.label}
+            data-muted={node.withoutProduct || node.key === '__none__' ? '' : undefined}
+          >
+            {node.label}
+          </span>
           {badges}
         </span>
         <span className={cellStyles.note}>

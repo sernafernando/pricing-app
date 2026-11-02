@@ -149,9 +149,15 @@
   line-height: 1.25;
 }
 
+/* One line of inline items cut with "…" (a flex box never draws it); the whole line is in the meta's tooltip. */
 :global([data-density='dense']) .meta {
-  flex-wrap: nowrap;
+  display: block;
   overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.25;
+}
+
+:global([data-density='dense']) .meta > * + * {
+  margin-left: var(--spacing-xs);
 }
