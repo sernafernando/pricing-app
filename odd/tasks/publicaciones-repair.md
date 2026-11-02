@@ -14,13 +14,11 @@ Out of scope unless asked: UI nueva, PUTs inside RefreshHandler, unificar envío
 
 ## Tasks
 
-- T1 — S1-S2 — route: inline — status: done — #1985 tip `2dec315b6` — no EAN→item_id; no isdigit; migration re-parented to `20261227`.
-- T2 — S3 — route: inline — status: in_progress — #1986/#1987 — tracker + envío tick; unhook sync_full; Fernando detached/cap fixes.
-- T3 — S4 — route: inline — status: in_progress — #1988 — SKU tick + kill switch; unhook sync_full.
+- T1 — S1-S2 — route: inline — status: done — #1985 tip `2dec315b6`.
+- T2 — S3 — route: inline — status: done — #1987 tip envio tick + detached/cap.
+- T3 — S4 — route: inline — status: in_progress — #1988 SKU tick + kill switch.
 
 ## Log
 
-- L1: Gabe brief: PR1 persist + SKU parse; PR2 envio; PR3 sku; chained; no AI attribution; Metabase.
-- L7: Fernando hold — full-template PUT wrong. Gabe: free_shipping persist-only; ME2+Flex+pickup; never Full.
-- L8: Gabe+Chicho: do **not** mount repair on sync_full cron; mount on tick with condition = drift on `ml_items` × linked `publicaciones_ml` (free_shipping pattern).
-- L9: Fernando #1985/#1987 review follow-ups (²/EAN/reparent; DetachedInstance; cap; kill switch).
+- L8: Gabe+Chicho: repair on tick = ml_items drift × linked pubs (not sync_full).
+- L9: Fernando follow-ups addressed on stack tips.
