@@ -1809,8 +1809,7 @@ describe('bulk actions over products (S6)', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Pausar las de 1 fila marcada' }));
     await screen.findByRole('region', { name: 'Pausar o activar publicaciones' });
     const [body] = publicacionesMlAPI.statusItemIdsChecked.mock.calls.at(-1);
-    expect(body.item_ids).toEqual([]);
-    expect(body.producto_ids).toHaveLength(1);
+    expect(body).toEqual({ target: 'paused', item_ids: [], producto_ids: [4101] });
   });
 
   it('in the Producto view a publication inside an expanded product checks only itself (S4)', async () => {

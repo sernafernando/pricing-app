@@ -279,9 +279,10 @@ class TestCheckedStatusItemIds:
         )
 
 
+@pytest.mark.postgres
 class TestBulkWritesOnlyWhatItIsGiven:
-    def test_a_publication_of_a_product_with_others_is_written_alone(self, client, can_pause, service) -> None:
-        # The write path never widens to a product: MLA1's product also has MLA2 and MLA7 (see `fill_product_with_three`).
+    def test_a_publication_of_a_product_with_others_is_written_alone(self, client, three, can_pause, service) -> None:
+        # The write path never widens to a product: MLA1's product 77 really has MLA2 and MLA7 too (`three`).
         response = client.post(BULK_URL, headers=can_pause, json={"status": "paused", "item_ids": ["MLA1"]})
         assert response.status_code == 200
         assert [call[0] for call in service.calls] == ["MLA1"]
