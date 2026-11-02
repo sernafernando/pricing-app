@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from app.core.security import get_password_hash
 from app.models.equipo import Equipo, EquipoMiembro, RolEquipo
+from app.models.ml_publications import MlItem
 from app.models.usuario import AuthProvider, RolUsuario, Usuario
 
 
@@ -341,6 +342,7 @@ class TestRenombrarYEliminar:
         equipo = _make_equipo(db, "Con colores de publicacion")
         admin = _make_usuario(db, "admin_delete_pub_colors", rol_ventas.id)
         _add_member(db, equipo.id, admin.id, RolEquipo.ADMIN)
+        db.add(MlItem(item_id="MLA1", status="active"))
         db.add(PublicacionColor(equipo_id=equipo.id, item_id="MLA1", color_ml="rojo"))
         db.commit()
 
@@ -348,6 +350,31 @@ class TestRenombrarYEliminar:
         assert resp.status_code == 400
         assert "publicaciones" in resp.text  # says where the blocking colors may be
         assert db.query(Equipo).filter(Equipo.id == equipo.id).first() is not None
+        assert db.query(PublicacionColor).filter(PublicacionColor.equipo_id == equipo.id).count() == 1
+
+    def test_los_colores_de_publicaciones_que_ya_no_se_listan_no_bloquean_y_se_borran_con_el_equipo(
+        self, client, db, rol_ventas
+    ) -> None:
+        # Nothing on screen can clear a color of an MLA that no longer lists (gone from ml_items, or never existed).
+        from app.models.equipo import PublicacionColor
+
+        equipo = _make_equipo(db, "Con colores huerfanos")
+        otro = _make_equipo(db, "Otro equipo")
+        admin = _make_usuario(db, "admin_delete_orphan_colors", rol_ventas.id)
+        _add_member(db, equipo.id, admin.id, RolEquipo.ADMIN)
+        db.add(MlItem(item_id="MLA2", status="active", never_existed=True))
+        db.add(PublicacionColor(equipo_id=equipo.id, item_id="MLA2", color_ml="rojo"))
+        db.add(PublicacionColor(equipo_id=equipo.id, item_id="MLA3", color_ml="verde"))
+        db.add(PublicacionColor(equipo_id=otro.id, item_id="MLA3", color_ml="verde"))
+        db.commit()
+        equipo_id = equipo.id
+
+        resp = client.delete(f"/api/equipos/{equipo_id}", headers=auth_headers_for(admin))
+        assert resp.status_code == 200
+        db.expire_all()
+        assert db.query(Equipo).filter(Equipo.id == equipo_id).first() is None
+        assert db.query(PublicacionColor).filter(PublicacionColor.equipo_id == equipo_id).count() == 0
+        assert db.query(PublicacionColor).filter(PublicacionColor.equipo_id == otro.id).count() == 1
 
 
 # ---------------------------------------------------------------------------
