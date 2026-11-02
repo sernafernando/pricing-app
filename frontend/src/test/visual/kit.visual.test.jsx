@@ -212,6 +212,21 @@ describe('SplitPanelLayout resizing (visual)', () => {
     screen.unmount();
   });
 
+  it('on a window where the default is under the panel minimum, widening is not one-way either', async () => {
+    const screen = await mount({ width: 800, open: true, resizeKey: KEY });
+    await frame();
+    const defaultWidth = rect(document.querySelector('aside')).width;
+    expect(defaultWidth).toBeLessThan(PANEL_MIN_WIDTH);
+    await drag(-20);
+    expect(rect(document.querySelector('aside')).width).toBeCloseTo(Math.floor(defaultWidth) + 20, 0);
+    // Up to the panel's minimum, the same bound the keyboard and the drag use.
+    await drag(-200);
+    expect(rect(document.querySelector('aside')).width).toBeCloseTo(PANEL_MIN_WIDTH, 0);
+    await drag(300);
+    expect(rect(document.querySelector('aside')).width).toBeCloseTo(Math.floor(defaultWidth), 0);
+    screen.unmount();
+  });
+
   it('a width saved on a wide screen is no wider on a narrow one than the table minimum or the default allow', async () => {
     const plain = await mount({ width: 1000, open: true });
     await frame();

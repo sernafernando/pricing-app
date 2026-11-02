@@ -305,32 +305,54 @@ describe('resizing (opt-in by resizeKey)', () => {
     expect(dragWidth(container)).toBe(`${PANEL - RESIZE_STEP}px`);
   });
 
-  it('on a narrow window whose default panel is outside the bounds, each key still moves the divider its way', async () => {
-    // Too wide for the table's minimum: left must not narrow it, right narrows it.
-    GRID = 840;
+  // jsdom applies no stylesheet: give the grid the custom properties the CSS module would.
+  const withStylesheet = (vars) => {
+    const real = window.getComputedStyle;
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el, ...rest) => {
+      const style = real(el, ...rest);
+      if (!el.hasAttribute?.('data-split-grid')) return style;
+      return new Proxy(style, {
+        get: (target, prop) =>
+          prop === 'getPropertyValue' ? (name) => vars[name] ?? target.getPropertyValue(name) : Reflect.get(target, prop),
+      });
+    });
+  };
+
+  it('a default wider than the table minimum allows stays reachable: right narrows it, left goes back to it', async () => {
+    withStylesheet({ '--split-panel-width': '378px', '--split-panel-cap': '100vw' });
+    GRID = 840; // the table's minimum alone would cap the panel at 360
     PANEL = 378;
-    const { container, unmount } = renderLayout({ resizeKey: 'pubml' });
+    const { container } = renderLayout({ resizeKey: 'pubml' });
     separator().focus();
     await userEvent.keyboard('{ArrowLeft}');
     expect(dragWidth(container)).toBe('');
     expect(localStorage.getItem(STORAGE)).toBeNull();
-    // Right narrows it, onto the widest the table's minimum allows.
     await userEvent.keyboard('{ArrowRight}');
-    expect(dragWidth(container)).toBe(`${GRID - TABLE_MIN_WIDTH}px`);
-    unmount();
+    expect(dragWidth(container)).toBe(`${378 - RESIZE_STEP}px`);
+    PANEL = 378 - RESIZE_STEP;
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(dragWidth(container)).toBe('378px');
+  });
 
-    // Already under the panel's minimum: right must not widen it, left widens it.
-    localStorage.clear();
-    GRID = 800;
+  it('a default narrower than the panel minimum stays reachable: left widens it, right goes back to it', async () => {
+    withStylesheet({ '--split-panel-width': '340px', '--split-panel-cap': '100vw' });
     PANEL = 340;
-    const second = renderLayout({ resizeKey: 'pubml' });
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    separator().focus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(dragWidth(container)).toBe(`${340 + RESIZE_STEP}px`);
+    PANEL = 340 + RESIZE_STEP;
+    await userEvent.keyboard('{ArrowRight}');
+    expect(dragWidth(container)).toBe('340px');
+  });
+
+  it('without the stylesheet the bounds are the two minimums alone', async () => {
+    GRID = 840;
+    PANEL = 378;
+    const { container } = renderLayout({ resizeKey: 'pubml' });
     separator().focus();
     await userEvent.keyboard('{ArrowRight}');
-    expect(dragWidth(second.container)).toBe('');
-    // Left lands on the panel's minimum, the narrowest width the layout shows.
-    await userEvent.keyboard('{ArrowLeft}');
-    expect(dragWidth(second.container)).toBe(`${PANEL_MIN_WIDTH}px`);
-    expect(localStorage.getItem(STORAGE)).toBe(String(PANEL_MIN_WIDTH));
+    expect(dragWidth(container)).toBe(`${GRID - TABLE_MIN_WIDTH}px`);
   });
 
   it.each([
@@ -428,6 +450,18 @@ describe('resizing (opt-in by resizeKey)', () => {
     fireEvent.pointerCancel(window, { pointerId: 1 });
     expect(dragWidth(container)).toBe('');
     expect(localStorage.getItem(STORAGE)).toBeNull();
+  });
+
+  it('leaving the window ends a drag, so the arrows work again when the operator comes back', async () => {
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 1000 });
+    fireEvent.pointerMove(window, { buttons: 1, pointerId: 1, clientX: 900 });
+    fireEvent.blur(window);
+    expect(localStorage.getItem(STORAGE)).toBe(String(PANEL + 100));
+    PANEL += 100;
+    separator().focus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(dragWidth(container)).toBe(`${PANEL + RESIZE_STEP}px`);
   });
 
   it('pressing the handle focuses it, so the arrows work right after a drag', () => {

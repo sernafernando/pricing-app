@@ -42,17 +42,19 @@
    bounded so neither side drops below its minimum (also when the window
    shrinks after the width was saved). On a window too narrow for both
    minimums, `clamp()` lets the panel's minimum win and the table gives way.
-   The upper bound never falls below the default width, so a panel narrowed
-   where the default already crowds the table can always widen back to it. */
+   The bounds always include the default width, so a panel resized where the
+   default crowds the table, or is itself under the panel's minimum, can
+   always go back to it. */
 .grid[data-resized].open {
   grid-template-columns:
     minmax(0, 1fr) var(--split-panel-gap)
     clamp(
-      var(--split-panel-min-width),
+      min(var(--split-panel-min-width), min(var(--split-panel-width), var(--split-panel-cap))),
       var(--split-panel-drag-width),
       max(
         calc(100% - var(--split-panel-gap) - var(--split-table-min-width)),
-        min(var(--split-panel-width), var(--split-panel-cap))
+        min(var(--split-panel-width), var(--split-panel-cap)),
+        var(--split-panel-min-width)
       )
     );
 }

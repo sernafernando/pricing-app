@@ -23,8 +23,8 @@
  *    another row meanwhile, yanking focus back would be hostile.
  *  - With `resizeKey` the operator can drag the divider (or focus it and use
  *    the arrows) to trade table width for panel width. Both sides keep a
- *    minimum, except that the panel's minimum and its default width always
- *    stay reachable even when the table then gets less than its own. The
+ *    minimum, except that the panel's default width always stays reachable,
+ *    and the panel's minimum wins over the table's when both don't fit. The
  *    width is remembered in this browser under that key, and
  *    until someone resizes, the panel keeps its usual token width. Without
  *    the prop nothing changes: no handle, same columns.
@@ -88,7 +88,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   const handleRef = useRef(null);
   // `null` until the operator resizes: the panel keeps its token width.
   const [panelWidth, setPanelWidth] = useState(() => loadWidth(resizeKey));
-  const [measured, setMeasured] = useState({ width: 0, max: PANEL_MIN_WIDTH });
+  const [measured, setMeasured] = useState({ width: 0, min: PANEL_MIN_WIDTH, max: PANEL_MIN_WIDTH });
   // Cancels the drag in progress, if any: back to the width before it, nothing saved.
   const cancelDragRef = useRef(null);
   const openerRef = useRef(null);
@@ -142,11 +142,11 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   }, [open, onClose]);
 
   // The default width (token, capped at `--split-panel-cap`) always stays
-  // reachable, even where it leaves the table under its minimum: otherwise
-  // narrowing would be one-way. The CSS track has the same upper bound, and
-  // both values are read from the stylesheet, which owns them: the width
-  // token must be in px and the cap in vw, or the bound falls back to the
-  // table's minimum alone.
+  // reachable, even where it crowds the table under its minimum or is itself
+  // under the panel's minimum: otherwise resizing would be one-way. The CSS
+  // track has the same bounds, and both values are read from the stylesheet,
+  // which owns them: the width token must be in px and the cap in vw, or the
+  // bounds fall back to the two minimums alone.
   const defaultWidth = () => {
     if (!gridRef.current) return 0;
     const style = getComputedStyle(gridRef.current);
@@ -158,9 +158,11 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   const measure = () => {
     const grid = gridRef.current?.getBoundingClientRect().width ?? 0;
     const handle = handleRef.current?.getBoundingClientRect().width ?? 0;
+    const fallback = defaultWidth();
     return {
       width: panelRef.current?.getBoundingClientRect().width ?? 0,
-      max: Math.max(PANEL_MIN_WIDTH, Math.floor(grid - handle - TABLE_MIN_WIDTH), defaultWidth()),
+      min: fallback > 0 ? Math.min(PANEL_MIN_WIDTH, fallback) : PANEL_MIN_WIDTH,
+      max: Math.max(PANEL_MIN_WIDTH, Math.floor(grid - handle - TABLE_MIN_WIDTH), fallback),
     };
   };
 
@@ -186,9 +188,9 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   // bounds the CSS clamp applies, so the saved width is the one on screen.
   // `null` when it would not move the divider the asked way, which happens
   // on a narrow window whose default width already sits outside the bounds.
-  const moveTo = (start, target, max) => {
+  const moveTo = (start, target, bounds) => {
     if (target === start) return null;
-    const next = Math.min(Math.max(Math.round(target), PANEL_MIN_WIDTH), max);
+    const next = Math.min(Math.max(Math.round(target), bounds.min), bounds.max);
     return (target > start ? next > start : next < start) ? next : null;
   };
 
@@ -202,7 +204,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     // During a drag the pointer decides; a cancelled drag must leave nothing saved.
     if (cancelDragRef.current) return;
     const box = measure();
-    const next = moveTo(box.width, box.width + (e.key === 'ArrowLeft' ? RESIZE_STEP : -RESIZE_STEP), box.max);
+    const next = moveTo(box.width, box.width + (e.key === 'ArrowLeft' ? RESIZE_STEP : -RESIZE_STEP), box);
     setMeasured(box);
     if (next === null) return;
     setPanelWidth(next);
@@ -230,7 +232,7 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
         end(event);
         return;
       }
-      latest = moveTo(startWidth, startWidth + startX - event.clientX, box.max);
+      latest = moveTo(startWidth, startWidth + startX - event.clientX, box);
       // Back where it started (or pushed the way it cannot go): as before the drag.
       setPanelWidth(latest ?? widthBefore);
     };
@@ -238,13 +240,16 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', end);
       window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('blur', finish);
       cancelDragRef.current = null;
     };
-    function end(event) {
-      if (event.pointerId !== pointerId) return;
+    function finish() {
       stop();
       // A click without a drag is not a resize: the default width stays.
       if (latest !== null) saveWidth(resizeKey, latest);
+    }
+    function end(event) {
+      if (event.pointerId === pointerId) finish();
     }
     function cancel(event) {
       if (event && event.pointerId !== pointerId) return;
@@ -255,13 +260,15 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
     window.addEventListener('pointercancel', cancel);
+    // Leaving the window can swallow the release: end the drag where it is.
+    window.addEventListener('blur', finish);
   };
 
   const resized = resizable && panelWidth !== null;
   const valueNow = panelWidth === null ? measured.width : Math.min(panelWidth, measured.max);
   // On a narrow window the default width can sit outside the bounds; the
   // reported range still contains it.
-  const valueMin = Math.min(PANEL_MIN_WIDTH, valueNow);
+  const valueMin = Math.min(measured.min, valueNow);
   const valueMax = Math.max(measured.max, valueNow);
   const gridStyle = resized
     ? {
