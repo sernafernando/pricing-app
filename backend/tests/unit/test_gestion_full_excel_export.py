@@ -90,9 +90,7 @@ def test_prepare_package_for_export_recaps_before_flush() -> None:
     pkg_in = SimpleNamespace(id=9, status="open", lines=[ln])
     pkg_locked = SimpleNamespace(id=9, status="open", lines=[ln])
     db = MagicMock()
-    db.query.return_value.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = (
-        pkg_locked
-    )
+    db.query.return_value.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = pkg_locked
     db.get.return_value = SimpleNamespace(stock=3)
 
     out = prepare_package_for_export(db, pkg_in)

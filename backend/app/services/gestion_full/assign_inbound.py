@@ -65,11 +65,7 @@ def clear_inbound_ids(db: Session, package: GestionFullPackage) -> int:
         db.flush()
         now = datetime.now(UTC)
         for inbound_id in cleared:
-            refs = (
-                db.query(GestionFullPackageLine)
-                .filter(GestionFullPackageLine.inbound_id == inbound_id)
-                .count()
-            )
+            refs = db.query(GestionFullPackageLine).filter(GestionFullPackageLine.inbound_id == inbound_id).count()
             if refs > 0:
                 continue
             envio = db.get(GestionFullEnvio, inbound_id)

@@ -46,9 +46,7 @@ def test_upsert_package_line_rejects_negative() -> None:
 
 
 def _lock_chain(db: MagicMock, pkg: object) -> None:
-    db.query.return_value.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = (
-        pkg
-    )
+    db.query.return_value.filter.return_value.populate_existing.return_value.with_for_update.return_value.one.return_value = pkg
 
 
 def test_upsert_package_line_creates() -> None:
