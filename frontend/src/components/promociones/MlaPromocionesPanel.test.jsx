@@ -1333,6 +1333,16 @@ describe('MlaPromocionesPanel — the 5-minute promo TTL', () => {
     await waitFor(() => expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(2));
   });
 
+  it('a successful pull clears the cached confirmation even when the host passes no onPulled (the Productos tree)', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    const first = renderPanel();
+    expect(await screen.findByText('Sin promociones habilitadas.')).toBeInTheDocument();
+    first.unmount();
+    renderPanel();
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(2));
+  });
+
   it('a pull in flight when a write forgets the MLA does not start its TTL when it settles', async () => {
     promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
     let answer;

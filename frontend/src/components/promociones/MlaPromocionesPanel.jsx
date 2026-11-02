@@ -8,7 +8,7 @@ import { matchesPromoFilter } from './promoFilterPredicate';
 import { resolvePromoName } from './resolvePromoName';
 import PromoApplyControl from './PromoApplyControl';
 import { formatRelativeAge, promoDisplayPrice } from './promoDisplayPrice';
-import { forgetPromoPull, markPromoEmptyConfirmed, promoEmptyConfirmedRecently, promoPullGeneration } from './promoPullTtl';
+import { forgetPromoEmptyConfirmed, forgetPromoPull, markPromoEmptyConfirmed, promoEmptyConfirmedRecently, promoPullGeneration } from './promoPullTtl';
 import styles from './promociones.module.css';
 
 const NO_TYPES = [];
@@ -217,7 +217,10 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
         promosCacheRef.current.set(mla, { status: 'ok', data: merged });
         setPull({ forMla: mla, status: 'done', forMirror: mirror, data: merged });
         // Only a pull ML answered, and that this mount still wanted, counts as done.
-        if (!merged.refreshFailed) onPulledRef.current?.(mla, startedOn);
+        if (merged.refreshFailed) return;
+        // What ML has was just re-read: an earlier "no promotions" answer no longer stands, whatever the host.
+        forgetPromoEmptyConfirmed(mla);
+        onPulledRef.current?.(mla, startedOn);
       });
   }, [shouldPull, mirror, loading, error, mla, promosCacheRef, readMirror]);
 
