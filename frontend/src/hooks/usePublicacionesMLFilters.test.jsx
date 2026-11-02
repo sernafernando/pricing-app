@@ -190,12 +190,15 @@ describe('writing the URL', () => {
   });
 });
 
+// The list's default sort, asked explicitly: the listing type, then the activity for who does not see the sales.
+const DEFAULT_ORDER = { orden: 'tipo,actividad', dir: 'asc,desc' };
+
 describe('buildItemsParams', () => {
   const base = setup('/').result.current.hook.filters;
 
   it('sends only what is set, csv joined, with limit and offset', () => {
     const params = buildItemsParams({ ...base, q: ' router ', estado: ['active'], tipo: ['full', 'catalogo'], pagina: 3 });
-    expect(params).toEqual({ q: 'router', estado: 'active', tipo: 'full,catalogo', limit: PAGE_SIZE, offset: 2 * PAGE_SIZE });
+    expect(params).toEqual({ q: 'router', estado: 'active', tipo: 'full,catalogo', ...DEFAULT_ORDER, limit: PAGE_SIZE, offset: 2 * PAGE_SIZE });
   });
 
   it('sends the backend vocabulary for "sin tienda"', () => {
@@ -267,9 +270,8 @@ describe('markup filters (publicaciones-ml-vista P11b.T2)', () => {
     expect(without).not.toHaveProperty('markup_neg');
     expect(without).not.toHaveProperty('markup_min');
     expect(without).not.toHaveProperty('markup_max');
-    // A link shared by someone with the permission must not break the list for someone without it.
-    expect(without).not.toHaveProperty('orden');
-    expect(without).not.toHaveProperty('dir');
+    // A link shared by someone with the permission must not break the list for someone without it: the default.
+    expect(without).toMatchObject(DEFAULT_ORDER);
   });
 
   it('accepts a decimal comma and omits a blank bound', () => {
@@ -322,28 +324,40 @@ describe('sorting by Métricas ML figures', () => {
   const SALES = { canSeeSales: true };
   const ALL = { canSeeSales: true, canSeeMargin: true };
 
-  it('defaults to Facturado 30D, highest first, for a user who sees the sales -- as Métricas does', () => {
-    expect(effectiveSort(base, SALES)).toEqual({ key: 'facturado_30d', dir: 'desc' });
-    // The direction is explicit too: the request says what the header shows, not the backend's default.
-    expect(buildItemsParams(base, PAGE_SIZE, SALES)).toMatchObject({ orden: 'facturado_30d', dir: 'desc' });
+  // Owner, 2026-11-02: "primero ordene las clásicas, después las 3 cuotas, después las 6, etc".
+  it('defaults to the listing type (Clásica, 3, 6, 9, 12 cuotas), then Facturado 30D for a user who sees the sales', () => {
+    expect(effectiveSortKeys(base, SALES)).toEqual([
+      { key: 'tipo', dir: 'asc' },
+      { key: 'facturado_30d', dir: 'desc' },
+    ]);
+    // The directions are explicit too: the request says what the header shows, not the backend's default.
+    expect(buildItemsParams(base, PAGE_SIZE, SALES)).toMatchObject({ orden: 'tipo,facturado_30d', dir: 'asc,desc' });
   });
 
-  it('keeps the activity default (no orden sent) for a user who does not see the sales', () => {
-    expect(effectiveSort(base, {})).toEqual({ key: 'actividad', dir: 'desc' });
-    expect(buildItemsParams(base)).not.toHaveProperty('orden');
+  it('defaults to the listing type, then the activity, for a user who does not see the sales', () => {
+    expect(effectiveSortKeys(base, {})).toEqual([
+      { key: 'tipo', dir: 'asc' },
+      { key: 'actividad', dir: 'desc' },
+    ]);
+    expect(buildItemsParams(base)).toMatchObject({ orden: 'tipo,actividad', dir: 'asc,desc' });
+  });
+
+  it('a clicked column replaces the type default, as any other sort', () => {
+    const keys = effectiveSortKeys(base, SALES);
+    expect(nextSort(keys, 'precio')).toEqual([{ key: 'precio', dir: 'asc' }]);
+    expect(nextSort(keys, 'tipo')).toEqual([{ key: 'tipo', dir: 'desc' }]);
   });
 
   it('sends a Métricas sort only to who may ask for it: a shared link falls back on the default', () => {
     const units = { ...base, orden: 'unidades_7d', dir: 'asc' };
     expect(buildItemsParams(units, PAGE_SIZE, SALES)).toMatchObject({ orden: 'unidades_7d', dir: 'asc' });
-    expect(buildItemsParams(units)).not.toHaveProperty('orden');
-    expect(buildItemsParams(units)).not.toHaveProperty('dir');
+    expect(buildItemsParams(units)).toMatchObject({ orden: 'tipo,actividad', dir: 'asc,desc' });
     for (const orden of ['markup_30d', 'total_gauss_30d']) {
       const margin = { ...base, orden, dir: 'asc' };
       expect(buildItemsParams(margin, PAGE_SIZE, ALL)).toMatchObject({ orden, dir: 'asc' });
       // The link's own `dir` belongs to the sort it named: the default goes with its own direction.
-      expect(buildItemsParams(margin, PAGE_SIZE, SALES)).toMatchObject({ orden: 'facturado_30d', dir: 'desc' });
-      expect(effectiveSort(margin, SALES)).toEqual({ key: 'facturado_30d', dir: 'desc' });
+      expect(buildItemsParams(margin, PAGE_SIZE, SALES)).toMatchObject({ orden: 'tipo,facturado_30d', dir: 'asc,desc' });
+      expect(effectiveSort(margin, SALES)).toEqual({ key: 'tipo', dir: 'asc' });
     }
   });
 
@@ -457,7 +471,7 @@ describe("Productos' presence filters (S5)", () => {
       tn_sin_descuento: true,
       out_of_cards: true,
     };
-    expect(buildItemsParams(filters, 50)).toEqual({ ...presence, limit: 50, offset: 0 });
+    expect(buildItemsParams(filters, 50)).toEqual({ ...presence, ...DEFAULT_ORDER, limit: 50, offset: 0 });
     expect(buildProductsParams(filters, 50)).toMatchObject(presence);
     expect(buildKpiParams(filters, '30d')).toEqual({ ...presence, periodo: '30d' });
     expect(buildItemsParams({ ...base, tiendanube: 'con_descuento' }, 50).tn_con_descuento).toBe(true);
@@ -468,6 +482,7 @@ describe("Productos' presence filters (S5)", () => {
     expect(buildItemsParams({ ...base, precio: 'con_precio', nuevos: 'ultimos_7_dias' }, 50)).toEqual({
       con_precio: true,
       nuevos_ultimos_7_dias: true,
+      ...DEFAULT_ORDER,
       limit: 50,
       offset: 0,
     });
@@ -480,7 +495,7 @@ describe("Productos' presence filters (S5)", () => {
     expect(f.estado_mla).toBe('pausada');
     expect(setup('/?estado_mla=inactiva').result.current.hook.filters.estado_mla).toBe('');
     expect(buildItemsParams(setup('/?estado_mla=activa').result.current.hook.filters, 50).estado_mla).toBe('activa');
-    expect(buildItemsParams(f, 50)).toEqual({ estado_mla: 'pausada', limit: 50, offset: 0 });
+    expect(buildItemsParams(f, 50)).toEqual({ estado_mla: 'pausada', ...DEFAULT_ORDER, limit: 50, offset: 0 });
     expect(buildProductsParams(f, 50)).toMatchObject({ estado_mla: 'pausada' });
     expect(buildKpiParams(f, '30d')).toEqual({ estado_mla: 'pausada', periodo: '30d' });
     expect(buildProductIdsParams(f).estado_mla).toBe('pausada');
@@ -538,7 +553,7 @@ describe("Productos' audit filter (P6c)", () => {
       audit_fecha_desde: '2026-10-20T09:00',
       audit_fecha_hasta: '2026-10-21',
     };
-    expect(buildItemsParams(f, 50)).toEqual({ ...audit, limit: 50, offset: 0 });
+    expect(buildItemsParams(f, 50)).toEqual({ ...audit, ...DEFAULT_ORDER, limit: 50, offset: 0 });
     expect(buildKpiParams(f, '30d')).toMatchObject(audit);
     expect(buildProductIdsParams(f)).toMatchObject(audit);
     expect(FILTER_KEYS).toEqual(expect.arrayContaining(['audit_usuarios', 'audit_tipos', 'audit_desde', 'audit_hasta']));
@@ -558,6 +573,7 @@ describe("Productos' promo and wholesale filters (P6d)", () => {
     expect(buildItemsParams({ ...base, promo_tipos: ['DEAL', 'SMART'], promo_estado: '' }, 50)).toEqual({
       promo_tipos: 'DEAL,SMART',
       promo_estado: 'disponible',
+      ...DEFAULT_ORDER,
       limit: 50,
       offset: 0,
     });

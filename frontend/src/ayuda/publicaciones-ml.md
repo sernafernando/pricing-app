@@ -24,6 +24,10 @@ Filtros: búsqueda, vista/agrupación, estado, tienda, presencia, tipo, vínculo
 
 Columnas: configurables con el selector de columnas (incluye código, descripción, marca, stock, costos, precios, markups, etc.).
 
+Columna **Tipo**: una etiqueta con el tipo de cada publicación (**Clásica**, **3 cuotas**, **6 cuotas**, **9 cuotas**, **12 cuotas**). Una Clásica con cuotas cofinanciadas por Mercado Libre dice **Clásica**; al pasar el mouse se aclara. Otros tipos muestran su nombre (por ejemplo, **Gratuita**).
+
+Orden: las publicaciones arrancan ordenadas por tipo (primero las Clásicas, después 3, 6, 9 y 12 cuotas, al final cualquier otro tipo) y, dentro de cada tipo, por facturación de 30 días (o por última actividad si no ves ventas). Al hacer clic en el título de una columna, manda esa columna. Las publicaciones de un producto, al expandirlo o en su panel lateral, también salen ordenadas por tipo y, dentro de cada tipo, por última actividad.
+
 ## Botones y acciones
 
 - **Exportar CSV / Exportar a Sheets**: descarga el conjunto filtrado.

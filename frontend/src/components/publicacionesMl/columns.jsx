@@ -1,5 +1,6 @@
 import PublicationCell from './PublicationCell';
 import PublicationStatusPill from './PublicationStatusPill';
+import ListingKindBadge from './ListingKindBadge';
 import PriceCell from './PriceCell';
 import ErpStockCell from './ErpStockCell';
 import LinkBadge from './LinkBadge';
@@ -169,6 +170,8 @@ export function buildColumns({
       ? [{ key: 'publicaciones', header: 'Publicaciones', width: 120, align: 'right', render: () => null }]
       : []),
     ...(agrupado ? withMargin([{ key: 'negativos', header: 'Negativos', width: 110, align: 'right', render: () => null }]) : []),
+    // The listing type at a glance, before its state: the list's default order (Clásica, then 3, 6, 9, 12 cuotas).
+    { key: 'tipo', header: 'Tipo', width: 110, sortable: true, render: (item) => <ListingKindBadge kind={item.listing_kind} /> },
     {
       key: 'estado',
       header: 'Estado',

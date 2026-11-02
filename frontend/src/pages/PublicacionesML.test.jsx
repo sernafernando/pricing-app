@@ -191,7 +191,7 @@ afterAll(resetTiendasOficiales);
 describe('the list', () => {
   it('asks for the first page of 50, with facets, and renders one row per MLA', async () => {
     await page();
-    expect(lastParams()).toEqual({ orden: 'facturado_30d', dir: 'desc', limit: 50, offset: 0, facets: true });
+    expect(lastParams()).toEqual({ orden: 'tipo,facturado_30d', dir: 'asc,desc', limit: 50, offset: 0, facets: true });
     expect(screen.getByText(/Router TP-Link Archer AX55/)).toBeInTheDocument();
     expect(screen.getByText('MLA1100000004')).toBeInTheDocument();
     expect(screen.getByText('mostrando 1-50 de 235 publicaciones')).toBeInTheDocument();
@@ -384,19 +384,22 @@ describe('sorting and paging', () => {
     expect(within(header(/^Facturado 30D/)).getByTestId('sort-order')).toHaveTextContent('3');
   });
 
-  it('defaults to Facturado 30D, highest first, like Métricas: the whole set ranked by the backend', async () => {
+  // Owner, 2026-11-02: "primero ordene las clásicas, después las 3 cuotas, después las 6, etc".
+  it('defaults to the listing type, then Facturado 30D highest first: the whole set ranked by the backend', async () => {
     await page();
-    expect(lastParams()).toMatchObject({ orden: 'facturado_30d' });
-    expect(screen.getByRole('columnheader', { name: /Facturado 30D/ })).toHaveAttribute('aria-sort', 'descending');
+    expect(lastParams()).toMatchObject({ orden: 'tipo,facturado_30d', dir: 'asc,desc' });
+    expect(screen.getByRole('columnheader', { name: /Tipo/ })).toHaveAttribute('aria-sort', 'ascending');
+    const facturado = screen.getByRole('columnheader', { name: /^Facturado 30D/ });
+    expect(within(facturado).getByTestId('sort-order')).toHaveTextContent('2');
   });
 
-  it('without ml_metricas.ver the default stays the activity, newest first (its column is in the picker)', async () => {
+  it('without ml_metricas.ver the default is the listing type, then the activity, newest first', async () => {
     canSeeKpis = false;
     await page();
-    expect(lastParams()).not.toHaveProperty('orden');
+    expect(lastParams()).toMatchObject({ orden: 'tipo,actividad', dir: 'asc,desc' });
     await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
     await userEvent.click(screen.getByRole('checkbox', { name: 'Última actividad' }));
-    expect(screen.getByRole('columnheader', { name: /Última actividad/ })).toHaveAttribute('aria-sort', 'descending');
+    expect(within(screen.getByRole('columnheader', { name: /Última actividad/ })).getByTestId('sort-order')).toHaveTextContent('2');
   });
 
   it('each Métricas figure sorts the list, highest first', async () => {
@@ -419,8 +422,8 @@ describe('sorting and paging', () => {
 
   it('a shared link with a margin sort opens with the default sort for who cannot see margins', async () => {
     await page('/ml-publicaciones?orden=markup_30d&dir=asc');
-    expect(lastParams()).toMatchObject({ orden: 'facturado_30d', dir: 'desc' });
-    expect(screen.getByRole('columnheader', { name: /Facturado 30D/ })).toHaveAttribute('aria-sort', 'descending');
+    expect(lastParams()).toMatchObject({ orden: 'tipo,facturado_30d', dir: 'asc,desc' });
+    expect(screen.getByRole('columnheader', { name: /Tipo/ })).toHaveAttribute('aria-sort', 'ascending');
   });
 });
 
@@ -910,8 +913,8 @@ describe('markup (publicaciones-ml-vista P11b.T2)', () => {
     for (const params of calls()) {
       expect(params).not.toHaveProperty('markup_neg');
       expect(params).not.toHaveProperty('markup_min');
-      // The markup sort is dropped: the list asks for its default (Facturado 30D, the user sees the sales).
-      expect(params.orden).toBe('facturado_30d');
+      // The markup sort is dropped: the list asks for its default (the type, then Facturado 30D: the user sees the sales).
+      expect(params.orden).toBe('tipo,facturado_30d');
     }
     await userEvent.click(screen.getByRole('button', { name: /Columnas/ }));
     expect(screen.queryByRole('checkbox', { name: 'Markup actual' })).not.toBeInTheDocument();

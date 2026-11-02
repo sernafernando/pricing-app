@@ -29,7 +29,14 @@ import { DIMENSION_OPTIONS, MARGIN_COLUMNS, buildBoardColumns } from '../compone
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
-import { DEFAULT_PRESET, defaultView, readMetricasUrl, writeMetricasUrl } from '../utils/metricasMlUrl';
+import {
+  DEFAULT_PRESET,
+  defaultSortFor,
+  defaultView,
+  readMetricasUrl,
+  sortOnGroupChange,
+  writeMetricasUrl,
+} from '../utils/metricasMlUrl';
 import { nodeId } from '../utils/metricasMlLevels';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
 import { exportMetricasSheets, isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -118,15 +125,16 @@ function appendNew(previous, next) {
   return [...previous, ...next.filter((row) => !seen.has(row.key))];
 }
 
-// Total TP exists only with "Costos TP" on (the backend answers 422 otherwise): turning it off leaves that sort.
-function withoutTpSort(sort) {
-  return sort.key === 'total_tp' ? { key: 'gross', desc: true } : sort;
+// Total TP exists only with "Costos TP" on (the backend answers 422 otherwise): turning it off leaves that sort
+// for the grouping's default one.
+function withoutTpSort(sort, groupBy) {
+  return sort.key === 'total_tp' ? defaultSortFor(groupBy) : sort;
 }
 
 // "Costos TP" has no markup with sell in / sell out (the sell in is on the Gauss cost; the backend answers 422):
-// turning it on leaves that sort.
-function withoutSellTpSort(sort) {
-  return sort.key === 'markup_sell' ? { key: 'gross', desc: true } : sort;
+// turning it on leaves that sort for the grouping's default one.
+function withoutSellTpSort(sort, groupBy) {
+  return sort.key === 'markup_sell' ? defaultSortFor(groupBy) : sort;
 }
 
 // Sorts that need a view mode a link does not carry (Costos TP, Publicidad): the board answers 422 without it.
@@ -337,6 +345,12 @@ export default function MetricasML() {
     puedeVerGanancia,
   ]);
 
+  // The sort follows the grouping while it is the default one: by publication, the listing type (Clásica first).
+  const changeGroupBy = (value) => {
+    setSort((prev) => sortOnGroupChange(prev, groupBy, value));
+    setGroupBy(value);
+  };
+
   // Changing WHAT is filtered resets WHERE you are: page 1, nothing open.
   const withReset = (setter) => (...args) => {
     setter(...args);
@@ -351,10 +365,10 @@ export default function MetricasML() {
     if (!message) return false;
     setTpError(message);
     setCostosTp(false);
-    setSort(withoutTpSort);
+    setSort((prev) => withoutTpSort(prev, groupBy));
     setOffset(0);
     return true;
-  }, [tpSolo]);
+  }, [tpSolo, groupBy]);
 
   // A Total Gauss sort picked before `tplink.solo` arrived is a Total TP sort from then on: the stored key follows,
   // so the Total TP header's click flips the direction instead of starting over (set during render, no stale commit).
@@ -664,7 +678,7 @@ export default function MetricasML() {
           <div className={styles.segments}>
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>Agrupar por:</span>
-              <SegmentedControl label="Agrupar por" options={GROUP_OPTIONS} value={groupBy} onChange={withReset(setGroupBy)} />
+              <SegmentedControl label="Agrupar por" options={GROUP_OPTIONS} value={groupBy} onChange={withReset(changeGroupBy)} />
             </div>
             {groupBy === 'group' && (
               <div className={styles.filterGroup}>
@@ -686,8 +700,8 @@ export default function MetricasML() {
                   setCostosTp(next);
                   if (next) {
                     setTpError(null);
-                    setSort(withoutSellTpSort);
-                  } else setSort(withoutTpSort);
+                    setSort((prev) => withoutSellTpSort(prev, groupBy));
+                  } else setSort((prev) => withoutTpSort(prev, groupBy));
                 })}
                 title="Muestra el Total TP junto al Total Gauss; el markup usa el costo TP en las operaciones de la tienda TP-Link"
               />
