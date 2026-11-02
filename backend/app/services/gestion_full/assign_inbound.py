@@ -126,10 +126,6 @@ def assign_inbound_to_lines(
     for ln in updated:
         db.refresh(ln)
     db.refresh(pkg)
-
-    from app.services.gestion_full.reconcile import ensure_envio
-
-    ensure_envio(db, package=pkg, inbound_id=inbound)
     return updated
 
 

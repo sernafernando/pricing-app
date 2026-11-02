@@ -33,6 +33,63 @@ def test_close_after_idle_constant() -> None:
     assert CLOSE_AFTER_IDLE == timedelta(days=3)
 
 
+def test_reconcile_handler_uses_inbound_id_strings_not_detached_orm() -> None:
+    """Listing session closes before reconcile; must not read detached ORM attrs."""
+    from app.workers.handlers.gestion_full_reconcile import GestionFullReconcileHandler
+
+    class _DetachingEnvio:
+        def __init__(self, inbound_id: str) -> None:
+            self._inbound_id = inbound_id
+            self._live = True
+
+        @property
+        def inbound_id(self) -> str:
+            if not self._live:
+                raise RuntimeError("DetachedInstanceError: inbound_id")
+            return self._inbound_id
+
+        def expire(self) -> None:
+            self._live = False
+
+    envio = _DetachingEnvio("INB-1")
+    row = SimpleNamespace(inbound_id="INB-1")
+    call_n = {"n": 0}
+
+    class _SessionCM:
+        def __init__(self) -> None:
+            self.db = MagicMock()
+            call_n["n"] += 1
+            if call_n["n"] >= 2:
+                self.db.get.return_value = row
+
+        def __enter__(self) -> MagicMock:
+            return self.db
+
+        def __exit__(self, *args: object) -> None:
+            envio.expire()
+
+    reconcile = MagicMock(return_value={"inbound_id": "INB-1", "ok": True})
+    handler = GestionFullReconcileHandler(
+        client_factory=lambda _p: MagicMock(),
+        session_factory=_SessionCM,
+        now=lambda: datetime(2026, 10, 31, tzinfo=UTC),
+    )
+    ctx = SimpleNamespace(stop_requested=lambda: False)
+
+    with (
+        patch(
+            "app.workers.handlers.gestion_full_reconcile.list_open_envios",
+            return_value=[envio],
+        ),
+        patch("app.workers.handlers.gestion_full_reconcile.reconcile_envio", reconcile),
+    ):
+        result = handler.run(ctx)
+
+    assert result.success is True
+    assert result.detail["reconciled"] == 1
+    reconcile.assert_called_once()
+
+
 def _envio(*, created_days_ago: int = 5, last_reception_days_ago: int | None = None) -> SimpleNamespace:
     now = datetime(2026, 11, 2, tzinfo=UTC)
     last = None
@@ -92,3 +149,56 @@ def test_reconcile_closes_after_idle_from_last_reception() -> None:
 
     assert out["closed"] is True
     assert envio.reception_closed_at == now
+
+
+def test_ensure_envio_reopens_closed_row() -> None:
+    from app.services.gestion_full.reconcile import ensure_envio
+
+    closed = SimpleNamespace(
+        inbound_id="SAME",
+        package_id=1,
+        week_monday=None,
+        reception_closed_at=datetime(2026, 10, 30, tzinfo=UTC),
+    )
+    pkg = SimpleNamespace(id=1, week_monday=datetime(2026, 10, 26, tzinfo=UTC).date())
+    db = MagicMock()
+    db.get.return_value = closed
+
+    out = ensure_envio(db, package=pkg, inbound_id="SAME", commit=False)
+    assert out is closed
+    assert closed.reception_closed_at is None
+    db.flush.assert_called_once()
+    db.add.assert_not_called()
+
+
+def test_handler_fails_when_every_envio_errors() -> None:
+    from app.workers.handlers.gestion_full_reconcile import GestionFullReconcileHandler
+
+    class _SessionCM:
+        def __enter__(self) -> MagicMock:
+            db = MagicMock()
+            db.get.return_value = SimpleNamespace(inbound_id="INB-1")
+            return db
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    handler = GestionFullReconcileHandler(
+        client_factory=lambda _p: MagicMock(),
+        session_factory=_SessionCM,
+        now=lambda: datetime(2026, 10, 31, tzinfo=UTC),
+    )
+    ctx = SimpleNamespace(stop_requested=lambda: False)
+    with (
+        patch(
+            "app.workers.handlers.gestion_full_reconcile.list_open_envios",
+            return_value=[SimpleNamespace(inbound_id="INB-1")],
+        ),
+        patch(
+            "app.workers.handlers.gestion_full_reconcile.reconcile_envio",
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        result = handler.run(ctx)
+    assert result.success is False
+    assert result.detail["results"][0]["error"] is True

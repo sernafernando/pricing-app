@@ -25,11 +25,33 @@ def ensure_envio(
     *,
     package: GestionFullPackage,
     inbound_id: str,
+    commit: bool = True,
 ) -> GestionFullEnvio:
-    """Create envio row for an assigned inbound_id if missing."""
+    """Create envio row for an assigned inbound_id if missing.
+
+    Reopens a previously closed envío when the same inbound is re-assigned after
+    Limpiar (closed orphans must not stay forever-dead in ``list_open_envios``).
+
+    When ``commit=False``, only flushes so the caller can commit with assign/hard-lock.
+    """
     inbound = (inbound_id or "").strip()
     row = db.get(GestionFullEnvio, inbound)
     if row is not None:
+        reopened = False
+        if row.reception_closed_at is not None:
+            row.reception_closed_at = None
+            reopened = True
+        # Keep package_id / week in sync if the inbound moved to a new package.
+        if row.package_id != package.id:
+            row.package_id = package.id
+            row.week_monday = package.week_monday
+            reopened = True
+        if reopened:
+            if commit:
+                db.commit()
+                db.refresh(row)
+            else:
+                db.flush()
         return row
     row = GestionFullEnvio(
         inbound_id=inbound,
@@ -37,17 +59,28 @@ def ensure_envio(
         week_monday=package.week_monday,
     )
     db.add(row)
-    db.commit()
-    db.refresh(row)
+    if commit:
+        db.commit()
+        db.refresh(row)
+    else:
+        db.flush()
     return row
 
 
 def list_open_envios(db: Session) -> list[GestionFullEnvio]:
-    """Envíos still polling for reception (not locally closed)."""
+    """Envíos still polling for reception (not locally closed).
+
+    Oldest ``last_polled_at`` first (nulls first) so the worker batch rotates and
+    never-receiving orphans cannot monopolize every slot.
+    """
     return (
         db.query(GestionFullEnvio)
         .filter(GestionFullEnvio.reception_closed_at.is_(None))
-        .order_by(GestionFullEnvio.created_at.asc())
+        .order_by(
+            GestionFullEnvio.last_polled_at.asc().nullsfirst(),
+            GestionFullEnvio.created_at.asc(),
+            GestionFullEnvio.inbound_id.asc(),
+        )
         .all()
     )
 
@@ -116,12 +149,21 @@ def reconcile_envio(
     if envio.reception_closed_at is not None:
         return {"inbound_id": envio.inbound_id, "skipped": "closed"}
 
-    inv_ids = [
-        ln.inventory_id
-        for ln in db.query(GestionFullPackageLine)
-        .filter_by(package_id=envio.package_id, inbound_id=envio.inbound_id)
-        .all()
-    ]
+    # Persist poll timestamp before ML I/O so a mid-tick exception cannot leave
+    # this envío forever at the front of the batch (Fernando please-check).
+    envio.last_polled_at = now_dt
+    db.commit()
+    db.refresh(envio)
+
+    inv_ids = list(
+        dict.fromkeys(
+            ln.inventory_id
+            for ln in db.query(GestionFullPackageLine)
+            .filter_by(package_id=envio.package_id, inbound_id=envio.inbound_id)
+            .all()
+        )
+    )
+
     inserted = 0
     ml_ok = 0
     ml_fail = 0
