@@ -58,7 +58,8 @@ def write_publication_colors(
 ) -> None:
     """Paints `item_ids` with `color` in `equipo_id`'s layer, or with `None` deletes their own rows there. The caller
     commits. One upsert, so two painters of the same new MLA never collide on the unique key; the rows go in MLA
-    order, so two overlapping batches lock them in the same order and never deadlock."""
+    order, so two overlapping paints lock them in the same order and never deadlock each other (an unpaint's DELETE
+    takes its rows in scan order)."""
     mine = PublicacionColor.equipo_id == equipo_id
     if color is None:
         db.query(PublicacionColor).filter(mine, PublicacionColor.item_id.in_(item_ids)).delete(

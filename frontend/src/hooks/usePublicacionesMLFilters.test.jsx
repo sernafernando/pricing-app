@@ -491,10 +491,12 @@ describe("Productos' presence filters (S5)", () => {
     expect(buildProductIdsParams({ ...base, precio: 'sin_precio' }).con_precio).toBe(false);
   });
 
-  it('in the Producto view the bulk set and the cards ask colores of the product color only (color_por_producto)', () => {
+  it('in the Producto view the strip, the bulk set and the cards ask colores of the product color only (color_por_producto)', () => {
     const base = setup('/?colores=azul').result.current.hook.filters;
     expect(buildProductIdsParams({ ...base, vista: 'producto' }).color_por_producto).toBe(true);
     expect(buildStatsParams({ ...base, vista: 'producto' }).color_por_producto).toBe(true);
+    expect(buildKpiParams({ ...base, vista: 'producto' }, '30d').color_por_producto).toBe(true);
+    expect(buildKpiParams(base, '30d')).not.toHaveProperty('color_por_producto');
     expect(buildProductIdsParams(base)).not.toHaveProperty('color_por_producto');
   });
 

@@ -304,6 +304,14 @@ class TestPublicationOwnColor:
         response = client.get(PRODUCT_IDS_URL, headers=reader, params=by_product)
         assert response.status_code == 200, response.text
         assert response.json()["item_ids"] == [78]
+        # Opening the row asks `/items` with its `params` on the same filters: they hold exactly what it counts.
+        [row] = client.get(PRODUCTS_URL, headers=reader, params={"colores": "azul"}).json()["rows"]
+        opened = client.get(ITEMS_URL, headers=reader, params={"colores": "azul", **row["params"]}).json()
+        assert opened["total"] == row["publications_count"] == 1
+        # The cards count 78 only with the flag: without it MLA2's own rojo drops it, as on the Publicación view.
+        stats_url = "/api/ml-publications/view/stats"
+        assert client.get(stats_url, headers=reader, params=by_product).json()["stats"]["total"] == 1
+        assert client.get(stats_url, headers=reader, params={"colores": "azul"}).json()["stats"]["total"] == 0
 
     def test_product_rows_keep_the_products_color(self, client, pg, db, reader, layers) -> None:
         seed_rows(pg, fill_sibling)

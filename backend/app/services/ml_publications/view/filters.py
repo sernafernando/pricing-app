@@ -720,9 +720,10 @@ def linked_product_conditions(
     export, `/product-ids` and the tree's product level -- so a filter about the product never brings in another
     product of the same publication (variations of different products).
 
-    `item_id`, the publication's MLA on a publication row: one painted one of `colors` on its own
-    (`item_color_ids`) passes the color on any linked product, as `_colors` keeps it by its own color (a product
-    row, the Producto view's, passes no `item_id`: it keeps its product's color)."""
+    `item_id`, the row's MLA: one painted one of `colors` on its own (`item_color_ids`) passes the color on any
+    linked product, as `_colors` keeps it by its own color. The Producto view's product rows keep their product's
+    color because their filter carries no own colors (`product_colors_only` empties `item_color_ids`), not because
+    of `item_id`."""
     conditions: list[ColumnElement] = []
     if f.colors or f.no_color:
         parts = []

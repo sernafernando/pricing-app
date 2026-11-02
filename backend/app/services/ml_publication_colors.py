@@ -1,6 +1,6 @@
 """Productos' row colors on Publicaciones ML's rows (S8): the linked product's color on the active team layer.
 
-A color belongs to the product, per layer (`producto_color`, the `ml` slot; docs/color-teams-frontend-contract.md).
+A product's color lives per layer (`producto_color`, the `ml` slot; docs/color-teams-frontend-contract.md).
 The layer is resolved like `GET /productos` resolves it (`resolver_layer_activo`: omitted = the global layer, another
 team needs membership, else 403) and the colors are read with Productos' own `batch_colores`, from the application's
 tables. It lives outside `app.services.ml_publications`, whose modules never import Productos' code (see
@@ -14,7 +14,8 @@ nobody painted is unchanged:
 
 A publication may also be painted on its own (`publicacion_color`, seleccion-por-publicacion S3): on each layer its
 own color wins over its product's, so a publication row shows its EFFECTIVE color -- its own, otherwise its
-product's -- and the color filter keeps it by that same color. Product rows and tree nodes keep the product's.
+product's -- and the color filter keeps it by that same color, the tree's filter too. Product rows (the Producto
+view's, filtered by the product's color only: `color_per_product`) and tree nodes show the product's color.
 """
 
 from __future__ import annotations
@@ -102,6 +103,7 @@ def resolve_color_filter(db: Session, layer: ColorLayer, f: PublicationFilter) -
     own = (
         []  # the Producto view's rows: the product's color only
         if f.color_per_product
+        # `publicacion_color.color_ml` is NOT NULL (an unpaint deletes the row): every row is an own color.
         else list(
             db.query(PublicacionColor.item_id, PublicacionColor.color_ml).filter(
                 PublicacionColor.equipo_id == layer.active

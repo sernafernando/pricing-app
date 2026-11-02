@@ -113,6 +113,7 @@ from app.services.promo_filter_resolver import PromoResolverFns, select_promo_re
 PERMISO_VER = "ml_ops.ver"  # one of the screen's permissions (`PERMISOS_PUBLICACIONES_ML`), not the only one
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
 OFFER_OF_PRODUCT = "oferta_por_producto"  # the `filter_query` param a Producto row's `params` carry with `con_oferta`
+COLOR_OF_PRODUCT = "color_por_producto"  # the one they carry with `colores` / `sin_color`
 PERMISO_METRICAS = "ml_metricas.ver"  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
 PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
 PERMISO_PAUSAR = "ml_publicaciones.pausar"  # what lets the screen offer "Pausar" / "Activar"
@@ -1392,6 +1393,7 @@ def _product_out(
     with_margin: bool,
     has_figures: bool,
     offer_filter: bool,
+    color_filter: bool,
     costs: Optional[dict[str, Any]] = None,
     lines: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
@@ -1399,6 +1401,8 @@ def _product_out(
     params = {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
     if offer_filter:  # the rows ask mejor oferta of the product: opening one must ask it the same way
         params[OFFER_OF_PRODUCT] = "true"
+    if color_filter:  # the rows ask the product's color, never a publication's own: opening one asks it the same way
+        params[COLOR_OF_PRODUCT] = "true"
     out: dict[str, Any] = {
         "key": row.key,
         "product_item_id": None if no_product else row.product_item_id,
@@ -1541,6 +1545,7 @@ def get_products(
             can_see_margin,
             row.key not in page.without_figures,
             f.oferta is not None,
+            bool(f.colors or f.no_color),
             page.costs,
             page.lines,
         )
