@@ -45,6 +45,9 @@ price, and that credit is added to profit. The rules live in
 - An edit, void or rate change while `sell_out.drain` is rebuilding the
   campaign is a 409 ("La campaña se está recalculando. Reintentar en unos
   segundos."); nothing is stored and the client can retry.
+  An edit that deadlocks with another writer (a bulk edit or its preview
+  holding the queue rows it needs) is the same 409 ("Otra operación está
+  modificando la campaña en este momento. Reintentar en unos segundos.").
 - Every campaign comes with `resumen`, what it credited so far: units, amount
   in its currency and in ARS, what its cap has left, per channel, the sales
   waiting for their percentage base and the rebuild state

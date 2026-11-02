@@ -494,17 +494,28 @@ def bloquear(db: Session, campana_id: int) -> Optional[SellOutCampana]:
 
 
 def editar_campana_sin_commit(
-    db: Session, campana_id: int, data: SellOutCampanaIn, usuario_id: int, es_masivo: bool = False
+    db: Session,
+    campana_id: int,
+    data: SellOutCampanaIn,
+    usuario_id: int,
+    es_masivo: bool = False,
+    *,
+    compartian: Optional[list[int]] = None,
 ) -> Optional[SellOutCampana]:
     """The edit step of an active campaign, without committing: lock, validation, full replace of its fields,
     groups and items, one audit row (`es_masivo` for the bulk edit, `edicion_masiva`) and queueing. Shared by the
-    single and the bulk edit. None when it does not exist; `SellOutYaAnulada` when voided."""
+    single and the bulk edit. None when it does not exist; `SellOutYaAnulada` when voided.
+
+    `compartian`: the campaigns to queue with it, when the caller already knows them (the bulk edit computes the
+    links of the whole batch once, `asignacion.vinculadas_por_campana`); else those sharing products with it now,
+    before the edit unlinks them."""
     campana = bloquear(db, campana_id)
     if campana is None:
         return None
     grupo_ids = validar(db, data, campana)
     antes = _valores(campana, _grupo_ids(db, campana_id), _items(db, [campana_id])[campana_id])
-    compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
+    if compartian is None:
+        compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
     _asignar(db, campana, data, grupo_ids)
     despues = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, masivo=es_masivo)
@@ -513,8 +524,16 @@ def editar_campana_sin_commit(
 
 
 def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario_id: int) -> Optional[SellOutCampana]:
-    """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided."""
-    campana = editar_campana_sin_commit(db, campana_id, data, usuario_id)
+    """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided;
+    `SellOutRecalculando` (nothing stored, retry) when it is being rebuilt or Postgres breaks a deadlock with
+    another writer (40P01: a bulk edit or a preview holding the queue rows it needs)."""
+    try:
+        campana = editar_campana_sin_commit(db, campana_id, data, usuario_id)
+    except DBAPIError as exc:
+        if getattr(exc.orig, "pgcode", None) != DEADLOCK:
+            raise
+        db.rollback()
+        raise SellOutRecalculando(f"Otra operación está modificando la campaña en este momento. {REINTENTAR}") from exc
     if campana is None:
         return None
     db.commit()
@@ -530,7 +549,9 @@ def entrada_guardada(db: Session, campana: SellOutCampana) -> SellOutCampanaIn:
     datos = {campo: fila[campo] for campo in _CAMPOS}
     datos["monto_total"] = fila["monto_total"]
     datos["grupo_ids"] = [g["id"] for g in fila["grupos"]]
-    return SellOutCampanaIn.model_validate(datos)
+    # Stored values, not a request: the API's shape caps (e.g. at most 50 groups) are not re-applied to them; the
+    # edit step's own rules (`validar`) still are.
+    return SellOutCampanaIn.model_construct(**datos, items=None)
 
 
 def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optional[str], masivo: bool = False) -> None:
