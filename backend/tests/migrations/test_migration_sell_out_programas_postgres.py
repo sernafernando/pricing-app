@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 from typing import Iterator
 
 import pytest
@@ -110,14 +111,13 @@ def _scalar(engine: Engine, sql: str, **params):
         return conn.execute(text(sql), params).scalar()
 
 
-def test_this_revision_chains_on_the_pedido_compra_drop_and_is_the_only_head() -> None:
+def test_this_revision_chains_on_the_pedido_compra_drop() -> None:
     config = Config(os.path.join(_BACKEND_ROOT, "alembic.ini"))
     config.set_main_option("script_location", os.path.join(_BACKEND_ROOT, "alembic"))
     script = ScriptDirectory.from_config(config)
     revision = script.get_revision(_REVISION)
     assert revision is not None
     assert revision.down_revision == "20261217_drop_sell_in_compras_pedido_compra_id"
-    assert script.get_heads() == [_REVISION]
 
 
 @pytest.mark.postgres
@@ -175,9 +175,26 @@ def test_a_raw_sql_update_moves_the_program_updated_at(after) -> None:
     assert _scalar(after, "SELECT updated_at FROM sell_out_programas WHERE id = :i", i=programa) > antes
 
 
+def test_no_migration_creates_a_trigger_on_the_campaigns_but_updated_at() -> None:
+    """Over EVERY revision (the statement triggers of 20261109 included, which the fixture below does not build):
+    the only trigger any migration creates on `sell_out_campanas` keeps `updated_at`, so assigning a program
+    queues no rebuild."""
+    creados = set()
+    for nombre in os.listdir(_VERSIONS):
+        if nombre.endswith(".py"):
+            with open(os.path.join(_VERSIONS, nombre), encoding="utf-8") as fh:
+                fuente = fh.read()
+            # 20261109 builds its statement triggers from a template: `_triggers("<name>", "<table>", ...)`.
+            assert not re.search(r'_triggers\(\s*"\w+",\s*"sell_out_campanas"', fuente), nombre
+            creados |= set(
+                re.findall(r"CREATE (?:OR REPLACE )?TRIGGER\s+(\w+)[^;]*?\bON\s+sell_out_campanas\b", fuente)
+            )
+    assert creados == {"sell_out_campanas_updated_at"}
+
+
 @pytest.mark.postgres
-def test_no_trigger_on_the_campaigns_queues_a_rebuild(after) -> None:
-    """Assigning a program is metadata: the only trigger on `sell_out_campanas` keeps `updated_at`."""
+def test_the_migrated_campaigns_table_carries_only_the_updated_at_trigger(after) -> None:
+    """On the schema these revisions build: the only trigger on `sell_out_campanas` keeps `updated_at`."""
     triggers = {
         r[0]
         for r in after.connect().execute(

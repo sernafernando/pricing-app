@@ -22,7 +22,9 @@ It is metadata only: no allocator or money path reads `programa_id`. No sell-out
 DOWNGRADE refuses (RAISE, nothing changed) while a program exists or a campaign has `programa_id`: dropping them
 would silently lose the operator's grouping. Otherwise it drops the column and the table.
 
-LOCK NOTE: CREATE TABLE locks nothing in use. ADD COLUMN (nullable, no default: no rewrite) and the FK take an ACCESS
+LOCK NOTE: CREATE TABLE's foreign key to `usuarios` takes SHARE ROW EXCLUSIVE on `usuarios` until the deploy
+transaction commits, so writes to `usuarios` wait while the steps below wait for their locks (bounded by
+`lock_timeout`; a long write transaction on `usuarios` can make this first step time out, and a retry is safe). ADD COLUMN (nullable, no default: no rewrite) and the FK take an ACCESS
 EXCLUSIVE lock on `sell_out_campanas` (the FK validates against the existing rows, all NULL, so it is quick), which
 the `sell_out.drain` worker reads; CREATE INDEX (not CONCURRENTLY: it runs inside the migration transaction) blocks
 writes on it while it builds over a few thousand rows. Upgrade and downgrade run with `lock_timeout = '5s'` and the
