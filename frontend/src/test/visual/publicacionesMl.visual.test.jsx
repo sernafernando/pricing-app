@@ -2019,6 +2019,30 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     expect(box.left).toBeGreaterThanOrEqual(rect(panelOf()).left - 0.5);
     screen.unmount();
   });
+
+  for (const theme of THEMES) {
+    it(`1366x768 ${theme}: dragging the divider gives the panel more room and the table less, side by side`, async () => {
+      localStorage.removeItem('split-panel-width:publicaciones-ml');
+      const screen = await renderWithPanel({ width: 1366, height: 768, theme });
+      const handle = document.querySelector('[role="separator"][aria-label="Ancho del panel"]');
+      const before = rect(panelOf()).width;
+      const x = rect(handle).left + rect(handle).width / 2;
+      handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: x, clientY: 300 }));
+      window.dispatchEvent(new PointerEvent('pointermove', { buttons: 1, clientX: x - 160, clientY: 300 }));
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: x - 160, clientY: 300 }));
+      await frame();
+      const panel = rect(panelOf());
+      expect(panel.width).toBeCloseTo(before + 160, 0);
+      expect(panel.width).toBeGreaterThan(1366 * 0.42);
+      expect(rect(scrollerOf()).right).toBeLessThanOrEqual(panel.left + 0.5);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+      if (PRODUCT_SHOTS_DIR) {
+        await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-resized-1366-${theme}.png`, element: document.querySelector('[data-split-grid]') });
+      }
+      localStorage.removeItem('split-panel-width:publicaciones-ml');
+      screen.unmount();
+    });
+  }
 });
 
 describe('Publicaciones ML KPI strip (visual, P12b)', () => {
