@@ -127,7 +127,6 @@ from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_ads.owner import ads_owner_select
 from app.services.ml_daily_metrics import groups as grouping
 from app.services.ml_daily_metrics.groups import DIMENSIONS, NO_GROUP
-from app.services.ml_publications.listing_kind import listing_kind, listing_kind_from_type, listing_rank
 from app.services.ml_daily_metrics.sales import (
     BUSINESS_TZ,
     NO_PRODUCT,
@@ -143,6 +142,7 @@ from app.services.ml_daily_metrics.sales import (
 )
 from app.services.ml_orders_ingestion.mode_resolution import modo_logistico_expr
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
+from app.services.ml_publications.listing_kind import listing_kind, listing_kind_from_type, listing_rank
 from app.services.ml_sales_query.filters import NO_STORE, SalesFilter, _resolve_pm_pairs, build_scope
 from app.services.product_facets import (
     ProductFacetOptions,
