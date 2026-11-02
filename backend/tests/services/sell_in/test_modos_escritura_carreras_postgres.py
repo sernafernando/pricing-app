@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import hashlib
 import threading
-import time
 from datetime import date
 from decimal import Decimal
 from typing import Iterator
@@ -274,7 +273,11 @@ def test_a_purchase_counting_after_the_mode_also_refuses_the_confirm(engine: Eng
     _recompute(engine)
     vista = _preview(engine, modo, desde)
     si.compra(engine, [(R, 100, "50.00")], D(2026, 12, 20))
-    assert _preview(engine, modo, desde).huella != vista.huella
+    h = _hash(engine)
+    with pytest.raises(modos.HuellaVencida):
+        _confirm(engine, modo, desde, vista.huella)
+    assert _hash(engine) == h
+    assert _escalar(engine, "SELECT count(*) FROM auditoria") == 0
 
 
 def test_another_day_refuses_the_confirm(engine: Engine) -> None:
@@ -322,15 +325,16 @@ def test_the_preview_keeps_no_lock(engine: Engine) -> None:
         db.rollback()
 
 
-def test_a_confirm_waits_for_a_drain_then_refuses_what_it_wrote(engine: Engine) -> None:
+def test_a_confirm_waits_for_a_drain_holding_the_product_and_never_fails_on_it(engine: Engine) -> None:
     _lotes(engine)
     _recompute(engine)
     desde = D(2026, 10, 15)
     vista = _preview(engine, "ponderado", desde)
     salida = []
     drenaje = _s(engine)
-    si.venta(engine, "fuera", R, 5, D(2026, 10, 25))
+    si.venta(engine, "fuera", R, 5, D(2026, 10, 25))  # the sale alone already makes the preview stale
     get_costing().recompute(drenaje, [R])  # the drain, uncommitted, holds the product
+    pid = drenaje.execute(text("SELECT pg_backend_pid()")).scalar()
 
     def salvar() -> None:
         try:
@@ -340,11 +344,13 @@ def test_a_confirm_waits_for_a_drain_then_refuses_what_it_wrote(engine: Engine) 
 
     hilo = threading.Thread(target=salvar)
     hilo.start()
-    time.sleep(0.5)
-    assert hilo.is_alive() and not salida  # it waits, it does not fail
-    drenaje.commit()
-    drenaje.close()
-    hilo.join(30)
+    try:
+        si.esperar_bloqueado_por(engine, pid)  # it waits on the drain, it does not fail
+        assert not salida
+    finally:
+        drenaje.commit()
+        drenaje.close()
+        hilo.join(30)
     assert isinstance(salida[0], modos.HuellaVencida), salida
 
 
@@ -367,10 +373,14 @@ def test_a_failing_cost_bonus_follow_up_still_saves_one_row_one_audit(engine: En
     _lotes(engine)
     vista = _preview(engine, "ponderado", HOY)
 
-    def falla(*a, **k):
+    llamadas = []
+
+    def falla(db, item_ids):
+        llamadas.append(set(item_ids))
         raise OperationalError("x", {}, Exception("canceling statement due to lock timeout"))
 
     monkeypatch.setattr(bonos_costo, "recalcular", falla)
     _confirm(engine, "ponderado", HOY, vista.huella)
+    assert llamadas == [{R}]  # the follow-up ran and failed
     assert _escalar(engine, "SELECT count(*) FROM sell_in_modos_producto") == 1
     assert _escalar(engine, "SELECT count(*) FROM auditoria") == 1

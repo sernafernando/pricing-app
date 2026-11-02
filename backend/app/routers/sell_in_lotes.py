@@ -3,6 +3,7 @@ consumed by, and the product's dated cost modes, plus the preview and confirm of
 of the product panel, which already shows the sell-in figures; the modes, which carry typed and frozen unit costs, also
 need `sell_in.ver`, and a change the mode's own permission (D7)."""
 
+import logging
 from dataclasses import replace
 from datetime import date
 
@@ -20,8 +21,11 @@ from app.schemas.sell_in_modos import ModoConfirmarIn, ModoIn, ModoProductoOut, 
 from app.services.permisos_service import verificar_permiso
 from app.services.sell_in import modos, visor_lotes
 
+logger = logging.getLogger(__name__)
+
 # Another writer held the product: deadlock_detected, lock_not_available, query_canceled (a statement_timeout while
-# waiting for the product's lock). Nothing was saved; the same request can be retried.
+# waiting for the product's lock). Nothing was saved; the same request can be retried. A 57014 can also be a slow
+# recompute or an operator's cancel, so every mapped error is logged with its code.
 OCUPADO = frozenset({"40P01", "55P03", "57014"})
 
 # Who sold each lot (supplier, invoices) is purchase information: Productos' "Últimas compras" permission.
@@ -94,8 +98,10 @@ def _validar_cambio(db: Session, usuario: Usuario, item_id: int, body: ModoIn, h
 def _ocupado(db: Session, exc: DBAPIError) -> HTTPException:
     """409 to retry when another writer held the product (`OCUPADO`); any other database error goes on as it was."""
     db.rollback()
-    if getattr(exc.orig, "pgcode", None) not in OCUPADO:
+    codigo = getattr(exc.orig, "pgcode", None)
+    if codigo not in OCUPADO:
         raise exc
+    logger.warning("sell in: a cost mode change met a busy product (%s), answered 409 to retry: %s", codigo, exc.orig)
     return HTTPException(
         status.HTTP_409_CONFLICT, "Another operation is changing the product right now: try again in a few seconds"
     )

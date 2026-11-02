@@ -185,3 +185,25 @@ def test_a_lock_error_answers_a_409_to_retry(
     assert resp.json()["error"]["message"] == (
         "Another operation is changing the product right now: try again in a few seconds"
     )
+
+
+@pytest.mark.parametrize("pgcode", ["23505", None])
+@pytest.mark.parametrize("ruta", ["modos/vista-previa", "modos"])
+def test_any_other_database_error_is_not_a_retry(
+    client, rol_admin, lector, grant_permiso, producto, monkeypatch, pgcode, ruta
+) -> None:
+    grant_permiso(rol_admin, PONDERADO)
+
+    class Orig(Exception):
+        pass
+
+    if pgcode is not None:
+        Orig.pgcode = pgcode
+
+    def choca(*a, **k):
+        raise OperationalError("SELECT", {}, Orig("something else"))
+
+    monkeypatch.setattr(modos, "vista_previa" if ruta != "modos" else "confirmar", choca)
+    extra = {"huella": "0" * 64} if ruta == "modos" else {}
+    resp = client.post(f"{BASE}/4512/{ruta}", json=_cuerpo("ponderado", HOY, **extra), headers=lector)
+    assert resp.status_code == 500, resp.text
