@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { sellOutAPI } from '../../services/sellOutAPI';
@@ -41,8 +41,9 @@ function topes(campana) {
  * permissions context: a PM may split without managing campaigns) or `sell_out.gestionar`. "Renovar" (with
  * `sell_out.gestionar`, active or voided) loads the renewal draft (`GET /{id}/renovacion`) into the NEW-campaign form:
  * nothing is saved until "Guardar campaña", which creates the copy (shares included); the original is never edited.
+ * `renovarAlAbrir` (a row's "Renovar") does that as soon as the campaign is read.
  */
-export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGestionar = false, onSaved, onClose }) {
+export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGestionar = false, renovarAlAbrir = false, onSaved, onClose }) {
   const id = useId();
   // The campaign a renewal copies (its name), while its draft is in the form.
   const [renovando, setRenovando] = useState(null);
@@ -90,6 +91,14 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
       setBusy(false);
     }
   };
+
+  // A row's "Renovar": once, when the campaign has been read (the parent remounts the panel for each click).
+  const renovarPendiente = useRef(renovarAlAbrir);
+  useEffect(() => {
+    if (!renovarPendiente.current || campana === null || !puedeGestionar) return;
+    renovarPendiente.current = false;
+    renovar();
+  });
 
   const dejarDeRenovar = () => {
     setRenovando(null);

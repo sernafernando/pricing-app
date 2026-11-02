@@ -689,7 +689,9 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
     const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
     await user.click(within(fila).getByRole('button', { name: 'Ver campaña' }));
-    await user.click(await screen.findByRole('button', { name: 'Renovar' }));
+    await screen.findByRole('heading', { name: 'RB 8180', level: 2 });
+    // The panel's own button: each row has one too (slice E).
+    await user.click(screen.getAllByRole('button', { name: 'Renovar' }).find((b) => !b.closest('table')));
     expect(await screen.findByText('Copia de «RB 8180». Revisá fechas y montos antes de guardar.')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Guardar campaña' }));
 
@@ -1056,6 +1058,40 @@ describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
 
     expect(await within(dialogo).findByRole('alert')).toHaveTextContent('El programa «MARCA PROG» está archivado.');
     expect(within(seccion).getByRole('checkbox', { name: 'Seleccionar RB 8180' })).toBeChecked();
+  });
+
+  it('a row\'s "Renovar" opens the new-campaign form prefilled with the renewal draft', async () => {
+    sellOutAPI.renovacion.mockResolvedValue({ data: RENOVACION_MIGRADA });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
+    const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
+    await user.click(within(fila).getByRole('button', { name: 'Renovar' }));
+
+    await waitFor(() => expect(sellOutAPI.renovacion).toHaveBeenCalledWith(55));
+    expect(await screen.findByText('Copia de «RB 8180». Revisá fechas y montos antes de guardar.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Guardar campaña' })).toBeInTheDocument();
+    expect(sellOutAPI.crear).not.toHaveBeenCalled();
+  });
+
+  it('a grouped row has "Renovar" too', async () => {
+    conProgramas();
+    sellOutAPI.listar.mockImplementation(async (p) => ({ data: p.programa_id === 7 ? CAMPANAS_DEL_PROGRAMA : CAMPANAS_LISTA }));
+    sellOutAPI.renovacion.mockResolvedValue({ data: RENOVACION_MIGRADA });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    await user.click(await waitFor(() => screen.getByRole('button', { name: /^MARCA PROG/ })));
+    const fila = (await screen.findByText('MARCA PROG 3.0')).closest('tr');
+    await user.click(within(fila).getByRole('button', { name: 'Renovar' }));
+    await waitFor(() => expect(sellOutAPI.renovacion).toHaveBeenCalledWith(71));
+  });
+
+  it('without sell_out.gestionar the rows have no "Renovar"', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const fila = (await screen.findByText('RB 8180')).closest('tr');
+    expect(within(fila).getByRole('button', { name: 'Ver campaña' })).toBeInTheDocument();
+    expect(within(fila).queryByRole('button', { name: 'Renovar' })).not.toBeInTheDocument();
   });
 
   it('without sell_out.gestionar there is no "Asignar a programa"', async () => {

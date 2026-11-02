@@ -12,7 +12,7 @@ const GRUPOS_POR_PAGINA = 50;
 const CAMPANAS_POR_GRUPO = 200;
 
 /** A group's campaigns with the list's filters plus its program (or `sin_programa`), read when it is expanded. */
-function CampanasDelGrupo({ grupo, filtros, version, columnas, seleccion, onToggle, selectedId, onSelect }) {
+function CampanasDelGrupo({ grupo, filtros, version, columnas, seleccion, onToggle, selectedId, onSelect, onRenovar }) {
   const [lista, setLista] = useState(null);
   const [error, setError] = useState(false);
   const deGrupo = grupo.programa_id == null ? { sin_programa: true } : { programa_id: grupo.programa_id };
@@ -46,6 +46,7 @@ function CampanasDelGrupo({ grupo, filtros, version, columnas, seleccion, onTogg
           campana={campana}
           selectedId={selectedId}
           onSelect={onSelect}
+          onRenovar={onRenovar}
           seleccion={seleccion}
           onToggle={onToggle}
         />
@@ -86,11 +87,11 @@ function Grupo({ grupo, abierto, onAlternar, ...resto }) {
  * The "Por programa" view of the sell-out campaigns (campanas-sistema slice E): one row per program with campaigns
  * under the list's filters (`GET /sell-out/campanas/por-programa`, so a program with none is not shown and the
  * request count stays one per page of groups), then "Sin programa". Expanding a group reads its campaigns with the
- * same filters plus the program, shown with the flat list's row (checkbox, "Ver campaña"). A new `version` reads
+ * same filters plus the program, shown with the flat list's row (checkbox, "Ver campaña", "Renovar"). A new `version` reads
  * the groups and the open ones again. `seleccion` / `onToggle` come from the bulk bar; without them there are no
  * checkboxes.
  */
-export default function SellOutPorPrograma({ filtros, version, seleccion, onToggle, selectedId, onSelect }) {
+export default function SellOutPorPrograma({ filtros, version, seleccion, onToggle, selectedId, onSelect, onRenovar }) {
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(GRUPOS_POR_PAGINA);
   const [datos, setDatos] = useState(null);
@@ -158,6 +159,7 @@ export default function SellOutPorPrograma({ filtros, version, seleccion, onTogg
               onToggle={onToggle}
               selectedId={selectedId}
               onSelect={onSelect}
+              onRenovar={onRenovar}
             />
           ))}
         </table>

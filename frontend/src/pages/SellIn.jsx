@@ -236,6 +236,13 @@ export default function SellIn() {
   const verBono = useCallback((id) => setPanel({ tipo: 'bono', id }), []);
   const verCompra = useCallback((id) => setPanel({ tipo: 'detalle', id }), []);
   const verCampana = useCallback((id) => setPanel({ tipo: 'campana', id }), []);
+  // A row's "Renovar" (`sell_out.gestionar`): the campaign's panel, renewing it as soon as it is read. A new `renovar`
+  // count remounts the panel, so a second click on the same row renews again.
+  const renovaciones = useRef(0);
+  const renovarCampana = useCallback((id) => {
+    renovaciones.current += 1;
+    setPanel({ tipo: 'campana', id, renovar: renovaciones.current });
+  }, []);
   // The bulk void (`sell_in.gestionar`): the checked purchases and bonuses, and what the last one did.
   const selCompras = useSeleccionMasiva();
   const selBonos = useSeleccionMasiva();
@@ -512,8 +519,9 @@ export default function SellIn() {
             />
           ) : panel?.tipo === 'campana' ? (
             <SellOutCampanaPanel
-              key={`campana-${panel.id ?? 'nueva'}-${panel.version ?? 0}`}
+              key={`campana-${panel.id ?? 'nueva'}-${panel.version ?? 0}-${panel.renovar ?? 0}`}
               campanaId={panel.id}
+              renovarAlAbrir={Boolean(panel.renovar)}
               grupos={gruposOffset}
               puedeGestionar={puedeGestionarSellOut}
               onSaved={(campana) => {
@@ -773,13 +781,14 @@ export default function SellIn() {
                     puedeGestionar={puedeGestionarSellOut}
                     selectedId={panel?.tipo === 'campana' ? panel.id : null}
                     onSelect={verCampana}
+                    onRenovar={puedeGestionarSellOut ? renovarCampana : undefined}
                     onAnuladas={(ids) => {
                       programasCambiaron(); // the groups' active counts changed too
                       // The open campaign was just voided: read it again (a new key remounts the panel). Functional update:
                       // the panel may have been closed or changed while the request was in flight.
                       setPanel((actual) =>
                         actual?.tipo === 'campana' && ids.includes(actual.id)
-                          ? { ...actual, version: (actual.version ?? 0) + 1 }
+                          ? { ...actual, version: (actual.version ?? 0) + 1, renovar: undefined }
                           : actual,
                       );
                     }}

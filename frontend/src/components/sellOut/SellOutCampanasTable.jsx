@@ -6,6 +6,7 @@ import { beneficio, cuantosItems, esDeduccion } from './sellOutFormat';
 import { columnasCampanas } from './sellOutProgramas';
 import styles from '../sellIn/SellInTable.module.css';
 import repartoStyles from './SellOutReparto.module.css';
+import filaStyles from './SellOutCampanasTable.module.css';
 
 const DIA = { day: '2-digit', month: '2-digit', year: 'numeric' };
 
@@ -38,8 +39,11 @@ export function CabeceraCampanas({ seleccionable, paginaSeleccionada, onTogglePa
   );
 }
 
-/** One campaign row: the same in the flat list and inside a program group (`SellOutPorPrograma`). */
-export function CampanaFila({ campana, selectedId, onSelect, seleccion, onToggle }) {
+/**
+ * One campaign row: the same in the flat list and inside a program group (`SellOutPorPrograma`). With `onRenovar`
+ * (`sell_out.gestionar`) it also has "Renovar", the panel's renewal: it gets the campaign id.
+ */
+export function CampanaFila({ campana, selectedId, onSelect, seleccion, onToggle, onRenovar }) {
   return (
     <tr className={selectedId === campana.id ? styles.rowSelected : ''}>
       {seleccion != null && (
@@ -80,9 +84,16 @@ export function CampanaFila({ campana, selectedId, onSelect, seleccion, onToggle
         </StatusPill>
       </td>
       <td>
-        <button type="button" className="btn-tesla ghost sm" onClick={() => onSelect(campana.id)}>
-          Ver campaña
-        </button>
+        <div className={filaStyles.acciones}>
+          <button type="button" className="btn-tesla ghost sm" onClick={() => onSelect(campana.id)}>
+            Ver campaña
+          </button>
+          {onRenovar && (
+            <button type="button" className="btn-tesla ghost sm" onClick={() => onRenovar(campana.id)}>
+              Renovar
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -90,9 +101,19 @@ export function CampanaFila({ campana, selectedId, onSelect, seleccion, onToggle
 
 /**
  * The sell-out campaigns (`GET /sell-out/campanas`), with what each one credited; "Ver campaña" opens it (`onSelect`).
- * With `seleccion` (a `Map` keyed by id, `SellOutAnularMasivo`) each row and the header get a checkbox.
+ * With `seleccion` (a `Map` keyed by id, `SellOutAnularMasivo`) each row and the header get a checkbox; with
+ * `onRenovar`, each row gets "Renovar".
  */
-export default function SellOutCampanasTable({ campanas, selectedId, onSelect, seleccion, onToggle, paginaSeleccionada, onTogglePagina }) {
+export default function SellOutCampanasTable({
+  campanas,
+  selectedId,
+  onSelect,
+  onRenovar,
+  seleccion,
+  onToggle,
+  paginaSeleccionada,
+  onTogglePagina,
+}) {
   const seleccionable = seleccion != null;
   return (
     <div className={styles.scroller}>
@@ -117,6 +138,7 @@ export default function SellOutCampanasTable({ campanas, selectedId, onSelect, s
               campana={campana}
               selectedId={selectedId}
               onSelect={onSelect}
+              onRenovar={onRenovar}
               seleccion={seleccion}
               onToggle={onToggle}
             />

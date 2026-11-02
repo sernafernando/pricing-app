@@ -19,5 +19,5 @@ Las campañas de sell out que son el mismo acuerdo (las que se renuevan cada tri
 - Asignar un programa no cambia lo que acreditan las campañas ni la ganancia.
 - Las sugerencias solo agrupan campañas sin programa con exactamente las mismas fechas, y no se aplican hasta confirmarlas. Descartar no se guarda: vuelven a aparecer al abrir la página otra vez.
 - Un programa archivado no recibe campañas nuevas.
-- **Renovar** deja la copia en el mismo programa mientras esté activo.
+- **Renovar** ahora también está en cada fila de la lista, en las dos vistas, y deja la copia en el mismo programa mientras esté activo.
 - Asignar y las sugerencias son solo para quien gestiona campañas.

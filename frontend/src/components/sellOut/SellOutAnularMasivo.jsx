@@ -25,7 +25,8 @@ function errorDeSeleccion(err) {
  *
  * The same selection (rows, or "todo lo filtrado") feeds "Asignar a programa" (`SellOutAsignarPrograma`, with
  * `programas`); `onAsignadas()` runs after an assignment. `renderTabla(props)` draws the rows instead of the flat
- * table (the "Por programa" view); it gets `seleccion` and `onToggle` only with `puedeGestionar`.
+ * table (the "Por programa" view); it gets `seleccion` and `onToggle` only with `puedeGestionar`. `onRenovar` (the
+ * page passes it with `sell_out.gestionar`) gives each row "Renovar".
  */
 export default function SellOutAnularMasivo({
   campanas,
@@ -34,6 +35,7 @@ export default function SellOutAnularMasivo({
   puedeGestionar,
   selectedId,
   onSelect,
+  onRenovar,
   onAnuladas,
   programas = [],
   onAsignadas,
@@ -50,9 +52,9 @@ export default function SellOutAnularMasivo({
 
   if (!puedeGestionar) {
     return renderTabla ? (
-      renderTabla({ selectedId, onSelect })
+      renderTabla({ selectedId, onSelect, onRenovar })
     ) : (
-      <SellOutCampanasTable campanas={campanas} selectedId={selectedId} onSelect={onSelect} />
+      <SellOutCampanasTable campanas={campanas} selectedId={selectedId} onSelect={onSelect} onRenovar={onRenovar} />
     );
   }
 
@@ -192,12 +194,13 @@ export default function SellOutAnularMasivo({
         />
       )}
       {renderTabla ? (
-        renderTabla({ selectedId, onSelect, seleccion, onToggle: alternar })
+        renderTabla({ selectedId, onSelect, onRenovar, seleccion, onToggle: alternar })
       ) : (
         <SellOutCampanasTable
           campanas={campanas}
           selectedId={selectedId}
           onSelect={onSelect}
+          onRenovar={onRenovar}
           seleccion={seleccion}
           onToggle={alternar}
           paginaSeleccionada={paginaSeleccionada}
