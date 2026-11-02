@@ -19,6 +19,7 @@ from app.models.gestion_full_package import (
     GestionFullPackageLine,
 )
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
+from app.models.producto import ProductoERP
 
 _TEMPLATE = Path(__file__).resolve().parents[2] / "assets" / "gestion_full" / "envio-de-stock-full.xlsx"
 _SHEET = " Selección de productos"
@@ -54,6 +55,19 @@ def _mla_digits(mla: Optional[str]) -> Optional[str]:
     if s.startswith("MLA"):
         s = s[3:]
     return s if s.isdigit() else None
+
+
+def _write_text_cell(ws: Any, row: int, col: int, value: object) -> None:
+    """Write ``value`` as an Excel **string** cell (never a formula).
+
+    openpyxl treats strings starting with ``=``, ``+``, ``-``, or ``@`` as
+    formulas; Seller Center still needs the literal SKU/EAN text, so we force
+    ``data_type='s'`` after assign (no leading apostrophe that would change the value).
+    """
+    text_val = "" if value is None else str(value)
+    cell = ws.cell(row=row, column=col, value=text_val)
+    cell.data_type = "s"
+    cell.number_format = "@"
 
 
 def _enrich_lines(
@@ -122,10 +136,10 @@ def build_ml_full_xlsx(db: Session, package: GestionFullPackage) -> bytes:
     for offset, e in enumerate(rows):
         r = _DATA_START_ROW + offset
         ln = e["line"]
-        ws.cell(r, 1, value=str(e["seller_sku"])).number_format = "@"
-        ws.cell(r, 3, value=str(ln.inventory_id)).number_format = "@"
-        ws.cell(r, 4, value=str(e["mla_digits"])).number_format = "@"
-        ws.cell(r, 6, value=str(int(ln.qty_export))).number_format = "@"
+        _write_text_cell(ws, r, 1, e["seller_sku"])
+        _write_text_cell(ws, r, 3, ln.inventory_id)
+        _write_text_cell(ws, r, 4, e["mla_digits"])
+        _write_text_cell(ws, r, 6, int(ln.qty_export))
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -138,22 +152,44 @@ def build_ops_ean_xlsx(db: Session, package: GestionFullPackage) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Envio"
-    ws.append(["EAN", "Descripcion", "Cantidad"])
+    _write_text_cell(ws, 1, 1, "EAN")
+    _write_text_cell(ws, 1, 2, "Descripcion")
+    _write_text_cell(ws, 1, 3, "Cantidad")
+    row_i = 2
     for e in enriched:
         ln = e["line"]
         if ln.qty_export < 1:
             continue
-        ws.append([e["ean"] or "", e["descripcion"] or "", int(ln.qty_export)])
+        _write_text_cell(ws, row_i, 1, e["ean"] or "")
+        _write_text_cell(ws, row_i, 2, e["descripcion"] or "")
+        _write_text_cell(ws, row_i, 3, int(ln.qty_export))
+        row_i += 1
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
 
 
+def recap_qty_export_to_stock(db: Session, package: GestionFullPackage) -> int:
+    """Clamp each line's qty_export to current ``productos_erp.stock``. Returns changed count."""
+    changed = 0
+    for ln in package.lines:
+        prod = db.get(ProductoERP, ln.producto_item_id)
+        stock = max(0, int(prod.stock if prod is not None and prod.stock is not None else 0))
+        if ln.qty_export > stock:
+            ln.qty_export = stock
+            changed += 1
+    return changed
+
+
 def mark_package_exported(db: Session, package: GestionFullPackage) -> GestionFullPackage:
-    """Flip open → exported on successful download (idempotent if already exported)."""
-    if package.status == PACKAGE_STATUS_OPEN:
-        package.status = PACKAGE_STATUS_EXPORTED
-        package.exported_at = datetime.now(UTC)
-        db.commit()
-        db.refresh(package)
-    return package
+    """Re-cap qty_export to stock_erp, then flip open → exported (idempotent if exported)."""
+    pkg = db.query(GestionFullPackage).filter(GestionFullPackage.id == package.id).with_for_update().one()
+    if pkg.status == PACKAGE_STATUS_LOCKED:
+        raise ValueError("paquete hard-locked")
+    recap_qty_export_to_stock(db, pkg)
+    if pkg.status == PACKAGE_STATUS_OPEN:
+        pkg.status = PACKAGE_STATUS_EXPORTED
+        pkg.exported_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(pkg)
+    return pkg

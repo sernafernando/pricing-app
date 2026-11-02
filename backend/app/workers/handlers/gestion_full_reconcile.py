@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Callable, Optional, Tuple
 
 from app.core import database
+from app.models.gestion_full_envio import GestionFullEnvio
 from app.services.gestion_full.reconcile import list_open_envios, reconcile_envio
 from app.services.ml_publications.ml_http import MlHttpClient
 from app.services.ml_publications.pacing import Pacer
@@ -43,28 +44,26 @@ class GestionFullReconcileHandler:
         if self._client is None:
             self._client = self._client_factory(self.pacer)
 
+        # Copy inbound_ids while the listing session is open — ORM rows detach on close.
         with self._session_factory() as db:
-            open_envios = list_open_envios(db)[:BATCH_PER_TICK]
+            open_inbound_ids = [e.inbound_id for e in list_open_envios(db)[:BATCH_PER_TICK]]
 
-        if not open_envios:
+        if not open_inbound_ids:
             return JobResult(success=True, detail={"reconciled": 0, "complete": True})
 
         results = []
-        for envio in open_envios:
+        for inbound_id in open_inbound_ids:
             if ctx.stop_requested():
                 break
             try:
                 with self._session_factory() as db:
-                    # re-load in this session
-                    from app.models.gestion_full_envio import GestionFullEnvio
-
-                    row = db.get(GestionFullEnvio, envio.inbound_id)
+                    row = db.get(GestionFullEnvio, inbound_id)
                     if row is None:
                         continue
                     results.append(reconcile_envio(db, row, client=self._client, now=self._now()))
             except Exception:  # noqa: BLE001 -- keep poller alive
-                logger.exception("gestion_full.reconcile failed for %s", envio.inbound_id)
-                results.append({"inbound_id": envio.inbound_id, "error": True})
+                logger.exception("gestion_full.reconcile failed for %s", inbound_id)
+                results.append({"inbound_id": inbound_id, "error": True})
 
         return JobResult(
             success=True,
