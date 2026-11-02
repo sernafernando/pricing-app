@@ -56,6 +56,19 @@ def _mla_digits(mla: Optional[str]) -> Optional[str]:
     return s if s.isdigit() else None
 
 
+def _write_text_cell(ws: Any, row: int, col: int, value: object) -> None:
+    """Write ``value`` as an Excel **string** cell (never a formula).
+
+    openpyxl treats strings starting with ``=``, ``+``, ``-``, or ``@`` as
+    formulas; Seller Center still needs the literal SKU/EAN text, so we force
+    ``data_type='s'`` after assign (no leading apostrophe that would change the value).
+    """
+    text_val = "" if value is None else str(value)
+    cell = ws.cell(row=row, column=col, value=text_val)
+    cell.data_type = "s"
+    cell.number_format = "@"
+
+
 def _enrich_lines(
     db: Session,
     lines: list[GestionFullPackageLine],
@@ -122,10 +135,10 @@ def build_ml_full_xlsx(db: Session, package: GestionFullPackage) -> bytes:
     for offset, e in enumerate(rows):
         r = _DATA_START_ROW + offset
         ln = e["line"]
-        ws.cell(r, 1, value=str(e["seller_sku"])).number_format = "@"
-        ws.cell(r, 3, value=str(ln.inventory_id)).number_format = "@"
-        ws.cell(r, 4, value=str(e["mla_digits"])).number_format = "@"
-        ws.cell(r, 6, value=str(int(ln.qty_export))).number_format = "@"
+        _write_text_cell(ws, r, 1, e["seller_sku"])
+        _write_text_cell(ws, r, 3, ln.inventory_id)
+        _write_text_cell(ws, r, 4, e["mla_digits"])
+        _write_text_cell(ws, r, 6, int(ln.qty_export))
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -138,12 +151,18 @@ def build_ops_ean_xlsx(db: Session, package: GestionFullPackage) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Envio"
-    ws.append(["EAN", "Descripcion", "Cantidad"])
+    _write_text_cell(ws, 1, 1, "EAN")
+    _write_text_cell(ws, 1, 2, "Descripcion")
+    _write_text_cell(ws, 1, 3, "Cantidad")
+    row_i = 2
     for e in enriched:
         ln = e["line"]
         if ln.qty_export < 1:
             continue
-        ws.append([e["ean"] or "", e["descripcion"] or "", int(ln.qty_export)])
+        _write_text_cell(ws, row_i, 1, e["ean"] or "")
+        _write_text_cell(ws, row_i, 2, e["descripcion"] or "")
+        _write_text_cell(ws, row_i, 3, int(ln.qty_export))
+        row_i += 1
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
