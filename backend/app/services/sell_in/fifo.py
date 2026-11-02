@@ -157,7 +157,8 @@ class Dinero:
         self.usadas = [0] * len(lotes)
         self._modo = "fifo"
         self._lote_seg: Dict[int, Tuple[int, Decimal, int]] = {}  # FIFO: lot -> (start used units, base, units)
-        # `ponderado`: [lots counting, money, units, units taken]; `ultimo`: [lots counting, unit value, 1, units taken].
+        # `ponderado`: [lots counting, money, units, units taken];
+        # `ultimo`: [lots counting, unit value, 1, units taken].
         self._seg: Optional[list] = None
 
     def _cuentan(self, fecha: date) -> int:
