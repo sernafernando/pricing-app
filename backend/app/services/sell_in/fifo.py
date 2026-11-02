@@ -144,9 +144,6 @@ class Dinero:
     def __init__(self, lotes: List[Lote], periodos: Iterable[Periodo] = ()) -> None:
         self.lotes = lotes
         self.periodos = list(periodos)
-        for periodo in self.periodos:
-            if periodo.modo not in ("fifo", "ponderado", "ultimo"):
-                raise ValueError(f"cost mode {periodo.modo!r} is not supported here")
         orden = sorted(range(len(self.periodos)), key=lambda k: (self.periodos[k].desde, k))
         # The periods that govern some day, in date order (an earlier one on the same `desde` never does).
         self._pendientes = [
@@ -204,6 +201,9 @@ class Dinero:
         """Enters, in date order, every period that starts on or before `fecha`."""
         while self._pendientes and self.periodos[self._pendientes[0]].desde <= fecha:
             periodo = self.periodos[self._pendientes.pop(0)]
+            if periodo.modo not in ("fifo", "ponderado", "ultimo"):
+                # Refused only once it governs a sale: a row dated after them changes nothing yet.
+                raise ValueError(f"cost mode {periodo.modo!r} is not supported here")
             if self._modo != "fifo":
                 # The pool takes in the lots that started counting before the new period, sold from or not.
                 self._unir(periodo.desde - timedelta(days=1))
