@@ -35,8 +35,9 @@ function EditButton({ label, onClick, disabled }) {
  * @param {(write: (itemId: number) => Promise<unknown>, texts: { saved: string, fallback: string }) => Promise<boolean>} props.onSave
  *   Runs the write for the product on screen, re-reads it and reports; resolves true when it was saved.
  * @param {(text: string) => void} props.onInvalid Reports a value that is not sent.
+ * @param {import('react').ReactNode} [props.webTransferNote] Shown under the web transfer (a panel's Tienda Nube price).
  */
-export default function ProductToggles({ product, permissions, saving, onSave, onInvalid }) {
+export default function ProductToggles({ product, permissions, saving, onSave, onInvalid, webTransferNote = null }) {
   const [editing, setEditing] = useState(null);
   const canRebate = Boolean(permissions?.canToggleRebate);
   const canWebTransf = Boolean(permissions?.canToggleWebTransf);
@@ -157,6 +158,7 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
                   )}
                 </div>
               )}
+              {webTransferNote}
             </th>
             <td className={styles.price}>{webTransf ? <Money value={product.precio_web_transferencia} /> : <Empty />}</td>
             <td className={styles.markup}>{webTransf ? <MarkupChip value={product.markup_web_real} /> : <Empty />}</td>

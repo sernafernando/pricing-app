@@ -136,9 +136,9 @@ function SellInOutMarkup({ row, price, sellInOut }) {
  * cost is converted with the current rate (`rate`, venta) and keeps its
  * original amount beside it; the cost with offset uses that same rate.
  * Beside them, the cost with sell in and the sell out per unit, as the
- * backend computes them (`sell_in_out`).
+ * backend computes them (`sell_in_out`). `action` (the panel's Calcular) closes the line.
  */
-function ProductFacts({ product, showCost, isUsd, needsRate, rate, offsets, costo }) {
+function ProductFacts({ product, showCost, isUsd, needsRate, rate, offsets, costo, action }) {
 
   let cost = <Empty />;
   if (isUsd) {
@@ -151,42 +151,49 @@ function ProductFacts({ product, showCost, isUsd, needsRate, rate, offsets, cost
   }
 
   return (
-    <dl className={styles.facts} role="group" aria-label="Referencias del producto">
-      {showCost && (
-        <>
-          <div className={styles.fact}>
-            <dt className={styles.factLabel}>Costo</dt>
-            <dd className={styles.factValue}>{cost}</dd>
-          </div>
-          <div className={styles.fact}>
-            <dt className={styles.factLabel}>Costo con offset</dt>
-            <dd className={styles.factValue}>
-              <OffsetCost product={product} offsets={offsets} needsRate={needsRate} rate={rate} costo={costo} />
-            </dd>
-          </div>
-          <div className={styles.fact}>
-            <dt className={styles.factLabel}>Costo c/ sell in</dt>
-            <dd className={styles.factValue}>
-              <SellInCost sellIn={product.sell_in_out?.sell_in} />
-            </dd>
-          </div>
-          <div className={styles.fact}>
-            <dt className={styles.factLabel}>Sell out por unidad</dt>
-            <dd className={styles.factValue}>
-              <SellOutAmount sellOut={product.sell_in_out?.sell_out} />
-            </dd>
-          </div>
-        </>
-      )}
-      <div className={styles.fact}>
-        <dt className={styles.factLabel}>IVA</dt>
-        <dd className={styles.factValue}>{isBlank(product.iva) ? <Empty /> : `${formatRate(product.iva)}%`}</dd>
-      </div>
-    </dl>
+    <div className={styles.facts} role="group" aria-label="Referencias del producto">
+      <dl className={styles.factList}>
+        {showCost && (
+          <>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>Costo</dt>
+              <dd className={styles.factValue}>{cost}</dd>
+            </div>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>Costo con offset</dt>
+              <dd className={styles.factValue}>
+                <OffsetCost product={product} offsets={offsets} needsRate={needsRate} rate={rate} costo={costo} />
+              </dd>
+            </div>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>Costo c/ sell in</dt>
+              <dd className={styles.factValue}>
+                <SellInCost sellIn={product.sell_in_out?.sell_in} />
+              </dd>
+            </div>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>Sell out por unidad</dt>
+              <dd className={styles.factValue}>
+                <SellOutAmount sellOut={product.sell_in_out?.sell_out} />
+              </dd>
+            </div>
+          </>
+        )}
+        <div className={styles.fact}>
+          <dt className={styles.factLabel}>IVA</dt>
+          <dd className={styles.factValue}>{isBlank(product.iva) ? <Empty /> : `${formatRate(product.iva)}%`}</dd>
+        </div>
+      </dl>
+      {action && <div className={styles.factAction}>{action}</div>}
+    </div>
   );
 }
 
-function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, saving, onStart, onChange, onToggleMode, onSave, onCancel }) {
+/**
+ * One price of a plan (S2): the amount and its markup under it, then -- for `showCost` -- the markup with offset and
+ * with sell in/out, each with its own small label. The amount never wraps. Its editor replaces the amount in place.
+ */
+function PriceEntry({ row, product, costo, showCost, canEdit, editing, saving, onStart, onChange, onToggleMode, onSave, onCancel }) {
   const price = product[row.precio];
   const markup = product[row.markup];
   const isEditing = editing?.id === row.id;
@@ -204,12 +211,9 @@ function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, s
   };
 
   return (
-    <tr className={styles.row} data-editing={isEditing ? '' : undefined}>
-      <th scope="row" className={styles.label} title={row.short && row.label} aria-label={row.short && row.label}>
-        {row.short ?? row.label}
-      </th>
-      <td className={styles.price}>
-        {isEditing ? (
+    <td className={styles.planEntry} data-entry={row.id} data-entry-label={row.label} data-editing={isEditing ? '' : undefined}>
+      {isEditing ? (
+        <div className={styles.priceEditor}>
           <input
             className={styles.input}
             type="text"
@@ -223,83 +227,93 @@ function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, s
             disabled={saving}
             autoFocus
           />
-        ) : isBlank(price) ? (
-          <Empty />
-        ) : (
-          `$ ${formatAmount(price)}`
-        )}
-      </td>
-      <td className={styles.markup} data-col="markup" data-negative={!isBlank(markup) && Number(markup) < 0 ? '' : undefined}>
-        <MarkupChip value={markup} />
-      </td>
-      {showCost && (
-        <td className={styles.markup} data-col="markup-offset">
-          <MarkupChip value={markupConOffset(markup, costo)} />
-        </td>
-      )}
-      {showCost && (
-        <td className={styles.markup} data-col="markup-sell-in-out">
-          <SellInOutMarkup row={row} price={price} sellInOut={product.sell_in_out} />
-        </td>
-      )}
-      {editable && (
-        <td className={styles.actions}>
-          {isEditing ? (
+          <span className={styles.entry}>
+            <button
+              type="button"
+              className={`btn-tesla xs ${byMarkup ? 'outline-subtle-info' : 'outline'}`}
+              aria-pressed={byMarkup}
+              title={byMarkup ? 'Volver a editar el precio' : 'Fijar el markup y calcular el precio'}
+              onClick={onToggleMode}
+              disabled={saving}
+            >
+              <Percent size={12} aria-hidden="true" />
+              Por markup
+            </button>
+            <button type="button" className="btn-tesla outline-subtle-success icon-only xs" aria-label="Guardar" onClick={onSave} disabled={saving}>
+              <Check size={14} aria-hidden="true" />
+            </button>
+            <button type="button" className="btn-tesla ghost icon-only xs" aria-label="Cancelar" onClick={onCancel} disabled={saving}>
+              <X size={14} aria-hidden="true" />
+            </button>
+          </span>
+        </div>
+      ) : (
+        <div className={styles.entryTop}>
+          <span className={styles.price}>{isBlank(price) ? <Empty /> : `$ ${formatAmount(price)}`}</span>
+          {canEdit && (
             <span className={styles.entry}>
               <button
                 type="button"
-                className={`btn-tesla xs ${byMarkup ? 'outline-subtle-info' : 'outline'}`}
-                aria-pressed={byMarkup}
-                title={byMarkup ? 'Volver a editar el precio' : 'Fijar el markup y calcular el precio'}
-                onClick={onToggleMode}
+                className="btn-tesla ghost icon-only xs"
+                aria-label={`Editar ${row.label}`}
+                title="Editar el precio"
+                onClick={() => onStart('precio')}
                 disabled={saving}
               >
-                <Percent size={12} aria-hidden="true" />
-                Por markup
+                <Pencil size={14} aria-hidden="true" />
               </button>
-              <button type="button" className="btn-tesla outline-subtle-success icon-only xs" aria-label="Guardar" onClick={onSave} disabled={saving}>
-                <Check size={14} aria-hidden="true" />
-              </button>
-              <button type="button" className="btn-tesla ghost icon-only xs" aria-label="Cancelar" onClick={onCancel} disabled={saving}>
-                <X size={14} aria-hidden="true" />
+              <button
+                type="button"
+                className="btn-tesla outline-subtle-info icon-only xs"
+                aria-label={`Editar ${row.label} por markup`}
+                title="Fijar el markup y calcular el precio"
+                onClick={() => onStart('markup')}
+                disabled={saving}
+              >
+                <Percent size={14} aria-hidden="true" />
               </button>
             </span>
-          ) : (
-            canEdit && (
-              <span className={styles.entry}>
-                <button
-                  type="button"
-                  className="btn-tesla ghost icon-only xs"
-                  aria-label={`Editar ${row.label}`}
-                  title="Editar el precio"
-                  onClick={() => onStart('precio')}
-                  disabled={saving}
-                >
-                  <Pencil size={14} aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="btn-tesla outline-subtle-info icon-only xs"
-                  aria-label={`Editar ${row.label} por markup`}
-                  title="Fijar el markup y calcular el precio"
-                  onClick={() => onStart('markup')}
-                  disabled={saving}
-                >
-                  <Percent size={14} aria-hidden="true" />
-                </button>
-              </span>
-            )
           )}
-        </td>
+        </div>
       )}
-    </tr>
+      <div className={styles.markup} data-col="markup" data-negative={!isBlank(markup) && Number(markup) < 0 ? '' : undefined}>
+        <MarkupChip value={markup} />
+      </div>
+      {showCost && (
+        <div className={styles.markupExtra}>
+          <span className={styles.extraLabel}>c/ offset</span>
+          <span data-col="markup-offset">
+            <MarkupChip value={markupConOffset(markup, costo)} />
+          </span>
+        </div>
+      )}
+      {showCost && (
+        <div className={styles.markupExtra}>
+          <span className={styles.extraLabel}>c/ sell in/out</span>
+          <span data-col="markup-sell-in-out">
+            <SellInOutMarkup row={row} price={price} sellInOut={product.sell_in_out} />
+          </span>
+        </div>
+      )}
+    </td>
   );
 }
 
+// A row per plan (S2): the ML list's row and the PVP row of the same instalments, side by side.
+const ML_LIST = LISTS.find((list) => list.id === 'ml');
+const PVP_LIST = LISTS.find((list) => list.id === 'pvp');
+// Paired by instalments, not by position: a plan the PVP list lacks shows an empty PVP cell.
+const PLANS = ML_LIST.rows.map((ml) => ({
+  id: ml.cuota ?? 'clasica',
+  label: ml.label,
+  entries: [ml, PVP_LIST.rows.find((pvp) => (pvp.cuota ?? null) === (ml.cuota ?? null)) ?? null],
+}));
+
 /**
- * The prices of ONE product (ML list and PVP, clásica and instalments) with
- * their markups, then its rebate, best offer and web transferencia
- * (ProductToggles), as `GET /productos/{item_id}` stores them. It needs only the
+ * The prices of ONE product in one table, a row per plan (clásica and each
+ * instalment plan) with its ML list and PVP price and markup side by side
+ * (S2), then its rebate, best offer and web transferencia (ProductToggles),
+ * as `GET /productos/{item_id}` stores them; every price shows once. It needs only the
  * product's `item_id`, so the panel of a publication mounts it today and a
  * product row can mount it later. A missing price or markup is "—" (an older
  * backend sends no instalment markups), never 0.
@@ -319,8 +333,10 @@ function PriceRow({ row, product, costo, showCost, editable, canEdit, editing, s
  * @param {boolean} [props.showCost] Show the product cost (ml_metricas.ver_ganancia).
  * @param {number} [props.readAgain] Changing it reads the prices again (something else wrote them), keeping an open
  *   edit as it was typed.
+ * @param {import('react').ReactNode} [props.referenceAction] Closes the reference line (a panel's Calcular).
+ * @param {import('react').ReactNode} [props.webTransferNote] Under the web transfer (a panel's Tienda Nube price).
  */
-export default function ProductPrices({ productItemId, permissions, onWritten, showCost = false, readAgain = 0 }) {
+export default function ProductPrices({ productItemId, permissions, onWritten, showCost = false, readAgain = 0, referenceAction = null, webTransferNote = null }) {
   const [state, setState] = useState({ status: 'loading', product: null, error: null });
   const [editing, setEditing] = useState(null);
   const [pending, setPending] = useState(null);
@@ -553,83 +569,83 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
             <span className={styles.code}>{product.codigo}</span>
             <span>{product.descripcion}</span>
           </div>
-          <ProductFacts product={product} showCost={showCost} isUsd={isUsd} needsRate={needsRate} rate={rate} offsets={offsets} costo={costo} />
+          <ProductFacts product={product} showCost={showCost} isUsd={isUsd} needsRate={needsRate} rate={rate} offsets={offsets} costo={costo} action={referenceAction} />
           {editable && (
             <p className={styles.hint}>
               <Percent size={14} aria-hidden="true" />
               <span>Cada precio se edita por monto o al fijar su markup: el precio resultante se calcula y se confirma antes de guardarlo.</span>
             </p>
           )}
-          {LISTS.map((list) => (
-            <section key={list.id} className={styles.group} data-list={list.id}>
-              <table className={styles.table}>
-                <caption className={styles.caption}>
-                  <span className={styles.captionTitle}>{list.title}</span>
-                  <span className={styles.captionSub}>{list.subtitle}</span>
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Lista</th>
-                    <th scope="col">Precio</th>
-                    <th scope="col">Markup</th>
-                    {showCost && (
-                      <th scope="col" className={styles.wrapHead}>
-                        Markup con offset
-                      </th>
-                    )}
-                    {showCost && (
-                      <th scope="col" className={styles.wrapHead}>
-                        Markup c/ sell in/out
-                      </th>
-                    )}
-                    {editable && (
-                      <th scope="col">
-                        <span className={styles.srOnly}>Acciones</span>
-                      </th>
+          {/* A table wider than the panel scrolls on its own instead of widening the panel. */}
+          <div className={styles.planScroll}>
+            <table className={styles.table} aria-label="Precios por plan">
+              <caption className={styles.caption}>
+                <span className={styles.captionTitle}>Precios</span>
+                <span className={styles.captionSub}>Lista ML y PVP de cada plan de cuotas</span>
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Plan</th>
+                  <th scope="col" title={ML_LIST.subtitle}>
+                    {ML_LIST.title}
+                  </th>
+                  <th scope="col" title={PVP_LIST.subtitle}>
+                    {PVP_LIST.title}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {PLANS.map((plan) => (
+                  <tr key={plan.id} className={styles.row} data-editing={plan.entries.some((row) => row && editing?.id === row.id) ? '' : undefined}>
+                    <th scope="row" className={styles.label}>
+                      {plan.label}
+                    </th>
+                    {plan.entries.map((row, index) =>
+                      row === null ? (
+                        <td key={`none-${index}`} className={styles.planEntry}>
+                          <Empty />
+                        </td>
+                      ) : (
+                        <PriceEntry
+                          key={row.id}
+                          row={row}
+                          product={product}
+                          costo={costo}
+                          showCost={showCost}
+                          canEdit={Boolean(permissions?.[row.perm])}
+                          editing={editing}
+                          saving={saving}
+                          onStart={(mode) => {
+                            touchEditor();
+                            setPending(null);
+                            setMessage(null);
+                            setEditing({ id: row.id, mode, value: editorValue(row, product, mode) });
+                          }}
+                          onToggleMode={() => {
+                            touchEditor();
+                            setPending(null);
+                            setMessage(null);
+                            setEditing((current) => {
+                              const mode = current.mode === 'markup' ? 'precio' : 'markup';
+                              return { ...current, mode, value: editorValue(row, product, mode) };
+                            });
+                          }}
+                          onChange={(value) => {
+                            // A warning confirms the value it was raised for: a new value drops it.
+                            touchEditor();
+                            setPending(null);
+                            setEditing((current) => ({ ...current, value }));
+                          }}
+                          onSave={() => (editing.mode === 'markup' ? previewMarkup(row, editing.value) : save(row, editing.value))}
+                          onCancel={cancel}
+                        />
+                      ),
                     )}
                   </tr>
-                </thead>
-                <tbody>
-                  {list.rows.map((row) => (
-                    <PriceRow
-                      key={row.id}
-                      row={row}
-                      product={product}
-                      costo={costo}
-                      showCost={showCost}
-                      editable={editable}
-                      canEdit={Boolean(permissions?.[row.perm])}
-                      editing={editing}
-                      saving={saving}
-                      onStart={(mode) => {
-                        touchEditor();
-                        setPending(null);
-                        setMessage(null);
-                        setEditing({ id: row.id, mode, value: editorValue(row, product, mode) });
-                      }}
-                      onToggleMode={() => {
-                        touchEditor();
-                        setPending(null);
-                        setMessage(null);
-                        setEditing((current) => {
-                          const mode = current.mode === 'markup' ? 'precio' : 'markup';
-                          return { ...current, mode, value: editorValue(row, product, mode) };
-                        });
-                      }}
-                      onChange={(value) => {
-                        // A warning confirms the value it was raised for: a new value drops it.
-                        touchEditor();
-                        setPending(null);
-                        setEditing((current) => ({ ...current, value }));
-                      }}
-                      onSave={() => (editing.mode === 'markup' ? previewMarkup(row, editing.value) : save(row, editing.value))}
-                      onCancel={cancel}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </section>
-          ))}
+                ))}
+              </tbody>
+            </table>
+          </div>
 
           <ProductToggles
             key={productItemId}
@@ -638,6 +654,7 @@ export default function ProductPrices({ productItemId, permissions, onWritten, s
             saving={saving}
             onSave={saveToggle}
             onInvalid={(text) => setMessage({ tone: 'error', text })}
+            webTransferNote={webTransferNote}
           />
 
           {pending && (

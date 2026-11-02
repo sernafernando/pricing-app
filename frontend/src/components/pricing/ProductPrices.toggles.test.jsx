@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProductPrices from './ProductPrices';
+import { priceOf } from './priceTestUtils';
 import { pricePermissions } from './productPricePermissions';
 import { preciosAPI } from '../../services/api';
 import { PRODUCTO, PRODUCTO_CON_REBATE_Y_OFERTA } from './ProductPrices.fixtures';
@@ -27,7 +28,6 @@ const NONE = pricePermissions(() => false);
 const renderPrices = (props = {}) =>
   render(<ProductPrices productItemId={4101} permissions={ALL} onWritten={vi.fn()} {...props} />);
 
-const rowOf = (label) => screen.findByRole('row', { name: new RegExp(`^${label}\\b`) });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -40,7 +40,7 @@ beforeEach(() => {
 describe('showing them', () => {
   it('shows the rebate price, its percentage and markup_rebate', async () => {
     renderPrices({ permissions: NONE });
-    const rebate = await rowOf('Rebate');
+    const rebate = await priceOf('Rebate');
     expect(rebate).toHaveTextContent('$ 102.391,37');
     expect(rebate).toHaveTextContent('3,8% de rebate');
     expect(rebate).toHaveTextContent('21,30%');
@@ -48,7 +48,7 @@ describe('showing them', () => {
 
   it('shows the best offer as Productos does: price, Meli share, rebate amount, end date, PVP and markup', async () => {
     renderPrices({ permissions: NONE });
-    const oferta = await rowOf('Mejor oferta');
+    const oferta = await priceOf('Mejor oferta');
     expect(oferta).toHaveTextContent('$ 92.000,00');
     expect(oferta).toHaveTextContent('Aporte 4,17%');
     expect(oferta).toHaveTextContent('Rebate $ 4.000,00');
@@ -61,7 +61,7 @@ describe('showing them', () => {
 
   it('shows the web transferencia price, its real markup and the added percentage', async () => {
     renderPrices({ permissions: NONE });
-    const web = await rowOf('Web transferencia');
+    const web = await priceOf('Web transferencia');
     expect(web).toHaveTextContent('$ 95.000,00');
     expect(web).toHaveTextContent('24,40%');
     expect(web).toHaveTextContent('+6% sobre la clásica');
@@ -71,15 +71,15 @@ describe('showing them', () => {
   it('marks a web transferencia percentage kept in bulk changes', async () => {
     preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, preservar_porcentaje_web: true } });
     renderPrices({ permissions: NONE });
-    expect(await rowOf('Web transferencia')).toHaveTextContent('% fijo');
+    expect(await priceOf('Web transferencia')).toHaveTextContent('% fijo');
   });
 
   it('says so when there is no rebate, offer or web transferencia, and offers no "fuera de tarjetas"', async () => {
     preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCTO });
     renderPrices();
-    expect(await rowOf('Rebate')).toHaveTextContent('Sin rebate');
-    expect(await rowOf('Mejor oferta')).toHaveTextContent('—');
-    expect(await rowOf('Web transferencia')).toHaveTextContent('—');
+    expect(await priceOf('Rebate')).toHaveTextContent('Sin rebate');
+    expect(await priceOf('Mejor oferta')).toHaveTextContent('—');
+    expect(await priceOf('Web transferencia')).toHaveTextContent('—');
     // Productos only shows the checkbox on a product with a priced rebate.
     expect(screen.queryByRole('checkbox', { name: 'Fuera de tarjetas' })).not.toBeInTheDocument();
   });
@@ -98,7 +98,7 @@ describe('showing them', () => {
       },
     });
     renderPrices({ permissions: NONE });
-    const oferta = await rowOf('Mejor oferta');
+    const oferta = await priceOf('Mejor oferta');
     expect(oferta).toHaveTextContent('$ 102.391,37');
     expect(oferta).not.toHaveTextContent('Aporte');
     expect(oferta).not.toHaveTextContent('Hasta');
@@ -106,7 +106,7 @@ describe('showing them', () => {
 
   it('is read-only without edit permission: no edit buttons, the checkbox disabled', async () => {
     renderPrices({ permissions: NONE });
-    await rowOf('Rebate');
+    await priceOf('Rebate');
     expect(screen.queryByRole('button', { name: 'Editar rebate' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Editar web transferencia' })).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Fuera de tarjetas' })).toBeDisabled();
@@ -114,7 +114,7 @@ describe('showing them', () => {
 
   it('gates each control by its own permission', async () => {
     renderPrices({ permissions: pricePermissions((code) => code === 'productos.toggle_rebate') });
-    await rowOf('Rebate');
+    await priceOf('Rebate');
     expect(screen.getByRole('button', { name: 'Editar rebate' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Editar web transferencia' })).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Fuera de tarjetas' })).toBeDisabled();

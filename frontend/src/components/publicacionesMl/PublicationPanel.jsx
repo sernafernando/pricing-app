@@ -41,7 +41,7 @@ const describeError = (error) =>
  * @param {Array} [props.tabs] The tab registry (tests inject their own).
  * @param {() => void} [props.onBack] Shows "Volver a <producto>": the publication was opened from a product's panel.
  * @param {string} [props.backLabel] The product's name for that link ("Volver al producto" without it).
- * @param {object} [props.priceGroup] The list's price cells' handlers, for the Precios tab (`ListPriceGroup`).
+ * @param {object} [props.priceGroup] What the Precios tab takes from the list (Calcular, the Tienda Nube price).
  */
 export default function PublicationPanel({
   itemId,

@@ -433,8 +433,8 @@ export default function PublicacionesML() {
   // Productos' Tienda Nube card surcharge, for the Web Transf. column's transfer hint (S3).
   const tnCardPercent = useTnCardPercent(canSeePrices);
   // Productos' "markup con offsets" under the clásica markup: the offsets are about the cost, so only with the margin.
-  // Also for the panels' Precios tab: in the tree, which has no price columns, only while a panel is open.
-  const listOffsets = useListOffsets(canSeePrices && canSeeMargin && (!agrupado || Boolean(filters.sel || filters.prod)));
+  // Not in the tree, which has no price columns (a panel's Precios tab asks its own).
+  const listOffsets = useListOffsets(canSeePrices && canSeeMargin && !agrupado);
   // The rows checked for the bulk actions: a publication checks itself, a product row (Producto view) its product.
   // As in Productos (S12d), Shift+click checks a range of the rows on show, the title header checks the page, and the
   // selection outlives a filter, page or view change. The Agrupado tree keeps its rows to itself: no range nor page.
@@ -466,16 +466,11 @@ export default function PublicacionesML() {
     () => ({ permissions: priceWritePermissions, onSave: priceEditor.save, onToggle: priceEditor.editToggle, saving: priceEditor.saving }),
     [priceWritePermissions, priceEditor.save, priceEditor.editToggle, priceEditor.saving],
   );
-  // The list's price cells' handlers, for the panels' Precios tab (the same group, the same writes and modals).
+  // What the panels' Precios tab takes from the list: Calcular (Productos' pricing modal), the Tienda Nube card
+  // surcharge and the reload counter its prices are read again with.
   const priceGroup = useMemo(
-    () => ({
-      edit: priceEdit,
-      onCalculate: canCalculatePrice ? setPricingProduct : null,
-      offsets: listOffsets,
-      tnCardPercent,
-      version: reloadToken,
-    }),
-    [priceEdit, canCalculatePrice, listOffsets, tnCardPercent, reloadToken],
+    () => ({ onCalculate: canCalculatePrice ? setPricingProduct : null, tnCardPercent, version: reloadToken }),
+    [canCalculatePrice, tnCardPercent, reloadToken],
   );
   const cyclePriceMode = () => {
     const next = PRICE_MODES[(PRICE_MODES.indexOf(filters.modo) + 1) % PRICE_MODES.length];
