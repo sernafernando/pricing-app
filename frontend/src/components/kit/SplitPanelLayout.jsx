@@ -199,6 +199,8 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     // Alt+arrow and the like belong to the browser (history, text navigation).
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.preventDefault();
+    // During a drag the pointer decides; a cancelled drag must leave nothing saved.
+    if (cancelDragRef.current) return;
     const box = measure();
     const next = moveTo(box.width, box.width + (e.key === 'ArrowLeft' ? RESIZE_STEP : -RESIZE_STEP), box.max);
     setMeasured(box);

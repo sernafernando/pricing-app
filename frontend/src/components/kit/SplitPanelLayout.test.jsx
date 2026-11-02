@@ -421,6 +421,15 @@ describe('resizing (opt-in by resizeKey)', () => {
     expect(localStorage.getItem(STORAGE)).toBe(String(PANEL + 100));
   });
 
+  it('the arrows wait while a drag is in progress, so cancelling the drag leaves nothing saved', async () => {
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 1000 });
+    await userEvent.keyboard('{ArrowLeft}');
+    fireEvent.pointerCancel(window, { pointerId: 1 });
+    expect(dragWidth(container)).toBe('');
+    expect(localStorage.getItem(STORAGE)).toBeNull();
+  });
+
   it('pressing the handle focuses it, so the arrows work right after a drag', () => {
     renderLayout({ resizeKey: 'pubml' });
     fireEvent.pointerDown(separator(), { button: 0, pointerId: 1, clientX: 1000 });
