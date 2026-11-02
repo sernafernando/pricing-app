@@ -56,6 +56,11 @@ class Lote:
     descuento_ars: Decimal  # the line's whole discount in ARS, unrounded
 
 
+def orden_fifo(lote: Lote) -> Tuple[date, int, int]:
+    """The order a product's lines are consumed in: the date the purchase counts from, then purchase, then line."""
+    return (lote.fecha, lote.compra_id, lote.compra_item_id)
+
+
 @dataclass(frozen=True)
 class Venta:
     """A sale line (`unidades > 0`) or a return (`unidades < 0`). A return's
@@ -148,7 +153,7 @@ def _validar(lotes: List[Lote], ventas: List[Venta]) -> None:
 
 def asignar(lotes: Iterable[Lote], ventas: Iterable[Venta]) -> List[Consumo]:
     """The consumptions of ONE product: its active purchase lines against its sales and returns."""
-    lotes = sorted(lotes, key=lambda lote: (lote.fecha, lote.compra_id, lote.compra_item_id))
+    lotes = sorted(lotes, key=orden_fifo)
     ventas = sorted(ventas, key=lambda v: (v.fecha, v.unidades < 0, v.canal, v.venta_ref))
     _validar(lotes, ventas)
     if not lotes:

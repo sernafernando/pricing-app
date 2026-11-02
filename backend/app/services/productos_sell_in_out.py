@@ -207,10 +207,13 @@ class SellInOutBatch:
         return SellOutProducto(monto_unit=None if total is None else float(total), campana_ids=[c.id for c in tomadas])
 
 
-def resolver_sell_in_out_batch(db: Session, item_ids: Iterable[int], hoy: date) -> SellInOutBatch:
-    """What `hoy`'s next sale of each product would get (module docstring), for a whole page."""
+def resolver_sell_in_out_batch(
+    db: Session, item_ids: Iterable[int], hoy: date, *, sin_lotes: bool = False
+) -> SellInOutBatch:
+    """What `hoy`'s next sale of each product would get (module docstring), for a whole page. `sin_lotes` resolves it
+    as if no FIFO lot had units left (what applies once they run out: the lot viewer's question)."""
     ids = sorted({int(i) for i in item_ids if i is not None})
-    sell_in = get_costing().vigentes(db, ids, hoy)
+    sell_in = {} if sin_lotes else get_costing().vigentes(db, ids, hoy)
     por_item, pares = _campanas_y_bonos(db, ids, [i for i in ids if i not in sell_in], hoy)
     cids = sorted(set().union(*por_item.values()))
     vigentes: Dict[int, _Campana] = {}

@@ -94,6 +94,10 @@ vi.mock('./panel/ProductPurchases', () => ({
   default: ({ productItemId }) => <div data-testid="product-purchases">{`purchases of ${productItemId}`}</div>,
 }));
 
+vi.mock('../sellIn/SellInLotes', () => ({
+  default: ({ productItemId }) => <div data-testid="sell-in-lotes">{`lotes of ${productItemId}`}</div>,
+}));
+
 vi.mock('./panel/ProductBanAction', () => ({
   default: ({ productItemId, description }) => <div data-testid="product-ban">{`ban ${productItemId}: ${description}`}</div>,
 }));
@@ -240,6 +244,19 @@ describe('ProductPanel', () => {
     const purchases = screen.getByTestId('product-purchases');
     expect(purchases).toHaveTextContent(`purchases of ${SUMMARY.productoItemId}`);
     expect(identity.compareDocumentPosition(purchases) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows the sell-in lots under Resumen, after the last purchases', () => {
+    renderPanel();
+    const purchases = screen.getByTestId('product-purchases');
+    const lotes = screen.getByTestId('sell-in-lotes');
+    expect(lotes).toHaveTextContent(`lotes of ${SUMMARY.productoItemId}`);
+    expect(purchases.compareDocumentPosition(lotes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('has no sell-in lots for "Sin producto"', () => {
+    renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
+    expect(screen.queryByTestId('sell-in-lotes')).not.toBeInTheDocument();
   });
 
   it('shows the catalog competition of the listed publications under Resumen, after them', () => {

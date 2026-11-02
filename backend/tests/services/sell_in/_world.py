@@ -43,7 +43,7 @@ from tests.services.sell._schema import throwaway_schema
 STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "CREATE TABLE proveedores (id INTEGER PRIMARY KEY, nombre TEXT)",
-    "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, numero TEXT)",
+    "CREATE TABLE pedidos_compra (id BIGINT PRIMARY KEY, numero TEXT, numero_factura TEXT)",
     "INSERT INTO usuarios VALUES (7)",
 ]
 TABLES = [

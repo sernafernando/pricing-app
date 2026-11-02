@@ -20,6 +20,7 @@ from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoItem, SellInBonoMarca
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 from app.services.sell_in.bonos_alcance import del_alcance
+from app.services.sell_in import visor_lotes
 from app.services.sell_in.costing import get_costing
 from app.services.sell_out import alcance, asignacion
 from tests.services.sell._schema import throwaway_schema
@@ -194,6 +195,55 @@ class TestCostBonus:
         bono = _bono_costo(engine)
 
         assert (_payload(engine).sell_in.bono_id, _payload(engine).sell_in.descuento_unit) == (bono, 1500.0)
+
+    def test_the_lot_viewer_names_the_cost_bonus_the_screens_show_when_no_lot_is_left(self, engine):
+        # The lot viewer (visor_lotes) says what applies instead of the used-up lots: the same decision as above.
+        si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))
+        si.venta(engine, "fuera", ROUTER, 2, D(2026, 10, 20))
+        _recompute_sell_in(engine, ROUTER)
+        bono = _bono_costo(engine)
+
+        with sessionmaker(bind=engine)() as db:
+            sell_in = visor_lotes.bono_costo(db, ROUTER, HOY)
+            sin_bono = visor_lotes.bono_costo(db, 950, HOY)  # MERCUSYS: the TP-LINK bonus does not reach it
+
+        assert (sell_in.bono_ids, sell_in.descuento_unit) == ([bono], 1500.0)
+        assert sin_bono is None
+
+    def test_the_lot_viewer_names_the_cost_bonus_that_follows_the_last_lot(self, engine):
+        # With a current lot, the screens show the lot (rule 5); the viewer still says what applies once it runs out.
+        si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))
+        bono = _bono_costo(engine)
+
+        with sessionmaker(bind=engine)() as db:
+            sell_in = visor_lotes.bono_costo(db, ROUTER, HOY)
+
+        assert (sell_in.bono_ids, sell_in.descuento_unit) == ([bono], 1500.0)
+        assert _payload(engine).sell_in.compra_item_id is not None  # the screens are unchanged
+
+    def test_the_lot_viewer_converts_a_usd_cost_at_the_rate_and_shows_nothing_without_one(self, engine):
+        # A USD-cost product: the bonus's % applies to its cost in ARS at the current rate, as the screens do; with no
+        # rate there is no ARS cost, so no bonus amount (never a guess, never an error).
+        bono = _bono_costo(engine)
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE productos_erp SET costo = 40, moneda_costo = 'USD' WHERE item_id = :i"), {"i": ROUTER}
+            )
+        try:
+            with sessionmaker(bind=engine)() as db:
+                sin_tasa = visor_lotes.bono_costo(db, ROUTER, HOY)
+            so.tipo_cambio(engine, D(2026, 11, 9), 1250)
+            with sessionmaker(bind=engine)() as db:
+                con_tasa = visor_lotes.bono_costo(db, ROUTER, HOY)
+        finally:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("UPDATE productos_erp SET costo = 50000, moneda_costo = 'ARS' WHERE item_id = :i"),
+                    {"i": ROUTER},
+                )
+
+        assert sin_tasa is None
+        assert (con_tasa.bono_ids, con_tasa.descuento_unit) == ([bono], 1500.0)  # 3 % of 40 USD x 1250
 
     def test_a_percentage_with_vat_is_divided_by_the_product_rate(self, engine):
         # S33: "el tilde tendría que restar el iva"; the router's VAT is 21 %: 3 / 1.21 % of 50000.
