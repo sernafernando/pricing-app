@@ -81,11 +81,13 @@ def test_the_list_counts_each_program_campaigns_in_one_query(engine, Sesion) -> 
 
     with Sesion() as db, _consultas(engine) as vistas:
         filas = programas.listar(db)
-    assert len(vistas) == 1
-    assert [(f["nombre"], f["estado"], f["campanas"], f["activas"], f["desde"], f["hasta"]) for f in filas] == [
-        ("aaa vacío", "activo", 0, 0, None, None),
-        ("MARCA PROG", "activo", 3, 2, date(2024, 1, 1), date(2026, 3, 31)),
-        ("Rebate", "archivado", 1, 1, date(2024, 10, 1), date(2024, 12, 31)),
+    assert len(vistas) == 2  # the counts, and the page's names for `nombres`
+    assert [
+        (f["nombre"], f["estado"], f["campanas"], f["activas"], f["nombres"], f["desde"], f["hasta"]) for f in filas
+    ] == [
+        ("aaa vacío", "activo", 0, 0, 0, None, None),
+        ("MARCA PROG", "activo", 3, 2, 3, date(2024, 1, 1), date(2026, 3, 31)),
+        ("Rebate", "archivado", 1, 1, 1, date(2024, 10, 1), date(2024, 12, 31)),
     ]
     with Sesion() as db:
         assert [f["nombre"] for f in programas.listar(db, "archivado")] == ["Rebate"]
@@ -225,3 +227,32 @@ def test_suggestions_group_campaigns_without_a_program_by_identical_dates(engine
         "fecha_hasta": date(2026, 12, 31),
         "estado": "anulada",
     }
+
+
+def test_por_programa_groups_a_page_in_constant_queries_under_the_filters(engine, Sesion) -> None:
+    """Slice E: the grouped view's rows come in the same number of queries whatever the page holds; a program with
+    no campaign under the filters is left out, and the campaigns without one come apart."""
+    marca = _programa(Sesion, "MARCA PROG")
+    modelos = _programa(Sesion, "Modelos SP")
+    _programa(Sesion, "aaa vacío")
+    _campana(engine, "MARCA PROG 3.0", date(2026, 8, 1), date(2026, 10, 31), programa_id=marca)
+    _campana(engine, "marca  prog 3.0", date(2026, 8, 1), date(2026, 10, 31), programa_id=marca)
+    _campana(engine, "MARCA PROGRAM1", date(2026, 9, 1), date(2026, 11, 30), programa_id=marca, estado="anulada")
+    _campana(engine, "M20 / M80 SP", date(2025, 11, 1), date(2026, 10, 31), programa_id=modelos)
+    _campana(engine, "MODELO 8180", date(2026, 1, 1), date(2026, 12, 31))
+
+    def contar(filtros: campanas.FiltrosCampanas) -> tuple[list, int]:
+        with Sesion() as db, _consultas(engine) as vistas:
+            pagina = campanas.por_programa(db, filtros, page=1, page_size=50)
+        return pagina, len(vistas)
+
+    todos, consultas = contar(campanas.FiltrosCampanas())
+    items, total, sin = todos
+    assert [(g["nombre"], g["campanas"], g["activas"], g["nombres"], g["desde"], g["hasta"]) for g in items] == [
+        ("MARCA PROG", 3, 2, 2, date(2026, 8, 1), date(2026, 11, 30)),
+        ("Modelos SP", 1, 1, 1, date(2025, 11, 1), date(2026, 10, 31)),
+    ]
+    assert (total, sin["campanas"], sin["nombres"]) == (2, 1, 1)
+    (activas, total, sin), consultas_filtradas = contar(campanas.FiltrosCampanas(estado="activa", q="marca"))
+    assert ([(g["nombre"], g["campanas"]) for g in activas], total, sin) == ([("MARCA PROG", 2)], 1, None)
+    assert consultas == consultas_filtradas <= 4

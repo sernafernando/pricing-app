@@ -114,6 +114,7 @@ def test_create_trims_the_name_and_starts_active_and_empty(client, gestor, db, a
         "activas": 0,
         "desde": None,
         "hasta": None,
+        "nombres": 0,
     }
     assert db.get(SellOutPrograma, out["id"]).usuario_id == admin_user.id
 
@@ -191,6 +192,24 @@ def test_list_sorts_by_name_counts_campaigns_and_filters_by_state(client, gestor
     ]
     archivados = client.get(BASE, params={"estado": "archivado"}, headers=gestor).json()["items"]
     assert [f["nombre"] for f in archivados] == ["Rebate"]
+
+
+def test_list_counts_each_program_distinct_names_ignoring_case_and_spaces(client, gestor, grupo) -> None:
+    """Slice E: `nombres` is how many distinct campaign names a program holds, ignoring case and repeated spaces,
+    voided campaigns included (the group row's «N campañas · M nombres»)."""
+    marca = _programa(client, gestor, "MARCA PROG")
+    _programa(client, gestor, "Vacío")
+    ids = [
+        _campana(client, gestor, grupo, "MARCA PROG 3.0")["id"],
+        _campana(client, gestor, grupo, "marca  prog 3.0")["id"],
+        _campana(client, gestor, grupo, "MARCA PROGRAM1")["id"],
+    ]
+    assert client.post(f"{CAMPANAS}/{ids[2]}/anular", headers=gestor).status_code == 200
+    assert _asignar(client, gestor, ids, marca["id"]).status_code == 200
+
+    filas = client.get(BASE, headers=gestor).json()["items"]
+    assert [(f["nombre"], f["campanas"], f["nombres"]) for f in filas] == [("MARCA PROG", 3, 2), ("Vacío", 0, 0)]
+    assert client.patch(f"{BASE}/{marca['id']}", json={}, headers=gestor).json()["nombres"] == 2
 
 
 # ── Assignment ──────────────────────────────────────────────────────

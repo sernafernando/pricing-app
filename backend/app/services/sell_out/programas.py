@@ -51,7 +51,8 @@ def listar(
     page_size: Optional[int] = None,
 ) -> list[dict]:
     """Every program (or just `programa_id`) by name, with its campaigns' count, active count and date span, in
-    one query; with `page` / `page_size`, only that page (cut in SQL)."""
+    one query, and its distinct names (`contar_nombres`) in one more for the whole page; with `page` /
+    `page_size`, only that page (cut in SQL)."""
     p, c = SellOutPrograma, SellOutCampana
     query = (
         db.query(
@@ -75,6 +76,11 @@ def listar(
     if page is not None and page_size is not None:
         query = query.offset((page - 1) * page_size).limit(page_size)
     filas = query.all()
+    ids = [fila[0] for fila in filas]
+    nombres = {}
+    if ids:
+        de_la_pagina = db.query(c.programa_id, c.nombre).filter(c.programa_id.in_(ids)).distinct()
+        nombres = contar_nombres(de_la_pagina.all())
     return [
         {
             "id": pid,
@@ -85,9 +91,23 @@ def listar(
             "activas": int(activas),
             "desde": desde,
             "hasta": hasta,
+            "nombres": nombres.get(pid, 0),
         }
         for pid, nombre, descripcion, estado_, campanas, activas, desde, hasta in filas
     ]
+
+
+def nombre_normalizado(nombre: str) -> str:
+    """A campaign name as `nombres` compares it: ignoring case and repeated spaces."""
+    return " ".join(nombre.split()).casefold()
+
+
+def contar_nombres(filas) -> dict:
+    """`{programa_id: distinct names}` of `(programa_id, nombre)` rows, by `nombre_normalizado`."""
+    vistos: dict = {}
+    for programa_id, nombre in filas:
+        vistos.setdefault(programa_id, set()).add(nombre_normalizado(nombre))
+    return {programa_id: len(nombres) for programa_id, nombres in vistos.items()}
 
 
 def contar(db: Session, estado: Optional[str] = None) -> int:
@@ -263,7 +283,7 @@ def sugerencias(db: Session) -> list[dict]:
             continue
         nombres = [f["nombre"] for f in campanas]
         base = _palabras_comunes(nombres) or f"Del {desde:%d/%m/%Y} al {hasta:%d/%m/%Y}"
-        distintos = len({" ".join(n.split()).casefold() for n in nombres})
+        distintos = len({nombre_normalizado(n) for n in nombres})
         salida.append(
             {"base": base, "fecha_desde": desde, "fecha_hasta": hasta, "nombres": distintos, "campanas": campanas}
         )
