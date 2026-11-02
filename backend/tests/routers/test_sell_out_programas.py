@@ -149,6 +149,15 @@ def test_patch_changes_only_the_fields_sent(client, gestor) -> None:
     )
 
 
+def test_an_empty_patch_changes_nothing(client, gestor) -> None:
+    programa = _programa(client, gestor, "Programa sin cambios")
+
+    resp = client.patch(f"{BASE}/{programa['id']}", json={}, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == programa
+
+
 def test_patch_unknown_is_404_duplicate_409_and_null_name_422(client, gestor) -> None:
     epson = _programa(client, gestor, "EPSON PROG")
     rebate = _programa(client, gestor, "Rebate")
