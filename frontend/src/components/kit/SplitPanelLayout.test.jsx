@@ -6,7 +6,7 @@
  */
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SplitPanelLayout, { PANEL_MIN_WIDTH, RESIZE_STEP, TABLE_MIN_WIDTH } from './SplitPanelLayout';
 
@@ -141,11 +141,12 @@ describe('Escape (S63.1)', () => {
 });
 
 describe('focus restore (S63.1)', () => {
-  const Harness = ({ onCloseSpy }) => {
+  const Harness = ({ onCloseSpy, resizeKey }) => {
     const [open, setOpen] = useState(false);
     return (
       <SplitPanelLayout
         open={open}
+        resizeKey={resizeKey}
         ariaLabel="Detalle"
         onClose={() => {
           onCloseSpy?.();
@@ -176,6 +177,16 @@ describe('focus restore (S63.1)', () => {
     expect(opener).toHaveFocus();
   });
 
+  it('returns focus to the opener when Escape closes the panel from the resize handle', async () => {
+    render(<Harness resizeKey="pubml" />);
+    const opener = screen.getByText('opener');
+    await userEvent.click(opener);
+    screen.getByRole('separator').focus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByLabelText('Detalle')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
   it('does not steal focus when the operator already moved elsewhere', async () => {
     render(<Harness />);
     await userEvent.click(screen.getByText('opener'));
@@ -191,10 +202,12 @@ describe('focus restore (S63.1)', () => {
 
 describe('resizing (opt-in by resizeKey)', () => {
   const STORAGE = 'split-panel-width:pubml';
-  const GRID = 1600;
-  const PANEL = 560;
+  let GRID = 1600;
+  let PANEL = 560;
 
   beforeEach(() => {
+    GRID = 1600;
+    PANEL = 560;
     localStorage.clear();
     // jsdom has no layout: the grid and the panel report fixed boxes.
     vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function rect() {
@@ -246,17 +259,49 @@ describe('resizing (opt-in by resizeKey)', () => {
   });
 
   it('never goes past either minimum', async () => {
-    localStorage.setItem(STORAGE, String(PANEL_MIN_WIDTH));
+    PANEL = PANEL_MIN_WIDTH;
     const { container } = renderLayout({ resizeKey: 'pubml' });
     separator().focus();
     await userEvent.keyboard('{ArrowRight}');
     expect(dragWidth(container)).toBe(`${PANEL_MIN_WIDTH}px`);
 
-    localStorage.setItem(STORAGE, String(GRID - TABLE_MIN_WIDTH));
-    const second = renderLayout({ resizeKey: 'pubml' });
-    screen.getAllByRole('separator')[1].focus();
+    PANEL = GRID - TABLE_MIN_WIDTH;
     await userEvent.keyboard('{ArrowLeft}');
-    expect(dragWidth(second.container)).toBe(`${GRID - TABLE_MIN_WIDTH}px`);
+    expect(dragWidth(container)).toBe(`${GRID - TABLE_MIN_WIDTH}px`);
+  });
+
+  it('a click on the handle without moving it is not a resize, so nothing is remembered', () => {
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    fireEvent.pointerDown(separator(), { button: 0, clientX: 1000 });
+    fireEvent.pointerUp(window, { clientX: 1000 });
+    expect(localStorage.getItem(STORAGE)).toBeNull();
+    expect(dragWidth(container)).toBe('');
+  });
+
+  it('dragging moves the divider by the distance dragged, and the width is remembered on release', () => {
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    fireEvent.pointerDown(separator(), { button: 0, clientX: 1000 });
+    fireEvent.pointerMove(window, { clientX: 900 });
+    expect(dragWidth(container)).toBe(`${PANEL + 100}px`);
+    fireEvent.pointerUp(window, { clientX: 900 });
+    expect(localStorage.getItem(STORAGE)).toBe(String(PANEL + 100));
+  });
+
+  it('a saved width wider than the window allows reports the width it can have and steps from the one on screen', async () => {
+    localStorage.setItem(STORAGE, '1300');
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    expect(separator()).toHaveAttribute('aria-valuenow', String(GRID - TABLE_MIN_WIDTH));
+    separator().focus();
+    await userEvent.keyboard('{ArrowRight}');
+    // The panel on screen is 560 wide (the CSS clamp): one step right narrows it, it is not lost against 1300.
+    expect(dragWidth(container)).toBe(`${PANEL - RESIZE_STEP}px`);
+  });
+
+  it('the bounds follow the window when it is resized', () => {
+    renderLayout({ resizeKey: 'pubml' });
+    GRID = 1200;
+    act(() => window.dispatchEvent(new Event('resize')));
+    expect(separator()).toHaveAttribute('aria-valuemax', String(1200 - TABLE_MIN_WIDTH));
   });
 
   it('opens at the width remembered by this browser', () => {

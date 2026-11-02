@@ -94,7 +94,11 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     const update = () => {
       const active = document.activeElement;
       focusInsidePanelRef.current =
-        !active || active === document.body || Boolean(panelRef.current?.contains(active));
+        !active ||
+        active === document.body ||
+        Boolean(panelRef.current?.contains(active)) ||
+        // The resize handle belongs to the panel: Escape from it returns focus too.
+        active === handleRef.current;
     };
     update();
     document.addEventListener('focusin', update);
@@ -138,17 +142,22 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   };
 
   useLayoutEffect(() => {
-    if (open && resizable) setMeasured(measure());
+    if (!open || !resizable) return undefined;
+    const update = () => setMeasured(measure());
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
   }, [open, resizable]);
 
   const clampWidth = (value, max) => Math.min(Math.max(Math.round(value), PANEL_MIN_WIDTH), max);
 
-  const handleKeyDown = (e) => {
+  // Steps and drags start from the width on screen, which the CSS clamp may
+  // have narrowed below a width saved on a wider window.
+  const handleSeparatorKeyDown = (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     const box = measure();
-    const current = panelWidth ?? box.width;
-    const next = clampWidth(current + (e.key === 'ArrowLeft' ? RESIZE_STEP : -RESIZE_STEP), box.max);
+    const next = clampWidth(box.width + (e.key === 'ArrowLeft' ? RESIZE_STEP : -RESIZE_STEP), box.max);
     setMeasured(box);
     setPanelWidth(next);
     saveWidth(resizeKey, next);
@@ -159,8 +168,8 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     e.preventDefault();
     const box = measure();
     const startX = e.clientX;
-    const startWidth = panelWidth ?? box.width;
-    let latest = startWidth;
+    const startWidth = box.width;
+    let latest = null;
     setMeasured(box);
     // On the window, not the handle: a fast drag leaves the thin handle behind.
     const move = (event) => {
@@ -171,7 +180,8 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', end);
       window.removeEventListener('pointercancel', end);
-      saveWidth(resizeKey, latest);
+      // A click without a drag is not a resize: the default width stays.
+      if (latest !== null) saveWidth(resizeKey, latest);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', end);
@@ -206,11 +216,11 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
           role="separator"
           aria-orientation="vertical"
           aria-label="Ancho del panel"
-          aria-valuenow={panelWidth ?? measured.width}
+          aria-valuenow={panelWidth === null ? measured.width : Math.min(panelWidth, measured.max)}
           aria-valuemin={PANEL_MIN_WIDTH}
           aria-valuemax={measured.max}
           tabIndex={0}
-          onKeyDown={handleKeyDown}
+          onKeyDown={handleSeparatorKeyDown}
           onPointerDown={handlePointerDown}
         />
       )}
