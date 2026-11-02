@@ -9,6 +9,7 @@ import { resolvePromoName } from './resolvePromoName';
 import PromoApplyControl from './PromoApplyControl';
 import { formatRelativeAge, promoDisplayPrice } from './promoDisplayPrice';
 import styles from './promociones.module.css';
+import { forgetPromoPull, markPromoEmptyConfirmed, promoEmptyConfirmedRecently } from './promoPullTtl';
 
 const NO_TYPES = [];
 const NO_NAMES = {};
@@ -256,6 +257,8 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
     // ones, and clear on unmount so we never call reload()
     // after the panel (and the underlying setState) is gone.
     clearReloadTimers();
+    // A write changes this MLA's promotions: the next open pulls again, whichever host ran it.
+    forgetPromoPull(mla);
     // A host that shows data the write changes (price, markup) re-reads it at the
     // same points: the new price lands in our tables as late as the mirror does.
     const reloadAgain = () => {
@@ -263,7 +266,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
       onAppliedRef.current?.();
     };
     reloadTimersRef.current = [setTimeout(reloadAgain, 5000), setTimeout(reloadAgain, 65000)];
-  }, [clearReloadTimers, reload]);
+  }, [clearReloadTimers, reload, mla]);
 
   // An EMPTY mirror is only "no promos" when ML agrees (incident 2026-10-05:
   // 0 mirror rows, 9 live promos). The mirror read stays fast and mirror-only;
@@ -275,8 +278,17 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
   // read counts as 'checking' for the current one.
   const [mlCheck, setMlCheck] = useState(null); // { forData, status, promosEnMl }
   const mirrorEmpty = Boolean(data) && !loading && !error && (data.promotions || []).length === 0;
-  const needsMlCheck = mirrorEmpty && !data.refreshFailed && !refreshing && !motivoSinActualizacion;
-  const mlCheckState = !needsMlCheck ? 'idle' : mlCheck?.forData === data ? mlCheck.status : 'checking';
+  const askMl = mirrorEmpty && !data.refreshFailed && !refreshing && !motivoSinActualizacion;
+  // ML confirmed this MLA has none less than 5 minutes ago (`promoPullTtl`): no second live call.
+  const confirmedRecently = askMl && promoEmptyConfirmedRecently(mla);
+  const needsMlCheck = askMl && !confirmedRecently;
+  const mlCheckState = confirmedRecently
+    ? 'confirmed'
+    : !needsMlCheck
+      ? 'idle'
+      : mlCheck?.forData === data
+        ? mlCheck.status
+        : 'checking';
   const promosEnMl = mlCheckState === 'unconfirmed' ? mlCheck.promosEnMl : null;
   useEffect(() => {
     if (!needsMlCheck) return undefined;
@@ -288,6 +300,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
       .then((r) => {
         if (ignore) return;
         const confirmed = r?.data?.sin_promos_confirmado === true;
+        if (confirmed) markPromoEmptyConfirmed(mla);
         setMlCheck({
           forData,
           status: confirmed ? 'confirmed' : 'unconfirmed',

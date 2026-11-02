@@ -1,6 +1,22 @@
 import { useState } from 'react';
 import MlaPromocionesPanel from '../../promociones/MlaPromocionesPanel';
-import { forgetPromoPull, markPromoPulled, promoPulledRecently } from '../../promociones/promoPullTtl';
+import { markPromoPulled, promoPulledRecently } from '../../promociones/promoPullTtl';
+
+/** One MLA's promotions; mounted per MLA, so its pull decision is that MLA's. */
+function ItemPromotions({ itemId, promosCacheRef, onPromoApplied }) {
+  // Read once per mount: the pull this mount starts must not switch itself off when it succeeds.
+  const [pullOnOpen] = useState(() => !promoPulledRecently(itemId));
+  return (
+    <MlaPromocionesPanel
+      mla={itemId}
+      promosCacheRef={promosCacheRef}
+      pullOnOpen={pullOnOpen}
+      ignoreGlobalFilter
+      onApplied={onPromoApplied}
+      onPulled={markPromoPulled}
+    />
+  );
+}
 
 /**
  * Promociones tab: the promotions of the selected publication, through the
@@ -11,7 +27,7 @@ import { forgetPromoPull, markPromoPulled, promoPulledRecently } from '../../pro
  * publication opens it: to keep a click through rows from costing an ML pull
  * per click on a throttle shared with sales-webhook processing, an MLA pulled
  * successfully in the last 5 minutes shows its mirror without pulling again
- * (`promoPullTtl`); an apply or remove forgets it. `MlaPromocionesPanel`
+ * (`promoPullTtl`); an apply or remove forgets it (inside `MlaPromocionesPanel`). `MlaPromocionesPanel`
  * itself gates the pull and the apply/remove controls on `promos.ver` /
  * `promos.escribir`.
  *
@@ -23,26 +39,6 @@ import { forgetPromoPull, markPromoPulled, promoPulledRecently } from '../../pro
  * private to this tab: the Productos filter bar that reads its entries is not
  * on this page, and the global promo filter is ignored for the same reason.
  */
-/** One MLA's promotions; mounted per MLA, so its pull decision is that MLA's. */
-function ItemPromotions({ itemId, promosCacheRef, onPromoApplied }) {
-  // Read once per mount: the pull this mount starts must not switch itself off when it succeeds.
-  const [pullOnOpen] = useState(() => !promoPulledRecently(itemId));
-  const handleApplied = (result) => {
-    forgetPromoPull(itemId);
-    onPromoApplied?.(result);
-  };
-  return (
-    <MlaPromocionesPanel
-      mla={itemId}
-      promosCacheRef={promosCacheRef}
-      pullOnOpen={pullOnOpen}
-      ignoreGlobalFilter
-      onApplied={handleApplied}
-      onPulled={markPromoPulled}
-    />
-  );
-}
-
 export default function PromocionesTab({ itemId, onPromoApplied }) {
   const [promosCacheRef] = useState(() => ({ current: new Map() }));
   return <ItemPromotions key={itemId} itemId={itemId} promosCacheRef={promosCacheRef} onPromoApplied={onPromoApplied} />;

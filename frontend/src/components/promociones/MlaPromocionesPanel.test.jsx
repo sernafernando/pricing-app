@@ -3,6 +3,7 @@ import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { promocionesAPI } from '../../services/api';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
+import { markPromoPulled, promoPulledRecently, resetPromoPulls } from './promoPullTtl';
 
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
@@ -27,6 +28,11 @@ vi.mock('../../contexts/PermisosContext', () => ({
   }),
   PermisosProvider: ({ children }) => children,
 }));
+
+// The promo TTL lives at module scope: every test starts with no MLA pulled or confirmed.
+beforeEach(() => {
+  resetPromoPulls();
+});
 
 function renderPanel(props = {}) {
   const promosCacheRef = { current: new Map() };
@@ -1294,5 +1300,37 @@ describe('MlaPromocionesPanel — writes ML did not apply', () => {
 
     expect(await screen.findByText(/No se pudo confirmar con ML/)).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('C-GONE: pedida por Ana PM el 19/10 14:05; ML no la muestra');
+  });
+});
+
+describe('MlaPromocionesPanel — the 5-minute promo TTL', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetPromoPulls();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+  });
+
+  it('does not ask ML again to confirm an empty mirror it confirmed less than 5 minutes ago', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    const first = renderPanel();
+    expect(await screen.findByText('Sin promociones habilitadas.')).toBeInTheDocument();
+    expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(1);
+    first.unmount();
+    renderPanel({ pullOnOpen: false });
+    expect(await screen.findByText('Sin promociones habilitadas.')).toBeInTheDocument();
+    expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(1);
+  });
+
+  it('an apply forgets the MLA even when the host passes no onApplied (the Productos tree)', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', price: 80, status: 'candidate' }] },
+    });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+    markPromoPulled('MLA001');
+    renderPanel({ pullOnOpen: false });
+    fireEvent.click(await screen.findByRole('button', { name: /^aplicar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+    await waitFor(() => expect(promoPulledRecently('MLA001')).toBe(false));
   });
 });
