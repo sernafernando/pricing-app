@@ -340,6 +340,9 @@ def board_filter(
         raise HTTPException(status_code=422, detail=f"sort inválido: {sort!r}")
     if sort_dir not in ("asc", "desc"):
         raise HTTPException(status_code=422, detail=f"sort_dir inválido: {sort_dir!r}")
+    if sort == "listing_kind" and group_by == "group":
+        # A node groups publications of every kind: it has no kind to order by, and another order would be a lie.
+        raise HTTPException(status_code=422, detail="sort=listing_kind no aplica a la vista agrupada")
     hasta = _parse_day(date_to, "date_to") or board.today_business()
     if not MIN_BOARD_DATE <= hasta <= MAX_BOARD_DATE:
         raise HTTPException(

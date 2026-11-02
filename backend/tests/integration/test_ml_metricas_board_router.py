@@ -362,6 +362,24 @@ class TestPublications:
         )
         assert [p["key"] for p in resp.json()["rows"]] == ["MLA1", "MLA2"]
 
+    def test_nested_publications_sorted_by_listing_kind_descending_put_the_highest_installments_first(
+        self, client, admin_auth_headers, board_data
+    ):
+        # The requested kind order wins over the kind-first default of the sub-rows.
+        resp = client.get(
+            f"{URL}/products/11/publications",
+            params={"sort": "listing_kind", "sort_dir": "desc"},
+            headers=admin_auth_headers,
+        )
+        assert [p["key"] for p in resp.json()["rows"]] == ["MLA2", "MLA1"]
+
+    def test_the_grouped_view_refuses_the_listing_kind_sort(self, client, admin_auth_headers, board_data):
+        # A group node has no listing kind: the sort is refused, never silently replaced by another order.
+        for url in (URL, f"{URL}/group-nodes"):
+            resp = client.get(url, params={"group_by": "group", "sort": "listing_kind"}, headers=admin_auth_headers)
+            assert resp.status_code == 422, url
+            assert "listing_kind" in resp.text
+
 
 class TestFilters:
     def test_store(self, client, admin_auth_headers, board_data):

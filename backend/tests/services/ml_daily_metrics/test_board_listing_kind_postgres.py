@@ -116,3 +116,31 @@ def test_a_products_publication_sub_rows_put_the_kind_first_then_the_board_sort(
             "MLA9000013",
             "MLA9000011",
         ]
+
+
+@pytest.mark.postgres
+def test_the_listing_kind_sort_descending_puts_the_highest_installments_first(kinds_catalog) -> None:
+    rows = _page(kinds_catalog, sort="listing_kind", sort_desc=True)
+    assert [row.mla for row in rows] == [
+        "MLA9000011",
+        "MLA9000022",
+        "MLA9000013",
+        "MLA9000021",
+        "MLA9000023",
+        "MLA9000012",
+    ]
+
+
+@pytest.mark.postgres
+def test_product_rows_sorted_by_listing_kind_follow_their_best_publication(kinds_catalog) -> None:
+    # Product FIRST+1 has a co-funded Clásica (rank 0) and sells more; FIRST has a plain Clásica (rank 0) too: a tie
+    # on the rank, settled by the gross. With no Clásica left, FIRST+1's best is a 3 cuotas and FIRST's a 6 cuotas.
+    rows = _page(kinds_catalog, group_by="product", sort="listing_kind", sort_desc=False)
+    assert [row.key for row in rows] == [str(FIRST + 1), str(FIRST)]
+    kinds_catalog.execute(text("UPDATE ml_items SET listing_type_id = 'gold_pro' WHERE item_id = 'MLA9000012'"))
+    kinds_catalog.execute(text("UPDATE ml_items SET listing_type_id = 'gold_pro' WHERE item_id = 'MLA9000023'"))
+    kinds_catalog.execute(text("UPDATE ml_items SET tags = ARRAY['3x_campaign'] WHERE item_id = 'MLA9000023'"))
+    rows = _page(kinds_catalog, group_by="product", sort="listing_kind", sort_desc=False)
+    assert [row.key for row in rows] == [str(FIRST + 1), str(FIRST)]
+    rows = _page(kinds_catalog, group_by="product", sort="listing_kind", sort_desc=True)
+    assert [row.key for row in rows] == [str(FIRST), str(FIRST + 1)]

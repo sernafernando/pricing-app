@@ -1877,9 +1877,9 @@ class Board:
 
     def _ordered(self, rows: Any) -> Any:
         """The board's ORDER BY; with `kind_first` (a product's publication sub-rows), the listing kind rank
-        before it."""
+        before it, unless the requested sort is the kind itself (its direction then holds)."""
         rank = rows.c.get("listing_rank")
-        if self.kind_first and rank is not None:
+        if self.kind_first and rank is not None and self.f.sort != "listing_kind":
             return (rank.asc(), *self._requested_order(rows))
         return self._requested_order(rows)
 
