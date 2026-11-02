@@ -4,7 +4,7 @@ and marca, the brand of a product the campaign's groups reach with the campaign 
 from __future__ import annotations
 
 from datetime import date
-from typing import Iterator
+from typing import Any, Callable, Iterator
 
 import pytest
 from sqlalchemy import Engine
@@ -23,10 +23,10 @@ def engine() -> Iterator[Engine]:
 
 
 @pytest.fixture()
-def ids(engine: Engine):
+def ids(engine: Engine) -> Iterator[Callable[..., list[int]]]:
     Session = sessionmaker(bind=engine, autoflush=False)
 
-    def _ids(**filtros) -> list[int]:
+    def _ids(**filtros: Any) -> list[int]:
         with Session() as db:
             campanas, total = service.listar_campanas(db, service.FiltrosCampanas(**filtros))
             assert total == len(campanas)
