@@ -6,9 +6,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from openpyxl import Workbook
 
 from app.services.gestion_full.excel_export import (
     _mla_digits,
+    _write_text_cell,
     assert_package_exportable,
 )
 
@@ -46,3 +48,15 @@ def test_assert_package_exportable_requires_caja() -> None:
     )
     with pytest.raises(ValueError, match="unidades/caja"):
         assert_package_exportable(db, pkg)
+
+
+def test_write_text_cell_forces_string_not_formula() -> None:
+    """Values starting with '=' must not become Excel formulas (injection)."""
+    wb = Workbook()
+    ws = wb.active
+    dangerous = '=HYPERLINK("http://evil.example","x")'
+    _write_text_cell(ws, 1, 1, dangerous)
+    cell = ws.cell(1, 1)
+    assert cell.value == dangerous
+    assert cell.data_type == "s"
+    assert cell.data_type != "f"
