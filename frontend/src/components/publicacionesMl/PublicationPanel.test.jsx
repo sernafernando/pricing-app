@@ -672,6 +672,13 @@ describe('header figures (S1)', () => {
     expect(figure('Ventas 30 días')).toBe('—');
   });
 
+  it('keeps the publication status in the header, since Resumen no longer lists it', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow(SALES) });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(within(figures().closest('header')).getByText('Activa')).toBeInTheDocument();
+  });
+
   it.each(['promociones', 'resumen'])('stays in the header on the %s tab', async (tab) => {
     publicacionesMlAPI.detail.mockResolvedValue({ data: withRow(SALES) });
     renderPanel({ tab });

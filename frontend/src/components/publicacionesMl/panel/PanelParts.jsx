@@ -19,10 +19,13 @@ export function Section({ title, children }) {
 
 /**
  * The label / value pairs of a section. `columns` lays them out two pairs per line when the panel
- * is wide enough; `quiet` marks secondary facts.
+ * is wide enough; `quiet` marks secondary facts; `shortValues` gives the room to the labels and keeps each
+ * value on one line (counts and a date).
  */
-export function Fields({ columns = false, quiet = false, children }) {
-  const className = [styles.fields, columns && styles.fieldsColumns, quiet && styles.fieldsQuiet].filter(Boolean).join(' ');
+export function Fields({ columns = false, quiet = false, shortValues = false, children }) {
+  const className = [styles.fields, columns && styles.fieldsColumns, quiet && styles.fieldsQuiet, shortValues && styles.fieldsShortValues]
+    .filter(Boolean)
+    .join(' ');
   const list = <dl className={className}>{children}</dl>;
   return columns ? <div className={styles.fieldsContainer}>{list}</div> : list;
 }

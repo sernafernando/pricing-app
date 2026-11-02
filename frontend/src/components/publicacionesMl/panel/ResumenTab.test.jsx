@@ -224,6 +224,25 @@ describe('Rentabilidad (ver_ganancia only): from the price down to the markup', 
     expect(valueOf('Rentabilidad', 'Lista de precios')).toHaveTextContent('12');
   });
 
+  it('names where the computed price comes from when it is not the publication price shown in the data', () => {
+    renderTab(makeDetail({ markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, price_source: 'item_price', variation_id: 77 } }), {
+      canSeeMargin: true,
+    });
+    expect(valueOf('Rentabilidad', 'Precio')).toHaveTextContent('Precio de la publicación');
+    cleanup();
+    renderTab(DETAIL_RESPONSE_MARGIN, { canSeeMargin: true });
+    expect(valueOf('Rentabilidad', 'Precio')).not.toHaveTextContent('Precio de oferta');
+  });
+
+  it('a partial breakdown keeps the percentage and the shipping source it has', () => {
+    renderTab(
+      makeDetail({ markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, comision_total: null, costo_envio: null } }),
+      { canSeeMargin: true },
+    );
+    expect(valueOf('Rentabilidad', 'Comisión')).toHaveTextContent('13,5%');
+    expect(valueOf('Rentabilidad', 'Costo de envío')).toHaveTextContent('ERP');
+  });
+
   it('a negative markup is flagged', () => {
     renderTab(makeDetail({ markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, markup: -3.2 } }), { canSeeMargin: true });
     expect(valueOf('Rentabilidad', 'Markup')).toHaveTextContent('-3,2%');

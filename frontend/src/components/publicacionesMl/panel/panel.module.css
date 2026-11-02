@@ -314,12 +314,12 @@
   gap: var(--spacing-md);
 }
 
-/* Stock figures are short: the labels (place names) get the room, and the read date stays on one line. */
-.pair > :first-child .fields {
+/* Short values (counts, a date): the labels get the room, and each value stays on one line. */
+.fieldsShortValues {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.pair > :first-child .fields dd {
+.fieldsShortValues dd {
   white-space: nowrap;
 }
 

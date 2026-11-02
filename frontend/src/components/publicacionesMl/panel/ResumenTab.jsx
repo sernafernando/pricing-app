@@ -48,7 +48,7 @@ function StockSection({ detail }) {
   const stock = detail.row.stock ?? {};
   return (
     <Section title="Stock">
-      <Fields>
+      <Fields shortValues>
         <Field label="Full">{count(stock.full)}</Field>
         <Field label="Propio">{count(stock.own)}</Field>
         {(detail.stockLocations ?? []).map((place) => (
@@ -84,7 +84,7 @@ function PublicationDataSection({ detail }) {
   const hasRegular = price?.regular_amount != null && Number(price.regular_amount) !== Number(price.amount);
   return (
     <Section title="Datos de la publicación">
-      <Fields columns>
+      <Fields columns quiet>
         <Field label="Condición">{label(CONDITION_LABELS, detail.condition)}</Field>
         <Field label="Tipo">{label(LISTING_TYPE_LABELS, row.listing_type_id)}</Field>
         <Field label="Catálogo">{row.catalog_listing == null ? null : row.catalog_listing ? 'Sí' : 'No'}</Field>
@@ -175,11 +175,22 @@ function SellInOutMarkup({ sellInOut }) {
   );
 }
 
+/** An amount with a quieter fact after it; either may be missing, and only both missing reads "—". */
+function WithAside({ value, aside }) {
+  if (value == null && !aside) return null;
+  return (
+    <>
+      {value}
+      {aside && <span className={styles.aside}>{value == null ? aside : ` · ${aside}`}</span>}
+    </>
+  );
+}
+
 /**
- * Rentabilidad: the sum from the price down to the markup (Precio on top, Markup last; the one
- * repeat of the header the orchestrator allowed), then what it was computed on, quieter.
+ * Rentabilidad: the sum from the price down to the markup (Precio on top, Markup last: the one repeat
+ * of the header, allowed because they are the ends of the sum), then what it was computed on, quieter.
  */
-function RentabilidadSection({ breakdown, reason, sellInOut }) {
+function RentabilidadSection({ breakdown, reason, sellInOut, publicationPriceSource }) {
   if (breakdown == null) {
     return (
       <Section title="Rentabilidad">
@@ -187,26 +198,20 @@ function RentabilidadSection({ breakdown, reason, sellInOut }) {
       </Section>
     );
   }
-  const shippingSource = label(SHIPPING_SOURCE_LABELS, breakdown.envio_source);
+  // The origin of the price the sum starts from, only when Datos de la publicación does not already say it (a
+  // variation's price, say): never repeated, never lost.
+  const priceOrigin = breakdown.price_source === publicationPriceSource ? null : label(PRICE_SOURCE_LABELS, breakdown.price_source);
   return (
     <Section title="Rentabilidad">
       <Fields>
-        <Field label="Precio">{amount(breakdown.price)}</Field>
+        <Field label="Precio">
+          <WithAside value={amount(breakdown.price)} aside={priceOrigin} />
+        </Field>
         <Field label="Comisión">
-          {breakdown.comision_total == null ? null : (
-            <>
-              {amount(breakdown.comision_total)}
-              {breakdown.comision_pct != null && <span className={styles.aside}> · {formatPct(breakdown.comision_pct)}</span>}
-            </>
-          )}
+          <WithAside value={amount(breakdown.comision_total)} aside={breakdown.comision_pct == null ? null : formatPct(breakdown.comision_pct)} />
         </Field>
         <Field label="Costo de envío">
-          {breakdown.costo_envio == null ? null : (
-            <>
-              {amount(breakdown.costo_envio)}
-              {shippingSource && <span className={styles.aside}> · {shippingSource}</span>}
-            </>
-          )}
+          <WithAside value={amount(breakdown.costo_envio)} aside={label(SHIPPING_SOURCE_LABELS, breakdown.envio_source)} />
         </Field>
         <Field label="Precio limpio">{amount(breakdown.limpio)}</Field>
         <Field label="Costo">{amount(breakdown.costo_ars)}</Field>
@@ -235,7 +240,8 @@ function RentabilidadSection({ breakdown, reason, sellInOut }) {
 
 /**
  * Resumen (S4): what needs attention, the Rentabilidad sum, Stock beside the linked product, then
- * the quiet data. Price, markup, total stock and sales live in the panel header, not here.
+ * the quiet data. Total stock, sales and the status live in the panel header, not here; price and markup
+ * only come back as the two ends of the Rentabilidad sum.
  */
 export default function ResumenTab({ detail, canSeeMargin }) {
   const { row } = detail;
@@ -243,7 +249,12 @@ export default function ResumenTab({ detail, canSeeMargin }) {
     <>
       <AttentionSection detail={detail} canSeeMargin={canSeeMargin} />
       {canSeeMargin && (
-        <RentabilidadSection breakdown={detail.markupBreakdown} reason={row.markup?.reason} sellInOut={detail.sellInOut} />
+        <RentabilidadSection
+          breakdown={detail.markupBreakdown}
+          reason={row.markup?.reason}
+          sellInOut={detail.sellInOut}
+          publicationPriceSource={row.price?.amount == null ? null : row.price.source}
+        />
       )}
       <div className={styles.pair}>
         <StockSection detail={detail} />
