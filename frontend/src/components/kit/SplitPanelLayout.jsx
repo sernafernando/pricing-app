@@ -21,11 +21,42 @@
  *  - On close the opener gets focus back, but only when focus was still inside
  *    the panel (or had fallen to `<body>`): if the operator moved on to
  *    another row meanwhile, yanking focus back would be hostile.
+ *  - With `resizeKey` the operator can drag the divider (or focus it and use
+ *    the arrows) to trade table width for panel width. Both sides keep a
+ *    minimum, the width is remembered in this browser under that key, and
+ *    until someone resizes, the panel keeps its usual token width. Without
+ *    the prop nothing changes: no handle, same columns.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import styles from './SplitPanelLayout.module.css';
 
 const WIDTHS = ['md', 'lg'];
+
+export const PANEL_MIN_WIDTH = 360;
+export const TABLE_MIN_WIDTH = 480;
+export const RESIZE_STEP = 16;
+
+const storageKey = (key) => `split-panel-width:${key}`;
+
+// Disabled or private-mode storage must never break the layout: resizing
+// still works, it just isn't remembered.
+function loadWidth(key) {
+  if (!key) return null;
+  try {
+    const width = Number(localStorage.getItem(storageKey(key)));
+    return Number.isFinite(width) && width >= PANEL_MIN_WIDTH ? width : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveWidth(key, width) {
+  try {
+    localStorage.setItem(storageKey(key), String(width));
+  } catch {
+    // Not remembered; the current width still applies.
+  }
+}
 
 function isEditableElement(el) {
   if (!el) return false;
@@ -40,10 +71,17 @@ function isEditableElement(el) {
  * @param {() => void} props.onClose Called on Escape.
  * @param {'md'|'lg'} [props.width='md'] 460px / 560px (capped at 42vw).
  * @param {string} [props.ariaLabel] Accessible name of the panel.
+ * @param {string} [props.resizeKey] Turns on resizing; the width is remembered per browser under this key.
  * @param {import('react').ReactNode} props.children The list.
  */
-export default function SplitPanelLayout({ open, panel, onClose, width = 'md', ariaLabel, children }) {
+export default function SplitPanelLayout({ open, panel, onClose, width = 'md', ariaLabel, resizeKey, children }) {
   const size = WIDTHS.includes(width) ? width : 'md';
+  const resizable = Boolean(resizeKey);
+  const gridRef = useRef(null);
+  const handleRef = useRef(null);
+  // `null` until the operator resizes: the panel keeps its token width.
+  const [panelWidth, setPanelWidth] = useState(() => loadWidth(resizeKey));
+  const [measured, setMeasured] = useState({ width: 0, max: PANEL_MIN_WIDTH });
   const openerRef = useRef(null);
   const panelRef = useRef(null);
   // Whether focus is in the panel or on <body>. Tracked live because by the
@@ -90,9 +128,92 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open, onClose]);
 
+  const measure = () => {
+    const grid = gridRef.current?.getBoundingClientRect().width ?? 0;
+    const handle = handleRef.current?.getBoundingClientRect().width ?? 0;
+    return {
+      width: panelRef.current?.getBoundingClientRect().width ?? 0,
+      max: Math.max(PANEL_MIN_WIDTH, Math.floor(grid - handle - TABLE_MIN_WIDTH)),
+    };
+  };
+
+  useLayoutEffect(() => {
+    if (open && resizable) setMeasured(measure());
+  }, [open, resizable]);
+
+  const clampWidth = (value, max) => Math.min(Math.max(Math.round(value), PANEL_MIN_WIDTH), max);
+
+  const handleKeyDown = (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const box = measure();
+    const current = panelWidth ?? box.width;
+    const next = clampWidth(current + (e.key === 'ArrowLeft' ? RESIZE_STEP : -RESIZE_STEP), box.max);
+    setMeasured(box);
+    setPanelWidth(next);
+    saveWidth(resizeKey, next);
+  };
+
+  const handlePointerDown = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const box = measure();
+    const startX = e.clientX;
+    const startWidth = panelWidth ?? box.width;
+    let latest = startWidth;
+    setMeasured(box);
+    // On the window, not the handle: a fast drag leaves the thin handle behind.
+    const move = (event) => {
+      latest = clampWidth(startWidth + startX - event.clientX, box.max);
+      setPanelWidth(latest);
+    };
+    const end = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      saveWidth(resizeKey, latest);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+  };
+
+  const resized = resizable && panelWidth !== null;
+  const gridStyle = resized
+    ? {
+        '--split-panel-drag-width': `${panelWidth}px`,
+        '--split-panel-min-width': `${PANEL_MIN_WIDTH}px`,
+        '--split-table-min-width': `${TABLE_MIN_WIDTH}px`,
+      }
+    : undefined;
+
   return (
-    <div className={`${styles.grid} ${open ? styles.open : ''}`} data-width={size} data-split-open={open || undefined}>
+    <div
+      ref={gridRef}
+      className={`${styles.grid} ${open ? styles.open : ''}`}
+      data-width={size}
+      data-split-open={open || undefined}
+      data-split-grid
+      data-resizable={resizable || undefined}
+      data-resized={resized || undefined}
+      style={gridStyle}
+    >
       <div className={styles.main}>{children}</div>
+      {open && resizable && (
+        <div
+          ref={handleRef}
+          className={styles.handle}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Ancho del panel"
+          aria-valuenow={panelWidth ?? measured.width}
+          aria-valuemin={PANEL_MIN_WIDTH}
+          aria-valuemax={measured.max}
+          tabIndex={0}
+          onKeyDown={handleKeyDown}
+          onPointerDown={handlePointerDown}
+        />
+      )}
       {open && (
         <aside ref={panelRef} className={styles.panel} aria-label={ariaLabel} data-split-panel>
           {panel}
