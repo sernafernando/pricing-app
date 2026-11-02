@@ -3,7 +3,7 @@ import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { promocionesAPI } from '../../services/api';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
-import { markPromoPulled, promoPulledRecently, resetPromoPulls } from './promoPullTtl';
+import { forgetPromoPull, markPromoPulled, promoPulledRecently, resetPromoPulls } from './promoPullTtl';
 
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
@@ -1320,6 +1320,35 @@ describe('MlaPromocionesPanel — the 5-minute promo TTL', () => {
     renderPanel({ pullOnOpen: false });
     expect(await screen.findByText('Sin promociones habilitadas.')).toBeInTheDocument();
     expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(1);
+  });
+
+  it('a successful pull clears the cached "no promotions" confirmation, so ML is asked again', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    const first = renderPanel();
+    expect(await screen.findByText('Sin promociones habilitadas.')).toBeInTheDocument();
+    expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(1);
+    first.unmount();
+    renderPanel({ onPulled: markPromoPulled });
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(2));
+  });
+
+  it('a pull in flight when a write forgets the MLA does not start its TTL when it settles', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    let answer;
+    promocionesAPI.refreshItemPromociones.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    renderPanel({ onPulled: markPromoPulled });
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1));
+    // A write elsewhere (another host on the same MLA) lands while this pull is still running.
+    forgetPromoPull('MLA001');
+    await act(async () => {
+      answer({ data: { ok: true } });
+    });
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(promoPulledRecently('MLA001')).toBe(false);
   });
 
   it('an apply forgets the MLA even when the host passes no onApplied (the Productos tree)', async () => {

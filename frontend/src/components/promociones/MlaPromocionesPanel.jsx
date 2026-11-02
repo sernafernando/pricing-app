@@ -8,7 +8,7 @@ import { matchesPromoFilter } from './promoFilterPredicate';
 import { resolvePromoName } from './resolvePromoName';
 import PromoApplyControl from './PromoApplyControl';
 import { formatRelativeAge, promoDisplayPrice } from './promoDisplayPrice';
-import { forgetPromoPull, markPromoEmptyConfirmed, promoEmptyConfirmedRecently } from './promoPullTtl';
+import { forgetPromoPull, markPromoEmptyConfirmed, promoEmptyConfirmedRecently, promoPullGeneration } from './promoPullTtl';
 import styles from './promociones.module.css';
 
 const NO_TYPES = [];
@@ -112,8 +112,9 @@ function capitalize(text) {
  * (without arguments) at the ~5s and ~65s mirror re-reads, including after a
  * rejected write. A host that shows data the write changes (price, markup) re-reads
  * it; the re-reads are idempotent.
- * `onPulled(mla)` (optional) is called once a background pull ML answered
- * settles for this mount (not on a failed or abandoned one).
+ * `onPulled(mla, startedOn)` (optional) is called once a background pull ML
+ * answered settles for this mount (not on a failed or abandoned one), with the
+ * `promoPullGeneration` it started on.
  * `ignoreGlobalFilter` is for a host that is not a Productos tree (the
  * Publicaciones ML side panel): the shared type/name filter belongs to the
  * page whose filter bar sets it, and showing "Sin promos del tipo filtrado"
@@ -193,6 +194,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
     pullSeqRef.current += 1;
     const pullId = pullSeqRef.current;
     setPull({ forMla: mla, status: 'running' });
+    const startedOn = promoPullGeneration(mla);
     // The pull endpoint is FAIL-SOFT: a dead proxy, an ML timeout or a missing route all come back
     // as HTTP 200 `{ok: false}`, never as a rejection. So `.catch` alone would almost never fire and
     // the panel would show the old mirror as if it had just been refreshed. `ok` is the only honest
@@ -215,7 +217,7 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
         promosCacheRef.current.set(mla, { status: 'ok', data: merged });
         setPull({ forMla: mla, status: 'done', forMirror: mirror, data: merged });
         // Only a pull ML answered, and that this mount still wanted, counts as done.
-        if (!merged.refreshFailed) onPulledRef.current?.(mla);
+        if (!merged.refreshFailed) onPulledRef.current?.(mla, startedOn);
       });
   }, [shouldPull, mirror, loading, error, mla, promosCacheRef, readMirror]);
 

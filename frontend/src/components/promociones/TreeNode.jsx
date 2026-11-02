@@ -18,7 +18,7 @@ import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import { useTreeViewStore } from '../../store/treeViewStore';
-import { markPromoPulled } from './promoPullTtl';
+import { markPromoPulled, promoPullGeneration } from './promoPullTtl';
 import styles from './promociones.module.css';
 
 // Backend-computed price formatting for the applied promo's price — kept
@@ -272,10 +272,11 @@ function TreeNode({
     if (refreshing) return;
     setRefreshing(true);
     setRefreshError(false);
+    const startedOn = promoPullGeneration(node.mla);
     try {
       const { data } = await promocionesAPI.refreshItemPromociones(node.mla);
       if (data?.ok) {
-        markPromoPulled(node.mla);
+        markPromoPulled(node.mla, startedOn);
         // The entry also feeds the promo filter bar's derived types, so
         // dropping the stale one keeps that from showing what the server just
         // replaced. Safe even if we unmounted; state updates are guarded.
