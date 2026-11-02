@@ -62,9 +62,14 @@
   cursor: pointer;
 }
 
-.item:hover,
+.item:hover:not(:disabled),
 .item:focus-visible {
   background: var(--cf-bg-hover);
+}
+
+.item:disabled {
+  color: var(--cf-text-muted);
+  cursor: not-allowed;
 }
 
 .statusBody {

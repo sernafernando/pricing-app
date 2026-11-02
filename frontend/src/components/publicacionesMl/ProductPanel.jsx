@@ -3,8 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
 import ProductoMLAsPanel from '../promociones/ProductoMLAsPanel';
-import ProductPrices from '../pricing/ProductPrices';
-import ListPriceGroup from './panel/ListPriceGroup';
+import PanelPrices from './panel/PanelPrices';
 import { canViewProductPrices, pricePermissions } from '../pricing/productPricePermissions';
 import { buildColumns } from './columns';
 import { PRODUCT_FIGURES, PRODUCT_HEADER_FIGURES } from './productFigures';
@@ -79,7 +78,7 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  * after the publications comes the catalog competition of those in a catalog (`ProductCatalogCompetition`,
  * `promos.ver`) and the wholesale prices of each (`ProductPxq`, `pxq.ver`), for "Sin producto" too since both belong
  * to each publication, and last the product's ban (`ProductBanAction`, gated by itself).
- * Precios mounts the product's prices (the same `ProductPrices` a publication's Precios tab mounts), and under them
+ * Precios mounts the product's prices (the same `PanelPrices` a publication's Precios tab mounts), and under them
  * its instalment settings (`ProductCuotasConfig`, whose save recalculates the instalments: the prices are read
  * again and the list reloaded), for whoever may see them, and Cambios the changes made to the
  * product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. The panel opens on
@@ -181,11 +180,11 @@ export default function ProductPanel({
             <ProductChangesTab key={productItemId} productItemId={productItemId} />
           ) : activeKey === PRECIOS.key ? (
             <>
-              <ListPriceGroup productItemId={productItemId} canSeeMargin={canSeeMargin} priceGroup={priceGroup} />
-              <ProductPrices
+              <PanelPrices
                 productItemId={productItemId}
-                // Read again after the instalment settings or after a list write (the group above): both counters only
-                // ever go up, so their sum changes whenever either does.
+                priceGroup={priceGroup}
+                // Read again after the instalment settings or after a list write: both counters only ever go up, so
+                // their sum changes whenever either does.
                 readAgain={pricesReadAgain + (priceGroup?.version ?? 0)}
                 permissions={pricePermissions(tienePermiso)}
                 onWritten={onListReload}

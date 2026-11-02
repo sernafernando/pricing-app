@@ -1,11 +1,10 @@
 /**
- * Resumen tab (publicaciones-ml-vista P13a.T2): every field of the publication,
- * the price with its source, the stock by place, and -- for `ver_ganancia`
- * only -- how the markup is made up. A value the backend does not have is "—",
- * never 0 and never blank.
+ * Resumen tab (S4): what needs attention, the Rentabilidad sum (ver_ganancia only), the stock breakdown beside the
+ * linked product, then the publication's and Mercado Libre's data. Each datum once, none lost; a value the backend
+ * does not have is "—", never 0 and never blank.
  */
 import { describe, it, expect } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import ResumenTab from './ResumenTab';
 import { readDetail } from './detailModel';
 import {
@@ -30,50 +29,127 @@ const valueOf = (name, label) => {
 };
 const DASH = '—';
 
-describe('the publication', () => {
-  it('says what it is: status, condition, type, catalog, logistics', () => {
+const DATOS = 'Datos de la publicación';
+const attention = () => screen.queryByRole('region', { name: 'Atención' });
+const attentionItems = () => within(attention()).getAllByRole('listitem').map((li) => li.textContent);
+
+describe('the order of the Resumen (S4)', () => {
+  it('reads attention, Rentabilidad, Stock beside Producto vinculado, then the quiet data', () => {
+    renderTab(makeDetail({ ...DETAIL_RESPONSE_MARGIN, sub_status: ['out_of_stock'] }), { canSeeMargin: true });
+    const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+    expect(titles.slice(0, 5)).toEqual(['Atención', 'Rentabilidad', 'Stock', 'Producto vinculado', DATOS]);
+    // Stock and Producto vinculado share one row.
+    expect(section('Stock').parentElement).toBe(section('Producto vinculado').parentElement);
+  });
+
+  it('without ver_ganancia there is no Rentabilidad: the price stays in the header, not here', () => {
+    renderTab(DETAIL_RESPONSE_MARGIN, { canSeeMargin: false });
+    expect(screen.queryByRole('region', { name: 'Rentabilidad' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Precio limpio')).not.toBeInTheDocument();
+    expect(screen.queryByText('98.500,50')).not.toBeInTheDocument();
+  });
+
+  it('does not repeat the header: no status, no price amount, no total stock in the body', () => {
     renderTab();
-    expect(valueOf('Publicación', 'Estado')).toHaveTextContent('Activa');
-    expect(valueOf('Publicación', 'Condición')).toHaveTextContent('Nueva');
-    expect(valueOf('Publicación', 'Tipo')).toHaveTextContent('Premium');
-    expect(valueOf('Publicación', 'Catálogo')).toHaveTextContent('No');
-    expect(valueOf('Publicación', 'Logística')).toHaveTextContent('Full');
+    expect(within(section(DATOS)).queryByText('Estado', { selector: 'dt' })).not.toBeInTheDocument();
+    expect(within(section(DATOS)).queryByText('Subestado', { selector: 'dt' })).not.toBeInTheDocument();
+    expect(within(section('Stock')).queryByText('Disponible', { selector: 'dt' })).not.toBeInTheDocument();
+    expect(screen.queryByText('98.500,50')).not.toBeInTheDocument();
   });
+});
 
-  it('names the store, brand, family and user product', () => {
-    renderTab(makeDetail({ row: makeItem({ ...ITEMS[0], user_product_id: 'MLAU100001' }) }));
-    expect(valueOf('Publicación', 'Tienda')).toHaveTextContent('TP-Link');
-    expect(valueOf('Publicación', 'Marca')).toHaveTextContent('TP-Link');
-    expect(valueOf('Publicación', 'Familia')).toHaveTextContent('Archer AX55');
-    expect(valueOf('Publicación', 'Producto de usuario')).toHaveTextContent('MLAU100001');
-  });
-
-  it('shows health as a percentage, the tags, and the three dates', () => {
+describe('the attention row (real signals only)', () => {
+  it('is not there when nothing needs attention', () => {
     renderTab();
-    expect(valueOf('Publicación', 'Salud')).toHaveTextContent('87,0%');
-    const tags = valueOf('Publicación', 'Etiquetas');
-    expect(within(tags).getByText('good_quality_picture')).toBeInTheDocument();
-    expect(within(tags).getByText('immediate_payment')).toBeInTheDocument();
-    for (const label of ['Creada', 'Modificada en ML', 'Sincronizada']) {
-      expect(valueOf('Publicación', label).textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
-    }
+    expect(attention()).not.toBeInTheDocument();
   });
 
-  it('lists the sub-status and flags a publication that vanished from ML', () => {
+  it("lists ML's sub-status, its last error and a publication that vanished from ML, with the date", () => {
     renderTab(
       makeDetail({
         row: makeItem({ ...ITEMS[3] }),
         sub_status: ['out_of_stock'],
+        item: { ...ITEM_COLUMNS, last_error: 'HTTP 500' },
       }),
     );
-    expect(valueOf('Publicación', 'Estado')).toHaveTextContent('Eliminada');
-    expect(valueOf('Publicación', 'Subestado')).toHaveTextContent('out_of_stock');
-    expect(valueOf('Publicación', 'Eliminada el').textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
+    const items = attentionItems();
+    expect(items.some((text) => /Eliminada de Mercado Libre el \d{2}\/\d{2}\/\d{4}/.test(text))).toBe(true);
+    cleanup();
+    renderTab(makeDetail({ row: makeItem({ ...ITEMS[3], gone_at: null }) }));
+    expect(attentionItems()).toContain('Eliminada de Mercado Libre');
+    expect(items).toContain('Subestado de Mercado Libre: out_of_stock');
+    expect(items).toContain('Último error de Mercado Libre: HTTP 500');
   });
 
-  it('counts the variations, or says there are none', () => {
+  it('flags a link in conflict and a publication without a product', () => {
+    renderTab(makeDetail({ row: makeItem({ ...ITEMS[0], link: { ...ITEMS[0].link, state: 'conflicto' } }) }));
+    expect(attentionItems()).toEqual(['El vínculo con el producto está en conflicto']);
+    cleanup();
+    renderTab(makeDetail({ row: ITEMS[3] }));
+    expect(attentionItems()).toContain('Sin producto vinculado');
+  });
+
+  it('an unknown link is not a signal: only a link ML says has no product is', () => {
+    renderTab(makeDetail({ row: makeItem({ ...ITEMS[0], link: null }) }));
+    expect(attention()).not.toBeInTheDocument();
+    expect(valueOf('Producto vinculado', 'Estado')).toHaveTextContent(DASH);
+  });
+
+  it('flags a negative markup only to who may see it', () => {
+    const row = makeItem({ ...ITEMS[0], markup: { min: -3, max: -3, worst: -3, any_negative: true, reason: 'ok', partial: 0 } });
+    renderTab(makeDetail({ row }), { canSeeMargin: true });
+    expect(attentionItems()).toEqual(['Markup negativo']);
+    cleanup();
+    renderTab(makeDetail({ row }), { canSeeMargin: false });
+    expect(attention()).not.toBeInTheDocument();
+  });
+});
+
+describe('the data of the publication', () => {
+  it('says what it is: condition, type, catalog, logistics', () => {
+    renderTab();
+    expect(valueOf(DATOS, 'Condición')).toHaveTextContent('Nueva');
+    expect(valueOf(DATOS, 'Tipo')).toHaveTextContent('Premium');
+    expect(valueOf(DATOS, 'Catálogo')).toHaveTextContent('No');
+    expect(valueOf(DATOS, 'Logística')).toHaveTextContent('Full');
+  });
+
+  it('names the store, brand, family and user product', () => {
+    renderTab(makeDetail({ row: makeItem({ ...ITEMS[0], user_product_id: 'MLAU100001' }) }));
+    expect(valueOf(DATOS, 'Tienda')).toHaveTextContent('TP-Link');
+    expect(valueOf(DATOS, 'Marca')).toHaveTextContent('TP-Link');
+    expect(valueOf(DATOS, 'Familia')).toHaveTextContent('Archer AX55');
+    expect(valueOf(DATOS, 'Producto de usuario')).toHaveTextContent('MLAU100001');
+  });
+
+  it('shows health as a percentage, the tags, and the three dates', () => {
+    renderTab();
+    expect(valueOf(DATOS, 'Salud')).toHaveTextContent('87,0%');
+    const tags = valueOf(DATOS, 'Etiquetas');
+    expect(within(tags).getByText('good_quality_picture')).toBeInTheDocument();
+    expect(within(tags).getByText('immediate_payment')).toBeInTheDocument();
+    for (const label of ['Creada', 'Modificada en ML', 'Sincronizada']) {
+      expect(valueOf(DATOS, label).textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
+    }
+  });
+
+  it('counts the variations', () => {
     renderTab(makeDetail({ row: makeItem({ ...ITEMS[0], variations_count: 3 }) }));
-    expect(valueOf('Publicación', 'Variaciones')).toHaveTextContent('3');
+    expect(valueOf(DATOS, 'Variaciones')).toHaveTextContent('3');
+  });
+
+  it('shows where the price comes from, the regular price and the promotion', () => {
+    renderTab();
+    expect(valueOf(DATOS, 'Origen del precio')).toHaveTextContent('Precio de oferta');
+    expect(valueOf(DATOS, 'Precio regular')).toHaveTextContent('112.000,00');
+    expect(valueOf(DATOS, 'Promoción')).toHaveTextContent('DEAL');
+    expect(valueOf(DATOS, 'Promoción')).toHaveTextContent('Hot Sale');
+  });
+
+  it('labels the price that comes from Productos as such', () => {
+    renderTab(makeDetail({ row: ITEMS[1] }));
+    expect(valueOf(DATOS, 'Origen del precio')).toHaveTextContent('Precio de Productos');
+    expect(valueOf(DATOS, 'Promoción')).toHaveTextContent(DASH);
   });
 
   it('every field the backend does not have reads "—", never 0 or blank (S4.1)', () => {
@@ -91,113 +167,109 @@ describe('the publication', () => {
         replenishment: null,
       }),
     );
-    for (const label of ['Estado', 'Condición', 'Tienda', 'Marca', 'Familia', 'Producto de usuario', 'Salud', 'Etiquetas', 'Creada', 'Modificada en ML', 'Sincronizada']) {
-      expect(valueOf('Publicación', label)).toHaveTextContent(DASH);
+    for (const label of ['Condición', 'Tienda', 'Marca', 'Familia', 'Producto de usuario', 'Salud', 'Etiquetas', 'Creada', 'Modificada en ML', 'Sincronizada', 'Origen del precio', 'Precio regular', 'Promoción']) {
+      expect(valueOf(DATOS, label)).toHaveTextContent(DASH);
     }
-    expect(within(section('Publicación')).queryByText('0')).not.toBeInTheDocument();
+    expect(within(section(DATOS)).queryByText('0')).not.toBeInTheDocument();
   });
 });
 
-describe('the price', () => {
-  it('shows the amount and where it comes from', () => {
-    renderTab();
-    expect(valueOf('Precio', 'Precio')).toHaveTextContent('98.500,50');
-    expect(valueOf('Precio', 'Origen')).toHaveTextContent('Precio de oferta');
-  });
-
-  it('shows the regular price and the promotion type under it', () => {
-    renderTab();
-    expect(valueOf('Precio', 'Precio regular')).toHaveTextContent('112.000,00');
-    expect(valueOf('Precio', 'Promoción')).toHaveTextContent('DEAL');
-    expect(valueOf('Precio', 'Promoción')).toHaveTextContent('Hot Sale');
-  });
-
-  it('labels the price that comes from Productos as such', () => {
-    renderTab(makeDetail({ row: ITEMS[1] }));
-    expect(valueOf('Precio', 'Origen')).toHaveTextContent('Precio de Productos');
-    expect(valueOf('Precio', 'Promoción')).toHaveTextContent(DASH);
-  });
-
-  it('without a price everything reads "—"', () => {
-    renderTab(makeDetail({ row: ITEMS[2] }));
-    for (const label of ['Precio', 'Origen', 'Precio regular', 'Promoción']) {
-      expect(valueOf('Precio', label)).toHaveTextContent(DASH);
-    }
-  });
-});
-
-describe('the stock', () => {
-  it('shows available, Full and Propio, and the places they come from', () => {
-    renderTab();
-    expect(valueOf('Stock ML', 'Disponible')).toHaveTextContent('34');
-    expect(valueOf('Stock ML', 'Full')).toHaveTextContent('20');
-    expect(valueOf('Stock ML', 'Propio')).toHaveTextContent('14');
-    expect(valueOf('Stock ML', 'Depósito de Mercado Libre')).toHaveTextContent('20');
-    expect(valueOf('Stock ML', 'Dirección del vendedor')).toHaveTextContent('14');
-    expect(valueOf('Stock ML', 'Actualizado').textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
+describe('the stock (the breakdown; the total is in the header)', () => {
+  it('shows Full and Propio, the places they come from, the ERP stock and when it was read', () => {
+    renderTab(makeDetail({ row: makeItem({ ...ITEMS[0], erp_stock: { quantity: 18 } }) }));
+    expect(valueOf('Stock', 'Full')).toHaveTextContent('20');
+    expect(valueOf('Stock', 'Propio')).toHaveTextContent('14');
+    expect(valueOf('Stock', 'Depósito de Mercado Libre')).toHaveTextContent('20');
+    expect(valueOf('Stock', 'Dirección del vendedor')).toHaveTextContent('14');
+    expect(valueOf('Stock', 'Stock ERP')).toHaveTextContent('18');
+    expect(valueOf('Stock', 'Actualizado').textContent).toMatch(/\d{2}\/\d{2}\/\d{4}/);
   });
 
   it('a place type the screen does not know keeps its own name', () => {
     renderTab(makeDetail({ stock_locations: [{ type: 'warehouse_x', quantity: 3 }] }));
-    expect(valueOf('Stock ML', 'warehouse_x')).toHaveTextContent('3');
+    expect(valueOf('Stock', 'warehouse_x')).toHaveTextContent('3');
   });
 
   it('a real 0 is shown as 0; an unknown figure is "—"', () => {
     renderTab(makeDetail({ row: makeItem({ ...ITEMS[0], stock: { available: 0, full: null, own: 0, as_of: null } }), stock_locations: null }));
-    expect(valueOf('Stock ML', 'Disponible')).toHaveTextContent('0');
-    expect(valueOf('Stock ML', 'Full')).toHaveTextContent(DASH);
-    expect(valueOf('Stock ML', 'Propio')).toHaveTextContent('0');
-    expect(within(section('Stock ML')).queryByText('Depósito de Mercado Libre')).not.toBeInTheDocument();
+    expect(valueOf('Stock', 'Full')).toHaveTextContent(DASH);
+    expect(valueOf('Stock', 'Propio')).toHaveTextContent('0');
+    expect(valueOf('Stock', 'Stock ERP')).toHaveTextContent(DASH);
+    expect(within(section('Stock')).queryByText('Depósito de Mercado Libre')).not.toBeInTheDocument();
   });
 });
 
-describe('the link with the product', () => {
+describe('the linked product', () => {
   it('shows the state and the product it points to', () => {
     renderTab();
-    expect(valueOf('Vínculo', 'Estado')).toHaveTextContent('Automático');
-    expect(valueOf('Vínculo', 'Código')).toHaveTextContent('ARCHER-AX55');
-    expect(valueOf('Vínculo', 'Producto')).toHaveTextContent('Router Archer AX55');
+    expect(valueOf('Producto vinculado', 'Estado')).toHaveTextContent('Automático');
+    expect(valueOf('Producto vinculado', 'Código')).toHaveTextContent('ARCHER-AX55');
+    expect(valueOf('Producto vinculado', 'Producto')).toHaveTextContent('Router Archer AX55');
   });
 
   it('an unlinked publication says so', () => {
     renderTab(makeDetail({ row: ITEMS[3] }));
-    expect(valueOf('Vínculo', 'Estado')).toHaveTextContent('Sin producto');
-    expect(valueOf('Vínculo', 'Código')).toHaveTextContent(DASH);
+    expect(valueOf('Producto vinculado', 'Estado')).toHaveTextContent('Sin producto');
+    expect(valueOf('Producto vinculado', 'Código')).toHaveTextContent(DASH);
   });
 });
 
-describe('the markup breakdown (ver_ganancia only)', () => {
-  it('shows how the markup is made up', () => {
+describe('Rentabilidad (ver_ganancia only): from the price down to the markup', () => {
+  it('reads as a sum, Precio first and Markup last, then what it was computed on', () => {
     renderTab(DETAIL_RESPONSE_MARGIN, { canSeeMargin: true });
-    expect(valueOf('Markup', 'Precio')).toHaveTextContent('98.500,50');
-    expect(valueOf('Markup', 'Origen del precio')).toHaveTextContent('Precio de oferta');
-    expect(valueOf('Markup', 'Unidad calculada')).toHaveTextContent('La publicación');
-    expect(valueOf('Markup', 'Cuotas')).toHaveTextContent('6');
-    expect(valueOf('Markup', 'Lista de precios')).toHaveTextContent('12');
-    expect(valueOf('Markup', 'Comisión')).toHaveTextContent('13,5%');
-    expect(valueOf('Markup', 'Comisión total')).toHaveTextContent('13.297,57');
-    expect(valueOf('Markup', 'Costo de envío')).toHaveTextContent('4.200,00');
-    expect(valueOf('Markup', 'Origen del envío')).toHaveTextContent('ERP');
-    expect(valueOf('Markup', 'Precio limpio')).toHaveTextContent('81.002,93');
-    expect(valueOf('Markup', 'Costo')).toHaveTextContent('64.000,00');
-    expect(valueOf('Markup', 'Markup')).toHaveTextContent('26,5%');
+    const terms = [...section('Rentabilidad').querySelectorAll('dl')[0].querySelectorAll('dt')].map((dt) => dt.textContent);
+    expect(terms).toEqual(['Precio', 'Comisión', 'Costo de envío', 'Precio limpio', 'Costo', 'Markup']);
+    expect(valueOf('Rentabilidad', 'Precio')).toHaveTextContent('98.500,50');
+    expect(valueOf('Rentabilidad', 'Comisión')).toHaveTextContent('13.297,57');
+    expect(valueOf('Rentabilidad', 'Comisión')).toHaveTextContent('13,5%');
+    expect(valueOf('Rentabilidad', 'Costo de envío')).toHaveTextContent('4.200,00');
+    expect(valueOf('Rentabilidad', 'Costo de envío')).toHaveTextContent('ERP');
+    expect(valueOf('Rentabilidad', 'Precio limpio')).toHaveTextContent('81.002,93');
+    expect(valueOf('Rentabilidad', 'Costo')).toHaveTextContent('64.000,00');
+    expect(valueOf('Rentabilidad', 'Markup')).toHaveTextContent('26,5%');
+    expect(valueOf('Rentabilidad', 'Unidad calculada')).toHaveTextContent('La publicación');
+    expect(valueOf('Rentabilidad', 'Cuotas')).toHaveTextContent('6');
+    expect(valueOf('Rentabilidad', 'Lista de precios')).toHaveTextContent('12');
+  });
+
+  it('names where the computed price comes from when it is not the publication price shown in the data', () => {
+    renderTab(makeDetail({ markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, price_source: 'item_price', variation_id: 77 } }), {
+      canSeeMargin: true,
+    });
+    expect(valueOf('Rentabilidad', 'Precio')).toHaveTextContent('Precio de la publicación');
+    cleanup();
+    renderTab(DETAIL_RESPONSE_MARGIN, { canSeeMargin: true });
+    expect(valueOf('Rentabilidad', 'Precio')).not.toHaveTextContent('Precio de oferta');
+  });
+
+  it('a partial breakdown keeps the percentage and the shipping source it has', () => {
+    renderTab(
+      makeDetail({ markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, comision_total: null, costo_envio: null } }),
+      { canSeeMargin: true },
+    );
+    expect(valueOf('Rentabilidad', 'Comisión')).toHaveTextContent('13,5%');
+    expect(valueOf('Rentabilidad', 'Costo de envío')).toHaveTextContent('ERP');
+  });
+
+  it('a breakdown figure with neither its amount nor its aside reads "—"', () => {
+    renderTab(
+      makeDetail({
+        markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, comision_total: null, comision_pct: null, costo_envio: null, envio_source: null, price: null },
+      }),
+      { canSeeMargin: true },
+    );
+    for (const name of ['Precio', 'Comisión', 'Costo de envío']) expect(valueOf('Rentabilidad', name)).toHaveTextContent(DASH);
   });
 
   it('a negative markup is flagged', () => {
     renderTab(makeDetail({ markup_breakdown: { ...DETAIL_RESPONSE_MARGIN.markup_breakdown, markup: -3.2 } }), { canSeeMargin: true });
-    expect(valueOf('Markup', 'Markup')).toHaveTextContent('-3,2%');
-    expect(valueOf('Markup', 'Markup').querySelector('[data-negative]')).not.toBeNull();
+    expect(valueOf('Rentabilidad', 'Markup')).toHaveTextContent('-3,2%');
+    expect(valueOf('Rentabilidad', 'Markup').querySelector('[data-negative]')).not.toBeNull();
   });
 
   it('with the permission but no breakdown (not linked, no cost) it says there is none', () => {
     renderTab(makeDetail(), { canSeeMargin: true });
-    expect(within(section('Markup')).getByText(/No se pudo calcular el markup/)).toBeInTheDocument();
-  });
-
-  it('without the permission the section does not exist, even if the payload carried it', () => {
-    renderTab(DETAIL_RESPONSE_MARGIN, { canSeeMargin: false });
-    expect(screen.queryByRole('region', { name: 'Markup' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Precio limpio')).not.toBeInTheDocument();
+    expect(within(section('Rentabilidad')).getByText(/No se pudo calcular el markup/)).toBeInTheDocument();
   });
 });
 
@@ -207,14 +279,14 @@ describe('the markup with sell in / sell out (ver_ganancia only)', () => {
 
   it('shows the cost with sell in, its discount and lot in the tooltip, and the markup with sell in', () => {
     renderTab(withSellInOut({ sell_in: SELL_IN, sell_out: null, markups_sell_in: { publicacion: 29.6 }, markups_sell_in_out: {} }), { canSeeMargin: true });
-    expect(valueOf('Markup', 'Costo')).toHaveTextContent('64.000,00');
-    expect(valueOf('Markup', 'Markup')).toHaveTextContent('26,5%');
-    const costo = valueOf('Markup', 'Costo c/ sell in');
+    expect(valueOf('Rentabilidad', 'Costo')).toHaveTextContent('64.000,00');
+    expect(valueOf('Rentabilidad', 'Markup')).toHaveTextContent('26,5%');
+    const costo = valueOf('Rentabilidad', 'Costo c/ sell in');
     expect(costo).toHaveTextContent('62.500,00');
     const tooltip = costo.querySelector('[title]').getAttribute('title');
     expect(tooltip).toContain('1.500,00');
     expect(tooltip).toContain('12');
-    const markup = valueOf('Markup', 'Markup c/ sell in/out');
+    const markup = valueOf('Rentabilidad', 'Markup c/ sell in/out');
     expect(markup).toHaveTextContent('29,6%');
     expect(markup.querySelector('[title]').getAttribute('title')).toBe('Con sell in');
   });
@@ -222,7 +294,7 @@ describe('the markup with sell in / sell out (ver_ganancia only)', () => {
   it('names the % of cost bonus in the tooltip when the sell in has no lot (T25c)', () => {
     const bono = { ...SELL_IN, compra_item_id: null, bono_id: 4, unidades_restantes: null };
     renderTab(withSellInOut({ sell_in: bono, sell_out: null, markups_sell_in: {}, markups_sell_in_out: {} }), { canSeeMargin: true });
-    const tooltip = valueOf('Markup', 'Costo c/ sell in').querySelector('[title]').getAttribute('title');
+    const tooltip = valueOf('Rentabilidad', 'Costo c/ sell in').querySelector('[title]').getAttribute('title');
     expect(tooltip).toBe('Descuento por unidad: $ 1.500,00\nBono #4 sobre el costo');
   });
 
@@ -236,7 +308,7 @@ describe('the markup with sell in / sell out (ver_ganancia only)', () => {
       }),
       { canSeeMargin: true },
     );
-    const markup = valueOf('Markup', 'Markup c/ sell in/out');
+    const markup = valueOf('Rentabilidad', 'Markup c/ sell in/out');
     expect(markup).toHaveTextContent('-2,4%');
     expect(markup.querySelector('[data-negative]')).not.toBeNull();
     expect(markup.querySelector('[title]').getAttribute('title')).toContain('Con sell in y sell out');
@@ -247,8 +319,8 @@ describe('the markup with sell in / sell out (ver_ganancia only)', () => {
       withSellInOut({ sell_in: null, sell_out: { monto_unit: null, campana_ids: [3] }, markups_sell_in: {}, markups_sell_in_out: {} }),
       { canSeeMargin: true },
     );
-    expect(valueOf('Markup', 'Markup c/ sell in/out')).toHaveTextContent('Pendiente');
-    expect(valueOf('Markup', 'Markup c/ sell in/out')).not.toHaveTextContent('%');
+    expect(valueOf('Rentabilidad', 'Markup c/ sell in/out')).toHaveTextContent('Pendiente');
+    expect(valueOf('Rentabilidad', 'Markup c/ sell in/out')).not.toHaveTextContent('%');
   });
 
   it('a lot without a cost in pesos says "Sin tipo de cambio" and its markup is pending', () => {
@@ -256,8 +328,8 @@ describe('the markup with sell in / sell out (ver_ganancia only)', () => {
       withSellInOut({ sell_in: { ...SELL_IN, costo: null }, sell_out: null, markups_sell_in: {}, markups_sell_in_out: {} }),
       { canSeeMargin: true },
     );
-    expect(valueOf('Markup', 'Costo c/ sell in')).toHaveTextContent('Sin tipo de cambio');
-    expect(valueOf('Markup', 'Markup c/ sell in/out')).toHaveTextContent('Pendiente');
+    expect(valueOf('Rentabilidad', 'Costo c/ sell in')).toHaveTextContent('Sin tipo de cambio');
+    expect(valueOf('Rentabilidad', 'Markup c/ sell in/out')).toHaveTextContent('Pendiente');
   });
 
   it('without sell in nor sell out nothing new is shown', () => {
@@ -285,11 +357,21 @@ describe('the data of Mercado Libre (every ml_items column worth reading)', () =
     expect(valueOf(NAME, 'Moneda')).toHaveTextContent('ARS');
   });
 
-  it('shows the seller\'s own codes, the base price and the quantities', () => {
+  it("ML's base and original prices show only when the panel does not already show that amount", () => {
+    // The regular price (Datos de la publicación) is 112.000,00, as ML's base price: shown once.
+    renderTab();
+    expect(within(section(NAME)).queryByText('Precio base', { selector: 'dt' })).not.toBeInTheDocument();
+    cleanup();
+    renderTab(makeDetail({ item: { ...ITEM_COLUMNS, base_price: 115000, original_price: 98500.5 } }));
+    expect(valueOf(NAME, 'Precio base')).toHaveTextContent('115.000,00');
+    // 98.500,50 is the publication's price, in the panel header.
+    expect(within(section(NAME)).queryByText('Precio original', { selector: 'dt' })).not.toBeInTheDocument();
+  });
+
+  it("shows the seller's own codes and the quantities", () => {
     renderTab();
     expect(valueOf(NAME, 'SKU del vendedor')).toHaveTextContent('AX55-SKU');
     expect(valueOf(NAME, 'Campo personalizado')).toHaveTextContent('ARCHER-AX55');
-    expect(valueOf(NAME, 'Precio base')).toHaveTextContent('112.000,00');
     expect(valueOf(NAME, 'Cantidad inicial')).toHaveTextContent('200');
     expect(valueOf(NAME, 'Vendidas')).toHaveTextContent('120');
     expect(valueOf(NAME, 'Inventario')).toHaveTextContent('ABCD1234');
@@ -303,9 +385,9 @@ describe('the data of Mercado Libre (every ml_items column worth reading)', () =
     expect(valueOf(NAME, 'Finalizada')).toHaveTextContent('—');
   });
 
-  it('shows the last error only when there is one', () => {
+  it('leaves the last error to the attention row', () => {
     renderTab(makeDetail({ item: { ...ITEM_COLUMNS, last_error: 'HTTP 500' } }));
-    expect(valueOf(NAME, 'Último error')).toHaveTextContent('HTTP 500');
+    expect(within(section(NAME)).queryByText('Último error', { selector: 'dt' })).not.toBeInTheDocument();
   });
 
   it('a column the store does not have reads "—", and a real false reads "No", never blank', () => {

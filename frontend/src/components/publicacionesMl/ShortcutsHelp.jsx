@@ -8,7 +8,7 @@ const SHORTCUTS = [
   { keys: ['↓', '↑'], what: 'Moverse por las filas de la lista (↓ entra en la primera)' },
   { keys: ['RePág', 'AvPág'], what: 'Saltar 10 filas' },
   { keys: ['Inicio', 'Fin'], what: 'Ir a la primera o a la última fila (con un precio activo: al primero o al último precio de la fila)' },
-  { keys: ['Shift+↓', 'Shift+↑'], what: 'Moverse y seleccionar el producto de la fila (desde el último seleccionado)' },
+  { keys: ['Shift+↓', 'Shift+↑'], what: 'Moverse y marcar la fila (desde la última marcada)' },
   { keys: ['Enter'], what: 'Abrir el detalle de la fila (con un precio activo: editarlo)' },
   { keys: ['→', '←'], what: 'Moverse por los precios editables de la fila (→ entra en el primero); ↓ y ↑ siguen en la misma columna' },
   { keys: ['Espacio'], what: 'Editar el precio activo' },

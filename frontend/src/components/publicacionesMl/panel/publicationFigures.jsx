@@ -17,8 +17,6 @@ const money = (value) => {
  */
 export function publicationFigures(row, { canSeeMargin, canSeeSales }) {
   const stock = row.stock ?? {};
-  // An unknown side reads "—", never 0: it is not a real zero.
-  const split = stock.full == null && stock.own == null ? null : `Full ${count(stock.full) ?? '—'} · propio ${count(stock.own) ?? '—'}`;
   const price = money(row.price?.amount);
   const figures = [
     {
@@ -33,7 +31,8 @@ export function publicationFigures(row, { canSeeMargin, canSeeSales }) {
       ),
       note: canSeeMargin ? <HeaderMarkup markup={row.markup} /> : null,
     },
-    { key: 'stock', label: 'Stock', value: count(stock.available), note: split },
+    // The total only: Full and propio are the Resumen's stock breakdown (each datum once).
+    { key: 'stock', label: 'Stock', value: count(stock.available) },
   ];
   if (canSeeSales && row.sales_30d !== undefined) {
     const sales = row.sales_30d;

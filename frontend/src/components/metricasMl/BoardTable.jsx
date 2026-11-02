@@ -1,5 +1,6 @@
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Layers, Package } from 'lucide-react';
 import Sparkline from './Sparkline';
+import ListingKindBadge from '../publicacionesMl/ListingKindBadge';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
 import {
   ageingTone,
@@ -261,6 +262,7 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
         <div className={styles.subLine}>
           <CornerDownRight size={12} className={styles.subArrow} aria-hidden="true" />
           <span className={styles.mla}>{row.mla}</span>
+          <ListingKindBadge kind={row.listing_kind} />
           {row.is_best && <span className={styles.bestBadge}>Mejor</span>}
           <span className={styles.dotSep}>·</span>
           <span className={styles.descriptor}>{publicationDescriptor(row)}</span>
@@ -291,6 +293,7 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
           <span className={styles.title} title={row.title}>
             {isProduct ? row.title : row.mla}
           </span>
+          {!isProduct && <ListingKindBadge kind={row.listing_kind} />}
           <ProductBadges row={row} canSeeMargin={canSeeMargin} />
         </div>
         <div className={styles.meta}>

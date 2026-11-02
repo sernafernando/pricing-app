@@ -24,17 +24,25 @@ Filtros: búsqueda, vista/agrupación, estado, tienda, presencia, tipo, vínculo
 
 Columnas: configurables con el selector de columnas (incluye código, descripción, marca, stock, costos, precios, markups, etc.).
 
+Columna **Tipo**: una etiqueta con el tipo de cada publicación (**Clásica**, **3 cuotas**, **6 cuotas**, **9 cuotas**, **12 cuotas**). Una Clásica con cuotas cofinanciadas por Mercado Libre dice **Clásica**; al pasar el mouse se aclara. Otros tipos muestran su nombre (por ejemplo, **Gratuita**).
+
+Orden: las publicaciones arrancan ordenadas por tipo (primero las Clásicas, después 3, 6, 9 y 12 cuotas, al final cualquier otro tipo) y, dentro de cada tipo, por facturación de 30 días (o por última actividad si no ves ventas). Al hacer clic en el título de una columna, manda esa columna. Las publicaciones de un producto, al expandirlo o en su panel lateral, también salen ordenadas por tipo y, dentro de cada tipo, por última actividad.
+
 ## Botones y acciones
 
-- **Exportar CSV / Exportar a Sheets**: descarga el conjunto filtrado.
+- **Exportar CSV / Exportar a Sheets**: descarga el conjunto filtrado. La columna **Tipo** del archivo dice lo mismo que la de la pantalla (**Clásica**, **3 cuotas**, …), no el código de Mercado Libre.
 - Selector de columnas: elige qué columnas mostrar.
 - **Indicadores**: elige qué tarjetas de KPI mostrar (todas visibles por defecto). Lista solo las que se ven en la pantalla; ocultar una no cambia ningún número. La elección queda guardada en este navegador.
 - **Equipos**: gestiona equipos de color.
 - Editar precios en línea (✓ guarda, ✗ cancela).
-- Asignar color a un producto o a varios seleccionados.
-- Acciones masivas (si tenés permiso).
+- Casilla de una fila: la de una publicación marca solo esa publicación, no las demás de su producto. En la vista **Producto**, la casilla de la fila de un producto marca el producto, y la de una publicación dentro de un producto abierto marca solo esa publicación. **Mayús + clic** en una casilla marca todas las filas entre la última marcada y esa; la casilla del encabezado marca las filas de la página.
+- Asignar color a un producto o a varios seleccionados. Por ahora, pintar desde las casillas pinta los productos de las filas marcadas.
+- Acciones masivas (si tenés permiso). Los precios son por producto: las acciones de precio se aplican a los productos vinculados de las filas marcadas, una vez cada uno, y el botón dice cuántos productos son y de cuántas publicaciones marcadas salen. Una publicación sin producto vinculado se puede marcar, pero no recibe acciones de precio.
+- **Pausar / activar** (si tenés permiso): con filas marcadas, pausa o activa en Mercado Libre solo esas publicaciones (por ejemplo, "Pausar las 2 marcadas"), nunca las demás de su producto; la fila de un producto en la vista **Producto** incluye todas sus publicaciones. Sin nada marcado, actúa sobre las publicaciones del filtro. Antes de enviar, pide confirmar cuántas publicaciones van a cambiar, y deja sin tocar las que ya tienen ese estado.
 - Clic en una fila: abre el panel lateral de detalle. El panel de una publicación abre en **Promos**; sin permiso para ver promociones, en **Precios**, y si tampoco hay precios para mostrar, en **Resumen**. El panel de un producto abre en **Precios**, o en **Resumen** si no hay precios para mostrar; al volver desde una de sus publicaciones queda en la pestaña donde estaba.
 - Encabezado del panel: en todas las pestañas muestra el precio con el markup debajo (el markup solo con permiso para ver la ganancia), el stock y las ventas de 30 días (con permiso para ver las métricas). En el panel de un producto muestra el stock, las ventas y el markup de 30 días con los filtros actuales.
+- Pestaña **Resumen** de una publicación: **Atención** (solo si hay algo para revisar: eliminada en Mercado Libre, subestado, último error, vínculo en conflicto o sin producto, markup negativo), **Rentabilidad** del precio al markup (con permiso para ver la ganancia), **Stock** junto a **Producto vinculado** y **Datos de la publicación**. El estado, el stock total y las ventas están en el encabezado y no se repiten abajo; el precio y el markup vuelven a aparecer solo como el principio y el final de **Rentabilidad**.
+- Pestaña **Precios**: una línea con las referencias del producto (costo, costo con offset, sell in / sell out, IVA) y el botón **Calcular**; debajo, una tabla con una fila por plan (Clásica, 3, 6, 9 y 12 cuotas) con el precio de Lista ML y el de PVP y su markup, cada precio una sola vez. Cada precio se edita en su fila por monto o fijando el markup. Más abajo, el rebate, la mejor oferta, fuera de tarjetas y la web transferencia, con el precio de Tienda Nube. Si la mejor oferta es el mismo rebate (fuera de tarjetas), dice *Igual al rebate*.
 - Pestaña **Promos**: para no saturar la conexión con Mercado Libre, después de consultar a Mercado Libre con éxito por las promociones de una publicación, no vuelve a consultar durante 5 minutos; mientras tanto muestra lo último que se trajo. Si una consulta falla, se vuelve a intentar la próxima vez que se abre la pestaña, y después de aplicar o quitar una promoción también se vuelve a consultar.
 - **Ancho del panel**: arrastrá la línea entre la tabla y el panel (o enfocala con Tab y usá ← →) para darle más lugar a uno u otro. Los dos tienen un ancho mínimo (en una ventana angosta el panel conserva su mínimo y su ancho de siempre, y la tabla queda más chica) y el ancho elegido queda guardado en este navegador.
 - **Ctrl + clic**: abre la publicación en Mercado Libre.

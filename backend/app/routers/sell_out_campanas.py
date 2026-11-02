@@ -11,6 +11,13 @@ price, and that credit is added to profit. The rules live in
   a day the campaign covers (`vigente_en`), free text (`q`), group, moneda, a
   period its dates overlap (`desde` / `hasta`, 422 when inverted) and marca (a
   product its groups reach, the campaign rule).
+- `POST ""` may set the campaign's program (`programa_id`, optional): an unknown one is a 404, an archived one a
+  422 («El programa «X» está archivado.»). `PUT /{id}` keeps the stored program and ignores one sent: assignment
+  is `POST /api/sell-out/programas/asignar`, which audits it.
+- `GET /{id}/renovacion` (`sell_out.gestionar`) is the renewal draft of a campaign, active or voided: a NEW
+  campaign in the exact shape `POST ""` takes, with the next calendar quarter's dates and the name's trailing
+  period advanced (`app.services.sell_out.renovacion`). It writes nothing; saving it is an ordinary create, and
+  the original never changes.
 - `PUT /{id}` replaces an active campaign (409 once voided). There is no
   delete: `POST /{id}/anular` voids it, once (409 on a second call).
 - `POST /anular` (`{"ids": [...], "motivo"}`, `sell_out.gestionar`) voids up to 500 campaigns in one
@@ -100,7 +107,7 @@ from app.schemas.sell_out import (
 from app.services.permisos_service import verificar_permiso
 from app.services.pm_scope import get_pares_marca_categoria_usuario
 from app.services.sell_out import campanas as service
-from app.services.sell_out import edicion_masiva, resumen
+from app.services.sell_out import edicion_masiva, programas, renovacion, resumen
 
 router = APIRouter(prefix="/sell-out/campanas", tags=["Sell out"])
 
@@ -214,7 +221,26 @@ def crear_campana(
         campana = service.crear_campana(db, data, user.id)
     except service.SellOutError as exc:
         raise _error(db, exc) from exc
+    except programas.ProgramaError as exc:
+        db.rollback()
+        code = status.HTTP_404_NOT_FOUND if isinstance(exc, programas.ProgramaNoExiste) else 422
+        raise HTTPException(status_code=code, detail=str(exc)) from exc
     return resumen.serializar(db, [campana])[0]
+
+
+@router.get("/{campana_id}/renovacion", response_model=SellOutCampanaIn)
+def renovar_campana(
+    campana_id: int, _user: Usuario = Depends(requiere_gestionar), db: Session = Depends(get_db)
+) -> SellOutCampanaIn:
+    """The renewal draft: a NEW campaign to review and send to `POST ""`. Voided campaigns can be renewed too,
+    since the draft is a copy; nothing is written and the original does not change."""
+    try:
+        draft = renovacion.borrador(db, campana_id)
+    except service.SellOutError as exc:
+        raise _error(db, exc) from exc
+    if draft is None:
+        raise _no_existe(campana_id)
+    return draft
 
 
 @router.put("/{campana_id}", response_model=SellOutCampanaOut)
