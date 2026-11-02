@@ -3,11 +3,12 @@
 
 The strategy is the ONLY thing that turns sell-in purchases plus sales into
 `sell_in_consumos`. Loading a purchase, the split selector and the screens never
-depend on how: switching to PPP (option B) means another `SellInCosting`
-returned by `get_costing()`, nothing else.
+depend on how.
 
-`FifoPurchaseCosting` (option A, active): a sell in applies only to the units
-of its purchase, consumed FIFO by the product's sales (`fifo.asignar`). Each
+`FifoPurchaseCosting` (option A, active): a sale's units come out of the
+product's purchase lines in FIFO order (`fifo.asignar`); what they carry
+follows the product's dated cost modes (`sell_in_modos_producto`: FIFO by
+default, weighted or last price from a row's `desde` on, see `fifo`). Each
 call recomputes whole PRODUCTS from scratch (their active purchase lines and
 their sales since the oldest of those lines counts) and writes only the
 difference against the stored consumptions, so:
