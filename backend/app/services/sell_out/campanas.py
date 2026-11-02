@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
+from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
 from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem
 from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaItemIn
@@ -698,6 +699,10 @@ class FiltrosCampanas:
     q: Optional[str] = None  # name or description
     grupo_id: Optional[int] = None
     tipo: Optional[str] = None
+    moneda: Optional[str] = None
+    desde: Optional[date] = None  # with `hasta`: campaigns whose dates overlap the period [desde, hasta]
+    hasta: Optional[date] = None
+    marca: Optional[str] = None  # campaigns whose groups reach a product of this brand (the campaign rule)
 
 
 def listar_campanas(
@@ -719,6 +724,21 @@ def listar_campanas(
     if filtros.grupo_id is not None:
         en_grupo = db.query(SellOutCampanaGrupo.campana_id).filter(SellOutCampanaGrupo.grupo_id == filtros.grupo_id)
         query = query.filter(SellOutCampana.id.in_(en_grupo))
+    if filtros.moneda:
+        query = query.filter(SellOutCampana.moneda == filtros.moneda)
+    if filtros.desde:
+        query = query.filter(SellOutCampana.fecha_hasta >= filtros.desde)
+    if filtros.hasta:
+        query = query.filter(SellOutCampana.fecha_desde <= filtros.hasta)
+    if filtros.marca and filtros.marca.strip():
+        f, p = OffsetGrupoFiltro, ProductoERP
+        de_la_marca = (
+            db.query(SellOutCampanaGrupo.campana_id)
+            .join(f, f.grupo_id == SellOutCampanaGrupo.grupo_id)
+            .join(p, alcance.filtro_alcanza(f, p))
+            .filter(p.marca == filtros.marca.strip())
+        )
+        query = query.filter(SellOutCampana.id.in_(de_la_marca))
     total = query.count()
     campanas = (
         query.order_by(SellOutCampana.fecha_desde.desc(), SellOutCampana.id.desc())

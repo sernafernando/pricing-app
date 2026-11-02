@@ -76,7 +76,7 @@ import {
 } from '../hooks/usePublicacionesMLFilters';
 import { usePublicacionesMLKpis, usePublicationStats } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
-import { buildMlSellerListingUrl, buildMlSellerPromosUrl, openMlSellerUrl } from '../utils/mlSellerPanel';
+import { buildMlSellerListingUrl, buildMlSellerPromosUrl } from '../utils/mlSellerPanel';
 import {
   canExportVista,
   exportPublicacionesCsv,
@@ -571,10 +571,11 @@ export default function PublicacionesML() {
     setFilters(sortParams(nextSort(sort.keys, key, { shift: Boolean(event?.shiftKey) })));
   };
 
-  // Ctrl/Cmd+click opens the publication in ML (side panel when the extension
-  // is there); Alt+click opens it in the seller panel, Shift+click its
-  // promotions; a plain click selects the row. A publication without a usable
-  // permalink (or MLA) opens nothing, and is not selected either.
+  // Ctrl/Cmd+click opens the publication in ML, Alt+click in the seller panel
+  // and Shift+click its promotions, all in the extension's side panel when it
+  // is there (a new tab otherwise); a plain click selects the row. A
+  // publication without a usable permalink (or MLA) opens nothing, and is not
+  // selected either.
   const handleRowClick = useCallback(
     (item, event) => {
       if (event?.ctrlKey || event?.metaKey) {
@@ -585,7 +586,7 @@ export default function PublicacionesML() {
       if (sellerUrl) {
         // Shift+click also extends the text selection over the table: drop it.
         window.getSelection()?.removeAllRanges();
-        openMlSellerUrl(sellerUrl(item.item_id));
+        openInMlPanel(sellerUrl(item.item_id));
         return;
       }
       setFilters({ sel: item.item_id });
@@ -990,6 +991,7 @@ export default function PublicacionesML() {
             open={Boolean(filters.sel || filters.prod)}
             onClose={closePanel}
             width="lg"
+            resizeKey="publicaciones-ml"
             ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
             panel={
               filters.sel ? (

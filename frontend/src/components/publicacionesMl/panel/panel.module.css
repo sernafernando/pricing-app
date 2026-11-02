@@ -7,13 +7,100 @@
   min-width: 0;
 }
 
+/* Sticky like the footer: the title and the key figures stay in view on
+   every tab while the panel scrolls. */
 .header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-default);
+  background: var(--cf-bg-card);
+}
+
+.headerTop {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--spacing-sm);
-  padding: var(--spacing-md);
-  border-bottom: 1px solid var(--cf-border-default);
+}
+
+/* The header's figures: as many equal columns as fit, each label over its
+   value and an optional note. Values never wrap. */
+.figureList {
+  display: grid;
+  /* Wide enough for an eight-digit amount; fewer per line before one would spill. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: var(--spacing-xs);
+  margin: 0;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+}
+
+.figureLabel {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.figureValue {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+/* The figure itself: monospaced so amounts line up; its note keeps the panel's font. */
+.figureAmount {
+  font-family: var(--font-mono);
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+.figureMarkup {
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  color: var(--tone-success-fg);
+}
+
+.figurePartial {
+  font-weight: var(--font-normal, 400);
+  color: var(--cf-text-secondary);
+}
+
+.figureMarkup[data-negative] {
+  color: var(--tone-danger-fg);
+}
+
+/* Read by screen readers, not shown. */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.figureNote {
+  font-size: var(--font-xs);
+  font-weight: var(--font-normal, 400);
+  color: var(--cf-text-secondary);
+  /* A long note (a big billed amount) wraps rather than losing digits. */
+  white-space: normal;
 }
 
 .identity {

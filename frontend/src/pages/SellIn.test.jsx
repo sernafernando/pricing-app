@@ -618,6 +618,46 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ q: 'RB', page: 1, page_size: 10 }));
   });
 
+  it('filters the campaigns by estado, tipo, moneda, marca and grupo, back on page 1', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
+    await waitFor(() => expect(within(filtros).getByRole('option', { name: 'TP-Link redes' })).toBeInTheDocument());
+    await user.selectOptions(within(filtros).getByLabelText('Estado'), 'activa');
+    await user.selectOptions(within(filtros).getByLabelText('Tipo'), 'monto_total');
+    await user.selectOptions(within(filtros).getByLabelText('Moneda'), 'USD');
+    await user.selectOptions(within(filtros).getByLabelText('Marca'), 'TP-Link');
+    await user.selectOptions(within(filtros).getByLabelText('Grupo'), '1');
+    await waitFor(() =>
+      expect(lastParams(sellOutAPI.listar)).toEqual({
+        estado: 'activa',
+        tipo: 'monto_total',
+        moneda: 'USD',
+        marca: 'TP-Link',
+        grupo_id: 1,
+        page: 1,
+        page_size: 10,
+      }),
+    );
+  });
+
+  it('filters the campaigns by a period they overlap, and "Todas las fechas" clears it', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
+    await user.click(within(filtros).getByRole('button', { name: 'Mes actual' }));
+    await waitFor(() =>
+      expect(lastParams(sellOutAPI.listar)).toEqual({
+        desde: expect.stringMatching(/^\d{4}-\d{2}-01$/),
+        hasta: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        page: 1,
+        page_size: 10,
+      }),
+    );
+    await user.click(within(filtros).getByRole('button', { name: 'Todas las fechas' }));
+    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ page: 1, page_size: 10 }));
+  });
+
   it('"Ver campaña" opens it in the side panel', async () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });

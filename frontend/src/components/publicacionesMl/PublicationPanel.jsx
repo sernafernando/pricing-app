@@ -11,6 +11,8 @@ import PanelTabs from './panel/PanelTabs';
 import { PANEL_TABS, visibleTabs } from './panel/panelTabs';
 import { canViewProductPrices } from '../pricing/productPricePermissions';
 import { usePublicationDetail } from './panel/usePublicationDetail';
+import PanelFigures from './panel/PanelFigures';
+import { publicationFigures } from './panel/publicationFigures';
 import styles from './panel/panel.module.css';
 
 /** What to tell the operator when the detail cannot be loaded. */
@@ -55,6 +57,7 @@ export default function PublicationPanel({
 }) {
   const { tienePermiso } = usePermisos();
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
+  const canSeeSales = tienePermiso('ml_metricas.ver');
   const canManage = tienePermiso('ml_ops.gestionar');
   const canViewPromos = tienePermiso('promos.ver');
   const canViewPrices = canViewProductPrices(tienePermiso);
@@ -96,6 +99,9 @@ export default function PublicationPanel({
             </a>
           )}
         </>
+      }
+      figures={
+        detail && <PanelFigures label="Cifras de la publicación" figures={publicationFigures(row, { canSeeMargin, canSeeSales })} />
       }
       onClose={onClose}
       loading={status === 'loading'}

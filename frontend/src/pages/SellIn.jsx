@@ -21,6 +21,8 @@ import { buildBonosParams, buildSellInParams } from '../components/sellIn/sellIn
 import { useSeleccionMasiva } from '../components/sellIn/useSeleccionMasiva';
 import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
 import SellOutAnularMasivo from '../components/sellOut/SellOutAnularMasivo';
+import SellOutFiltros from '../components/sellOut/SellOutFiltros';
+import { FILTROS_CAMPANAS_VACIOS, paramsDeFiltros } from '../components/sellOut/sellOutFiltros';
 import GruposTab from '../components/grupos/GruposTab';
 import styles from './SellIn.module.css';
 
@@ -160,9 +162,9 @@ function useGruposOffset(enabled, version) {
   return grupos;
 }
 
-/** The sell-out campaigns page by page (`GET /sell-out/campanas`), searched by name (`q`); `recargar` asks again. */
+/** The sell-out campaigns page by page (`GET /sell-out/campanas`) with the tab's filters; `recargar` asks again. */
 function useCampanas(enabled) {
-  const [q, setQ] = useState('');
+  const [filtros, setFiltros] = useState(FILTROS_CAMPANAS_VACIOS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(CAMPANAS_PAGE_SIZES[0]);
   const [lista, setLista] = useState(null);
@@ -174,17 +176,17 @@ function useCampanas(enabled) {
     setError(null);
     const params = { page: Math.floor(offset / pageSize) + 1, page_size: pageSize };
     try {
-      const { data } = await sellOutAPI.listar(q.trim() ? { q: q.trim(), ...params } : params);
+      const { data } = await sellOutAPI.listar({ ...paramsDeFiltros(filtros), ...params });
       if (requestId === requestRef.current) setLista(data);
     } catch {
       if (requestId === requestRef.current) setError('No se pudieron cargar las campañas de sell out.');
     }
-  }, [enabled, q, offset, pageSize]);
+  }, [enabled, filtros, offset, pageSize]);
   useEffect(() => {
     recargar();
   }, [recargar]);
-  const buscar = useCallback((value) => {
-    setQ(value);
+  const filtrar = useCallback((cambios) => {
+    setFiltros((actual) => ({ ...actual, ...cambios }));
     setOffset(0);
   }, []);
   // Always the current search and page: a callback kept by a request in flight (a bulk void) calls it later.
@@ -193,7 +195,7 @@ function useCampanas(enabled) {
     recargarRef.current = recargar;
   }, [recargar]);
   const recargarActual = useCallback(() => recargarRef.current(), []);
-  return { lista, error, q, buscar, offset, setOffset, pageSize, setPageSize, recargar, recargarActual };
+  return { lista, error, filtros, filtrar, offset, setOffset, pageSize, setPageSize, recargar, recargarActual };
 }
 
 /**
@@ -760,13 +762,7 @@ export default function SellIn() {
               <h2 id="sell-out-campanas-titulo" className={styles.srOnly}>
                 Campañas de sell out
               </h2>
-              <section className={styles.filterCard} aria-label="Filtros de campañas">
-                <div className={styles.filterBand}>
-                  <div className={styles.searchSlot}>
-                    <SearchInput value={campanas.q} onChange={campanas.buscar} debounce={400} placeholder="Buscar campaña por nombre…" />
-                  </div>
-                </div>
-              </section>
+              <SellOutFiltros filtros={campanas.filtros} onChange={campanas.filtrar} marcas={marcas} grupos={gruposOffset} />
               {campanas.error && (
                 <div className={styles.errorBar} role="alert">
                   <ShieldAlert size={16} /> {campanas.error}
@@ -775,10 +771,10 @@ export default function SellIn() {
               {campanas.lista && (
                 <>
                   <SellOutAnularMasivo
-                    key={campanas.q.trim()}
+                    key={JSON.stringify(paramsDeFiltros(campanas.filtros))}
                     campanas={campanas.lista.items}
                     total={campanas.lista.total}
-                    filtros={campanas.q.trim() ? { q: campanas.q.trim() } : {}}
+                    filtros={paramsDeFiltros(campanas.filtros)}
                     puedeGestionar={puedeGestionarSellOut}
                     selectedId={panel?.tipo === 'campana' ? panel.id : null}
                     onSelect={verCampana}
