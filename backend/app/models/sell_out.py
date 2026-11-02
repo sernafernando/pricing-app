@@ -46,9 +46,8 @@ loaded by hand; UNIQUE, so each offset is migrated once. Deleting the offset
 keeps the campaign (SET NULL).
 
 Programs (`SellOutPrograma`, "Programa" on screen; campaign system S1): a program groups the campaigns that are
-one deal renewed over time or split by what each applies to (production, 2026-11-02: "EPSON PROGRAM1" x13,
-"EPSON PROG 3.0", "EPSON PROGR 7.5", ... over the same dates; the number is the amount, not a period), so a
-quarter's renewal does not start from scratch. `SellOutCampana.programa_id` is metadata only: no allocator, cap or
+one deal renewed over time or split by what each applies to (today one name repeated over many products, or a
+family of names that carry their per-unit amount, all over the same dates), so a quarter's renewal does not start from scratch. `SellOutCampana.programa_id` is metadata only: no allocator, cap or
 money path reads it, and assigning it queues nothing. Campaigns are assigned by hand; a program in use cannot be
 deleted (RESTRICT), only archived.
 
