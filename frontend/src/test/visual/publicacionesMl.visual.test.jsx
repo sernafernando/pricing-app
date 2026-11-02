@@ -1485,6 +1485,7 @@ const PROMOTIONS = [
     promotion_id: 'P1',
     promotion_type: 'SMART',
     name: 'Promoción inteligente con un nombre bastante largo para ver cómo corta',
+    status: 'candidate',
     price: 0,
     suggested_discounted_price: 1234567,
     original_price: 1500000,
@@ -1495,6 +1496,30 @@ const PROMOTIONS = [
     payload: { seller_percentage: 30, meli_percentage: 20 },
   },
   { promotion_id: 'P2', promotion_type: 'DOD', name: 'Oferta del día', price: 50000, original_price: 60000, nuestro_markup: -2, application_status: 'active', payload: {} },
+  // A seller coupon as ML sends it (backend/tests/fixtures/ml_publications/history_events_MLA1402898289_20261016.json).
+  {
+    promotion_id: 'C-MLA1713876',
+    promotion_type: 'SELLER_COUPON_CAMPAIGN',
+    sub_type: 'FIXED_PERCENTAGE',
+    name: 'Cupón de recompra',
+    status: 'candidate',
+    price: 0,
+    original_price: 91193,
+    start_date: '2026-10-10T00:00:00',
+    finish_date: '2026-10-31T23:59:59',
+    payload: {
+      id: 'C-MLA1713876',
+      name: 'Cupón de recompra',
+      type: 'SELLER_COUPON_CAMPAIGN',
+      price: 0,
+      status: 'candidate',
+      sub_type: 'FIXED_PERCENTAGE',
+      start_date: '2026-10-10T00:00:00',
+      finish_date: '2026-10-31T23:59:59',
+      original_price: 91193,
+      fixed_percentage: 10,
+    },
+  },
 ];
 
 // The detail panel open beside the table (publicaciones-ml-vista P13a.T5, S61.1/S62.1).
@@ -1879,14 +1904,21 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
 
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Promociones tab lists the promotions inside the panel`, async () => {
+      it(`${width}x${height} ${theme}: the Promociones tab shows the promotions by section, coupons last, inside the panel`, async () => {
         const screen = await renderWithPanel({ width, height, theme, tab: 'promociones' });
         await expect.element(screen.getByText('Oferta del día')).toBeVisible();
         const panel = panelOf();
         const box = rect(panel);
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        const sections = [...panel.querySelectorAll('[role="tabpanel"] section')];
+        expect(sections.map((section) => section.getAttribute('aria-label'))).toEqual(['Activa ahora', 'Disponibles para activar', 'Cupones']);
+        // Top to bottom in that order.
+        for (let index = 1; index < sections.length; index += 1) expect(rect(sections[index]).top).toBeGreaterThan(rect(sections[index - 1]).bottom - 0.5);
+        const coupons = sections.at(-1);
+        expect(coupons.querySelector('button')).toBeNull();
+        await expect.element(screen.getByRole('link', { name: 'Ver promociones en Mercado Libre' })).toBeVisible();
         const rows = [...panel.querySelectorAll('[role="tabpanel"] li')];
-        expect(rows).toHaveLength(2);
+        expect(rows).toHaveLength(3);
         for (const el of rows.flatMap((row) => [row, ...row.querySelectorAll('*')])) {
           const r = rect(el);
           if (r.width === 0) continue;
