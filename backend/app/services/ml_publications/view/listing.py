@@ -15,11 +15,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional
 
-from sqlalchemy import ARRAY, Numeric, Text, and_, any_, case, cast, func, literal, select, text, true
+from sqlalchemy import ARRAY, Numeric, Text, and_, any_, case, cast, exists, func, literal, select, text, true
 from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
+from app.models.ml_publications import MlItemSellerPromotions
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
@@ -268,6 +269,12 @@ def row_columns(*, cost: bool = False) -> list[Any]:
         sp.regular_amount,
         sp.promotion_type,
         sp.campaign_id,
+        exists(
+            select(literal(1)).where(
+                MlItemSellerPromotions.item_id == i.item_id,
+                MlItemSellerPromotions.hay_mejores_ofertas.is_(True),
+            )
+        ).label("hay_mejores_ofertas"),
         link_state().label("link_state"),
         l.producto_item_id,
         # the LINK's product: `T.p` also names a publication linked per variation only (`filters.primary_product`),
@@ -462,6 +469,7 @@ def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_eve
         "gone": row.gone_at is not None or "deleted" in (row.sub_status or ()),  # filters.deleted(), per row
         "gone_at": row.gone_at,
         "price": _price(row),
+        "hay_mejores_ofertas": bool(getattr(row, "hay_mejores_ofertas", False)),
         "stock": {
             "available": row.available_quantity,
             "full": row.full_quantity,

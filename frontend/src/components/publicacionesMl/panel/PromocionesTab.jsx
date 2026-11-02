@@ -3,7 +3,7 @@ import MlaPromocionesPanel from '../../promociones/MlaPromocionesPanel';
 import { markPromoPulled, promoPulledRecently } from '../../promociones/promoPullTtl';
 
 /** One MLA's promotions; mounted per MLA, so its pull decision is that MLA's. */
-function ItemPromotions({ itemId, promosCacheRef, onPromoApplied }) {
+function ItemPromotions({ itemId, hayMejoresOfertas, promosCacheRef, onPromoApplied }) {
   // Read once per mount: the pull this mount starts must not switch itself off when it succeeds.
   const [pullOnOpen] = useState(() => !promoPulledRecently(itemId));
   return (
@@ -12,6 +12,7 @@ function ItemPromotions({ itemId, promosCacheRef, onPromoApplied }) {
       promosCacheRef={promosCacheRef}
       pullOnOpen={pullOnOpen}
       ignoreGlobalFilter
+      hayMejoresOfertas={hayMejoresOfertas}
       onApplied={onPromoApplied}
       onPulled={markPromoPulled}
     />
@@ -39,7 +40,15 @@ function ItemPromotions({ itemId, promosCacheRef, onPromoApplied }) {
  * private to this tab: the Productos filter bar that reads its entries is not
  * on this page, and the global promo filter is ignored for the same reason.
  */
-export default function PromocionesTab({ itemId, onPromoApplied }) {
+export default function PromocionesTab({ detail, itemId, onPromoApplied }) {
   const [promosCacheRef] = useState(() => ({ current: new Map() }));
-  return <ItemPromotions key={itemId} itemId={itemId} promosCacheRef={promosCacheRef} onPromoApplied={onPromoApplied} />;
+  return (
+    <ItemPromotions
+      key={itemId}
+      itemId={itemId}
+      hayMejoresOfertas={Boolean(detail?.row?.hay_mejores_ofertas)}
+      promosCacheRef={promosCacheRef}
+      onPromoApplied={onPromoApplied}
+    />
+  );
 }

@@ -310,6 +310,8 @@ export const promocionesAPI = {
   //   (409 {status: 'rejected_price_changed', precio_actual, markup_actual})
   //   if ML's live offer is no longer at precio_visto.
   postPromocionItem: (mlaId, body) => api.post(`/promociones/item/${mlaId}`, body),
+  // Clear hay_mejores_ofertas for this MLA (promos.escribir). Fingerprint blocks instant re-flag.
+  descartarHayMejores: (mlaId) => api.post(`/promociones/item/${mlaId}/descartar-hay-mejores`),
   // Remove/desapply a promotion from a given MLA (real ML write). `params`
   // shape: { promotion_type, promotion_id } - backend re-derives offer_id
   // for SMART itself, so the FE never sends offer_id here either.
