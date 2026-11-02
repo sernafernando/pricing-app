@@ -209,7 +209,10 @@ def renovar_campana(
 ) -> SellOutCampanaIn:
     """The renewal draft: a NEW campaign to review and send to `POST ""`. Voided campaigns can be renewed too,
     since the draft is a copy; nothing is written and the original does not change."""
-    draft = renovacion.borrador(db, campana_id)
+    try:
+        draft = renovacion.borrador(db, campana_id)
+    except service.SellOutError as exc:
+        raise _error(db, exc) from exc
     if draft is None:
         raise _no_existe(campana_id)
     return draft

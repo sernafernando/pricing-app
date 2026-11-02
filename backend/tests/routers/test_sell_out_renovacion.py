@@ -287,3 +287,55 @@ def test_an_edit_ignores_a_program_sent_and_keeps_the_stored_one(client, gestor,
         resp = client.put(f"{BASE}/{out['id']}", json=_por_unidad(grupos, programa_id=programa_id), headers=gestor)
         assert resp.status_code == 200, resp.text
         assert resp.json()["programa_id"] == guardado.id
+
+
+# ── Drafts the create endpoint could not take ───────────────────────
+
+
+def test_a_name_that_would_pass_200_characters_keeps_the_original(client, gestor, grupos) -> None:
+    """Advancing «mayo» to «julio» adds a letter: past the column's 200, the draft keeps the original name (it
+    fits and stays editable) instead of failing."""
+    nombre = "X" * 190 + " mayo 2026"
+    assert len(nombre) == 200
+    original = _crear(
+        client, gestor, _por_unidad(grupos, nombre=nombre, fecha_desde="2026-04-01", fecha_hasta="2026-05-31")
+    )
+
+    resp = _renovacion(client, gestor, original["id"])
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["nombre"] == nombre
+    assert (resp.json()["fecha_desde"], resp.json()["fecha_hasta"]) == ("2026-07-01", "2026-09-30")
+
+
+def test_more_shares_than_a_create_takes_is_a_clear_422(client, gestor, db, admin_user) -> None:
+    """A monto_total campaign can hold more than 500 shares (a PM's `repartir` keeps the other brands'): a create
+    takes at most 500, so the draft says so instead of a 500 error."""
+    grupo = OffsetGrupo(nombre="Todo TP-Link")
+    db.add(grupo)
+    db.flush()
+    db.add(OffsetGrupoFiltro(grupo_id=grupo.id, marca="TP-LINK"))
+    campana = SellOutCampana(
+        nombre="Bono anual",
+        fecha_desde=datetime(2026, 1, 1).date(),
+        fecha_hasta=datetime(2026, 12, 31).date(),
+        tipo="monto_total",
+        monto_total=Decimal("100000"),
+        moneda="ARS",
+        usuario_id=admin_user.id,
+    )
+    db.add(campana)
+    db.flush()
+    from app.models.sell_out import SellOutCampanaGrupo
+
+    db.add(SellOutCampanaGrupo(campana_id=campana.id, grupo_id=grupo.id))
+    for i in range(501):
+        item_id = 900000 + i
+        db.add(ProductoERP(item_id=item_id, codigo=f"C{item_id}", descripcion="P", marca="TP-LINK", categoria="X"))
+        db.add(SellOutCampanaItem(campana_id=campana.id, item_id=item_id, reparto_porcentaje=Decimal("0.1")))
+    db.flush()
+
+    resp = _renovacion(client, gestor, campana.id)
+
+    assert resp.status_code == 422, resp.text
+    assert "501" in resp.json()["error"]["message"] and "500" in resp.json()["error"]["message"]
