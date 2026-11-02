@@ -1029,6 +1029,11 @@ class TestListingKind:
         assert ids(run(db, orden="tipo,actividad")) == order
         assert ids(run(db, orden="tipo,actividad", limit=2, offset=2)) == order[2:4]
 
+    def test_the_tipo_sort_descending_turns_the_known_kinds_around_and_keeps_another_type_last(self, kinds, db) -> None:
+        order = ids(run(db, orden="tipo,actividad", direction="desc,desc"))
+        assert order[:4] == ["MLA1", "MLA5", "MLA3", "MLA4"]
+        assert order[-1] == "MLA7"
+
     def test_the_tipo_sort_defaults_to_ascending(self) -> None:
         assert listing.parse_sort("tipo", None) == listing.Sort("tipo", descending=False)
 

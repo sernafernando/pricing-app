@@ -22,7 +22,7 @@ from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
-from app.services.ml_publications.listing_kind import listing_kind, listing_rank
+from app.services.ml_publications.listing_kind import OTHER_RANK, listing_kind, listing_rank
 from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines
 from app.services.ml_publications.view.filters import (
@@ -288,7 +288,12 @@ def row_columns(*, cost: bool = False) -> list[Any]:
 def _column_order(key: str, descending: bool) -> tuple[Any, ...]:
     """One column key and its tie-break, if any (`SORT_TIES`), missing values last in either direction."""
     expressions = [SORT_COLUMNS[key][0](), *((SORT_TIES[key](),) if key in SORT_TIES else ())]
-    return tuple((expression.desc() if descending else expression.asc()).nulls_last() for expression in expressions)
+    ordered = tuple((expression.desc() if descending else expression.asc()).nulls_last() for expression in expressions)
+    if key == "tipo":
+        # Another ML type, then no type at all, go last either way: only the known kinds turn around (as the board).
+        rank = listing_rank(item_listing_kind())
+        return (case((rank >= OTHER_RANK, rank), else_=0).asc(), *ordered)
+    return ordered
 
 
 def _columns_order(keys: Any) -> list[Any]:
