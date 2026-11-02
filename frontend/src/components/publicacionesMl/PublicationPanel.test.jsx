@@ -598,13 +598,6 @@ describe('header figures (S1)', () => {
     expect(within(figures()).getByTitle('2 variaciones sin costo no entran en el rango')).toHaveTextContent('(parcial)');
   });
 
-  it('an unknown side of the stock split reads "—", never 0', async () => {
-    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow({ stock: { available: 14, full: null, own: 14 } }) });
-    renderPanel({ tab: 'resumen' });
-    await screen.findByRole('region', { name: 'Cifras de la publicación' });
-    expect(figure('Stock')).toContain('Full — · propio 14');
-  });
-
   it('with ver_ganancia and no markup, a dash under the price that says why; a range reads as one', async () => {
     canSeeMargin = true;
     publicacionesMlAPI.detail.mockResolvedValue({
@@ -630,8 +623,8 @@ describe('header figures (S1)', () => {
     await screen.findByRole('region', { name: 'Cifras de la publicación' });
     expect(labels()).toEqual(['Precio', 'Stock', 'Ventas 30 días']);
     expect(figure('Precio')).toBe('Precio $ 98.500,50');
-    expect(figure('Stock')).toContain('34');
-    expect(figure('Stock')).toContain('Full 20 · propio 14');
+    // The total only: Full and propio are the Resumen's stock breakdown, not repeated here.
+    expect(figure('Stock')).toBe('34');
     expect(figure('Ventas 30 días')).toContain('12');
     expect(figure('Ventas 30 días')).toContain('1.500,00');
   });

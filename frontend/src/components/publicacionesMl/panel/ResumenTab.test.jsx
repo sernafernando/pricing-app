@@ -1,8 +1,7 @@
 /**
- * Resumen tab (publicaciones-ml-vista P13a.T2): every field of the publication,
- * the price with its source, the stock by place, and -- for `ver_ganancia`
- * only -- how the markup is made up. A value the backend does not have is "—",
- * never 0 and never blank.
+ * Resumen tab (S4): what needs attention, the Rentabilidad sum (ver_ganancia only), the stock breakdown beside the
+ * linked product, then the publication's and Mercado Libre's data. Each datum once, none lost; a value the backend
+ * does not have is "—", never 0 and never blank.
  */
 import { describe, it, expect } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
@@ -75,6 +74,9 @@ describe('the attention row (real signals only)', () => {
     );
     const items = attentionItems();
     expect(items.some((text) => /Eliminada de Mercado Libre el \d{2}\/\d{2}\/\d{4}/.test(text))).toBe(true);
+    cleanup();
+    renderTab(makeDetail({ row: makeItem({ ...ITEMS[3], gone_at: null }) }));
+    expect(attentionItems()).toContain('Eliminada de Mercado Libre');
     expect(items).toContain('Subestado de Mercado Libre: out_of_stock');
     expect(items).toContain('Último error de Mercado Libre: HTTP 500');
   });
@@ -355,11 +357,21 @@ describe('the data of Mercado Libre (every ml_items column worth reading)', () =
     expect(valueOf(NAME, 'Moneda')).toHaveTextContent('ARS');
   });
 
-  it('shows the seller\'s own codes, the base price and the quantities', () => {
+  it("ML's base and original prices show only when the panel does not already show that amount", () => {
+    // The regular price (Datos de la publicación) is 112.000,00, as ML's base price: shown once.
+    renderTab();
+    expect(within(section(NAME)).queryByText('Precio base', { selector: 'dt' })).not.toBeInTheDocument();
+    cleanup();
+    renderTab(makeDetail({ item: { ...ITEM_COLUMNS, base_price: 115000, original_price: 98500.5 } }));
+    expect(valueOf(NAME, 'Precio base')).toHaveTextContent('115.000,00');
+    // 98.500,50 is the publication's price, in the panel header.
+    expect(within(section(NAME)).queryByText('Precio original', { selector: 'dt' })).not.toBeInTheDocument();
+  });
+
+  it("shows the seller's own codes and the quantities", () => {
     renderTab();
     expect(valueOf(NAME, 'SKU del vendedor')).toHaveTextContent('AX55-SKU');
     expect(valueOf(NAME, 'Campo personalizado')).toHaveTextContent('ARCHER-AX55');
-    expect(valueOf(NAME, 'Precio base')).toHaveTextContent('112.000,00');
     expect(valueOf(NAME, 'Cantidad inicial')).toHaveTextContent('200');
     expect(valueOf(NAME, 'Vendidas')).toHaveTextContent('120');
     expect(valueOf(NAME, 'Inventario')).toHaveTextContent('ABCD1234');

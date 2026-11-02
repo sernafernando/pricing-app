@@ -20,3 +20,5 @@ La pestaña **Resumen** del panel de una publicación se reordenó: primero lo q
 - El estado, el stock total y las ventas de 30 días están en el encabezado del panel, por eso no se repiten en el Resumen. El precio y el markup vuelven a aparecer solo como el principio y el final de **Rentabilidad**.
 - El stock del ERP, que antes no se mostraba en el panel, ahora aparece en **Stock**.
 - El último error de Mercado Libre ya no aparece en **Datos de Mercado Libre**: ahora está en **Atención**.
+- El encabezado del panel ahora muestra solo el stock total: el desglose Full / propio pasa a la sección **Stock** del Resumen.
+- En **Datos de Mercado Libre**, el precio base y el precio original aparecen solo cuando son distintos del precio y del precio regular que ya se ven en el panel.

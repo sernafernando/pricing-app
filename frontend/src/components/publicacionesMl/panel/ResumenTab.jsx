@@ -25,7 +25,7 @@ import { sellInOrigen } from '../../../utils/sellInOrigen';
 function AttentionSection({ detail, canSeeMargin }) {
   const { row } = detail;
   const signals = [];
-  if (row.gone) signals.push(`Eliminada de Mercado Libre el ${date(row.gone_at) ?? '—'}`);
+  if (row.gone) signals.push(row.gone_at ? `Eliminada de Mercado Libre el ${date(row.gone_at)}` : 'Eliminada de Mercado Libre');
   for (const code of detail.subStatus) signals.push(`Subestado de Mercado Libre: ${code}`);
   if (detail.item?.last_error) signals.push(`Último error de Mercado Libre: ${detail.item.last_error}`);
   if (row.link?.state === 'conflicto') signals.push('El vínculo con el producto está en conflicto');
@@ -265,7 +265,7 @@ export default function ResumenTab({ detail, canSeeMargin }) {
         <LinkSection link={row.link} />
       </div>
       <PublicationDataSection detail={detail} />
-      <MercadoLibreSection item={detail.item} />
+      <MercadoLibreSection item={detail.item} shownPrices={[row.price?.amount, row.price?.regular_amount]} />
       <BodySection extra={detail.extra} />
     </>
   );
