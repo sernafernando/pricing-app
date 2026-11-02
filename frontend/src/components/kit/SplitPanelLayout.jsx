@@ -150,11 +150,11 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   // which owns them: the width token must be in px and the cap in vw, or the
   // bounds fall back to the two minimums alone.
   const defaultWidth = () => {
-    if (!gridRef.current) return 0;
+    if (!gridRef.current) return null;
     const style = getComputedStyle(gridRef.current);
     const token = style.getPropertyValue('--split-panel-width').trim();
     const cap = style.getPropertyValue('--split-panel-cap').trim();
-    if (!/^[\d.]+px$/.test(token) || !/^[\d.]+vw$/.test(cap)) return 0;
+    if (!/^[\d.]+px$/.test(token) || !/^[\d.]+vw$/.test(cap)) return null;
     // Not rounded: a floored default would let a step "move" a divider the CSS keeps still.
     return Math.min(Number.parseFloat(token), (window.innerWidth * Number.parseFloat(cap)) / 100);
   };
@@ -162,11 +162,12 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   const measure = () => {
     const grid = gridRef.current?.getBoundingClientRect().width ?? 0;
     const handle = handleRef.current?.getBoundingClientRect().width ?? 0;
-    const fallback = defaultWidth();
+    // `null` when the stylesheet values can't be trusted: the two minimums alone bound it.
+    const defaultPanel = defaultWidth();
     return {
       width: panelRef.current?.getBoundingClientRect().width ?? 0,
-      min: fallback > 0 ? Math.min(PANEL_MIN_WIDTH, fallback) : PANEL_MIN_WIDTH,
-      max: Math.max(PANEL_MIN_WIDTH, Math.floor(grid - handle - TABLE_MIN_WIDTH), fallback),
+      min: defaultPanel === null ? PANEL_MIN_WIDTH : Math.min(PANEL_MIN_WIDTH, defaultPanel),
+      max: Math.max(PANEL_MIN_WIDTH, Math.floor(grid - handle - TABLE_MIN_WIDTH), defaultPanel ?? 0),
     };
   };
 
