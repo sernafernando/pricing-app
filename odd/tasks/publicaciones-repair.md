@@ -14,7 +14,7 @@ Out of scope unless asked: UI nueva, crons nuevos, unificar envíos+SKU en un me
 
 ## Tasks
 
-- T1 — S1-S2 — route: inline — status: done — commit: pending — Persist shipping columns on `ml_publication_snapshots` + fix seller_sku parse in sync writers + migration + focused tests. GREEN: `tests/scripts/test_sync_ml_publications_snapshot_fields.py` + bulk (8 passed).
+- T1 — S1-S2 — route: inline — status: done — commit: bf1e30adc (+ docs 344ba0e84) — PR https://github.com/sernafernando/pricing-app/pull/1985 — Persist shipping columns on `ml_publication_snapshots` + fix seller_sku parse in sync writers + migration + focused tests. GREEN: 8 passed.
 - T2 — S3 — route: inline — status: pending — Envios repair job + tracker tables + hook.
 - T3 — S4 — route: inline — status: pending — SKU repair job on same tracker.
 
@@ -25,3 +25,4 @@ Out of scope unless asked: UI nueva, crons nuevos, unificar envíos+SKU en un me
 - L3: Live ML confirms mixed shapes — some items have value_id=value_name (snap OK), others value_id null (snap null). ~9.7k snap_null with ml_items SKU present (last day).
 - L4: T1 implemented — model + alembic `20261218_ml_pub_snapshots_shipping`; writers use `attribute_value_name` + shipping fields; legacy sync reuses full helpers; README updated. Risk: item 1 (migration).
 - L5: Gabe: continuar bugfix (PR1 persist); el PR posterior de repair SKU debe contrastar vs código ERP del vínculo MLA, solo vinculadas. Authorized `--no-verify` for GGA (Claude CLI missing).
+- L6: Gabe: push+open PR1; PR2/PR3 stacked to that when developed. Opened #1985 → main. Monitor state-dir `/tmp/pr-stack-monitors/publicaciones-repair`.
