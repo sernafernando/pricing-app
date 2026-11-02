@@ -284,32 +284,27 @@ def test_assign_refuses_an_empty_or_too_large_selection_or_a_missing_program(cli
 # ── Suggestions ─────────────────────────────────────────────────────
 
 
-def test_suggestions_group_campaigns_without_a_program_by_base_name(client, gestor, grupo) -> None:
-    epson = [
-        _campana(client, gestor, grupo, nombre, fecha_desde=desde, fecha_hasta=hasta)
-        for nombre, desde, hasta in (
-            ("EPSON PROG 25", "2026-04-01", "2026-06-30"),
-            ("EPSON PROG 24", "2026-01-01", "2026-03-31"),
-            ("epson prog 26", "2026-07-01", "2026-09-30"),
-        )
-    ]
-    rebate = [_campana(client, gestor, grupo, n) for n in ("Rebate Q4 2024", "Rebate Q1 2025")]
-    _campana(client, gestor, grupo, "TP-Link 2% noviembre")  # alone: no group
-    asignada = _campana(client, gestor, grupo, "Rebate Q2 2025")
-    programa = _programa(client, gestor, "Rebate")
-    _asignar(client, gestor, [asignada["id"]], programa["id"])
+def test_suggestions_group_campaigns_without_a_program_by_identical_dates(client, gestor, grupo) -> None:
+    def epson(nombre: str) -> dict:
+        return _campana(client, gestor, grupo, nombre, fecha_desde="2026-08-01", fecha_hasta="2026-12-31")
+
+    e = [epson("EPSON PROG 3.0"), epson("EPSON PROGRAM1"), epson("EPSON PROGRAM1")]
+    asignada = epson("EPSON PROGR 7.5")
+    _campana(client, gestor, grupo, "RB 8180", fecha_desde="2026-01-01", fecha_hasta="2026-12-31")  # alone
+    _asignar(client, gestor, [asignada["id"]], _programa(client, gestor, "EPSON PROG")["id"])
 
     resp = client.get(f"{BASE}/sugerencias", headers=gestor)
     assert resp.status_code == 200, resp.text
-    assert [(g["base"], [c["id"] for c in g["campanas"]]) for g in resp.json()["items"]] == [
-        ("EPSON PROG", [epson[1]["id"], epson[0]["id"], epson[2]["id"]]),  # by start date
-        ("Rebate", [rebate[0]["id"], rebate[1]["id"]]),
+    grupos = resp.json()["items"]
+    assert [(g["base"], g["fecha_desde"], g["fecha_hasta"], g["nombres"]) for g in grupos] == [
+        ("EPSON", "2026-08-01", "2026-12-31", 2)
     ]
-    assert resp.json()["items"][0]["campanas"][0] == {
-        "id": epson[1]["id"],
-        "nombre": "EPSON PROG 24",
-        "fecha_desde": "2026-01-01",
-        "fecha_hasta": "2026-03-31",
+    assert [c["id"] for c in grupos[0]["campanas"]] == [e[0]["id"], e[1]["id"], e[2]["id"]]
+    assert grupos[0]["campanas"][0] == {
+        "id": e[0]["id"],
+        "nombre": "EPSON PROG 3.0",
+        "fecha_desde": "2026-08-01",
+        "fecha_hasta": "2026-12-31",
         "estado": "activa",
     }
 
@@ -317,14 +312,17 @@ def test_suggestions_group_campaigns_without_a_program_by_base_name(client, gest
 def test_both_lists_are_paginated_like_the_campaigns(client, gestor, grupo) -> None:
     for nombre in ("A programa", "B programa", "C programa"):
         _programa(client, gestor, nombre)
-    for nombre in ("EPSON PROG 24", "EPSON PROG 25", "Rebate Q4 2024", "Rebate Q1 2025"):
-        _campana(client, gestor, grupo, nombre)
+    for nombre in ("EPSON PROG 3.0", "EPSON PROGRAM1"):
+        _campana(client, gestor, grupo, nombre, fecha_desde="2026-08-01", fecha_hasta="2026-12-31")
+    for nombre in ("520 / 580 SP", "530/720"):
+        _campana(client, gestor, grupo, nombre, fecha_desde="2025-11-01", fecha_hasta="2026-12-31")
 
     pagina = client.get(BASE, params={"page": 2, "page_size": 2}, headers=gestor).json()
     assert [f["nombre"] for f in pagina["items"]] == ["C programa"]
     assert (pagina["total"], pagina["page"], pagina["page_size"]) == (3, 2, 2)
 
     sugeridas = client.get(f"{BASE}/sugerencias", params={"page_size": 1}, headers=gestor).json()
-    assert [g["base"] for g in sugeridas["items"]] == ["EPSON PROG"]
+    # Two groups of 2: the earlier dates first.
+    assert [g["base"] for g in sugeridas["items"]] == ["Del 01/11/2025 al 31/12/2026"]
     assert (sugeridas["total"], sugeridas["page"], sugeridas["page_size"]) == (2, 1, 1)
     assert client.get(BASE, params={"page_size": 201}, headers=gestor).status_code == 422

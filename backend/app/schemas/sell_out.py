@@ -369,9 +369,13 @@ class SellOutSugerenciaCampanaOut(BaseModel):
 
 
 class SellOutSugerenciaOut(BaseModel):
-    """Campaigns without a program sharing a base name (`programas.nombre_base`): a proposal, never applied."""
+    """Campaigns without a program sharing their exact dates (`programas.sugerencias`): a proposal, never applied.
+    `base` is the proposed program name, `nombres` how many distinct names the group holds."""
 
     base: str
+    fecha_desde: date
+    fecha_hasta: date
+    nombres: int
     campanas: list[SellOutSugerenciaCampanaOut]
 
 

@@ -1,10 +1,11 @@
 """Sell-out programs: the higher level that groups campaigns (campaign system S1; "Programa" on screen).
 
-A program groups the campaigns that are one deal renewed over time or split by what each applies to ("EPSON PROG
-24", "EPSON PROG 25", ...). It is metadata only: no allocator, cap or money path reads `programa_id`, so assigning
+A program groups the campaigns that are one deal renewed over time or split by what each applies to (production,
+2026-11-02: "EPSON PROGRAM1" x13, "EPSON PROG 3.0", "EPSON PROGR 7.5", ... all 2026-08-01..2026-12-31; the number is
+the amount, not a period). It is metadata only: no allocator, cap or money path reads `programa_id`, so assigning
 or clearing it queues nothing in `sell_out_dirty` and works on active and voided campaigns alike. Existing campaigns
-are assigned by hand: `sugerencias` only proposes groups of campaigns without a program that share a base name
-(`nombre_base`), never applies them.
+are assigned by hand: `sugerencias` only proposes groups of campaigns without a program that share the exact same
+dates (the repeated names do, and differ only in what they apply to), never applies them.
 
 A program's name is unique ignoring case (`uq_sell_out_programas_nombre_lower`). A program is never deleted here;
 an archived one (`archivado`) keeps its campaigns but takes no new ones. Every assignment change writes one audit
@@ -14,7 +15,6 @@ call changes more than one campaign, like the bulk void.
 
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -37,32 +37,6 @@ class ProgramaNoExiste(ProgramaError):
 
 class ProgramaDuplicado(ProgramaError):
     """Another program already has this name, ignoring case (a 409)."""
-
-
-# ── Base name ──────────────────────────────────────────────────────
-
-# What separates a trailing marker from the name ("EPSON PROG - 24", "Rebate Q4-2024").
-_SEPARADORES = " -–—_/.,:;|"
-_SEP = r"[\s\-–—_/.,:;|]"
-# A period or sequence marker: a 1-2 digit number or a 20xx year, Q1-Q4, "#3", "(2)", "N°3" / "Nº 3". A longer
-# number is a model ("RB 8180"), not a period.
-_MARCADOR = r"(?:\d{1,2}|20\d{2}|q[1-4]|#\s*\d+|\(\s*\d+\s*\)|n\s*[°º]\s*\d+)"
-_MARCADOR_FINAL = re.compile(rf"(?:(?<={_SEP})|^){_MARCADOR}$", re.IGNORECASE)
-
-
-def nombre_base(nombre: str) -> str:
-    """The name without its trailing period or sequence markers and separators, spaces collapsed: "EPSON PROG 24"
-    and "EPSON PROG 25" are "EPSON PROG", "Rebate Q4 2024" is "Rebate". Campaigns are grouped by its casefold.
-    Never empty: when everything would be stripped ("Q4 2024") the name itself is the base."""
-    original = " ".join(nombre.split())
-    base = original
-    while True:
-        base = base.rstrip(_SEPARADORES)
-        marcador = _MARCADOR_FINAL.search(base)
-        if marcador is None:
-            break
-        base = base[: marcador.start()]
-    return base or original
 
 
 # ── Programs ───────────────────────────────────────────────────────
@@ -227,23 +201,41 @@ def programas_de(db: Session, campanas: list[SellOutCampana]) -> dict[int, dict]
 # ── Suggestions ────────────────────────────────────────────────────
 
 
+def _palabras_comunes(nombres: list[str]) -> str:
+    """The leading words every name starts with, ignoring case ("EPSON PROG 3.0" and "EPSON PROGRAM1": "EPSON"),
+    in the first name's spelling; "" when they share none."""
+    listas = [nombre.split() for nombre in nombres]
+    comunes = []
+    for palabras in zip(*listas):
+        if len({p.casefold() for p in palabras}) > 1:
+            break
+        comunes.append(palabras[0])
+    return " ".join(comunes)
+
+
 def sugerencias(db: Session) -> list[dict]:
-    """Groups of 2 or more campaigns WITHOUT a program sharing a base name (`nombre_base`, ignoring case), biggest
-    first, then by base. Each group's campaigns by start date; its `base` is its earliest campaign's."""
+    """Groups of 2 or more campaigns WITHOUT a program that share their exact dates (`fecha_desde`, `fecha_hasta`),
+    biggest first, then by start date. A group's `base` (the proposed program name, editable) is the words all its
+    names start with, or its date range when they share none; `nombres` counts its distinct names. Each group's
+    campaigns by name (ignoring case), then id. Voided campaigns count too: a program groups history as well."""
     c = SellOutCampana
     rows = (
         db.query(c.id, c.nombre, c.fecha_desde, c.fecha_hasta, c.estado)
         .filter(c.programa_id.is_(None))
-        .order_by(c.fecha_desde, c.id)
+        .order_by(c.fecha_desde, c.fecha_hasta, func.lower(c.nombre), c.id)
     )
-    grupos: dict[str, list[dict]] = {}
+    grupos: dict[tuple, list[dict]] = {}
     for cid, nombre, desde, hasta, estado in rows:
-        clave = nombre_base(nombre).casefold()
         fila = {"id": cid, "nombre": nombre, "fecha_desde": desde, "fecha_hasta": hasta, "estado": estado}
-        grupos.setdefault(clave, []).append(fila)
-    salida = [
-        {"base": nombre_base(campanas[0]["nombre"]), "campanas": campanas}
-        for campanas in grupos.values()
-        if len(campanas) >= 2
-    ]
-    return sorted(salida, key=lambda g: (-len(g["campanas"]), g["base"].casefold()))
+        grupos.setdefault((desde, hasta), []).append(fila)
+    salida = []
+    for (desde, hasta), campanas in grupos.items():
+        if len(campanas) < 2:
+            continue
+        nombres = [f["nombre"] for f in campanas]
+        base = _palabras_comunes(nombres) or f"Del {desde:%d/%m/%Y} al {hasta:%d/%m/%Y}"
+        distintos = len({" ".join(n.split()).casefold() for n in nombres})
+        salida.append(
+            {"base": base, "fecha_desde": desde, "fecha_hasta": hasta, "nombres": distintos, "campanas": campanas}
+        )
+    return sorted(salida, key=lambda g: (-len(g["campanas"]), g["fecha_desde"], g["fecha_hasta"]))

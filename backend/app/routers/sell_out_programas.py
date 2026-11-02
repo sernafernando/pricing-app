@@ -76,8 +76,8 @@ def sugerir_programas(
     _user: Usuario = Depends(requiere_ver),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Campaigns without a program that share a base name, biggest group first: a proposal to assign by hand.
-    Grouped in Python (`nombre_base`), so the page is cut over the sorted groups."""
+    """Campaigns without a program that share their exact dates, biggest group first: a proposal to assign by
+    hand. Grouped in Python, so the page is cut over the sorted groups."""
     return _pagina(service.sugerencias(db), page, page_size)
 
 

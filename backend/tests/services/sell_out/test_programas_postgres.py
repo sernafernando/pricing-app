@@ -193,27 +193,35 @@ def test_a_page_of_campaigns_reads_their_programs_in_one_query(engine, Sesion) -
     ]
 
 
-def test_suggestions_group_campaigns_without_a_program(engine, Sesion) -> None:
-    rebate = _programa(Sesion, "Rebate")
-    e25 = _campana(engine, "EPSON PROG 25", date(2025, 1, 1), date(2025, 12, 31))
-    e24 = _campana(engine, "EPSON PROG 24", date(2024, 1, 1), date(2024, 12, 31), estado="anulada")
-    r4 = _campana(engine, "Rebate Q4 2024", date(2024, 10, 1), date(2024, 12, 31))
-    r1 = _campana(engine, "rebate  q1 2025", date(2025, 1, 1), date(2025, 3, 31))
-    _campana(engine, "Rebate Q2 2025", date(2025, 4, 1), date(2025, 6, 30), programa_id=rebate)
-    _campana(engine, "RB 8180", date(2026, 1, 1), date(2026, 1, 31))
-    _campana(engine, "RB 9000", date(2026, 1, 1), date(2026, 1, 31))
-    _campana(engine, "TP-Link 2% noviembre", date(2026, 11, 1), date(2026, 11, 30))
+def test_suggestions_group_campaigns_without_a_program_by_identical_dates(engine, Sesion) -> None:
+    """Production's repeated names (2026-11-02 read) share their dates and differ only in what they apply to; the
+    families ("EPSON PROG 3.0", "EPSON PROGR 7.5", ...: the number is the amount, not a period) share a date range.
+    So a suggestion is a date range with 2 or more campaigns, named by the words all its names start with."""
+    epson = date(2026, 8, 1), date(2026, 12, 31)
+    sp = date(2025, 11, 1), date(2026, 12, 31)
+    programa = _programa(Sesion, "EPSON PROG")
+    e = [
+        _campana(engine, "EPSON PROGRAM1", *epson),
+        _campana(engine, "EPSON PROG 3.0", *epson),
+        _campana(engine, "EPSON PROGRAM1", *epson, estado="anulada"),
+        _campana(engine, "EPSON PROGR 7.5", *epson),
+    ]
+    _campana(engine, "EPSON PROG 12", *epson, programa_id=programa)  # already in a program
+    s = [_campana(engine, "520 / 580 SP", *sp), _campana(engine, "530/720", *sp), _campana(engine, "520 / 580 SP", *sp)]
+    _campana(engine, "RB 8180", date(2026, 1, 1), date(2026, 12, 31))  # alone in its dates
 
     with Sesion() as db:
         grupos = programas.sugerencias(db)
-    assert [(g["base"], [c["id"] for c in g["campanas"]]) for g in grupos] == [
-        ("EPSON PROG", [e24, e25]),
-        ("Rebate", [r4, r1]),
+    assert [
+        (g["base"], g["fecha_desde"], g["fecha_hasta"], g["nombres"], [c["id"] for c in g["campanas"]]) for g in grupos
+    ] == [
+        ("EPSON", *epson, 3, [e[1], e[3], e[0], e[2]]),  # by name ignoring case, then id
+        ("Del 01/11/2025 al 31/12/2026", *sp, 2, [s[0], s[2], s[1]]),
     ]
-    assert grupos[0]["campanas"][0] == {
-        "id": e24,
-        "nombre": "EPSON PROG 24",
-        "fecha_desde": date(2024, 1, 1),
-        "fecha_hasta": date(2024, 12, 31),
+    assert grupos[0]["campanas"][3] == {
+        "id": e[2],
+        "nombre": "EPSON PROGRAM1",
+        "fecha_desde": date(2026, 8, 1),
+        "fecha_hasta": date(2026, 12, 31),
         "estado": "anulada",
     }
