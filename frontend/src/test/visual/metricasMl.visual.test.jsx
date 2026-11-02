@@ -15,7 +15,7 @@
  *
  *   VITE_METRICAS_SHOTS_DIR=/abs/dir pnpm exec vitest run --project=visual metricasMl
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { setTheme, tokenColor } from './visualHelpers';
@@ -28,6 +28,7 @@ import {
   epsonNodesFor,
   GROUP_BOARD_RESPONSE,
 } from './metricasMlFixtures';
+import { ADS_KPIS } from '../../components/metricasMl/adsFixtures';
 
 vi.mock('react-router-dom', async () => ({
   // The page keeps its filters in the URL (U1): an in-memory query, empty at the start.
@@ -250,8 +251,7 @@ describe('Métricas ML board (visual)', () => {
         const kpis = document.querySelector('section[aria-label="Indicadores del período"]');
         expect(wrapped(kpis.querySelectorAll('[data-kpi-value]'))).toEqual([]);
         // Sell in / sell out without "Costos TP": seven cards on one row, the sell card among them.
-        expect(kpis.hasAttribute('data-sell')).toBe(true);
-        expect(kpis.hasAttribute('data-tp')).toBe(false);
+        expect(kpis.textContent).not.toContain('Total TP');
         expect(kpis.textContent).toContain('Sell in / Sell out');
         const tops = [...kpis.children].map((card) => card.getBoundingClientRect().top);
         expect(tops).toHaveLength(7);
@@ -364,5 +364,53 @@ describe('Métricas ML "Agrupado" view (visual)', () => {
         screen.unmount();
       });
     }
+  }
+});
+
+describe('Métricas ML hideable KPI cards (visual)', () => {
+  beforeEach(() => {
+    localStorage.removeItem('metricas-ml.kpis-ocultos');
+    api.get.mockReset();
+    api.get.mockImplementation((url) => Promise.resolve(routeGet(url)));
+  });
+  // The browser's storage outlives the file: leave every card visible for the suites that run next.
+  afterEach(() => localStorage.removeItem('metricas-ml.kpis-ocultos'));
+
+  for (const theme of THEMES) {
+    it(`1920x1080 ${theme}: hidden cards leave the row with no gap, and with every card hidden the picker stays`, async () => {
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      const strip = () => document.querySelector('section[aria-label="Indicadores del período"]');
+      const picker = screen.getByRole('button', { name: 'Indicadores' });
+      await picker.click();
+      const group = screen.getByRole('group', { name: 'Elegir indicadores visibles' });
+      await group.getByRole('checkbox', { name: 'Total Gauss' }).click();
+      await group.getByRole('checkbox', { name: 'Ageing promedio' }).click();
+      const cards = [...strip().children];
+      expect(cards).toHaveLength(5);
+      expect(new Set(cards.map((card) => card.getBoundingClientRect().top)).size).toBe(1);
+      expect(Math.abs(cards.at(-1).getBoundingClientRect().right - strip().getBoundingClientRect().right)).toBeLessThan(1);
+      await shot(`kpis-hidden-two-${theme}`, { width: 1920, height: 1080 });
+
+      for (const checkbox of document.querySelectorAll('[aria-label="Elegir indicadores visibles"] input:checked')) checkbox.click();
+      await expect.poll(() => strip()).toBeNull();
+      await expect.element(screen.getByRole('button', { name: 'Indicadores' })).toBeVisible();
+      await shot(`kpis-hidden-all-${theme}`, { width: 1920, height: 1080 });
+      screen.unmount();
+    });
+
+    it(`1920x1080 ${theme}: hiding Publicidad (ML Ads) takes the ads block off the page`, async () => {
+      api.get.mockImplementation((url) =>
+        Promise.resolve(url === '/ml-metricas/board' ? { data: { ...BOARD_RESPONSE, kpis: { ...BOARD_RESPONSE.kpis, ads: ADS_KPIS } } } : routeGet(url)),
+      );
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      const block = () => document.querySelector('section[aria-label="Publicidad (ML Ads)"]');
+      await expect.poll(() => block()).not.toBeNull();
+      await screen.getByRole('button', { name: 'Indicadores' }).click();
+      await screen.getByRole('group', { name: 'Elegir indicadores visibles' }).getByRole('checkbox', { name: 'Publicidad (ML Ads)' }).click();
+      await expect.poll(() => block()).toBeNull();
+      // Only the block goes: the cards stay.
+      expect(document.querySelector('section[aria-label="Indicadores del período"]')).not.toBeNull();
+      screen.unmount();
+    });
   }
 });

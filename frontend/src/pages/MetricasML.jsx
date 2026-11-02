@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { AlertTriangle, Clock, Download, FileSpreadsheet, FilterX, ShieldAlert, TrendingDown } from 'lucide-react';
+import { AlertTriangle, Clock, Download, FileSpreadsheet, FilterX, Gauge, ShieldAlert, TrendingDown } from 'lucide-react';
 import api from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -18,6 +18,7 @@ import AdsKpiBlock from '../components/metricasMl/AdsKpiBlock';
 import AdsUnattributedPanel from '../components/metricasMl/AdsUnattributedPanel';
 import AdsModeControl from '../components/metricasMl/AdsModeControl';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
+import { metricasKpiOptions } from '../components/metricasMl/metricasKpiOptions';
 import VentasPorDiaChart from '../components/metricasMl/VentasPorDiaChart';
 import MetricasEnviosPanel from '../components/metricasMl/MetricasEnviosPanel';
 import BoardTable, { BOARD_SORT_KEYS } from '../components/metricasMl/BoardTable';
@@ -47,6 +48,7 @@ import {
 } from '../utils/metricasMlFormat';
 import SheetsNotice from '../components/sheets/SheetsNotice';
 import useWarnBeforeUnload from '../hooks/useWarnBeforeUnload';
+import useHiddenKpis from '../hooks/useHiddenKpis';
 import styles from './MetricasML.module.css';
 
 /**
@@ -520,6 +522,9 @@ export default function MetricasML() {
   const adsOn = canSeeMargin && ads !== null;
   // `kpis.total_tp` exists only while the board shows the TP costs.
   const tpOn = canSeeMargin && Boolean(board?.kpis?.total_tp);
+  // The KPI cards (and the ads block) the viewer hid, from the "Indicadores" picker; numbers and requests never change.
+  const kpiOptions = useMemo(() => metricasKpiOptions(board?.kpis, { canSeeMargin, groupBy, tpSolo }), [board?.kpis, canSeeMargin, groupBy, tpSolo]);
+  const { isVisible: kpiVisible, pickerTable: kpiPicker } = useHiddenKpis('metricas-ml.kpis-ocultos', kpiOptions);
   const periodLabel = PERIOD_LABELS[range.filtro] || 'período';
   const shownDimension = tpSolo ? TP_SOLO_DIMENSION : dimension;
   const columnDefs = useMemo(
@@ -597,6 +602,7 @@ export default function MetricasML() {
             </span>
           )}
           <ColumnPicker table={table} />
+          <ColumnPicker table={kpiPicker} label="Indicadores" icon={Gauge} groupLabel="Elegir indicadores visibles" />
           <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
             <Download size={14} />
             {exporting ? 'Exportando…' : 'Exportar CSV'}
@@ -845,13 +851,13 @@ export default function MetricasML() {
 
       <AdsAppliedBanner ads={ads} />
 
-      <MetricasKpiStrip kpis={board?.kpis} canSeeMargin={canSeeMargin} groupBy={groupBy} loading={loading} tpSolo={tpSolo} />
+      <MetricasKpiStrip kpis={board?.kpis} canSeeMargin={canSeeMargin} groupBy={groupBy} loading={loading} tpSolo={tpSolo} isVisible={kpiVisible} />
 
       <VentasPorDiaChart period={board?.period} kpis={board?.kpis} />
 
       <MetricasEnviosPanel params={filterParams} />
 
-      {adsOn && <AdsKpiBlock ads={ads} />}
+      {adsOn && kpiVisible('ads') && <AdsKpiBlock ads={ads} />}
 
       <section className={styles.tableCard} aria-label={`Tablero de ${noun}`} aria-busy={loading}>
         <div className={styles.tableScroll} data-table-scroll>

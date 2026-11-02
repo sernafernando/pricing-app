@@ -31,6 +31,7 @@ Columnas: definidas por el selector de columnas (incluye métricas de ventas, ma
 - **Exportar CSV**: descarga el tablero filtrado. Si alguna campaña de **Monto total** termina en el período, el archivo cierra con una línea **Sell out de montos totales sin producto (Sin asignar y Asignado sin ventas)** con ese monto en la columna **Sell out**.
 - **Exportar a Sheets**: crea una hoja de Google Sheets (si está habilitado).
 - Selector de columnas: elige qué columnas mostrar.
+- **Indicadores**: elige qué tarjetas de KPI mostrar (todas visibles por defecto). Lista solo las que se ven en la pantalla; ocultar una no cambia ningún número. La elección queda guardada en este navegador.
 - **Limpiar filtros**: vuelve a los valores por defecto.
 - Expandir fila: muestra publicaciones o siguiente nivel.
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { Download, FileDown, FileSpreadsheet, FilterX, Keyboard, ShieldAlert, Users } from 'lucide-react';
+import { Download, FileDown, FileSpreadsheet, FilterX, Gauge, Keyboard, ShieldAlert, Users } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
@@ -12,6 +12,7 @@ import AuditFilters from '../components/publicacionesMl/AuditFilters';
 import PromoFilters from '../components/publicacionesMl/PromoFilters';
 import ProductFilters from '../components/publicacionesMl/ProductFilters';
 import PublicationKpiStrip from '../components/publicacionesMl/PublicationKpiStrip';
+import { publicationKpiOptions } from '../components/publicacionesMl/publicationKpiOptions';
 import PublicationStatCards from '../components/publicacionesMl/PublicationStatCards';
 import PublicationCountCards from '../components/publicacionesMl/PublicationCountCards';
 import PublicationPanel from '../components/publicacionesMl/PublicationPanel';
@@ -24,6 +25,7 @@ import PaintColorMenu from '../components/publicacionesMl/PaintColorMenu';
 import { itemRowTone } from '../components/publicacionesMl/rowColor';
 import useColorOverlay from '../components/publicacionesMl/useColorOverlay';
 import { useSSEChannel } from '../hooks/useSSEChannel';
+import useHiddenKpis from '../hooks/useHiddenKpis';
 import { PREARMADAS_LIMITE, usePrearmadasStats } from '../hooks/usePrearmadasStats';
 import { useEquipos } from '../hooks/useEquipos';
 import EquiposModal from '../components/EquiposModal';
@@ -388,6 +390,10 @@ export default function PublicacionesML() {
 
   // Like the rows, the strip and the bulk sets ask only a layer known to be the user's (it matters with `colores`).
   const kpis = usePublicacionesMLKpis(buildKpiParams(rowFilters, periodo), canSeeKpis && !layerPending && !sinMla);
+  // The KPI cards the viewer hid, from the "Indicadores" picker (only while the strip shows); requests never change.
+  const kpiData = kpis.data?.kpis;
+  const kpiOptions = useMemo(() => (canSeeKpis && !sinMla ? publicationKpiOptions(kpiData) : []), [canSeeKpis, sinMla, kpiData]);
+  const { isVisible: kpiVisible, pickerTable: kpiPicker } = useHiddenKpis('publicaciones-ml.kpis-ocultos', kpiOptions);
   const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending && !publicacion);
   const productRows = useProductRows({
     filters: rowFilters,
@@ -754,6 +760,9 @@ export default function PublicacionesML() {
           />
           {!sinMla && <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} />}
           <ColumnPicker table={pickerTable} />
+          {kpiOptions.length > 0 && (
+            <ColumnPicker table={kpiPicker} label="Indicadores" icon={Gauge} groupLabel="Elegir indicadores visibles" />
+          )}
           {canExportVista(filters.vista) && (
             <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
               <Download size={14} />
@@ -790,6 +799,7 @@ export default function PublicacionesML() {
           state={kpis}
           periodo={periodo}
           onPeriodChange={setPeriodo}
+          isVisible={kpiVisible}
           markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
         />
       )}
