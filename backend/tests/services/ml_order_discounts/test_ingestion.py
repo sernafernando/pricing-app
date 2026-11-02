@@ -238,11 +238,10 @@ class TestRun:
         [
             (response(401, None), "blocked"),
             (response(0, None, error=OUTCOME_NO_TOKEN), "blocked"),
-            (response(0, None, error="ConnectError"), "transport"),
             (response(0, None, error=DEADLINE), DEADLINE),
         ],
     )
-    def test_blocked_transport_and_deadline_stop_without_counting_against_the_order(
+    def test_blocked_and_deadline_stop_without_counting_against_the_order(
         self, session_factory, answer, stopped
     ) -> None:
         with session_factory() as db:
@@ -251,6 +250,15 @@ class TestRun:
         assert result.stopped == stopped and result.pending_left == 1
         assert rows(session_factory, MlOrderDiscounts) == []
         assert rows(session_factory, MlOrderDiscountsState) == []
+
+    def test_a_transport_failure_stops_and_defers_the_order_without_counting_an_attempt(self, session_factory) -> None:
+        with session_factory() as db:
+            payment(db, 1, 100, "1.00")
+        result = run(session_factory, FakeClient({100: response(0, None, error="ConnectError")}))
+        assert result.stopped == "transport" and result.pending_left == 1
+        (row,) = rows(session_factory, MlOrderDiscounts)
+        assert (row.status, row.attempts, row.body, row.fetched_at) == ("error", 0, None, NOW)
+        assert run(session_factory, FakeClient({})).calls == 0  # waits ERROR_RETRY like an error
 
     def test_max_calls_caps_the_run(self, session_factory) -> None:
         with session_factory() as db:

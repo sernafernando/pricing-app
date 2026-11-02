@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import and_, delete, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, func, null, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -50,11 +50,14 @@ def pending_orders(db: Session, limit: int, now: datetime) -> list[int]:
     if limit <= 0:
         return []
     newest = func.max(MlPaymentOps.date_approved)
+    # Orders never asked first, retries after: a retried order (an error, a transport failure) never stays at
+    # the head of the queue ahead of the ones not asked yet.
+    asked = exists().where(MlOrderDiscounts.order_id == MlPaymentOps.order_id)
     stmt = (
         select(MlPaymentOps.order_id)
         .where(_pending_filter(now))
         .group_by(MlPaymentOps.order_id)
-        .order_by(newest.desc().nulls_last(), MlPaymentOps.order_id.desc())
+        .order_by(func.bool_or(asked).asc(), newest.desc().nulls_last(), MlPaymentOps.order_id.desc())
         .limit(limit)
     )
     return list(db.execute(stmt).scalars())
@@ -68,7 +71,14 @@ def pending_count(db: Session) -> int:
 
 def write_fetch(db: Session, order_id: int, status: str, http_status: int, body: Any, at: datetime) -> None:
     """Upsert the order's fetch and replace its lines. An `error` keeps counting attempts; `ok`/`none` settle it."""
-    values = {"order_id": order_id, "status": status, "http_status": http_status, "body": body, "fetched_at": at}
+    # `null()`: a missing body is SQL NULL (`body IS NULL`), never the JSON value `null`.
+    values = {
+        "order_id": order_id,
+        "status": status,
+        "http_status": http_status,
+        "body": null() if body is None else body,
+        "fetched_at": at,
+    }
     stmt = pg_insert(MlOrderDiscounts).values(**values, attempts=1)
     db.execute(
         stmt.on_conflict_do_update(
@@ -83,6 +93,13 @@ def write_fetch(db: Session, order_id: int, status: str, http_status: int, body:
     lines = mapper.map_lines(order_id, body) if status == mapper.OK else []
     if lines:
         db.execute(pg_insert(MlOrderDiscountLine).values([vars(line) for line in lines]))
+
+
+def defer(db: Session, order_id: int, at: datetime) -> None:
+    """Send an order behind the others for `ERROR_RETRY` without counting an attempt: a transport failure is not
+    the order's fault, but an order that always times out must not hold the queue (status `error`, attempts kept)."""
+    stmt = pg_insert(MlOrderDiscounts).values(order_id=order_id, status=mapper.ERROR, attempts=0, fetched_at=at)
+    db.execute(stmt.on_conflict_do_update(index_elements=["order_id"], set_={"fetched_at": at}))
 
 
 def backoff_until(db: Session) -> Optional[datetime]:

@@ -6,7 +6,10 @@ Stop rules, in the order they are checked:
   429 run, capped at 1 h, never shorter than `Retry-After` up to a day), so a run of 429s spaces the runs out instead of
   retrying every interval;
 - 401 / no token / not configured: the run stops as `blocked`, nothing is counted against the order;
-- no HTTP answer (transport error) or the deadline: the run stops, nothing is counted against the order.
+- no HTTP answer (transport error): the run stops and the order goes behind the others for `store.ERROR_RETRY`
+  without counting an attempt, so an order that always times out never holds the queue;
+- the deadline: the run stops, nothing is written;
+- another run already in progress in this process: nothing is done (`busy`).
 Any other answer is written: `ok`, `none` (ML's 404 "Discount not found") or `error`, which is asked again on
 later runs, at most every `store.ERROR_RETRY`, until `store.MAX_ATTEMPTS`; a body Postgres refuses is counted
 as an error with no body. A run answered with no 429 clears the back-off; a 429 after answers in the same
@@ -18,6 +21,7 @@ The ML call is made with no DB session open; each answer is written in its own s
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, Optional
@@ -27,12 +31,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.services.ml_ads.ingestion import BLOCKED, RATE_LIMITED, SessionFactory, blocking_outcome
 from app.services.ml_order_discounts import mapper, store
 from app.services.ml_publications.ml_http import MlHttpClient
-from app.services.ml_publications.pacing import DEADLINE, parse_retry_after
+from app.services.ml_publications.pacing import DEADLINE, ORDER_DISCOUNTS_FAMILY, parse_retry_after
 
 logger = logging.getLogger(__name__)
 
-FAMILY = "order_discounts"
+FAMILY = ORDER_DISCOUNTS_FAMILY
 BACKOFF = "backoff"
+BUSY = "busy"
+_RUN_LOCK = threading.Lock()  # the runtime runs one handler at a time; this keeps two runs from asking twice
 TRANSPORT = "transport"
 
 
@@ -57,6 +63,22 @@ class RunResult:
 
 
 def run(
+    session_factory: SessionFactory,
+    client: MlHttpClient,
+    *,
+    now: Callable[[], datetime],
+    deadline: datetime,
+    max_calls: int,
+) -> RunResult:
+    if not _RUN_LOCK.acquire(blocking=False):
+        return RunResult(stopped=BUSY)
+    try:
+        return _run(session_factory, client, now=now, deadline=deadline, max_calls=max_calls)
+    finally:
+        _RUN_LOCK.release()
+
+
+def _run(
     session_factory: SessionFactory,
     client: MlHttpClient,
     *,
@@ -91,6 +113,8 @@ def run(
             result.stopped = BLOCKED
             break
         if response.status == 0:
+            with session_factory() as db:
+                store.defer(db, order_id, now())
             result.stopped = TRANSPORT
             break
         status = mapper.classify(response.status, response.body)
