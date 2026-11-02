@@ -33,7 +33,11 @@ export function NodeTitle({ row, onToggle, after = null, badges = null }) {
       </button>
       {after}
       <div className={styles.nodeText}>
-        <span className={styles.nodeLabel} data-muted={node.withoutProduct || node.key === '__none__' ? '' : undefined}>
+        <span
+          className={styles.nodeLabel}
+          title={node.label}
+          data-muted={node.withoutProduct || node.key === '__none__' ? '' : undefined}
+        >
           {node.label}
           {badges}
         </span>

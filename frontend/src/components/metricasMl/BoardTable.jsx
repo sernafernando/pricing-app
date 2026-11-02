@@ -274,6 +274,7 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
     );
   }
   const isProduct = groupBy === 'product';
+  const pubsText = row.publications_count === 1 ? '1 publicación' : `${row.publications_count} publicaciones`;
   return (
     <div className={styles.product}>
       {isProduct && (
@@ -296,7 +297,7 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
           {!isProduct && <ListingKindBadge kind={row.listing_kind} />}
           <ProductBadges row={row} canSeeMargin={canSeeMargin} />
         </div>
-        <div className={styles.meta}>
+        <div className={styles.meta} title={isProduct ? [row.sku, row.marca, pubsText].filter(Boolean).join(' · ') : undefined}>
           {isProduct ? (
             <>
               {row.sku && <span className={styles.sku}>{row.sku}</span>}
@@ -307,9 +308,7 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
                 </>
               )}
               <span className={styles.dotSep}>·</span>
-              <span className={row.publications_count > 1 ? styles.pubsPill : ''}>
-                {row.publications_count === 1 ? '1 publicación' : `${row.publications_count} publicaciones`}
-              </span>
+              <span className={row.publications_count > 1 ? styles.pubsPill : ''}>{pubsText}</span>
             </>
           ) : (
             <>
@@ -460,8 +459,13 @@ const NUMERIC = new Set([
   'sell_out',
   'total_gauss_sell',
   'markup_sell',
+  // Figures read right-aligned like the numbers beside them; only the sparklines sit centred.
+  'markup_delta',
+  'markup_range',
+  'ageing',
+  'stock',
 ]);
-const CENTERED = new Set(['units_trend', 'markup_delta', 'markup_trend', 'markup_range', 'ageing', 'stock']);
+const CENTERED = new Set(['units_trend', 'markup_trend']);
 
 function cellClass(colId, groupStart, groupEnd) {
   return [
@@ -487,6 +491,7 @@ export default function BoardTable({
   sortDesc,
   onSort,
   now,
+  dense = false,
 }) {
   const groups = COLUMN_GROUPS.map((group) => ({
     ...group,
@@ -575,7 +580,8 @@ export default function BoardTable({
   };
 
   return (
-    <table className={styles.table}>
+    // "Filas finas" (`dense`): the CSS thins every row; the cells and figures stay the same.
+    <table className={styles.table} data-density={dense ? 'dense' : 'normal'}>
       <thead>
         <tr className={styles.groupRow}>
           {groups.map((group) => (

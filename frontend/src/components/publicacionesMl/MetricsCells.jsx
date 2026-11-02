@@ -77,7 +77,7 @@ export function LastSaleCell({ metrics, now = new Date() }) {
   if (!metrics) return <Empty />;
   const { when, ago } = formatLastSale(metrics.last_sale_at, now);
   return (
-    <div className={styles.lastSale}>
+    <div className={styles.lastSale} title={ago}>
       <span className={styles.when}>{when}</span>
       <span className={styles.ago}>{ago}</span>
     </div>

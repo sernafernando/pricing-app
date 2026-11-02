@@ -414,3 +414,46 @@ describe('Métricas ML hideable KPI cards (visual)', () => {
     });
   }
 });
+
+describe('Métricas ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () => {
+  const KEY = 'metricas-ml.filas-finas';
+  beforeEach(() => {
+    localStorage.removeItem(KEY);
+    api.get.mockReset();
+    api.get.mockImplementation((url) => Promise.resolve(routeGet(url)));
+  });
+  // The browser's storage outlives the file: leave the normal density for the suites that run next.
+  afterEach(() => localStorage.removeItem(KEY));
+
+  for (const theme of THEMES) {
+    it(`1920x1080 ${theme}: thin rows, every cell on one line, nothing wraps or overflows`, async () => {
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      await screen.getByRole('button', { name: /Ver publicaciones de Impresora Multifunción Epson/ }).click();
+      await expect.element(screen.getByText('MLA2060835678')).toBeVisible();
+      const table = document.querySelector('table');
+      const rowHeights = () => [...table.querySelectorAll('tbody tr')].map((tr) => tr.getBoundingClientRect().height);
+      const normal = Math.max(...rowHeights());
+
+      await screen.getByRole('button', { name: 'Filas finas' }).click();
+      await expect.element(screen.getByRole('button', { name: 'Filas finas', pressed: true })).toBeVisible();
+      expect(table.dataset.density).toBe('dense');
+      // Every row, products and publications, one thin line.
+      const dense = rowHeights();
+      expect(Math.max(...dense)).toBeLessThan(normal * 0.6);
+      expect(Math.max(...dense)).toBeLessThanOrEqual(32);
+      await shot(`board-dense-1920-${theme}`, { width: 1920, height: 1080 });
+
+      // Nothing pokes out of its cell: the meta beside a title is cut inside its own box (with its tooltip), so
+      // the cell's scroll width, not every clipped child, is what must fit.
+      const spilling = [...table.querySelectorAll('tbody td')].filter((td) => td.scrollWidth > td.clientWidth + 1);
+      expect(spilling.map((td) => `${td.dataset.colId}: ${td.textContent.trim().slice(0, 40)}`)).toEqual([]);
+      expect(wrapped(table.querySelectorAll('[data-money]'))).toEqual([]);
+      expect(wrapped(table.querySelectorAll('td[data-col-id="last_sale"] > div'))).toEqual([]);
+      const titles = table.querySelectorAll('td[data-col-id="producto"] span[title], td[data-col-id="producto"] div[title]');
+      expect(titles.length).toBeGreaterThan(0);
+      for (const el of titles) expect(el.getClientRects().length, el.textContent).toBe(1);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1920);
+      screen.unmount();
+    });
+  }
+});

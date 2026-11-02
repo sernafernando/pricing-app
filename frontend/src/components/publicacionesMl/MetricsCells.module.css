@@ -99,3 +99,8 @@
   background: var(--tone-danger-bg);
   border-color: var(--tone-danger-border);
 }
+
+/* "Filas finas" (the page marks the table `data-density='dense'`): the date alone, "hace N días" in its tooltip. */
+:global([data-density='dense']) .ago {
+  display: none;
+}

@@ -34,3 +34,14 @@
   font-size: var(--font-sm);
   color: var(--cf-text-secondary);
 }
+
+/* "Filas finas" (the page marks the table `data-density='dense'`): a node's label on ONE line, whole in its tooltip. */
+:global([data-density='dense']) .nodeText {
+  gap: 0;
+}
+
+:global([data-density='dense']) .nodeLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

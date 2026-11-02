@@ -48,6 +48,8 @@
 }
 
 .leafRow th {
+  /* Tighter tracking than the group row: the column names set most widths, so they waste the least room. */
+  letter-spacing: 0.03em;
   font-size: 10px;
   color: var(--cf-text-secondary);
   background: var(--metricas-subhead-bg);
@@ -108,9 +110,9 @@
   position: sticky;
   left: 0;
   z-index: 2;
-  width: 400px;
-  min-width: 400px;
-  max-width: 400px;
+  width: 360px;
+  min-width: 360px;
+  max-width: 360px;
   box-shadow: inset -1px 0 0 var(--ventas-divider);
 }
 
@@ -122,9 +124,9 @@ thead .colProducto {
    narrower so the figures still get most of the card. */
 @media (min-width: 1600px) {
   .colProducto {
-    width: 470px;
-    min-width: 470px;
-    max-width: 470px;
+    width: 420px;
+    min-width: 420px;
+    max-width: 420px;
   }
 }
 
@@ -588,4 +590,96 @@ thead .colProducto {
   color: var(--tone-warning-fg);
   background: var(--tone-warning-bg);
   white-space: nowrap;
+}
+
+/* ── "Filas finas" (`data-density='dense'`) ─────────────────
+   Sheets-like rows: thin padding, a small thumbnail, each cell on ONE line
+   (titles cut with their tooltip), smaller sparklines. Sizes only: every
+   colour stays a theme token. */
+
+.table[data-density='dense'] th,
+.table[data-density='dense'] td {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  line-height: 1.25;
+}
+
+.table[data-density='dense'] .groupRow th {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.table[data-density='dense'] .product {
+  gap: 6px;
+}
+
+.table[data-density='dense'] .thumb {
+  width: 20px;
+  height: 20px;
+  padding: 1px;
+  border-radius: var(--radius-base);
+}
+
+.table[data-density='dense'] .thumb svg {
+  width: 12px;
+  height: 12px;
+}
+
+.table[data-density='dense'] .expand {
+  padding: 0;
+}
+
+/* Title and meta side by side: the meta gives way first, the title keeps most of the room. */
+.table[data-density='dense'] .productText,
+.table[data-density='dense'] .subProduct {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.table[data-density='dense'] .titleLine {
+  flex: 0 1 auto;
+}
+
+/* A publication's MLA line is short: it stays whole and its title takes what is left. */
+.table[data-density='dense'] .subLine {
+  flex: none;
+}
+
+.table[data-density='dense'] .meta,
+.table[data-density='dense'] .subTitle {
+  flex: 0 10 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.table[data-density='dense'] .subTitle {
+  padding-left: 0;
+}
+
+.table[data-density='dense'] .title {
+  font-size: 12px;
+}
+
+.table[data-density='dense'] .lastSale,
+.table[data-density='dense'] .gaussCell {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.table[data-density='dense'] .lastSale {
+  justify-content: flex-start;
+}
+
+.table[data-density='dense'] td svg[role='img'] {
+  width: auto;
+  height: 16px;
+}
+
+.table[data-density='dense'] .subRow td {
+  padding-top: 2px;
+  padding-bottom: 2px;
 }

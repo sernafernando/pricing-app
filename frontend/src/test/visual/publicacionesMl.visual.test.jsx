@@ -2444,3 +2444,45 @@ describe('Publicaciones ML hideable KPI cards (visual)', () => {
     });
   }
 });
+
+describe('Publicaciones ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () => {
+  const KEY = 'publicaciones-ml.filas-finas';
+  beforeEach(() => {
+    localStorage.removeItem(KEY);
+    canSeeMargin = false;
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
+  });
+  // The browser's storage outlives the file: leave the normal density for the suites that run next.
+  afterEach(() => localStorage.removeItem(KEY));
+
+  for (const theme of THEMES) {
+    it(`1920x1080 ${theme}: thin rows, titles on one line, nothing wraps or overflows`, async () => {
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      const scroller = scrollerOf();
+      const firstRow = () => scroller.querySelector('tbody tr');
+      const normalHeight = rect(firstRow()).height;
+
+      await screen.getByRole('button', { name: 'Filas finas' }).click();
+      await expect.element(screen.getByRole('button', { name: 'Filas finas', pressed: true })).toBeVisible();
+      await frame();
+      expect(scroller.closest('[data-density]').dataset.density).toBe('dense');
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-1920-${theme}.png` });
+      // Thinner than the current density, at most two short lines (title and its MLA line).
+      expect(rect(firstRow()).height).toBeLessThan(normalHeight * 0.75);
+      expect(rect(firstRow()).height).toBeLessThanOrEqual(44);
+
+      const titles = [...scroller.querySelectorAll('td[data-column="titulo"] span[title]')];
+      expect(titles.length).toBeGreaterThan(0);
+      expect(wrapped(titles)).toEqual([]);
+      const figures = [...scroller.querySelectorAll('td[data-align="right"] span')].filter((el) =>
+        /^[\d.,]+$/.test(el.textContent.trim()),
+      );
+      expect(figures.length).toBeGreaterThan(0);
+      expect(wrapped(figures)).toEqual([]);
+      expect(overflowingCells(scroller)).toEqual([]);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1920);
+      screen.unmount();
+    });
+  }
+});
