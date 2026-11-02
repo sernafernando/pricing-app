@@ -484,16 +484,22 @@ def crear_campana(
     return campana
 
 
-def _bloquear(db: Session, campana_id: int) -> Optional[SellOutCampana]:
+def bloquear(db: Session, campana_id: int) -> Optional[SellOutCampana]:
+    """The campaign locked until the transaction ends (`FOR UPDATE`). None when it does not exist;
+    `SellOutYaAnulada` when voided."""
     campana = db.query(SellOutCampana).filter(SellOutCampana.id == campana_id).with_for_update().first()
     if campana is not None and campana.estado == "anulada":
         raise SellOutYaAnulada(f"La campaña {campana_id} está anulada")
     return campana
 
 
-def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario_id: int) -> Optional[SellOutCampana]:
-    """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided."""
-    campana = _bloquear(db, campana_id)
+def editar_campana_sin_commit(
+    db: Session, campana_id: int, data: SellOutCampanaIn, usuario_id: int, es_masivo: bool = False
+) -> Optional[SellOutCampana]:
+    """The edit step of an active campaign, without committing: lock, validation, full replace of its fields,
+    groups and items, one audit row (`es_masivo` for the bulk edit, `edicion_masiva`) and queueing. Shared by the
+    single and the bulk edit. None when it does not exist; `SellOutYaAnulada` when voided."""
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     grupo_ids = validar(db, data, campana)
@@ -501,11 +507,30 @@ def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario
     compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
     _asignar(db, campana, data, grupo_ids)
     despues = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
-    _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues)
+    _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, masivo=es_masivo)
     _encolar(db, [campana_id, *compartian])
+    return campana
+
+
+def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario_id: int) -> Optional[SellOutCampana]:
+    """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided."""
+    campana = editar_campana_sin_commit(db, campana_id, data, usuario_id)
+    if campana is None:
+        return None
     db.commit()
     db.refresh(campana)
     return campana
+
+
+def entrada_guardada(db: Session, campana: SellOutCampana) -> SellOutCampanaIn:
+    """The campaign's stored values as an edit body: every field and its groups, in link order, read the way
+    `serializar` returns them. `items` is None, so the edit step keeps the stored amounts or shares exactly as they
+    are (re-sending one whose product has since left the groups' reach would be refused, `_asignar_items`)."""
+    fila = serializar(db, [campana])[0]
+    datos = {campo: fila[campo] for campo in _CAMPOS}
+    datos["monto_total"] = fila["monto_total"]
+    datos["grupo_ids"] = [g["id"] for g in fila["grupos"]]
+    return SellOutCampanaIn.model_validate(datos)
 
 
 def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optional[str], masivo: bool = False) -> None:
@@ -519,7 +544,7 @@ def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optio
 
 def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellOutCampana]:
     """Void a campaign. None when it does not exist; `SellOutYaAnulada` on a second call."""
-    campana = _bloquear(db, campana_id)
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     _anular(db, campana, usuario_id, motivo)
@@ -561,7 +586,7 @@ def anular_campanas(
     for campana_id in (cid for cid in ids if cid in existen):
         nombre = None
         try:
-            campana = _bloquear(db, campana_id)
+            campana = bloquear(db, campana_id)
             nombre = campana.nombre  # read before a refused queueing rolls the session back
             _anular(db, campana, usuario_id, motivo, masivo=True)
         except SellOutYaAnulada:
@@ -599,7 +624,7 @@ def definir_tipo_cambio(
 
     None when it does not exist; `SellOutYaAnulada` when voided. Every change is audited and queued.
     """
-    campana = _bloquear(db, campana_id)
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     if campana.tc_modo != "al_cobro":
@@ -663,7 +688,7 @@ def repartir(
     so `repartos` replace only theirs. The resulting split is checked as a whole (`_validar_suma`), audited (before
     and after) and queued for `sell_out.drain`.
     """
-    campana = _bloquear(db, campana_id)
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     if campana.tipo != "monto_total":

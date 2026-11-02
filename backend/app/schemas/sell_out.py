@@ -154,6 +154,36 @@ class SellOutAnularMasivoOut(BaseModel):
     omitidas: list[int]  # already voided: skipped, not an error
 
 
+class SellOutEditarMasivoIn(BaseModel):
+    """`POST /editar-masivo[/previa]`: the campaigns and the fields to set on all of them; an absent or null field
+    is not filled and keeps each campaign's stored value. An empty or too large selection, or no field filled, is
+    refused by the router with a readable message."""
+
+    campana_ids: list[int]
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None  # inclusive
+    acumulable: Optional[bool] = None
+
+    def cambios(self) -> dict:
+        """The filled fields only (`edicion_masiva.CAMPOS`)."""
+        return {
+            campo: valor
+            for campo in ("fecha_desde", "fecha_hasta", "acumulable")
+            if (valor := getattr(self, campo)) is not None
+        }
+
+
+class SellOutEditarMasivoOut(BaseModel):
+    editadas: list[int]
+    sin_cambio: list[int]  # already had the values: no audit row, not queued
+
+
+class SellOutEdicionRechazadaOut(BaseModel):
+    id: int
+    nombre: Optional[str]  # None for an unknown id
+    motivo: str
+
+
 class SellOutTipoCambioIn(BaseModel):
     tipo_cambio: Decimal = Field(**TIPO_CAMBIO)  # ARS per USD, the rate the brand paid at
 
