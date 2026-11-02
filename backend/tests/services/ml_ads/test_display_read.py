@@ -4,6 +4,7 @@ computed here (ML's own `ctr` is 0.0 even with clicks)."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -91,3 +92,16 @@ class TestDisplayReport:
         assert report.daily == []
         assert report.totals.cost == Decimal(0) and report.totals.roas is None
         assert all(c.cost == 0 for c in report.campaigns) and len(report.campaigns) == 7
+
+    def test_a_day_without_attribution_adds_zero_sales(self, db) -> None:
+        # DERIVED: the captured 335306 day with its `event_time` block removed.
+        fact = next(f for f in display_facts() if f.campaign_id == 335306)
+        raw = {k: v for k, v in fact.raw.items() if k != "event_time"}
+        store.upsert_display_days(db, [replace(fact, raw=raw)], now=NOW)
+        row = _campaign(read.display_report(db, DAY, DAY), 335306)
+        assert (row.cost, row.attributed_amount, row.attributed_units, row.roas) == (
+            Decimal("27226.79"),
+            Decimal(0),
+            0,
+            Decimal(0),
+        )

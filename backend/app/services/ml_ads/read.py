@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Literal, Mapping, Optional, Sequence
 
-from sqlalchemy import Numeric, func, select
+from sqlalchemy import BigInteger, Numeric, func, select
 from sqlalchemy.orm import Session
 
 from app.models.ml_ads import (
@@ -314,14 +314,16 @@ class DisplayFigures:
 
 @dataclass(frozen=True)
 class DisplayCampaignReport(DisplayFigures):
-    advertiser_id: int = 0
-    campaign_id: int = 0
-    name: Optional[str] = None
-    type: Optional[str] = None
-    goal: Optional[str] = None
-    status: Optional[str] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
+    """One campaign: its catalog (None when the catalog never listed it) over its summed figures."""
+
+    advertiser_id: int
+    campaign_id: int
+    name: Optional[str]
+    type: Optional[str]
+    goal: Optional[str]
+    status: Optional[str]
+    start_date: Optional[date]
+    end_date: Optional[date]
 
 
 @dataclass(frozen=True)
@@ -363,8 +365,8 @@ def display_report(db: Session, date_from: date, date_to: date) -> DisplayReport
                 func.sum(D.prints),
                 func.sum(D.clicks),
                 func.sum(D.reach),
-                func.sum(event_time["direct_amount"].astext.cast(Numeric(16, 2))),
-                func.sum(event_time["units_quantity"].astext.cast(Numeric)),
+                func.sum(event_time["direct_amount"].astext.cast(Numeric(18, 2))),
+                func.sum(event_time["units_quantity"].astext.cast(BigInteger)),
             )
             .where(in_range)
             .group_by(D.advertiser_id, D.campaign_id)
