@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from app.services.publicacion_repair import sku as sku_mod
+
+
+def _fresh() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 @pytest.fixture
@@ -46,9 +51,9 @@ def test_run_sku_repair_fixes_drift_only(monkeypatch: pytest.MonkeyPatch, patche
         sku_mod,
         "_load_work_items",
         lambda db: [
-            ("MLA_OK", 1, "111", "111", "active"),
-            ("MLA_DRIFT", 2, None, "840006603337", "active"),
-            ("MLA_CLOSED", 3, "old", "222", "closed"),
+            ("MLA_OK", 1, "111", "111", "active", _fresh()),
+            ("MLA_DRIFT", 2, None, "840006603337", "active", _fresh()),
+            ("MLA_CLOSED", 3, "old", "222", "closed", _fresh()),
         ],
     )
 
@@ -104,7 +109,7 @@ def test_run_sku_repair_ml_reject_is_skipped(monkeypatch: pytest.MonkeyPatch, pa
     monkeypatch.setattr(
         sku_mod,
         "_load_work_items",
-        lambda db: [("MLA_X", 1, "old", "999", "active")],
+        lambda db: [("MLA_X", 1, "old", "999", "active", _fresh())],
     )
 
     class FakeClient:
@@ -119,3 +124,21 @@ def test_run_sku_repair_ml_reject_is_skipped(monkeypatch: pytest.MonkeyPatch, pa
     stats = asyncio.run(sku_mod.run_sku_repair(client=FakeClient(), pacing_seconds=0))
     assert stats["skipped"] == 1
     assert events[0]["action"] == "skipped"
+
+
+def test_run_sku_repair_skips_stale(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    _finish, events, *_ = patched_audit
+    old = datetime.now(timezone.utc) - timedelta(days=30)
+    monkeypatch.setattr(
+        sku_mod,
+        "_load_work_items",
+        lambda db: [("MLA_OLD", 1, "old", "999", "active", old)],
+    )
+
+    class Boom:
+        async def put_item_data(self, *a, **k):
+            raise AssertionError("must not write stale")
+
+    stats = asyncio.run(sku_mod.run_sku_repair(client=Boom(), pacing_seconds=0))
+    assert stats["skipped"] == 1
+    assert events[0]["detail"] == "stale_ml_item"

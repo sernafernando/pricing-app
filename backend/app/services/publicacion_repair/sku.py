@@ -26,7 +26,7 @@ from app.models.publicacion_repair import (
 from app.models.ml_write_log import ACTION_UPDATE_DATA
 from app.services.ml_webhook_client import MLWebhookClient
 from app.services.publicacion_repair import audit as repair_audit
-from app.services.publicacion_repair.envio import MODIFIABLE_STATUSES
+from app.services.publicacion_repair.envio import MODIFIABLE_STATUSES, is_ml_item_stale
 
 logger = logging.getLogger(__name__)
 
@@ -66,21 +66,29 @@ def _classify_data_write(result: dict[str, Any]) -> tuple[str, Optional[str]]:
     return ACTION_ERROR, str(detail)[:300]
 
 
-def _load_work_items(db: Session) -> list[tuple[str, Optional[int], Optional[str], str, Optional[str]]]:
-    """Return (mla, item_id, ml_seller_sku, erp_codigo, status) for linked active pubs."""
+def _load_work_items(
+    db: Session,
+) -> list[tuple[str, Optional[int], Optional[str], str, Optional[str], Any]]:
+    """Return (mla, item_id, ml_seller_sku, erp_codigo, status, fetched_at) for linked pubs."""
     rows = (
-        db.query(PublicacionML, ProductoERP.codigo, MlItem.seller_sku, MlItem.status)
+        db.query(
+            PublicacionML,
+            ProductoERP.codigo,
+            MlItem.seller_sku,
+            MlItem.status,
+            MlItem.fetched_at,
+        )
         .join(ProductoERP, ProductoERP.item_id == PublicacionML.item_id)
         .join(MlItem, MlItem.item_id == PublicacionML.mla)
         .filter(PublicacionML.activo.is_(True))
         .filter(MlItem.gone_at.is_(None))
         .all()
     )
-    out: list[tuple[str, Optional[int], Optional[str], str, Optional[str]]] = []
-    for pub, codigo, seller_sku, status in rows:
+    out: list[tuple[str, Optional[int], Optional[str], str, Optional[str], Any]] = []
+    for pub, codigo, seller_sku, status, fetched_at in rows:
         normalized = normalize_sku(codigo)
         if pub.mla and normalized:
-            out.append((pub.mla, pub.item_id, seller_sku, normalized, status))
+            out.append((pub.mla, pub.item_id, seller_sku, normalized, status, fetched_at))
     return out
 
 
@@ -130,8 +138,13 @@ async def run_sku_repair(
             work = _load_work_items(read_db)
         scanned = len(work)
 
-        for mla, item_id, seller_sku, erp_codigo, status in work:
-            before = {"seller_sku": seller_sku, "erp_codigo": erp_codigo, "status": status}
+        for mla, item_id, seller_sku, erp_codigo, status, fetched_at in work:
+            before = {
+                "seller_sku": seller_sku,
+                "erp_codigo": erp_codigo,
+                "status": status,
+                "fetched_at": fetched_at.isoformat() if hasattr(fetched_at, "isoformat") else fetched_at,
+            }
             if status is not None and status not in MODIFIABLE_STATUSES:
                 skipped += 1
                 repair_audit.record_event_bg(
@@ -141,6 +154,17 @@ async def run_sku_repair(
                     action=ACTION_SKIPPED,
                     before=before,
                     detail="status_not_modifiable",
+                )
+                continue
+            if is_ml_item_stale(fetched_at):
+                skipped += 1
+                repair_audit.record_event_bg(
+                    run_id=run_id,
+                    mla_id=mla,
+                    item_id=item_id,
+                    action=ACTION_SKIPPED,
+                    before=before,
+                    detail="stale_ml_item",
                 )
                 continue
             if sku_matches_erp(seller_sku, erp_codigo):
