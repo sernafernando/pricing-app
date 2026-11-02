@@ -53,6 +53,33 @@ class PublicationColorResponse(BaseModel):
     color: Optional[str]
 
 
+def write_publication_colors(
+    db: Session, equipo_id: int, item_ids: list[str], color: Optional[str], user_id: int
+) -> None:
+    """Paints `item_ids` with `color` in `equipo_id`'s layer, or with `None` deletes their own rows there. The caller
+    commits. One upsert, so two painters of the same new MLA never collide on the unique key; the rows go in MLA
+    order, so two overlapping batches lock them in the same order and never deadlock."""
+    mine = PublicacionColor.equipo_id == equipo_id
+    if color is None:
+        db.query(PublicacionColor).filter(mine, PublicacionColor.item_id.in_(item_ids)).delete(
+            synchronize_session=False
+        )
+        return
+    dialect = postgresql if db.get_bind().dialect.name == "postgresql" else sqlite
+    rows = [
+        {"equipo_id": equipo_id, "item_id": item_id, "color_ml": color, "updated_by": user_id}
+        for item_id in sorted(item_ids)
+    ]
+    db.execute(
+        dialect.insert(PublicacionColor)
+        .values(rows)
+        .on_conflict_do_update(
+            index_elements=["equipo_id", "item_id"],
+            set_={"color_ml": color, "updated_by": user_id, "updated_at": func.now()},
+        )
+    )
+
+
 @router.put("/colors", response_model=PublicationColorResponse)
 def put_publication_colors(
     body: PublicationColorRequest,
@@ -65,32 +92,13 @@ def put_publication_colors(
     `productos.marcar_color_lote` for more than one MLA. Publishes `publicacion_color:changed`."""
     global_id = get_global_equipo_id(db)
     equipo_id = body.equipo_id if body.equipo_id is not None else global_id
-    item_ids = list(dict.fromkeys(body.item_ids))
+    item_ids = sorted(set(body.item_ids))
     if len(item_ids) > 1:
         _puede_escribir_layer_lote(db, current_user, equipo_id)
     else:
         puede_escribir_layer(db, current_user, equipo_id)
 
-    mine = PublicacionColor.equipo_id == equipo_id
-    if body.color is None:
-        db.query(PublicacionColor).filter(mine, PublicacionColor.item_id.in_(item_ids)).delete(
-            synchronize_session=False
-        )
-    else:
-        # One upsert: two painters of the same new MLA never collide on the unique key.
-        dialect = postgresql if db.get_bind().dialect.name == "postgresql" else sqlite
-        rows = [
-            {"equipo_id": equipo_id, "item_id": item_id, "color_ml": body.color, "updated_by": current_user.id}
-            for item_id in item_ids
-        ]
-        db.execute(
-            dialect.insert(PublicacionColor)
-            .values(rows)
-            .on_conflict_do_update(
-                index_elements=["equipo_id", "item_id"],
-                set_={"color_ml": body.color, "updated_by": current_user.id, "updated_at": func.now()},
-            )
-        )
+    write_publication_colors(db, equipo_id, item_ids, body.color, current_user.id)
     db.commit()
 
     sse_publish_bg(

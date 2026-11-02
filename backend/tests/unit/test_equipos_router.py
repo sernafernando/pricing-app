@@ -346,6 +346,7 @@ class TestRenombrarYEliminar:
 
         resp = client.delete(f"/api/equipos/{equipo.id}", headers=auth_headers_for(admin))
         assert resp.status_code == 400
+        assert "publicaciones" in resp.text  # says where the blocking colors may be
         assert db.query(Equipo).filter(Equipo.id == equipo.id).first() is not None
 
 

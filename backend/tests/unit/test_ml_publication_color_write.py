@@ -151,3 +151,9 @@ def test_an_invalid_request_is_422_and_writes_nothing(client, db, team, body) ->
     equipo, headers, _ = team
     assert put(client, headers, equipo_id=equipo.id, **body).status_code == 422
     assert db.query(PublicacionColor).count() == 0
+
+
+def test_the_change_event_is_an_allowed_sse_channel() -> None:
+    from app.routers.sse import VALID_CHANNELS
+
+    assert "publicacion_color:changed" in VALID_CHANNELS

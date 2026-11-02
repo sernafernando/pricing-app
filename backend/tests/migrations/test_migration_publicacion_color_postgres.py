@@ -110,3 +110,22 @@ def test_it_restores_the_lock_timeout_the_transaction_had(before, step) -> None:
             conn.exec_driver_sql("SET LOCAL lock_timeout = '17s'")
             getattr(_module(), step)()
             assert conn.exec_driver_sql("SHOW lock_timeout").scalar() == "17s"
+
+
+@pytest.mark.postgres
+def test_the_endpoints_upsert_runs_on_postgres_and_repaints_in_place(after) -> None:
+    # The endpoint's own writer on the real dialect (its unit tests run on SQLite): ON CONFLICT on the unique key.
+    from sqlalchemy.orm import Session
+
+    from app.routers.ml_publication_color import write_publication_colors
+
+    with Session(after) as db:
+        write_publication_colors(db, 1, ["MLA2", "MLA1"], "rojo", 7)
+        write_publication_colors(db, 1, ["MLA1"], "azul", 7)
+        write_publication_colors(db, 2, ["MLA1"], "gris", 7)
+        db.commit()
+        write_publication_colors(db, 1, ["MLA2"], None, 7)
+        db.commit()
+    with after.connect() as conn:
+        rows = conn.execute(text("SELECT equipo_id, item_id, color_ml FROM publicacion_color ORDER BY 1, 2")).all()
+    assert [tuple(row) for row in rows] == [(1, "MLA1", "azul"), (2, "MLA1", "gris")]

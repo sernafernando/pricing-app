@@ -380,7 +380,7 @@ def eliminar_equipo(
     if tiene_colores:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El equipo tiene colores marcados; elimínalos antes de borrar el equipo",
+            detail="El equipo tiene colores marcados en productos o publicaciones; elimínalos antes de borrar el equipo",
         )
 
     db.query(EquipoMiembro).filter(EquipoMiembro.equipo_id == equipo_id).delete()
