@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import styles from './productSelection.module.css';
+import styles from './rowSelection.module.css';
 
 /**
  * Row selection of Publicaciones ML. A publication's checkbox checks that publication only, not the other

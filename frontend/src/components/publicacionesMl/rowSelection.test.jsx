@@ -5,8 +5,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { RowCheckbox } from './ProductCheckbox';
-import { withRowSelection } from './productSelection';
+import { RowCheckbox } from './RowCheckbox';
+import { withRowSelection } from './rowSelection';
 import { buildColumns } from './columns';
 
 describe('RowCheckbox', () => {

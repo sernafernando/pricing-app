@@ -1,4 +1,4 @@
-import { PageCheckbox, SelectionCheckbox } from './ProductCheckbox';
+import { PageCheckbox, SelectionCheckbox } from './RowCheckbox';
 import { selectionRow } from './useRowSelection';
 
 /**

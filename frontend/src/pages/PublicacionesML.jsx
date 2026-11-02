@@ -41,7 +41,7 @@ import useRecalcularCuotasAuto from '../components/publicacionesMl/useRecalcular
 import usePublicacionesMLKeyboard from '../components/publicacionesMl/usePublicacionesMLKeyboard';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
-import { withRowSelection } from '../components/publicacionesMl/productSelection';
+import { withRowSelection } from '../components/publicacionesMl/rowSelection';
 import useRowSelection, { selectionRow } from '../components/publicacionesMl/useRowSelection';
 import useProductRows from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';

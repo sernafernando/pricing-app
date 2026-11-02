@@ -4,7 +4,7 @@ import { PRODUCT_FIGURES } from './productFigures';
 import VariationRows from './VariationRows';
 import { treeRowTone } from './rowColor';
 import { BranchState, NodeCount, NodeTitle } from './NodeCells';
-import { SelectionCheckbox } from './ProductCheckbox';
+import { SelectionCheckbox } from './RowCheckbox';
 import { selectionRow } from './useRowSelection';
 import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
 import PrearmadaBadge from '../PrearmadaBadge';

@@ -88,15 +88,15 @@ export default function useRowSelection(order) {
   }, [page, checked]);
 
   // The checked rows as they are now: the page's entry for a row on show, the last one seen for the rest.
-  const current = useMemo(() => {
+  const resolved = useMemo(() => {
     const shown = new Map(page.map((row) => [row.key, row]));
     return [...checked.entries()].map(([key, row]) => shown.get(key) ?? row);
   }, [page, checked]);
   const productIds = useMemo(
-    () => new Set(current.map((row) => row.productId).filter((id) => id !== null && id !== undefined)),
-    [current],
+    () => new Set(resolved.map((row) => row.productId).filter((id) => id !== null && id !== undefined)),
+    [resolved],
   );
-  const itemIds = useMemo(() => current.map((row) => row.itemId).filter(Boolean), [current]);
+  const itemIds = useMemo(() => resolved.map((row) => row.itemId).filter(Boolean), [resolved]);
 
   const togglePage = useCallback(() => {
     const rows = pageRef.current;
