@@ -5,7 +5,7 @@
  * endpoint), the flat list for "Sin producto", each one of its publications opening its own panel.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProductPanel from './ProductPanel';
 import useProductPanel from './panel/useProductPanel';
@@ -177,21 +177,56 @@ describe('ProductPanel', () => {
     const region = figures();
     expect(region).toBeInTheDocument();
     expect(within(region).getByText('Con los filtros actuales')).toBeInTheDocument();
-    expect(within(region).getByText('Ventas 30D')).toBeInTheDocument();
-    expect(within(region).getByText('12.345')).toBeInTheDocument();
-    expect(within(region).getByText('Facturado 30D')).toBeInTheDocument();
-    expect(within(region).getByText('Markup real 30D')).toBeInTheDocument();
+    expect(within(region).getByText('Ventas 7D')).toBeInTheDocument();
     expect(within(region).getByText('Total Gauss 30D')).toBeInTheDocument();
   });
 
   it('hides the margin figures without the margin permission', () => {
     renderPanel({ canSeeMargin: false });
     const region = figures();
-    expect(within(region).getByText('Facturado 30D')).toBeInTheDocument();
-    expect(within(region).queryByText('Markup real 30D')).not.toBeInTheDocument();
+    expect(within(region).getByText('Ventas 7D')).toBeInTheDocument();
     expect(within(region).queryByText('Tendencia de markup')).not.toBeInTheDocument();
     expect(within(region).queryByText('Total Gauss 30D')).not.toBeInTheDocument();
     expect(screen.queryByText('12,5%')).not.toBeInTheDocument();
+  });
+
+  describe('header figures (S1)', () => {
+    const header = () => screen.queryByRole('region', { name: 'Cifras del producto' });
+    const labels = () => [...header().querySelectorAll('dt')].map((dt) => dt.textContent);
+    const figure = (name) => [...header().querySelectorAll('dt')].find((dt) => dt.textContent === name).nextElementSibling;
+
+    it('keeps stock, 30-day sales and the real markup in the header, with the current filters', () => {
+      renderPanel();
+      expect(labels()).toEqual(['Stock', 'Ventas 30 días', 'Markup 30 días']);
+      expect(figure('Stock')).toHaveTextContent('12');
+      expect(figure('Ventas 30 días')).toHaveTextContent('12.345');
+      expect(figure('Ventas 30 días')).toHaveTextContent('Facturado');
+      expect(figure('Markup 30 días')).toHaveTextContent('18,4%');
+      expect(within(header()).getByText('Con los filtros actuales')).toBeInTheDocument();
+    });
+
+    it('Cifras does not repeat them', () => {
+      renderPanel();
+      for (const name of ['Ventas 30D', 'Facturado 30D', 'Markup real 30D']) {
+        expect(within(figures()).queryByText(name)).not.toBeInTheDocument();
+      }
+    });
+
+    it('shows no markup without ver_ganancia and no sales without ml_metricas.ver', () => {
+      renderPanel({ canSeeMargin: false });
+      expect(labels()).toEqual(['Stock', 'Ventas 30 días']);
+      cleanup();
+      renderPanel({ canSeeSales: false, canSeeMargin: false });
+      expect(labels()).toEqual(['Stock']);
+      expect(within(header()).queryByText('Con los filtros actuales')).not.toBeInTheDocument();
+    });
+
+    it('stays in the header on Precios too', () => {
+      granted = new Set(['productos.ver']);
+      renderPanel();
+      expect(screen.getByRole('tab', { name: 'Precios', selected: true })).toBeInTheDocument();
+      expect(header()).toBeInTheDocument();
+    });
   });
 
   it('has no figures without the metrics permission', () => {

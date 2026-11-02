@@ -1508,7 +1508,9 @@ const renderWithPanel = async ({ width, height, theme, margin = false, tab = 're
     data: margin ? { ...MARGIN_RESPONSE, items: [{ ...base, markup: MARGIN_ITEMS[1].markup }, ...MANY.slice(1)] } : { ...RESPONSE, items: [base, ...MANY.slice(1)] },
   });
   const detail = linked ? (margin ? DETAIL_LINKED_MARGIN : DETAIL_LINKED) : margin ? DETAIL_RESPONSE_MARGIN : DETAIL_RESPONSE;
-  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...detail, ...detailExtra, row: base } });
+  // The detail's row carries the same figures as the list row (with ver_ganancia, its markup).
+  const row = margin ? { ...base, markup: MARGIN_ITEMS[1].markup } : base;
+  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...detail, ...detailExtra, row } });
   publicacionesMlAPI.events.mockResolvedValue({ data: EVENTS_RESPONSE });
   publicacionesMlAPI.history.mockImplementation((itemId, params) =>
     Promise.resolve({ data: params?.tecnicos ? HISTORY_TECNICOS_RESPONSE : HISTORY_RESPONSE }),
@@ -1630,6 +1632,33 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         const values = [...panelOf().querySelectorAll('dd')].filter((el) => /^[\d.,/: ]+(ARS|%)?$/.test(el.textContent.trim()));
         expect(values.length).toBeGreaterThan(4);
         expect(wrapped(values)).toEqual([]);
+        screen.unmount();
+      });
+    }
+  }
+
+  for (const { width, height } of PANEL_VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the header keeps the price over its markup, and stays while Resumen scrolls (S1)`, async () => {
+        const screen = await renderWithPanel({ width, height, theme, margin: true, linked: true });
+        await expect.element(screen.getByRole('region', { name: 'Cifras de la publicación' }).getByTitle('Markup')).toBeVisible();
+        const panel = panelOf();
+        const strip = panel.querySelector('section[aria-label="Cifras de la publicación"]');
+        const price = strip.querySelector('[title="Precio"]');
+        const markup = strip.querySelector('[title="Markup"]');
+        // One block: the markup right under the price, both inside the panel.
+        expect(rect(markup).top).toBeGreaterThanOrEqual(rect(price).bottom - 0.5);
+        expect(Math.abs(rect(markup).left - rect(price).left)).toBeLessThan(1);
+        expect(getComputedStyle(markup).color).not.toBe(getComputedStyle(price).color);
+        for (const el of [price, markup]) expect(rect(el).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-resumen-${width}-${theme}.png`, element: panel });
+        // The header stays at the top of the panel while the body scrolls under it.
+        const header = panel.querySelector('header');
+        const top = rect(header).top;
+        panel.scrollTo({ top: panel.scrollHeight });
+        await frame();
+        expect(Math.abs(rect(header).top - top)).toBeLessThan(1);
+        expect(rect(price).top).toBeGreaterThanOrEqual(rect(panel).top - 0.5);
         screen.unmount();
       });
     }
