@@ -1458,8 +1458,10 @@ describe('the product panel', () => {
     expect(productPanel()).not.toBeInTheDocument();
     await user.click(within(detail).getByRole('button', { name: 'Volver a Router Archer AX55' }));
 
-    expect(await screen.findByRole('complementary', { name: 'Detalle del producto' })).toBeInTheDocument();
+    const back = await screen.findByRole('complementary', { name: 'Detalle del producto' });
     expect(publicationPanel()).not.toBeInTheDocument();
+    // Back where the operator was: Resumen, to open the next publication without another click.
+    expect(await within(back).findByRole('tab', { name: 'Resumen' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it("with a color filter on another team's layer, the panel asks its product on the list's own layer", async () => {

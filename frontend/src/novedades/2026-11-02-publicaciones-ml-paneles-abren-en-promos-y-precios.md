@@ -10,7 +10,7 @@ En **Publicaciones ML**, el panel de una publicación ahora abre directo en **Pr
 
 1. Abrir **Reportes → Publicaciones ML**.
 2. Hacer clic en una publicación: el panel abre en **Promos**. Las pestañas quedan en este orden: Promos, Precios, Resumen, Datos, Variaciones, Full, Eventos, Historial y Producto.
-3. En la vista **Producto**, hacer clic en un producto: el panel abre en **Precios**, seguido de Resumen y Cambios.
+3. En la vista **Producto**, hacer clic en un producto: el panel abre en **Precios**, seguido de Resumen y Cambios. Al abrir una publicación desde **Resumen** y tocar **Volver**, el panel del producto vuelve a **Resumen**.
 
 ## Para tener en cuenta
 

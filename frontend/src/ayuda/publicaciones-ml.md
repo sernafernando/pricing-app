@@ -33,7 +33,8 @@ Columnas: configurables con el selector de columnas (incluye código, descripci�
 - Editar precios en línea (✓ guarda, ✗ cancela).
 - Asignar color a un producto o a varios seleccionados.
 - Acciones masivas (si tenés permiso).
-- Clic en una fila: abre el panel lateral de detalle. El panel de una publicación abre en **Promos**; sin permiso para ver promociones, en **Precios**, y si tampoco hay precios para mostrar, en **Resumen**. El panel de un producto abre en **Precios**, o en **Resumen** si no hay precios para mostrar.
+- Clic en una fila: abre el panel lateral de detalle. El panel de una publicación abre en **Promos**; sin permiso para ver promociones, en **Precios**, y si tampoco hay precios para mostrar, en **Resumen**. El panel de un producto abre en **Precios**, o en **Resumen** si no hay precios para mostrar; al volver desde una de sus publicaciones queda en la pestaña donde estaba.
+- Pestaña **Promos**: para no saturar la conexión con Mercado Libre, consulta a Mercado Libre por las promociones de una publicación como máximo una vez cada 5 minutos; mientras tanto muestra lo último que se trajo. Si una consulta falla, se vuelve a intentar la próxima vez que se abre, y después de aplicar o quitar una promoción también se vuelve a consultar.
 - **Ctrl + clic**: abre la publicación en Mercado Libre.
 
 ## Preguntas frecuentes

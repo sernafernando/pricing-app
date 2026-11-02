@@ -553,6 +553,8 @@ export default function PublicacionesML() {
   const selectProduct = (key) => setFilters({ prod: key, sel: '', tab: '' });
   const selectProductItem = (itemId) => setFilters({ sel: itemId, tab: '' });
   const backToProduct = () => setFilters({ sel: '', tab: '' });
+  // The product panel's open tab outlives the panel: it unmounts while one of its publications is open.
+  const [productTab, setProductTab] = useState(null);
   const backLabel = filters.prod
     ? productRows.rows.find((row) => row.type === 'node' && row.node.key === filters.prod)?.node.label
     : undefined;
@@ -1006,6 +1008,8 @@ export default function PublicacionesML() {
                   canSeeMargin={canSeeMargin}
                   onListReload={reloadList}
                   priceGroup={canSeePrices ? priceGroup : null}
+                  tabState={productTab}
+                  onTabStateChange={setProductTab}
                 />
               ) : null
             }
