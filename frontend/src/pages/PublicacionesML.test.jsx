@@ -43,7 +43,7 @@ vi.mock('../services/api', () => ({
   // The publication panel opens on Promos (owner, 2026-11-02): its promotions never answer here, these tests are
   // about the panel's opening and closing.
   promocionesAPI: { getPromocionesItem: vi.fn(() => new Promise(() => {})), refreshItemPromociones: vi.fn(() => new Promise(() => {})) },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn() },
   productosAPI: {
     // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
     getProductoTree: vi.fn(() =>
@@ -1680,6 +1680,22 @@ describe('bulk actions over products (S6)', () => {
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 2 publicaciones marcadas)' })).toBeEnabled();
   });
 
+  it('pausing with one publication checked sends that publication only, not the other one of its product (S2)', async () => {
+    SAME_PRODUCT();
+    publicacionesMlAPI.statusItemIdsChecked.mockResolvedValue({ data: { item_ids: ['MLA1100000001'], count: 1, no_aplican: 0 } });
+    publicacionesMlAPI.statusBulk.mockResolvedValue({ data: { results: [{ item_id: 'MLA1100000001', status: 'submitted', message: null }] } });
+    await page();
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000001'));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    await user.click(await screen.findByRole('button', { name: 'Confirmar' }));
+    await waitFor(() => expect(publicacionesMlAPI.statusBulk).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusItemIdsChecked).toHaveBeenCalledWith({ target: 'paused', item_ids: ['MLA1100000001'], producto_ids: [] });
+    expect(publicacionesMlAPI.statusItemIds).not.toHaveBeenCalled();
+    expect(publicacionesMlAPI.statusBulk.mock.calls).toEqual([[{ status: 'paused', item_ids: ['MLA1100000001'] }]]);
+  });
+
   it('a publication with no product can be checked; the price actions say it has none and can clear it', async () => {
     SAME_PRODUCT();
     await page();
@@ -1783,6 +1799,18 @@ describe('bulk actions over products (S6)', () => {
     await userEvent.click(pickProduct('Router Archer AX55'));
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeEnabled();
     expect(pickProduct('Sin producto')).toBeDisabled();
+  });
+
+  it('in the Producto view pausing a checked product row sends its product, no publication of it (S2, S4)', async () => {
+    const user = userEvent.setup();
+    await productView();
+    await user.click(pickProduct('Router Archer AX55'));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar las de 1 fila marcada' }));
+    await screen.findByRole('region', { name: 'Pausar o activar publicaciones' });
+    const [body] = publicacionesMlAPI.statusItemIdsChecked.mock.calls.at(-1);
+    expect(body.item_ids).toEqual([]);
+    expect(body.producto_ids).toHaveLength(1);
   });
 
   it('in the Producto view a publication inside an expanded product checks only itself (S4)', async () => {

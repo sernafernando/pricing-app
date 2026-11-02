@@ -51,11 +51,11 @@ import time
 from dataclasses import dataclass, replace
 from functools import partial
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Literal, NamedTuple, Optional, Sequence
+from typing import Annotated, Any, Callable, Literal, NamedTuple, Optional, Sequence
 
 from fastapi import APIRouter, Depends, Path, Query, Response, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -1639,6 +1639,18 @@ class StatusItemIdsResponse(BaseModel):
 STATUS_ITEM_IDS_OVER_CAP = "demasiadas_publicaciones"
 
 
+def _over_cap(exc: "status_targets.TooManyPublications", what: str, hint: str) -> Exception:
+    """The 422 of a bulk pause / activate set over its cap, naming the count: never a truncated list."""
+    error = api_error(
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        STATUS_ITEM_IDS_OVER_CAP,
+        f"{what} {exc.count} publicaciones; una acción masiva admite hasta {exc.cap}. {hint}",
+    )
+    error.detail["count"] = exc.count
+    error.detail["max"] = exc.cap
+    return error
+
+
 @router.get("/status-item-ids", response_model=StatusItemIdsResponse)
 def get_status_item_ids(
     target: Literal["paused", "active"] = Query(..., description="the status the bulk action asks for"),
@@ -1667,20 +1679,58 @@ def get_status_item_ids(
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except status_targets.TooManyPublications as exc:
-        error = api_error(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            STATUS_ITEM_IDS_OVER_CAP,
-            f"El filtro selecciona {exc.count} publicaciones; una acción masiva admite hasta {exc.cap}. Acotá el filtro.",
-        )
-        error.detail["count"] = exc.count
-        error.detail["max"] = exc.cap
-        raise error from exc
+        raise _over_cap(exc, "El filtro selecciona", "Acotá el filtro.") from exc
     except DBAPIError as exc:
         if (slow := _database_error(exc)) is not None:
             raise slow from exc
         raise
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    return {"item_ids": found.item_ids, "count": len(found.item_ids), "no_aplican": found.no_aplican}
+
+
+CheckedItemId = Annotated[str, StringConstraints(pattern=admin.ITEM_ID_PATTERN)]
+
+
+class CheckedStatusItemIdsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # no filter takes part: a stray filter field is refused, not ignored
+
+    target: Literal["paused", "active"]
+    # Only a ceiling against abusive payloads (a "Todos" page shows up to `listing.MAX_LIMIT` rows): the bulk cap
+    # counts the publications that can take the status, so going over it is `_over_cap`'s 422 naming the count.
+    item_ids: list[CheckedItemId] = Field(default_factory=list, max_length=listing.MAX_LIMIT)
+    producto_ids: list[int] = Field(default_factory=list, max_length=listing.MAX_LIMIT)
+
+    @model_validator(mode="after")
+    def _something_checked(self) -> "CheckedStatusItemIdsRequest":
+        if not self.item_ids and not self.producto_ids:
+            raise ValueError("check at least one publication or product")
+        return self
+
+
+@router.post("/status-item-ids/checked", response_model=StatusItemIdsResponse)
+def post_checked_status_item_ids(
+    body: CheckedStatusItemIdsRequest,
+    _user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
+    _may_change: Usuario = Depends(require_permiso(PERMISO_PAUSAR)),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """The checked rows' publications that a bulk pause / activate acts on (seleccion-por-publicacion S2): exactly
+    the checked publications -- never the other publications of their product -- plus every publication of a checked
+    product row (Producto view). Only active ones are paused, only paused ones activated, never a deleted one; the
+    rest, and a checked MLA we do not have, are counted in `no_aplican`. No filter takes part. Read-only, needs
+    `ml_publicaciones.pausar`; over `caps.MAX_STATUS_ITEM_IDS` it is a 422 naming the count."""
+    try:
+        listing.bound(db)
+        found = status_targets.checked_status_item_ids(db, body.item_ids, body.producto_ids, body.target)
+    except status_targets.TooManyPublications as exc:
+        raise _over_cap(exc, "Lo marcado suma", "Marcá menos filas.") from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # read-only work; nothing was written
     return {"item_ids": found.item_ids, "count": len(found.item_ids), "no_aplican": found.no_aplican}
 
 

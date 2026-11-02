@@ -11,7 +11,7 @@ import { publicacionesMlAPI } from '../../services/api';
 
 vi.mock('../../services/api', () => ({
   default: { post: vi.fn(), get: vi.fn() },
-  publicacionesMlAPI: { statusItemIds: vi.fn(), statusBulk: vi.fn() },
+  publicacionesMlAPI: { statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn() },
 }));
 
 let granted = new Set();
@@ -31,8 +31,8 @@ const mlas = (n) => Array.from({ length: n }, (_, i) => `MLA${i + 1}`);
 const resolved = (body) => publicacionesMlAPI.statusItemIds.mockResolvedValue({ data: body });
 const httpError = (status, data) => Object.assign(new Error(`HTTP ${status}`), { response: { status, data } });
 
-function renderBulk(onDone = vi.fn()) {
-  render(<BulkStatusActions filters={FILTERS} canSeeMargin={false} onDone={onDone} />);
+function renderBulk(onDone = vi.fn(), checked = undefined) {
+  render(<BulkStatusActions filters={FILTERS} canSeeMargin={false} onDone={onDone} checked={checked} />);
   return onDone;
 }
 
@@ -185,5 +185,83 @@ describe('the run', () => {
     expect(dialog).toHaveTextContent('1 ya estaban activas.');
     expect(dialog).toHaveTextContent('1 sin confirmar: se vuelven a consultar.');
     expect(dialog).not.toHaveTextContent('con error');
+  });
+});
+
+describe('over the checked rows (seleccion-por-publicacion S2)', () => {
+  const resolvedChecked = (body) => publicacionesMlAPI.statusItemIdsChecked.mockResolvedValue({ data: body });
+  const menu = async (user) => {
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    return screen.getAllByRole('menuitem').map((item) => item.textContent);
+  };
+
+  it('one checked publication: the menu names it, and only that MLA is resolved and written, never the filter', async () => {
+    resolvedChecked({ item_ids: ['MLA2'], count: 1, no_aplican: 0 });
+    const user = userEvent.setup();
+    const onDone = renderBulk(vi.fn(), { itemIds: ['MLA2'], productIds: [] });
+    expect(await menu(user)).toEqual(['Pausar la marcada', 'Activar la marcada']);
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    const dialog = await screen.findByRole('region', { name: REGION });
+    expect(publicacionesMlAPI.statusItemIdsChecked).toHaveBeenCalledWith({ target: 'paused', item_ids: ['MLA2'], producto_ids: [] });
+    expect(publicacionesMlAPI.statusItemIds).not.toHaveBeenCalled();
+    expect(dialog).toHaveTextContent('Se van a pausar 1 publicación en Mercado Libre.');
+    await user.click(within(dialog).getByRole('button', { name: 'Confirmar' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusBulk.mock.calls).toEqual([[{ status: 'paused', item_ids: ['MLA2'] }]]);
+  });
+
+  it('several checked publications, and product rows, are named by count and sent as they are', async () => {
+    resolvedChecked({ item_ids: ['MLA2', 'MLA3', 'MLA7'], count: 3, no_aplican: 2 });
+    const user = userEvent.setup();
+    renderBulk(vi.fn(), { itemIds: ['MLA2', 'MLA3'], productIds: [77] });
+    expect(await menu(user)).toEqual(['Pausar las de 3 filas marcadas', 'Activar las de 3 filas marcadas']);
+    await user.click(screen.getByRole('menuitem', { name: 'Activar las de 3 filas marcadas' }));
+    const dialog = await screen.findByRole('region', { name: REGION });
+    expect(publicacionesMlAPI.statusItemIdsChecked).toHaveBeenCalledWith({ target: 'active', item_ids: ['MLA2', 'MLA3'], producto_ids: [77] });
+    expect(dialog).toHaveTextContent('Se van a activar 3 publicaciones en Mercado Libre.');
+    expect(dialog).toHaveTextContent('2 publicaciones marcadas no se tocan (otro estado).');
+  });
+
+  it('two checked publications read "las 2 marcadas"', async () => {
+    const user = userEvent.setup();
+    renderBulk(vi.fn(), { itemIds: ['MLA2', 'MLA3'], productIds: [] });
+    expect(await menu(user)).toEqual(['Pausar las 2 marcadas', 'Activar las 2 marcadas']);
+  });
+
+  it('nothing checked keeps acting on the filter', async () => {
+    const user = userEvent.setup();
+    renderBulk(vi.fn(), { itemIds: [], productIds: [] });
+    expect(await menu(user)).toEqual(['Pausar las del filtro', 'Activar las del filtro']);
+  });
+
+  it('fails closed: when the checked set cannot be resolved nothing is written', async () => {
+    publicacionesMlAPI.statusItemIdsChecked.mockRejectedValue(httpError(500, {}));
+    const user = userEvent.setup();
+    renderBulk(vi.fn(), { itemIds: ['MLA2'], productIds: [] });
+    await menu(user);
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron resolver las publicaciones marcadas.');
+    expect(screen.queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
+    expect(publicacionesMlAPI.statusBulk).not.toHaveBeenCalled();
+  });
+
+  it('a slow checked set asks to check fewer rows, not to narrow the filters', async () => {
+    publicacionesMlAPI.statusItemIdsChecked.mockRejectedValue(httpError(503, {}));
+    const user = userEvent.setup();
+    renderBulk(vi.fn(), { itemIds: ['MLA2'], productIds: [] });
+    await menu(user);
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('La consulta tardó demasiado: marcá menos filas o reintentá.');
+  });
+
+  it('nothing checked can take the status: nothing to confirm', async () => {
+    resolvedChecked({ item_ids: [], count: 0, no_aplican: 1 });
+    const user = userEvent.setup();
+    renderBulk(vi.fn(), { itemIds: ['MLA2'], productIds: [] });
+    await menu(user);
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    const dialog = await screen.findByRole('region', { name: REGION });
+    expect(dialog).toHaveTextContent('Ninguna publicación marcada se puede pausar.');
+    expect(within(dialog).queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument();
   });
 });
