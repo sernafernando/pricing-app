@@ -170,15 +170,21 @@ def test_the_lot_viewer_tells_the_same_next_sale_as_the_panels(engine: Engine) -
     )
 
 
-def test_a_manual_block_leaves_its_product_out_of_the_next_sale_without_breaking_the_others(engine: Engine) -> None:
-    _dos_lotes(engine)
+def test_a_manual_block_keeps_its_products_fifo_line_without_breaking_the_others(engine: Engine) -> None:
+    # Left out, the product would read as used up and take the cost bonuses meant for products without a lot.
+    diez, _ = _dos_lotes(engine)
     (otra,) = w.compra(engine, [(2964, 10, "100.00")], date(2026, 10, 1))
     w.modo(engine, 950, "manual", OCT20, cantidad=30, costo_unit="52000", costo_base_unit="50000")
 
     with sessionmaker(bind=engine)() as db:
         vigentes = get_costing().vigentes(db, [950, 2964], NOV1)
 
-    assert list(vigentes) == [2964] and vigentes[2964].compra_item_id == otra
+    assert (vigentes[950].compra_item_id, vigentes[950].descuento_unit_ars, vigentes[950].unidades_restantes) == (
+        diez,
+        Decimal("10.00"),
+        100,
+    )
+    assert vigentes[2964].compra_item_id == otra
 
 
 def test_a_replay_that_breaks_skips_its_product_without_breaking_the_others(engine: Engine) -> None:
@@ -206,11 +212,11 @@ def test_a_replay_that_breaks_skips_its_product_without_breaking_the_others(engi
     assert list(vigentes) == [2964] and vigentes[2964].compra_item_id == otra
 
 
-def test_a_stored_row_of_another_products_line_skips_only_its_product(engine: Engine) -> None:
+def test_a_stored_row_of_another_products_line_falls_back_to_its_fifo_line(engine: Engine) -> None:
     # A line read mid-change can leave a stored row whose line is not among its product's lots.
     from sqlalchemy import text
 
-    w.compra(engine, [(950, 10, "100.00")], date(2026, 10, 1))
+    (diez,) = w.compra(engine, [(950, 10, "100.00")], date(2026, 10, 1))
     (otra,) = w.compra(engine, [(2964, 10, "100.00")], date(2026, 10, 1))
     w.modo(engine, 950, "ponderado", OCT20)
     w.modo(engine, 2964, "ponderado", OCT20)  # both products replay, so the row's line is read
@@ -226,4 +232,5 @@ def test_a_stored_row_of_another_products_line_skips_only_its_product(engine: En
     with sessionmaker(bind=engine)() as db:
         vigentes = get_costing().vigentes(db, [950, 2964], NOV1)
 
-    assert list(vigentes) == [2964] and vigentes[2964].compra_item_id == otra
+    assert vigentes[950].compra_item_id == diez  # its FIFO line, at the line's own value
+    assert vigentes[2964].compra_item_id == otra

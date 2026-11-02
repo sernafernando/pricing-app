@@ -247,14 +247,13 @@ class FifoPurchaseCosting:
         A product with cost modes replays its stored consumptions through `fifo.Dinero`, so the value is the one
         the mode governing `hoy` gives (the weighted pool, or the newest lot for every unit left); its line is still
         the FIFO one the units come from. One more query, only when some product has modes. A product whose modes
-        cannot be replayed here (a manual block, until it lands) is left out and logged, never the whole batch."""
+        cannot be replayed here (a manual block, until it lands, or rows read mid-change) keeps its FIFO line at the
+        line's own value and is logged: it still has units, so it never reads as used up, and never the whole batch."""
         lotes = self.lotes(db, item_ids)
         usadas = self.unidades_usadas(db, [lote.compra_item_id for item in lotes.values() for lote in item])
         periodos = self.periodos(db, sorted(lotes))
         salida: Dict[int, LoteVigente] = {}
         for item_id, item in lotes.items():
-            if item_id in periodos:
-                continue
             for lote in item:
                 restantes = lote.cantidad - usadas.get(lote.compra_item_id, 0)
                 if lote.fecha <= hoy and restantes > 0:
