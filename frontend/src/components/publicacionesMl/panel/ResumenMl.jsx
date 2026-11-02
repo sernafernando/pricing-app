@@ -72,7 +72,6 @@ export function MercadoLibreSection({ item }) {
         <Field label="Fin">{date(item.stop_time)}</Field>
         <Field label="Finalizada">{date(item.end_time)}</Field>
         <Field label="Vencimiento">{date(item.expiration_time)}</Field>
-        {item.last_error && <Field label="Último error">{item.last_error}</Field>}
       </Fields>
     </Section>
   );

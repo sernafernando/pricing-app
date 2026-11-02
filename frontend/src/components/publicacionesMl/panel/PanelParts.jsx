@@ -17,9 +17,14 @@ export function Section({ title, children }) {
   );
 }
 
-/** The label / value pairs of a section. */
-export function Fields({ children }) {
-  return <dl className={styles.fields}>{children}</dl>;
+/**
+ * The label / value pairs of a section. `columns` lays them out two pairs per line when the panel
+ * is wide enough; `quiet` marks secondary facts.
+ */
+export function Fields({ columns = false, quiet = false, children }) {
+  const className = [styles.fields, columns && styles.fieldsColumns, quiet && styles.fieldsQuiet].filter(Boolean).join(' ');
+  const list = <dl className={className}>{children}</dl>;
+  return columns ? <div className={styles.fieldsContainer}>{list}</div> : list;
 }
 
 /** One pair. A value the backend does not have is "—" (S4.1), never 0 or blank. */
