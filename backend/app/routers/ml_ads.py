@@ -11,7 +11,7 @@ writes are the brand contributions the team loads.
   (informational only, no net cost). Never attributed to an MLA.
 - `GET /ml-ads/display`: the Display tab (ml-ads-cupones-display S7): every Display campaign with its catalog, its
   summed figures, computed ratios (CTR, CPC, CPM, ROAS; null without a base) and ML-attributed sales; the period
-  totals; and the cost of each stored day.
+  totals; and the cost of each day (a day Display closed without activity reads zero; one never fetched is absent).
 - `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with its brand contributions, its cost in the range
   (ml-ads-brand-contribution S8) and what those contributions cover of it (ml-ads-contribution-redesign S6).
   `GET /ml-ads/contributions/preview` answers what a contribution would cover, taking the create body as its query.

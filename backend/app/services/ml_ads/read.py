@@ -26,7 +26,7 @@ from app.models.ml_ads import (
 from app.services.ml_ads.ingestion import LOCAL_TZ
 from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_ads.owner import NO_PRODUCT, ads_owner_select
-from app.services.ml_ads.store import CAMPAIGNS_SOURCE
+from app.services.ml_ads.store import CAMPAIGNS_SOURCE, DISPLAY_SOURCE
 from app.services.ml_publications.view.ads import AdsAvailability
 
 SOURCE = "product_ads"
@@ -361,7 +361,7 @@ def _attribution(raw: Any) -> tuple[Decimal, int]:
 
 def display_report(db: Session, date_from: date, date_to: date) -> DisplayReport:
     """The Display tab: every catalog campaign (zero when it had no day in range) plus any campaign with days
-    and no catalog row, by cost descending; the period totals; and the stored days' cost."""
+    and no catalog row, by cost descending; the period totals; and each closed or stored day's cost."""
     D, C = MlAdsDisplayCampaignDay, MlAdsDisplayCampaign
     in_range = D.day.between(date_from, date_to)
     figures = {
@@ -415,12 +415,19 @@ def display_report(db: Session, date_from: date, date_to: date) -> DisplayReport
     totals = DisplayFigures(
         **{name: sum((getattr(c, name) for c in campaigns), _ZERO_FIGURES[name]) for name in _ZERO_FIGURES}
     )
-    daily = [
-        DisplayDayCost(day, cost)
-        for day, cost in db.execute(
-            select(D.day, func.sum(D.consumed_budget)).where(in_range).group_by(D.day).order_by(D.day)
-        ).all()
-    ]
+    # A Display day the ledger closed without rows had no activity: zero, not a gap (owner Q4). A day with no
+    # covered ledger row was never fetched and stays absent (the coverage reports it).
+    cost_by_day = dict(db.execute(select(D.day, func.sum(D.consumed_budget)).where(in_range).group_by(D.day)).all())
+    closed = db.scalars(
+        select(MlAdsDayLedger.day)
+        .where(
+            MlAdsDayLedger.source == DISPLAY_SOURCE,
+            MlAdsDayLedger.status.in_(COVERED),
+            MlAdsDayLedger.day.between(date_from, date_to),
+        )
+        .distinct()
+    ).all()
+    daily = [DisplayDayCost(day, cost_by_day.get(day, Decimal(0))) for day in sorted(set(cost_by_day) | set(closed))]
     return DisplayReport(totals, campaigns, daily)
 
 

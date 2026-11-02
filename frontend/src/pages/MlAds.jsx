@@ -19,11 +19,8 @@ const TABS = [
 ];
 const PANEL_ID = 'ml-ads-panel';
 
-registrarPagina({
-  pagePath: '/ml-ads-aportes',
-  pageLabel: 'ML Ads',
-  tabs: TABS.map(({ key, label }) => ({ tabKey: key, label })),
-});
+// No tabs in the registry: registered tabs are offered for an operator PIN, which this page does not apply.
+registrarPagina({ pagePath: '/ml-ads-aportes', pageLabel: 'ML Ads', tabs: [] });
 
 export default function MlAds() {
   const [params, setParams] = useSearchParams();

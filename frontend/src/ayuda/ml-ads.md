@@ -41,7 +41,7 @@ Columnas: Campaña, Estado, Costo del período, Aporte, Neto, Aportes cargados.
 
 Elegí el rango de fechas (Desde/Hasta). Se muestran tarjetas KPI del período: **Costo** (sin IVA, como lo informa MercadoLibre), **Impresiones** (con el CPM), **Clics** (con el CTR), **Ventas atribuidas** (con las unidades) y **ROAS** (ventas atribuidas / costo).
 
-Debajo, el gráfico **Costo diario** muestra lo gastado cada día del rango. Un día que todavía no se guardó queda como un hueco en la línea, no como cero.
+Debajo, el gráfico **Costo diario** muestra lo gastado cada día del rango. Un día sin gasto (por ejemplo, con todas las campañas pausadas) vale cero; un día que todavía no se trajo de MercadoLibre queda como un hueco en la línea.
 
 El buscador filtra por nombre o ID de campaña y el filtro **Todas / Activas / Pausadas** por estado; los dos filtran lo que ya está cargado.
 

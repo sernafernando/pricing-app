@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal
 
+from app.models.ml_ads import MlAdsDayLedger
 from app.services.ml_ads import mapper, read, store
 from tests.services.ml_ads.captures import load
 from tests.services.ml_ads.test_display import ADVERTISER, DAY, NOW
@@ -122,3 +123,14 @@ class TestDisplayReport:
         store.upsert_display_days(db, [replace(fact, raw=raw)], now=NOW)
         row = _campaign(read.display_report(db, DAY, DAY), 335306)
         assert (row.cost, row.attributed_amount, row.attributed_units) == (Decimal("27226.79"), Decimal(0), 0)
+
+    def test_a_closed_display_day_without_rows_costs_zero_and_an_unledgered_one_is_absent(self, db) -> None:
+        _seed(db)
+        # DERIVED ledger rows: DAY + 1 closed by the Display step with no activity; DAY + 2 never fetched.
+        db.add(MlAdsDayLedger(source="display", advertiser_id=ADVERTISER, day=DAY + timedelta(days=1), status="closed"))
+        db.flush()
+        daily = read.display_report(db, DAY, DAY + timedelta(days=2)).daily
+        assert daily == [
+            read.DisplayDayCost(DAY, Decimal("121938.82")),
+            read.DisplayDayCost(DAY + timedelta(days=1), Decimal(0)),
+        ]

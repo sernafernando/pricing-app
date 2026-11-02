@@ -4,7 +4,8 @@
  * Every Display campaign over a date range (`GET /ml-ads/display`, `ml_metricas.ver_ganancia`): its catalog (name,
  * goal, status, dates), cost, prints, clicks, reach, the sales Mercado Libre attributes to it, and CTR/CPC/CPM/ROAS
  * as the backend computes them (null without a base, shown "—", never 0). KPI tiles sum the period; the daily cost
- * is drawn over the range (a day without a stored row is a gap, not zero); the toolbar filters the loaded rows.
+ * is drawn over the range (a day Display closed without activity is zero; one never fetched is a gap); the toolbar
+ * filters the loaded rows.
  *
  * Layout from the Stitch screen "ML Ads - Display (Campaña y Rendimiento)", with the shell and tokens of Aportes.
  * Reach, like every figure, is the sum of each day's (ML gives no unique reach over a range): one person reached on
