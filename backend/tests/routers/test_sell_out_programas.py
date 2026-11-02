@@ -26,7 +26,7 @@ def _message(resp) -> str:
 
 @pytest.fixture()
 def grupo(db) -> int:
-    row = OffsetGrupo(nombre="Epson tintas")
+    row = OffsetGrupo(nombre="Marca tintas")
     db.add(row)
     db.flush()
     return row.id
@@ -45,7 +45,7 @@ def lector(db, rol_admin, admin_auth_headers, grant_permiso):
     return admin_auth_headers
 
 
-def _campana(client, headers, grupo: int, nombre: str = "EPSON PROG 24", **overrides) -> dict:
+def _campana(client, headers, grupo: int, nombre: str = "MARCA PROG 24", **overrides) -> dict:
     body = {
         "nombre": nombre,
         "fecha_desde": "2026-11-01",
@@ -60,7 +60,7 @@ def _campana(client, headers, grupo: int, nombre: str = "EPSON PROG 24", **overr
     return resp.json()
 
 
-def _programa(client, headers, nombre: str = "EPSON PROG", **extra) -> dict:
+def _programa(client, headers, nombre: str = "MARCA PROG", **extra) -> dict:
     resp = client.post(BASE, json={"nombre": nombre, **extra}, headers=headers)
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -76,7 +76,7 @@ def _asignar(client, headers, campana_ids: list[int], programa_id):
 
 ESCRITURAS = [("post", BASE), ("patch", f"{BASE}/1"), ("post", f"{BASE}/asignar")]
 LECTURAS = [("get", BASE), ("get", f"{BASE}/sugerencias")]
-_BODY = {"nombre": "EPSON PROG", "campana_ids": [1], "programa_id": None}
+_BODY = {"nombre": "MARCA PROG", "campana_ids": [1], "programa_id": None}
 
 
 @pytest.mark.parametrize("method,url", ESCRITURAS + LECTURAS)
@@ -104,11 +104,11 @@ def test_every_endpoint_requires_authentication(client, method, url) -> None:
 
 
 def test_create_trims_the_name_and_starts_active_and_empty(client, gestor, db, admin_user) -> None:
-    out = _programa(client, gestor, "  EPSON PROG  ", descripcion="Programa de sell out de Epson")
+    out = _programa(client, gestor, "  MARCA PROG  ", descripcion="Programa de sell out de Marca")
     assert out == {
         "id": out["id"],
-        "nombre": "EPSON PROG",
-        "descripcion": "Programa de sell out de Epson",
+        "nombre": "MARCA PROG",
+        "descripcion": "Programa de sell out de Marca",
         "estado": "activo",
         "campanas": 0,
         "activas": 0,
@@ -124,29 +124,35 @@ def test_create_refuses_an_empty_name(client, gestor, nombre) -> None:
 
 
 def test_a_name_taken_ignoring_case_is_a_409_naming_it(client, gestor) -> None:
-    _programa(client, gestor, "EPSON PROG")
-    resp = client.post(BASE, json={"nombre": "epson prog"}, headers=gestor)
+    _programa(client, gestor, "MARCA PROG")
+    resp = client.post(BASE, json={"nombre": "marca prog"}, headers=gestor)
     assert resp.status_code == 409
-    assert _message(resp) == "Ya existe un programa llamado «EPSON PROG»."
+    assert _message(resp) == "Ya existe un programa llamado «MARCA PROG»."
 
 
 def test_patch_changes_only_the_fields_sent(client, gestor) -> None:
-    programa = _programa(client, gestor, "EPSON PROG", descripcion="Epson")
+    programa = _programa(client, gestor, "MARCA PROG", descripcion="Marca")
     resp = client.patch(f"{BASE}/{programa['id']}", json={"estado": "archivado"}, headers=gestor)
     assert resp.status_code == 200, resp.text
     assert (resp.json()["nombre"], resp.json()["descripcion"], resp.json()["estado"]) == (
-        "EPSON PROG",
-        "Epson",
+        "MARCA PROG",
+        "Marca",
         "archivado",
     )
     resp = client.patch(
-        f"{BASE}/{programa['id']}", json={"nombre": " Epson Prog ", "descripcion": None}, headers=gestor
+        f"{BASE}/{programa['id']}", json={"nombre": " Marca Prog ", "descripcion": None}, headers=gestor
     )
     assert (resp.json()["nombre"], resp.json()["descripcion"], resp.json()["estado"]) == (
-        "Epson Prog",  # its own name in another case is not a duplicate
+        "Marca Prog",  # its own name in another case is not a duplicate
         None,
         "archivado",
     )
+
+
+def test_the_name_length_counts_after_trimming(client, gestor) -> None:
+    justo = "N" * 200
+    assert client.post(BASE, json={"nombre": f"  {justo}  "}, headers=gestor).status_code == 201
+    assert client.post(BASE, json={"nombre": "N" * 201}, headers=gestor).status_code == 422
 
 
 def test_an_empty_patch_changes_nothing(client, gestor) -> None:
@@ -159,28 +165,28 @@ def test_an_empty_patch_changes_nothing(client, gestor) -> None:
 
 
 def test_patch_unknown_is_404_duplicate_409_and_null_name_422(client, gestor) -> None:
-    epson = _programa(client, gestor, "EPSON PROG")
+    marca = _programa(client, gestor, "MARCA PROG")
     rebate = _programa(client, gestor, "Rebate")
     assert client.patch(f"{BASE}/99999", json={"nombre": "X"}, headers=gestor).status_code == 404
-    resp = client.patch(f"{BASE}/{rebate['id']}", json={"nombre": "Epson prog"}, headers=gestor)
+    resp = client.patch(f"{BASE}/{rebate['id']}", json={"nombre": "Marca prog"}, headers=gestor)
     assert resp.status_code == 409
-    assert "«EPSON PROG»" in _message(resp)
-    assert client.patch(f"{BASE}/{epson['id']}", json={"nombre": None}, headers=gestor).status_code == 422
-    assert client.patch(f"{BASE}/{epson['id']}", json={"estado": "borrado"}, headers=gestor).status_code == 422
+    assert "«MARCA PROG»" in _message(resp)
+    assert client.patch(f"{BASE}/{marca['id']}", json={"nombre": None}, headers=gestor).status_code == 422
+    assert client.patch(f"{BASE}/{marca['id']}", json={"estado": "borrado"}, headers=gestor).status_code == 422
 
 
 def test_list_sorts_by_name_counts_campaigns_and_filters_by_state(client, gestor, grupo) -> None:
     rebate = _programa(client, gestor, "Rebate")
-    epson = _programa(client, gestor, "EPSON PROG")
-    vieja = _campana(client, gestor, grupo, "EPSON PROG 24", fecha_desde="2026-01-01", fecha_hasta="2026-03-31")
-    nueva = _campana(client, gestor, grupo, "EPSON PROG 25", fecha_desde="2026-04-01", fecha_hasta="2026-06-30")
+    marca = _programa(client, gestor, "MARCA PROG")
+    vieja = _campana(client, gestor, grupo, "MARCA PROG 24", fecha_desde="2026-01-01", fecha_hasta="2026-03-31")
+    nueva = _campana(client, gestor, grupo, "MARCA PROG 25", fecha_desde="2026-04-01", fecha_hasta="2026-06-30")
     assert client.post(f"{CAMPANAS}/{vieja['id']}/anular", headers=gestor).status_code == 200
-    assert _asignar(client, gestor, [vieja["id"], nueva["id"]], epson["id"]).status_code == 200
+    assert _asignar(client, gestor, [vieja["id"], nueva["id"]], marca["id"]).status_code == 200
     client.patch(f"{BASE}/{rebate['id']}", json={"estado": "archivado"}, headers=gestor)
 
     filas = client.get(BASE, headers=gestor).json()["items"]
     assert [(f["nombre"], f["campanas"], f["activas"], f["desde"], f["hasta"]) for f in filas] == [
-        ("EPSON PROG", 2, 1, "2026-01-01", "2026-06-30"),
+        ("MARCA PROG", 2, 1, "2026-01-01", "2026-06-30"),
         ("Rebate", 0, 0, None, None),
     ]
     archivados = client.get(BASE, params={"estado": "archivado"}, headers=gestor).json()["items"]
@@ -191,9 +197,9 @@ def test_list_sorts_by_name_counts_campaigns_and_filters_by_state(client, gestor
 
 
 def test_assign_sets_the_program_audits_each_campaign_and_queues_nothing(client, gestor, grupo, db) -> None:
-    programa = _programa(client, gestor, "EPSON PROG")
-    a = _campana(client, gestor, grupo, "EPSON PROG 24")
-    b = _campana(client, gestor, grupo, "EPSON PROG 25")
+    programa = _programa(client, gestor, "MARCA PROG")
+    a = _campana(client, gestor, grupo, "MARCA PROG 24")
+    b = _campana(client, gestor, grupo, "MARCA PROG 25")
     db.query(SellOutDirty).delete()
     db.flush()
 
@@ -210,7 +216,7 @@ def test_assign_sets_the_program_audits_each_campaign_and_queues_nothing(client,
     assert [(f.valores_anteriores, f.valores_nuevos, f.es_masivo, f.item_id) for f in filas] == [
         (
             {"campana_id": c["id"], "programa_id": None, "programa": None},
-            {"campana_id": c["id"], "programa_id": programa["id"], "programa": "EPSON PROG"},
+            {"campana_id": c["id"], "programa_id": programa["id"], "programa": "MARCA PROG"},
             True,
             None,
         )
@@ -219,7 +225,7 @@ def test_assign_sets_the_program_audits_each_campaign_and_queues_nothing(client,
     detalle = client.get(f"{CAMPANAS}/{a['id']}", headers=gestor).json()
     assert (detalle["programa_id"], detalle["programa"]) == (
         programa["id"],
-        {"id": programa["id"], "nombre": "EPSON PROG"},
+        {"id": programa["id"], "nombre": "MARCA PROG"},
     )
 
     # Again: nothing changes, nothing is audited.
@@ -228,10 +234,10 @@ def test_assign_sets_the_program_audits_each_campaign_and_queues_nothing(client,
 
 
 def test_one_campaign_moved_between_programs_and_cleared_is_not_bulk(client, gestor, grupo, db) -> None:
-    epson = _programa(client, gestor, "EPSON PROG")
+    marca = _programa(client, gestor, "MARCA PROG")
     rebate = _programa(client, gestor, "Rebate")
     c = _campana(client, gestor, grupo, "Rebate Q4 2024")
-    _asignar(client, gestor, [c["id"]], epson["id"])
+    _asignar(client, gestor, [c["id"]], marca["id"])
     assert _asignar(client, gestor, [c["id"]], rebate["id"]).json() == {"asignadas": 1, "sin_cambio": 0}
     assert _asignar(client, gestor, [c["id"]], None).json() == {"asignadas": 1, "sin_cambio": 0}
     assert db.get(SellOutCampana, c["id"]).programa_id is None
@@ -242,15 +248,15 @@ def test_one_campaign_moved_between_programs_and_cleared_is_not_bulk(client, ges
         .all()
     )
     assert [(f.valores_anteriores["programa"], f.valores_nuevos["programa"], f.es_masivo) for f in filas] == [
-        (None, "EPSON PROG", False),
-        ("EPSON PROG", "Rebate", False),
+        (None, "MARCA PROG", False),
+        ("MARCA PROG", "Rebate", False),
         ("Rebate", None, False),
     ]
 
 
 def test_assign_works_on_a_voided_campaign_and_keeps_its_money(client, gestor, grupo, db) -> None:
-    programa = _programa(client, gestor, "EPSON PROG")
-    c = _campana(client, gestor, grupo, "EPSON PROG 24", monto_unit="25.50")
+    programa = _programa(client, gestor, "MARCA PROG")
+    c = _campana(client, gestor, grupo, "MARCA PROG 24", monto_unit="25.50")
     assert client.post(f"{CAMPANAS}/{c['id']}/anular", headers=gestor).status_code == 200
     assert _asignar(client, gestor, [c["id"]], programa["id"]).json() == {"asignadas": 1, "sin_cambio": 0}
     campana = db.get(SellOutCampana, c["id"])
@@ -258,7 +264,7 @@ def test_assign_works_on_a_voided_campaign_and_keeps_its_money(client, gestor, g
 
 
 def test_assign_is_all_or_nothing_and_names_the_unknown_campaigns(client, gestor, grupo, db) -> None:
-    programa = _programa(client, gestor, "EPSON PROG")
+    programa = _programa(client, gestor, "MARCA PROG")
     c = _campana(client, gestor, grupo)
     resp = _asignar(client, gestor, [c["id"], 99998, 99999], programa["id"])
     assert resp.status_code == 422
@@ -294,24 +300,24 @@ def test_assign_refuses_an_empty_or_too_large_selection_or_a_missing_program(cli
 
 
 def test_suggestions_group_campaigns_without_a_program_by_identical_dates(client, gestor, grupo) -> None:
-    def epson(nombre: str) -> dict:
+    def marca(nombre: str) -> dict:
         return _campana(client, gestor, grupo, nombre, fecha_desde="2026-08-01", fecha_hasta="2026-12-31")
 
-    e = [epson("EPSON PROG 3.0"), epson("EPSON PROGRAM1"), epson("EPSON PROGRAM1")]
-    asignada = epson("EPSON PROGR 7.5")
+    e = [marca("MARCA PROG 3.0"), marca("MARCA PROGRAM1"), marca("MARCA PROGRAM1")]
+    asignada = marca("MARCA PROGR 7.5")
     _campana(client, gestor, grupo, "RB 8180", fecha_desde="2026-01-01", fecha_hasta="2026-12-31")  # alone
-    _asignar(client, gestor, [asignada["id"]], _programa(client, gestor, "EPSON PROG")["id"])
+    _asignar(client, gestor, [asignada["id"]], _programa(client, gestor, "MARCA PROG")["id"])
 
     resp = client.get(f"{BASE}/sugerencias", headers=gestor)
     assert resp.status_code == 200, resp.text
     grupos = resp.json()["items"]
     assert [(g["base"], g["fecha_desde"], g["fecha_hasta"], g["nombres"]) for g in grupos] == [
-        ("EPSON", "2026-08-01", "2026-12-31", 2)
+        ("MARCA", "2026-08-01", "2026-12-31", 2)
     ]
     assert [c["id"] for c in grupos[0]["campanas"]] == [e[0]["id"], e[1]["id"], e[2]["id"]]
     assert grupos[0]["campanas"][0] == {
         "id": e[0]["id"],
-        "nombre": "EPSON PROG 3.0",
+        "nombre": "MARCA PROG 3.0",
         "fecha_desde": "2026-08-01",
         "fecha_hasta": "2026-12-31",
         "estado": "activa",
@@ -321,9 +327,9 @@ def test_suggestions_group_campaigns_without_a_program_by_identical_dates(client
 def test_both_lists_are_paginated_like_the_campaigns(client, gestor, grupo) -> None:
     for nombre in ("A programa", "B programa", "C programa"):
         _programa(client, gestor, nombre)
-    for nombre in ("EPSON PROG 3.0", "EPSON PROGRAM1"):
+    for nombre in ("MARCA PROG 3.0", "MARCA PROGRAM1"):
         _campana(client, gestor, grupo, nombre, fecha_desde="2026-08-01", fecha_hasta="2026-12-31")
-    for nombre in ("520 / 580 SP", "530/720"):
+    for nombre in ("M20 / M80 SP", "M30/M70"):
         _campana(client, gestor, grupo, nombre, fecha_desde="2025-11-01", fecha_hasta="2026-12-31")
 
     pagina = client.get(BASE, params={"page": 2, "page_size": 2}, headers=gestor).json()

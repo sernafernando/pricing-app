@@ -155,7 +155,12 @@ def asignar(db: Session, campana_ids: list[int], programa_id: Optional[int], usu
             raise ProgramaError(f"El programa «{programa.nombre}» está archivado.")
     # In id order, so concurrent assignments and edits lock in one order.
     campanas = (
-        db.query(SellOutCampana).filter(SellOutCampana.id.in_(ids)).order_by(SellOutCampana.id).with_for_update().all()
+        db.query(SellOutCampana)
+        .filter(SellOutCampana.id.in_(ids))
+        .order_by(SellOutCampana.id)
+        # FOR NO KEY UPDATE: metadata only, so it never waits on the FOR KEY SHARE every consumo insert takes.
+        .with_for_update(key_share=True)
+        .all()
     )
     faltan = sorted(set(ids) - {c.id for c in campanas})
     if faltan:
