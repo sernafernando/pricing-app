@@ -251,3 +251,12 @@ class TestRun:
         answers = {100 + n: response(404, fixture("discounts_not_found")) for n in range(3)}
         result = run(session_factory, FakeClient(answers), max_calls=2)
         assert (result.calls, result.pending_left) == (2, 1)
+
+
+class TestBackoffSeconds:
+    def test_doubles_per_run_and_caps_at_an_hour(self) -> None:
+        assert [store.backoff_seconds(n) for n in (1, 2, 3, 7, 20)] == [60, 120, 240, 3600, 3600]
+
+    def test_a_retry_after_longer_than_the_cap_is_honored_up_to_a_day(self) -> None:
+        assert store.backoff_seconds(1, 7200) == 7200
+        assert store.backoff_seconds(1, 10**9) == 86400

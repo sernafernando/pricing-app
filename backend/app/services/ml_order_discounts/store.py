@@ -26,6 +26,7 @@ BACKOFF_BASE_SECONDS = 60.0
 # An error is asked again only after this wait, so a transient ML outage cannot spend every attempt in minutes.
 ERROR_RETRY = timedelta(hours=1)
 BACKOFF_CAP_SECONDS = 3600.0
+RETRY_AFTER_CAP_SECONDS = 86400.0
 
 
 def _settled(now: Optional[datetime] = None):  # noqa: ANN202 -- a SQL boolean expression
@@ -89,9 +90,10 @@ def backoff_until(db: Session) -> Optional[datetime]:
 
 
 def backoff_seconds(consecutive_429: int, retry_after: Optional[float] = None) -> float:
-    """60 s doubling per consecutive 429 run, capped at one hour; never shorter than ML's `Retry-After`."""
+    """60 s doubling per consecutive 429 run, capped at one hour; never shorter than ML's `Retry-After`, which is
+    honored up to a day (a bigger value is taken as a broken header, not a request to stop for longer)."""
     delay = min(BACKOFF_BASE_SECONDS * 2 ** (consecutive_429 - 1), BACKOFF_CAP_SECONDS)
-    return max(delay, min(retry_after or 0.0, BACKOFF_CAP_SECONDS))
+    return max(delay, min(retry_after or 0.0, RETRY_AFTER_CAP_SECONDS))
 
 
 def record_429(db: Session, now: datetime, retry_after: Optional[float] = None) -> tuple[int, datetime]:

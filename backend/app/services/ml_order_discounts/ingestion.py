@@ -3,7 +3,7 @@
 Stop rules, in the order they are checked:
 - a persisted back-off still running (`ml_order_discounts_state.backoff_until`): no call at all;
 - a 429 (the HTTP one or the body's own): the run stops and the back-off grows (60 s doubling per consecutive
-  429 run, capped at 1 h, never shorter than `Retry-After`), so a run of 429s spaces the runs out instead of
+  429 run, capped at 1 h, never shorter than `Retry-After` up to a day), so a run of 429s spaces the runs out instead of
   retrying every interval;
 - 401 / no token / not configured: the run stops as `blocked`, nothing is counted against the order;
 - no HTTP answer (transport error) or the deadline: the run stops, nothing is counted against the order.

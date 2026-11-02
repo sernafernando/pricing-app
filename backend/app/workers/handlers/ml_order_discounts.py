@@ -8,6 +8,7 @@ itself (`services/ml_order_discounts/store.py`); the run summary lands in `worke
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import deque
 from datetime import datetime, time as dtime, timedelta, timezone
@@ -21,6 +22,8 @@ from app.services.ml_publications.ml_http import MlHttpClient
 from app.services.ml_publications.pacing import Pacer
 from app.workers.context import JobResult, WorkerContext
 from app.workers.handlers.ml_publications import disabled_outcome, refresh
+
+logger = logging.getLogger(__name__)
 
 DISCOUNTS_HANDLER = "ml_orders.discounts"
 PER_MINUTE = 30
@@ -66,7 +69,14 @@ class OrderDiscountsHandler:
         if self._client is None:
             self._client = self._client_factory(self.pacer)
         deadline = min(ctx.deadline, self._now() + RUN_BUDGET)
-        result = ingestion.run(self._session_factory, self._client, now=self._now, deadline=deadline, max_calls=budget)
+        try:
+            result = ingestion.run(
+                self._session_factory, self._client, now=self._now, deadline=deadline, max_calls=budget
+            )
+        except Exception as exc:  # noqa: BLE001 -- the worker keeps running; the data is the cursor, the next run resumes
+            logger.exception("order discounts run failed")
+            error = f"{type(exc).__name__}: {exc}"[:300]
+            return JobResult(success=False, detail={"error": error}, error=error)
         self._calls.extend([self._monotonic()] * result.calls)
         error = "missing or rejected ML credentials" if result.stopped == BLOCKED else None
         return JobResult(success=True, detail=result.as_detail(), error=error)

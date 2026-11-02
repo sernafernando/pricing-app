@@ -62,3 +62,14 @@ def test_blocked_is_reported_as_an_error(monkeypatch) -> None:
     monkeypatch.setattr(ingestion, "run", lambda *a, **k: ingestion.RunResult(stopped="blocked"))
     result = handler(Clock()).run(ctx())
     assert result.success and result.error == "missing or rejected ML credentials"
+
+
+def test_a_failing_run_is_reported_not_raised(monkeypatch) -> None:
+    monkeypatch.setattr(module.settings, "ML_ADS_ENABLED", True)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(ingestion, "run", boom)
+    result = handler(Clock()).run(ctx())
+    assert not result.success and result.error == "RuntimeError: db down"
