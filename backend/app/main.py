@@ -230,6 +230,7 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(sync_pedidos_preparacion_task()),
             asyncio.create_task(free_shipping_auto_fix_task()),
             asyncio.create_task(publicacion_envio_repair_task()),
+            asyncio.create_task(publicacion_sku_repair_task()),
             asyncio.create_task(sync_sale_orders_task()),
             asyncio.create_task(ml_questions_ingest_task()),
             asyncio.create_task(ml_questions_draft_task()),
@@ -709,6 +710,26 @@ async def publicacion_envio_repair_task():
                 logger.info("Publicacion envio repair stats: %s", stats)
         except Exception as e:
             logger.error("Publicacion envio repair failed: %s", e, exc_info=True)
+
+        await asyncio.sleep(300)
+
+
+async def publicacion_sku_repair_task():
+    """
+    Conditional SKU repair tick: linked pubs × ml_items.seller_sku ≠ ERP codigo.
+    """
+    from app.services.publicacion_repair.sku import run_sku_repair
+
+    await asyncio.sleep(120)
+    logger.info("Background task started: publicacion_sku_repair (interval=300s)")
+
+    while True:
+        try:
+            stats = await run_sku_repair()
+            if stats.get("changed") or stats.get("errors"):
+                logger.info("Publicacion SKU repair stats: %s", stats)
+        except Exception as e:
+            logger.error("Publicacion SKU repair failed: %s", e, exc_info=True)
 
         await asyncio.sleep(300)
 

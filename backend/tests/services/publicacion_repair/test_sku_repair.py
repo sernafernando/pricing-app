@@ -3,47 +3,53 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
 from app.services.publicacion_repair import sku as sku_mod
 
 
-def _pub(mla: str, item_id: int = 1) -> SimpleNamespace:
-    return SimpleNamespace(mla=mla, item_id=item_id)
-
-
 @pytest.fixture
-def patched_tracker(monkeypatch: pytest.MonkeyPatch):
-    run = SimpleNamespace(id=9)
+def patched_audit(monkeypatch: pytest.MonkeyPatch):
     events: list[dict] = []
-    monkeypatch.setattr(sku_mod, "start_run", lambda db, **kw: run)
-    monkeypatch.setattr(sku_mod, "finish_run", lambda db, run_obj, **kw: setattr(run_obj, "stats", kw) or run_obj)
-    monkeypatch.setattr(sku_mod, "record_event", lambda db, **kw: events.append(kw) or SimpleNamespace(**kw))
-    return run, events
+    finish_kw: dict = {}
+    refresh: list[str] = []
+    logs: list[tuple] = []
 
+    monkeypatch.setattr(sku_mod.repair_audit, "start_run_bg", lambda **kw: 9)
 
-def test_run_sku_repair_fixes_drift_only(monkeypatch: pytest.MonkeyPatch, patched_tracker) -> None:
-    _run, events = patched_tracker
-    monkeypatch.setattr(sku_mod.settings, "ML_ITEM_DATA_WRITE_ENABLED", True)
+    def _finish(run_id, **kw):
+        finish_kw.clear()
+        finish_kw["run_id"] = run_id
+        finish_kw.update(kw)
+
+    monkeypatch.setattr(sku_mod.repair_audit, "finish_run_bg", _finish)
+    monkeypatch.setattr(sku_mod.repair_audit, "record_event_bg", lambda **kw: events.append(kw))
     monkeypatch.setattr(
-        sku_mod,
-        "linked_pubs_with_erp_codigo",
-        lambda db: [
-            (_pub("MLA_OK"), "111"),
-            (_pub("MLA_DRIFT"), "840006603337"),
-            (_pub("MLA_NOSNAP"), "222"),
-        ],
+        sku_mod.repair_audit,
+        "record_ml_write_log",
+        lambda mla, action, payload: logs.append((mla, action, payload)),
     )
     monkeypatch.setattr(
+        sku_mod.repair_audit,
+        "enqueue_item_refresh_safely",
+        lambda mla: refresh.append(mla),
+    )
+    monkeypatch.setattr(sku_mod.settings, "ML_PUB_KILL_SWITCH", False)
+    monkeypatch.setattr(sku_mod.settings, "ML_ITEM_DATA_WRITE_ENABLED", True)
+    return finish_kw, events, refresh, logs
+
+
+def test_run_sku_repair_fixes_drift_only(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    _finish, events, refresh, logs = patched_audit
+    monkeypatch.setattr(
         sku_mod,
-        "latest_snapshots_for_mlas",
-        lambda db, mlas: {
-            "MLA_OK": SimpleNamespace(seller_sku="111"),
-            "MLA_DRIFT": SimpleNamespace(seller_sku=None),
-        },
+        "_load_work_items",
+        lambda db: [
+            ("MLA_OK", 1, "111", "111", "active"),
+            ("MLA_DRIFT", 2, None, "840006603337", "active"),
+            ("MLA_CLOSED", 3, "old", "222", "closed"),
+        ],
     )
 
     calls: list[tuple[str, dict]] = []
@@ -53,41 +59,52 @@ def test_run_sku_repair_fixes_drift_only(monkeypatch: pytest.MonkeyPatch, patche
             calls.append((mla, body))
             return {"ok": True, "status_code": 200, "ambiguous": False, "body": {}}
 
-    stats = asyncio.run(sku_mod.run_sku_repair(MagicMock(), client=FakeClient()))
+    stats = asyncio.run(sku_mod.run_sku_repair(client=FakeClient(), pacing_seconds=0))
 
     assert calls == [("MLA_DRIFT", {"attributes": [{"id": "SELLER_SKU", "value_name": "840006603337"}]})]
-    assert stats == {"scanned": 3, "changed": 1, "skipped": 1, "errors": 0}
+    assert stats["scanned"] == 3
+    assert stats["changed"] == 1
+    assert stats["skipped"] == 1
+    assert refresh == ["MLA_DRIFT"]
     actions = {e["mla_id"]: e["action"] for e in events}
     assert actions["MLA_DRIFT"] == "changed"
-    assert actions["MLA_NOSNAP"] == "skipped"
+    assert actions["MLA_CLOSED"] == "skipped"
 
 
-def test_run_sku_repair_disabled_writes_nothing(monkeypatch: pytest.MonkeyPatch, patched_tracker) -> None:
-    run, events = patched_tracker
+def test_run_sku_repair_kill_switch(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    finish_kw, events, *_ = patched_audit
+    monkeypatch.setattr(sku_mod.settings, "ML_PUB_KILL_SWITCH", True)
+
+    class Boom:
+        async def put_item_data(self, *a, **k):
+            raise AssertionError("must not write")
+
+    stats = asyncio.run(sku_mod.run_sku_repair(client=Boom(), pacing_seconds=0))
+    assert stats["scanned"] == 0
+    assert events == []
+    assert finish_kw["error_message"] == "ML_PUB_KILL_SWITCH=true"
+
+
+def test_run_sku_repair_disabled_writes_nothing(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    finish_kw, events, *_ = patched_audit
     monkeypatch.setattr(sku_mod.settings, "ML_ITEM_DATA_WRITE_ENABLED", False)
 
     class Boom:
         async def put_item_data(self, *a, **k):
             raise AssertionError("must not write")
 
-    stats = asyncio.run(sku_mod.run_sku_repair(MagicMock(), client=Boom()))
+    stats = asyncio.run(sku_mod.run_sku_repair(client=Boom(), pacing_seconds=0))
     assert stats["scanned"] == 0
     assert events == []
-    assert run.stats["error_message"] == "ML_ITEM_DATA_WRITE_ENABLED=false"
+    assert finish_kw["error_message"] == "ML_ITEM_DATA_WRITE_ENABLED=false"
 
 
-def test_run_sku_repair_ml_reject_is_skipped(monkeypatch: pytest.MonkeyPatch, patched_tracker) -> None:
-    _run, events = patched_tracker
-    monkeypatch.setattr(sku_mod.settings, "ML_ITEM_DATA_WRITE_ENABLED", True)
+def test_run_sku_repair_ml_reject_is_skipped(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    _finish, events, *_ = patched_audit
     monkeypatch.setattr(
         sku_mod,
-        "linked_pubs_with_erp_codigo",
-        lambda db: [(_pub("MLA_X"), "999")],
-    )
-    monkeypatch.setattr(
-        sku_mod,
-        "latest_snapshots_for_mlas",
-        lambda db, mlas: {"MLA_X": SimpleNamespace(seller_sku="old")},
+        "_load_work_items",
+        lambda db: [("MLA_X", 1, "old", "999", "active")],
     )
 
     class FakeClient:
@@ -99,6 +116,6 @@ def test_run_sku_repair_ml_reject_is_skipped(monkeypatch: pytest.MonkeyPatch, pa
                 "body": {"data_write": "not_attempted", "message": "nope"},
             }
 
-    stats = asyncio.run(sku_mod.run_sku_repair(MagicMock(), client=FakeClient()))
+    stats = asyncio.run(sku_mod.run_sku_repair(client=FakeClient(), pacing_seconds=0))
     assert stats["skipped"] == 1
     assert events[0]["action"] == "skipped"
