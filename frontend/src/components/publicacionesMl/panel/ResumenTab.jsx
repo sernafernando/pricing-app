@@ -76,8 +76,11 @@ function LinkSection({ link }) {
   );
 }
 
-/** What the publication is, read once and seldom: quiet, in two columns when the panel is wide. */
-function PublicationDataSection({ detail }) {
+/**
+ * What the publication is, read once and seldom: quiet, in two columns when the panel is wide. The promotion is the
+ * Promos tab's ("Activa ahora") for whoever has that tab (`canViewPromos`), so only the others read it here.
+ */
+function PublicationDataSection({ detail, canViewPromos }) {
   const { row } = detail;
   const price = row.price;
   const store = row.store_label ?? (row.official_store_id == null ? null : `Tienda ${row.official_store_id}`);
@@ -98,7 +101,7 @@ function PublicationDataSection({ detail }) {
         <Field label="Salud">{detail.health == null ? null : formatPct(detail.health * 100)}</Field>
         <Field label="Origen del precio">{price?.amount == null ? null : label(PRICE_SOURCE_LABELS, price.source)}</Field>
         <Field label="Precio regular">{hasRegular ? amount(price.regular_amount) : null}</Field>
-        <Field label="Promoción">{promotion || null}</Field>
+        {!canViewPromos && <Field label="Promoción">{promotion || null}</Field>}
         <Field label="Etiquetas">
           {detail.tags.length > 0 ? (
             <span className={styles.tags}>
@@ -245,9 +248,10 @@ function RentabilidadSection({ breakdown, reason, sellInOut, publicationPriceSou
 /**
  * Resumen (S4): what needs attention, the Rentabilidad sum, Stock beside the linked product, then
  * the quiet data. Total stock, sales and the status live in the panel header, not here; price and markup
- * only come back as the two ends of the Rentabilidad sum.
+ * only come back as the two ends of the Rentabilidad sum. The promotion is left to the Promos tab when the viewer has
+ * it (`canViewPromos`).
  */
-export default function ResumenTab({ detail, canSeeMargin }) {
+export default function ResumenTab({ detail, canSeeMargin, canViewPromos = false }) {
   const { row } = detail;
   return (
     <>
@@ -264,7 +268,7 @@ export default function ResumenTab({ detail, canSeeMargin }) {
         <StockSection detail={detail} />
         <LinkSection link={row.link} />
       </div>
-      <PublicationDataSection detail={detail} />
+      <PublicationDataSection detail={detail} canViewPromos={canViewPromos} />
       <MercadoLibreSection item={detail.item} shownPrices={[row.price?.amount, row.price?.regular_amount]} />
       <BodySection extra={detail.extra} />
     </>

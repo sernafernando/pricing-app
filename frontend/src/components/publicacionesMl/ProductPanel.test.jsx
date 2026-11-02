@@ -82,6 +82,17 @@ vi.mock('./panel/ProductCatalogCompetition', () => ({
   ),
 }));
 
+vi.mock('./panel/PromocionesTab', () => ({
+  default: ({ itemId, onPromoApplied }) => (
+    <div data-testid={`promos-of-${itemId}`}>
+      {`promos of ${itemId}`}
+      <button type="button" onClick={onPromoApplied}>
+        Simular aplicar
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock('./panel/ProductPrearmadas', () => ({
   default: ({ productItemId }) => <span data-testid="product-prearmadas">{`prearmadas of ${productItemId}`}</span>,
 }));
@@ -295,25 +306,20 @@ describe('ProductPanel', () => {
     expect(screen.queryByTestId('sell-in-lotes')).not.toBeInTheDocument();
   });
 
-  it('shows the catalog competition of the listed publications under Resumen, after them', () => {
+  it('shows no promos, catalog competition or wholesale prices under Resumen, whatever the permissions', async () => {
+    granted = new Set(['promos.ver', 'pxq.ver']);
     renderPanel();
-    const competition = screen.getByTestId('product-catalog-competition');
-    expect(competition).toHaveTextContent(`competition of ${ITEMS.map((item) => item.item_id).join(',')}`);
-    const publications = screen.getByRole('heading', { name: 'Publicaciones' });
-    expect(publications.compareDocumentPosition(competition) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Resumen' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('region', { name: 'Publicaciones' })).toBeInTheDocument();
+    expect(screen.queryByTestId('product-catalog-competition')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('product-pxq')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Promociones de/ })).not.toBeInTheDocument();
   });
 
-  it('shows the catalog competition for "Sin producto" too: it belongs to each publication', () => {
-    renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
-    expect(screen.getByTestId('product-catalog-competition')).toBeInTheDocument();
-  });
-
-  it('shows the wholesale prices of the listed publications under Resumen, after the catalog competition', () => {
+  it('hands the tree publicationsOnly, so its rows carry no promos or wholesale prices', async () => {
     renderPanel();
-    const pxq = screen.getByTestId('product-pxq');
-    expect(pxq).toHaveTextContent(`pxq of ${ITEMS.map((item) => item.item_id).join(',')}`);
-    const competition = screen.getByTestId('product-catalog-competition');
-    expect(competition.compareDocumentPosition(pxq) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await waitFor(() => expect(ProductoMLAsPanel).toHaveBeenCalled());
+    expect(ProductoMLAsPanel.mock.lastCall[0]).toMatchObject({ publicationsOnly: true });
   });
 
   it("gives each Resumen section its own key, so switching products restarts every one of them", () => {
@@ -335,11 +341,6 @@ describe('ProductPanel', () => {
   it('has no prearmadas for "Sin producto"', () => {
     renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
     expect(screen.queryByTestId('product-prearmadas')).not.toBeInTheDocument();
-  });
-
-  it('shows the wholesale prices for "Sin producto" too', () => {
-    renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
-    expect(screen.getByTestId('product-pxq')).toBeInTheDocument();
   });
 
   it('has no last purchases for "Sin producto"', () => {
@@ -388,10 +389,13 @@ describe('ProductPanel', () => {
     expect(figures()).not.toBeInTheDocument();
   });
 
-  it('feeds the catalog competition and the wholesale prices of "Sin producto" its listed publications', () => {
+  it('feeds the catalog competition and the wholesale prices of "Sin producto" its listed publications, on their tabs', async () => {
+    granted = new Set(['promos.ver', 'pxq.ver']);
     renderPanel({ productKey: '0', state: hookState({ summary: NO_PRODUCT }) });
     const ids = ITEMS.map((item) => item.item_id).join(',');
+    await userEvent.click(screen.getByRole('tab', { name: 'Promos' }));
     expect(screen.getByTestId('product-catalog-competition')).toHaveTextContent(`competition of ${ids}`);
+    await userEvent.click(screen.getByRole('tab', { name: 'PxQ' }));
     expect(screen.getByTestId('product-pxq')).toHaveTextContent(`pxq of ${ids}`);
   });
 
@@ -468,10 +472,13 @@ describe('ProductPanel', () => {
     });
 
     it('keeps feeding the catalog competition and the wholesale prices the listed publications, not the tree', async () => {
+      granted = new Set(['promos.ver', 'pxq.ver']);
       renderPanel();
       await screen.findByRole('button', { name: 'Expandir todo' });
       const ids = ITEMS.map((item) => item.item_id).join(',');
+      await userEvent.click(screen.getByRole('tab', { name: 'Promos' }));
       expect(screen.getByTestId('product-catalog-competition')).toHaveTextContent(`competition of ${ids}`);
+      await userEvent.click(screen.getByRole('tab', { name: 'PxQ' }));
       expect(screen.getByTestId('product-pxq')).toHaveTextContent(`pxq of ${ids}`);
     });
   });
@@ -548,6 +555,74 @@ describe('ProductPanel', () => {
       expect(tab('Resumen')).toHaveFocus();
       await userEvent.keyboard('{Home}');
       expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('adds Promos with promos.ver and PxQ with pxq.ver, after Resumen, still opening on Precios', () => {
+      granted = new Set(['productos.ver', 'promos.ver', 'pxq.ver']);
+      renderPanel();
+      expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Precios', 'Resumen', 'Promos', 'PxQ', 'Cambios']);
+      expect(tab('Precios')).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('has Promos and PxQ for "Sin producto" too, opening on Resumen', () => {
+      granted = new Set(['promos.ver', 'pxq.ver']);
+      renderPanel({ state: hookState({ summary: NO_PRODUCT }), productKey: '0' });
+      expect(screen.getAllByRole('tab').map((entry) => entry.textContent)).toEqual(['Resumen', 'Promos', 'PxQ']);
+      expect(tab('Resumen')).toHaveAttribute('aria-selected', 'true');
+    });
+
+    it('lists one closed entry per publication on Promos, each opening its promotions by section, then the catalog competition', async () => {
+      granted = new Set(['promos.ver']);
+      const onListReload = vi.fn();
+      renderPanel({ onListReload });
+      await userEvent.click(tab('Promos'));
+      const promos = screen.getByRole('region', { name: 'Promociones' });
+      for (const item of ITEMS) {
+        expect(within(promos).getByRole('button', { name: `Promociones de ${item.item_id}` })).toHaveAttribute('aria-expanded', 'false');
+      }
+      expect(screen.queryByTestId('promos-of-MLA1100000001')).not.toBeInTheDocument();
+
+      await userEvent.click(within(promos).getByRole('button', { name: 'Promociones de MLA1100000001' }));
+      expect(screen.getByTestId('promos-of-MLA1100000001')).toBeInTheDocument();
+      expect(screen.queryByTestId('promos-of-MLA1100000002')).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Simular aplicar' }));
+      expect(onListReload).toHaveBeenCalledTimes(1);
+
+      const competition = screen.getByTestId('product-catalog-competition');
+      expect(promos.compareDocumentPosition(competition) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.queryByTestId('product-pxq')).not.toBeInTheDocument();
+    });
+
+    it('shows the wholesale prices of the listed publications on PxQ, and nothing else', async () => {
+      granted = new Set(['pxq.ver']);
+      renderPanel();
+      await userEvent.click(tab('PxQ'));
+      expect(screen.getByTestId('product-pxq')).toHaveTextContent(`pxq of ${ITEMS.map((item) => item.item_id).join(',')}`);
+      expect(screen.queryByRole('region', { name: 'Publicaciones' })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('product-catalog-competition')).not.toBeInTheDocument();
+    });
+
+    it('asks for more publications from Promos and PxQ while there are more, for a product too', async () => {
+      granted = new Set(['promos.ver', 'pxq.ver']);
+      const { state } = renderPanel({ state: hookState({ hasMore: true }) });
+      await userEvent.click(tab('Promos'));
+      await userEvent.click(screen.getByRole('button', { name: 'Ver más' }));
+      expect(state.loadMore).toHaveBeenCalledTimes(1);
+      await userEvent.click(tab('PxQ'));
+      await userEvent.click(screen.getByRole('button', { name: 'Ver más' }));
+      expect(state.loadMore).toHaveBeenCalledTimes(2);
+    });
+
+    it('says on Promos and PxQ that the publications are loading, or that the filters leave none', async () => {
+      granted = new Set(['promos.ver', 'pxq.ver']);
+      renderPanel({ state: hookState({ items: [], loading: true }) });
+      await userEvent.click(tab('Promos'));
+      expect(screen.getByText('Cargando publicaciones…')).toBeInTheDocument();
+      cleanup();
+      renderPanel({ state: hookState({ items: [] }) });
+      await userEvent.click(tab('PxQ'));
+      expect(screen.getByText('Ninguna publicación coincide con los filtros.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Ver más' })).not.toBeInTheDocument();
     });
 
     it('has no Precios without a price permission', () => {
