@@ -417,7 +417,9 @@ def test_migration_round_trip_and_no_drift(pg_engine):
     print("heads", _script_directory().get_heads())
     migration = _load_migration()
     source = Path(migration.__file__).read_text()
-    assert "ForeignKey" not in source and "alter_" not in source and "execute(" not in source
+    assert "ForeignKey" not in source and "alter_" not in source
+    # The only raw SQL is the payments index, built and dropped CONCURRENTLY: no data change.
+    assert source.count("op.execute(") == 2 and source.count("INDEX CONCURRENTLY IF") == 2
     md = sa.MetaData()
     for n in NAMES:
         Base.metadata.tables[n].to_metadata(md)
@@ -439,21 +441,23 @@ def test_migration_round_trip_and_no_drift(pg_engine):
                 "include_name": lambda name, kind, parent: kind != "table" or name in NAMES,
             },
         )
-        op_obj = Operations(ctx)
-        op_obj._install_proxy()
         try:
             before = set(sa.inspect(conn).get_table_names())
+            conn.commit()
             for _ in range(2):
-                migration.upgrade()
-                conn.commit()
+                # `autocommit_block` (the CONCURRENTLY index) needs the migration's own transaction.
+                with Operations.context(ctx), ctx.begin_transaction():
+                    migration.upgrade()
                 diff = compare_metadata(ctx, md)
                 print("drift:", diff)
                 assert diff == []
-                migration.downgrade()
                 conn.commit()
+                with Operations.context(ctx), ctx.begin_transaction():
+                    migration.downgrade()
                 assert set(sa.inspect(conn).get_table_names()) == before
+                conn.commit()
         finally:
-            op_obj._remove_proxy()
+            conn.rollback()
             with pg_engine.begin() as cleanup:
                 cleanup.execute(sa.text(drop))
                 cleanup.execute(sa.text(drop_index))
