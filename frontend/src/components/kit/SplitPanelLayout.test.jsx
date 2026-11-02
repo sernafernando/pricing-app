@@ -346,6 +346,19 @@ describe('resizing (opt-in by resizeKey)', () => {
     expect(dragWidth(container)).toBe('340px');
   });
 
+  it('a width chosen under the panel minimum, where the default is under it too, is still there after a reload', async () => {
+    withStylesheet({ '--split-panel-width': '336px', '--split-panel-cap': '100vw' });
+    PANEL = 336;
+    const first = renderLayout({ resizeKey: 'pubml' });
+    separator().focus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(localStorage.getItem(STORAGE)).toBe(String(336 + RESIZE_STEP));
+    first.unmount();
+
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    expect(dragWidth(container)).toBe(`${336 + RESIZE_STEP}px`);
+  });
+
   it('without the stylesheet the bounds are the two minimums alone', async () => {
     GRID = 840;
     PANEL = 378;
@@ -527,7 +540,7 @@ describe('resizing (opt-in by resizeKey)', () => {
     expect(separator()).toHaveAttribute('aria-valuenow', '720');
   });
 
-  it.each(['abc', '-5', '10'])('ignores a stored width it cannot use (%s) and keeps the default', (stored) => {
+  it.each(['abc', '-5', '0'])('ignores a stored width it cannot use (%s) and keeps the default', (stored) => {
     localStorage.setItem(STORAGE, stored);
     const { container } = renderLayout({ resizeKey: 'pubml' });
     expect(dragWidth(container)).toBe('');

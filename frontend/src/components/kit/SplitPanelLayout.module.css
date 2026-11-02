@@ -11,6 +11,7 @@
    a plain vw value. */
 .grid {
   --split-panel-cap: 42vw;
+  --split-panel-default: min(var(--split-panel-width), var(--split-panel-cap));
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
@@ -28,13 +29,13 @@
 }
 
 .open {
-  grid-template-columns: minmax(0, 1fr) min(var(--split-panel-width), var(--split-panel-cap));
+  grid-template-columns: minmax(0, 1fr) var(--split-panel-default);
 }
 
 /* Resizable: the gap becomes the drag handle's own column, so the default
    geometry (table, gap, panel at its token width) is the same as above. */
 .grid[data-resizable].open {
-  grid-template-columns: minmax(0, 1fr) var(--split-panel-gap) min(var(--split-panel-width), var(--split-panel-cap));
+  grid-template-columns: minmax(0, 1fr) var(--split-panel-gap) var(--split-panel-default);
   column-gap: 0;
 }
 
@@ -49,11 +50,11 @@
   grid-template-columns:
     minmax(0, 1fr) var(--split-panel-gap)
     clamp(
-      min(var(--split-panel-min-width), min(var(--split-panel-width), var(--split-panel-cap))),
+      min(var(--split-panel-min-width), var(--split-panel-default)),
       var(--split-panel-drag-width),
       max(
         calc(100% - var(--split-panel-gap) - var(--split-table-min-width)),
-        min(var(--split-panel-width), var(--split-panel-cap)),
+        var(--split-panel-default),
         var(--split-panel-min-width)
       )
     );

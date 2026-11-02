@@ -50,7 +50,9 @@ function loadWidth(key) {
   if (!key) return null;
   try {
     const width = Number(localStorage.getItem(storageKey(key)));
-    return Number.isFinite(width) && width >= PANEL_MIN_WIDTH ? width : null;
+    // Any positive width: the CSS track bounds what is drawn, and the lower
+    // bound can sit under PANEL_MIN_WIDTH where the default does.
+    return Number.isFinite(width) && width > 0 ? width : null;
   } catch {
     return null;
   }
