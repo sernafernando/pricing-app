@@ -72,7 +72,18 @@ _STUB_DDL = (
       item_id INTEGER PRIMARY KEY,
       codigo TEXT,
       descripcion TEXT,
-      stock INTEGER DEFAULT 0
+      marca TEXT,
+      categoria TEXT,
+      subcategoria_id INTEGER,
+      costo DOUBLE PRECISION,
+      moneda_costo VARCHAR(3) DEFAULT 'ARS',
+      iva DOUBLE PRECISION DEFAULT 21.0,
+      envio DOUBLE PRECISION DEFAULT 0.0,
+      stock INTEGER DEFAULT 0,
+      activo BOOLEAN DEFAULT TRUE,
+      fecha_sync TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ,
+      hash_datos VARCHAR(64)
     )
     """,
     """
