@@ -1500,6 +1500,32 @@ describe('the product panel', () => {
     await waitFor(() => expect(productPanel()).not.toBeInTheDocument());
   });
 
+  // The tab "Volver" restores is only for the trip to one of its publications and back.
+  it('closed and opened again, it opens on Precios, not on the tab it was closed on', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&prod=4101');
+    const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    await user.click(await within(opened).findByRole('tab', { name: 'Resumen' }));
+    await user.click(within(opened).getByRole('button', { name: 'Cerrar panel' }));
+    await waitFor(() => expect(productPanel()).not.toBeInTheDocument());
+    await user.click(rowOf('Router Archer AX55'));
+    const again = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    expect(await within(again).findByRole('tab', { name: 'Precios' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('closed by a filter change and opened again, it opens on Precios', async () => {
+    const user = userEvent.setup();
+    await products('/ml-publicaciones?vista=producto&prod=4101');
+    const opened = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    await user.click(await within(opened).findByRole('tab', { name: 'Resumen' }));
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await user.click(within(estado).getByRole('button', { name: /Activas/ }));
+    await waitFor(() => expect(productPanel()).not.toBeInTheDocument());
+    await user.click(await screen.findByText('Router Archer AX55'));
+    const again = await screen.findByRole('complementary', { name: 'Detalle del producto' });
+    expect(await within(again).findByRole('tab', { name: 'Precios' })).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('the Agrupado view still opens its nodes on a click, with no product panel', async () => {
     const user = userEvent.setup();
     renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
