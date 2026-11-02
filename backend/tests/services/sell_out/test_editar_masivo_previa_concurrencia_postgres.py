@@ -98,7 +98,11 @@ def _all_tables(engine: Engine) -> dict:
 def _advisory_count(engine: Engine) -> int:
     with engine.connect() as conn:
         return conn.execute(
-            text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid = :ns"),
+            # pg_locks is cluster-wide: under xdist every worker has its own database in the same server.
+            text(
+                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid = :ns "
+                "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())"
+            ),
             {"ns": asignacion.LOCK_NAMESPACE},
         ).scalar()
 
@@ -288,7 +292,10 @@ def _espera_advisory(engine: Engine, segundos: float = 5.0) -> None:
         fin = time.monotonic() + segundos
         while time.monotonic() < fin:
             n = conn.execute(
-                text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid = :ns AND NOT granted"),
+                text(
+                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid = :ns AND NOT granted "
+                    "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())"
+                ),
                 {"ns": asignacion.LOCK_NAMESPACE},
             ).scalar()
             if n:
@@ -490,6 +497,8 @@ def test_during_a_preview_writers_and_drain(engine: Engine, monkeypatch: pytest.
     hilo.join(10)
     otro.join(10)
     editor.join(10)
+    vivos = [n for n, t in (("preview", hilo), ("apply", otro), ("edit", editor)) if t.is_alive()]
+    assert vivos == [], f"still running after 10 s: {vivos}, advisory={_advisory_count(engine)}"
     if "exc" not in editada:
         assert editada["t"] > 3  # no queue row: it waited on the campaign row past the 2 s bound
     assert salida["p"]["cambian"][0]["salen"]["lineas"] == 1

@@ -115,7 +115,10 @@ def _espera_advisory(engine: Engine, segundos: float = 5.0) -> None:
         fin = time.monotonic() + segundos
         while time.monotonic() < fin:
             n = c.execute(
-                text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid = :ns AND NOT granted"),
+                text(
+                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid = :ns AND NOT granted "
+                    "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())"
+                ),
                 {"ns": asignacion.LOCK_NAMESPACE},
             ).scalar()
             if n:
