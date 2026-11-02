@@ -1887,10 +1887,13 @@ def get_item_detail(
 ) -> dict[str, Any]:
     """The Resumen of one publication: its row, every stored field, stock per location, Full replenishment, all
     links and the product, how fresh each resource is and whether the caller may resynchronize it. With
-    `ml_metricas.ver_ganancia`, also the product's cost, the row's markup and the breakdown of the markup."""
+    `ml_metricas.ver_ganancia`, also the product's cost, the row's markup and the breakdown of the markup. With
+    `ml_metricas.ver`, the row carries the table row's Métricas figures (`metrics`, `sales_30d`), margin included only
+    with `ver_ganancia` as in the list."""
     timer = Timer("detail")
     permisos = PermisosService(auth_db)
     can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
+    can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
     can_resync = permisos.tiene_permiso(user, PERMISO_GESTIONAR)
     can_change_status = permisos.tiene_permiso(user, PERMISO_PAUSAR)
     try:
@@ -1899,6 +1902,9 @@ def get_item_detail(
         markup = MarkupQuery(auth_db) if can_see_margin else None
         with timer.stage("detail"):
             found = detail.get_detail(db, item_id, events=events_enabled, markup=markup)
+        if found is not None and can_see_sales:
+            with timer.stage("metrics"):
+                _attach_metrics([found["row"]], row_metrics.metrics_by_mla(db, [item_id]), with_margin=can_see_margin)
     except DBAPIError as exc:
         if (slow := _database_error(exc)) is not None:
             raise slow from exc
