@@ -741,6 +741,7 @@ describe('opening a publication', () => {
 
     afterEach(() => {
       delete document.documentElement.dataset.mlPanel;
+      openInMlPanel.mockReset();
       open.mockRestore();
       post.mockRestore();
     });
@@ -782,10 +783,12 @@ describe('opening a publication', () => {
     });
 
     it.each([
-      ['Alt', { altKey: true }],
-      ['Shift', { shiftKey: true }],
-    ])('a publication with no usable MLA opens nothing on %s+click', async (_, keys) => {
-      document.documentElement.dataset.mlPanel = '1';
+      ['Alt', { altKey: true }, 'with'],
+      ['Alt', { altKey: true }, 'without'],
+      ['Shift', { shiftKey: true }, 'with'],
+      ['Shift', { shiftKey: true }, 'without'],
+    ])('a publication with no usable MLA opens nothing on %s+click, %s the extension', async (_, keys, extension) => {
+      if (extension === 'with') document.documentElement.dataset.mlPanel = '1';
       respond({ ...ITEMS_RESPONSE, items: [ITEMS[0], { ...ITEMS[1], item_id: 'MLA' }], total: 2 });
       await page();
       fireEvent.click(screen.getByText(/Cartucho Epson 544/).closest('tr'), keys);
