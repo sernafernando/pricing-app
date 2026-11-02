@@ -167,7 +167,11 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
     return {
       width: panelRef.current?.getBoundingClientRect().width ?? 0,
       min: defaultPanel === null ? PANEL_MIN_WIDTH : Math.min(PANEL_MIN_WIDTH, defaultPanel),
-      max: Math.max(PANEL_MIN_WIDTH, Math.floor(grid - handle - TABLE_MIN_WIDTH), defaultPanel ?? 0),
+      // Never wider than the grid itself, whatever the minimums say.
+      max: Math.min(
+        Math.max(PANEL_MIN_WIDTH, Math.floor(grid - handle - TABLE_MIN_WIDTH), defaultPanel ?? 0),
+        Math.floor(grid - handle),
+      ),
     };
   };
 
@@ -196,6 +200,8 @@ export default function SplitPanelLayout({ open, panel, onClose, width = 'md', a
   const moveTo = (start, target, bounds) => {
     if (target === start) return null;
     const next = Math.min(Math.max(Math.round(target), bounds.min), bounds.max);
+    // Under half a pixel is the browser snapping the measured width, not a move.
+    if (Math.abs(next - start) < 0.5) return null;
     return (target > start ? next > start : next < start) ? next : null;
   };
 

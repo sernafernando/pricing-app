@@ -387,6 +387,24 @@ describe('resizing (opt-in by resizeKey)', () => {
     expect(dragWidth(container)).toBe('');
   });
 
+  it('a panel already at its upper bound, measured a hair under it, does not save a step it cannot draw', async () => {
+    withStylesheet({ '--split-panel-width': '560px', '--split-panel-cap': '42vw' });
+    GRID = 840; // the default, 42vw of the window, is the upper bound
+    PANEL = (window.innerWidth * 42) / 100 - 0.02; // the browser snapped it to layout units
+    const { container } = renderLayout({ resizeKey: 'pubml' });
+    separator().focus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(dragWidth(container)).toBe('');
+    expect(localStorage.getItem(STORAGE)).toBeNull();
+  });
+
+  it('on a grid narrower than the panel minimum the panel never outgrows the grid', () => {
+    GRID = 300;
+    PANEL = 120;
+    renderLayout({ resizeKey: 'pubml' });
+    expect(Number(separator().getAttribute('aria-valuemax'))).toBeLessThanOrEqual(300);
+  });
+
   it('without the stylesheet the bounds are the two minimums alone', async () => {
     GRID = 840;
     PANEL = 378;
