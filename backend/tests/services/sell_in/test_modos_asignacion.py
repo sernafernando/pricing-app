@@ -107,3 +107,16 @@ def test_a_re_based_lot_hands_out_exactly_its_total_with_odd_cents() -> None:
     consumos = _por_venta(asignar(lotes, ventas, [Periodo(OCT25, "fifo")]))
 
     assert consumos == {5: [(1, 1, Decimal("50.01"))], 7: [(1, 1, Decimal("50.00"))]}
+
+
+def test_a_weighted_row_re_weighs_what_a_last_price_period_left() -> None:
+    # D2: a later row starts from the units AND values the previous period left. 100 at 10, 100 at 8, 100 at 6; under
+    # `ultimo` from Oct 5 every unit is worth 6, so on Oct 15 the 200 left weigh 1200 (not their own 1400).
+    lotes = [_lote(1, 100, "1000"), _lote(2, 100, "800"), _lote(3, 100, "600")]
+    ventas = [_venta(5, 100, date(2026, 10, 10)), _venta(7, 200, OCT20)]
+    periodos = [Periodo(date(2026, 10, 5), "ultimo"), Periodo(OCT15, "ponderado")]
+
+    consumos = _por_venta(asignar(lotes, ventas, periodos))
+
+    assert sum(x[2] for x in consumos[5]) == Decimal("600.00")
+    assert sum(x[2] for x in consumos[7]) == Decimal("1200.00")

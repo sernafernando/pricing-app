@@ -49,13 +49,16 @@ later in the list); before the first one, FIFO.
 - `ultimo` ("que el costo sea el del último también combinando las
   cantidades"): every unit at the unit value of the newest lot that counts;
   this does NOT hand out what the lots hold (owner accepted, 2026-11-02).
-Entering a period re-bases each lot left on its own value (its whole discount
-times the share of its units left), so a sale before a period's `desde` keeps
-exactly what it got before that period existed.
+A period takes over at its `desde` from what the previous one left, with or
+without sales in between (D2): `fifo` puts each lot back at its own money left
+(after FIFO it changes nothing), `ponderado` weighs the money the previous
+period left (a pool continues, a last price's value is re-weighed), `ultimo`
+re-anchors. A sale before a period's `desde` keeps exactly what it had.
 """
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
@@ -121,16 +124,22 @@ def _escalon(total: Decimal, unidades: int, desde: int, hasta: int) -> Decimal:
 
 
 def periodo_en(periodos: List[Periodo], fecha: date) -> Tuple[int, str]:
-    """(index, mode) of the period governing `fecha`; (-1, 'fifo') before the first one."""
+    """(index, mode) of the period governing `fecha`: the latest `desde` on or before it, the later in the list on the
+    same `desde`; (-1, 'fifo') before the first one."""
     actual = (-1, "fifo")
     for i, periodo in enumerate(periodos):
-        if periodo.desde <= fecha:
+        if periodo.desde <= fecha and (actual[0] < 0 or periodo.desde >= periodos[actual[0]].desde):
             actual = (i, periodo.modo)
     return actual
 
 
 class Dinero:
-    """The money pass: what each (sale, lot, units) row carries under the cost modes, fed in sale order."""
+    """The money pass: what each (sale, lot, units) row carries under the cost modes, fed in sale order.
+
+    A period takes over at its `desde` from what the previous one left, sales or not in between (D2): `fifo` puts each
+    lot's units back at the lot's own value (after FIFO it changes nothing); `ponderado` weighs the money the previous
+    period left on the units left (a previous pool's money, a last price's value, or each lot's own money); `ultimo`
+    values every unit at the newest lot's unit value."""
 
     def __init__(self, lotes: List[Lote], periodos: Iterable[Periodo] = ()) -> None:
         self.lotes = lotes
@@ -138,78 +147,121 @@ class Dinero:
         for periodo in self.periodos:
             if periodo.modo not in ("fifo", "ponderado", "ultimo"):
                 raise ValueError(f"cost mode {periodo.modo!r} is not supported here")
+        orden = sorted(range(len(self.periodos)), key=lambda k: (self.periodos[k].desde, k))
+        # The periods that govern some day, in date order (an earlier one on the same `desde` never does).
+        self._pendientes = [
+            k
+            for n, k in enumerate(orden)
+            if n + 1 == len(orden) or self.periodos[orden[n + 1]].desde != self.periodos[k].desde
+        ]
         self.usadas = [0] * len(lotes)
-        self._lote_seg: Dict[int, Tuple[int, int, Decimal, int]] = {}  # lot -> (period, start units, base, units)
-        # The pool of a `ponderado` / `ultimo` period: [period, lots counting, base money, base units, units taken].
+        self._modo = "fifo"
+        self._lote_seg: Dict[int, Tuple[int, Decimal, int]] = {}  # FIFO: lot -> (start used units, base, units)
+        # `ponderado`: [lots counting, money, units, units taken]; `ultimo`: [lots counting, unit value, 1, units taken].
         self._seg: Optional[list] = None
-
-    def _base_propia(self, i: int) -> Decimal:
-        """The lot's own money left: its total minus what cumulative rounding gave the units already used, so a lot
-        re-based mid-way still hands out exactly its total once used up."""
-        lote = self.lotes[i]
-        return lote.descuento_ars - _cents(lote.descuento_ars * self.usadas[i] / lote.cantidad)
 
     def _cuentan(self, fecha: date) -> int:
         """How many lots (FIFO order, dates never decrease) count on `fecha`."""
         return sum(1 for lote in self.lotes if lote.fecha <= fecha)
 
-    def fila(self, fecha: date, i: int, unidades: int) -> Decimal:
-        n, modo = periodo_en(self.periodos, fecha)
-        if modo == "fifo":
-            seg = self._lote_seg.get(i)
-            if seg is None or seg[0] != n:
-                seg = (n, self.usadas[i], self._base_propia(i), self.lotes[i].cantidad - self.usadas[i])
-                self._lote_seg[i] = seg
-            k = self.usadas[i] - seg[1]
-            monto = _escalon(seg[2], seg[3], k, k + unidades)
+    def _libres(self, i: int) -> int:
+        return self.lotes[i].cantidad - self.usadas[i]
+
+    def _propio(self, i: int) -> Decimal:
+        """The lot's own money left: its total minus what cumulative rounding gave the units already used, so a lot
+        re-based mid-way still hands out exactly its total once used up."""
+        lote = self.lotes[i]
+        return lote.descuento_ars - _cents(lote.descuento_ars * self.usadas[i] / lote.cantidad)
+
+    def _resto_fifo(self, i: int) -> Decimal:
+        seg = self._lote_seg.get(i)
+        if seg is None:
+            return self._propio(i)
+        inicio, base, unidades = seg
+        return base - _cents(base * (self.usadas[i] - inicio) / unidades)
+
+    def _resto_pool(self) -> Decimal:
+        _, base, unidades, tomadas = self._seg
+        return base - _cents(base * tomadas / unidades) if unidades else base
+
+    def _dinero_restante(self, cuentan: int) -> Decimal:
+        """The money the current state leaves on the units of the first `cuentan` lots."""
+        if self._modo == "fifo":
+            return sum((self._resto_fifo(j) for j in range(cuentan)), Decimal(0))
+        hasta = self._seg[0]
+        if self._modo == "ponderado":
+            dentro = self._resto_pool()
         else:
-            monto = self._pool(n, modo, fecha, unidades)
+            dentro = sum((self._seg[1] * self._libres(j) for j in range(hasta)), Decimal(0))
+        return dentro + sum((self._propio(j) for j in range(hasta, cuentan)), Decimal(0))
+
+    def _ultimo(self, cuentan: int) -> list:
+        lote = self.lotes[cuentan - 1] if cuentan else None
+        return [cuentan, lote.descuento_ars / lote.cantidad if lote else Decimal(0), 1, 0]
+
+    def _avanzar(self, fecha: date) -> None:
+        """Enters, in date order, every period that starts on or before `fecha`."""
+        while self._pendientes and self.periodos[self._pendientes[0]].desde <= fecha:
+            periodo = self.periodos[self._pendientes.pop(0)]
+            cuentan = self._cuentan(periodo.desde)
+            if periodo.modo == "fifo":
+                if self._modo != "fifo":
+                    self._lote_seg.clear()  # each lot back at its own value
+                self._seg = None
+            elif periodo.modo == "ponderado":
+                dinero = self._dinero_restante(cuentan)
+                self._seg = [cuentan, dinero, sum(self._libres(j) for j in range(cuentan)), 0]
+            else:
+                self._seg = self._ultimo(cuentan)
+            self._modo = periodo.modo
+
+    def _unir(self, fecha: date) -> None:
+        """Lots that start counting inside a pool period join it: re-weighed (`ponderado`) or re-anchored (`ultimo`)."""
+        cuentan = self._cuentan(fecha)
+        if cuentan <= self._seg[0]:
+            return
+        if self._modo == "ultimo":
+            self._seg = self._ultimo(cuentan)
+            return
+        dinero = self._dinero_restante(cuentan)
+        self._seg = [cuentan, dinero, sum(self._libres(j) for j in range(cuentan)), 0]
+
+    def fila(self, fecha: date, i: int, unidades: int) -> Decimal:
+        self._avanzar(fecha)
+        if self._modo == "fifo":
+            seg = self._lote_seg.get(i)
+            if seg is None:
+                seg = (self.usadas[i], self._propio(i), self._libres(i))
+                self._lote_seg[i] = seg
+            k = self.usadas[i] - seg[0]
+            monto = _escalon(seg[1], seg[2], k, k + unidades)
+        else:
+            self._unir(fecha)
+            seg = self._seg
+            k = seg[3]
+            seg[3] += unidades
+            monto = _escalon(seg[1], seg[2], k, k + unidades)
         self.usadas[i] += unidades
         return monto
 
     def proximo(self, fecha: date) -> Optional[Tuple[int, Decimal, int, int]]:
         """What the next sale on `fecha` gets after the rows fed so far, without feeding it: `(lot the units come
         from, money, units it spreads over, units left at that value)`; None when no lot that counts has units."""
-        cuentan = self._cuentan(fecha)
-        libres = [j for j in range(cuentan) if self.lotes[j].cantidad - self.usadas[j] > 0]
+        sim = copy.deepcopy(self)
+        sim._avanzar(fecha)
+        libres = [j for j in range(sim._cuentan(fecha)) if sim._libres(j) > 0]
         if not libres:
             return None
         primero = libres[0]
-        n, modo = periodo_en(self.periodos, fecha)
-        if modo == "fifo":
-            lote = self.lotes[primero]
-            return primero, lote.descuento_ars, lote.cantidad, lote.cantidad - self.usadas[primero]
-        unidades = sum(self.lotes[j].cantidad - self.usadas[j] for j in libres)
-        if modo == "ultimo":
-            ultimo = self.lotes[cuentan - 1]
-            return primero, ultimo.descuento_ars, ultimo.cantidad, unidades
-        seg = self._seg if self._seg is not None and self._seg[0] == n else None
-        if seg is None or seg[1] != cuentan:
-            desde, base = (0, Decimal(0)) if seg is None else (seg[1], seg[2] - _cents(seg[2] * seg[4] / seg[3]))
-            base += sum((self._base_propia(j) for j in range(desde, cuentan)), Decimal(0))
-            return primero, base, unidades, unidades
-        return primero, seg[2] - _cents(seg[2] * seg[4] / seg[3]), unidades, unidades
-
-    def _pool(self, n: int, modo: str, fecha: date, unidades: int) -> Decimal:
-        cuentan = self._cuentan(fecha)
-        seg = self._seg if self._seg is not None and self._seg[0] == n else None  # a new period re-bases
-        if seg is None or seg[1] != cuentan:
-            libres = sum(self.lotes[j].cantidad - self.usadas[j] for j in range(cuentan))
-            if modo == "ultimo":
-                ultimo = self.lotes[cuentan - 1]
-                seg = [n, cuentan, ultimo.descuento_ars / ultimo.cantidad, 1, 0]  # a unit value over unit steps
-            else:
-                desde = 0
-                base = Decimal(0)
-                if seg is not None:  # lots start counting mid-period: what the pool still holds, plus them
-                    desde = seg[1]
-                    base = seg[2] - _cents(seg[2] * seg[4] / seg[3])
-                base += sum((self._base_propia(j) for j in range(desde, cuentan)), Decimal(0))
-                seg = [n, cuentan, base, libres, 0]
-            self._seg = seg
-        k = seg[4]
-        seg[4] += unidades
-        return _escalon(seg[2], seg[3], k, k + unidades)
+        if sim._modo == "fifo":
+            lote = sim.lotes[primero]
+            return primero, lote.descuento_ars, lote.cantidad, sim._libres(primero)
+        sim._unir(fecha)
+        unidades = sum(sim._libres(j) for j in libres)
+        if sim._modo == "ultimo":
+            lote = sim.lotes[sim._seg[0] - 1]
+            return primero, lote.descuento_ars, lote.cantidad, unidades
+        return primero, sim._resto_pool(), unidades, unidades
 
 
 Clave = Tuple[str, int]
