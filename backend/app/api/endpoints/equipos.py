@@ -14,7 +14,7 @@ Governance model (hybrid):
   The `equipos.gestionar_global` permission (seeded in the PR1 migration) is
   reserved for future admin actions scoped to the global team; today it does
   not gate anything actionable here (spec assumption A3).
-- Deleting a team is blocked while it still has `ProductoColor` rows — the
+- Deleting a team is blocked while it still has `ProductoColor` or `PublicacionColor` rows — the
   caller must be told to reassign/clear those first, avoiding silent data
   loss.
 - A team's last admin cannot be removed or demoted (would orphan the team).
@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.api.endpoints.productos_shared import get_global_equipo_id
 from app.core.database import get_db
-from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, RolEquipo
+from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, PublicacionColor, RolEquipo
 from app.models.usuario import Usuario
 
 router = APIRouter()
@@ -366,14 +366,17 @@ def eliminar_equipo(
 
     Requires the caller be an admin of that team. Does NOT delete color data:
     if the team still has `ProductoColor` rows the request is rejected, and the
-    caller must reassign or clear those first, to avoid silently discarding
+    caller must reassign or clear those first (`PublicacionColor` rows too), to avoid silently discarding
     team color data.
     """
     equipo = _get_equipo_or_404(db, equipo_id)
     _reject_global(equipo)
     _require_admin(db, equipo_id, current_user)
 
-    tiene_colores = db.query(ProductoColor).filter(ProductoColor.equipo_id == equipo_id).first() is not None
+    tiene_colores = (
+        db.query(ProductoColor).filter(ProductoColor.equipo_id == equipo_id).first() is not None
+        or db.query(PublicacionColor).filter(PublicacionColor.equipo_id == equipo_id).first() is not None
+    )
     if tiene_colores:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -334,6 +334,20 @@ class TestRenombrarYEliminar:
         assert resp.status_code == 400
         assert db.query(Equipo).filter(Equipo.id == equipo.id).first() is not None
 
+    def test_no_se_puede_eliminar_equipo_con_colores_de_publicacion(self, client, db, rol_ventas) -> None:
+        # seleccion-por-publicacion S6: a team's per-publication colors block its deletion too.
+        from app.models.equipo import PublicacionColor
+
+        equipo = _make_equipo(db, "Con colores de publicacion")
+        admin = _make_usuario(db, "admin_delete_pub_colors", rol_ventas.id)
+        _add_member(db, equipo.id, admin.id, RolEquipo.ADMIN)
+        db.add(PublicacionColor(equipo_id=equipo.id, item_id="MLA1", color_ml="rojo"))
+        db.commit()
+
+        resp = client.delete(f"/api/equipos/{equipo.id}", headers=auth_headers_for(admin))
+        assert resp.status_code == 400
+        assert db.query(Equipo).filter(Equipo.id == equipo.id).first() is not None
+
 
 # ---------------------------------------------------------------------------
 # Global ("U") team — implicit membership, mutations rejected
