@@ -373,3 +373,17 @@ class SellOutSugerenciaOut(BaseModel):
 
     base: str
     campanas: list[SellOutSugerenciaCampanaOut]
+
+
+class SellOutProgramaListOut(BaseModel):
+    items: list[SellOutProgramaOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class SellOutSugerenciaListOut(BaseModel):
+    items: list[SellOutSugerenciaOut]
+    total: int
+    page: int
+    page_size: int

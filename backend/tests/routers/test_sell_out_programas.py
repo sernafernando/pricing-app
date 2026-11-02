@@ -169,12 +169,12 @@ def test_list_sorts_by_name_counts_campaigns_and_filters_by_state(client, gestor
     assert _asignar(client, gestor, [vieja["id"], nueva["id"]], epson["id"]).status_code == 200
     client.patch(f"{BASE}/{rebate['id']}", json={"estado": "archivado"}, headers=gestor)
 
-    filas = client.get(BASE, headers=gestor).json()
+    filas = client.get(BASE, headers=gestor).json()["items"]
     assert [(f["nombre"], f["campanas"], f["activas"], f["desde"], f["hasta"]) for f in filas] == [
         ("EPSON PROG", 2, 1, "2026-01-01", "2026-06-30"),
         ("Rebate", 0, 0, None, None),
     ]
-    archivados = client.get(BASE, params={"estado": "archivado"}, headers=gestor).json()
+    archivados = client.get(BASE, params={"estado": "archivado"}, headers=gestor).json()["items"]
     assert [f["nombre"] for f in archivados] == ["Rebate"]
 
 
@@ -301,14 +301,30 @@ def test_suggestions_group_campaigns_without_a_program_by_base_name(client, gest
 
     resp = client.get(f"{BASE}/sugerencias", headers=gestor)
     assert resp.status_code == 200, resp.text
-    assert [(g["base"], [c["id"] for c in g["campanas"]]) for g in resp.json()] == [
+    assert [(g["base"], [c["id"] for c in g["campanas"]]) for g in resp.json()["items"]] == [
         ("EPSON PROG", [epson[1]["id"], epson[0]["id"], epson[2]["id"]]),  # by start date
         ("Rebate", [rebate[0]["id"], rebate[1]["id"]]),
     ]
-    assert resp.json()[0]["campanas"][0] == {
+    assert resp.json()["items"][0]["campanas"][0] == {
         "id": epson[1]["id"],
         "nombre": "EPSON PROG 24",
         "fecha_desde": "2026-01-01",
         "fecha_hasta": "2026-03-31",
         "estado": "activa",
     }
+
+
+def test_both_lists_are_paginated_like_the_campaigns(client, gestor, grupo) -> None:
+    for nombre in ("A programa", "B programa", "C programa"):
+        _programa(client, gestor, nombre)
+    for nombre in ("EPSON PROG 24", "EPSON PROG 25", "Rebate Q4 2024", "Rebate Q1 2025"):
+        _campana(client, gestor, grupo, nombre)
+
+    pagina = client.get(BASE, params={"page": 2, "page_size": 2}, headers=gestor).json()
+    assert [f["nombre"] for f in pagina["items"]] == ["C programa"]
+    assert (pagina["total"], pagina["page"], pagina["page_size"]) == (3, 2, 2)
+
+    sugeridas = client.get(f"{BASE}/sugerencias", params={"page_size": 1}, headers=gestor).json()
+    assert [g["base"] for g in sugeridas["items"]] == ["EPSON PROG"]
+    assert (sugeridas["total"], sugeridas["page"], sugeridas["page_size"]) == (2, 1, 1)
+    assert client.get(BASE, params={"page_size": 201}, headers=gestor).status_code == 422

@@ -31,9 +31,10 @@ from app.schemas.sell_out import (
     SellOutAsignarIn,
     SellOutAsignarOut,
     SellOutProgramaIn,
+    SellOutProgramaListOut,
     SellOutProgramaOut,
     SellOutProgramaPatchIn,
-    SellOutSugerenciaOut,
+    SellOutSugerenciaListOut,
 )
 from app.services.sell_out import programas as service
 
@@ -51,20 +52,33 @@ def _error(db: Session, exc: service.ProgramaError) -> HTTPException:
     return HTTPException(status_code=code, detail=str(exc))
 
 
-@router.get("", response_model=list[SellOutProgramaOut])
+def _pagina(filas: list[dict], page: int, page_size: int) -> dict:
+    inicio = (page - 1) * page_size
+    return {"items": filas[inicio : inicio + page_size], "total": len(filas), "page": page, "page_size": page_size}
+
+
+@router.get("", response_model=SellOutProgramaListOut)
 def listar_programas(
     estado: Optional[EstadoPrograma] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
     _user: Usuario = Depends(requiere_ver),
     db: Session = Depends(get_db),
-) -> list[dict]:
-    """Every program by name, with its campaigns' counts and date span."""
-    return service.listar(db, estado)
+) -> dict:
+    """Programs by name, with their campaigns' counts and date span, one page at a time."""
+    return _pagina(service.listar(db, estado), page, page_size)
 
 
-@router.get("/sugerencias", response_model=list[SellOutSugerenciaOut])
-def sugerir_programas(_user: Usuario = Depends(requiere_ver), db: Session = Depends(get_db)) -> list[dict]:
-    """Campaigns without a program that share a base name, biggest group first: a proposal to assign by hand."""
-    return service.sugerencias(db)
+@router.get("/sugerencias", response_model=SellOutSugerenciaListOut)
+def sugerir_programas(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    _user: Usuario = Depends(requiere_ver),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Campaigns without a program that share a base name, biggest group first: a proposal to assign by hand.
+    Grouped in Python (`nombre_base`), so the page is cut over the sorted groups."""
+    return _pagina(service.sugerencias(db), page, page_size)
 
 
 @router.post("", response_model=SellOutProgramaOut, status_code=status.HTTP_201_CREATED)
