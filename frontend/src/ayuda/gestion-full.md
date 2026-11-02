@@ -12,6 +12,8 @@ Planifica cuánto mandar a Full: una fila por producto ERP y familia MLAU, con C
 
 Arriba dice **Gestión Full**. Hay pestañas **Planificación**, **Consulta envíos**, con permiso `gestion_full.depositos` **Depósito** (U/caja e import), y con `gestion_full.gestor` **Envío** (armar paquete, Excel ML/ops, asignar inbound_id). En Planificación: búsqueda, marca, categoría, presencia Full y el check de stock ERP.
 
+En **Depósito**, por defecto ves **Pendientes**: productos sin U/caja que ya están en el **paquete de la semana** y/o marcados **Listo** (así el Excel no se traba). La columna Motivo dice Paquete / Listo. Con **Todos** cargás el catálogo ERP (búsqueda + import) como antes.
+
 Por defecto: **En Full** y **sin** filas con Stock ERP en 0. La tabla ordena por EAN y, si un mismo EAN tiene varios MLAU, esas filas van juntas con el mismo tinte.
 
 ## Filtros y columnas
@@ -31,7 +33,7 @@ Columnas: EAN, Descripción, Código ML (inventory_id), Familia (MLAU), ventas F
 - **Target**: se actualiza solo sábado y domingo (consulta gradual a ML del último ingreso a Full). Un admin puede forzar un refresh puntual.
 - **Override**: solo PM/sub-PM del producto o admin. Se guarda al salir del campo (o Enter). Vaciar y salir borra el override; si está vacío, vale el Sugerido. Queda bloqueado cuando la fila está **Listo**.
 - **Cerrar / Listo**: el PM congela Qty PM (`override` o Sugerido, tope stock ERP) y bloquea el override. Solo un usuario con `gestion_full.gestor` puede **Desbloquear**.
-- **Envío (gestor):** **Sumar líneas Listo** agrega al paquete todas las filas cerradas (server-side, sin tope de 500). En la grilla podés editar **Qty export** (tope stock ERP) antes de exportar. Descargar **Excel ML** / **Excel ops**, multi-selección + `inbound_id` → **Asignar**. Cuando todas las líneas con qty≥1 tienen inbound, el paquete queda locked y se liberan los Listo de esas filas. **Limpiar inbounds** habilita regenerar Excel.
+- **Envío (gestor):** **Sumar líneas Listo** agrega al paquete todas las filas cerradas (server-side, sin tope de 500). **Después de exportar el Excel**, el Listo nuevo del PM **no entra** a este paquete: queda para el próximo envío; Sumar solo puede re-capear hacia abajo líneas que ya estaban. En la grilla podés editar **Qty export** (tope stock ERP) antes de exportar. Descargar **Excel ML** / **Excel ops** exige que el stock ERP cubra la qty a enviar de cada línea; si no, el export falla nombrando los productos y hay que sacar o bajar esos SKUs del paquete antes de reintentar. Multi-selección + `inbound_id` → **Asignar**. Cuando todas las líneas con qty≥1 tienen inbound, el paquete queda locked y se liberan los Listo de esas filas. **Limpiar inbounds** habilita regenerar Excel.
 - **Consulta envíos:** lista local por `inbound_id` (human id `{lunes}_{inbound_id}`) y detalle declarado vs recibido. Un worker cada 3h actualiza recepciones; cierra localmente a los 3 días sin novedades **después de la primera recepción** (no cierra si los polls a ML fallan).
 
 ## Preguntas frecuentes

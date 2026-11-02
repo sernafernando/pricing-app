@@ -74,6 +74,40 @@ describe('GestionFullGestorTab', () => {
     });
   });
 
+  it('shows stock-gate detail when export blob returns JSON error', async () => {
+    api.get
+      .mockResolvedValueOnce({
+        data: {
+          id: 1,
+          week_monday: '2026-10-26',
+          status: 'exported',
+          lines: [],
+        },
+      })
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            text: async () =>
+              JSON.stringify({
+                detail:
+                  'stock ERP insuficiente para la qty a enviar en productos [101]; sacalos del paquete o bajá qty export antes de exportar',
+              }),
+          },
+        },
+      });
+
+    render(<GestionFullGestorTab />);
+    await waitFor(() => expect(screen.getByText(/Paquete #1/)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /Excel ML/ }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/stock ERP insuficiente.*productos \[101\]/),
+      ).toBeInTheDocument();
+    });
+  });
+
   it('saves qty export on blur', async () => {
     api.get.mockResolvedValue({
       data: {

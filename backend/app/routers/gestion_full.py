@@ -456,14 +456,22 @@ def post_package_line(
             status_code=status.HTTP_409_CONFLICT,
             detail="paquete hard-locked",
         )
-    line = upsert_package_line(
-        db,
-        package=pkg,
-        producto_item_id=ready.producto_item_id,
-        user_product_id=ready.user_product_id,
-        inventory_id=ready.inventory_id,
-        qty_pm=ready.qty_pm,
-    )
+    try:
+        line = upsert_package_line(
+            db,
+            package=pkg,
+            producto_item_id=ready.producto_item_id,
+            user_product_id=ready.user_product_id,
+            inventory_id=ready.inventory_id,
+            qty_pm=ready.qty_pm,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
     return {
         "id": line.id,
         "producto_item_id": line.producto_item_id,
