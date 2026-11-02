@@ -10,11 +10,12 @@ Sales carry no coupon id anywhere else (`raw_order.coupon.id` is always null, pa
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Column, DateTime, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Column, DateTime, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 
 from app.core.database import Base
+from app.models.ml_payments import MlPaymentOps
 
 
 class MlOrderDiscounts(Base):
@@ -64,3 +65,12 @@ class MlOrderDiscountsState(Base):
     id = Column(Integer, primary_key=True)
     consecutive_429 = Column(Integer, nullable=False, server_default="0", default=0)
     backoff_until = Column(DateTime(timezone=True), nullable=True)
+
+
+# The ingestion's pending query reads only the payments with a coupon (a small part of `ml_payments_ops`), every
+# few seconds: a partial index keeps it cheap as the table grows. Declared here, next to its only reader.
+Index(
+    "ix_ml_payments_ops_coupon_order_id",
+    MlPaymentOps.order_id,
+    postgresql_where=MlPaymentOps.coupon_amount > 0,
+)
