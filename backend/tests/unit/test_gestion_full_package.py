@@ -64,6 +64,48 @@ def test_upsert_package_line_creates() -> None:
     assert line.qty_export == 12
 
 
+def test_add_all_ready_lines_to_package() -> None:
+    from unittest.mock import patch
+
+    from app.services.gestion_full.package import add_all_ready_lines_to_package
+
+    pkg = SimpleNamespace(id=9, status="open")
+    db = MagicMock()
+    db.query.return_value.filter.return_value.with_for_update.return_value.one.return_value = pkg
+    ready = SimpleNamespace(
+        producto_item_id=2,
+        user_product_id="MLAU2",
+        inventory_id="INV2",
+        qty_pm=12,
+    )
+    ready_q = MagicMock()
+    ready_q.all.return_value = [ready]
+    line_q = MagicMock()
+    line_q.filter_by.return_value.one_or_none.return_value = None
+
+    def _query(model: object) -> MagicMock:
+        name = getattr(model, "__name__", "")
+        if name == "GestionFullPmReady":
+            return ready_q
+        if name == "GestionFullPackageLine":
+            return line_q
+        m = MagicMock()
+        m.filter.return_value.with_for_update.return_value.one.return_value = pkg
+        return m
+
+    db.query.side_effect = _query
+    usuario = SimpleNamespace(id=1)
+    with patch(
+        "app.services.gestion_full.package.get_or_create_open_package",
+        return_value=pkg,
+    ):
+        out_pkg, touched = add_all_ready_lines_to_package(db, usuario=usuario)
+    assert out_pkg is pkg
+    assert touched == 1
+    db.add.assert_called_once()
+    db.commit.assert_called()
+
+
 def test_set_qty_export_caps_and_audits() -> None:
     from app.services.gestion_full.package import set_qty_export
 

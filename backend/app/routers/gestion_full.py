@@ -33,6 +33,7 @@ from app.services.gestion_full.excel_export import (
     mark_package_exported,
 )
 from app.services.gestion_full.package import (
+    add_all_ready_lines_to_package,
     get_active_package,
     get_or_create_open_package,
     set_qty_export,
@@ -218,6 +219,14 @@ class GestionFullPackageLineBody(BaseModel):
     user_product_id: str = Field(..., min_length=1, max_length=128)
 
 
+class GestionFullAddReadyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    package_id: int
+    status: str
+    touched: int
+
+
 class GestionFullQtyExportBody(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -398,6 +407,23 @@ def get_package(db: Session = Depends(get_db)) -> dict[str, Any]:
             for ln in pkg.lines
         ],
     }
+
+
+@router.post(
+    "/package/lines/from-ready",
+    response_model=GestionFullAddReadyResponse,
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def post_package_lines_from_ready(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Add/refresh every PM-ready row into the active package (server-side, no 500 cap)."""
+    try:
+        pkg, touched = add_all_ready_lines_to_package(db, usuario=current_user)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+    return {"package_id": pkg.id, "status": pkg.status, "touched": touched}
 
 
 @router.post(
