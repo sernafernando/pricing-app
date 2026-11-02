@@ -35,6 +35,7 @@ Columnas: configurables con el selector de columnas (incluye código, descripci�
 - Acciones masivas (si tenés permiso).
 - Clic en una fila: abre el panel lateral de detalle. El panel de una publicación abre en **Promos**; sin permiso para ver promociones, en **Precios**, y si tampoco hay precios para mostrar, en **Resumen**. El panel de un producto abre en **Precios**, o en **Resumen** si no hay precios para mostrar; al volver desde una de sus publicaciones queda en la pestaña donde estaba.
 - Pestaña **Promos**: para no saturar la conexión con Mercado Libre, después de consultar a Mercado Libre con éxito por las promociones de una publicación, no vuelve a consultar durante 5 minutos; mientras tanto muestra lo último que se trajo. Si una consulta falla, se vuelve a intentar la próxima vez que se abre la pestaña, y después de aplicar o quitar una promoción también se vuelve a consultar.
+- **Ancho del panel**: arrastrá la línea entre la tabla y el panel (o enfocala con Tab y usá ← →) para darle más lugar a uno u otro. Los dos tienen un ancho mínimo (en una ventana angosta el panel conserva su mínimo y su ancho de siempre, y la tabla queda más chica) y el ancho elegido queda guardado en este navegador.
 - **Ctrl + clic**: abre la publicación en Mercado Libre.
 - **Alt + clic**: abre la publicación en el panel de vendedores de Mercado Libre.
 - **Mayús + clic**: abre las promociones de la publicación en el panel de vendedores.
