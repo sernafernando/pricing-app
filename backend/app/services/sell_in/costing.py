@@ -272,17 +272,20 @@ class FifoPurchaseCosting:
             indice = {lote.compra_item_id: i for i, lote in enumerate(item)}
             try:
                 dinero = Dinero(item, periodos[item_id])
+                # The next sale comes after every stored one, even one dated after `hoy` (a later UTC day).
+                dia = hoy
                 for linea, fecha, unidades in filas.get(item_id, []):
                     dinero.fila(fecha, indice[linea], unidades)
-                proximo = dinero.proximo(hoy)
+                    dia = max(dia, fecha)
+                proximo = dinero.proximo(dia)
             except (ValueError, ArithmeticError, KeyError) as exc:
                 # A mode the replay does not support yet, or rows read mid-change by another transaction.
                 logger.warning("sell in: next sale of product %s not computed: %s", item_id, exc)
                 continue
             if proximo is not None:
                 i, monto, sobre, restantes = proximo
-                en_pool = periodo_en(periodos[item_id], hoy)[1] != "fifo"
-                siguiente = self._siguiente(dinero, item, periodos[item_id], hoy) if en_pool else None
+                en_pool = periodo_en(periodos[item_id], dia)[1] != "fifo"
+                siguiente = self._siguiente(dinero, item, periodos[item_id], dia) if en_pool else None
                 salida[item_id] = LoteVigente(
                     item[i].compra_item_id, unit_discount(monto, sobre), restantes, en_pool, siguiente
                 )

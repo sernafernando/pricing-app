@@ -118,3 +118,16 @@ def test_random_worlds_vigentes_is_what_a_real_sale_gets(engine, semilla) -> Non
                     assert antes[c[:5]] == c[5]
         si.clean(engine)
     assert not malos, malos[:2]
+
+
+def test_a_stored_sale_after_today_is_behind_the_next_sale(engine) -> None:  # noqa: F811
+    # The pool holds 1000 + 200 over 200 units from Nov 20; 10 of them already went at 6.00 on Nov 20, so the next
+    # sale gets 6.00 on the 190 left, not the later lot's money over the 90 of the first.
+    si.compra(engine, [(ROUTER, 100, "1000.00")], D(2026, 10, 1))
+    si.compra(engine, [(ROUTER, 100, "200.00")], D(2026, 11, 20))
+    si.modo(engine, ROUTER, "ponderado", D(2026, 10, 1))
+    si.venta(engine, "fuera", ROUTER, 10, D(2026, 11, 20))
+    assert not _recompute(engine, ROUTER).failed
+    with _sesion(engine) as db:
+        vig = get_costing().vigentes(db, [ROUTER], HOY)[ROUTER]
+    assert (vig.descuento_unit_ars, vig.unidades_restantes, vig.en_pool) == (Decimal("6.000000"), 190, True)
