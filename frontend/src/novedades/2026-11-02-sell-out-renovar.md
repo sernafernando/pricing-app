@@ -16,5 +16,5 @@ Una campaña de sell out ya no se vuelve a cargar de cero cada trimestre: el bot
 
 - Las fechas propuestas son el trimestre calendario siguiente al que contiene la fecha hasta de la original. Se pueden cambiar.
 - Si el nombre termina en un período («Q4 2026», «4Q26», «noviembre 2026»), se avanza al nuevo; si no, queda igual.
-- Se copian el tipo y sus montos, la moneda, el tipo de cambio fijo, los topes, los grupos, los montos por producto, el reparto del monto total y el programa. No se copian el estado, lo acreditado ni el tipo de cambio definido al cobrar.
+- Se copian el tipo y sus montos, la moneda, el tipo de cambio fijo, los topes, los grupos, los montos por producto, y el reparto del monto total. No se copian el estado, lo acreditado ni el tipo de cambio definido al cobrar.
 - Solo para quien gestiona campañas.
