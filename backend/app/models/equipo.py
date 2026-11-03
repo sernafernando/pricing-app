@@ -106,7 +106,7 @@ class PublicacionColor(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     equipo_id = Column(Integer, ForeignKey("equipo.id"), nullable=False, index=True)
-    # The MLA. No foreign key: the publications live in the ML store database, not this one.
+    # The MLA. No foreign key to `ml_items`: a color may outlive its publication there (team deletion drops those).
     item_id = Column(String(30), nullable=False, index=True)
     color_ml = Column(String(20), nullable=False)
     updated_by = Column(Integer, ForeignKey("usuarios.id"), nullable=True, index=True)

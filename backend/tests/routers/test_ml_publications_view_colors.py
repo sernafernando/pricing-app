@@ -29,7 +29,15 @@ pytestmark = pytest.mark.postgres
 ITEMS_URL = "/api/ml-publications/view/items"
 PRODUCTS_URL = "/api/ml-publications/view/products"
 GROUPS_URL = "/api/ml-publications/view/groups"
-COLOR_KEYS = ("color_marcado", "color_hint_global", "color_hint_equipo_inicial")
+COLOR_KEYS = (
+    "color_marcado",
+    "color_hint_global",
+    "color_hint_equipo_inicial",
+    "color_propio",
+    "color_producto",
+    "color_hint_global_propio",
+    "color_hint_global_producto",
+)
 
 
 @pytest.fixture()
@@ -232,8 +240,9 @@ class TestPublicationOwnColor:
         assert items(client, reader) == {
             "MLA1": {"color_marcado": "rojo"},
             "MLA2": {"color_marcado": "azul"},
-            "MLA3": {"color_marcado": "gris"},
-            "MLA4": {"color_marcado": "azul"},
+            "MLA3": {"color_marcado": "gris", "color_propio": "gris"},
+            # Its own color and its product's apart too, so a repaint of either shows without asking again.
+            "MLA4": {"color_marcado": "azul", "color_propio": "azul", "color_producto": "rojo"},
         }
 
     def test_on_a_team_layer_its_own_team_and_global_colors_win_each_on_its_layer(
@@ -247,6 +256,10 @@ class TestPublicationOwnColor:
             "color_marcado": "naranja",
             "color_hint_global": "gris",
             "color_hint_equipo_inicial": "V",
+            "color_propio": "naranja",
+            "color_producto": "verde",
+            "color_hint_global_propio": "gris",
+            "color_hint_global_producto": "rojo",
         }
         assert items(client, reader, equipo_id=layers["team"])["MLA1"] == {
             "color_marcado": "verde",

@@ -28,12 +28,14 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.api.endpoints.productos_shared import get_global_equipo_id
 from app.core.database import get_db
 from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, PublicacionColor, RolEquipo
+from app.models.ml_publications import MlItem
 from app.models.usuario import Usuario
 
 router = APIRouter()
@@ -366,16 +368,21 @@ def eliminar_equipo(
 
     Requires the caller be an admin of that team. Does NOT delete color data:
     if the team still has `ProductoColor` rows the request is rejected, and the
-    caller must reassign or clear those first (`PublicacionColor` rows too), to avoid silently discarding
-    team color data.
+    caller must reassign or clear those first (`PublicacionColor` rows of listed MLAs too), to avoid silently
+    discarding team color data. The `PublicacionColor` rows of MLAs that no longer list, which no screen can
+    clear, are deleted with the team.
     """
     equipo = _get_equipo_or_404(db, equipo_id)
     _reject_global(equipo)
     _require_admin(db, equipo_id, current_user)
 
+    # A publication color blocks only while its MLA lists (Publicaciones ML's own rule, `never_existed IS NOT TRUE`):
+    # nothing on screen can clear the color of one that no longer lists, so those go with the team.
+    publicacion_listada = exists().where(MlItem.item_id == PublicacionColor.item_id, MlItem.never_existed.isnot(True))
     tiene_colores = (
         db.query(ProductoColor).filter(ProductoColor.equipo_id == equipo_id).first() is not None
-        or db.query(PublicacionColor).filter(PublicacionColor.equipo_id == equipo_id).first() is not None
+        or db.query(PublicacionColor).filter(PublicacionColor.equipo_id == equipo_id, publicacion_listada).first()
+        is not None
     )
     if tiene_colores:
         raise HTTPException(
@@ -383,6 +390,7 @@ def eliminar_equipo(
             detail="El equipo tiene colores marcados en productos o publicaciones; elimínalos antes de borrar el equipo",
         )
 
+    db.query(PublicacionColor).filter(PublicacionColor.equipo_id == equipo_id).delete(synchronize_session=False)
     db.query(EquipoMiembro).filter(EquipoMiembro.equipo_id == equipo_id).delete()
     db.delete(equipo)
     db.commit()

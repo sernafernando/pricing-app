@@ -11,6 +11,8 @@ nobody painted is unchanged:
 - `color_hint_global`: its color on the global layer, on a team layer only (the dot it shows on a row it has not
   painted). On the global layer it would repeat `color_marcado` and outlive an unpaint.
 - `color_hint_equipo_inicial`: the active team's initial, on a team layer (the same on every row).
+- `color_propio` / `color_producto`: on a publication row painted on its own on the active layer, its own color and
+  its product's; `color_hint_global_propio` / `color_hint_global_producto`, the same on the global layer (team only).
 
 A publication may also be painted on its own (`publicacion_color`, seleccion-por-publicacion S3): on each layer its
 own color wins over its product's, so a publication row shows its EFFECTIVE color -- its own, otherwise its
@@ -77,15 +79,21 @@ def attach_colors(
     for row in rows:
         pid = product_of(row)
         mla = item_of(row) if item_of is not None else None
+        own_active = own.get((layer.active, mla))
+        own_global = own.get((layer.global_id, mla)) if on_team else None
+        product_active = active[pid].color_ml if pid in active else None
+        product_global = global_[pid].color_ml if pid in global_ else None
         fields = {
-            "color_marcado": own.get((layer.active, mla)) or (active[pid].color_ml if pid in active else None),
-            "color_hint_global": (
-                own.get((layer.global_id, mla)) or (global_[pid].color_ml if pid in global_ else None)
-            )
-            if on_team
-            else None,
+            "color_marcado": own_active or product_active,
+            "color_hint_global": (own_global or product_global) if on_team else None,
             "color_hint_equipo_inicial": layer.initial,
         }
+        # A row painted on its own also says which part is its own and which its product's, so a repaint of either
+        # (or an unpaint of its own, which falls back to the product's) shows without asking the list again.
+        if own_active:
+            fields.update(color_propio=own_active, color_producto=product_active)
+        if own_global:
+            fields.update(color_hint_global_propio=own_global, color_hint_global_producto=product_global)
         row.update({name: value for name, value in fields.items() if value is not None})
 
 
