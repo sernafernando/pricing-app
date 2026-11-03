@@ -466,6 +466,7 @@ class SellOutProgramaOut(BaseModel):
     activas: int
     desde: Optional[date]
     hasta: Optional[date]
+    nombres: int  # distinct campaign names, ignoring case and repeated spaces
 
 
 class SellOutAsignarIn(BaseModel):
@@ -511,3 +512,24 @@ class SellOutSugerenciaListOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class SellOutGrupoProgramaOut(BaseModel):
+    """A row of the grouped view (`GET /sell-out/campanas/por-programa`): a program (or, with `programa_id` None,
+    the campaigns without one) and what its campaigns under the list's filters span."""
+
+    programa_id: Optional[int]
+    nombre: Optional[str]
+    campanas: int
+    activas: int
+    nombres: int  # distinct campaign names, ignoring case and repeated spaces
+    desde: date
+    hasta: date
+
+
+class SellOutGruposProgramaListOut(BaseModel):
+    items: list[SellOutGrupoProgramaOut]  # programs with campaigns under the filters, by name
+    total: int
+    page: int
+    page_size: int
+    sin_programa: Optional[SellOutGrupoProgramaOut]  # None when every filtered campaign has a program
