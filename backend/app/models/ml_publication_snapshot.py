@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, BigInteger, String, Numeric, DateTime, Text
+from sqlalchemy import Boolean, Column, Integer, BigInteger, String, Numeric, DateTime, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from app.core.database import Base
 
@@ -32,6 +33,14 @@ class MLPublicationSnapshot(Base):
 
     # Item ID del ERP (si lo podemos obtener del SKU)
     item_id = Column(BigInteger, index=True)
+
+    # shipping.* from the ML item body (flat columns for repair/drift checks)
+    shipping_mode = Column(String(50))
+    logistic_type = Column(String(50), index=True)
+    local_pick_up = Column(Boolean)
+    free_shipping = Column(Boolean)
+    store_pick_up = Column(Boolean)
+    shipping_tags = Column(JSONB)
 
     # Metadata del snapshot
     snapshot_date = Column(DateTime(timezone=True), server_default=func.now(), index=True)

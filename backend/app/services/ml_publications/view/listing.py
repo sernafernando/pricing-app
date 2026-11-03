@@ -16,12 +16,14 @@ from dataclasses import dataclass, replace
 from typing import Any, Mapping, Optional
 
 from sqlalchemy import ARRAY, Numeric, Text, and_, any_, case, cast, func, literal, select, text, true
+from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.orm import Session
 
 from app.models.marca_pm import MarcaPM
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.tipo_cambio import TipoCambio
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
+from app.services.ml_publications.listing_kind import NO_TYPE_RANK, OTHER_RANK, listing_kind, listing_rank
 from app.services.ml_publications.view.display import round_display
 from app.services.ml_publications.view.cost_lines import NO_COST_LINES, cost_lines
 from app.services.ml_publications.view.filters import (
@@ -56,11 +58,25 @@ from app.services.ml_publications.view.markup_service import (
     compute_markups,
     product_markup,
 )
-from app.services.ml_publications.view.metrics_sort import METRIC_SORTS, metric_figures, needs_margin, ranked_page
+from app.services.ml_publications.view.metrics_sort import (
+    METRIC_SORTS,
+    metric_figure,
+    metric_figures,
+    needs_margin,
+    publication_board,
+    ranked_page,
+)
 
 STATEMENT_TIMEOUT = "8s"
 SORT_ACTIVITY = "actividad"
 SORT_MARKUP = "markup"  # not a column: the worst variation's markup, computed in Python (see `_list_by_markup`)
+
+
+def item_listing_kind() -> Any:
+    """The publication's kind (Clásica, 3/6/9/12 cuotas): what the type badge shows and `tipo` sorts by."""
+    return listing_kind(T.i.listing_type_id, T.i.tags, T.i.installments_campaign)
+
+
 # sort key -> (expression of the first ordering column, descending by default)
 SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     SORT_ACTIVITY: (lambda: T.i.last_trigger_received_at, True),
@@ -74,6 +90,8 @@ SORT_COLUMNS: dict[str, tuple[Any, bool]] = {
     "codigo": (lambda: func.nullif(func.upper(T.p.codigo), ""), False),
     "marca": (lambda: func.nullif(normalized_text(T.p.marca), ""), False),
     "costo": (lambda: cost_in_pesos(), False),
+    # Clásica, then 3, 6, 9 and 12 cuotas (owner, 2026-11-02); the page sends its tiebreak as the next key
+    "tipo": (lambda: listing_rank(item_listing_kind()), False),
 }
 # Productos' price headers sort by the stored markup of that list (`productos_listing`), never by the price: the key is
 # the price column's (`priceColumns.jsx`), the worst markup first like `markup`
@@ -232,6 +250,7 @@ def row_columns(*, cost: bool = False) -> list[Any]:
         i.status,
         i.sub_status,
         i.listing_type_id,
+        item_listing_kind().label("listing_kind"),
         i.catalog_listing,
         i.logistic_type,
         i.official_store_id,
@@ -274,10 +293,22 @@ def row_columns(*, cost: bool = False) -> list[Any]:
     ]
 
 
+# The `tipo` rank (0..6, `listing_kind.KIND_RANKS`) descending: the known kinds 0..4 turned around, another ML type
+# (OTHER_RANK) and no type at all (NO_TYPE_RANK) still last. Postgres arrays are 1-based: rank r reads item r + 1.
+DESCENDING_RANKS = [*range(OTHER_RANK - 1, -1, -1), OTHER_RANK, NO_TYPE_RANK]
+
+
 def _column_order(key: str, descending: bool) -> tuple[Any, ...]:
     """One column key and its tie-break, if any (`SORT_TIES`), missing values last in either direction."""
     expressions = [SORT_COLUMNS[key][0](), *((SORT_TIES[key](),) if key in SORT_TIES else ())]
-    return tuple((expression.desc() if descending else expression.asc()).nulls_last() for expression in expressions)
+    ordered = tuple((expression.desc() if descending else expression.asc()).nulls_last() for expression in expressions)
+    if key == "tipo" and descending:
+        # Another ML type, then no type at all, go last either way: only the known kinds turn around (as the board).
+        # Ascending already puts them last; descending looks each rank up in DESCENDING_RANKS, one ascending term
+        # that reads the kind once.
+        rank = listing_rank(item_listing_kind())
+        return (pg_array(DESCENDING_RANKS)[rank + 1].asc(), *ordered[1:])
+    return ordered
 
 
 def _columns_order(keys: Any) -> list[Any]:
@@ -328,6 +359,25 @@ def _by_figures(
     return list(db.execute(query).scalars())
 
 
+def _ranked_with_columns(db: Session, source: Any, sort: Sort, limit: Optional[int], offset: int) -> list[str]:
+    """Column keys and ONE Métricas figure (Publicaciones ML's default, `tipo,facturado_30d`): the Board's rows join
+    `source` in the database and one statement orders and cuts the page -- never every MLA's figure shipped out and
+    back as the arrays of `_by_figures`."""
+    with publication_board(db, source) as b:
+        rows = b.rows()
+        order: list[Any] = []
+        for key, descending in sort.pairs:
+            if key in METRIC_SORTS:
+                figure = metric_figure(rows, key)
+                order.append((figure.desc() if descending else figure.asc()).nulls_last())
+            else:
+                order.extend(_column_order(key, descending))
+        query = (
+            source.outerjoin(rows, rows.c.rk == T.i.item_id).order_by(*order, T.i.item_id).limit(limit).offset(offset)
+        )
+        return list(db.execute(query).scalars())
+
+
 def _figured_ids(
     db: Session,
     source: Any,
@@ -336,11 +386,13 @@ def _figured_ids(
     offset: int,
     worst: Optional[Mapping[str, Any]] = None,
 ) -> list[str]:
-    """A sort with figure keys over `source`: a Métricas figure alone is the Board's ranking; any other combination
-    takes each figure (`worst`, the markup's, priced by the caller; the Métricas ones from one Board run) then
-    orders."""
+    """A sort with figure keys over `source`: a Métricas figure alone is the Board's ranking; column keys with one
+    Métricas figure join the Board's rows in one statement (`_ranked_with_columns`); any other combination takes
+    each figure (`worst`, the markup's, priced by the caller; the Métricas ones from one Board run) then orders."""
     if len(sort.keys) == 1 and sort.key in METRIC_SORTS:
         return ranked_page(db, source, sort.key, sort.descending, limit, offset)
+    if len(sort.figure_keys) == 1 and sort.figure_keys[0] in METRIC_SORTS:
+        return _ranked_with_columns(db, source, sort, limit, offset)
     metric_keys = [key for key in sort.figure_keys if key in METRIC_SORTS]
     metrics = metric_figures(db, source, metric_keys) if metric_keys else {}
     figures = {key: (worst or {}) if key == SORT_MARKUP else metrics[key] for key in sort.figure_keys}
@@ -395,6 +447,7 @@ def _item(row: Any, variations: dict[str, int], labels: dict[int, str], last_eve
         "status": row.status,
         "sub_status": list(row.sub_status or []),
         "listing_type_id": row.listing_type_id,
+        "listing_kind": row.listing_kind,
         "catalog_listing": row.catalog_listing,
         "logistic_type": row.logistic_type,
         "is_full": row.logistic_type == FULFILLMENT,
@@ -738,7 +791,10 @@ def _brand_counts(db: Session, f: PublicationFilter) -> dict:
         build_base_select(f, brand, count.label("n"), skip="marcas")
         .join(pl, pl.c.item_id == T.i.item_id)
         .outerjoin(pp, pp.item_id == pl.c.producto_item_id)
-        .where(brand.isnot(None), *linked_product_conditions(replace(f, marcas=()), pl.c.producto_item_id, pp))
+        .where(
+            brand.isnot(None),
+            *linked_product_conditions(replace(f, marcas=()), pl.c.producto_item_id, pp, T.i.item_id),
+        )
         .group_by(brand)
         .order_by(count.desc(), brand)
         .limit(FACET_MAX_BRANDS)

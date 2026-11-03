@@ -46,4 +46,21 @@ describe('useColorOverlay', () => {
     rerender({ rows: 'b' });
     expect(result.current.colors.size).toBe(0);
   });
+
+  it("paints a publication on its own (publicacion_color:changed, by MLA), apart from the products' colors", () => {
+    const { result } = renderHook(() => useColorOverlay('12'));
+    act(() => result.current.applyOwn({ data: { is_global: false, equipo_id: 12, item_ids: ['MLA4'], color: 'azul' } }));
+    act(() => result.current.applyOwn({ data: { is_global: true, equipo_id: 1, item_ids: ['MLA4'], color: null } }));
+    act(() => result.current.applyOwn({ data: { is_global: false, equipo_id: 13, item_ids: ['MLA5'], color: 'gris' } }));
+    expect(result.current.own.get('MLA4')).toEqual({ marcado: 'azul', hintGlobal: null });
+    expect(result.current.own.has('MLA5')).toBe(false);
+    expect(result.current.colors.size).toBe(0);
+  });
+
+  it('forgets the own colors with the rest on another layer or other rows', () => {
+    const { result, rerender } = renderHook(({ rows }) => useColorOverlay('', rows), { initialProps: { rows: 'a' } });
+    act(() => result.current.applyOwn({ data: { is_global: true, item_ids: ['MLA4'], color: 'rojo' } }));
+    rerender({ rows: 'b' });
+    expect(result.current.own.size).toBe(0);
+  });
 });

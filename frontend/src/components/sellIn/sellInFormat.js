@@ -27,18 +27,35 @@ export function formatPorcentaje(value) {
   return Number.isNaN(num) ? '—' : `${PERCENT.format(num)} %`;
 }
 
-/** The list/resumen query params: only what is set, `marcas` as CSV (exact match on the server). */
-export function buildSellInParams({ aplica, q, marcas, moneda, estado, desde, hasta }) {
-  const params = {
+const soloLoPuesto = (params) => Object.fromEntries(Object.entries(params).filter(([, value]) => Boolean(value)));
+
+/**
+ * The purchases' list/resumen query params: only what is set, `marcas` as CSV (exact match on the server), the
+ * picked product and supplier by id.
+ */
+export function buildSellInParams({ aplica, q, marcas, moneda, estado, desde, hasta, producto, proveedor }) {
+  return soloLoPuesto({
     aplica,
+    ...buildBonosParams({ q, marcas, moneda, estado, desde, hasta }),
+    item_id: producto?.item_id,
+    proveedor_id: proveedor?.id,
+  });
+}
+
+/**
+ * The brand bonuses' list query params from the same filters: the ones a bonus has. Not `aplica` (a bonus has no
+ * "aplica"), nor the product or supplier (a bonus reaches a brand, a category, models or an operation, not a
+ * supplier). The dates keep the bonuses whose own range overlaps the period.
+ */
+export function buildBonosParams({ q, marcas, moneda, estado, desde, hasta }) {
+  return soloLoPuesto({
     q: q?.trim(),
     marcas: marcas?.length ? marcas.join(',') : '',
     moneda,
     estado,
     fecha_desde: desde,
     fecha_hasta: hasta,
-  };
-  return Object.fromEntries(Object.entries(params).filter(([, value]) => Boolean(value)));
+  });
 }
 
 /** Sum of the manual amounts, in cents so float noise never blocks a split that adds up. */

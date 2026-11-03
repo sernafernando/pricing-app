@@ -17,6 +17,7 @@ const byKey = (options) => Object.fromEntries(buildColumns({ eventsEnabled: true
 
 const ALL = [
   'titulo',
+  'tipo',
   'estado',
   'precio',
   'unidades_7d',
@@ -48,8 +49,8 @@ describe('layout', () => {
 
   it('groups the figures under Métricas’ own group names, and leaves Publicación, Estado and Precio ungrouped', () => {
     const columns = byKey({ canSeeSales: true, canSeeMargin: true });
-    expect(['titulo', 'estado', 'precio', 'vinculo', 'tienda', 'actividad', 'evento'].map((key) => columns[key].group)).toEqual(
-      Array(7).fill(undefined),
+    expect(['titulo', 'tipo', 'estado', 'precio', 'vinculo', 'tienda', 'actividad', 'evento'].map((key) => columns[key].group)).toEqual(
+      Array(8).fill(undefined),
     );
     expect(['unidades_7d', 'unidades_30d', 'units_trend'].map((key) => columns[key].group)).toEqual(Array(3).fill(groupLabel('ventas')));
     expect(['markup', 'markup_30d', 'markup_trend'].map((key) => columns[key].group)).toEqual(Array(3).fill(groupLabel('markup')));
@@ -82,6 +83,7 @@ describe('layout', () => {
       .map((column) => column.key);
     expect(sortable).toEqual([
       'titulo',
+      'tipo',
       'precio',
       'unidades_7d',
       'unidades_30d',
@@ -98,9 +100,25 @@ describe('layout', () => {
       'actividad',
     ]);
     expect(DEFAULT_DIRECTION.stock_propio).toBe('desc');
+    // Clásica first, then 3, 6, 9 and 12 cuotas.
+    expect(DEFAULT_DIRECTION.tipo).toBe('asc');
     for (const key of ['unidades_7d', 'unidades_30d', 'markup_30d', 'facturado_30d', 'total_gauss_30d']) {
       expect(DEFAULT_DIRECTION[key]).toBe('desc');
     }
+  });
+});
+
+describe('listing type', () => {
+  it('shows the listing type badge of each publication before its state', () => {
+    const columns = byKey({});
+    expect(columns.tipo.header).toBe('Tipo');
+    render(<>{columns.tipo.render({ listing_kind: 'cuotas_3' })}</>);
+    expect(screen.getByText('3 cuotas')).toBeInTheDocument();
+  });
+
+  it('leaves the cell empty for a row the backend sends no listing kind for', () => {
+    const { container } = render(<>{byKey({}).tipo.render({})}</>);
+    expect(container).toBeEmptyDOMElement();
   });
 });
 
@@ -173,10 +191,10 @@ describe('SKU divergence', () => {
 describe('permissions', () => {
   it('without ml_metricas.ver there are no Métricas figures; the current markup needs only ver_ganancia', () => {
     expect(keys({ canSeeMargin: true })).toEqual([
-      'titulo', 'estado', 'precio', 'markup', 'stock_propio', 'stock_full', 'stock_erp', 'codigo', 'marca', 'costo', 'vinculo', 'tienda', 'actividad',
+      'titulo', 'tipo', 'estado', 'precio', 'markup', 'stock_propio', 'stock_full', 'stock_erp', 'codigo', 'marca', 'costo', 'vinculo', 'tienda', 'actividad',
     ]);
     // the cost, as in the panel, only with ver_ganancia
-    expect(keys({})).toEqual(['titulo', 'estado', 'precio', 'stock_propio', 'stock_full', 'stock_erp', 'codigo', 'marca', 'vinculo', 'tienda', 'actividad']);
+    expect(keys({})).toEqual(['titulo', 'tipo', 'estado', 'precio', 'stock_propio', 'stock_full', 'stock_erp', 'codigo', 'marca', 'vinculo', 'tienda', 'actividad']);
   });
 
   it('with ml_metricas.ver but no ver_ganancia: units, gross and rotation, no markup and no Total Gauss', () => {
@@ -194,8 +212,8 @@ describe('the tree', () => {
       ['titulo', undefined],
       ['publicaciones', undefined],
       ['negativos', undefined],
+      ['tipo', undefined],
       ['estado', undefined],
-      ['precio', undefined],
     ]);
   });
 });
