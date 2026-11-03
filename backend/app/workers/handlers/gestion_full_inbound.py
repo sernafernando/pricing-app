@@ -16,6 +16,7 @@ from app.core import database
 from app.services.gestion_full.inbound import (
     MAX_RANGE_DAYS,
     claim_inventory_ids_for_inbound_refresh,
+    record_inbound_attempt,
     refresh_last_inbound,
 )
 from app.services.ml_publications.ml_http import MlHttpClient
@@ -86,9 +87,17 @@ class GestionFullInboundHandler:
                         lookback_days=LOOKBACK_DAYS,
                     )
                 refreshed += 1
-            except Exception as exc:  # noqa: BLE001 -- keep drip alive; retry next tick
+            except Exception as exc:  # noqa: BLE001 -- keep drip alive; rotate past this id
                 logger.exception("gestion_full.inbound failed for %s", inventory_id)
                 errors.append(f"{inventory_id}:{type(exc).__name__}")
+                try:
+                    with self._session_factory() as db:
+                        record_inbound_attempt(db, inventory_id, now=self._now())
+                except Exception:  # noqa: BLE001 -- never kill the drip on bookkeeping
+                    logger.exception(
+                        "gestion_full.inbound could not record attempt for %s",
+                        inventory_id,
+                    )
 
         return JobResult(
             success=True,
