@@ -860,10 +860,11 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
 });
 
 // A product's panel opens on Precios (owner, 2026-11-02): these tests read its Resumen, so they open it first.
-const openProductResumen = async (screen) => {
+const openProductTab = async (screen, name) => {
   await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
-  await screen.getByRole('complementary', { name: 'Detalle del producto' }).getByRole('tab', { name: 'Resumen' }).click();
+  await screen.getByRole('complementary', { name: 'Detalle del producto' }).getByRole('tab', { name }).click();
 };
+const openProductResumen = (screen) => openProductTab(screen, 'Resumen');
 
 const renderProducts = async ({ width, height, theme, rows, entry = '/ml-publicaciones?vista=producto' }) => {
   canSeeMargin = true;
@@ -1005,8 +1006,9 @@ describe('Publicaciones ML Producto view (visual)', () => {
         await openProductResumen(screen);
         await expect.element(screen.getByRole('complementary', { name: 'Detalle del producto' }).getByText('Cifras')).toBeVisible();
         const panel = document.querySelector('[data-split-panel]');
-        // The product's publications are Productos' tree: its row opens with "Expandir <title>".
-        await expect.element(screen.getByRole('button', { name: 'Expandir Router TP-Link Archer AX55 por color' })).toBeVisible();
+        // The product's publications are Productos' tree; a publication with nothing under it has only its "Abrir".
+        await expect.element(screen.getByRole('button', { name: 'Abrir MLA1100000005' })).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Expandir Router TP-Link Archer AX55 por color' }).query()).toBeNull();
         const box = rect(panel);
         const scroller = scrollerOf();
         // Side by side: the table ends where the panel starts, and nothing scrolls the page sideways.
@@ -1184,7 +1186,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           publicacionesMlAPI.items.mockResolvedValue({
             data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3).map((item, i) => ({ ...item, catalog_listing: i === 0 })), total: 3 },
           });
-          await openProductResumen(screen);
+          await openProductTab(screen, 'Promos');
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           await aside.getByRole('button', { name: /^Competencia de catálogo de / }).click();
           await expect.element(aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
@@ -1329,7 +1331,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
         pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA1100000005', tiers: [] } });
         try {
           const screen = await renderProducts({ width, height, theme });
-          await openProductResumen(screen);
+          await openProductTab(screen, 'PxQ');
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           await aside.getByRole('button', { name: /^Precios mayoristas de / }).first().click();
           const section = aside.getByRole('heading', { name: 'Precios mayoristas' }).element().closest('section');
@@ -1345,6 +1347,33 @@ describe('Publicaciones ML Producto view (visual)', () => {
         } finally {
           pxqAPI.getLive.mockReset();
           pxqAPI.getMarkup.mockReset();
+        }
+      });
+      it(`${width}x${height} ${theme}: the promotions of a product's publication read by section on Promos, inside the panel`, async () => {
+        promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: PROMOTIONS } });
+        promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          await openProductTab(screen, 'Promos');
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('button', { name: /^Promociones de / }).first().click();
+          await expect.element(aside.getByText('Oferta del día')).toBeVisible();
+          const promos = aside.getByRole('region', { name: 'Promociones' }).element();
+          const sections = [...promos.querySelectorAll('section[aria-label]')];
+          expect(sections.map((section) => section.getAttribute('aria-label'))).toEqual(['Activa ahora', 'Disponibles para activar', 'Cupones']);
+          const panel = document.querySelector('[data-split-panel]');
+          promos.scrollIntoView();
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-promos-${width}-${theme}.png` });
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          for (const el of promos.querySelectorAll('li, li *, button, a')) {
+            const r = rect(el);
+            if (r.width === 0) continue;
+            expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          }
+          screen.unmount();
+        } finally {
+          promocionesAPI.getPromocionesItem.mockReset();
+          promocionesAPI.refreshItemPromociones.mockReset();
         }
       });
     }
@@ -1413,7 +1442,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
           expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
           const tabs = [...panel.querySelectorAll('[role="tab"]')];
-          expect(tabs.map((tab) => tab.textContent)).toEqual(['Precios', 'Resumen', 'Cambios']);
+          expect(tabs.map((tab) => tab.textContent)).toEqual(['Precios', 'Resumen', 'Promos', 'PxQ', 'Cambios']);
           for (const tab of tabs) expect(rect(tab).right).toBeLessThanOrEqual(box.right + 0.5);
           expect(panel.textContent).not.toContain('Cifras');
           if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-precios-${width}-${theme}.png` });
@@ -1454,7 +1483,8 @@ describe('Publicaciones ML Producto view (visual)', () => {
             skipped_edges: [],
           },
         });
-        // "Expandir todo" opens each publication's promos, catalog competition and wholesale prices too.
+        // In Productos "Expandir todo" also opens each publication's promos, catalog competition and wholesale prices;
+        // the panel's tree carries none of them (they have their own tabs), mocked here in case one slipped back in.
         promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
         promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
         promocionesAPI.confirmarSinPromosML.mockResolvedValue({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } });
@@ -1490,6 +1520,10 @@ describe('Publicaciones ML Producto view (visual)', () => {
           await expect.element(section.getByText('Router Archer AX55 eliminado')).toBeVisible();
           // Each publication opens its own panel from its "Abrir" button, inside the panel too.
           await expect.element(section.getByRole('button', { name: 'Abrir MLA1100000002' })).toBeVisible();
+          const disclosures = [...section.element().querySelectorAll('button')].filter((button) =>
+            /^(Promociones|Competencia catálogo|Precios mayoristas)/.test(button.textContent.trim()),
+          );
+          expect(disclosures).toEqual([]);
           section.element().scrollIntoView();
           fits();
           if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-arbol-expandido-${width}-${theme}.png` });

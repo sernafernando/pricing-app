@@ -4,7 +4,7 @@
  * which tabs exist. The content of each tab has its own test.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, render, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, render, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PublicationPanel from './PublicationPanel';
 import { MARKUP_REASONS } from './markupReasons';
@@ -298,6 +298,16 @@ describe('tabs', () => {
     publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_LINKED });
     renderPanel();
     expect(await screen.findByRole('tab', { name: 'Resumen' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('leaves the promotion out of Resumen for whoever has the Promos tab, and keeps it for whoever has not', async () => {
+    renderPanel({ tab: 'resumen' });
+    const data = await screen.findByRole('region', { name: 'Datos de la publicación' });
+    expect(within(data).queryByText('Promoción')).not.toBeInTheDocument();
+    cleanup();
+    canSeePromos = false;
+    renderPanel({ tab: 'resumen' });
+    expect(within(await screen.findByRole('region', { name: 'Datos de la publicación' })).getByText('Promoción')).toBeInTheDocument();
   });
 
   it('a tab in the URL keeps winning over the default (S1)', async () => {
