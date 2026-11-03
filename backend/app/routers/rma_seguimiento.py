@@ -739,12 +739,16 @@ def marcar_borrar_revisado(
     current_user: Usuario = Depends(get_current_user),
 ) -> ParaBorrarRow:
     """Ticks "Revisado" on a case marked para borrar (stores who and when, so it leaves the pending list) or
-    unticks it (clears both). Requires rma.gestionar."""
+    unticks it (clears both). A case that is not marked is 404. Requires rma.gestionar."""
     _check_permiso(db, current_user, "rma.gestionar")
 
-    caso = db.query(RmaCaso).filter(RmaCaso.id == caso_id, RmaCaso.activo == True).first()  # noqa: E712
+    caso = (
+        db.query(RmaCaso)
+        .filter(RmaCaso.id == caso_id, RmaCaso.activo == True, RmaCaso.marcado_borrar_pedido == True)  # noqa: E712
+        .first()
+    )
     if not caso:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Caso no encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Caso no encontrado o no marcado para borrar")
 
     anterior = caso.borrar_revisado_at
     if data.revisado:

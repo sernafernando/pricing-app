@@ -144,3 +144,16 @@ def test_ticking_an_unknown_case_is_404(client, auth_headers, casos):
     with _permisos("rma.gestionar"):
         resp = client.put("/api/rma-seguimiento/999999/borrar-revisado", json={"revisado": True}, headers=auth_headers)
     assert resp.status_code == 404
+
+
+@pytest.mark.parametrize("cual", ["sin_marca", "marca_nula"])
+def test_ticking_a_case_not_marked_para_borrar_is_404(client, auth_headers, db, casos, cual):
+    caso = casos[cual]
+    with _permisos("rma.gestionar"):
+        resp = client.put(
+            f"/api/rma-seguimiento/{caso.id}/borrar-revisado", json={"revisado": True}, headers=auth_headers
+        )
+
+    assert resp.status_code == 404
+    db.expire_all()
+    assert db.get(RmaCaso, caso.id).borrar_revisado_at is None

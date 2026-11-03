@@ -249,13 +249,15 @@ export default function Rma() {
             Envios a Cliente
           </button>
         )}
-        <button
-          className={`${styles.tab} ${activeTab === 'para_borrar' ? styles.tabActive : ''}`}
-          onClick={() => setActiveTab('para_borrar')}
-        >
-          <Trash2 size={15} />
-          Para borrar
-        </button>
+        {puedeVerMetricas && (
+          <button
+            className={`${styles.tab} ${activeTab === 'para_borrar' ? styles.tabActive : ''}`}
+            onClick={() => setActiveTab('para_borrar')}
+          >
+            <Trash2 size={15} />
+            Para borrar
+          </button>
+        )}
         {puedeVerMetricas && (
           <button
             className={`${styles.tab} ${activeTab === 'metricas' ? styles.tabActive : ''}`}
@@ -407,7 +409,7 @@ export default function Rma() {
       )}
 
       {/* Tab: Para borrar — cases marked "Marcado para borrar pedido", with a "Revisado" tick */}
-      {activeTab === 'para_borrar' && <RmaParaBorrar puedeGestionar={puedeGestionar} />}
+      {activeTab === 'para_borrar' && puedeVerMetricas && <RmaParaBorrar puedeGestionar={puedeGestionar} />}
 
       {/* Tab: Métricas — lazy-loaded (recharts stays out of the main bundle) */}
       {activeTab === 'metricas' && puedeVerMetricas && (
