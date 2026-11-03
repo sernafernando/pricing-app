@@ -185,6 +185,7 @@ class TestContract:
             "promotion_type": None,
             "campaign": None,
             "pricelist_id": None,
+            "lista_nombre": None,
         }
         assert first["stock"]["full"] == 3 and first["stock"]["own"] == 1 and first["stock"]["available"] == 4
         assert first["link"] == {
