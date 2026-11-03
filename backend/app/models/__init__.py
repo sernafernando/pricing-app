@@ -21,7 +21,9 @@ from app.models.comparacion_listas_banlist import ComparacionListasBanlist
 from app.models.calculo_pricing import CalculoPricing
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
+from app.models.publicacion_repair import PublicacionRepairEvent, PublicacionRepairRun
 from app.models.ml_publication_link import MlPublicationLink
+
 from app.models.producto_propio import ProductoPropio
 from app.models.ml_item_override import MlItemOverride
 from app.models.ml_item_relation import MlItemRelation
@@ -249,6 +251,9 @@ from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, PublicacionC
 # `alembic revision --autogenerate` emits drop_table for its table.
 from app.models.ml_catalog_competition import MLCatalogCompetition
 
+# Per-sale discounts (ml-ads-cupones-display T3a); registered for the same reason.
+from app.models.ml_order_discounts import MlOrderDiscountLine, MlOrderDiscounts, MlOrderDiscountsState
+
 __all__ = [
     "ProductoERP",
     "ProductoPricing",
@@ -275,6 +280,8 @@ __all__ = [
     "CalculoPricing",
     "MercadoLibreItemPublicado",
     "MLPublicationSnapshot",
+    "PublicacionRepairRun",
+    "PublicacionRepairEvent",
     "TbItemSerial",
     "TbItemTransactionSerial",
     "Notificacion",
@@ -499,4 +506,7 @@ __all__ = [
     "ComboComponente",
     "ProductoPropio",
     "MlItemOverride",
+    "MlOrderDiscounts",
+    "MlOrderDiscountLine",
+    "MlOrderDiscountsState",
 ]
