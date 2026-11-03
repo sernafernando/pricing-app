@@ -39,6 +39,13 @@ _ORM_TABLES = [
     GestionFullQtyExportAudit.__table__,
     GestionFullPmReady.__table__,
 ]
+# #1981+ ships envío; assign calls ensure_envio when reconcile is importable.
+try:
+    from app.models.gestion_full_envio import GestionFullEnvio
+
+    _ORM_TABLES.append(GestionFullEnvio.__table__)
+except ImportError:
+    pass
 
 _STUB_DDL = (
     """
