@@ -4,7 +4,8 @@ import { PRODUCT_FIGURES } from './productFigures';
 import VariationRows from './VariationRows';
 import { treeRowTone } from './rowColor';
 import { BranchState, NodeCount, NodeTitle } from './NodeCells';
-import { SelectionCheckbox } from './ProductCheckbox';
+import { SelectionCheckbox } from './RowCheckbox';
+import { selectionRow } from './useRowSelection';
 import { PRODUCT_SORTS } from '../../hooks/usePublicacionesMLFilters';
 import PrearmadaBadge from '../PrearmadaBadge';
 import PxqTramosBadge from '../PxqTramosBadge';
@@ -69,6 +70,7 @@ export default function ProductoTable({
   onSort,
   offset,
   colorOverlay,
+  ownColorOverlay,
   emptyMessage = 'Ningún producto coincide con los filtros',
   selection,
   prearmadasStats = NO_PREARMADAS,
@@ -87,7 +89,7 @@ export default function ProductoTable({
             if (column.key === 'titulo') {
               // The checkbox follows the node's toggle, so the toggle stays at the row's depth.
               const after = selection ? (
-                <SelectionCheckbox productId={row.node.productoItemId} label={row.node.label} selection={selection} />
+                <SelectionCheckbox row={selectionRow(row.node)} product label={row.node.label} selection={selection} />
               ) : null;
               const { node } = row;
               const badges = (
@@ -121,7 +123,7 @@ export default function ProductoTable({
         : undefined;
 
   // The colors painted since the rows loaded (`useColorOverlay`) win over the rows' own.
-  const getRowTone = useCallback((row) => treeRowTone(row, colorOverlay), [colorOverlay]);
+  const getRowTone = useCallback((row) => treeRowTone(row, colorOverlay, ownColorOverlay), [colorOverlay, ownColorOverlay]);
 
   const handleRowClick = (row, event) => {
     if (row.type === 'node') onSelectProduct(row.node.key);

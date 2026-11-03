@@ -15,18 +15,10 @@
 }
 
 @media (min-width: 1280px) {
+  /* One column per card shown: "Costos TP" and the sell in / sell out card join the row, a hidden card
+     leaves it (the strip sets --kpi-count). */
   .cards {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-
-  /* "Costos TP" on, or the sell in / sell out card: one more card joins the row; both: two more. */
-  .cards[data-tp],
-  .cards[data-sell] {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-  }
-
-  .cards[data-tp][data-sell] {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--kpi-count, 6), minmax(0, 1fr));
   }
 }
 

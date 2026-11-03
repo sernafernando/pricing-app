@@ -101,11 +101,22 @@ def brand_ads() -> dict[int, dict[str, Any]]:
     return {int(adv): response["body"] for adv, response in load("brand_ads_day_2026_10_05.json").items()}
 
 
+def _listing(fixture: str, ids: Optional[tuple[int, ...]]) -> dict[str, Any]:
+    """A captured `/advertising/advertisers` body, keeping only the whole entries of `ids` (all when None)."""
+    body = load(fixture)["body"]
+    if ids is not None:
+        body["advertisers"] = [a for a in body["advertisers"] if a["advertiser_id"] in ids]
+    return body
+
+
 class Replay:
     """httpx handler. `days` maps advertiser id -> {pages, summary, ads}; every answer is a captured body.
 
     `display` maps advertiser id -> {campaigns, metrics}; by default only 25713 has the captured Display answers.
     `brand` maps advertiser id -> Brand Ads body; by default both advertisers have their captured answer.
+    `/advertising/advertisers` answers by `product_id`: PADS and DISPLAY each with their captured body.
+    `advertisers` keeps whole entries of both listings (ids); `display_advertisers` overrides it for DISPLAY, and
+    `display_listing_status` answers DISPLAY with that status and no body (a failed listing).
 
     A request with no captured answer fails the test loudly instead of inventing one.
     """
@@ -118,16 +129,18 @@ class Replay:
         advertisers: Optional[tuple[int, ...]] = None,
         display: Optional[dict[int, dict[str, Any]]] = None,
         brand: Optional[dict[int, dict[str, Any]]] = None,
+        display_advertisers: Optional[tuple[int, ...]] = None,
+        display_listing_status: int = 200,
     ) -> None:
         self.clock = clock
         self.days = days
         self.display = {25713: gauss_display()} if display is None else display
         self.brand = brand_ads() if brand is None else brand
-        # The real advertisers answer; `advertisers` keeps whole entries of it (ids), never edits one.
-        listing = load("advertisers_pads.json")["body"]
-        if advertisers is not None:
-            listing["advertisers"] = [a for a in listing["advertisers"] if a["advertiser_id"] in advertisers]
-        self.advertisers_body = listing
+        # The real advertisers answers; the filters keep whole entries of them (ids), never edit one.
+        self.advertisers_body = _listing("advertisers_pads.json", advertisers)
+        display_ids = advertisers if display_advertisers is None else display_advertisers
+        self.display_advertisers_body = _listing("advertisers_display.json", display_ids)
+        self.display_listing_status = display_listing_status
         self.requests: list[httpx.Request] = []
         self.inject: Optional[Callable[[int, httpx.Request], Optional[httpx.Response]]] = None
 
@@ -141,7 +154,12 @@ class Replay:
         path = request.url.path
         params = dict(request.url.params)
         if ADVERTISERS_RE.search(path):
-            return httpx.Response(200, json=self.advertisers_body)
+            if params["product_id"] == "PADS":
+                return httpx.Response(200, json=self.advertisers_body)
+            if params["product_id"] == "DISPLAY":
+                if self.display_listing_status != 200:
+                    return httpx.Response(self.display_listing_status)
+                return httpx.Response(200, json=self.display_advertisers_body)
         if match := BRAND_RE.search(path):
             return httpx.Response(200, json=self.brand[int(match.group(1))])
         if match := DISPLAY_METRICS_RE.search(path):

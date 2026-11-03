@@ -12,7 +12,8 @@ Work order of a run:
 3. Fetch the days of the retention window that have no ledger row, oldest first (they expire first).
 4. Verify D-4..D-14 with one summary call each, once per local day; a day whose figures moved is reopened
    and picked up by step 2.
-5. Display (account-level, ADS-9), only when steps 1-4 ended without a stop: its own ledger rows
+5. Display (account-level, ADS-9), only when steps 1-4 ended without a stop, for every advertiser
+   `GET /advertising/advertisers?product_id=DISPLAY` lists (its own call; a failed one skips Display): its own ledger rows
    (`source='display'`), the same oldest-first order and the same D-1..D-3 daily refresh, but no verify and
    no `final` (it has no cheap summary call; the refresh is what catches ML restating a recent day). It spends
    what is left of the run's deadline and can never break Product Ads: its failures are caught and reported.
@@ -46,8 +47,6 @@ REFRESH_AFTER = time(10, 30)  # ML refreshes the previous day at 10:00 GMT-3
 RECENT_DAYS = 3  # D-1..D-3 are re-ingested every daily run
 VERIFY_DAYS = 14  # D-4..D-14 are verified; older closed days are final
 MISMATCH_LAPS = 3
-# Only 25713 runs Display campaigns (spec ADS-9); whether 714700 does too is an owner question.
-DISPLAY_ADVERTISERS = (25713,)
 
 _VERIFY = "verify"
 _FETCH = "fetch"
@@ -140,7 +139,7 @@ def run_tick(
             skipped.add((step.advertiser_id, step.day))
             # A day out of attempts is retried tomorrow; one that just failed deserves the next run.
             result.complete = result.complete and step.outcome == ingestion.ATTEMPTS_EXHAUSTED
-    _run_display(session_factory, client, advertisers, result, now=now, deadline=deadline, today=today)
+    _run_display(session_factory, client, result, now=now, deadline=deadline, today=today)
     if result.stopped:
         return result
     _run_brand(session_factory, client, advertisers, result, now=now, deadline=deadline, today=today)
@@ -186,15 +185,31 @@ def _reopen_account_level(session_factory: SessionFactory, today: date, source: 
 def _run_display(
     session_factory: SessionFactory,
     client: Any,
-    advertisers: list[int],
     result: TickResult,
     *,
     now: Callable[[], datetime],
     deadline: Optional[datetime],
     today: date,
 ) -> TickResult:
-    """Display days with whatever the deadline has left (see `_run_account_level`)."""
-    targets = [a for a in DISPLAY_ADVERTISERS if a in advertisers]
+    """Display days, for every advertiser `?product_id=DISPLAY` lists, with whatever the deadline has left.
+
+    The listing is its own call, counted like the Product Ads one. A rate limit, a missing token or the deadline
+    stops the run; any other failure skips Display for this run (reported, run left incomplete), never the rest.
+    See `_run_account_level`.
+    """
+    try:
+        targets, outcome, calls = ingestion.list_advertisers(client, deadline=deadline, now=now, product="DISPLAY")
+    except Exception:  # noqa: BLE001 -- an unreadable listing must never break the rest of the run
+        logger.exception("DISPLAY advertisers listing failed")
+        targets, outcome, calls = [], ingestion.ERROR, 1
+    result.calls += calls
+    if outcome in _STOPS:
+        _stopped(result, outcome)
+        return result
+    if outcome is not None:
+        result.complete = False
+        result.display_error = f"DISPLAY advertisers: {outcome}"
+        return result
 
     def step(*args: Any, **kwargs: Any) -> ingestion.StepResult:
         return ingestion.run_display_step(*args, **kwargs)  # looked up per call, so a test can replace it

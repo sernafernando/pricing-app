@@ -15,7 +15,7 @@ import pytest
 from app.core.config import settings
 from app.models.ml_ads import MlAdsDayLedger
 from app.services.ml_ads import ingestion, schedule
-from tests.services.ml_ads.replay import FakeClock, Replay, gauss_day, make_client, tplink_day
+from tests.services.ml_ads.replay import ADVERTISERS_RE, FakeClock, Replay, gauss_day, make_client, tplink_day
 
 pytestmark = pytest.mark.postgres
 
@@ -83,6 +83,61 @@ class TestSchedule:
             {"advertiser_id": GAUSS, "day": yesterday.isoformat(), "outcome": "closed"}
         ]
 
+    def test_display_runs_for_the_advertisers_the_display_listing_returns(
+        self, session_factory, monkeypatch, window
+    ) -> None:
+        window(1)
+        replay = _replay()  # the real DISPLAY answer lists 25713 only
+
+        tick = _tick(session_factory, replay, monkeypatch)
+
+        assert [dict(r.url.params) for r in replay.calls(ADVERTISERS_RE)] == [
+            {"product_id": "PADS"},
+            {"product_id": "DISPLAY"},
+        ]
+        assert [s.advertiser_id for s in tick.display_steps] == [GAUSS]
+        assert tick.calls == sum(s.calls for s in tick.steps + tick.display_steps + tick.brand_steps) + 2
+
+    def test_an_empty_display_listing_runs_no_display(self, session_factory, monkeypatch, window) -> None:
+        window(1)
+        replay = _replay(display_advertisers=())
+
+        tick = _tick(session_factory, replay, monkeypatch)
+
+        assert (tick.display_steps, replay.display_calls(), tick.display_error) == ([], [], None)
+
+    def test_a_failed_display_listing_skips_display_only(self, session_factory, pg_ads_db, monkeypatch, window) -> None:
+        window(1)
+        replay = _replay(display_listing_status=500)
+
+        tick = _tick(session_factory, replay, monkeypatch)
+
+        yesterday = TODAY - timedelta(days=1)
+        assert (tick.display_steps, replay.display_calls()) == ([], [])
+        assert tick.display_error == "DISPLAY advertisers: error"
+        assert (tick.stopped, tick.complete) == (None, False)  # retried by the next catch-up run
+        assert [(s.advertiser_id, s.outcome) for s in tick.steps] == [(GAUSS, "closed"), (TPLINK, "closed")]
+        assert sorted((s.advertiser_id, s.outcome) for s in tick.brand_steps) == [
+            (GAUSS, "closed"),
+            (TPLINK, "closed"),
+        ]
+        assert pg_ads_db.get(MlAdsDayLedger, ("product_ads", GAUSS, yesterday)).status == "closed"
+
+    def test_an_unreadable_display_listing_skips_display_only(
+        self, session_factory, pg_ads_db, monkeypatch, window
+    ) -> None:
+        window(1)
+        replay = _replay()
+        replay.display_advertisers_body = {**replay.display_advertisers_body, "advertisers": 5}  # perturbed shape
+
+        tick = _tick(session_factory, replay, monkeypatch)
+
+        assert (tick.display_steps, replay.display_calls()) == ([], [])
+        assert tick.display_error == "DISPLAY advertisers: error"
+        assert (tick.stopped, tick.complete) == (None, False)
+        assert [(s.advertiser_id, s.outcome) for s in tick.steps] == [(GAUSS, "closed"), (TPLINK, "closed")]
+        assert len(tick.brand_steps) == 2
+
     def test_closed_display_days_are_not_fetched_again(self, session_factory, monkeypatch, window) -> None:
         window(1)
         replay = _replay()
@@ -92,7 +147,8 @@ class TestSchedule:
         again = _tick(session_factory, replay, monkeypatch)
 
         assert (again.display_steps, again.complete) == ([], True)
-        assert [r.url.path for r in replay.requests[already:]] == ["/advertising/advertisers"]
+        # Only the two listings (PADS, then DISPLAY) go out again.
+        assert [r.url.path for r in replay.requests[already:]] == ["/advertising/advertisers"] * 2
 
     def test_the_daily_refresh_refetches_the_recent_display_days_once(
         self, session_factory, pg_ads_db, monkeypatch, window
