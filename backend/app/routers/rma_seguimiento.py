@@ -712,7 +712,8 @@ def listar_para_borrar(
     current_user: Usuario = Depends(get_current_user),
 ) -> ParaBorrarResponse:
     """Active cases marked "para borrar pedido". Pendientes = not reviewed yet (the default), revisados = someone
-    ticked "Revisado"; the counts of the three filters come with every answer. Same permission as the RMA list."""
+    ticked "Revisado"; the counts of the three filters come with every answer. Same permission as the RMA list.
+    Not paginated on purpose: only cases flagged "borrar pedido" qualify, a short list; page it if that grows."""
     _check_permiso(db, current_user, "rma.ver")
 
     marcados = db.query(RmaCaso).filter(RmaCaso.activo == True, RmaCaso.marcado_borrar_pedido == True)  # noqa: E712

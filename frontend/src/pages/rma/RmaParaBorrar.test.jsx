@@ -140,3 +140,17 @@ describe('RmaParaBorrar tick then filter change', () => {
     expect(screen.queryByText('RMA-2026-0001')).not.toBeInTheDocument();
   });
 });
+
+describe('RmaParaBorrar dates', () => {
+  it('shows a date-only fecha_caso on its own day in Argentina, not the day before', async () => {
+    const previous = globalThis.process.env.TZ;
+    globalThis.process.env.TZ = 'America/Argentina/Buenos_Aires';
+    try {
+      render(<RmaParaBorrar puedeGestionar />);
+      const row = (await screen.findByText('RMA-2026-0001')).closest('tr');
+      expect(within(row).getByText('01/11/2026')).toBeInTheDocument();
+    } finally {
+      globalThis.process.env.TZ = previous;
+    }
+  });
+});

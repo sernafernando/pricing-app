@@ -11,7 +11,15 @@ const FILTROS = [
   { value: 'todos', label: 'Todos' },
 ];
 
-const formatFecha = (iso) => (iso ? new Date(iso).toLocaleDateString('es-AR') : '—');
+// A date-only value ("2026-11-01", fecha_caso) is a calendar day: `new Date` would read it as UTC midnight and show
+// the day before in Argentina, so it is formatted as is. Timestamps (created_at, borrar_revisado_at) go through Date.
+const DIA = /^(\d{4})-(\d{2})-(\d{2})$/;
+const formatFecha = (iso) => {
+  if (!iso) return '—';
+  const dia = DIA.exec(iso);
+  if (dia) return `${dia[3]}/${dia[2]}/${dia[1]}`;
+  return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
 
 export default function RmaParaBorrar({ puedeGestionar }) {
   const [estado, setEstado] = useState('pendientes');
