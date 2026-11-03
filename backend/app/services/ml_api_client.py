@@ -1,7 +1,8 @@
 import httpx
 import os
 import time
-from typing import Dict, Optional, List
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, List
 import logging
 
 from sqlalchemy import text
@@ -11,6 +12,35 @@ from app.core.database import get_mlwebhook_engine
 from app.services.ml_multiget import BULK_ITEMS_PATH, chunked, parse_multiget
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ShippingWriteResult:
+    """Outcome of PUT /items/{id} shipping for publication repair."""
+
+    ok: bool
+    status_code: Optional[int] = None
+    detail: Optional[str] = None
+    not_allowed: bool = False
+    body: Optional[Dict[str, Any]] = None
+    retry_after: Optional[str] = None
+
+
+_FLEX_ALREADY_PHRASES = (
+    "already in flex",
+    "already enabled",
+    "already selfservice",
+    "already in self",
+    "already registered",
+)
+
+
+def _flex_already_enabled(body_text: str) -> bool:
+    """True only when a 400 clearly means Flex is already on (not bare 'already')."""
+    low = (body_text or "").lower()
+    if any(p in low for p in _FLEX_ALREADY_PHRASES):
+        return True
+    return "already" in low and ("flex" in low or "selfservice" in low or "self-service" in low)
 
 
 class QuestionNotFoundError(Exception):
@@ -649,6 +679,76 @@ class MercadoLibreAPIClient:
         except Exception as e:
             logger.error("Error updating shipping for %s: %s", item_id, e)
             return None
+
+    async def put_item_shipping(self, item_id: str, shipping: Dict[str, Any]) -> ShippingWriteResult:
+        """PUT `/items/{id}` with a shipping object (publication repair).
+
+        Never sends `free_shipping`, `tags`, or `store_pick_up` (stripped here as a
+        hard guard). Classifies 400/403/422 as `not_allowed` (skip); other non-200 as error.
+        Single-shot: HTTP 429 is returned with `retry_after` for the caller/Pacer — no sleep here.
+        """
+        forbidden = {"free_shipping", "tags", "store_pick_up"}
+        try:
+            token = await self.get_access_token()
+            cleaned = {k: v for k, v in shipping.items() if v is not None and k not in forbidden}
+            if not cleaned:
+                return ShippingWriteResult(ok=False, detail="empty_shipping_payload", not_allowed=True)
+            payload = {"shipping": cleaned}
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.put(
+                    f"{self.base_url}/items/{item_id}",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            text_body = response.text[:500] if response.text else ""
+            if response.status_code == 200:
+                try:
+                    body = response.json()
+                except Exception:
+                    body = None
+                return ShippingWriteResult(ok=True, status_code=200, body=body if isinstance(body, dict) else None)
+            not_allowed = response.status_code in (400, 403, 422)
+            return ShippingWriteResult(
+                ok=False,
+                status_code=response.status_code,
+                detail=f"http_{response.status_code}: {text_body}"[:300],
+                not_allowed=not_allowed,
+                retry_after=response.headers.get("Retry-After") if response.status_code == 429 else None,
+            )
+        except Exception as e:
+            logger.error("Error put_item_shipping for %s: %s", item_id, e)
+            return ShippingWriteResult(ok=False, detail=f"exception: {str(e)[:200]}")
+
+    async def enable_item_flex(self, item_id: str, site_id: str = "MLA") -> ShippingWriteResult:
+        """Enable Mercado Envíos Flex on an item (`POST .../shipping/selfservice/items/{id}`).
+
+        204 = enabled; 400 "already in flex" is treated as success (idempotent).
+        """
+        try:
+            token = await self.get_access_token()
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/sites/{site_id}/shipping/selfservice/items/{item_id}",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            if response.status_code == 204:
+                return ShippingWriteResult(ok=True, status_code=204)
+            text_body = (response.text or "")[:500]
+            # Idempotent: already on Flex — require a flex/selfservice signal, not bare "already"
+            # (Fernando: a 400 containing only "already" must not count as success).
+            if response.status_code == 400 and _flex_already_enabled(text_body):
+                return ShippingWriteResult(ok=True, status_code=400, detail="already_in_flex")
+            not_allowed = response.status_code in (400, 403, 404, 422)
+            return ShippingWriteResult(
+                ok=False,
+                status_code=response.status_code,
+                detail=f"http_{response.status_code}: {text_body}"[:300],
+                not_allowed=not_allowed,
+                retry_after=response.headers.get("Retry-After") if response.status_code == 429 else None,
+            )
+        except Exception as e:
+            logger.error("Error enable_item_flex for %s: %s", item_id, e)
+            return ShippingWriteResult(ok=False, detail=f"exception: {str(e)[:200]}")
 
     async def get_user_items(self, user_id: Optional[str] = None, limit: int = 50) -> List[Dict]:
         """Obtiene los items de un usuario

@@ -480,7 +480,10 @@ def test_billing_schedule_unchanged():
     from app.workers.handlers.ml_billing import CATCH_UP, billing
 
     names = [h.name for h in registry.ML_PUBLICATIONS_REGISTRY]
-    assert names.index("ml_billing.sweep") == 11 and names[-1] == "ml_orders.discounts"
+    assert names.index("ml_billing.sweep") == 11
+    assert names.index("ml_orders.discounts") == 12
+    assert names[-2:] == ["publicacion_repair.envio", "publicacion_repair.sku"]
+
     assert billing.interval is None and billing.run_at_local == time(5, 17) and billing.catch_up_interval == CATCH_UP
     assert handler_module.discounts.own_thread is True  # its paced runs never take a turn in the shared pass
 

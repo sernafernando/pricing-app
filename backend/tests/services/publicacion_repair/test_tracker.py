@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.models.publicacion_repair import STATUS_FAILED, STATUS_PARTIAL, STATUS_SUCCESS
-from app.services.publicacion_repair.tracker import finish_run
+from app.models.publicacion_repair import (
+    ACTION_SKIPPED,
+    STATUS_FAILED,
+    STATUS_PARTIAL,
+    STATUS_SUCCESS,
+)
+from app.services.publicacion_repair.tracker import finish_run, record_event
 
 
 def _run() -> SimpleNamespace:
@@ -42,3 +48,20 @@ def test_finish_run_failed_when_fatal_before_scan() -> None:
         error_message="boom",
     )
     assert out.status == STATUS_FAILED
+
+
+def test_record_event_jsonifies_datetimes_in_before_after() -> None:
+    db = MagicMock()
+    ts = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+    record_event(
+        db,
+        run_id=1,
+        mla_id="MLA1",
+        action=ACTION_SKIPPED,
+        before={"fetched_at": ts, "tags": []},
+        after={"fingerprint": "x", "nested": {"at": ts}},
+        detail="flex_refused",
+    )
+    event = db.add.call_args[0][0]
+    assert event.before == {"fetched_at": ts.isoformat(), "tags": []}
+    assert event.after == {"fingerprint": "x", "nested": {"at": ts.isoformat()}}

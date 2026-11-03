@@ -29,6 +29,9 @@ ACTION_ACTIVATE = "activate"
 # The publication override pushed to ML (Publicaciones ML T8c): the item fields, and the description apart.
 ACTION_UPDATE_DATA = "update_data"
 ACTION_UPDATE_DESCRIPTION = "update_description"
+# Publication repair jobs (envio): shipping PUT and Flex selfservice enable.
+ACTION_UPDATE_SHIPPING = "update_shipping"
+ACTION_ENABLE_FLEX = "enable_flex"
 
 
 class MlWriteLog(Base):

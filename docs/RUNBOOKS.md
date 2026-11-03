@@ -1111,6 +1111,25 @@ then `sudo systemctl disable --now pricing-worker-ml`.
 The scan (first backfill, rescans, pause): see
 `docs/ml-publications-scan-runbook.md`.
 
+### Publication repair (`publicacion_repair.envio` / `publicacion_repair.sku`)
+
+Handlers of `pricing-worker-ml` (every 5 minutes, no FastAPI tick and not
+hooked on `sync_ml_publications_full`). They repair linked
+`publicaciones_ml` rows whose `ml_items` row has drifted from policy:
+
+- **envio**: ME2 + `local_pick_up` + colecta/Flex enable. Never writes
+  `free_shipping`, `tags`, or `store_pick_up`. Skips Full and stale
+  `fetched_at` (>7d).
+- **sku**: PUT `SELLER_SKU` to the ERP link `codigo` when
+  `ml_items.seller_sku` differs. Linked pubs only (outlet unlinked by design).
+
+Both share the store `Pacer` (families `publicacion_repair_envio` /
+`publicacion_repair_sku`) so 429/AIMD matches the rest of the ML pubs
+workers. Gates: `ML_PUB_KILL_SWITCH` and `ML_ITEM_DATA_WRITE_ENABLED`
+(same as the write paths). Tracker tables: `publicacion_repair_run` /
+`publicacion_repair_event`. Restart `pricing-worker-ml` after deploy so
+the registry picks up the handlers.
+
 ### ML Ads ingestion (`ml_ads.ingest`)
 
 Handler of `pricing-worker-ml` (no cron). It copies ML Product Ads cost per

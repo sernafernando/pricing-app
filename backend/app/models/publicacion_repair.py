@@ -28,7 +28,8 @@ STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
 STATUS_PARTIAL = "partial"
 
-TRIGGER_PUBLICATIONS_FULL = "publications_full"
+TRIGGER_PUBLICATIONS_FULL = "publications_full"  # legacy; repair no longer hooks sync_full
+TRIGGER_TICK = "tick"
 TRIGGER_MANUAL = "manual"
 
 ACTION_CHANGED = "changed"

@@ -47,6 +47,27 @@ def test_extraer_does_not_crash_on_unicode_digit_sku() -> None:
     assert item_id is None
 
 
+def test_extraer_item_id_ignores_unicode_digits_that_break_int() -> None:
+    """str.isdigit() is True for '²' but int('²') raises — must not abort sync."""
+    item = {
+        "listing_type_id": "gold_special",
+        "sale_terms": [],
+        "attributes": [
+            {
+                "id": "SELLER_SKU",
+                "name": "SKU",
+                "value_id": None,
+                "value_name": "²",
+            }
+        ],
+    }
+
+    _campaign, seller_sku, item_id = extraer_datos_publicacion(item)
+
+    assert seller_sku == "²"
+    assert item_id is None
+
+
 def test_sanitizar_persists_shipping_fields() -> None:
     item = {
         "title": "Example",
