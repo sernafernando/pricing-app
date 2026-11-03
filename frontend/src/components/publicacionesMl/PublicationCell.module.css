@@ -124,3 +124,40 @@
   align-items: center;
   color: var(--tone-warning-fg);
 }
+
+/* "Filas finas" (the page marks the table `data-density='dense'`): a small thumbnail, the title on ONE line
+   (whole in its tooltip) and the meta line never wrapping. */
+:global([data-density='dense']) .cell {
+  align-items: center;
+}
+
+:global([data-density='dense']) .thumbnail {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-base);
+}
+
+:global([data-density='dense']) .info {
+  gap: 0;
+}
+
+:global([data-density='dense']) .title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+
+/* One line of inline items cut with "…" (a flex box never draws it); the whole line is in the meta's tooltip. */
+:global([data-density='dense']) .meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+
+:global([data-density='dense']) .meta > * + * {
+  margin-left: var(--spacing-xs);
+}

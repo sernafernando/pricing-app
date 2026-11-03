@@ -3047,3 +3047,32 @@ describe("the panels' Precios tab: one table, a row per plan (S2)", () => {
     expect(within(panel).getByRole('button', { name: 'Calcular el precio de Router Archer AX55' })).toBeInTheDocument();
   });
 });
+
+describe('"Filas finas" (vistas-tipo-publicacion S5)', () => {
+  const KEY = 'publicaciones-ml.filas-finas';
+  const densityOf = () => screen.getByText('MLA1100000001').closest('[data-density]').dataset.density;
+  beforeEach(() => localStorage.removeItem(KEY));
+  afterEach(() => localStorage.removeItem(KEY));
+
+  it('starts off, and turning it on presses the toggle and makes the table dense', async () => {
+    await page();
+    const toggle = screen.getByRole('button', { name: 'Filas finas' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(densityOf()).toBe('normal');
+
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(densityOf()).toBe('dense');
+  });
+
+  it('keeps the choice after a reload', async () => {
+    const first = renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones'] });
+    await screen.findByText('MLA1100000001');
+    await userEvent.click(screen.getByRole('button', { name: 'Filas finas' }));
+    first.unmount();
+
+    await page();
+    expect(screen.getByRole('button', { name: 'Filas finas' })).toHaveAttribute('aria-pressed', 'true');
+    expect(densityOf()).toBe('dense');
+  });
+});

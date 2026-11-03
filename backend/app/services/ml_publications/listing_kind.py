@@ -30,7 +30,7 @@ KIND_RANKS: dict[str, int] = {
     "cuotas_12": 4,
 }
 # What each kind reads as, with ML's other listing types by the names ML gives them: the same words as the list's
-# Tipo badge (frontend `ListingKindBadge`), so a file says what the screen says; a test reads the badge and pins the
+# Tipo badge (frontend `listingKindLabels.js`), so a file says what the screen says; a test reads those words and pins the
 # two together. A co-funded Clásica reads as Clásica; `gold_pro` stays a kind only with an unknown campaign.
 KIND_LABELS: dict[str, str] = {
     "clasica": "Clásica",

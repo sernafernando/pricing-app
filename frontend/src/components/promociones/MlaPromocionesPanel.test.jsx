@@ -1373,3 +1373,20 @@ describe('MlaPromocionesPanel — the 5-minute promo TTL', () => {
     await waitFor(() => expect(promoPulledRecently('MLA001')).toBe(false));
   });
 });
+
+describe('sections (S3) are only for a host that asks', () => {
+  it('a Productos tree (no `sections`) keeps its one list, a coupon included', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal', status: 'candidate', price: 10 },
+          { promotion_id: 'C1', promotion_type: 'SELLER_COUPON_CAMPAIGN', name: 'Cupón de recompra', status: 'candidate', price: 0 },
+        ],
+      },
+    });
+    renderPanel({ pullOnOpen: false });
+    await screen.findByText('Cupón de recompra');
+    expect(screen.queryAllByRole('region')).toEqual([]);
+    expect(screen.getAllByRole('list')).toHaveLength(1);
+  });
+});

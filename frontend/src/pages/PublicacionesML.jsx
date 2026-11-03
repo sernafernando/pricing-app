@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { Download, FileDown, FileSpreadsheet, FilterX, Gauge, Keyboard, ShieldAlert, Users } from 'lucide-react';
+import { Download, FileDown, FileSpreadsheet, FilterX, Gauge, Keyboard, Rows4, ShieldAlert, Users } from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
@@ -26,6 +26,7 @@ import { itemRowTone } from '../components/publicacionesMl/rowColor';
 import useColorOverlay from '../components/publicacionesMl/useColorOverlay';
 import { useSSEChannel } from '../hooks/useSSEChannel';
 import useHiddenKpis from '../hooks/useHiddenKpis';
+import useRowDensity from '../hooks/useRowDensity';
 import { PREARMADAS_LIMITE, usePrearmadasStats } from '../hooks/usePrearmadasStats';
 import { useEquipos } from '../hooks/useEquipos';
 import EquiposModal from '../components/EquiposModal';
@@ -405,6 +406,8 @@ export default function PublicacionesML() {
   const kpiData = kpis.data?.kpis;
   const kpiOptions = useMemo(() => (canSeeKpis && !sinMla ? publicationKpiOptions(kpiData) : []), [canSeeKpis, sinMla, kpiData]);
   const { isVisible: kpiVisible, pickerTable: kpiPicker } = useHiddenKpis('publicaciones-ml.kpis-ocultos', kpiOptions);
+  // "Filas finas": the tables' Sheets-like density, remembered per browser; only the look changes.
+  const { dense, toggleDense } = useRowDensity('publicaciones-ml.filas-finas');
   const stats = usePublicationStats(buildStatsParams(rowFilters), !layerPending && !publicacion);
   const productRows = useProductRows({
     filters: rowFilters,
@@ -807,6 +810,17 @@ export default function PublicacionesML() {
           {kpiOptions.length > 0 && (
             <ColumnPicker table={kpiPicker} label="Indicadores" icon={Gauge} groupLabel="Elegir indicadores visibles" />
           )}
+          <button
+            type="button"
+            className={`btn-tesla outline sm ${styles.densityToggle}`}
+            aria-pressed={dense}
+            aria-label="Filas finas"
+            title="Filas finas"
+            onClick={toggleDense}
+          >
+            <Rows4 size={14} />
+            <span className={styles.densityLabel}>Filas finas</span>
+          </button>
           {canExportVista(filters.vista) && (
             <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
               <Download size={14} />
@@ -1058,64 +1072,67 @@ export default function PublicacionesML() {
               ) : null
             }
           >
-            {producto ? (
-              <ProductoTable
-                tree={productRows}
-                columns={selectableColumns}
-                selection={selection}
-                colorOverlay={colorOverlay.colors}
-                ownColorOverlay={colorOverlay.own}
-                prearmadasStats={prearmadasStats}
-                listingById={listPrices.byId}
-                canSeeMargin={canSeeMargin}
-                expandedIds={expandedIds}
-                onSelectItem={handleRowClick}
-                onSelectProduct={selectProduct}
-                selectedKey={filters.sel || undefined}
-                selectedProductKey={filters.prod || undefined}
-                sort={sort}
-                onSort={handleSort}
-                offset={TABLE_OFFSET}
-                emptyMessage={hasActiveFilters ? 'Ningún producto coincide con los filtros' : 'No hay productos'}
-              />
-            ) : agrupado ? (
-              // The tree asks on mount: it waits for the layer like the other views.
-              !layerPending && (
-              <AgrupadoTable
-                columns={selectableColumns}
-                filters={rowFilters}
-                familias={filters.familias === '1'}
-                dimension={filters.agrupar}
-                colorOverlay={colorOverlay.colors}
-                ownColorOverlay={colorOverlay.own}
-                canSeeMargin={canSeeMargin}
-                expandedIds={expandedIds}
-                onSelectItem={handleRowClick}
-                selectedKey={filters.sel || undefined}
-                offset={TABLE_OFFSET}
-                emptyMessage={emptyMessage}
-              />
-              )
-            ) : (
-              <TableShell
-                columns={selectableColumns}
-                rows={items}
-                getRowKey={(item) => item.item_id}
-                getRowTone={getItemTone}
-                renderSubRows={(item) =>
-                  item.variations_count > 1 && expandedIds.has(item.item_id) ? (
-                    <VariationRows item={item} columns={visibleColumns} canSeeMargin={canSeeMargin} />
-                  ) : null
-                }
-                sort={sort}
-                onSort={handleSort}
-                onRowClick={handleRowClick}
-                selectedKey={filters.sel || undefined}
-                offset={TABLE_OFFSET}
-                emptyMessage={emptyMessage}
-                ariaLabel="Publicaciones de Mercado Libre"
-              />
-            )}
+            {/* The kit's TableShell takes no density: this box marks the table inside it ("Filas finas"). */}
+            <div className={styles.tableDensity} data-density={dense ? 'dense' : 'normal'}>
+              {producto ? (
+                <ProductoTable
+                  tree={productRows}
+                  columns={selectableColumns}
+                  selection={selection}
+                  colorOverlay={colorOverlay.colors}
+                  ownColorOverlay={colorOverlay.own}
+                  prearmadasStats={prearmadasStats}
+                  listingById={listPrices.byId}
+                  canSeeMargin={canSeeMargin}
+                  expandedIds={expandedIds}
+                  onSelectItem={handleRowClick}
+                  onSelectProduct={selectProduct}
+                  selectedKey={filters.sel || undefined}
+                  selectedProductKey={filters.prod || undefined}
+                  sort={sort}
+                  onSort={handleSort}
+                  offset={TABLE_OFFSET}
+                  emptyMessage={hasActiveFilters ? 'Ningún producto coincide con los filtros' : 'No hay productos'}
+                />
+              ) : agrupado ? (
+                // The tree asks on mount: it waits for the layer like the other views.
+                !layerPending && (
+                <AgrupadoTable
+                  columns={selectableColumns}
+                  filters={rowFilters}
+                  familias={filters.familias === '1'}
+                  dimension={filters.agrupar}
+                  colorOverlay={colorOverlay.colors}
+                  ownColorOverlay={colorOverlay.own}
+                  canSeeMargin={canSeeMargin}
+                  expandedIds={expandedIds}
+                  onSelectItem={handleRowClick}
+                  selectedKey={filters.sel || undefined}
+                  offset={TABLE_OFFSET}
+                  emptyMessage={emptyMessage}
+                />
+                )
+              ) : (
+                <TableShell
+                  columns={selectableColumns}
+                  rows={items}
+                  getRowKey={(item) => item.item_id}
+                  getRowTone={getItemTone}
+                  renderSubRows={(item) =>
+                    item.variations_count > 1 && expandedIds.has(item.item_id) ? (
+                      <VariationRows item={item} columns={visibleColumns} canSeeMargin={canSeeMargin} />
+                    ) : null
+                  }
+                  sort={sort}
+                  onSort={handleSort}
+                  onRowClick={handleRowClick}
+                  selectedKey={filters.sel || undefined}
+                  offset={TABLE_OFFSET}
+                  emptyMessage={emptyMessage}
+                  ariaLabel="Publicaciones de Mercado Libre"
+                />
+              )}
+            </div>
           </SplitPanelLayout>
           {!agrupado && (
             <div className={styles.pager}>

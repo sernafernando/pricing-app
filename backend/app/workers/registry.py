@@ -90,6 +90,7 @@ def __getattr__(name: str) -> List[JobHandler]:
         if _ml_publications_registry is None:
             from app.workers.handlers.ml_ads import ads
             from app.workers.handlers.ml_billing import billing
+            from app.workers.handlers.ml_order_discounts import discounts
             from app.workers.handlers.ml_promo_refresh import promo_refresh
             from app.workers.handlers.ml_publications import (
                 freshness,
@@ -118,6 +119,8 @@ def __getattr__(name: str) -> List[JobHandler]:
                 # ml-sync-pipeline S5: the per-minute freshness check (no ML call).
                 freshness,
                 billing,
+                # ml-ads-cupones-display T3a: per-sale discounts (coupons) of the sales paid with one.
+                discounts,
             ]
         return _ml_publications_registry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1227,6 +1227,53 @@ describe('Publicaciones ML Producto view (visual)', () => {
       });
     }
 
+    // "Filas finas" (vistas-tipo-publicacion S5): a long name is cut, never its badges; the name is in its tooltip.
+    // Narrower screens too: the badges never squeeze the name to nothing (it keeps a place to hover).
+    // `wider` stands in for a wider fallback font (the CI runner has no Inter either): the badges grow, and the name
+    // still keeps its minimum; the badges then go to a second line instead of squeezing it.
+    for (const { width, height, wider } of VIEWPORTS.flatMap((v) => [{ ...v, wider: false }, { ...v, wider: true }])) {
+    it(`${width}x${height} ${theme}: dense, a long product name is cut with its tooltip and its badges stay whole${wider ? ' (wider font)' : ''}`, async () => {
+      localStorage.setItem('publicaciones-ml.filas-finas', 'true');
+      try {
+        const screen = await renderProducts({ width, height, theme });
+        const table = screen.getByRole('table', { name: /por producto/ });
+        await expect.element(table.getByText('3 tramos · desde $37.800')).toBeVisible();
+        expect(scrollerOf().closest('[data-density]').dataset.density).toBe('dense');
+        const row = rowWith(scrollerOf(), 'Sistema Mesh Deco X20');
+        const cell = row.querySelector('td');
+        const name = [...cell.querySelectorAll('span[title]')].find((el) => el.textContent.startsWith('Sistema Mesh Deco X20'));
+        const badges = ['3 tramos · desde $37.800', '2 listas'].map((text) => [
+          text,
+          [...row.querySelectorAll('span')].find((el) => el.textContent.trim() === text),
+        ]);
+        if (wider) {
+          for (const [, badge] of badges) badge.style.letterSpacing = '3px';
+          await frame();
+        }
+        // Cut or whole, the name is in its tooltip and never squeezed under a few characters.
+        expect(name.getAttribute('title')).toBe(name.textContent);
+        expect(rect(name).width).toBeGreaterThanOrEqual(Math.min(40, name.scrollWidth));
+        if (!wider) expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+        for (const [text, badge] of badges) {
+          expect(name.contains(badge), text).toBe(false);
+          expect(rect(badge).width, text).toBeGreaterThan(0);
+          expect(rect(badge).right, text).toBeLessThanOrEqual(rect(cell).right + 0.5);
+          expect(badge.scrollWidth, text).toBeLessThanOrEqual(badge.clientWidth + 1);
+        }
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          await page.screenshot({
+            path: `${PRODUCT_SHOTS_DIR}/filas-finas-producto-${width}-${theme}${wider ? '-wider' : ''}.png`,
+            element: row,
+          });
+        }
+        screen.unmount();
+      } finally {
+        localStorage.removeItem('publicaciones-ml.filas-finas');
+      }
+    });
+    }
+
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: a product row's catalog-competition badge sits beside its name, inside the cell`, async () => {
         const screen = await renderProducts({ width, height, theme });
@@ -1485,6 +1532,7 @@ const PROMOTIONS = [
     promotion_id: 'P1',
     promotion_type: 'SMART',
     name: 'Promoción inteligente con un nombre bastante largo para ver cómo corta',
+    status: 'candidate',
     price: 0,
     suggested_discounted_price: 1234567,
     original_price: 1500000,
@@ -1495,6 +1543,30 @@ const PROMOTIONS = [
     payload: { seller_percentage: 30, meli_percentage: 20 },
   },
   { promotion_id: 'P2', promotion_type: 'DOD', name: 'Oferta del día', price: 50000, original_price: 60000, nuestro_markup: -2, application_status: 'active', payload: {} },
+  // A seller coupon as ML sends it (backend/tests/fixtures/ml_publications/history_events_MLA1402898289_20261016.json).
+  {
+    promotion_id: 'C-MLA1713876',
+    promotion_type: 'SELLER_COUPON_CAMPAIGN',
+    sub_type: 'FIXED_PERCENTAGE',
+    name: 'Cupón de recompra',
+    status: 'candidate',
+    price: 0,
+    original_price: 91193,
+    start_date: '2026-10-10T00:00:00',
+    finish_date: '2026-10-31T23:59:59',
+    payload: {
+      id: 'C-MLA1713876',
+      name: 'Cupón de recompra',
+      type: 'SELLER_COUPON_CAMPAIGN',
+      price: 0,
+      status: 'candidate',
+      sub_type: 'FIXED_PERCENTAGE',
+      start_date: '2026-10-10T00:00:00',
+      finish_date: '2026-10-31T23:59:59',
+      original_price: 91193,
+      fixed_percentage: 10,
+    },
+  },
 ];
 
 // The detail panel open beside the table (publicaciones-ml-vista P13a.T5, S61.1/S62.1).
@@ -1879,14 +1951,21 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
 
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Promociones tab lists the promotions inside the panel`, async () => {
+      it(`${width}x${height} ${theme}: the Promociones tab shows the promotions by section, coupons last, inside the panel`, async () => {
         const screen = await renderWithPanel({ width, height, theme, tab: 'promociones' });
         await expect.element(screen.getByText('Oferta del día')).toBeVisible();
         const panel = panelOf();
         const box = rect(panel);
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        const sections = [...panel.querySelectorAll('[role="tabpanel"] section')];
+        expect(sections.map((section) => section.getAttribute('aria-label'))).toEqual(['Activa ahora', 'Disponibles para activar', 'Cupones']);
+        // Top to bottom in that order.
+        for (let index = 1; index < sections.length; index += 1) expect(rect(sections[index]).top).toBeGreaterThan(rect(sections[index - 1]).bottom - 0.5);
+        const coupons = sections.at(-1);
+        expect(coupons.querySelector('button')).toBeNull();
+        await expect.element(screen.getByRole('link', { name: 'Ver promociones en Mercado Libre' })).toBeVisible();
         const rows = [...panel.querySelectorAll('[role="tabpanel"] li')];
-        expect(rows).toHaveLength(2);
+        expect(rows).toHaveLength(3);
         for (const el of rows.flatMap((row) => [row, ...row.querySelectorAll('*')])) {
           const r = rect(el);
           if (r.width === 0) continue;
@@ -2303,6 +2382,37 @@ describe('row colors and the color layer (S8)', () => {
     });
   }
 
+  // "Filas finas" (vistas-tipo-publicacion S5) shrinks the sparklines only: the lock icon keeps its 10px.
+  for (const theme of ['light', 'dark']) {
+    it(`1920x1080 ${theme}: dense Precios view, sparklines shrink but the lock icon keeps its size`, async () => {
+      localStorage.setItem('publicaciones-ml.filas-finas', 'true');
+      try {
+        const screen = await renderPage({ width: 1920, height: 1080, theme, entry: PRECIOS });
+        const lock = screen.getByRole('img', { name: '% conservado en cambios masivos' }).first();
+        await expect.element(lock).toBeVisible();
+        expect(scrollerOf().closest('[data-density]').dataset.density).toBe('dense');
+        expect(lock.element().getBoundingClientRect().height).toBeLessThanOrEqual(10.5);
+        const sparks = [...scrollerOf().querySelectorAll('td svg[aria-label$="90 días"]')];
+        expect(sparks.length).toBeGreaterThan(0);
+        for (const spark of sparks) expect(spark.getBoundingClientRect().height).toBeLessThanOrEqual(16.5);
+        // What dense mode hides (struck price, promotion, "Sin stock ERP") takes no room on the line.
+        const hidden = [...scrollerOf().querySelectorAll('[data-dense-hidden]')];
+        expect(hidden.length).toBeGreaterThan(0);
+        for (const el of hidden) expect(el.getClientRects().length, el.textContent).toBe(0);
+        // The meta line is cut inside its own box (whole in the title's tooltip): no cell spills, nothing cut lacks a title.
+        const spilling = [...scrollerOf().querySelectorAll('tbody td')].filter((td) => td.scrollWidth > td.clientWidth + 1);
+        expect(spilling.map((td) => td.textContent.trim().slice(0, 40))).toEqual([]);
+        const cut = [...scrollerOf().querySelectorAll('td[data-column="titulo"] span')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+        for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+        lock.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-precios-1920-${theme}.png` });
+        screen.unmount();
+      } finally {
+        localStorage.removeItem('publicaciones-ml.filas-finas');
+      }
+    });
+  }
+
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: the rebate and web transfer editors open inside their cell, every control in view`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });
@@ -2440,6 +2550,52 @@ describe('Publicaciones ML hideable KPI cards (visual)', () => {
       await expect.poll(() => cards()).toBeNull();
       await expect.element(screen.getByRole('group', { name: 'Período' })).toBeVisible();
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/kpis-hidden-all-${theme}.png` });
+      screen.unmount();
+    });
+  }
+});
+
+describe('Publicaciones ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () => {
+  const KEY = 'publicaciones-ml.filas-finas';
+  beforeEach(() => {
+    localStorage.removeItem(KEY);
+    canSeeMargin = false;
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
+  });
+  // The browser's storage outlives the file: leave the normal density for the suites that run next.
+  afterEach(() => localStorage.removeItem(KEY));
+
+  for (const theme of THEMES) {
+    it(`1920x1080 ${theme}: thin rows, titles on one line, nothing wraps or overflows`, async () => {
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      const scroller = scrollerOf();
+      const firstRow = () => scroller.querySelector('tbody tr');
+      const normalHeight = rect(firstRow()).height;
+
+      await screen.getByRole('button', { name: 'Filas finas' }).click();
+      await expect.element(screen.getByRole('button', { name: 'Filas finas', pressed: true })).toBeVisible();
+      await frame();
+      expect(scroller.closest('[data-density]').dataset.density).toBe('dense');
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-1920-${theme}.png` });
+      // Thinner than the current density, at most two short lines (title and its MLA line).
+      expect(rect(firstRow()).height).toBeLessThan(normalHeight * 0.75);
+      expect(rect(firstRow()).height).toBeLessThanOrEqual(44);
+
+      // Anything cut in the Publicación cell (title or meta line) is readable in its own tooltip.
+      const cut = [...scroller.querySelectorAll('td[data-column="titulo"] span')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+      expect(cut.length).toBeGreaterThan(0);
+      for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+      const titles = [...scroller.querySelectorAll('td[data-column="titulo"] span[title]')];
+      expect(titles.length).toBeGreaterThan(0);
+      expect(wrapped(titles)).toEqual([]);
+      const figures = [...scroller.querySelectorAll('td[data-align="right"] span')].filter((el) =>
+        /^[\d.,]+$/.test(el.textContent.trim()),
+      );
+      expect(figures.length).toBeGreaterThan(0);
+      expect(wrapped(figures)).toEqual([]);
+      expect(overflowingCells(scroller)).toEqual([]);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1920);
       screen.unmount();
     });
   }
