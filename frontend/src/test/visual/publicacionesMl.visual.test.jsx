@@ -860,10 +860,11 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
 });
 
 // A product's panel opens on Precios (owner, 2026-11-02): these tests read its Resumen, so they open it first.
-const openProductResumen = async (screen) => {
+const openProductTab = async (screen, name) => {
   await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
-  await screen.getByRole('complementary', { name: 'Detalle del producto' }).getByRole('tab', { name: 'Resumen' }).click();
+  await screen.getByRole('complementary', { name: 'Detalle del producto' }).getByRole('tab', { name }).click();
 };
+const openProductResumen = (screen) => openProductTab(screen, 'Resumen');
 
 const renderProducts = async ({ width, height, theme, rows, entry = '/ml-publicaciones?vista=producto' }) => {
   canSeeMargin = true;
@@ -1005,8 +1006,9 @@ describe('Publicaciones ML Producto view (visual)', () => {
         await openProductResumen(screen);
         await expect.element(screen.getByRole('complementary', { name: 'Detalle del producto' }).getByText('Cifras')).toBeVisible();
         const panel = document.querySelector('[data-split-panel]');
-        // The product's publications are Productos' tree: its row opens with "Expandir <title>".
-        await expect.element(screen.getByRole('button', { name: 'Expandir Router TP-Link Archer AX55 por color' })).toBeVisible();
+        // The product's publications are Productos' tree; a publication with nothing under it has only its "Abrir".
+        await expect.element(screen.getByRole('button', { name: 'Abrir MLA1100000005' })).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Expandir Router TP-Link Archer AX55 por color' }).query()).toBeNull();
         const box = rect(panel);
         const scroller = scrollerOf();
         // Side by side: the table ends where the panel starts, and nothing scrolls the page sideways.
@@ -1184,7 +1186,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           publicacionesMlAPI.items.mockResolvedValue({
             data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3).map((item, i) => ({ ...item, catalog_listing: i === 0 })), total: 3 },
           });
-          await openProductResumen(screen);
+          await openProductTab(screen, 'Promos');
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           await aside.getByRole('button', { name: /^Competencia de catálogo de / }).click();
           await expect.element(aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
@@ -1225,6 +1227,53 @@ describe('Publicaciones ML Producto view (visual)', () => {
         }
         screen.unmount();
       });
+    }
+
+    // "Filas finas" (vistas-tipo-publicacion S5): a long name is cut, never its badges; the name is in its tooltip.
+    // Narrower screens too: the badges never squeeze the name to nothing (it keeps a place to hover).
+    // `wider` stands in for a wider fallback font (the CI runner has no Inter either): the badges grow, and the name
+    // still keeps its minimum; the badges then go to a second line instead of squeezing it.
+    for (const { width, height, wider } of VIEWPORTS.flatMap((v) => [{ ...v, wider: false }, { ...v, wider: true }])) {
+    it(`${width}x${height} ${theme}: dense, a long product name is cut with its tooltip and its badges stay whole${wider ? ' (wider font)' : ''}`, async () => {
+      localStorage.setItem('publicaciones-ml.filas-finas', 'true');
+      try {
+        const screen = await renderProducts({ width, height, theme });
+        const table = screen.getByRole('table', { name: /por producto/ });
+        await expect.element(table.getByText('3 tramos · desde $37.800')).toBeVisible();
+        expect(scrollerOf().closest('[data-density]').dataset.density).toBe('dense');
+        const row = rowWith(scrollerOf(), 'Sistema Mesh Deco X20');
+        const cell = row.querySelector('td');
+        const name = [...cell.querySelectorAll('span[title]')].find((el) => el.textContent.startsWith('Sistema Mesh Deco X20'));
+        const badges = ['3 tramos · desde $37.800', '2 listas'].map((text) => [
+          text,
+          [...row.querySelectorAll('span')].find((el) => el.textContent.trim() === text),
+        ]);
+        if (wider) {
+          for (const [, badge] of badges) badge.style.letterSpacing = '3px';
+          await frame();
+        }
+        // Cut or whole, the name is in its tooltip and never squeezed under a few characters.
+        expect(name.getAttribute('title')).toBe(name.textContent);
+        expect(rect(name).width).toBeGreaterThanOrEqual(Math.min(40, name.scrollWidth));
+        if (!wider) expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+        for (const [text, badge] of badges) {
+          expect(name.contains(badge), text).toBe(false);
+          expect(rect(badge).width, text).toBeGreaterThan(0);
+          expect(rect(badge).right, text).toBeLessThanOrEqual(rect(cell).right + 0.5);
+          expect(badge.scrollWidth, text).toBeLessThanOrEqual(badge.clientWidth + 1);
+        }
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          await page.screenshot({
+            path: `${PRODUCT_SHOTS_DIR}/filas-finas-producto-${width}-${theme}${wider ? '-wider' : ''}.png`,
+            element: row,
+          });
+        }
+        screen.unmount();
+      } finally {
+        localStorage.removeItem('publicaciones-ml.filas-finas');
+      }
+    });
     }
 
     for (const { width, height } of VIEWPORTS) {
@@ -1282,7 +1331,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
         pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA1100000005', tiers: [] } });
         try {
           const screen = await renderProducts({ width, height, theme });
-          await openProductResumen(screen);
+          await openProductTab(screen, 'PxQ');
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           await aside.getByRole('button', { name: /^Precios mayoristas de / }).first().click();
           const section = aside.getByRole('heading', { name: 'Precios mayoristas' }).element().closest('section');
@@ -1298,6 +1347,33 @@ describe('Publicaciones ML Producto view (visual)', () => {
         } finally {
           pxqAPI.getLive.mockReset();
           pxqAPI.getMarkup.mockReset();
+        }
+      });
+      it(`${width}x${height} ${theme}: the promotions of a product's publication read by section on Promos, inside the panel`, async () => {
+        promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: PROMOTIONS } });
+        promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          await openProductTab(screen, 'Promos');
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('button', { name: /^Promociones de / }).first().click();
+          await expect.element(aside.getByText('Oferta del día')).toBeVisible();
+          const promos = aside.getByRole('region', { name: 'Promociones' }).element();
+          const sections = [...promos.querySelectorAll('section[aria-label]')];
+          expect(sections.map((section) => section.getAttribute('aria-label'))).toEqual(['Activa ahora', 'Disponibles para activar', 'Cupones']);
+          const panel = document.querySelector('[data-split-panel]');
+          promos.scrollIntoView();
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-promos-${width}-${theme}.png` });
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          for (const el of promos.querySelectorAll('li, li *, button, a')) {
+            const r = rect(el);
+            if (r.width === 0) continue;
+            expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          }
+          screen.unmount();
+        } finally {
+          promocionesAPI.getPromocionesItem.mockReset();
+          promocionesAPI.refreshItemPromociones.mockReset();
         }
       });
     }
@@ -1366,7 +1442,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
           expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
           const tabs = [...panel.querySelectorAll('[role="tab"]')];
-          expect(tabs.map((tab) => tab.textContent)).toEqual(['Precios', 'Resumen', 'Cambios']);
+          expect(tabs.map((tab) => tab.textContent)).toEqual(['Precios', 'Resumen', 'Promos', 'PxQ', 'Cambios']);
           for (const tab of tabs) expect(rect(tab).right).toBeLessThanOrEqual(box.right + 0.5);
           expect(panel.textContent).not.toContain('Cifras');
           if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-precios-${width}-${theme}.png` });
@@ -1407,7 +1483,8 @@ describe('Publicaciones ML Producto view (visual)', () => {
             skipped_edges: [],
           },
         });
-        // "Expandir todo" opens each publication's promos, catalog competition and wholesale prices too.
+        // In Productos "Expandir todo" also opens each publication's promos, catalog competition and wholesale prices;
+        // the panel's tree carries none of them (they have their own tabs), mocked here in case one slipped back in.
         promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
         promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
         promocionesAPI.confirmarSinPromosML.mockResolvedValue({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } });
@@ -1443,6 +1520,10 @@ describe('Publicaciones ML Producto view (visual)', () => {
           await expect.element(section.getByText('Router Archer AX55 eliminado')).toBeVisible();
           // Each publication opens its own panel from its "Abrir" button, inside the panel too.
           await expect.element(section.getByRole('button', { name: 'Abrir MLA1100000002' })).toBeVisible();
+          const disclosures = [...section.element().querySelectorAll('button')].filter((button) =>
+            /^(Promociones|Competencia catálogo|Precios mayoristas)/.test(button.textContent.trim()),
+          );
+          expect(disclosures).toEqual([]);
           section.element().scrollIntoView();
           fits();
           if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-arbol-expandido-${width}-${theme}.png` });
@@ -1485,6 +1566,7 @@ const PROMOTIONS = [
     promotion_id: 'P1',
     promotion_type: 'SMART',
     name: 'Promoción inteligente con un nombre bastante largo para ver cómo corta',
+    status: 'candidate',
     price: 0,
     suggested_discounted_price: 1234567,
     original_price: 1500000,
@@ -1495,6 +1577,30 @@ const PROMOTIONS = [
     payload: { seller_percentage: 30, meli_percentage: 20 },
   },
   { promotion_id: 'P2', promotion_type: 'DOD', name: 'Oferta del día', price: 50000, original_price: 60000, nuestro_markup: -2, application_status: 'active', payload: {} },
+  // A seller coupon as ML sends it (backend/tests/fixtures/ml_publications/history_events_MLA1402898289_20261016.json).
+  {
+    promotion_id: 'C-MLA1713876',
+    promotion_type: 'SELLER_COUPON_CAMPAIGN',
+    sub_type: 'FIXED_PERCENTAGE',
+    name: 'Cupón de recompra',
+    status: 'candidate',
+    price: 0,
+    original_price: 91193,
+    start_date: '2026-10-10T00:00:00',
+    finish_date: '2026-10-31T23:59:59',
+    payload: {
+      id: 'C-MLA1713876',
+      name: 'Cupón de recompra',
+      type: 'SELLER_COUPON_CAMPAIGN',
+      price: 0,
+      status: 'candidate',
+      sub_type: 'FIXED_PERCENTAGE',
+      start_date: '2026-10-10T00:00:00',
+      finish_date: '2026-10-31T23:59:59',
+      original_price: 91193,
+      fixed_percentage: 10,
+    },
+  },
 ];
 
 // The detail panel open beside the table (publicaciones-ml-vista P13a.T5, S61.1/S62.1).
@@ -1879,14 +1985,21 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
 
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Promociones tab lists the promotions inside the panel`, async () => {
+      it(`${width}x${height} ${theme}: the Promociones tab shows the promotions by section, coupons last, inside the panel`, async () => {
         const screen = await renderWithPanel({ width, height, theme, tab: 'promociones' });
         await expect.element(screen.getByText('Oferta del día')).toBeVisible();
         const panel = panelOf();
         const box = rect(panel);
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        const sections = [...panel.querySelectorAll('[role="tabpanel"] section')];
+        expect(sections.map((section) => section.getAttribute('aria-label'))).toEqual(['Activa ahora', 'Disponibles para activar', 'Cupones']);
+        // Top to bottom in that order.
+        for (let index = 1; index < sections.length; index += 1) expect(rect(sections[index]).top).toBeGreaterThan(rect(sections[index - 1]).bottom - 0.5);
+        const coupons = sections.at(-1);
+        expect(coupons.querySelector('button')).toBeNull();
+        await expect.element(screen.getByRole('link', { name: 'Ver promociones en Mercado Libre' })).toBeVisible();
         const rows = [...panel.querySelectorAll('[role="tabpanel"] li')];
-        expect(rows).toHaveLength(2);
+        expect(rows).toHaveLength(3);
         for (const el of rows.flatMap((row) => [row, ...row.querySelectorAll('*')])) {
           const r = rect(el);
           if (r.width === 0) continue;
@@ -2197,9 +2310,9 @@ describe('row colors and the color layer (S8)', () => {
       expect(getComputedStyle(hinted.querySelector('td')).boxShadow).toContain('inset');
       painted.scrollIntoView({ block: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/row-colors-1366-${theme}.png` });
-      // With a product checked, the Pintar button joins the band and still fits it.
+      // With a publication checked, the Pintar button joins the band and still fits it.
       await screen.getByRole('checkbox', { name: /Seleccionar la publicación/ }).first().click();
-      await expect.element(screen.getByRole('button', { name: 'Pintar 1 producto' })).toBeVisible();
+      await expect.element(screen.getByRole('button', { name: 'Pintar 1 publicación' })).toBeVisible();
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
       if (PRODUCT_SHOTS_DIR) {
         window.scrollTo(0, 0);
@@ -2300,6 +2413,37 @@ describe('row colors and the color layer (S8)', () => {
       cell.scrollIntoView({ block: 'center', inline: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/web-transf-percent-${width}-${theme}.png` });
       screen.unmount();
+    });
+  }
+
+  // "Filas finas" (vistas-tipo-publicacion S5) shrinks the sparklines only: the lock icon keeps its 10px.
+  for (const theme of ['light', 'dark']) {
+    it(`1920x1080 ${theme}: dense Precios view, sparklines shrink but the lock icon keeps its size`, async () => {
+      localStorage.setItem('publicaciones-ml.filas-finas', 'true');
+      try {
+        const screen = await renderPage({ width: 1920, height: 1080, theme, entry: PRECIOS });
+        const lock = screen.getByRole('img', { name: '% conservado en cambios masivos' }).first();
+        await expect.element(lock).toBeVisible();
+        expect(scrollerOf().closest('[data-density]').dataset.density).toBe('dense');
+        expect(lock.element().getBoundingClientRect().height).toBeLessThanOrEqual(10.5);
+        const sparks = [...scrollerOf().querySelectorAll('td svg[aria-label$="90 días"]')];
+        expect(sparks.length).toBeGreaterThan(0);
+        for (const spark of sparks) expect(spark.getBoundingClientRect().height).toBeLessThanOrEqual(16.5);
+        // What dense mode hides (struck price, promotion, "Sin stock ERP") takes no room on the line.
+        const hidden = [...scrollerOf().querySelectorAll('[data-dense-hidden]')];
+        expect(hidden.length).toBeGreaterThan(0);
+        for (const el of hidden) expect(el.getClientRects().length, el.textContent).toBe(0);
+        // The meta line is cut inside its own box (whole in the title's tooltip): no cell spills, nothing cut lacks a title.
+        const spilling = [...scrollerOf().querySelectorAll('tbody td')].filter((td) => td.scrollWidth > td.clientWidth + 1);
+        expect(spilling.map((td) => td.textContent.trim().slice(0, 40))).toEqual([]);
+        const cut = [...scrollerOf().querySelectorAll('td[data-column="titulo"] span')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+        for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+        lock.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-precios-1920-${theme}.png` });
+        screen.unmount();
+      } finally {
+        localStorage.removeItem('publicaciones-ml.filas-finas');
+      }
     });
   }
 
@@ -2440,6 +2584,52 @@ describe('Publicaciones ML hideable KPI cards (visual)', () => {
       await expect.poll(() => cards()).toBeNull();
       await expect.element(screen.getByRole('group', { name: 'Período' })).toBeVisible();
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/kpis-hidden-all-${theme}.png` });
+      screen.unmount();
+    });
+  }
+});
+
+describe('Publicaciones ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () => {
+  const KEY = 'publicaciones-ml.filas-finas';
+  beforeEach(() => {
+    localStorage.removeItem(KEY);
+    canSeeMargin = false;
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
+  });
+  // The browser's storage outlives the file: leave the normal density for the suites that run next.
+  afterEach(() => localStorage.removeItem(KEY));
+
+  for (const theme of THEMES) {
+    it(`1920x1080 ${theme}: thin rows, titles on one line, nothing wraps or overflows`, async () => {
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      const scroller = scrollerOf();
+      const firstRow = () => scroller.querySelector('tbody tr');
+      const normalHeight = rect(firstRow()).height;
+
+      await screen.getByRole('button', { name: 'Filas finas' }).click();
+      await expect.element(screen.getByRole('button', { name: 'Filas finas', pressed: true })).toBeVisible();
+      await frame();
+      expect(scroller.closest('[data-density]').dataset.density).toBe('dense');
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-1920-${theme}.png` });
+      // Thinner than the current density, at most two short lines (title and its MLA line).
+      expect(rect(firstRow()).height).toBeLessThan(normalHeight * 0.75);
+      expect(rect(firstRow()).height).toBeLessThanOrEqual(44);
+
+      // Anything cut in the Publicación cell (title or meta line) is readable in its own tooltip.
+      const cut = [...scroller.querySelectorAll('td[data-column="titulo"] span')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+      expect(cut.length).toBeGreaterThan(0);
+      for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+      const titles = [...scroller.querySelectorAll('td[data-column="titulo"] span[title]')];
+      expect(titles.length).toBeGreaterThan(0);
+      expect(wrapped(titles)).toEqual([]);
+      const figures = [...scroller.querySelectorAll('td[data-align="right"] span')].filter((el) =>
+        /^[\d.,]+$/.test(el.textContent.trim()),
+      );
+      expect(figures.length).toBeGreaterThan(0);
+      expect(wrapped(figures)).toEqual([]);
+      expect(overflowingCells(scroller)).toEqual([]);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1920);
       screen.unmount();
     });
   }

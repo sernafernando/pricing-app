@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownRight, Layers, Package } from 'lucide-react';
 import Sparkline from './Sparkline';
 import ListingKindBadge from '../publicacionesMl/ListingKindBadge';
+import { listingKindLabel } from '../publicacionesMl/listingKindLabels';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
 import {
   ageingTone,
@@ -215,7 +216,7 @@ function GroupCell({ row, depth, expanded, onToggle }) {
             {row.title}
           </span>
         </div>
-        <div className={styles.meta}>
+        <div className={styles.meta} title={groupCounts(row)}>
           <span>{groupCounts(row)}</span>
         </div>
       </div>
@@ -240,7 +241,7 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
     // The last level of the tree is PRODUCTS: sku and brand over the title.
     return (
       <div className={styles.subProduct} style={indentStyle(depth)}>
-        <div className={styles.subLine}>
+        <div className={styles.subLine} title={[row.sku, row.marca].filter(Boolean).join(' · ') || undefined}>
           <CornerDownRight size={12} className={styles.subArrow} aria-hidden="true" />
           {row.sku && <span className={styles.sku}>{row.sku}</span>}
           {row.marca && (
@@ -259,7 +260,12 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
   if (isSub) {
     return (
       <div className={styles.subProduct}>
-        <div className={styles.subLine}>
+        <div
+          className={styles.subLine}
+          title={[row.mla, row.listing_kind && listingKindLabel(row.listing_kind), row.is_best && 'Mejor', publicationDescriptor(row)]
+            .filter(Boolean)
+            .join(' · ')}
+        >
           <CornerDownRight size={12} className={styles.subArrow} aria-hidden="true" />
           <span className={styles.mla}>{row.mla}</span>
           <ListingKindBadge kind={row.listing_kind} />
@@ -274,6 +280,7 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
     );
   }
   const isProduct = groupBy === 'product';
+  const pubsText = row.publications_count === 1 ? '1 publicación' : `${row.publications_count} publicaciones`;
   return (
     <div className={styles.product}>
       {isProduct && (
@@ -296,7 +303,14 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
           {!isProduct && <ListingKindBadge kind={row.listing_kind} />}
           <ProductBadges row={row} canSeeMargin={canSeeMargin} />
         </div>
-        <div className={styles.meta}>
+        <div
+          className={styles.meta}
+          title={
+            isProduct
+              ? [row.sku, row.marca, pubsText].filter(Boolean).join(' · ')
+              : [publicationDescriptor(row), row.title].filter(Boolean).join(' · ')
+          }
+        >
           {isProduct ? (
             <>
               {row.sku && <span className={styles.sku}>{row.sku}</span>}
@@ -307,9 +321,7 @@ function ProductCell({ row, groupBy, canSeeMargin, isSub, depth, expanded, onTog
                 </>
               )}
               <span className={styles.dotSep}>·</span>
-              <span className={row.publications_count > 1 ? styles.pubsPill : ''}>
-                {row.publications_count === 1 ? '1 publicación' : `${row.publications_count} publicaciones`}
-              </span>
+              <span className={row.publications_count > 1 ? styles.pubsPill : ''}>{pubsText}</span>
             </>
           ) : (
             <>
@@ -343,7 +355,14 @@ function renderCell(colId, row, ctx) {
       const weeks = weeklySums(row.series_units_90d);
       const tone = weeks.length > 1 ? deltaTone(weeks.at(-1) - weeks.at(-2)) : null;
       return (
-        <Sparkline values={weeks} width={isSub ? 80 : 96} height={isSub ? 22 : 28} tone={tone} label="Unidades por semana, 90 días" />
+        <Sparkline
+          values={weeks}
+          width={isSub ? 80 : 96}
+          height={isSub ? 22 : 28}
+          tone={tone}
+          className={styles.sparkline}
+          label="Unidades por semana, 90 días"
+        />
       );
     }
     case 'markup': {
@@ -359,6 +378,7 @@ function renderCell(colId, row, ctx) {
           width={isSub ? 100 : 120}
           height={isSub ? 24 : 32}
           tone={deltaTone(row.markup_delta_pp)}
+          className={styles.sparkline}
           label="Markup diario, 90 días"
         />
       );
@@ -460,8 +480,13 @@ const NUMERIC = new Set([
   'sell_out',
   'total_gauss_sell',
   'markup_sell',
+  // Figures read right-aligned like the numbers beside them; only the sparklines sit centred.
+  'markup_delta',
+  'markup_range',
+  'ageing',
+  'stock',
 ]);
-const CENTERED = new Set(['units_trend', 'markup_delta', 'markup_trend', 'markup_range', 'ageing', 'stock']);
+const CENTERED = new Set(['units_trend', 'markup_trend']);
 
 function cellClass(colId, groupStart, groupEnd) {
   return [
@@ -487,6 +512,7 @@ export default function BoardTable({
   sortDesc,
   onSort,
   now,
+  dense = false,
 }) {
   const groups = COLUMN_GROUPS.map((group) => ({
     ...group,
@@ -575,7 +601,8 @@ export default function BoardTable({
   };
 
   return (
-    <table className={styles.table}>
+    // "Filas finas" (`dense`): the CSS thins every row; the cells and figures stay the same.
+    <table className={styles.table} data-density={dense ? 'dense' : 'normal'}>
       <thead>
         <tr className={styles.groupRow}>
           {groups.map((group) => (

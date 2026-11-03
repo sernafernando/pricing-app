@@ -24,10 +24,11 @@ of an `al_cobro` campaign is set with `definir_tipo_cambio`, never by an edit.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Callable, Concatenate, Optional, ParamSpec, TypeVar
 
 from pydantic import TypeAdapter
 from sqlalchemy import Numeric, func, or_
@@ -99,10 +100,32 @@ def _encolar(db: Session, campana_ids: list[int]) -> None:
         with queue.lock_timeout(db, queue.LOCK_TIMEOUT):
             queue.enqueue(db, campana_ids)
     except DBAPIError as exc:
-        if getattr(exc.orig, "pgcode", None) != "55P03":
+        if getattr(exc.orig, "pgcode", None) != queue.LOCK_NOT_AVAILABLE:
             raise
         db.rollback()
         raise SellOutRecalculando("La campaña se está recalculando. Reintentar en unos segundos.") from exc
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _deadlock_es_ocupada(operacion: Callable[Concatenate[Session, _P], _R]) -> Callable[Concatenate[Session, _P], _R]:
+    """A single write (edit, void, rate, split) that Postgres picks as a deadlock victim (40P01: a bulk edit or its
+    preview holding this campaign's queue row while waiting for its row) is the busy refusal `SellOutRecalculando`,
+    rolled back with nothing stored, never a raw error. The bulk operations keep their own 40P01 messages."""
+
+    @functools.wraps(operacion)
+    def envuelta(db: Session, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        try:
+            return operacion(db, *args, **kwargs)
+        except DBAPIError as exc:
+            if getattr(exc.orig, "pgcode", None) != DEADLOCK:
+                raise
+            db.rollback()
+            raise SellOutRecalculando(OCUPADA) from exc
+
+    return envuelta
 
 
 def _validar_tc(data: SellOutCampanaIn, actual: Optional[SellOutCampana]) -> None:
@@ -492,29 +515,73 @@ def crear_campana(
     return campana
 
 
-def _bloquear(db: Session, campana_id: int) -> Optional[SellOutCampana]:
-    campana = db.query(SellOutCampana).filter(SellOutCampana.id == campana_id).with_for_update().first()
+def bloquear(db: Session, campana_id: int) -> Optional[SellOutCampana]:
+    """The campaign locked until the transaction ends (`FOR UPDATE`). None when it does not exist;
+    `SellOutYaAnulada` when voided. `populate_existing`: a campaign the session already holds gets the values the
+    locked read returns, so an edit is never built from values another writer has since replaced."""
+    campana = (
+        db.query(SellOutCampana).filter(SellOutCampana.id == campana_id).populate_existing().with_for_update().first()
+    )
     if campana is not None and campana.estado == "anulada":
         raise SellOutYaAnulada(f"La campaña {campana_id} está anulada")
     return campana
 
 
-def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario_id: int) -> Optional[SellOutCampana]:
-    """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided. Its program
-    is kept: a `data.programa_id` sent is ignored (assignment is `programas.asignar`, audited on its own)."""
-    campana = _bloquear(db, campana_id)
+def editar_campana_sin_commit(
+    db: Session,
+    campana_id: int,
+    data: SellOutCampanaIn,
+    usuario_id: int,
+    es_masivo: bool = False,
+    *,
+    compartian: Optional[list[int]] = None,
+) -> Optional[SellOutCampana]:
+    """The edit step of an active campaign, without committing: lock, validation, full replace of its fields,
+    groups and items, one audit row (`es_masivo` for the bulk edit, `edicion_masiva`) and queueing. Shared by the
+    single and the bulk edit. None when it does not exist; `SellOutYaAnulada` when voided. Its program is kept:
+    a `data.programa_id` sent is ignored (assignment is `programas.asignar`, audited on its own).
+
+    `compartian`: the campaigns to queue with it, when the caller already knows them (the bulk edit computes the
+    links of the whole batch once, `asignacion.vinculadas_por_campana`); else those sharing products with it now,
+    before the edit unlinks them."""
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     grupo_ids = validar(db, data, campana)
     antes = _valores(campana, grupo_ids_de(db, campana_id), items_de(db, [campana_id])[campana_id])
-    compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
+    if compartian is None:
+        compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
     _asignar(db, campana, data, grupo_ids)
     despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
-    _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues)
+    _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, masivo=es_masivo)
     _encolar(db, [campana_id, *compartian])
+    return campana
+
+
+@_deadlock_es_ocupada
+def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario_id: int) -> Optional[SellOutCampana]:
+    """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided;
+    `SellOutRecalculando` (nothing stored, retry) when it is being rebuilt or loses a deadlock with another writer
+    (`_deadlock_es_ocupada`)."""
+    campana = editar_campana_sin_commit(db, campana_id, data, usuario_id)
+    if campana is None:
+        return None
     db.commit()
     db.refresh(campana)
     return campana
+
+
+def entrada_guardada(db: Session, campana: SellOutCampana) -> SellOutCampanaIn:
+    """The campaign's stored values as an edit body: every field and its groups, in link order, read the way
+    `serializar` returns them. `items` is None, so the edit step keeps the stored amounts or shares exactly as they
+    are (re-sending one whose product has since left the groups' reach would be refused, `_asignar_items`)."""
+    fila = serializar(db, [campana])[0]
+    datos = {campo: fila[campo] for campo in _CAMPOS}
+    datos["monto_total"] = fila["monto_total"]
+    datos["grupo_ids"] = [g["id"] for g in fila["grupos"]]
+    # Stored values, not a request: the API's shape caps (e.g. at most 50 groups) are not re-applied to them; the
+    # edit step's own rules (`validar`) still are.
+    return SellOutCampanaIn.model_construct(**datos, items=None)
 
 
 def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optional[str], masivo: bool = False) -> None:
@@ -526,9 +593,10 @@ def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optio
     _encolar(db, [campana.id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
 
 
+@_deadlock_es_ocupada
 def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellOutCampana]:
     """Void a campaign. None when it does not exist; `SellOutYaAnulada` on a second call."""
-    campana = _bloquear(db, campana_id)
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     _anular(db, campana, usuario_id, motivo)
@@ -539,6 +607,7 @@ def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Option
 
 REINTENTAR = "Reintentar en unos segundos."
 DEADLOCK = "40P01"  # deadlock_detected: Postgres aborted the transaction to break a lock cycle with another writer
+OCUPADA = f"Otra operación está modificando la campaña en este momento. {REINTENTAR}"
 
 
 class SellOutAnulacionRechazada(SellOutError):
@@ -570,7 +639,7 @@ def anular_campanas(
     for campana_id in (cid for cid in ids if cid in existen):
         nombre = None
         try:
-            campana = _bloquear(db, campana_id)
+            campana = bloquear(db, campana_id)
             nombre = campana.nombre  # read before a refused queueing rolls the session back
             _anular(db, campana, usuario_id, motivo, masivo=True)
         except SellOutYaAnulada:
@@ -601,6 +670,7 @@ def anular_campanas(
     return anuladas, omitidas
 
 
+@_deadlock_es_ocupada
 def definir_tipo_cambio(
     db: Session, campana_id: int, tipo_cambio: Decimal, usuario_id: int
 ) -> Optional[SellOutCampana]:
@@ -608,7 +678,7 @@ def definir_tipo_cambio(
 
     None when it does not exist; `SellOutYaAnulada` when voided. Every change is audited and queued.
     """
-    campana = _bloquear(db, campana_id)
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     if campana.tc_modo != "al_cobro":
@@ -660,6 +730,7 @@ def solo_sus_marcas(db: Session, filas: list[dict], pares: Optional[set]) -> lis
     ]
 
 
+@_deadlock_es_ocupada
 def repartir(
     db: Session, campana_id: int, repartos: list[SellOutCampanaItemIn], usuario_id: int, pares: Optional[set]
 ) -> Optional[SellOutCampana]:
@@ -672,7 +743,7 @@ def repartir(
     so `repartos` replace only theirs. The resulting split is checked as a whole (`_validar_suma`), audited (before
     and after) and queued for `sell_out.drain`.
     """
-    campana = _bloquear(db, campana_id)
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     if campana.tipo != "monto_total":

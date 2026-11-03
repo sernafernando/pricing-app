@@ -950,6 +950,9 @@ export const publicacionesMlAPI = {
   // Bulk pause / activate: the MLAs of the filtered set that can take `target`, then the writes in batches.
   statusItemIds: (params, config) => api.get('/ml-publications/view/status-item-ids', { params, ...config }),
   statusItemIdsChecked: (body) => api.post('/ml-publications/view/status-item-ids/checked', body),
+  // Paints publications on their own on one layer (the global one when `equipo_id` is left out), or with
+  // `color: null` takes their own color off (seleccion-por-publicacion S3; at most 500 MLAs, see `paintPublications`).
+  paintColors: (body) => api.put('/ml-publications/colors', body),
   statusBulk: (body) => api.post('/ml-publications/items/status-bulk', body),
   // The KPI strip over the MLAs the filters select (`ml_metricas.ver`). `config.signal` aborts a stale request.
   kpis: (params, config) => api.get('/ml-publications/view/kpis', { params, ...config }),

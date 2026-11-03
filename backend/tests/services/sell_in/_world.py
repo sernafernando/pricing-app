@@ -18,6 +18,7 @@ import itertools
 from contextlib import contextmanager
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
+from time import monotonic, sleep
 from typing import Iterator, List, Optional, Tuple
 
 from sqlalchemy import Engine, text
@@ -241,3 +242,19 @@ def consumo_ids(engine: Engine) -> List[int]:
 def queued(engine: Engine) -> List[Tuple[str, int]]:
     with engine.connect() as conn:
         return [tuple(r) for r in conn.execute(text("SELECT canal, venta_ref FROM sell_dirty ORDER BY 1, 2"))]
+
+
+def esperar_bloqueado_por(engine: Engine, pid: int) -> None:
+    """Until another session waits on a lock the backend `pid` holds, so a concurrency test never orders its two
+    waits by timing. Each poll ends its transaction: pg_stat_activity is a snapshot cached for the whole transaction,
+    so a waiter whose backend starts after the first poll would never be seen."""
+    limite = monotonic() + 20
+    consulta = text("SELECT count(*) FROM pg_stat_activity WHERE :pid = ANY(pg_blocking_pids(pid))")
+    with engine.connect() as conn:
+        while True:
+            esperando = conn.execute(consulta, {"pid": pid}).scalar()
+            conn.rollback()
+            if esperando:
+                return
+            assert monotonic() < limite, f"nothing ever waited on backend {pid}"
+            sleep(0.05)

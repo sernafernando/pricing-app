@@ -131,14 +131,15 @@ class TestContract:
     def test_the_job_names_are_the_registered_handlers(self) -> None:
         from app.workers.registry import ML_PUBLICATIONS_REGISTRY
 
-        # `ml_ads.ingest` and `ml_billing.sweep` are gated by env flags (ML_ADS_ENABLED, ML_BILLING_ENABLED), not by an
-        # admin setting: they have no admin job.
+        # `ml_ads.ingest`, `ml_orders.discounts` and `ml_billing.sweep` are gated by env flags (ML_ADS_ENABLED,
+        # ML_BILLING_ENABLED), not by an admin setting: they have no admin job.
         # `ml_publications.promo_refresh` drains a queue every 15 s behind `promo_refresh.enabled`: nothing to request.
         # `promo_write.refresh` drains the post-write queue every 30 s behind the PROMOS_WRITE_ENABLED kill switch.
         # `ml_publications.freshness` measures every minute with no flag and makes no ML call: nothing to request.
         # `publicacion_repair.*` run on kill-switch / write flags; nothing to request from admin.
         env_gated = {
             "ml_ads.ingest",
+            "ml_orders.discounts",
             "ml_billing.sweep",
             "ml_publications.promo_refresh",
             "promo_write.refresh",

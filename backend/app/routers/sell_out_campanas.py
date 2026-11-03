@@ -27,6 +27,25 @@ price, and that credit is added to profit. The rules live in
   campaign is being rebuilt or a concurrent edit deadlocks with the bulk void, naming it and the unknown ids. Voiding
   is not brand-scoped (a PM with `sell_out.repartir` only cannot void), so the per-request `gestionar` check
   is the per-record one.
+- `POST /editar-masivo` (`{"campana_ids": [...], "fecha_desde"?, "fecha_hasta"?, "acumulable"?}`,
+  `sell_out.gestionar`) sets the filled fields (at least one) on up to 500 campaigns in one transaction, each
+  through the single edit's step (same rules, audit content with `es_masivo` set, and queueing), everything else
+  kept as stored (`app.services.sell_out.edicion_masiva`). Campaigns that already have the values are listed in
+  `sin_cambio` and write nothing. All or nothing like the bulk void: the refusal `EDICION_RECHAZADA` names each
+  refused campaign (`rechazadas`: id, name and why: unknown, voided, dates ending before they start, a rule of
+  the edit), a 422; a 409 (retry) when one is being rebuilt or deadlocks with a concurrent writer. Not
+  brand-scoped either: `gestionar` is the per-record check. `POST /editar-masivo/previa`, same body and
+  permission, writes nothing and says what the apply would do on the same data: which campaigns change, which
+  have no change, the refused ones (listed with the same reasons, not raised; busy is the same 409), and what the
+  rebuild the apply queues would take from and give to each campaign: it runs the drain's own rebuild inside the
+  request and rolls everything back, so the lines, units and money (per currency in the totals) that leave and
+  enter are exact on the same data, caps, stacking and fixed-total splits included. Linked campaigns whose credit
+  moves are listed in `vinculadas` (`en_seleccion` False when not selected). A rebuild that would fail is a 422;
+  one that waits more than 2 s for a selected campaign's row (another preview or bulk edit), a queue row (a
+  running drain) or the rebuild's locks, or is in a lock cycle, is the busy 409, nothing written. A campaign with
+  pending work (a queue row before the preview) is flagged `incluye_pendientes`; the notice
+  `aviso_pendientes` («incluye cambios pendientes que no causa esta edición») appears when any campaign the
+  rebuild touches is pending, listed or not (a voided one not drained yet included): the numbers include it.
 - A brand-scoped PM (`sell_out.repartir` without `sell_out.gestionar`) reads
   a `monto_total` campaign's shares of their brands only, in the list, the
   detail and the `PUT /{id}/reparto` response, so what they read is what they
@@ -44,6 +63,9 @@ price, and that credit is added to profit. The rules live in
 - An edit, void or rate change while `sell_out.drain` is rebuilding the
   campaign is a 409 ("La campaña se está recalculando. Reintentar en unos
   segundos."); nothing is stored and the client can retry.
+  An edit, void, rate change or split that deadlocks with another writer (a
+  bulk edit or its preview holding the queue rows it needs) is the same 409 ("Otra operación está
+  modificando la campaña en este momento. Reintentar en unos segundos.").
 - Every campaign comes with `resumen`, what it credited so far: units, amount
   in its currency and in ARS, what its cap has left, per channel, the sales
   waiting for their percentage base and the rebuild state
@@ -75,6 +97,9 @@ from app.schemas.sell_out import (
     SellOutCampanaListOut,
     SellOutCampanaOut,
     SellOutConsumosListOut,
+    SellOutEdicionPreviaOut,
+    SellOutEditarMasivoIn,
+    SellOutEditarMasivoOut,
     SellOutRepartoIn,
     SellOutTipoCambioIn,
     Tipo,
@@ -82,7 +107,7 @@ from app.schemas.sell_out import (
 from app.services.permisos_service import verificar_permiso
 from app.services.pm_scope import get_pares_marca_categoria_usuario
 from app.services.sell_out import campanas as service
-from app.services.sell_out import programas, renovacion, resumen
+from app.services.sell_out import edicion_masiva, programas, renovacion, resumen
 
 router = APIRouter(prefix="/sell-out/campanas", tags=["Sell out"])
 
@@ -258,6 +283,62 @@ def anular_campanas(
     except service.SellOutError as exc:
         raise _error(db, exc) from exc
     return {"anuladas": anuladas, "omitidas": omitidas}
+
+
+EDITAR_MASIVO_MAX = ANULAR_MASIVO_MAX
+
+
+def _validar_masivo(data: SellOutEditarMasivoIn) -> dict:
+    """The bulk edit's caps, like the bulk void's; returns the filled fields."""
+    if not data.campana_ids:
+        raise HTTPException(status_code=422, detail="Elegí al menos una campaña para editar.")
+    if len(set(data.campana_ids)) > EDITAR_MASIVO_MAX:
+        raise HTTPException(status_code=422, detail=f"Se pueden editar hasta {EDITAR_MASIVO_MAX} campañas por vez.")
+    cambios = data.cambios()
+    if not cambios:
+        raise HTTPException(
+            status_code=422, detail="Completá al menos un campo para editar: fecha desde, fecha hasta o acumulable."
+        )
+    return cambios
+
+
+def _edicion_rechazada(exc: edicion_masiva.SellOutEdicionRechazada) -> HTTPException:
+    rechazadas = [{"id": i, "nombre": nombre, "motivo": motivo} for i, nombre, motivo in exc.rechazadas]
+    detail = {"code": "EDICION_RECHAZADA", "message": str(exc), "rechazadas": rechazadas}
+    return HTTPException(status_code=409 if exc.reintentar else 422, detail=detail)
+
+
+@router.post("/editar-masivo/previa", response_model=SellOutEdicionPreviaOut)
+def previa_edicion_masiva(
+    data: SellOutEditarMasivoIn,
+    user: Usuario = Depends(requiere_gestionar),
+    db: Session = Depends(get_db),
+) -> dict:
+    """What the bulk edit would do, writing nothing (module docstring): refused campaigns are listed, not raised."""
+    cambios = _validar_masivo(data)
+    try:
+        return edicion_masiva.previa_edicion(db, data.campana_ids, cambios, user.id)
+    except edicion_masiva.SellOutEdicionRechazada as exc:
+        raise _edicion_rechazada(exc) from exc
+    except service.SellOutError as exc:
+        raise _error(db, exc) from exc
+
+
+@router.post("/editar-masivo", response_model=SellOutEditarMasivoOut)
+def editar_campanas_masivo(
+    data: SellOutEditarMasivoIn,
+    user: Usuario = Depends(requiere_gestionar),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Set the filled fields on the selected campaigns, all or nothing (module docstring)."""
+    cambios = _validar_masivo(data)
+    try:
+        editadas, sin_cambio = edicion_masiva.editar_campanas(db, data.campana_ids, cambios, user.id)
+    except edicion_masiva.SellOutEdicionRechazada as exc:
+        raise _edicion_rechazada(exc) from exc
+    except service.SellOutError as exc:
+        raise _error(db, exc) from exc
+    return {"editadas": editadas, "sin_cambio": sin_cambio}
 
 
 @router.post("/{campana_id}/anular", response_model=SellOutCampanaOut)

@@ -4,7 +4,8 @@ import styles from './promociones.module.css';
 /**
  * Generic expandable inner-table row primitive.
  * Renders a header <tr> (chevron toggle + header slot) and, when open, a
- * detail <tr><td colSpan> with children.
+ * detail <tr><td colSpan> with children. `expandable={false}` keeps the
+ * toggle cell (so the columns stay aligned) without a toggle or detail row.
  *
  * NOT intended for the top-level Productos product row — scoped to the new
  * inner tables (L1 MLA rows, L2 promotion rows).
@@ -18,6 +19,7 @@ function ExpandableRow({
   ariaLabel,
   'data-testid': dataTestId,
   headerRowClassName,
+  expandable = true,
 }) {
   const label = ariaLabel || (isOpen ? 'Colapsar' : 'Expandir');
 
@@ -25,22 +27,24 @@ function ExpandableRow({
     <>
       <tr data-testid={dataTestId} className={headerRowClassName}>
         <td className={styles.spoilerToggleCell}>
-          <button
-            type="button"
-            className={styles.spoilerToggle}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggle();
-            }}
-            aria-label={label}
-            aria-expanded={isOpen}
-          >
-            {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </button>
+          {expandable && (
+            <button
+              type="button"
+              className={styles.spoilerToggle}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+              aria-label={label}
+              aria-expanded={isOpen}
+            >
+              {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            </button>
+          )}
         </td>
         {header}
       </tr>
-      {isOpen && (
+      {expandable && isOpen && (
         <tr className={styles.filaDetalle}>
           <td colSpan={colSpan}>
             <div className={styles.filaDetalleContent}>{children}</div>

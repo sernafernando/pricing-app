@@ -139,6 +139,10 @@ class SellInCosting(Protocol):
         """`{item_id: its dated cost modes, oldest first}` for the products that have any; without, FIFO (read only)."""
         ...
 
+    def sin_asignar(self, db: Session, item_id: int, hoy: date) -> Decimal:
+        """ARS the product's lots hold that no unit hands out, sold or left (positive: never handed out)."""
+        ...
+
 
 @dataclass(frozen=True)
 class LoteVigente:
@@ -272,14 +276,8 @@ class FifoPurchaseCosting:
         con_modos = {item_id: item for item_id, item in lotes.items() if item_id in periodos}
         filas = self._filas_guardadas(db, [lote.compra_item_id for item in con_modos.values() for lote in item])
         for item_id, item in con_modos.items():
-            indice = {lote.compra_item_id: i for i, lote in enumerate(item)}
             try:
-                dinero = Dinero(item, periodos[item_id])
-                # The next sale comes after every stored one, even one dated after `hoy` (a later UTC day).
-                dia = hoy
-                for linea, fecha, unidades in filas.get(item_id, []):
-                    dinero.fila(fecha, indice[linea], unidades)
-                    dia = max(dia, fecha)
+                dinero, dia = self._replay(item, periodos[item_id], filas.get(item_id, []), hoy)
                 proximo = dinero.proximo(dia)
             except (ValueError, ArithmeticError, KeyError) as exc:
                 # A mode the replay does not support yet, or rows read mid-change by another transaction.
@@ -293,6 +291,38 @@ class FifoPurchaseCosting:
                     item[i].compra_item_id, unit_discount(monto, sobre), restantes, en_pool, siguiente, dia
                 )
         return salida
+
+    def sin_asignar(self, db: Session, item_id: int, hoy: date) -> Decimal:
+        """ARS the product's lots hold that neither its stored consumptions nor its units left hand out, the units left
+        valued as a sale on the replay day would get them (`_replay`): what the mode preview shows (D2, D5). Zero under
+        FIFO and `ponderado` but for rounding; `ultimo` and a switch back to FIFO from a pool can leave money unhanded
+        (positive) or hand out more than the lots hold (negative). Raises like the replay."""
+        item = self.lotes(db, [item_id]).get(item_id, [])
+        if not item:
+            return Decimal("0.00")
+        lineas = [lote.compra_item_id for lote in item]
+        filas = self._filas_guardadas(db, lineas).get(item_id, [])
+        dinero, dia = self._replay(item, self.periodos(db, [item_id]).get(item_id, []), filas, hoy)
+        dado = db.query(func.coalesce(func.sum(SellInConsumo.descuento_ars), 0)).filter(
+            SellInConsumo.compra_item_id.in_(lineas)
+        )
+        total = sum((lote.descuento_ars for lote in item), Decimal(0))
+        resto = total - Decimal(dado.scalar()) - dinero.restante(dia)
+        return resto.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @staticmethod
+    def _replay(
+        item: List[Lote], periodos: List[Periodo], filas: List[Tuple[int, date, int]], hoy: date
+    ) -> Tuple[Dinero, date]:
+        """The money pass fed with a product's stored consumptions, and the day the next sale is valued on: after
+        every stored one, even one dated after `hoy` (a later UTC day)."""
+        indice = {lote.compra_item_id: i for i, lote in enumerate(item)}
+        dinero = Dinero(item, periodos)
+        dia = hoy
+        for linea, fecha, unidades in filas:
+            dinero.fila(fecha, indice[linea], unidades)
+            dia = max(dia, fecha)
+        return dinero, dia
 
     @staticmethod
     def _siguiente(dinero: Dinero, item: List[Lote], periodos: List[Periodo], hoy: date) -> Optional[Decimal]:

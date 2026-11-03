@@ -243,13 +243,16 @@ from app.models.tplink_venta_metrica import TplinkVentaMetrica
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_answer_example import MlBotAnswerExample
-from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, RolEquipo
+from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, PublicacionColor, RolEquipo
 
 # Catalog competition snapshots. Must stay registered here: alembic/env.py
 # builds target_metadata from `from app.models import *`, so a model missing
 # from this package is absent from Base.metadata and the next
 # `alembic revision --autogenerate` emits drop_table for its table.
 from app.models.ml_catalog_competition import MLCatalogCompetition
+
+# Per-sale discounts (ml-ads-cupones-display T3a); registered for the same reason.
+from app.models.ml_order_discounts import MlOrderDiscountLine, MlOrderDiscounts, MlOrderDiscountsState
 
 __all__ = [
     "ProductoERP",
@@ -459,6 +462,7 @@ __all__ = [
     "Equipo",
     "EquipoMiembro",
     "ProductoColor",
+    "PublicacionColor",
     "RolEquipo",
     "MlPublicationLink",
     "MlItemRelation",
@@ -502,4 +506,7 @@ __all__ = [
     "ComboComponente",
     "ProductoPropio",
     "MlItemOverride",
+    "MlOrderDiscounts",
+    "MlOrderDiscountLine",
+    "MlOrderDiscountsState",
 ]

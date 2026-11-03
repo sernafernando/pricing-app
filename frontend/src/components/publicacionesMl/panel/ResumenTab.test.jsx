@@ -17,9 +17,9 @@ import {
   makeItem,
 } from '../../../test/visual/publicacionesMlFixtures';
 
-const renderTab = (raw = DETAIL_RESPONSE, { canSeeMargin = false } = {}) => {
+const renderTab = (raw = DETAIL_RESPONSE, { canSeeMargin = false, canViewPromos = false } = {}) => {
   const detail = readDetail(raw, { canSeeMargin });
-  return render(<ResumenTab detail={detail} itemId={detail.itemId} canSeeMargin={canSeeMargin} />);
+  return render(<ResumenTab detail={detail} itemId={detail.itemId} canSeeMargin={canSeeMargin} canViewPromos={canViewPromos} />);
 };
 const section = (name) => screen.getByRole('region', { name });
 /** The value cell next to the label `label` inside a section. */
@@ -144,6 +144,13 @@ describe('the data of the publication', () => {
     expect(valueOf(DATOS, 'Precio regular')).toHaveTextContent('112.000,00');
     expect(valueOf(DATOS, 'Promoción')).toHaveTextContent('DEAL');
     expect(valueOf(DATOS, 'Promoción')).toHaveTextContent('Hot Sale');
+  });
+
+  it('leaves the promotion to the Promos tab for whoever has it, keeping the rest of the price data', () => {
+    renderTab(DETAIL_RESPONSE, { canViewPromos: true });
+    expect(within(section(DATOS)).queryByText('Promoción')).not.toBeInTheDocument();
+    expect(valueOf(DATOS, 'Origen del precio')).toHaveTextContent('Precio de oferta');
+    expect(valueOf(DATOS, 'Precio regular')).toHaveTextContent('112.000,00');
   });
 
   it('labels the price that comes from Productos as such', () => {

@@ -1,7 +1,7 @@
 """Add shipping fields to ml_publication_snapshots
 
 Revision ID: 20261218_ml_pub_snapshots_shipping
-Revises: 20261217_drop_sell_in_compras_pedido_compra_id
+Revises: 20261228_ml_pay_ops_coupon_idx
 Create Date: 2026-11-02
 
 Persists shipping.mode / logistic_type / local_pick_up / free_shipping /
@@ -16,7 +16,7 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
 revision: str = "20261218_ml_pub_snapshots_shipping"
-down_revision: Union[str, None] = "20261227_sell_in_modos_producto"
+down_revision: Union[str, None] = "20261228_ml_pay_ops_coupon_idx"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

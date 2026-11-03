@@ -160,6 +160,121 @@ class SellOutAnularMasivoOut(BaseModel):
     omitidas: list[int]  # already voided: skipped, not an error
 
 
+class SellOutEditarMasivoIn(BaseModel):
+    """`POST /editar-masivo[/previa]`: the campaigns and the fields to set on all of them; an absent or null field
+    is not filled and keeps each campaign's stored value. An empty or too large selection, or no field filled, is
+    refused by the router with a readable message. Any other field (another column, a typo) is a 422: never
+    silently dropped."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    campana_ids: list[int]
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None  # inclusive
+    acumulable: Optional[bool] = None
+
+    def cambios(self) -> dict:
+        """The filled fields only (`edicion_masiva.CAMPOS`)."""
+        return {
+            campo: valor
+            for campo in ("fecha_desde", "fecha_hasta", "acumulable")
+            if (valor := getattr(self, campo)) is not None
+        }
+
+
+class SellOutEditarMasivoOut(BaseModel):
+    editadas: list[int]
+    sin_cambio: list[int]  # already had the values: no audit row, not queued
+
+
+class SellOutEdicionRechazadaOut(BaseModel):
+    id: int
+    nombre: Optional[str]  # None for an unknown id
+    motivo: str
+
+
+class SellOutEdicionMovimientoOut(BaseModel):
+    """What the rebuild after the edit takes from (`salen`) or gives to (`entran`) one campaign, simulated with the
+    drain's own rebuild and rolled back (`edicion_masiva`): lines gone (or new), and the units and money, in the
+    campaign currency, its lines lose (or gain). Exact on the same data: caps, stacking and a fixed total's split
+    included (a `monto_total` share moved between a product's sales shows on both sides). `monto` is the signed
+    credit of the lines that leave or shrink (`salen`) or enter or grow (`entran`), kept on the line's side: a
+    deduction's (negative `monto_total`) leaving -100 line is `salen` -100, not `entran` +100."""
+
+    lineas: int
+    unidades: int
+    monto: Decimal
+
+
+class SellOutEdicionCampanaPreviaOut(BaseModel):
+    id: int
+    nombre: str
+    moneda: Moneda
+    # The values the campaign would have.
+    fecha_desde: date
+    fecha_hasta: date
+    acumulable: bool
+    incluye_pendientes: bool = Field(
+        description=(
+            "It had a queue row before the preview: its numbers also include pending work this edit does not "
+            "cause («incluye cambios pendientes que no causa esta edición»)."
+        )
+    )
+    salen: SellOutEdicionMovimientoOut
+    entran: SellOutEdicionMovimientoOut
+
+
+class SellOutEdicionVinculadaPreviaOut(BaseModel):
+    """A campaign the edit does not change but whose credit the rebuild moves: it shares products with an edited one
+    (a cap or `acumulable` decides who holds the units)."""
+
+    id: int
+    nombre: str
+    moneda: Moneda
+    en_seleccion: bool  # False: not among the selected campaigns
+    incluye_pendientes: bool = Field(
+        description=(
+            "It had a queue row before the preview: its numbers also include pending work this edit does not "
+            "cause («incluye cambios pendientes que no causa esta edición»)."
+        )
+    )
+    salen: SellOutEdicionMovimientoOut
+    entran: SellOutEdicionMovimientoOut
+
+
+class SellOutEdicionMontoOut(BaseModel):
+    moneda: Moneda
+    monto: Decimal
+
+
+class SellOutEdicionMovimientoTotalOut(BaseModel):
+    lineas: int
+    unidades: int
+    montos: list[SellOutEdicionMontoOut]  # per currency, only the currencies with something that moves
+
+
+class SellOutEdicionTotalesOut(BaseModel):
+    cambian: int
+    sin_cambio: int
+    rechazadas: int
+    salen: SellOutEdicionMovimientoTotalOut  # over `cambian` and `vinculadas`
+    entran: SellOutEdicionMovimientoTotalOut
+
+
+class SellOutEdicionPreviaOut(BaseModel):
+    """What the bulk edit and the rebuild it queues would do on the same data, written nothing. While `rechazadas`
+    is not empty the apply refuses it all; the numbers are those of the campaigns that can be edited."""
+
+    totales: SellOutEdicionTotalesOut
+    cambian: list[SellOutEdicionCampanaPreviaOut]
+    vinculadas: list[SellOutEdicionVinculadaPreviaOut]
+    # «incluye cambios pendientes que no causa esta edición» when any campaign the rebuild touches has pending work
+    # (a queue row before the preview), listed or not: a voided one not drained yet included; else None.
+    aviso_pendientes: Optional[str] = None
+    sin_cambio: list[int]
+    rechazadas: list[SellOutEdicionRechazadaOut]
+
+
 class SellOutTipoCambioIn(BaseModel):
     tipo_cambio: Decimal = Field(**TIPO_CAMBIO)  # ARS per USD, the rate the brand paid at
 
