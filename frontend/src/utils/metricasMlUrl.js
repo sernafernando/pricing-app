@@ -58,6 +58,29 @@ const OWN_PARAMS = [
   ...Object.values(LISTS).map(([param]) => param),
 ];
 
+const LISTING_SORT = 'listing_kind';
+
+/**
+ * The default sort of a grouping. Publication rows go by listing type, Clásica first, then 3, 6, 9 and 12 cuotas
+ * (owner, 2026-11-02: "primero ordene las clásicas, después las 3 cuotas, después las 6, etc"), the gross within
+ * one type. Product rows mix every type and the grouped view's nodes have none: they go by gross.
+ */
+export function defaultSortFor(groupBy) {
+  return groupBy === 'publication' ? { key: LISTING_SORT, desc: false } : { key: 'gross', desc: true };
+}
+
+const sameSort = (a, b) => a.key === b.key && a.desc === b.desc;
+
+/**
+ * The sort after the grouping changes from `from` to `to`: the default of `to` while the sort was the default of
+ * `from`; a sort the user chose stays, except the listing type on the grouped view, which the board refuses.
+ */
+export function sortOnGroupChange(sort, from, to) {
+  if (sameSort(sort, defaultSortFor(from))) return defaultSortFor(to);
+  if (to === 'group' && sort.key === LISTING_SORT) return defaultSortFor(to);
+  return sort;
+}
+
 /** The view with nothing chosen: the current month, by product, every filter off, by gross. */
 export function defaultView(today = businessToday()) {
   return {
@@ -114,9 +137,12 @@ export function readMetricasUrl(params, { sortKeys, today = businessToday() }) {
     view[key] = csv(params, param).filter((value) => known.includes(value));
   }
 
+  view.sort = defaultSortFor(view.groupBy);
   const orden = params.get('orden');
   const dir = params.get('dir');
-  if (sortKeys.has(orden) && (dir === 'asc' || dir === 'desc')) view.sort = { key: orden, desc: dir === 'desc' };
+  // The listing type is no column: a link may name it wherever rows have a type (never on the grouped view).
+  const known = sortKeys.has(orden) || (orden === LISTING_SORT && view.groupBy !== 'group');
+  if (known && (dir === 'asc' || dir === 'desc')) view.sort = { key: orden, desc: dir === 'desc' };
   return view;
 }
 
@@ -145,7 +171,7 @@ export function writeMetricasUrl(view, current = new URLSearchParams()) {
     if (view[key].length) params.set(param, view[key].join(','));
   }
   if (!view.soloConVentas) params.set('solo_ventas', '0');
-  if (view.sort.key !== defaults.sort.key || view.sort.desc !== defaults.sort.desc) {
+  if (!sameSort(view.sort, defaultSortFor(view.groupBy))) {
     params.set('orden', view.sort.key);
     params.set('dir', view.sort.desc ? 'desc' : 'asc');
   }

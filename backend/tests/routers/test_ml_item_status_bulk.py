@@ -13,10 +13,11 @@ Same harness as `/product-ids`: the store in a throwaway Postgres schema.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import event
 
 from app.routers import ml_item_status as status_router
 from app.services import ml_item_status_write_service as write_service
-from app.services.ml_publications.view import status_targets
+from app.services.ml_publications.view import listing, status_targets
 from tests.routers.test_ml_publications_links import grant
 from tests.routers.test_ml_publications_view import VER, seed_rows
 from tests.routers.test_ml_publications_view_kpis import pg, view_pg  # noqa: F401
@@ -167,3 +168,138 @@ class TestBulk:
     def test_an_invalid_batch_is_422_and_nothing_is_written(self, client, can_pause, service, payload) -> None:
         assert client.post(BULK_URL, headers=can_pause, json=payload).status_code == 422
         assert service.calls == []
+
+
+# ── Pause / activate the CHECKED rows (seleccion-por-publicacion S2) ──────────────────────────────────────────
+#
+# `POST /api/ml-publications/view/status-item-ids/checked` names, of exactly the checked publications plus the
+# publications of the checked product rows (the Producto view), the ones that can take the target status. No filter
+# takes part, and a publication is never widened to the other publications of its product.
+
+CHECKED_URL = "/api/ml-publications/view/status-item-ids/checked"
+
+
+def fill_product_with_three(conn) -> None:
+    seed.add_product(conn, 77, "R77", "Router AX", marca="TP-Link", stock=4)
+    for mla in ("MLA1", "MLA2", "MLA7"):
+        seed.add_item(conn, mla, status="active", title=f"Router {mla}")
+        seed.add_link(conn, mla, 77)
+    seed.add_item(conn, "MLA3", status="paused", title="Router pausado")
+    seed.add_item(conn, "MLA4", status="paused", sub_status=["deleted"], title="Router borrado")
+
+
+@pytest.fixture()
+def three(pg):
+    seed_rows(pg, fill_product_with_three)
+
+
+def checked(client, headers, **payload) -> dict:
+    response = client.post(CHECKED_URL, headers=headers, json=payload)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+@pytest.mark.postgres
+class TestCheckedStatusItemIds:
+    def test_one_checked_publication_of_a_product_with_three_is_the_only_one_named(
+        self, client, three, allowed
+    ) -> None:
+        assert checked(client, allowed, target="paused", item_ids=["MLA1"]) == {
+            "item_ids": ["MLA1"],
+            "count": 1,
+            "no_aplican": 0,
+        }
+
+    def test_a_checked_product_row_names_every_publication_of_the_product(self, client, three, allowed) -> None:
+        assert checked(client, allowed, target="paused", producto_ids=[77]) == {
+            "item_ids": ["MLA1", "MLA2", "MLA7"],
+            "count": 3,
+            "no_aplican": 0,
+        }
+
+    def test_a_checked_publication_that_cannot_take_the_status_is_counted_apart(self, client, three, allowed) -> None:
+        assert checked(client, allowed, target="paused", item_ids=["MLA3", "MLA1"]) == {
+            "item_ids": ["MLA1"],
+            "count": 1,
+            "no_aplican": 1,
+        }
+
+    def test_a_deleted_or_unknown_publication_is_never_named(self, client, three, allowed) -> None:
+        assert checked(client, allowed, target="active", item_ids=["MLA4", "MLA999"]) == {
+            "item_ids": [],
+            "count": 0,
+            "no_aplican": 2,
+        }
+
+    def test_it_writes_nothing(self, client, three, allowed, pg) -> None:
+        # A POST only to carry the checked MLAs: no statement it runs on the store changes a row.
+        statements: list[str] = []
+
+        def record(conn, cursor, statement, *args) -> None:
+            statements.append(statement)
+
+        event.listen(pg, "before_cursor_execute", record)
+        try:
+            assert checked(client, allowed, target="paused", item_ids=["MLA1"], producto_ids=[77])["count"] == 3
+        finally:
+            event.remove(pg, "before_cursor_execute", record)
+        assert statements, "the checked set was read from the store"
+        writes = [s for s in statements if s.lstrip().split(None, 1)[0].upper() in {"INSERT", "UPDATE", "DELETE"}]
+        assert writes == []
+
+    def test_a_publication_and_its_product_row_both_checked_count_it_once(self, client, three, allowed) -> None:
+        assert checked(client, allowed, target="paused", item_ids=["MLA1"], producto_ids=[77])["count"] == 3
+
+    def test_without_the_permission_it_is_403(self, client, three, db, rol_admin, admin_auth_headers) -> None:
+        grant(db, rol_admin, VER)
+        response = client.post(CHECKED_URL, headers=admin_auth_headers, json={"target": "paused", "item_ids": ["MLA1"]})
+        assert response.status_code == 403 and PAUSAR in response.json()["error"]["message"]
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"target": "paused"},
+            {"target": "paused", "item_ids": [], "producto_ids": []},
+            {"target": "paused", "item_ids": ["123"]},
+            {"target": "closed", "item_ids": ["MLA1"]},
+            {"target": "paused", "item_ids": ["MLA1"], "q": "Router"},  # no filter takes part
+        ],
+    )
+    def test_an_invalid_request_is_422(self, client, three, allowed, payload) -> None:
+        assert client.post(CHECKED_URL, headers=allowed, json=payload).status_code == 422
+
+    def test_over_the_cap_it_refuses_with_the_count(self, client, three, allowed, monkeypatch) -> None:
+        monkeypatch.setattr(status_targets, "MAX_STATUS_ITEM_IDS", 2)
+        response = client.post(CHECKED_URL, headers=allowed, json={"target": "paused", "producto_ids": [77]})
+        assert response.status_code == 422
+        detail = response.json()["error"]
+        assert (detail["count"], detail["max"]) == (3, 2)
+
+    def test_more_checked_than_the_cap_reaches_the_cap_check_instead_of_a_bare_validation_error(
+        self, client, three, allowed
+    ) -> None:
+        # A whole "Todos" page can check more than the cap: the request is read, and only the publications that can
+        # take the status count against it (here none of the unknown ones), so the operator gets the count, not a
+        # schema error with no message.
+        item_ids = ["MLA1", *(f"MLA{900000 + n}" for n in range(status_targets.MAX_STATUS_ITEM_IDS))]
+        assert checked(client, allowed, target="paused", item_ids=item_ids) == {
+            "item_ids": ["MLA1"],
+            "count": 1,
+            "no_aplican": status_targets.MAX_STATUS_ITEM_IDS,
+        }
+
+    def test_a_request_past_the_listing_ceiling_is_refused(self, client, three, allowed) -> None:
+        item_ids = [f"MLA{n}" for n in range(listing.MAX_LIMIT + 1)]
+        assert (
+            client.post(CHECKED_URL, headers=allowed, json={"target": "paused", "item_ids": item_ids}).status_code
+            == 422
+        )
+
+
+@pytest.mark.postgres
+class TestBulkWritesOnlyWhatItIsGiven:
+    def test_a_publication_of_a_product_with_others_is_written_alone(self, client, three, can_pause, service) -> None:
+        # The write path never widens to a product: MLA1's product 77 really has MLA2 and MLA7 too (`three`).
+        response = client.post(BULK_URL, headers=can_pause, json={"status": "paused", "item_ids": ["MLA1"]})
+        assert response.status_code == 200
+        assert [call[0] for call in service.calls] == ["MLA1"]

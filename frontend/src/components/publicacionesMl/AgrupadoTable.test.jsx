@@ -233,6 +233,9 @@ describe('leaves', () => {
       categorias: 'ROUTERS',
       subcategorias: '55',
       producto: '4101',
+      // A leaf's publications by listing type, Clásica first (owner, 2026-11-02), then the most recent activity.
+      orden: 'tipo,actividad',
+      dir: 'asc,desc',
       limit: 100,
       offset: 0,
     });
@@ -252,7 +255,7 @@ describe('leaves', () => {
     await open(user, /Abrir Ana Pérez/);
     await open(user, /Abrir Router Archer AX55/);
     await screen.findByText('Router A');
-    expect(itemCalls().at(-1)).toEqual({ tiendas: '57997', pm_grupo: '7', producto: '4101', limit: 100, offset: 0 });
+    expect(itemCalls().at(-1)).toEqual({ tiendas: '57997', pm_grupo: '7', producto: '4101', orden: 'tipo,actividad', dir: 'asc,desc', limit: 100, offset: 0 });
   });
 
   it("fetches a tienda clave's leaf with the clave's store ids as tiendas, over the user's", async () => {
@@ -269,7 +272,7 @@ describe('leaves', () => {
     await open(user, /Abrir Router Archer AX55/);
     await screen.findByText('Router A');
     expect(groupCalls().at(-1).path).toBe('c:GAUSS');
-    expect(itemCalls().at(-1)).toEqual({ tiendas: '57997,61000', producto: '4101', limit: 100, offset: 0 });
+    expect(itemCalls().at(-1)).toEqual({ tiendas: '57997,61000', producto: '4101', orden: 'tipo,actividad', dir: 'asc,desc', limit: 100, offset: 0 });
   });
 
   it('opens "Sin producto" with sin_producto', async () => {

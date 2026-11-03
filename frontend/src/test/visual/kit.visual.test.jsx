@@ -10,11 +10,11 @@
  *
  *   pnpm exec vitest run --project=visual kit
  */
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { setTheme, tokenPx } from './visualHelpers';
-import SplitPanelLayout from '../../components/kit/SplitPanelLayout';
+import SplitPanelLayout, { PANEL_MIN_WIDTH, TABLE_MIN_WIDTH } from '../../components/kit/SplitPanelLayout';
 import TableShell from '../../components/kit/TableShell';
 
 const COLUMN_COUNT = 12;
@@ -41,7 +41,7 @@ const Shell = ({ children }) => (
   </div>
 );
 
-const Harness = ({ open, grouped = true, tree = false }) => (
+const Harness = ({ open, grouped = true, tree = false, resizeKey }) => (
   <Shell>
     <div style={{ padding: 'var(--spacing-lg)' }}>
       <SplitPanelLayout
@@ -49,6 +49,7 @@ const Harness = ({ open, grouped = true, tree = false }) => (
         onClose={() => {}}
         width="lg"
         ariaLabel="Detalle"
+        resizeKey={resizeKey}
         panel={<div style={{ padding: 16, height: 1200 }}>Panel de detalle</div>}
       >
         <TableShell
@@ -129,6 +130,115 @@ describe('SplitPanelLayout (visual)', () => {
     expect(Number.parseFloat(getComputedStyle(panel).top)).toBeGreaterThanOrEqual(tokenPx('--cf-topbar-height'));
     // It never outgrows the viewport: taller content scrolls inside it.
     expect(rect(panel).height).toBeLessThanOrEqual(700 - tokenPx('--cf-topbar-height'));
+    screen.unmount();
+  });
+});
+
+describe('SplitPanelLayout resizing (visual)', () => {
+  const KEY = 'visual-test';
+  const handle = () => document.querySelector('[role="separator"]');
+  const drag = async (dx) => {
+    const box = rect(handle());
+    const x = box.left + box.width / 2;
+    const y = box.top + 50;
+    handle().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: x, clientY: y }));
+    window.dispatchEvent(new PointerEvent('pointermove', { buttons: 1, clientX: x + dx, clientY: y }));
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: x + dx, clientY: y }));
+    await frame();
+  };
+
+  beforeEach(() => localStorage.clear());
+
+  for (const width of [1920, 1366, 1000]) {
+    it(`${width}: until resized, the panel and table sit exactly where they do without resizing`, async () => {
+      const plain = await mount({ width, open: true });
+      await frame();
+      const before = { panel: rect(document.querySelector('aside')), table: rect(scrollerOf()) };
+      plain.unmount();
+
+      const screen = await mount({ width, open: true, resizeKey: KEY });
+      await frame();
+      const panel = rect(document.querySelector('aside'));
+      expect(panel.left).toBeCloseTo(before.panel.left, 0);
+      expect(panel.width).toBeCloseTo(before.panel.width, 0);
+      expect(rect(scrollerOf()).width).toBeCloseTo(before.table.width, 0);
+      screen.unmount();
+    });
+  }
+
+  it('dragging left widens the panel past the 42vw cap and the table shrinks, never covered', async () => {
+    const screen = await mount({ width: 1366, open: true, resizeKey: KEY });
+    await frame();
+    const start = rect(document.querySelector('aside')).width;
+    await drag(-200);
+    const panel = rect(document.querySelector('aside'));
+    const table = rect(scrollerOf());
+    expect(panel.width).toBeCloseTo(start + 200, 0);
+    expect(panel.width).toBeGreaterThan(1366 * 0.42);
+    expect(table.right).toBeLessThanOrEqual(rect(handle()).left + 0.5);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
+    expect(localStorage.getItem(`split-panel-width:${KEY}`)).toBe(String(Math.round(start + 200)));
+    screen.unmount();
+  });
+
+  it('both sides keep their minimum however far the divider is dragged', async () => {
+    const screen = await mount({ width: 1366, open: true, resizeKey: KEY });
+    await frame();
+    await drag(-2000);
+    expect(rect(scrollerOf()).width).toBeGreaterThanOrEqual(TABLE_MIN_WIDTH - 1);
+    await drag(2000);
+    expect(rect(document.querySelector('aside')).width).toBeCloseTo(PANEL_MIN_WIDTH, 0);
+    screen.unmount();
+  });
+
+  it('when the default width leaves the table under its minimum, narrowing is not one-way: it widens back to the default', async () => {
+    await page.viewport(1366, 700);
+    setTheme('light');
+    // A grid much narrower than the viewport: 42vw still allows the 560px token, the table's minimum does not.
+    const screen = await render(
+      <div style={{ width: 900 }}>
+        <SplitPanelLayout open onClose={() => {}} width="lg" ariaLabel="Detalle" resizeKey={KEY} panel={<div>Panel</div>}>
+          <div style={{ height: 200 }}>Tabla</div>
+        </SplitPanelLayout>
+      </div>,
+    );
+    await frame();
+    const defaultWidth = rect(document.querySelector('aside')).width;
+    expect(defaultWidth).toBeCloseTo(tokenPx('--split-panel-width-lg'), 0);
+    await drag(100);
+    expect(rect(document.querySelector('aside')).width).toBeCloseTo(defaultWidth - 100, 0);
+    await drag(-300);
+    expect(rect(document.querySelector('aside')).width).toBeCloseTo(defaultWidth, 0);
+    screen.unmount();
+  });
+
+  it('on a window where the default is under the panel minimum, widening is not one-way either', async () => {
+    const screen = await mount({ width: 800, open: true, resizeKey: KEY });
+    await frame();
+    const defaultWidth = rect(document.querySelector('aside')).width;
+    expect(defaultWidth).toBeLessThan(PANEL_MIN_WIDTH);
+    await drag(-20);
+    expect(rect(document.querySelector('aside')).width).toBeCloseTo(Math.floor(defaultWidth) + 20, 0);
+    // Up to the panel's minimum, the same bound the keyboard and the drag use.
+    await drag(-200);
+    expect(rect(document.querySelector('aside')).width).toBeCloseTo(PANEL_MIN_WIDTH, 0);
+    await drag(300);
+    expect(rect(document.querySelector('aside')).width).toBeCloseTo(Math.floor(defaultWidth), 0);
+    screen.unmount();
+  });
+
+  it('a width saved on a wide screen is no wider on a narrow one than the table minimum or the default allow', async () => {
+    const plain = await mount({ width: 1000, open: true });
+    await frame();
+    const defaultTable = rect(scrollerOf()).width;
+    plain.unmount();
+
+    localStorage.setItem(`split-panel-width:${KEY}`, '1200');
+    const screen = await mount({ width: 1000, open: true, resizeKey: KEY });
+    await frame();
+    // The table keeps its minimum, or at worst what the default panel already leaves it.
+    expect(rect(scrollerOf()).width).toBeGreaterThanOrEqual(Math.min(TABLE_MIN_WIDTH, defaultTable) - 1);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1000);
     screen.unmount();
   });
 });

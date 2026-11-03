@@ -27,7 +27,7 @@ export function UnitsTrendCell({ metrics }) {
   if (!metrics) return <Empty />;
   const weeks = weeklySums(metrics.series_units_90d ?? []);
   const tone = weeks.length > 1 ? deltaTone(weeks.at(-1) - weeks.at(-2)) : null;
-  return <Sparkline values={weeks} width={96} height={28} tone={tone} label="Unidades por semana, 90 días" />;
+  return <Sparkline values={weeks} width={96} height={28} tone={tone} className={styles.sparkline} label="Unidades por semana, 90 días" />;
 }
 
 /** The real (sales-weighted) markup of the 30 days (`ml_metricas.ver_ganancia`). */
@@ -49,6 +49,7 @@ export function MarkupTrendCell({ metrics }) {
       width={120}
       height={32}
       tone={deltaTone(metrics.markup_delta_pp)}
+      className={styles.sparkline}
       label="Markup diario, 90 días"
     />
   );
@@ -77,7 +78,7 @@ export function LastSaleCell({ metrics, now = new Date() }) {
   if (!metrics) return <Empty />;
   const { when, ago } = formatLastSale(metrics.last_sale_at, now);
   return (
-    <div className={styles.lastSale}>
+    <div className={styles.lastSale} title={ago}>
       <span className={styles.when}>{when}</span>
       <span className={styles.ago}>{ago}</span>
     </div>

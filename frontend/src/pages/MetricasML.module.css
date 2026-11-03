@@ -263,3 +263,10 @@
   font-family: var(--font-mono);
   color: var(--money-positive);
 }
+
+/* "Filas finas" pressed: the accent tone, so the toggle reads ON at a glance in both themes. */
+.headerActions :global(.btn-tesla).densityToggle[aria-pressed='true'] {
+  color: var(--cf-accent-blue);
+  background: var(--cf-accent-blue-light);
+  border-color: var(--cf-accent-blue);
+}
