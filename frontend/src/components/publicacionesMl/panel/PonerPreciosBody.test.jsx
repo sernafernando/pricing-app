@@ -101,4 +101,17 @@ describe('PonerPreciosBody Enter suggest', () => {
     );
     expect(screen.getByRole('dialog', { name: 'Elegí una promoción' })).toBeInTheDocument();
   });
+
+  it('uses the generic fallback after Pricing-saved when enroll fails without a string detail', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.postPromocionItem.mockRejectedValueOnce(new Error('network'));
+    render(<PonerPreciosBody detail={detail} itemId="MLA1" canEditPrice canWritePromos />);
+    await user.clear(screen.getByLabelText('Nuevo precio'));
+    await user.type(screen.getByLabelText('Nuevo precio'), '1600{Enter}');
+    await screen.findByRole('dialog', { name: 'Elegí una promoción' });
+    await user.click(screen.getByRole('button', { name: /SMART/i }));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /El precio ya está guardado en Pricing\. No se pudo activar la promoción\./,
+    );
+  });
 });
