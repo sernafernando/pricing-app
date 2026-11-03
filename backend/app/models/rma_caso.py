@@ -48,6 +48,9 @@ class RmaCaso(Base):
 
     # --- Flag de proceso (se setea cuando el transporte pasa a "BORRAR PEDIDO" en ERP) ---
     marcado_borrar_pedido = Column(Boolean, nullable=True)
+    # "Para borrar" view: who ticked "Revisado" and when; both null while the case is pending review.
+    borrar_revisado_at = Column(DateTime(timezone=True), nullable=True)
+    borrar_revisado_por_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True, index=True)
 
     # --- Tab: Reclamo Mercadolibre (a nivel caso) ---
     estado_reclamo_ml_id = Column(Integer, ForeignKey("rma_seguimiento_opciones.id"), nullable=True, index=True)
@@ -77,6 +80,7 @@ class RmaCaso(Base):
     historial = relationship("RmaCasoHistorial", back_populates="caso", cascade="all, delete-orphan")
     creado_por = relationship("Usuario", foreign_keys=[creado_por_id])
     eliminado_por = relationship("Usuario", foreign_keys=[eliminado_por_id])
+    borrar_revisado_por = relationship("Usuario", foreign_keys=[borrar_revisado_por_id])
     estado_caso = relationship("RmaSeguimientoOpcion", foreign_keys=[estado_caso_id])
     estado_reclamo_ml = relationship("RmaSeguimientoOpcion", foreign_keys=[estado_reclamo_ml_id])
     cobertura_ml = relationship("RmaSeguimientoOpcion", foreign_keys=[cobertura_ml_id])

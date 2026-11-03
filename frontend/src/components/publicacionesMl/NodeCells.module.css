@@ -14,6 +14,19 @@
   min-width: 0;
 }
 
+/* The name and its badges (prearmadas, PxQ tiers, catalog). */
+.nameLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-1);
+  min-width: 0;
+}
+
+.nameLine > :not(.nodeLabel) {
+  flex-shrink: 0;
+}
+
 .nodeLabel {
   font-weight: var(--font-semibold);
   color: var(--cf-text-primary);
@@ -33,4 +46,20 @@
   gap: var(--space-2);
   font-size: var(--font-sm);
   color: var(--cf-text-secondary);
+}
+
+/* "Filas finas" (the page marks the table `data-density='dense'`): a node's label on ONE line, whole in its tooltip. */
+:global([data-density='dense']) .nodeText {
+  gap: 0;
+}
+
+/* The name starts from a few characters (3em) and grows into whatever its badges leave: one line while that fits.
+   When the badges leave less than that (a wider font, many badges, a deep indent), they go to a second line instead
+   of squeezing the name to nothing. */
+:global([data-density='dense']) .nodeLabel {
+  flex: 1 1 3em;
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

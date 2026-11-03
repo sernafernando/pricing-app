@@ -17,6 +17,9 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Mapping, Optional
+from zoneinfo import ZoneInfo
+
+ACCOUNT_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
 ACTIVITY_METRICS = (
     "cost",
@@ -178,6 +181,18 @@ def _timestamp(value: Any) -> Optional[datetime]:
         return None
 
 
+def _account_timestamp(value: Any) -> Optional[datetime]:
+    """A Display catalog date, naive on the account clock as ML sends them; one with an offset (`...Z`) is moved
+    to that clock first, so every stored date reads the same way."""
+    parsed = _timestamp(value)
+    if parsed is None or parsed.tzinfo is None:
+        return parsed
+    try:
+        return parsed.astimezone(ACCOUNT_TZ).replace(tzinfo=None)
+    except OverflowError:  # e.g. a zero date `0001-01-01T00:00:00Z`; the value is still in `raw`
+        return None
+
+
 def map_campaigns(
     advertiser_id: int, day: date, results: list[Any]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -251,6 +266,53 @@ def parse_display_campaigns(body: Mapping[str, Any]) -> list[int]:
     """Campaign ids of `display/campaigns`, in id order (stable between runs); an entry without a numeric id is ignored."""
     ids = (entry.get("id") for entry in body.get("results") or [] if isinstance(entry, Mapping))
     return sorted({i for i in ids if isinstance(i, int) and not isinstance(i, bool)})
+
+
+@dataclass(frozen=True)
+class DisplayCampaignFact:
+    """One Display campaign of the `display/campaigns` list: its catalog, not a figure."""
+
+    advertiser_id: int
+    campaign_id: int
+    name: Optional[str]
+    type: Optional[str]
+    status: Optional[str]
+    goal: Optional[str]
+    site_id: Optional[str]
+    start_date: Optional[datetime]
+    end_date: Optional[datetime]
+    raw: Mapping[str, Any]
+
+
+def _text(value: Any) -> Optional[str]:
+    return value if isinstance(value, str) else None
+
+
+def map_display_catalog(advertiser_id: int, body: Mapping[str, Any]) -> list[DisplayCampaignFact]:
+    """The catalog rows of `display/campaigns`, keyed by the advertiser whose list was requested (ADS-3).
+
+    The same entries as `parse_display_campaigns`: one without a numeric id is ignored, a repeated id keeps the last.
+    """
+    rows: dict[int, DisplayCampaignFact] = {}
+    for entry in body.get("results") or []:
+        if not isinstance(entry, Mapping):
+            continue
+        campaign_id = entry.get("id")
+        if not isinstance(campaign_id, int) or isinstance(campaign_id, bool):
+            continue
+        rows[campaign_id] = DisplayCampaignFact(
+            advertiser_id=advertiser_id,
+            campaign_id=campaign_id,
+            name=_text(entry.get("name")),
+            type=_text(entry.get("type")),
+            status=_text(entry.get("status")),
+            goal=_text(entry.get("goal")),
+            site_id=_text(entry.get("site_id")),
+            start_date=_account_timestamp(entry.get("start_date")),
+            end_date=_account_timestamp(entry.get("end_date")),
+            raw=entry,
+        )
+    return [rows[i] for i in sorted(rows)]
 
 
 def map_display_metrics(advertiser_id: int, campaign_id: int, day: date, body: Mapping[str, Any]) -> list[DisplayFact]:

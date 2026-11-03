@@ -83,6 +83,13 @@ describe('each change', () => {
     expect(within(card).getByText('Vinculo').closest('[data-line]')).toHaveTextContent('{"mla":"MLA1"}');
   });
 
+  it('a sell-in cost mode change reads in words', async () => {
+    productosAPI.auditoria.mockResolvedValue({ data: [entry({ tipo_accion: 'sell_in_modo_creado' })] });
+    renderTab();
+    const card = await screen.findByRole('article');
+    expect(card.querySelector('h4')).toHaveTextContent('Modo de costo de sell in cambiado');
+  });
+
   it('an unknown kind of change gets a generic label, never its code', async () => {
     productosAPI.auditoria.mockResolvedValue({ data: [entry({ tipo_accion: 'algo_nuevo' })] });
     renderTab();

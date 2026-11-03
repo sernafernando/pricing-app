@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { apiMessage } from '../sellIn/sellInFormat';
+import SellOutAsignarPrograma from './SellOutAsignarPrograma';
 import SellOutCampanasTable from './SellOutCampanasTable';
 import { ANULAR_MASIVO_MAX, SeleccionCambiada, resolverFiltradas, textoConfirmacion, textoResultado } from './sellOutSeleccion';
 import panelStyles from '../sellIn/SellInPanel.module.css';
@@ -21,8 +22,25 @@ function errorDeSeleccion(err) {
  * nothing on the server: a refusal voids nothing and names each refused campaign. Without `puedeGestionar` it is the
  * plain table. The parent keys it by the filters, so a new search starts a new selection; `onAnuladas(ids)` gets the
  * voided ids.
+ *
+ * The same selection (rows, or "todo lo filtrado") feeds "Asignar a programa" (`SellOutAsignarPrograma`, with
+ * `programas`); `onAsignadas()` runs after an assignment. `renderTabla(props)` draws the rows instead of the flat
+ * table (the "Por programa" view); it gets `seleccion` and `onToggle` only with `puedeGestionar`. `onRenovar` (the
+ * page passes it with `sell_out.gestionar`) gives each row "Renovar".
  */
-export default function SellOutAnularMasivo({ campanas, total, filtros, puedeGestionar, selectedId, onSelect, onAnuladas }) {
+export default function SellOutAnularMasivo({
+  campanas,
+  total,
+  filtros,
+  puedeGestionar,
+  selectedId,
+  onSelect,
+  onRenovar,
+  onAnuladas,
+  programas = [],
+  onAsignadas,
+  renderTabla,
+}) {
   const id = useId();
   const [seleccion, setSeleccion] = useState(() => new Map()); // id → estado
   const [confirmando, setConfirmando] = useState(false);
@@ -30,8 +48,15 @@ export default function SellOutAnularMasivo({ campanas, total, filtros, puedeGes
   const [busy, setBusy] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState(null); // { mensaje, rechazadas: [{ id, motivo }] }
+  const [asignando, setAsignando] = useState(false);
 
-  if (!puedeGestionar) return <SellOutCampanasTable campanas={campanas} selectedId={selectedId} onSelect={onSelect} />;
+  if (!puedeGestionar) {
+    return renderTabla ? (
+      renderTabla({ selectedId, onSelect, onRenovar })
+    ) : (
+      <SellOutCampanasTable campanas={campanas} selectedId={selectedId} onSelect={onSelect} onRenovar={onRenovar} />
+    );
+  }
 
   const paginaSeleccionada = campanas.length > 0 && campanas.every((c) => seleccion.has(c.id));
   const cambiar = (siguiente) => {
@@ -100,6 +125,9 @@ export default function SellOutAnularMasivo({ campanas, total, filtros, puedeGes
               <button type="button" className="btn-tesla outline sm" onClick={() => cambiar(new Map())} disabled={busy}>
                 Limpiar selección
               </button>
+              <button type="button" className="btn-tesla outline sm" onClick={() => setAsignando(true)} disabled={busy}>
+                Asignar a programa
+              </button>
               <button type="button" className="btn-tesla danger sm" onClick={() => setConfirmando(true)} disabled={busy || confirmando}>
                 Anular seleccionados
               </button>
@@ -152,15 +180,34 @@ export default function SellOutAnularMasivo({ campanas, total, filtros, puedeGes
           )}
         </div>
       )}
-      <SellOutCampanasTable
-        campanas={campanas}
-        selectedId={selectedId}
-        onSelect={onSelect}
-        seleccion={seleccion}
-        onToggle={alternar}
-        paginaSeleccionada={paginaSeleccionada}
-        onTogglePagina={alternarPagina}
-      />
+      {asignando && (
+        <SellOutAsignarPrograma
+          campanaIds={[...seleccion.keys()]}
+          programas={programas}
+          onClose={() => setAsignando(false)}
+          onProgramaCreado={() => onAsignadas?.()}
+          onAsignadas={(texto) => {
+            setAsignando(false);
+            cambiar(new Map());
+            setResultado(texto);
+            onAsignadas?.();
+          }}
+        />
+      )}
+      {renderTabla ? (
+        renderTabla({ selectedId, onSelect, onRenovar, seleccion, onToggle: alternar })
+      ) : (
+        <SellOutCampanasTable
+          campanas={campanas}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          onRenovar={onRenovar}
+          seleccion={seleccion}
+          onToggle={alternar}
+          paginaSeleccionada={paginaSeleccionada}
+          onTogglePagina={alternarPagina}
+        />
+      )}
     </>
   );
 }

@@ -411,8 +411,8 @@ def _estable(out: dict) -> dict:
 ORDEN = (
     "id nombre descripcion fecha_desde fecha_hasta tipo monto_unit porcentaje base_porcentaje moneda tc_modo "
     "tipo_cambio tc_definido_en tope_unidades tope_monto acumulable monto_incluye_iva estado usuario_id "
-    "offset_origen_id created_at updated_at grupos items resumen"
-).split()
+    "offset_origen_id programa_id programa created_at updated_at grupos items resumen"
+).split()  # programa_id / programa: campaign system S1, on every type
 RESUMEN_VACIO = {
     "lineas": 0,
     "unidades": 0,
@@ -437,6 +437,8 @@ COMUNES = {
     "monto_incluye_iva": False,
     "estado": "activa",
     "offset_origen_id": None,
+    "programa_id": None,  # campaign system S1: additive, None until assigned
+    "programa": None,
     "grupos": ["Bono trimestral"],
 }
 
@@ -476,7 +478,7 @@ def test_per_unit_and_percentage_responses_are_byte_identical(client, gestor, gr
     }
     assert _estable(a) == esperado_a
     assert _estable(b) == esperado_b
-    assert list(a) == ORDEN  # same keys, same order: no new key on these types
+    assert list(a) == ORDEN  # same keys, same order: no monto_total key on these types
     assert list(a["items"][0]) == ["item_id", "monto_unit", "codigo", "descripcion"]
     assert list(a["resumen"]) == list(RESUMEN_VACIO)[:4] + ["ars_estimado"] + list(RESUMEN_VACIO)[4:]
     assert _estable(client.get(f"{BASE}/{a['id']}", headers=gestor).json()) == esperado_a

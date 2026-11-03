@@ -1,0 +1,57 @@
+/* MlAds — the "ML Ads" page header and its tab bar; each tab brings its own container (AportesAdsML's shell). */
+
+.page {
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  padding: var(--spacing-lg) var(--spacing-lg) 0;
+}
+
+.title {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--cf-text-primary);
+  margin: 0;
+}
+
+.description {
+  font-size: 0.85rem;
+  color: var(--cf-text-secondary);
+  margin: var(--spacing-xs) 0 0;
+}
+
+.tabs {
+  display: flex;
+  gap: var(--spacing-lg);
+  margin: var(--spacing-md) var(--spacing-lg) 0;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.tab {
+  padding: var(--spacing-sm) 0;
+  margin-bottom: -1px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--cf-text-primary);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+}
+
+.active {
+  color: var(--cf-accent-blue);
+  border-bottom-color: var(--cf-accent-blue);
+  font-weight: var(--font-semibold);
+}
