@@ -84,10 +84,35 @@
   min-width: 220px;
 }
 
+.vistaSlot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
 .selectField {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* A product or supplier filter (SellInFiltrosExtra): its label, then what is picked or the search with its results. */
+.pickerSlot {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+.pickerSlot > :last-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.pickerSlot > .filterLabel {
+  padding-top: var(--space-2);
 }
 
 .select {

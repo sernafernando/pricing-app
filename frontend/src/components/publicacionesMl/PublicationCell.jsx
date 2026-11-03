@@ -88,16 +88,35 @@ export default function PublicationCell({ item }) {
     item.catalog_listing && 'Catálogo',
     item.variations_count > 0 && `${item.variations_count} variaciones`,
   ].filter(Boolean);
+  // Everything the meta line says, for its tooltip: "Filas finas" cuts the line to one row.
+  const link = LINK_STATES[item.link?.state];
+  const divergence = SKU_DIVERGENCE_KINDS[item.sku_divergence?.kind];
+  const store = storeName(item);
+  const metaTitle = [
+    item.item_id,
+    item.seller_sku && `SKU ${item.seller_sku}`,
+    divergence && `SKU distinto del producto vinculado: ${divergence.label}`,
+    link && `Vínculo: ${link.label}`,
+    link && item.link.codigo,
+    store && `Tienda: ${store}`,
+    ...tags,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <div className={styles.cell}>
       <div className={styles.thumbnail} aria-hidden="true">
         {item.thumbnail && <img src={item.thumbnail} alt="" loading="lazy" className={styles.image} />}
       </div>
       <div className={styles.info}>
-        <span className={`${styles.title} ${item.title ? '' : styles.titleEmpty}`} title={item.title ?? undefined}>
+        {/* The title is the big target to hover: its tooltip repeats the meta line, whose own parts have tooltips. */}
+        <span
+          className={`${styles.title} ${item.title ? '' : styles.titleEmpty}`}
+          title={[item.title ?? 'Sin título', metaTitle].filter(Boolean).join('\n')}
+        >
           {item.title ?? 'Sin título'}
         </span>
-        <span className={styles.meta}>
+        <span className={styles.meta} title={metaTitle || undefined}>
           {/* Mouse-only shortcuts on the row; the links beside it are the keyboard path. */}
           <span className={styles.mla} title={MLA_SHORTCUTS}>
             {item.item_id}

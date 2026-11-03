@@ -150,6 +150,23 @@ class TestOrder:
         )
         assert keys == expected
 
+    def test_columns_and_one_figure_rank_in_one_statement_with_no_figure_arrays(self, store, monkeypatch) -> None:
+        # Publicaciones ML's default (`tipo,facturado_30d`) is columns plus ONE Métricas figure: the Board's rows
+        # join the set in the database, never every MLA's figure shipped to Python and back.
+        def shipped(*args, **kwargs):
+            raise AssertionError("columns and one figure need no figure arrays")
+
+        monkeypatch.setattr(listing, "metric_figures", shipped)
+        for mla, title in (("MLA1", "Alfa"), ("MLA2", "Alfa"), ("MLA3", "Alfa"), ("MLA4", "Beta"), ("MLA5", "Beta")):
+            store.execute(text("UPDATE ml_items SET title = :t WHERE item_id = :i"), {"t": title, "i": mla})
+        store.execute(text("UPDATE ml_items SET title = 'Alfa' WHERE item_id = 'MLA6'"))
+        expected = ["MLA6", "MLA2", "MLA3", "MLA1", "MLA4", "MLA5"]
+        assert ids(store, "titulo,facturado_30d", "asc,asc", estado="active") == expected
+        assert every_page(store, "titulo,facturado_30d", "asc,asc", estado="active") == expected
+        assert ids(store, "tipo,facturado_30d", "asc,desc", estado="active") == ids(
+            store, "tipo,facturado_30d,titulo", "asc,desc,asc", estado="active"
+        )
+
     def test_two_figures_each_with_its_direction(self, store) -> None:
         # 7 days: MLA2 and MLA6 tie at 1 unit; the gross, lowest first, puts MLA6 (10) before MLA2 (30)
         expected = ["MLA1", "MLA6", "MLA2", "MLA3", *UNSOLD]

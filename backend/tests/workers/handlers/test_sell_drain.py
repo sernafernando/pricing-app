@@ -24,7 +24,14 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models.offset_grupo import OffsetGrupo
 from app.models.offset_grupo_filtro import OffsetGrupoFiltro
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem, SellOutConsumo, SellOutDirty
+from app.models.sell_out import (
+    SellOutCampana,
+    SellOutCampanaGrupo,
+    SellOutCampanaItem,
+    SellOutConsumo,
+    SellOutDirty,
+    SellOutPrograma,
+)
 from app.services.sell import queue
 from app.services.sell_out import queue as sell_out_queue
 from app.services.sell_in import costing
@@ -46,6 +53,7 @@ SELL_OUT_TABLES = [
     for t in (
         OffsetGrupo,
         OffsetGrupoFiltro,
+        SellOutPrograma,
         SellOutCampana,
         SellOutCampanaGrupo,
         SellOutCampanaItem,

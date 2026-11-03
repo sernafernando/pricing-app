@@ -1,8 +1,10 @@
+import { Fragment } from 'react';
 import { AlertTriangle, Boxes, Hourglass, PieChart, ReceiptText, ShoppingBag, Wallet } from 'lucide-react';
 import { SegmentedControl } from '../kit';
 import Sparkline from '../kit/Sparkline';
 import { formatSignedMoney, markupTone, moneyTone } from '../../utils/ventasMlTone';
 import { deltaTone, formatDeltaPct, formatDeltaPp, formatPct, formatUnits } from '../../utils/metricasMlFormat';
+import { publicationKpiOptions } from './publicationKpiOptions';
 import styles from './PublicationKpiStrip.module.css';
 
 /**
@@ -40,11 +42,11 @@ function Tile({ label, icon, value, valueClass = '', delta, series, tone, childr
 
 const pctOf = (part, whole) => (whole ? (part / whole) * 100 : null);
 
-function Tiles({ kpis }) {
+function Tiles({ kpis, isVisible }) {
   const { units, gross, total_gauss: gauss, markup, rows_with_sales: withSales, ageing } = kpis;
   const activePct = pctOf(withSales.value, withSales.of_total);
-  return (
-    <div className={styles.cards}>
+  const tiles = {
+    units: () => (
       <Tile
         label="Unidades vendidas"
         icon={ShoppingBag}
@@ -53,6 +55,8 @@ function Tiles({ kpis }) {
         series={units.series}
         tone={deltaTone(units.delta_pct)}
       />
+    ),
+    gross: () => (
       <Tile
         label="Facturado bruto"
         icon={ReceiptText}
@@ -61,28 +65,30 @@ function Tiles({ kpis }) {
         series={gross.series}
         tone={deltaTone(gross.delta_pct)}
       />
-      {gauss && (
-        <Tile
-          label="Total Gauss"
-          icon={Wallet}
-          value={formatSignedMoney(gauss.value)}
-          valueClass={styles[`money_${moneyTone(gauss.value)}`]}
-          delta={<Delta value={gauss.delta_pct} format={formatDeltaPct} />}
-          series={gauss.series}
-          tone={deltaTone(gauss.delta_pct)}
-        />
-      )}
-      {markup && (
-        <Tile
-          label="Markup promedio"
-          icon={PieChart}
-          value={formatPct(markup.value)}
-          valueClass={styles[`markup_${markupTone(markup.value)}`]}
-          delta={<Delta value={markup.delta_pp} format={formatDeltaPp} />}
-          series={markup.series}
-          tone={deltaTone(markup.delta_pp)}
-        />
-      )}
+    ),
+    total_gauss: () => (
+      <Tile
+        label="Total Gauss"
+        icon={Wallet}
+        value={formatSignedMoney(gauss.value)}
+        valueClass={styles[`money_${moneyTone(gauss.value)}`]}
+        delta={<Delta value={gauss.delta_pct} format={formatDeltaPct} />}
+        series={gauss.series}
+        tone={deltaTone(gauss.delta_pct)}
+      />
+    ),
+    markup: () => (
+      <Tile
+        label="Markup promedio"
+        icon={PieChart}
+        value={formatPct(markup.value)}
+        valueClass={styles[`markup_${markupTone(markup.value)}`]}
+        delta={<Delta value={markup.delta_pp} format={formatDeltaPp} />}
+        series={markup.series}
+        tone={deltaTone(markup.delta_pp)}
+      />
+    ),
+    rows_with_sales: () => (
       <Tile
         label="Publicaciones con ventas"
         icon={Boxes}
@@ -93,6 +99,8 @@ function Tiles({ kpis }) {
           <span className={styles.barFill} style={{ width: `${activePct ?? 0}%` }} />
         </div>
       </Tile>
+    ),
+    ageing: () => (
       <Tile
         label="Ageing promedio"
         icon={Hourglass}
@@ -106,6 +114,16 @@ function Tiles({ kpis }) {
           ) : null
         }
       />
+    ),
+  };
+  const shown = publicationKpiOptions(kpis).filter(({ id }) => isVisible(id));
+  // Every card hidden: no row at all; the Período above stays, it also rules the rest of the page.
+  if (shown.length === 0) return null;
+  return (
+    <div className={styles.cards}>
+      {shown.map(({ id }) => (
+        <Fragment key={id}>{tiles[id]()}</Fragment>
+      ))}
     </div>
   );
 }
@@ -117,7 +135,7 @@ function errorMessage(error) {
   return 'No se pudieron cargar los KPIs.';
 }
 
-export default function PublicationKpiStrip({ state, periodo, onPeriodChange, markupNotice }) {
+export default function PublicationKpiStrip({ state, periodo, onPeriodChange, markupNotice, isVisible = () => true }) {
   const { data, loading, error } = state;
   return (
     <section className={styles.strip} aria-label="Indicadores de las publicaciones" aria-busy={loading}>
@@ -138,7 +156,7 @@ export default function PublicationKpiStrip({ state, periodo, onPeriodChange, ma
           </button>
         </div>
       )}
-      {!error && data && <Tiles kpis={data.kpis} />}
+      {!error && data && <Tiles kpis={data.kpis} isVisible={isVisible} />}
       {!error && !data && <div className={styles.cards} />}
     </section>
   );

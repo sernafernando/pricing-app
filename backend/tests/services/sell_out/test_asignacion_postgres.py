@@ -11,13 +11,14 @@ import threading
 import time
 from datetime import date
 from decimal import Decimal
-from typing import Iterator, List
+from typing import Iterator, List, Optional
 
 import pytest
 from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
-from app.services.sell_out import alcance, asignacion
+from app.models.sell_out import SellOutCampana
+from app.services.sell_out import alcance, asignacion, reparto, tope
 from app.services.sell_out.asignacion import SellOutAsignacionError, recalcular
 from tests.services.sell_out import _world as w
 
@@ -703,3 +704,90 @@ class TestConcurrency:
         assert "error" not in segunda, segunda.get("error")
         assert (segunda["result"].inserted, segunda["result"].deleted) == (0, 0)
         assert len(w.consumos(engine)) == 1
+
+
+class TestErrorEstructurado:
+    """Every refusal carries `campana_id`, `causa` (one code per raise site), and `item_id` / `fecha` when it has
+    them, for readers that explain it (`edicion_masiva`); `str(exc)` stays the English text the drain stores."""
+
+    @staticmethod
+    def _error(engine: Engine, campana: int) -> SellOutAsignacionError:
+        with pytest.raises(SellOutAsignacionError) as exc:
+            _recalcular(engine, campana)
+        return exc.value
+
+    @staticmethod
+    def _campos(exc: SellOutAsignacionError) -> tuple:
+        return (exc.campana_id, exc.causa, exc.item_id, exc.fecha)
+
+    @pytest.fixture()
+    def sin_iva(self, engine: Engine) -> Iterator[None]:
+        w.execute(engine, "UPDATE productos_erp SET iva = NULL WHERE item_id = 2964")
+        yield
+        w.execute(engine, "UPDATE productos_erp SET iva = 21 WHERE item_id = 2964")
+
+    def test_a_missing_rate(self, engine: Engine) -> None:
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], moneda="USD", tc_modo="dia_venta")
+        w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+
+        exc = self._error(engine, campana)
+
+        assert self._campos(exc) == (campana, "sin_tipo_cambio", None, D(2026, 11, 2))
+        assert str(exc) == f"campaign {campana}: no BNA rate to convert the sale of 2026-11-02"
+
+    def test_a_product_without_vat_on_a_campaign_loaded_with_vat(self, engine: Engine, sin_iva: None) -> None:
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])], monto_incluye_iva=True)
+        w.venta(engine, "fuera", 2964, 1, D(2026, 11, 2))
+
+        exc = self._error(engine, campana)
+
+        assert self._campos(exc) == (campana, "producto_sin_iva", 2964, None)
+        assert str(exc) == f"campaign {campana}: product 2964 has no VAT rate"
+
+    def test_a_product_without_vat_on_a_net_price_percentage(self, engine: Engine, sin_iva: None) -> None:
+        campana = _porcentaje(engine, "precio_neto")
+        _ml(engine, 2964, 1, D(2026, 11, 2), gross="121", mcosto="1")
+
+        exc = self._error(engine, campana)
+
+        assert self._campos(exc) == (campana, "producto_sin_iva", 2964, None)
+        assert str(exc) == f"campaign {campana}: product 2964 has no VAT rate"
+
+    def test_a_unit_credit_for_a_product_without_vat(self) -> None:
+        campana = SellOutCampana(id=41, tipo="por_unidad", monto_unit=Decimal("10"), moneda="ARS")
+        campana.monto_incluye_iva = True
+
+        with pytest.raises(SellOutAsignacionError) as exc:
+            asignacion.credito_unitario(campana, D(2026, 11, 2), None, None, None)
+
+        assert self._campos(exc.value) == (41, "producto_sin_iva", None, None)
+        assert str(exc.value) == "campaign 41: a product it reaches has no VAT rate"
+
+    @pytest.mark.parametrize(
+        ("total", "monto", "item_id", "texto"),
+        [
+            ("100.00", "100.01", None, "the shares (100.01) exceed the total (100.00)"),
+            ("-100.00", "10.00", 2964, "product 2964's share 10.00 does not have the total's sign"),
+        ],
+    )
+    def test_an_invalid_split(self, engine: Engine, total: str, monto: str, item_id: Optional[int], texto: str) -> None:
+        campana = w.monto_total(engine, [w.grupo(engine, [TP_ROUTERS])], total)
+        w.reparto(engine, campana, 2964, monto=monto)
+        w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+
+        exc = self._error(engine, campana)
+
+        assert self._campos(exc) == (campana, "reparto_invalido", item_id, None)
+        assert isinstance(exc.__cause__, reparto.RepartoInvalido)
+        assert str(exc) == f"campaign {campana}: {texto}"
+
+    def test_a_negative_amount_outside_a_fixed_total(self, engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
+        campana = w.campana(engine, [w.grupo(engine, [TP_ROUTERS])])
+        ref = w.venta(engine, "ml", 2964, 1, D(2026, 11, 2))
+        negativo = tope.Consumo("ml", ref, 2964, D(2026, 11, 2), 1, Decimal("-10.00"))
+        monkeypatch.setattr(tope, "asignar", lambda *a, **k: [negativo])
+
+        exc = self._error(engine, campana)
+
+        assert self._campos(exc) == (campana, "monto_negativo", None, None)
+        assert str(exc) == f"campaign {campana}: a por_unidad campaign never gives a negative amount"

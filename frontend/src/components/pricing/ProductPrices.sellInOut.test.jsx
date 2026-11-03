@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import ProductPrices from './ProductPrices';
+import { priceOf } from './priceTestUtils';
 import { offsetsGananciaAPI, preciosAPI } from '../../services/api';
 import { PRODUCTO, PRODUCTO_CON_SELL_IN_OUT, SELL_IN_OUT } from './ProductPrices.fixtures';
 
@@ -23,9 +24,8 @@ vi.mock('../../services/api', () => ({
   offsetsGananciaAPI: { vigentes: vi.fn(), grupoFiltros: vi.fn() },
 }));
 
-const rowOf = (label) => screen.findByRole('row', { name: new RegExp(`^${label}\\b`) });
 const facts = () => screen.findByRole('group', { name: 'Referencias del producto' });
-const sellCell = (row) => row.querySelector('[data-col="markup-sell-in-out"]');
+const sellCell = (price) => price.querySelector('[data-col="markup-sell-in-out"]');
 const factOf = (group, label) => within(group).getByText(label, { selector: 'dt' }).nextElementSibling;
 
 const withSellInOut = (sellInOut) => preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO, sell_in_out: sellInOut } });
@@ -94,52 +94,53 @@ describe('cost with sell in and sell out per unit', () => {
     const group = await facts();
     expect(group).not.toHaveTextContent('Costo c/ sell in');
     expect(group).not.toHaveTextContent('Sell out por unidad');
-    expect(screen.queryByRole('columnheader', { name: 'Markup c/ sell in/out' })).not.toBeInTheDocument();
+    expect(screen.queryByText('c/ sell in/out')).not.toBeInTheDocument();
   });
 });
 
 describe('markup with sell in and sell out', () => {
   it('shows each row the markup with sell in + sell out of its own key', async () => {
     render(<ProductPrices productItemId={4101} showCost />);
-    expect(await screen.findAllByRole('columnheader', { name: 'Markup c/ sell in/out' })).toHaveLength(2);
-    await waitFor(async () => expect(sellCell(await rowOf('Clásica'))).toHaveTextContent('28,80%'));
-    expect(sellCell(await rowOf('3 cuotas'))).toHaveTextContent('30,60%');
-    expect(sellCell(await rowOf('6 cuotas'))).toHaveTextContent('32,90%');
-    expect(sellCell(await rowOf('12 cuotas'))).toHaveTextContent('7,00%');
-    expect(sellCell(await rowOf('PVP clásica'))).toHaveTextContent('30,00%');
-    expect(sellCell(await rowOf('PVP 3 cuotas'))).toHaveTextContent('31,60%');
+    await screen.findByRole('table', { name: 'Precios por plan' });
+    expect(screen.getAllByText('c/ sell in/out')).toHaveLength(10);
+    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent('28,80%'));
+    expect(sellCell(await priceOf('3 cuotas'))).toHaveTextContent('30,60%');
+    expect(sellCell(await priceOf('6 cuotas'))).toHaveTextContent('32,90%');
+    expect(sellCell(await priceOf('12 cuotas'))).toHaveTextContent('7,00%');
+    expect(sellCell(await priceOf('PVP clásica'))).toHaveTextContent('30,00%');
+    expect(sellCell(await priceOf('PVP 3 cuotas'))).toHaveTextContent('31,60%');
     // A row without a price has no markup with sell in/out either.
-    expect(sellCell(await rowOf('9 cuotas'))).toHaveTextContent('—');
+    expect(sellCell(await priceOf('9 cuotas'))).toHaveTextContent('—');
     // The plain markup and the legacy offset column stay.
-    expect((await rowOf('Clásica')).querySelector('[data-col="markup"]')).toHaveTextContent('18,40%');
-    expect((await rowOf('Clásica')).querySelector('[data-col="markup-offset"]')).toBeInTheDocument();
+    expect((await priceOf('Clásica')).querySelector('[data-col="markup"]')).toHaveTextContent('18,40%');
+    expect((await priceOf('Clásica')).querySelector('[data-col="markup-offset"]')).toBeInTheDocument();
   });
 
   it('without sell out shows the markup with sell in', async () => {
     withSellInOut({ ...SELL_IN_OUT, sell_out: null, markups_sell_in_out: {} });
     render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await rowOf('Clásica'))).toHaveTextContent('26,30%'));
-    expect(sellCell(await rowOf('PVP 3 cuotas'))).toHaveTextContent('29,10%');
+    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent('26,30%'));
+    expect(sellCell(await priceOf('PVP 3 cuotas'))).toHaveTextContent('29,10%');
   });
 
   it('with a pending sell out falls back to the markup with sell in', async () => {
     withSellInOut({ ...SELL_IN_OUT, sell_out: { monto_unit: null, campana_ids: [3] }, markups_sell_in_out: {} });
     render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await rowOf('12 cuotas'))).toHaveTextContent('4,50%'));
+    await waitFor(async () => expect(sellCell(await priceOf('12 cuotas'))).toHaveTextContent('4,50%'));
   });
 
   it('a pending sell out says so in the tooltip of the markup with sell in', async () => {
     withSellInOut({ ...SELL_IN_OUT, sell_out: { monto_unit: null, campana_ids: [3] }, markups_sell_in_out: {} });
     render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await rowOf('Clásica'))).toHaveTextContent('26,30%'));
-    expect(sellCell(await rowOf('Clásica')).firstChild).toHaveAttribute('title', 'Con sell in; el sell out está pendiente');
+    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent('26,30%'));
+    expect(sellCell(await priceOf('Clásica')).firstChild).toHaveAttribute('title', 'Con sell in; el sell out está pendiente');
   });
 
   it('with a pending sell out, a row without price still shows "—", never "Pendiente"', async () => {
     withSellInOut({ ...SELL_IN_OUT, sell_out: { monto_unit: null, campana_ids: [3] }, markups_sell_in_out: {} });
     render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await rowOf('9 cuotas'))).toHaveTextContent(/^—$/));
-    expect(sellCell(await rowOf('PVP 6 cuotas'))).toHaveTextContent(/^—$/);
+    await waitFor(async () => expect(sellCell(await priceOf('9 cuotas'))).toHaveTextContent(/^—$/));
+    expect(sellCell(await priceOf('PVP 6 cuotas'))).toHaveTextContent(/^—$/);
   });
 
   it('a lot without an ARS cost leaves the row without price as "—"', async () => {
@@ -150,7 +151,7 @@ describe('markup with sell in and sell out', () => {
       markups_sell_in_out: {},
     });
     render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await rowOf('9 cuotas'))).toHaveTextContent(/^—$/));
+    await waitFor(async () => expect(sellCell(await priceOf('9 cuotas'))).toHaveTextContent(/^—$/));
   });
 
   it('a lot without an ARS cost leaves the markup pending, not as a row without price', async () => {
@@ -161,26 +162,25 @@ describe('markup with sell in and sell out', () => {
       markups_sell_in_out: {},
     });
     render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await rowOf('Clásica'))).toHaveTextContent(/^Pendiente$/));
+    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent(/^Pendiente$/));
   });
 
   it('a product without sell_in_out shows "-" in every row', async () => {
     preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCTO });
     render(<ProductPrices productItemId={4101} showCost />);
-    await waitFor(async () => expect(sellCell(await rowOf('Clásica'))).toHaveTextContent(/^-$/));
-    expect(sellCell(await rowOf('PVP clásica'))).toHaveTextContent(/^-$/);
+    await waitFor(async () => expect(sellCell(await priceOf('Clásica'))).toHaveTextContent(/^-$/));
+    expect(sellCell(await priceOf('PVP clásica'))).toHaveTextContent(/^-$/);
   });
 });
 
 describe('installment row labels', () => {
-  it('shows "12C" / "PVP 12C" and keeps the full name as tooltip and accessible name', async () => {
+  it("names each plan in full in its row, and each price by its list's own name", async () => {
     render(<ProductPrices productItemId={4101} showCost />);
-    const ml = await rowOf('12 cuotas');
-    const pvp = await rowOf('PVP 12 cuotas');
-
-    expect(within(ml).getByRole('rowheader')).toHaveTextContent(/^12C$/);
-    expect(within(ml).getByRole('rowheader')).toHaveAttribute('title', '12 cuotas');
-    expect(within(pvp).getByRole('rowheader')).toHaveTextContent(/^PVP 12C$/);
-    expect(within(await rowOf('Clásica')).getByRole('rowheader')).not.toHaveAttribute('title');
+    const ml = await priceOf('12 cuotas');
+    const pvp = await priceOf('PVP 12 cuotas');
+    // One row, two prices: the plan heads the row, the columns say which list.
+    expect(ml.closest('tr')).toBe(pvp.closest('tr'));
+    expect(within(ml.closest('tr')).getByRole('rowheader')).toHaveTextContent(/^12 cuotas$/);
   });
+
 });

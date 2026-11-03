@@ -23,6 +23,12 @@ describe('PriceCell', () => {
     expect(screen.getByText(/Hot Sale/)).toBeInTheDocument();
   });
 
+  // "Filas finas" hides the struck price and the promotion: the tooltip is where they are still read.
+  it('keeps the struck price and the promotion in its tooltip', () => {
+    render(<PriceCell price={ROUTER.price} />);
+    expect(screen.getByText('98.500,50').closest('[title]').getAttribute('title')).toMatch(/^Antes 112\.000,00 · .*Hot Sale/);
+  });
+
   it('badges the Productos fallback as "precio de Productos"', () => {
     render(<PriceCell price={EPSON.price} />);
     expect(screen.getByText('18.900,00')).toBeInTheDocument();
@@ -50,6 +56,8 @@ describe('ErpStockCell', () => {
     render(<ErpStockCell erpStock={{ quantity: 0 }} />);
     expect(screen.getByText('0')).toBeInTheDocument();
     expect(screen.getByText('Sin stock ERP')).toBeInTheDocument();
+    // "Filas finas" hides the note: the tooltip still says it.
+    expect(screen.getByText('0').closest('[title]')).toHaveAttribute('title', 'Sin stock ERP');
   });
 
   it('renders "—" without a linked product, and for a backend that does not send it yet', () => {
