@@ -80,7 +80,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Literal, Optional, Tuple
 
 from sqlalchemy import delete, insert, or_, text
 from sqlalchemy.orm import Session
@@ -106,8 +106,28 @@ Montos = Dict[int, Dict[int, Decimal]]  # campana_id -> item_id -> its own amoun
 Repartos = Dict[int, Dict[int, reparto.Reparto]]  # campana_id -> item_id -> its share of the total
 
 
+CausaAsignacion = Literal["sin_tipo_cambio", "producto_sin_iva", "reparto_invalido", "monto_negativo"]
+
+
 class SellOutAsignacionError(ValueError):
-    """A campaign cannot be allocated as it stands; the message says why."""
+    """A campaign cannot be allocated as it stands. The message (English, `campaign <id>: <why>`) is what the drain
+    stores and logs; readers that explain it to the operator use the fields: `campana_id`, `causa` (one code per
+    rule: `sin_tipo_cambio`, a USD sale with no rate to convert it, dated `fecha`; `producto_sin_iva`, a product
+    without a VAT rate where one is needed, `item_id` when known; `reparto_invalido`, a fixed total's shares that
+    cannot be split, its `reparto` error as `__cause__` and its `item_id` when it has one; `monto_negativo`, a
+    negative row outside a fixed total)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        campana_id: int,
+        causa: CausaAsignacion,
+        item_id: Optional[int] = None,
+        fecha: Optional[date] = None,
+    ) -> None:
+        super().__init__(message)
+        self.campana_id, self.causa, self.item_id, self.fecha = campana_id, causa, item_id, fecha
 
 
 class _BaseDesconocida(Exception):
@@ -241,7 +261,12 @@ def _tasa(c: SellOutCampana, fecha: date, tasas: _Tasas) -> Decimal:
     else:
         tasa = tasas.actual
     if tasa is None:
-        raise SellOutAsignacionError(f"campaign {c.id}: no BNA rate to convert the sale of {fecha}")
+        raise SellOutAsignacionError(
+            f"campaign {c.id}: no BNA rate to convert the sale of {fecha}",
+            campana_id=c.id,
+            causa="sin_tipo_cambio",
+            fecha=fecha,
+        )
     return Decimal(tasa)
 
 
@@ -268,7 +293,9 @@ def credito_unitario(
     None when a percentage base is unknown; a missing rate or VAT rate raises."""
     tasa = Decimal(1) if c.moneda == "ARS" else _tasa(c, fecha, _Tasas({fecha: bna}, bna))
     if c.monto_incluye_iva and iva is None:
-        raise SellOutAsignacionError(f"campaign {c.id}: a product it reaches has no VAT rate")
+        raise SellOutAsignacionError(
+            f"campaign {c.id}: a product it reaches has no VAT rate", campana_id=c.id, causa="producto_sin_iva"
+        )
     base = None
     if c.tipo == "porcentaje":
         if base_ars is None:
@@ -298,7 +325,12 @@ def _base(c: SellOutCampana, v: alcance.Venta, iva: Optional[Decimal], tasas: _T
     base = _base_registrada(c, v)
     if c.base_porcentaje == "precio_neto" and v.precio_con_iva:
         if iva is None:
-            raise SellOutAsignacionError(f"campaign {c.id}: product {v.item_id} has no VAT rate")
+            raise SellOutAsignacionError(
+                f"campaign {c.id}: product {v.item_id} has no VAT rate",
+                campana_id=c.id,
+                causa="producto_sin_iva",
+                item_id=v.item_id,
+            )
         base = base / (1 + iva / 100)
     return base if c.moneda == "ARS" else base / _tasa(c, v.fecha, tasas)
 
@@ -332,7 +364,12 @@ def _asignar(
                 continue  # it returns a sale this campaign does not count (before it, or waiting for its base)
             iva = alcance_c[v.item_id]
             if c.monto_incluye_iva and iva is None:
-                raise SellOutAsignacionError(f"campaign {c.id}: product {v.item_id} has no VAT rate")
+                raise SellOutAsignacionError(
+                    f"campaign {c.id}: product {v.item_id} has no VAT rate",
+                    campana_id=c.id,
+                    causa="producto_sin_iva",
+                    item_id=v.item_id,
+                )
             try:
                 base_unit = _base(c, v, iva, tasas)
             except _BaseDesconocida:
@@ -362,11 +399,20 @@ def _asignar(
             try:
                 salida[c.id] = reparto.repartir(mt, consumos)
             except ValueError as exc:  # shares that cannot be split, a product without VAT: as the other kinds
-                raise SellOutAsignacionError(f"campaign {c.id}: {exc}") from exc
+                raise SellOutAsignacionError(
+                    f"campaign {c.id}: {exc}",
+                    campana_id=c.id,
+                    causa="reparto_invalido",
+                    item_id=getattr(exc, "item_id", None),
+                ) from exc
             tenidas[c.id] = {}  # a lump sum holds no units
             continue
         if any(x.monto < 0 for x in consumos):
-            raise SellOutAsignacionError(f"campaign {c.id}: a {c.tipo} campaign never gives a negative amount")
+            raise SellOutAsignacionError(
+                f"campaign {c.id}: a {c.tipo} campaign never gives a negative amount",
+                campana_id=c.id,
+                causa="monto_negativo",
+            )
         salida[c.id] = consumos
         tenidas[c.id] = {clave: libres[clave][:n] for clave, n in por_linea.items()}
     return salida, pendientes

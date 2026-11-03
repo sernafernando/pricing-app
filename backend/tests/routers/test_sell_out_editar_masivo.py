@@ -1,19 +1,21 @@
-"""Bulk edit of sell-out campaigns over HTTP (`POST /api/sell-out/campanas/editar-masivo`), M1.
+"""Bulk edit of sell-out campaigns over HTTP (`POST /api/sell-out/campanas/editar-masivo[/previa]`), M1.
 
 SQLite, like `test_sell_out_campanas.py`: permissions, the request caps, the error shapes and the response
-shapes. The rules are proven on Postgres by
+shapes. The rules and the preview's numbers are proven on Postgres by
 `tests/services/sell_out/test_editar_masivo_postgres.py`.
 """
 
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
 
 BASE = "/api/sell-out/campanas"
 EDITAR = f"{BASE}/editar-masivo"
+PREVIA = f"{EDITAR}/previa"
 VER = "sell_out.ver"
 GESTIONAR = "sell_out.gestionar"
 EDITADA = TipoAccion.SELL_OUT_CAMPANA_EDITADA
@@ -59,7 +61,7 @@ def _campana(client, headers, cid: int) -> dict:
     return client.get(f"{BASE}/{cid}", headers=headers).json()
 
 
-@pytest.mark.parametrize("url", [EDITAR])
+@pytest.mark.parametrize("url", [EDITAR, PREVIA])
 def test_both_endpoints_need_sell_out_gestionar(client, auth_headers, rol_ventas, grant_permiso, url) -> None:
     grant_permiso(rol_ventas, VER)
     resp = client.post(url, json={"campana_ids": [1], "acumulable": False}, headers=auth_headers)
@@ -67,7 +69,7 @@ def test_both_endpoints_need_sell_out_gestionar(client, auth_headers, rol_ventas
     assert GESTIONAR in _message(resp)
 
 
-@pytest.mark.parametrize("url", [EDITAR])
+@pytest.mark.parametrize("url", [EDITAR, PREVIA])
 def test_a_brand_scoped_pm_cannot_bulk_edit(client, gestor, grupos, auth_headers, rol_ventas, grant_permiso, url):
     """Like the bulk void: a PM with `sell_out.repartir` only splits shares; `gestionar` is the per-record check."""
     cid = _crear(client, gestor, grupos)
@@ -80,7 +82,7 @@ def test_a_brand_scoped_pm_cannot_bulk_edit(client, gestor, grupos, auth_headers
     assert _campana(client, gestor, cid)["fecha_hasta"] == "2026-11-30"
 
 
-@pytest.mark.parametrize("url", [EDITAR])
+@pytest.mark.parametrize("url", [EDITAR, PREVIA])
 @pytest.mark.parametrize(
     "body,mensaje",
     [
@@ -139,13 +141,51 @@ def test_unknown_or_refused_rows_are_a_422_naming_each_one_and_nothing_changes(c
     assert db.query(Auditoria).filter(Auditoria.tipo_accion == EDITADA).count() == 0
 
 
-@pytest.mark.parametrize("url", [EDITAR])
+def test_the_preview_lists_what_changes_and_names_the_refused_without_writing(client, gestor, grupos, db) -> None:
+    a = _crear(client, gestor, grupos)
+    igual = _crear(client, gestor, grupos, acumulable=False)
+
+    resp = client.post(PREVIA, json={"campana_ids": [a, igual, 999999], "acumulable": False}, headers=gestor)
+
+    assert resp.status_code == 200, resp.text
+    cero = {"lineas": 0, "unidades": 0, "monto": "0"}
+    assert resp.json() == {
+        "totales": {
+            "cambian": 1,
+            "sin_cambio": 1,
+            "rechazadas": 1,
+            "salen": {"lineas": 0, "unidades": 0, "montos": []},
+            "entran": {"lineas": 0, "unidades": 0, "montos": []},
+        },
+        "cambian": [
+            {
+                "id": a,
+                "nombre": "Rebate Q4 2026",
+                "moneda": "ARS",
+                "fecha_desde": "2026-11-01",
+                "fecha_hasta": "2026-11-30",
+                "acumulable": False,
+                "incluye_pendientes": False,
+                "salen": cero,
+                "entran": cero,
+            }
+        ],
+        "vinculadas": [],
+        "aviso_pendientes": None,
+        "sin_cambio": [igual],
+        "rechazadas": [{"id": 999999, "nombre": None, "motivo": "La campaña 999999 no existe"}],
+    }
+    assert _campana(client, gestor, a)["acumulable"] is True
+    assert db.query(Auditoria).filter(Auditoria.tipo_accion == EDITADA).count() == 0
+
+
+@pytest.mark.parametrize("url", [EDITAR, PREVIA])
 def test_a_campaign_being_rebuilt_is_a_409_with_the_retry_message(client, gestor, grupos, monkeypatch, url) -> None:
     from app.services.sell_out import campanas as service
 
     a = _crear(client, gestor, grupos, nombre="MARCA PROG 3.0")
 
-    def _recalculando(db, campana_ids):
+    def _recalculando(db: Session, campana_ids: list[int]) -> None:
         db.rollback()
         raise service.SellOutRecalculando("La campaña se está recalculando. Reintentar en unos segundos.")
 
@@ -174,7 +214,7 @@ def test_a_deadlock_is_a_409_with_the_retry_message(client, gestor, grupos, monk
     class _Deadlock(Exception):
         pgcode = "40P01"
 
-    def _en_deadlock(db, campana_ids):
+    def _en_deadlock(db: Session, campana_ids: list[int]) -> None:
         raise DBAPIError("UPDATE sell_out_dirty ...", {}, _Deadlock())
 
     monkeypatch.setattr(service, "_encolar", _en_deadlock)

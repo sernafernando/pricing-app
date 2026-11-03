@@ -100,7 +100,7 @@ def _encolar(db: Session, campana_ids: list[int]) -> None:
         with queue.lock_timeout(db, queue.LOCK_TIMEOUT):
             queue.enqueue(db, campana_ids)
     except DBAPIError as exc:
-        if getattr(exc.orig, "pgcode", None) != "55P03":
+        if getattr(exc.orig, "pgcode", None) != queue.LOCK_NOT_AVAILABLE:
             raise
         db.rollback()
         raise SellOutRecalculando("La campaña se está recalculando. Reintentar en unos segundos.") from exc
