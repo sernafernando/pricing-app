@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../../services/api';
 import rmaStyles from '../Rma.module.css';
 import styles from './RmaParaBorrar.module.css';
@@ -19,17 +19,20 @@ export default function RmaParaBorrar({ puedeGestionar }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [guardando, setGuardando] = useState(null);
+  // Only the latest request may fill the table: an older answer that arrives late (a quick filter change) is dropped.
+  const ultimoPedido = useRef(0);
 
   const cargar = useCallback(async () => {
+    const pedido = ++ultimoPedido.current;
     setLoading(true);
     setError(null);
     try {
       const { data: body } = await api.get('/rma-seguimiento/para-borrar', { params: { estado } });
-      setData(body);
+      if (pedido === ultimoPedido.current) setData(body);
     } catch {
-      setError('No se pudo cargar la lista de casos para borrar.');
+      if (pedido === ultimoPedido.current) setError('No se pudo cargar la lista de casos para borrar.');
     } finally {
-      setLoading(false);
+      if (pedido === ultimoPedido.current) setLoading(false);
     }
   }, [estado]);
 

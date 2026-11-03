@@ -94,3 +94,25 @@ describe('RmaParaBorrar Revisado checkbox', () => {
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 });
+
+describe('RmaParaBorrar stale answers', () => {
+  it('an older answer that arrives late does not overwrite the current filter', async () => {
+    let resolvePendientes;
+    api.get.mockImplementation((_url, { params }) =>
+      params.estado === 'pendientes'
+        ? new Promise((resolve) => {
+            resolvePendientes = resolve;
+          })
+        : Promise.resolve({ data: { items: [REVISADO], counts: COUNTS } }),
+    );
+    render(<RmaParaBorrar puedeGestionar />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Revisados' }));
+    await screen.findByText('RMA-2026-0002');
+    resolvePendientes({ data: { items: [PENDIENTE], counts: COUNTS } });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Revisados (1)' })).toBeInTheDocument());
+    expect(screen.getByText('RMA-2026-0002')).toBeInTheDocument();
+    expect(screen.queryByText('RMA-2026-0001')).not.toBeInTheDocument();
+  });
+});
