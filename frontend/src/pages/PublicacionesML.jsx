@@ -91,6 +91,7 @@ import {
   nextSort,
   sortParams,
   usePublicacionesMLFilters,
+  VIRTUALIZE_FROM,
 } from '../hooks/usePublicacionesMLFilters';
 import { usePublicacionesMLKpis, usePublicationStats } from '../hooks/usePublicacionesMLKpis';
 import { buildMlItemUrl, openInMlPanel } from '../utils/mlSidePanel';
@@ -321,6 +322,8 @@ export default function PublicacionesML() {
   );
 
   const pageSize = filters.limite;
+  // A long page (200, 500, Todos) renders only the rows in view; a short one, however many rows it expands to, as before.
+  const virtualizeFrom = pageSize > VIRTUALIZE_FROM ? VIRTUALIZE_FROM : undefined;
   const agrupado = filters.vista === 'agrupado';
   const producto = filters.vista === 'producto';
   const precios = filters.vista === 'precios';
@@ -1163,6 +1166,7 @@ export default function PublicacionesML() {
               {producto ? (
                 <ProductoTable
                   tree={productRows}
+                  virtualizeFrom={virtualizeFrom}
                   columns={selectableColumns}
                   selection={selection}
                   colorOverlay={colorOverlay.colors}
@@ -1216,6 +1220,7 @@ export default function PublicacionesML() {
                   offset={TABLE_OFFSET}
                   emptyMessage={emptyMessage}
                   ariaLabel="Publicaciones de Mercado Libre"
+                  virtualizeFrom={virtualizeFrom}
                 />
               )}
             </div>

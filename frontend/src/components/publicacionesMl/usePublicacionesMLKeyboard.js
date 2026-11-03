@@ -100,10 +100,28 @@ function cellKey(event) {
   return false;
 }
 
-/** The rows of the table the focused row is in (or the page's first table), in screen order. */
+/** The rows of the table the focused row is in (or the page's first table), in screen order. A virtualized table
+ * puts each row in its own `<tbody>`, so the scope is the table. */
 function rowsAround(current) {
-  const scope = current?.closest('tbody') ?? document.querySelector(`tbody:has(${ROW})`) ?? document;
+  const scope = current?.closest('table') ?? document.querySelector(`table:has(${ROW})`) ?? document;
   return Array.from(scope.querySelectorAll(ROW));
+}
+
+const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+/** Home/End in a virtualized table (`TableShell` `virtualizeFrom`): its first or last row may not be in the DOM, so
+ * scroll its scroller to that end, then focus the row the table renders there. */
+async function jumpVirtual(table, toEnd) {
+  const scroller = table.closest('[data-table-shell-scroller]');
+  if (!scroller) return;
+  // The end moves while the rows near it are measured: scroll again until it holds.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    scroller.scrollTop = toEnd ? scroller.scrollHeight : 0;
+    await nextFrame();
+    if (!toEnd || scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1) break;
+  }
+  const rows = Array.from(table.querySelectorAll(ROW));
+  rows[toEnd ? rows.length - 1 : 0]?.focus();
 }
 
 function moveFocus(event) {
@@ -121,9 +139,14 @@ function moveFocus(event) {
   else if (event.key === 'ArrowUp') next = index - 1;
   else if (event.key === 'PageDown') next = index + PAGE;
   else if (event.key === 'PageUp') next = index - PAGE;
-  else if (event.key === 'Home') next = 0;
-  else if (event.key === 'End') next = rows.length - 1;
-  else return false;
+  else if (event.key === 'Home' || event.key === 'End') {
+    const table = rows[0].closest('table[data-virtual]');
+    if (table) {
+      jumpVirtual(table, event.key === 'End');
+      return true;
+    }
+    next = event.key === 'Home' ? 0 : rows.length - 1;
+  } else return false;
   const target = rows[Math.max(0, Math.min(rows.length - 1, next))];
   target.focus();
   target.scrollIntoView?.({ block: 'nearest' });

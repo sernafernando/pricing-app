@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from 'vitest-browser-react';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
@@ -2633,4 +2633,61 @@ describe('Publicaciones ML "Filas finas" (visual, vistas-tipo-publicacion S5)', 
       screen.unmount();
     });
   }
+});
+
+// Owner (2026-11-03): "fijate que pusieron un selector para ver todas las filas, cargué 26k de filas en el
+// explorador, tendríamos que usar una carga lazy como usamos en envíos flex". A long list renders only the rows in
+// view (plus a margin), like Envíos Flex; scrolling, the keyboard and the pinned header keep working over all of them.
+describe('Publicaciones ML "Todos" (visual, filtros S4)', () => {
+  const ALL = Array.from({ length: 9999 }, (_, i) => ({
+    ...ITEMS[i % ITEMS.length],
+    item_id: `MLA${1200000000 + i}`,
+    metrics: METRICS[i % METRICS.length],
+  }));
+  beforeEach(() => {
+    canSeeMargin = false;
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: { ...RESPONSE, items: ALL, total: ALL.length, limit: 9999 } });
+  });
+
+  const renderedRows = () => scrollerOf().querySelectorAll('tbody tr[data-row-key]');
+
+  it('1366x768 light: 9999 rows render only what is in view, and scroll, End and the arrows reach every row', async () => {
+    const started = performance.now();
+    await page.viewport(1366, 768);
+    setTheme('light');
+    const screen = await render(
+      <MemoryRouter initialEntries={['/ml-publicaciones?limite=9999']}>
+        <Shell>
+          <PublicacionesML />
+        </Shell>
+      </MemoryRouter>,
+    );
+    await expect.element(screen.getByText('MLA1200000000'), { timeout: 170_000 }).toBeVisible();
+    const firstPaint = Math.round(performance.now() - started);
+    const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : null;
+    console.info(`[S4] 9999 rows: first row after ${firstPaint} ms, ${renderedRows().length} rows in the DOM, heap ${heap} MB`);
+    expect(renderedRows().length).toBeLessThan(100);
+
+    // The header stays pinned and the scroller is as tall as all the rows.
+    const scroller = scrollerOf();
+    const headerTop = rect(scroller.querySelector('thead th')).top;
+    scroller.scrollTop = scroller.scrollHeight;
+    await expect.element(screen.getByText('MLA1200009998')).toBeVisible();
+    expect(rect(scroller.querySelector('thead th')).top).toBe(headerTop);
+    expect(renderedRows().length).toBeLessThan(100);
+
+    // Home goes back to the first row, End to the last one, and an arrow steps to the next row of the whole list.
+    const last = scroller.querySelector('tr[data-row-key="MLA1200009998"]');
+    last.focus();
+    await userEvent.keyboard('{Home}');
+    await expect.poll(() => document.activeElement?.dataset.rowKey).toBe('MLA1200000000');
+    await userEvent.keyboard('{ArrowDown}');
+    await expect.poll(() => document.activeElement?.dataset.rowKey).toBe('MLA1200000001');
+    await userEvent.keyboard('{End}');
+    await expect.poll(() => document.activeElement?.dataset.rowKey).toBe('MLA1200009998');
+    await userEvent.keyboard('{ArrowUp}');
+    await expect.poll(() => document.activeElement?.dataset.rowKey).toBe('MLA1200009997');
+    screen.unmount();
+  }, 180_000); // room for the before measurement: every row in the DOM took far longer than the default 15 s
 });

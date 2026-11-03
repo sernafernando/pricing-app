@@ -24,13 +24,19 @@
  * of each group (`data-group-start`, header and body) carries the divider.
  * Every header and body cell names its column (`data-column`).
  */
-import { Fragment } from 'react';
+import { Fragment, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import styles from './TableShell.module.css';
 
 const toCssWidth = (width) => (typeof width === 'number' ? `${width}px` : width);
 
 const ARIA_SORT = { asc: 'ascending', desc: 'descending' };
+
+// A virtualized table: a first guess at a row's height (each row is measured once in view) and the rows kept beyond
+// the view on each side, more than PageUp/PageDown's ten so the keyboard always lands on a row in the DOM.
+const ESTIMATED_ROW_HEIGHT = 56;
+const OVERSCAN = 15;
 
 /**
  * Enter/Space on the ROW itself opens it. Keys typed inside a control the row
@@ -134,6 +140,9 @@ function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className 
  * @param {string} [props.offset] CSS length reserved around the table.
  * @param {string} [props.emptyMessage]
  * @param {string} [props.ariaLabel]
+ * @param {number} [props.virtualizeFrom] With more rows than this, only the rows in view (and `OVERSCAN` around them)
+ *   are in the DOM, as Envíos Flex does: each row is its own `<tbody>` (the row and its sub-rows, measured together,
+ *   so a row of any height or an expanded one keeps its place) between two spacers. Unset, every row renders.
  */
 export default function TableShell({
   columns,
@@ -149,13 +158,90 @@ export default function TableShell({
   offset,
   emptyMessage = 'Sin resultados',
   ariaLabel,
+  virtualizeFrom,
 }) {
   const hasGroups = columns.some((column) => column.group);
   const scrollerStyle = offset ? { '--table-shell-offset': offset } : undefined;
+  const scrollerRef = useRef(null);
+  const virtual = virtualizeFrom != null && rows.length > virtualizeFrom;
+  const virtualizer = useVirtualizer({
+    count: virtual ? rows.length : 0,
+    getScrollElement: () => scrollerRef.current,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    overscan: OVERSCAN,
+    getItemKey: (index) => getRowKey(rows[index]),
+  });
+
+  const renderRow = (row) => {
+    const key = getRowKey(row);
+    const selected = selectedKey !== undefined && selectedKey === key;
+    const tone = getRowTone?.(row) ?? null;
+    return (
+      <Fragment key={key}>
+        <tr
+          className={styles.row}
+          style={{
+            '--indent': getRowDepth?.(row) ?? 0,
+            ...(tone?.background && { '--row-tone-bg': tone.background, '--row-tone-fg': tone.text }),
+            ...(tone?.marker && { '--row-marker': tone.marker }),
+          }}
+          data-tone={tone?.background ? '' : undefined}
+          data-marker={tone?.marker ? '' : undefined}
+          title={tone?.label}
+          aria-current={selected || undefined}
+          data-selected={selected ? '' : undefined}
+          data-clickable={onRowClick ? '' : undefined}
+          data-row-key={key}
+          tabIndex={onRowClick ? 0 : undefined}
+          onClick={onRowClick ? (e) => activateOnClick(e, row, onRowClick) : undefined}
+          onKeyDown={onRowClick ? (e) => activateOnKey(e, row, onRowClick) : undefined}
+        >
+          {columns.map((column, index) => (
+            <td
+              key={column.key}
+              className={styles.cell}
+              data-pinned={index === 0 ? '' : undefined}
+              data-align={column.align}
+              data-group-start={hasGroups && startsGroup(columns, index) ? '' : undefined}
+              data-column={column.key}
+            >
+              {column.render(row)}
+            </td>
+          ))}
+        </tr>
+        {renderSubRows?.(row)}
+      </Fragment>
+    );
+  };
+
+  const virtualBody = () => {
+    const items = virtualizer.getVirtualItems();
+    const before = items.length > 0 ? items[0].start : 0;
+    const after = items.length > 0 ? virtualizer.getTotalSize() - items[items.length - 1].end : 0;
+    return (
+      <>
+        <tbody aria-hidden="true">
+          <tr>
+            <td colSpan={columns.length} className={styles.spacer} style={{ height: before }} />
+          </tr>
+        </tbody>
+        {items.map((item) => (
+          <tbody key={item.key} ref={virtualizer.measureElement} data-index={item.index}>
+            {renderRow(rows[item.index])}
+          </tbody>
+        ))}
+        <tbody aria-hidden="true">
+          <tr>
+            <td colSpan={columns.length} className={styles.spacer} style={{ height: after }} />
+          </tr>
+        </tbody>
+      </>
+    );
+  };
 
   return (
-    <div className={styles.scroller} style={scrollerStyle} data-table-shell-scroller>
-      <table className={styles.table} aria-label={ariaLabel}>
+    <div ref={scrollerRef} className={styles.scroller} style={scrollerStyle} data-table-shell-scroller>
+      <table className={styles.table} aria-label={ariaLabel} data-virtual={virtual ? '' : undefined}>
         <colgroup>
           {columns.map((column) => (
             <col key={column.key} style={column.width ? { width: toCssWidth(column.width) } : undefined} />
@@ -214,57 +300,21 @@ export default function TableShell({
             </tr>
           )}
         </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={columns.length} className={styles.empty}>
-                {emptyMessage}
-              </td>
-            </tr>
-          ) : (
-            rows.map((row) => {
-              const key = getRowKey(row);
-              const selected = selectedKey !== undefined && selectedKey === key;
-              const tone = getRowTone?.(row) ?? null;
-              return (
-                <Fragment key={key}>
-                  <tr
-                    className={styles.row}
-                    style={{
-                      '--indent': getRowDepth?.(row) ?? 0,
-                      ...(tone?.background && { '--row-tone-bg': tone.background, '--row-tone-fg': tone.text }),
-                      ...(tone?.marker && { '--row-marker': tone.marker }),
-                    }}
-                    data-tone={tone?.background ? '' : undefined}
-                    data-marker={tone?.marker ? '' : undefined}
-                    title={tone?.label}
-                    aria-current={selected || undefined}
-                    data-selected={selected ? '' : undefined}
-                    data-clickable={onRowClick ? '' : undefined}
-                    data-row-key={key}
-                    tabIndex={onRowClick ? 0 : undefined}
-                    onClick={onRowClick ? (e) => activateOnClick(e, row, onRowClick) : undefined}
-                    onKeyDown={onRowClick ? (e) => activateOnKey(e, row, onRowClick) : undefined}
-                  >
-                    {columns.map((column, index) => (
-                      <td
-                        key={column.key}
-                        className={styles.cell}
-                        data-pinned={index === 0 ? '' : undefined}
-                        data-align={column.align}
-                        data-group-start={hasGroups && startsGroup(columns, index) ? '' : undefined}
-                        data-column={column.key}
-                      >
-                        {column.render(row)}
-                      </td>
-                    ))}
-                  </tr>
-                  {renderSubRows?.(row)}
-                </Fragment>
-              );
-            })
-          )}
-        </tbody>
+        {virtual ? (
+          virtualBody()
+        ) : (
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length} className={styles.empty}>
+                  {emptyMessage}
+                </td>
+              </tr>
+            ) : (
+              rows.map(renderRow)
+            )}
+          </tbody>
+        )}
       </table>
     </div>
   );
