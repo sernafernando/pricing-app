@@ -154,3 +154,35 @@ describe('RmaParaBorrar dates', () => {
     }
   });
 });
+
+describe('RmaParaBorrar second click before the reload lands', () => {
+  it('the row shows the saved tick at once, so a second click unticks it', async () => {
+    api.put.mockImplementation((_url, { revisado }) =>
+      Promise.resolve({
+        data: { ...PENDIENTE, borrar_revisado_at: revisado ? '2026-11-03T10:00:00Z' : null, borrar_revisado_por_nombre: revisado ? 'Ana' : null },
+      }),
+    );
+    render(<RmaParaBorrar puedeGestionar />);
+    await screen.findByText('RMA-2026-0001');
+    // The reload after the tick never answers: the row must show the PUT's answer by itself.
+    api.get.mockImplementation(() => new Promise(() => {}));
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Revisado RMA-2026-0001' }));
+    const checkbox = await screen.findByRole('checkbox', { name: 'Revisado RMA-2026-0001' });
+    await waitFor(() => expect(checkbox).toBeChecked());
+    await userEvent.click(checkbox);
+
+    expect(api.put).toHaveBeenNthCalledWith(1, '/rma-seguimiento/1/borrar-revisado', { revisado: true });
+    expect(api.put).toHaveBeenNthCalledWith(2, '/rma-seguimiento/1/borrar-revisado', { revisado: false });
+  });
+});
+
+describe('RmaParaBorrar timestamp format', () => {
+  it('shows who reviewed and the zero-padded day of the review', async () => {
+    render(<RmaParaBorrar puedeGestionar />);
+    await screen.findByText('RMA-2026-0001');
+    await userEvent.click(screen.getByRole('button', { name: 'Revisados (1)' }));
+    const row = (await screen.findByText('RMA-2026-0002')).closest('tr');
+    expect(within(row).getByText('Ana · 02/11/2026')).toBeInTheDocument();
+  });
+});

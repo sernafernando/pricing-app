@@ -54,7 +54,11 @@ export default function RmaParaBorrar({ puedeGestionar }) {
     setGuardando(caso.id);
     setError(null);
     try {
-      await api.put(`/rma-seguimiento/${caso.id}/borrar-revisado`, { revisado: !caso.borrar_revisado_at });
+      const { data: guardado } = await api.put(`/rma-seguimiento/${caso.id}/borrar-revisado`, {
+        revisado: !caso.borrar_revisado_at,
+      });
+      // The row shows the saved tick right away, so a second click before the reload lands toggles it back.
+      setData((prev) => ({ ...prev, items: prev.items.map((c) => (c.id === guardado.id ? { ...c, ...guardado } : c)) }));
       setRecarga((n) => n + 1);
     } catch {
       setError(`No se pudo guardar la revisión de ${caso.numero_caso}.`);
@@ -86,7 +90,7 @@ export default function RmaParaBorrar({ puedeGestionar }) {
       )}
 
       <div className="table-container-tesla">
-        <table className="table-tesla striped">
+        <table className="table-tesla striped" aria-busy={loading}>
           <thead className="table-tesla-head">
             <tr>
               <th>Caso</th>
@@ -98,7 +102,7 @@ export default function RmaParaBorrar({ puedeGestionar }) {
             </tr>
           </thead>
           <tbody className="table-tesla-body">
-            {loading ? (
+            {loading && !data.counts ? (
               <tr>
                 <td colSpan={6} className={rmaStyles.loadingCell}>
                   Cargando...
