@@ -642,6 +642,25 @@ describe('"Todos" in parts of 500 as the list scrolls (filtros S4)', () => {
     expect(screen.queryByText('MLA1900000500')).not.toBeInTheDocument();
   });
 
+  it('a failed part says so and "Reintentar" asks it again, so the list is never cut short in silence', async () => {
+    let failOnce = true;
+    publicacionesMlAPI.items.mockImplementation((params) => {
+      if (params.offset === 500 && failOnce) {
+        failOnce = false;
+        return Promise.reject(httpError(503));
+      }
+      return Promise.resolve(answer(params));
+    });
+    await page('/ml-publicaciones?limite=9999');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('No se pudieron traer más publicaciones');
+    expect(screen.queryByText('MLA1300000500')).not.toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole('button', { name: 'Reintentar' }));
+    expect(await screen.findByText('MLA1300000500')).toBeInTheDocument();
+    expect(calls().filter((params) => params.offset === 500)).toHaveLength(2);
+    expect(screen.queryByText('No se pudieron traer más publicaciones', { exact: false })).not.toBeInTheDocument();
+  });
+
   it.each([50, 500])('a page of %i still asks one request of that size', async (size) => {
     await page(`/ml-publicaciones?limite=${size}`);
     await act(async () => {});

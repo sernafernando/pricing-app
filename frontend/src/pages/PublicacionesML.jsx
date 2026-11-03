@@ -345,6 +345,8 @@ export default function PublicacionesML() {
   const lazy = !ownRows && pageSize === ALL_ROWS;
   // The list's parts: the request they belong to, its params (no facets), the next offset and the page's end.
   const parts = useRef(null);
+  // A part of "Todos" that failed: said under the table with its own "Reintentar", never a list cut short in silence.
+  const [moreError, setMoreError] = useState(false);
 
   // What `/items` is asked with. The selection and the tab are not part of it: choosing a row asks for nothing.
   // The tree does not apply the markup filters (`/groups` has none), so neither do its facet counts; nor is it
@@ -362,6 +364,7 @@ export default function PublicacionesML() {
     const asked = JSON.parse(requestKey);
     const params = wantFacets ? { ...asked, facets: true } : asked;
     parts.current = null;
+    setMoreError(false);
     setLoading(true);
     setError(null);
     publicacionesMlAPI
@@ -393,7 +396,8 @@ export default function PublicacionesML() {
 
   // The next part of "Todos": the same params from the next offset, appended to the rows (once each, by MLA). The
   // total, the data state and the facets stay the first part's. A part of a list that is no longer the current one
-  // (a filter, sort or reload asked again) is dropped; a failed part leaves the rows as they are, and the next call asks it again.
+  // (a filter, sort or reload asked again) is dropped; a failed part leaves the rows as they are and says so
+  // (`moreError`), and its "Reintentar" calls this again for the same offset.
   const loadMoreItems = useCallback(() => {
     const current = parts.current;
     if (!current || current.busy || current.next >= current.end || current.request !== latestRequest.current) return;
@@ -406,10 +410,12 @@ export default function PublicacionesML() {
         if (current.request !== latestRequest.current) return;
         current.next = offset + limit;
         current.busy = false;
+        setMoreError(false);
         setData((shown) => ({ ...shown, items: appendPage(shown?.items ?? EMPTY_ROWS, response.data?.items ?? []) }));
       })
       .catch(() => {
         current.busy = false;
+        if (current.request === latestRequest.current) setMoreError(true);
       });
   }, []);
 
@@ -1260,6 +1266,15 @@ export default function PublicacionesML() {
                   virtualizeFrom={virtualizeFrom}
                   onEndReached={lazy ? loadMoreItems : undefined}
                 />
+              )}
+              {lazy && moreError && (
+                <div className={styles.errorBar} role="alert">
+                  <ShieldAlert size={16} aria-hidden="true" />
+                  <span className={styles.errorText}>No se pudieron traer más publicaciones.</span>
+                  <button type="button" className="btn-tesla outline sm" onClick={loadMoreItems}>
+                    Reintentar
+                  </button>
+                </div>
               )}
             </div>
           </SplitPanelLayout>
