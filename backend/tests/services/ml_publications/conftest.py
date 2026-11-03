@@ -136,6 +136,7 @@ def mlpub_schema(monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
         "20261010_ml_user_product_stock_locations",
         "20261011_ml_user_product_replenishment",
         "20261017_ml_items_installments_campaign",
+        "20261102_hay_mejores_ofertas",
     ):
         module_spec = importlib.util.spec_from_file_location(f"{revision}_for_tests", versions / f"{revision}.py")
         migration = importlib.util.module_from_spec(module_spec)

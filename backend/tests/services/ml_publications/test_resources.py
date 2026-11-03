@@ -37,8 +37,9 @@ ERP_ALLOW_LIST: frozenset[str] = frozenset(
 )
 CATALOG_NAMES = ("productos_erp", "ProductoERP")
 CATALOG_IMPORT_TOKEN = "producto"
-# The ERP publication map is opened to the linking module only (links map first, SKU as fallback).
-MAP_ALLOW_LIST: frozenset[str] = frozenset({"links.py"})
+# The ERP publication map is opened to the linking module (links map first, SKU as fallback) and to
+# `view/listing.py` for the Precio column's ERP list type (modo poner precios S4).
+MAP_ALLOW_LIST: frozenset[str] = frozenset({"links.py", "view/listing.py"})
 MAP_NAMES = ("publicaciones_ml",)
 MAP_IMPORT_MODULE = "app.models.publicacion_ml"
 
@@ -176,8 +177,8 @@ def test_package_never_imports_gbp_or_names_erp_mirror_tables():
     assert offenders == []
 
 
-def test_the_publication_map_is_allowed_only_in_the_linking_module():
-    assert MAP_ALLOW_LIST == frozenset({"links.py"})
+def test_the_publication_map_is_allowed_in_linking_and_listing():
+    assert MAP_ALLOW_LIST == frozenset({"links.py", "view/listing.py"})
 
 
 def test_allow_list_is_exactly_the_linking_module_and_the_view_extraction_modules():

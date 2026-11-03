@@ -1,0 +1,73 @@
+import { describe, it, expect } from 'vitest';
+import {
+  bestByMarkup,
+  enrollBodyForPromo,
+  listRowForPricelist,
+  pickPonerPreciosPromos,
+} from './pickPonerPreciosPromos';
+import { LISTS } from '../../pricing/priceWrites';
+import capture from './fixtures/ponerPreciosPromos.capture.json';
+
+function asApiPromo(raw, nuestro_markup) {
+  return {
+    promotion_id: raw.id,
+    promotion_type: raw.type,
+    status: raw.status,
+    name: raw.name,
+    price: raw.price,
+    original_price: raw.original_price,
+    suggested_discounted_price: raw.suggested_discounted_price,
+    min_discounted_price: raw.min_discounted_price,
+    max_discounted_price: raw.max_discounted_price,
+    meli_percentage: raw.meli_percentage,
+    seller_percentage: raw.seller_percentage,
+    nuestro_markup,
+  };
+}
+
+const markups = { SMART: 22, DEAL: 8, SELLER_CAMPAIGN: 12 };
+const captured = capture.promotions.map((raw) => asApiPromo(raw, markups[raw.type]));
+
+describe('pickPonerPreciosPromos', () => {
+  it('picks best SMART/DEAL and Premium of the month from a capture', () => {
+    const picked = pickPonerPreciosPromos(captured, { monthName: 'octubre' });
+    expect(picked.smart.promotion_id).toBe('P-MLA18137008');
+    expect(picked.deal.promotion_id).toBe('P-MLA18067012');
+    expect(picked.premium.promotion_id).toBe('C-MLA1669550');
+  });
+
+  it('skips candidates without finite nuestro_markup', () => {
+    expect(
+      bestByMarkup([
+        { promotion_id: 'null-first', promotion_type: 'SMART', status: 'candidate', nuestro_markup: null },
+        { promotion_id: 'ok', promotion_type: 'SMART', status: 'candidate', nuestro_markup: 11 },
+      ])?.promotion_id,
+    ).toBe('ok');
+    expect(
+      bestByMarkup([
+        { promotion_id: 'only-null', promotion_type: 'SMART', status: 'candidate', nuestro_markup: null },
+      ]),
+    ).toBeNull();
+  });
+
+  it('builds SMART and DEAL enroll bodies from captured fields', () => {
+    const smart = captured.find((p) => p.promotion_type === 'SMART');
+    const deal = captured.find((p) => p.promotion_type === 'DEAL');
+    expect(enrollBodyForPromo(smart)).toEqual({
+      promotion_id: 'P-MLA18137008',
+      promotion_type: 'SMART',
+      precio_visto: 74690,
+      markup_visto: 22,
+    });
+    expect(enrollBodyForPromo(deal)).toMatchObject({
+      promotion_id: 'P-MLA18067012',
+      promotion_type: 'DEAL',
+      deal_price: 77000,
+    });
+  });
+
+  it('maps pricelist ids to Lista ML rows', () => {
+    expect(listRowForPricelist(4, LISTS)?.id).toBe('ml-clasica');
+    expect(listRowForPricelist(17, LISTS)?.id).toBe('ml-3');
+  });
+});

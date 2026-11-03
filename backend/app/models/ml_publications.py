@@ -325,6 +325,10 @@ class MlItemSellerPromotions(_SubResourceState, Base):
     candidate_count = Column(Integer)
     started_count = Column(Integer)
     started_promotion_keys = Column(ARRAY(Text))
+    # Modo poner precios: candidate beats consumer MeLi price (sale_price).
+    hay_mejores_ofertas = Column(Boolean, nullable=False, server_default="false")
+    hay_mejores_fingerprint = Column(Text)
+    hay_mejores_descartado_fingerprint = Column(Text)
 
 
 class MlUserProduct(_SubResourceState, Base):
