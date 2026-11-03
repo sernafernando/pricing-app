@@ -91,8 +91,8 @@ def test_the_rank_reads_each_campaign_tag_position_a_bounded_number_of_times() -
     assert sql.count("array_position") <= 48
 
 
-# The list's Tipo badge, whose words the CSV repeats (`KIND_LABELS`).
-BADGE = Path(__file__).resolve().parents[4] / "frontend/src/components/publicacionesMl/ListingKindBadge.jsx"
+# The words of the list's Tipo badge (`listingKindLabels.js`), which the CSV repeats (`KIND_LABELS`).
+BADGE = Path(__file__).resolve().parents[4] / "frontend/src/components/publicacionesMl/listingKindLabels.js"
 
 
 def _badge_labels() -> dict[str, str]:

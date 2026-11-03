@@ -1227,6 +1227,53 @@ describe('Publicaciones ML Producto view (visual)', () => {
       });
     }
 
+    // "Filas finas" (vistas-tipo-publicacion S5): a long name is cut, never its badges; the name is in its tooltip.
+    // Narrower screens too: the badges never squeeze the name to nothing (it keeps a place to hover).
+    // `wider` stands in for a wider fallback font (the CI runner has no Inter either): the badges grow, and the name
+    // still keeps its minimum; the badges then go to a second line instead of squeezing it.
+    for (const { width, height, wider } of VIEWPORTS.flatMap((v) => [{ ...v, wider: false }, { ...v, wider: true }])) {
+    it(`${width}x${height} ${theme}: dense, a long product name is cut with its tooltip and its badges stay whole${wider ? ' (wider font)' : ''}`, async () => {
+      localStorage.setItem('publicaciones-ml.filas-finas', 'true');
+      try {
+        const screen = await renderProducts({ width, height, theme });
+        const table = screen.getByRole('table', { name: /por producto/ });
+        await expect.element(table.getByText('3 tramos · desde $37.800')).toBeVisible();
+        expect(scrollerOf().closest('[data-density]').dataset.density).toBe('dense');
+        const row = rowWith(scrollerOf(), 'Sistema Mesh Deco X20');
+        const cell = row.querySelector('td');
+        const name = [...cell.querySelectorAll('span[title]')].find((el) => el.textContent.startsWith('Sistema Mesh Deco X20'));
+        const badges = ['3 tramos · desde $37.800', '2 listas'].map((text) => [
+          text,
+          [...row.querySelectorAll('span')].find((el) => el.textContent.trim() === text),
+        ]);
+        if (wider) {
+          for (const [, badge] of badges) badge.style.letterSpacing = '3px';
+          await frame();
+        }
+        // Cut or whole, the name is in its tooltip and never squeezed under a few characters.
+        expect(name.getAttribute('title')).toBe(name.textContent);
+        expect(rect(name).width).toBeGreaterThanOrEqual(Math.min(40, name.scrollWidth));
+        if (!wider) expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+        for (const [text, badge] of badges) {
+          expect(name.contains(badge), text).toBe(false);
+          expect(rect(badge).width, text).toBeGreaterThan(0);
+          expect(rect(badge).right, text).toBeLessThanOrEqual(rect(cell).right + 0.5);
+          expect(badge.scrollWidth, text).toBeLessThanOrEqual(badge.clientWidth + 1);
+        }
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          await page.screenshot({
+            path: `${PRODUCT_SHOTS_DIR}/filas-finas-producto-${width}-${theme}${wider ? '-wider' : ''}.png`,
+            element: row,
+          });
+        }
+        screen.unmount();
+      } finally {
+        localStorage.removeItem('publicaciones-ml.filas-finas');
+      }
+    });
+    }
+
     for (const { width, height } of VIEWPORTS) {
       it(`${width}x${height} ${theme}: a product row's catalog-competition badge sits beside its name, inside the cell`, async () => {
         const screen = await renderProducts({ width, height, theme });
@@ -2335,6 +2382,37 @@ describe('row colors and the color layer (S8)', () => {
     });
   }
 
+  // "Filas finas" (vistas-tipo-publicacion S5) shrinks the sparklines only: the lock icon keeps its 10px.
+  for (const theme of ['light', 'dark']) {
+    it(`1920x1080 ${theme}: dense Precios view, sparklines shrink but the lock icon keeps its size`, async () => {
+      localStorage.setItem('publicaciones-ml.filas-finas', 'true');
+      try {
+        const screen = await renderPage({ width: 1920, height: 1080, theme, entry: PRECIOS });
+        const lock = screen.getByRole('img', { name: '% conservado en cambios masivos' }).first();
+        await expect.element(lock).toBeVisible();
+        expect(scrollerOf().closest('[data-density]').dataset.density).toBe('dense');
+        expect(lock.element().getBoundingClientRect().height).toBeLessThanOrEqual(10.5);
+        const sparks = [...scrollerOf().querySelectorAll('td svg[aria-label$="90 días"]')];
+        expect(sparks.length).toBeGreaterThan(0);
+        for (const spark of sparks) expect(spark.getBoundingClientRect().height).toBeLessThanOrEqual(16.5);
+        // What dense mode hides (struck price, promotion, "Sin stock ERP") takes no room on the line.
+        const hidden = [...scrollerOf().querySelectorAll('[data-dense-hidden]')];
+        expect(hidden.length).toBeGreaterThan(0);
+        for (const el of hidden) expect(el.getClientRects().length, el.textContent).toBe(0);
+        // The meta line is cut inside its own box (whole in the title's tooltip): no cell spills, nothing cut lacks a title.
+        const spilling = [...scrollerOf().querySelectorAll('tbody td')].filter((td) => td.scrollWidth > td.clientWidth + 1);
+        expect(spilling.map((td) => td.textContent.trim().slice(0, 40))).toEqual([]);
+        const cut = [...scrollerOf().querySelectorAll('td[data-column="titulo"] span')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+        for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+        lock.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-precios-1920-${theme}.png` });
+        screen.unmount();
+      } finally {
+        localStorage.removeItem('publicaciones-ml.filas-finas');
+      }
+    });
+  }
+
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: the rebate and web transfer editors open inside their cell, every control in view`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });
@@ -2472,6 +2550,52 @@ describe('Publicaciones ML hideable KPI cards (visual)', () => {
       await expect.poll(() => cards()).toBeNull();
       await expect.element(screen.getByRole('group', { name: 'Período' })).toBeVisible();
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/kpis-hidden-all-${theme}.png` });
+      screen.unmount();
+    });
+  }
+});
+
+describe('Publicaciones ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () => {
+  const KEY = 'publicaciones-ml.filas-finas';
+  beforeEach(() => {
+    localStorage.removeItem(KEY);
+    canSeeMargin = false;
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
+  });
+  // The browser's storage outlives the file: leave the normal density for the suites that run next.
+  afterEach(() => localStorage.removeItem(KEY));
+
+  for (const theme of THEMES) {
+    it(`1920x1080 ${theme}: thin rows, titles on one line, nothing wraps or overflows`, async () => {
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      const scroller = scrollerOf();
+      const firstRow = () => scroller.querySelector('tbody tr');
+      const normalHeight = rect(firstRow()).height;
+
+      await screen.getByRole('button', { name: 'Filas finas' }).click();
+      await expect.element(screen.getByRole('button', { name: 'Filas finas', pressed: true })).toBeVisible();
+      await frame();
+      expect(scroller.closest('[data-density]').dataset.density).toBe('dense');
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-1920-${theme}.png` });
+      // Thinner than the current density, at most two short lines (title and its MLA line).
+      expect(rect(firstRow()).height).toBeLessThan(normalHeight * 0.75);
+      expect(rect(firstRow()).height).toBeLessThanOrEqual(44);
+
+      // Anything cut in the Publicación cell (title or meta line) is readable in its own tooltip.
+      const cut = [...scroller.querySelectorAll('td[data-column="titulo"] span')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+      expect(cut.length).toBeGreaterThan(0);
+      for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+      const titles = [...scroller.querySelectorAll('td[data-column="titulo"] span[title]')];
+      expect(titles.length).toBeGreaterThan(0);
+      expect(wrapped(titles)).toEqual([]);
+      const figures = [...scroller.querySelectorAll('td[data-align="right"] span')].filter((el) =>
+        /^[\d.,]+$/.test(el.textContent.trim()),
+      );
+      expect(figures.length).toBeGreaterThan(0);
+      expect(wrapped(figures)).toEqual([]);
+      expect(overflowingCells(scroller)).toEqual([]);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1920);
       screen.unmount();
     });
   }
