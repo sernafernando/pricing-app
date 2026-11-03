@@ -46,6 +46,7 @@ def test_puede_editar_empty_scope() -> None:
 
 
 def test_puede_editar_con_pares_reuses_preloaded_scope() -> None:
+    """Listing must not re-query pares per row (N+1 on GET /gestion-full)."""
     pares = [("TP-LINK", "CAMARAS")]
     assert puede_editar_con_pares(pares, "tp-link", "camaras") is True
     assert puede_editar_con_pares(pares, "OTRA", "Camaras") is False
