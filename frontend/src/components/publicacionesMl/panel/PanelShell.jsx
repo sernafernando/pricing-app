@@ -3,12 +3,14 @@ import styles from './panel.module.css';
 
 /**
  * The frame of a side panel beside the table: a header with the title, what
- * the caller puts under it (`meta`) and the close button, then the loading
+ * the caller puts under it (`meta`), the close button and the key figures
+ * (`figures`), which stays in view while the panel scrolls; then the loading
  * skeleton or the error with its retry, then the panel's own content.
  *
  * @param {object} props
  * @param {import('react').ReactNode} props.title
  * @param {import('react').ReactNode} [props.meta] Rendered under the title (ids, links, status).
+ * @param {import('react').ReactNode} [props.figures] The header's figures (`PanelFigures`), on every tab.
  * @param {() => void} props.onClose
  * @param {boolean} [props.loading] Shows the skeleton.
  * @param {string} [props.loadingLabel] Accessible name of the skeleton.
@@ -16,17 +18,20 @@ import styles from './panel.module.css';
  * @param {() => void} [props.onRetry] Shows "Reintentar" in the error block.
  * @param {import('react').ReactNode} [props.children] The panel's content.
  */
-export default function PanelShell({ title, meta, onClose, loading = false, loadingLabel, error = null, onRetry, children }) {
+export default function PanelShell({ title, meta, figures, onClose, loading = false, loadingLabel, error = null, onRetry, children }) {
   return (
     <div className={styles.panel}>
       <header className={styles.header}>
-        <div className={styles.identity}>
-          <h2 className={styles.title}>{title}</h2>
-          {meta}
+        <div className={styles.headerTop}>
+          <div className={styles.identity}>
+            <h2 className={styles.title}>{title}</h2>
+            {meta}
+          </div>
+          <button type="button" className={styles.close} aria-label="Cerrar panel" onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
         </div>
-        <button type="button" className={styles.close} aria-label="Cerrar panel" onClick={onClose}>
-          <X size={16} aria-hidden="true" />
-        </button>
+        {figures}
       </header>
 
       {loading && (

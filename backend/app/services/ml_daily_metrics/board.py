@@ -119,6 +119,7 @@ from app.models.ml_ads import (
 )
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps, MlShipmentOps
+from app.models.ml_publications import MlItem
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
@@ -141,6 +142,7 @@ from app.services.ml_daily_metrics.sales import (
 )
 from app.services.ml_orders_ingestion.mode_resolution import modo_logistico_expr
 from app.services.ml_publication_status_service import ML_PUBLICATION_STATUS_MAP
+from app.services.ml_publications.listing_kind import OTHER_RANK, listing_kind, listing_kind_from_type, listing_rank
 from app.services.ml_sales_query.filters import NO_STORE, SalesFilter, _resolve_pm_pairs, build_scope
 from app.services.product_facets import (
     ProductFacetOptions,
@@ -196,6 +198,8 @@ SORTS = (
     "ageing",
     "title",
     "stock",
+    # Clásica, then 3, 6, 9 and 12 cuotas (owner, 2026-11-02); the gross settles one kind.
+    "listing_kind",
     # Total TP: only with "Costos TP" on (the only column it exists in), always on for `tplink.solo`.
     "total_tp",
     *SELL_SORTS,
@@ -508,6 +512,8 @@ class Pub:
     store_id: Optional[int] = None
     status: Optional[str] = None
     listing_type: Optional[str] = None
+    # Clásica / 3, 6, 9, 12 cuotas (`listing_kind`): what the type badge shows.
+    listing_kind: Optional[str] = None
     is_catalog: bool = False
     is_full: bool = False
     title: Optional[str] = None
@@ -809,6 +815,7 @@ class Board:
         through_leaves: bool = False,
         *,
         scope_pairs: Optional[Sequence[Tuple[str, str]]],
+        kind_first: bool = False,
     ):
         """`scope_pairs` is REQUIRED (keyword-only, no default): every caller must
         choose the visibility explicitly, so a call site that forgets it fails
@@ -826,8 +833,11 @@ class Board:
         tree has group levels, the board's product rows are the node's
         PRODUCTS, each summing only the pairs of the node, for the products
         that pass every filter as a whole (see `filtered_pairs`).
-        `through_leaves` reads the keys of every level (the CSV export)."""
+        `through_leaves` reads the keys of every level (the CSV export).
+        `kind_first` orders the rows by listing kind (Clásica, 3/6/9/12 cuotas) before the requested sort: a
+        product's publication sub-rows."""
         self.db = db
+        self.kind_first = kind_first
         self.f = f
         # Whether this request subtracts the ads (the router already refused
         # the toggle without `ml_metricas.ver_ganancia`). OFF changes nothing.
@@ -921,6 +931,20 @@ class Board:
             *((M.mlp_listing_type_id == raw, literal(name)) for raw, name in LISTING_TYPES.items()),
             else_=M.mlp_listing_type_id,
         )
+        # The kind (Clásica, 3/6/9/12 cuotas) is ML's: `ml_items` holds the type, the campaign tags and the
+        # sale-term campaign the mirror lacks; a publication not there yet falls back to the mirror's type.
+        # SQLite (tests) has no tags array to read: the type alone.
+        source = M.__table__
+        if self.sqlite:
+            kind = listing_kind_from_type(M.mlp_listing_type_id)
+        else:
+            # A Core alias, never the ORM entity: the Postgres fixtures run the Board while the shared Column types
+            # are patched for SQLite, and an ORM alias built then could leave `ml_items` mapped with those types.
+            item = MlItem.__table__.alias("kind_item")
+            source = source.outerjoin(item, item.c.item_id == M.mlp_publicationID)
+            kind = listing_kind(
+                func.coalesce(item.c.listing_type_id, M.mlp_listing_type_id), item.c.tags, item.c.installments_campaign
+            )
         return (
             select(
                 M.mlp_publicationID.label("mla"),
@@ -928,12 +952,14 @@ class Board:
                 M.mlp_official_store_id.label("store_id"),
                 status.label("status"),
                 listing.label("listing_type"),
+                kind.label("listing_kind"),
                 func.coalesce(M.mlp_catalog_listing, false()).label("is_catalog"),
                 func.coalesce(M.mlp_is4FulFillment, false()).label("is_full"),
                 M.mlp_itemTitle.label("title"),
                 M.mlp_thumbnail.label("thumbnail"),
                 self._date_of(func.coalesce(M.mlp_start_time, M.mlp_creationDate)).label("start_day"),
             )
+            .select_from(source)
             .where(M.mlp_id.in_(latest), *([M.mlp_publicationID.in_(mlas)] if mlas is not None else []))
             .subquery("pub")
         )
@@ -1256,6 +1282,7 @@ class Board:
                 pub.c.store_id,
                 pub.c.status,
                 pub.c.listing_type,
+                pub.c.listing_kind,
                 pub.c.is_catalog,
                 pub.c.is_full,
                 pub.c.start_day,
@@ -1719,6 +1746,8 @@ class Board:
                 func.max(fp.c.last_day).label("last_day"),
                 func.max(fp.c.last_at).label("last_at"),
                 func.min(fp.c.start_day).label("start_day"),
+                # A publication row's kind rank (a product row: its best publication's), for `listing_kind`.
+                func.min(listing_rank(fp.c.listing_kind)).label("listing_rank"),
             )
             .group_by(fp.c.rk)
             .subquery("g")
@@ -1849,7 +1878,15 @@ class Board:
     # ── statements ──
 
     def _ordered(self, rows: Any) -> Any:
-        """The board's ORDER BY: the requested sort, then the unique row key.
+        """The board's ORDER BY; with `kind_first` (a product's publication sub-rows), the listing kind rank
+        before it, unless the requested sort is the kind itself (its direction then holds)."""
+        rank = rows.c.get("listing_rank")
+        if self.kind_first and rank is not None and self.f.sort != "listing_kind":
+            return (rank.asc(), *self._requested_order(rows))
+        return self._requested_order(rows)
+
+    def _requested_order(self, rows: Any) -> Any:
+        """The requested sort, then the unique row key.
         The key closes EVERY ordering: rows tie freely (gross 0, units 0...),
         and without a unique last term Postgres may order the ties
         differently in two LIMIT/OFFSET statements -- pages would repeat or
@@ -1889,6 +1926,19 @@ class Board:
         if self.f.sort == "markup_sell" and self.tp:
             # Same rule: the sell in lowers the Gauss cost, so "Costos TP" has no markup with sell in / sell out.
             raise ValueError("sort=markup_sell has no markup with costos_tp: the sell in is on the Gauss cost")
+        if self.f.sort == "listing_kind":
+            rank = rows.c.get("listing_rank")
+            if rank is None:
+                # The group view's nodes have no kind: the router answers 422 first, never a silent other order.
+                raise ValueError("sort=listing_kind has no rank on the group view")
+            # Another ML type, then no type at all, go last either way: only the known kinds turn around.
+            residual = case((rank >= OTHER_RANK, rank), else_=0)
+            return (
+                residual.asc(),
+                rank.desc() if self.f.sort_desc else rank.asc(),
+                rows.c.gross.desc().nulls_last(),
+                rows.c.rk.asc(),
+            )
         column = sort_cols[self.f.sort]
         if column is None:
             # A sell in / sell out column with `sell_in_out` OFF: every row ties and the unique key orders them,
@@ -1991,6 +2041,7 @@ class Board:
             fp.c.store_id,
             fp.c.status,
             fp.c.listing_type,
+            fp.c.listing_kind,
             fp.c.is_catalog,
             fp.c.is_full,
             fp.c.pub_title.label("title"),
@@ -2014,6 +2065,7 @@ class Board:
                     store_id=own["store_id"],
                     status=own["status"],
                     listing_type=own["listing_type"],
+                    listing_kind=own["listing_kind"],
                     is_catalog=bool(own["is_catalog"]),
                     is_full=bool(own["is_full"]),
                     title=own["title"],

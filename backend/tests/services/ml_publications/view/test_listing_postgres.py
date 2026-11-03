@@ -989,6 +989,63 @@ class TestSorting:
         assert refused.value.field == "orden"
 
 
+class TestListingKind:
+    """Publicaciones ML lists publications Clásica first, then 3, 6, 9 and 12 cuotas (owner, 2026-11-02): each row
+    carries its listing kind, and the `tipo` sort orders by it in SQL before LIMIT/OFFSET."""
+
+    @pytest.fixture()
+    def kinds(self, conn) -> None:
+        for item_id, listing_type_id, tags, campaign, hours in (
+            ("MLA1", "gold_pro", ["12x_campaign"], None, 1),
+            ("MLA2", "gold_special", [], None, 2),
+            ("MLA3", "gold_pro", [], None, 3),
+            ("MLA4", "gold_pro", ["good_quality_thumbnail", "3x_campaign"], None, 4),
+            ("MLA5", "gold_pro", [], "9x_campaign", 5),
+            ("MLA6", "gold_special", ["pcj-co-funded"], None, 6),
+            ("MLA7", "free", [], None, 7),
+        ):
+            seed.add_item(
+                conn,
+                item_id,
+                listing_type_id=listing_type_id,
+                tags=tags,
+                installments_campaign=campaign,
+                last_trigger_received_at=seed.hours_ago(hours),
+            )
+
+    def test_each_row_carries_its_listing_kind(self, kinds, db) -> None:
+        assert {row["item_id"]: row["listing_kind"] for row in run(db).items} == {
+            "MLA1": "cuotas_12",
+            "MLA2": "clasica",
+            "MLA3": "cuotas_6",
+            "MLA4": "cuotas_3",
+            "MLA5": "cuotas_9",
+            "MLA6": "clasica_cofinanciada",
+            "MLA7": "free",
+        }
+
+    def test_the_tipo_sort_pages_clasica_then_3_6_9_12_cuotas_with_the_activity_as_tiebreak(self, kinds, db) -> None:
+        order = ["MLA2", "MLA6", "MLA4", "MLA3", "MLA5", "MLA1", "MLA7"]
+        assert ids(run(db, orden="tipo,actividad")) == order
+        assert ids(run(db, orden="tipo,actividad", limit=2, offset=2)) == order[2:4]
+
+    def test_the_tipo_sort_descending_turns_the_known_kinds_around_and_keeps_another_type_last(self, kinds, db) -> None:
+        order = ids(run(db, orden="tipo,actividad", direction="desc,desc"))
+        assert order[:4] == ["MLA1", "MLA5", "MLA3", "MLA4"]
+        assert order[-1] == "MLA7"
+
+    def test_the_tipo_order_reads_the_listing_kind_once_in_either_direction(self) -> None:
+        from sqlalchemy.dialects import postgresql
+
+        for descending in (False, True):
+            clauses = listing._column_order("tipo", descending)
+            sql = " ".join(str(c.compile(dialect=postgresql.dialect())) for c in clauses)
+            assert sql.count("array_position") <= 48, (descending, sql.count("array_position"))
+
+    def test_the_tipo_sort_defaults_to_ascending(self) -> None:
+        assert listing.parse_sort("tipo", None) == listing.Sort("tipo", descending=False)
+
+
 class TestPaging:
     @pytest.fixture()
     def many(self, conn) -> None:

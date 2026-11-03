@@ -157,6 +157,18 @@ describe('MetricasML Costos TP toggle', () => {
     expect(boardCalls().filter(([, config]) => !config.params.costos_tp).map(([, c]) => c.params.sort)).not.toContain('total_tp');
   });
 
+  it('grouped by publication, turning it off while sorted by Total TP falls back to the listing type order', async () => {
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(within(screen.getByRole('group', { name: 'Agrupar por' })).getByRole('button', { name: 'Publicación' }));
+    await waitFor(() => expect(lastBoardParams().group_by).toBe('publication'));
+    await turnOn();
+    await userEvent.click(await screen.findByRole('button', { name: 'Total TP' }));
+    await waitFor(() => expect(lastBoardParams().sort).toBe('total_tp'));
+    await userEvent.click(await toggle());
+    await waitFor(() => expect(lastBoardParams()).not.toHaveProperty('costos_tp'));
+    expect(lastBoardParams()).toMatchObject({ sort: 'listing_kind', sort_dir: 'asc' });
+  });
+
   it('turning it on while sorted by Markup c/ sell in/out falls back to Facturado, and that header stops sorting', async () => {
     // The sell in lowers the Gauss cost: with "Costos TP" there is no such markup (the backend answers 422).
     await renderWithRouter(<MetricasML />);

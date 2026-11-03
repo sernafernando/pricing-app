@@ -250,3 +250,40 @@ class TestSeveralSortKeys:
             response = self.page(client, admin_auth_headers, orden="titulo,precio", dir=direction)
             assert response.status_code == 200, response.text
             assert [row["item_id"] for row in response.json()["items"]] == expected
+
+
+class TestDetail:
+    """`GET /items/{item_id}`: the panel's row carries the same `metrics` and `sales_30d` as the table's, under the
+    same permissions, so its header's Ventas 30 días is the number the Ventas 30D column shows."""
+
+    def detail_row(self, client, headers, item_id: str) -> dict:
+        response = client.get(f"{URL}/{item_id}", headers=headers)
+        assert response.status_code == 200, response.text
+        return response.json()["row"]
+
+    def test_without_ml_metricas_ver_there_are_no_figures(self, client, sold, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER, GANANCIA)
+        row = self.detail_row(client, admin_auth_headers, "MLA1")
+        assert "metrics" not in row and "sales_30d" not in row
+
+    def test_the_same_figures_as_the_table_row_without_margin_without_ver_ganancia(
+        self, client, sold, db, rol_admin, admin_auth_headers
+    ):
+        grant(db, rol_admin, VER, METRICAS)
+        row = self.detail_row(client, admin_auth_headers, "MLA1")
+        assert row["metrics"] == rows(client, admin_auth_headers)["MLA1"]["metrics"]
+        assert row["metrics"]["units_30d"] == 5
+        assert row["sales_30d"] == {"units": 5, "gross": 50.0}
+        assert TestMetrics.MARGIN.isdisjoint(row["metrics"])
+
+    def test_the_margin_comes_with_ver_ganancia(self, client, sold, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER, METRICAS, GANANCIA)
+        row = self.detail_row(client, admin_auth_headers, "MLA1")
+        assert row["metrics"]["markup_30d"] == 100.0
+        assert row["sales_30d"] == {"units": 5, "gross": 50.0, "markup": 100.0}
+
+    def test_a_publication_metricas_has_no_row_for_reads_null(self, client, sold, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, VER, METRICAS, GANANCIA)
+        row = self.detail_row(client, admin_auth_headers, "MLA2")
+        assert row["metrics"] is None
+        assert row["sales_30d"] == {"units": 0, "gross": 0.0, "markup": None}
