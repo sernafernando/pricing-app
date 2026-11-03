@@ -16,6 +16,7 @@ from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado as 
 from app.routers import ml_ads
 from app.services.ml_ads import mapper, store
 from tests.routers.test_ml_publications_links import grant
+from tests.services.ml_ads.captures import load
 from tests.services.ml_ads.test_brand import ADVERTISERS, _body, _with_spend
 from tests.services.ml_ads.test_display import _facts as display_facts
 from tests.services.ml_ads.test_read_provider import DAY, GAUSS, T0, TPLINK, _close, _seed
@@ -41,11 +42,11 @@ class TestPermission:
     def test_the_permission_is_the_profit_one(self) -> None:
         assert ml_ads.PERMISO_GANANCIA == GANANCIA
 
-    @pytest.mark.parametrize("path", ["by-mla", "by-product", "account-level"])
+    @pytest.mark.parametrize("path", ["by-mla", "by-product", "account-level", "display"])
     def test_authentication_is_required(self, client, path) -> None:
         assert client.get(f"{BASE}/{path}", params=RANGE).status_code in (401, 403)
 
-    @pytest.mark.parametrize("path", ["by-mla", "by-product", "account-level"])
+    @pytest.mark.parametrize("path", ["by-mla", "by-product", "account-level", "display"])
     def test_without_ver_ganancia_it_is_403_and_names_the_permission(self, client, db, auth_headers, path) -> None:
         response = get(client, auth_headers, path)
         assert response.status_code == 403
@@ -57,13 +58,13 @@ class TestPermission:
 
 
 class TestValidation:
-    @pytest.mark.parametrize("path", ["by-mla", "by-product", "account-level"])
+    @pytest.mark.parametrize("path", ["by-mla", "by-product", "account-level", "display"])
     def test_an_inverted_range_is_422(self, client, reader, path) -> None:
         response = get(client, reader, path, date_from="2026-10-06", date_to="2026-10-05")
         assert response.status_code == 422
         assert response.json()["error"]["code"] == "VALIDATION_ERROR"
 
-    @pytest.mark.parametrize("path", ["by-mla", "by-product", "account-level"])
+    @pytest.mark.parametrize("path", ["by-mla", "by-product", "account-level", "display"])
     def test_a_range_over_366_days_is_422_and_366_days_is_fine(self, client, reader, path) -> None:
         start = date(2026, 1, 1)
         over = get(client, reader, path, date_from=start.isoformat(), date_to=(start + timedelta(days=366)).isoformat())
@@ -182,3 +183,46 @@ class TestAccountLevel:
     def test_account_level_spend_is_in_no_mla_row(self, client, db, reader) -> None:
         store.upsert_display_days(db, display_facts(), now=T0)
         assert get(client, reader, "by-mla").json()["items"] == []
+
+
+class TestDisplay:
+    """ml-ads-cupones-display S7: the Display tab's campaigns, totals and daily cost."""
+
+    def _seed(self, db) -> None:
+        store.upsert_display_days(db, display_facts(), now=T0)
+        body = load("display_day_2026_10_05_25713.json")["campaigns"]["body"]
+        store.upsert_display_catalog(db, mapper.map_display_catalog(25713, body), now=T0)
+
+    def test_each_campaign_has_its_catalog_figures_and_computed_ratios(self, client, db, reader) -> None:
+        self._seed(db)
+        body = get(client, reader, "display").json()
+        row = next(c for c in body["campaigns"] if c["campaign_id"] == 335306)
+        assert (row["name"], row["goal"], row["status"], row["start_date"], row["end_date"]) == (
+            "XeroxB110",
+            "conversion",
+            "active",
+            "2026-09-07",
+            "2026-11-01",
+        )
+        assert (row["cost"], row["prints"], row["clicks"], row["reach"]) == (27226.79, 12576, 21, 3498)
+        assert (row["attributed_amount"], row["attributed_units"]) == (1658026.88, 9)
+        assert row["ctr"] == pytest.approx(21 / 12576)
+        assert row["roas"] == pytest.approx(1658026.88 / 27226.79)
+        assert len(body["campaigns"]) == 7
+
+    def test_a_ratio_without_its_base_is_null(self, client, db, reader) -> None:
+        self._seed(db)
+        rows = {c["campaign_id"]: c for c in get(client, reader, "display").json()["campaigns"]}
+        assert rows[294806]["cpc"] is None  # captured: no clicks
+        assert (rows[340339]["ctr"], rows[340339]["roas"]) == (None, None)  # paused, no activity
+
+    def test_totals_daily_and_coverage(self, client, db, reader) -> None:
+        self._seed(db)
+        body = get(client, reader, "display").json()
+        assert (body["totals"]["cost"], body["totals"]["clicks"], body["totals"]["attributed_units"]) == (
+            121938.82,
+            91,
+            40,
+        )
+        assert body["daily"] == [{"day": DAY.isoformat(), "cost": 121938.82}]
+        assert "coverage" in body

@@ -1,15 +1,6 @@
-import { formatPct } from '../../utils/metricasMlFormat';
 import { MARKUP_REASONS, UNKNOWN_REASON } from './markupReasons';
+import { formatMarkupRange, partialRangeTitle } from './markupRange';
 import styles from './cells.module.css';
-
-/**
- * "12,0% – 18,0%" for a range, "15,0%" when every variation agrees. The figures
- * are the server's (P6); a null range is "—" with the reason as tooltip, never
- * 0. A real 0% stays "0,0%".
- */
-function formatMarkupRange(min, max) {
-  return min === max ? formatPct(min) : `${formatPct(min)} – ${formatPct(max)}`;
-}
 
 /** Markup of a publication (`row.markup`, only with `ml_metricas.ver_ganancia`). */
 export default function MarkupCell({ markup }) {
@@ -30,7 +21,7 @@ export default function MarkupCell({ markup }) {
       {partial > 0 && (
         <span
           className={styles.note}
-          title={`${partial} ${partial === 1 ? 'variación sin costo no entra' : 'variaciones sin costo no entran'} en el rango`}
+          title={partialRangeTitle(partial)}
         >
           (parcial)
         </span>

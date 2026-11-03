@@ -258,7 +258,7 @@ def _scoped(f: PublicationFilter, path: list[str], tree: Tree, *columns: Any) ->
     never brings a sibling product (nor its brand) under a node. A group level counts its distinct publications."""
     query = build_base_select(f, *columns)
     query = query.outerjoin(PL, PL.c.item_id == T.i.item_id).outerjoin(PP, PP.item_id == PL.c.producto_item_id)
-    conditions = linked_product_conditions(f, PL.c.producto_item_id, PP)
+    conditions = linked_product_conditions(f, PL.c.producto_item_id, PP, T.i.item_id)
     if conditions:
         query = query.where(or_(PL.c.producto_item_id.is_(None), and_(*conditions)))
     for dimension in tree.dimensions.values():

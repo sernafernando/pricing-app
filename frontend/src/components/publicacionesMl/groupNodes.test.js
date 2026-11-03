@@ -179,6 +179,9 @@ describe('buildLeafParams', () => {
       tiendas: '57997',
       marcas: 'TP%2CLINK',
       producto: '4101',
+      // A product's (or a node's) publications by listing type, then the activity (owner, 2026-11-02).
+      orden: 'tipo,actividad',
+      dir: 'asc,desc',
       limit: GROUPS_PAGE,
       offset: 100,
     });
@@ -201,6 +204,8 @@ describe('buildLeafParams', () => {
       tiendas: '57997,61000',
       marcas: 'EPSON',
       producto: '4101',
+      orden: 'tipo,actividad',
+      dir: 'asc,desc',
       limit: GROUPS_PAGE,
       offset: 0,
     });

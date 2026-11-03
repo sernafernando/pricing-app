@@ -11,9 +11,9 @@ export default function ErpStockCell({ erpStock }) {
   if (quantity == null) return <span className={styles.empty}>—</span>;
   const out = quantity <= 0;
   return (
-    <div className={`${styles.stack} ${styles.stackEnd}`}>
+    <div className={`${styles.stack} ${styles.stackEnd}`} title={out ? 'Sin stock ERP' : undefined}>
       <span className={`${styles.units} ${out ? styles.outOfStock : ''}`}>{quantity}</span>
-      {out && <span className={`${styles.note} ${styles.outOfStock}`}>Sin stock ERP</span>}
+      {out && <span className={`${styles.note} ${styles.outOfStock}`} data-dense-hidden>Sin stock ERP</span>}
     </div>
   );
 }

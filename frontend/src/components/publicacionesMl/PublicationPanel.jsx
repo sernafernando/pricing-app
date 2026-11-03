@@ -11,6 +11,8 @@ import PanelTabs from './panel/PanelTabs';
 import { PANEL_TABS, visibleTabs } from './panel/panelTabs';
 import { canViewProductPrices } from '../pricing/productPricePermissions';
 import { usePublicationDetail } from './panel/usePublicationDetail';
+import PanelFigures from './panel/PanelFigures';
+import { publicationFigures } from './panel/publicationFigures';
 import styles from './panel/panel.module.css';
 
 /** What to tell the operator when the detail cannot be loaded. */
@@ -39,7 +41,7 @@ const describeError = (error) =>
  * @param {Array} [props.tabs] The tab registry (tests inject their own).
  * @param {() => void} [props.onBack] Shows "Volver a <producto>": the publication was opened from a product's panel.
  * @param {string} [props.backLabel] The product's name for that link ("Volver al producto" without it).
- * @param {object} [props.priceGroup] The list's price cells' handlers, for the Precios tab (`ListPriceGroup`).
+ * @param {object} [props.priceGroup] What the Precios tab takes from the list (Calcular, the Tienda Nube price).
  */
 export default function PublicationPanel({
   itemId,
@@ -55,6 +57,7 @@ export default function PublicationPanel({
 }) {
   const { tienePermiso } = usePermisos();
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
+  const canSeeSales = tienePermiso('ml_metricas.ver');
   const canManage = tienePermiso('ml_ops.gestionar');
   const canViewPromos = tienePermiso('promos.ver');
   const canViewPrices = canViewProductPrices(tienePermiso);
@@ -97,6 +100,9 @@ export default function PublicationPanel({
           )}
         </>
       }
+      figures={
+        detail && <PanelFigures label="Cifras de la publicación" figures={publicationFigures(row, { canSeeMargin, canSeeSales })} />
+      }
       onClose={onClose}
       loading={status === 'loading'}
       loadingLabel="Cargando publicación"
@@ -105,7 +111,7 @@ export default function PublicationPanel({
     >
       {status === 'ready' && active && (
         <PanelTabs tabs={available} activeKey={active.key} onTabChange={onTabChange} label="Secciones de la publicación">
-          <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} priceGroup={priceGroup} />
+          <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} canViewPromos={canViewPromos} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} priceGroup={priceGroup} />
         </PanelTabs>
       )}
 

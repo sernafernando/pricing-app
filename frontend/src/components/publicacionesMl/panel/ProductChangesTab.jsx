@@ -27,6 +27,7 @@ const KIND_LABELS = {
   sell_in_bono_editado: 'Bono de sell in editado',
   sell_in_bono_anulado: 'Bono de sell in anulado',
   sell_in_compra_bono_actualizada: 'Compra de sell in actualizada por bono',
+  sell_in_modo_creado: 'Modo de costo de sell in cambiado',
   sell_out_campana_creada: 'Campaña de sell out cargada',
   sell_out_campana_editada: 'Campaña de sell out editada',
   sell_out_campana_anulada: 'Campaña de sell out anulada',

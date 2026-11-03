@@ -4,9 +4,10 @@
  * which tabs exist. The content of each tab has its own test.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, render, within } from '@testing-library/react';
+import { cleanup, screen, waitFor, render, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PublicationPanel from './PublicationPanel';
+import { MARKUP_REASONS } from './markupReasons';
 import { resetPromoPulls } from '../promociones/promoPullTtl';
 import { preciosAPI, promocionesAPI, publicacionesMlAPI } from '../../services/api';
 import { DETAIL_LINKED, DETAIL_RESPONSE, DETAIL_RESPONSE_MARGIN, ITEM_LINK, ITEMS, makeDetail, makeItem } from '../../test/visual/publicacionesMlFixtures';
@@ -41,6 +42,7 @@ let canSeeMargin = false;
 let canManage = true;
 let canSeePromos = true;
 let canSeeProducts = true;
+let canSeeSales = true;
 // The price-edit codes the user holds (every other code is granted).
 let priceEditCodes = [];
 const PRICE_EDIT_CODES = [
@@ -56,6 +58,7 @@ vi.mock('../../contexts/PermisosContext', () => ({
     permisos: [],
     tienePermiso: (permiso) => {
       if (permiso === 'ml_metricas.ver_ganancia') return canSeeMargin;
+      if (permiso === 'ml_metricas.ver') return canSeeSales;
       if (permiso === 'ml_ops.gestionar') return canManage;
       if (permiso === 'promos.ver') return canSeePromos;
       if (permiso === 'productos.ver') return canSeeProducts;
@@ -79,6 +82,7 @@ beforeEach(() => {
   canManage = true;
   canSeePromos = true;
   canSeeProducts = true;
+  canSeeSales = true;
   priceEditCodes = [];
   promocionesAPI.getPromocionesItem.mockClear();
   promocionesAPI.refreshItemPromociones.mockClear();
@@ -294,6 +298,16 @@ describe('tabs', () => {
     publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_LINKED });
     renderPanel();
     expect(await screen.findByRole('tab', { name: 'Resumen' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('leaves the promotion out of Resumen for whoever has the Promos tab, and keeps it for whoever has not', async () => {
+    renderPanel({ tab: 'resumen' });
+    const data = await screen.findByRole('region', { name: 'Datos de la publicación' });
+    expect(within(data).queryByText('Promoción')).not.toBeInTheDocument();
+    cleanup();
+    canSeePromos = false;
+    renderPanel({ tab: 'resumen' });
+    expect(within(await screen.findByRole('region', { name: 'Datos de la publicación' })).getByText('Promoción')).toBeInTheDocument();
   });
 
   it('a tab in the URL keeps winning over the default (S1)', async () => {
@@ -559,5 +573,119 @@ describe('a link write in the Producto tab', () => {
     expect(onListReload).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(within(screen.getByRole('region', { name: 'Vínculos' })).getByRole('listitem')).toHaveTextContent('Sin producto'));
     expect(within(screen.getByRole('region', { name: 'Vínculos' })).getByRole('listitem')).toHaveTextContent('Combo');
+  });
+});
+
+
+describe('header figures (S1)', () => {
+  const SALES = { sales_30d: { units: 12, gross: 1500 }, metrics: { units_30d: 12, gross_30d: 1500 } };
+  const MARKUP = { min: 15, max: 15, worst: 15, any_negative: false, reason: 'ok', partial: 0 };
+  const withRow = (row) => makeDetail({ row: { ...ITEMS[0], ...row } });
+
+  const figures = () => screen.getByRole('region', { name: 'Cifras de la publicación' });
+  /** The value and the note of one figure, by its label. */
+  const figure = (name) => {
+    const term = within(figures()).getByText(name, { selector: 'dt' });
+    return term.nextElementSibling.textContent;
+  };
+  const labels = () => within(figures()).queryAllByRole('term').map((dt) => dt.textContent);
+
+  it('has no Ventas 30 días figure while the detail does not send its sales (an older backend)', async () => {
+    const { sales_30d: _omitted, ...row } = { ...ITEMS[0], ...SALES };
+    publicacionesMlAPI.detail.mockResolvedValue({ data: makeDetail({ row }) });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(labels()).toEqual(['Precio', 'Stock']);
+  });
+
+  it('says the markup range is partial when some variations have no cost, as the table does', async () => {
+    canSeeMargin = true;
+    publicacionesMlAPI.detail.mockResolvedValue({
+      data: { ...withRow({ markup: { ...MARKUP, partial: 2 } }), markup_breakdown: null },
+    });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(within(figures()).getByTitle('2 variaciones sin costo no entran en el rango')).toHaveTextContent('(parcial)');
+  });
+
+  it('with ver_ganancia and no markup, a dash under the price that says why; a range reads as one', async () => {
+    canSeeMargin = true;
+    publicacionesMlAPI.detail.mockResolvedValue({
+      data: { ...withRow({ markup: { min: null, max: null, reason: 'sin_costo', partial: 0 } }), markup_breakdown: null },
+    });
+    const { unmount } = renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    const empty = within(figures()).getByText('—', { exact: false, selector: 'span[title]' });
+    expect(empty).toHaveAttribute('title', MARKUP_REASONS.sin_costo);
+    expect(figure('Precio y markup')).not.toMatch(/\b0(,0)?%/);
+    unmount();
+    publicacionesMlAPI.detail.mockResolvedValue({
+      data: { ...withRow({ markup: { min: 8.5, max: 21, worst: 8.5, any_negative: false, reason: 'ok', partial: 0 } }), markup_breakdown: null },
+    });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(figure('Precio y markup')).toContain('8,5% – 21,0%');
+  });
+
+  it('shows the price, Stock and Ventas 30 días from the row; without ver_ganancia, no markup under the price', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow(SALES) });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(labels()).toEqual(['Precio', 'Stock', 'Ventas 30 días']);
+    expect(figure('Precio')).toBe('Precio $ 98.500,50');
+    // The total only: Full and propio are the Resumen's stock breakdown, not repeated here.
+    expect(figure('Stock')).toBe('34');
+    expect(figure('Ventas 30 días')).toContain('12');
+    expect(figure('Ventas 30 días')).toContain('1.500,00');
+  });
+
+  it('puts the price and the markup in one block without visible labels, the markup only with ver_ganancia', async () => {
+    canSeeMargin = true;
+    publicacionesMlAPI.detail.mockResolvedValue({ data: { ...withRow({ ...SALES, markup: MARKUP }), markup_breakdown: null } });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(labels()).toEqual(['Precio y markup', 'Stock', 'Ventas 30 días']);
+    // The label is for screen readers only; each line names itself the same way.
+    expect(within(figures()).getByText('Precio y markup', { selector: 'dt' }).className).toMatch(/visuallyHidden/);
+    expect(figure('Precio y markup')).toBe('Precio $ 98.500,50Markup 15,0%');
+    expect(within(figures()).getByTitle('Markup')).not.toHaveAttribute('data-negative');
+  });
+
+  it('colours a negative markup apart', async () => {
+    canSeeMargin = true;
+    const negative = { ...MARKUP, min: -4, max: -4, worst: -4, any_negative: true };
+    publicacionesMlAPI.detail.mockResolvedValue({ data: { ...withRow({ markup: negative }), markup_breakdown: null } });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(within(figures()).getByTitle('Markup')).toHaveAttribute('data-negative');
+  });
+
+  it('has no Ventas 30 días without ml_metricas.ver', async () => {
+    canSeeSales = false;
+    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow({}) });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(labels()).toEqual(['Precio', 'Stock']);
+  });
+
+  it('shows a dash, never 0, when the detail has no sales figure for a viewer who may see it', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow({ sales_30d: { units: null, gross: null } }) });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(figure('Ventas 30 días')).toBe('—');
+  });
+
+  it('keeps the publication status in the header, since Resumen no longer lists it', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow(SALES) });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(within(figures().closest('header')).getByText('Activa')).toBeInTheDocument();
+  });
+
+  it.each(['promociones', 'resumen'])('stays in the header on the %s tab', async (tab) => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: withRow(SALES) });
+    renderPanel({ tab });
+    await screen.findByRole('region', { name: 'Cifras de la publicación' });
+    expect(figures().closest('header')).not.toBeNull();
   });
 });

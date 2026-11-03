@@ -1,7 +1,7 @@
 """The sell-in lots of a product, as the next sales will consume them (read only).
 
-Owner: "podríamos tener un visualizador de lotes? para saber como van a aplicar?". The sell-in cost is FIFO by lot,
-not weighted: each sale takes the units of the oldest line with units left, so the viewer lists a product's lines of
+Owner: "podríamos tener un visualizador de lotes? para saber como van a aplicar?". Each sale takes the units of the
+oldest line with units left (FIFO), whatever the product's cost mode, so the viewer lists a product's lines of
 active purchases in that order (`costing.lotes`, sorted by `fifo.orden_fifo`) with what the stored consumptions took
 from each one (`costing.unidades_usadas`) and the unit discount `split.unit_discount` gives it (a USD purchase at its
 own rate, as costing converts it).
@@ -9,6 +9,8 @@ own rate, as costing converts it).
 Status of a line: `vigente` is the one `costing.vigentes` returns for today (the next sale takes it); `agotado` has
 no units left; `desde` counts from a date after today; `en_cola` has units left and waits behind the current one.
 Nothing here is computed differently from the costing: the order, the units left and the rounding are its own.
+Under a weighted or last-price mode (`LoteVigente.en_pool`) the next sale's value is the one `costing.vigentes` gives
+(the pool's), not the current line's own; see `_proxima`.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ from app.models.sell_in import SellInCompra, SellInCompraPedido, SellInConsumo
 from app.schemas.sell_in_out_producto import SellInProducto
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
-from app.services.sell_in.costing import get_costing
+from app.services.sell_in.costing import LoteVigente, get_costing
 from app.services.sell_in.split import unit_discount
 
 Estado = Literal["vigente", "en_cola", "agotado", "desde"]
@@ -121,7 +123,7 @@ def lotes_de_producto(db: Session, item_id: int, hoy: date) -> VisorLotes:
                 estado=estado,
             )
         )
-    return VisorLotes(filas, _proxima(filas))
+    return VisorLotes(filas, _proxima(filas, vigente if vigente is not None and vigente.en_pool else None))
 
 
 def bono_costo(db: Session, item_id: int, hoy: date) -> Optional[SellInProducto]:
@@ -139,15 +141,32 @@ def bono_costo(db: Session, item_id: int, hoy: date) -> Optional[SellInProducto]
     return sell_in if sell_in is not None and sell_in.bono_id is not None else None
 
 
-def _proxima(filas: List[LoteVisor]) -> Optional[ProximaVenta]:
+def _proxima(filas: List[LoteVisor], pool: Optional[LoteVigente] = None) -> Optional[ProximaVenta]:
+    """The current line's discount and units left, then the next line with units. Under a weighted or last-price
+    mode (`pool`: what `costing.vigentes` gives) every unit of the lines that count goes at the pool's value, so only a
+    line that counts from a later date can come after it, at what a sale on that date gets once it joins."""
     actual = next((x for x in filas if x.estado == "vigente"), None)
     if actual is None:
         return None
-    despues = next((x for x in filas[actual.numero :] if x.restantes > 0), None)
+    despues = next(
+        (x for x in filas[actual.numero :] if x.restantes > 0 and (pool is None or _despues_del_pool(x, pool))), None
+    )
     siguiente = None
     if despues is not None:
-        siguiente = Siguiente(despues.numero, despues.descuento_unit, despues.fecha_desde, despues.estado)
+        valor = despues.descuento_unit
+        if pool is not None and pool.siguiente_unit_ars is not None:
+            valor = pool.siguiente_unit_ars  # the later line joins the pool on its date
+        siguiente = Siguiente(despues.numero, valor, despues.fecha_desde, despues.estado)
+    if pool is not None:
+        return ProximaVenta(
+            actual.numero, actual.compra_item_id, pool.descuento_unit_ars, pool.unidades_restantes, siguiente
+        )
     return ProximaVenta(actual.numero, actual.compra_item_id, actual.descuento_unit, actual.restantes, siguiente)
+
+
+def _despues_del_pool(fila: LoteVisor, pool: LoteVigente) -> bool:
+    """A line comes after the pool only if it starts counting after the day the pool's value is for."""
+    return fila.estado == "desde" and (pool.dia is None or fila.fecha_desde > pool.dia)
 
 
 def _compras(db: Session, compra_ids: List[int]) -> Dict[int, Tuple[Optional[str], List[str], str]]:

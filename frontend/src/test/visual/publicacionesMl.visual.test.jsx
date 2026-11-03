@@ -860,10 +860,11 @@ describe('Publicaciones ML Agrupado tree (visual)', () => {
 });
 
 // A product's panel opens on Precios (owner, 2026-11-02): these tests read its Resumen, so they open it first.
-const openProductResumen = async (screen) => {
+const openProductTab = async (screen, name) => {
   await screen.getByRole('table', { name: /por producto/ }).getByText('Router Archer AX55').click();
-  await screen.getByRole('complementary', { name: 'Detalle del producto' }).getByRole('tab', { name: 'Resumen' }).click();
+  await screen.getByRole('complementary', { name: 'Detalle del producto' }).getByRole('tab', { name }).click();
 };
+const openProductResumen = (screen) => openProductTab(screen, 'Resumen');
 
 const renderProducts = async ({ width, height, theme, rows, entry = '/ml-publicaciones?vista=producto' }) => {
   canSeeMargin = true;
@@ -1005,8 +1006,9 @@ describe('Publicaciones ML Producto view (visual)', () => {
         await openProductResumen(screen);
         await expect.element(screen.getByRole('complementary', { name: 'Detalle del producto' }).getByText('Cifras')).toBeVisible();
         const panel = document.querySelector('[data-split-panel]');
-        // The product's publications are Productos' tree: its row opens with "Expandir <title>".
-        await expect.element(screen.getByRole('button', { name: 'Expandir Router TP-Link Archer AX55 por color' })).toBeVisible();
+        // The product's publications are Productos' tree; a publication with nothing under it has only its "Abrir".
+        await expect.element(screen.getByRole('button', { name: 'Abrir MLA1100000005' })).toBeVisible();
+        expect(screen.getByRole('button', { name: 'Expandir Router TP-Link Archer AX55 por color' }).query()).toBeNull();
         const box = rect(panel);
         const scroller = scrollerOf();
         // Side by side: the table ends where the panel starts, and nothing scrolls the page sideways.
@@ -1019,7 +1021,11 @@ describe('Publicaciones ML Producto view (visual)', () => {
           if (r.width === 0) continue;
           expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(box.right + 0.5);
         }
-        const figures = [...panel.querySelectorAll('dd')].filter((el) => el.textContent.trim());
+        // Every piece of text keeps to one line. A value may stack two of them on purpose (the last sale's date over
+        // "hace N días", a header figure over its note), so each innermost element is measured, not the whole <dd>.
+        const figures = [...panel.querySelectorAll('dd')]
+          .flatMap((dd) => (dd.children.length === 0 ? [dd] : [...dd.querySelectorAll('*')].filter((el) => el.children.length === 0)))
+          .filter((el) => el.textContent.trim());
         expect(figures.length).toBeGreaterThan(0);
         expect(wrapped(figures)).toEqual([]);
         // The product row is the highlighted one, and it was not expanded.
@@ -1180,7 +1186,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           publicacionesMlAPI.items.mockResolvedValue({
             data: { ...MARGIN_RESPONSE, items: MARGIN_ITEMS.slice(0, 3).map((item, i) => ({ ...item, catalog_listing: i === 0 })), total: 3 },
           });
-          await openProductResumen(screen);
+          await openProductTab(screen, 'Promos');
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           await aside.getByRole('button', { name: /^Competencia de catálogo de / }).click();
           await expect.element(aside.getByText('DISTRIBUIDORA DE REDES DEL LITORAL SRL')).toBeVisible();
@@ -1221,6 +1227,53 @@ describe('Publicaciones ML Producto view (visual)', () => {
         }
         screen.unmount();
       });
+    }
+
+    // "Filas finas" (vistas-tipo-publicacion S5): a long name is cut, never its badges; the name is in its tooltip.
+    // Narrower screens too: the badges never squeeze the name to nothing (it keeps a place to hover).
+    // `wider` stands in for a wider fallback font (the CI runner has no Inter either): the badges grow, and the name
+    // still keeps its minimum; the badges then go to a second line instead of squeezing it.
+    for (const { width, height, wider } of VIEWPORTS.flatMap((v) => [{ ...v, wider: false }, { ...v, wider: true }])) {
+    it(`${width}x${height} ${theme}: dense, a long product name is cut with its tooltip and its badges stay whole${wider ? ' (wider font)' : ''}`, async () => {
+      localStorage.setItem('publicaciones-ml.filas-finas', 'true');
+      try {
+        const screen = await renderProducts({ width, height, theme });
+        const table = screen.getByRole('table', { name: /por producto/ });
+        await expect.element(table.getByText('3 tramos · desde $37.800')).toBeVisible();
+        expect(scrollerOf().closest('[data-density]').dataset.density).toBe('dense');
+        const row = rowWith(scrollerOf(), 'Sistema Mesh Deco X20');
+        const cell = row.querySelector('td');
+        const name = [...cell.querySelectorAll('span[title]')].find((el) => el.textContent.startsWith('Sistema Mesh Deco X20'));
+        const badges = ['3 tramos · desde $37.800', '2 listas'].map((text) => [
+          text,
+          [...row.querySelectorAll('span')].find((el) => el.textContent.trim() === text),
+        ]);
+        if (wider) {
+          for (const [, badge] of badges) badge.style.letterSpacing = '3px';
+          await frame();
+        }
+        // Cut or whole, the name is in its tooltip and never squeezed under a few characters.
+        expect(name.getAttribute('title')).toBe(name.textContent);
+        expect(rect(name).width).toBeGreaterThanOrEqual(Math.min(40, name.scrollWidth));
+        if (!wider) expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+        for (const [text, badge] of badges) {
+          expect(name.contains(badge), text).toBe(false);
+          expect(rect(badge).width, text).toBeGreaterThan(0);
+          expect(rect(badge).right, text).toBeLessThanOrEqual(rect(cell).right + 0.5);
+          expect(badge.scrollWidth, text).toBeLessThanOrEqual(badge.clientWidth + 1);
+        }
+        expect(overflowingCells(scrollerOf())).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          await page.screenshot({
+            path: `${PRODUCT_SHOTS_DIR}/filas-finas-producto-${width}-${theme}${wider ? '-wider' : ''}.png`,
+            element: row,
+          });
+        }
+        screen.unmount();
+      } finally {
+        localStorage.removeItem('publicaciones-ml.filas-finas');
+      }
+    });
     }
 
     for (const { width, height } of VIEWPORTS) {
@@ -1278,7 +1331,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
         pxqAPI.getMarkup.mockResolvedValue({ data: { item_id: 'MLA1100000005', tiers: [] } });
         try {
           const screen = await renderProducts({ width, height, theme });
-          await openProductResumen(screen);
+          await openProductTab(screen, 'PxQ');
           const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
           await aside.getByRole('button', { name: /^Precios mayoristas de / }).first().click();
           const section = aside.getByRole('heading', { name: 'Precios mayoristas' }).element().closest('section');
@@ -1294,6 +1347,33 @@ describe('Publicaciones ML Producto view (visual)', () => {
         } finally {
           pxqAPI.getLive.mockReset();
           pxqAPI.getMarkup.mockReset();
+        }
+      });
+      it(`${width}x${height} ${theme}: the promotions of a product's publication read by section on Promos, inside the panel`, async () => {
+        promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: PROMOTIONS } });
+        promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+        try {
+          const screen = await renderProducts({ width, height, theme });
+          await openProductTab(screen, 'Promos');
+          const aside = screen.getByRole('complementary', { name: 'Detalle del producto' });
+          await aside.getByRole('button', { name: /^Promociones de / }).first().click();
+          await expect.element(aside.getByText('Oferta del día')).toBeVisible();
+          const promos = aside.getByRole('region', { name: 'Promociones' }).element();
+          const sections = [...promos.querySelectorAll('section[aria-label]')];
+          expect(sections.map((section) => section.getAttribute('aria-label'))).toEqual(['Activa ahora', 'Disponibles para activar', 'Cupones']);
+          const panel = document.querySelector('[data-split-panel]');
+          promos.scrollIntoView();
+          if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-promos-${width}-${theme}.png` });
+          expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+          for (const el of promos.querySelectorAll('li, li *, button, a')) {
+            const r = rect(el);
+            if (r.width === 0) continue;
+            expect(r.right, el.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(rect(panel).right + 0.5);
+          }
+          screen.unmount();
+        } finally {
+          promocionesAPI.getPromocionesItem.mockReset();
+          promocionesAPI.refreshItemPromociones.mockReset();
         }
       });
     }
@@ -1362,7 +1442,7 @@ describe('Publicaciones ML Producto view (visual)', () => {
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
           expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
           const tabs = [...panel.querySelectorAll('[role="tab"]')];
-          expect(tabs.map((tab) => tab.textContent)).toEqual(['Precios', 'Resumen', 'Cambios']);
+          expect(tabs.map((tab) => tab.textContent)).toEqual(['Precios', 'Resumen', 'Promos', 'PxQ', 'Cambios']);
           for (const tab of tabs) expect(rect(tab).right).toBeLessThanOrEqual(box.right + 0.5);
           expect(panel.textContent).not.toContain('Cifras');
           if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-precios-${width}-${theme}.png` });
@@ -1403,7 +1483,8 @@ describe('Publicaciones ML Producto view (visual)', () => {
             skipped_edges: [],
           },
         });
-        // "Expandir todo" opens each publication's promos, catalog competition and wholesale prices too.
+        // In Productos "Expandir todo" also opens each publication's promos, catalog competition and wholesale prices;
+        // the panel's tree carries none of them (they have their own tabs), mocked here in case one slipped back in.
         promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
         promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
         promocionesAPI.confirmarSinPromosML.mockResolvedValue({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } });
@@ -1439,6 +1520,10 @@ describe('Publicaciones ML Producto view (visual)', () => {
           await expect.element(section.getByText('Router Archer AX55 eliminado')).toBeVisible();
           // Each publication opens its own panel from its "Abrir" button, inside the panel too.
           await expect.element(section.getByRole('button', { name: 'Abrir MLA1100000002' })).toBeVisible();
+          const disclosures = [...section.element().querySelectorAll('button')].filter((button) =>
+            /^(Promociones|Competencia catálogo|Precios mayoristas)/.test(button.textContent.trim()),
+          );
+          expect(disclosures).toEqual([]);
           section.element().scrollIntoView();
           fits();
           if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/product-arbol-expandido-${width}-${theme}.png` });
@@ -1481,6 +1566,7 @@ const PROMOTIONS = [
     promotion_id: 'P1',
     promotion_type: 'SMART',
     name: 'Promoción inteligente con un nombre bastante largo para ver cómo corta',
+    status: 'candidate',
     price: 0,
     suggested_discounted_price: 1234567,
     original_price: 1500000,
@@ -1491,6 +1577,30 @@ const PROMOTIONS = [
     payload: { seller_percentage: 30, meli_percentage: 20 },
   },
   { promotion_id: 'P2', promotion_type: 'DOD', name: 'Oferta del día', price: 50000, original_price: 60000, nuestro_markup: -2, application_status: 'active', payload: {} },
+  // A seller coupon as ML sends it (backend/tests/fixtures/ml_publications/history_events_MLA1402898289_20261016.json).
+  {
+    promotion_id: 'C-MLA1713876',
+    promotion_type: 'SELLER_COUPON_CAMPAIGN',
+    sub_type: 'FIXED_PERCENTAGE',
+    name: 'Cupón de recompra',
+    status: 'candidate',
+    price: 0,
+    original_price: 91193,
+    start_date: '2026-10-10T00:00:00',
+    finish_date: '2026-10-31T23:59:59',
+    payload: {
+      id: 'C-MLA1713876',
+      name: 'Cupón de recompra',
+      type: 'SELLER_COUPON_CAMPAIGN',
+      price: 0,
+      status: 'candidate',
+      sub_type: 'FIXED_PERCENTAGE',
+      start_date: '2026-10-10T00:00:00',
+      finish_date: '2026-10-31T23:59:59',
+      original_price: 91193,
+      fixed_percentage: 10,
+    },
+  },
 ];
 
 // The detail panel open beside the table (publicaciones-ml-vista P13a.T5, S61.1/S62.1).
@@ -1501,14 +1611,16 @@ const PANEL_VIEWPORTS = [
 ];
 
 // The panel opens on Promos (owner, 2026-11-02); these tests read Resumen unless they ask for another tab.
-const renderWithPanel = async ({ width, height, theme, margin = false, tab = 'resumen', linked = false, detailExtra = {} }) => {
+const renderWithPanel = async ({ width, height, theme, margin = false, tab = 'resumen', linked = false, detailExtra = {}, rowExtra = {} }) => {
   canSeeMargin = margin;
   const base = { ...MANY[0], is_full: true, variations_count: 3 };
   publicacionesMlAPI.items.mockResolvedValue({
     data: margin ? { ...MARGIN_RESPONSE, items: [{ ...base, markup: MARGIN_ITEMS[1].markup }, ...MANY.slice(1)] } : { ...RESPONSE, items: [base, ...MANY.slice(1)] },
   });
   const detail = linked ? (margin ? DETAIL_LINKED_MARGIN : DETAIL_LINKED) : margin ? DETAIL_RESPONSE_MARGIN : DETAIL_RESPONSE;
-  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...detail, ...detailExtra, row: base } });
+  // The detail's row carries the same figures as the list row (with ver_ganancia, its markup).
+  const row = { ...base, ...(margin ? { markup: MARGIN_ITEMS[1].markup } : {}), ...rowExtra };
+  publicacionesMlAPI.detail.mockResolvedValue({ data: { ...detail, ...detailExtra, row } });
   publicacionesMlAPI.events.mockResolvedValue({ data: EVENTS_RESPONSE });
   publicacionesMlAPI.history.mockImplementation((itemId, params) =>
     Promise.resolve({ data: params?.tecnicos ? HISTORY_TECNICOS_RESPONSE : HISTORY_RESPONSE }),
@@ -1633,6 +1745,61 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         screen.unmount();
       });
     }
+  }
+
+  for (const { width, height } of PANEL_VIEWPORTS) {
+    for (const theme of THEMES) {
+      it(`${width}x${height} ${theme}: the header keeps the price over its markup, and stays while Resumen scrolls (S1)`, async () => {
+        const screen = await renderWithPanel({ width, height, theme, margin: true, linked: true });
+        await expect.element(screen.getByRole('region', { name: 'Cifras de la publicación' }).getByTitle('Markup')).toBeVisible();
+        const panel = panelOf();
+        const strip = panel.querySelector('section[aria-label="Cifras de la publicación"]');
+        const price = strip.querySelector('[title="Precio"]');
+        const markup = strip.querySelector('[title="Markup"]');
+        // One block: the markup right under the price, both inside the panel.
+        expect(rect(markup).top).toBeGreaterThanOrEqual(rect(price).bottom - 0.5);
+        expect(Math.abs(rect(markup).left - rect(price).left)).toBeLessThan(1);
+        expect(getComputedStyle(markup).color).not.toBe(getComputedStyle(price).color);
+        for (const el of [price, markup]) expect(rect(el).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-resumen-${width}-${theme}.png`, element: panel });
+        // The header stays at the top of the panel while the body scrolls under it (the panel really scrolls).
+        const header = panel.querySelector('header');
+        const top = rect(header).top;
+        expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight);
+        panel.scrollTo({ top: panel.scrollHeight });
+        await frame();
+        expect(panel.scrollTop).toBeGreaterThan(0);
+        expect(Math.abs(rect(header).top - top)).toBeLessThan(1);
+        expect(rect(price).top).toBeGreaterThanOrEqual(rect(panel).top - 0.5);
+        screen.unmount();
+      });
+    }
+  }
+
+  for (const theme of THEMES) {
+    it(`1366x768 ${theme}: big amounts stay whole inside their header figure`, async () => {
+      const screen = await renderWithPanel({
+        width: 1366,
+        height: 768,
+        theme,
+        margin: true,
+        rowExtra: {
+          price: { ...MANY[0].price, amount: 12345678.9 },
+          stock: { available: 123456, full: 100000, own: 23456 },
+          sales_30d: { units: 123456, gross: 98765432.1 },
+        },
+      });
+      const strip = screen.getByRole('region', { name: 'Cifras de la publicación' });
+      await expect.element(strip.getByTitle('Markup')).toBeVisible();
+      for (const box of strip.element().querySelectorAll('dd')) {
+        const edge = rect(box.parentElement).right;
+        for (const part of box.querySelectorAll('span')) {
+          expect(rect(part).right, part.textContent).toBeLessThanOrEqual(edge + 0.5);
+        }
+      }
+      expect(wrapped([strip.element().querySelector('[title="Precio"]')])).toEqual([]);
+      screen.unmount();
+    });
   }
 
   for (const { width, height } of PANEL_VIEWPORTS) {
@@ -1818,14 +1985,21 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
 
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Promociones tab lists the promotions inside the panel`, async () => {
+      it(`${width}x${height} ${theme}: the Promociones tab shows the promotions by section, coupons last, inside the panel`, async () => {
         const screen = await renderWithPanel({ width, height, theme, tab: 'promociones' });
         await expect.element(screen.getByText('Oferta del día')).toBeVisible();
         const panel = panelOf();
         const box = rect(panel);
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        const sections = [...panel.querySelectorAll('[role="tabpanel"] section')];
+        expect(sections.map((section) => section.getAttribute('aria-label'))).toEqual(['Activa ahora', 'Disponibles para activar', 'Cupones']);
+        // Top to bottom in that order.
+        for (let index = 1; index < sections.length; index += 1) expect(rect(sections[index]).top).toBeGreaterThan(rect(sections[index - 1]).bottom - 0.5);
+        const coupons = sections.at(-1);
+        expect(coupons.querySelector('button')).toBeNull();
+        await expect.element(screen.getByRole('link', { name: 'Ver promociones en Mercado Libre' })).toBeVisible();
         const rows = [...panel.querySelectorAll('[role="tabpanel"] li')];
-        expect(rows).toHaveLength(2);
+        expect(rows).toHaveLength(3);
         for (const el of rows.flatMap((row) => [row, ...row.querySelectorAll('*')])) {
           const r = rect(el);
           if (r.width === 0) continue;
@@ -1836,27 +2010,32 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     }
   }
 
-  // Precios: the Precios view's own price group on top (owner, 2026-10-28), the list's cells inside the panel.
+  // Precios (S2): one table, a row per plan with Lista ML and PVP side by side; Calcular ends the reference line and
+  // the Tienda Nube price sits by the web transfer. Every price once, none wrapping, all inside the panel.
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Precios tab opens with the list's price group, Normal, Cuotas and PVP inside the panel`, async () => {
+      it(`${width}x${height} ${theme}: the Precios tab is one table, a row per plan, every price once and on one line`, async () => {
         preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
         offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
         try {
           const screen = await renderWithPanel({ width, height, theme, tab: 'precios', linked: true, margin: true });
-          const group = screen.getByRole('region', { name: 'Precios de la lista' });
-          await expect.element(group.getByText('189.999,00').first()).toBeVisible();
+          const table = screen.getByRole('table', { name: 'Precios por plan' });
+          await expect.element(table.getByText('$ 98.500,50')).toBeVisible();
           const panel = panelOf();
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
-          const tables = [...group.element().querySelectorAll('table')];
-          expect(tables.map((table) => table.querySelector('caption').textContent)).toEqual(['Normal', 'Cuotas', 'PVP']);
-          for (const table of tables) expect(rect(table).right).toBeLessThanOrEqual(rect(panel).right + 0.5);
-          // Each cell's content stays inside its own cell, as in the list.
-          expect(overflowingCells(group.element())).toEqual([]);
-          await expect.element(group.getByRole('button', { name: 'Calcular el precio de Router Archer AX55' })).toBeVisible();
+          expect(screen.getByRole('region', { name: 'Precios de la lista' }).query()).toBeNull();
+          const references = screen.getByRole('group', { name: 'Referencias del producto' });
+          await expect.element(references.getByRole('button', { name: 'Calcular el precio de Router Archer AX55' })).toBeVisible();
+          const transfer = screen.getByRole('row', { name: /^Web transferencia/ });
+          await expect.element(transfer).toHaveTextContent('249.999,00');
+          // No price or markup breaks over two lines. Whether the table fits the panel's width depends on the host's
+          // typeface (see the markup chips test below): that fit is checked by hand on a screenshot.
+          expect(wrapped(table.element().querySelectorAll('td[data-entry] > div:first-child > span:first-child, td[data-entry] [data-tone]'))).toEqual([]);
+          const amounts = panel.querySelector('[role="tabpanel"]').textContent.match(/\$ ?[\d.]+,\d{2}/g) ?? [];
+          expect(amounts.filter((amount, index) => amounts.indexOf(amount) !== index)).toEqual([]);
           if (PRODUCT_SHOTS_DIR) {
-            group.element().scrollIntoView({ block: 'start' });
-            await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-precios-lista-${width}-${theme}.png`, element: panel });
+            table.element().scrollIntoView({ block: 'start' });
+            await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-precios-plan-${width}-${theme}.png`, element: panel });
           }
           screen.unmount();
         } finally {
@@ -1867,45 +2046,10 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
     }
   }
 
-  // Precios: the web transfer's % and its lock in the panel's price group too, inside their cell.
-  for (const theme of THEMES) {
-    it(`1920x1080 ${theme}: the Precios tab shows the web transfer's % and its lock under the price, inside the cell`, async () => {
-      preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
-      offsetsGananciaAPI.vigentes.mockResolvedValue({ data: [] });
-      try {
-        const screen = await renderWithPanel({ width: 1920, height: 1080, theme, tab: 'precios', linked: true, margin: true });
-        const group = screen.getByRole('region', { name: 'Precios de la lista' });
-        const lock = group.getByRole('img', { name: '% conservado en cambios masivos' });
-        await expect.element(lock).toBeVisible();
-        const line = lock.element().closest('[data-price-detail]');
-        expect(line.textContent).toBe('(+6,5%)');
-        const cell = line.closest('td');
-        // The Tienda Nube price above it carries its transfer hint here too (the page hands the group tnCardPercent).
-        expect(cell.textContent).toContain('$183.999,20 transf.');
-        for (const part of [line, lock.element()]) {
-          expect(rect(part).left).toBeGreaterThanOrEqual(rect(cell).left - 0.5);
-          expect(rect(part).right).toBeLessThanOrEqual(rect(cell).right + 0.5);
-        }
-        // The group's cells are transparent: measure against the first ancestor that paints.
-        let backdrop = cell;
-        while (getComputedStyle(backdrop).backgroundColor === 'rgba(0, 0, 0, 0)') backdrop = backdrop.parentElement;
-        expect(contrastRatio(getComputedStyle(line).color, getComputedStyle(backdrop).backgroundColor)).toBeGreaterThanOrEqual(4.5);
-        if (PRODUCT_SHOTS_DIR) {
-          cell.scrollIntoView({ block: 'center' });
-          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/panel-web-transf-percent-1920-${theme}.png`, element: panelOf() });
-        }
-        screen.unmount();
-      } finally {
-        preciosAPI.obtenerProducto.mockImplementation(() => new Promise(() => {}));
-        offsetsGananciaAPI.vigentes.mockImplementation(() => new Promise(() => {}));
-      }
-    });
-  }
-
-  // Precios: cost card, one accented card per list, markup chips by the app scale (markupTone).
+  // Precios: the reference line with the cost, each plan's markups as chips by the app scale (markupTone).
   for (const { width, height } of PANEL_VIEWPORTS) {
     for (const theme of THEMES) {
-      it(`${width}x${height} ${theme}: the Precios tab shows cost with offset and with sell in, every markup as toned chips and fits the panel`, async () => {
+      it(`${width}x${height} ${theme}: the Precios tab shows cost with offset and with sell in, every markup of each plan as toned chips and fits the panel`, async () => {
         preciosAPI.obtenerProducto.mockResolvedValue({ data: { ...PRODUCTO_CON_REBATE_Y_OFERTA, sell_in_out: SELL_IN_OUT } });
         offsetsGananciaAPI.vigentes.mockResolvedValue({
           data: [{ id: 7, marca: 'TP-LINK', tipo_offset: 'porcentaje_costo', porcentaje: 10, descripcion: 'Rebate TP-Link con una descripción larga', grupo_id: null }],
@@ -1917,25 +2061,19 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
 
           const facts = panel.querySelector('[aria-label="Referencias del producto"]');
-          expect(getComputedStyle(facts).backgroundColor).toBe(tokenColor('--tone-neutral-bg'));
+          const table = panel.querySelector('table[aria-label="Precios por plan"]');
 
-          const groups = [...panel.querySelectorAll('section[data-list]')];
-          expect(groups.map((g) => getComputedStyle(g).borderLeftColor)).toEqual([
-            tokenColor('--tone-info-fg'),
-            tokenColor('--tone-purple-fg'),
-            tokenColor('--tone-warning-fg'),
-          ]);
-
-          const row = (label) => [...panel.querySelectorAll('section[data-list] tbody tr')].find((tr) => (tr.querySelector('th').getAttribute('aria-label') ?? tr.querySelector('th').textContent) === label);
-          const chip = (label, col) => row(label).querySelector(`[data-col="${col}"] [data-tone]`);
+          const chip = (label, col) => table.querySelector(`[data-entry-label="${label}"] [data-col="${col}"] [data-tone]`);
           expect(getComputedStyle(chip('Clásica', 'markup')).color).toBe(tokenColor('--tone-success-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).color).toBe(tokenColor('--tone-danger-fg'));
           expect(getComputedStyle(chip('12 cuotas', 'markup')).backgroundColor).toBe(tokenColor('--tone-danger-bg'));
           expect(chip('Clásica', 'markup-offset').textContent).toBe('31,56%');
           expect(chip('Clásica', 'markup-sell-in-out').textContent).toBe('28,80%');
           expect(facts).toHaveTextContent('$ 60.000,00');
-          // Readable on the card in both themes.
-          const card = getComputedStyle(groups[0]).backgroundColor;
+          // Readable on the panel in both themes: the table paints nothing of its own.
+          let backdrop = table;
+          while (getComputedStyle(backdrop).backgroundColor === 'rgba(0, 0, 0, 0)') backdrop = backdrop.parentElement;
+          const card = getComputedStyle(backdrop).backgroundColor;
           for (const label of ['Clásica', '12 cuotas']) {
             expect(contrastRatio(getComputedStyle(chip(label, 'markup')).color, card)).toBeGreaterThanOrEqual(3);
           }
@@ -1943,9 +2081,7 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
           // Figures on one line. Whether every list fits the panel's width depends on the typeface the host
           // resolves (the suite loads none, see pxqPanel.visual.test.jsx): the CI runner's fallback is about a
           // quarter wider than a desktop's, so that fit is checked by hand on a screenshot, not here.
-          const figures = [...panel.querySelectorAll('section[data-list] tbody td')].filter((td) => /\d/.test(td.textContent));
-          expect(figures.filter((td) => getComputedStyle(td).whiteSpace !== 'nowrap').map((td) => td.textContent)).toEqual([]);
-          expect(wrapped(panel.querySelectorAll('section[data-list] [data-tone]'))).toEqual([]);
+          expect(wrapped(table.querySelectorAll('td[data-entry] [data-tone]'))).toEqual([]);
           // Rebate, best offer and web transferencia: chips by the same scale, details wrap under the label.
           const extras = [...panel.querySelectorAll('section[data-list="extras"] tbody tr')];
           expect(getComputedStyle(extras[0].querySelector('[data-tone]')).color).toBe(tokenColor('--tone-success-fg'));
@@ -2174,9 +2310,9 @@ describe('row colors and the color layer (S8)', () => {
       expect(getComputedStyle(hinted.querySelector('td')).boxShadow).toContain('inset');
       painted.scrollIntoView({ block: 'center' });
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/row-colors-1366-${theme}.png` });
-      // With a product checked, the Pintar button joins the band and still fits it.
-      await screen.getByRole('checkbox', { name: /Seleccionar el producto de/ }).first().click();
-      await expect.element(screen.getByRole('button', { name: 'Pintar 1 producto' })).toBeVisible();
+      // With a publication checked, the Pintar button joins the band and still fits it.
+      await screen.getByRole('checkbox', { name: /Seleccionar la publicación/ }).first().click();
+      await expect.element(screen.getByRole('button', { name: 'Pintar 1 publicación' })).toBeVisible();
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1366);
       if (PRODUCT_SHOTS_DIR) {
         window.scrollTo(0, 0);
@@ -2280,6 +2416,37 @@ describe('row colors and the color layer (S8)', () => {
     });
   }
 
+  // "Filas finas" (vistas-tipo-publicacion S5) shrinks the sparklines only: the lock icon keeps its 10px.
+  for (const theme of ['light', 'dark']) {
+    it(`1920x1080 ${theme}: dense Precios view, sparklines shrink but the lock icon keeps its size`, async () => {
+      localStorage.setItem('publicaciones-ml.filas-finas', 'true');
+      try {
+        const screen = await renderPage({ width: 1920, height: 1080, theme, entry: PRECIOS });
+        const lock = screen.getByRole('img', { name: '% conservado en cambios masivos' }).first();
+        await expect.element(lock).toBeVisible();
+        expect(scrollerOf().closest('[data-density]').dataset.density).toBe('dense');
+        expect(lock.element().getBoundingClientRect().height).toBeLessThanOrEqual(10.5);
+        const sparks = [...scrollerOf().querySelectorAll('td svg[aria-label$="90 días"]')];
+        expect(sparks.length).toBeGreaterThan(0);
+        for (const spark of sparks) expect(spark.getBoundingClientRect().height).toBeLessThanOrEqual(16.5);
+        // What dense mode hides (struck price, promotion, "Sin stock ERP") takes no room on the line.
+        const hidden = [...scrollerOf().querySelectorAll('[data-dense-hidden]')];
+        expect(hidden.length).toBeGreaterThan(0);
+        for (const el of hidden) expect(el.getClientRects().length, el.textContent).toBe(0);
+        // The meta line is cut inside its own box (whole in the title's tooltip): no cell spills, nothing cut lacks a title.
+        const spilling = [...scrollerOf().querySelectorAll('tbody td')].filter((td) => td.scrollWidth > td.clientWidth + 1);
+        expect(spilling.map((td) => td.textContent.trim().slice(0, 40))).toEqual([]);
+        const cut = [...scrollerOf().querySelectorAll('td[data-column="titulo"] span')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+        for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+        lock.element().closest('td').scrollIntoView({ block: 'center', inline: 'center' });
+        if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-precios-1920-${theme}.png` });
+        screen.unmount();
+      } finally {
+        localStorage.removeItem('publicaciones-ml.filas-finas');
+      }
+    });
+  }
+
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: the rebate and web transfer editors open inside their cell, every control in view`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });
@@ -2338,7 +2505,7 @@ describe('row colors and the color layer (S8)', () => {
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: the page's checkbox sits on the title header's line, before its sort button, and is clickable`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme });
-      const all = screen.getByRole('checkbox', { name: 'Seleccionar los productos de la página' });
+      const all = screen.getByRole('checkbox', { name: 'Seleccionar las filas de la página' });
       await expect.element(all).toBeVisible();
       all.element().scrollIntoView({ block: 'center', inline: 'nearest' });
       const header = all.element().closest('th');
@@ -2417,6 +2584,52 @@ describe('Publicaciones ML hideable KPI cards (visual)', () => {
       await expect.poll(() => cards()).toBeNull();
       await expect.element(screen.getByRole('group', { name: 'Período' })).toBeVisible();
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/kpis-hidden-all-${theme}.png` });
+      screen.unmount();
+    });
+  }
+});
+
+describe('Publicaciones ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () => {
+  const KEY = 'publicaciones-ml.filas-finas';
+  beforeEach(() => {
+    localStorage.removeItem(KEY);
+    canSeeMargin = false;
+    publicacionesMlAPI.items.mockReset();
+    publicacionesMlAPI.items.mockResolvedValue({ data: RESPONSE });
+  });
+  // The browser's storage outlives the file: leave the normal density for the suites that run next.
+  afterEach(() => localStorage.removeItem(KEY));
+
+  for (const theme of THEMES) {
+    it(`1920x1080 ${theme}: thin rows, titles on one line, nothing wraps or overflows`, async () => {
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      const scroller = scrollerOf();
+      const firstRow = () => scroller.querySelector('tbody tr');
+      const normalHeight = rect(firstRow()).height;
+
+      await screen.getByRole('button', { name: 'Filas finas' }).click();
+      await expect.element(screen.getByRole('button', { name: 'Filas finas', pressed: true })).toBeVisible();
+      await frame();
+      expect(scroller.closest('[data-density]').dataset.density).toBe('dense');
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/filas-finas-1920-${theme}.png` });
+      // Thinner than the current density, at most two short lines (title and its MLA line).
+      expect(rect(firstRow()).height).toBeLessThan(normalHeight * 0.75);
+      expect(rect(firstRow()).height).toBeLessThanOrEqual(44);
+
+      // Anything cut in the Publicación cell (title or meta line) is readable in its own tooltip.
+      const cut = [...scroller.querySelectorAll('td[data-column="titulo"] span')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+      expect(cut.length).toBeGreaterThan(0);
+      for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+      const titles = [...scroller.querySelectorAll('td[data-column="titulo"] span[title]')];
+      expect(titles.length).toBeGreaterThan(0);
+      expect(wrapped(titles)).toEqual([]);
+      const figures = [...scroller.querySelectorAll('td[data-align="right"] span')].filter((el) =>
+        /^[\d.,]+$/.test(el.textContent.trim()),
+      );
+      expect(figures.length).toBeGreaterThan(0);
+      expect(wrapped(figures)).toEqual([]);
+      expect(overflowingCells(scroller)).toEqual([]);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1920);
       screen.unmount();
     });
   }

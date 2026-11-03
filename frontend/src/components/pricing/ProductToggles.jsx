@@ -35,8 +35,9 @@ function EditButton({ label, onClick, disabled }) {
  * @param {(write: (itemId: number) => Promise<unknown>, texts: { saved: string, fallback: string }) => Promise<boolean>} props.onSave
  *   Runs the write for the product on screen, re-reads it and reports; resolves true when it was saved.
  * @param {(text: string) => void} props.onInvalid Reports a value that is not sent.
+ * @param {import('react').ReactNode} [props.webTransferNote] Shown under the web transfer (a panel's Tienda Nube price).
  */
-export default function ProductToggles({ product, permissions, saving, onSave, onInvalid }) {
+export default function ProductToggles({ product, permissions, saving, onSave, onInvalid, webTransferNote = null }) {
   const [editing, setEditing] = useState(null);
   const canRebate = Boolean(permissions?.canToggleRebate);
   const canWebTransf = Boolean(permissions?.canToggleWebTransf);
@@ -44,7 +45,12 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
   const editable = canRebate || canWebTransf;
 
   const hasRebate = Boolean(product.participa_rebate && product.precio_rebate);
-  const offer = product.mejor_oferta_precio ? offerDetails(product) : [];
+  // Out of cards the rebate is the best offer: its price, and the seller's PVP with it, are the rebate's. Named, not
+  // repeated: no price shows twice in the tab (orchestrator, 2026-11-02).
+  const offerIsRebate = hasRebate && Number(product.mejor_oferta_precio) === Number(product.precio_rebate);
+  const offer = product.mejor_oferta_precio
+    ? offerDetails(offerIsRebate && Number(product.mejor_oferta_pvp_seller) === Number(product.precio_rebate) ? { ...product, mejor_oferta_pvp_seller: null } : product)
+    : [];
   const webTransf = Boolean(product.participa_web_transferencia);
 
   // A value that is not sent is reported; a saved one closes the editor.
@@ -137,7 +143,9 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
                 </div>
               ))}
             </th>
-            <td className={styles.price}>{product.mejor_oferta_precio ? <Money value={product.mejor_oferta_precio} /> : <Empty />}</td>
+            <td className={styles.price}>
+              {offerIsRebate ? <span className={styles.sameAs}>Igual al rebate</span> : product.mejor_oferta_precio ? <Money value={product.mejor_oferta_precio} /> : <Empty />}
+            </td>
             <td className={styles.markup}>
               {product.mejor_oferta_precio && !isBlank(product.mejor_oferta_markup) ? <MarkupChip value={product.mejor_oferta_markup * 100} /> : <Empty />}
             </td>
@@ -157,6 +165,7 @@ export default function ProductToggles({ product, permissions, saving, onSave, o
                   )}
                 </div>
               )}
+              {webTransferNote}
             </th>
             <td className={styles.price}>{webTransf ? <Money value={product.precio_web_transferencia} /> : <Empty />}</td>
             <td className={styles.markup}>{webTransf ? <MarkupChip value={product.markup_web_real} /> : <Empty />}</td>
