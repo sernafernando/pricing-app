@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
 
 from app.services.ml_api_client import ShippingWriteResult
 from app.services.publicacion_repair import envio as envio_mod
+
+
+def _fresh() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _shipping(**overrides):
@@ -20,6 +25,7 @@ def _shipping(**overrides):
         "store_pick_up": False,
         "tags": ["self_service_in"],
         "status": "active",
+        "fetched_at": _fresh(),
     }
     base.update(overrides)
     return base
@@ -53,6 +59,7 @@ def patched_audit(monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setattr(envio_mod.settings, "ML_PUB_KILL_SWITCH", False)
     monkeypatch.setattr(envio_mod.settings, "ML_ITEM_DATA_WRITE_ENABLED", True)
+    monkeypatch.setattr(envio_mod, "latest_flex_refusal_fingerprints", lambda db, mlas: {})
     return finish_kw, events, shipping_logs, flex_logs
 
 
@@ -241,3 +248,72 @@ def test_max_writes_cap_counts_attempts(monkeypatch: pytest.MonkeyPatch, patched
     assert stats["changed"] == 1
     assert stats["skipped"] == 1
     assert any(e.get("detail") == "max_writes_cap" for e in events)
+
+
+def test_flex_refusal_is_recorded_with_fingerprint(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    _finish, events, *_ = patched_audit
+    current = _shipping(tags=[])  # needs Flex enable; shipping already ME2/colecta/pickup
+    monkeypatch.setattr(envio_mod, "_load_work_items", lambda db: [("MLA_FLEX", 1, current)])
+
+    class Fake:
+        async def put_item_shipping(self, *a, **k):
+            raise AssertionError("no shipping put expected")
+
+        async def enable_item_flex(self, mla: str):
+            return ShippingWriteResult(ok=False, status_code=400, not_allowed=True, detail="flex blocked")
+
+    stats = asyncio.run(envio_mod.run_envio_repair(client=Fake(), pacing_seconds=0))
+    assert stats["skipped"] == 1
+    assert events[0]["detail"] == envio_mod.DETAIL_FLEX_REFUSED
+    assert events[0]["after"]["fingerprint"] == envio_mod.ml_item_shipping_fingerprint(current)
+    assert events[0]["after"]["ml_detail"] == "flex blocked"
+
+
+def test_flex_refusal_skips_while_ml_items_unchanged(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    _finish, events, *_ = patched_audit
+    current = _shipping(tags=[])
+    fp = envio_mod.ml_item_shipping_fingerprint(current)
+    monkeypatch.setattr(envio_mod, "_load_work_items", lambda db: [("MLA_FLEX", 1, current)])
+    monkeypatch.setattr(
+        envio_mod,
+        "latest_flex_refusal_fingerprints",
+        lambda db, mlas: {"MLA_FLEX": fp},
+    )
+
+    class Boom:
+        async def put_item_shipping(self, *a, **k):
+            raise AssertionError("must not write after flex refusal cache hit")
+
+        async def enable_item_flex(self, *a, **k):
+            raise AssertionError("must not re-POST Flex while ml_items unchanged")
+
+    stats = asyncio.run(envio_mod.run_envio_repair(client=Boom(), pacing_seconds=0))
+    assert stats["skipped"] == 1
+    assert events[0]["detail"] == envio_mod.DETAIL_FLEX_REFUSED_UNCHANGED
+
+
+def test_flex_refusal_retries_when_ml_items_fingerprint_changes(
+    monkeypatch: pytest.MonkeyPatch, patched_audit
+) -> None:
+    _finish, events, _shipping_logs, flex_logs = patched_audit
+    current = _shipping(tags=[])
+    monkeypatch.setattr(envio_mod, "_load_work_items", lambda db: [("MLA_FLEX", 1, current)])
+    monkeypatch.setattr(
+        envio_mod,
+        "latest_flex_refusal_fingerprints",
+        lambda db, mlas: {"MLA_FLEX": "stale-fingerprint"},
+    )
+    flex_calls: list[str] = []
+
+    class Fake:
+        async def put_item_shipping(self, *a, **k):
+            raise AssertionError("no shipping put")
+
+        async def enable_item_flex(self, mla: str):
+            flex_calls.append(mla)
+            return ShippingWriteResult(ok=True, status_code=204)
+
+    stats = asyncio.run(envio_mod.run_envio_repair(client=Fake(), pacing_seconds=0))
+    assert flex_calls == ["MLA_FLEX"]
+    assert stats["changed"] == 1
+    assert flex_logs == ["MLA_FLEX"]

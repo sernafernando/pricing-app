@@ -7,6 +7,7 @@ Condition: active linked pubs × ml_items drift vs the write policy below.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ from app.models.publicacion_repair import (
     ACTION_ERROR,
     ACTION_SKIPPED,
     JOB_ENVIO,
+    PublicacionRepairEvent,
     TRIGGER_TICK,
 )
 from app.services.ml_api_client import MercadoLibreAPIClient
@@ -46,6 +48,10 @@ MODIFIABLE_STATUSES = frozenset({"active", "paused"})
 
 # Keys that must never appear on a repair shipping PUT.
 _FORBIDDEN_WRITE_KEYS = frozenset({"free_shipping", "tags", "store_pick_up"})
+
+# Persist Flex ML refusals so we do not POST every tick while ml_items is unchanged.
+DETAIL_FLEX_REFUSED = "flex_refused"
+DETAIL_FLEX_REFUSED_UNCHANGED = "flex_refused_unchanged"
 
 
 @dataclass
@@ -128,6 +134,48 @@ def has_colecta(current: dict[str, Any]) -> bool:
 
 def is_full(current: dict[str, Any]) -> bool:
     return current.get("logistic_type") == LOGISTIC_FULL
+
+
+def ml_item_shipping_fingerprint(current: dict[str, Any]) -> str:
+    """Stable view of ml_items shipping state used to expire a Flex refusal cache."""
+    fetched = current.get("fetched_at")
+    if hasattr(fetched, "isoformat"):
+        fetched_s = fetched.isoformat()
+    elif fetched is None:
+        fetched_s = ""
+    else:
+        fetched_s = str(fetched)
+    tags = current.get("tags") if isinstance(current.get("tags"), list) else []
+    payload = {
+        "fetched_at": fetched_s,
+        "mode": current.get("mode"),
+        "logistic_type": current.get("logistic_type"),
+        "local_pick_up": current.get("local_pick_up"),
+        "tags": sorted(str(t) for t in tags),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def latest_flex_refusal_fingerprints(db: Session, mlas: list[str]) -> dict[str, str]:
+    """Latest `flex_refused` fingerprint per MLA (empty when none)."""
+    if not mlas:
+        return {}
+    rows = (
+        db.query(PublicacionRepairEvent)
+        .filter(PublicacionRepairEvent.mla_id.in_(mlas))
+        .filter(PublicacionRepairEvent.detail == DETAIL_FLEX_REFUSED)
+        .order_by(PublicacionRepairEvent.mla_id.asc(), PublicacionRepairEvent.created_at.desc())
+        .all()
+    )
+    out: dict[str, str] = {}
+    for row in rows:
+        if row.mla_id in out:
+            continue
+        after = row.after if isinstance(row.after, dict) else {}
+        fingerprint = after.get("fingerprint")
+        if isinstance(fingerprint, str) and fingerprint:
+            out[row.mla_id] = fingerprint
+    return out
 
 
 def shipping_incomplete(current: dict[str, Any]) -> bool:
@@ -260,6 +308,7 @@ async def run_envio_repair(
     try:
         with get_background_db() as read_db:
             work = _load_work_items(read_db)
+            flex_refusals = latest_flex_refusal_fingerprints(read_db, [mla for mla, _, _ in work])
         scanned = len(work)
 
         for mla, item_id, before in work:
@@ -275,6 +324,22 @@ async def run_envio_repair(
                     detail=plan.skip_reason,
                 )
                 continue
+            fingerprint = ml_item_shipping_fingerprint(before)
+            if plan.enable_flex and flex_refusals.get(mla) == fingerprint:
+                # ML already refused Flex while this ml_items view was unchanged — do not re-POST.
+                plan = EnvioPlan(shipping_put=dict(plan.shipping_put), enable_flex=False)
+                if not plan.needs_write:
+                    skipped += 1
+                    repair_audit.record_event_bg(
+                        run_id=run_id,
+                        mla_id=mla,
+                        item_id=item_id,
+                        action=ACTION_SKIPPED,
+                        before=before,
+                        after={"fingerprint": fingerprint},
+                        detail=DETAIL_FLEX_REFUSED_UNCHANGED,
+                    )
+                    continue
             if not plan.needs_write:
                 continue
             if writes_done >= max_writes:
@@ -355,15 +420,22 @@ async def run_envio_repair(
                     repair_audit.after_flex_enabled(mla)
                 elif flex.not_allowed:
                     skipped += 1
+                    refusal_after = {
+                        **after,
+                        "fingerprint": fingerprint,
+                        "ml_detail": flex.detail or "flex_not_allowed",
+                    }
                     repair_audit.record_event_bg(
                         run_id=run_id,
                         mla_id=mla,
                         item_id=item_id,
                         action=ACTION_SKIPPED,
                         before=before,
-                        after=after,
-                        detail=flex.detail or "flex_not_allowed",
+                        after=refusal_after,
+                        detail=DETAIL_FLEX_REFUSED,
                     )
+                    # Same-tick follow-ups for this MLA see the refusal without another DB round-trip.
+                    flex_refusals[mla] = fingerprint
                     if pacing_seconds > 0:
                         await asyncio.sleep(pacing_seconds)
                     continue
