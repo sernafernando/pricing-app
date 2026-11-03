@@ -310,6 +310,59 @@ class TestContract:
         assert line.startswith("pubml.view endpoint=items total_ms=") and "rows=2" in line and "total=2" in line
 
 
+class TestFacetTotals:
+    """Each chip group's "Todos" counts what there is: the rows without that group's own selection (the other
+    filters still apply), so choosing a chip never shrinks its own "Todos" or its siblings."""
+
+    def fill(self, conn) -> None:
+        seed.add_product(conn, 70, "A1", "Router")
+        seed.add_item(
+            conn, "MLA1", status="active", listing_type_id="gold_special", official_store_id=1, available_quantity=5
+        )
+        seed.add_link(conn, "MLA1", 70)
+        seed.add_item(conn, "MLA2", status="paused", listing_type_id="gold_pro", available_quantity=0)
+        seed.add_item(
+            conn, "MLA3", status="active", listing_type_id="gold_pro", official_store_id=1, available_quantity=0
+        )
+
+    @pytest.mark.parametrize(
+        ("param", "value", "axis"),
+        [
+            ("estado", "paused", "status"),
+            ("tipo", "clasica", "listing"),
+            ("vinculo", "no_evaluado", "link"),
+            ("stock", "sin_stock", "stock"),
+            ("tiendas", "1", "stores"),
+        ],
+    )
+    def test_a_group_total_ignores_its_own_selection(self, client, pg, reader, param, value, axis) -> None:
+        seed_rows(pg, self.fill)
+        unfiltered = get(client, reader, facets="true").json()["facets"]
+        body = get(client, reader, facets="true", **{param: value}).json()
+        assert body["total"] < 3  # the list itself is filtered
+        assert body["facets"]["totals"][axis] == 3 == unfiltered["totals"][axis]
+        assert body["facets"][axis] == unfiltered[axis]  # the siblings stay put too
+
+    def test_choosing_eliminadas_keeps_todos_on_the_live_publications(self, client, pg, reader) -> None:
+        def fill(conn) -> None:
+            self.fill(conn)
+            seed.add_item(conn, "MLA4", status="closed", gone_at=seed.hours_ago(1))
+
+        seed_rows(pg, fill)
+        body = get(client, reader, facets="true", estado="gone").json()
+        assert body["total"] == 1  # the list shows the deleted one
+        assert body["facets"]["totals"]["status"] == 3  # "Todos": the live publications, as with nothing chosen
+        assert body["facets"]["status"]["gone"] == 1
+        assert get(client, reader, facets="true").json()["facets"]["totals"]["status"] == 3
+
+    def test_a_group_total_still_obeys_the_other_groups(self, client, pg, reader) -> None:
+        seed_rows(pg, self.fill)
+        totals = get(client, reader, facets="true", estado="active", stock="sin_stock").json()["facets"]["totals"]
+        assert totals["status"] == 2  # MLA2, MLA3 have no stock
+        assert totals["stock"] == 2  # MLA1, MLA3 are active
+        assert totals["listing"] == totals["link"] == totals["stores"] == 1  # MLA3 alone
+
+
 class TestSkuDivergence:
     def test_the_divergence_filter_lists_the_row_with_the_product_its_sku_names(self, client, pg, reader) -> None:
         def fill(conn) -> None:

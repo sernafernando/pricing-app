@@ -1129,6 +1129,8 @@ class TestFacets:
                 "erp_con_stock": 0,
                 "propio_sin_stock": 0,
             },
+            # each chip group's "Todos": the live rows (MLA6 is gone), the status axis' `gone` left out
+            "totals": {"status": 5, "stores": 5, "listing": 5, "link": 5, "stock": 5},
         }
 
     def test_the_promo_axis_counts_the_publications_with_a_started_promotion_and_the_rest(self, db) -> None:
@@ -1209,6 +1211,7 @@ class TestFacets:
                 "erp_con_stock": 0,
                 "propio_sin_stock": 0,
             },
+            "totals": {"status": 0, "stores": 0, "listing": 0, "link": 0, "stock": 0},
         }
 
     def test_one_statement_per_axis_whatever_the_data(self, db) -> None:

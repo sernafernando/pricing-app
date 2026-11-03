@@ -16,6 +16,8 @@ Debajo está la barra de filtros: búsqueda por producto/SKU/MLA/marca, vista (P
 
 La tabla lista las publicaciones con sus métricas; al expandir una fila se ven las publicaciones del producto. Se pueden editar precios en línea, asignar colores, aplicar acciones masivas (si tenés permiso) y ver el detalle en el panel lateral.
 
+Los números de los botones de filtro (estado, tipo, vínculo, stock y tienda) cuentan lo que hay, no lo que deja el propio botón: al elegir **Eliminadas**, **Todas** sigue diciendo cuántas publicaciones hay y cada botón del grupo mantiene su número. Sí tienen en cuenta los filtros de los otros grupos.
+
 **Limpiar filtros** vuelve al punto de partida.
 
 ## Filtros y columnas
