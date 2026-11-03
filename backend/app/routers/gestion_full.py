@@ -250,6 +250,7 @@ def get_gestion_full(
         offset=offset,
     )
     perms = PermisosService(db)
+    # Resolve PM scope once — puede_editar_override_para would N+1 (~2 queries/row).
     pares = get_pares_marca_categoria_usuario(db, current_user)
     for item in payload["items"]:
         in_scope = puede_editar_con_pares(pares, item.get("marca"), item.get("categoria"))
@@ -579,8 +580,9 @@ def post_refresh_inbound(
 ) -> dict[str, Any]:
     """Pull the latest Full inbound reception from ML and store it as Target.
 
-    Restricted to full-view users to protect the ML operations quota; a Monday
-    batch job can refresh everyone later.
+    Restricted to full-view users to protect the ML operations quota; the
+    weekend drip handler (``gestion_full.inbound``) refreshes everyone on
+    Saturday and Sunday.
     """
     if not is_full_view(current_user, db):
         raise HTTPException(
