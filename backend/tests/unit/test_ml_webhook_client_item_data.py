@@ -83,3 +83,15 @@ def test_no_response_is_ambiguous_and_not_retried(monkeypatch: pytest.MonkeyPatc
     result, seen = _call(monkeypatch, fail, method, arg)
     assert result == {"ok": False, "status_code": None, "ambiguous": True, "body": None}
     assert len(seen) == 1
+
+
+def test_put_item_data_surfaces_retry_after_on_429(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, _ = _call(
+        monkeypatch,
+        lambda request: httpx.Response(429, headers={"Retry-After": "30"}, json={"message": "slow down"}),
+        "put_item_data",
+        ITEM_BODY,
+    )
+    assert result["ok"] is False
+    assert result["status_code"] == 429
+    assert result["retry_after"] == "30"

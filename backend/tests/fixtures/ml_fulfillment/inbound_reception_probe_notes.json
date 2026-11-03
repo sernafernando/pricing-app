@@ -81,7 +81,7 @@
   },
   "captured_live_meta": {
     "captured_at": "2026-11-02",
-    "via": "https://ml-webhook.gaussonline.com.ar/api/ml/render",
+    "via": "ml-webhook /api/ml/render (internal proxy)",
     "request": {
       "path": "/stock/fulfillment/operations/search",
       "seller_id": "413658225",
