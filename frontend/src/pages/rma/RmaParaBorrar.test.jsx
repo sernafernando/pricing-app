@@ -116,3 +116,27 @@ describe('RmaParaBorrar stale answers', () => {
     expect(screen.queryByText('RMA-2026-0001')).not.toBeInTheDocument();
   });
 });
+
+describe('RmaParaBorrar tick then filter change', () => {
+  it('a tick that finishes after the filter changed reloads the current filter, not the old one', async () => {
+    let resolvePut;
+    api.put.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePut = resolve;
+        }),
+    );
+    render(<RmaParaBorrar puedeGestionar />);
+    const row = (await screen.findByText('RMA-2026-0001')).closest('tr');
+
+    await userEvent.click(within(row).getByRole('checkbox', { name: 'Revisado RMA-2026-0001' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Revisados (1)' }));
+    await screen.findByText('RMA-2026-0002');
+    resolvePut({ data: {} });
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(3));
+    expect(api.get).toHaveBeenLastCalledWith('/rma-seguimiento/para-borrar', { params: { estado: 'revisados' } });
+    expect(await screen.findByText('RMA-2026-0002')).toBeInTheDocument();
+    expect(screen.queryByText('RMA-2026-0001')).not.toBeInTheDocument();
+  });
+});

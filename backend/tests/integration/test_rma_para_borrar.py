@@ -15,6 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from app.models.rma_caso import RmaCaso
+from app.models.rma_caso_historial import RmaCasoHistorial
 
 
 @contextmanager
@@ -157,3 +158,37 @@ def test_ticking_a_case_not_marked_para_borrar_is_404(client, auth_headers, db, 
     assert resp.status_code == 404
     db.expire_all()
     assert db.get(RmaCaso, caso.id).borrar_revisado_at is None
+
+
+def test_each_tick_is_logged_in_the_case_history(client, auth_headers, db, casos, active_user):
+    caso = casos["pendiente"]
+    with _permisos("rma.gestionar"):
+        client.put(f"/api/rma-seguimiento/{caso.id}/borrar-revisado", json={"revisado": True}, headers=auth_headers)
+        client.put(f"/api/rma-seguimiento/{caso.id}/borrar-revisado", json={"revisado": False}, headers=auth_headers)
+
+    rows = (
+        db.query(RmaCasoHistorial)
+        .filter(RmaCasoHistorial.caso_id == caso.id, RmaCasoHistorial.campo == "borrar_revisado_at")
+        .order_by(RmaCasoHistorial.id)
+        .all()
+    )
+    assert [(r.valor_anterior is None, r.valor_nuevo is None, r.usuario_id) for r in rows] == [
+        (True, False, active_user.id),
+        (False, True, active_user.id),
+    ]
+
+
+def test_ticking_an_already_reviewed_case_records_the_new_reviewer(client, admin_auth_headers, db, casos, admin_user):
+    caso = casos["revisado"]
+    with _permisos("rma.gestionar"):
+        resp = client.put(
+            f"/api/rma-seguimiento/{caso.id}/borrar-revisado", json={"revisado": True}, headers=admin_auth_headers
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["borrar_revisado_por_id"] == admin_user.id
+    db.expire_all()
+    stored = db.get(RmaCaso, caso.id)
+    assert stored.borrar_revisado_por_id == admin_user.id
+    # The test database may hand back a naive timestamp: compare the wall-clock instant.
+    assert stored.borrar_revisado_at.replace(tzinfo=None) > datetime(2026, 11, 2, 15, 0)

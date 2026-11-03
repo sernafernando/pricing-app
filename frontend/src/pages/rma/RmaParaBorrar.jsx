@@ -19,6 +19,8 @@ export default function RmaParaBorrar({ puedeGestionar }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [guardando, setGuardando] = useState(null);
+  // Bumped after a tick: the effect reloads with the filter selected NOW, even if it changed while the PUT ran.
+  const [recarga, setRecarga] = useState(0);
   // Only the latest request may fill the table: an older answer that arrives late (a quick filter change) is dropped.
   const ultimoPedido = useRef(0);
 
@@ -38,14 +40,14 @@ export default function RmaParaBorrar({ puedeGestionar }) {
 
   useEffect(() => {
     cargar();
-  }, [cargar]);
+  }, [cargar, recarga]);
 
   const toggleRevisado = async (caso) => {
     setGuardando(caso.id);
     setError(null);
     try {
       await api.put(`/rma-seguimiento/${caso.id}/borrar-revisado`, { revisado: !caso.borrar_revisado_at });
-      await cargar();
+      setRecarga((n) => n + 1);
     } catch {
       setError(`No se pudo guardar la revisión de ${caso.numero_caso}.`);
     } finally {

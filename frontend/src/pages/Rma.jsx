@@ -22,6 +22,7 @@ const RmaMetricas = lazy(() => import('./rma/RmaMetricas'));
 export default function Rma() {
   const { tienePermiso } = usePermisos();
   const puedeVerMetricas = tienePermiso('rma.ver');
+  const puedeVerRma = tienePermiso('rma.ver');
   const puedeGestionar = tienePermiso('rma.gestionar');
   const puedeAdminOpciones = tienePermiso('rma.admin_opciones');
   const puedeImprimir = tienePermiso('documentos.imprimir');
@@ -249,7 +250,7 @@ export default function Rma() {
             Envios a Cliente
           </button>
         )}
-        {puedeVerMetricas && (
+        {puedeVerRma && (
           <button
             className={`${styles.tab} ${activeTab === 'para_borrar' ? styles.tabActive : ''}`}
             onClick={() => setActiveTab('para_borrar')}
@@ -409,7 +410,7 @@ export default function Rma() {
       )}
 
       {/* Tab: Para borrar — cases marked "Marcado para borrar pedido", with a "Revisado" tick */}
-      {activeTab === 'para_borrar' && puedeVerMetricas && <RmaParaBorrar puedeGestionar={puedeGestionar} />}
+      {activeTab === 'para_borrar' && puedeVerRma && <RmaParaBorrar puedeGestionar={puedeGestionar} />}
 
       {/* Tab: Métricas — lazy-loaded (recharts stays out of the main bundle) */}
       {activeTab === 'metricas' && puedeVerMetricas && (
