@@ -4,8 +4,9 @@
  * the view is read-only (editing: ProductPrices.editing.test.jsx).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import ProductPrices from './ProductPrices';
+import { priceOf } from './priceTestUtils';
 import { preciosAPI } from '../../services/api';
 import { PRODUCTO } from './ProductPrices.fixtures';
 
@@ -13,7 +14,6 @@ vi.mock('../../services/api', () => ({
   preciosAPI: { obtenerProducto: vi.fn(), tipoCambioActual: vi.fn() },
 }));
 
-const rowOf = (label) => screen.findByRole('row', { name: new RegExp(`^${label}\\b`) });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -21,6 +21,29 @@ beforeEach(() => {
 });
 
 describe('ProductPrices', () => {
+  describe('one table, a row per plan (S2)', () => {
+    const table = () => screen.findByRole('table', { name: 'Precios por plan' });
+
+    it('lays Lista ML and PVP side by side, one row per plan', async () => {
+      render(<ProductPrices productItemId={4101} />);
+      const prices = await table();
+      expect(screen.getAllByRole('table', { name: 'Precios por plan' })).toHaveLength(1);
+      expect(within(prices).getAllByRole('columnheader').map((th) => th.textContent)).toEqual(['Plan', 'Lista ML', 'PVP']);
+      expect(within(prices).getAllByRole('rowheader').map((th) => th.textContent)).toEqual(['Clásica', '3 cuotas', '6 cuotas', '9 cuotas', '12 cuotas']);
+      const clasica = within(prices).getByRole('row', { name: /^Clásica/ });
+      expect(clasica).toHaveTextContent('98.500,50');
+      expect(clasica).toHaveTextContent('99.000,00');
+    });
+
+    it('shows every price once', async () => {
+      render(<ProductPrices productItemId={4101} />);
+      await table();
+      const amounts = (document.body.textContent.match(/\$ [\d.]+,\d{2}/g) ?? []);
+      expect(amounts.length).toBeGreaterThan(5);
+      expect(new Set(amounts).size).toBe(amounts.length);
+    });
+  });
+
   const LEGEND = 'El precio es del producto: cambiarlo afecta a todas sus publicaciones.';
 
   it('shows the product-wide legend while it loads and after', async () => {
@@ -32,7 +55,7 @@ describe('ProductPrices', () => {
 
     preciosAPI.obtenerProducto.mockResolvedValue({ data: PRODUCTO });
     render(<ProductPrices productItemId={4101} />);
-    await rowOf('Clásica');
+    await priceOf('Clásica');
     expect(screen.getByRole('note')).toHaveTextContent(LEGEND);
   });
 
@@ -54,19 +77,19 @@ describe('ProductPrices', () => {
 
   it('reads the product by item_id and shows each price with its markup', async () => {
     render(<ProductPrices productItemId={4101} />);
-    const clasica = await rowOf('Clásica');
+    const clasica = await priceOf('Clásica');
     expect(clasica).toHaveTextContent('98.500,50');
     expect(clasica).toHaveTextContent('18,40%');
-    expect(await rowOf('6 cuotas')).toHaveTextContent('22,35%');
-    expect(await rowOf('PVP clásica')).toHaveTextContent('99.000,00');
-    expect(await rowOf('PVP 3 cuotas')).toHaveTextContent('21,00%');
+    expect(await priceOf('6 cuotas')).toHaveTextContent('22,35%');
+    expect(await priceOf('PVP clásica')).toHaveTextContent('99.000,00');
+    expect(await priceOf('PVP 3 cuotas')).toHaveTextContent('21,00%');
     expect(screen.getByText('ARCHER-AX55')).toBeInTheDocument();
     expect(preciosAPI.obtenerProducto).toHaveBeenCalledWith(4101);
   });
 
   it('shows "—" for a missing price or markup, never 0', async () => {
     render(<ProductPrices productItemId={4101} />);
-    const nueve = await rowOf('9 cuotas');
+    const nueve = await priceOf('9 cuotas');
     expect(nueve).not.toHaveTextContent('0,00');
     expect(nueve.textContent.match(/—/g)).toHaveLength(2);
   });
@@ -76,21 +99,21 @@ describe('ProductPrices', () => {
       data: { ...PRODUCTO, markup_3_cuotas: null, markup_6_cuotas: null, markup_9_cuotas: null, markup_12_cuotas: null },
     });
     render(<ProductPrices productItemId={4101} />);
-    const tres = await rowOf('3 cuotas');
+    const tres = await priceOf('3 cuotas');
     expect(tres).toHaveTextContent('101.200,00');
     expect(tres).toHaveTextContent('—');
   });
 
   it('marks a negative markup', async () => {
     render(<ProductPrices productItemId={4101} />);
-    const doce = await rowOf('12 cuotas');
+    const doce = await priceOf('12 cuotas');
     expect(doce).toHaveTextContent('-2,00%');
     expect(doce.querySelector('[data-negative]')).not.toBeNull();
   });
 
   it('is read-only', async () => {
     render(<ProductPrices productItemId={4101} />);
-    await rowOf('Clásica');
+    await priceOf('Clásica');
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
@@ -163,7 +186,7 @@ describe('cost and IVA next to the prices', () => {
     render(<ProductPrices productItemId={4101} showCost />);
     const group = await facts();
     await waitFor(() => expect(group).toHaveTextContent('sin tipo de cambio'));
-    expect(await rowOf('Clásica')).toHaveTextContent('98.500,50');
+    expect(await priceOf('Clásica')).toHaveTextContent('98.500,50');
   });
 
   it('never asks for the exchange rate when the cost is not shown', async () => {

@@ -1,0 +1,54 @@
+/* "Por programa" view of the Sell out tab (Stitch programas/lista): a tinted row per program, its campaigns below. */
+
+.grupo > td {
+  background: var(--cf-bg-hover);
+}
+
+.cabecera {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.alternar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  font: inherit;
+  color: var(--cf-accent-blue);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.alternar:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.nombre {
+  font-weight: var(--font-semibold);
+}
+
+.resumen {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.resumen::before {
+  content: '· ';
+}
+
+.activas {
+  margin-left: auto;
+}
+
+.aviso {
+  padding: var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}

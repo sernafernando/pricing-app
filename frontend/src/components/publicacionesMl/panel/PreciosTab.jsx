@@ -1,7 +1,6 @@
 import { usePermisos } from '../../../contexts/PermisosContext';
-import ProductPrices from '../../pricing/ProductPrices';
 import { pricePermissions } from '../../pricing/productPricePermissions';
-import ListPriceGroup from './ListPriceGroup';
+import PanelPrices from './PanelPrices';
 
 /**
  * Precios: the prices of the product the publication is linked to (the
@@ -10,23 +9,21 @@ import ListPriceGroup from './ListPriceGroup';
  * product cost is shown with the same gate as the Producto tab
  * (`canSeeMargin`, ml_metricas.ver_ganancia).
  *
- * On top, the Precios view's own price group (`ListPriceGroup`, the list's cells and handlers from `priceGroup`), so
- * the tab shows and edits what the list does; `ProductPrices` below keeps the cost, the markup editor and the rest.
+ * One table, a row per plan (S2): every price shows once, edited in place. From the list (`priceGroup`) only what the
+ * product's own prices lack: Calcular in the reference line and the Tienda Nube price by the web transfer.
  */
 export default function PreciosTab({ detail, canSeeMargin, onWritten, priceGroup = null }) {
   const { tienePermiso } = usePermisos();
   const productItemId = detail.product.item_id;
   return (
-    <>
-      <ListPriceGroup productItemId={productItemId} canSeeMargin={Boolean(canSeeMargin)} priceGroup={priceGroup} />
-      <ProductPrices
-        productItemId={productItemId}
-        permissions={pricePermissions(tienePermiso)}
-        onWritten={onWritten}
-        showCost={Boolean(canSeeMargin)}
-        // A write from the group above reloads the list (`version`): these prices are read again with it.
-        readAgain={priceGroup?.version ?? 0}
-      />
-    </>
+    <PanelPrices
+      productItemId={productItemId}
+      priceGroup={priceGroup}
+      permissions={pricePermissions(tienePermiso)}
+      onWritten={onWritten}
+      showCost={Boolean(canSeeMargin)}
+      // A write elsewhere reloads the list (`version`): these prices are read again with it.
+      readAgain={priceGroup?.version ?? 0}
+    />
   );
 }

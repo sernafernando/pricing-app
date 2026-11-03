@@ -18,6 +18,7 @@ import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import { useTreeViewStore } from '../../store/treeViewStore';
+import { markPromoPulled, promoPullGeneration } from './promoPullTtl';
 import styles from './promociones.module.css';
 
 // Backend-computed price formatting for the applied promo's price — kept
@@ -96,7 +97,9 @@ const KIND_ROW_CLASS = {
  * `onOpenPublication` (optional): with it, each MLA-bearing row gets an
  * "Abrir <mla>" button that hands the MLA to the caller (Publicaciones ML
  * opens that publication's panel) without expanding the row. Without it
- * (Productos), the rows render exactly as before.
+ * (Productos), the rows render exactly as before. `publicationsOnly` (optional, forwarded the same way) leaves each
+ * row with the publication alone: no promo summary, promo refresh, promos, catalog competition or wholesale prices
+ * (the Publicaciones ML product panel shows those on its own tabs). Without it, the rows carry them all.
  */
 function TreeNode({
   node,
@@ -112,6 +115,7 @@ function TreeNode({
   revealAll = false,
   showDeleted = false,
   onOpenPublication,
+  publicationsOnly = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
@@ -210,6 +214,7 @@ function TreeNode({
             revealAll={revealAll}
             showDeleted={showDeleted}
             onOpenPublication={onOpenPublication}
+            publicationsOnly={publicationsOnly}
           />
         ))}
       </>
@@ -224,12 +229,12 @@ function TreeNode({
   // The refresh endpoint requires `promos.escribir` (same as enroll/remove);
   // gate the button's visibility so a view-only user never sees a control
   // that would 403 — mirrors PromoApplyControl's gating.
-  const canRefresh = bearsMla && tienePermiso('promos.escribir');
+  const canRefresh = bearsMla && !publicationsOnly && tienePermiso('promos.escribir');
 
   // Collapsed-node promo summary (catalog-tree-node-summary PR) — restores
   // the old flat panel's per-MLA badges, visible without expanding the
   // node. Fail-open: absent `promo_summary` renders nothing extra.
-  const promoSummary = bearsMla ? node.promo_summary : null;
+  const promoSummary = bearsMla && !publicationsOnly ? node.promo_summary : null;
   const appliedPriceLabel = promoSummary ? formatAppliedPrice(promoSummary.applied_price) : null;
   // `applied_markup` is deferred server-side (see TreeNodePromoSummary's
   // docstring) — rendered defensively in case a future backend adds it,
@@ -271,9 +276,11 @@ function TreeNode({
     if (refreshing) return;
     setRefreshing(true);
     setRefreshError(false);
+    const startedOn = promoPullGeneration(node.mla);
     try {
       const { data } = await promocionesAPI.refreshItemPromociones(node.mla);
       if (data?.ok) {
+        markPromoPulled(node.mla, startedOn);
         // The entry also feeds the promo filter bar's derived types, so
         // dropping the stale one keeps that from showing what the server just
         // replaced. Safe even if we unmounted; state updates are guarded.
@@ -302,6 +309,8 @@ function TreeNode({
       onToggle={() => { markManual(); setIsOpen((prev) => !prev); }}
       ariaLabel={isOpen ? `Colapsar ${displayLabel}` : `Expandir ${displayLabel}`}
       headerRowClassName={KIND_ROW_CLASS[node.kind]}
+      // With publicationsOnly a publication without vinculadas has nothing to show when open.
+      expandable={!publicationsOnly || children.length > 0}
       header={
         <>
           <td className={styles.treeNodeLabelCell}>
@@ -367,7 +376,7 @@ function TreeNode({
         </>
       }
     >
-      {bearsMla && (
+      {bearsMla && !publicationsOnly && (
         <div className={styles.treeNodePromosSection}>
           <button
             type="button"
@@ -428,6 +437,7 @@ function TreeNode({
                   revealAll={revealAll}
                   showDeleted={showDeleted}
                   onOpenPublication={onOpenPublication}
+                  publicationsOnly={publicationsOnly}
                 />
               ))}
             </tbody>

@@ -53,9 +53,10 @@ Agregar a crontab para ejecutar diariamente a las 2 AM:
 3. **Descarga detalles** en batches de 20 publicaciones
 4. **Extrae información clave**:
    - Campaña de cuotas (`INSTALLMENTS_CAMPAIGN`)
-   - SKU del seller
+   - SKU del seller (`SELLER_SKU` via `value_name`; ML often leaves `value_id` null)
    - Precios (price y base_price)
    - Stock y ventas
+   - Shipping: `mode`, `logistic_type`, `local_pick_up`, `free_shipping`, `store_pick_up`, `tags`
 5. **Guarda en DB** con timestamp para comparar después
 
 ## Lógica de campañas
@@ -76,10 +77,13 @@ ml_publication_snapshots:
   - price: Precio actual
   - base_price: Precio base (antes de descuentos)
   - installments_campaign: Campaña (3x_campaign, 6x_campaign, etc)
-  - seller_sku: SKU configurado en ML
+  - seller_sku: SKU configurado en ML (attribute value_name)
   - item_id: ID del ERP (extraído del SKU)
+  - shipping_mode / logistic_type / local_pick_up / free_shipping / store_pick_up / shipping_tags
   - snapshot_date: Fecha del snapshot
 ```
+
+Alembic: `20261218_ml_pub_snapshots_shipping` adds the shipping columns.
 
 ## Comparación con sistema actual
 

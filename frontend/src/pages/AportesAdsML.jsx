@@ -16,12 +16,9 @@ import api from '../services/api';
 import ModalTesla from '../components/ModalTesla';
 import { SegmentedControl, StatusPill } from '../components/kit';
 import AportesAdsMLForm from './AportesAdsMLForm';
-import { registrarPagina } from '../registry/tabRegistry';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
 import { formatSignedMoney } from '../utils/ventasMlTone';
 import styles from './AportesAdsML.module.css';
-
-registrarPagina({ pagePath: '/ml-ads-aportes', pageLabel: 'Aportes de marcas (Ads ML)', tabs: [] });
 
 const SETTLEMENT_LABELS = { full: 'Se recibe todo', refund_difference: 'Se devuelve la diferencia' };
 // The chip's short badge; the full label is its title.
@@ -171,7 +168,7 @@ export default function AportesAdsML() {
   if (!puedeVerGanancia) {
     return (
       <div className={styles.container}>
-        <h1 className={styles.title}>Aportes de marcas (Ads ML)</h1>
+        <h2 className={styles.title}>Aportes de marcas (Ads ML)</h2>
         <div className={styles.alertError} role="alert">
           <AlertTriangle size={16} /> Necesitás el permiso para ver la ganancia de Métricas ML para ver los aportes.
         </div>
@@ -224,7 +221,7 @@ export default function AportesAdsML() {
     <div className={styles.container}>
       <header className={styles.header}>
         <div>
-          <h1 className={styles.title}>Aportes de marcas (Ads ML)</h1>
+          <h2 className={styles.title}>Aportes de marcas (Ads ML)</h2>
           <p className={styles.description}>
             Lo que una marca paga de una campaña de Product Ads deja de restarse en Métricas ML.
           </p>

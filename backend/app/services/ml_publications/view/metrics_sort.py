@@ -15,7 +15,8 @@ tables).
 
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
+from contextlib import contextmanager
+from typing import Any, Iterator, Optional, Sequence
 
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
@@ -37,16 +38,24 @@ def needs_margin(key: str) -> bool:
     return METRIC_SORTS[key][1]
 
 
+@contextmanager
+def publication_board(db: Session, mla_source: Any) -> Iterator[board.Board]:
+    """The Board by publication over the 30-day window, for the MLAs of `mla_source` (its `mla_set`); its rows are
+    keyed by `rk` (the MLA) and its temp tables live as long as the block."""
+    first, last = row_metrics.window(board.today_business())
+    f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
+    with board.Board(db, f, scope_pairs=None) as b:
+        yield b
+
+
 def ranked_page(
     db: Session, mla_source: Any, key: str, descending: bool, limit: Optional[int], offset: int
 ) -> list[str]:
     """The MLAs of `mla_source` (a one-column select of the filtered set) at `[offset, offset + limit)` once ranked
     by the figure `key` names (`limit` None: every MLA from `offset` on)."""
-    first, last = row_metrics.window(board.today_business())
-    f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
-    with board.Board(db, f, scope_pairs=None) as b:
+    with publication_board(db, mla_source) as b:
         rows = b.rows()
-        figure = _figure(rows, key)
+        figure = metric_figure(rows, key)
         ordered = figure.desc() if descending else figure.asc()
         query = (
             select(b.mla_set.c.mla)
@@ -58,7 +67,7 @@ def ranked_page(
         return [mla for (mla,) in db.execute(query)]
 
 
-def _figure(rows: Any, key: str) -> Any:
+def metric_figure(rows: Any, key: str) -> Any:
     """The figure `key` names, only for a publication that sold in the window (null otherwise: last in either way)."""
     return case((rows.c.units > 0, rows.c[METRIC_SORTS[key][0]]), else_=None)
 
@@ -66,11 +75,9 @@ def _figure(rows: Any, key: str) -> Any:
 def metric_figures(db: Session, mla_source: Any, keys: Sequence[str]) -> dict[str, dict[str, Any]]:
     """For each key of `keys`, every MLA of `mla_source` with the figure it names (None when it has none), for a
     sort with more keys: one Board run however many figures the sort names."""
-    first, last = row_metrics.window(board.today_business())
-    f = board.BoardFilter(date_from=first, date_to=last, group_by="publication", mla_source=mla_source)
-    with board.Board(db, f, scope_pairs=None) as b:
+    with publication_board(db, mla_source) as b:
         rows = b.rows()
-        query = select(b.mla_set.c.mla, *(_figure(rows, key) for key in keys)).outerjoin(
+        query = select(b.mla_set.c.mla, *(metric_figure(rows, key) for key in keys)).outerjoin(
             rows, rows.c.rk == b.mla_set.c.mla
         )
         found = db.execute(query).all()

@@ -11,18 +11,32 @@ export const BATCH_SIZE = 20;
 
 const REGION = 'Pausar o activar publicaciones';
 const ACTIONS = [
-  { target: 'paused', label: 'Pausar las del filtro', verb: 'pausar', done: 'pausadas', already: 'ya estaban pausadas' },
-  { target: 'active', label: 'Activar las del filtro', verb: 'activar', done: 'activadas', already: 'ya estaban activas' },
+  { target: 'paused', name: 'Pausar', verb: 'pausar', done: 'pausadas', already: 'ya estaban pausadas' },
+  { target: 'active', name: 'Activar', verb: 'activar', done: 'activadas', already: 'ya estaban activas' },
 ];
 
 const plural = (n, one, many) => (n === 1 ? one : many);
 
+/** What the actions act on: the checked rows when any, otherwise the filter (seleccion-por-publicacion S2). */
+function scopeOf(checked) {
+  const itemIds = checked?.itemIds ?? [];
+  const productIds = checked?.productIds ?? [];
+  const rows = itemIds.length + productIds.length;
+  if (rows === 0) return { checked: false, where: { one: 'del filtro', many: 'del filtro' }, suffix: 'las del filtro' };
+  const suffix =
+    productIds.length > 0
+      ? `las de ${rows} ${plural(rows, 'fila marcada', 'filas marcadas')}`
+      : plural(rows, 'la marcada', `las ${rows} marcadas`);
+  return { checked: true, where: { one: 'marcada', many: 'marcadas' }, suffix, itemIds, productIds };
+}
+
 /** The operator-facing reason the set could not be resolved (the server's own message for a 422 over the cap). */
-function describeResolveError(error) {
+function describeResolveError(error, scope) {
   const message = error?.response?.data?.error?.message;
   if (error?.response?.status === 422 && message) return message;
-  if (error?.response?.status === 503) return 'La consulta tardó demasiado: acotá los filtros o reintentá.';
-  return 'No se pudieron resolver las publicaciones del filtro.';
+  if (error?.response?.status === 503)
+    return scope.checked ? 'La consulta tardó demasiado: marcá menos filas o reintentá.' : 'La consulta tardó demasiado: acotá los filtros o reintentá.';
+  return scope.checked ? 'No se pudieron resolver las publicaciones marcadas.' : 'No se pudieron resolver las publicaciones del filtro.';
 }
 
 function Summary({ action, results, total, stopped }) {
@@ -52,9 +66,12 @@ function Summary({ action, results, total, stopped }) {
 }
 
 /**
- * Bulk "Pausar" / "Activar" over Publicaciones ML, behind `ml_publicaciones.pausar`: the set is every publication
- * the filters show that can take the status, resolved when the action is chosen
- * (`GET /ml-publications/view/status-item-ids`), so the confirmation says how many. Confirmed, it is written in
+ * Bulk "Pausar" / "Activar" over Publicaciones ML, behind `ml_publicaciones.pausar`. With rows checked (`checked`:
+ * the checked publications' `itemIds` and the checked product rows' `productIds`) the set is exactly those
+ * publications plus every publication of a checked product, never another publication of a checked publication's
+ * product (`POST /ml-publications/view/status-item-ids/checked`, seleccion-por-publicacion S2); with nothing checked,
+ * every publication the filters show (`GET /ml-publications/view/status-item-ids`). Either set keeps only the
+ * publications that can take the status, resolved when the action is chosen, so the confirmation says how many. Confirmed, it is written in
  * batches of `BATCH_SIZE` (each publication checked again by the server), with progress, then a summary.
  *
  * Confirmar sends the set the confirmation showed, even if the filters changed meanwhile: the operator approved
@@ -63,7 +80,7 @@ function Summary({ action, results, total, stopped }) {
  * Fail closed: no set while resolving, when the resolver refuses (over its cap) or fails, or when it is empty --
  * nothing to confirm. A failed batch stops the run; what was written is still re-read (`onDone`).
  */
-export default function BulkStatusActions({ filters, canSeeMargin, onDone }) {
+export default function BulkStatusActions({ filters, canSeeMargin, onDone, checked }) {
   const { tienePermiso } = usePermisos();
   const [open, setOpen] = useState(false);
   const [run, setRun] = useState(null);
@@ -82,15 +99,22 @@ export default function BulkStatusActions({ filters, canSeeMargin, onDone }) {
 
   if (!tienePermiso('ml_publicaciones.pausar')) return null;
 
-  const choose = async (action) => {
+  const scope = scopeOf(checked);
+  const resolve = (target) =>
+    scope.checked
+      ? publicacionesMlAPI.statusItemIdsChecked({ target, item_ids: scope.itemIds, producto_ids: scope.productIds })
+      : publicacionesMlAPI.statusItemIds({ ...resolverParams(filters, canSeeMargin), target });
+
+  const choose = async (choice) => {
     const mine = ++attempt.current;
+    const action = { ...choice, label: `${choice.name} ${scope.suffix}`, where: scope.where };
     setOpen(false);
     setRun({ action, phase: 'resolving' });
     try {
-      const { data } = await publicacionesMlAPI.statusItemIds({ ...resolverParams(filters, canSeeMargin), target: action.target });
+      const { data } = await resolve(action.target);
       if (mine === attempt.current) setRun({ action, phase: 'confirming', itemIds: data.item_ids, noAplican: data.no_aplican });
     } catch (error) {
-      if (mine === attempt.current) setRun({ action, phase: 'refused', error: describeResolveError(error) });
+      if (mine === attempt.current) setRun({ action, phase: 'refused', error: describeResolveError(error, scope) });
     }
   };
 
@@ -134,7 +158,11 @@ export default function BulkStatusActions({ filters, canSeeMargin, onDone }) {
         className="btn-tesla outline-subtle-primary sm"
         aria-haspopup="menu"
         aria-expanded={open}
-        title="Pausa o activa en Mercado Libre todas las publicaciones del filtro que pueden cambiar"
+        title={
+          scope.checked
+            ? 'Pausa o activa en Mercado Libre las publicaciones marcadas que pueden cambiar'
+            : 'Pausa o activa en Mercado Libre todas las publicaciones del filtro que pueden cambiar'
+        }
         onClick={() => setOpen((was) => !was)}
       >
         <Power size={14} aria-hidden="true" />
@@ -146,7 +174,7 @@ export default function BulkStatusActions({ filters, canSeeMargin, onDone }) {
           <div role="menu" aria-label="Pausar o activar" className={styles.menu}>
             {ACTIONS.map((action) => (
               <button key={action.target} type="button" role="menuitem" className={styles.item} onClick={() => choose(action)}>
-                {action.label}
+                {`${action.name} ${scope.suffix}`}
               </button>
             ))}
           </div>
@@ -155,15 +183,15 @@ export default function BulkStatusActions({ filters, canSeeMargin, onDone }) {
       {run && (
         <ModalTesla isOpen onClose={close} title={run.action.label} size="sm" closeOnOverlay={false} closeOnEsc={run.phase !== 'sending'} showCloseButton={run.phase !== 'sending'}>
           <section aria-label={REGION} className={styles.statusBody}>
-            {run.phase === 'resolving' && <p>Calculando las publicaciones del filtro…</p>}
+            {run.phase === 'resolving' && <p>{`Calculando las publicaciones ${run.action.where.many}…`}</p>}
             {run.phase === 'refused' && <p role="alert">{run.error}</p>}
-            {run.phase === 'confirming' && total === 0 && <p>{`Ninguna publicación del filtro se puede ${run.action.verb}.`}</p>}
+            {run.phase === 'confirming' && total === 0 && <p>{`Ninguna publicación ${run.action.where.one} se puede ${run.action.verb}.`}</p>}
             {run.phase === 'confirming' && total > 0 && (
               <p>{`Se van a ${run.action.verb} ${total} ${plural(total, 'publicación', 'publicaciones')} en Mercado Libre.`}</p>
             )}
             {run.phase === 'confirming' && run.noAplican > 0 && (
               <p className={styles.note}>
-                {`${run.noAplican} ${plural(run.noAplican, 'publicación del filtro no se toca', 'publicaciones del filtro no se tocan')} (otro estado).`}
+                {`${run.noAplican} ${plural(run.noAplican, `publicación ${run.action.where.one} no se toca`, `publicaciones ${run.action.where.many} no se tocan`)} (otro estado).`}
               </p>
             )}
             {run.phase === 'sending' && <p role="status">{`Enviando ${run.results.length} de ${total}…`}</p>}

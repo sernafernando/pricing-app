@@ -39,11 +39,17 @@ class TipoAccion(str, enum.Enum):
     SELL_IN_BONO_EDITADO = "sell_in_bono_editado"
     SELL_IN_BONO_ANULADO = "sell_in_bono_anulado"
     SELL_IN_COMPRA_BONO_ACTUALIZADA = "sell_in_compra_bono_actualizada"
+    # cost mode: one row per mode row saved (`item_id` is the product; the row, its date and what the preview showed
+    # travel in the values).
+    SELL_IN_MODO_CREADO = "sell_in_modo_creado"
     # sell out: one row per campaign load, edit or void (`item_id` is NULL, `campana_id` travels in the values).
     SELL_OUT_CAMPANA_CREADA = "sell_out_campana_creada"
     SELL_OUT_CAMPANA_EDITADA = "sell_out_campana_editada"
     SELL_OUT_CAMPANA_ANULADA = "sell_out_campana_anulada"
     SELL_OUT_CAMPANA_TC_DEFINIDO = "sell_out_campana_tc_definido"
+    # sell out: one row per campaign whose program changed (campaign system S1; `item_id` NULL, `campana_id` and the
+    # program before/after travel in the values). Same VARCHAR(50) column: no DDL.
+    SELL_OUT_CAMPANA_PROGRAMA = "sell_out_campana_programa"
 
 
 class Auditoria(Base):

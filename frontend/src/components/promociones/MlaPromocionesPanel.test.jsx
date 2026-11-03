@@ -3,6 +3,7 @@ import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { promocionesAPI } from '../../services/api';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
+import { forgetPromoPull, markPromoPulled, promoPulledRecently, resetPromoPulls } from './promoPullTtl';
 
 vi.mock('../../services/api', () => ({
   promocionesAPI: {
@@ -27,6 +28,11 @@ vi.mock('../../contexts/PermisosContext', () => ({
   }),
   PermisosProvider: ({ children }) => children,
 }));
+
+// The promo TTL lives at module scope: every test starts with no MLA pulled or confirmed.
+beforeEach(() => {
+  resetPromoPulls();
+});
 
 function renderPanel(props = {}) {
   const promosCacheRef = { current: new Map() };
@@ -1294,5 +1300,93 @@ describe('MlaPromocionesPanel — writes ML did not apply', () => {
 
     expect(await screen.findByText(/No se pudo confirmar con ML/)).toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('C-GONE: pedida por Ana PM el 19/10 14:05; ML no la muestra');
+  });
+});
+
+describe('MlaPromocionesPanel — the 5-minute promo TTL', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetPromoPulls();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+  });
+
+  it('does not ask ML again to confirm an empty mirror it confirmed less than 5 minutes ago', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    const first = renderPanel();
+    expect(await screen.findByText('Sin promociones habilitadas.')).toBeInTheDocument();
+    expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(1);
+    first.unmount();
+    renderPanel({ pullOnOpen: false });
+    expect(await screen.findByText('Sin promociones habilitadas.')).toBeInTheDocument();
+    expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(1);
+  });
+
+  it('a successful pull clears the cached "no promotions" confirmation, so ML is asked again', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    const first = renderPanel();
+    expect(await screen.findByText('Sin promociones habilitadas.')).toBeInTheDocument();
+    expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(1);
+    first.unmount();
+    renderPanel({ onPulled: markPromoPulled });
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(2));
+  });
+
+  it('a successful pull clears the cached confirmation even when the host passes no onPulled (the Productos tree)', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    const first = renderPanel();
+    expect(await screen.findByText('Sin promociones habilitadas.')).toBeInTheDocument();
+    first.unmount();
+    renderPanel();
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(promocionesAPI.confirmarSinPromosML).toHaveBeenCalledTimes(2));
+  });
+
+  it('a pull in flight when a write forgets the MLA does not start its TTL when it settles', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [] } });
+    let answer;
+    promocionesAPI.refreshItemPromociones.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    renderPanel({ onPulled: markPromoPulled });
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1));
+    // A write elsewhere (another host on the same MLA) lands while this pull is still running.
+    forgetPromoPull('MLA001');
+    await act(async () => {
+      answer({ data: { ok: true } });
+    });
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(promoPulledRecently('MLA001')).toBe(false);
+  });
+
+  it('an apply forgets the MLA even when the host passes no onApplied (the Productos tree)', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal promo', price: 80, status: 'candidate' }] },
+    });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { status: 'submitted' } });
+    markPromoPulled('MLA001');
+    renderPanel({ pullOnOpen: false });
+    fireEvent.click(await screen.findByRole('button', { name: /^aplicar$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+    await waitFor(() => expect(promoPulledRecently('MLA001')).toBe(false));
+  });
+});
+
+describe('sections (S3) are only for a host that asks', () => {
+  it('a Productos tree (no `sections`) keeps its one list, a coupon included', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal', status: 'candidate', price: 10 },
+          { promotion_id: 'C1', promotion_type: 'SELLER_COUPON_CAMPAIGN', name: 'Cupón de recompra', status: 'candidate', price: 0 },
+        ],
+      },
+    });
+    renderPanel({ pullOnOpen: false });
+    await screen.findByText('Cupón de recompra');
+    expect(screen.queryAllByRole('region')).toEqual([]);
+    expect(screen.getAllByRole('list')).toHaveLength(1);
   });
 });

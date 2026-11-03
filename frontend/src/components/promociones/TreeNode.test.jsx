@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TreeNode from './TreeNode';
+import { markPromoPulled, promoPulledRecently, resetPromoPulls } from './promoPullTtl';
 import { promocionesAPI } from '../../services/api';
 import { useTreeViewStore } from '../../store/treeViewStore';
 import { seedTiendasOficiales } from '../../test/tiendasOficialesFixtures';
@@ -372,6 +373,30 @@ describe('TreeNode promo refresh button (per-MLA manual refresh)', () => {
     await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
 
     expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_CAT');
+  });
+
+  it('goes to ML even for an MLA pulled less than 5 minutes ago, and a successful refresh starts its TTL again', async () => {
+    resetPromoPulls();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      markPromoPulled('MLA_CAT');
+      promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
+      renderNode(buildMlaTree());
+      const user = await expandToMla();
+      now.mockReturnValue(1_000_000 + 60_000);
+      await user.click(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i }));
+      expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledWith('MLA_CAT');
+      // Wait for the refresh to settle BEFORE moving the clock, so the mark is stamped at the refresh time.
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: /refrescar promociones de mla_cat/i })).not.toBeDisabled(),
+      );
+      // Restarted at the refresh, not at the earlier pull.
+      now.mockReturnValue(1_000_000 + 5 * 60_000 + 1);
+      expect(promoPulledRecently('MLA_CAT')).toBe(true);
+    } finally {
+      now.mockRestore();
+      resetPromoPulls();
+    }
   });
 
   it('disables the button while the refresh is in-flight', async () => {
@@ -1270,5 +1295,56 @@ describe('TreeNode — opening a publication (onOpenPublication)', () => {
 
     act(() => useTreeViewStore.setState({ showFamilia: false }));
     expect(screen.getByRole('button', { name: 'Abrir MLA_CHILD' })).toBeInTheDocument();
+  });
+});
+
+describe('TreeNode with publicationsOnly (the Publicaciones ML product panel)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: false });
+  });
+
+  const tree = () => ({
+    level: 2,
+    kind: 'catalogo',
+    mla: 'MLA_CAT',
+    label: 'MLA_CAT',
+    matches_filter: true,
+    promo_summary: { started_count: 1, candidate_count: 2, applied_name: 'Oferta Relámpago', applied_price: 850 },
+    children: [{ level: 3, kind: 'vinculada', mla: 'MLA_VINC1', label: 'MLA_VINC1', matches_filter: true, children: [] }],
+  });
+
+  it('shows the publications with none of their promos, catalog competition or wholesale prices, at any depth', async () => {
+    renderNode(tree(), { publicationsOnly: true, onOpenPublication: vi.fn() });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+
+    expect(screen.getByText('MLA_VINC1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Abrir MLA_CAT' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Abrir MLA_VINC1' })).toBeInTheDocument();
+    for (const name of [/^promociones/i, /^competencia catálogo/i, /^precios mayoristas/i, /^refrescar promociones/i]) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText(/aplicada: oferta relámpago/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/1 aplicada.*2 disponible/i)).not.toBeInTheDocument();
+  });
+
+  it('offers no expand toggle on a publication with nothing under it, and keeps it on one with vinculadas', async () => {
+    renderNode(tree(), { publicationsOnly: true, onOpenPublication: vi.fn() });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+    expect(screen.getByRole('button', { name: 'Abrir MLA_VINC1' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /expandir mla_vinc1/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps them all without it, as Productos shows them', async () => {
+    renderNode(tree());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+    for (const name of [/^promociones/i, /^competencia catálogo/i, /^precios mayoristas/i, /^refrescar promociones de mla_cat/i]) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+    expect(screen.getByText(/aplicada: oferta relámpago/i)).toBeInTheDocument();
   });
 });

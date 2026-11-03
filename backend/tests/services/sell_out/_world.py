@@ -28,6 +28,7 @@ from app.models.sell_out import (
     SellOutCampanaItem,
     SellOutConsumo,
     SellOutDirty,
+    SellOutPrograma,
 )
 from app.models.tipo_cambio import TipoCambio
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
@@ -44,6 +45,7 @@ TABLES = [
     ProductoERP.__table__,
     OffsetGrupo.__table__,
     OffsetGrupoFiltro.__table__,
+    SellOutPrograma.__table__,  # `sell_out_campanas.programa_id` (campaign system S1)
     SellOutCampana.__table__,
     SellOutCampanaGrupo.__table__,
     SellOutCampanaItem.__table__,
@@ -89,6 +91,7 @@ def clean(engine: Engine) -> None:
             "ventas_fuera_ml_metricas",
             "ventas_tienda_nube_metricas",
             "sell_out_campanas",
+            "sell_out_programas",
             "offset_grupos",
             "tipo_cambio",
             "auditoria",

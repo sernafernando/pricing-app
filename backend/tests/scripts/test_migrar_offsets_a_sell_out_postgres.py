@@ -24,7 +24,13 @@ from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.offset_migracion_pendiente import OffsetMigracionPendiente
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoItem, SellInBonoMarca
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem, SellOutDirty
+from app.models.sell_out import (
+    SellOutCampana,
+    SellOutCampanaGrupo,
+    SellOutCampanaItem,
+    SellOutDirty,
+    SellOutPrograma,
+)
 from app.scripts import migrar_offsets_a_sell_out as script
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_out import _world as w
@@ -58,6 +64,7 @@ _TABLES = [
     OffsetGrupoFiltro.__table__,
     OffsetGanancia.__table__,
     OffsetMigracionPendiente.__table__,
+    SellOutPrograma.__table__,
     SellOutCampana.__table__,
     SellOutCampanaGrupo.__table__,
     SellOutCampanaItem.__table__,

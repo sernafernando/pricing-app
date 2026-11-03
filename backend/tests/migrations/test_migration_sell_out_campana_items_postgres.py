@@ -28,6 +28,7 @@ _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "INSERT INTO usuarios VALUES (7)",
     "CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY)",
+    "CREATE TABLE sell_out_programas (id BIGINT PRIMARY KEY)",  # `sell_out_campanas.programa_id`
 ]
 _COLUMNS = (
     "SELECT column_name, data_type, numeric_precision, numeric_scale, is_nullable FROM information_schema.columns "
