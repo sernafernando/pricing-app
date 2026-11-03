@@ -2,8 +2,14 @@
  * sellOutValores: the campaign form's values to and from the API (`SellOutCampanaIn` / `SellOutCampanaOut`).
  */
 import { describe, it, expect } from 'vitest';
-import { CAMPANA_MIGRADA, CAMPANA_PORCENTAJE_ANULADA } from './sellOutFixtures';
-import { CAMPANA_VACIA, bodyDeCampana, faltantes, valoresDeCampana } from './sellOutValores';
+import {
+  CAMPANA_MIGRADA,
+  CAMPANA_MONTO_TOTAL,
+  CAMPANA_PORCENTAJE_ANULADA,
+  RENOVACION_MIGRADA,
+  RENOVACION_MONTO_TOTAL,
+} from './sellOutFixtures';
+import { CAMPANA_VACIA, bodyDeCampana, faltantes, valoresDeBorrador, valoresDeCampana } from './sellOutValores';
 
 const POR_UNIDAD = {
   ...CAMPANA_VACIA,
@@ -88,6 +94,64 @@ describe('valoresDeCampana', () => {
       montoIncluyeIva: true,
       descripcion: 'Acuerdo con la marca',
     });
+  });
+});
+
+describe('valoresDeBorrador', () => {
+  const original = { ...CAMPANA_MIGRADA, items: [{ item_id: 4172, codigo: 'C13T00R120', descripcion: 'Epson EcoTank L8180', monto_unit: '30.00' }] };
+
+  it('a renewal draft fills a new campaign form; saving it sends the draft as it came, with its program', () => {
+    const valores = valoresDeBorrador(RENOVACION_MIGRADA, original);
+    expect(valores).toMatchObject({
+      nombre: 'RB 8180',
+      fechaDesde: '2027-01-01',
+      fechaHasta: '2027-03-31',
+      tcModo: 'fijo',
+      tipoCambio: '1400.000000',
+      grupoIds: [301],
+      items: [{ itemId: 4172, codigo: 'C13T00R120', descripcion: 'Epson EcoTank L8180', monto: '30.00' }],
+      programaId: 12,
+      repartosGuardados: 0,
+    });
+    expect(bodyDeCampana(valores)).toEqual({
+      nombre: 'RB 8180',
+      descripcion: 'Acuerdo con Epson',
+      fecha_desde: '2027-01-01',
+      fecha_hasta: '2027-03-31',
+      tipo: 'por_unidad',
+      monto_unit: '36.00',
+      porcentaje: null,
+      base_porcentaje: 'costo',
+      moneda: 'USD',
+      tc_modo: 'fijo',
+      tipo_cambio: '1400.000000',
+      tope_unidades: 500,
+      tope_monto: null,
+      acumulable: false,
+      monto_incluye_iva: true,
+      grupo_ids: [301],
+      items: [{ item_id: 4172, monto_unit: '30.00' }],
+      programa_id: 12,
+    });
+  });
+
+  it('a monto total draft sends its shares with the create, in one call', () => {
+    const valores = valoresDeBorrador(RENOVACION_MONTO_TOTAL, CAMPANA_MONTO_TOTAL);
+    expect(valores).toMatchObject({ tipo: 'monto_total', montoTotal: '2000000.00', items: [], repartosGuardados: 0 });
+    const body = bodyDeCampana(valores);
+    expect(body.items).toEqual([
+      { item_id: 4172, reparto_porcentaje: '60.0000', reparto_monto: null },
+      { item_id: 4173, reparto_porcentaje: null, reparto_monto: '500000.00' },
+    ]);
+    expect(body).not.toHaveProperty('programa_id');
+    // Switched to another type, the copied shares are not sent.
+    expect(bodyDeCampana({ ...valores, tipo: 'porcentaje', porcentaje: '2' }).items).toEqual([]);
+  });
+
+  it('a stored campaign read back sends neither a program nor shares, as before', () => {
+    const body = bodyDeCampana(valoresDeCampana({ ...CAMPANA_MONTO_TOTAL, programa_id: 12 }));
+    expect(body).not.toHaveProperty('programa_id');
+    expect(body).not.toHaveProperty('items');
   });
 });
 

@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
 
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.kpi_strip import round_money, round_pp
+from app.services.ml_publications.listing_kind import kind_label
 from app.services.ml_publications.view.ads import AdsAvailability, AdsCostProvider
 from app.utils.csv_cells import csv_money, csv_text
 
@@ -86,7 +87,8 @@ ITEM_COLUMNS: tuple[Column, ...] = (
     Column("Publicación", lambda i, m: csv_text(i["item_id"])),
     Column("Título", lambda i, m: csv_text(i["title"])),
     Column("Estado", lambda i, m: csv_text(i["status"])),
-    Column("Tipo", lambda i, m: csv_text(i["listing_type_id"])),
+    # The readable type, as the list's Tipo badge (owner, 2026-11-02): Clásica, 3 cuotas, ..., not ML's raw id.
+    Column("Tipo", lambda i, m: csv_text(kind_label(i["listing_kind"]))),
     Column("Full", lambda i, m: "Sí" if i["is_full"] else "No"),
     Column("Tienda", lambda i, m: _store(i)),
     Column("SKU", lambda i, m: csv_text(i["seller_sku"])),

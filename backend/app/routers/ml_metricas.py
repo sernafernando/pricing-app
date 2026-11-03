@@ -167,6 +167,8 @@ class BoardRow(BaseModel):
     # Publication attributes (publication rows and nested rows only).
     status: Optional[str] = None
     listing_type: Optional[str] = None
+    # clasica | clasica_cofinanciada | cuotas_3 | cuotas_6 | cuotas_9 | cuotas_12, else ML's raw listing type.
+    listing_kind: Optional[str] = None
     is_catalog: Optional[bool] = None
     is_full: Optional[bool] = None
     store_id: Optional[int] = None
@@ -338,6 +340,9 @@ def board_filter(
         raise HTTPException(status_code=422, detail=f"sort inválido: {sort!r}")
     if sort_dir not in ("asc", "desc"):
         raise HTTPException(status_code=422, detail=f"sort_dir inválido: {sort_dir!r}")
+    if sort == "listing_kind" and group_by == "group":
+        # A node groups publications of every kind: it has no kind to order by, and another order would be a lie.
+        raise HTTPException(status_code=422, detail="sort=listing_kind no aplica a la vista agrupada")
     hasta = _parse_day(date_to, "date_to") or board.today_business()
     if not MIN_BOARD_DATE <= hasta <= MAX_BOARD_DATE:
         raise HTTPException(
@@ -509,6 +514,7 @@ def _row_out(row: board.Row, can_see_margin: bool, group_view: bool = False, lea
         alerts=alerts,
         status=pub.status if pub else None,
         listing_type=pub.listing_type if pub else None,
+        listing_kind=pub.listing_kind if pub else None,
         is_catalog=pub.is_catalog if pub else None,
         is_full=pub.is_full if pub else None,
         store_id=pub.store_id if pub else None,
@@ -652,7 +658,8 @@ def get_product_publications(
 ) -> Union[PublicationsResponse, JSONResponse]:
     """A product row's publications (the expandable sub-rows), under the same
     filters as the board. `is_best` marks the one that earned the most in the
-    period (Total Gauss, or gross without the margin permission).
+    period (Total Gauss, or gross without the margin permission). They are listed
+    by listing kind first (Clásica, then 3, 6, 9 and 12 cuotas), then by the board's sort.
 
     The ROW filters (alerts, stock, ageing, "solo con ventas") already decided that the
     product is on the board: its sub-rows are every publication passing the
@@ -671,7 +678,7 @@ def get_product_publications(
         ageing_exclude=(),
         solo_con_ventas=False,
     )
-    with board.Board(db, by_pub, product_item_id=product_item_id, scope_pairs=scope_pairs) as b:
+    with board.Board(db, by_pub, product_item_id=product_item_id, scope_pairs=scope_pairs, kind_first=True) as b:
         rows = b.page(limit=None, apply_alerts=False)
     out = [_row_out(row, can_see_margin) for row in rows]
 
@@ -754,6 +761,9 @@ def get_group_nodes(
     f = _margin_gate(f, can_see_margin)
     if tp_solo and f.dimension != TP_SOLO_DIMENSION:
         raise HTTPException(status_code=422, detail=f"tplink.solo: sólo se agrupa por {TP_SOLO_DIMENSION}")
+    if f.sort == "listing_kind":
+        # The grouped view whatever `group_by` says: the same refusal as the board's (see `board_filter`).
+        raise HTTPException(status_code=422, detail="sort=listing_kind no aplica a la vista agrupada")
     scope = _parse_path(path, f.dimension)
     levels = groups.levels_of(f.dimension)
     leaf = len(scope) == len(levels) - 1

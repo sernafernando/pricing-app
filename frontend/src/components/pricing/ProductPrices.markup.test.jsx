@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProductPrices from './ProductPrices';
+import { priceOf } from './priceTestUtils';
 import { pricePermissions } from './productPricePermissions';
 import { preciosAPI } from '../../services/api';
 import { PRODUCTO } from './ProductPrices.fixtures';
@@ -28,10 +29,9 @@ const ALL = pricePermissions(() => true);
 const renderPrices = (props = {}) =>
   render(<ProductPrices productItemId={4101} permissions={ALL} onWritten={vi.fn()} {...props} />);
 
-const rowOf = (label) => screen.findByRole('row', { name: new RegExp(`^${label}\\b`) });
 
 async function openByMarkup(user, label) {
-  const row = await rowOf(label);
+  const row = await priceOf(label);
   await user.click(within(row).getByRole('button', { name: `Editar ${label}` }));
   await user.click(within(row).getByRole('button', { name: 'Por markup' }));
   return row;

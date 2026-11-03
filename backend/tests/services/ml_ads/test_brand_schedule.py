@@ -94,7 +94,7 @@ class TestSchedule:
         again = _tick(session_factory, replay, monkeypatch)
 
         assert (again.brand_steps, again.complete) == ([], True)
-        assert [r.url.path for r in replay.requests[already:]] == ["/advertising/advertisers"]
+        assert [r.url.path for r in replay.requests[already:]] == ["/advertising/advertisers"] * 2  # PADS, then DISPLAY
 
     def test_the_daily_refresh_refetches_the_recent_brand_days_once(
         self, session_factory, pg_ads_db, monkeypatch, window

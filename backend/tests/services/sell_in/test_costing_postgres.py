@@ -374,11 +374,11 @@ def _failing_for(line_id: int):
     """`asignar` that raises for the product owning purchase line `line_id`, as bad data would."""
     real = costing_module.asignar
 
-    def fake(lotes, ventas):
+    def fake(lotes, ventas, periodos=()):
         lotes = list(lotes)
         if any(lote.compra_item_id == line_id for lote in lotes):
             raise ValueError(f"bad data on line {line_id}")
-        return real(lotes, ventas)
+        return real(lotes, ventas, periodos)
 
     return fake
 
@@ -421,7 +421,7 @@ class TestFailures:
         assert w.consumos(engine) == []
 
 
-def _always_failing(lotes, ventas):
+def _always_failing(lotes, ventas, periodos=()):
     raise ValueError("bad data")
 
 
@@ -567,8 +567,8 @@ class TestPrecision:
         scale and a re-run compares at that scale."""
         real = costing_module.asignar
 
-        def fine(lotes, ventas):
-            return [replace(c, descuento_ars=c.descuento_ars / 7) for c in real(lotes, ventas)]
+        def fine(lotes, ventas, periodos=()):
+            return [replace(c, descuento_ars=c.descuento_ars / 7) for c in real(lotes, ventas, periodos)]
 
         monkeypatch.setattr(costing_module, "asignar", fine)
         [linea] = w.compra(engine, [(2964, 3, "100.00")])

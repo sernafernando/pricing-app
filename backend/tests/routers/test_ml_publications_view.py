@@ -126,8 +126,12 @@ class TestPermission:
             assert productos.json().get("detail") != "Not Found"
 
     def test_the_view_router_only_reads(self) -> None:
-        verbs = {m for route in ml_publications_view.router.routes for m in getattr(route, "methods", set())}
-        assert verbs == {"GET"}
+        # One exception, by exact path: the checked rows' pause/activate set is read with a POST (its body carries
+        # the checked MLAs) and writes nothing (`test_ml_item_status_bulk`). Every other route is GET only.
+        read_by_post = "/ml-publications/view/status-item-ids/checked"
+        verbs = {route.path: getattr(route, "methods", set()) for route in ml_publications_view.router.routes}
+        assert verbs.pop(read_by_post) == {"POST"}
+        assert {m for methods in verbs.values() for m in methods} == {"GET"}
 
     def test_a_pm_whose_scope_excludes_a_product_still_sees_its_publications(
         self, client, pg, db, active_user, rol_ventas, auth_headers

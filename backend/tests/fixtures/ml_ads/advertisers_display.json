@@ -1,0 +1,17 @@
+{
+  "status": 200,
+  "path": "/advertising/advertisers",
+  "params": {
+    "product_id": "DISPLAY"
+  },
+  "body": {
+    "advertisers": [
+      {
+        "advertiser_id": 25713,
+        "site_id": "MLA",
+        "advertiser_name": "GAUSS ONLINE",
+        "account_name": "GAUSS ONLINE"
+      }
+    ]
+  }
+}

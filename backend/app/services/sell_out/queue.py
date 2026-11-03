@@ -49,6 +49,7 @@ BATCH_SIZE = 50
 MAX_ATTEMPTS = 5
 # How long a writer waits for a campaign's queue row held by a running `sell_out.drain` batch.
 LOCK_TIMEOUT = "2s"
+LOCK_NOT_AVAILABLE = "55P03"  # lock_not_available: a statement under `lock_timeout` gave up waiting
 
 Line = Tuple[str, int]  # (canal, venta_ref)
 
