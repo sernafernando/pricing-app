@@ -10,7 +10,7 @@ Gestiona todas las publicaciones de Mercado Libre: verlas, filtrarlas, ordenarla
 
 ## Cómo se usa
 
-Arriba dice **Publicaciones ML**. Hay un botón **Exportar CSV** / **Exportar a Sheets** (si está habilitado), un selector de columnas y **Equipos** para gestionar equipos de color.
+Arriba dice **Publicaciones ML**. Hay un botón **Exportar CSV** / **Exportar a Sheets** (si está habilitado), un selector de columnas y **Equipos** para gestionar equipos de color. Si podés editar precios y activar promociones, también aparece **MODO PONER PRECIOS**.
 
 Debajo está la barra de filtros: búsqueda por producto/SKU/MLA/marca, vista (Producto/Publicaciones/Precios/Agrupado), dimensión (en agrupado), estado, tienda, presencia (rebate/oferta/web transf/tienda nube/out of cards), tipo, vínculo, stock, color, productos, auditoría, promos, precios mayoristas y markup.
 
@@ -26,10 +26,23 @@ Columnas: configurables con el selector de columnas (incluye código, descripci�
 
 Columna **Tipo**: una etiqueta con el tipo de cada publicación (**Clásica**, **3 cuotas**, **6 cuotas**, **9 cuotas**, **12 cuotas**). Una Clásica con cuotas cofinanciadas por Mercado Libre dice **Clásica**; al pasar el mouse se aclara. Otros tipos muestran su nombre (por ejemplo, **Gratuita**).
 
+Bajo la columna **Precio** también se ve la lista ERP de esa publicación (**Clásica**, **3 Cuotas**, … o **PVP**), tomada de `publicaciones_ml` (no del tipo de listado de Mercado Libre).
+
 Orden: las publicaciones arrancan ordenadas por tipo (primero las Clásicas, después 3, 6, 9 y 12 cuotas, al final cualquier otro tipo) y, dentro de cada tipo, por facturación de 30 días (o por última actividad si no ves ventas). Al hacer clic en el título de una columna, manda esa columna. Las publicaciones de un producto, al expandirlo o en su panel lateral, también salen ordenadas por tipo y, dentro de cada tipo, por última actividad.
+
+## MODO PONER PRECIOS
+
+Flujo paralelo para cargar precios rápido. Al activarlo:
+
+- Se ocultan los KPIs y las tarjetas de arriba, y la vista pasa a **Publicaciones** (no agrupado).
+- Queda un juego fijo de columnas (estado, precio, ventas, markups, ageing, stocks, código, marca).
+- Podés **Minimizar filtros** para ganar espacio en la lista.
+- Al hacer clic en una fila, el panel lateral (~un tercio) abre **sin pestañas**: lista ERP, precio actual y un campo para el nuevo precio.
+- **Enter** en el nuevo precio: lo guarda en Pricing y te propone la mejor candidata **SMART**, la mejor **DEAL** y la **Premium** del mes (si hay). Elegís **una** sola; se activa en Mercado Libre y se actualiza Pricing, y el panel se cierra.
 
 ## Botones y acciones
 
+- **MODO PONER PRECIOS**: activa o sale del flujo rápido de precios (hace falta permiso de editar precio y de escribir promociones).
 - **Exportar CSV / Exportar a Sheets**: descarga el conjunto filtrado. La columna **Tipo** del archivo dice lo mismo que la de la pantalla (**Clásica**, **3 cuotas**, …), no el código de Mercado Libre.
 - Selector de columnas: elige qué columnas mostrar.
 - **Indicadores**: elige qué tarjetas de KPI mostrar (todas visibles por defecto). Lista solo las que se ven en la pantalla; ocultar una no cambia ningún número. La elección queda guardada en este navegador.

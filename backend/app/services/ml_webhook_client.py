@@ -1180,7 +1180,11 @@ class MLWebhookClient:
         if response.status_code >= 500:
             return {"ok": False, "status_code": response.status_code, "ambiguous": True, "body": body}
 
-        return {"ok": False, "status_code": response.status_code, "ambiguous": False, "body": body}
+        result = {"ok": False, "status_code": response.status_code, "ambiguous": False, "body": body}
+        # Surface Retry-After so callers (e.g. publicacion_repair SKU under the shared Pacer) can AIMD.
+        if response.status_code == 429:
+            result["retry_after"] = response.headers.get("Retry-After")
+        return result
 
     async def get_item_promotions(self, mla_id: str, timeout: Optional[float] = None) -> Optional[List[Dict]]:
         """Obtiene las promociones de un item puntual vía el proxy ml-webhook.

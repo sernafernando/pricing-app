@@ -90,6 +90,19 @@ export default function PromoFilters({ filters, setFilters, labelClassName }) {
               </select>
             </fieldset>
             <fieldset className={styles.section}>
+              <legend className={styles.legend}>Mejores ofertas</legend>
+              <label className={styles.option}>
+                <input
+                  type="checkbox"
+                  checked={filters.hay_mejores_ofertas === '1'}
+                  onChange={(event) =>
+                    setFilters({ hay_mejores_ofertas: event.target.checked ? '1' : '' })
+                  }
+                />
+                Hay mejores ofertas
+              </label>
+            </fieldset>
+            <fieldset className={styles.section}>
               <legend className={styles.legend}>Precios mayoristas</legend>
               <select
                 aria-label="Precios mayoristas"

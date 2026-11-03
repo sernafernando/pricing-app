@@ -180,13 +180,42 @@ function CouponRow({ promo, mla }) {
  * Lazily fetches `GET /promociones/item/{mla}` on first mount (i.e. on
  * first expand — the parent conditionally mounts this component).
  */
-function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlobalFilter = false, sections = false, onApplied, onPulled }) {
+function MlaPromocionesPanel({
+  mla,
+  promosCacheRef,
+  pullOnOpen = true,
+  ignoreGlobalFilter = false,
+  hayMejoresOfertas = false,
+  sections = false,
+  onApplied,
+  onPulled,
+}) {
   // The pull endpoint is a READ (it reconciles our mirror from ML and never
   // writes to ML) and requires `promos.ver`. It used to require
   // `promos.escribir`, which left read-only users looking at an unrefreshed
   // mirror with no way to know — part of incident 2026-10-05.
   const { tienePermiso } = usePermisos();
   const canPull = tienePermiso('promos.ver');
+  const canDiscardMejores = tienePermiso('promos.escribir');
+  const [descartando, setDescartando] = useState(false);
+  const [showMejores, setShowMejores] = useState(Boolean(hayMejoresOfertas));
+  useEffect(() => {
+    setShowMejores(Boolean(hayMejoresOfertas));
+  }, [hayMejoresOfertas, mla]);
+
+  const descartarMejores = async () => {
+    if (descartando) return;
+    setDescartando(true);
+    try {
+      await promocionesAPI.descartarHayMejores(mla);
+      setShowMejores(false);
+      onApplied?.();
+    } catch {
+      // Keep the banner; the operator can retry.
+    } finally {
+      setDescartando(false);
+    }
+  };
 
   // Opening the panel shows the mirror we ALREADY have, immediately, and pulls fresh state from
   // MercadoLibre in the BACKGROUND (see the effect below). The pull used to run first and block
@@ -440,8 +469,22 @@ function MlaPromocionesPanel({ mla, promosCacheRef, pullOnOpen = true, ignoreGlo
         </ul>
       </div>
     ) : null;
+  const mejoresNotice =
+    showMejores && canDiscardMejores ? (
+      <div className={styles.staleNotice} role="status">
+        Hay candidatas mejores que el precio vigente en MeLi.{' '}
+        <button type="button" className="btn-tesla ghost sm" disabled={descartando} onClick={descartarMejores}>
+          {descartando ? 'Descartando…' : 'Descartar'}
+        </button>
+      </div>
+    ) : showMejores ? (
+      <div className={styles.staleNotice} role="status">
+        Hay candidatas mejores que el precio vigente en MeLi.
+      </div>
+    ) : null;
   const notices = (
     <>
+      {mejoresNotice}
       {refreshingNotice}
       {readOnlyNotice}
       {staleNotice}

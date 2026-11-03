@@ -66,6 +66,17 @@ def finish_run(
     return run
 
 
+def _jsonable(value: Any) -> Any:
+    """Make values safe for JSONB (envio `before` carries raw `fetched_at` datetimes)."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
 def record_event(
     db: Session,
     *,
@@ -84,8 +95,8 @@ def record_event(
         mla_id=mla_id,
         item_id=item_id,
         action=action,
-        before=before,
-        after=after,
+        before=_jsonable(before) if before is not None else None,
+        after=_jsonable(after) if after is not None else None,
         detail=detail,
     )
     db.add(event)

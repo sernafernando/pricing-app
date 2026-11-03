@@ -69,11 +69,16 @@ PRODUCT_CATALOG_READERS = {
     VIEW_DETAIL_READER,
 }
 # The ERP publication map (`publicaciones_ml`: MLA -> product, the map the Productos screen uses) is opened to the
-# linking module ONLY (publicaciones-ml-vinculo-mapa V1): an automatic link follows the map first and the SKU rule
+# linking module (publicaciones-ml-vinculo-mapa V1): an automatic link follows the map first and the SKU rule
 # decides only the publications the map does not know. It is read there in one batch per sweep batch or one row per
-# item, and folded into the sweep's catalog fingerprint. Every other module, the view readers included, stays closed.
+# item, and folded into the sweep's catalog fingerprint.
+#
+# `view/listing.py` is the second, explicit exception (modo poner precios S4): the Precio column shows the ERP list
+# type (Clásica / cuotas) from that map's `pricelist_id` / `lista_nombre`, one correlated subquery on the list page.
+# Through `links.py` it would be a lookup per row. The exception covers that one module of the list query only.
 ERP_MAP_NAMES = {"publicaciones_ml", "PublicacionML"}
-ERP_MAP_READERS = {LINKING_READER}
+VIEW_LISTING_READER = "view/listing.py"
+ERP_MAP_READERS = {LINKING_READER, VIEW_LISTING_READER}
 # The one router allowed to use `app.services.ml_publications.links` (PR5L2).
 LINKS_ROUTERS = {"ml_publications_links.py"}
 LINKS_IMPORT = re.compile(r"app\.services\.ml_publications(?:\s+import\s+[^\n]*\blinks\b|\.links\b)")
@@ -172,13 +177,14 @@ class TestScannersCatchOffenders:
         assert erp_violations("links.py", "from app.services.gbp_client import x") != []
         assert erp_violations("links.py", "select * from tb_mercadolibre_items_publicados") != []
 
-    def test_the_map_exception_opens_the_publication_map_to_the_linking_module_only(self) -> None:
+    def test_the_map_exception_opens_the_publication_map_to_linking_and_listing(self) -> None:
         reader = "from app.models.publicacion_ml import PublicacionML\nSQL = 'FROM publicaciones_ml'"
         assert erp_violations(LINKING_READER, reader) == []
+        assert erp_violations(VIEW_LISTING_READER, reader) == []
         assert erp_violations("store.py", reader) == ["publicaciones_ml", "PublicacionML"]
         for view_reader in PRODUCT_CATALOG_READERS - {LINKING_READER}:
             assert erp_violations(view_reader, reader) == ["publicaciones_ml", "PublicacionML"], view_reader
-        assert ERP_MAP_READERS == {LINKING_READER}
+        assert ERP_MAP_READERS == {LINKING_READER, VIEW_LISTING_READER}
 
     def test_the_view_exception_is_explicit_and_exactly_one_module(self) -> None:
         catalog = "from app.models.producto import ProductoERP"
@@ -248,7 +254,7 @@ class TestPackageIsClean:
         readers = {name for name, source in package_sources() if PRODUCT_CATALOG_NAMES & set(erp_references(source))}
         assert readers == PRODUCT_CATALOG_READERS
 
-    def test_only_the_linking_module_reads_the_publication_map(self) -> None:
+    def test_only_linking_and_listing_read_the_publication_map(self) -> None:
         readers = {name for name, source in package_sources() if ERP_MAP_NAMES & set(erp_references(source))}
         assert readers == ERP_MAP_READERS
 

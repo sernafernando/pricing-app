@@ -427,6 +427,8 @@ async def sync_ml_publications_full(db: Session = None):
                 f"Sincronización completa fallida: 0 publicaciones procesadas de {len(all_ids)}, {total_errors} errores"
             )
 
+        # Envio/SKU repair runs as a background tick (ml_items drift × linked pubs),
+        # not at the end of this sync — see publicacion_repair + main.py tasks.
         return total_saved, total_updated, total_errors
 
     except Exception as e:

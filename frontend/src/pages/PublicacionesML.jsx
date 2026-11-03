@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { Download, FileDown, FileSpreadsheet, FilterX, Gauge, Keyboard, Rows4, ShieldAlert, Users } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Download,
+  FileDown,
+  FileSpreadsheet,
+  FilterX,
+  Gauge,
+  Keyboard,
+  Rows4,
+  ShieldAlert,
+  Users,
+} from 'lucide-react';
 import { publicacionesMlAPI } from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import SearchInput from '../components/SearchInput';
@@ -55,6 +67,10 @@ import useInlinePriceEdit from '../components/publicacionesMl/useInlinePriceEdit
 import ModalTesla, { ModalFooterButtons } from '../components/ModalTesla';
 import PricingModalTesla from '../components/PricingModalTesla';
 import { buildColumns, columnChoicesOver, defaultColumnVisibility } from '../components/publicacionesMl/columns';
+import {
+  canUsePonerPreciosMode,
+  visibilityForPonerPreciosMode,
+} from '../components/publicacionesMl/ponerPreciosMode';
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
@@ -255,7 +271,10 @@ export default function PublicacionesML() {
   // default (permissions may load after the first render).
   const [columnChoices, setColumnChoices] = useState({});
   const columnDefaults = useMemo(() => defaultColumnVisibility(), []);
-  const columnVisibility = useMemo(() => ({ ...columnDefaults, ...columnChoices }), [columnDefaults, columnChoices]);
+  const baseColumnVisibility = useMemo(
+    () => ({ ...columnDefaults, ...columnChoices }),
+    [columnDefaults, columnChoices],
+  );
   const setColumnVisibility = useCallback(
     (updater) =>
       setColumnChoices((choices) => {
@@ -265,6 +284,11 @@ export default function PublicacionesML() {
       }),
     [columnDefaults],
   );
+  // Workflow mode (S1–S3). Local flag — never the URL `modo` / PRICE_MODES.
+  const [ponerPreciosMode, setPonerPreciosMode] = useState(false);
+  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const vistaBeforeMode = useRef(null);
+  const canPonerPrecios = canUsePonerPreciosMode(tienePermiso);
   // Publications whose variation sub-rows are open. Their data loads on opening.
   const [expandedIds, setExpandedIds] = useState(() => new Set());
   const toggleVariations = useCallback(
@@ -546,6 +570,31 @@ export default function PublicacionesML() {
     ],
   );
 
+  // In mode: fixed S3 preset overlay (user picker choices come back on exit).
+  const columnVisibility = useMemo(() => {
+    if (!ponerPreciosMode) return baseColumnVisibility;
+    return visibilityForPonerPreciosMode(columns.map((column) => column.key));
+  }, [ponerPreciosMode, baseColumnVisibility, columns]);
+
+  const togglePonerPreciosMode = () => {
+    if (ponerPreciosMode) {
+      setPonerPreciosMode(false);
+      setFiltersCollapsed(false);
+      const prior = vistaBeforeMode.current;
+      vistaBeforeMode.current = null;
+      if (prior != null && prior !== filters.vista) {
+        setFilters({ vista: prior === 'publicacion' ? '' : prior, mla: '' });
+      }
+      return;
+    }
+    vistaBeforeMode.current = filters.vista;
+    if (filters.vista !== 'publicacion') {
+      setFilters({ vista: '', mla: '' });
+    }
+    setFiltersCollapsed(false);
+    setPonerPreciosMode(true);
+  };
+
   // The kit's ColumnPicker is TanStack-shaped; this table is the kit's, so a
   // row-less table instance carries only the visibility state both read.
   const columnDefs = useMemo(
@@ -555,7 +604,7 @@ export default function PublicacionesML() {
   const pickerTable = useReactTable({
     data: EMPTY_ROWS,
     columns: columnDefs,
-    state: { columnVisibility },
+    state: { columnVisibility: baseColumnVisibility },
     onColumnVisibilityChange: setColumnVisibility,
     getCoreRowModel: getCoreRowModel(),
   });
@@ -772,13 +821,25 @@ export default function PublicacionesML() {
           </p>
         </div>
         <div className={styles.headerActions}>
-          <SegmentedControl
-            label="Vista"
-            options={VISTA_OPTIONS}
-            value={filters.vista}
-            onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
-          />
-          {agrupado && (
+          {canPonerPrecios && (
+            <button
+              type="button"
+              className={`btn-tesla outline-subtle-primary sm ${ponerPreciosMode ? 'toggle-active' : ''}`}
+              aria-pressed={ponerPreciosMode}
+              onClick={togglePonerPreciosMode}
+            >
+              MODO PONER PRECIOS
+            </button>
+          )}
+          {!ponerPreciosMode && (
+            <SegmentedControl
+              label="Vista"
+              options={VISTA_OPTIONS}
+              value={filters.vista}
+              onChange={(value) => setFilters({ vista: value === 'publicacion' ? '' : value, mla: '' })}
+            />
+          )}
+          {!ponerPreciosMode && agrupado && (
             <SegmentedControl
               label="Agrupar por"
               options={AGRUPAR_OPTIONS}
@@ -786,7 +847,7 @@ export default function PublicacionesML() {
               onChange={(value) => setFilters({ agrupar: value === AGRUPAR_DIMENSIONS[0] ? '' : value })}
             />
           )}
-          {agrupado && (
+          {!ponerPreciosMode && agrupado && (
             <SwitchChip
               label="Con familias"
               title="Agrupa las publicaciones de una misma familia dentro de cada producto"
@@ -805,9 +866,16 @@ export default function PublicacionesML() {
             onDone={reloadList}
             openRequest={bulkRequest}
           />
-          {!sinMla && <BulkStatusActions filters={rowFilters} canSeeMargin={canSeeMargin} onDone={reloadList} checked={checkedStatus} />}
-          <ColumnPicker table={pickerTable} />
-          {kpiOptions.length > 0 && (
+          {!sinMla && (
+            <BulkStatusActions
+              filters={rowFilters}
+              canSeeMargin={canSeeMargin}
+              onDone={reloadList}
+              checked={checkedStatus}
+            />
+          )}
+          {!ponerPreciosMode && <ColumnPicker table={pickerTable} />}
+          {!ponerPreciosMode && kpiOptions.length > 0 && (
             <ColumnPicker table={kpiPicker} label="Indicadores" icon={Gauge} groupLabel="Elegir indicadores visibles" />
           )}
           <button
@@ -852,7 +920,7 @@ export default function PublicacionesML() {
 
       <StateBanner dataState={data?.data_state} />
 
-      {canSeeKpis && !sinMla && (
+      {!ponerPreciosMode && canSeeKpis && !sinMla && (
         <PublicationKpiStrip
           state={kpis}
           periodo={periodo}
@@ -862,20 +930,21 @@ export default function PublicacionesML() {
         />
       )}
 
-      {publicacion ? (
-        <PublicationCountCards facets={facets} filters={filters} onApply={setFilters} />
-      ) : (
-        <PublicationStatCards
-          state={stats}
-          filters={filters}
-          canSeeMargin={canSeeMargin}
-          sinMla={producto}
-          onApply={setFilters}
-          onReset={resetFilters}
-          onRetry={stats.reload}
-          markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
-        />
-      )}
+      {!ponerPreciosMode &&
+        (publicacion ? (
+          <PublicationCountCards facets={facets} filters={filters} onApply={setFilters} />
+        ) : (
+          <PublicationStatCards
+            state={stats}
+            filters={filters}
+            canSeeMargin={canSeeMargin}
+            sinMla={producto}
+            onApply={setFilters}
+            onReset={resetFilters}
+            onRetry={stats.reload}
+            markupNotice={showMarkupFilters && hasMarkupFilter(filters)}
+          />
+        ))}
 
       <section className={styles.filterCard} aria-label="Filtros" ref={filterCardRef}>
         <div className={styles.filterBand}>
@@ -929,6 +998,21 @@ export default function PublicacionesML() {
             />
           </div>
           <span className={styles.spacer} />
+          {ponerPreciosMode && (
+            <button
+              type="button"
+              className="btn-tesla ghost sm"
+              aria-expanded={!filtersCollapsed}
+              onClick={() => setFiltersCollapsed((collapsed) => !collapsed)}
+            >
+              <ChevronDown
+                size={14}
+                aria-hidden="true"
+                className={filtersCollapsed ? styles.filterChevronCollapsed : undefined}
+              />
+              {filtersCollapsed ? 'Mostrar filtros' : 'Minimizar filtros'}
+            </button>
+          )}
           {canCalculatePrice && (
             <button
               type="button"
@@ -937,7 +1021,8 @@ export default function PublicacionesML() {
               title="Recalcular las cuotas al guardar un precio (Alt+R)"
               onClick={autoRecalc.toggle}
             >
-              {autoRecalc.enabled ? '✓ ' : ''}Auto-recalcular
+              {autoRecalc.enabled ? <Check size={14} aria-hidden="true" /> : null}
+              Auto-recalcular
             </button>
           )}
           <button
@@ -956,7 +1041,7 @@ export default function PublicacionesML() {
             </button>
           )}
         </div>
-        <div className={styles.filterBand}>
+        <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Tipo:</span>
             {chipGroup('Filtrar por tipo', 'tipo', TIPO_OPTIONS, TIPO_LABELS, facets?.listing)}
@@ -970,7 +1055,7 @@ export default function PublicacionesML() {
             {chipGroup('Filtrar por stock', 'stock', STOCK_OPTIONS, STOCK_LABELS, facets?.stock)}
           </div>
         </div>
-        <div className={styles.filterBand}>
+        <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Tienda:</span>
             <FacetChips
@@ -986,7 +1071,7 @@ export default function PublicacionesML() {
             <ColorFilterChips value={filters.colores} onChange={(colores) => setFilters({ colores })} />
           </div>
         </div>
-        <div className={styles.filterBand}>
+        <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
           <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
           {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
               the fold at 1366x768. */}
@@ -1008,7 +1093,7 @@ export default function PublicacionesML() {
           )}
         </div>
         {showMarkupFilters && (
-          <div className={styles.filterBand}>
+          <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>Markup:</span>
               <MarkupFilters
@@ -1040,8 +1125,8 @@ export default function PublicacionesML() {
           <SplitPanelLayout
             open={Boolean(filters.sel || filters.prod)}
             onClose={closePanel}
-            width="lg"
-            resizeKey="publicaciones-ml"
+            width={ponerPreciosMode ? 'md' : 'lg'}
+            resizeKey={ponerPreciosMode ? 'publicaciones-ml-poner-precios' : 'publicaciones-ml'}
             ariaLabel={filters.sel ? 'Detalle de la publicación' : 'Detalle del producto'}
             panel={
               filters.sel ? (
@@ -1055,6 +1140,7 @@ export default function PublicacionesML() {
                   onBack={filters.prod ? backToProduct : undefined}
                   backLabel={backLabel}
                   priceGroup={canSeePrices ? priceGroup : null}
+                  ponerPreciosMode={ponerPreciosMode}
                 />
               ) : filters.prod ? (
                 <ProductPanel

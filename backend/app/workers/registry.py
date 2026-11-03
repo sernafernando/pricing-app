@@ -104,6 +104,7 @@ def __getattr__(name: str) -> List[JobHandler]:
                 verify,
             )
             from app.workers.handlers.promo_refresh import promo_write_refresh
+            from app.workers.handlers.publicacion_repair import envio_repair, sku_repair
 
             _ml_publications_registry = [
                 refresh,
@@ -124,6 +125,9 @@ def __getattr__(name: str) -> List[JobHandler]:
                 discounts,
                 # Gestión Full Target: Sat–Sun drip of INBOUND_RECEPTION snapshots.
                 gestion_full_inbound,
+                # publicaciones-repair: conditional envio/sku ticks under the shared Pacer.
+                envio_repair,
+                sku_repair,
             ]
         return _ml_publications_registry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
