@@ -89,6 +89,41 @@ describe('usePublicacionesMLKeyboard', () => {
     expect(row(5)).toHaveFocus();
   });
 
+  // A virtualized TableShell puts each row in its own <tbody> (filtros S4): the arrows walk the table, not one tbody.
+  function PerRowBodies({ virtual = false }) {
+    const searchRef = useRef(null);
+    usePublicacionesMLKeyboard({ searchRef, findRow: () => null, onToggleHelp: () => {}, showToast: () => {} });
+    return (
+      <table data-virtual={virtual ? '' : undefined}>
+        {ROWS.slice(0, 4).map((r) => (
+          <tbody key={r.item_id}>
+            <tr data-clickable="" data-row-key={r.item_id} tabIndex={0}>
+              <td>{r.titulo}</td>
+            </tr>
+          </tbody>
+        ))}
+      </table>
+    );
+  }
+
+  it('the arrows walk every row of the table when each row is its own tbody', async () => {
+    const user = userEvent.setup();
+    render(<PerRowBodies />);
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}');
+    expect(row(3)).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(row(2)).toHaveFocus();
+  });
+
+  it('Home and End in a virtualized table outside a scroller still go to its first and last rows', async () => {
+    const user = userEvent.setup();
+    render(<PerRowBodies virtual />);
+    await user.keyboard('{ArrowDown}{End}');
+    await waitFor(() => expect(row(4)).toHaveFocus());
+    await user.keyboard('{Home}');
+    await waitFor(() => expect(row(1)).toHaveFocus());
+  });
+
   it('Enter opens the focused row', async () => {
     const onOpen = vi.fn();
     const user = userEvent.setup();

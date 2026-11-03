@@ -110,15 +110,19 @@ function rowsAround(current) {
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
 /** Home/End in a virtualized table (`TableShell` `virtualizeFrom`): its first or last row may not be in the DOM, so
- * scroll its scroller to that end, then focus the row the table renders there. */
+ * scroll its scroller to that end until the table renders it there (or a few frames pass), then focus it. A table
+ * outside a scroller has nothing to scroll: its rows in the DOM are all there is. */
 async function jumpVirtual(table, toEnd) {
   const scroller = table.closest('[data-table-shell-scroller]');
-  if (!scroller) return;
+  const atEnd = () =>
+    toEnd
+      ? scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1
+      : scroller.scrollTop === 0 && table.querySelector('tbody[data-index="0"]') !== null;
   // The end moves while the rows near it are measured: scroll again until it holds.
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+  for (let attempt = 0; scroller && attempt < 5; attempt += 1) {
     scroller.scrollTop = toEnd ? scroller.scrollHeight : 0;
     await nextFrame();
-    if (!toEnd || scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1) break;
+    if (atEnd()) break;
   }
   const rows = Array.from(table.querySelectorAll(ROW));
   rows[toEnd ? rows.length - 1 : 0]?.focus();
