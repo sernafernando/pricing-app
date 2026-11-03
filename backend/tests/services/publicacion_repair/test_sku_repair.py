@@ -56,6 +56,7 @@ def test_run_sku_repair_fixes_drift_only(monkeypatch: pytest.MonkeyPatch, patche
             ("MLA_CLOSED", 3, "old", "222", "closed", _fresh()),
         ],
     )
+    monkeypatch.setattr(sku_mod, "mlas_with_live_variations", lambda db, mlas: set())
 
     calls: list[tuple[str, dict]] = []
 
@@ -111,6 +112,7 @@ def test_run_sku_repair_ml_reject_is_skipped(monkeypatch: pytest.MonkeyPatch, pa
         "_load_work_items",
         lambda db: [("MLA_X", 1, "old", "999", "active", _fresh())],
     )
+    monkeypatch.setattr(sku_mod, "mlas_with_live_variations", lambda db, mlas: set())
 
     class FakeClient:
         async def put_item_data(self, mla: str, body: dict):
@@ -134,6 +136,7 @@ def test_run_sku_repair_skips_stale(monkeypatch: pytest.MonkeyPatch, patched_aud
         "_load_work_items",
         lambda db: [("MLA_OLD", 1, "old", "999", "active", old)],
     )
+    monkeypatch.setattr(sku_mod, "mlas_with_live_variations", lambda db, mlas: set())
 
     class Boom:
         async def put_item_data(self, *a, **k):
@@ -154,6 +157,7 @@ def test_run_sku_repair_stops_on_429_and_notifies_pacer(monkeypatch: pytest.Monk
             ("MLA_B", 2, "old", "222", "active", _fresh()),
         ],
     )
+    monkeypatch.setattr(sku_mod, "mlas_with_live_variations", lambda db, mlas: set())
     puts: list[str] = []
     limited: list[str | None] = []
 
@@ -174,3 +178,31 @@ def test_run_sku_repair_stops_on_429_and_notifies_pacer(monkeypatch: pytest.Monk
     assert stats["errors"] == 1
     assert stats["changed"] == 0
     assert events[0]["detail"] == "rate_limited"
+
+
+def test_run_sku_repair_skips_items_with_live_variations(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    _finish, events, *_ = patched_audit
+    monkeypatch.setattr(
+        sku_mod,
+        "_load_work_items",
+        lambda db: [
+            ("MLA_VAR", 1, "old", "999", "active", _fresh()),
+            ("MLA_OK", 2, "old", "888", "active", _fresh()),
+        ],
+    )
+    monkeypatch.setattr(sku_mod, "mlas_with_live_variations", lambda db, mlas: {"MLA_VAR"})
+
+    puts: list[str] = []
+
+    class FakeClient:
+        async def put_item_data(self, mla: str, body: dict):
+            puts.append(mla)
+            return {"ok": True, "status_code": 200, "ambiguous": False, "body": {}}
+
+    stats = asyncio.run(sku_mod.run_sku_repair(client=FakeClient(), pacing_seconds=0))
+    assert puts == ["MLA_OK"]
+    assert stats["skipped"] == 1
+    assert stats["changed"] == 1
+    by_mla = {e["mla_id"]: e for e in events}
+    assert by_mla["MLA_VAR"]["detail"] == sku_mod.DETAIL_HAS_VARIATIONS
+    assert by_mla["MLA_VAR"]["action"] == "skipped"

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_background_db
-from app.models.ml_publications import MlItem
+from app.models.ml_publications import MlItem, MlItemVariation
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
 from app.models.publicacion_repair import (
@@ -30,6 +30,8 @@ from app.services.publicacion_repair.envio import MODIFIABLE_STATUSES, is_ml_ite
 
 logger = logging.getLogger(__name__)
 
+DETAIL_HAS_VARIATIONS = "has_variations"
+
 
 def normalize_sku(value: Any) -> Optional[str]:
     if value is None:
@@ -39,6 +41,10 @@ def normalize_sku(value: Any) -> Optional[str]:
 
 
 def sku_matches_erp(seller_sku: Any, erp_codigo: Any) -> bool:
+    """True only when both sides match after strip. Separator-only diffs are mismatches.
+
+    Repair must not use links.normalize_sku: published SELLER_SKU should equal GBP codigo.
+    """
     left = normalize_sku(seller_sku)
     right = normalize_sku(erp_codigo)
     if left is None or right is None:
@@ -66,10 +72,27 @@ def _classify_data_write(result: dict[str, Any]) -> tuple[str, Optional[str]]:
     return ACTION_ERROR, str(detail)[:300]
 
 
+def mlas_with_live_variations(db: Session, mlas: list[str]) -> set[str]:
+    """MLA ids that still have at least one non-gone ml_item_variations row."""
+    if not mlas:
+        return set()
+    rows = (
+        db.query(MlItemVariation.item_id)
+        .filter(MlItemVariation.item_id.in_(mlas))
+        .filter(MlItemVariation.gone_at.is_(None))
+        .distinct()
+        .all()
+    )
+    return {str(item_id) for (item_id,) in rows if item_id}
+
+
 def _load_work_items(
     db: Session,
 ) -> list[tuple[str, Optional[int], Optional[str], str, Optional[str], Any]]:
-    """Return (mla, item_id, ml_seller_sku, erp_codigo, status, fetched_at) for linked pubs."""
+    """Return (mla, item_id, ml_seller_sku, erp_codigo, status, fetched_at) for linked pubs.
+
+    Linked means `publicaciones_ml.item_id` is set (ERP link); unlinked rows are excluded.
+    """
     rows = (
         db.query(
             PublicacionML,
@@ -143,6 +166,7 @@ async def run_sku_repair(
     try:
         with get_background_db() as read_db:
             work = _load_work_items(read_db)
+            variation_mlas = mlas_with_live_variations(read_db, [mla for mla, *_ in work])
         scanned = len(work)
 
         for mla, item_id, seller_sku, erp_codigo, status, fetched_at in work:
@@ -172,6 +196,18 @@ async def run_sku_repair(
                     action=ACTION_SKIPPED,
                     before=before,
                     detail="stale_ml_item",
+                )
+                continue
+            if mla in variation_mlas:
+                # Item-level SELLER_SKU PUT is wrong when the listing has live variations.
+                skipped += 1
+                repair_audit.record_event_bg(
+                    run_id=run_id,
+                    mla_id=mla,
+                    item_id=item_id,
+                    action=ACTION_SKIPPED,
+                    before=before,
+                    detail=DETAIL_HAS_VARIATIONS,
                 )
                 continue
             if sku_matches_erp(seller_sku, erp_codigo):
