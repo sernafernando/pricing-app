@@ -1,0 +1,425 @@
+import { useEffect, useState } from 'react';
+import { Search } from 'lucide-react';
+import api from '../services/api';
+import { useDebounce } from '../hooks/useDebounce';
+import { usePermisos } from '../contexts/PermisosContext';
+import GestionFullDepositosTab from '../components/gestionFull/GestionFullDepositosTab';
+import GestionFullGestorTab from '../components/gestionFull/GestionFullGestorTab';
+import GestionFullEnviosTab from '../components/gestionFull/GestionFullEnviosTab';
+import styles from './GestionFull.module.css';
+
+const GROUP_TONES = ['toneA', 'toneB', 'toneC'];
+
+/** Assign a stable tint class per contiguous EAN group. */
+function withGroupTones(items) {
+  let groupIndex = -1;
+  let prevEan = null;
+  return items.map((row) => {
+    if (row.ean !== prevEan) {
+      groupIndex += 1;
+      prevEan = row.ean;
+    }
+    return { ...row, _tone: GROUP_TONES[groupIndex % GROUP_TONES.length] };
+  });
+}
+
+function cell(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  return value;
+}
+
+function overrideDraftValue(value) {
+  if (value === null || value === undefined) return '';
+  return String(value);
+}
+
+export default function GestionFull() {
+  const { tienePermiso } = usePermisos();
+  const puedeDepositos = tienePermiso('gestion_full.depositos');
+  const puedeGestorPerm = tienePermiso('gestion_full.gestor');
+  const [tab, setTab] = useState('plan');
+  const [q, setQ] = useState('');
+  const [marca, setMarca] = useState('');
+  const [categoria, setCategoria] = useState('');
+  const [fullMode, setFullMode] = useState('en');
+  const [includeZeroStock, setIncludeZeroStock] = useState(false);
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [puedeGestor, setPuedeGestor] = useState(false);
+  const [drafts, setDrafts] = useState({});
+  const [savingId, setSavingId] = useState(null);
+  const [readyBusyKey, setReadyBusyKey] = useState(null);
+  const [listNonce, setListNonce] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+  const debouncedQ = useDebounce(q, 300);
+
+  const rowKey = (row) => `${row.producto_item_id}-${row.user_product_id || row.inventory_id}`;
+
+  useEffect(() => {
+    if (tab !== 'plan') return undefined;
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setLoadError(null);
+      setSaveError(null);
+      try {
+        const { data } = await api.get('/gestion-full', {
+          params: {
+            q: debouncedQ || undefined,
+            marca: marca || undefined,
+            categoria: categoria || undefined,
+            full_mode: fullMode,
+            include_zero_stock: includeZeroStock,
+            limit: 200,
+            offset: 0,
+          },
+        });
+        if (cancelled) return;
+        const nextItems = withGroupTones(data.items || []);
+        setItems(nextItems);
+        setTotal(data.total || 0);
+        setPuedeGestor(Boolean(data.puede_gestor));
+        const nextDrafts = {};
+        nextItems.forEach((row) => {
+          nextDrafts[row.inventory_id] = overrideDraftValue(row.override);
+        });
+        setDrafts(nextDrafts);
+      } catch {
+        if (!cancelled) setLoadError('No se pudo cargar Gestión Full');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, debouncedQ, marca, categoria, fullMode, includeZeroStock, listNonce]);
+
+  const clearFilters = () => {
+    setQ('');
+    setMarca('');
+    setCategoria('');
+    setFullMode('en');
+    setIncludeZeroStock(false);
+  };
+
+  const onDraftChange = (inventoryId, value) => {
+    setDrafts((prev) => ({ ...prev, [inventoryId]: value }));
+  };
+
+  const saveOverride = async (row) => {
+    if (!row.puede_editar_override) return;
+    const raw = (drafts[row.inventory_id] ?? '').trim();
+    const next =
+      raw === '' ? null : Number.parseInt(raw, 10);
+    if (raw !== '' && (Number.isNaN(next) || next < 0)) {
+      setDrafts((prev) => ({
+        ...prev,
+        [row.inventory_id]: overrideDraftValue(row.override),
+      }));
+      return;
+    }
+    if (next === (row.override ?? null)) return;
+
+    setSavingId(row.inventory_id);
+    setSaveError(null);
+    try {
+      const { data } = await api.patch(`/gestion-full/${encodeURIComponent(row.inventory_id)}`, {
+        cantidad: next,
+      });
+      setItems((prev) =>
+        prev.map((item) =>
+          item.inventory_id === row.inventory_id
+            ? { ...item, override: data.override ?? null }
+            : item,
+        ),
+      );
+      setDrafts((prev) => ({
+        ...prev,
+        [row.inventory_id]: overrideDraftValue(data.override),
+      }));
+    } catch {
+      setSaveError(`No se pudo guardar override de ${row.inventory_id}`);
+      setDrafts((prev) => ({
+        ...prev,
+        [row.inventory_id]: overrideDraftValue(row.override),
+      }));
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const markReady = async (row) => {
+    if (!row.puede_editar_override || row.pm_ready) return;
+    const key = rowKey(row);
+    setReadyBusyKey(key);
+    setSaveError(null);
+    try {
+      await api.post('/gestion-full/ready', {
+        producto_item_id: row.producto_item_id,
+        user_product_id: row.user_product_id,
+      });
+      setListNonce((n) => n + 1);
+    } catch {
+      setSaveError(`No se pudo cerrar la línea ${row.inventory_id}`);
+    } finally {
+      setReadyBusyKey(null);
+    }
+  };
+
+  const unlockReady = async (row) => {
+    if (!puedeGestor || !row.pm_ready) return;
+    const key = rowKey(row);
+    setReadyBusyKey(key);
+    setSaveError(null);
+    try {
+      await api.post('/gestion-full/unlock', {
+        producto_item_id: row.producto_item_id,
+        user_product_id: row.user_product_id,
+      });
+      setListNonce((n) => n + 1);
+    } catch {
+      setSaveError(`No se pudo desbloquear ${row.inventory_id}`);
+    } finally {
+      setReadyBusyKey(null);
+    }
+  };
+
+  return (
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <h1 className={styles.title}>Gestión Full</h1>
+        <p className={styles.subtitle}>Reposición Full por producto</p>
+      </header>
+
+      <div className={styles.tabs} role="tablist" aria-label="Gestión Full">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'plan'}
+          className={tab === 'plan' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('plan')}
+        >
+          Planificación
+        </button>
+        {puedeDepositos && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'depositos'}
+            className={tab === 'depositos' ? styles.tabActive : styles.tab}
+            onClick={() => setTab('depositos')}
+          >
+            Depósito
+          </button>
+        )}
+        {puedeGestorPerm && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'gestor'}
+            className={tab === 'gestor' ? styles.tabActive : styles.tab}
+            onClick={() => setTab('gestor')}
+          >
+            Envío
+          </button>
+        )}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'envios'}
+          className={tab === 'envios' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('envios')}
+        >
+          Consulta envíos
+        </button>
+      </div>
+
+      {tab === 'depositos' && puedeDepositos ? <GestionFullDepositosTab /> : null}
+      {tab === 'gestor' && puedeGestorPerm ? <GestionFullGestorTab /> : null}
+      {tab === 'envios' ? <GestionFullEnviosTab /> : null}
+
+      {tab === 'plan' && (
+      <>
+      <div className={styles.filters}>
+        <label className={styles.search}>
+          <Search size={14} aria-hidden />
+          <input
+            className={styles.input}
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="EAN, descripción o inventory_id…"
+            aria-label="Buscar"
+          />
+        </label>
+        <input
+          className={styles.input}
+          type="text"
+          value={marca}
+          onChange={(e) => setMarca(e.target.value)}
+          placeholder="Marca (exacta)"
+          aria-label="Marca"
+        />
+        <input
+          className={styles.input}
+          type="text"
+          value={categoria}
+          onChange={(e) => setCategoria(e.target.value)}
+          placeholder="Categoría (exacta)"
+          aria-label="Categoría"
+        />
+        <label className={styles.filterField}>
+          <span className={styles.filterLabel}>Presencia Full</span>
+          <select
+            className={styles.select}
+            value={fullMode}
+            onChange={(e) => setFullMode(e.target.value)}
+            aria-label="Presencia Full"
+          >
+            <option value="en">En Full</option>
+            <option value="fuera">Fuera de Full</option>
+            <option value="todos">Todos</option>
+          </select>
+        </label>
+        <label className={styles.check}>
+          <input
+            type="checkbox"
+            checked={includeZeroStock}
+            onChange={(e) => setIncludeZeroStock(e.target.checked)}
+          />
+          Mostrar sin stock ERP
+        </label>
+        <button type="button" className={styles.clearBtn} onClick={clearFilters}>
+          Limpiar
+        </button>
+        <span className={styles.meta}>{total} filas</span>
+      </div>
+
+      {loadError && <div className={styles.error}>{loadError}</div>}
+      {saveError && <div className={styles.error}>{saveError}</div>}
+      {loading && <div className={styles.loading}>Cargando…</div>}
+
+      {!loading && !loadError && (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>EAN</th>
+                <th>Descripción</th>
+                <th>Código ML</th>
+                <th>Familia (MLAU)</th>
+                <th>Full 7d</th>
+                <th>Full 14d</th>
+                <th>Full 21d</th>
+                <th>Full 30d</th>
+                <th>C+F 7d</th>
+                <th>C+F 30d</th>
+                <th>Stock ERP</th>
+                <th>U/caja</th>
+                <th>Stock Full</th>
+                <th>Target</th>
+                <th>Sugerido</th>
+                <th>Override</th>
+                <th>Qty PM</th>
+                <th>Listo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((row) => (
+                <tr
+                  key={rowKey(row)}
+                  className={styles[row._tone]}
+                >
+                  <td className={styles.mono}>{cell(row.ean)}</td>
+                  <td className={styles.desc} title={row.descripcion || ''}>
+                    {cell(row.descripcion)}
+                  </td>
+                  <td className={styles.mono}>{cell(row.inventory_id)}</td>
+                  <td className={styles.mono}>{cell(row.user_product_id)}</td>
+                  <td className={styles.num}>{cell(row.ventas_full_7d)}</td>
+                  <td className={styles.num}>{cell(row.ventas_full_14d)}</td>
+                  <td className={styles.num}>{cell(row.ventas_full_21d)}</td>
+                  <td className={styles.num}>{cell(row.ventas_full_30d)}</td>
+                  <td className={styles.num}>{cell(row.ventas_colecta_flex_7d)}</td>
+                  <td className={styles.num}>{cell(row.ventas_colecta_flex_30d)}</td>
+                  <td className={styles.num}>{cell(row.stock_erp)}</td>
+                  <td className={styles.num}>{cell(row.unidades_por_caja)}</td>
+                  <td className={styles.num}>{cell(row.stock_full)}</td>
+                  <td className={styles.num}>{cell(row.target)}</td>
+                  <td className={styles.num}>{cell(row.sugerido)}</td>
+                  <td>
+                    {row.puede_editar_override ? (
+                      <input
+                        className={styles.override}
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        step={1}
+                        value={drafts[row.inventory_id] ?? ''}
+                        disabled={savingId === row.inventory_id}
+                        onChange={(e) => onDraftChange(row.inventory_id, e.target.value)}
+                        onBlur={() => saveOverride(row)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        aria-label={`Override ${row.inventory_id}`}
+                      />
+                    ) : (
+                      <span className={styles.muted}>{cell(row.override)}</span>
+                    )}
+                  </td>
+                  <td className={styles.num}>{cell(row.qty_pm)}</td>
+                  <td className={styles.readyCell}>
+                    {row.pm_ready ? (
+                      <>
+                        <span className={styles.readyBadge} title="Cerrado por el PM">
+                          Listo
+                        </span>
+                        {puedeGestor && (
+                          <button
+                            type="button"
+                            className={styles.unlockBtn}
+                            disabled={readyBusyKey === rowKey(row)}
+                            onClick={() => unlockReady(row)}
+                          >
+                            Desbloquear
+                          </button>
+                        )}
+                      </>
+                    ) : row.puede_editar_override ? (
+                      <button
+                        type="button"
+                        className={styles.readyBtn}
+                        disabled={readyBusyKey === rowKey(row)}
+                        onClick={() => markReady(row)}
+                      >
+                        Cerrar
+                      </button>
+                    ) : (
+                      <span className={styles.muted}>—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={18} className={styles.empty}>
+                    Sin filas para estos filtros
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+      </>
+      )}
+    </div>
+  );
+}

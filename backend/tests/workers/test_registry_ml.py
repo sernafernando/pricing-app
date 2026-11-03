@@ -66,6 +66,8 @@ class TestMlPublicationsRegistry:
             "ml_publications.freshness",
             "ml_billing.sweep",
             "ml_orders.discounts",
+            "gestion_full.inbound",
+            "gestion_full.reconcile",
             "publicacion_repair.envio",
             "publicacion_repair.sku",
         ]
@@ -82,8 +84,10 @@ class TestMlPublicationsRegistry:
         assert registry.ML_PUBLICATIONS_REGISTRY[10] is ml_publications.freshness
         assert registry.ML_PUBLICATIONS_REGISTRY[11] is ml_billing.billing
         assert registry.ML_PUBLICATIONS_REGISTRY[12] is ml_order_discounts.discounts
-        assert registry.ML_PUBLICATIONS_REGISTRY[13] is envio_repair
-        assert registry.ML_PUBLICATIONS_REGISTRY[14] is sku_repair
+        assert registry.ML_PUBLICATIONS_REGISTRY[13].name == "gestion_full.inbound"
+        assert registry.ML_PUBLICATIONS_REGISTRY[14].name == "gestion_full.reconcile"
+        assert registry.ML_PUBLICATIONS_REGISTRY[15] is envio_repair
+        assert registry.ML_PUBLICATIONS_REGISTRY[16] is sku_repair
 
     def test_order_discounts_runs_in_its_own_thread_five_seconds_apart_and_is_not_notify_driven(self) -> None:
         handler = registry.ML_PUBLICATIONS_REGISTRY[12]
@@ -141,6 +145,6 @@ class TestProcessIsolation:
             "['ml_publications.refresh', 'ml_publications.intake', 'ml_publications.relink', "
             "'ml_publications.scan', 'ml_publications.missed_feeds', 'ml_publications.sweep', "
             "'ml_publications.verify', 'ml_publications.promo_refresh', 'ml_ads.ingest', 'promo_write.refresh', "
-            "'ml_publications.freshness', 'ml_billing.sweep', 'ml_orders.discounts', "
-            "'publicacion_repair.envio', 'publicacion_repair.sku'] True"
+            "'ml_publications.freshness', 'ml_billing.sweep', 'ml_orders.discounts', 'gestion_full.inbound', "
+            "'gestion_full.reconcile', 'publicacion_repair.envio', 'publicacion_repair.sku'] True"
         )

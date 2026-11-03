@@ -67,6 +67,7 @@ export const SCREENS = [
     fullViewPermisos: ['consultas.ver_ranking'],
   },
   // ml_metricas router + ml_daily_metrics/board.py -> pm_scope.
+  { path: '/gestion-full', label: 'Gestión Full', section: 'Reportes', permisos: ['productos.ver', 'ml_ops.ver'], scope: 'permiso' },
   { path: '/metricas-ml', label: 'Métricas ML', section: 'Reportes', permisos: ['ml_metricas.ver'], scope: 'data' },
   // dashboard_ml.py, ventas_ml.py operaciones and /rentabilidad (TabRentabilidad) -> pm_scope.
   { path: '/dashboard-metricas-ml', label: 'Métricas ML (anterior)', section: 'Reportes', permisos: ['ventas_ml.ver_dashboard'], scope: 'data' },

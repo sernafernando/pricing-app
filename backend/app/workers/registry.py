@@ -88,6 +88,8 @@ def __getattr__(name: str) -> List[JobHandler]:
     global _ml_publications_registry
     if name == "ML_PUBLICATIONS_REGISTRY":
         if _ml_publications_registry is None:
+            from app.workers.handlers.gestion_full_inbound import inbound as gestion_full_inbound
+            from app.workers.handlers.gestion_full_reconcile import reconcile as gestion_full_reconcile
             from app.workers.handlers.ml_ads import ads
             from app.workers.handlers.ml_billing import billing
             from app.workers.handlers.ml_order_discounts import discounts
@@ -122,6 +124,10 @@ def __getattr__(name: str) -> List[JobHandler]:
                 billing,
                 # ml-ads-cupones-display T3a: per-sale discounts (coupons) of the sales paid with one.
                 discounts,
+                # Gestión Full Target: Sat–Sun drip of INBOUND_RECEPTION snapshots.
+                gestion_full_inbound,
+                # Gestión Full envíos: every 3h reconcile open inbound_ids.
+                gestion_full_reconcile,
                 # publicaciones-repair: conditional envio/sku ticks under the shared Pacer.
                 envio_repair,
                 sku_repair,

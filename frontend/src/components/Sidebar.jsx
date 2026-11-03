@@ -136,6 +136,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         // ODD metricas-ml-tablero (2026-10-01): the new board took the plain
         // name; the old dashboard keeps its URL, relabelled.
         { label: 'Métricas ML', path: '/metricas-ml', permiso: 'ml_metricas.ver', badge: 'Nuevo' },
+        { label: 'Gestión Full', path: '/gestion-full', permiso: 'productos.ver,ml_ops.ver', multiple: true, badge: 'Nuevo' },
         { label: 'Métricas ML (anterior)', path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
         // The route opens with ml_metricas.ver (screen catalog), but the menu lists it only for ver_ganancia: without it
         // the page shows nothing but a notice.

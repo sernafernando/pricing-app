@@ -1,0 +1,257 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  min-height: 0;
+  height: 100%;
+  background: var(--cf-bg-app);
+  color: var(--cf-text-primary);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-xl);
+  font-weight: var(--font-semibold);
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--cf-text-secondary);
+  font-size: var(--font-sm);
+}
+
+.tabs {
+  display: flex;
+  gap: var(--spacing-xs);
+  border-bottom: 1px solid var(--cf-border-default);
+  padding-bottom: var(--spacing-xs);
+}
+
+.tab {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+  height: 2rem;
+  padding: 0 var(--spacing-sm);
+  font-size: var(--font-sm);
+}
+
+.tabActive {
+  composes: btn-primary from '../styles/buttons-tesla.css';
+  height: 2rem;
+  padding: 0 var(--spacing-sm);
+  font-size: var(--font-sm);
+}
+
+.depositos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  min-height: 0;
+  flex: 1;
+}
+
+.modeToggle {
+  display: flex;
+  gap: var(--spacing-xs);
+  flex-wrap: wrap;
+}
+
+.importBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-width: 40rem;
+}
+
+.textarea {
+  composes: input from '../styles/forms-tesla.css';
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--font-sm);
+  resize: vertical;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.search {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.input {
+  composes: input inputSm from '../styles/forms-tesla.css';
+  min-width: 10rem;
+}
+
+.select {
+  composes: input inputSm from '../styles/forms-tesla.css';
+  min-width: 8rem;
+}
+
+.filterField {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.filterLabel {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  user-select: none;
+}
+
+.clearBtn {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+  height: 2rem;
+  padding: 0 var(--spacing-sm);
+  font-size: var(--font-sm);
+}
+
+.meta {
+  color: var(--cf-text-tertiary);
+  font-size: var(--font-sm);
+  margin-left: auto;
+}
+
+.error {
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-base);
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.loading,
+.empty {
+  color: var(--cf-text-secondary);
+  padding: var(--spacing-md);
+  text-align: center;
+}
+
+.tableWrap {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-base);
+  background: var(--cf-bg-card);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 78rem;
+  font-size: var(--font-sm);
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid var(--cf-border-default);
+  padding: 0.375rem 0.5rem;
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--cf-bg-card);
+  color: var(--cf-text-secondary);
+  font-weight: var(--font-medium);
+  font-size: var(--font-xs);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-xs);
+  text-align: center;
+}
+
+.num {
+  composes: mono;
+  text-align: center;
+}
+
+.desc {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cf-text-secondary);
+  text-align: left;
+}
+
+.toneA {
+  background: rgba(var(--brand-primary-rgb), 0.08);
+  box-shadow: inset 3px 0 0 var(--brand-primary);
+}
+
+.toneB {
+  background: var(--success-bg);
+  box-shadow: inset 3px 0 0 var(--success);
+}
+
+.toneC {
+  background: var(--warning-bg);
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+
+.override {
+  composes: input inputSm from '../styles/forms-tesla.css';
+  width: 4rem;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin-inline: auto;
+  display: block;
+}
+
+.muted {
+  color: var(--cf-text-tertiary);
+}
+
+.readyCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 5.5rem;
+}
+
+.readyBadge {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--success);
+}
+
+.readyBtn {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+  height: 1.75rem;
+  padding: 0 var(--spacing-xs);
+  font-size: var(--font-xs);
+}
+
+.unlockBtn {
+  composes: btn-secondary from '../styles/buttons-tesla.css';
+  height: 1.75rem;
+  padding: 0 var(--spacing-xs);
+  font-size: var(--font-xs);
+}
