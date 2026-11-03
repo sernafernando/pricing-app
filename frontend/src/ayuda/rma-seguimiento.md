@@ -54,6 +54,10 @@ Con los artículos seleccionados se arma el envío con **Crear Envio (N)**. Abaj
 
 Igual que la anterior, pero agrupado por cliente y con los artículos marcados como **Listo para envio a cliente** en el caso. También se arma el envío con **Crear Envio (N)**.
 
+### Para borrar
+
+Lista los casos que tienen tildado **Marcado para borrar pedido**, para revisarlos de una vez. Arriba hay un filtro con **Pendientes** (el que abre), **Revisados** y **Todos**, cada uno con su cantidad. Cuando terminás de revisar un caso, tildá **Revisado**: queda guardado quién y cuándo lo revisó, y el caso deja de aparecer en **Pendientes**. Si lo destildás, vuelve a **Pendientes**.
+
 ### Métricas
 
 Muestra indicadores y gráficos de los casos. Podés elegir si filtrás por **Fecha Caso** o por **Fecha Recepción**, y definir el rango con **Desde** y **Hasta**. Los gráficos son **Estado Recepción**, **Causa Devolución**, **Apto para Venta**, **Estado Proceso**, **Estado Proveedor** y **Proveedor**. Al tocar un sector de un gráfico se abre el detalle de los equipos de esa categoría.
@@ -92,6 +96,13 @@ Si no hay nada pendiente: **No hay items pendientes de envio a proveedor**, con 
 Arriba: **N items pendientes en N clientes**. Columnas de la tabla: **Caso**, **Serie**, **Producto**, **EAN**, **Falla** y **Estado**.
 
 Si no hay nada pendiente: **No hay items pendientes de envio a cliente**, con la aclaración **Los items aparecen aqui cuando se marcan como "Listo para envio a cliente" en el caso**.
+
+### Para borrar
+
+- **Pendientes** / **Revisados** / **Todos** (con su cantidad): qué casos marcados para borrar se ven. Abre en **Pendientes**.
+- Columnas: **Caso**, **Fecha**, **Cliente**, **ML ID**, **Estado** y **Revisado** (el tilde, y quién y cuándo lo revisó).
+- El tilde **Revisado** solo aparece si tenés permiso para gestionar RMA; sin ese permiso ves quién y cuándo lo revisó, sin poder cambiarlo.
+- Si no hay casos en el filtro elegido: **No hay casos para borrar en este filtro**.
 
 ### Proveedores RMA
 

@@ -10,9 +10,10 @@ import RmaProveedores from '../components/RmaProveedores';
 import RmaEnviosProveedor from '../components/RmaEnviosProveedor';
 import RmaEnviosCliente from '../components/RmaEnviosCliente';
 import Toast from '../components/Toast';
-import { Plus, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, PackageCheck, ClipboardList, FileDown, BarChart2 } from 'lucide-react';
+import { Plus, RotateCcw, ChevronLeft, ChevronRight, Settings, Truck, PackageCheck, ClipboardList, FileDown, BarChart2, Trash2 } from 'lucide-react';
 import SearchInput from '../components/SearchInput';
 import DocumentGeneratorModal from '../components/DocumentGeneratorModal';
+import RmaParaBorrar from './rma/RmaParaBorrar';
 import styles from './Rma.module.css';
 
 // Lazy-load the Métricas feature (pulls in recharts ~100kb gz only when the tab is opened)
@@ -248,6 +249,13 @@ export default function Rma() {
             Envios a Cliente
           </button>
         )}
+        <button
+          className={`${styles.tab} ${activeTab === 'para_borrar' ? styles.tabActive : ''}`}
+          onClick={() => setActiveTab('para_borrar')}
+        >
+          <Trash2 size={15} />
+          Para borrar
+        </button>
         {puedeVerMetricas && (
           <button
             className={`${styles.tab} ${activeTab === 'metricas' ? styles.tabActive : ''}`}
@@ -397,6 +405,9 @@ export default function Rma() {
       {activeTab === 'envios_cliente' && puedeGestionar && (
         <RmaEnviosCliente />
       )}
+
+      {/* Tab: Para borrar — cases marked "Marcado para borrar pedido", with a "Revisado" tick */}
+      {activeTab === 'para_borrar' && <RmaParaBorrar puedeGestionar={puedeGestionar} />}
 
       {/* Tab: Métricas — lazy-loaded (recharts stays out of the main bundle) */}
       {activeTab === 'metricas' && puedeVerMetricas && (

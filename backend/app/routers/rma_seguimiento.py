@@ -655,6 +655,110 @@ def listar_casos(
     )
 
 
+# ──────────────────────────────────────────────
+# PARA BORRAR (cases marked "Marcado para borrar pedido")
+# ──────────────────────────────────────────────
+
+
+class ParaBorrarRow(BaseModel):
+    id: int
+    numero_caso: str
+    cliente_nombre: Optional[str] = None
+    ml_id: Optional[str] = None
+    origen: Optional[str] = None
+    estado: Optional[str] = None
+    fecha_caso: Optional[date] = None
+    created_at: Optional[datetime] = None
+    borrar_revisado_at: Optional[datetime] = None
+    borrar_revisado_por_id: Optional[int] = None
+    borrar_revisado_por_nombre: Optional[str] = None
+
+
+class ParaBorrarCounts(BaseModel):
+    pendientes: int
+    revisados: int
+    todos: int
+
+
+class ParaBorrarResponse(BaseModel):
+    items: list[ParaBorrarRow]
+    counts: ParaBorrarCounts
+
+
+class BorrarRevisadoUpdate(BaseModel):
+    revisado: bool
+
+
+def _para_borrar_row(caso: RmaCaso) -> ParaBorrarRow:
+    return ParaBorrarRow(
+        id=caso.id,
+        numero_caso=caso.numero_caso,
+        cliente_nombre=caso.cliente_nombre,
+        ml_id=caso.ml_id,
+        origen=caso.origen,
+        estado=caso.estado_caso.valor if caso.estado_caso else caso.estado,
+        fecha_caso=caso.fecha_caso,
+        created_at=caso.created_at,
+        borrar_revisado_at=caso.borrar_revisado_at,
+        borrar_revisado_por_id=caso.borrar_revisado_por_id,
+        borrar_revisado_por_nombre=caso.borrar_revisado_por.nombre if caso.borrar_revisado_por else None,
+    )
+
+
+@router.get("/para-borrar", response_model=ParaBorrarResponse)
+def listar_para_borrar(
+    estado: Literal["pendientes", "revisados", "todos"] = Query("pendientes"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ParaBorrarResponse:
+    """Active cases marked "para borrar pedido". Pendientes = not reviewed yet (the default), revisados = someone
+    ticked "Revisado"; the counts of the three filters come with every answer. Same permission as the RMA list."""
+    _check_permiso(db, current_user, "rma.ver")
+
+    marcados = db.query(RmaCaso).filter(RmaCaso.activo == True, RmaCaso.marcado_borrar_pedido == True)  # noqa: E712
+    revisados = func.count(RmaCaso.borrar_revisado_at)
+    todos, con_revision = marcados.with_entities(func.count(RmaCaso.id), revisados).one()
+
+    query = marcados.options(selectinload(RmaCaso.estado_caso), selectinload(RmaCaso.borrar_revisado_por))
+    if estado == "pendientes":
+        query = query.filter(RmaCaso.borrar_revisado_at.is_(None))
+    elif estado == "revisados":
+        query = query.filter(RmaCaso.borrar_revisado_at.isnot(None))
+
+    return ParaBorrarResponse(
+        items=[_para_borrar_row(c) for c in query.order_by(RmaCaso.id.desc()).all()],
+        counts=ParaBorrarCounts(pendientes=todos - con_revision, revisados=con_revision, todos=todos),
+    )
+
+
+@router.put("/{caso_id}/borrar-revisado", response_model=ParaBorrarRow)
+def marcar_borrar_revisado(
+    caso_id: int,
+    data: BorrarRevisadoUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+) -> ParaBorrarRow:
+    """Ticks "Revisado" on a case marked para borrar (stores who and when, so it leaves the pending list) or
+    unticks it (clears both). Requires rma.gestionar."""
+    _check_permiso(db, current_user, "rma.gestionar")
+
+    caso = db.query(RmaCaso).filter(RmaCaso.id == caso_id, RmaCaso.activo == True).first()  # noqa: E712
+    if not caso:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Caso no encontrado")
+
+    anterior = caso.borrar_revisado_at
+    if data.revisado:
+        caso.borrar_revisado_at = datetime.now(UTC)
+        caso.borrar_revisado_por_id = current_user.id
+    else:
+        caso.borrar_revisado_at = None
+        caso.borrar_revisado_por_id = None
+    _registrar_cambio(db, caso.id, "borrar_revisado_at", anterior, caso.borrar_revisado_at, current_user.id)
+    db.commit()
+    db.refresh(caso)
+    return _para_borrar_row(caso)
+
+
 @router.get("/{caso_id}", response_model=CasoResponse)
 def obtener_caso(
     caso_id: int,
