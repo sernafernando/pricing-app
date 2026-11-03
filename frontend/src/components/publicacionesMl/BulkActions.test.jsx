@@ -92,13 +92,13 @@ describe('BulkActions', () => {
   });
 
   // S12d: the selection outlives a filter change, so it may hold products the list no longer shows.
-  it('says how many checked products are not on the page, in the menu and in the modal', async () => {
+  it('says how many checked rows are not on the page, in the menu and in the modal', async () => {
     resolved({ item_ids: [4101], count: 1, sin_producto: 0 });
     const user = userEvent.setup();
     renderBulk({ checkedIds: new Set([4101, 4102, 4103]), offPageCount: 2 });
     expect(await screen.findByRole('button', { name: /acciones masivas \(3 productos seleccionados\)/i })).toBeEnabled();
     await openMenu(user);
-    const note = '2 productos seleccionados no están en esta página (se eligieron con otros filtros o en otra página)';
+    const note = '2 filas marcadas no están en esta página (se eligieron con otros filtros o en otra página)';
     expect(screen.getByText(note)).toBeInTheDocument();
     await user.click(screen.getByRole('menuitem', { name: /calcular pvp/i }));
     expect(screen.getByText(note)).toBeInTheDocument();

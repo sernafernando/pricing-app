@@ -285,6 +285,7 @@
   align-items: baseline;
 }
 
+.tnLabel,
 .tnHint,
 .tnRegular {
   font-size: var(--font-xs);
@@ -294,4 +295,14 @@
 .tnHint {
   white-space: normal;
   text-align: right;
+}
+
+/* "Filas finas" (the page marks the table `data-density='dense'`): one line per figure. The struck price, the
+   promotion and "Sin stock ERP" (the red 0 already says it) stay in the cell's tooltip. */
+:global([data-density='dense']) .stack {
+  gap: 0;
+}
+
+:global([data-density='dense'] [data-dense-hidden]) {
+  display: none;
 }

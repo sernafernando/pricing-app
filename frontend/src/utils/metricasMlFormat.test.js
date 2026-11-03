@@ -57,6 +57,12 @@ describe('metricasMlFormat', () => {
     expect(publicationDescriptor({ listing_type: null, status: null })).toBe('Sin estado');
   });
 
+  it('leaves the listing type to its badge when the row carries the listing kind', () => {
+    expect(
+      publicationDescriptor({ listing_type: 'premium', listing_kind: 'cuotas_3', is_full: true, is_catalog: false, status: 'active' }),
+    ).toBe('Full · Activa');
+  });
+
   it('sums a daily series into weeks ending on the last day', () => {
     expect(weeklySums([1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2])).toEqual([7, 14]);
     expect(weeklySums([5, 1, 1, 1, 1, 1, 1, 1])).toEqual([5, 7]);

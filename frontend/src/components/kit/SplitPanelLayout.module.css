@@ -6,7 +6,12 @@
    `min(<token>, 42vw)`, so even at 1000px the table keeps its share and the
    panel never covers a row. */
 
+/* The default panel's cap. One source: SplitPanelLayout.jsx reads it back to
+   keep the keyboard and drag bounds equal to the track below, so it must stay
+   a plain vw value. */
 .grid {
+  --split-panel-cap: 42vw;
+  --split-panel-default: min(var(--split-panel-width), var(--split-panel-cap));
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
@@ -24,7 +29,71 @@
 }
 
 .open {
-  grid-template-columns: minmax(0, 1fr) min(var(--split-panel-width), 42vw);
+  grid-template-columns: minmax(0, 1fr) var(--split-panel-default);
+}
+
+/* Resizable: the gap becomes the drag handle's own column, so the default
+   geometry (table, gap, panel at its token width) is the same as above. */
+.grid[data-resizable].open {
+  grid-template-columns: minmax(0, 1fr) var(--split-panel-gap) var(--split-panel-default);
+  column-gap: 0;
+}
+
+/* Once the operator resized, the 42vw cap lifts and the chosen width rules,
+   bounded so neither side drops below its minimum (also when the window
+   shrinks after the width was saved). On a window too narrow for both
+   minimums, `clamp()` lets the panel's minimum win and the table gives way.
+   The bounds always include the default width, so a panel resized where the
+   default crowds the table, or is itself under the panel's minimum, can
+   always go back to it. */
+.grid[data-resized].open {
+  grid-template-columns:
+    minmax(0, 1fr) var(--split-panel-gap)
+    min(
+      clamp(
+        min(var(--split-panel-min-width), var(--split-panel-default)),
+        var(--split-panel-chosen-width),
+        max(
+          calc(100% - var(--split-panel-gap) - var(--split-table-min-width)),
+          var(--split-panel-default),
+          var(--split-panel-min-width)
+        )
+      ),
+      /* Never wider than the grid itself, whatever the minimums say. */
+      calc(100% - var(--split-panel-gap))
+    );
+}
+
+.handle {
+  align-self: stretch;
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+/* A thin line in the middle of the gap so the handle can be found; it
+   lights up on hover, focus and while dragging. */
+.handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: var(--radius-sm);
+  background: var(--cf-border-default);
+  transition: background-color 0.15s;
+}
+
+.handle:focus-visible {
+  outline: none;
+}
+
+.handle:hover::after,
+.handle:focus-visible::after,
+.handle:active::after {
+  background: var(--cf-accent-blue);
 }
 
 /* `min-width: 0` lets the table's own scroller shrink inside the track

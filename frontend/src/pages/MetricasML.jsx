@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { AlertTriangle, Clock, Download, FileSpreadsheet, FilterX, ShieldAlert, TrendingDown } from 'lucide-react';
+import { AlertTriangle, Clock, Download, FileSpreadsheet, FilterX, Gauge, Rows4, ShieldAlert, TrendingDown } from 'lucide-react';
 import api from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -18,6 +18,7 @@ import AdsKpiBlock from '../components/metricasMl/AdsKpiBlock';
 import AdsUnattributedPanel from '../components/metricasMl/AdsUnattributedPanel';
 import AdsModeControl from '../components/metricasMl/AdsModeControl';
 import MetricasKpiStrip from '../components/metricasMl/MetricasKpiStrip';
+import { metricasKpiOptions } from '../components/metricasMl/metricasKpiOptions';
 import VentasPorDiaChart from '../components/metricasMl/VentasPorDiaChart';
 import MetricasEnviosPanel from '../components/metricasMl/MetricasEnviosPanel';
 import BoardTable, { BOARD_SORT_KEYS } from '../components/metricasMl/BoardTable';
@@ -28,7 +29,14 @@ import { DIMENSION_OPTIONS, MARGIN_COLUMNS, buildBoardColumns } from '../compone
 import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import { buildMetricasMLParams } from '../utils/metricasMlParams';
-import { DEFAULT_PRESET, defaultView, readMetricasUrl, writeMetricasUrl } from '../utils/metricasMlUrl';
+import {
+  DEFAULT_PRESET,
+  defaultSortFor,
+  defaultView,
+  readMetricasUrl,
+  sortOnGroupChange,
+  writeMetricasUrl,
+} from '../utils/metricasMlUrl';
 import { nodeId } from '../utils/metricasMlLevels';
 import { exportMetricasCsv } from '../utils/ventasMlExport';
 import { exportMetricasSheets, isSheetsExportEnabled, loadGoogleIdentity } from '../utils/googleSheetsExport';
@@ -47,6 +55,8 @@ import {
 } from '../utils/metricasMlFormat';
 import SheetsNotice from '../components/sheets/SheetsNotice';
 import useWarnBeforeUnload from '../hooks/useWarnBeforeUnload';
+import useHiddenKpis from '../hooks/useHiddenKpis';
+import useRowDensity from '../hooks/useRowDensity';
 import styles from './MetricasML.module.css';
 
 /**
@@ -116,15 +126,16 @@ function appendNew(previous, next) {
   return [...previous, ...next.filter((row) => !seen.has(row.key))];
 }
 
-// Total TP exists only with "Costos TP" on (the backend answers 422 otherwise): turning it off leaves that sort.
-function withoutTpSort(sort) {
-  return sort.key === 'total_tp' ? { key: 'gross', desc: true } : sort;
+// Total TP exists only with "Costos TP" on (the backend answers 422 otherwise): turning it off leaves that sort
+// for the grouping's default one.
+function withoutTpSort(sort, groupBy) {
+  return sort.key === 'total_tp' ? defaultSortFor(groupBy) : sort;
 }
 
 // "Costos TP" has no markup with sell in / sell out (the sell in is on the Gauss cost; the backend answers 422):
-// turning it on leaves that sort.
-function withoutSellTpSort(sort) {
-  return sort.key === 'markup_sell' ? { key: 'gross', desc: true } : sort;
+// turning it on leaves that sort for the grouping's default one.
+function withoutSellTpSort(sort, groupBy) {
+  return sort.key === 'markup_sell' ? defaultSortFor(groupBy) : sort;
 }
 
 // Sorts that need a view mode a link does not carry (Costos TP, Publicidad): the board answers 422 without it.
@@ -335,6 +346,12 @@ export default function MetricasML() {
     puedeVerGanancia,
   ]);
 
+  // The sort follows the grouping while it is the default one: by publication, the listing type (Clásica first).
+  const changeGroupBy = (value) => {
+    setSort((prev) => sortOnGroupChange(prev, groupBy, value));
+    setGroupBy(value);
+  };
+
   // Changing WHAT is filtered resets WHERE you are: page 1, nothing open.
   const withReset = (setter) => (...args) => {
     setter(...args);
@@ -349,10 +366,10 @@ export default function MetricasML() {
     if (!message) return false;
     setTpError(message);
     setCostosTp(false);
-    setSort(withoutTpSort);
+    setSort((prev) => withoutTpSort(prev, groupBy));
     setOffset(0);
     return true;
-  }, [tpSolo]);
+  }, [tpSolo, groupBy]);
 
   // A Total Gauss sort picked before `tplink.solo` arrived is a Total TP sort from then on: the stored key follows,
   // so the Total TP header's click flips the direction instead of starting over (set during render, no stale commit).
@@ -520,6 +537,11 @@ export default function MetricasML() {
   const adsOn = canSeeMargin && ads !== null;
   // `kpis.total_tp` exists only while the board shows the TP costs.
   const tpOn = canSeeMargin && Boolean(board?.kpis?.total_tp);
+  // The KPI cards (and the ads block) the viewer hid, from the "Indicadores" picker; numbers and requests never change.
+  const kpiOptions = useMemo(() => metricasKpiOptions(board?.kpis, { canSeeMargin, groupBy, tpSolo }), [board?.kpis, canSeeMargin, groupBy, tpSolo]);
+  const { isVisible: kpiVisible, pickerTable: kpiPicker } = useHiddenKpis('metricas-ml.kpis-ocultos', kpiOptions);
+  // "Filas finas": the board's Sheets-like density, remembered per browser; only the look changes.
+  const { dense, toggleDense } = useRowDensity('metricas-ml.filas-finas');
   const periodLabel = PERIOD_LABELS[range.filtro] || 'período';
   const shownDimension = tpSolo ? TP_SOLO_DIMENSION : dimension;
   const columnDefs = useMemo(
@@ -597,6 +619,11 @@ export default function MetricasML() {
             </span>
           )}
           <ColumnPicker table={table} />
+          <ColumnPicker table={kpiPicker} label="Indicadores" icon={Gauge} groupLabel="Elegir indicadores visibles" />
+          <button type="button" className={`btn-tesla outline sm ${styles.densityToggle}`} aria-pressed={dense} onClick={toggleDense}>
+            <Rows4 size={14} />
+            Filas finas
+          </button>
           <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
             <Download size={14} />
             {exporting ? 'Exportando…' : 'Exportar CSV'}
@@ -658,7 +685,7 @@ export default function MetricasML() {
           <div className={styles.segments}>
             <div className={styles.filterGroup}>
               <span className={styles.filterLabel}>Agrupar por:</span>
-              <SegmentedControl label="Agrupar por" options={GROUP_OPTIONS} value={groupBy} onChange={withReset(setGroupBy)} />
+              <SegmentedControl label="Agrupar por" options={GROUP_OPTIONS} value={groupBy} onChange={withReset(changeGroupBy)} />
             </div>
             {groupBy === 'group' && (
               <div className={styles.filterGroup}>
@@ -680,8 +707,8 @@ export default function MetricasML() {
                   setCostosTp(next);
                   if (next) {
                     setTpError(null);
-                    setSort(withoutSellTpSort);
-                  } else setSort(withoutTpSort);
+                    setSort((prev) => withoutSellTpSort(prev, groupBy));
+                  } else setSort((prev) => withoutTpSort(prev, groupBy));
                 })}
                 title="Muestra el Total TP junto al Total Gauss; el markup usa el costo TP en las operaciones de la tienda TP-Link"
               />
@@ -845,13 +872,13 @@ export default function MetricasML() {
 
       <AdsAppliedBanner ads={ads} />
 
-      <MetricasKpiStrip kpis={board?.kpis} canSeeMargin={canSeeMargin} groupBy={groupBy} loading={loading} tpSolo={tpSolo} />
+      <MetricasKpiStrip kpis={board?.kpis} canSeeMargin={canSeeMargin} groupBy={groupBy} loading={loading} tpSolo={tpSolo} isVisible={kpiVisible} />
 
       <VentasPorDiaChart period={board?.period} kpis={board?.kpis} />
 
       <MetricasEnviosPanel params={filterParams} />
 
-      {adsOn && <AdsKpiBlock ads={ads} />}
+      {adsOn && kpiVisible('ads') && <AdsKpiBlock ads={ads} />}
 
       <section className={styles.tableCard} aria-label={`Tablero de ${noun}`} aria-busy={loading}>
         <div className={styles.tableScroll} data-table-scroll>
@@ -866,6 +893,7 @@ export default function MetricasML() {
             sort={sortKey}
             sortDesc={sort.desc}
             onSort={handleSort}
+            dense={dense}
           />
         </div>
         {!loading && rows.length === 0 && !errorKind && (

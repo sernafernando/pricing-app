@@ -5,9 +5,10 @@
  * pulling and applying stay in `MlaPromocionesPanel`.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PromocionesTab from './PromocionesTab';
+import { resetPromoPulls } from '../../promociones/promoPullTtl';
 import { promocionesAPI } from '../../../services/api';
 import { usePromoFilterStore } from '../../../store/promoFilterStore';
 import { readDetail } from './detailModel';
@@ -46,6 +47,8 @@ const renderTab = (itemId = 'MLA1100000001', props = {}) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The pull TTL lives at module scope, on purpose: every test starts with no MLA pulled.
+  resetPromoPulls();
   permisosMock.denied = [];
   usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
   promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: PROMOTIONS } });
@@ -142,5 +145,197 @@ describe('after a write', () => {
     await user.click(await screen.findByRole('button', { name: /^desaplicar$/i }));
     await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
     await waitFor(() => expect(onPromoApplied).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe('the pull TTL (5 minutes per MLA)', () => {
+  const FIVE_MINUTES = 5 * 60 * 1000;
+  const openAndClose = async (itemId = 'MLA1100000001') => {
+    const view = renderTab(itemId);
+    await screen.findByText('Smart promo');
+    await waitFor(() => expect(screen.queryByText(/actualizando/i)).not.toBeInTheDocument());
+    view.unmount();
+  };
+
+  it('does not pull again an MLA it pulled less than 5 minutes ago, even after a remount, and pulls again after', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      await openAndClose();
+      expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
+      now.mockReturnValue(1_000_000 + FIVE_MINUTES - 1);
+      const readsBefore = promocionesAPI.getPromocionesItem.mock.calls.length;
+      await openAndClose();
+      expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1);
+      // The mirror is still read on every open.
+      expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(readsBefore + 1);
+      now.mockReturnValue(1_000_000 + FIVE_MINUTES);
+      await openAndClose();
+      expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('keeps one TTL per MLA: another publication still pulls', async () => {
+    await openAndClose('MLA1100000001');
+    await openAndClose('MLA1100000002');
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failed pull starts no TTL: the next open pulls again', async () => {
+    promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: false, motivo: 'proxy caído' } });
+    await openAndClose();
+    await openAndClose();
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2);
+  });
+
+  it('a pull cancelled by closing the tab starts no TTL: the next open pulls again', async () => {
+    let answer;
+    promocionesAPI.refreshItemPromociones.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const view = renderTab();
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(1));
+    view.unmount();
+    answer({ data: { ok: true } });
+    // Let the abandoned pull run to its end (its re-read of the mirror) before opening again.
+    await waitFor(() => expect(promocionesAPI.getPromocionesItem).toHaveBeenCalledTimes(2));
+    await openAndClose();
+    expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2);
+  });
+
+  it('an apply clears the MLA from the TTL: the next open pulls again', async () => {
+    const user = userEvent.setup();
+    const DEAL = { promotion_id: 'D1', promotion_type: 'DEAL', name: 'Deal promo', price: 80, status: 'candidate' };
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [DEAL] } });
+    promocionesAPI.postPromocionItem.mockResolvedValue({ data: { submitted: true, status: 'submitted' } });
+    const view = renderTab();
+    await user.click(await screen.findByRole('button', { name: /^aplicar$/i }));
+    await user.click(screen.getByRole('button', { name: /sí, aplicar/i }));
+    await waitFor(() => expect(promocionesAPI.postPromocionItem).toHaveBeenCalled());
+    view.unmount();
+    renderTab();
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2));
+  });
+
+  it('a removal clears the MLA from the TTL: the next open pulls again', async () => {
+    const user = userEvent.setup();
+    const STARTED = { promotion_id: 'D1', promotion_type: 'DEAL', name: 'Deal promo', price: 80, status: 'started' };
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: [STARTED] } });
+    promocionesAPI.deletePromocionItem.mockResolvedValue({ data: { status: 'reconciled_applied' } });
+    const view = renderTab();
+    await user.click(await screen.findByRole('button', { name: /^desaplicar$/i }));
+    await user.click(screen.getByRole('button', { name: /sí, desaplicar/i }));
+    await waitFor(() => expect(promocionesAPI.deletePromocionItem).toHaveBeenCalled());
+    view.unmount();
+    renderTab();
+    await waitFor(() => expect(promocionesAPI.refreshItemPromociones).toHaveBeenCalledTimes(2));
+  });
+});
+
+// S3 (owner: "en promos hay promos que no son promos sino cupones y no se pueden activar desde ahí").
+// The coupon is ML's own object as captured in
+// backend/tests/fixtures/ml_publications/history_events_MLA1402898289_20261016.json; the mirror keeps ML's object
+// as `payload`.
+const COUPON_ML = {
+  id: 'C-MLA1713876',
+  name: 'Cupón de recompra',
+  type: 'SELLER_COUPON_CAMPAIGN',
+  price: 0,
+  status: 'candidate',
+  sub_type: 'FIXED_PERCENTAGE',
+  start_date: '2026-10-10T00:00:00',
+  finish_date: '2026-10-31T23:59:59',
+  original_price: 91193,
+  fixed_percentage: 10,
+};
+const SECTIONED = [
+  { promotion_id: 'P-INFO', promotion_type: 'DOD', name: 'Deal of the day', status: 'candidate', price: 50 },
+  {
+    promotion_id: COUPON_ML.id,
+    promotion_type: COUPON_ML.type,
+    sub_type: COUPON_ML.sub_type,
+    status: 'candidate',
+    price: 0,
+    original_price: COUPON_ML.original_price,
+    name: COUPON_ML.name,
+    start_date: COUPON_ML.start_date,
+    finish_date: COUPON_ML.finish_date,
+    payload: COUPON_ML,
+  },
+  { promotion_id: 'P-AVAIL', promotion_type: 'DEAL', name: 'Deal disponible', status: 'candidate', price: 0, suggested_discounted_price: 90, nuestro_markup: 12.5 },
+  { promotion_id: 'P-PROG', promotion_type: 'SELLER_CAMPAIGN', name: 'Campaña programada', status: 'started', application_status: 'programmed', price: 95 },
+  { promotion_id: 'P-ACTIVE', promotion_type: 'SMART', name: 'Smart activa', status: 'started', application_status: 'active', price: 80, nuestro_markup: 20 },
+  // A coupon whose row is not the captured shape: shown read-only, nothing guessed.
+  { promotion_id: 'C-OTHER', promotion_type: 'SELLER_COUPON_CAMPAIGN', name: 'Cupón sin detalle', payload: {} },
+];
+
+describe('sections (S3)', () => {
+  beforeEach(() => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: SECTIONED } });
+  });
+  const section = (name) => screen.getByRole('region', { name });
+
+  it('orders the promotions: Activa ahora, Disponibles para activar, Otras promociones, and the coupons last', async () => {
+    renderTab();
+    await screen.findByText('Smart activa');
+    expect(screen.getAllByRole('region').map((region) => region.getAttribute('aria-label'))).toEqual([
+      'Activa ahora',
+      'Disponibles para activar',
+      'Otras promociones',
+      'Cupones',
+    ]);
+    expect(section('Activa ahora')).toHaveTextContent('Smart activa');
+    expect(section('Otras promociones')).toHaveTextContent('Campaña programada');
+    expect(section('Otras promociones')).toHaveTextContent('Deal of the day');
+  });
+
+  it('shows each available promotion with the markup it would leave and its apply control', async () => {
+    renderTab();
+    await screen.findByText('Deal disponible');
+    const available = section('Disponibles para activar');
+    expect(available).toHaveTextContent('Deal disponible');
+    expect(available).toHaveTextContent('Tu markup: 12.5%');
+    expect(await within(available).findByRole('button', { name: /^aplicar$/i })).toBeInTheDocument();
+    expect(available).not.toHaveTextContent('Smart activa');
+  });
+
+  it('shows the coupons apart, with no apply control and only a link to Mercado Libre', async () => {
+    renderTab();
+    await screen.findByText('Cupón de recompra');
+    // Wait for the background pull: the apply controls show only after it.
+    await within(section('Disponibles para activar')).findByRole('button', { name: /^aplicar$/i });
+    const coupons = section('Cupones');
+    expect(within(coupons).queryAllByRole('button')).toEqual([]);
+    expect(coupons).toHaveTextContent('Cupón de recompra');
+    expect(coupons).toHaveTextContent('10% de descuento');
+    expect(coupons).not.toHaveTextContent('Tu markup');
+    const links = within(coupons).getAllByRole('link', { name: 'Ver promociones en Mercado Libre' });
+    expect(links[0]).toHaveAttribute('href', 'https://vendedores.mercadolibre.com.ar/publicaciones/listado/promos?page=1&search=1100000001');
+    // The other shape: its name, read-only, no percentage made up.
+    expect(coupons).toHaveTextContent('Cupón sin detalle');
+    expect(coupons.querySelectorAll('li')).toHaveLength(2);
+    expect(coupons.textContent.match(/% de descuento/g)).toHaveLength(1);
+  });
+
+  it('keeps a programmed or waiting promotion out of the available ones, whatever its ML status', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'P-WAIT', promotion_type: 'DEAL', name: 'Deal en espera', status: 'candidate', application_status: 'pending', price: 90 },
+          { promotion_id: 'P-LATER', promotion_type: 'SMART', name: 'Smart programada', status: 'candidate', application_status: 'programmed', price: 85 },
+        ],
+      },
+    });
+    renderTab();
+    await screen.findByText('Deal en espera');
+    expect(screen.queryByRole('region', { name: 'Disponibles para activar' })).not.toBeInTheDocument();
+    expect(section('Otras promociones')).toHaveTextContent('Deal en espera');
+    expect(section('Otras promociones')).toHaveTextContent('Smart programada');
+  });
+
+  it('leaves out a section with nothing in it', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: SECTIONED.filter((promo) => promo.promotion_type !== 'SELLER_COUPON_CAMPAIGN') } });
+    renderTab();
+    await screen.findByText('Smart activa');
+    expect(screen.queryByRole('region', { name: 'Cupones' })).not.toBeInTheDocument();
   });
 });
