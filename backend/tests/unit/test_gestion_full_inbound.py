@@ -56,3 +56,31 @@ def test_pick_last_inbound_parses_captured_live_operation() -> None:
     assert picked["inbound_id"] == "79909756"
     assert picked["operation_id"] == 7604247737135372849
     assert picked["cantidad"] == 12
+
+
+def test_claim_sql_orders_by_fetched_at_nulls_first() -> None:
+    """Failed attempts bump fetched_at; claim must prefer never-attempted ids."""
+    from app.services.gestion_full.inbound import _CLAIM_SQL
+
+    sql = str(_CLAIM_SQL).upper()
+    assert "NULLS FIRST" in sql
+    assert "FETCHED_AT" in sql
+
+
+def test_refresh_records_attempt_when_ml_returns_nothing() -> None:
+    from unittest.mock import MagicMock, patch
+
+    from app.services.gestion_full.inbound import refresh_last_inbound
+
+    db = MagicMock()
+    client = MagicMock()
+    with (
+        patch(
+            "app.services.gestion_full.inbound.fetch_last_inbound_for_inventory",
+            return_value=None,
+        ),
+        patch("app.services.gestion_full.inbound.record_inbound_attempt") as record,
+    ):
+        assert refresh_last_inbound(db, "INV-BAD", client=client) is None
+    record.assert_called_once()
+    assert record.call_args.args[1] == "INV-BAD"
