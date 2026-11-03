@@ -243,7 +243,7 @@ from app.models.tplink_venta_metrica import TplinkVentaMetrica
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_answer_example import MlBotAnswerExample
-from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, RolEquipo
+from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, PublicacionColor, RolEquipo
 
 # Catalog competition snapshots. Must stay registered here: alembic/env.py
 # builds target_metadata from `from app.models import *`, so a model missing
@@ -462,6 +462,7 @@ __all__ = [
     "Equipo",
     "EquipoMiembro",
     "ProductoColor",
+    "PublicacionColor",
     "RolEquipo",
     "MlPublicationLink",
     "MlItemRelation",
