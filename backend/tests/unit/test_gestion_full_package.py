@@ -52,6 +52,34 @@ def _pkg_lock_query(pkg: object) -> MagicMock:
     return m
 
 
+def _add_all_query(
+    *,
+    pkg: object,
+    ready_rows: list[object],
+    package_lines: list[object],
+    stock_rows: list[object],
+) -> object:
+    """MagicMock db.query router for batched add_all_ready_lines_to_package."""
+    ready_q = MagicMock()
+    ready_q.all.return_value = ready_rows
+    stock_q = MagicMock()
+    stock_q.filter.return_value.all.return_value = stock_rows
+    line_q = MagicMock()
+    line_q.filter.return_value.all.return_value = package_lines
+
+    def _query(model: object) -> MagicMock:
+        name = getattr(model, "__name__", "")
+        if name == "GestionFullPmReady":
+            return ready_q
+        if name == "ProductoERP":
+            return stock_q
+        if name == "GestionFullPackageLine":
+            return line_q
+        return _pkg_lock_query(pkg)
+
+    return _query
+
+
 def test_upsert_package_line_creates() -> None:
     db = MagicMock()
     pkg = SimpleNamespace(id=9, status="open")
@@ -91,21 +119,12 @@ def test_add_all_ready_lines_to_package() -> None:
         inventory_id="INV2",
         qty_pm=12,
     )
-    ready_q = MagicMock()
-    ready_q.all.return_value = [ready]
-    line_q = MagicMock()
-    line_q.filter_by.return_value.one_or_none.return_value = None
-
-    def _query(model: object) -> MagicMock:
-        name = getattr(model, "__name__", "")
-        if name == "GestionFullPmReady":
-            return ready_q
-        if name == "GestionFullPackageLine":
-            return line_q
-        return _pkg_lock_query(pkg)
-
-    db.query.side_effect = _query
-    db.get.return_value = SimpleNamespace(stock=100)
+    db.query.side_effect = _add_all_query(
+        pkg=pkg,
+        ready_rows=[ready],
+        package_lines=[],
+        stock_rows=[SimpleNamespace(item_id=2, stock=100)],
+    )
     usuario = SimpleNamespace(id=1)
     with (
         patch(
@@ -136,6 +155,8 @@ def test_add_all_ready_caps_auto_qty_export_to_stock() -> None:
     from app.services.gestion_full.package import add_all_ready_lines_to_package
 
     existing = SimpleNamespace(
+        producto_item_id=2,
+        user_product_id="MLAU2",
         inventory_id="INV2",
         qty_pm=20,
         qty_export=3,
@@ -149,21 +170,12 @@ def test_add_all_ready_caps_auto_qty_export_to_stock() -> None:
         inventory_id="INV2",
         qty_pm=20,
     )
-    ready_q = MagicMock()
-    ready_q.all.return_value = [ready]
-    line_q = MagicMock()
-    line_q.filter_by.return_value.one_or_none.return_value = existing
-
-    def _query(model: object) -> MagicMock:
-        name = getattr(model, "__name__", "")
-        if name == "GestionFullPmReady":
-            return ready_q
-        if name == "GestionFullPackageLine":
-            return line_q
-        return _pkg_lock_query(pkg)
-
-    db.query.side_effect = _query
-    db.get.return_value = SimpleNamespace(stock=3)
+    db.query.side_effect = _add_all_query(
+        pkg=pkg,
+        ready_rows=[ready],
+        package_lines=[existing],
+        stock_rows=[SimpleNamespace(item_id=2, stock=3)],
+    )
     usuario = SimpleNamespace(id=1)
     with (
         patch(
@@ -189,6 +201,8 @@ def test_add_all_ready_exported_does_not_raise_when_stock_rises() -> None:
     from app.services.gestion_full.package import add_all_ready_lines_to_package
 
     existing = SimpleNamespace(
+        producto_item_id=2,
+        user_product_id="MLAU2",
         inventory_id="INV2",
         qty_pm=20,
         qty_export=3,
@@ -202,21 +216,12 @@ def test_add_all_ready_exported_does_not_raise_when_stock_rises() -> None:
         inventory_id="INV2",
         qty_pm=20,
     )
-    ready_q = MagicMock()
-    ready_q.all.return_value = [ready]
-    line_q = MagicMock()
-    line_q.filter_by.return_value.one_or_none.return_value = existing
-
-    def _query(model: object) -> MagicMock:
-        name = getattr(model, "__name__", "")
-        if name == "GestionFullPmReady":
-            return ready_q
-        if name == "GestionFullPackageLine":
-            return line_q
-        return _pkg_lock_query(pkg)
-
-    db.query.side_effect = _query
-    db.get.return_value = SimpleNamespace(stock=10)
+    db.query.side_effect = _add_all_query(
+        pkg=pkg,
+        ready_rows=[ready],
+        package_lines=[existing],
+        stock_rows=[SimpleNamespace(item_id=2, stock=10)],
+    )
     with (
         patch(
             "app.services.gestion_full.package.get_or_create_open_package",
@@ -240,6 +245,8 @@ def test_add_all_ready_exported_skips_new_listo_lines() -> None:
     from app.services.gestion_full.package import add_all_ready_lines_to_package
 
     existing = SimpleNamespace(
+        producto_item_id=1,
+        user_product_id="MLAU1",
         inventory_id="INV1",
         qty_pm=5,
         qty_export=5,
@@ -259,27 +266,15 @@ def test_add_all_ready_exported_skips_new_listo_lines() -> None:
         inventory_id="INV2",
         qty_pm=6,
     )
-    ready_q = MagicMock()
-    ready_q.all.return_value = [ready_existing, ready_new]
-    line_q = MagicMock()
-
-    def _one_or_none(**kwargs: object) -> object | None:
-        if kwargs.get("producto_item_id") == 1:
-            return existing
-        return None
-
-    line_q.filter_by.side_effect = lambda **kw: MagicMock(one_or_none=lambda: _one_or_none(**kw))
-
-    def _query(model: object) -> MagicMock:
-        name = getattr(model, "__name__", "")
-        if name == "GestionFullPmReady":
-            return ready_q
-        if name == "GestionFullPackageLine":
-            return line_q
-        return _pkg_lock_query(pkg)
-
-    db.query.side_effect = _query
-    db.get.return_value = SimpleNamespace(stock=10)
+    db.query.side_effect = _add_all_query(
+        pkg=pkg,
+        ready_rows=[ready_existing, ready_new],
+        package_lines=[existing],
+        stock_rows=[
+            SimpleNamespace(item_id=1, stock=10),
+            SimpleNamespace(item_id=2, stock=10),
+        ],
+    )
     with (
         patch(
             "app.services.gestion_full.package.get_or_create_open_package",
@@ -299,6 +294,16 @@ def test_add_all_ready_exported_skips_new_listo_lines() -> None:
     db.add.assert_not_called()
     db.flush.assert_called()
     db.expire.assert_called()
+
+
+def test_add_all_ready_batches_stock_and_lines() -> None:
+    """Fernando N+1: Sumar must preload stock + lines with IN, not per ready row."""
+    from app.services.gestion_full import package as mod
+
+    src = inspect.getsource(mod.add_all_ready_lines_to_package)
+    assert "ProductoERP.item_id.in_" in src
+    assert "GestionFullPackageLine.package_id" in src
+    assert "_stock_erp_for_item" not in src
 
 
 def test_package_locks_require_populate_existing() -> None:

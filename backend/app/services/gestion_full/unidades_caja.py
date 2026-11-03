@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.gestion_full_package import GestionFullPackageLine
@@ -65,8 +65,11 @@ def import_unidades_caja_por_ean(
 
     Each row: ``{"ean": str, "unidades": int}``. Unknown EANs are skipped with
     an error entry; invalid unidades likewise. One commit at the end.
+
+    Resolves every EAN and existing ``GestionFullUnidadesCaja`` row with two
+    ``IN (...)`` queries (no per-row SELECT).
     """
-    updated = 0
+    parsed: list[tuple[int, str, int]] = []
     errors: list[dict[str, Any]] = []
     for idx, raw in enumerate(rows):
         ean = str(raw.get("ean") or "").strip()
@@ -82,18 +85,51 @@ def import_unidades_caja_por_ean(
         if unidades < 1:
             errors.append({"index": idx, "ean": ean, "error": "unidades debe ser >= 1"})
             continue
-        producto = db.execute(select(ProductoERP).where(ProductoERP.codigo == ean)).scalar_one_or_none()
+        parsed.append((idx, ean, unidades))
+
+    eans = list({ean for _idx, ean, _u in parsed})
+    by_ean: dict[str, ProductoERP] = {}
+    if eans:
+        by_ean = {
+            str(p.codigo): p
+            for p in db.query(ProductoERP).filter(ProductoERP.codigo.in_(eans)).all()
+            if p.codigo is not None
+        }
+
+    item_ids = {int(p.item_id) for p in by_ean.values()}
+    existing: dict[int, GestionFullUnidadesCaja] = {}
+    if item_ids:
+        existing = {
+            int(row.producto_item_id): row
+            for row in db.query(GestionFullUnidadesCaja)
+            .filter(GestionFullUnidadesCaja.producto_item_id.in_(item_ids))
+            .all()
+        }
+
+    updated = 0
+    now = datetime.now(UTC)
+    for idx, ean, unidades in parsed:
+        producto = by_ean.get(ean)
         if producto is None:
             errors.append({"index": idx, "ean": ean, "error": "EAN no encontrado"})
             continue
-        upsert_unidades_caja(
-            db,
-            producto_item_id=producto.item_id,
-            unidades=unidades,
-            usuario=usuario,
-            commit=False,
-        )
+        pid = int(producto.item_id)
+        row = existing.get(pid)
+        if row is None:
+            row = GestionFullUnidadesCaja(
+                producto_item_id=pid,
+                unidades=unidades,
+                updated_by_id=usuario.id,
+                updated_at=now,
+            )
+            db.add(row)
+            existing[pid] = row
+        else:
+            row.unidades = unidades
+            row.updated_by_id = usuario.id
+            row.updated_at = now
         updated += 1
+
     if updated:
         db.commit()
     return {"updated": updated, "errors": errors}

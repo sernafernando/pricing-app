@@ -7,7 +7,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 import io
 
 from app.api.deps import get_current_user, require_algun_permiso, require_permiso
@@ -581,7 +581,11 @@ def get_envios(
     """List local envíos (inbound_id) from Gestión Full packages."""
     from app.services.gestion_full.assign_inbound import human_envio_id
 
-    q = db.query(GestionFullEnvio).order_by(GestionFullEnvio.created_at.desc())
+    q = (
+        db.query(GestionFullEnvio)
+        .options(joinedload(GestionFullEnvio.package))
+        .order_by(GestionFullEnvio.created_at.desc())
+    )
     if not include_closed:
         q = q.filter(GestionFullEnvio.reception_closed_at.is_(None))
     rows = q.limit(200).all()

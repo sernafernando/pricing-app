@@ -101,6 +101,28 @@ def _enrich_lines(
     return out
 
 
+def _stock_by_producto_ids(db: Session, producto_item_ids: set[int]) -> dict[int, int]:
+    """One ``IN`` query for ERP stock; missing products count as 0."""
+    out = {int(pid): 0 for pid in producto_item_ids}
+    if not producto_item_ids:
+        return out
+    for prod in db.query(ProductoERP).filter(ProductoERP.item_id.in_(producto_item_ids)).all():
+        out[int(prod.item_id)] = max(0, int(prod.stock if prod.stock is not None else 0))
+    return out
+
+
+def _caja_producto_ids(db: Session, producto_item_ids: set[int]) -> set[int]:
+    """Producto ids that already have unidades/caja (one ``IN`` query)."""
+    if not producto_item_ids:
+        return set()
+    return {
+        int(pid)
+        for (pid,) in db.query(GestionFullUnidadesCaja.producto_item_id)
+        .filter(GestionFullUnidadesCaja.producto_item_id.in_(producto_item_ids))
+        .all()
+    }
+
+
 def assert_package_exportable(db: Session, package: GestionFullPackage) -> None:
     """Raise ValueError when package cannot be exported."""
     if package.status == PACKAGE_STATUS_LOCKED:
@@ -109,15 +131,11 @@ def assert_package_exportable(db: Session, package: GestionFullPackage) -> None:
         raise ValueError("hay inbound_id asignados; borrarlos antes de regenerar")
     if not package.lines:
         raise ValueError("paquete sin líneas")
-    missing_caja: list[int] = []
-    for ln in package.lines:
-        if ln.qty_export < 1:
-            continue
-        caja = db.get(GestionFullUnidadesCaja, ln.producto_item_id)
-        if caja is None:
-            missing_caja.append(ln.producto_item_id)
+    ship_ids = {int(ln.producto_item_id) for ln in package.lines if int(ln.qty_export or 0) >= 1}
+    with_caja = _caja_producto_ids(db, ship_ids)
+    missing_caja = sorted(ship_ids - with_caja)
     if missing_caja:
-        raise ValueError(f"faltan unidades/caja en productos: {sorted(set(missing_caja))}")
+        raise ValueError(f"faltan unidades/caja en productos: {missing_caja}")
 
 
 def build_ml_full_xlsx(db: Session, package: GestionFullPackage) -> bytes:
@@ -170,10 +188,10 @@ def build_ops_ean_xlsx(db: Session, package: GestionFullPackage) -> bytes:
 
 def recap_qty_export_to_stock(db: Session, package: GestionFullPackage) -> int:
     """Clamp each line's qty_export to current ``productos_erp.stock``. Returns changed count."""
+    stocks = _stock_by_producto_ids(db, {int(ln.producto_item_id) for ln in package.lines})
     changed = 0
     for ln in package.lines:
-        prod = db.get(ProductoERP, ln.producto_item_id)
-        stock = max(0, int(prod.stock if prod is not None and prod.stock is not None else 0))
+        stock = stocks.get(int(ln.producto_item_id), 0)
         if ln.qty_export > stock:
             ln.qty_export = stock
             changed += 1
@@ -185,14 +203,13 @@ def assert_ship_qty_within_stock(db: Session, package: GestionFullPackage) -> No
 
     Export must not silently shrink qty: the gestor removes or lowers those SKUs first.
     """
+    stocks = _stock_by_producto_ids(db, {int(ln.producto_item_id) for ln in package.lines})
     short: list[int] = []
     for ln in package.lines:
         qty = int(ln.qty_export or 0)
         if qty < 1:
             continue
-        prod = db.get(ProductoERP, ln.producto_item_id)
-        stock = max(0, int(prod.stock if prod is not None and prod.stock is not None else 0))
-        if stock < qty:
+        if stocks.get(int(ln.producto_item_id), 0) < qty:
             short.append(int(ln.producto_item_id))
     if short:
         ids = sorted(set(short))

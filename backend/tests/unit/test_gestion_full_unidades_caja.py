@@ -45,9 +45,21 @@ def test_clear_unidades_caja_noop_when_missing() -> None:
     db.commit.assert_not_called()
 
 
+def test_import_unidades_caja_por_ean_batches_with_in() -> None:
+    """Fernando N+1: import must resolve EANs/caja with IN, not per-row SELECT."""
+    import inspect
+
+    from app.services.gestion_full import unidades_caja as mod
+
+    src = inspect.getsource(mod.import_unidades_caja_por_ean)
+    assert "ProductoERP.codigo.in_" in src
+    assert "GestionFullUnidadesCaja.producto_item_id.in_" in src
+    assert "scalar_one_or_none" not in src
+
+
 def test_import_unidades_caja_por_ean_skips_unknown() -> None:
     db = MagicMock()
-    db.execute.return_value.scalar_one_or_none.return_value = None
+    db.query.return_value.filter.return_value.all.return_value = []
     usuario = SimpleNamespace(id=1)
 
     out = import_unidades_caja_por_ean(

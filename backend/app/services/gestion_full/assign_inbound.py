@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Iterable, Optional
 
+from sqlalchemy import func, tuple_
 from sqlalchemy.orm import Session
 
 from app.models.gestion_full_package import (
@@ -30,13 +31,14 @@ def _package_for_update(db: Session, package: GestionFullPackage) -> GestionFull
 
 def _consume_pm_ready_for_package(db: Session, package: GestionFullPackage) -> int:
     """Delete pm_ready rows for every package line so PMs can close next week."""
-    deleted = 0
-    for ln in package.lines:
-        row = db.get(GestionFullPmReady, (ln.producto_item_id, ln.user_product_id))
-        if row is not None:
-            db.delete(row)
-            deleted += 1
-    return deleted
+    keys = [(int(ln.producto_item_id), str(ln.user_product_id)) for ln in package.lines]
+    if not keys:
+        return 0
+    return (
+        db.query(GestionFullPmReady)
+        .filter(tuple_(GestionFullPmReady.producto_item_id, GestionFullPmReady.user_product_id).in_(keys))
+        .delete(synchronize_session=False)
+    )
 
 
 def _close_orphan_envios(db: Session, cleared: set[str]) -> None:
@@ -47,12 +49,23 @@ def _close_orphan_envios(db: Session, cleared: set[str]) -> None:
         # Stack PRs before #1981 do not ship gestion_full_envio yet.
         return
 
+    if not cleared:
+        return
+
+    ref_counts = dict(
+        db.query(GestionFullPackageLine.inbound_id, func.count())
+        .filter(GestionFullPackageLine.inbound_id.in_(cleared))
+        .group_by(GestionFullPackageLine.inbound_id)
+        .all()
+    )
+    envios = {
+        e.inbound_id: e for e in db.query(GestionFullEnvio).filter(GestionFullEnvio.inbound_id.in_(cleared)).all()
+    }
     now = datetime.now(UTC)
     for inbound_id in cleared:
-        refs = db.query(GestionFullPackageLine).filter(GestionFullPackageLine.inbound_id == inbound_id).count()
-        if refs > 0:
+        if int(ref_counts.get(inbound_id, 0)) > 0:
             continue
-        envio = db.get(GestionFullEnvio, inbound_id)
+        envio = envios.get(inbound_id)
         if envio is None or envio.reception_closed_at is not None:
             continue
         # Keep envíos that already received stock open — re-assign of the same

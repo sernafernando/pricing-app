@@ -156,36 +156,37 @@ def add_all_ready_lines_to_package(
         raise PermissionError("package hard-locked")
 
     exported = pkg.status == PACKAGE_STATUS_EXPORTED
-    ready_rows = db.query(GestionFullPmReady).all()
+    ready_rows = [r for r in db.query(GestionFullPmReady).all() if r.qty_pm >= 0]
+    item_ids = {int(r.producto_item_id) for r in ready_rows}
+    stock_by_id: dict[int, int] = {pid: 0 for pid in item_ids}
+    if item_ids:
+        for prod in db.query(ProductoERP).filter(ProductoERP.item_id.in_(item_ids)).all():
+            stock_by_id[int(prod.item_id)] = max(0, int(prod.stock if prod.stock is not None else 0))
+    lines_by_key: dict[tuple[int, str], GestionFullPackageLine] = {
+        (int(ln.producto_item_id), str(ln.user_product_id)): ln
+        for ln in db.query(GestionFullPackageLine).filter(GestionFullPackageLine.package_id == pkg.id).all()
+    }
+
     touched = 0
     for ready in ready_rows:
-        if ready.qty_pm < 0:
-            continue
-        stock = _stock_erp_for_item(db, ready.producto_item_id)
+        stock = stock_by_id.get(int(ready.producto_item_id), 0)
         capped = min(int(ready.qty_pm), stock)
-        line = (
-            db.query(GestionFullPackageLine)
-            .filter_by(
-                package_id=pkg.id,
-                producto_item_id=ready.producto_item_id,
-                user_product_id=ready.user_product_id,
-            )
-            .one_or_none()
-        )
+        key = (int(ready.producto_item_id), str(ready.user_product_id))
+        line = lines_by_key.get(key)
         if line is None:
             # After Excel download, PM Listo changes wait for the next shipment.
             if exported:
                 continue
-            db.add(
-                GestionFullPackageLine(
-                    package_id=pkg.id,
-                    producto_item_id=ready.producto_item_id,
-                    user_product_id=ready.user_product_id,
-                    inventory_id=ready.inventory_id,
-                    qty_pm=ready.qty_pm,
-                    qty_export=capped,
-                )
+            line = GestionFullPackageLine(
+                package_id=pkg.id,
+                producto_item_id=ready.producto_item_id,
+                user_product_id=ready.user_product_id,
+                inventory_id=ready.inventory_id,
+                qty_pm=ready.qty_pm,
+                qty_export=capped,
             )
+            db.add(line)
+            lines_by_key[key] = line
         else:
             line.inventory_id = ready.inventory_id
             line.qty_pm = ready.qty_pm
