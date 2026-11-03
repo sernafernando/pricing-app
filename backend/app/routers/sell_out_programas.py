@@ -7,8 +7,9 @@ this module is HTTP only.
 
 - Reads need `sell_out.ver`; create, edit and assign need `sell_out.gestionar`, the campaigns' own permissions (no
   new one). The author comes from the token.
-- `GET ""` lists programs by name with how many campaigns each has (`campanas`), how many are active (`activas`)
-  and their date span (`desde`, `hasta`), filtered by `estado`.
+- `GET ""` lists programs by name with how many campaigns each has (`campanas`), how many are active (`activas`),
+  how many distinct names they carry ignoring case and repeated spaces (`nombres`) and their date span (`desde`,
+  `hasta`), filtered by `estado`. Create and edit return the same shape.
 - `POST ""` creates one (201); `PATCH /{id}` changes only the fields sent. A name taken by another program,
   ignoring case, is a 409; an empty name a 422; an unknown program a 404.
 - `POST /asignar` (`{"campana_ids": [...], "programa_id": id | null}`) sets or clears the program of up to 500

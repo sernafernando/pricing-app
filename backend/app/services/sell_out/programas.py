@@ -16,7 +16,7 @@ call changes more than one campaign, like the bulk void.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlalchemy import case, func
 from sqlalchemy.exc import IntegrityError
@@ -102,9 +102,9 @@ def nombre_normalizado(nombre: str) -> str:
     return " ".join(nombre.split()).casefold()
 
 
-def contar_nombres(filas) -> dict:
+def contar_nombres(filas: Iterable[tuple[Optional[int], str]]) -> dict[Optional[int], int]:
     """`{programa_id: distinct names}` of `(programa_id, nombre)` rows, by `nombre_normalizado`."""
-    vistos: dict = {}
+    vistos: dict[Optional[int], set[str]] = {}
     for programa_id, nombre in filas:
         vistos.setdefault(programa_id, set()).add(nombre_normalizado(nombre))
     return {programa_id: len(nombres) for programa_id, nombres in vistos.items()}

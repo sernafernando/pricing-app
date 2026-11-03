@@ -28,12 +28,13 @@ import functools
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Callable, Concatenate, Optional, ParamSpec, TypeVar
+from typing import Any, Callable, Concatenate, Optional, ParamSpec, TypeVar
 
 from pydantic import TypeAdapter
 from sqlalchemy import Numeric, case, func, or_
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query, Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
@@ -787,7 +788,7 @@ class FiltrosCampanas:
     sin_programa: bool = False  # campaigns without a program (the router refuses it together with `programa_id`)
 
 
-def _filtradas(db: Session, filtros: FiltrosCampanas, *columnas):
+def _filtradas(db: Session, filtros: FiltrosCampanas, *columnas: ColumnElement[Any]) -> Query:
     """The campaigns the filters match: a query of the campaigns, or of `columnas` when given."""
     query = db.query(*columnas).select_from(SellOutCampana) if columnas else db.query(SellOutCampana)
     if filtros.estado:
@@ -877,7 +878,14 @@ def por_programa(
     )
     nombres = programas.contar_nombres(nombres_de.distinct().all()) if ids or sin_fila is not None else {}
 
-    def grupo(programa_id, nombre, campanas, activas, desde, hasta) -> dict:
+    def grupo(
+        programa_id: Optional[int],
+        nombre: Optional[str],
+        campanas: int,
+        activas: int,
+        desde: date,
+        hasta: date,
+    ) -> dict:
         return {
             "programa_id": programa_id,
             "nombre": nombre,

@@ -188,10 +188,11 @@ def _filtros(
 
 @router.get("", response_model=SellOutCampanaListOut)
 def listar_campanas(
+    # The permission first: FastAPI solves dependencies in order, so a user without it never reaches the filters' 422.
+    user: Usuario = Depends(requiere_ver),
     filtros: service.FiltrosCampanas = Depends(_filtros),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    user: Usuario = Depends(requiere_ver),
     db: Session = Depends(get_db),
 ) -> dict:
     campanas, total = service.listar_campanas(db, filtros, page=page, page_size=page_size)
@@ -201,10 +202,10 @@ def listar_campanas(
 
 @router.get("/por-programa", response_model=SellOutGruposProgramaListOut)
 def agrupar_por_programa(
+    _user: Usuario = Depends(requiere_ver),  # before the filters, like the list
     filtros: service.FiltrosCampanas = Depends(_filtros),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
-    _user: Usuario = Depends(requiere_ver),
     db: Session = Depends(get_db),
 ) -> dict:
     """The grouped view's rows under the list's filters: the programs with campaigns, by name, a page at a time,
