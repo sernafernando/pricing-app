@@ -72,7 +72,14 @@ describe('useProductPanel', () => {
     expect(asked).toMatchObject({ estado: 'active', producto: PRODUCT.key, limit: 1, offset: 0 });
     expect(asked).not.toHaveProperty('sin_producto');
     expect(result.current.summary).toMatchObject({ key: PRODUCT.key, label: PRODUCT.descripcion, count: PRODUCT.publications_count });
-    expect(publicacionesMlAPI.items).toHaveBeenCalledWith({ estado: 'active', ...PRODUCT.params, limit: 100, offset: 0 });
+    expect(publicacionesMlAPI.items).toHaveBeenCalledWith({
+      estado: 'active',
+      ...PRODUCT.params,
+      orden: 'tipo,actividad',
+      dir: 'asc,desc',
+      limit: 100,
+      offset: 0,
+    });
     expect(result.current.items.map((row) => row.item_id)).toEqual(['MLA1', 'MLA2']);
     expect(result.current.hasMore).toBe(false);
     expect(result.current.error).toBeNull();

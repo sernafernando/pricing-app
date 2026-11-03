@@ -528,4 +528,5 @@ class TestNoData:
             event.listen(conn, "before_cursor_execute", lambda *a: statements.append(a[2]))
             resolver_sell_in_out_batch(db, [ROUTER, SWITCH, 950], HOY)
 
-        assert len(statements) <= 6  # no cost bonus active: the T25 lookup costs no statement
+        # No cost bonus active: the T25 lookup costs no statement. The sell-in cost modes add one fixed read.
+        assert len(statements) <= 7

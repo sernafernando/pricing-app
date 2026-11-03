@@ -51,11 +51,11 @@ import time
 from dataclasses import dataclass, replace
 from functools import partial
 from datetime import date, datetime, timedelta
-from typing import Any, Callable, Literal, NamedTuple, Optional, Sequence
+from typing import Annotated, Any, Callable, Literal, NamedTuple, Optional, Sequence
 
 from fastapi import APIRouter, Depends, Path, Query, Response, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -113,6 +113,7 @@ from app.services.promo_filter_resolver import PromoResolverFns, select_promo_re
 PERMISO_VER = "ml_ops.ver"  # one of the screen's permissions (`PERMISOS_PUBLICACIONES_ML`), not the only one
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
 OFFER_OF_PRODUCT = "oferta_por_producto"  # the `filter_query` param a Producto row's `params` carry with `con_oferta`
+COLOR_OF_PRODUCT = "color_por_producto"  # the one they carry with `colores` / `sin_color`
 PERMISO_METRICAS = "ml_metricas.ver"  # the KPI strip is Métricas' numbers: seeing them needs seeing Métricas
 PERMISO_GESTIONAR = "ml_ops.gestionar"  # what lets the screen offer "Resincronizar"
 PERMISO_PAUSAR = "ml_publicaciones.pausar"  # what lets the screen offer "Pausar" / "Activar"
@@ -269,17 +270,23 @@ class LastEventOut(BaseModel):
 
 class ItemRowOut(BaseModel):
     item_id: str
-    # The linked product's row color (Productos' team layers, `equipo_id`); present only when set
-    # (services/ml_publication_colors.py).
+    # The row's effective color (Productos' team layers, `equipo_id`): the publication's own, otherwise its linked
+    # product's; present only when set (services/ml_publication_colors.py). Painted on its own, the two parts apart.
     color_marcado: Optional[str] = None
     color_hint_global: Optional[str] = None
     color_hint_equipo_inicial: Optional[str] = None
+    color_propio: Optional[str] = None
+    color_producto: Optional[str] = None
+    color_hint_global_propio: Optional[str] = None
+    color_hint_global_producto: Optional[str] = None
     title: Optional[str] = None
     thumbnail: Optional[str] = None
     permalink: Optional[str] = None
     status: Optional[str] = None
     sub_status: list[str]
     listing_type_id: Optional[str] = None
+    # clasica | clasica_cofinanciada | cuotas_3 | cuotas_6 | cuotas_9 | cuotas_12, else ML's raw listing type
+    listing_kind: Optional[str] = None
     catalog_listing: Optional[bool] = None
     logistic_type: Optional[str] = None
     is_full: bool
@@ -736,11 +743,15 @@ def _sin_mla_count_or_none(db: Session, f: PublicationFilter) -> Optional[int]:
 
 
 def _attach_colors(
-    auth_db: Session, layer: colors.ColorLayer, rows: list[dict[str, Any]], product_of: Callable[[dict[str, Any]], Any]
+    auth_db: Session,
+    layer: colors.ColorLayer,
+    rows: list[dict[str, Any]],
+    product_of: Callable[[dict[str, Any]], Any],
+    item_of: Optional[Callable[[dict[str, Any]], Any]] = None,
 ) -> None:
     """The row colors, with the list's own answer to a read over `statement_timeout`: the same 503."""
     try:
-        colors.attach_colors(auth_db, layer, rows, product_of)
+        colors.attach_colors(auth_db, layer, rows, product_of, item_of)
     except DBAPIError as exc:
         if (slow := _database_error(exc)) is not None:
             raise slow from exc
@@ -813,6 +824,9 @@ def filter_query(
     out_of_cards: Optional[bool] = Query(None, description="the linked product is marked out of cards"),
     oferta_por_producto: Optional[bool] = Query(
         None, description="ask con_oferta of the product (any of its publications), as the Producto view does"
+    ),
+    color_por_producto: Optional[bool] = Query(
+        None, description="ask `colores` of the product's color only, as the Producto view's rows do"
     ),
     con_precio: Optional[bool] = Query(None, description="the linked product has a list price (false: it has none)"),
     nuevos_ultimos_7_dias: Optional[bool] = Query(
@@ -891,6 +905,7 @@ def filter_query(
             tn_no_publicado=tn_no_publicado,
             out_of_cards=out_of_cards,
             oferta_por_producto=oferta_por_producto,
+            color_por_producto=color_por_producto,
             con_precio=con_precio,
             nuevos_ultimos_7_dias=nuevos_ultimos_7_dias,
             markup_clasica_positivo=markup_clasica_positivo,
@@ -1124,8 +1139,10 @@ def items_ask(
     orden: Optional[str] = Query(
         None,
         description=(
-            "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, markup "
-            "(ver_ganancia); Métricas ML's figures over the whole filtered set (ml_metricas.ver): facturado_30d, "
+            "actividad (default), precio, titulo, stock_full, stock_propio, stock_erp, actualizado, codigo, marca, "
+            "tipo (Clásica, 3, 6, 9, 12 cuotas), costo and the list headers lista_clasica, lista_rebate, "
+            "lista_oferta, lista_web (ver_ganancia), markup (ver_ganancia); Métricas ML's figures over the whole "
+            "filtered set (ml_metricas.ver): facturado_30d, "
             "unidades_7d, unidades_30d, markup_30d and total_gauss_30d (also ver_ganancia). Several keys as csv "
             "(multi-column sort), any combination"
         ),
@@ -1203,7 +1220,8 @@ def get_items(
     auth_db: Session = Depends(get_db),
     status_provider: Callable[[], dict[str, Any]] = Depends(get_status_provider),
 ) -> dict[str, Any]:
-    """One page of publications (one row per MLA) with the honest-state block, each with its product's row color."""
+    """One page of publications (one row per MLA) with the honest-state block, each with its effective row color (its
+    own, otherwise its product's)."""
     timer = Timer("items")
     layer = colors.resolve_layer(auth_db, user, equipo_id)  # first: a team the user is not in is a 403
     can_see_margin, can_see_sales, sort = ask.can_see_margin, ask.can_see_sales, ask.sort
@@ -1243,7 +1261,13 @@ def get_items(
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
     with timer.stage("colors"):
-        _attach_colors(auth_db, layer, page.items, lambda item: (item.get("link") or {}).get("producto_item_id"))
+        _attach_colors(
+            auth_db,
+            layer,
+            page.items,
+            lambda item: (item.get("link") or {}).get("producto_item_id"),
+            lambda item: item.get("item_id"),  # a publication's own color wins (seleccion-por-publicacion S3)
+        )
     with timer.stage("status"):
         data_state = status_provider()
     response.headers["Server-Timing"] = timer.server_timing()
@@ -1373,6 +1397,7 @@ def _product_out(
     with_margin: bool,
     has_figures: bool,
     offer_filter: bool,
+    color_filter: bool,
     costs: Optional[dict[str, Any]] = None,
     lines: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
@@ -1380,6 +1405,8 @@ def _product_out(
     params = {groups.PARAM_NO_PRODUCT: "true"} if no_product else {groups.PARAM_PRODUCT: str(row.product_item_id)}
     if offer_filter:  # the rows ask mejor oferta of the product: opening one must ask it the same way
         params[OFFER_OF_PRODUCT] = "true"
+    if color_filter:  # the rows ask the product's color, never a publication's own: opening one asks it the same way
+        params[COLOR_OF_PRODUCT] = "true"
     out: dict[str, Any] = {
         "key": row.key,
         "product_item_id": None if no_product else row.product_item_id,
@@ -1522,6 +1549,7 @@ def get_products(
             can_see_margin,
             row.key not in page.without_figures,
             f.oferta is not None,
+            bool(f.colors or f.no_color),
             page.costs,
             page.lines,
         )
@@ -1635,6 +1663,18 @@ class StatusItemIdsResponse(BaseModel):
 STATUS_ITEM_IDS_OVER_CAP = "demasiadas_publicaciones"
 
 
+def _over_cap(exc: "status_targets.TooManyPublications", what: str, hint: str) -> Exception:
+    """The 422 of a bulk pause / activate set over its cap, naming the count: never a truncated list."""
+    error = api_error(
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        STATUS_ITEM_IDS_OVER_CAP,
+        f"{what} {exc.count} publicaciones; una acción masiva admite hasta {exc.cap}. {hint}",
+    )
+    error.detail["count"] = exc.count
+    error.detail["max"] = exc.cap
+    return error
+
+
 @router.get("/status-item-ids", response_model=StatusItemIdsResponse)
 def get_status_item_ids(
     target: Literal["paused", "active"] = Query(..., description="the status the bulk action asks for"),
@@ -1663,20 +1703,63 @@ def get_status_item_ids(
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except status_targets.TooManyPublications as exc:
-        error = api_error(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            STATUS_ITEM_IDS_OVER_CAP,
-            f"El filtro selecciona {exc.count} publicaciones; una acción masiva admite hasta {exc.cap}. Acotá el filtro.",
-        )
-        error.detail["count"] = exc.count
-        error.detail["max"] = exc.cap
-        raise error from exc
+        raise _over_cap(exc, "El filtro selecciona", "Acotá el filtro.") from exc
     except DBAPIError as exc:
         if (slow := _database_error(exc)) is not None:
             raise slow from exc
         raise
     finally:
         db.rollback()  # ends the read-only work (and its SET LOCAL); nothing was written
+    return {"item_ids": found.item_ids, "count": len(found.item_ids), "no_aplican": found.no_aplican}
+
+
+CheckedItemId = Annotated[str, StringConstraints(pattern=admin.ITEM_ID_PATTERN)]
+
+
+# A product id is a positive int4 in the store (`producto_item_id`): one outside that range is a 422 here, never a
+# 500 from Postgres.
+CheckedProductId = Annotated[int, Field(gt=0, le=2**31 - 1)]
+
+
+class CheckedStatusItemIdsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # no filter takes part: a stray filter field is refused, not ignored
+
+    target: Literal["paused", "active"]
+    # Only a ceiling against abusive payloads (a "Todos" page shows up to `listing.MAX_LIMIT` rows): the bulk cap
+    # counts the publications that can take the status, so going over it is `_over_cap`'s 422 naming the count.
+    item_ids: list[CheckedItemId] = Field(default_factory=list, max_length=listing.MAX_LIMIT)
+    producto_ids: list[CheckedProductId] = Field(default_factory=list, max_length=listing.MAX_LIMIT)
+
+    @model_validator(mode="after")
+    def _something_checked(self) -> "CheckedStatusItemIdsRequest":
+        if not self.item_ids and not self.producto_ids:
+            raise ValueError("check at least one publication or product")
+        return self
+
+
+@router.post("/status-item-ids/checked", response_model=StatusItemIdsResponse)
+def post_checked_status_item_ids(
+    body: CheckedStatusItemIdsRequest,
+    _user: Usuario = Depends(require_algun_permiso(PERMISOS_PUBLICACIONES_ML)),
+    _may_change: Usuario = Depends(require_permiso(PERMISO_PAUSAR)),
+    db: Session = Depends(get_view_db),
+) -> dict[str, Any]:
+    """The checked rows' publications that a bulk pause / activate acts on (seleccion-por-publicacion S2): exactly
+    the checked publications -- never the other publications of their product -- plus every publication of a checked
+    product row (Producto view). Only active ones are paused, only paused ones activated, never a deleted one; the
+    rest, and a checked MLA we do not have, are counted in `no_aplican`. No filter takes part. Read-only, needs
+    `ml_publicaciones.pausar`; over `caps.MAX_STATUS_ITEM_IDS` it is a 422 naming the count."""
+    try:
+        listing.bound(db)
+        found = status_targets.checked_status_item_ids(db, body.item_ids, body.producto_ids, body.target)
+    except status_targets.TooManyPublications as exc:
+        raise _over_cap(exc, "Lo marcado suma", "Marcá menos filas.") from exc
+    except DBAPIError as exc:
+        if (slow := _database_error(exc)) is not None:
+            raise slow from exc
+        raise
+    finally:
+        db.rollback()  # read-only work; nothing was written
     return {"item_ids": found.item_ids, "count": len(found.item_ids), "no_aplican": found.no_aplican}
 
 
@@ -1887,10 +1970,13 @@ def get_item_detail(
 ) -> dict[str, Any]:
     """The Resumen of one publication: its row, every stored field, stock per location, Full replenishment, all
     links and the product, how fresh each resource is and whether the caller may resynchronize it. With
-    `ml_metricas.ver_ganancia`, also the product's cost, the row's markup and the breakdown of the markup."""
+    `ml_metricas.ver_ganancia`, also the product's cost, the row's markup and the breakdown of the markup. With
+    `ml_metricas.ver`, the row carries the table row's Métricas figures (`metrics`, `sales_30d`), margin included only
+    with `ver_ganancia` as in the list."""
     timer = Timer("detail")
     permisos = PermisosService(auth_db)
     can_see_margin = permisos.tiene_permiso(user, PERMISO_GANANCIA)
+    can_see_sales = permisos.tiene_permiso(user, PERMISO_METRICAS)
     can_resync = permisos.tiene_permiso(user, PERMISO_GESTIONAR)
     can_change_status = permisos.tiene_permiso(user, PERMISO_PAUSAR)
     try:
@@ -1899,6 +1985,9 @@ def get_item_detail(
         markup = MarkupQuery(auth_db) if can_see_margin else None
         with timer.stage("detail"):
             found = detail.get_detail(db, item_id, events=events_enabled, markup=markup)
+        if found is not None and can_see_sales:
+            with timer.stage("metrics"):
+                _attach_metrics([found["row"]], row_metrics.metrics_by_mla(db, [item_id]), with_margin=can_see_margin)
     except DBAPIError as exc:
         if (slow := _database_error(exc)) is not None:
             raise slow from exc

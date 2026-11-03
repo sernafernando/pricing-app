@@ -139,8 +139,9 @@ function moveFocus(event) {
  * - Ctrl+F focuses the search, Ctrl+E exports (only where the view can: `onExport` absent leaves it to the browser),
  *   `?` toggles the help.
  * - Ctrl+F1/F2/F3 (or Ctrl+Shift+1/2/3) copy the focused publication's product code and its two ML links.
- * - 0-7 paint the focused row's product (`onPaintRow(key, color)`, 0 = no color) and F6/F7 step to the previous /
- *   next color layer (`onCycleLayer(-1 | 1)`), as in Productos; each only where the page offers it.
+ * - 0-7 paint the focused row (`onPaintRow(key, color)`, 0 = no color: a publication alone, a product row its
+ *   product) and F6/F7 step to the previous / next color layer (`onCycleLayer(-1 | 1)`), as in Productos; each only
+ *   where the page offers it.
  * - Ctrl+K / Ctrl+Shift+P open the bulk Calcular Web Transf. / Calcular PVP (`onBulkAction('web' | 'pvp')`), and
  *   Alt+M / Alt+S / Alt+P the Marca / Subcategoría / PM filters, Alt+A the Auditoría ones and Alt+C / Alt+F the
  *   presence ones (Productos' Avanzados) (`onOpenFilter(name)`), as in Productos.

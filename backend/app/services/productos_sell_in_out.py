@@ -37,10 +37,11 @@ same keys and scale): with sell in, `limpio` over the cost with sell in; with
 sell in + sell out, `limpio + sell out` over the cost with sell in, or the plain
 cost when there is no sell in.
 
-Batch: `resolver_sell_in_out_batch` reads a whole page in at most seven queries:
-six for FIFO and sell out (the cost bonuses' scope rides on the campaigns'
-query), plus one for the reached cost bonuses' rows and caps, only when a
-product without a lot has one.
+Batch: `resolver_sell_in_out_batch` reads a whole page in at most nine queries:
+seven for FIFO and sell out (the cost bonuses' scope rides on the campaigns'
+query; one reads the products' cost modes), one more for the stored
+consumptions only when a product has cost modes, and one for the reached cost
+bonuses' rows and caps, only when a product without a lot has one.
 """
 
 from __future__ import annotations

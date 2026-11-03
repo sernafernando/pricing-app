@@ -10,7 +10,11 @@ Gestiona las promociones de compra (sell in) que bajan el costo de una compra, l
 
 ## Cómo se usa
 
-En **Sell in** podés filtrar por fechas, marca, moneda (ARS/USD), estado (Activa/Anulada) y aplicación (aplican/no aplican). También podés filtrar por tipo: **Por compra** o **Bono de marca**. La tabla muestra las compras y, debajo, los bonos de marca. Arriba hay tarjetas de resumen.
+En **Sell in** podés filtrar por fechas, búsqueda, marca, moneda (ARS/USD), estado (Activa/Anulada), **Producto**, **Proveedor** y aplicación (aplican/no aplican). También podés filtrar por tipo: **Por compra** o **Bono de marca**. La tabla muestra las compras y, debajo, los bonos de marca. Arriba hay tarjetas de resumen.
+
+- **Producto** y **Proveedor** se buscan y se eligen de la lista de resultados; la cruz al lado del elegido lo quita. Filtran solo las compras: las que tienen ese producto en alguna línea o son de ese proveedor. **Proveedor** aparece si tenés permiso para ver proveedores u órdenes de compra (administracion.ver_proveedores, administracion.ver_ordenes_compra o administracion.gestionar_ordenes_compra).
+- Los bonos de marca siguen la búsqueda (descripción o marca del bono), la marca, la moneda, el estado y las fechas. Con fechas, se ven los bonos cuyo rango de fechas se cruza con el período elegido, aunque sea un solo día. La marca muestra todos los bonos que alcanzan productos de esa marca: los de esa marca, los de una categoría con productos de esa marca, los de modelos de esa marca y los de una operación con productos de esa marca (facturados o recibidos). Un bono de operación que todavía no tiene productos facturados ni recibidos no se puede ubicar en una marca: aparece con cualquier marca elegida. Aplicación, Producto y Proveedor no filtran los bonos: un bono no tiene "aplica" y alcanza una marca, una categoría, modelos o una operación, no un proveedor.
+- Las tarjetas de bonos vigentes cuentan siempre todos los bonos activos, con cualquier filtro.
 
 Si tenés permiso, el botón **Nuevo sell in** abre el panel para crear una compra o un bono. Al tocar una fila se abre el panel lateral con el detalle.
 
@@ -57,7 +61,7 @@ Al crear un bono de marca, **Base del bono** define cómo se calcula. Se elige u
 
 ### Lotes de un producto
 
-El sell in se descuenta por lote, en orden FIFO, no promediado: cada venta toma las unidades del lote más viejo que todavía tiene. Para ver cómo van a aplicar los lotes de un producto, abrí la sección **Lotes sell in** en el panel del producto de **Publicaciones ML** (pestaña Resumen) o en la ficha de información del producto de **Productos** (pestaña **Lotes sell in**).
+Cada venta toma las unidades del lote más viejo que todavía tiene (orden FIFO). Lo que descuenta por unidad depende del modo de costo del producto: por defecto es FIFO, y cada unidad descuenta el valor de su lote; con **ponderado** todas las unidades que quedan descuentan el promedio ponderado de los lotes, y con **último precio** descuentan el valor del lote más nuevo. El modo cambia el valor, nunca el orden en que se usan las unidades. Para ver cómo van a aplicar los lotes de un producto, abrí la sección **Lotes sell in** en el panel del producto de **Publicaciones ML** (pestaña Resumen) o en la ficha de información del producto de **Productos** (pestaña **Lotes sell in**).
 
 - Arriba dice qué descuenta la próxima venta, por ejemplo: "La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después $ 10,00". Si ningún lote tiene unidades hoy, dice que el costo vuelve al normal (y hasta cuándo, si queda un lote con fecha futura) y si aplica un bono de costo en su lugar; si el lote vigente es el último, dice qué aplica cuando se termine.
 - Debajo, los lotes en el orden en que se consumen, cada uno con su número, el estado, el descuento por unidad en pesos (una compra en USD, a su propio tipo de cambio), las unidades que quedan y las usadas, la fecha desde la que cuenta y la compra (#, proveedor, facturas; el proveedor y las facturas solo con el permiso de ver compras, el mismo de **Últimas compras**). Los estados son **Vigente** (el que toma la próxima venta), **En cola**, **Agotado** o **Desde dd/mm** (cuenta desde una fecha futura).
@@ -104,7 +108,7 @@ La campaña original no cambia: sigue como estaba, con su historial y lo que acr
 
 ## Filtros y columnas
 
-Sell in: fechas, marca, moneda, estado, aplicación, tipo. Sell out: período, nombre, estado, tipo, moneda, marca y grupo. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan.
+Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicación, tipo (los bonos de marca siguen fechas, búsqueda, marca, moneda y estado). Sell out: período, nombre, estado, tipo, moneda, marca y grupo. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan.
 
 ## Botones y acciones
 

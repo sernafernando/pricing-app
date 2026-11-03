@@ -1297,3 +1297,54 @@ describe('TreeNode — opening a publication (onOpenPublication)', () => {
     expect(screen.getByRole('button', { name: 'Abrir MLA_CHILD' })).toBeInTheDocument();
   });
 });
+
+describe('TreeNode with publicationsOnly (the Publicaciones ML product panel)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTienePermiso.mockReturnValue(true);
+    useTreeViewStore.setState({ showFamilia: false });
+  });
+
+  const tree = () => ({
+    level: 2,
+    kind: 'catalogo',
+    mla: 'MLA_CAT',
+    label: 'MLA_CAT',
+    matches_filter: true,
+    promo_summary: { started_count: 1, candidate_count: 2, applied_name: 'Oferta Relámpago', applied_price: 850 },
+    children: [{ level: 3, kind: 'vinculada', mla: 'MLA_VINC1', label: 'MLA_VINC1', matches_filter: true, children: [] }],
+  });
+
+  it('shows the publications with none of their promos, catalog competition or wholesale prices, at any depth', async () => {
+    renderNode(tree(), { publicationsOnly: true, onOpenPublication: vi.fn() });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+
+    expect(screen.getByText('MLA_VINC1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Abrir MLA_CAT' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Abrir MLA_VINC1' })).toBeInTheDocument();
+    for (const name of [/^promociones/i, /^competencia catálogo/i, /^precios mayoristas/i, /^refrescar promociones/i]) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText(/aplicada: oferta relámpago/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/1 aplicada.*2 disponible/i)).not.toBeInTheDocument();
+  });
+
+  it('offers no expand toggle on a publication with nothing under it, and keeps it on one with vinculadas', async () => {
+    renderNode(tree(), { publicationsOnly: true, onOpenPublication: vi.fn() });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+    expect(screen.getByRole('button', { name: 'Abrir MLA_VINC1' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /expandir mla_vinc1/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps them all without it, as Productos shows them', async () => {
+    renderNode(tree());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /expandir mla_cat/i }));
+    for (const name of [/^promociones/i, /^competencia catálogo/i, /^precios mayoristas/i, /^refrescar promociones de mla_cat/i]) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+    expect(screen.getByText(/aplicada: oferta relámpago/i)).toBeInTheDocument();
+  });
+});

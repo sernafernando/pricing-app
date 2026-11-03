@@ -3,15 +3,16 @@ import { ChevronRight } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
 import ProductoMLAsPanel from '../promociones/ProductoMLAsPanel';
-import ProductPrices from '../pricing/ProductPrices';
-import ListPriceGroup from './panel/ListPriceGroup';
+import PanelPrices from './panel/PanelPrices';
 import { canViewProductPrices, pricePermissions } from '../pricing/productPricePermissions';
 import { buildColumns } from './columns';
-import { PRODUCT_FIGURES } from './productFigures';
+import { PRODUCT_FIGURES, PRODUCT_HEADER_FIGURES } from './productFigures';
+import { productHeaderFigures } from './panel/productHeaderFigures';
 import { describeLoadError } from './loadErrors';
 import MarkupCell from './MarkupCell';
 import { UnitsCell } from './MetricsCells';
 import PublicationStatusPill from './PublicationStatusPill';
+import PanelFigures from './panel/PanelFigures';
 import PanelShell from './panel/PanelShell';
 import PanelTabs from './panel/PanelTabs';
 import ProductBanAction from './panel/ProductBanAction';
@@ -20,6 +21,7 @@ import ProductChangesTab from './panel/ProductChangesTab';
 import ProductCuotasConfig from './panel/ProductCuotasConfig';
 import ProductIdentity from './panel/ProductIdentity';
 import ProductPrearmadas from './panel/ProductPrearmadas';
+import ProductPromos from './panel/ProductPromos';
 import ProductPurchases from './panel/ProductPurchases';
 import SellInLotes from '../sellIn/SellInLotes';
 import ProductPxq from './panel/ProductPxq';
@@ -53,15 +55,35 @@ const treeFilters = (filters) => ({
   conPxq: filters.pxq === 'con_pxq',
 });
 
+/**
+ * Under a list of the product's publications: that they are loading, that the filters leave none, or "Ver más" while
+ * there are more to read.
+ */
+function PublicationsListState({ loading, empty, hasMore, onLoadMore }) {
+  return (
+    <>
+      {loading && <p className={panelStyles.note}>Cargando publicaciones…</p>}
+      {!loading && empty && <p className={panelStyles.note}>Ninguna publicación coincide con los filtros.</p>}
+      {hasMore && !loading && (
+        <button type="button" className={`btn-tesla outline sm ${styles.more}`} onClick={onLoadMore}>
+          Ver más
+        </button>
+      )}
+    </>
+  );
+}
+
 const RESUMEN = { key: 'resumen', label: 'Resumen' };
 const PRECIOS = { key: 'precios', label: 'Precios' };
+const PROMOS = { key: 'promos', label: 'Promos' };
+const PXQ = { key: 'pxq', label: 'PxQ' };
 const CAMBIOS = { key: 'cambios', label: 'Cambios' };
 
 /**
  * The panel of one product of the Producto view, beside the table: the product (its code, brand, prearmadas badge
  * and publication count), the sum of its publications' Métricas ML figures under the page's filters, and those
- * publications: a product's as Productos' publication tree (`ProductoMLAsPanel`: familias, catálogo, vinculadas and
- * promos, with its own controls, each publication opening its own panel from its "Abrir" button), under the page's
+ * publications: a product's as Productos' publication tree (`ProductoMLAsPanel`: familias, catálogo and vinculadas,
+ * with its own controls, each publication opening its own panel from its "Abrir" button), under the page's
  * promo, store and wholesale filters (`treeFilters`); the "Sin producto" row's, having no product to read a tree of,
  * as a list, each one opening its own panel (`onSelectItem`).
  * The prearmadas badge is the one Productos shows
@@ -73,11 +95,13 @@ const CAMBIOS = { key: 'cambios', label: 'Cambios' };
  *
  * Those go under the Resumen tab, after the product's SKU and EAN (`ProductIdentity`, editable with
  * `ml_publicaciones.editar_producto`), its last purchases (`ProductPurchases`, `productos.ver_info_compras`) and its
- * sell-in lots in FIFO order (`SellInLotes`, hidden when the API refuses it), and
- * after the publications comes the catalog competition of those in a catalog (`ProductCatalogCompetition`,
- * `promos.ver`) and the wholesale prices of each (`ProductPxq`, `pxq.ver`), for "Sin producto" too since both belong
- * to each publication, and last the product's ban (`ProductBanAction`, gated by itself).
- * Precios mounts the product's prices (the same `ProductPrices` a publication's Precios tab mounts), and under them
+ * sell-in lots in FIFO order (`SellInLotes`, hidden when the API refuses it), and after the publications comes
+ * the product's ban (`ProductBanAction`, gated by itself). The tree there shows the publications alone
+ * (`publicationsOnly`): what belongs to each publication's promotions and wholesale prices has its own tab.
+ * Promos (`promos.ver`) lists the publications' promotions, one entry each opening the publication panel's Promos
+ * tab (`ProductPromos`), then the catalog competition of those in a catalog (`ProductCatalogCompetition`); PxQ
+ * (`pxq.ver`) their wholesale prices (`ProductPxq`). "Sin producto" has both, since they belong to each publication.
+ * Precios mounts the product's prices (the same `PanelPrices` a publication's Precios tab mounts), and under them
  * its instalment settings (`ProductCuotasConfig`, whose save recalculates the instalments: the prices are read
  * again and the list reloaded), for whoever may see them, and Cambios the changes made to the
  * product in the app, with who made each one (`ProductChangesTab`); "Sin producto" has neither. The panel opens on
@@ -128,12 +152,23 @@ export default function ProductPanel({
   };
   const withoutProduct = productKey === NO_PRODUCT_KEY;
   const productItemId = summary?.productoItemId;
-  const tabs =
-    productItemId == null ? [RESUMEN] : canViewProductPrices(tienePermiso) ? [PRECIOS, RESUMEN, CAMBIOS] : [RESUMEN, CAMBIOS];
+  const tabs = [
+    productItemId != null && canViewProductPrices(tienePermiso) && PRECIOS,
+    RESUMEN,
+    tienePermiso('promos.ver') && PROMOS,
+    tienePermiso('pxq.ver') && PXQ,
+    productItemId != null && CAMBIOS,
+  ].filter(Boolean);
   // Precios first when the product has it (owner, 2026-11-02), else Resumen.
   const activeKey = (openTab.productKey === productKey && tabs.find((tab) => tab.key === openTab.key)?.key) || tabs[0].key;
-  const figures = buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin, producto: true }).filter((column) =>
+  const figureColumns = buildColumns({ eventsEnabled: false, canSeeSales, canSeeMargin, producto: true }).filter((column) =>
     PRODUCT_FIGURES.has(column.key),
+  );
+  // Stock, sales and markup ride in the header on every tab (S1); Cifras keeps the rest, never both.
+  const figures = figureColumns.filter((column) => !PRODUCT_HEADER_FIGURES.has(column.key));
+  // Promos and PxQ list the publications read so far, as the "Sin producto" list does, so they share its states.
+  const listState = (
+    <PublicationsListState loading={loading} empty={!error && items.length === 0} hasMore={hasMore} onLoadMore={loadMore} />
   );
 
   return (
@@ -154,6 +189,15 @@ export default function ProductPanel({
           </div>
         )
       }
+      figures={
+        summary && (
+          <PanelFigures
+            label="Cifras del producto"
+            caption={canSeeSales ? 'Con los filtros actuales' : null}
+            figures={productHeaderFigures(summary, figureColumns)}
+          />
+        )
+      }
       onClose={onClose}
       loading={loading && !summary}
       loadingLabel="Cargando producto"
@@ -166,13 +210,24 @@ export default function ProductPanel({
         <PanelTabs tabs={tabs} activeKey={activeKey} onTabChange={(key) => setOpenTab({ productKey, key })} label="Secciones del producto">
           {activeKey === CAMBIOS.key ? (
             <ProductChangesTab key={productItemId} productItemId={productItemId} />
+          ) : activeKey === PROMOS.key ? (
+            <>
+              <ProductPromos key={`promos-${productKey}`} publications={items} onPromoApplied={onListReload} />
+              <ProductCatalogCompetition key={`catalog-${productKey}`} publications={items} />
+              {listState}
+            </>
+          ) : activeKey === PXQ.key ? (
+            <>
+              <ProductPxq key={`pxq-${productKey}`} publications={items} />
+              {listState}
+            </>
           ) : activeKey === PRECIOS.key ? (
             <>
-              <ListPriceGroup productItemId={productItemId} canSeeMargin={canSeeMargin} priceGroup={priceGroup} />
-              <ProductPrices
+              <PanelPrices
                 productItemId={productItemId}
-                // Read again after the instalment settings or after a list write (the group above): both counters only
-                // ever go up, so their sum changes whenever either does.
+                priceGroup={priceGroup}
+                // Read again after the instalment settings or after a list write: both counters only ever go up, so
+                // their sum changes whenever either does.
                 readAgain={pricesReadAgain + (priceGroup?.version ?? 0)}
                 permissions={pricePermissions(tienePermiso)}
                 onWritten={onListReload}
@@ -209,6 +264,7 @@ export default function ProductPanel({
                       pxqCacheRef={pxqCacheRef}
                       {...treeFilters(filters)}
                       onOpenPublication={onSelectItem}
+                      publicationsOnly
                     />
                   </div>
                 ) : (
@@ -251,20 +307,10 @@ export default function ProductPanel({
                       ))}
                     </ul>
                   )}
-                  {loading && <p className={panelStyles.note}>Cargando publicaciones…</p>}
-                  {!loading && !error && items.length === 0 && (
-                    <p className={panelStyles.note}>Ninguna publicación coincide con los filtros.</p>
-                  )}
-                  {hasMore && !loading && (
-                    <button type="button" className={`btn-tesla outline sm ${styles.more}`} onClick={loadMore}>
-                      Ver más
-                    </button>
-                  )}
+                  {listState}
                   </>
                 )}
               </Section>
-              <ProductCatalogCompetition key={`catalog-${productKey}`} publications={items} />
-              <ProductPxq key={`pxq-${productKey}`} publications={items} />
 
               {productItemId != null && (
                 <ProductBanAction key={`ban-${productItemId}`} productItemId={productItemId} description={summary.label} />
