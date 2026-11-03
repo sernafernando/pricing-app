@@ -1226,14 +1226,30 @@ class VerifyHandler:
 
 
 FRESHNESS_HANDLER = "ml_publications.freshness"
+# A resource that was alerted stays alerted until it has been on time this long: resources hovering around their
+# target went late, back and late again every few minutes and each return re-alerted (owner, 2026-11-03).
+FRESHNESS_QUIET = timedelta(hours=1)
+
+
+def _alerted_since(stored: Any, now: datetime) -> Dict[str, datetime]:
+    """The alerted resources with when each was last late. A detail from before the quiet hour kept a bare list."""
+    if isinstance(stored, list):
+        return {name: now for name in stored}
+    alerted: Dict[str, datetime] = {}
+    for name, at in (stored or {}).items():
+        try:
+            alerted[name] = datetime.fromisoformat(at)
+        except (TypeError, ValueError):
+            alerted[name] = now
+    return alerted
 
 
 class FreshnessHandler:
     """`ml_publications.freshness` (ml-sync-pipeline S5): every minute, how late the store is on what ML told it
     changed, per resource, and the queue lag per lane, kept in its `worker_job_state.detail`.
 
-    A resource that becomes late sends the owner ONE WhatsApp; it is not repeated while the resource stays late,
-    and one more says when everything is back. An alert wabot did not take is tried again on the next tick. The
+    A resource that becomes late sends the owner ONE WhatsApp; it is not repeated while the resource stays late or
+    comes back for less than `FRESHNESS_QUIET`, and one more says when everything has been back that long. An alert wabot did not take is tried again on the next tick. The
     alerted resources live in its detail: a detail that cannot be written (logged by `_persist_detail`) repeats
     the alert on the next tick. It makes no ML call and holds no pacer.
     """
@@ -1247,17 +1263,29 @@ class FreshnessHandler:
         with database.get_background_db() as db:
             report = freshness_core.measure(db)
         late = freshness_core.late_resources(report)
-        alerted: List[str] = _read_detail(self.name).get("alerted") or []
+        now = _utcnow()
+        alerted = _alerted_since(_read_detail(self.name).get("alerted"), now)
+        for name in late:
+            if name in alerted:
+                alerted[name] = now  # still (or again) late: its quiet hour starts over
+        quiet = {name for name, last_late in alerted.items() if now - last_late >= FRESHNESS_QUIET}
         alert = None
         if set(late) - set(alerted):
             alert = wabot_client.send_to_owner(freshness_core.late_message(report))
-        elif alerted and not late:
+            if alert == "sent":
+                alerted.update({name: now for name in late})
+        elif alerted and not late and quiet == set(alerted):
             alert = wabot_client.send_to_owner(freshness_core.BACK_MESSAGE)
-        if alert == "sent":
-            alerted = late
-        elif alert is None:
-            alerted = [name for name in alerted if name in late]  # a resource back on time alerts again if late again
-        detail = {**report, "alerted": alerted, "alert": alert, "at": _utcnow().isoformat()}
+            if alert == "sent":
+                alerted = {}
+        if late:
+            alerted = {name: at for name, at in alerted.items() if name not in quiet}  # back long enough: forgotten
+        detail = {
+            **report,
+            "alerted": {name: at.isoformat() for name, at in alerted.items()},
+            "alert": alert,
+            "at": now.isoformat(),
+        }
         _persist_detail(self.name, detail)
         return JobResult(success=True, detail=detail)
 

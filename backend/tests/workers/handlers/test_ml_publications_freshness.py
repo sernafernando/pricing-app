@@ -247,7 +247,7 @@ class TestTheHandler:
         assert handlers.freshness.channels == ()
         assert handlers.freshness in registry.ML_PUBLICATIONS_REGISTRY
 
-    def test_it_alerts_once_while_late_and_once_when_back(self, env, sent) -> None:
+    def test_it_alerts_once_while_late_and_once_when_back_for_the_quiet_hour(self, env, sent, monkeypatch) -> None:
         put_item(env, "MLA1", checked=ago(30))
         notify(env, "MLA1", received=ago(7))
 
@@ -260,6 +260,11 @@ class TestTheHandler:
         assert "1 publicación" in sent[0]
 
         run(env, "DELETE FROM ml_pub_refresh_queue")
+        handlers.freshness.run(context())
+        assert len(sent) == 1  # back for a moment only: no "al día" yet
+
+        later = datetime.now(timezone.utc) + handlers.FRESHNESS_QUIET + timedelta(minutes=1)
+        monkeypatch.setattr(handlers, "_utcnow", lambda: later)
         handlers.freshness.run(context())
         handlers.freshness.run(context())
 
@@ -285,7 +290,10 @@ class TestTheHandler:
 
         assert len(tries) == 2
 
-    def test_a_resource_late_again_after_recovering_alerts_again_while_another_stays_late(self, env, sent) -> None:
+    # Owner, 2026-11-03: "esto me está plagueando, que no me avise por los mismos estados cada 5 min". Resources
+    # hovering around their target went late, back and late again every few minutes, and each return re-alerted.
+
+    def test_a_resource_late_again_soon_after_recovering_does_not_alert_again(self, env, sent) -> None:
         put_item(env, "MLA1", checked=ago(30))
         notify(env, "MLA1", received=ago(7), resources=("core",))
         put_item(env, "MLA2", checked=ago(30))
@@ -296,6 +304,35 @@ class TestTheHandler:
         run(env, "DELETE FROM ml_pub_refresh_queue WHERE entity_id = 'MLA2'")  # promotions back, status still late
         handlers.freshness.run(context())
         notify(env, "MLA2", received=ago(10), resources=("promotions",))  # promotions late again
+        handlers.freshness.run(context())
+
+        assert len(sent) == 1
+
+    def test_everything_back_for_a_moment_neither_says_back_nor_alerts_again(self, env, sent) -> None:
+        put_item(env, "MLA1", checked=ago(30))
+        notify(env, "MLA1", received=ago(7))
+        handlers.freshness.run(context())
+
+        run(env, "DELETE FROM ml_pub_refresh_queue")
+        handlers.freshness.run(context())
+        notify(env, "MLA1", received=ago(7))
+        handlers.freshness.run(context())
+
+        assert len(sent) == 1
+
+    def test_a_resource_late_again_after_the_quiet_hour_alerts_again(self, env, sent, monkeypatch) -> None:
+        put_item(env, "MLA1", checked=ago(30))
+        notify(env, "MLA1", received=ago(7), resources=("core",))
+        put_item(env, "MLA2", checked=ago(30))
+        notify(env, "MLA2", received=ago(10), resources=("promotions",))
+        handlers.freshness.run(context())
+
+        run(env, "DELETE FROM ml_pub_refresh_queue WHERE entity_id = 'MLA2'")
+        handlers.freshness.run(context())
+        later = datetime.now(timezone.utc) + handlers.FRESHNESS_QUIET + timedelta(minutes=1)
+        monkeypatch.setattr(handlers, "_utcnow", lambda: later)
+        handlers.freshness.run(context())  # promotions on time for longer than the quiet hour: forgotten
+        notify(env, "MLA2", received=ago(10), resources=("promotions",))
         handlers.freshness.run(context())
 
         assert len(sent) == 2
