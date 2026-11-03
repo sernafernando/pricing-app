@@ -81,6 +81,7 @@ def _load_work_items(
         .join(ProductoERP, ProductoERP.item_id == PublicacionML.item_id)
         .join(MlItem, MlItem.item_id == PublicacionML.mla)
         .filter(PublicacionML.activo.is_(True))
+        .filter(PublicacionML.item_id.isnot(None))
         .filter(MlItem.gone_at.is_(None))
         .all()
     )

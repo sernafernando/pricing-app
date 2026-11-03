@@ -292,6 +292,68 @@ def test_flex_refusal_skips_while_ml_items_unchanged(monkeypatch: pytest.MonkeyP
     assert events[0]["detail"] == envio_mod.DETAIL_FLEX_REFUSED_UNCHANGED
 
 
+def test_envio_stops_on_shipping_429_and_notifies_pacer(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    _finish, events, *_ = patched_audit
+    monkeypatch.setattr(
+        envio_mod,
+        "_load_work_items",
+        lambda db: [
+            ("MLA_A", 1, _shipping(mode="me1", tags=["self_service_in"])),
+            ("MLA_B", 2, _shipping(mode="me1", tags=["self_service_in"])),
+        ],
+    )
+    puts: list[str] = []
+    limited: list[str | None] = []
+
+    class Fake:
+        async def put_item_shipping(self, mla, shipping):
+            puts.append(mla)
+            return ShippingWriteResult(ok=False, status_code=429, detail="throttled", retry_after="9")
+
+        async def enable_item_flex(self, *a, **k):
+            raise AssertionError("must not continue after shipping 429")
+
+    stats = asyncio.run(
+        envio_mod.run_envio_repair(
+            client=Fake(),
+            pacing_seconds=0,
+            on_rate_limited=lambda ra: limited.append(ra),
+        )
+    )
+    assert puts == ["MLA_A"]
+    assert limited == ["9"]
+    assert stats["errors"] == 1
+    assert events[0]["detail"] == "rate_limited"
+
+
+def test_envio_stops_on_flex_429_and_notifies_pacer(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    _finish, events, *_ = patched_audit
+    current = _shipping(tags=[])
+    monkeypatch.setattr(envio_mod, "_load_work_items", lambda db: [("MLA_FLEX", 1, current), ("MLA_NEXT", 2, current)])
+    flex_calls: list[str] = []
+    limited: list[str | None] = []
+
+    class Fake:
+        async def put_item_shipping(self, *a, **k):
+            raise AssertionError("no shipping put")
+
+        async def enable_item_flex(self, mla: str):
+            flex_calls.append(mla)
+            return ShippingWriteResult(ok=False, status_code=429, detail="throttled", retry_after="4")
+
+    stats = asyncio.run(
+        envio_mod.run_envio_repair(
+            client=Fake(),
+            pacing_seconds=0,
+            on_rate_limited=lambda ra: limited.append(ra),
+        )
+    )
+    assert flex_calls == ["MLA_FLEX"]
+    assert limited == ["4"]
+    assert stats["errors"] == 1
+    assert events[0]["detail"] == "rate_limited"
+
+
 def test_flex_refusal_retries_when_ml_items_fingerprint_changes(
     monkeypatch: pytest.MonkeyPatch, patched_audit
 ) -> None:

@@ -246,17 +246,21 @@ def latest_snapshots_for_mlas(db: Session, mlas: list[str]) -> dict[str, MLPubli
 
 
 def _load_work_items(db: Session) -> list[tuple[str, Optional[int], dict[str, Any]]]:
-    """Linked active pubs joined to ml_items → (mla, erp_item_id, shipping_dict)."""
+    """Linked active pubs joined to ml_items → (mla, erp_item_id, shipping_dict).
+
+    Linked means `publicaciones_ml.item_id` is set (ERP link); unlinked rows are excluded.
+    """
     rows = (
         db.query(PublicacionML, MlItem)
         .join(MlItem, MlItem.item_id == PublicacionML.mla)
         .filter(PublicacionML.activo.is_(True))
+        .filter(PublicacionML.item_id.isnot(None))
         .filter(MlItem.gone_at.is_(None))
         .all()
     )
     items: list[tuple[str, Optional[int], dict[str, Any]]] = []
     for pub, ml_item in rows:
-        if not pub.mla:
+        if not pub.mla or pub.item_id is None:
             continue
         items.append((pub.mla, pub.item_id, shipping_from_ml_item(ml_item)))
     return items
@@ -376,8 +380,20 @@ async def run_envio_repair(
                 if "free_shipping" in payload or "tags" in payload:
                     raise RuntimeError("forbidden shipping keys leaked into PUT payload")
                 result = await ml.put_item_shipping(mla, payload)
-                if result.status_code == 429 and on_rate_limited is not None:
-                    on_rate_limited(result.retry_after)
+                if result.status_code == 429:
+                    if on_rate_limited is not None:
+                        on_rate_limited(result.retry_after)
+                    errors += 1
+                    repair_audit.record_event_bg(
+                        run_id=run_id,
+                        mla_id=mla,
+                        item_id=item_id,
+                        action=ACTION_ERROR,
+                        before=before,
+                        after=after,
+                        detail="rate_limited",
+                    )
+                    break
                 if result.ok:
                     details.append("shipping_put")
                     repair_audit.after_shipping_changed(mla, payload)
@@ -413,8 +429,20 @@ async def run_envio_repair(
 
             if plan.enable_flex:
                 flex = await ml.enable_item_flex(mla)
-                if flex.status_code == 429 and on_rate_limited is not None:
-                    on_rate_limited(flex.retry_after)
+                if flex.status_code == 429:
+                    if on_rate_limited is not None:
+                        on_rate_limited(flex.retry_after)
+                    errors += 1
+                    repair_audit.record_event_bg(
+                        run_id=run_id,
+                        mla_id=mla,
+                        item_id=item_id,
+                        action=ACTION_ERROR,
+                        before=before,
+                        after=after,
+                        detail="rate_limited",
+                    )
+                    break
                 if flex.ok:
                     details.append("flex_enabled")
                     repair_audit.after_flex_enabled(mla)

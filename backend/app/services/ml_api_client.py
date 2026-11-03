@@ -44,16 +44,6 @@ def _flex_already_enabled(body_text: str) -> bool:
     return "already" in low and ("flex" in low or "selfservice" in low or "self-service" in low)
 
 
-def _retry_after_seconds(response: httpx.Response, default: float = 2.0) -> float:
-    raw = response.headers.get("Retry-After")
-    if raw is None:
-        return default
-    try:
-        return min(max(float(raw), 0.5), 60.0)
-    except ValueError:
-        return default
-
-
 class QuestionNotFoundError(Exception):
     """Raised by `get_question` when ML confirms the question no longer
     exists (HTTP 404) — a terminal, non-retryable outcome. Distinguishes this
@@ -696,7 +686,7 @@ class MercadoLibreAPIClient:
 
         Never sends `free_shipping`, `tags`, or `store_pick_up` (stripped here as a
         hard guard). Classifies 400/403/422 as `not_allowed` (skip); other non-200 as error.
-        One Retry-After-aware retry on HTTP 429 (interim until shared worker Pacer).
+        Single-shot: HTTP 429 is returned with `retry_after` for the caller/Pacer — no sleep here.
         """
         forbidden = {"free_shipping", "tags", "store_pick_up"}
         try:
@@ -705,18 +695,12 @@ class MercadoLibreAPIClient:
             if not cleaned:
                 return ShippingWriteResult(ok=False, detail="empty_shipping_payload", not_allowed=True)
             payload = {"shipping": cleaned}
-            response: Optional[httpx.Response] = None
             async with httpx.AsyncClient(timeout=15.0) as client:
-                for attempt in range(2):
-                    response = await client.put(
-                        f"{self.base_url}/items/{item_id}",
-                        json=payload,
-                        headers={"Authorization": f"Bearer {token}"},
-                    )
-                    if response.status_code != 429 or attempt == 1:
-                        break
-                    await asyncio.sleep(_retry_after_seconds(response))
-            assert response is not None
+                response = await client.put(
+                    f"{self.base_url}/items/{item_id}",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
             text_body = response.text[:500] if response.text else ""
             if response.status_code == 200:
                 try:
