@@ -37,10 +37,11 @@ same keys and scale): with sell in, `limpio` over the cost with sell in; with
 sell in + sell out, `limpio + sell out` over the cost with sell in, or the plain
 cost when there is no sell in.
 
-Batch: `resolver_sell_in_out_batch` reads a whole page in at most seven queries:
-six for FIFO and sell out (the cost bonuses' scope rides on the campaigns'
-query), plus one for the reached cost bonuses' rows and caps, only when a
-product without a lot has one.
+Batch: `resolver_sell_in_out_batch` reads a whole page in at most nine queries:
+seven for FIFO and sell out (the cost bonuses' scope rides on the campaigns'
+query; one reads the products' cost modes), one more for the stored
+consumptions only when a product has cost modes, and one for the reached cost
+bonuses' rows and caps, only when a product without a lot has one.
 """
 
 from __future__ import annotations
@@ -207,10 +208,13 @@ class SellInOutBatch:
         return SellOutProducto(monto_unit=None if total is None else float(total), campana_ids=[c.id for c in tomadas])
 
 
-def resolver_sell_in_out_batch(db: Session, item_ids: Iterable[int], hoy: date) -> SellInOutBatch:
-    """What `hoy`'s next sale of each product would get (module docstring), for a whole page."""
+def resolver_sell_in_out_batch(
+    db: Session, item_ids: Iterable[int], hoy: date, *, sin_lotes: bool = False
+) -> SellInOutBatch:
+    """What `hoy`'s next sale of each product would get (module docstring), for a whole page. `sin_lotes` resolves it
+    as if no FIFO lot had units left (what applies once they run out: the lot viewer's question)."""
     ids = sorted({int(i) for i in item_ids if i is not None})
-    sell_in = get_costing().vigentes(db, ids, hoy)
+    sell_in = {} if sin_lotes else get_costing().vigentes(db, ids, hoy)
     por_item, pares = _campanas_y_bonos(db, ids, [i for i in ids if i not in sell_in], hoy)
     cids = sorted(set().union(*por_item.values()))
     vigentes: Dict[int, _Campana] = {}

@@ -94,8 +94,10 @@ describe.each(['light', 'dark'])('Métricas ML Costos TP (%s)', (theme) => {
     expect(wrappedMoney()).toEqual([]);
     // Eight cards on one row at this width: Total TP and the sell in / sell out card join it.
     // The fixture carries sell in / sell out figures: without the card the row would be seven.
-    expect(document.querySelector('section[data-tp][data-sell]')?.textContent).toContain('Sell in / Sell out');
-    const tops = [...document.querySelectorAll('section[data-tp] > div')].map((card) => card.getBoundingClientRect().top);
+    const kpis = document.querySelector('section[aria-label="Indicadores del período"]');
+    expect(kpis.textContent).toContain('Total TP');
+    expect(kpis.textContent).toContain('Sell in / Sell out');
+    const tops = [...kpis.children].map((card) => card.getBoundingClientRect().top);
     expect(tops).toHaveLength(8);
     expect(new Set(tops).size).toBe(1);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);

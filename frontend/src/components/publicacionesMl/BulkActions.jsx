@@ -25,7 +25,8 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 
 /**
  * Productos' bulk pricing actions (web transferencia, PVP, markup + cuotas, cuotas recalculation) over Publicaciones ML. Pricing is per
- * product, so they act on PRODUCTS: the ones the operator checked in the list, else the linked products of every
+ * product, so they act on PRODUCTS: the ones behind the rows the operator checked (a product row's own, a checked
+ * publication's linked product, each once), else the linked products of every
  * publication the filters select (`useBulkProductSet`), sent to Productos' own modals as an explicit `itemIds` set.
  *
  * Fail closed, with the reason on the button: no set while it is resolving, when the resolver refuses (over its
@@ -34,8 +35,20 @@ const plural = (n, one, many) => (n === 1 ? one : many);
  */
 // `openRequest` ({ key, at }: a new `at` per request) opens an action's modal as its menu item would -- Ctrl+K and
 // Ctrl+Shift+P, as in Productos. An action the user may not run opens nothing; a set not ready yet says why.
-// `offPageCount`: how many checked products the list does not show now (the selection outlives filters and pages).
-export default function BulkActions({ filters, checkedIds, offPageCount = 0, onClearChecked, canSeeMargin, onDone, openRequest }) {
+// `checkedIds`: the products behind the checked rows; `checkedRowCount`: how many rows are checked, and
+// `checkedPublications`: how many of them are publications (the rest are product rows of the Producto view).
+// `offPageCount`: how many checked rows the list does not show now (the selection outlives filters and pages).
+export default function BulkActions({
+  filters,
+  checkedIds,
+  checkedPublications = 0,
+  checkedRowCount = checkedPublications,
+  offPageCount = 0,
+  onClearChecked,
+  canSeeMargin,
+  onDone,
+  openRequest,
+}) {
   const { tienePermiso } = usePermisos();
   const { toast, showToast, hideToast } = useToast();
   const actions = ACTIONS.filter((action) => tienePermiso(action.permiso));
@@ -55,24 +68,34 @@ export default function BulkActions({ filters, checkedIds, offPageCount = 0, onC
     return () => document.removeEventListener('mousedown', closeOutside);
   }, [open]);
 
-  const checked = checkedIds.size > 0;
+  const checked = checkedIds.size > 0 || checkedPublications > 0;
   const itemIds = checked ? [...checkedIds] : resolved.itemIds;
   let reason = null;
+  if (checked && itemIds.length === 0) reason = 'Las publicaciones marcadas no tienen producto vinculado.';
   if (!checked) {
     if (resolved.status === 'error') reason = resolved.error;
     else if (resolved.status !== 'ready') reason = 'Calculando los productos del filtro…';
     else if (itemIds.length === 0) reason = 'El filtro no selecciona ningún producto vinculado.';
   }
   const n = itemIds.length;
+  const m = checkedPublications;
+  const rows = Math.max(checkedRowCount, m);
+  // A product row and a publication checked together are rows, not "publications": one publication has one product.
+  const from =
+    rows > m
+      ? `${rows} ${plural(rows, 'fila marcada', 'filas marcadas')}`
+      : `${m} ${plural(m, 'publicación marcada', 'publicaciones marcadas')}`;
   const scope = checked
-    ? `${n} ${plural(n, 'producto seleccionado', 'productos seleccionados')}`
+    ? m > 0
+      ? `${n} ${plural(n, 'producto', 'productos')} de ${from}`
+      : `${n} ${plural(n, 'producto seleccionado', 'productos seleccionados')}`
     : reason
       ? null
       : `${n} ${plural(n, 'producto', 'productos')}`;
   const notas = checked
     ? [
         offPageCount > 0 &&
-          `${offPageCount} ${plural(offPageCount, 'producto seleccionado no está', 'productos seleccionados no están')} en esta página (se eligieron con otros filtros o en otra página)`,
+          `${offPageCount} ${plural(offPageCount, 'fila marcada no está', 'filas marcadas no están')} en esta página (se eligieron con otros filtros o en otra página)`,
       ].filter(Boolean)
     : [
         resolved.sinProducto > 0 &&
@@ -138,7 +161,8 @@ export default function BulkActions({ filters, checkedIds, offPageCount = 0, onC
         aria-expanded={open}
         aria-label={scope ? `Acciones masivas (${scope})` : 'Acciones masivas'}
         title={reason ?? `Cambia el precio de ${scope}, en todas sus publicaciones`}
-        disabled={Boolean(reason)}
+        // A checked selection with nothing to act on still opens: its panel says why and holds "Limpiar selección".
+        disabled={Boolean(reason) && !checked}
         onClick={() => setOpen((was) => !was)}
       >
         <Layers size={14} aria-hidden="true" />
@@ -151,10 +175,18 @@ export default function BulkActions({ filters, checkedIds, offPageCount = 0, onC
           <p className={styles.scope}>
             Sobre {checked ? scope : `los ${scope} del filtro`}
           </p>
+          {reason && <p className={styles.note}>{reason}</p>}
           {nota && <p className={styles.note}>{nota}</p>}
           <div role="menu" aria-label="Acciones masivas" className={styles.menu}>
             {actions.map((action) => (
-              <button key={action.key} type="button" role="menuitem" className={styles.item} onClick={() => openModal(action.key)}>
+              <button
+                key={action.key}
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                disabled={Boolean(reason)}
+                onClick={() => openModal(action.key)}
+              >
                 {action.label}
               </button>
             ))}

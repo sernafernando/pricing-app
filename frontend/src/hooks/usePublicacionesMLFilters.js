@@ -156,6 +156,8 @@ export const PRICE_MARKUP_SORTS = new Set(['lista_clasica', 'lista_rebate', 'lis
 
 export const DEFAULT_DIRECTION = {
   actividad: 'desc',
+  // Clásica first, then 3, 6, 9 and 12 cuotas (the backend's `listing_kind` rank).
+  tipo: 'asc',
   titulo: 'asc',
   precio: 'asc',
   stock_propio: 'desc',
@@ -182,6 +184,15 @@ const MARGIN_SORTS = new Set(['markup', 'markup_30d', 'total_gauss_30d', 'costo'
 
 /** Métricas' default (Facturado 30D) for who sees the sales; the activity otherwise. */
 export const defaultSortFor = ({ canSeeSales = false } = {}) => (canSeeSales ? 'facturado_30d' : 'actividad');
+
+/**
+ * The list's default sort: the listing type first (owner, 2026-11-02: "primero ordene las clásicas, después las 3
+ * cuotas, después las 6, etc"), then `defaultSortFor` within one type. A clicked column replaces both.
+ */
+const defaultSortKeys = (permissions) => [
+  { key: 'tipo', dir: '' },
+  { key: defaultSortFor(permissions), dir: '' },
+];
 
 const mayAsk = (orden, { canSeeSales = false, canSeeMargin = false }) =>
   (!SALES_SORTS.has(orden) || canSeeSales) && (!MARGIN_SORTS.has(orden) || canSeeMargin);
@@ -215,7 +226,7 @@ function listSort(filters, permissions) {
  */
 export function effectiveSortKeys(filters, permissions = {}) {
   const asked = listSort(filters, permissions);
-  return (asked.length > 0 ? asked : [{ key: defaultSortFor(permissions), dir: '' }]).map(resolved);
+  return (asked.length > 0 ? asked : defaultSortKeys(permissions)).map(resolved);
 }
 
 /** The first of `effectiveSortKeys`: the column the header marks for screen readers. */
@@ -356,11 +367,12 @@ export function buildItemsParams(
   if (asked.length > 0) {
     params.orden = asked.map(({ key }) => key).join(',');
     if (filters.dir) params.dir = asked.map((entry) => resolved(entry).dir).join(',');
-  } else if (canSeeSales) {
-    // Métricas' default sort has to be asked for: the backend's own default is the activity. Its direction too,
+  } else {
+    // The default sort has to be asked for: the backend's own default is the activity alone. The directions too,
     // so the request says what the header shows instead of leaning on the backend's default.
-    params.orden = defaultSortFor({ canSeeSales });
-    params.dir = DEFAULT_DIRECTION[params.orden];
+    const keys = defaultSortKeys({ canSeeSales }).map(resolved);
+    params.orden = keys.map(({ key }) => key).join(',');
+    params.dir = keys.map(({ dir }) => dir).join(',');
   }
   if (canSeeMargin) {
     if (filters.markup_neg) params.markup_neg = true;
@@ -452,16 +464,17 @@ export function buildKpiParams(filters, periodo) {
     buildItemsParams(filters, 1, { canSeeMargin: false }),
   );
   void orden, dir, limit, offset;
-  // The Producto view's rows ask mejor oferta of the product (any of its publications); its strip asks it the same
-  // way, so the strip counts the publications the rows hold.
+  // The Producto view's rows ask mejor oferta of the product (any of its publications) and the color of the product
+  // (never a publication's own); its strip asks them the same way, so the strip counts the publications the rows hold.
   if (filters.vista === 'producto' && filters.oferta) params.oferta_por_producto = true;
+  if (filters.vista === 'producto' && params.colores) params.color_por_producto = true;
   return { ...params, periodo };
 }
 
 /**
  * The `GET /ml-publications/view/product-ids` query: the products a bulk pricing action acts on are the linked
  * products of the publications these filters select, asked exactly as the KPI strip asks its publications (the
- * list's filters, mejor oferta of the product in the Producto view), with no sort nor paging. The markup filters are
+ * list's filters, mejor oferta and color of the product in the Producto view), with no sort nor paging. The markup filters are
  * left to the caller: `BulkActions` adds them exactly as `/items` gets them, only where the list applies them.
  */
 export function buildProductIdsParams(filters) {

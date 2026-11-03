@@ -24,8 +24,3 @@ export function buildMlSellerPromosUrl(itemId) {
   const number = mlaNumber(itemId);
   return number && `${SELLER_PANEL}/listado/promos?page=1&search=${encodeURIComponent(number)}`;
 }
-
-/** Open a seller panel URL in a new tab; nothing when there is none. */
-export function openMlSellerUrl(url) {
-  if (url) window.open(url, '_blank', 'noopener,noreferrer');
-}

@@ -1,0 +1,8 @@
+/* A campaign row's actions: "Ver campaña" and, for whoever manages campaigns, "Renovar". */
+
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}

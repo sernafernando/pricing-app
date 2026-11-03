@@ -45,6 +45,12 @@ migrated from (T15, `app.scripts.migrar_offsets_a_sell_out`), NULL for one
 loaded by hand; UNIQUE, so each offset is migrated once. Deleting the offset
 keeps the campaign (SET NULL).
 
+Programs (`SellOutPrograma`, "Programa" on screen; campaign system S1): a program groups the campaigns that are one
+deal renewed over time or split by what each applies to (today one name repeated over many products, or a family of
+names that carry their per-unit amount, all over the same dates), so a quarter's renewal does not start from
+scratch. `SellOutCampana.programa_id` is metadata only: no allocator, cap or money path reads it, and assigning it
+queues nothing. Campaigns are assigned by hand; a program in use cannot be deleted (RESTRICT), only archived.
+
 `SellOutConsumo` holds what each sale takes from a campaign's cap, rebuilt per
 campaign by the T7 allocator; `SellOutDirty` queues the campaigns to rebuild.
 `SellOutConsumo.venta_ref` has NO foreign key on purpose, like
@@ -74,8 +80,31 @@ from sqlalchemy.sql import false, func, text, true
 
 from app.core.database import Base
 
+# Also declared by migration `20261225_sell_out_programas` (the schema parity test compares them).
+FK_SELL_OUT_CAMPANAS_PROGRAMA_ID = "fk_sell_out_campanas_programa_id"
+
 # Named so the group-delete endpoint can tell this RESTRICT violation from any other IntegrityError.
 FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID = "fk_sell_out_campana_grupos_grupo_id"
+
+
+class SellOutPrograma(Base):
+    """A program: the higher level that groups campaigns. See the module docstring. The name is unique ignoring
+    case (`uq_sell_out_programas_nombre_lower`, declared below the class)."""
+
+    __tablename__ = "sell_out_programas"
+    __table_args__ = (CheckConstraint("estado IN ('activo', 'archivado')", name="ck_sell_out_programas_estado"),)
+
+    id = Column(BigInteger, primary_key=True)
+    nombre = Column(String(200), nullable=False)
+    descripcion = Column(Text, nullable=True)
+    estado = Column(String(16), nullable=False, default="activo", server_default="activo")
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # Also kept current by the `sell_out_programas_updated_at` trigger.
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+Index("uq_sell_out_programas_nombre_lower", func.lower(SellOutPrograma.nombre), unique=True)
 
 
 class SellOutCampana(Base):
@@ -111,6 +140,7 @@ class SellOutCampana(Base):
         CheckConstraint("tope_monto IS NULL OR tope_monto > 0", name="ck_sell_out_campanas_tope_monto"),
         CheckConstraint("estado IN ('activa', 'anulada')", name="ck_sell_out_campanas_estado"),
         UniqueConstraint("offset_origen_id", name="uq_sell_out_campanas_offset_origen_id"),
+        Index("ix_sell_out_campanas_programa_id", "programa_id"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -142,6 +172,12 @@ class SellOutCampana(Base):
     offset_origen_id = Column(
         Integer,
         ForeignKey("offsets_ganancia.id", ondelete="SET NULL", name="fk_sell_out_campanas_offset_origen_id"),
+        nullable=True,
+    )
+    # The program it belongs to (metadata only, see the module docstring); NULL until assigned by hand.
+    programa_id = Column(
+        BigInteger,
+        ForeignKey("sell_out_programas.id", ondelete="RESTRICT", name=FK_SELL_OUT_CAMPANAS_PROGRAMA_ID),
         nullable=True,
     )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

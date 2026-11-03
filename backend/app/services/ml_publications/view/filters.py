@@ -195,6 +195,13 @@ class PublicationFilter:
     no_color: bool = False
     color_ids: Optional[tuple[int, ...]] = None
     colored_ids: Optional[tuple[int, ...]] = None
+    # The publications painted on their own on that layer (`publicacion_color`): their own color wins over their
+    # product's, on a publication row only. `item_color_ids` have one of `colors`, `item_colored_ids` any.
+    item_color_ids: tuple[str, ...] = ()
+    item_colored_ids: tuple[str, ...] = ()
+    # `color_por_producto`: the color filter reads only the product's color, as the Producto view's rows do (its
+    # `/product-ids` and `/stats` send it, so their sets are its rows'): no publication's own color takes part.
+    color_per_product: bool = False
 
     @property
     def needs_events(self) -> bool:
@@ -400,6 +407,7 @@ def parse_filter(
     tn_no_publicado: Optional[bool] = None,
     out_of_cards: Optional[bool] = None,
     oferta_por_producto: Optional[bool] = None,
+    color_por_producto: Optional[bool] = None,
     con_precio: Optional[bool] = None,
     nuevos_ultimos_7_dias: Optional[bool] = None,
     con_mla: Optional[bool] = None,
@@ -447,6 +455,7 @@ def parse_filter(
         out_of_cards=out_of_cards,
         tienda_nube=_tienda_nube(tn_con_descuento, tn_sin_descuento, tn_no_publicado),
         oferta_per_product=bool(oferta_por_producto),
+        color_per_product=bool(color_por_producto),
         precio=con_precio,
         nuevos=bool(nuevos_ultimos_7_dias),
         sin_mla=con_mla is False,  # `true` is every row of this screen already: no filter
@@ -697,22 +706,31 @@ def _catalog_match(f: PublicationFilter) -> ColumnElement:
     reads them on its empty catalog row (`T.p`, NULL), so `__none__` still finds it."""
     return or_(
         and_(~has_product(), *catalog_conditions(f, T.p)),
-        _any_linked_product(lambda p, product_id: and_(*linked_product_conditions(f, product_id, p))),
+        _any_linked_product(lambda p, product_id: and_(*linked_product_conditions(f, product_id, p, T.i.item_id))),
     )
 
 
-def linked_product_conditions(f: PublicationFilter, product_id: Any, p: Any) -> list[ColumnElement]:
+def linked_product_conditions(
+    f: PublicationFilter, product_id: Any, p: Any, item_id: Any = None
+) -> list[ColumnElement]:
     """The conditions of `f` that are about the PRODUCT, on one linked product (`product_id`, `p` its catalog row,
     outer-joined): color, mejor oferta of the product, brand, category, subcategory, the product's presence toggles
     (`product_flag_conditions`), PM and `q` (the product's own name or code, unless the publication's own fields
     match). A publication `f` keeps is expanded to its linked products that pass them -- the Producto view, its
     export, `/product-ids` and the tree's product level -- so a filter about the product never brings in another
-    product of the same publication (variations of different products)."""
+    product of the same publication (variations of different products).
+
+    `item_id`, the row's MLA: one painted one of `colors` on its own (`item_color_ids`) passes the color on any
+    linked product, as `_colors` keeps it by its own color. The Producto view's product rows keep their product's
+    color because their filter carries no own colors (`product_colors_only` empties `item_color_ids`), not because
+    of `item_id`."""
     conditions: list[ColumnElement] = []
     if f.colors or f.no_color:
         parts = []
         if f.colors:
             parts.append(product_id == any_(literal(list(f.color_ids or ()), ARRAY(Integer))))
+            if item_id is not None and f.item_color_ids:
+                parts.append(item_id == any_(literal(list(f.item_color_ids), ARRAY(String))))
         if f.no_color:
             parts.append(product_id != all_(literal(list(f.colored_ids or ()), ARRAY(Integer))))
         conditions.append(or_(*parts))
@@ -1186,18 +1204,25 @@ def conditions(f: PublicationFilter, skip: Optional[str] = None) -> list[ColumnE
 
 
 def _colors(f: PublicationFilter, product: Any = None) -> ColumnElement:
-    """A color is the PRODUCT's: one of the publication's linked products (`product_links`) is painted one of
-    `colors`; `sin_color`, it has no linked product or one that is not painted. `product`: the product id column of a
-    row that is a product, not a publication (`product_conditions`)."""
+    """A publication's color is its EFFECTIVE one: its own (`item_color_ids`), otherwise one of its linked products'
+    (`product_links`) painted one of `colors`; `sin_color`, it has no own color and no linked product or one that is
+    not painted. `product`: the product id column of a row that is a product, not a publication
+    (`product_conditions`): the product's own color, always."""
     if f.color_ids is None or f.colored_ids is None:
         raise RuntimeError("`colores` must be resolved (ml_publication_colors.resolve_color_filter) before the query")
     painted, colored = list(f.color_ids), list(f.colored_ids)
+    own = T.i.item_id == any_(literal(list(f.item_color_ids), ARRAY(String)))
+    no_own = T.i.item_id != all_(literal(list(f.item_colored_ids), ARRAY(String)))
     clauses = []
     if f.colors:
-        clauses.append(has_product(painted) if product is None else product == any_(literal(painted, ARRAY(Integer))))
+        clauses.append(
+            or_(own, and_(no_own, has_product(painted)))
+            if product is None
+            else product == any_(literal(painted, ARRAY(Integer)))
+        )
     if f.no_color:
         clauses.append(
-            or_(~has_product(), has_product(outside=colored))
+            and_(no_own, or_(~has_product(), has_product(outside=colored)))
             if product is None
             else product != all_(literal(colored, ARRAY(Integer)))
         )
@@ -1294,3 +1319,8 @@ def product_conditions(f: PublicationFilter) -> list[ColumnElement]:
 def product_select(f: PublicationFilter, *columns: Any) -> Select:
     """`SELECT <columns> FROM productos_erp p WHERE <the "Sin MLA" filter>`; no ORDER BY, no paging."""
     return select(*columns).select_from(T.p).where(*product_conditions(f))
+
+
+def product_colors_only(f: PublicationFilter) -> PublicationFilter:
+    """`f` with the color filter on the product's color only (`color_per_product`): the Producto view's rows."""
+    return replace(f, color_per_product=True, item_color_ids=(), item_colored_ids=())

@@ -107,7 +107,7 @@ class TestDailyRefresh:
 
         before = len(replay.requests)
         catch_up = _tick(session_factory, replay, monkeypatch, refreshed_for=daily.refreshed_for)
-        assert (catch_up.steps, len(replay.requests) - before) == ([], 1)
+        assert (catch_up.steps, len(replay.requests) - before) == ([], 2)  # the PADS and DISPLAY listings
 
     def test_nothing_is_refreshed_before_the_10_30_slot(self, session_factory, monkeypatch, window) -> None:
         window(3)

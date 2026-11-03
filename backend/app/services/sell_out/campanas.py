@@ -24,23 +24,26 @@ of an `al_cobro` campaign is set with `definir_tipo_cambio`, never by an edit.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Callable, Concatenate, Optional, ParamSpec, TypeVar
 
 from pydantic import TypeAdapter
-from sqlalchemy import Numeric, func, or_
+from sqlalchemy import Numeric, case, func, or_
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query, Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_grupo import OffsetGrupo
+from app.models.offset_grupo_filtro import OffsetGrupoFiltro
 from app.models.producto import ProductoERP
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem
+from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutCampanaItem, SellOutPrograma
 from app.schemas.sell_out import SellOutCampanaIn, SellOutCampanaItemIn
 from app.services.sell_in.compras import contiene
-from app.services.sell_out import alcance, asignacion, queue, reparto
+from app.services.sell_out import alcance, asignacion, programas, queue, reparto
 
 # Each NUMERIC column's scale as a quantum: `monto_unit` 0.01, `porcentaje` 0.0001, ...
 _QUANTUM = {
@@ -98,10 +101,32 @@ def _encolar(db: Session, campana_ids: list[int]) -> None:
         with queue.lock_timeout(db, queue.LOCK_TIMEOUT):
             queue.enqueue(db, campana_ids)
     except DBAPIError as exc:
-        if getattr(exc.orig, "pgcode", None) != "55P03":
+        if getattr(exc.orig, "pgcode", None) != queue.LOCK_NOT_AVAILABLE:
             raise
         db.rollback()
         raise SellOutRecalculando("La campaña se está recalculando. Reintentar en unos segundos.") from exc
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _deadlock_es_ocupada(operacion: Callable[Concatenate[Session, _P], _R]) -> Callable[Concatenate[Session, _P], _R]:
+    """A single write (edit, void, rate, split) that Postgres picks as a deadlock victim (40P01: a bulk edit or its
+    preview holding this campaign's queue row while waiting for its row) is the busy refusal `SellOutRecalculando`,
+    rolled back with nothing stored, never a raw error. The bulk operations keep their own 40P01 messages."""
+
+    @functools.wraps(operacion)
+    def envuelta(db: Session, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        try:
+            return operacion(db, *args, **kwargs)
+        except DBAPIError as exc:
+            if getattr(exc.orig, "pgcode", None) != DEADLOCK:
+                raise
+            db.rollback()
+            raise SellOutRecalculando(OCUPADA) from exc
+
+    return envuelta
 
 
 def _validar_tc(data: SellOutCampanaIn, actual: Optional[SellOutCampana]) -> None:
@@ -275,12 +300,12 @@ def _valores(campana: SellOutCampana, grupo_ids: list[int], items: list[dict]) -
     }
 
 
-def _grupo_ids(db: Session, campana_id: int) -> list[int]:
+def grupo_ids_de(db: Session, campana_id: int) -> list[int]:
     rows = db.query(SellOutCampanaGrupo.grupo_id).filter(SellOutCampanaGrupo.campana_id == campana_id)
     return [gid for (gid,) in rows.order_by(SellOutCampanaGrupo.id)]
 
 
-def _items(db: Session, campana_ids: list[int]) -> dict[int, list[dict]]:
+def items_de(db: Session, campana_ids: list[int]) -> dict[int, list[dict]]:
     """`{campana_id: [{item_id, monto_unit, codigo, descripcion, reparto_porcentaje, reparto_monto}]}` by item_id, in
     one query; every asked campaign is present. The product's code and description are for the screen (the audit
     keeps only id and amount or share)."""
@@ -352,7 +377,7 @@ def _asignar(db: Session, campana: SellOutCampana, data: SellOutCampanaIn, grupo
     db.query(SellOutCampanaGrupo).filter(
         SellOutCampanaGrupo.campana_id == campana.id, SellOutCampanaGrupo.grupo_id.notin_(grupo_ids)
     ).delete(synchronize_session=False)
-    tenidos = set(_grupo_ids(db, campana.id))
+    tenidos = set(grupo_ids_de(db, campana.id))
     db.add_all(SellOutCampanaGrupo(campana_id=campana.id, grupo_id=g) for g in grupo_ids if g not in tenidos)
     db.flush()
     _asignar_items(db, campana, data)
@@ -468,14 +493,22 @@ def _importe(valor: Decimal) -> str:
 def crear_campana(
     db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
 ) -> SellOutCampana:
-    """`offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`)."""
+    """`offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`).
+
+    `data.programa_id`, when set, must name a program that takes campaigns (`programas.validar_asignable`: a
+    `ProgramaNoExiste` or `ProgramaError`, nothing stored); it is stored and in the audit row, which keeps its shape
+    without one."""
     grupo_ids = validar(db, data)
-    campana = SellOutCampana(usuario_id=usuario_id, offset_origen_id=offset_origen_id)
+    if data.programa_id is not None:
+        programas.validar_asignable(db, data.programa_id)
+    campana = SellOutCampana(usuario_id=usuario_id, offset_origen_id=offset_origen_id, programa_id=data.programa_id)
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)
-    valores = _valores(campana, grupo_ids, _items(db, [campana.id])[campana.id])
+    valores = _valores(campana, grupo_ids, items_de(db, [campana.id])[campana.id])
     if offset_origen_id is not None:
         valores["offset_origen_id"] = offset_origen_id
+    if data.programa_id is not None:
+        valores["programa_id"] = data.programa_id
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, valores)
     _encolar(db, [campana.id])
     db.commit()
@@ -483,42 +516,88 @@ def crear_campana(
     return campana
 
 
-def _bloquear(db: Session, campana_id: int) -> Optional[SellOutCampana]:
-    campana = db.query(SellOutCampana).filter(SellOutCampana.id == campana_id).with_for_update().first()
+def bloquear(db: Session, campana_id: int) -> Optional[SellOutCampana]:
+    """The campaign locked until the transaction ends (`FOR UPDATE`). None when it does not exist;
+    `SellOutYaAnulada` when voided. `populate_existing`: a campaign the session already holds gets the values the
+    locked read returns, so an edit is never built from values another writer has since replaced."""
+    campana = (
+        db.query(SellOutCampana).filter(SellOutCampana.id == campana_id).populate_existing().with_for_update().first()
+    )
     if campana is not None and campana.estado == "anulada":
         raise SellOutYaAnulada(f"La campaña {campana_id} está anulada")
     return campana
 
 
-def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario_id: int) -> Optional[SellOutCampana]:
-    """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided."""
-    campana = _bloquear(db, campana_id)
+def editar_campana_sin_commit(
+    db: Session,
+    campana_id: int,
+    data: SellOutCampanaIn,
+    usuario_id: int,
+    es_masivo: bool = False,
+    *,
+    compartian: Optional[list[int]] = None,
+) -> Optional[SellOutCampana]:
+    """The edit step of an active campaign, without committing: lock, validation, full replace of its fields,
+    groups and items, one audit row (`es_masivo` for the bulk edit, `edicion_masiva`) and queueing. Shared by the
+    single and the bulk edit. None when it does not exist; `SellOutYaAnulada` when voided. Its program is kept:
+    a `data.programa_id` sent is ignored (assignment is `programas.asignar`, audited on its own).
+
+    `compartian`: the campaigns to queue with it, when the caller already knows them (the bulk edit computes the
+    links of the whole batch once, `asignacion.vinculadas_por_campana`); else those sharing products with it now,
+    before the edit unlinks them."""
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     grupo_ids = validar(db, data, campana)
-    antes = _valores(campana, _grupo_ids(db, campana_id), _items(db, [campana_id])[campana_id])
-    compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
+    antes = _valores(campana, grupo_ids_de(db, campana_id), items_de(db, [campana_id])[campana_id])
+    if compartian is None:
+        compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
     _asignar(db, campana, data, grupo_ids)
-    despues = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
-    _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues)
+    despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
+    _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, masivo=es_masivo)
     _encolar(db, [campana_id, *compartian])
+    return campana
+
+
+@_deadlock_es_ocupada
+def editar_campana(db: Session, campana_id: int, data: SellOutCampanaIn, usuario_id: int) -> Optional[SellOutCampana]:
+    """Full replace of an active campaign. None when it does not exist; `SellOutYaAnulada` when voided;
+    `SellOutRecalculando` (nothing stored, retry) when it is being rebuilt or loses a deadlock with another writer
+    (`_deadlock_es_ocupada`)."""
+    campana = editar_campana_sin_commit(db, campana_id, data, usuario_id)
+    if campana is None:
+        return None
     db.commit()
     db.refresh(campana)
     return campana
+
+
+def entrada_guardada(db: Session, campana: SellOutCampana) -> SellOutCampanaIn:
+    """The campaign's stored values as an edit body: every field and its groups, in link order, read the way
+    `serializar` returns them. `items` is None, so the edit step keeps the stored amounts or shares exactly as they
+    are (re-sending one whose product has since left the groups' reach would be refused, `_asignar_items`)."""
+    fila = serializar(db, [campana])[0]
+    datos = {campo: fila[campo] for campo in _CAMPOS}
+    datos["monto_total"] = fila["monto_total"]
+    datos["grupo_ids"] = [g["id"] for g in fila["grupos"]]
+    # Stored values, not a request: the API's shape caps (e.g. at most 50 groups) are not re-applied to them; the
+    # edit step's own rules (`validar`) still are.
+    return SellOutCampanaIn.model_construct(**datos, items=None)
 
 
 def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optional[str], masivo: bool = False) -> None:
     """The void step of a locked, active campaign, without committing: shared by the single and the bulk void
     (whose audit row says so with `es_masivo`)."""
     campana.estado = "anulada"
-    valores = _valores(campana, _grupo_ids(db, campana.id), _items(db, [campana.id])[campana.id])
+    valores = _valores(campana, grupo_ids_de(db, campana.id), items_de(db, [campana.id])[campana.id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_ANULADA, usuario_id, None, valores, motivo, masivo=masivo)
     _encolar(db, [campana.id])  # its rebuild drops its rows and rebuilds the campaigns sharing its products
 
 
+@_deadlock_es_ocupada
 def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellOutCampana]:
     """Void a campaign. None when it does not exist; `SellOutYaAnulada` on a second call."""
-    campana = _bloquear(db, campana_id)
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     _anular(db, campana, usuario_id, motivo)
@@ -529,6 +608,7 @@ def anular_campana(db: Session, campana_id: int, usuario_id: int, motivo: Option
 
 REINTENTAR = "Reintentar en unos segundos."
 DEADLOCK = "40P01"  # deadlock_detected: Postgres aborted the transaction to break a lock cycle with another writer
+OCUPADA = f"Otra operación está modificando la campaña en este momento. {REINTENTAR}"
 
 
 class SellOutAnulacionRechazada(SellOutError):
@@ -560,7 +640,7 @@ def anular_campanas(
     for campana_id in (cid for cid in ids if cid in existen):
         nombre = None
         try:
-            campana = _bloquear(db, campana_id)
+            campana = bloquear(db, campana_id)
             nombre = campana.nombre  # read before a refused queueing rolls the session back
             _anular(db, campana, usuario_id, motivo, masivo=True)
         except SellOutYaAnulada:
@@ -591,6 +671,7 @@ def anular_campanas(
     return anuladas, omitidas
 
 
+@_deadlock_es_ocupada
 def definir_tipo_cambio(
     db: Session, campana_id: int, tipo_cambio: Decimal, usuario_id: int
 ) -> Optional[SellOutCampana]:
@@ -598,15 +679,15 @@ def definir_tipo_cambio(
 
     None when it does not exist; `SellOutYaAnulada` when voided. Every change is audited and queued.
     """
-    campana = _bloquear(db, campana_id)
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     if campana.tc_modo != "al_cobro":
         raise SellOutError("Solo las campañas en USD con tipo de cambio al cobro definen el tipo de cambio después")
     if tipo_cambio <= 0:
         raise SellOutError("El tipo de cambio tiene que ser mayor a 0")
-    grupo_ids = _grupo_ids(db, campana_id)
-    items = _items(db, [campana_id])[campana_id]
+    grupo_ids = grupo_ids_de(db, campana_id)
+    items = items_de(db, [campana_id])[campana_id]
     antes = _valores(campana, grupo_ids, items)
     campana.tipo_cambio = _a_escala("tipo_cambio", tipo_cambio)
     campana.tc_definido_en = datetime.now(timezone.utc)
@@ -650,6 +731,7 @@ def solo_sus_marcas(db: Session, filas: list[dict], pares: Optional[set]) -> lis
     ]
 
 
+@_deadlock_es_ocupada
 def repartir(
     db: Session, campana_id: int, repartos: list[SellOutCampanaItemIn], usuario_id: int, pares: Optional[set]
 ) -> Optional[SellOutCampana]:
@@ -662,7 +744,7 @@ def repartir(
     so `repartos` replace only theirs. The resulting split is checked as a whole (`_validar_suma`), audited (before
     and after) and queued for `sell_out.drain`.
     """
-    campana = _bloquear(db, campana_id)
+    campana = bloquear(db, campana_id)
     if campana is None:
         return None
     if campana.tipo != "monto_total":
@@ -679,11 +761,11 @@ def repartir(
                 raise SellOutSinPermiso(f"El producto {item.item_id}{codigo} no es de tus marcas")
         conservar = frozenset(i for i in tenidos if i not in propios)
     _validar_alcance(db, campana, [r.item_id for r in repartos])
-    grupo_ids = _grupo_ids(db, campana_id)
-    antes = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
+    grupo_ids = grupo_ids_de(db, campana_id)
+    antes = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _guardar_items(db, campana, {r.item_id: _fila(r) for r in repartos}, conservar)
     _validar_suma(db, campana)
-    despues = _valores(campana, grupo_ids, _items(db, [campana_id])[campana_id])
+    despues = _valores(campana, grupo_ids, items_de(db, [campana_id])[campana_id])
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_EDITADA, usuario_id, antes, despues, "Reparto del monto total")
     _encolar(db, [campana_id])
     db.commit()
@@ -698,13 +780,17 @@ class FiltrosCampanas:
     q: Optional[str] = None  # name or description
     grupo_id: Optional[int] = None
     tipo: Optional[str] = None
+    moneda: Optional[str] = None
+    desde: Optional[date] = None  # with `hasta`: campaigns whose dates overlap the period [desde, hasta]
+    hasta: Optional[date] = None
+    marca: Optional[str] = None  # campaigns whose groups reach a product of this brand (the campaign rule)
+    programa_id: Optional[int] = None
+    sin_programa: bool = False  # campaigns without a program (the router refuses it together with `programa_id`)
 
 
-def listar_campanas(
-    db: Session, filtros: FiltrosCampanas, *, page: int = 1, page_size: int = 50
-) -> tuple[list[SellOutCampana], int]:
-    """One page of campaigns, latest start date first."""
-    query = db.query(SellOutCampana)
+def _filtradas(db: Session, filtros: FiltrosCampanas, *columnas: ColumnElement[Any]) -> Query:
+    """The campaigns the filters match: a query of the campaigns, or of `columnas` when given."""
+    query = db.query(*columnas).select_from(SellOutCampana) if columnas else db.query(SellOutCampana)
     if filtros.estado:
         query = query.filter(SellOutCampana.estado == filtros.estado)
     if filtros.tipo:
@@ -719,6 +805,33 @@ def listar_campanas(
     if filtros.grupo_id is not None:
         en_grupo = db.query(SellOutCampanaGrupo.campana_id).filter(SellOutCampanaGrupo.grupo_id == filtros.grupo_id)
         query = query.filter(SellOutCampana.id.in_(en_grupo))
+    if filtros.moneda:
+        query = query.filter(SellOutCampana.moneda == filtros.moneda)
+    if filtros.desde:
+        query = query.filter(SellOutCampana.fecha_hasta >= filtros.desde)
+    if filtros.hasta:
+        query = query.filter(SellOutCampana.fecha_desde <= filtros.hasta)
+    if filtros.marca and filtros.marca.strip():
+        f, p = OffsetGrupoFiltro, ProductoERP
+        de_la_marca = (
+            db.query(SellOutCampanaGrupo.campana_id)
+            .join(f, f.grupo_id == SellOutCampanaGrupo.grupo_id)
+            .join(p, alcance.filtro_alcanza(f, p))
+            .filter(p.marca == filtros.marca.strip())
+        )
+        query = query.filter(SellOutCampana.id.in_(de_la_marca))
+    if filtros.programa_id is not None:
+        query = query.filter(SellOutCampana.programa_id == filtros.programa_id)
+    if filtros.sin_programa:
+        query = query.filter(SellOutCampana.programa_id.is_(None))
+    return query
+
+
+def listar_campanas(
+    db: Session, filtros: FiltrosCampanas, *, page: int = 1, page_size: int = 50
+) -> tuple[list[SellOutCampana], int]:
+    """One page of campaigns, latest start date first."""
+    query = _filtradas(db, filtros)
     total = query.count()
     campanas = (
         query.order_by(SellOutCampana.fecha_desde.desc(), SellOutCampana.id.desc())
@@ -729,9 +842,67 @@ def listar_campanas(
     return campanas, total
 
 
+def por_programa(
+    db: Session, filtros: FiltrosCampanas, *, page: int = 1, page_size: int = 50
+) -> tuple[list[dict], int, Optional[dict]]:
+    """The grouped view's rows (slice E): `(page of programs, how many programs, the group without a program)`.
+    Only programs with a campaign under the filters, by name; each with its filtered campaigns' count, active
+    count, distinct names (`programas.contar_nombres`) and date span. The group without a program is None when
+    no filtered campaign lacks one. Four queries whatever the page holds: the page, the program count, the group
+    without a program and the page's names."""
+    c, p = SellOutCampana, SellOutPrograma
+    agregados = (
+        func.count(c.id),
+        func.coalesce(func.sum(case((c.estado == "activa", 1), else_=0)), 0),
+        func.min(c.fecha_desde),
+        func.max(c.fecha_hasta),
+    )
+    filas = (
+        _filtradas(db, filtros, c.programa_id, p.nombre, *agregados)
+        .join(p, p.id == c.programa_id)
+        .group_by(c.programa_id, p.nombre)
+        .order_by(func.lower(p.nombre), c.programa_id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    total = _filtradas(db, filtros, func.count(func.distinct(c.programa_id))).scalar() or 0
+    sin_fila = None
+    if filtros.programa_id is None:
+        sin_fila = _filtradas(db, filtros, *agregados).filter(c.programa_id.is_(None)).one()
+        if not sin_fila[0]:
+            sin_fila = None
+    ids = [fila[0] for fila in filas]
+    nombres_de = _filtradas(db, filtros, c.programa_id, c.nombre).filter(
+        or_(c.programa_id.in_(ids), c.programa_id.is_(None)) if sin_fila is not None else c.programa_id.in_(ids)
+    )
+    nombres = programas.contar_nombres(nombres_de.distinct().all()) if ids or sin_fila is not None else {}
+
+    def grupo(
+        programa_id: Optional[int],
+        nombre: Optional[str],
+        campanas: int,
+        activas: int,
+        desde: date,
+        hasta: date,
+    ) -> dict:
+        return {
+            "programa_id": programa_id,
+            "nombre": nombre,
+            "campanas": int(campanas),
+            "activas": int(activas),
+            "nombres": nombres.get(programa_id, 0),
+            "desde": desde,
+            "hasta": hasta,
+        }
+
+    items = [grupo(*fila) for fila in filas]
+    return items, total, None if sin_fila is None else grupo(None, None, *sin_fila)
+
+
 def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
-    """Each campaign with its groups (id and name, in link order) and its per-product amounts (by item_id),
-    in one query each for the whole page."""
+    """Each campaign with its groups (id and name, in link order), its per-product amounts (by item_id) and its
+    program (`{id, nombre}` or None; metadata, never part of an edit), in one query each for the whole page."""
     ids = [c.id for c in campanas]
     grupos: dict[int, list[dict]] = {i: [] for i in ids}
     if ids:
@@ -743,7 +914,8 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         )
         for campana_id, gid, nombre in rows:
             grupos[campana_id].append({"id": gid, "nombre": nombre})
-    items = _items(db, ids)
+    items = items_de(db, ids)
+    de_programa = programas.programas_de(db, campanas)
     salida = []
     for c in campanas:
         fila = {campo: getattr(c, campo) for campo in _CAMPOS}
@@ -759,5 +931,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         fila["monto_total"] = c.monto_total  # returned for `monto_total` campaigns only (the schema drops it)
         fila["grupos"] = grupos[c.id]
         fila["items"] = items[c.id]
+        fila["programa_id"] = c.programa_id
+        fila["programa"] = de_programa.get(c.programa_id)
         salida.append(fila)
     return salida

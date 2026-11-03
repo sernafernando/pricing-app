@@ -268,24 +268,75 @@ class SellInCompraItem(Base):
 
 
 class SellInConsumo(Base):
+    """Units of one sale that took part of a sell in. The source is a purchase line (`compra_item_id`) or, for a
+    manual block, its cost-mode row (`modo_id`): exactly one. Only a manual consumption may be negative (a manual
+    cost above the product's frozen cost raises the sale's cost); a migration trigger refuses a `modo_id` that is not
+    a `manual` row of the same product."""
+
     __tablename__ = "sell_in_consumos"
     __table_args__ = (
         UniqueConstraint("canal", "venta_ref", "compra_item_id", name="uq_sell_in_consumos_canal_venta_item"),
         CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_in_consumos_canal"),
         CheckConstraint("unidades > 0", name="ck_sell_in_consumos_unidades_positivas"),
-        CheckConstraint("descuento_ars >= 0", name="ck_sell_in_consumos_descuento_no_negativo"),
+        CheckConstraint("descuento_ars >= 0 OR modo_id IS NOT NULL", name="ck_sell_in_consumos_descuento_no_negativo"),
+        CheckConstraint("(compra_item_id IS NULL) <> (modo_id IS NULL)", name="ck_sell_in_consumos_origen"),
         Index("ix_sell_in_consumos_item_fecha", "item_id", "fecha_venta"),
         Index("ix_sell_in_consumos_compra_item_id", "compra_item_id"),
+        Index("ix_sell_in_consumos_modo_id", "modo_id"),
+        Index(
+            "uq_sell_in_consumos_canal_venta_modo",
+            "canal",
+            "venta_ref",
+            "modo_id",
+            unique=True,
+            postgresql_where=text("modo_id IS NOT NULL"),
+        ),
     )
 
     id = Column(BigInteger, primary_key=True)
-    compra_item_id = Column(BigInteger, ForeignKey("sell_in_compra_items.id", ondelete="CASCADE"), nullable=False)
+    compra_item_id = Column(BigInteger, ForeignKey("sell_in_compra_items.id", ondelete="CASCADE"), nullable=True)
+    modo_id = Column(BigInteger, ForeignKey("sell_in_modos_producto.id", ondelete="RESTRICT"), nullable=True)
     canal = Column(String(8), nullable=False)
     venta_ref = Column(BigInteger, nullable=False)  # no FK: see module docstring
     item_id = Column(Integer, nullable=False)  # copy of the line's item, for lookups by product
     fecha_venta = Column(Date, nullable=False)
     unidades = Column(Integer, nullable=False)
     descuento_ars = Column(Numeric(18, 2), nullable=False)
+
+
+class SellInModoProducto(Base):
+    """One change of a product's sell-in cost mode, from `desde` on (append-only: migration triggers refuse
+    UPDATE, DELETE and TRUNCATE). No row means FIFO. The governing row of a sale is the latest with
+    `desde <= sale date` (ties: the higher `id`). A `manual` row carries the typed quantity and unit cost and the
+    product's cost frozen when it was saved; the other modes carry none. `origen = 'carga'`: made from a sell-in
+    load, which `compra_id` names."""
+
+    __tablename__ = "sell_in_modos_producto"
+    __table_args__ = (
+        CheckConstraint("modo IN ('fifo', 'ponderado', 'ultimo', 'manual')", name="ck_sell_in_modos_producto_modo"),
+        CheckConstraint("origen IN ('visor', 'carga')", name="ck_sell_in_modos_producto_origen"),
+        CheckConstraint(
+            "(modo = 'manual' AND COALESCE(cantidad > 0 AND costo_unit > 0 AND costo_base_unit >= 0, false)) "
+            "OR (modo <> 'manual' AND cantidad IS NULL AND costo_unit IS NULL AND costo_base_unit IS NULL)",
+            name="ck_sell_in_modos_producto_manual",
+        ),
+        CheckConstraint("(origen = 'carga') = (compra_id IS NOT NULL)", name="ck_sell_in_modos_producto_compra"),
+        Index("ix_sell_in_modos_producto_item_desde", "item_id", "desde", "id"),
+        Index("ix_sell_in_modos_producto_compra_id", "compra_id", postgresql_where=text("compra_id IS NOT NULL")),
+        Index("ix_sell_in_modos_producto_usuario_id", "usuario_id"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    item_id = Column(Integer, ForeignKey("productos_erp.item_id"), nullable=False)
+    modo = Column(String(10), nullable=False)
+    desde = Column(Date, nullable=False)
+    cantidad = Column(Integer, nullable=True)
+    costo_unit = Column(Numeric(18, 6), nullable=True)
+    costo_base_unit = Column(Numeric(18, 6), nullable=True)
+    origen = Column(String(8), nullable=False, server_default=text("'visor'"))
+    compra_id = Column(BigInteger, ForeignKey("sell_in_compras.id", ondelete="RESTRICT"), nullable=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class SellInBonoConsumo(Base):

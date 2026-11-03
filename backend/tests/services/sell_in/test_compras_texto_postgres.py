@@ -31,6 +31,7 @@ _SELL_IN_TABLES = (
     "sell_in_compras",
     "sell_in_compra_items",
     "sell_in_compra_pedidos",
+    "sell_in_modos_producto",
     "sell_in_consumos",
 )
 

@@ -65,6 +65,7 @@ from app.services.ml_publications.view.filters import (
     erp_stock,
     has_product,
     linked_product_conditions,
+    product_colors_only,
     product_links,
     product_select,
     publication_filter_in,
@@ -127,7 +128,8 @@ def product_pairs(f: PublicationFilter, mlas: Any, *columns: Any) -> Any:
     live variations' links; `T.p` the product's catalog row), keeping only the products that pass `f`'s conditions
     about the product (`filters.linked_product_conditions`): a publication with variations in several products is in
     the rows of its products that match, never of a sibling that does not. An MLA with no linked product is one row
-    with no product."""
+    with no product. A publication kept by its own color (`publicacion_color`) passes the color on its linked
+    product too; the Producto view's rows read no own color (`filters.product_colors_only`)."""
     pl = product_links("pl_members")
     query = (
         select(*(column(pl) if callable(column) else column for column in columns))
@@ -135,7 +137,7 @@ def product_pairs(f: PublicationFilter, mlas: Any, *columns: Any) -> Any:
         .outerjoin(pl, pl.c.item_id == mlas.c.mla)
         .outerjoin(T.p, T.p.item_id == pl.c.producto_item_id)
     )
-    conditions = linked_product_conditions(f, pl.c.producto_item_id, T.p)
+    conditions = linked_product_conditions(f, pl.c.producto_item_id, T.p, mlas.c.mla)
     if f.q is not None:  # `q` also matches the publication's own fields
         query = query.join(T.i, T.i.item_id == mlas.c.mla)
     if conditions:
@@ -317,7 +319,7 @@ def _product_rows(db: Session, f: PublicationFilter, only: Optional[Sequence[int
     narrows the MLA set to the publications linked to those products (`NO_PRODUCT`: no link) -- every one of them
     `f` selects, so each product's count and figures are the very ones of the whole set."""
     # mejor oferta is a product's (any of its publications), as in Productos
-    f = replace(resolve_pm_pairs(db, f), oferta_per_product=True)
+    f = product_colors_only(replace(resolve_pm_pairs(db, f), oferta_per_product=True))
     first, last = row_metrics.window(board.today_business())
     mla_source = build_base_select(f, T.i.item_id)
     if only is not None:
@@ -520,7 +522,11 @@ def product_ids(db: Session, f: PublicationFilter, markup: Optional[MarkupQuery]
         result, _ = markup_accepted(db, f, markup)
     mlas = base.subquery("mlas")
     members = product_pairs(
-        f, mlas, mlas.c.mla, lambda pl: pl.c.producto_item_id.label("product"), T.p.item_id.label("in_catalog")
+        f,
+        mlas,
+        mlas.c.mla,
+        lambda pl: pl.c.producto_item_id.label("product"),
+        T.p.item_id.label("in_catalog"),
     ).subquery("m")
     if markup_on:
         return _product_ids_by_markup(db, members, result, markup)
