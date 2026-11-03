@@ -13,6 +13,7 @@ function ItemPromotions({ itemId, hayMejoresOfertas, promosCacheRef, onPromoAppl
       pullOnOpen={pullOnOpen}
       ignoreGlobalFilter
       hayMejoresOfertas={hayMejoresOfertas}
+      sections
       onApplied={onPromoApplied}
       onPulled={markPromoPulled}
     />
@@ -31,6 +32,9 @@ function ItemPromotions({ itemId, hayMejoresOfertas, promosCacheRef, onPromoAppl
  * (`promoPullTtl`); an apply or remove forgets it (inside `MlaPromocionesPanel`). `MlaPromocionesPanel`
  * itself gates the pull and the apply/remove controls on `promos.ver` /
  * `promos.escribir`.
+ *
+ * The promotions come in sections (S3): Activa ahora, Disponibles para activar (with the markup each would leave),
+ * Otras promociones and, last and quieter, the coupons, read-only with a link to Mercado Libre.
  *
  * `onPromoApplied` fires after an apply or remove, so the panel can re-read
  * the price and markup it shows.

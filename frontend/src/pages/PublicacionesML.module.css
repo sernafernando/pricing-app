@@ -189,3 +189,43 @@
   font-family: monospace;
   font-size: var(--font-xs);
 }
+
+/* ── Table spacing and "Filas finas" ──
+   The kit's TableShell pads every cell 12px on each side; here the columns sit 8px apart so the figures stop
+   floating in empty space. The pinned first cell keeps its own (more specific) left padding: the tree's indent. */
+.tableDensity {
+  min-width: 0;
+}
+
+.tableDensity :global(th),
+.tableDensity :global(td) {
+  padding-right: var(--space-2);
+  padding-left: var(--space-2);
+}
+
+/* "Filas finas" (Sheets-like): thin rows, one line per cell where it fits, smaller sparklines. Only spacing and
+   sizes change: colors stay the theme's tokens. */
+.tableDensity[data-density='dense'] :global(td) {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  line-height: 1.25;
+}
+
+.tableDensity[data-density='dense'] :global(thead th) {
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+
+/* Above `.btn-tesla.outline:hover`, so the pressed look shows right after the click (as on Métricas ML). */
+.headerActions :global(.btn-tesla).densityToggle[aria-pressed='true'] {
+  color: var(--cf-accent-blue);
+  background: var(--cf-accent-blue-light);
+  border-color: var(--cf-accent-blue);
+}
+
+/* The header's buttons stay on one line on narrower screens: the density toggle keeps only its icon there. */
+@media (max-width: 1599px) {
+  .densityLabel {
+    display: none;
+  }
+}

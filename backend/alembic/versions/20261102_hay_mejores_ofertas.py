@@ -1,7 +1,7 @@
 """hay_mejores_ofertas on ml_item_seller_promotions (+ fingerprints, partial index).
 
 Revision ID: 20261102_hay_mejores_ofertas
-Revises: 20261227_sell_in_modos_producto
+Revises: 20261229_publicacion_color
 Create Date: 2026-11-02
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261102_hay_mejores_ofertas"
-down_revision: Union[str, None] = "20261227_sell_in_modos_producto"
+down_revision: Union[str, None] = "20261229_publicacion_color"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

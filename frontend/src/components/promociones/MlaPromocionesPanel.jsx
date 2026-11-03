@@ -5,6 +5,7 @@ import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
 import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import { matchesPromoFilter } from './promoFilterPredicate';
+import { buildMlSellerPromosUrl } from '../../utils/mlSellerPanel';
 import { resolvePromoName } from './resolvePromoName';
 import PromoApplyControl from './PromoApplyControl';
 import { formatRelativeAge, promoDisplayPrice } from './promoDisplayPrice';
@@ -105,6 +106,61 @@ function capitalize(text) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+// ML's seller coupon (captured in backend/tests/fixtures/ml_publications/history_events_MLA1402898289_20261016.json):
+// a buyer's discount code, not a price promotion, and it cannot be applied from here (owner: "en promos hay promos
+// que no son promos sino cupones y no se pueden activar desde ahí").
+const COUPON_TYPE = 'SELLER_COUPON_CAMPAIGN';
+
+// The Publicaciones ML panel's sections (S3), in order; one with nothing in it is left out.
+const SECTIONS = [
+  { key: 'active', title: 'Activa ahora' },
+  { key: 'available', title: 'Disponibles para activar' },
+  { key: 'other', title: 'Otras promociones' },
+  { key: 'coupons', title: 'Cupones' },
+];
+
+/** The section a promotion belongs in: a coupon; the one active now; a candidate this app can apply and has not
+ * scheduled (no `application_status`); else the rest -- programmed, waiting (these keep their Desaplicar), those ML
+ * manages, and any other applicable row (its control still shows: the type decides it, not the section). */
+function sectionOf(promo) {
+  if (promo.promotion_type === COUPON_TYPE) return 'coupons';
+  if (promo.application_status === 'active') return 'active';
+  if (promo.status === 'candidate' && !promo.application_status && APPLICABLE_TYPES.has(promo.promotion_type)) return 'available';
+  return 'other';
+}
+
+/** The promotions by section, each in its `sectionOf`. */
+function groupPromotions(promotions) {
+  const groups = { active: [], available: [], other: [], coupons: [] };
+  for (const promo of promotions) groups[sectionOf(promo)].push(promo);
+  return groups;
+}
+
+/**
+ * A coupon, read-only: its name, dates and -- only when ML's object carries it as captured (`fixed_percentage`) -- its
+ * percentage, with a link to the publication's promotions in Mercado Libre. No price nor markup: a coupon is not a
+ * price this app sets. A row in any other shape shows what it has and nothing guessed.
+ */
+function CouponRow({ promo, mla }) {
+  const percentage = promo.payload?.fixed_percentage;
+  const dateRange = formatDateRange(promo.start_date, promo.finish_date);
+  const url = buildMlSellerPromosUrl(mla);
+  return (
+    <li className={`${styles.promoRow} ${styles.promoReadonly}`}>
+      <span className={styles.promoName}>{resolvePromoName(promo) || promo.promotion_id}</span>
+      {dateRange && <span className={styles.promoDates}>{dateRange}</span>}
+      {typeof percentage === 'number' && (
+        <span className={styles.couponDiscount}>{formatPercentage(percentage)} de descuento</span>
+      )}
+      {url && (
+        <a className={styles.couponLink} href={url} target="_blank" rel="noopener noreferrer">
+          Ver promociones en Mercado Libre
+        </a>
+      )}
+    </li>
+  );
+}
+
 /**
  * Level 2 panel: promotions of a single MLA.
  * `onApplied(result)` (optional) means "the data this write touches may have
@@ -119,6 +175,8 @@ function capitalize(text) {
  * Publicaciones ML side panel): the shared type/name filter belongs to the
  * page whose filter bar sets it, and showing "Sin promos del tipo filtrado"
  * there, with no bar to clear it, would hide promotions with no way out.
+ * `sections` (the same host) splits them into Activa ahora, Disponibles para activar, Otras promociones and, last
+ * and quieter, Cupones (S3); a Productos tree keeps its one list.
  * Lazily fetches `GET /promociones/item/{mla}` on first mount (i.e. on
  * first expand — the parent conditionally mounts this component).
  */
@@ -128,6 +186,7 @@ function MlaPromocionesPanel({
   pullOnOpen = true,
   ignoreGlobalFilter = false,
   hayMejoresOfertas = false,
+  sections = false,
   onApplied,
   onPulled,
 }) {
@@ -500,98 +559,118 @@ function MlaPromocionesPanel({
     );
   }
 
+  // One promotion's row; the list (or each section) maps it.
+  const renderRow = (promo) => {
+    const applicable = APPLICABLE_TYPES.has(promo.promotion_type);
+    const sellerPct = formatPercentage(promo.payload?.seller_percentage);
+    const meliPct = formatPercentage(promo.payload?.meli_percentage);
+    // `price` is 0 for candidate promos (not yet applied); fall back to the
+    // suggested discounted price so the row shows the price it WOULD apply
+    // at, not $0. Shared with PromoApplyControl, which sends this exact
+    // value as `precio_visto` so the backend can refuse a moved offer.
+    const effectivePrice = promoDisplayPrice(promo);
+    const dateRange = formatDateRange(promo.start_date, promo.finish_date);
+    const age = formatRelativeAge(promo.updated_at);
+    const ageIsStale = age && Date.now() - Date.parse(promo.updated_at) > STALE_ROW_MS;
+
+    return (
+      <li
+        key={promo.promotion_id}
+        className={`${styles.promoRow} ${applicable ? styles.promoApplicable : styles.promoReadonly}`}
+      >
+        <span className={`${styles.badge} ${TYPE_BADGE_CLASS[promo.promotion_type] || styles.badgeReadonly}`}>
+          {promo.promotion_type || 'N/A'}
+        </span>
+        {promo.application_status === 'active' && (
+          <span className={`${styles.badge} ${styles.badgeApplied}`}>Aplicada</span>
+        )}
+        {promo.application_status === 'programmed' && (
+          <span className={`${styles.badge} ${styles.badgeProgrammed}`}>Programada</span>
+        )}
+        {promo.application_status === 'pending' && (
+          <span className={`${styles.badge} ${styles.badgePending}`}>En espera</span>
+        )}
+        {promo.escritura_no_aplicada && (
+          <span
+            className={`${styles.badge} ${styles.badgeNotApplied}`}
+            title={`${capitalize(describeRequest(promo.escritura_no_aplicada))}; ML la sigue mostrando como ${
+              ML_STATUS_LABEL[promo.status] || promo.status || 'sin estado'
+            }`}
+          >
+            {promo.escritura_no_aplicada.accion === 'remove' ? 'ML no la quitó' : 'ML no aplicó la promo'}
+          </span>
+        )}
+        <span className={styles.promoName}>
+          {resolvePromoName(promo) || promo.promotion_type || promo.promotion_id}
+        </span>
+        {dateRange && <span className={styles.promoDates}>{dateRange}</span>}
+        <span className={styles.promoPrice}>
+          {formatPrice(effectivePrice)}
+          {promo.original_price != null && promo.original_price !== effectivePrice && (
+            <span className={styles.promoOriginalPrice}> ({formatPrice(promo.original_price)})</span>
+          )}
+        </span>
+        {CO_FUNDED_TYPES.has(promo.promotion_type) && (sellerPct || meliPct) && (
+          <span className={styles.promoSmartCost}>
+            {sellerPct && `Costo vendedor: ${sellerPct}`}
+            {sellerPct && meliPct && ' · '}
+            {meliPct && `Cofinanciación ML: ${meliPct}`}
+          </span>
+        )}
+        <span className={styles.promoMarkup} style={{ color: getMarkupColor(promo.nuestro_markup) }}>
+          Tu markup: {formatMarkup(promo.nuestro_markup)}
+        </span>
+        {age && (
+          <span
+            className={ageIsStale ? styles.promoFreshnessStale : styles.promoFreshness}
+            title="Última vez que el espejo de promociones se actualizó desde MercadoLibre"
+          >
+            actualizado {age}
+          </span>
+        )}
+        {applicable && controlsLockedLabel && (
+          <button type="button" className={styles.applySlot} disabled title={controlsLockedLabel}>
+            {controlsLockedLabel}
+          </button>
+        )}
+        {applicable && !controlsLockedLabel && (
+          <PromoApplyControl
+            mla={mla}
+            promotion={promo}
+            onApplied={(result) => {
+              scheduleMirrorReloads();
+              onAppliedRef.current?.(result);
+            }}
+            onReloadNeeded={scheduleMirrorReloads}
+          />
+        )}
+      </li>
+    );
+  };
+
+  if (!sections) {
+    return (
+      <>
+        {notices}
+        <ul className={styles.promoList}>{filteredPromociones.map(renderRow)}</ul>
+      </>
+    );
+  }
+
+  const groups = groupPromotions(filteredPromociones);
   return (
     <>
       {notices}
-      <ul className={styles.promoList}>
-        {filteredPromociones.map((promo) => {
-          const applicable = APPLICABLE_TYPES.has(promo.promotion_type);
-          const sellerPct = formatPercentage(promo.payload?.seller_percentage);
-          const meliPct = formatPercentage(promo.payload?.meli_percentage);
-          // `price` is 0 for candidate promos (not yet applied); fall back to the
-          // suggested discounted price so the row shows the price it WOULD apply
-          // at, not $0. Shared with PromoApplyControl, which sends this exact
-          // value as `precio_visto` so the backend can refuse a moved offer.
-          const effectivePrice = promoDisplayPrice(promo);
-          const dateRange = formatDateRange(promo.start_date, promo.finish_date);
-          const age = formatRelativeAge(promo.updated_at);
-          const ageIsStale = age && Date.now() - Date.parse(promo.updated_at) > STALE_ROW_MS;
-
-          return (
-            <li
-              key={promo.promotion_id}
-              className={`${styles.promoRow} ${applicable ? styles.promoApplicable : styles.promoReadonly}`}
-            >
-              <span className={`${styles.badge} ${TYPE_BADGE_CLASS[promo.promotion_type] || styles.badgeReadonly}`}>
-                {promo.promotion_type || 'N/A'}
-              </span>
-              {promo.application_status === 'active' && (
-                <span className={`${styles.badge} ${styles.badgeApplied}`}>Aplicada</span>
-              )}
-              {promo.application_status === 'programmed' && (
-                <span className={`${styles.badge} ${styles.badgeProgrammed}`}>Programada</span>
-              )}
-              {promo.application_status === 'pending' && (
-                <span className={`${styles.badge} ${styles.badgePending}`}>En espera</span>
-              )}
-              {promo.escritura_no_aplicada && (
-                <span
-                  className={`${styles.badge} ${styles.badgeNotApplied}`}
-                  title={`${capitalize(describeRequest(promo.escritura_no_aplicada))}; ML la sigue mostrando como ${
-                    ML_STATUS_LABEL[promo.status] || promo.status || 'sin estado'
-                  }`}
-                >
-                  {promo.escritura_no_aplicada.accion === 'remove' ? 'ML no la quitó' : 'ML no aplicó la promo'}
-                </span>
-              )}
-              <span className={styles.promoName}>
-                {resolvePromoName(promo) || promo.promotion_type || promo.promotion_id}
-              </span>
-              {dateRange && <span className={styles.promoDates}>{dateRange}</span>}
-              <span className={styles.promoPrice}>
-                {formatPrice(effectivePrice)}
-                {promo.original_price != null && promo.original_price !== effectivePrice && (
-                  <span className={styles.promoOriginalPrice}> ({formatPrice(promo.original_price)})</span>
-                )}
-              </span>
-              {CO_FUNDED_TYPES.has(promo.promotion_type) && (sellerPct || meliPct) && (
-                <span className={styles.promoSmartCost}>
-                  {sellerPct && `Costo vendedor: ${sellerPct}`}
-                  {sellerPct && meliPct && ' · '}
-                  {meliPct && `Cofinanciación ML: ${meliPct}`}
-                </span>
-              )}
-              <span className={styles.promoMarkup} style={{ color: getMarkupColor(promo.nuestro_markup) }}>
-                Tu markup: {formatMarkup(promo.nuestro_markup)}
-              </span>
-              {age && (
-                <span
-                  className={ageIsStale ? styles.promoFreshnessStale : styles.promoFreshness}
-                  title="Última vez que el espejo de promociones se actualizó desde MercadoLibre"
-                >
-                  actualizado {age}
-                </span>
-              )}
-              {applicable && controlsLockedLabel && (
-                <button type="button" className={styles.applySlot} disabled title={controlsLockedLabel}>
-                  {controlsLockedLabel}
-                </button>
-              )}
-              {applicable && !controlsLockedLabel && (
-                <PromoApplyControl
-                  mla={mla}
-                  promotion={promo}
-                  onApplied={(result) => {
-                    scheduleMirrorReloads();
-                    onAppliedRef.current?.(result);
-                  }}
-                  onReloadNeeded={scheduleMirrorReloads}
-                />
-              )}
-            </li>
-          );
-          })}
-      </ul>
+      {SECTIONS.map(({ key, title }) =>
+        groups[key].length === 0 ? null : (
+          <section key={key} className={key === 'coupons' ? styles.couponSection : styles.promoSection} aria-label={title}>
+            <h4 className={styles.sectionTitle}>{title}</h4>
+            <ul className={styles.promoList}>
+              {key === 'coupons' ? groups[key].map((promo) => <CouponRow key={promo.promotion_id} promo={promo} mla={mla} />) : groups[key].map(renderRow)}
+            </ul>
+          </section>
+        ),
+      )}
     </>
   );
 }

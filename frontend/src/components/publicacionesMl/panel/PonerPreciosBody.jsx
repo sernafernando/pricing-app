@@ -104,7 +104,13 @@ export default function PonerPreciosBody({
       onWritten?.();
       onLeavePub?.();
     } catch (err) {
-      setMessage({ tone: 'error', text: errorText(err, 'No se pudo activar la promoción.') });
+      setMessage({
+        tone: 'error',
+        text: errorText(
+          err,
+          'El precio ya está guardado en Pricing, pero no se pudo activar la promoción.',
+        ),
+      });
       setEnrolling(false);
     }
   };

@@ -39,6 +39,9 @@ class TipoAccion(str, enum.Enum):
     SELL_IN_BONO_EDITADO = "sell_in_bono_editado"
     SELL_IN_BONO_ANULADO = "sell_in_bono_anulado"
     SELL_IN_COMPRA_BONO_ACTUALIZADA = "sell_in_compra_bono_actualizada"
+    # cost mode: one row per mode row saved (`item_id` is the product; the row, its date and what the preview showed
+    # travel in the values).
+    SELL_IN_MODO_CREADO = "sell_in_modo_creado"
     # sell out: one row per campaign load, edit or void (`item_id` is NULL, `campana_id` travels in the values).
     SELL_OUT_CAMPANA_CREADA = "sell_out_campana_creada"
     SELL_OUT_CAMPANA_EDITADA = "sell_out_campana_editada"

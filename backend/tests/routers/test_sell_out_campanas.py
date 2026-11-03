@@ -76,7 +76,7 @@ ESCRITURAS = [
     ("post", f"{BASE}/anular"),
     ("post", f"{BASE}/1/tipo-cambio"),
 ]
-LECTURAS = [("get", BASE), ("get", f"{BASE}/1"), ("get", f"{BASE}/1/consumos")]
+LECTURAS = [("get", BASE), ("get", f"{BASE}/por-programa"), ("get", f"{BASE}/1"), ("get", f"{BASE}/1/consumos")]
 
 
 @pytest.mark.parametrize("method,url", ESCRITURAS + LECTURAS)
@@ -341,6 +341,106 @@ def test_list_and_detail_carry_the_program_of_each_campaign(client, gestor, grup
         "id": epson.id,
         "nombre": "MARCA PROG",
     }
+
+
+def test_list_filters_by_program_or_without_one_and_both_is_a_422(client, gestor, grupos, db, admin_user) -> None:
+    """Slice E: `programa_id` keeps one program's campaigns, `sin_programa` the ones with none, and-ed with the
+    other filters; asking for both is a 422."""
+    marca = _programa(db, admin_user, "MARCA PROG")
+    otro = _programa(db, admin_user, "Otro")
+    a = _crear(client, gestor, grupos, nombre="MARCA PROG 3.0")
+    b = _crear(client, gestor, grupos, nombre="MARCA PROGRAM1", fecha_desde="2026-12-01", fecha_hasta="2026-12-31")
+    c = _crear(client, gestor, grupos, nombre="MODELO 8180")
+    d = _crear(client, gestor, grupos, nombre="Otra cosa")
+    for campana, programa in ((a, marca), (b, marca), (d, otro)):
+        db.get(SellOutCampana, campana["id"]).programa_id = programa.id
+    db.flush()
+
+    def ids(**params) -> list[int]:
+        resp = client.get(BASE, params=params, headers=gestor)
+        assert resp.status_code == 200, resp.text
+        return [x["id"] for x in resp.json()["items"]]
+
+    assert ids(programa_id=marca.id) == [b["id"], a["id"]]
+    assert ids(programa_id=marca.id, q="3.0") == [a["id"]]
+    assert ids(sin_programa=True) == [c["id"]]
+    assert ids(sin_programa=True, q="Otra") == []
+    assert ids(sin_programa=False) == [b["id"], d["id"], c["id"], a["id"]]
+    resp = client.get(BASE, params={"programa_id": marca.id, "sin_programa": True}, headers=gestor)
+    assert resp.status_code == 422
+    assert _message(resp) == "Elegí un programa o «Sin programa», no los dos."
+
+
+POR_PROGRAMA = f"{BASE}/por-programa"
+
+
+def test_por_programa_groups_the_filtered_campaigns_and_hides_empty_programs(
+    client, gestor, grupos, db, admin_user
+) -> None:
+    """Slice E: the grouped view's rows. Each program with campaigns under the filters, by name, with how many,
+    how many are active, how many distinct names (ignoring case and spaces) and their date span; a program with
+    none under the filters is left out; the campaigns without a program come apart in `sin_programa`."""
+    marca = _programa(db, admin_user, "MARCA PROG")
+    modelos = _programa(db, admin_user, "Modelos SP")
+    _programa(db, admin_user, "aaa vacío")
+    a = _crear(client, gestor, grupos, nombre="MARCA PROG 3.0", fecha_desde="2026-08-01", fecha_hasta="2026-10-31")
+    b = _crear(client, gestor, grupos, nombre="marca  prog 3.0", fecha_desde="2026-08-01", fecha_hasta="2026-10-31")
+    c = _crear(client, gestor, grupos, nombre="MARCA PROGRAM1", fecha_desde="2026-09-01", fecha_hasta="2026-11-30")
+    m = _crear(client, gestor, grupos, nombre="M20 / M80 SP", moneda="ARS")
+    _crear(client, gestor, grupos, nombre="MODELO 8180")
+    client.post(f"{BASE}/{c['id']}/anular", json={}, headers=gestor)
+    for campana, programa in ((a, marca), (b, marca), (c, marca), (m, modelos)):
+        db.get(SellOutCampana, campana["id"]).programa_id = programa.id
+    db.flush()
+
+    resp = client.get(POR_PROGRAMA, headers=gestor)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "items": [
+            {
+                "programa_id": marca.id,
+                "nombre": "MARCA PROG",
+                "campanas": 3,
+                "activas": 2,
+                "nombres": 2,
+                "desde": "2026-08-01",
+                "hasta": "2026-11-30",
+            },
+            {
+                "programa_id": modelos.id,
+                "nombre": "Modelos SP",
+                "campanas": 1,
+                "activas": 1,
+                "nombres": 1,
+                "desde": "2026-11-01",
+                "hasta": "2026-11-30",
+            },
+        ],
+        "total": 2,
+        "page": 1,
+        "page_size": 50,
+        "sin_programa": {
+            "programa_id": None,
+            "nombre": None,
+            "campanas": 1,
+            "activas": 1,
+            "nombres": 1,
+            "desde": "2026-11-01",
+            "hasta": "2026-11-30",
+        },
+    }
+
+    ars = client.get(POR_PROGRAMA, params={"moneda": "ARS"}, headers=gestor).json()
+    assert ([g["nombre"] for g in ars["items"]], ars["total"], ars["sin_programa"]) == (["Modelos SP"], 1, None)
+    activas = client.get(POR_PROGRAMA, params={"estado": "activa"}, headers=gestor).json()["items"][0]
+    assert (activas["campanas"], activas["nombres"], activas["hasta"]) == (2, 1, "2026-10-31")
+    pagina = client.get(POR_PROGRAMA, params={"page": 2, "page_size": 1}, headers=gestor).json()
+    assert ([g["nombre"] for g in pagina["items"]], pagina["total"]) == (["Modelos SP"], 2)
+    assert client.get(POR_PROGRAMA, params={"programa_id": 1, "sin_programa": True}, headers=gestor).status_code == 422
+    assert (
+        client.get(POR_PROGRAMA, params={"desde": "2026-12-31", "hasta": "2026-12-01"}, headers=gestor).status_code
+        == 422
+    )
 
 
 def test_editing_a_campaign_keeps_its_program(client, gestor, grupos, db, admin_user) -> None:
@@ -661,6 +761,29 @@ def test_a_campaign_being_recalculated_is_a_409_with_a_neutral_message_and_nothi
     assert _message(resp) == "La campaña se está recalculando. Reintentar en unos segundos."
     actual = client.get(f"{BASE}/{out['id']}", headers=gestor).json()
     assert (actual["nombre"], actual["estado"], actual["tipo_cambio"]) == (out["nombre"], "activa", None)
+
+
+def test_a_deadlock_on_a_single_edit_is_the_busy_409_and_nothing_changes(client, gestor, grupos, monkeypatch) -> None:
+    """Postgres breaks a lock cycle with a bulk edit or a preview (40P01): a retry, never a 500."""
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.sell_out import campanas as service
+
+    out = _crear(client, gestor, grupos)
+
+    class _Deadlock(Exception):
+        pgcode = "40P01"
+
+    def _en_deadlock(db, campana_ids) -> None:
+        raise DBAPIError("INSERT INTO sell_out_dirty ...", {}, _Deadlock())
+
+    monkeypatch.setattr(service, "_encolar", _en_deadlock)
+
+    resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, nombre="Otra"), headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    assert _message(resp) == "Otra operación está modificando la campaña en este momento. Reintentar en unos segundos."
+    assert client.get(f"{BASE}/{out['id']}", headers=gestor).json()["nombre"] == out["nombre"]
 
 
 # ── Bulk void (`POST /anular`) ──────────────────────────────────────

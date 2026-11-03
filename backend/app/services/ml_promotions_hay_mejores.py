@@ -47,8 +47,16 @@ def es_mejor_oferta(
     return candidate_price < baseline_price and candidate_markup >= baseline_markup
 
 
+def _format_fingerprint_price(price: float) -> str:
+    """Fixed-point price token — never ``:g`` (collapses ≥1e6 to 6 sig digits)."""
+    text = format(float(price), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
 def fingerprint_mejores(mejores: Sequence[MejorTuple]) -> str:
-    parts = [f"{key}:{price:g}" for key, price in sorted(mejores, key=lambda row: row[0])]
+    parts = [f"{key}:{_format_fingerprint_price(price)}" for key, price in sorted(mejores, key=lambda row: row[0])]
     return "|".join(parts)
 
 
@@ -116,26 +124,31 @@ def actualizar_hay_mejores_ofertas(
     *,
     raw_promotions: Any = None,
 ) -> Optional[FlagDecision]:
-    """Persist flag from sale_price vs candidates. Never raises."""
+    """Persist flag from sale_price vs candidates. Never raises.
+
+    Runs in a SAVEPOINT so a failure only skips the flag and never poisons the
+    outer promotions-sync transaction.
+    """
     try:
-        row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
-        if row is None:
-            return None
-        sale = db.query(MlItemSalePrice).filter(MlItemSalePrice.item_id == item_id).one_or_none()
-        baseline = float(sale.amount) if sale is not None and sale.amount is not None else None
-        raw = raw_promotions if raw_promotions is not None else row.raw
-        candidates = _candidate_entries(raw)
-        if baseline is None or baseline <= 0 or not candidates:
-            decision = decidir_flag_hay_mejores(mejores=[], descartado_fingerprint=None)
-        else:
-            decision = decidir_flag_hay_mejores(
-                mejores=listar_mejores_candidatas(db, item_id, candidates, baseline),
-                descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
-            )
-        row.hay_mejores_ofertas = decision.hay_mejores
-        row.hay_mejores_fingerprint = decision.fingerprint
-        row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
-        return decision
+        with db.begin_nested():
+            row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
+            if row is None:
+                return None
+            sale = db.query(MlItemSalePrice).filter(MlItemSalePrice.item_id == item_id).one_or_none()
+            baseline = float(sale.amount) if sale is not None and sale.amount is not None else None
+            raw = raw_promotions if raw_promotions is not None else row.raw
+            candidates = _candidate_entries(raw)
+            if baseline is None or baseline <= 0 or not candidates:
+                decision = decidir_flag_hay_mejores(mejores=[], descartado_fingerprint=None)
+            else:
+                decision = decidir_flag_hay_mejores(
+                    mejores=listar_mejores_candidatas(db, item_id, candidates, baseline),
+                    descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
+                )
+            row.hay_mejores_ofertas = decision.hay_mejores
+            row.hay_mejores_fingerprint = decision.fingerprint
+            row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
+            return decision
     except Exception as exc:
         logger.warning("hay_mejores: failed for %s: %s", item_id, exc)
         return None

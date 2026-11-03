@@ -15,12 +15,15 @@ export default function PriceCell({ price }) {
   const hasRegular = price.regular_amount != null && Number(price.regular_amount) !== Number(price.amount);
   const promotion = [price.promotion_type, price.campaign].filter(Boolean).join(' · ');
   const listLabel = publicationListLabel(price);
+  // "Filas finas" hides the struck price and the promotion text: both stay in this tooltip. The "precio de Productos"
+  // badge stays visible under the price.
+  const detail = [hasRegular && `Antes ${formatAmount(price.regular_amount)}`, promotion].filter(Boolean).join(' · ');
   return (
-    <div className={`${styles.stack} ${styles.stackEnd}`}>
+    <div className={`${styles.stack} ${styles.stackEnd}`} title={detail || undefined}>
       <span className={styles.amount}>{formatAmount(price.amount)}</span>
       {listLabel && <span className={styles.note}>{listLabel}</span>}
-      {hasRegular && <span className={styles.regular}>{formatAmount(price.regular_amount)}</span>}
-      {promotion && <span className={styles.note}>{promotion}</span>}
+      {hasRegular && <span className={styles.regular} data-dense-hidden>{formatAmount(price.regular_amount)}</span>}
+      {promotion && <span className={styles.note} data-dense-hidden>{promotion}</span>}
       {price.source === 'productos_fallback' && (
         <span className={styles.badge} title="ML no informó precio: se muestra el de Productos">
           precio de Productos

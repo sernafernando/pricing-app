@@ -43,7 +43,7 @@ vi.mock('../services/api', () => ({
   // The publication panel opens on Promos (owner, 2026-11-02): its promotions never answer here, these tests are
   // about the panel's opening and closing.
   promocionesAPI: { getPromocionesItem: vi.fn(() => new Promise(() => {})), refreshItemPromociones: vi.fn(() => new Promise(() => {})) },
-  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn() },
+  publicacionesMlAPI: { items: vi.fn(), products: vi.fn(), variations: vi.fn(), groups: vi.fn(), detail: vi.fn(), enqueue: vi.fn(), kpis: vi.fn(), productIds: vi.fn(), stats: vi.fn(), statusItemIds: vi.fn(), statusItemIdsChecked: vi.fn(), statusBulk: vi.fn(), paintColors: vi.fn() },
   productosAPI: {
     // The product panel's publication tree (Productos' `ProductoMLAsPanel`): the product's publication.
     getProductoTree: vi.fn(() =>
@@ -95,11 +95,13 @@ vi.mock('../components/EquiposModal', () => ({
     ) : null,
 }));
 
-// The color events (`producto_color:changed`) are pushed by each test through the captured listener.
-const sse = { listener: null };
+// The color events (`producto_color:changed`, and a publication's own `publicacion_color:changed`) are pushed by
+// each test through the captured listeners.
+const sse = { listener: null, own: null };
 vi.mock('../hooks/useSSEChannel', () => ({
   useSSEChannel: (channel, callback) => {
     if (channel === 'producto_color:changed') sse.listener = callback;
+    if (channel === 'publicacion_color:changed') sse.own = callback;
   },
 }));
 
@@ -1680,6 +1682,22 @@ describe('bulk actions over products (S6)', () => {
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 2 publicaciones marcadas)' })).toBeEnabled();
   });
 
+  it('pausing with one publication checked sends that publication only, not the other one of its product (S2)', async () => {
+    SAME_PRODUCT();
+    publicacionesMlAPI.statusItemIdsChecked.mockResolvedValue({ data: { item_ids: ['MLA1100000001'], count: 1, no_aplican: 0 } });
+    publicacionesMlAPI.statusBulk.mockResolvedValue({ data: { results: [{ item_id: 'MLA1100000001', status: 'submitted', message: null }] } });
+    await page();
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000001'));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    await user.click(await screen.findByRole('button', { name: 'Confirmar' }));
+    await waitFor(() => expect(publicacionesMlAPI.statusBulk).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusItemIdsChecked).toHaveBeenCalledWith({ target: 'paused', item_ids: ['MLA1100000001'], producto_ids: [] });
+    expect(publicacionesMlAPI.statusItemIds).not.toHaveBeenCalled();
+    expect(publicacionesMlAPI.statusBulk.mock.calls).toEqual([[{ status: 'paused', item_ids: ['MLA1100000001'] }]]);
+  });
+
   it('a publication with no product can be checked; the price actions say it has none and can clear it', async () => {
     SAME_PRODUCT();
     await page();
@@ -1706,7 +1724,59 @@ describe('bulk actions over products (S6)', () => {
     await user.click(await screen.findByRole('button', { name: /Abrir Router Z/ }));
     await user.click(await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' }));
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 1 publicación marcada)' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Pintar 1 producto' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pintar 1 publicación' })).toBeInTheDocument(); // paint is per row (S3)
+  });
+
+  it('a filter that hides the checked row keeps exactly it and does not fall back to the filter', async () => {
+    SAME_PRODUCT();
+    publicacionesMlAPI.statusItemIdsChecked.mockResolvedValue({ data: { item_ids: ['MLA1100000001'], count: 1, no_aplican: 0 } });
+    publicacionesMlAPI.statusBulk.mockResolvedValue({ data: { results: [{ item_id: 'MLA1100000001', status: 'submitted', message: null }] } });
+    await page();
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000001'));
+    respond({ ...ITEMS_RESPONSE, items: [ITEMS[1]], total: 1 });
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await user.click(within(estado).getByRole('button', { name: /Activas/ }));
+    await waitFor(() => expect(lastParams().estado).toBe('active'));
+    await waitFor(() => expect(screen.queryByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' })).toBeNull());
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    await user.click(await screen.findByRole('button', { name: 'Confirmar' }));
+    await waitFor(() => expect(publicacionesMlAPI.statusBulk).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusItemIdsChecked.mock.calls).toEqual([[{ target: 'paused', item_ids: ['MLA1100000001'], producto_ids: [] }]]);
+    expect(publicacionesMlAPI.statusItemIds).not.toHaveBeenCalled();
+    expect(publicacionesMlAPI.statusBulk.mock.calls).toEqual([[{ status: 'paused', item_ids: ['MLA1100000001'] }]]);
+  });
+
+  it('unchecking everything goes back to the filter label and the GET, never a POST with nothing', async () => {
+    SAME_PRODUCT();
+    publicacionesMlAPI.statusItemIds.mockResolvedValue({ data: { item_ids: [], count: 0, no_aplican: 0 } });
+    await page();
+    const user = userEvent.setup();
+    await user.click(pick('MLA1100000001'));
+    await user.click(pick('MLA1100000001'));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar las del filtro' }));
+    await waitFor(() => expect(publicacionesMlAPI.statusItemIds).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusItemIdsChecked).not.toHaveBeenCalled();
+    expect(publicacionesMlAPI.statusBulk).not.toHaveBeenCalled();
+  });
+
+  it('a publication checked in the Agrupado tree is sent alone, without its product', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.statusItemIdsChecked.mockResolvedValue({ data: { item_ids: [], count: 0, no_aplican: 1 } });
+    publicacionesMlAPI.groups.mockResolvedValue({
+      data: groupsResponse('producto', [
+        { kind: 'producto', key: '9', label: 'Router Z', count: 1, leaf: true, params: { producto: '9' } },
+      ]),
+    });
+    renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones?vista=agrupado'] });
+    await user.click(await screen.findByRole('button', { name: /Abrir Router Z/ }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' }));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    await waitFor(() => expect(publicacionesMlAPI.statusItemIdsChecked).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusItemIdsChecked.mock.calls).toEqual([[{ target: 'paused', item_ids: ['MLA1100000001'], producto_ids: [] }]]);
   });
 
   // S12d: as in Productos, the selection outlives the list it was picked from.
@@ -1778,11 +1848,69 @@ describe('bulk actions over products (S6)', () => {
     await screen.findByText('Router Archer AX55');
   };
 
+  it('in the Producto view a digit on the "Sin producto" row paints nothing and says how to paint those (S3)', async () => {
+    publicacionesMlAPI.paintColors.mockClear();
+    api.patch.mockClear();
+    const user = userEvent.setup();
+    await productView();
+    pickProduct('Sin producto').closest('tr').focus();
+    await user.keyboard('1');
+    expect(await screen.findByText('Las publicaciones sin producto se pintan de a una: abrí la fila')).toBeInTheDocument();
+    expect(publicacionesMlAPI.paintColors).not.toHaveBeenCalled();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('in the Producto view a digit on a product row paints its product, not its publications (S4)', async () => {
+    publicacionesMlAPI.paintColors.mockClear();
+    api.patch.mockClear();
+    api.patch.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    await productView();
+    pickProduct('Router Archer AX55').closest('tr').focus();
+    await user.keyboard('1');
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/productos/4101/color', { color: 'rojo' }, { params: {} }));
+    expect(publicacionesMlAPI.paintColors).not.toHaveBeenCalled();
+  });
+
+  it('in the Producto view a digit on an open product\'s "Ver más" row paints nothing', async () => {
+    publicacionesMlAPI.paintColors.mockClear();
+    api.patch.mockClear();
+    const user = userEvent.setup();
+    await productView();
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    (await screen.findByRole('button', { name: /^Ver más/ })).closest('tr').focus();
+    await user.keyboard('1');
+    expect(publicacionesMlAPI.paintColors).not.toHaveBeenCalled();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('in the Producto view a publication of an open product repaints when someone paints it on its own (S3)', async () => {
+    const user = userEvent.setup();
+    await productView();
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    const row = () => pick('MLA1100000001').closest('tr');
+    await waitFor(() => expect(row()).not.toHaveAttribute('data-tone'));
+    act(() => sse.own({ data: { is_global: true, equipo_id: 1, item_ids: ['MLA1100000001'], color: 'rojo' } }));
+    expect(row()).toHaveAttribute('data-tone');
+    expect(pick('MLA1100000002').closest('tr')).not.toHaveAttribute('data-tone');
+  });
+
   it('in the Producto view a product row checks the product; "Sin producto" cannot be checked (S4)', async () => {
     await productView();
     await userEvent.click(pickProduct('Router Archer AX55'));
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto seleccionado)' })).toBeEnabled();
     expect(pickProduct('Sin producto')).toBeDisabled();
+  });
+
+  it('in the Producto view pausing a checked product row sends its product, no publication of it (S2, S4)', async () => {
+    const user = userEvent.setup();
+    await productView();
+    await user.click(pickProduct('Router Archer AX55'));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar las de 1 fila marcada' }));
+    await screen.findByRole('region', { name: 'Pausar o activar publicaciones' });
+    const [body] = publicacionesMlAPI.statusItemIdsChecked.mock.calls.at(-1);
+    expect(body).toEqual({ target: 'paused', item_ids: [], producto_ids: [4101] });
   });
 
   it('in the Producto view a publication inside an expanded product checks only itself (S4)', async () => {
@@ -1797,6 +1925,18 @@ describe('bulk actions over products (S6)', () => {
     await user.click(pickProduct('Router Archer AX55'));
     expect(pick('MLA1100000001')).toBeChecked();
     expect(await screen.findByRole('button', { name: 'Acciones masivas (1 producto de 2 filas marcadas)' })).toBeEnabled();
+  });
+
+  it('partly checked product: only the checked child is sent, no product id', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.statusItemIdsChecked.mockResolvedValue({ data: { item_ids: [], count: 0, no_aplican: 1 } });
+    await productView();
+    await user.click(screen.getByRole('button', { name: /Abrir Router Archer AX55/ }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Seleccionar la publicación MLA1100000001' }));
+    await user.click(screen.getByRole('button', { name: 'Pausar / activar' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pausar la marcada' }));
+    await waitFor(() => expect(publicacionesMlAPI.statusItemIdsChecked).toHaveBeenCalled());
+    expect(publicacionesMlAPI.statusItemIdsChecked.mock.calls).toEqual([[{ target: 'paused', item_ids: ['MLA1100000001'], producto_ids: [] }]]);
   });
 
   it('in the Producto view Shift+Down over an open product and its "more" row checks only real rows', async () => {
@@ -2474,16 +2614,29 @@ describe('painting colors (S8)', () => {
     expect(firstRow()).toHaveAttribute('data-tone');
   });
 
-  it('paints the checked products from the list, without asking the list again', async () => {
+  it('paints the checked publication alone, never its product, without asking the list again (S3)', async () => {
+    publicacionesMlAPI.paintColors.mockResolvedValue({ data: { count: 1, color: 'verde' } });
+    api.post.mockClear();
     await page();
     const asked = publicacionesMlAPI.items.mock.calls.length;
     await userEvent.click(within(firstRow()).getByRole('checkbox', { name: /Seleccionar la publicación/ }));
-    await userEvent.click(screen.getByRole('button', { name: 'Pintar 1 producto' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Pintar 1 publicación' }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'OK' }));
     await waitFor(() => expect(firstRow()).toHaveAttribute('data-tone'));
-    expect(api.post).toHaveBeenCalledWith('/productos/actualizar-color-lote', { item_ids: [4101], color: 'verde' });
+    expect(publicacionesMlAPI.paintColors).toHaveBeenCalledWith({ item_ids: ['MLA1100000001'], color: 'verde' });
+    expect(api.post).not.toHaveBeenCalledWith('/productos/actualizar-color-lote', expect.anything());
     expect(publicacionesMlAPI.items.mock.calls.length).toBe(asked);
     expect(screen.queryByRole('button', { name: /Pintar/ })).not.toBeInTheDocument();
+  });
+
+  it('repaints only the publication someone paints on its own, by MLA, never the rest of its product (S3)', async () => {
+    // MLA1100000009 is a second publication of MLA1100000001's product.
+    respond({ ...ITEMS_RESPONSE, items: [ITEMS[0], { ...ITEMS[0], item_id: 'MLA1100000009' }], total: 2 });
+    await page();
+    const second = () => screen.getByText('MLA1100000009').closest('tr');
+    act(() => sse.own({ data: { is_global: true, equipo_id: 1, item_ids: ['MLA1100000001'], color: 'rojo' } }));
+    expect(firstRow()).toHaveAttribute('data-tone');
+    expect(second()).not.toHaveAttribute('data-tone');
   });
 });
 
@@ -2661,24 +2814,39 @@ describe('keyboard export', () => {
 describe('painting from the keyboard (S8)', () => {
   const firstRow = () => screen.getByText('MLA1100000001').closest('tr');
 
-  it("a digit paints the focused publication's product on the layer on show, as Productos' quick colors", async () => {
+  it('a digit paints the focused publication alone on the layer on show, never its product (S3)', async () => {
+    publicacionesMlAPI.paintColors.mockResolvedValue({ data: { count: 1, color: 'verde' } });
+    api.patch.mockClear();
     const user = userEvent.setup();
     await page('/ml-publicaciones?equipo=12');
     await screen.findByRole('option', { name: 'Ventas' });
     firstRow().focus();
     await user.keyboard('4');
     await waitFor(() => expect(firstRow()).toHaveAttribute('data-tone'));
-    expect(api.patch).toHaveBeenCalledWith('/productos/4101/color', { color: 'verde' }, { params: { equipo_id: 12 } });
+    expect(publicacionesMlAPI.paintColors).toHaveBeenCalledWith({ item_ids: ['MLA1100000001'], color: 'verde', equipo_id: 12 });
+    expect(api.patch).not.toHaveBeenCalled();
   });
 
-  it('says so for a publication with no product, and paints nothing', async () => {
+  it('0 takes the focused publication\'s own color off, so it shows its product\'s again (S3)', async () => {
+    publicacionesMlAPI.paintColors.mockResolvedValue({ data: { count: 1, color: null } });
+    // Painted azul on its own; its product is rojo.
+    respond({ ...ITEMS_RESPONSE, items: [{ ...ITEMS[0], color_marcado: 'azul', color_propio: 'azul', color_producto: 'rojo' }], total: 1 });
     const user = userEvent.setup();
-    api.patch.mockClear();
+    await page();
+    expect(firstRow()).toHaveAttribute('title', 'Color: Info');
+    firstRow().focus();
+    await user.keyboard('0');
+    await waitFor(() => expect(publicacionesMlAPI.paintColors).toHaveBeenCalledWith({ item_ids: ['MLA1100000001'], color: null }));
+    await waitFor(() => expect(firstRow()).toHaveAttribute('title', 'Color: Urgente'));
+  });
+
+  it('paints a publication with no product too: its color is its own', async () => {
+    publicacionesMlAPI.paintColors.mockResolvedValue({ data: { count: 1, color: 'rojo' } });
+    const user = userEvent.setup();
     await page();
     screen.getByText('MLA1100000003').closest('tr').focus();
     await user.keyboard('1');
-    expect(await screen.findByText('La publicación no tiene producto vinculado')).toBeInTheDocument();
-    expect(api.patch).not.toHaveBeenCalled();
+    await waitFor(() => expect(publicacionesMlAPI.paintColors).toHaveBeenCalledWith({ item_ids: ['MLA1100000003'], color: 'rojo' }));
   });
 
   it('F7 / F6 step through Global and the teams, and say which layer is on', async () => {
@@ -2877,5 +3045,34 @@ describe("the panels' Precios tab: one table, a row per plan (S2)", () => {
     const table = await plans('Detalle del producto');
     expect(within(table).getByText('$ 12.345,50')).toBeInTheDocument();
     expect(within(panel).getByRole('button', { name: 'Calcular el precio de Router Archer AX55' })).toBeInTheDocument();
+  });
+});
+
+describe('"Filas finas" (vistas-tipo-publicacion S5)', () => {
+  const KEY = 'publicaciones-ml.filas-finas';
+  const densityOf = () => screen.getByText('MLA1100000001').closest('[data-density]').dataset.density;
+  beforeEach(() => localStorage.removeItem(KEY));
+  afterEach(() => localStorage.removeItem(KEY));
+
+  it('starts off, and turning it on presses the toggle and makes the table dense', async () => {
+    await page();
+    const toggle = screen.getByRole('button', { name: 'Filas finas' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(densityOf()).toBe('normal');
+
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(densityOf()).toBe('dense');
+  });
+
+  it('keeps the choice after a reload', async () => {
+    const first = renderWithRouter(<PublicacionesML />, { initialEntries: ['/ml-publicaciones'] });
+    await screen.findByText('MLA1100000001');
+    await userEvent.click(screen.getByRole('button', { name: 'Filas finas' }));
+    first.unmount();
+
+    await page();
+    expect(screen.getByRole('button', { name: 'Filas finas' })).toHaveAttribute('aria-pressed', 'true');
+    expect(densityOf()).toBe('dense');
   });
 });

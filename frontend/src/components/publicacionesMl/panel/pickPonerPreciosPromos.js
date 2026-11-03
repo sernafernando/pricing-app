@@ -22,15 +22,13 @@ function markupOf(promo) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/** Best candidate by `nuestro_markup`. Skips null/non-finite markups (no arbitrary first pick). */
 export function bestByMarkup(promos) {
   let best = null;
   let bestMarkup = -Infinity;
   for (const promo of promos) {
     const markup = markupOf(promo);
-    if (markup == null) {
-      if (best == null) best = promo;
-      continue;
-    }
+    if (markup == null) continue;
     if (markup > bestMarkup) {
       best = promo;
       bestMarkup = markup;

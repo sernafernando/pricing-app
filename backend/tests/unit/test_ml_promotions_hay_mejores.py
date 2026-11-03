@@ -64,6 +64,13 @@ class TestFingerprintAndDecide:
         assert a == b
         assert a == "A:90.5|B:100"
 
+    def test_fingerprint_distinguishes_million_peso_prices(self) -> None:
+        low = fingerprint_mejores([("C-1", 1_234_567.0)])
+        high = fingerprint_mejores([("C-1", 1_234_568.0)])
+        assert low != high
+        assert low == "C-1:1234567"
+        assert high == "C-1:1234568"
+
     def test_decide_sets_flag_when_better_and_not_discarded(self) -> None:
         decision = decidir_flag_hay_mejores(
             mejores=[("C-1", 900.0)],

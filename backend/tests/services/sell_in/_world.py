@@ -18,6 +18,7 @@ import itertools
 from contextlib import contextmanager
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
+from time import monotonic, sleep
 from typing import Iterator, List, Optional, Tuple
 
 from sqlalchemy import Engine, text
@@ -89,7 +90,9 @@ def clean(engine: Engine) -> None:
     with engine.begin() as conn:
         for table in ("ml_order_items_ops", "ventas_fuera_ml_metricas", "ventas_tienda_nube_metricas", "auditoria"):
             conn.execute(text(f"DELETE FROM {table}"))  # ml_sale_lines go with their items
-        conn.execute(text("DELETE FROM sell_in_compras"))  # cascades to items and consumptions
+        conn.execute(text("DELETE FROM sell_in_consumos"))  # a manual block's go with neither purchase nor line
+        conn.execute(text("DELETE FROM sell_in_modos_producto"))
+        conn.execute(text("DELETE FROM sell_in_compras"))  # cascades to items
         conn.execute(text("DELETE FROM sell_dirty"))
 
 
@@ -132,6 +135,25 @@ def compra(
             ).scalar()
             for item, cantidad, monto in lineas
         ]
+
+
+def modo(engine: Engine, item_id: int, modo: str, desde: date, **manual) -> int:
+    """A cost-mode row of `item_id` from `desde` on (a manual one takes `cantidad`, `costo_unit`, `costo_base_unit`)."""
+    with engine.begin() as conn:
+        return conn.execute(
+            text(
+                "INSERT INTO sell_in_modos_producto (item_id, modo, desde, cantidad, costo_unit, costo_base_unit, "
+                "usuario_id) VALUES (:i, :m, :d, :q, :c, :b, 7) RETURNING id"
+            ),
+            {
+                "i": item_id,
+                "m": modo,
+                "d": desde,
+                "q": manual.get("cantidad"),
+                "c": manual.get("costo_unit"),
+                "b": manual.get("costo_base_unit"),
+            },
+        ).scalar()
 
 
 def venta(
@@ -220,3 +242,19 @@ def consumo_ids(engine: Engine) -> List[int]:
 def queued(engine: Engine) -> List[Tuple[str, int]]:
     with engine.connect() as conn:
         return [tuple(r) for r in conn.execute(text("SELECT canal, venta_ref FROM sell_dirty ORDER BY 1, 2"))]
+
+
+def esperar_bloqueado_por(engine: Engine, pid: int) -> None:
+    """Until another session waits on a lock the backend `pid` holds, so a concurrency test never orders its two
+    waits by timing. Each poll ends its transaction: pg_stat_activity is a snapshot cached for the whole transaction,
+    so a waiter whose backend starts after the first poll would never be seen."""
+    limite = monotonic() + 20
+    consulta = text("SELECT count(*) FROM pg_stat_activity WHERE :pid = ANY(pg_blocking_pids(pid))")
+    with engine.connect() as conn:
+        while True:
+            esperando = conn.execute(consulta, {"pid": pid}).scalar()
+            conn.rollback()
+            if esperando:
+                return
+            assert monotonic() < limite, f"nothing ever waited on backend {pid}"
+            sleep(0.05)

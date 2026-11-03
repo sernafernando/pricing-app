@@ -466,16 +466,17 @@ export function buildKpiParams(filters, periodo) {
     buildItemsParams(filters, 1, { canSeeMargin: false }),
   );
   void orden, dir, limit, offset;
-  // The Producto view's rows ask mejor oferta of the product (any of its publications); its strip asks it the same
-  // way, so the strip counts the publications the rows hold.
+  // The Producto view's rows ask mejor oferta of the product (any of its publications) and the color of the product
+  // (never a publication's own); its strip asks them the same way, so the strip counts the publications the rows hold.
   if (filters.vista === 'producto' && filters.oferta) params.oferta_por_producto = true;
+  if (filters.vista === 'producto' && params.colores) params.color_por_producto = true;
   return { ...params, periodo };
 }
 
 /**
  * The `GET /ml-publications/view/product-ids` query: the products a bulk pricing action acts on are the linked
  * products of the publications these filters select, asked exactly as the KPI strip asks its publications (the
- * list's filters, mejor oferta of the product in the Producto view), with no sort nor paging. The markup filters are
+ * list's filters, mejor oferta and color of the product in the Producto view), with no sort nor paging. The markup filters are
  * left to the caller: `BulkActions` adds them exactly as `/items` gets them, only where the list applies them.
  */
 export function buildProductIdsParams(filters) {

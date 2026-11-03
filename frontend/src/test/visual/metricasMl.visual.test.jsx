@@ -414,3 +414,101 @@ describe('Métricas ML hideable KPI cards (visual)', () => {
     });
   }
 });
+
+describe('Métricas ML "Filas finas" (visual, vistas-tipo-publicacion S5)', () => {
+  const KEY = 'metricas-ml.filas-finas';
+  beforeEach(() => {
+    localStorage.removeItem(KEY);
+    api.get.mockReset();
+    api.get.mockImplementation((url) => Promise.resolve(routeGet(url)));
+  });
+  // The browser's storage outlives the file: leave the normal density for the suites that run next.
+  afterEach(() => localStorage.removeItem(KEY));
+
+  for (const theme of THEMES) {
+    it(`1920x1080 ${theme}: thin rows, every cell on one line, nothing wraps or overflows`, async () => {
+      const screen = await renderPage({ width: 1920, height: 1080, theme });
+      await screen.getByRole('button', { name: /Ver publicaciones de Impresora Multifunción Epson/ }).click();
+      await expect.element(screen.getByText('MLA2060835678')).toBeVisible();
+      const table = document.querySelector('table');
+      const rowHeights = () => [...table.querySelectorAll('tbody tr')].map((tr) => tr.getBoundingClientRect().height);
+      const normal = Math.max(...rowHeights());
+
+      await screen.getByRole('button', { name: 'Filas finas' }).click();
+      await expect.element(screen.getByRole('button', { name: 'Filas finas', pressed: true })).toBeVisible();
+      expect(table.dataset.density).toBe('dense');
+      // Every row, products and publications, one thin line.
+      const dense = rowHeights();
+      expect(Math.max(...dense)).toBeLessThan(normal * 0.6);
+      expect(Math.max(...dense)).toBeLessThanOrEqual(32);
+      await shot(`board-dense-1920-${theme}`, { width: 1920, height: 1080 });
+
+      // Nothing pokes out of its cell: the meta beside a title is cut inside its own box (with its tooltip), so
+      // the cell's scroll width, not every clipped child, is what must fit.
+      const spilling = [...table.querySelectorAll('tbody td')].filter((td) => td.scrollWidth > td.clientWidth + 1);
+      expect(spilling.map((td) => `${td.dataset.colId}: ${td.textContent.trim().slice(0, 40)}`)).toEqual([]);
+      expect(wrapped(table.querySelectorAll('[data-money]'))).toEqual([]);
+      expect(wrapped(table.querySelectorAll('td[data-col-id="last_sale"] > div'))).toEqual([]);
+      const titles = table.querySelectorAll('td[data-col-id="producto"] span[title], td[data-col-id="producto"] div[title]');
+      expect(titles.length).toBeGreaterThan(0);
+      for (const el of titles) expect(el.getClientRects().length, el.textContent).toBe(1);
+      // Anything cut in the Producto cell (title, meta, publication title) carries its whole text in a tooltip.
+      const cut = [...table.querySelectorAll('td[data-col-id="producto"] *')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+      expect(cut.length).toBeGreaterThan(0);
+      for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1920);
+      screen.unmount();
+    });
+  }
+
+  // Under 1600px the Producto column is narrower: no line beside another (a long title, the meta with SKU, marca and
+  // count, a publication's MLA line and its title, an Agrupado product's SKU line) is squeezed to nothing, nothing
+  // spills out of its cell, and whatever is cut carries its whole text in a tooltip.
+  const expectProductCellsReadable = (table) => {
+    // One thin line per row: a line that wrapped instead of being cut would show here.
+    for (const tr of table.querySelectorAll('tbody tr')) {
+      expect(tr.getBoundingClientRect().height, tr.textContent.trim().slice(0, 40)).toBeLessThanOrEqual(32);
+    }
+    const cells = [...table.querySelectorAll('tbody td[data-col-id="producto"]')];
+    expect(cells.filter((td) => td.scrollWidth > td.clientWidth + 1).map((td) => td.textContent.trim().slice(0, 40))).toEqual([]);
+    const tipped = [...table.querySelectorAll('td[data-col-id="producto"] div[title]')];
+    expect(tipped.length).toBeGreaterThan(0);
+    for (const el of tipped) expect(el.getBoundingClientRect().width, el.title).toBeGreaterThanOrEqual(40);
+    const cut = [...table.querySelectorAll('td[data-col-id="producto"] *')].filter((el) => el.scrollWidth > el.clientWidth + 1);
+    for (const el of cut) expect(el.getAttribute('title'), el.textContent).toBeTruthy();
+  };
+
+  it('1366x768 light: dense, every line of the Producto cell keeps a visible width, publications and the tree too', async () => {
+    localStorage.setItem(KEY, 'true');
+    api.get.mockImplementation((url, config) => {
+      if (url === '/ml-metricas/board' && config?.params?.group_by === 'group') {
+        return Promise.resolve({ data: { ...GROUP_BOARD_RESPONSE, dimension: config.params.dimension } });
+      }
+      if (url === '/ml-metricas/board/group-nodes') return Promise.resolve({ data: epsonNodesFor(config.params.path) });
+      // The longest MLA line there is: 12 cuotas, "Mejor", and a catálogo Full publication.
+      if (url.startsWith('/ml-metricas/board/products/')) {
+        const [first, ...rest] = EPSON_PUBLICATIONS.rows;
+        return Promise.resolve({
+          data: { ...EPSON_PUBLICATIONS, rows: [{ ...first, listing_kind: 'cuotas_12', is_catalog: true }, ...rest] },
+        });
+      }
+      return Promise.resolve(routeGet(url));
+    });
+    const screen = await renderPage({ width: 1366, height: 768, theme: 'light' });
+    const table = () => document.querySelector('table');
+    expect(table().dataset.density).toBe('dense');
+    await screen.getByRole('button', { name: /Ver publicaciones de Impresora Multifunción Epson/ }).click();
+    await expect.element(screen.getByText('MLA2060835678')).toBeVisible();
+    expectProductCellsReadable(table());
+    await shot('board-dense-1366-light', { width: 1366, height: 768 });
+
+    await screen.getByRole('button', { name: 'Agrupado' }).click();
+    await screen.getByRole('button', { name: /Ver .* de Epson/ }).click();
+    await screen.getByRole('button', { name: /Ver .* de Impresoras/ }).click();
+    await screen.getByRole('button', { name: /Ver .* de Laser/ }).click();
+    await expect.element(screen.getByText(EPSON_GROUP_PRODUCTS.rows[0].sku)).toBeVisible();
+    expectProductCellsReadable(table());
+    await shot('board-dense-grouped-1366-light', { width: 1366, height: 768 });
+    screen.unmount();
+  });
+});

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useReactTable, getCoreRowModel } from '@tanstack/react-table';
-import { AlertTriangle, Clock, Download, FileSpreadsheet, FilterX, Gauge, ShieldAlert, TrendingDown } from 'lucide-react';
+import { AlertTriangle, Clock, Download, FileSpreadsheet, FilterX, Gauge, Rows4, ShieldAlert, TrendingDown } from 'lucide-react';
 import api from '../services/api';
 import { usePermisos } from '../contexts/PermisosContext';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -56,6 +56,7 @@ import {
 import SheetsNotice from '../components/sheets/SheetsNotice';
 import useWarnBeforeUnload from '../hooks/useWarnBeforeUnload';
 import useHiddenKpis from '../hooks/useHiddenKpis';
+import useRowDensity from '../hooks/useRowDensity';
 import styles from './MetricasML.module.css';
 
 /**
@@ -539,6 +540,8 @@ export default function MetricasML() {
   // The KPI cards (and the ads block) the viewer hid, from the "Indicadores" picker; numbers and requests never change.
   const kpiOptions = useMemo(() => metricasKpiOptions(board?.kpis, { canSeeMargin, groupBy, tpSolo }), [board?.kpis, canSeeMargin, groupBy, tpSolo]);
   const { isVisible: kpiVisible, pickerTable: kpiPicker } = useHiddenKpis('metricas-ml.kpis-ocultos', kpiOptions);
+  // "Filas finas": the board's Sheets-like density, remembered per browser; only the look changes.
+  const { dense, toggleDense } = useRowDensity('metricas-ml.filas-finas');
   const periodLabel = PERIOD_LABELS[range.filtro] || 'período';
   const shownDimension = tpSolo ? TP_SOLO_DIMENSION : dimension;
   const columnDefs = useMemo(
@@ -617,6 +620,10 @@ export default function MetricasML() {
           )}
           <ColumnPicker table={table} />
           <ColumnPicker table={kpiPicker} label="Indicadores" icon={Gauge} groupLabel="Elegir indicadores visibles" />
+          <button type="button" className={`btn-tesla outline sm ${styles.densityToggle}`} aria-pressed={dense} onClick={toggleDense}>
+            <Rows4 size={14} />
+            Filas finas
+          </button>
           <button type="button" className="btn-tesla outline sm" onClick={handleExport} disabled={exporting}>
             <Download size={14} />
             {exporting ? 'Exportando…' : 'Exportar CSV'}
@@ -886,6 +893,7 @@ export default function MetricasML() {
             sort={sortKey}
             sortDesc={sort.desc}
             onSort={handleSort}
+            dense={dense}
           />
         </div>
         {!loading && rows.length === 0 && !errorKind && (
