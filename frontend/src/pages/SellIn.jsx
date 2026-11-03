@@ -22,6 +22,9 @@ import { useSeleccionMasiva } from '../components/sellIn/useSeleccionMasiva';
 import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
 import SellOutAnularMasivo from '../components/sellOut/SellOutAnularMasivo';
 import SellOutFiltros from '../components/sellOut/SellOutFiltros';
+import SellOutPorPrograma from '../components/sellOut/SellOutPorPrograma';
+import SellOutSugerencias from '../components/sellOut/SellOutSugerencias';
+import { useProgramas } from '../components/sellOut/useProgramas';
 import { FILTROS_CAMPANAS_VACIOS, paramsDeFiltros } from '../components/sellOut/sellOutFiltros';
 import GruposTab from '../components/grupos/GruposTab';
 import styles from './SellIn.module.css';
@@ -177,7 +180,10 @@ function useCampanas(enabled) {
     const params = { page: Math.floor(offset / pageSize) + 1, page_size: pageSize };
     try {
       const { data } = await sellOutAPI.listar({ ...paramsDeFiltros(filtros), ...params });
-      if (requestId === requestRef.current) setLista(data);
+      if (requestId !== requestRef.current) return;
+      setLista(data);
+      // A reload can leave the page past the end (its campaigns were assigned or voided): go to the last one with data.
+      if (data.total > 0 && offset >= data.total) setOffset((Math.ceil(data.total / pageSize) - 1) * pageSize);
     } catch {
       if (requestId === requestRef.current) setError('No se pudieron cargar las campañas de sell out.');
     }
@@ -230,6 +236,14 @@ export default function SellIn() {
   // A group created, changed or deleted in the Grupos tab: the campaign form's groups are asked again.
   const [cambiosGrupos, setCambiosGrupos] = useState(0);
   const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut, versionGrupos + cambiosGrupos);
+  // An assignment or a program created from a suggestion bumps it: programs, groups and suggestions are asked again.
+  const [versionProgramas, setVersionProgramas] = useState(0);
+  const programas = useProgramas(puedeVer && puedeVerSellOut, versionGrupos + versionProgramas);
+  // The suggestions "Descartar" hid, for this session only (nothing is stored).
+  const [descartadas, setDescartadas] = useState(() => new Set());
+  // "Ver: Por programa | Lista" lives in the URL (`?vista=`) like the tab; by default grouped once a program exists.
+  const vistaUrl = searchParams.get('vista');
+  const vista = ['programas', 'lista'].includes(vistaUrl) ? vistaUrl : programas.length > 0 ? 'programas' : 'lista';
   const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeGestionarGrupos ? [TAB_GRUPOS] : [])];
   const tabUrl = searchParams.get('tab');
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
@@ -247,6 +261,13 @@ export default function SellIn() {
   const verBono = useCallback((id) => setPanel({ tipo: 'bono', id }), []);
   const verCompra = useCallback((id) => setPanel({ tipo: 'detalle', id }), []);
   const verCampana = useCallback((id) => setPanel({ tipo: 'campana', id }), []);
+  // A row's "Renovar" (`sell_out.gestionar`): the campaign's panel, renewing it as soon as it is read. A new `renovar`
+  // count remounts the panel, so a second click on the same row renews again.
+  const renovaciones = useRef(0);
+  const renovarCampana = useCallback((id) => {
+    renovaciones.current += 1;
+    setPanel({ tipo: 'campana', id, renovar: renovaciones.current });
+  }, []);
   // The bulk void (`sell_in.gestionar`): the checked purchases and bonuses, and what the last one did.
   const selCompras = useSeleccionMasiva();
   const selBonos = useSeleccionMasiva();
@@ -278,6 +299,19 @@ export default function SellIn() {
       },
       { replace: true },
     );
+  };
+  const cambiarVista = (next) =>
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set('vista', next);
+        return params;
+      },
+      { replace: true },
+    );
+  const programasCambiaron = () => {
+    campanas.recargarActual();
+    setVersionProgramas((v) => v + 1);
   };
 
   const params = useMemo(() => buildSellInParams({ ...filters, aplica: filters.aplica || 'todas' }), [filters]);
@@ -527,13 +561,14 @@ export default function SellIn() {
             />
           ) : panel?.tipo === 'campana' ? (
             <SellOutCampanaPanel
-              key={`campana-${panel.id ?? 'nueva'}-${panel.version ?? 0}`}
+              key={`campana-${panel.id ?? 'nueva'}-${panel.version ?? 0}-${panel.renovar ?? 0}`}
               campanaId={panel.id}
+              renovarAlAbrir={Boolean(panel.renovar)}
               grupos={gruposOffset}
               puedeGestionar={puedeGestionarSellOut}
               onSaved={(campana) => {
                 if (campana.id !== panel.id) verCampana(campana.id); // a new one, or a renewal's copy
-                campanas.recargar();
+                programasCambiaron(); // the list, and the groups and suggestions: a save may move any of them
               }}
               onClose={cerrarPanel}
             />
@@ -762,7 +797,23 @@ export default function SellIn() {
               <h2 id="sell-out-campanas-titulo" className={styles.srOnly}>
                 Campañas de sell out
               </h2>
-              <SellOutFiltros filtros={campanas.filtros} onChange={campanas.filtrar} marcas={marcas} grupos={gruposOffset} />
+              <SellOutFiltros
+                filtros={campanas.filtros}
+                onChange={campanas.filtrar}
+                marcas={marcas}
+                grupos={gruposOffset}
+                programas={programas}
+                vista={vista}
+                onVista={cambiarVista}
+              />
+              {puedeGestionarSellOut && (
+                <SellOutSugerencias
+                  version={versionGrupos + versionProgramas}
+                  descartadas={descartadas}
+                  onDescartar={(clave) => setDescartadas((actual) => new Set(actual).add(clave))}
+                  onCambio={programasCambiaron}
+                />
+              )}
               {campanas.error && (
                 <div className={styles.errorBar} role="alert">
                   <ShieldAlert size={16} /> {campanas.error}
@@ -778,29 +829,41 @@ export default function SellIn() {
                     puedeGestionar={puedeGestionarSellOut}
                     selectedId={panel?.tipo === 'campana' ? panel.id : null}
                     onSelect={verCampana}
+                    onRenovar={puedeGestionarSellOut ? renovarCampana : undefined}
                     onAnuladas={(ids) => {
-                      campanas.recargarActual();
+                      programasCambiaron(); // the groups' active counts changed too
                       // The open campaign was just voided: read it again (a new key remounts the panel). Functional update:
                       // the panel may have been closed or changed while the request was in flight.
                       setPanel((actual) =>
                         actual?.tipo === 'campana' && ids.includes(actual.id)
-                          ? { ...actual, version: (actual.version ?? 0) + 1 }
+                          ? { ...actual, version: (actual.version ?? 0) + 1, renovar: undefined }
                           : actual,
                       );
                     }}
+                    programas={programas}
+                    onAsignadas={programasCambiaron}
+                    renderTabla={
+                      vista === 'programas'
+                        ? (props) => (
+                            <SellOutPorPrograma filtros={paramsDeFiltros(campanas.filtros)} version={versionGrupos + versionProgramas} {...props} />
+                          )
+                        : undefined
+                    }
                   />
-                  <Pagination
-                    total={campanas.lista.total}
-                    offset={campanas.offset}
-                    pageSize={campanas.pageSize}
-                    onOffsetChange={campanas.setOffset}
-                    onPageSizeChange={(size) => {
-                      campanas.setPageSize(size);
-                      campanas.setOffset(0);
-                    }}
-                    pageSizeOptions={CAMPANAS_PAGE_SIZES}
-                    summary={<span>{campanas.lista.total} campañas</span>}
-                  />
+                  {vista === 'lista' && (
+                    <Pagination
+                      total={campanas.lista.total}
+                      offset={campanas.offset}
+                      pageSize={campanas.pageSize}
+                      onOffsetChange={campanas.setOffset}
+                      onPageSizeChange={(size) => {
+                        campanas.setPageSize(size);
+                        campanas.setOffset(0);
+                      }}
+                      pageSizeOptions={CAMPANAS_PAGE_SIZES}
+                      summary={<span>{campanas.lista.total} campañas</span>}
+                    />
+                  )}
                 </>
               )}
             </section>

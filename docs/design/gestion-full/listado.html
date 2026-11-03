@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gestión Full — Pricing</title>
+  <style>
+    :root {
+      --bg: #000000;
+      --card: #181818;
+      --hover: #1f1f1f;
+      --border: #2a2a2a;
+      --text: #ffffff;
+      --muted: #a0a0a0;
+      --faint: #707070;
+      --brand: #3e6ae1;
+      --success: #00cc66;
+      --warning: #ff9800;
+      --group-a: rgba(62, 106, 225, 0.08);
+      --group-b: rgba(0, 204, 102, 0.07);
+      --group-c: rgba(255, 152, 0, 0.07);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 200px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      background: #0a0a0a;
+      padding: 16px 12px;
+    }
+    .sidebar .brand { font-weight: 600; font-size: 14px; margin-bottom: 20px; }
+    .sidebar .sec { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin: 16px 8px 6px; }
+    .sidebar a {
+      display: block; padding: 6px 8px; border-radius: 4px; color: var(--muted); text-decoration: none; margin-bottom: 2px;
+    }
+    .sidebar a.active { background: rgba(62, 106, 225, 0.15); color: var(--text); }
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .page-head { padding: 16px 20px 8px; border-bottom: 1px solid var(--border); }
+    .page-head h1 { margin: 0; font-size: 20px; font-weight: 600; }
+    .page-head p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .filters {
+      display: flex; gap: 8px; align-items: center; padding: 10px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+    }
+    .filters input, .filters select {
+      height: 28px; background: #111; border: 1px solid var(--border); border-radius: 4px; color: var(--text);
+      padding: 0 8px; font-size: 12px;
+    }
+    .filters input { width: 260px; }
+    .filters button {
+      height: 28px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--text);
+      padding: 0 10px; cursor: pointer; font-size: 12px;
+    }
+    .filters button.primary { background: var(--brand); border-color: var(--brand); }
+    .table-wrap { flex: 1; overflow: auto; padding: 0; }
+    table { width: 100%; border-collapse: collapse; min-width: 1400px; }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 6px 8px;
+      text-align: center;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+    th {
+      position: sticky; top: 0; background: #121212; color: var(--muted); font-weight: 500; font-size: 11px; z-index: 1;
+    }
+    td.mono, th.mono { font-family: var(--mono); font-size: 12px; }
+    td.num { font-family: var(--mono); text-align: center; }
+    td.desc { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); text-align: left; }
+    tr.g-a { background: var(--group-a); box-shadow: inset 3px 0 0 var(--brand); }
+    tr.g-b { background: var(--group-b); box-shadow: inset 3px 0 0 var(--success); }
+    tr.g-c { background: var(--group-c); box-shadow: inset 3px 0 0 var(--warning); }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+    input.override {
+      display: block; margin-inline: auto;
+      width: 64px; height: 26px; background: #111; border: 1px solid var(--border); border-radius: 4px;
+      color: var(--text); font-family: var(--mono); font-size: 12px; text-align: center; padding: 0 6px;
+    }
+    .hint { color: var(--faint); font-size: 11px; padding: 8px 20px; }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">Pricing</div>
+    <div class="sec">Reportes</div>
+    <a href="#">Publicaciones ML</a>
+    <a href="#">Ventas ML</a>
+    <a class="active" href="#">Gestión Full</a>
+    <a href="#">Métricas ML</a>
+  </aside>
+  <div class="main">
+    <header class="page-head">
+      <h1>Gestión Full</h1>
+      <p>Reposición Full por producto — todos ven todo; override solo PM / admin</p>
+    </header>
+    <div class="filters">
+      <input type="search" placeholder="EAN, descripción o inventory_id…" />
+      <select><option>Marca (todas)</option><option>TP-LINK</option></select>
+      <select><option>Categoría (todas)</option><option>Cámaras</option><option>Networking</option></select>
+      <button type="button">Limpiar</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="mono">EAN</th>
+            <th>Descripción</th>
+            <th class="mono">Código ML</th>
+            <th class="mono">Familia (MLAU)</th>
+            <th>Full 7d</th>
+            <th>Full 14d</th>
+            <th>Full 21d</th>
+            <th>Full 30d</th>
+            <th>C+F 7d</th>
+            <th>C+F 30d</th>
+            <th>Stock ERP</th>
+            <th>Stock Full</th>
+            <th>Target</th>
+            <th>Sugerido</th>
+            <th>Override</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Single inventory product -->
+          <tr class="g-c">
+            <td class="mono">6935364053222</td>
+            <td class="desc">CAMARA IP WIFI TP LINK TAPO C100 SD DAY/NIGHT</td>
+            <td class="mono">CMNR38408</td>
+            <td class="mono">MLAU228712304</td>
+            <td class="num">4</td><td class="num">9</td><td class="num">12</td><td class="num">18</td>
+            <td class="num">2</td><td class="num">7</td>
+            <td class="num">42</td><td class="num">11</td>
+            <td class="num">20</td><td class="num">9</td>
+            <td><input class="override" inputmode="numeric" placeholder="" /></td>
+          </tr>
+          <!-- Multi inventory: same EAN, 3 rows contiguous -->
+          <tr class="g-a">
+            <td class="mono">6935364080433</td>
+            <td class="desc">EXTENSOR DE RANGO WIFI TP LINK RE200 AC750</td>
+            <td class="mono">AVZV41250</td>
+            <td class="mono">MLAU100100101</td>
+            <td class="num">6</td><td class="num">11</td><td class="num">15</td><td class="num">22</td>
+            <td class="num">1</td><td class="num">4</td>
+            <td class="num">85</td><td class="num">8</td>
+            <td class="num">15</td><td class="num">7</td>
+            <td><input class="override" inputmode="numeric" /></td>
+          </tr>
+          <tr class="g-a">
+            <td class="mono">6935364080433</td>
+            <td class="desc">EXTENSOR DE RANGO WIFI TP LINK RE200 AC750</td>
+            <td class="mono">HGVR41353</td>
+            <td class="mono">MLAU100100102</td>
+            <td class="num">3</td><td class="num">5</td><td class="num">8</td><td class="num">10</td>
+            <td class="num">0</td><td class="num">2</td>
+            <td class="num">85</td><td class="num">3</td>
+            <td class="num">10</td><td class="num">7</td>
+            <td><input class="override" inputmode="numeric" /></td>
+          </tr>
+          <tr class="g-a">
+            <td class="mono">6935364080433</td>
+            <td class="desc">EXTENSOR DE RANGO WIFI TP LINK RE200 AC750</td>
+            <td class="mono">KECA18815</td>
+            <td class="mono">MLAU100100103</td>
+            <td class="num">2</td><td class="num">4</td><td class="num">6</td><td class="num">9</td>
+            <td class="num">1</td><td class="num">3</td>
+            <td class="num">85</td><td class="num">5</td>
+            <td class="num">12</td><td class="num">7</td>
+            <td><input class="override" inputmode="numeric" /></td>
+          </tr>
+          <tr class="g-b">
+            <td class="mono">1210002615013</td>
+            <td class="desc">CAMARA IP WIFI TP LINK TAPO C200 SD DAY/NIGHT MOV REMOTO</td>
+            <td class="mono">CBOW39035</td>
+            <td class="mono">MLAU200200201</td>
+            <td class="num">8</td><td class="num">14</td><td class="num">19</td><td class="num">28</td>
+            <td class="num">3</td><td class="num">9</td>
+            <td class="num">30</td><td class="num">6</td>
+            <td class="num">18</td><td class="num">12</td>
+            <td><input class="override" inputmode="numeric" /></td>
+          </tr>
+          <tr class="g-b">
+            <td class="mono">1210002615013</td>
+            <td class="desc">CAMARA IP WIFI TP LINK TAPO C200 SD DAY/NIGHT MOV REMOTO</td>
+            <td class="mono">CVLK09199</td>
+            <td class="mono">MLAU200200202</td>
+            <td class="num">5</td><td class="num">9</td><td class="num">13</td><td class="num">17</td>
+            <td class="num">2</td><td class="num">5</td>
+            <td class="num">30</td><td class="num">4</td>
+            <td class="num">10</td><td class="num">6</td>
+            <td><input class="override" inputmode="numeric" /></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">Mock Tesla densos: mismo EAN con varios inventory_id van seguidos y comparten tinte. Override vacío = usa Sugerido.</p>
+  </div>
+</body>
+</html>

@@ -1,5 +1,8 @@
 import DateRangeFilter from '../DateRangeFilter';
 import SearchInput from '../SearchInput';
+import { SegmentedControl } from '../kit';
+import { SIN_PROGRAMA } from './sellOutFiltros';
+import { VISTAS } from './sellOutProgramas';
 import styles from '../../pages/SellIn.module.css';
 
 const TIPOS = [
@@ -23,9 +26,11 @@ function Select({ label, value, onChange, todos = 'Todas', children }) {
 /**
  * The Sell out tab's filter card, laid out like the Sell in one: the period the campaigns' dates overlap, the
  * name search, and estado, tipo, moneda, marca (a product the campaign's groups reach) and grupo. `onChange` gets
- * the changed fields. The Grupo select shows only when there are groups to pick (`grupos`).
+ * the changed fields. The Grupo select shows only when there are groups to pick (`grupos`); the Programa select
+ * (every program, "Sin programa" or one of `programas`) and the "Ver: Por programa | Lista" switch (`vista`,
+ * `onVista`) only when there are programs.
  */
-export default function SellOutFiltros({ filtros, onChange, marcas = [], grupos = [] }) {
+export default function SellOutFiltros({ filtros, onChange, marcas = [], grupos = [], programas = [], vista, onVista }) {
   return (
     <section className={styles.filterCard} aria-label="Filtros de campañas">
       <div className={styles.filterBand}>
@@ -75,6 +80,24 @@ export default function SellOutFiltros({ filtros, onChange, marcas = [], grupos 
               </option>
             ))}
           </Select>
+        )}
+        {programas.length > 0 && (
+          <Select label="Programa" todos="Todos" value={filtros.programa} onChange={(programa) => onChange({ programa })}>
+            <option value={SIN_PROGRAMA}>Sin programa</option>
+            {programas.map((p) => (
+              <option key={p.id} value={String(p.id)}>
+                {p.nombre}
+              </option>
+            ))}
+          </Select>
+        )}
+        {programas.length > 0 && onVista && (
+          <div className={styles.vistaSlot}>
+            <span className={styles.filterLabel} aria-hidden="true">
+              Ver:
+            </span>
+            <SegmentedControl label="Ver" options={VISTAS} value={vista} onChange={onVista} />
+          </div>
         )}
       </div>
     </section>

@@ -2,6 +2,8 @@
 export const PAGINA_SELECCION = 200;
 /** Backend `ANULAR_MASIVO_MAX` (`app/routers/sell_out_campanas.py`). */
 export const ANULAR_MASIVO_MAX = 500;
+/** Backend `ASIGNAR_MAX` (`app/schemas/sell_out.py`): campaigns per program assignment. */
+export const ASIGNAR_MAX = 500;
 
 export const SELECCION_CAMBIADA = 'La lista de campañas cambió mientras se seleccionaba. Actualizá la lista y volvé a intentar.';
 

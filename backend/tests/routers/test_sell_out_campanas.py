@@ -374,6 +374,14 @@ def test_list_filters_by_program_or_without_one_and_both_is_a_422(client, gestor
 POR_PROGRAMA = f"{BASE}/por-programa"
 
 
+@pytest.mark.parametrize("url", [BASE, f"{BASE}/por-programa"])
+def test_permission_is_checked_before_the_filters(client, auth_headers, url) -> None:
+    """A user without `sell_out.ver` gets a 403, not the filters' 422, whatever the filters are."""
+    malos = {"desde": "2026-12-31", "hasta": "2026-12-01", "programa_id": 1, "sin_programa": True}
+    assert client.get(url, params=malos, headers=auth_headers).status_code == 403
+    assert client.get(url, params=malos).status_code in (401, 403)
+
+
 def test_por_programa_groups_the_filtered_campaigns_and_hides_empty_programs(
     client, gestor, grupos, db, admin_user
 ) -> None:
