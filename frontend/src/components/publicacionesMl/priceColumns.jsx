@@ -1,7 +1,7 @@
-import { Calculator } from 'lucide-react';
 import { offerDetails } from '../pricing/offerDetails';
 import { LISTS } from '../pricing/priceWrites';
 import { PRICE_MARKUP_SORTS } from '../../hooks/usePublicacionesMLFilters';
+import CalculatePriceButton from './CalculatePriceButton';
 import ListPriceCell from './ListPriceCell';
 import PriceEditCell from './PriceEditCell';
 import TnPriceLine from './TnPriceLine';
@@ -148,12 +148,7 @@ function calculateColumn(prices, onCalculate) {
   const renderProduct = (productId) => {
     const product = productId == null ? null : prices.byId.get(productId);
     if (!product) return null;
-    const label = product.descripcion ? `Calcular el precio de ${product.descripcion}` : `Calcular el precio del producto ${product.item_id}`;
-    return (
-      <button type="button" className={styles.calculate} aria-label={label} title={label} onClick={() => onCalculate(product)}>
-        <Calculator size={14} aria-hidden="true" />
-      </button>
-    );
+    return <CalculatePriceButton product={product} onCalculate={onCalculate} />;
   };
   return {
     key: 'calcular_precio',

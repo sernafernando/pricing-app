@@ -21,7 +21,9 @@ from app.models.comparacion_listas_banlist import ComparacionListasBanlist
 from app.models.calculo_pricing import CalculoPricing
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
+from app.models.publicacion_repair import PublicacionRepairEvent, PublicacionRepairRun
 from app.models.ml_publication_link import MlPublicationLink
+
 from app.models.producto_propio import ProductoPropio
 from app.models.ml_item_override import MlItemOverride
 from app.models.gestion_full_override import GestionFullOverride
@@ -210,6 +212,7 @@ from app.models.sell_in import (
     SellInCompraItem,
     SellInCompraPedido,
     SellInConsumo,
+    SellInModoProducto,
 )
 from app.models.sell_out import (
     SellOutCampana,
@@ -217,6 +220,7 @@ from app.models.sell_out import (
     SellOutCampanaItem,
     SellOutConsumo,
     SellOutDirty,
+    SellOutPrograma,
 )
 from app.models.sell_dirty import SellDirty
 from app.models.combo_componente import ComboComponente
@@ -243,13 +247,16 @@ from app.models.tplink_venta_metrica import TplinkVentaMetrica
 from app.models.ml_bot_question import MlBotQuestion
 from app.models.ml_bot_config import MlBotConfig
 from app.models.ml_bot_answer_example import MlBotAnswerExample
-from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, RolEquipo
+from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, PublicacionColor, RolEquipo
 
 # Catalog competition snapshots. Must stay registered here: alembic/env.py
 # builds target_metadata from `from app.models import *`, so a model missing
 # from this package is absent from Base.metadata and the next
 # `alembic revision --autogenerate` emits drop_table for its table.
 from app.models.ml_catalog_competition import MLCatalogCompetition
+
+# Per-sale discounts (ml-ads-cupones-display T3a); registered for the same reason.
+from app.models.ml_order_discounts import MlOrderDiscountLine, MlOrderDiscounts, MlOrderDiscountsState
 
 __all__ = [
     "ProductoERP",
@@ -277,6 +284,8 @@ __all__ = [
     "CalculoPricing",
     "MercadoLibreItemPublicado",
     "MLPublicationSnapshot",
+    "PublicacionRepairRun",
+    "PublicacionRepairEvent",
     "TbItemSerial",
     "TbItemTransactionSerial",
     "Notificacion",
@@ -457,6 +466,7 @@ __all__ = [
     "Equipo",
     "EquipoMiembro",
     "ProductoColor",
+    "PublicacionColor",
     "RolEquipo",
     "MlPublicationLink",
     "MlItemRelation",
@@ -489,11 +499,13 @@ __all__ = [
     "SellInCompraItem",
     "SellInCompraPedido",
     "SellInConsumo",
+    "SellInModoProducto",
     "SellOutCampana",
     "SellOutCampanaGrupo",
     "SellOutCampanaItem",
     "SellOutConsumo",
     "SellOutDirty",
+    "SellOutPrograma",
     "SellDirty",
     "ComboComponente",
     "ProductoPropio",
@@ -502,4 +514,7 @@ __all__ = [
     "GestionFullPmReady",
     "GestionFullUnidadesCaja",
     "MlFulfillmentLastInbound",
+    "MlOrderDiscounts",
+    "MlOrderDiscountLine",
+    "MlOrderDiscountsState",
 ]

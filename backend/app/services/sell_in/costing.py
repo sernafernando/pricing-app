@@ -3,11 +3,12 @@
 
 The strategy is the ONLY thing that turns sell-in purchases plus sales into
 `sell_in_consumos`. Loading a purchase, the split selector and the screens never
-depend on how: switching to PPP (option B) means another `SellInCosting`
-returned by `get_costing()`, nothing else.
+depend on how.
 
-`FifoPurchaseCosting` (option A, active): a sell in applies only to the units
-of its purchase, consumed FIFO by the product's sales (`fifo.asignar`). Each
+`FifoPurchaseCosting` (option A, active): a sale's units come out of the
+product's purchase lines in FIFO order (`fifo.asignar`); what they carry
+follows the product's dated cost modes (`sell_in_modos_producto`: FIFO by
+default, weighted or last price from a row's `desde` on, see `fifo`). Each
 call recomputes whole PRODUCTS from scratch (their active purchase lines and
 their sales since the oldest of those lines counts) and writes only the
 difference against the stored consumptions, so:
@@ -70,21 +71,24 @@ recomputing a product from scratch needs no derived table.
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, Iterable, List, Protocol, Tuple, runtime_checkable
+from typing import Dict, Iterable, List, Optional, Protocol, Tuple, runtime_checkable
 
 from sqlalchemy import delete, func, insert, text
 from sqlalchemy.orm import Session
 
 from app.models.ml_sale_line import MlSaleLine
-from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo
+from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo, SellInModoProducto
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
-from app.services.sell_in.fifo import Consumo, Lote, Venta, asignar
+from app.services.sell_in.fifo import Consumo, Dinero, Lote, Periodo, Venta, asignar, orden_fifo, periodo_en
 from app.services.sell_in.split import unit_discount
+
+logger = logging.getLogger(__name__)
 
 # First key of the two-key advisory lock; the second is the product's item_id.
 LOCK_NAMESPACE = 0x5E11
@@ -123,6 +127,22 @@ class SellInCosting(Protocol):
         the stored consumptions (read only; a product with none is absent)."""
         ...
 
+    def lotes(self, db: Session, item_ids: Iterable[int]) -> Dict[int, List[Lote]]:
+        """Each product's lines of active purchases, in the order its sales consume them (read only)."""
+        ...
+
+    def unidades_usadas(self, db: Session, lineas: List[int]) -> Dict[int, int]:
+        """`{compra_item_id: units the stored consumptions took}`, for the lines that have any (read only)."""
+        ...
+
+    def periodos(self, db: Session, ids: List[int]) -> Dict[int, List[Periodo]]:
+        """`{item_id: its dated cost modes, oldest first}` for the products that have any; without, FIFO (read only)."""
+        ...
+
+    def sin_asignar(self, db: Session, item_id: int, hoy: date) -> Decimal:
+        """ARS the product's lots hold that no unit hands out, sold or left (positive: never handed out)."""
+        ...
+
 
 @dataclass(frozen=True)
 class LoteVigente:
@@ -131,6 +151,14 @@ class LoteVigente:
     compra_item_id: int
     descuento_unit_ars: Decimal  # rounded like `split.unit_discount`
     unidades_restantes: int
+    # True when a weighted or last-price mode governs and its replay gave the value: every unit of the lines that
+    # count goes at it. False under FIFO, or when the replay could not run and the line's own value stands.
+    en_pool: bool = False
+    # Under a pool, what a sale on the next lot's start date gets once that lot joins it; None otherwise.
+    siguiente_unit_ars: Optional[Decimal] = None
+    # The day the next sale is valued on: `hoy`, or the latest stored sale when one is dated later. Lots counting by
+    # then are already inside the pool.
+    dia: Optional[date] = None
 
 
 def utc_date(value) -> date:
@@ -197,11 +225,19 @@ class FifoPurchaseCosting:
         lotes = self._lotes(db, ids)
         ventas = self._ventas(db, lotes)
         guardados = self._guardados(db, ids)
+        periodos = self.periodos(db, ids)
 
         for item_id in ids:
             # The whole per-product work (allocation AND write) runs inside the
             # isolation, so one product's bad data never aborts the batch.
-            args = (db, item_id, lotes.get(item_id, []), ventas.get(item_id, []), guardados.get(item_id, {}))
+            args = (
+                db,
+                item_id,
+                lotes.get(item_id, []),
+                ventas.get(item_id, []),
+                guardados.get(item_id, {}),
+                periodos.get(item_id, []),
+            )
             if isolate_failures:
                 try:
                     with db.begin_nested():
@@ -218,34 +254,147 @@ class FifoPurchaseCosting:
     def vigentes(self, db: Session, item_ids: Iterable[int], hoy: date) -> Dict[int, LoteVigente]:
         """The first line in FIFO order (`fifo`: `fecha`, `compra_id`, `compra_item_id`) counting on or
         before `hoy` with units the stored consumptions left; a product whose lines are used up is
-        absent: its cost is back to normal. Two queries, whatever the number of products."""
-        ids = sorted({int(i) for i in item_ids if i is not None})
-        lotes = self._lotes(db, ids) if ids else {}
-        lineas = [lote.compra_item_id for item in lotes.values() for lote in item]
-        usadas = (
-            dict(
-                db.query(SellInConsumo.compra_item_id, func.sum(SellInConsumo.unidades))
-                .filter(SellInConsumo.compra_item_id.in_(lineas))
-                .group_by(SellInConsumo.compra_item_id)
-            )
-            if lineas
-            else {}
-        )
+        absent: its cost is back to normal. Three queries (lines, units used, cost modes), whatever the
+        number of products.
+
+        A product with cost modes replays its stored consumptions through `fifo.Dinero`, so the value is the one
+        the mode governing `hoy` gives (the weighted pool, or the newest lot for every unit left); its line is still
+        the FIFO one the units come from. One more query, only when some product has modes. A product whose modes
+        cannot be replayed here (a manual block, until it lands, or rows read mid-change) keeps its FIFO line at the
+        line's own value and is logged: it still has units, so it never reads as used up, and never the whole batch."""
+        lotes = self.lotes(db, item_ids)
+        usadas = self.unidades_usadas(db, [lote.compra_item_id for item in lotes.values() for lote in item])
+        periodos = self.periodos(db, sorted(lotes))
         salida: Dict[int, LoteVigente] = {}
         for item_id, item in lotes.items():
-            for lote in sorted(item, key=lambda x: (x.fecha, x.compra_id, x.compra_item_id)):
-                restantes = lote.cantidad - int(usadas.get(lote.compra_item_id) or 0)
+            for lote in item:
+                restantes = lote.cantidad - usadas.get(lote.compra_item_id, 0)
                 if lote.fecha <= hoy and restantes > 0:
                     descuento = unit_discount(lote.descuento_ars, lote.cantidad)
                     salida[item_id] = LoteVigente(lote.compra_item_id, descuento, restantes)
                     break
+        con_modos = {item_id: item for item_id, item in lotes.items() if item_id in periodos}
+        filas = self._filas_guardadas(db, [lote.compra_item_id for item in con_modos.values() for lote in item])
+        for item_id, item in con_modos.items():
+            try:
+                dinero, dia = self._replay(item, periodos[item_id], filas.get(item_id, []), hoy)
+                proximo = dinero.proximo(dia)
+            except (ValueError, ArithmeticError, KeyError) as exc:
+                # A mode the replay does not support yet, or rows read mid-change by another transaction.
+                logger.warning("sell in: next sale of product %s not computed: %s", item_id, exc)
+                continue
+            if proximo is not None:
+                i, monto, sobre, restantes = proximo
+                en_pool = periodo_en(periodos[item_id], dia)[1] != "fifo"
+                siguiente = self._siguiente(dinero, item, periodos[item_id], dia) if en_pool else None
+                salida[item_id] = LoteVigente(
+                    item[i].compra_item_id, unit_discount(monto, sobre), restantes, en_pool, siguiente, dia
+                )
         return salida
+
+    def sin_asignar(self, db: Session, item_id: int, hoy: date) -> Decimal:
+        """ARS the product's lots hold that neither its stored consumptions nor its units left hand out, the units left
+        valued as a sale on the replay day would get them (`_replay`): what the mode preview shows (D2, D5). Zero under
+        FIFO and `ponderado` but for rounding; `ultimo` and a switch back to FIFO from a pool can leave money unhanded
+        (positive) or hand out more than the lots hold (negative). Raises like the replay."""
+        item = self.lotes(db, [item_id]).get(item_id, [])
+        if not item:
+            return Decimal("0.00")
+        lineas = [lote.compra_item_id for lote in item]
+        filas = self._filas_guardadas(db, lineas).get(item_id, [])
+        dinero, dia = self._replay(item, self.periodos(db, [item_id]).get(item_id, []), filas, hoy)
+        dado = db.query(func.coalesce(func.sum(SellInConsumo.descuento_ars), 0)).filter(
+            SellInConsumo.compra_item_id.in_(lineas)
+        )
+        total = sum((lote.descuento_ars for lote in item), Decimal(0))
+        resto = total - Decimal(dado.scalar()) - dinero.restante(dia)
+        return resto.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @staticmethod
+    def _replay(
+        item: List[Lote], periodos: List[Periodo], filas: List[Tuple[int, date, int]], hoy: date
+    ) -> Tuple[Dinero, date]:
+        """The money pass fed with a product's stored consumptions, and the day the next sale is valued on: after
+        every stored one, even one dated after `hoy` (a later UTC day)."""
+        indice = {lote.compra_item_id: i for i, lote in enumerate(item)}
+        dinero = Dinero(item, periodos)
+        dia = hoy
+        for linea, fecha, unidades in filas:
+            dinero.fila(fecha, indice[linea], unidades)
+            dia = max(dia, fecha)
+        return dinero, dia
+
+    @staticmethod
+    def _siguiente(dinero: Dinero, item: List[Lote], periodos: List[Periodo], hoy: date) -> Optional[Decimal]:
+        """What a sale on the next lot's start date gets once that lot joins the pool; None when no lot starts later,
+        when FIFO governs that date (the lot is then at its own value), or when that date cannot be replayed (a
+        manual row before it): today's value stands either way."""
+        futuro = next((lote for lote in item if lote.fecha > hoy), None)
+        if futuro is None or periodo_en(periodos, futuro.fecha)[1] == "fifo":
+            return None
+        try:
+            despues = dinero.proximo(futuro.fecha)
+        except (ValueError, ArithmeticError, KeyError):
+            return None
+        return unit_discount(despues[1], despues[2]) if despues is not None else None
+
+    @staticmethod
+    def _filas_guardadas(db: Session, lineas: List[int]) -> Dict[int, List[Tuple[int, date, int]]]:
+        """`{item_id: [(line, sale date, units), ...]}` of the stored consumptions of `lineas`, in sale order (the
+        order of one sale's lines does not change what the money pass is left with)."""
+        if not lineas:
+            return {}
+        t = SellInConsumo
+        filas = (
+            db.query(t.item_id, t.compra_item_id, t.fecha_venta, t.unidades)
+            .filter(t.compra_item_id.in_(lineas))
+            .order_by(t.item_id, t.fecha_venta, t.canal, t.venta_ref, t.compra_item_id)
+        )
+        salida: Dict[int, List[Tuple[int, date, int]]] = defaultdict(list)
+        for item_id, linea, fecha, unidades in filas:
+            salida[item_id].append((linea, fecha, unidades))
+        return salida
+
+    def lotes(self, db: Session, item_ids: Iterable[int]) -> Dict[int, List[Lote]]:
+        """Each product's lines of active purchases, in the order its sales consume them (`fifo.orden_fifo`)."""
+        ids = sorted({int(i) for i in item_ids if i is not None})
+        return {
+            item_id: sorted(item, key=orden_fifo) for item_id, item in (self._lotes(db, ids) if ids else {}).items()
+        }
+
+    @staticmethod
+    def unidades_usadas(db: Session, lineas: List[int]) -> Dict[int, int]:
+        """`{compra_item_id: units the stored consumptions took}`, for the lines that have any."""
+        if not lineas:
+            return {}
+        t = SellInConsumo
+        filas = db.query(t.compra_item_id, func.sum(t.unidades)).filter(t.compra_item_id.in_(lineas))
+        return {linea: int(unidades) for linea, unidades in filas.group_by(t.compra_item_id)}
+
+    @staticmethod
+    def periodos(db: Session, ids: List[int]) -> Dict[int, List[Periodo]]:
+        """`{item_id: its cost modes, oldest first}` (`sell_in_modos_producto`; same `desde`: by id, the one saved
+        last after), for the products that have any; a product without is FIFO."""
+        if not ids:
+            return {}
+        m = SellInModoProducto
+        filas = db.query(m.item_id, m.desde, m.modo).filter(m.item_id.in_(ids)).order_by(m.item_id, m.desde, m.id)
+        periodos: Dict[int, List[Periodo]] = defaultdict(list)
+        for item_id, desde, modo in filas:
+            periodos[item_id].append(Periodo(desde, modo))
+        return periodos
 
     @classmethod
     def _producto(
-        cls, db: Session, item_id: int, lotes: List[Lote], ventas: List[Venta], guardados: Dict[_Key, tuple]
+        cls,
+        db: Session,
+        item_id: int,
+        lotes: List[Lote],
+        ventas: List[Venta],
+        guardados: Dict[_Key, tuple],
+        periodos: List[Periodo],
     ) -> Tuple[int, int]:
-        return cls._escribir(db, item_id, asignar(lotes, ventas), guardados)
+        return cls._escribir(db, item_id, asignar(lotes, ventas, periodos), guardados)
 
     @staticmethod
     def _lotes(db: Session, ids: List[int]) -> Dict[int, List[Lote]]:

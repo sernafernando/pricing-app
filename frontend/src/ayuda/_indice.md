@@ -28,7 +28,7 @@ Este índice lista todas las pantallas de la aplicación, en el mismo orden en q
 | 22 | Ranking productos | `ranking-productos.md` | `/consultas/ranking` | Reportes → Ranking productos | Acceso al ranking completo o al ranking propio |
 | 23 | Métricas ML | `metricas-ml.md` | `/metricas-ml` | Reportes → Métricas ML | Acceso a Métricas ML |
 | 24 | Métricas ML (anterior) | `metricas-ml-anterior.md` | `/dashboard-metricas-ml` | Reportes → Métricas ML (anterior) | Acceso al tablero de ventas ML |
-| 25 | Aportes de marcas (Ads ML) | `aportes-de-marcas-ads-ml.md` | `/ml-ads-aportes` | Reportes → Aportes de marcas (Ads ML) | Acceso a Métricas ML y, además, permiso para ver ganancias |
+| 25 | ML Ads | `ml-ads.md` | `/ml-ads-aportes` | Reportes → ML Ads | Acceso a Métricas ML y, además, permiso para ver ganancias |
 | 26 | Ventas ML | `ventas-ml.md` | `/ml-ventas-listado` | Reportes → Ventas ML | Acceso a Ventas ML |
 | 27b | Gestión Full | `gestion-full.md` | `/gestion-full` | Reportes → Gestión Full | Acceso a Productos o a Ventas ML; override solo PM/sub-PM o admin |
 | 27 | Publicaciones ML | `publicaciones-ml.md` | `/ml-publicaciones` | Reportes → Publicaciones ML | Acceso a Productos o a Ventas ML |

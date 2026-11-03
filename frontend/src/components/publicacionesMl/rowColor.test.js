@@ -55,3 +55,51 @@ describe('the local overlay (paints and SSE events since the rows loaded)', () =
     expect(treeRowTone({ type: 'node', node: product }, overlay)).toMatchObject({ background: 'var(--product-ok-bg)' });
   });
 });
+
+describe("a publication's own color (seleccion-por-publicacion S3)", () => {
+  // MLA4 is painted azul on its own; its product 77 is rojo.
+  const own = { item_id: 'MLA4', link: { producto_item_id: 77 }, color_marcado: 'azul', color_propio: 'azul', color_producto: 'rojo' };
+
+  it('shows its own color, and keeps it when its product is repainted', () => {
+    expect(itemRowTone(own)).toMatchObject({ background: 'var(--product-info-bg)' });
+    expect(itemRowTone(own, new Map([['77', { marcado: 'verde' }]]))).toMatchObject({ background: 'var(--product-info-bg)' });
+  });
+
+  it("unpainted on its own, it falls back to its product's color, repainted or not", () => {
+    const unpainted = new Map([['MLA4', { marcado: null }]]);
+    expect(itemRowTone(own, undefined, unpainted)).toMatchObject({ background: 'var(--product-urgent-bg)' });
+    expect(itemRowTone(own, new Map([['77', { marcado: 'verde' }]]), unpainted)).toMatchObject({ background: 'var(--product-ok-bg)' });
+  });
+
+  it('painted on its own since the rows loaded, its color wins over its product, whose sibling keeps the product', () => {
+    const sibling = { item_id: 'MLA1', link: { producto_item_id: 77 }, color_marcado: 'rojo' };
+    const painted = new Map([['MLA1', { marcado: 'gris' }]]);
+    expect(itemRowTone(sibling, undefined, painted)).toMatchObject({ background: 'var(--product-inactive-bg)' });
+    expect(itemRowTone({ ...sibling, item_id: 'MLA9' }, undefined, painted)).toMatchObject({ background: 'var(--product-urgent-bg)' });
+  });
+
+  it('on a team layer its own global color hints it, and its product shows through once unpainted', () => {
+    const hinted = {
+      item_id: 'MLA4',
+      link: { producto_item_id: 77 },
+      color_hint_global: 'gris',
+      color_hint_global_propio: 'gris',
+      color_hint_global_producto: 'rojo',
+    };
+    expect(itemRowTone(hinted)).toMatchObject({ marker: 'var(--product-inactive-bg)' });
+    expect(itemRowTone(hinted, undefined, new Map([['MLA4', { hintGlobal: null }]]))).toMatchObject({
+      marker: 'var(--product-urgent-bg)',
+    });
+  });
+
+  it('a row whose own color comes as null shows its product color', () => {
+    const unpainted = { item_id: 'MLA5', link: { producto_item_id: 77 }, color_marcado: 'rojo', color_propio: null, color_producto: null };
+    expect(itemRowTone(unpainted)).toMatchObject({ background: 'var(--product-urgent-bg)' });
+  });
+
+  it('reaches the publications of the trees too', () => {
+    expect(treeRowTone({ type: 'item', item: own }, undefined, new Map([['MLA4', { marcado: null }]]))).toMatchObject({
+      background: 'var(--product-urgent-bg)',
+    });
+  });
+});

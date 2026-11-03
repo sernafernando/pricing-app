@@ -1,4 +1,4 @@
-"""Schemas of the sell-out campaigns API (`/api/sell-out/campanas`).
+"""Schemas of the sell-out campaigns API (`/api/sell-out/campanas`) and its programs (`/api/sell-out/programas`).
 
 Only the shape is validated here (types and closed choices), like the sell-in
 schemas. The rules that mirror the database CHECKs (amount by type, percentage
@@ -26,6 +26,7 @@ from pydantic import (
     ModelWrapValidatorHandler,
     SerializerFunctionWrapHandler,
     ValidationError,
+    field_validator,
     model_serializer,
     model_validator,
 )
@@ -38,11 +39,13 @@ TcModo = Literal["al_cobro", "fijo", "dia_venta"]
 Estado = Literal["activa", "anulada"]
 Canal = Literal["ml", "fuera", "tn"]
 EstadoRecalculo = Literal["al_dia", "en_cola", "recalculando", "fallida"]
+EstadoPrograma = Literal["activo", "archivado"]
 
 NOMBRE_MAX = 200
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
 GRUPOS_MAX = 50
 ITEMS_MAX = 500
+ASIGNAR_MAX = 500  # campaigns per program assignment
 INT_MIN, INT_MAX = -(2**31), 2**31 - 1  # INTEGER
 
 # Each NUMERIC(precision, scale) column as (max_digits, decimal_places).
@@ -93,7 +96,7 @@ class SellOutRepartoIn(BaseModel):
 
 
 class SellOutCampanaIn(BaseModel):
-    """Create, and full replace on edit."""
+    """Create, and full replace on edit; also the renewal draft (`GET /{id}/renovacion`)."""
 
     nombre: str = Field(max_length=NOMBRE_MAX)
     descripcion: Optional[str] = None
@@ -121,6 +124,9 @@ class SellOutCampanaIn(BaseModel):
     # (`monto_total`, see `SellOutCampanaItemIn`). Absent (None)
     # keeps the stored ones, so a client that does not send them never wipes them; `[]` clears them.
     items: Optional[list[SellOutCampanaItemIn]] = Field(default=None, max_length=ITEMS_MAX)
+    # Its program (campaign system S1), on create only: absent or None means none. An edit ignores it and keeps the
+    # stored one; assignment goes through `POST /api/sell-out/programas/asignar`, which audits it.
+    programa_id: Optional[int] = Field(default=None, ge=INT_MIN, le=INT_MAX)
 
     @model_validator(mode="wrap")
     @classmethod
@@ -152,6 +158,121 @@ class SellOutAnularMasivoIn(BaseModel):
 class SellOutAnularMasivoOut(BaseModel):
     anuladas: list[int]
     omitidas: list[int]  # already voided: skipped, not an error
+
+
+class SellOutEditarMasivoIn(BaseModel):
+    """`POST /editar-masivo[/previa]`: the campaigns and the fields to set on all of them; an absent or null field
+    is not filled and keeps each campaign's stored value. An empty or too large selection, or no field filled, is
+    refused by the router with a readable message. Any other field (another column, a typo) is a 422: never
+    silently dropped."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    campana_ids: list[int]
+    fecha_desde: Optional[date] = None
+    fecha_hasta: Optional[date] = None  # inclusive
+    acumulable: Optional[bool] = None
+
+    def cambios(self) -> dict:
+        """The filled fields only (`edicion_masiva.CAMPOS`)."""
+        return {
+            campo: valor
+            for campo in ("fecha_desde", "fecha_hasta", "acumulable")
+            if (valor := getattr(self, campo)) is not None
+        }
+
+
+class SellOutEditarMasivoOut(BaseModel):
+    editadas: list[int]
+    sin_cambio: list[int]  # already had the values: no audit row, not queued
+
+
+class SellOutEdicionRechazadaOut(BaseModel):
+    id: int
+    nombre: Optional[str]  # None for an unknown id
+    motivo: str
+
+
+class SellOutEdicionMovimientoOut(BaseModel):
+    """What the rebuild after the edit takes from (`salen`) or gives to (`entran`) one campaign, simulated with the
+    drain's own rebuild and rolled back (`edicion_masiva`): lines gone (or new), and the units and money, in the
+    campaign currency, its lines lose (or gain). Exact on the same data: caps, stacking and a fixed total's split
+    included (a `monto_total` share moved between a product's sales shows on both sides). `monto` is the signed
+    credit of the lines that leave or shrink (`salen`) or enter or grow (`entran`), kept on the line's side: a
+    deduction's (negative `monto_total`) leaving -100 line is `salen` -100, not `entran` +100."""
+
+    lineas: int
+    unidades: int
+    monto: Decimal
+
+
+class SellOutEdicionCampanaPreviaOut(BaseModel):
+    id: int
+    nombre: str
+    moneda: Moneda
+    # The values the campaign would have.
+    fecha_desde: date
+    fecha_hasta: date
+    acumulable: bool
+    incluye_pendientes: bool = Field(
+        description=(
+            "It had a queue row before the preview: its numbers also include pending work this edit does not "
+            "cause («incluye cambios pendientes que no causa esta edición»)."
+        )
+    )
+    salen: SellOutEdicionMovimientoOut
+    entran: SellOutEdicionMovimientoOut
+
+
+class SellOutEdicionVinculadaPreviaOut(BaseModel):
+    """A campaign the edit does not change but whose credit the rebuild moves: it shares products with an edited one
+    (a cap or `acumulable` decides who holds the units)."""
+
+    id: int
+    nombre: str
+    moneda: Moneda
+    en_seleccion: bool  # False: not among the selected campaigns
+    incluye_pendientes: bool = Field(
+        description=(
+            "It had a queue row before the preview: its numbers also include pending work this edit does not "
+            "cause («incluye cambios pendientes que no causa esta edición»)."
+        )
+    )
+    salen: SellOutEdicionMovimientoOut
+    entran: SellOutEdicionMovimientoOut
+
+
+class SellOutEdicionMontoOut(BaseModel):
+    moneda: Moneda
+    monto: Decimal
+
+
+class SellOutEdicionMovimientoTotalOut(BaseModel):
+    lineas: int
+    unidades: int
+    montos: list[SellOutEdicionMontoOut]  # per currency, only the currencies with something that moves
+
+
+class SellOutEdicionTotalesOut(BaseModel):
+    cambian: int
+    sin_cambio: int
+    rechazadas: int
+    salen: SellOutEdicionMovimientoTotalOut  # over `cambian` and `vinculadas`
+    entran: SellOutEdicionMovimientoTotalOut
+
+
+class SellOutEdicionPreviaOut(BaseModel):
+    """What the bulk edit and the rebuild it queues would do on the same data, written nothing. While `rechazadas`
+    is not empty the apply refuses it all; the numbers are those of the campaigns that can be edited."""
+
+    totales: SellOutEdicionTotalesOut
+    cambian: list[SellOutEdicionCampanaPreviaOut]
+    vinculadas: list[SellOutEdicionVinculadaPreviaOut]
+    # «incluye cambios pendientes que no causa esta edición» when any campaign the rebuild touches has pending work
+    # (a queue row before the preview), listed or not: a voided one not drained yet included; else None.
+    aviso_pendientes: Optional[str] = None
+    sin_cambio: list[int]
+    rechazadas: list[SellOutEdicionRechazadaOut]
 
 
 class SellOutTipoCambioIn(BaseModel):
@@ -215,6 +336,11 @@ class SellOutResumenOut(BaseModel):
         return salida
 
 
+class SellOutProgramaRefOut(BaseModel):
+    id: int
+    nombre: str
+
+
 class SellOutCampanaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -239,6 +365,9 @@ class SellOutCampanaOut(BaseModel):
     estado: Estado
     usuario_id: int
     offset_origen_id: Optional[int] = None  # read-only: the legacy offset it was migrated from (T15)
+    # Its program (metadata only), set with `POST /api/sell-out/programas/asignar`, never by an edit.
+    programa_id: Optional[int] = None
+    programa: Optional[SellOutProgramaRefOut] = None
     created_at: datetime
     updated_at: datetime
     grupos: list[SellOutGrupoOut]
@@ -283,3 +412,124 @@ class SellOutConsumosListOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ── Programs (`/api/sell-out/programas`, campaign system S1) ───────────
+
+
+def _nombre_programa(valor: Optional[str]) -> Optional[str]:
+    if valor is None:
+        return None
+    valor = valor.strip()
+    if not valor:
+        raise ValueError("El nombre del programa no puede estar vacío.")
+    if len(valor) > NOMBRE_MAX:  # counted after trimming: surrounding spaces never make a name too long
+        raise ValueError(f"El nombre del programa admite hasta {NOMBRE_MAX} caracteres.")
+    return valor
+
+
+class SellOutProgramaIn(BaseModel):
+    """`POST /`: a new program. The name is trimmed, not empty and unique ignoring case (a 409 otherwise)."""
+
+    nombre: str
+    descripcion: Optional[str] = None
+
+    _nombre = field_validator("nombre")(_nombre_programa)
+
+
+class SellOutProgramaPatchIn(BaseModel):
+    """`PATCH /{id}`: only the fields sent change. `nombre` and `estado` cannot be null; `descripcion` can."""
+
+    nombre: Optional[str] = None
+    descripcion: Optional[str] = None
+    estado: Optional[EstadoPrograma] = None
+
+    _nombre = field_validator("nombre")(_nombre_programa)
+
+    @model_validator(mode="after")
+    def _sin_nulos(self) -> "SellOutProgramaPatchIn":
+        for campo in ("nombre", "estado"):
+            if campo in self.model_fields_set and getattr(self, campo) is None:
+                raise ValueError(f"El campo {campo} no puede ser nulo.")
+        return self
+
+
+class SellOutProgramaOut(BaseModel):
+    """A program with what its campaigns span: how many (`campanas`), how many are active (`activas`), the
+    earliest start (`desde`) and the latest end (`hasta`); None dates while it has no campaign."""
+
+    id: int
+    nombre: str
+    descripcion: Optional[str]
+    estado: EstadoPrograma
+    campanas: int
+    activas: int
+    desde: Optional[date]
+    hasta: Optional[date]
+    nombres: int  # distinct campaign names, ignoring case and repeated spaces
+
+
+class SellOutAsignarIn(BaseModel):
+    """`POST /asignar`: set the program of these campaigns, or clear it with `programa_id: null` (required)."""
+
+    campana_ids: list[int] = Field(min_length=1, max_length=ASIGNAR_MAX)
+    programa_id: Optional[int]
+
+
+class SellOutAsignarOut(BaseModel):
+    asignadas: int  # campaigns whose program changed
+    sin_cambio: int  # already had it
+
+
+class SellOutSugerenciaCampanaOut(BaseModel):
+    id: int
+    nombre: str
+    fecha_desde: date
+    fecha_hasta: date
+    estado: Estado
+
+
+class SellOutSugerenciaOut(BaseModel):
+    """Campaigns without a program sharing their exact dates (`programas.sugerencias`): a proposal, never applied.
+    `base` is the proposed program name, `nombres` how many distinct names the group holds."""
+
+    base: str
+    fecha_desde: date
+    fecha_hasta: date
+    nombres: int
+    campanas: list[SellOutSugerenciaCampanaOut]
+
+
+class SellOutProgramaListOut(BaseModel):
+    items: list[SellOutProgramaOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class SellOutSugerenciaListOut(BaseModel):
+    items: list[SellOutSugerenciaOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class SellOutGrupoProgramaOut(BaseModel):
+    """A row of the grouped view (`GET /sell-out/campanas/por-programa`): a program (or, with `programa_id` None,
+    the campaigns without one) and what its campaigns under the list's filters span."""
+
+    programa_id: Optional[int]
+    nombre: Optional[str]
+    campanas: int
+    activas: int
+    nombres: int  # distinct campaign names, ignoring case and repeated spaces
+    desde: date
+    hasta: date
+
+
+class SellOutGruposProgramaListOut(BaseModel):
+    items: list[SellOutGrupoProgramaOut]  # programs with campaigns under the filters, by name
+    total: int
+    page: int
+    page_size: int
+    sin_programa: Optional[SellOutGrupoProgramaOut]  # None when every filtered campaign has a program

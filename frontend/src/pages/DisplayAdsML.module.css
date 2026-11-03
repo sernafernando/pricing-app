@@ -1,0 +1,96 @@
+/* DisplayAdsML — the Display tab. The shell (container, header, KPI tiles, toolbar, table) is AportesAdsML's;
+   only what Display adds lives here: five KPI tiles, the daily cost chart and the table's extra columns. */
+
+@media (min-width: 1024px) {
+  .kpis {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.chartCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: 14px 16px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.chartHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.chartAverage {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+}
+
+.chart {
+  display: block;
+  width: 100%;
+  height: 160px;
+}
+
+.grid {
+  stroke: var(--cf-border-subtle);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.area {
+  fill: var(--cf-accent-blue);
+  opacity: 0.12;
+}
+
+.line {
+  fill: none;
+  stroke: var(--cf-accent-blue);
+  stroke-width: 2;
+}
+
+.dot {
+  fill: var(--cf-accent-blue);
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.count {
+  margin-left: auto;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+.campaign {
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.date {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+}
+
+.idle td {
+  color: var(--cf-text-tertiary);
+}
