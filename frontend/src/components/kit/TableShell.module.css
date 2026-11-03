@@ -151,6 +151,30 @@
   --cf-text-primary: var(--row-tone-fg);
   --cf-text-secondary: var(--row-tone-fg);
   --cf-text-tertiary: var(--row-tone-fg);
+  --cf-text-muted: var(--row-tone-fg);
+  /* The palette is light in both themes, so a dark theme's light tone colors and tinted (see-through) badge
+     backgrounds would not read on it. Inside a painted row each tone draws with the palette's dark accent of its
+     hue (black in high contrast) -- AA on every palette color -- and a badge sits on its own solid surface. */
+  --tone-success-fg: var(--product-ok-accent);
+  --tone-danger-fg: var(--product-urgent-accent);
+  --tone-warning-fg: var(--product-warning-accent);
+  --tone-info-fg: var(--product-info-accent);
+  --tone-purple-fg: var(--product-review-accent);
+  --tone-neutral-fg: var(--product-inactive-accent);
+  --money-positive: var(--product-ok-accent);
+  --money-negative: var(--product-urgent-accent);
+  --tone-success-bg: var(--product-badge-surface);
+  --tone-danger-bg: var(--product-badge-surface);
+  --tone-warning-bg: var(--product-badge-surface);
+  --tone-info-bg: var(--product-badge-surface);
+  --tone-purple-bg: var(--product-badge-surface);
+  --tone-neutral-bg: var(--product-badge-surface);
+  --tone-success-border: var(--product-ok-accent);
+  --tone-danger-border: var(--product-urgent-accent);
+  --tone-warning-border: var(--product-warning-accent);
+  --tone-info-border: var(--product-info-accent);
+  --tone-purple-border: var(--product-review-accent);
+  --tone-neutral-border: var(--product-inactive-accent);
 }
 
 .row[data-tone] .cell {

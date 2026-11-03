@@ -745,6 +745,8 @@ input[type="checkbox"]:focus-visible {
   --product-inactive-bg: #d1d5db;
   --product-inactive-text: #374151;
   --product-inactive-accent: #1f2937;
+  /* A badge's own surface on a painted row: the palette is light in every theme, so this is too. */
+  --product-badge-surface: #ffffff;
 }
 
 /* ============================================

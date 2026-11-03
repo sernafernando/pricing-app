@@ -2322,6 +2322,64 @@ describe('row colors and the color layer (S8)', () => {
     });
   }
 
+  // Owner (2026-11-03): "los badges no tienen fondo, entonces, por ejemplo el de clásica en verde casi no se lee, el de
+  // activa sobre verde casi no se lee, los días en verde casi no se leen, los colores en naranja casi no se leen, y eso
+  // que tengo el modo alto contraste activado". Every text a painted row shows reads at AA on what paints right
+  // behind it: the row's tone, or a badge's (or a colored figure's) own solid surface, never a tint over the tone.
+  const PALETTE = ['rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
+  const isOpaque = (color) => !/rgba\(.*,\s*0(\.\d+)?\)$/.test(color) && color !== 'transparent';
+  const paintedBehind = (el) => {
+    for (let node = el; node; node = node.parentElement) {
+      const { backgroundColor } = getComputedStyle(node);
+      if (backgroundColor !== 'rgba(0, 0, 0, 0)') return backgroundColor;
+    }
+    return null;
+  };
+  const textsOf = (row) =>
+    [...row.querySelectorAll('*')].filter((el) => {
+      const own = [...el.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+      const box = el.getBoundingClientRect();
+      return own && box.width > 1 && box.height > 1 && getComputedStyle(el).visibility !== 'hidden';
+    });
+
+  for (const theme of ['light', 'dark']) {
+    it(`1366x768 ${theme}, high contrast: badges, days and colored figures read on every palette color`, async () => {
+      publicacionesMlAPI.items.mockResolvedValue({
+        data: {
+          ...RESPONSE,
+          items: RESPONSE.items.map((item, index) => (index < PALETTE.length ? { ...item, color_marcado: PALETTE[index] } : item)),
+        },
+      });
+      document.documentElement.classList.add('high-contrast');
+      try {
+        const screen = await renderPage({ width: 1366, height: 768, theme });
+        const rows = [...document.querySelectorAll('tbody tr[data-tone]')];
+        expect(rows).toHaveLength(PALETTE.length);
+        const unreadable = [];
+        for (const row of rows) {
+          for (const el of textsOf(row)) {
+            const behind = paintedBehind(el);
+            const { color } = getComputedStyle(el);
+            const label = `${row.title} "${el.textContent.trim()}"`;
+            if (!behind || !isOpaque(behind)) unreadable.push(`${label}: no solid surface (${behind})`);
+            else if (contrastRatio(color, behind) < 4.5) unreadable.push(`${label}: ${contrastRatio(color, behind).toFixed(2)}`);
+          }
+        }
+        expect(unreadable).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          // Tall enough for the seven painted rows, the table scrolled to them.
+          await page.viewport(1920, 1400);
+          scrollerOf().scrollTop = rows[0].offsetTop - 80;
+          await frame();
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/palette-rows-${theme}-hc.png` });
+        }
+        screen.unmount();
+      } finally {
+        document.documentElement.classList.remove('high-contrast');
+      }
+    });
+  }
+
   for (const theme of ['light', 'dark']) {
     it(`1366x768 ${theme}: a price edited in place keeps its input inside the cell`, async () => {
       const screen = await renderPage({ width: 1366, height: 768, theme, entry: PRECIOS });
