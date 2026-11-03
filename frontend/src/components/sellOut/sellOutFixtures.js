@@ -145,3 +145,48 @@ export const CAMPANA_MONTO_TOTAL_NEGATIVA = {
     reparto: { asignado: '0.00', asignado_sin_ventas: '0.00', sin_asignar: '-13662075.00', motivo: null },
   },
 };
+
+/** `GET /{id}/renovacion` of CAMPANA_MIGRADA (`SellOutCampanaIn`): a model name, so it stays; the next quarter. */
+export const RENOVACION_MIGRADA = {
+  nombre: 'RB 8180',
+  descripcion: 'Acuerdo con Epson',
+  fecha_desde: '2027-01-01',
+  fecha_hasta: '2027-03-31',
+  tipo: 'por_unidad',
+  monto_unit: '36.00',
+  monto_total: null,
+  porcentaje: null,
+  base_porcentaje: 'costo',
+  moneda: 'USD',
+  tc_modo: 'fijo',
+  tipo_cambio: '1400.000000',
+  tope_unidades: 500,
+  tope_monto: null,
+  acumulable: false,
+  monto_incluye_iva: true,
+  grupo_ids: [301],
+  items: [{ item_id: 4172, monto_unit: '30.00', reparto_porcentaje: null, reparto_monto: null }],
+  programa_id: 12,
+};
+
+/** `GET /{id}/renovacion` of CAMPANA_MONTO_TOTAL: its total and its two shares. */
+export const RENOVACION_MONTO_TOTAL = {
+  ...RENOVACION_MIGRADA,
+  nombre: 'TP-Link bono Q4',
+  descripcion: null,
+  tipo: 'monto_total',
+  monto_unit: null,
+  monto_total: '2000000.00',
+  moneda: 'ARS',
+  tc_modo: null,
+  tipo_cambio: null,
+  tope_unidades: null,
+  acumulable: true,
+  monto_incluye_iva: false,
+  grupo_ids: [1],
+  items: [
+    { item_id: 4172, monto_unit: null, reparto_porcentaje: '60.0000', reparto_monto: null },
+    { item_id: 4173, monto_unit: null, reparto_porcentaje: null, reparto_monto: '500000.00' },
+  ],
+  programa_id: null,
+};
