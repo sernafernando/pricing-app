@@ -186,20 +186,53 @@ def upsert_last_inbound(
     return row
 
 
+def record_inbound_attempt(
+    db: Session,
+    inventory_id: str,
+    *,
+    now: Optional[datetime] = None,
+) -> MlFulfillmentLastInbound:
+    """Bump ``fetched_at`` so claim rotates past chronic ML failures (429/404/…).
+
+    Does not invent a Target qty — only marks the inventory_id as recently
+    attempted. Without this, failed ids stay unclaimed-fresh and monopolize
+    every drip tick (ordered by inventory_id alone).
+    """
+    moment = now or datetime.now(UTC)
+    inbound = (inventory_id or "").strip()
+    row = db.get(MlFulfillmentLastInbound, inbound)
+    if row is None:
+        row = MlFulfillmentLastInbound(
+            inventory_id=inbound,
+            cantidad=None,
+            occurred_at=None,
+            operation_id=None,
+            inbound_id=None,
+            fetched_at=moment,
+        )
+        db.add(row)
+    else:
+        row.fetched_at = moment
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 _CLAIM_SQL = text(
     """
-    SELECT DISTINCT i.inventory_id
-    FROM ml_items i
-    WHERE i.inventory_id IS NOT NULL
-      AND i.never_existed IS NOT TRUE
-      AND i.gone_at IS NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM ml_fulfillment_last_inbound f
-        WHERE f.inventory_id = i.inventory_id
-          AND f.fetched_at >= :fresh_after
-      )
-    ORDER BY i.inventory_id
+    SELECT sub.inventory_id
+    FROM (
+      SELECT i.inventory_id AS inventory_id,
+             MIN(f.fetched_at) AS fetched_at
+      FROM ml_items i
+      LEFT JOIN ml_fulfillment_last_inbound f ON f.inventory_id = i.inventory_id
+      WHERE i.inventory_id IS NOT NULL
+        AND i.never_existed IS NOT TRUE
+        AND i.gone_at IS NULL
+        AND (f.inventory_id IS NULL OR f.fetched_at < :fresh_after)
+      GROUP BY i.inventory_id
+    ) sub
+    ORDER BY sub.fetched_at ASC NULLS FIRST, sub.inventory_id ASC
     LIMIT :limit
     """
 )
@@ -239,6 +272,8 @@ def refresh_last_inbound(
     try:
         picked = fetch_last_inbound_for_inventory(http, inventory_id=inventory_id, lookback_days=lookback_days)
         if picked is None:
+            # Soft ML failure (e.g. all-429): still rotate claim away from this id.
+            record_inbound_attempt(db, inventory_id)
             return None
         return upsert_last_inbound(
             db,
