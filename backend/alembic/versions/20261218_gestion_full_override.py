@@ -1,7 +1,7 @@
 """gestion_full_override: PM qty override per Full inventory_id
 
 Revision ID: 20261218_gestion_full_override
-Revises: 20261217_drop_sell_in_compras_pedido_compra_id
+Revises: 20261230_rma_borrar_revisado
 Create Date: 2026-10-30
 
 Gestión Full (Reportes): one optional integer override per MercadoLibre
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261218_gestion_full_override"
-down_revision: Union[str, None] = "20261227_sell_in_modos_producto"
+down_revision: Union[str, None] = "20261230_rma_borrar_revisado"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
