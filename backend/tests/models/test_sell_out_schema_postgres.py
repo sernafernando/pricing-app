@@ -1,8 +1,8 @@
 """Migration `20261105_sell_out_campanas`: sell-out campaigns, their groups and permissions.
 
 The schema is built by every sell-out migration in order (`_MIGRATIONS`), so the
-parity test also covers `20261108_sell_out_consumos`, `20261207_sell_out_campana_items` and
-`20261214_sell_out_monto_total`; their own rules are proven
+parity test also covers `20261108_sell_out_consumos`, `20261207_sell_out_campana_items`,
+`20261214_sell_out_monto_total` and `20261225_sell_out_programas`; their own rules are proven
 in `tests/unit/test_migration_sell_out_consumos.py` and `tests/migrations/`.
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
@@ -31,9 +31,11 @@ _MIGRATIONS = [
         "20261111_sell_out_offset_origen",
         "20261207_sell_out_campana_items",
         "20261214_sell_out_monto_total",
+        "20261225_sell_out_programas",
     )
 ]
 TABLES = (
+    "sell_out_programas",
     "sell_out_campanas",
     "sell_out_campana_grupos",
     "sell_out_campana_items",

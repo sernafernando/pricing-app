@@ -8,6 +8,9 @@ Introduces:
 - `ProductoColor`: per-team color marking for a `ProductoERP`, replacing the
   single global `productos_pricing.color_marcado`/`color_marcado_tienda`
   columns (retained for now; migration only backfills into this new table).
+- `PublicacionColor`: per-team ML color of one publication (MLA), painted from
+  Publicaciones ML. It overrides its product's `ProductoColor.color_ml` in that
+  layer; without a row the publication shows its product's color.
 """
 
 import enum
@@ -46,6 +49,7 @@ class Equipo(Base):
     creador = relationship("Usuario", foreign_keys=[creado_por])
     miembros = relationship("EquipoMiembro", back_populates="equipo")
     colores = relationship("ProductoColor", back_populates="equipo")
+    colores_publicacion = relationship("PublicacionColor", back_populates="equipo")
 
     __table_args__ = (
         # Guarantees a single "global" (es_global=True) team row. Partial
@@ -93,4 +97,20 @@ class ProductoColor(Base):
 
     equipo = relationship("Equipo", back_populates="colores")
     producto = relationship("ProductoERP")
+    editor = relationship("Usuario", foreign_keys=[updated_by])
+
+
+class PublicacionColor(Base):
+    __tablename__ = "publicacion_color"
+    __table_args__ = (UniqueConstraint("equipo_id", "item_id", name="uq_publicacion_color_equipo_item"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    equipo_id = Column(Integer, ForeignKey("equipo.id"), nullable=False, index=True)
+    # The MLA. No foreign key to `ml_items`: a color may outlive its publication there (team deletion drops those).
+    item_id = Column(String(30), nullable=False, index=True)
+    color_ml = Column(String(20), nullable=False)
+    updated_by = Column(Integer, ForeignKey("usuarios.id"), nullable=True, index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    equipo = relationship("Equipo", back_populates="colores_publicacion")
     editor = relationship("Usuario", foreign_keys=[updated_by])

@@ -9,11 +9,16 @@ const CAMPANAS = '/sell-out/campanas';
  */
 export const sellOutAPI = {
   listar: (params) => api.get(CAMPANAS, { params }),
+  // The grouped view's rows with the list's filters: the programs with campaigns under them, a page at a time,
+  // and `sin_programa`, the campaigns without one (null when there are none).
+  porPrograma: (params) => api.get(`${CAMPANAS}/por-programa`, { params }),
   detalle: (id) => api.get(`${CAMPANAS}/${id}`),
   // What a campaign credited, sale line by sale line, page by page.
   consumos: (id, params) => api.get(`${CAMPANAS}/${id}/consumos`, { params }),
   crear: (body) => api.post(CAMPANAS, body),
   editar: (id, body) => api.put(`${CAMPANAS}/${id}`, body),
+  // The renewal draft of a campaign, active or voided: a NEW campaign in the shape `crear` takes. It writes nothing.
+  renovacion: (id) => api.get(`${CAMPANAS}/${id}/renovacion`),
   anular: (id, motivo) => api.post(`${CAMPANAS}/${id}/anular`, { motivo: motivo?.trim() || null }),
   // Bulk void, all or nothing: `{ anuladas, omitidas }`; a refusal is a 422 with `error.rechazadas: [{ id, motivo }]`.
   anularVarias: (ids, motivo) => api.post(`${CAMPANAS}/anular`, { ids, motivo: motivo?.trim() || null }),
@@ -24,4 +29,19 @@ export const sellOutAPI = {
   repartir: (id, repartos) => api.put(`${CAMPANAS}/${id}/reparto`, { repartos }),
   // The product groups a campaign reaches: the ones Gestionar Offsets manages (`GET /offset-grupos`).
   grupos: () => api.get('/offset-grupos'),
+};
+
+const PROGRAMAS = '/sell-out/programas';
+
+/**
+ * Sell-out programs (`app/routers/sell_out_programas.py`), the level that groups campaigns: `sell_out.ver` lists them
+ * and their suggestions, `sell_out.gestionar` creates them and assigns campaigns. Metadata only: no money changes.
+ */
+export const sellOutProgramasAPI = {
+  listar: (params) => api.get(PROGRAMAS, { params }),
+  crear: (body) => api.post(PROGRAMAS, body),
+  // All or nothing: `{ asignadas, sin_cambio }`; an archived program or unknown campaigns are a 422.
+  asignar: (campanaIds, programaId) => api.post(`${PROGRAMAS}/asignar`, { campana_ids: campanaIds, programa_id: programaId }),
+  // Campaigns without a program that share their exact dates, each group with a proposed name (`base`).
+  sugerencias: (params) => api.get(`${PROGRAMAS}/sugerencias`, { params }),
 };

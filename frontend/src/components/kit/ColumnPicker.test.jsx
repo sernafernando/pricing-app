@@ -69,4 +69,23 @@ describe('ColumnPicker', () => {
     await user.click(checkboxA);
     expect(checkboxA).toBeChecked();
   });
+
+  it('takes its own label, so a second picker (Indicadores) sits beside Columnas with its own popover', async () => {
+    const user = userEvent.setup();
+    function Two() {
+      const table = useReactTable({ columns: COLUMNS, data: [], getCoreRowModel: getCoreRowModel() });
+      return (
+        <>
+          <ColumnPicker table={table} />
+          <ColumnPicker table={table} label="Indicadores" groupLabel="Elegir indicadores visibles" />
+        </>
+      );
+    }
+    render(<Two />);
+    await user.click(screen.getByRole('button', { name: 'Columnas' }));
+    await user.click(screen.getByRole('button', { name: 'Indicadores' }));
+    const kpis = screen.getByRole('group', { name: 'Elegir indicadores visibles' });
+    expect(screen.getByRole('button', { name: 'Indicadores' })).toHaveAttribute('aria-controls', kpis.id);
+    expect(kpis.id).not.toBe(screen.getByRole('button', { name: 'Columnas' }).getAttribute('aria-controls'));
+  });
 });

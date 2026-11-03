@@ -31,8 +31,12 @@ Columnas: definidas por el selector de columnas (incluye métricas de ventas, ma
 - **Exportar CSV**: descarga el tablero filtrado. Si alguna campaña de **Monto total** termina en el período, el archivo cierra con una línea **Sell out de montos totales sin producto (Sin asignar y Asignado sin ventas)** con ese monto en la columna **Sell out**.
 - **Exportar a Sheets**: crea una hoja de Google Sheets (si está habilitado).
 - Selector de columnas: elige qué columnas mostrar.
+- **Indicadores**: elige qué tarjetas de KPI mostrar (todas visibles por defecto). Lista solo las que se ven en la pantalla; ocultar una no cambia ningún número. La elección queda guardada en este navegador.
+- **Filas finas**: muestra la tabla con filas más bajas, al estilo de una planilla, para ver muchos productos a la vez. Cada fila queda en una sola línea: el nombre del producto o de la publicación y sus datos (SKU, marca, cantidad de publicaciones, tipo y estado) se cortan con "…" si no entran y se ven completos al pasar el mouse sobre ellos. Se apaga con el mismo botón y la elección queda guardada en este navegador.
 - **Limpiar filtros**: vuelve a los valores por defecto.
-- Expandir fila: muestra publicaciones o siguiente nivel.
+- Expandir fila: muestra publicaciones o siguiente nivel. Las publicaciones de un producto salen ordenadas por tipo: primero las **Clásicas**, después las de **3 cuotas**, **6**, **9** y **12 cuotas**, y al final cualquier otro tipo. Dentro de cada tipo van de mayor a menor facturación.
+- Tipo de publicación: cada publicación muestra una etiqueta con su tipo (**Clásica**, **3 cuotas**, **6 cuotas**, **9 cuotas**, **12 cuotas**). Una Clásica con cuotas cofinanciadas por Mercado Libre dice **Clásica**; al pasar el mouse se aclara. Otros tipos muestran su nombre (por ejemplo, **Gratuita**).
+- Agrupar por **Publicación**: las filas arrancan ordenadas por tipo, en el mismo orden que arriba. Al hacer clic en el título de otra columna, manda esa columna. Agrupar por **Producto** sigue ordenando por facturación.
 
 ## Preguntas frecuentes
 

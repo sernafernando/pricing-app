@@ -99,6 +99,44 @@ def del_alcance(db: Session, bono: SellInBonoMarca, item_id, pedido_id):
     return ProductoERP.marca == bono.marca
 
 
+def alcanza_marcas(marcas: list[str]):
+    """A bonus (`SellInBonoMarca` row) whose scope reaches a product of one of `marcas`, with `del_alcance`'s
+    rule per scope, for the bonus list's Marca filter: a 'marca' bonus its own brand; a 'categoria' bonus a catalog
+    product of its category; a 'modelos' bonus one of its models; a 'factura' bonus a product of its operation,
+    invoiced (`pedido_compra_lineas_facturadas`) or received (`pedido_compra_ingresos`), like `sin_aplicar`.
+
+    A 'factura' bonus whose operation has no invoiced or received line (or no operation) cannot be resolved to a
+    brand from stored data: it is kept, so picking a brand never hides it."""
+    b, p = SellInBonoMarca, ProductoERP
+    de_marca = p.marca.in_(marcas)
+    lineas = union_all(
+        select(PedidoCompraLineaFacturada.pedido_id, PedidoCompraLineaFacturada.item_id),
+        select(PedidoCompraIngreso.pedido_id, PedidoCompraIngreso.item_id),
+    ).subquery("lineas_de_operacion")
+    de_la_operacion = lineas.c.pedido_id == b.pedido_id
+    return or_(
+        and_(b.alcance == "marca", b.marca.in_(marcas)),
+        and_(b.alcance == "categoria", select(p.item_id).where(p.categoria == b.categoria, de_marca).exists()),
+        and_(
+            b.alcance == "modelos",
+            select(SellInBonoItem.id)
+            .join(p, p.item_id == SellInBonoItem.item_id)
+            .where(SellInBonoItem.bono_id == b.id, de_marca)
+            .exists(),
+        ),
+        and_(
+            b.alcance == "factura",
+            or_(
+                select(lineas.c.item_id)
+                .join(p, p.item_id == lineas.c.item_id)
+                .where(de_la_operacion, de_marca)
+                .exists(),
+                ~select(lineas.c.item_id).where(de_la_operacion).exists(),
+            ),
+        ),
+    )
+
+
 MOTIVO_EN_COLA = "En cola"
 MOTIVO_SIN_LINEAS = {
     "marca": "Sin líneas de la marca en la factura",
