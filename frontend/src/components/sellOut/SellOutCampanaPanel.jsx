@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { sellOutAPI } from '../../services/sellOutAPI';
@@ -10,7 +10,7 @@ import SellOutConsumos from './SellOutConsumos';
 import SellOutReparto from './SellOutReparto';
 import SellOutTipoCambio from './SellOutTipoCambio';
 import { CANAL_LABELS, TC_MODO_LABELS, beneficio, nombreDeItem, recalculo } from './sellOutFormat';
-import { CAMPANA_VACIA, bodyDeCampana, faltantes, valoresDeCampana } from './sellOutValores';
+import { CAMPANA_VACIA, bodyDeCampana, faltantes, valoresDeBorrador, valoresDeCampana } from './sellOutValores';
 import panelStyles from '../sellIn/SellInPanel.module.css';
 import tableStyles from '../sellIn/SellInTable.module.css';
 
@@ -38,11 +38,17 @@ function topes(campana) {
  * place (a full replace), voided after an inline confirmation, and, in USD `al_cobro`, given the rate the brand
  * paid at. The backend's messages (422/409) show inline; a 409 on save reads the campaign again. A `monto_total`
  * campaign (T26d) shows its split per product (`SellOutReparto`), edited with `sell_out.repartir` (read from the
- * permissions context: a PM may split without managing campaigns) or `sell_out.gestionar`.
+ * permissions context: a PM may split without managing campaigns) or `sell_out.gestionar`. "Renovar" (with
+ * `sell_out.gestionar`, active or voided) loads the renewal draft (`GET /{id}/renovacion`) into the NEW-campaign form:
+ * nothing is saved until "Guardar campaña", which creates the copy (shares included); the original is never edited.
+ * `renovarAlAbrir` (a row's "Renovar") does that as soon as the campaign is read.
  */
-export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGestionar = false, onSaved, onClose }) {
+export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGestionar = false, renovarAlAbrir = false, onSaved, onClose }) {
   const id = useId();
-  const nuevo = campanaId === null;
+  // The campaign a renewal copies (its name), while its draft is in the form.
+  const [renovando, setRenovando] = useState(null);
+  const creando = campanaId === null;
+  const nuevo = creando || renovando !== null;
   const [confirmando, setConfirmando] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [campana, setCampana] = useState(null);
@@ -58,7 +64,7 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
   };
 
   useEffect(() => {
-    if (nuevo) return undefined;
+    if (creando) return undefined;
     let active = true;
     setCampana(null);
     setError(null);
@@ -69,7 +75,38 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
     return () => {
       active = false;
     };
-  }, [nuevo, campanaId]);
+  }, [creando, campanaId]);
+
+  const renovar = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { data } = await sellOutAPI.renovacion(campanaId);
+      setConfirmando(false);
+      setValores(valoresDeBorrador(data, campana));
+      setRenovando(campana.nombre);
+    } catch (err) {
+      setError(apiMessage(err, 'No se pudo preparar la renovación.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // A row's "Renovar": once, when the campaign has been read (the parent remounts the panel for each click).
+  const renovarPendiente = useRef(renovarAlAbrir);
+  useEffect(() => {
+    if (!renovarPendiente.current || campana === null || !puedeGestionar) return;
+    renovarPendiente.current = false;
+    renovar();
+    // `renovar` is a new function each render; the ref guard runs it once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campana, puedeGestionar]);
+
+  const dejarDeRenovar = () => {
+    setRenovando(null);
+    setError(null);
+    setValores(valoresDeCampana(campana));
+  };
 
   const guardar = async () => {
     const faltan = faltantes(valores);
@@ -135,6 +172,13 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
   const aplicables = montoTotal ? campos.filter(([label]) => label !== 'Topes') : campos;
   const visibles = editable ? aplicables.filter(([label]) => soloLectura.has(label)) : aplicables;
   const canales = campana?.resumen?.por_canal ?? [];
+  // Active and voided campaigns alike: the renewal is a new campaign, the original stays as it is.
+  const puedeRenovar = puedeGestionar && !nuevo && campana !== null;
+  const botonRenovar = (
+    <button type="button" className="btn-tesla outline sm" onClick={renovar} disabled={busy}>
+      Renovar
+    </button>
+  );
   // Editing, the form holds them; read-only, they are listed when the campaign has any.
   // A monto total campaign's items are its shares, shown by its reparto section.
   const montosPorProducto = !editable && !montoTotal && campana?.items?.length ? campana.items : [];
@@ -157,7 +201,7 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
         {!nuevo && !campana && !error && <p className={panelStyles.hint}>Cargando…</p>}
         {editable && (
           <section className={panelStyles.section} aria-label="Definición">
-            <SellOutCampanaForm valores={valores} onChange={setValores} grupos={grupos} />
+            <SellOutCampanaForm valores={valores} onChange={setValores} grupos={grupos} copiaDe={renovando} />
           </section>
         )}
         {conTipoCambio && (
@@ -171,7 +215,7 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
             }}
           />
         )}
-        {campana && (
+        {campana && renovando === null && (
           <>
             <div className={panelStyles.pills}>
               <StatusPill tone={campana.estado === 'activa' ? 'success' : 'danger'}>
@@ -258,6 +302,9 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
         )}
       </div>
 
+      {!editable && puedeRenovar && (
+        <footer className={panelStyles.panelFooter}>{botonRenovar}</footer>
+      )}
       {editable && (
         <footer className={panelStyles.panelFooter}>
           {confirmando ? (
@@ -293,13 +340,16 @@ export default function SellOutCampanaPanel({ campanaId, grupos = [], puedeGesti
           ) : (
             <>
               {nuevo ? (
-                <button type="button" className="btn-tesla outline sm" onClick={onClose} disabled={busy}>
+                <button type="button" className="btn-tesla outline sm" onClick={renovando === null ? onClose : dejarDeRenovar} disabled={busy}>
                   Cancelar
                 </button>
               ) : (
-                <button type="button" className="btn-tesla outline sm" onClick={() => setConfirmando(true)} disabled={busy}>
-                  Anular campaña
-                </button>
+                <>
+                  <button type="button" className="btn-tesla outline sm" onClick={() => setConfirmando(true)} disabled={busy}>
+                    Anular campaña
+                  </button>
+                  {botonRenovar}
+                </>
               )}
               <button type="button" className="btn-tesla primary sm" onClick={guardar} disabled={busy}>
                 {nuevo ? 'Guardar campaña' : 'Guardar cambios'}

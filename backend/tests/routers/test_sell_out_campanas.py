@@ -14,7 +14,7 @@ import pytest
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
-from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo
+from app.models.sell_out import SellOutCampana, SellOutCampanaGrupo, SellOutConsumo, SellOutPrograma
 
 BASE = "/api/sell-out/campanas"
 VER = "sell_out.ver"
@@ -76,7 +76,7 @@ ESCRITURAS = [
     ("post", f"{BASE}/anular"),
     ("post", f"{BASE}/1/tipo-cambio"),
 ]
-LECTURAS = [("get", BASE), ("get", f"{BASE}/1"), ("get", f"{BASE}/1/consumos")]
+LECTURAS = [("get", BASE), ("get", f"{BASE}/por-programa"), ("get", f"{BASE}/1"), ("get", f"{BASE}/1/consumos")]
 
 
 @pytest.mark.parametrize("method,url", ESCRITURAS + LECTURAS)
@@ -243,10 +243,232 @@ def test_list_filters_by_state_validity_text_and_group(client, gestor, grupos) -
     assert client.get(BASE, params={"page_size": 1}, headers=gestor).json()["total"] == 3
 
 
+def test_list_filters_by_currency_period_overlap_and_brand(client, gestor, grupos, db) -> None:
+    """Sell-out list filters the Sell out tab lacked (campanas-sistema S3): moneda; a period [desde, hasta]
+    that overlaps the campaign's dates; and marca, the brand of a product its groups reach (the campaign rule)."""
+    from app.models.offset_grupo_filtro import OffsetGrupoFiltro
+    from app.models.producto import ProductoERP
+
+    db.add_all(
+        [
+            ProductoERP(item_id=2964, codigo="C2964", descripcion="Archer", marca="TP-LINK", categoria="Routers"),
+            ProductoERP(item_id=3100, codigo="C3100", descripcion="L3250", marca="EPSON", categoria="Impresoras"),
+            OffsetGrupoFiltro(grupo_id=grupos[0], marca="TP-LINK"),
+            OffsetGrupoFiltro(grupo_id=grupos[1], item_id=3100),
+        ]
+    )
+    db.flush()
+    nov = _crear(client, gestor, grupos, moneda="ARS")
+    dic = _crear(
+        client,
+        gestor,
+        grupos,
+        nombre="Epson diciembre",
+        fecha_desde="2026-12-01",
+        fecha_hasta="2026-12-31",
+        grupo_ids=grupos[1:],
+        moneda="USD",
+        tc_modo="al_cobro",
+    )
+
+    def ids(**params) -> list[int]:
+        resp = client.get(BASE, params=params, headers=gestor)
+        assert resp.status_code == 200, resp.text
+        return [c["id"] for c in resp.json()["items"]]
+
+    assert ids(moneda="USD") == [dic["id"]]
+    assert ids(moneda="ARS") == [nov["id"]]
+    assert ids(desde="2026-11-20", hasta="2026-12-05") == [dic["id"], nov["id"]]
+    assert ids(desde="2026-12-01") == [dic["id"]]
+    assert ids(hasta="2026-11-30") == [nov["id"]]
+    assert ids(desde="2027-01-01", hasta="2027-03-31") == []
+    assert ids(marca="EPSON") == [dic["id"]]
+    assert ids(marca="TP-LINK", moneda="USD") == []
+    assert ids(marca="SAMSUNG") == []
+    assert client.get(BASE, params={"desde": "2026-12-31", "hasta": "2026-12-01"}, headers=gestor).status_code == 422
+
+
 def test_get_one_and_unknown_is_404(client, lector, gestor, grupos) -> None:
     out = _crear(client, gestor, grupos)
     assert client.get(f"{BASE}/{out['id']}", headers=lector).json() == out
     assert client.get(f"{BASE}/999999", headers=lector).status_code == 404
+
+
+# ── Program (campaign system S1) ────────────────────────────────────
+
+# Every key a campaign carried before programs existed.
+CLAVES_PREVIAS = {
+    "id", "nombre", "descripcion", "fecha_desde", "fecha_hasta", "tipo", "monto_unit", "porcentaje",
+    "base_porcentaje", "moneda", "tc_modo", "tipo_cambio", "tc_definido_en", "tope_unidades", "tope_monto",
+    "acumulable", "monto_incluye_iva", "estado", "usuario_id", "offset_origen_id", "created_at", "updated_at",
+    "grupos", "items", "resumen",
+}  # fmt: skip
+
+
+def _programa(db, admin_user, nombre: str = "MARCA PROG") -> SellOutPrograma:
+    programa = SellOutPrograma(nombre=nombre, usuario_id=admin_user.id)
+    db.add(programa)
+    db.flush()
+    return programa
+
+
+def test_list_and_detail_keep_their_keys_and_carry_no_program_until_assigned(client, gestor, grupos) -> None:
+    out = _crear(client, gestor, grupos, nombre="MARCA PROG 24")
+    assert set(out) == CLAVES_PREVIAS | {"programa_id", "programa"}
+    assert (out["programa_id"], out["programa"]) == (None, None)
+    assert client.get(f"{BASE}/{out['id']}", headers=gestor).json() == out
+    assert client.get(BASE, headers=gestor).json()["items"] == [out]
+
+
+def test_list_and_detail_carry_the_program_of_each_campaign(client, gestor, grupos, db, admin_user) -> None:
+    epson = _programa(db, admin_user, "MARCA PROG")
+    rebate = _programa(db, admin_user, "Rebate")
+    a = _crear(client, gestor, grupos, nombre="MARCA PROG 24")
+    b = _crear(client, gestor, grupos, nombre="Rebate Q4 2024")
+    c = _crear(client, gestor, grupos, nombre="TP-Link 2% noviembre")
+    db.get(SellOutCampana, a["id"]).programa_id = epson.id
+    db.get(SellOutCampana, b["id"]).programa_id = rebate.id
+    db.flush()
+
+    items = {x["id"]: x for x in client.get(BASE, headers=gestor).json()["items"]}
+    assert items[a["id"]]["programa"] == {"id": epson.id, "nombre": "MARCA PROG"}
+    assert (items[b["id"]]["programa_id"], items[b["id"]]["programa"]) == (
+        rebate.id,
+        {"id": rebate.id, "nombre": "Rebate"},
+    )
+    assert items[c["id"]]["programa"] is None
+    assert client.get(f"{BASE}/{a['id']}", headers=gestor).json()["programa"] == {
+        "id": epson.id,
+        "nombre": "MARCA PROG",
+    }
+
+
+def test_list_filters_by_program_or_without_one_and_both_is_a_422(client, gestor, grupos, db, admin_user) -> None:
+    """Slice E: `programa_id` keeps one program's campaigns, `sin_programa` the ones with none, and-ed with the
+    other filters; asking for both is a 422."""
+    marca = _programa(db, admin_user, "MARCA PROG")
+    otro = _programa(db, admin_user, "Otro")
+    a = _crear(client, gestor, grupos, nombre="MARCA PROG 3.0")
+    b = _crear(client, gestor, grupos, nombre="MARCA PROGRAM1", fecha_desde="2026-12-01", fecha_hasta="2026-12-31")
+    c = _crear(client, gestor, grupos, nombre="MODELO 8180")
+    d = _crear(client, gestor, grupos, nombre="Otra cosa")
+    for campana, programa in ((a, marca), (b, marca), (d, otro)):
+        db.get(SellOutCampana, campana["id"]).programa_id = programa.id
+    db.flush()
+
+    def ids(**params) -> list[int]:
+        resp = client.get(BASE, params=params, headers=gestor)
+        assert resp.status_code == 200, resp.text
+        return [x["id"] for x in resp.json()["items"]]
+
+    assert ids(programa_id=marca.id) == [b["id"], a["id"]]
+    assert ids(programa_id=marca.id, q="3.0") == [a["id"]]
+    assert ids(sin_programa=True) == [c["id"]]
+    assert ids(sin_programa=True, q="Otra") == []
+    assert ids(sin_programa=False) == [b["id"], d["id"], c["id"], a["id"]]
+    resp = client.get(BASE, params={"programa_id": marca.id, "sin_programa": True}, headers=gestor)
+    assert resp.status_code == 422
+    assert _message(resp) == "Elegí un programa o «Sin programa», no los dos."
+
+
+POR_PROGRAMA = f"{BASE}/por-programa"
+
+
+@pytest.mark.parametrize("url", [BASE, f"{BASE}/por-programa"])
+def test_permission_is_checked_before_the_filters(client, auth_headers, url) -> None:
+    """A user without `sell_out.ver` gets a 403, not the filters' 422, whatever the filters are."""
+    malos = {"desde": "2026-12-31", "hasta": "2026-12-01", "programa_id": 1, "sin_programa": True}
+    assert client.get(url, params=malos, headers=auth_headers).status_code == 403
+    assert client.get(url, params=malos).status_code in (401, 403)
+
+
+def test_por_programa_groups_the_filtered_campaigns_and_hides_empty_programs(
+    client, gestor, grupos, db, admin_user
+) -> None:
+    """Slice E: the grouped view's rows. Each program with campaigns under the filters, by name, with how many,
+    how many are active, how many distinct names (ignoring case and spaces) and their date span; a program with
+    none under the filters is left out; the campaigns without a program come apart in `sin_programa`."""
+    marca = _programa(db, admin_user, "MARCA PROG")
+    modelos = _programa(db, admin_user, "Modelos SP")
+    _programa(db, admin_user, "aaa vacío")
+    a = _crear(client, gestor, grupos, nombre="MARCA PROG 3.0", fecha_desde="2026-08-01", fecha_hasta="2026-10-31")
+    b = _crear(client, gestor, grupos, nombre="marca  prog 3.0", fecha_desde="2026-08-01", fecha_hasta="2026-10-31")
+    c = _crear(client, gestor, grupos, nombre="MARCA PROGRAM1", fecha_desde="2026-09-01", fecha_hasta="2026-11-30")
+    m = _crear(client, gestor, grupos, nombre="M20 / M80 SP", moneda="ARS")
+    _crear(client, gestor, grupos, nombre="MODELO 8180")
+    client.post(f"{BASE}/{c['id']}/anular", json={}, headers=gestor)
+    for campana, programa in ((a, marca), (b, marca), (c, marca), (m, modelos)):
+        db.get(SellOutCampana, campana["id"]).programa_id = programa.id
+    db.flush()
+
+    resp = client.get(POR_PROGRAMA, headers=gestor)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "items": [
+            {
+                "programa_id": marca.id,
+                "nombre": "MARCA PROG",
+                "campanas": 3,
+                "activas": 2,
+                "nombres": 2,
+                "desde": "2026-08-01",
+                "hasta": "2026-11-30",
+            },
+            {
+                "programa_id": modelos.id,
+                "nombre": "Modelos SP",
+                "campanas": 1,
+                "activas": 1,
+                "nombres": 1,
+                "desde": "2026-11-01",
+                "hasta": "2026-11-30",
+            },
+        ],
+        "total": 2,
+        "page": 1,
+        "page_size": 50,
+        "sin_programa": {
+            "programa_id": None,
+            "nombre": None,
+            "campanas": 1,
+            "activas": 1,
+            "nombres": 1,
+            "desde": "2026-11-01",
+            "hasta": "2026-11-30",
+        },
+    }
+
+    ars = client.get(POR_PROGRAMA, params={"moneda": "ARS"}, headers=gestor).json()
+    assert ([g["nombre"] for g in ars["items"]], ars["total"], ars["sin_programa"]) == (["Modelos SP"], 1, None)
+    activas = client.get(POR_PROGRAMA, params={"estado": "activa"}, headers=gestor).json()["items"][0]
+    assert (activas["campanas"], activas["nombres"], activas["hasta"]) == (2, 1, "2026-10-31")
+    pagina = client.get(POR_PROGRAMA, params={"page": 2, "page_size": 1}, headers=gestor).json()
+    assert ([g["nombre"] for g in pagina["items"]], pagina["total"]) == (["Modelos SP"], 2)
+    assert client.get(POR_PROGRAMA, params={"programa_id": 1, "sin_programa": True}, headers=gestor).status_code == 422
+    assert (
+        client.get(POR_PROGRAMA, params={"desde": "2026-12-31", "hasta": "2026-12-01"}, headers=gestor).status_code
+        == 422
+    )
+
+
+def test_editing_a_campaign_keeps_its_program(client, gestor, grupos, db, admin_user) -> None:
+    """`PUT` is a full replace of what `SellOutCampanaIn` carries; the program is not part of it."""
+    programa = _programa(db, admin_user)
+    out = _crear(client, gestor, grupos, nombre="MARCA PROG 24")
+    db.get(SellOutCampana, out["id"]).programa_id = programa.id
+    db.flush()
+    resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, nombre="MARCA PROG 24 bis"), headers=gestor)
+    assert resp.status_code == 200, resp.text
+    assert (resp.json()["nombre"], resp.json()["programa_id"]) == ("MARCA PROG 24 bis", programa.id)
+    db.expire_all()
+    assert db.get(SellOutCampana, out["id"]).programa_id == programa.id
+
+
+def test_the_edit_audit_keeps_its_shape(client, gestor, grupos, db) -> None:
+    out = _crear(client, gestor, grupos)
+    client.put(f"{BASE}/{out['id']}", json=_body(grupos, nombre="Renombrada"), headers=gestor)
+    audit = db.query(Auditoria).filter(Auditoria.tipo_accion == TipoAccion.SELL_OUT_CAMPANA_EDITADA).one()
+    assert "programa_id" not in audit.valores_anteriores and "programa_id" not in audit.valores_nuevos
 
 
 # ── What each campaign credited (T7 S5) ─────────────────────────────
@@ -547,6 +769,29 @@ def test_a_campaign_being_recalculated_is_a_409_with_a_neutral_message_and_nothi
     assert _message(resp) == "La campaña se está recalculando. Reintentar en unos segundos."
     actual = client.get(f"{BASE}/{out['id']}", headers=gestor).json()
     assert (actual["nombre"], actual["estado"], actual["tipo_cambio"]) == (out["nombre"], "activa", None)
+
+
+def test_a_deadlock_on_a_single_edit_is_the_busy_409_and_nothing_changes(client, gestor, grupos, monkeypatch) -> None:
+    """Postgres breaks a lock cycle with a bulk edit or a preview (40P01): a retry, never a 500."""
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.sell_out import campanas as service
+
+    out = _crear(client, gestor, grupos)
+
+    class _Deadlock(Exception):
+        pgcode = "40P01"
+
+    def _en_deadlock(db, campana_ids) -> None:
+        raise DBAPIError("INSERT INTO sell_out_dirty ...", {}, _Deadlock())
+
+    monkeypatch.setattr(service, "_encolar", _en_deadlock)
+
+    resp = client.put(f"{BASE}/{out['id']}", json=_body(grupos, nombre="Otra"), headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    assert _message(resp) == "Otra operación está modificando la campaña en este momento. Reintentar en unos segundos."
+    assert client.get(f"{BASE}/{out['id']}", headers=gestor).json()["nombre"] == out["nombre"]
 
 
 # ── Bulk void (`POST /anular`) ──────────────────────────────────────

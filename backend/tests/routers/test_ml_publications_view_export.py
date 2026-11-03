@@ -223,6 +223,35 @@ class TestItems:
         assert text.rstrip("\n").splitlines()[-1].startswith("# ERROR: exportación incompleta — 2 de 5 filas")
 
 
+def fill_kinds(conn) -> None:
+    seed.add_item(conn, "MLA11", title="A", listing_type_id="gold_special")
+    seed.add_item(conn, "MLA12", title="B", listing_type_id="gold_special", tags=["pcj-co-funded"])
+    seed.add_item(conn, "MLA13", title="C", listing_type_id="gold_pro", tags=["3x_campaign"])
+    seed.add_item(conn, "MLA14", title="D", listing_type_id="gold_pro")
+    seed.add_item(conn, "MLA15", title="E", listing_type_id="gold_pro", tags=["12x_campaign"])
+    seed.add_item(conn, "MLA16", title="F", listing_type_id="free")
+    seed.add_item(conn, "MLA17", title="G", listing_type_id="some_new_type")
+
+
+class TestItemsTipo:
+    """Owner (2026-11-02): the Tipo column says the readable type, as the list's Tipo badge, not ML's raw id."""
+
+    def test_tipo_is_the_readable_listing_kind(self, client, pg, db, rol_admin, admin_auth_headers) -> None:
+        seed_rows(pg, fill_kinds)
+        grant(db, rol_admin, VER)
+        header, rows = read_csv(client.get(ITEMS_CSV, headers=admin_auth_headers, params={"orden": "titulo"}))
+        assert dict(zip(column(header, rows, "Publicación"), column(header, rows, "Tipo"))) == {
+            "MLA11": "Clásica",
+            "MLA12": "Clásica",
+            "MLA13": "3 cuotas",
+            "MLA14": "6 cuotas",
+            "MLA15": "12 cuotas",
+            "MLA16": "Gratuita",
+            # A type nobody named keeps ML's id.
+            "MLA17": "some_new_type",
+        }
+
+
 class TestItemsMarkup:
     """The markup sort and filter run in Python over the whole set (`listing._list_by_markup`): the keys honor them."""
 

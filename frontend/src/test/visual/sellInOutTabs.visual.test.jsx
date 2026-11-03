@@ -36,7 +36,14 @@ vi.mock('../../services/sellInAPI', () => ({
   sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn() },
 }));
 
-vi.mock('../../services/sellOutAPI', () => ({ sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn() } }));
+// Slice E: the Sell out tab also reads the programs and their suggestions; none here, so it shows the flat list.
+vi.mock('../../services/sellOutAPI', () => {
+  const vacio = { data: { items: [], total: 0, page: 1, page_size: 200 } };
+  return {
+    sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn(), porPrograma: vi.fn() },
+    sellOutProgramasAPI: { listar: vi.fn().mockResolvedValue(vacio), sugerencias: vi.fn().mockResolvedValue(vacio) },
+  };
+});
 
 beforeEach(() => {
   sellOutAPI.listar.mockResolvedValue({ data: CAMPANAS_LISTA });

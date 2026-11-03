@@ -71,8 +71,8 @@ export const SCREENS = [
   { path: '/metricas-ml', label: 'Métricas ML', section: 'Reportes', permisos: ['ml_metricas.ver'], scope: 'data' },
   // dashboard_ml.py, ventas_ml.py operaciones and /rentabilidad (TabRentabilidad) -> pm_scope.
   { path: '/dashboard-metricas-ml', label: 'Métricas ML (anterior)', section: 'Reportes', permisos: ['ventas_ml.ver_dashboard'], scope: 'data' },
-  // ml_ads router GET /ml-ads/campaigns (brand contributions to Product Ads campaigns; costs need ver_ganancia).
-  { path: '/ml-ads-aportes', label: 'Aportes de marcas (Ads ML)', section: 'Reportes', permisos: ['ml_metricas.ver'], scope: 'permiso' },
+  // ML Ads: ml_ads router GET /ml-ads/campaigns (Aportes tab) and GET /ml-ads/display (Display tab); costs need ver_ganancia.
+  { path: '/ml-ads-aportes', label: 'ML Ads', section: 'Reportes', permisos: ['ml_metricas.ver'], scope: 'permiso' },
   { path: '/ml-ventas-listado', label: 'Ventas ML', section: 'Reportes', permisos: ['ml_ops.ver'], scope: 'permiso' },
   { path: '/dashboard-tplink', label: 'Dashboard TP-Link', section: 'Reportes', permisos: ['dashboard_tplink.ver'], scope: 'permiso' },
   { path: '/dashboard-ventas-fuera', label: 'Ventas por Fuera', section: 'Reportes', permisos: ['ventas_fuera.ver_dashboard'], scope: 'permiso' },
