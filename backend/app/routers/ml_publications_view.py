@@ -148,7 +148,9 @@ class PriceOut(BaseModel):
     regular_amount: Optional[float] = None
     promotion_type: Optional[str] = None
     campaign: Optional[str] = None
+    # ERP list for this MLA (Clásica / cuotas), not ML listing_type_id.
     pricelist_id: Optional[int] = None
+    lista_nombre: Optional[str] = None
 
 
 class StockOut(BaseModel):
@@ -301,6 +303,7 @@ class ItemRowOut(BaseModel):
     gone: bool
     gone_at: Optional[datetime] = None
     price: PriceOut
+    hay_mejores_ofertas: bool = False
     stock: StockOut
     erp_stock: ErpStockOut
     link: LinkOut
@@ -850,6 +853,9 @@ def filter_query(
     con_promo_aplicada: Optional[bool] = Query(None, description="any promotion started (without promo_tipos)"),
     con_promo_sin_aplicar: Optional[bool] = Query(None, description="only candidate promotions (without promo_tipos)"),
     con_pxq: Optional[bool] = Query(None, description="the publication has wholesale (PxQ) tiers"),
+    hay_mejores_ofertas: Optional[bool] = Query(
+        None, description="true: candidate promo beats consumer MeLi price (modo poner precios)"
+    ),
     colores: Optional[str] = Query(
         None, description="csv of Productos' colors and/or `sin_color`, on the layer of `equipo_id` (the global one)"
     ),
@@ -920,6 +926,7 @@ def filter_query(
             colores=colores,
             con_mla=con_mla,
             estado_mla=estado_mla,
+            hay_mejores_ofertas=hay_mejores_ofertas if hay_mejores_ofertas is True else None,
         )
         # The facets' promo axis leaves its own filter out, as every axis does: it needs the PxQ part alone.
         f = replace(_resolve_promo_search(f), pxq_scope=scope.pxq, promo_filter=scope.promo_filter)

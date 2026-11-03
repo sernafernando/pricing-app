@@ -328,6 +328,7 @@ class TestPrice:
             "promotion_type": "deal",
             "campaign": "C1",
             "pricelist_id": None,
+            "lista_nombre": None,
         }
 
     def test_without_a_sale_price_the_item_price_is_used(self, conn, db) -> None:

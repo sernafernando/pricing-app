@@ -561,7 +561,20 @@ def enroll_one_item(
     )
     _maybe_refresh_after_write(mla_id, outcome)
     _maybe_recompute_after_write(mla_id, outcome)
+    _clear_hay_mejores_after_enroll(mla_id, outcome)
     return outcome
+
+
+def _clear_hay_mejores_after_enroll(mla_id: str, outcome: Dict[str, Any]) -> None:
+    if outcome.get("status") not in _RECOMPUTE_TRIGGER_STATUSES:
+        return
+    try:
+        from app.services.ml_promotions_hay_mejores import limpiar_hay_mejores_ofertas
+
+        with get_background_db() as db:
+            limpiar_hay_mejores_ofertas(db, [mla_id])
+    except Exception:
+        logger.warning("hay_mejores: clear after enroll failed for %s", mla_id, exc_info=True)
 
 
 def _enroll_one_item(

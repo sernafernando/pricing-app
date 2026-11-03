@@ -12,7 +12,9 @@ import { PANEL_TABS, visibleTabs } from './panel/panelTabs';
 import { canViewProductPrices } from '../pricing/productPricePermissions';
 import { usePublicationDetail } from './panel/usePublicationDetail';
 import PanelFigures from './panel/PanelFigures';
+import PonerPreciosBody from './panel/PonerPreciosBody';
 import { publicationFigures } from './panel/publicationFigures';
+import { pricePermissions } from '../pricing/productPricePermissions';
 import styles from './panel/panel.module.css';
 
 /** What to tell the operator when the detail cannot be loaded. */
@@ -42,6 +44,7 @@ const describeError = (error) =>
  * @param {() => void} [props.onBack] Shows "Volver a <producto>": the publication was opened from a product's panel.
  * @param {string} [props.backLabel] The product's name for that link ("Volver al producto" without it).
  * @param {object} [props.priceGroup] What the Precios tab takes from the list (Calcular, the Tienda Nube price).
+ * @param {boolean} [props.ponerPreciosMode] MODO PONER PRECIOS: no tabs, minimal price body (S5).
  */
 export default function PublicationPanel({
   itemId,
@@ -54,6 +57,7 @@ export default function PublicationPanel({
   onBack,
   backLabel,
   priceGroup = null,
+  ponerPreciosMode = false,
 }) {
   const { tienePermiso } = usePermisos();
   const canSeeMargin = tienePermiso('ml_metricas.ver_ganancia');
@@ -61,6 +65,8 @@ export default function PublicationPanel({
   const canManage = tienePermiso('ml_ops.gestionar');
   const canViewPromos = tienePermiso('promos.ver');
   const canViewPrices = canViewProductPrices(tienePermiso);
+  const canEditPrice = ['canEditClasica', 'canEditMlCuotas'].some((flag) => pricePermissions(tienePermiso)[flag]);
+  const canWritePromos = tienePermiso('promos.escribir');
   const { status, detail, error, reload, refresh } = usePublicationDetail(itemId, { canSeeMargin });
   // A write in a tab (a promotion, a product price) changes what the detail and the
   // list row show: re-read both, the detail silently so the tab keeps its state.
@@ -101,6 +107,7 @@ export default function PublicationPanel({
         </>
       }
       figures={
+        !ponerPreciosMode &&
         detail && <PanelFigures label="Cifras de la publicación" figures={publicationFigures(row, { canSeeMargin, canSeeSales })} />
       }
       onClose={onClose}
@@ -109,13 +116,26 @@ export default function PublicationPanel({
       error={status === 'error' ? describeError(error) : null}
       onRetry={reload}
     >
-      {status === 'ready' && active && (
+      {status === 'ready' && ponerPreciosMode && (
+        <PonerPreciosBody
+          detail={detail}
+          itemId={itemId}
+          canEditPrice={canEditPrice}
+          canWritePromos={canWritePromos}
+          onWritten={handleWritten}
+          onLeavePub={onClose}
+        />
+      )}
+
+      {status === 'ready' && !ponerPreciosMode && active && (
         <PanelTabs tabs={available} activeKey={active.key} onTabChange={onTabChange} label="Secciones de la publicación">
           <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} canViewPromos={canViewPromos} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} priceGroup={priceGroup} />
         </PanelTabs>
       )}
 
-      {status === 'ready' && <PanelFooter key={itemId} detail={detail} itemId={itemId} canManage={canManage} onStatusChanged={handleWritten} />}
+      {status === 'ready' && !ponerPreciosMode && (
+        <PanelFooter key={itemId} detail={detail} itemId={itemId} canManage={canManage} onStatusChanged={handleWritten} />
+      )}
     </PanelShell>
   );
 }

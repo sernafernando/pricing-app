@@ -44,6 +44,11 @@ describe('PriceCell', () => {
     render(<PriceCell price={EMPTY.price} />);
     expect(screen.getByText('—')).toBeInTheDocument();
   });
+
+  it('shows the ERP list type under the amount (lista_nombre / pricelist_id)', () => {
+    render(<PriceCell price={{ ...ROUTER.price, lista_nombre: 'Clásica', pricelist_id: 4 }} />);
+    expect(screen.getByText('Clásica')).toBeInTheDocument();
+  });
 });
 
 describe('ErpStockCell', () => {

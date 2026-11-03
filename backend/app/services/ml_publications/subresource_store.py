@@ -204,6 +204,7 @@ def _apply_state(
     if row.raw is None:
         _write_state(row, typed, body, new_hash, response)
         _checked(row, response)
+        _refresh_hay_mejores_if_promotions(db, spec, entity_id, body)
         db.flush()
         return ApplyOutcome("first_seen")
 
@@ -222,6 +223,7 @@ def _apply_state(
         counters.noise_suppressed[(spec.name, change.path)] += 1
     _write_state(row, typed, body, new_hash, response)
     _checked(row, response)
+    _refresh_hay_mejores_if_promotions(db, spec, entity_id, body)
     if not reportable and not restoring:
         db.flush()
         return ApplyOutcome("noise_only")
@@ -243,6 +245,14 @@ def _apply_state(
         change_log_id=entry.id,
         events=_emit_events(db, entry, events_enabled),
     )
+
+
+def _refresh_hay_mejores_if_promotions(db, spec: ResourceSpec, item_id: str, raw: Any) -> None:
+    if spec.name != "promotions":
+        return
+    from app.services.ml_promotions_hay_mejores import actualizar_hay_mejores_ofertas
+
+    actualizar_hay_mejores_ofertas(db, item_id, raw_promotions=raw)
 
 
 def _heal_typed(row: Any, typed: dict[str, Any]) -> None:

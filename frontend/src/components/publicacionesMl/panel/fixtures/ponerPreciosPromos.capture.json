@@ -1,0 +1,43 @@
+{
+  "source": "backend/tests/fixtures/ml_publications/promotion_names_MLA1402898289_20261017.json#seller_promotions.raw",
+  "promotions": [
+    {
+      "id": "P-MLA18137008",
+      "name": "Tec Week",
+      "type": "SMART",
+      "price": 74690,
+      "ref_id": "CANDIDATE-MLA1402898289-71677348197",
+      "status": "candidate",
+      "original_price": 88913,
+      "meli_percentage": 2.496,
+      "seller_percentage": 13.504
+    },
+    {
+      "id": "P-MLA18067012",
+      "name": "DIA DE LA MADRE OCTUBRE",
+      "type": "DEAL",
+      "price": 0,
+      "status": "candidate",
+      "start_date": "2026-10-05T00:00:00-03:00",
+      "finish_date": "2026-10-19T00:00:00-03:00",
+      "original_price": 88913,
+      "max_discounted_price": 84467.35,
+      "min_discounted_price": 30416,
+      "suggested_discounted_price": 77000
+    },
+    {
+      "id": "C-MLA1669550",
+      "name": "PREMIUM OCTUBRE",
+      "type": "SELLER_CAMPAIGN",
+      "price": 0,
+      "status": "candidate",
+      "sub_type": "FLEXIBLE_PERCENTAGE",
+      "start_date": "2026-10-01T00:00:00",
+      "finish_date": "2026-10-31T23:59:59",
+      "original_price": 88913,
+      "max_discounted_price": 84467.35,
+      "min_discounted_price": 30416,
+      "suggested_discounted_price": 77000
+    }
+  ]
+}
