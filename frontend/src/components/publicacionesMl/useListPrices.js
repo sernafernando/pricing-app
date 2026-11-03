@@ -71,7 +71,8 @@ export default function useListPrices(productIds, enabled, version = 0) {
         setState({ key, version, byId, error: false });
       })
       .catch(() => {
-        if (current) setState({ key, version, byId: NONE, error: true });
+        // A grown list keeps the prices it had (they are this version's); a list of other products shows none.
+        if (current) setState({ key, version, byId: kept ?? NONE, error: true });
       });
     return () => {
       current = false;

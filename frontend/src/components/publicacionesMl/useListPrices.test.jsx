@@ -119,6 +119,20 @@ describe('useListPrices', () => {
     expect(productosAPI.listar).toHaveBeenCalledTimes(2);
   });
 
+  it('a grown list whose new part fails keeps the prices already shown and says the rest failed', async () => {
+    productosAPI.listar.mockImplementation(({ item_ids }) =>
+      Promise.resolve(listed(...item_ids.split(',').map((id) => ({ item_id: Number(id), precio_lista_ml: Number(id) * 10 })))),
+    );
+    const { result, rerender } = renderHook(({ ids }) => useListPrices(ids, true), { initialProps: { ids: [1, 2] } });
+    await waitFor(() => expect(result.current.byId.get(2).precio_lista_ml).toBe(20));
+    productosAPI.listar.mockRejectedValueOnce(new Error('503'));
+    rerender({ ids: [1, 2, 3] });
+    await waitFor(() => expect(result.current.error).toBe(true));
+    expect(result.current.byId.get(1).precio_lista_ml).toBe(10);
+    expect(result.current.byId.has(3)).toBe(false);
+    expect(result.current.loading).toBe(false);
+  });
+
   it('asks nothing when disabled or with no product on show', () => {
     renderHook(() => useListPrices([7], false));
     renderHook(() => useListPrices([null], true));

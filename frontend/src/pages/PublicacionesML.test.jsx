@@ -661,6 +661,28 @@ describe('"Todos" in parts of 500 as the list scrolls (filtros S4)', () => {
     expect(screen.queryByText('No se pudieron traer más publicaciones', { exact: false })).not.toBeInTheDocument();
   });
 
+  it('while parts are still coming, the header checkbox checks the rows loaded so far, never the ones not in yet', async () => {
+    const pick = (mla) => screen.getByRole('checkbox', { name: `Seleccionar la publicación ${mla}` });
+    let releaseSecond;
+    publicacionesMlAPI.items.mockImplementation((params) =>
+      params.offset === 500
+        ? new Promise((resolve) => {
+            releaseSecond = () => resolve(answer(params));
+          })
+        : Promise.resolve(answer(params)),
+    );
+    await page('/ml-publicaciones?limite=9999');
+    await waitFor(() => expect(lastParams()).toMatchObject({ offset: 500 }));
+    const all = screen.getByRole('checkbox', { name: 'Seleccionar las filas de la página' });
+    await userEvent.click(all);
+    expect(all).toBeChecked();
+    expect(pick('MLA1300000100')).toBeChecked();
+    await act(async () => releaseSecond());
+    expect(await screen.findByText('MLA1300000500')).toBeInTheDocument();
+    expect(pick('MLA1300000500')).not.toBeChecked();
+    expect(all).not.toBeChecked();
+  });
+
   it.each([50, 500])('a page of %i still asks one request of that size', async (size) => {
     await page(`/ml-publicaciones?limite=${size}`);
     await act(async () => {});

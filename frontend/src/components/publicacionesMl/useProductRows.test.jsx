@@ -159,6 +159,29 @@ describe('"Todos" in parts of 500 (filtros S4)', () => {
     expect(labels(result)).toEqual(['p0', 'p1', 'p2']);
   });
 
+  it('a failed part shows its error row, scrolling does not hide it, and its Reintentar asks that part again', async () => {
+    let failOnce = true;
+    publicacionesMlAPI.products.mockImplementation((params) => {
+      if (params.offset === 500 && failOnce) {
+        failOnce = false;
+        return Promise.reject(new Error('503'));
+      }
+      return answer(params);
+    });
+    const { result } = setupAll();
+    await waitFor(() => expect(result.current.total).toBe(1200));
+    // While a part is in flight, no "Ver más" row: the page, not the branch, holds the products.
+    act(() => result.current.loadMoreProducts());
+    expect(result.current.rows.some((row) => row.type === 'more')).toBe(false);
+    await waitFor(() => expect(result.current.rows.at(-1)).toMatchObject({ type: 'state', state: 'error', pathKey: '' }));
+    act(() => result.current.loadMoreProducts());
+    expect(publicacionesMlAPI.products).toHaveBeenCalledTimes(2);
+    act(() => result.current.loadMore(''));
+    await waitFor(() => expect(labels(result)).toEqual(['p0', 'p1', 'p2', 'p500', 'p501', 'p502']));
+    expect(productCalls().filter((params) => params.offset === 500)).toHaveLength(2);
+    expect(result.current.rows.some((row) => row.type === 'state')).toBe(false);
+  });
+
   it('a page of 50 is one request of 50: loadMoreProducts asks nothing', async () => {
     publicacionesMlAPI.products.mockImplementation(answer);
     const { result } = setupAll(50);
