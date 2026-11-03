@@ -2647,7 +2647,10 @@ describe('Publicaciones ML "Todos" (visual, filtros S4)', () => {
   beforeEach(() => {
     canSeeMargin = false;
     publicacionesMlAPI.items.mockReset();
-    publicacionesMlAPI.items.mockResolvedValue({ data: { ...RESPONSE, items: ALL, total: ALL.length, limit: 9999 } });
+    // The backend's paging over the 9999 rows: each request gets its `limit` rows from its `offset`, and the total.
+    publicacionesMlAPI.items.mockImplementation(({ limit, offset }) =>
+      Promise.resolve({ data: { ...RESPONSE, items: ALL.slice(offset, offset + limit), total: ALL.length, limit, offset } }),
+    );
   });
 
   const renderedRows = () => scrollerOf().querySelectorAll('tbody tr[data-row-key]');
@@ -2668,12 +2671,25 @@ describe('Publicaciones ML "Todos" (visual, filtros S4)', () => {
     const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : null;
     console.info(`[S4] 9999 rows: first row after ${firstPaint} ms, ${renderedRows().length} rows in the DOM, heap ${heap} MB`);
     expect(renderedRows().length).toBeLessThan(100);
+    // "Todos" asks its first 500 rows, not the 9999 (filtros S4 T3b).
+    expect(publicacionesMlAPI.items.mock.calls[0][0]).toMatchObject({ limit: 500, offset: 0 });
 
-    // The header stays pinned and the scroller is as tall as all the rows.
+    // The header stays pinned, and scrolling to the end again and again brings the next 500 each time, to the last row.
     const scroller = scrollerOf();
     const headerTop = rect(scroller.querySelector('thead th')).top;
-    scroller.scrollTop = scroller.scrollHeight;
+    await expect
+      .poll(
+        () => {
+          scroller.scrollTop = scroller.scrollHeight;
+          return scroller.querySelector('tr[data-row-key="MLA1200009998"]') !== null;
+        },
+        { timeout: 60_000, interval: 50 },
+      )
+      .toBe(true);
     await expect.element(screen.getByText('MLA1200009998')).toBeVisible();
+    expect(publicacionesMlAPI.items.mock.calls.map(([params]) => params.offset)).toEqual(
+      Array.from({ length: 20 }, (_, i) => i * 500),
+    );
     expect(rect(scroller.querySelector('thead th')).top).toBe(headerTop);
     expect(renderedRows().length).toBeLessThan(100);
 

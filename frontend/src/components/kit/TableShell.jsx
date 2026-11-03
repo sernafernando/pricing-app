@@ -24,7 +24,7 @@
  * of each group (`data-group-start`, header and body) carries the divider.
  * Every header and body cell names its column (`data-column`).
  */
-import { Fragment, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import styles from './TableShell.module.css';
@@ -143,6 +143,9 @@ function HeadCell({ column, index, sort, onSort, groupStart, rowSpan, className 
  * @param {number} [props.virtualizeFrom] With more rows than this, only the rows in view (and `OVERSCAN` around them)
  *   are in the DOM, as Envíos Flex does: each row is its own `<tbody>` (the row and its sub-rows, measured together,
  *   so a row of any height or an expanded one keeps its place) between two spacers. Unset, every row renders.
+ * @param {() => void} [props.onEndReached] A virtualized table calls it when its last rows come into view (the last
+ *   rendered row within `OVERSCAN` of the end), once per `rows`: a page that loads its list in parts asks the next one.
+ *   A table that renders every row never calls it.
  */
 export default function TableShell({
   columns,
@@ -159,6 +162,7 @@ export default function TableShell({
   emptyMessage = 'Sin resultados',
   ariaLabel,
   virtualizeFrom,
+  onEndReached,
 }) {
   const hasGroups = columns.some((column) => column.group);
   const scrollerStyle = offset ? { '--table-shell-offset': offset } : undefined;
@@ -171,6 +175,17 @@ export default function TableShell({
     overscan: OVERSCAN,
     getItemKey: (index) => getRowKey(rows[index]),
   });
+  const virtualItems = virtualizer.getVirtualItems();
+  const lastInView = virtualItems.length > 0 ? virtualItems[virtualItems.length - 1].index : -1;
+  // The `rows` the end was last reached for: the same rows never ask twice (the page's part is in flight or there is
+  // none left), new rows -- a part appended, another list -- ask again when their end is in view.
+  const endReachedFor = useRef(null);
+  useEffect(() => {
+    if (!virtual || !onEndReached || lastInView < rows.length - 1 - OVERSCAN) return;
+    if (endReachedFor.current === rows) return;
+    endReachedFor.current = rows;
+    onEndReached();
+  }, [virtual, onEndReached, lastInView, rows]);
 
   const renderRow = (row) => {
     const key = getRowKey(row);
@@ -215,7 +230,7 @@ export default function TableShell({
   };
 
   const virtualBody = () => {
-    const items = virtualizer.getVirtualItems();
+    const items = virtualItems;
     const before = items.length > 0 ? items[0].start : 0;
     const after = items.length > 0 ? virtualizer.getTotalSize() - items[items.length - 1].end : 0;
     return (

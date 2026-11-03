@@ -57,7 +57,7 @@ import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
 import { withRowSelection } from '../components/publicacionesMl/rowSelection';
 import useRowSelection, { selectionRow } from '../components/publicacionesMl/useRowSelection';
-import useProductRows from '../components/publicacionesMl/useProductRows';
+import useProductRows, { appendPage } from '../components/publicacionesMl/useProductRows';
 import useListPrices from '../components/publicacionesMl/useListPrices';
 import useTnCardPercent from '../components/publicacionesMl/useTnCardPercent';
 import { useListOffsets } from '../hooks/useListOffsets';
@@ -75,7 +75,9 @@ import { buildStoreChips } from '../constants/tiendasOficiales';
 import { useTiendasOficiales } from '../hooks/useTiendasOficiales';
 import {
   AGRUPAR_DIMENSIONS,
+  ALL_ROWS,
   FILTER_KEYS,
+  LAZY_CHUNK,
   PAGE_SIZE,
   PAGE_SIZES,
   pageSizeLabel,
@@ -338,21 +340,28 @@ export default function PublicacionesML() {
   // response that carried facets is applied, so a failure asks again.
   const facetsFor = useRef(null);
 
+  // "Todos" in the Publicación / Precios list is asked in parts (filtros S4): LAZY_CHUNK rows from the page's offset,
+  // and the next part each time the table's end comes into view (`loadMoreItems`).
+  const lazy = !ownRows && pageSize === ALL_ROWS;
+  // The list's parts: the request they belong to, its params (no facets), the next offset and the page's end.
+  const parts = useRef(null);
+
   // What `/items` is asked with. The selection and the tab are not part of it: choosing a row asks for nothing.
   // The tree does not apply the markup filters (`/groups` has none), so neither do its facet counts; nor is it
   // sorted, so its one-row facets request never asks for a Métricas sort (a ranking of the whole set).
   const requestKey = JSON.stringify(
     ownRows
       ? { ...withoutSort(buildItemsParams(rowFilters, 1, { canSeeMargin: false })), offset: 0 }
-      : buildItemsParams(rowFilters, pageSize, { canSeeMargin, canSeeSales }),
+      : { ...buildItemsParams(rowFilters, pageSize, { canSeeMargin, canSeeSales }), ...(lazy && { limit: LAZY_CHUNK }) },
   );
 
   useEffect(() => {
     if (layerPending) return;
     const request = ++latestRequest.current;
     const wantFacets = filterKey !== facetsFor.current;
-    const params = JSON.parse(requestKey);
-    if (wantFacets) params.facets = true;
+    const asked = JSON.parse(requestKey);
+    const params = wantFacets ? { ...asked, facets: true } : asked;
+    parts.current = null;
     setLoading(true);
     setError(null);
     publicacionesMlAPI
@@ -360,6 +369,11 @@ export default function PublicacionesML() {
       .then((response) => {
         if (request !== latestRequest.current) return;
         setData(response.data);
+        if (lazy) {
+          // The page's rows: up to "Todos" from its offset, never past the list's total.
+          const end = asked.offset + Math.min(ALL_ROWS, Math.max(0, (response.data.total ?? 0) - asked.offset));
+          parts.current = { request, params: asked, next: asked.offset + asked.limit, end, busy: false };
+        }
         // A new list (page, sort, filter) starts with every row collapsed.
         if (keepExpanded.current !== request) setExpandedIds(new Set());
         keepExpanded.current = 0;
@@ -375,7 +389,29 @@ export default function PublicacionesML() {
         setError(err);
         setLoading(false);
       });
-  }, [requestKey, filterKey, reloadToken, layerPending]);
+  }, [requestKey, filterKey, reloadToken, layerPending, lazy]);
+
+  // The next part of "Todos": the same params from the next offset, appended to the rows (once each, by MLA). The
+  // total, the data state and the facets stay the first part's. A part of a list that is no longer the current one
+  // (a filter, sort or reload asked again) is dropped; a failed part leaves the rows as they are, and the next call asks it again.
+  const loadMoreItems = useCallback(() => {
+    const current = parts.current;
+    if (!current || current.busy || current.next >= current.end || current.request !== latestRequest.current) return;
+    current.busy = true;
+    const offset = current.next;
+    const limit = Math.min(LAZY_CHUNK, current.end - offset);
+    publicacionesMlAPI
+      .items({ ...current.params, offset, limit })
+      .then((response) => {
+        if (current.request !== latestRequest.current) return;
+        current.next = offset + limit;
+        current.busy = false;
+        setData((shown) => ({ ...shown, items: appendPage(shown?.items ?? EMPTY_ROWS, response.data?.items ?? []) }));
+      })
+      .catch(() => {
+        current.busy = false;
+      });
+  }, []);
 
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
@@ -1167,6 +1203,7 @@ export default function PublicacionesML() {
                 <ProductoTable
                   tree={productRows}
                   virtualizeFrom={virtualizeFrom}
+                  onEndReached={pageSize === ALL_ROWS ? productRows.loadMoreProducts : undefined}
                   columns={selectableColumns}
                   selection={selection}
                   colorOverlay={colorOverlay.colors}
@@ -1221,6 +1258,7 @@ export default function PublicacionesML() {
                   emptyMessage={emptyMessage}
                   ariaLabel="Publicaciones de Mercado Libre"
                   virtualizeFrom={virtualizeFrom}
+                  onEndReached={lazy ? loadMoreItems : undefined}
                 />
               )}
             </div>

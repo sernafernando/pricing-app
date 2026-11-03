@@ -27,6 +27,8 @@ import { COLORES_DISPONIBLES } from '../utils/productosConstants';
 export const PAGE_SIZE = 50;
 // Productos' sizes, 9999 being its "Todos" (the backend caps `limit` at 10000).
 export const ALL_ROWS = 9999;
+// "Todos" is not asked in one request: its rows come LAZY_CHUNK at a time as the list scrolls to its end (filtros S4).
+export const LAZY_CHUNK = 500;
 export const PAGE_SIZES = [25, 50, 100, 200, 500, ALL_ROWS];
 // The tables render only the rows in view past this many (the 200, 500 and Todos pages), like Envíos Flex.
 export const VIRTUALIZE_FROM = 100;

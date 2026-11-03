@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { productosAPI } from '../../services/api';
 
 const NONE = new Map();
@@ -39,7 +39,8 @@ async function readParts(parts, signal) {
  * fails the whole answer.
  *
  * A new `version` (the page's list reloaded after a write) reads the same products again; the shown prices stay
- * until the new ones arrive.
+ * until the new ones arrive. A list that only grew
+ * ("Todos" appends its rows in parts) asks only its new products, and the prices on show stay meanwhile.
  *
  * @returns {{ byId: Map<number, object>, loading: boolean, error: boolean }}
  */
@@ -48,23 +49,29 @@ export default function useListPrices(productIds, enabled, version = 0) {
     () => (enabled ? [...new Set(productIds.filter((id) => id !== null && id !== undefined))].sort((a, b) => a - b).join(',') : ''),
     [productIds, enabled],
   );
-  const [state, setState] = useState({ key: '', byId: NONE, error: false });
+  const [state, setState] = useState({ key: '', version, byId: NONE, error: false });
+  // The last answer, read by the effect without re-running it.
+  const last = useRef(state);
+  last.current = state;
 
   useEffect(() => {
     if (!key) return undefined;
     let current = true;
     const controller = new AbortController();
     const ids = key.split(',');
+    // A list that only grew ("Todos" appended a part) asks just its new products and keeps the answer it has.
+    const kept = grownFrom(last.current, key, version) ? last.current.byId : null;
+    const missing = kept ? ids.filter((id) => !kept.has(Number(id))) : ids;
     const parts = [];
-    for (let at = 0; at < ids.length; at += PRICES_CHUNK) parts.push(ids.slice(at, at + PRICES_CHUNK));
+    for (let at = 0; at < missing.length; at += PRICES_CHUNK) parts.push(missing.slice(at, at + PRICES_CHUNK));
     readParts(parts, controller.signal)
       .then((products) => {
         if (!current) return;
-        const byId = new Map(products.map((product) => [product.item_id, product]));
-        setState({ key, byId, error: false });
+        const byId = new Map([...(kept ?? []), ...products.map((product) => [product.item_id, product])]);
+        setState({ key, version, byId, error: false });
       })
       .catch(() => {
-        if (current) setState({ key, byId: NONE, error: true });
+        if (current) setState({ key, version, byId: NONE, error: true });
       });
     return () => {
       current = false;
@@ -72,10 +79,20 @@ export default function useListPrices(productIds, enabled, version = 0) {
     };
   }, [key, version]);
 
+  // Of the same products, even of an older `version`: a reload keeps the shown prices until the new ones arrive.
   const answered = Boolean(key) && state.key === key;
+  // While a grown list's new products are asked, the prices already on show stay.
+  const shown = answered || grownFrom(state, key, version) ? state.byId : NONE;
   // The same object while nothing changed: the page's columns depend on it.
   return useMemo(
-    () => ({ byId: answered ? state.byId : NONE, loading: Boolean(key) && !answered, error: answered && state.error }),
-    [answered, key, state],
+    () => ({ byId: shown, loading: Boolean(key) && !answered, error: answered && state.error }),
+    [answered, key, shown, state.error],
   );
+}
+
+/** Whether `answer` (a good answer of this `version`) is about a part of the products of `key`: the list grew. */
+function grownFrom(answer, key, version) {
+  if (!answer.key || answer.error || answer.version !== version || answer.key === key) return false;
+  const now = new Set(key.split(','));
+  return answer.key.split(',').every((id) => now.has(id));
 }

@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import useProductRows from './useProductRows';
+import { ALL_ROWS } from '../../hooks/usePublicacionesMLFilters';
 import { publicacionesMlAPI } from '../../services/api';
 import { productsResponse } from '../../test/visual/publicacionesMlFixtures';
 
@@ -107,5 +108,62 @@ describe('the in-flight guard', () => {
     });
     act(() => result.current.loadMore('')); // the new page is still pending: asking again must ask for nothing
     expect(publicacionesMlAPI.products).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('"Todos" in parts of 500 (filtros S4)', () => {
+  // A part of the products: 500 asked, 3 answered, out of 1200; each part's rows are its own.
+  const part = (offset, prefix = 'p') =>
+    [0, 1, 2].map((i) => ({ key: `${prefix}${offset + i}`, descripcion: `Producto ${offset + i}`, publications_count: 1, params: {} }));
+  const answer = (params) => Promise.resolve({ data: productsResponse(part(params.offset), { total: 1200, mla_count: 1500 }) });
+  const setupAll = (pageSize = ALL_ROWS) =>
+    renderHook(({ filters }) => useProductRows({ filters, pageSize, canSeeSales: true, canSeeMargin: true }), {
+      initialProps: { filters: { ...FILTERS, limite: pageSize } },
+    });
+  const productCalls = () => publicacionesMlAPI.products.mock.calls.map(([params]) => params);
+  const labels = (result) => result.current.rows.filter((row) => row.type === 'node').map((row) => row.node.key);
+
+  it('asks 500 at offset 0, the next parts on loadMoreProducts with the same params, appended, until the total', async () => {
+    publicacionesMlAPI.products.mockImplementation(answer);
+    const { result } = setupAll();
+    await waitFor(() => expect(result.current.total).toBe(1200));
+    const [first] = productCalls();
+    expect(first).toMatchObject({ estado: 'active', orden: 'facturado_30d', dir: 'desc', limit: 500, offset: 0 });
+    act(() => result.current.loadMoreProducts());
+    await waitFor(() => expect(labels(result)).toEqual(['p0', 'p1', 'p2', 'p500', 'p501', 'p502']));
+    act(() => result.current.loadMoreProducts());
+    await waitFor(() => expect(labels(result)).toHaveLength(9));
+    expect(productCalls()).toEqual([first, { ...first, offset: 500 }, { ...first, offset: 1000, limit: 200 }]);
+    // The pager keeps the first part's figures; past the total nothing more is asked.
+    expect(result.current.total).toBe(1200);
+    expect(result.current.mlaCount).toBe(1500);
+    act(() => result.current.loadMoreProducts());
+    expect(publicacionesMlAPI.products).toHaveBeenCalledTimes(3);
+  });
+
+  it('a filter change starts again at offset 0, and a part of the previous list is never appended', async () => {
+    const stale = deferred();
+    publicacionesMlAPI.products.mockImplementation((params) =>
+      params.estado === 'active' && params.offset === 500 ? stale.promise : answer(params),
+    );
+    const { result, rerender } = setupAll();
+    await waitFor(() => expect(result.current.total).toBe(1200));
+    act(() => result.current.loadMoreProducts());
+    rerender({ filters: { ...PAUSED, limite: ALL_ROWS } });
+    await waitFor(() => expect(productCalls().at(-1)).toMatchObject({ estado: 'paused', limit: 500, offset: 0 }));
+    await waitFor(() => expect(labels(result)).toEqual(['p0', 'p1', 'p2']));
+    await act(async () => {
+      stale.resolve({ data: productsResponse(part(500, 'old'), { total: 1200 }) });
+      await stale.promise;
+    });
+    expect(labels(result)).toEqual(['p0', 'p1', 'p2']);
+  });
+
+  it('a page of 50 is one request of 50: loadMoreProducts asks nothing', async () => {
+    publicacionesMlAPI.products.mockImplementation(answer);
+    const { result } = setupAll(50);
+    await waitFor(() => expect(result.current.total).toBe(1200));
+    act(() => result.current.loadMoreProducts());
+    expect(productCalls()).toEqual([expect.objectContaining({ limit: 50, offset: 0 })]);
   });
 });
