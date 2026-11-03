@@ -1,0 +1,111 @@
+/* The sell-in lot viewer of a product: the next-sale line, the lots in FIFO order and each lot's sales. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.next {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--cf-bg-hover);
+  border-left: 3px solid var(--cf-accent-blue);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.note {
+  margin: 0;
+  color: var(--cf-text-secondary);
+}
+
+.lots {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm, 4px);
+  overflow-wrap: anywhere;
+}
+
+.vigente {
+  background: var(--cf-accent-blue-light);
+  border-color: var(--cf-accent-blue);
+}
+
+.agotado {
+  color: var(--cf-text-tertiary);
+}
+
+.lotHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+
+.lotNumber {
+  font-weight: var(--font-semibold);
+}
+
+.status {
+  font-weight: var(--font-semibold);
+}
+
+.statusDesde {
+  color: var(--cf-warning);
+}
+
+.discount {
+  margin-left: auto;
+  font-weight: var(--font-semibold);
+}
+
+.lotLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  color: var(--cf-text-secondary);
+}
+
+.toggle {
+  padding: 0;
+  font: inherit;
+  color: var(--cf-accent-blue);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.sales {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-1) 0 0 var(--space-3);
+  list-style: none;
+}
+
+.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--cf-danger);
+}

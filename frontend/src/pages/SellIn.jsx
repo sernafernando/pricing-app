@@ -12,14 +12,21 @@ import SellInAnularMasivo from '../components/sellIn/SellInAnularMasivo';
 import SellInBonoPanel from '../components/sellIn/SellInBonoPanel';
 import SellInBonosTable from '../components/sellIn/SellInBonosTable';
 import SellInDetailPanel from '../components/sellIn/SellInDetailPanel';
+import SellInFiltrosExtra from '../components/sellIn/SellInFiltrosExtra';
 import SellInNuevoPanel from '../components/sellIn/SellInNuevoPanel';
 import SellInResumen from '../components/sellIn/SellInResumen';
 import SellInTable from '../components/sellIn/SellInTable';
 import { resolverIdsFiltrados } from '../components/sellIn/sellInAnularMasivo';
-import { buildSellInParams } from '../components/sellIn/sellInFormat';
+import { buildBonosParams, buildSellInParams } from '../components/sellIn/sellInFormat';
 import { useSeleccionMasiva } from '../components/sellIn/useSeleccionMasiva';
 import SellOutCampanaPanel from '../components/sellOut/SellOutCampanaPanel';
 import SellOutAnularMasivo from '../components/sellOut/SellOutAnularMasivo';
+import SellOutFiltros from '../components/sellOut/SellOutFiltros';
+import SellOutPorPrograma from '../components/sellOut/SellOutPorPrograma';
+import SellOutSugerencias from '../components/sellOut/SellOutSugerencias';
+import { useProgramas } from '../components/sellOut/useProgramas';
+import { FILTROS_CAMPANAS_VACIOS, paramsDeFiltros } from '../components/sellOut/sellOutFiltros';
+import GruposTab from '../components/grupos/GruposTab';
 import styles from './SellIn.module.css';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
@@ -39,17 +46,20 @@ function notaGeneradas(anulables, generadas) {
 const REVIERTE_BONOS = 'Después se anulan las compras que generó cada bono, y un bono sobre el costo deja de aplicarse a sus ventas.';
 const PANEL_LABELS = { crear: 'Nuevo sell in', detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out' };
 const APLICA_LABELS = { si: 'Aplican', no: 'No aplican' };
-const EMPTY_FILTERS = { aplica: 'si', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', filtro: '' };
+const EMPTY_FILTERS = { aplica: 'si', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', filtro: '', producto: null, proveedor: null };
 const TIPO_LABELS = { compra: 'Por compra', bono: 'Bono de marca' };
-// The two counts measure different lists: the bonus list takes none of the purchase filters.
+// The two counts measure different lists: the bonus list takes the filters a bonus has (`buildBonosParams`).
 const TIPO_HINTS = {
   compra: 'Los sell in por compra con los filtros de arriba',
-  bono: 'Todos los bonos de marca cargados: los filtros de arriba no los cuentan',
+  bono: 'Los bonos de marca con los filtros de arriba, salvo Aplicación, Producto y Proveedor',
 };
 // The active bonuses the summary cards add up.
 // ponytail: brands and reached purchases count only the first 200 active bonuses; ask the backend for those totals if active bonuses ever pass 200
 const BONOS_VIGENTES_MAX = 200;
+// The permissions of `GET /administracion/proveedores`, the Proveedor filter's search (`_PERMISOS_LECTURA_PROVEEDOR`).
+const PERMISOS_PROVEEDORES = ['administracion.ver_proveedores', 'administracion.ver_ordenes_compra', 'administracion.gestionar_ordenes_compra'];
 const TAB_SELL_OUT = 'sell-out';
+const TAB_GRUPOS = 'grupos';
 
 /** The brand list Productos and Publicaciones ML filter by (`GET /marcas`); empty on failure. */
 function useMarcas(enabled) {
@@ -68,24 +78,37 @@ function useMarcas(enabled) {
   return marcas;
 }
 
-/** The brand bonuses page by page (`GET /sell-in/bonos`, newest first); `recargar` asks again. */
-function useBonos(enabled) {
+/**
+ * The brand bonuses page by page (`GET /sell-in/bonos`, newest first) with `filtros` (`buildBonosParams`); other
+ * filters go back to page 1. `recargar` asks again.
+ */
+function useBonos(enabled, filtros) {
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(BONOS_PAGE_SIZES[0]);
   const [lista, setLista] = useState(null);
   const [error, setError] = useState(null);
   const requestRef = useRef(0);
+  // Other filters are another list: back to page 1, adjusted while rendering (no request for the old page).
+  const [filtrosVistos, setFiltrosVistos] = useState(filtros);
+  if (filtrosVistos !== filtros) {
+    setFiltrosVistos(filtros);
+    setOffset(0);
+  }
   const recargar = useCallback(async () => {
     if (!enabled) return;
     const requestId = ++requestRef.current;
     setError(null);
     try {
-      const { data } = await sellInBonosAPI.listar({ page: Math.floor(offset / pageSize) + 1, page_size: pageSize });
+      const { data } = await sellInBonosAPI.listar({ ...filtros, page: Math.floor(offset / pageSize) + 1, page_size: pageSize });
       if (requestId === requestRef.current) setLista(data);
     } catch {
-      if (requestId === requestRef.current) setError('No se pudieron cargar los bonos de marca.');
+      // Like the purchases: no rows of other filters under the error (they could be ticked and voided).
+      if (requestId === requestRef.current) {
+        setLista(null);
+        setError('No se pudieron cargar los bonos de marca.');
+      }
     }
-  }, [enabled, offset, pageSize]);
+  }, [enabled, filtros, offset, pageSize]);
   useEffect(() => {
     recargar();
   }, [recargar]);
@@ -122,8 +145,11 @@ function useBonosVigentes(enabled) {
   return { resumen, recargar };
 }
 
-/** The offset groups a sell-out campaign can reach (`GET /offset-grupos`); empty on failure. */
-function useGruposOffset(enabled) {
+/**
+ * The offset groups a sell-out campaign can reach (`GET /offset-grupos`); empty on failure. A new `version`
+ * ("Actualizar", or a group created, changed or deleted in the Grupos tab) asks them again.
+ */
+function useGruposOffset(enabled, version) {
   const [grupos, setGrupos] = useState([]);
   useEffect(() => {
     if (!enabled) return undefined;
@@ -135,13 +161,13 @@ function useGruposOffset(enabled) {
     return () => {
       active = false;
     };
-  }, [enabled]);
+  }, [enabled, version]);
   return grupos;
 }
 
-/** The sell-out campaigns page by page (`GET /sell-out/campanas`), searched by name (`q`); `recargar` asks again. */
+/** The sell-out campaigns page by page (`GET /sell-out/campanas`) with the tab's filters; `recargar` asks again. */
 function useCampanas(enabled) {
-  const [q, setQ] = useState('');
+  const [filtros, setFiltros] = useState(FILTROS_CAMPANAS_VACIOS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(CAMPANAS_PAGE_SIZES[0]);
   const [lista, setLista] = useState(null);
@@ -153,17 +179,20 @@ function useCampanas(enabled) {
     setError(null);
     const params = { page: Math.floor(offset / pageSize) + 1, page_size: pageSize };
     try {
-      const { data } = await sellOutAPI.listar(q.trim() ? { q: q.trim(), ...params } : params);
-      if (requestId === requestRef.current) setLista(data);
+      const { data } = await sellOutAPI.listar({ ...paramsDeFiltros(filtros), ...params });
+      if (requestId !== requestRef.current) return;
+      setLista(data);
+      // A reload can leave the page past the end (its campaigns were assigned or voided): go to the last one with data.
+      if (data.total > 0 && offset >= data.total) setOffset((Math.ceil(data.total / pageSize) - 1) * pageSize);
     } catch {
       if (requestId === requestRef.current) setError('No se pudieron cargar las campañas de sell out.');
     }
-  }, [enabled, q, offset, pageSize]);
+  }, [enabled, filtros, offset, pageSize]);
   useEffect(() => {
     recargar();
   }, [recargar]);
-  const buscar = useCallback((value) => {
-    setQ(value);
+  const filtrar = useCallback((cambios) => {
+    setFiltros((actual) => ({ ...actual, ...cambios }));
     setOffset(0);
   }, []);
   // Always the current search and page: a callback kept by a request in flight (a bulk void) calls it later.
@@ -172,7 +201,7 @@ function useCampanas(enabled) {
     recargarRef.current = recargar;
   }, [recargar]);
   const recargarActual = useCallback(() => recargarRef.current(), []);
-  return { lista, error, q, buscar, offset, setOffset, pageSize, setPageSize, recargar, recargarActual };
+  return { lista, error, filtros, filtrar, offset, setOffset, pageSize, setPageSize, recargar, recargarActual };
 }
 
 /**
@@ -180,23 +209,45 @@ function useCampanas(enabled) {
  * one page, two tabs. Sell in holds the purchase discounts that lower the cost
  * of that purchase's units and the brand bonuses; Sell out holds the campaigns.
  * The selected tab lives in the URL (`?tab=sell-out`) so a reload keeps it.
- * `sell_in.ver` reads the page, `sell_out.ver` shows the Sell out tab.
+ * `sell_in.ver` reads the page, `sell_out.ver` shows the Sell out tab, `config.editar_constantes` (the offset
+ * groups API permission) the Grupos tab (`?tab=grupos`).
  */
 export default function SellIn() {
   const { tienePermiso } = usePermisos();
   const puedeVer = tienePermiso('sell_in.ver');
   const puedeGestionar = tienePermiso('sell_in.gestionar');
   const marcas = useMarcas(puedeVer);
-  const bonos = useBonos(puedeVer);
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const { q: filtroQ, marcas: filtroMarcas, moneda: filtroMoneda, estado: filtroEstado, desde: filtroDesde, hasta: filtroHasta } = filters;
+  // Only the filters a bonus has: picking a product or supplier does not ask the bonuses again.
+  const bonosParams = useMemo(
+    () => buildBonosParams({ q: filtroQ, marcas: filtroMarcas, moneda: filtroMoneda, estado: filtroEstado, desde: filtroDesde, hasta: filtroHasta }),
+    [filtroQ, filtroMarcas, filtroMoneda, filtroEstado, filtroDesde, filtroHasta],
+  );
+  const bonos = useBonos(puedeVer, bonosParams);
   const bonosVigentes = useBonosVigentes(puedeVer);
   const puedeVerSellOut = tienePermiso('sell_out.ver');
   const campanas = useCampanas(puedeVer && puedeVerSellOut);
   const puedeGestionarSellOut = puedeVerSellOut && tienePermiso('sell_out.gestionar');
-  const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut);
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = puedeVerSellOut && searchParams.get('tab') === TAB_SELL_OUT ? TAB_SELL_OUT : 'sell-in';
+  const puedeGestionarGrupos = tienePermiso('config.editar_constantes');
+  // "Actualizar" bumps it: the Grupos tab asks its groups again.
+  const [versionGrupos, setVersionGrupos] = useState(0);
+  // A group created, changed or deleted in the Grupos tab: the campaign form's groups are asked again.
+  const [cambiosGrupos, setCambiosGrupos] = useState(0);
+  const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut, versionGrupos + cambiosGrupos);
+  // An assignment or a program created from a suggestion bumps it: programs, groups and suggestions are asked again.
+  const [versionProgramas, setVersionProgramas] = useState(0);
+  const programas = useProgramas(puedeVer && puedeVerSellOut, versionGrupos + versionProgramas);
+  // The suggestions "Descartar" hid, for this session only (nothing is stored).
+  const [descartadas, setDescartadas] = useState(() => new Set());
+  // "Ver: Por programa | Lista" lives in the URL (`?vista=`) like the tab; by default grouped once a program exists.
+  const vistaUrl = searchParams.get('vista');
+  const vista = ['programas', 'lista'].includes(vistaUrl) ? vistaUrl : programas.length > 0 ? 'programas' : 'lista';
+  const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeGestionarGrupos ? [TAB_GRUPOS] : [])];
+  const tabUrl = searchParams.get('tab');
+  const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
   const [tipo, setTipo] = useState('');
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [lista, setLista] = useState(null);
@@ -210,12 +261,18 @@ export default function SellIn() {
   const verBono = useCallback((id) => setPanel({ tipo: 'bono', id }), []);
   const verCompra = useCallback((id) => setPanel({ tipo: 'detalle', id }), []);
   const verCampana = useCallback((id) => setPanel({ tipo: 'campana', id }), []);
+  // A row's "Renovar" (`sell_out.gestionar`): the campaign's panel, renewing it as soon as it is read. A new `renovar`
+  // count remounts the panel, so a second click on the same row renews again.
+  const renovaciones = useRef(0);
+  const renovarCampana = useCallback((id) => {
+    renovaciones.current += 1;
+    setPanel({ tipo: 'campana', id, renovar: renovaciones.current });
+  }, []);
   // The bulk void (`sell_in.gestionar`): the checked purchases and bonuses, and what the last one did.
   const selCompras = useSeleccionMasiva();
   const selBonos = useSeleccionMasiva();
   const [aviso, setAviso] = useState(null);
   // Arrow keys move between the tabs (WAI-ARIA tabs pattern, automatic activation).
-  const tabsVisibles = puedeVerSellOut ? ['sell-in', TAB_SELL_OUT] : ['sell-in'];
   const onTabsKeyDown = (event) => {
     const actual = tabsVisibles.indexOf(tab);
     const destino = {
@@ -236,12 +293,25 @@ export default function SellIn() {
     setSearchParams(
       (prev) => {
         const params = new URLSearchParams(prev);
-        if (next === TAB_SELL_OUT) params.set('tab', TAB_SELL_OUT);
-        else params.delete('tab');
+        if (next === 'sell-in') params.delete('tab');
+        else params.set('tab', next);
         return params;
       },
       { replace: true },
     );
+  };
+  const cambiarVista = (next) =>
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set('vista', next);
+        return params;
+      },
+      { replace: true },
+    );
+  const programasCambiaron = () => {
+    campanas.recargarActual();
+    setVersionProgramas((v) => v + 1);
   };
 
   const params = useMemo(() => buildSellInParams({ ...filters, aplica: filters.aplica || 'todas' }), [filters]);
@@ -249,6 +319,19 @@ export default function SellIn() {
   useEffect(() => {
     paramsRef.current = params;
   }, [params]);
+
+  const bonosParamsRef = useRef(bonosParams);
+  useEffect(() => {
+    bonosParamsRef.current = bonosParams;
+  }, [bonosParams]);
+
+  // "Todo lo filtrado" of the bonuses, with the same filters as their list; dropped when they changed meanwhile.
+  const seleccionarBonosFiltrados = async () => {
+    const desde = bonosParams;
+    const ids = await resolverIdsFiltrados(sellInBonosAPI.listar, desde, { total: bonos.lista.total, filtrosActivos: Object.keys(desde).length > 0 });
+    if (bonosParamsRef.current !== desde) throw new Error('Los filtros cambiaron mientras se seleccionaba. Volvé a intentarlo.');
+    selBonos.reemplazar(ids);
+  };
 
   // "Todo lo filtrado" of the purchases, dropped when the filters changed while it was being read.
   const seleccionarComprasFiltradas = async () => {
@@ -290,6 +373,10 @@ export default function SellIn() {
   useEffect(() => {
     limpiarCompras();
   }, [params, limpiarCompras]);
+  const limpiarBonos = selBonos.limpiar;
+  useEffect(() => {
+    limpiarBonos();
+  }, [bonosParams, limpiarBonos]);
 
   // After a bulk void: the side panel of a record it voided closes (it read the record when it opened). What it voided
   // leaves the list, so the page it was on may no longer exist: each list goes back to page 1. The void can take a
@@ -345,6 +432,7 @@ export default function SellIn() {
 
   const conteo = resumen?.conteo;
   const enSellOut = tab === TAB_SELL_OUT;
+  const enSellIn = tab === 'sell-in';
   const totalCompras = lista?.total;
   const totalBonos = bonos.lista?.total;
   const tipoTotal = totalCompras === undefined || totalBonos === undefined ? undefined : totalCompras + totalBonos;
@@ -367,12 +455,13 @@ export default function SellIn() {
               bonos.recargar();
               bonosVigentes.recargar();
               campanas.recargar();
+              setVersionGrupos((v) => v + 1);
             }}
             disabled={loading}
           >
             <RefreshCw size={14} /> Actualizar
           </button>
-          {!enSellOut && puedeGestionar && (
+          {enSellIn && puedeGestionar && (
             <button type="button" className="btn-tesla primary sm" onClick={() => setPanel({ tipo: 'crear' })}>
               <Plus size={14} /> Nuevo sell in
             </button>
@@ -390,10 +479,10 @@ export default function SellIn() {
           type="button"
           role="tab"
           id="sell-in-tab"
-          aria-selected={!enSellOut}
-          aria-controls={!enSellOut ? 'sell-in-panel' : undefined}
-          tabIndex={!enSellOut ? 0 : -1}
-          className={`${styles.tab} ${!enSellOut ? styles.tabActive : ''}`}
+          aria-selected={enSellIn}
+          aria-controls={enSellIn ? 'sell-in-panel' : undefined}
+          tabIndex={enSellIn ? 0 : -1}
+          className={`${styles.tab} ${enSellIn ? styles.tabActive : ''}`}
           onClick={() => cambiarTab('sell-in')}
         >
           <span>Sell in</span> <span className={styles.srOnly}>·</span>{' '}
@@ -414,9 +503,23 @@ export default function SellIn() {
             <span className={styles.tabCount}>{campanas.lista ? campanas.lista.total.toLocaleString('es-AR') : campanas.error ? '—' : '…'}</span>
           </button>
         )}
+        {puedeGestionarGrupos && (
+          <button
+            type="button"
+            role="tab"
+            id="grupos-tab"
+            aria-selected={tab === TAB_GRUPOS}
+            aria-controls={tab === TAB_GRUPOS ? 'grupos-panel' : undefined}
+            tabIndex={tab === TAB_GRUPOS ? 0 : -1}
+            className={`${styles.tab} ${tab === TAB_GRUPOS ? styles.tabActive : ''}`}
+            onClick={() => cambiarTab(TAB_GRUPOS)}
+          >
+            Grupos
+          </button>
+        )}
       </div>
 
-      {error && !enSellOut && (
+      {error && enSellIn && (
         <div className={styles.errorBar} role="alert">
           <ShieldAlert size={16} /> {error}
         </div>
@@ -458,13 +561,14 @@ export default function SellIn() {
             />
           ) : panel?.tipo === 'campana' ? (
             <SellOutCampanaPanel
-              key={`campana-${panel.id ?? 'nueva'}-${panel.version ?? 0}`}
+              key={`campana-${panel.id ?? 'nueva'}-${panel.version ?? 0}-${panel.renovar ?? 0}`}
               campanaId={panel.id}
+              renovarAlAbrir={Boolean(panel.renovar)}
               grupos={gruposOffset}
               puedeGestionar={puedeGestionarSellOut}
               onSaved={(campana) => {
-                if (panel.id === null) verCampana(campana.id);
-                campanas.recargar();
+                if (campana.id !== panel.id) verCampana(campana.id); // a new one, or a renewal's copy
+                programasCambiaron(); // the list, and the groups and suggestions: a save may move any of them
               }}
               onClose={cerrarPanel}
             />
@@ -483,7 +587,11 @@ export default function SellIn() {
           ) : null
         }
       >
-        {!enSellOut ? (
+        {tab === TAB_GRUPOS ? (
+          <div role="tabpanel" id="grupos-panel" aria-labelledby="grupos-tab">
+            <GruposTab version={versionGrupos} onGruposCambiados={() => setCambiosGrupos((v) => v + 1)} />
+          </div>
+        ) : enSellIn ? (
           <div role="tabpanel" id="sell-in-panel" aria-labelledby="sell-in-tab">
             <section className={styles.filterCard} aria-label="Filtros">
               <div className={styles.filterBand}>
@@ -539,6 +647,14 @@ export default function SellIn() {
                     <option value="anulada">Anulada</option>
                   </select>
                 </label>
+              </div>
+              <div className={styles.filterBand}>
+                <SellInFiltrosExtra
+                  producto={filters.producto}
+                  proveedor={filters.proveedor}
+                  onChange={setFilter}
+                  conProveedor={PERMISOS_PROVEEDORES.some((codigo) => tienePermiso(codigo))}
+                />
               </div>
               <div className={styles.filterBand}>
                 <div className={styles.facetRow}>
@@ -645,9 +761,7 @@ export default function SellIn() {
                         seleccionados={[...selBonos.ids]}
                         total={bonos.lista.total}
                         revierte={REVIERTE_BONOS}
-                        onSeleccionarFiltrado={async () =>
-                          selBonos.reemplazar(await resolverIdsFiltrados(sellInBonosAPI.listar, {}, { total: bonos.lista.total, filtrosActivos: false }))
-                        }
+                        onSeleccionarFiltrado={seleccionarBonosFiltrados}
                         onLimpiar={selBonos.limpiar}
                         anular={sellInBonosAPI.anularMasivo}
                         onHecho={anuladoMasivo(selBonos, 'bono', recargarBonosRef)}
@@ -683,13 +797,23 @@ export default function SellIn() {
               <h2 id="sell-out-campanas-titulo" className={styles.srOnly}>
                 Campañas de sell out
               </h2>
-              <section className={styles.filterCard} aria-label="Filtros de campañas">
-                <div className={styles.filterBand}>
-                  <div className={styles.searchSlot}>
-                    <SearchInput value={campanas.q} onChange={campanas.buscar} debounce={400} placeholder="Buscar campaña por nombre…" />
-                  </div>
-                </div>
-              </section>
+              <SellOutFiltros
+                filtros={campanas.filtros}
+                onChange={campanas.filtrar}
+                marcas={marcas}
+                grupos={gruposOffset}
+                programas={programas}
+                vista={vista}
+                onVista={cambiarVista}
+              />
+              {puedeGestionarSellOut && (
+                <SellOutSugerencias
+                  version={versionGrupos + versionProgramas}
+                  descartadas={descartadas}
+                  onDescartar={(clave) => setDescartadas((actual) => new Set(actual).add(clave))}
+                  onCambio={programasCambiaron}
+                />
+              )}
               {campanas.error && (
                 <div className={styles.errorBar} role="alert">
                   <ShieldAlert size={16} /> {campanas.error}
@@ -698,36 +822,48 @@ export default function SellIn() {
               {campanas.lista && (
                 <>
                   <SellOutAnularMasivo
-                    key={campanas.q.trim()}
+                    key={JSON.stringify(paramsDeFiltros(campanas.filtros))}
                     campanas={campanas.lista.items}
                     total={campanas.lista.total}
-                    filtros={campanas.q.trim() ? { q: campanas.q.trim() } : {}}
+                    filtros={paramsDeFiltros(campanas.filtros)}
                     puedeGestionar={puedeGestionarSellOut}
                     selectedId={panel?.tipo === 'campana' ? panel.id : null}
                     onSelect={verCampana}
+                    onRenovar={puedeGestionarSellOut ? renovarCampana : undefined}
                     onAnuladas={(ids) => {
-                      campanas.recargarActual();
+                      programasCambiaron(); // the groups' active counts changed too
                       // The open campaign was just voided: read it again (a new key remounts the panel). Functional update:
                       // the panel may have been closed or changed while the request was in flight.
                       setPanel((actual) =>
                         actual?.tipo === 'campana' && ids.includes(actual.id)
-                          ? { ...actual, version: (actual.version ?? 0) + 1 }
+                          ? { ...actual, version: (actual.version ?? 0) + 1, renovar: undefined }
                           : actual,
                       );
                     }}
+                    programas={programas}
+                    onAsignadas={programasCambiaron}
+                    renderTabla={
+                      vista === 'programas'
+                        ? (props) => (
+                            <SellOutPorPrograma filtros={paramsDeFiltros(campanas.filtros)} version={versionGrupos + versionProgramas} {...props} />
+                          )
+                        : undefined
+                    }
                   />
-                  <Pagination
-                    total={campanas.lista.total}
-                    offset={campanas.offset}
-                    pageSize={campanas.pageSize}
-                    onOffsetChange={campanas.setOffset}
-                    onPageSizeChange={(size) => {
-                      campanas.setPageSize(size);
-                      campanas.setOffset(0);
-                    }}
-                    pageSizeOptions={CAMPANAS_PAGE_SIZES}
-                    summary={<span>{campanas.lista.total} campañas</span>}
-                  />
+                  {vista === 'lista' && (
+                    <Pagination
+                      total={campanas.lista.total}
+                      offset={campanas.offset}
+                      pageSize={campanas.pageSize}
+                      onOffsetChange={campanas.setOffset}
+                      onPageSizeChange={(size) => {
+                        campanas.setPageSize(size);
+                        campanas.setOffset(0);
+                      }}
+                      pageSizeOptions={CAMPANAS_PAGE_SIZES}
+                      summary={<span>{campanas.lista.total} campañas</span>}
+                    />
+                  )}
                 </>
               )}
             </section>

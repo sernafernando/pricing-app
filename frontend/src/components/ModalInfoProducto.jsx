@@ -4,6 +4,19 @@ import '../styles/ModalInfoProducto.css';
 import { useModalClickOutside } from '../hooks/useModalClickOutside';
 import { usePermisos } from '../contexts/PermisosContext';
 import PublicationStatusPill from './publicacionesMl/PublicationStatusPill';
+import { Layers } from 'lucide-react';
+import SellInLotes from './sellIn/SellInLotes';
+import { canViewProductPrices } from './pricing/productPricePermissions';
+
+/** A section drawn like the modal's own (card and heading), for components that take their host's section. */
+function InfoSection({ title, children }) {
+  return (
+    <section className="info-section">
+      <h3>{title}</h3>
+      {children}
+    </section>
+  );
+}
 
 const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const { overlayRef, handleOverlayMouseDown, handleOverlayClick } = useModalClickOutside(onClose);
@@ -15,6 +28,8 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
   const puedeVerInfoML = tienePermiso('productos.ver_info_mercadolibre');
   const puedeVerInfoVentas = tienePermiso('productos.ver_info_ventas');
   const puedeVerInfoCompras = tienePermiso('productos.ver_info_compras');
+  // The sell-in lot viewer: the backend gates it with the product panel's permissions (`PERMISOS_VER_PRODUCTO`).
+  const puedeVerLotesSellIn = canViewProductPrices(tienePermiso);
 
   // Tab info requiere al menos info básica o pricing
   const puedeVerTabInfo = puedeVerInfoBasica || puedeVerInfoPricing;
@@ -25,14 +40,15 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
     if (puedeVerInfoML) return 'ml';
     if (puedeVerInfoVentas) return 'ventas';
     if (puedeVerInfoCompras) return 'proveedor';
+    if (puedeVerLotesSellIn) return 'lotes';
     return null;
-  }, [puedeVerTabInfo, puedeVerInfoML, puedeVerInfoVentas, puedeVerInfoCompras]);
+  }, [puedeVerTabInfo, puedeVerInfoML, puedeVerInfoVentas, puedeVerInfoCompras, puedeVerLotesSellIn]);
 
   const [detalle, setDetalle] = useState(null);
   const [datosMl, setDatosMl] = useState(null);
   const [cargando, setCargando] = useState(false);
   const [cargandoMl, setCargandoMl] = useState(false);
-  const [tabActiva, setTabActiva] = useState(tabInicial); // 'info', 'ml', 'ventas', 'proveedor'
+  const [tabActiva, setTabActiva] = useState(tabInicial); // 'info', 'ml', 'ventas', 'proveedor', 'lotes'
 
   useEffect(() => {
     if (isOpen && itemId) {
@@ -163,6 +179,14 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                 onClick={() => setTabActiva('proveedor')}
               >
                 🏭 Últimas Compras
+              </button>
+            )}
+            {puedeVerLotesSellIn && (
+              <button
+                className={`tab-button ${tabActiva === 'lotes' ? 'active' : ''}`}
+                onClick={() => setTabActiva('lotes')}
+              >
+                <Layers size={14} aria-hidden="true" /> Lotes sell in
               </button>
             )}
           </div>
@@ -537,6 +561,9 @@ const ModalInfoProducto = ({ isOpen, onClose, itemId }) => {
                   )}
                 </>
               )}
+
+              {/* TAB: LOTES SELL IN */}
+              {tabActiva === 'lotes' && puedeVerLotesSellIn && <SellInLotes key={itemId} productItemId={itemId} container={InfoSection} />}
 
               {/* TAB: ÚLTIMAS COMPRAS */}
               {tabActiva === 'proveedor' && puedeVerInfoCompras && detalle.ultimas_compras && detalle.ultimas_compras.length > 0 && (

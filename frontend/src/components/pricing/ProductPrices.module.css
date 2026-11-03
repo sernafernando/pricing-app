@@ -44,41 +44,55 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Summary card: cost, cost with offset and IVA, the references for a price. */
+/* The reference line: cost, cost with offset, sell in/out and IVA, with an action (Calcular) at its end. */
 .facts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  /* A thin line over the price table (S2): the facts wrap as needed, the action stays at the end. */
+  display: flex;
+  align-items: center;
   gap: var(--spacing-md);
   align-self: stretch;
   box-sizing: border-box;
   margin: 0;
-  padding: var(--spacing-md);
-  border: 1px solid var(--tone-neutral-border);
-  border-radius: var(--radius-md);
-  background: var(--tone-neutral-bg);
+  padding: var(--spacing-xs) 0;
+  border-bottom: 1px solid var(--cf-border-default);
+  font-size: var(--font-sm);
+}
+
+.factList {
+  display: flex;
+  flex: 1 1 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-xs) var(--spacing-md);
+  min-width: 0;
+  margin: 0;
 }
 
 .fact {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: var(--spacing-xs);
   min-width: 0;
 }
 
 .factLabel {
   font-size: var(--font-xs);
-  font-weight: var(--font-semibold);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
   color: var(--cf-text-secondary);
 }
 
 .factValue {
+  /* May shrink, so a long offset name ellipsizes instead of widening the panel. */
+  min-width: 0;
   margin: 0;
-  font-size: var(--font-base);
   font-weight: var(--font-semibold);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   color: var(--cf-text-primary);
+}
+
+/* Calcular, at the end of the line. */
+.factAction {
+  margin-left: auto;
 }
 
 .offsetCost {
@@ -92,6 +106,7 @@
 
 .offsetList {
   display: flex;
+  white-space: normal;
   flex-direction: column;
   gap: 2px;
   margin: var(--spacing-xs) 0 0;
@@ -142,7 +157,7 @@
   color: var(--tone-info-fg);
 }
 
-/* One card per list, told apart by its accent: ML is info blue, PVP purple. */
+/* The rebate, offer and transfer card (ProductToggles), with its warning amber accent. */
 .group {
   /* Containing block of the absolutely positioned bits inside the table (e.g. the visually hidden "Acciones"
      header), so a table wider than the panel scrolls inside its group instead of widening the panel. */
@@ -156,8 +171,11 @@
   background: var(--cf-bg-card);
 }
 
-.group[data-list='pvp'] {
-  border-left-color: var(--tone-purple-fg);
+.planScroll {
+  /* Containing block of anything absolutely positioned inside the table, so it scrolls with it. */
+  position: relative;
+  align-self: stretch;
+  overflow-x: auto;
 }
 
 .table {
@@ -176,10 +194,6 @@
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
   color: var(--tone-info-fg);
-}
-
-.group[data-list='pvp'] .captionTitle {
-  color: var(--tone-purple-fg);
 }
 
 /* Rebate, best offer and web transferencia (ProductToggles): warning amber. */
@@ -207,11 +221,6 @@
   color: var(--cf-text-secondary);
 }
 
-/* A long header (e.g. "Markup c/ sell in/out") wraps so the table fits the side panel. */
-.table thead th.wrapHead {
-  white-space: normal;
-}
-
 .table thead th:first-child {
   padding-left: var(--spacing-sm);
   text-align: left;
@@ -229,7 +238,7 @@
   background: var(--tone-info-bg);
 }
 
-/* Tight side padding: six columns share the side panel, and CI fonts are wider than local ones. */
+/* Tight side padding: the plan table's columns share the side panel, and CI fonts are wider than local ones. */
 .table td,
 .label {
   padding: var(--spacing-xs);
@@ -254,6 +263,13 @@
 
 .price {
   font-weight: var(--font-semibold);
+}
+
+/* A price that is another row's, named instead of repeated. */
+.sameAs {
+  font-size: var(--font-xs);
+  font-weight: var(--font-normal);
+  color: var(--cf-text-secondary);
 }
 
 /* Markup chip, painted by markupTone (utils/ventasMlTone). */
@@ -294,6 +310,43 @@
 
 .error {
   color: var(--tone-danger-fg);
+}
+
+/* One price of a plan (S2): amount over its markup, the cost markups under them. */
+.table td.planEntry {
+  vertical-align: top;
+  text-align: right;
+}
+
+.planEntry[data-editing] {
+  background: var(--tone-info-bg);
+}
+
+.entryTop {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.markupExtra {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+
+.extraLabel {
+  color: var(--cf-text-secondary);
+}
+
+/* While editing, the input and its buttons share the cell and may wrap; the amounts never do. */
+.priceEditor {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
 }
 
 /* Inline editing (only for who may write a price). */

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.core.config import settings
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
+from app.scripts.sync_ml_publications_full import crear_snapshot, extraer_datos_publicacion
 from app.services.ml_api_client import MercadoLibreAPIClient
 from app.services.ml_multiget import BULK_ITEMS_PATH, MAX_IDS_PER_CALL, parse_multiget
 
@@ -100,58 +101,8 @@ async def traer_detalles_batch(ids: list, db: Session):
                 if not item:
                     continue
 
-                # Buscar campaña de cuotas
-                campaign = None
-                sale_terms = item.get("sale_terms", [])
-                for term in sale_terms:
-                    if term.get("id") == "INSTALLMENTS_CAMPAIGN":
-                        campaign = term.get("value_name")
-                        break
-
-                # Lógica condicional de campaña según las especificaciones:
-                # - gold_special → Clásica (también aplica para su PVP correspondiente)
-                # - gold_pro → 6 cuotas (6x_campaign)
-                # - 3x_campaign → 3 cuotas
-                # - 9x_campaign → 9 cuotas
-                # - 12x_campaign → 12 cuotas
-                if item.get("listing_type_id") == "gold_special":
-                    campaign = "Clásica"
-                elif not campaign and item.get("listing_type_id") == "gold_pro":
-                    campaign = "6x_campaign"
-                elif not campaign:
-                    campaign = "-"
-
-                # Buscar SKU
-                seller_sku = None
-                attributes = item.get("attributes", [])
-                for attr in attributes:
-                    if attr.get("id") == "SELLER_SKU":
-                        seller_sku = attr.get("value_id")
-                        break
-
-                # Intentar obtener item_id del SKU (si es numérico)
-                item_id = None
-                if seller_sku and seller_sku.isdigit():
-                    item_id = int(seller_sku)
-
-                # Crear registro de snapshot
-                snapshot = MLPublicationSnapshot(
-                    mla_id=item.get("id"),
-                    title=item.get("title"),
-                    price=item.get("price"),
-                    base_price=item.get("base_price"),
-                    available_quantity=item.get("available_quantity"),
-                    sold_quantity=item.get("sold_quantity"),
-                    status=item.get("status"),
-                    listing_type_id=item.get("listing_type_id"),
-                    permalink=item.get("permalink"),
-                    installments_campaign=campaign,
-                    seller_sku=seller_sku,
-                    item_id=item_id,
-                    snapshot_date=datetime.now(),
-                )
-
-                db.add(snapshot)
+                campaign, seller_sku, item_id = extraer_datos_publicacion(item)
+                db.add(crear_snapshot(item.get("id"), item, campaign, seller_sku, item_id))
                 total_saved += 1
 
             # Commit cada batch

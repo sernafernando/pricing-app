@@ -114,6 +114,8 @@ describe('rotation', () => {
     render(<LastSaleCell metrics={METRICS} now={new Date('2026-10-16T15:00:00Z')} />);
     expect(screen.getByText('14/10 10:05')).toBeInTheDocument();
     expect(screen.getByText('hace 2 días')).toBeInTheDocument();
+    // "Filas finas" keeps only the date on the line: how long ago is in the tooltip.
+    expect(screen.getByText('14/10 10:05').closest('[title]')).toHaveAttribute('title', 'hace 2 días');
   });
 
   it('shows the ageing as a chip toned like Métricas', () => {

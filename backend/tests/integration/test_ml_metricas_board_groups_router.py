@@ -475,6 +475,16 @@ class TestGroupedViewReview:
                 resp = client.get(
                     URL, params={"sort": sort, "sort_dir": direction, **GROUP, **flags}, headers=admin_auth_headers
                 )
+                if sort == "listing_kind":
+                    # A group is no publication: the listing type order is refused there, on the board and below it.
+                    assert resp.status_code == 422, (direction, resp.text)
+                    below = client.get(
+                        NODES,
+                        params={"path": _path("EPSON"), "sort": sort, "sort_dir": direction, **GROUP},
+                        headers=admin_auth_headers,
+                    )
+                    assert below.status_code == 422, (direction, below.text)
+                    continue
                 assert resp.status_code == 200, (sort, direction, resp.text)
                 for path in (["EPSON"], ["EPSON", "CAT", "1"]):
                     below = client.get(
@@ -483,6 +493,17 @@ class TestGroupedViewReview:
                         headers=admin_auth_headers,
                     )
                     assert below.status_code == 200, (sort, direction, path, below.text)
+
+    def test_group_nodes_refuse_the_listing_kind_sort_without_group_by(self, client, admin_auth_headers, board_data):
+        # The nodes endpoint is the grouped view whatever `group_by` says: a node at any level is refused the order.
+        for path in (["EPSON"], ["EPSON", "CAT", "1"]):
+            resp = client.get(
+                NODES,
+                params={"path": _path(*path), "sort": "listing_kind", "dimension": GROUP["dimension"]},
+                headers=admin_auth_headers,
+            )
+            assert resp.status_code == 422, (path, resp.text)
+            assert "sort=listing_kind no aplica a la vista agrupada" in resp.text
 
     def test_group_rows_carry_no_alerts(self, client, admin_auth_headers, board_data):
         rows = _get(client, admin_auth_headers, **GROUP)["rows"]
