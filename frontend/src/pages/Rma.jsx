@@ -21,7 +21,6 @@ const RmaMetricas = lazy(() => import('./rma/RmaMetricas'));
 
 export default function Rma() {
   const { tienePermiso } = usePermisos();
-  const puedeVerMetricas = tienePermiso('rma.ver');
   const puedeVerRma = tienePermiso('rma.ver');
   const puedeGestionar = tienePermiso('rma.gestionar');
   const puedeAdminOpciones = tienePermiso('rma.admin_opciones');
@@ -259,7 +258,7 @@ export default function Rma() {
             Para borrar
           </button>
         )}
-        {puedeVerMetricas && (
+        {puedeVerRma && (
           <button
             className={`${styles.tab} ${activeTab === 'metricas' ? styles.tabActive : ''}`}
             onClick={() => setActiveTab('metricas')}
@@ -413,7 +412,7 @@ export default function Rma() {
       {activeTab === 'para_borrar' && puedeVerRma && <RmaParaBorrar puedeGestionar={puedeGestionar} />}
 
       {/* Tab: Métricas — lazy-loaded (recharts stays out of the main bundle) */}
-      {activeTab === 'metricas' && puedeVerMetricas && (
+      {activeTab === 'metricas' && puedeVerRma && (
         <Suspense fallback={<div style={{ padding: '32px', textAlign: 'center', color: 'var(--cf-text-secondary)' }}>Cargando métricas...</div>}>
           <RmaMetricas />
         </Suspense>
