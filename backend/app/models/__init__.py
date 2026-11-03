@@ -21,7 +21,9 @@ from app.models.comparacion_listas_banlist import ComparacionListasBanlist
 from app.models.calculo_pricing import CalculoPricing
 from app.models.mercadolibre_item_publicado import MercadoLibreItemPublicado
 from app.models.ml_publication_snapshot import MLPublicationSnapshot
+from app.models.publicacion_repair import PublicacionRepairEvent, PublicacionRepairRun
 from app.models.ml_publication_link import MlPublicationLink
+
 from app.models.producto_propio import ProductoPropio
 from app.models.ml_item_override import MlItemOverride
 from app.models.ml_item_relation import MlItemRelation
@@ -278,6 +280,8 @@ __all__ = [
     "CalculoPricing",
     "MercadoLibreItemPublicado",
     "MLPublicationSnapshot",
+    "PublicacionRepairRun",
+    "PublicacionRepairEvent",
     "TbItemSerial",
     "TbItemTransactionSerial",
     "Notificacion",
