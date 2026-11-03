@@ -623,11 +623,13 @@ class TestCounters:
 class TestItsOwnThread:
     """ml-sync-pipeline S4: refresh is not cut every 30 s (the generic runtime deadline), below the claim lease."""
 
-    def test_refresh_runs_in_its_own_thread_and_the_other_ml_handlers_do_not(self) -> None:
+    def test_only_refresh_and_order_discounts_run_in_their_own_thread(self) -> None:
         from app.workers.registry import ML_PUBLICATIONS_REGISTRY
 
+        # Exactly these two (ml-ads-cupones-display T3a added the paced `ml_orders.discounts`); any other ML
+        # handler in its own thread is a regression.
         own = [h.name for h in ML_PUBLICATIONS_REGISTRY if getattr(h, "own_thread", False)]
-        assert own == [HANDLER_NAME]
+        assert own == [HANDLER_NAME, "ml_orders.discounts"]
 
     def test_its_deadline_is_half_the_lease_so_no_claim_outlives_it(self, monkeypatch) -> None:
         monkeypatch.setattr(settings, "ML_PUB_LEASE_SECONDS", 300)
