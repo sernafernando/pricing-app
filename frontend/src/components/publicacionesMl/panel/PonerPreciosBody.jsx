@@ -104,12 +104,11 @@ export default function PonerPreciosBody({
       onWritten?.();
       onLeavePub?.();
     } catch (err) {
+      // Always mention Pricing already saved — errorText alone would hide that behind a string detail.
+      const detail = errorText(err, 'No se pudo activar la promoción.');
       setMessage({
         tone: 'error',
-        text: errorText(
-          err,
-          'El precio ya está guardado en Pricing, pero no se pudo activar la promoción.',
-        ),
+        text: `El precio ya está guardado en Pricing. ${detail}`,
       });
       setEnrolling(false);
     }

@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import PonerPreciosBody from './PonerPreciosBody';
 import { preciosAPI, promocionesAPI } from '../../../services/api';
+import capture from './fixtures/ponerPreciosPromos.capture.json';
 
 vi.mock('../../../services/api', () => ({
   preciosAPI: { setRapido: vi.fn(), setCuota: vi.fn() },
@@ -28,6 +29,27 @@ vi.mock('../../ModalTesla', () => ({
   ),
 }));
 
+/** Map a captured seller-promotions entry to the enriched shape GET /promociones/item returns. */
+function asApiPromo(raw, nuestro_markup) {
+  return {
+    promotion_id: raw.id,
+    promotion_type: raw.type,
+    status: raw.status,
+    name: raw.name,
+    price: raw.price,
+    original_price: raw.original_price,
+    suggested_discounted_price: raw.suggested_discounted_price,
+    min_discounted_price: raw.min_discounted_price,
+    max_discounted_price: raw.max_discounted_price,
+    meli_percentage: raw.meli_percentage,
+    seller_percentage: raw.seller_percentage,
+    nuestro_markup,
+  };
+}
+
+const markups = { SMART: 20, DEAL: 12, SELLER_CAMPAIGN: 15 };
+const capturedPromotions = capture.promotions.map((raw) => asApiPromo(raw, markups[raw.type]));
+
 const detail = {
   row: {
     price: { amount: 1500, pricelist_id: 4, lista_nombre: 'Clásica' },
@@ -39,23 +61,7 @@ const detail = {
 beforeEach(() => {
   preciosAPI.setRapido.mockReset().mockResolvedValue({ data: {} });
   promocionesAPI.getMarkupParaPrecio.mockReset().mockResolvedValue({ data: { nuestro_markup: 18 } });
-  promocionesAPI.getPromocionesItem.mockReset().mockResolvedValue({
-    data: {
-      promotions: [
-        { promotion_id: 'smart-1', promotion_type: 'SMART', status: 'candidate', price: 1400, nuestro_markup: 20, name: 'Smart A' },
-        {
-          promotion_id: 'deal-1',
-          promotion_type: 'DEAL',
-          status: 'candidate',
-          suggested_discounted_price: 1300,
-          min_discounted_price: 1200,
-          max_discounted_price: 1400,
-          nuestro_markup: 12,
-          name: 'Deal A',
-        },
-      ],
-    },
-  });
+  promocionesAPI.getPromocionesItem.mockReset().mockResolvedValue({ data: { promotions: capturedPromotions } });
   promocionesAPI.postPromocionItem.mockReset().mockResolvedValue({ data: { status: 'submitted' } });
 });
 
@@ -74,22 +80,24 @@ describe('PonerPreciosBody Enter suggest', () => {
     await waitFor(() =>
       expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith(
         'MLA1',
-        expect.objectContaining({ promotion_id: 'smart-1', promotion_type: 'SMART' }),
+        expect.objectContaining({ promotion_id: 'P-MLA18137008', promotion_type: 'SMART' }),
       ),
     );
     expect(onLeavePub).toHaveBeenCalled();
   });
 
-  it('keeps the modal and says Pricing already saved when enroll fails', async () => {
+  it('keeps the modal and always says Pricing was saved when enroll fails with a string detail', async () => {
     const user = userEvent.setup();
-    promocionesAPI.postPromocionItem.mockRejectedValueOnce(new Error('network'));
+    promocionesAPI.postPromocionItem.mockRejectedValueOnce({
+      response: { data: { detail: 'Promoción no disponible' } },
+    });
     render(<PonerPreciosBody detail={detail} itemId="MLA1" canEditPrice canWritePromos />);
     await user.clear(screen.getByLabelText('Nuevo precio'));
     await user.type(screen.getByLabelText('Nuevo precio'), '1600{Enter}');
     await screen.findByRole('dialog', { name: 'Elegí una promoción' });
     await user.click(screen.getByRole('button', { name: /SMART/i }));
     expect(await screen.findByRole('status')).toHaveTextContent(
-      /precio ya está guardado en Pricing.*no se pudo activar/i,
+      /El precio ya está guardado en Pricing\. Promoción no disponible/,
     );
     expect(screen.getByRole('dialog', { name: 'Elegí una promoción' })).toBeInTheDocument();
   });
