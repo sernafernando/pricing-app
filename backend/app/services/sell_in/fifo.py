@@ -251,6 +251,15 @@ class Dinero:
         # only lots of a few thousandths, or none, can fail to cover it, and a row never goes below zero for that.
         return max(monto, Decimal("0.00"))
 
+    def restante(self, fecha: date) -> Decimal:
+        """The money every unit left would get, all sold on `fecha` after the rows fed so far, without feeding them:
+        the lots' own money left under FIFO, the pool's under `ponderado`, the newest lot's value under `ultimo`."""
+        sim = copy.deepcopy(self)
+        sim._avanzar(fecha)
+        if sim._modo != "fifo":
+            sim._unir(fecha)
+        return sim._dinero_restante(len(sim.lotes))
+
     def proximo(self, fecha: date) -> Optional[Tuple[int, Decimal, int, int]]:
         """What the next sale on `fecha` gets after the rows fed so far, without feeding it: `(lot the units come
         from, money, units it spreads over, units left at that value)`; None when no lot that counts has units."""
