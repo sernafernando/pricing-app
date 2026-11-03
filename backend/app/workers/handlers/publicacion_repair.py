@@ -104,10 +104,14 @@ class SkuRepairHandler:
             )
             return outcome == GRANTED
 
+        def on_rate_limited(retry_after: Optional[str]) -> None:
+            self.pacer.on_rate_limited(PACER_FAMILY_SKU, retry_after)
+
         stats: Dict[str, Any] = resolve_maybe_async(
             run_sku_repair(
                 trigger=TRIGGER_TICK,
                 before_write=before_write,
+                on_rate_limited=on_rate_limited,
                 pacing_seconds=0,
             )
         )

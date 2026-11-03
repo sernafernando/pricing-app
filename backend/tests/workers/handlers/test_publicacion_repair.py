@@ -52,6 +52,23 @@ def test_envio_handler_wires_pacer_and_runs(monkeypatch: pytest.MonkeyPatch) -> 
     assert result.detail["scanned"] == 0
 
 
+def test_sku_handler_wires_pacer_on_rate_limited(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "ML_PUB_KILL_SWITCH", False)
+    monkeypatch.setattr(settings, "ML_ITEM_DATA_WRITE_ENABLED", True)
+    pacer = mock.Mock()
+    pacer.acquire.return_value = handlers.GRANTED
+
+    async def fake_run(**kwargs):
+        assert kwargs["on_rate_limited"] is not None
+        kwargs["on_rate_limited"]("15")
+        pacer.on_rate_limited.assert_called_once_with(handlers.PACER_FAMILY_SKU, "15")
+        return {"scanned": 0, "changed": 0, "skipped": 0, "errors": 0}
+
+    monkeypatch.setattr(handlers, "run_sku_repair", fake_run)
+    result = handlers.SkuRepairHandler(pacer=pacer).run(_ctx())
+    assert result.success is True
+
+
 def test_handlers_registered_in_ml_publications_registry() -> None:
     names = {getattr(h, "name", None) for h in ML_PUBLICATIONS_REGISTRY}
     assert handlers.ENVIO_HANDLER in names

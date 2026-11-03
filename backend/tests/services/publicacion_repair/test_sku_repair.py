@@ -142,3 +142,35 @@ def test_run_sku_repair_skips_stale(monkeypatch: pytest.MonkeyPatch, patched_aud
     stats = asyncio.run(sku_mod.run_sku_repair(client=Boom(), pacing_seconds=0))
     assert stats["skipped"] == 1
     assert events[0]["detail"] == "stale_ml_item"
+
+
+def test_run_sku_repair_stops_on_429_and_notifies_pacer(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
+    _finish, events, *_ = patched_audit
+    monkeypatch.setattr(
+        sku_mod,
+        "_load_work_items",
+        lambda db: [
+            ("MLA_A", 1, "old", "111", "active", _fresh()),
+            ("MLA_B", 2, "old", "222", "active", _fresh()),
+        ],
+    )
+    puts: list[str] = []
+    limited: list[str | None] = []
+
+    class FakeClient:
+        async def put_item_data(self, mla: str, body: dict):
+            puts.append(mla)
+            return {"ok": False, "status_code": 429, "ambiguous": False, "body": {}, "retry_after": "12"}
+
+    stats = asyncio.run(
+        sku_mod.run_sku_repair(
+            client=FakeClient(),
+            pacing_seconds=0,
+            on_rate_limited=lambda ra: limited.append(ra),
+        )
+    )
+    assert puts == ["MLA_A"]
+    assert limited == ["12"]
+    assert stats["errors"] == 1
+    assert stats["changed"] == 0
+    assert events[0]["detail"] == "rate_limited"

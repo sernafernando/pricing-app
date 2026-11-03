@@ -102,9 +102,12 @@ async def run_sku_repair(
     before_write: Optional[Callable[[], bool]] = None,
     on_rate_limited: Optional[Callable[[Optional[str]], None]] = None,
 ) -> dict[str, int]:
-    """Scan linked pubs; PUT SELLER_SKU when ml_items.seller_sku drifts from ERP codigo."""
+    """Scan linked pubs; PUT SELLER_SKU when ml_items.seller_sku drifts from ERP codigo.
+
+    On HTTP 429: call `on_rate_limited` with Retry-After (if any) and stop the run so the
+    shared worker Pacer can AIMD instead of walking the rest of the tick.
+    """
     del db
-    _ = on_rate_limited  # put_item_data does not yet surface Retry-After; kept for worker API parity
     run_id = repair_audit.start_run_bg(job_type=JOB_SKU, trigger=trigger)
     scanned = changed = skipped = errors = 0
     writes_done = 0
@@ -197,8 +200,24 @@ async def run_sku_repair(
 
             writes_done += 1
             result = await ml.put_item_data(mla, seller_sku_payload(erp_codigo))
-            action, detail = _classify_data_write(result)
             after = {"seller_sku": erp_codigo, "erp_codigo": erp_codigo}
+            if result.get("status_code") == 429:
+                if on_rate_limited is not None:
+                    retry_after = result.get("retry_after")
+                    on_rate_limited(retry_after if isinstance(retry_after, str) else None)
+                errors += 1
+                repair_audit.record_event_bg(
+                    run_id=run_id,
+                    mla_id=mla,
+                    item_id=item_id,
+                    action=ACTION_ERROR,
+                    before=before,
+                    after=after,
+                    detail="rate_limited",
+                )
+                break
+
+            action, detail = _classify_data_write(result)
             if action == ACTION_CHANGED:
                 changed += 1
                 repair_audit.record_ml_write_log(
