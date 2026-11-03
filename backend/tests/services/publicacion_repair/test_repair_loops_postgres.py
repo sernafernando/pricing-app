@@ -121,6 +121,8 @@ def test_sku_loop_persists_changed_event(repair_pg, monkeypatch: pytest.MonkeyPa
         "_load_work_items",
         lambda db: [("MLA_DRIFT", 7, "OLD", "NEWCODE", "active", _fresh())],
     )
+    # This fixture only creates repair tables; stub variations so we do not need ml_item_variations.
+    monkeypatch.setattr(sku_mod, "mlas_with_live_variations", lambda db, mlas: set())
 
     class Fake:
         async def put_item_data(self, mla: str, body: dict):
