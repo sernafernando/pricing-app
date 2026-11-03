@@ -15,12 +15,12 @@ from app.services.gestion_full.inbound import refresh_last_inbound
 from app.services.gestion_full.listing import list_gestion_full
 from app.services.gestion_full.overrides import (
     clear_override,
+    puede_editar_con_pares,
     puede_editar_override_para,
     resolve_producto_por_inventory_id,
     upsert_override,
-    usuario_puede_editar_algun_override,
 )
-from app.services.pm_scope import is_full_view
+from app.services.pm_scope import get_pares_marca_categoria_usuario, is_full_view
 
 router = APIRouter(prefix="/gestion-full", tags=["gestion-full"])
 
@@ -123,11 +123,13 @@ def get_gestion_full(
         limit=limit,
         offset=offset,
     )
+    # Resolve PM scope once — puede_editar_override_para would N+1 (~2 queries/row).
+    pares = get_pares_marca_categoria_usuario(db, current_user)
     for item in payload["items"]:
-        item["puede_editar_override"] = puede_editar_override_para(
-            current_user, db, item.get("marca"), item.get("categoria")
+        item["puede_editar_override"] = puede_editar_con_pares(
+            pares, item.get("marca"), item.get("categoria")
         )
-    payload["puede_editar_override"] = usuario_puede_editar_algun_override(current_user, db)
+    payload["puede_editar_override"] = pares is None or bool(pares)
     return payload
 
 
@@ -173,8 +175,9 @@ def post_refresh_inbound(
 ) -> dict[str, Any]:
     """Pull the latest Full inbound reception from ML and store it as Target.
 
-    Restricted to full-view users to protect the ML operations quota; a Monday
-    batch job can refresh everyone later.
+    Restricted to full-view users to protect the ML operations quota; the
+    weekend drip handler (``gestion_full.inbound``) refreshes everyone on
+    Saturday and Sunday.
     """
     if not is_full_view(current_user, db):
         raise HTTPException(
