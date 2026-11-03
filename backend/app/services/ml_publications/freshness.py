@@ -58,7 +58,8 @@ MEASURED: Dict[str, _Measured] = {
     "family": _Measured(
         "ml_user_product_families",
         "family_id",
-        f"CASE WHEN q.kind = '{FAMILY_KIND}' THEN q.entity_id ELSE i.family_id END",
+        # The queue keys every entry as text; a family's id is a bigint like `ml_items.family_id`.
+        f"CASE WHEN q.kind = '{FAMILY_KIND}' THEN CAST(q.entity_id AS bigint) ELSE i.family_id END",
         (ITEM_KIND, FAMILY_KIND),
         f"AND (q.kind = '{FAMILY_KIND}' OR i.family_id IS NOT NULL)",
     ),

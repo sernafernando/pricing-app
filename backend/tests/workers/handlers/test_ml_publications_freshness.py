@@ -173,6 +173,52 @@ class TestCommercialData:
         assert "stock" not in resources  # the publication's available quantity: no target (owner, 2026-10-27)
 
 
+class TestFamilies:
+    """The queue keys a family entry by its id as text while `ml_items.family_id` is a bigint (prod error
+    "los tipos bigint y text no son coincidentes en CASE", 2026-11-03): the family measure must run on Postgres."""
+
+    def _put_family_item(self, engine, item_id: str, family_id: int) -> None:
+        put_item(engine, item_id, checked=ago(1))
+        run(engine, "UPDATE ml_items SET family_id = :f WHERE item_id = :i", f=family_id, i=item_id)
+
+    def test_a_family_waiting_past_its_target_is_late_once_however_it_was_asked(self, env) -> None:
+        settings_store.set_setting("bundle_resources", ["core", "family"], "test")
+        self._put_family_item(env, "MLA1", 5001)
+        self._put_family_item(env, "MLA2", 5001)
+        run(
+            env,
+            "INSERT INTO ml_user_product_families (family_id, http_status, last_checked_at) VALUES (5001, 200, :c)",
+            c=ago(60 * 72),
+        )
+        two_days = ago(60 * 48)
+        notify(env, "MLA1", received=two_days)
+        notify(env, "MLA2", received=two_days)
+        run(
+            env,
+            "INSERT INTO ml_pub_refresh_queue (kind, entity_id, resources, lane, source_received_at) "
+            "VALUES ('family', '5001', '{family}', 1, :at)",
+            at=two_days,
+        )
+
+        family = measure(env)["resources"]["family"]
+
+        assert family["target_seconds"] == 86400
+        assert family["late"] == 1
+        assert 48 * 3600 - 60 < family["oldest_late_seconds"] < 48 * 3600 + 60
+
+    def test_a_family_checked_since_the_notification_is_not_late(self, env) -> None:
+        settings_store.set_setting("bundle_resources", ["core", "family"], "test")
+        self._put_family_item(env, "MLA1", 5001)
+        run(
+            env,
+            "INSERT INTO ml_user_product_families (family_id, http_status, last_checked_at) VALUES (5001, 200, :c)",
+            c=ago(1),
+        )
+        notify(env, "MLA1", received=ago(60 * 48))
+
+        assert measure(env)["resources"]["family"]["late"] == 0
+
+
 class TestVisits:
     def test_measured_only_while_the_sweep_collects_them(self, env) -> None:
         put_item(env, "MLA1", checked=ago(1))
