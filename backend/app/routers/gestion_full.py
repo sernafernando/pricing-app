@@ -152,9 +152,7 @@ def get_gestion_full(
     # Resolve PM scope once — puede_editar_override_para would N+1 (~2 queries/row).
     pares = get_pares_marca_categoria_usuario(db, current_user)
     for item in payload["items"]:
-        item["puede_editar_override"] = puede_editar_con_pares(
-            pares, item.get("marca"), item.get("categoria")
-        )
+        item["puede_editar_override"] = puede_editar_con_pares(pares, item.get("marca"), item.get("categoria"))
     payload["puede_editar_override"] = pares is None or bool(pares)
     payload["puede_editar_caja"] = PermisosService(db).tiene_permiso(current_user, PERM_DEPOSITOS)
     return payload
