@@ -20,9 +20,10 @@ const MONEDAS = [
  * cost or net price, currency and, in USD, how the exchange rate is taken; caps, VAT, stacking and the product
  * groups it reaches (managed in Gestionar Offsets); per unit, the products with their own amount. A `monto_total`
  * campaign (T26d) takes one total instead, negative for a deduction, and no caps: its split per product is set in
- * the panel's reparto section (`SellOutReparto`). Controlled.
+ * the panel's reparto section (`SellOutReparto`). Controlled. `copiaDe`: the name of the campaign a renewal copies,
+ * said on top of the form; its copied shares, if any, are sent with the create.
  */
-export default function SellOutCampanaForm({ valores, onChange, grupos }) {
+export default function SellOutCampanaForm({ valores, onChange, grupos, copiaDe = null }) {
   const id = useId();
   const set = (patch) => onChange({ ...valores, ...patch });
   const toggleGrupo = (grupoId) =>
@@ -49,8 +50,11 @@ export default function SellOutCampanaForm({ valores, onChange, grupos }) {
     </label>
   );
 
+  const copiados = valores.repartosCopiados?.length ?? 0;
+
   return (
     <>
+      {copiaDe !== null && <p className={styles.hint}>{`Copia de «${copiaDe}». Revisá fechas y montos antes de guardar.`}</p>}
       <label className={styles.field} htmlFor={`${id}-nombre`}>
         <span className={styles.label}>Nombre</span>
         <input id={`${id}-nombre`} type="text" maxLength={200} className={styles.input} value={valores.nombre} onChange={(e) => set({ nombre: e.target.value })} />
@@ -95,6 +99,16 @@ export default function SellOutCampanaForm({ valores, onChange, grupos }) {
           <p className={styles.hint}>
             Negativo: descuenta de la ganancia. Suma una sola vez al total; se reparte por producto desde la campaña guardada.
           </p>
+          {copiados > 0 && (
+            <p className={styles.hint}>
+              {`El reparto del monto total (${copiados === 1 ? '1 producto' : `${copiados} productos`}) se copia al guardar.`}{' '}
+              {/* With other groups or a smaller total the copied split may no longer fit: it can be left out. */}
+              <button type="button" className="btn-tesla ghost sm" onClick={() => set({ repartosCopiados: [], repartoDescartado: true })}>
+                No copiar el reparto
+              </button>
+            </p>
+          )}
+          {valores.repartoDescartado && <p className={styles.hint}>El reparto se carga después, desde la campaña guardada.</p>}
         </>
       )}
       {porUnidad && numero('montoUnit', 'Monto por unidad')}

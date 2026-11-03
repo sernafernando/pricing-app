@@ -66,11 +66,11 @@ class TestBackfillOrder:
         assert (tick.stopped, tick.complete, product_calls) == (
             None,
             True,
-            3 * 109 + 1,
-        )  # three days and the advertisers list; Display's and Brand Ads' calls are counted apart
+            3 * 109 + 2,
+        )  # three days and the PADS and DISPLAY advertisers lists; Display's and Brand Ads' calls are counted apart
         assert [s.day for s in tick.display_steps] == [s.day for s in tick.steps]
         assert [s.day for s in tick.brand_steps] == [s.day for s in tick.steps]  # one advertiser here
-        assert len(replay.calls(ADVERTISERS_RE)) == 1
+        assert len(replay.calls(ADVERTISERS_RE)) == 2  # PADS, then DISPLAY
 
     def test_every_advertiser_of_a_day_is_done_before_the_next_day(
         self, session_factory, pg_ads_db, monkeypatch, window
@@ -97,7 +97,7 @@ class TestBackfillOrder:
         already = len(replay.requests)
         again = _tick(session_factory, replay, monkeypatch)
         assert (again.steps, again.complete) == ([], True)
-        assert [r.url.path for r in replay.requests[already:]] == ["/advertising/advertisers"]
+        assert [r.url.path for r in replay.requests[already:]] == ["/advertising/advertisers"] * 2  # PADS, then DISPLAY
 
     def test_rate_limit_stops_the_run_and_leaves_the_day_open_for_the_next_one(
         self, session_factory, pg_ads_db, monkeypatch, window
@@ -147,7 +147,7 @@ class TestBackfillOrder:
         window(2)
         replay = Replay(FakeClock(), {GAUSS: gauss_day()}, advertisers=())
         tick = _tick(session_factory, replay, monkeypatch)
-        assert (tick.stopped, tick.complete, tick.steps, tick.calls) == (None, True, [], 1)
+        assert (tick.stopped, tick.complete, tick.steps, tick.calls) == (None, True, [], 2)
 
     def test_an_unauthorized_answer_counts_as_a_call_and_blocks(self, session_factory, monkeypatch, window) -> None:
         window(2)

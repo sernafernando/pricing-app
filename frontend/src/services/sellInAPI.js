@@ -43,3 +43,14 @@ export const sellInBonosAPI = {
   anular: (id, motivo) => api.post(`${BONOS}/${id}/anular`, { motivo: motivo?.trim() || null }),
   anularMasivo: (ids, motivo) => api.post(`${BONOS}/anular-masivo`, { ids, motivo: motivo?.trim() || null }),
 };
+
+const PRODUCTOS = '/sell-in/productos';
+
+/**
+ * Sell-in lot viewer per product (`backend/app/routers/sell_in_lotes.py`), read only, behind the permission of the
+ * product panel: a product's lots in FIFO order with their status, and each lot's consumptions, paginated.
+ */
+export const sellInLotesAPI = {
+  lotes: (itemId) => api.get(`${PRODUCTOS}/${itemId}/lotes`),
+  consumos: (itemId, compraItemId, params) => api.get(`${PRODUCTOS}/${itemId}/lotes/${compraItemId}/consumos`, { params }),
+};
