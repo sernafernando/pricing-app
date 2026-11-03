@@ -276,7 +276,7 @@ def row_columns(*, cost: bool = False) -> list[Any]:
                 MlItemSellerPromotions.hay_mejores_ofertas.is_(True),
             )
         ).label("hay_mejores_ofertas"),
-        # ERP list for this MLA (`publicaciones_ml`), not ML listing_type_id.
+        # ERP list for this MLA (map allow-listed here for S4), not ML listing_type_id.
         select(PublicacionML.pricelist_id)
         .where(PublicacionML.mla == i.item_id)
         .scalar_subquery()

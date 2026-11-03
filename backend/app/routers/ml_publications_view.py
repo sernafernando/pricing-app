@@ -148,7 +148,7 @@ class PriceOut(BaseModel):
     regular_amount: Optional[float] = None
     promotion_type: Optional[str] = None
     campaign: Optional[str] = None
-    # ERP list from `publicaciones_ml` (not ML listing_type_id).
+    # ERP list for this MLA (Clásica / cuotas), not ML listing_type_id.
     pricelist_id: Optional[int] = None
     lista_nombre: Optional[str] = None
 
