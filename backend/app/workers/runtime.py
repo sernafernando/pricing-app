@@ -18,7 +18,8 @@ Loop (design D4 steps 1-5):
    the main loop logs CRITICAL, stops starting new work, and exits(70) so
    systemd (`Restart=always`) restarts the process.
 
-A handler marked `own_thread` (ml-sync-pipeline T4: `ml_publications.refresh`)
+A handler marked `own_thread` (ml-sync-pipeline T4: `ml_publications.refresh`;
+ml-ads-cupones-display T3a: `ml_orders.discounts`)
 never takes a turn in the drain pass: it runs in a thread of its own, every
 `interval`, so its long runs never delay the other handlers and they never delay
 it. Its thread is supervised like the heartbeat. Any handler may declare its own

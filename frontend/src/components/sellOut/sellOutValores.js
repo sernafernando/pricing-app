@@ -26,6 +26,10 @@ export const CAMPANA_VACIA = {
   // How many shares a stored `monto_total` campaign has: they never enter the form, so a kind change must not send
   // `items` over them (the API refuses it: "quitá el reparto para cambiarla").
   repartosGuardados: 0,
+  // A renewal (`GET /{id}/renovacion`) only: the original's program and `monto_total` shares, sent with the create
+  // so the copy is saved in one call (`[{ item_id, reparto_porcentaje, reparto_monto }]`).
+  programaId: null,
+  repartosCopiados: [],
 };
 
 const texto = (value) => (value === null || value === undefined ? '' : String(value));
@@ -64,11 +68,37 @@ export function valoresDeCampana(campana) {
 }
 
 /**
+ * A renewal draft (`SellOutCampanaIn`, from `GET /{id}/renovacion`) as the values of a NEW campaign. `original` is
+ * the stored campaign it copies, which names its products (`codigo`/`descripcion`) for the per-unit amounts.
+ */
+export function valoresDeBorrador(borrador, original) {
+  const productos = new Map((original?.items ?? []).map((i) => [i.item_id, i]));
+  const montoTotal = borrador.tipo === 'monto_total';
+  return {
+    ...valoresDeCampana({ ...borrador, grupos: borrador.grupo_ids.map((id) => ({ id })), items: [] }),
+    repartosGuardados: 0,
+    items: montoTotal
+      ? []
+      : borrador.items.map((i) => ({
+          itemId: i.item_id,
+          codigo: productos.get(i.item_id)?.codigo ?? null,
+          descripcion: productos.get(i.item_id)?.descripcion ?? null,
+          monto: texto(i.monto_unit),
+        })),
+    repartosCopiados: montoTotal
+      ? borrador.items.map((i) => ({ item_id: i.item_id, reparto_porcentaje: i.reparto_porcentaje, reparto_monto: i.reparto_monto }))
+      : [],
+    programaId: borrador.programa_id ?? null,
+  };
+}
+
+/**
  * The request body: the amount of its type only, the FX fields only in USD (the rate only when fixed),
  * empty optionals as null. Amounts stay strings: the backend reads them as Decimal. `items` always goes (a full
  * replace): `[]` in a percentage campaign, which takes no per-product amounts. A `monto_total` campaign sends its
  * total and no caps, and no `items` (the API keeps the stored shares, set with `PUT /reparto`), except `[]` to drop
- * the per-unit amounts of a campaign switched to it.
+ * the per-unit amounts of a campaign switched to it. A renewal also sends its copied shares and its program
+ * (`programa_id`, only when it has one: an edit never sends it).
  */
 export function bodyDeCampana(v) {
   if (v.tipo === 'monto_total') {
@@ -81,6 +111,8 @@ export function bodyDeCampana(v) {
       tope_unidades: null,
       tope_monto: null,
       ...(v.items.length ? { items: [] } : {}),
+      ...(v.repartosCopiados?.length ? { items: v.repartosCopiados } : {}),
+      ...programa(v),
     };
   }
   const body = bodyBase(v);
@@ -89,8 +121,10 @@ export function bodyDeCampana(v) {
     const { items: _items, ...sinItems } = body;
     return sinItems;
   }
-  return body;
+  return { ...body, ...programa(v) };
 }
+
+const programa = (v) => (v.programaId != null ? { programa_id: v.programaId } : {});
 
 function bodyBase(v) {
   const porUnidad = v.tipo === 'por_unidad';

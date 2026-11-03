@@ -309,6 +309,7 @@ export const EPSON_PUBLICATIONS = {
     publication('MLA2060835678', {
       title: 'Impresora Epson L3250 Sistema Continuo Original Ecotank Wi-Fi',
       listing_type: 'clasica',
+      listing_kind: 'clasica',
       is_full: true,
       is_catalog: false,
       status: 'active',
@@ -334,6 +335,7 @@ export const EPSON_PUBLICATIONS = {
     publication('MLA1429582101', {
       title: 'Impresora Multifunción Epson L3250 Ecotank Cuotas Sin Interés',
       listing_type: 'premium',
+      listing_kind: 'cuotas_3',
       is_full: true,
       is_catalog: false,
       status: 'active',
@@ -359,6 +361,7 @@ export const EPSON_PUBLICATIONS = {
     publication('MLA9083142211', {
       title: 'Impresora Epson EcoTank L3250 - Catálogo',
       listing_type: 'clasica',
+      listing_kind: 'clasica_cofinanciada',
       is_full: false,
       is_catalog: true,
       status: 'paused',

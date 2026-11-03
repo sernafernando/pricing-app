@@ -15,9 +15,8 @@ import { isBlank } from './priceFormat';
  * To write one, `write` names the endpoint Productos uses for that cell
  * (`rapido` = /precios/set-rapido, `cuota` = /precios/set-cuota),
  * `pricelist` the list its negative-markup check asks about and `perm` the
- * `pricePermissions` flag that allows it. `short` is the visible label of an
- * installments row ("12C"), so every list fits the side panel; `label` stays
- * its full name (tooltip, accessible name, messages). `sellInOut` is the row's key in
+ * `pricePermissions` flag that allows it. `label` is its full name (the plan's row,
+ * accessible name, messages). `sellInOut` is the row's key in
  * `sell_in_out.markups_sell_in[_out]` of GET /productos/{item_id}, the PPP
  * markup keys (costo_ppp_service.ppp_key_*).
  */
@@ -44,7 +43,6 @@ export const LISTS = [
       ...ML_CUOTAS.map(([cuota, pricelist]) => ({
         id: `ml-${cuota}`,
         label: `${cuota} cuotas`,
-        short: `${cuota}C`,
         precio: `precio_${cuota}_cuotas`,
         markup: `markup_${cuota}_cuotas`,
         pricelist,
@@ -61,11 +59,10 @@ export const LISTS = [
     title: 'PVP',
     subtitle: 'Precio de venta al público',
     rows: [
-      { id: 'pvp-clasica', label: 'PVP clásica', short: 'PVP clás.', precio: 'precio_pvp', markup: 'markup_pvp', pricelist: 12, write: 'rapido', listaTipo: 'pvp', perm: 'canEditPvp', sellInOut: 'pvp_clasica' },
+      { id: 'pvp-clasica', label: 'PVP clásica', precio: 'precio_pvp', markup: 'markup_pvp', pricelist: 12, write: 'rapido', listaTipo: 'pvp', perm: 'canEditPvp', sellInOut: 'pvp_clasica' },
       ...PVP_CUOTAS.map(([cuota, pricelist]) => ({
         id: `pvp-${cuota}`,
         label: `PVP ${cuota} cuotas`,
-        short: `PVP ${cuota}C`,
         precio: `precio_pvp_${cuota}_cuotas`,
         markup: `markup_pvp_${cuota}_cuotas`,
         pricelist,

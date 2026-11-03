@@ -80,7 +80,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Literal, Optional, Tuple
 
 from sqlalchemy import delete, insert, or_, text
 from sqlalchemy.orm import Session
@@ -106,8 +106,28 @@ Montos = Dict[int, Dict[int, Decimal]]  # campana_id -> item_id -> its own amoun
 Repartos = Dict[int, Dict[int, reparto.Reparto]]  # campana_id -> item_id -> its share of the total
 
 
+CausaAsignacion = Literal["sin_tipo_cambio", "producto_sin_iva", "reparto_invalido", "monto_negativo"]
+
+
 class SellOutAsignacionError(ValueError):
-    """A campaign cannot be allocated as it stands; the message says why."""
+    """A campaign cannot be allocated as it stands. The message (English, `campaign <id>: <why>`) is what the drain
+    stores and logs; readers that explain it to the operator use the fields: `campana_id`, `causa` (one code per
+    rule: `sin_tipo_cambio`, a USD sale with no rate to convert it, dated `fecha`; `producto_sin_iva`, a product
+    without a VAT rate where one is needed, `item_id` when known; `reparto_invalido`, a fixed total's shares that
+    cannot be split, its `reparto` error as `__cause__` and its `item_id` when it has one; `monto_negativo`, a
+    negative row outside a fixed total)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        campana_id: int,
+        causa: CausaAsignacion,
+        item_id: Optional[int] = None,
+        fecha: Optional[date] = None,
+    ) -> None:
+        super().__init__(message)
+        self.campana_id, self.causa, self.item_id, self.fecha = campana_id, causa, item_id, fecha
 
 
 class _BaseDesconocida(Exception):
@@ -123,8 +143,9 @@ class RecomputeResult:
     pendientes_base: Dict[int, int] = field(default_factory=dict)
 
 
-def _vinculadas(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana], Productos, List[int]]:
-    """The asked campaigns plus every active one sharing a product with them, transitively, in id order."""
+def _cargar(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana], Productos, Dict[int, List[int]]]:
+    """The asked campaigns and every active one, their reach (ONE query each), and `{item_id: active campaigns
+    reaching it}`, the index the closure walks."""
     campanas = {
         c.id: c
         for c in db.query(SellOutCampana)
@@ -132,16 +153,32 @@ def _vinculadas(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana],
         .populate_existing()
     }
     productos = alcance.productos(db, campanas)
-    activas = [c for c in campanas.values() if c.estado == "activa"]
+    por_item: Dict[int, List[int]] = {}
+    for cid, c in campanas.items():
+        if c.estado == "activa":
+            for item_id in productos.get(cid, {}):
+                por_item.setdefault(item_id, []).append(cid)
+    return campanas, productos, por_item
+
+
+def _cierre(productos: Productos, por_item: Dict[int, List[int]], ids: Iterable[int]) -> List[int]:
+    """`ids` plus every active campaign sharing a product with them, transitively, in id order: each campaign is
+    visited once, through the products it reaches."""
     vistas = set(ids)
-    pendientes = [i for i in ids if i in productos]
+    pendientes = [i for i in vistas if i in productos]
     while pendientes:
-        mios = productos[pendientes.pop()].keys()
-        for otra in activas:
-            if otra.id not in vistas and mios & productos.get(otra.id, {}).keys():
-                vistas.add(otra.id)
-                pendientes.append(otra.id)
-    return campanas, productos, sorted(vistas)
+        for item_id in productos[pendientes.pop()]:
+            for otra in por_item.get(item_id, ()):  # a voided asked campaign may reach what no active one does
+                if otra not in vistas:
+                    vistas.add(otra)
+                    pendientes.append(otra)
+    return sorted(vistas)
+
+
+def _vinculadas(db: Session, ids: List[int]) -> Tuple[Dict[int, SellOutCampana], Productos, List[int]]:
+    """The asked campaigns plus every active one sharing a product with them, transitively, in id order."""
+    campanas, productos, por_item = _cargar(db, ids)
+    return campanas, productos, _cierre(productos, por_item, ids)
 
 
 def vinculadas(db: Session, campana_ids: Iterable[int]) -> List[int]:
@@ -149,6 +186,27 @@ def vinculadas(db: Session, campana_ids: Iterable[int]) -> List[int]:
     what `recalcular` would rebuild right now. A group edit captures it BEFORE the edit (S3)."""
     ids = sorted({int(i) for i in campana_ids})
     return _vinculadas(db, ids)[2] if ids else []
+
+
+def vinculadas_por_campana(db: Session, campana_ids: Iterable[int]) -> Dict[int, List[int]]:
+    """`{campana_id: vinculadas(db, [campana_id])}` for each given campaign, loading the campaigns and their reach
+    ONCE (the bulk edit; one call per campaign would load them all again each time). Active campaigns linked
+    together share one closure, computed once."""
+    ids = sorted({int(i) for i in campana_ids})
+    if not ids:
+        return {}
+    campanas, productos, por_item = _cargar(db, ids)
+    salida: Dict[int, List[int]] = {}
+    for cid in ids:
+        if cid in salida:
+            continue
+        cierre = _cierre(productos, por_item, [cid])
+        salida[cid] = cierre
+        if cid in campanas and campanas[cid].estado == "activa":  # the link is symmetric among active ones
+            for otra in cierre:
+                if otra in ids:
+                    salida.setdefault(otra, cierre)
+    return salida
 
 
 def montos_item(db: Session, campanas: Iterable[SellOutCampana]) -> Montos:
@@ -203,7 +261,12 @@ def _tasa(c: SellOutCampana, fecha: date, tasas: _Tasas) -> Decimal:
     else:
         tasa = tasas.actual
     if tasa is None:
-        raise SellOutAsignacionError(f"campaign {c.id}: no BNA rate to convert the sale of {fecha}")
+        raise SellOutAsignacionError(
+            f"campaign {c.id}: no BNA rate to convert the sale of {fecha}",
+            campana_id=c.id,
+            causa="sin_tipo_cambio",
+            fecha=fecha,
+        )
     return Decimal(tasa)
 
 
@@ -230,7 +293,9 @@ def credito_unitario(
     None when a percentage base is unknown; a missing rate or VAT rate raises."""
     tasa = Decimal(1) if c.moneda == "ARS" else _tasa(c, fecha, _Tasas({fecha: bna}, bna))
     if c.monto_incluye_iva and iva is None:
-        raise SellOutAsignacionError(f"campaign {c.id}: a product it reaches has no VAT rate")
+        raise SellOutAsignacionError(
+            f"campaign {c.id}: a product it reaches has no VAT rate", campana_id=c.id, causa="producto_sin_iva"
+        )
     base = None
     if c.tipo == "porcentaje":
         if base_ars is None:
@@ -260,7 +325,12 @@ def _base(c: SellOutCampana, v: alcance.Venta, iva: Optional[Decimal], tasas: _T
     base = _base_registrada(c, v)
     if c.base_porcentaje == "precio_neto" and v.precio_con_iva:
         if iva is None:
-            raise SellOutAsignacionError(f"campaign {c.id}: product {v.item_id} has no VAT rate")
+            raise SellOutAsignacionError(
+                f"campaign {c.id}: product {v.item_id} has no VAT rate",
+                campana_id=c.id,
+                causa="producto_sin_iva",
+                item_id=v.item_id,
+            )
         base = base / (1 + iva / 100)
     return base if c.moneda == "ARS" else base / _tasa(c, v.fecha, tasas)
 
@@ -294,7 +364,12 @@ def _asignar(
                 continue  # it returns a sale this campaign does not count (before it, or waiting for its base)
             iva = alcance_c[v.item_id]
             if c.monto_incluye_iva and iva is None:
-                raise SellOutAsignacionError(f"campaign {c.id}: product {v.item_id} has no VAT rate")
+                raise SellOutAsignacionError(
+                    f"campaign {c.id}: product {v.item_id} has no VAT rate",
+                    campana_id=c.id,
+                    causa="producto_sin_iva",
+                    item_id=v.item_id,
+                )
             try:
                 base_unit = _base(c, v, iva, tasas)
             except _BaseDesconocida:
@@ -324,11 +399,20 @@ def _asignar(
             try:
                 salida[c.id] = reparto.repartir(mt, consumos)
             except ValueError as exc:  # shares that cannot be split, a product without VAT: as the other kinds
-                raise SellOutAsignacionError(f"campaign {c.id}: {exc}") from exc
+                raise SellOutAsignacionError(
+                    f"campaign {c.id}: {exc}",
+                    campana_id=c.id,
+                    causa="reparto_invalido",
+                    item_id=getattr(exc, "item_id", None),
+                ) from exc
             tenidas[c.id] = {}  # a lump sum holds no units
             continue
         if any(x.monto < 0 for x in consumos):
-            raise SellOutAsignacionError(f"campaign {c.id}: a {c.tipo} campaign never gives a negative amount")
+            raise SellOutAsignacionError(
+                f"campaign {c.id}: a {c.tipo} campaign never gives a negative amount",
+                campana_id=c.id,
+                causa="monto_negativo",
+            )
         salida[c.id] = consumos
         tenidas[c.id] = {clave: libres[clave][:n] for clave, n in por_linea.items()}
     return salida, pendientes

@@ -84,5 +84,7 @@ export function buildGroupsParams(filters, { path, familias, dimension, offset }
 
 /** The publications of a leaf node: its params over the user's, one page of 100. */
 export function buildLeafParams(filters, node, offset) {
-  return { ...filterParams(filters), ...node.params, limit: GROUPS_PAGE, offset };
+  // A product's (or a node's) publications by listing type, Clásica first, then 3, 6, 9 and 12 cuotas (owner,
+  // 2026-11-02), and the most recent activity within one type.
+  return { ...filterParams(filters), ...node.params, orden: 'tipo,actividad', dir: 'asc,desc', limit: GROUPS_PAGE, offset };
 }

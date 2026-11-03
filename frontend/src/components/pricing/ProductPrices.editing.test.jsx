@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProductPrices from './ProductPrices';
+import { priceOf } from './priceTestUtils';
 import { pricePermissions } from './productPricePermissions';
 import { preciosAPI } from '../../services/api';
 import { PRODUCTO } from './ProductPrices.fixtures';
@@ -26,10 +27,9 @@ const ALL = pricePermissions(() => true);
 const renderPrices = (props = {}) =>
   render(<ProductPrices productItemId={4101} permissions={ALL} onWritten={vi.fn()} {...props} />);
 
-const rowOf = (label) => screen.findByRole('row', { name: new RegExp(`^${label}\\b`) });
 
 async function editRow(user, label, value) {
-  const row = await rowOf(label);
+  const row = await priceOf(label);
   await user.click(within(row).getByRole('button', { name: `Editar ${label}` }));
   const input = within(row).getByRole('textbox', { name: label });
   await user.clear(input);
@@ -96,7 +96,7 @@ describe('reading again from outside (readAgain)', () => {
   it('re-reads the prices when the caller asks, keeping an open edit as it was typed', async () => {
     const user = userEvent.setup();
     const { rerender } = renderPrices({ readAgain: 0 });
-    const row = await rowOf('Clásica');
+    const row = await priceOf('Clásica');
     await user.click(within(row).getByRole('button', { name: 'Editar Clásica' }));
     const input = within(row).getByRole('textbox', { name: 'Clásica' });
     await user.clear(input);
@@ -107,18 +107,18 @@ describe('reading again from outside (readAgain)', () => {
 
     await waitFor(() => expect(preciosAPI.obtenerProducto).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole('row', { name: /^3 cuotas\b.*111\.111/ })).toBeInTheDocument();
-    expect(within(await rowOf('Clásica')).getByRole('textbox', { name: 'Clásica' })).toHaveValue('777');
+    expect(within(await priceOf('Clásica')).getByRole('textbox', { name: 'Clásica' })).toHaveValue('777');
   });
 
   it('only a change of readAgain reads again: opening another product afterwards reads it once', async () => {
     const { rerender } = renderPrices({ readAgain: 0 });
-    await rowOf('Clásica');
+    await priceOf('Clásica');
     rerender(<ProductPrices productItemId={4101} permissions={ALL} onWritten={vi.fn()} readAgain={1} />);
     await waitFor(() => expect(preciosAPI.obtenerProducto).toHaveBeenCalledTimes(2));
 
     rerender(<ProductPrices productItemId={4102} permissions={ALL} onWritten={vi.fn()} readAgain={1} />);
 
-    await rowOf('Clásica');
+    await priceOf('Clásica');
     expect(preciosAPI.obtenerProducto.mock.calls.filter(([id]) => id === 4102)).toHaveLength(1);
   });
 });
@@ -166,7 +166,7 @@ describe('guards', () => {
     await editRow(user, '3 cuotas', '100');
     await user.click(within(await screen.findByRole('alert')).getByRole('button', { name: 'Cancelar' }));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(within(await rowOf('3 cuotas')).getByRole('textbox', { name: '3 cuotas' })).toBeInTheDocument();
+    expect(within(await priceOf('3 cuotas')).getByRole('textbox', { name: '3 cuotas' })).toBeInTheDocument();
     expect(preciosAPI.setCuota).not.toHaveBeenCalled();
   });
 
@@ -194,14 +194,14 @@ describe('guards', () => {
     renderPrices({ onWritten });
     await editRow(user, '3 cuotas', '100');
     expect(await screen.findByRole('alert')).toHaveTextContent('No tienes permiso para editar este precio');
-    expect(within(await rowOf('3 cuotas')).getByRole('textbox', { name: '3 cuotas' })).toBeInTheDocument();
+    expect(within(await priceOf('3 cuotas')).getByRole('textbox', { name: '3 cuotas' })).toBeInTheDocument();
     expect(onWritten).not.toHaveBeenCalled();
   });
 
   it('Escape cancels the edit without saving', async () => {
     const user = userEvent.setup();
     renderPrices();
-    const row = await rowOf('Clásica');
+    const row = await priceOf('Clásica');
     await user.click(within(row).getByRole('button', { name: 'Editar Clásica' }));
     await user.keyboard('{Escape}');
     expect(within(row).queryByRole('textbox')).not.toBeInTheDocument();
@@ -212,7 +212,7 @@ describe('guards', () => {
 describe('permissions mirror the backend', () => {
   it('a Productos editor edits every price', async () => {
     renderPrices({ permissions: pricePermissions((code) => code === 'productos.toggle_rebate') });
-    await rowOf('Clásica');
+    await priceOf('Clásica');
     for (const label of ['Clásica', '3 cuotas', '12 cuotas', 'PVP clásica', 'PVP 6 cuotas']) {
       expect(screen.getByRole('button', { name: `Editar ${label}` })).toBeInTheDocument();
     }
@@ -220,7 +220,7 @@ describe('permissions mirror the backend', () => {
 
   it('a Tienda editor edits only the ML instalments', async () => {
     renderPrices({ permissions: pricePermissions((code) => code === 'tienda.editar_precio_gremio') });
-    await rowOf('Clásica');
+    await priceOf('Clásica');
     expect(screen.getByRole('button', { name: 'Editar 3 cuotas' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Editar 12 cuotas' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Editar Clásica' })).not.toBeInTheDocument();
@@ -230,7 +230,7 @@ describe('permissions mirror the backend', () => {
 
   it('without an edit permission the view stays read-only', async () => {
     renderPrices({ permissions: pricePermissions(() => false) });
-    await rowOf('Clásica');
+    await priceOf('Clásica');
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 });
@@ -258,7 +258,7 @@ describe('reading the typed price strictly (es-AR)', () => {
   it('opens the editor with the stored price in es-AR, so saving it untouched keeps it', async () => {
     const user = userEvent.setup();
     renderPrices();
-    const row = await rowOf('Clásica');
+    const row = await priceOf('Clásica');
     await user.click(within(row).getByRole('button', { name: 'Editar Clásica' }));
     expect(within(row).getByRole('textbox', { name: 'Clásica' })).toHaveValue('98500,5');
     await user.click(within(row).getByRole('button', { name: 'Guardar' }));
@@ -299,7 +299,7 @@ describe('the warning always confirms what is on screen', () => {
     renderPrices();
     await editRow(user, 'Clásica', '50000');
     await screen.findByRole('alert');
-    const input = within(await rowOf('Clásica')).getByRole('textbox', { name: 'Clásica' });
+    const input = within(await priceOf('Clásica')).getByRole('textbox', { name: 'Clásica' });
     await user.clear(input);
     await user.type(input, '90000');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
