@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -241,9 +240,7 @@ def test_max_writes_cap_counts_attempts(monkeypatch: pytest.MonkeyPatch, patched
         async def enable_item_flex(self, *a, **k):
             raise AssertionError("no flex")
 
-    stats = asyncio.run(
-        envio_mod.run_envio_repair(client=Fake(), max_writes=1, pacing_seconds=0)
-    )
+    stats = asyncio.run(envio_mod.run_envio_repair(client=Fake(), max_writes=1, pacing_seconds=0))
     assert puts == ["MLA_A"]
     assert stats["changed"] == 1
     assert stats["skipped"] == 1
@@ -354,9 +351,7 @@ def test_envio_stops_on_flex_429_and_notifies_pacer(monkeypatch: pytest.MonkeyPa
     assert events[0]["detail"] == "rate_limited"
 
 
-def test_flex_refusal_retries_when_ml_items_fingerprint_changes(
-    monkeypatch: pytest.MonkeyPatch, patched_audit
-) -> None:
+def test_flex_refusal_retries_when_ml_items_fingerprint_changes(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
     _finish, events, _shipping_logs, flex_logs = patched_audit
     current = _shipping(tags=[])
     monkeypatch.setattr(envio_mod, "_load_work_items", lambda db: [("MLA_FLEX", 1, current)])

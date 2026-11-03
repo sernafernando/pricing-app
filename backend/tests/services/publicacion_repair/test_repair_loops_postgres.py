@@ -66,9 +66,7 @@ def repair_pg(monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.postgres
-def test_envio_loop_persists_flex_refusal_and_skips_on_rerun(
-    repair_pg, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_envio_loop_persists_flex_refusal_and_skips_on_rerun(repair_pg, monkeypatch: pytest.MonkeyPatch) -> None:
     current = {
         "mode": "me2",
         "logistic_type": "cross_docking",
