@@ -27,10 +27,18 @@ from app.models.ml_ads import (
     MlAdsCampaign,
     MlAdsCampaignDay,
     MlAdsDayLedger,
+    MlAdsDisplayCampaign,
     MlAdsDisplayCampaignDay,
     MlAdsItemDay,
 )
-from app.services.ml_ads.mapper import BrandFact, DaySummary, DisplayFact, GroupFact, ItemFact
+from app.services.ml_ads.mapper import (
+    BrandFact,
+    DaySummary,
+    DisplayCampaignFact,
+    DisplayFact,
+    GroupFact,
+    ItemFact,
+)
 
 SOURCE = "product_ads"
 DISPLAY_SOURCE = "display"
@@ -427,6 +435,27 @@ def upsert_display_days(db: Session, facts: Iterable[DisplayFact], *, now: datet
         for name in ("consumed_budget", "prints", "clicks", "reach", "raw", "fetched_at")
     }
     db.execute(stmt.on_conflict_do_update(index_elements=["advertiser_id", "campaign_id", "day"], set_=refreshed))
+    db.flush()
+
+
+def upsert_display_catalog(db: Session, campaigns: Iterable[DisplayCampaignFact], *, now: datetime) -> None:
+    """The latest Display catalog: one row per (advertiser, campaign), last write wins."""
+    columns = ("name", "type", "status", "goal", "site_id", "start_date", "end_date")
+    rows = [
+        {
+            "advertiser_id": c.advertiser_id,
+            "campaign_id": c.campaign_id,
+            **{name: getattr(c, name) for name in columns},
+            "raw": dict(c.raw),
+            "updated_at": now,
+        }
+        for c in campaigns
+    ]
+    if not rows:
+        return
+    stmt = pg_insert(MlAdsDisplayCampaign).values(rows)
+    refreshed = {name: getattr(stmt.excluded, name) for name in (*columns, "raw", "updated_at")}
+    db.execute(stmt.on_conflict_do_update(index_elements=["advertiser_id", "campaign_id"], set_=refreshed))
     db.flush()
 
 

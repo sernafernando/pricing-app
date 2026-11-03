@@ -80,7 +80,10 @@ function buildPxqParams(conPxq) {
  *
  * `onOpenPublication(mla)` (optional) reaches every row: with it, each
  * publication offers "Abrir <mla>" (Publicaciones ML opens its panel);
- * Productos passes none and its rows stay as they were.
+ * Productos passes none and its rows stay as they were. `publicationsOnly`
+ * (optional) reaches every row the same way: with it, a row carries the
+ * publication alone, with no promos, catalog competition or wholesale prices
+ * (`TreeNode`); Productos passes none.
  */
 function ProductoMLAsPanel({
   itemId,
@@ -93,6 +96,7 @@ function ProductoMLAsPanel({
   tiendaOficial,
   conPxq,
   onOpenPublication,
+  publicationsOnly = false,
 }) {
   // `tiendaOficial` participates in filterParams, and therefore in the cache
   // key below: without it, switching stores would replay the previous
@@ -229,6 +233,7 @@ function ProductoMLAsPanel({
               revealAll={verTodos}
               showDeleted={showDeleted}
               onOpenPublication={onOpenPublication}
+              publicationsOnly={publicationsOnly}
             />
           ))}
         </tbody>

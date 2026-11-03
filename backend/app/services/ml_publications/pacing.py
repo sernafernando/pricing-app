@@ -8,6 +8,7 @@ stays an exact budget for the process. It combines:
   `stock` calls spend IN ADDITION to the global one;
 - a replenishment sub-gate (`replenishment_rate_per_min`, default 30, at most 100/min) that
   `replenishment` calls spend IN ADDITION to the global one;
+- an order-discounts sub-gate (fixed 30/min) that `order_discounts` calls spend IN ADDITION to the global one;
 - per endpoint family (ML limits per Client ID and per endpoint), a 429 cooldown
   honoring `Retry-After` (seconds or HTTP date) or, without a usable header,
   exponential backoff with jitter capped at 60 s; and AIMD: each 429 halves that
@@ -49,6 +50,8 @@ MAX_STOCK_PER_MIN = 100  # documented ML limit for /user-products/{id}/stock
 REPLENISHMENT_FAMILY = "replenishment"
 DEFAULT_REPLENISHMENT_PER_MIN = 30  # a sweep of weekly data: slow on purpose, it must never crowd out live work
 MAX_REPLENISHMENT_PER_MIN = 100
+ORDER_DISCOUNTS_FAMILY = "order_discounts"
+ORDER_DISCOUNTS_PER_MIN = 30  # the per-sale discounts backfill (ml-ads-cupones-display): a quarter of the global 2/s
 
 BACKOFF_CAP_SECONDS = 60.0
 # A `Retry-After` beyond this is clamped: ML retries notifications for about an hour,
@@ -135,6 +138,7 @@ class Pacer:
         self._global = _Gate()
         self._stock = _Gate()
         self._replenishment = _Gate()
+        self._order_discounts = _Gate()
         self._families: dict[str, _Family] = {}
         self._replenishment_rate_per_min = DEFAULT_REPLENISHMENT_PER_MIN
         self.configure(
@@ -269,12 +273,15 @@ class Pacer:
         return True
 
     def _gates(self, family: str) -> list[_Gate]:
-        """The family's own gates: its penalty gate, and the stock or replenishment budget it also spends."""
+        """The family's own gates: its penalty gate, and the stock, replenishment or order-discounts budget it also
+        spends."""
         gates = [self._family(family).gate]
         if family == STOCK_FAMILY:
             gates.append(self._stock)
         if family == REPLENISHMENT_FAMILY:
             gates.append(self._replenishment)
+        if family == ORDER_DISCOUNTS_FAMILY:
+            gates.append(self._order_discounts)
         return gates
 
     def _family_ready(self, family: str) -> float:
@@ -292,3 +299,5 @@ class Pacer:
             self._stock.next_at = slot + 60.0 / (self._stock_rate_per_min * factor)
         if family == REPLENISHMENT_FAMILY:
             self._replenishment.next_at = slot + 60.0 / (self._replenishment_rate_per_min * factor)
+        if family == ORDER_DISCOUNTS_FAMILY:
+            self._order_discounts.next_at = slot + 60.0 / (ORDER_DISCOUNTS_PER_MIN * factor)

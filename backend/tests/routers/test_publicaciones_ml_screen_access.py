@@ -19,7 +19,9 @@ from tests.services.ml_publications.conftest import mlpub_pg  # noqa: F401
 
 pytestmark = pytest.mark.postgres
 
-VIEW_PATHS = sorted(route.path.replace("{item_id}", "MLA1") for route in ml_publications_view.router.routes)
+VIEW_PATHS = sorted(
+    route.path.replace("{item_id}", "MLA1") for route in ml_publications_view.router.routes if "GET" in route.methods
+)
 
 
 @pytest.fixture()
@@ -33,6 +35,19 @@ class TestNotWider:
         response = client.get("/api/ml-publications/view/status-item-ids?target=paused", headers=productos_only)
         assert response.status_code == 403
         assert "pausar" in response.text
+
+    def test_checked_status_item_ids_still_needs_pausar(self, client, pg, productos_only):
+        response = client.post(
+            "/api/ml-publications/view/status-item-ids/checked",
+            headers=productos_only,
+            json={"target": "paused", "item_ids": ["MLA1"]},
+        )
+        assert response.status_code == 403
+        assert "pausar" in response.text
+
+    def test_the_only_view_write_shaped_route_is_the_checked_status_read(self):
+        posts = sorted(route.path for route in ml_publications_view.router.routes if "POST" in route.methods)
+        assert posts == ["/ml-publications/view/status-item-ids/checked"]
 
     def test_kpis_still_need_ml_metricas_ver(self, client, pg, productos_only):
         response = client.get("/api/ml-publications/view/kpis", headers=productos_only)

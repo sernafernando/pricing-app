@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -15,6 +16,7 @@ import { deltaTone, formatDeltaPct, formatDeltaPp, formatPct, formatRatio, forma
 import { originalAmount } from '../../utils/metricasMlAds';
 import { TP_MARKUP_HINT, tpCellState, tpIncompleteTitle } from '../../utils/metricasMlTp';
 import { sellOutEstimatedTitle, sellOutPendingTitle } from '../../utils/metricasMlSell';
+import { metricasKpiOptions, nounOf } from './metricasKpiOptions';
 import styles from './MetricasKpiStrip.module.css';
 
 /**
@@ -160,10 +162,11 @@ function SellInOutCard({ sell }) {
   );
 }
 
-/** `tpSolo`: a `tplink.solo` user's board, which has no Total Gauss (the key is absent) and carries Markup TP. */
-export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading, tpSolo = false }) {
+/** `tpSolo`: a `tplink.solo` user's board, which has no Total Gauss (the key is absent) and carries Markup TP.
+ * `isVisible(id)` leaves out the cards the viewer hid; with none left there is no row at all. */
+export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading, tpSolo = false, isVisible = () => true }) {
   if (!kpis) return <div className={styles.cards} aria-busy={loading} />;
-  const noun = { publication: 'Publicaciones', group: 'Grupos' }[groupBy] ?? 'Productos';
+  const noun = nounOf(groupBy);
   // The ageing buckets count PRODUCTS (or publications) even in the grouped view.
   const short = groupBy === 'publication' ? 'pub' : 'prod';
   const { units, gross, total_gauss: tg, markup, rows_with_sales: withSales, ageing, ads } = kpis;
@@ -173,16 +176,11 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
   const tp = canSeeMargin ? (kpis.total_tp ?? null) : null;
   // `kpis.sell_in_out` exists only with the profit view (never for `tplink.solo`).
   const sell = canSeeMargin ? (kpis.sell_in_out ?? null) : null;
-  // The card shows while some sold line has a sell in or a sell out (the backend's `SellInOut.applies`: `sell_in`
-  // and `sell_out` are null otherwise). `costo` never decides it: it is the cost WITHOUT sell in, there for any
-  // sale; the cost with sell in only exists with a sell in. The "C/ sell in/out" lines follow the same rule
-  // through `total_gauss`, which the backend leaves null when neither applies.
-  const sellCard = sell && (sell.sell_in != null || sell.sell_out != null);
   const ageingTotal = ageing.up_to_30 + ageing.from_31_to_60 + ageing.over_60;
   const activePct = pctOf(withSales.value, withSales.of_total);
 
-  return (
-    <section className={styles.cards} aria-label="Indicadores del período" aria-busy={loading} data-tp={tp ? '' : undefined} data-sell={sellCard ? '' : undefined}>
+  const cards = {
+    units: () => (
       <Card label="Unidades vendidas" icon={ShoppingBag}>
         <div className={styles.valueRow}>
           <span className={styles.value} data-kpi-value>
@@ -197,7 +195,8 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
         )}
         <Sparkline values={units.series} width={200} height={22} tone={deltaTone(units.delta_pct)} className={styles.spark} label="Unidades por día" />
       </Card>
-
+    ),
+    gross: () => (
       <Card label="Facturado bruto" icon={ReceiptText}>
         <div className={styles.valueRow}>
           <span className={styles.value} data-money data-kpi-value>{formatSignedMoney(gross.value)}</span>
@@ -214,33 +213,32 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
         )}
         <Sparkline values={gross.series} width={200} height={22} tone={deltaTone(gross.delta_pct)} className={styles.spark} label="Facturado por día" />
       </Card>
-
-      {!tpSolo && (
-        <Card label="Total Gauss" icon={Wallet}>
-          {canSeeMargin ? (
-            <>
-              <div className={styles.valueRow}>
-                <span className={`${styles.value} ${styles[`money_${moneyTone(tg.value)}`] || ''}`} data-money data-kpi-value>
-                  {formatSignedMoney(tg.value)}
-                </span>
-                <DeltaChip value={tg.delta_pct} format={formatDeltaPct} />
+    ),
+    total_gauss: () => (
+      <Card label="Total Gauss" icon={Wallet}>
+        {canSeeMargin ? (
+          <>
+            <div className={styles.valueRow}>
+              <span className={`${styles.value} ${styles[`money_${moneyTone(tg.value)}`] || ''}`} data-money data-kpi-value>
+                {formatSignedMoney(tg.value)}
+              </span>
+              <DeltaChip value={tg.delta_pct} format={formatDeltaPct} />
+            </div>
+            {ads && (
+              <div className={styles.adjustedRow}>
+                <Adjusted original={originalAmount(tg.value, ads.subtracted_total)} />
               </div>
-              {ads && (
-                <div className={styles.adjustedRow}>
-                  <Adjusted original={originalAmount(tg.value, ads.subtracted_total)} />
-                </div>
-              )}
-              {sell && sell.total_gauss != null && <WithSellInOut pendientes={sell.sell_out_pendientes} estimados={sell.sell_out_estimados}>{formatSignedMoney(sell.total_gauss)}</WithSellInOut>}
-              <Sparkline values={tg.series} width={200} height={22} tone={deltaTone(tg.delta_pct)} className={styles.spark} label="Total Gauss por día" />
-            </>
-          ) : (
-            <span className={styles.locked}>Sin permiso para ver ganancia</span>
-          )}
-        </Card>
-      )}
-
-      {tp && <TotalTpCard tp={tp} />}
-
+            )}
+            {sell && sell.total_gauss != null && <WithSellInOut pendientes={sell.sell_out_pendientes} estimados={sell.sell_out_estimados}>{formatSignedMoney(sell.total_gauss)}</WithSellInOut>}
+            <Sparkline values={tg.series} width={200} height={22} tone={deltaTone(tg.delta_pct)} className={styles.spark} label="Total Gauss por día" />
+          </>
+        ) : (
+          <span className={styles.locked}>Sin permiso para ver ganancia</span>
+        )}
+      </Card>
+    ),
+    total_tp: () => <TotalTpCard tp={tp} />,
+    markup: () => (
       <Card label={tpSolo ? 'Markup TP' : 'Markup promedio'} icon={PieChart}>
         {canSeeMargin ? (
           <>
@@ -263,9 +261,9 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
           <span className={styles.locked}>Sin permiso para ver ganancia</span>
         )}
       </Card>
-
-      {sellCard && <SellInOutCard sell={sell} />}
-
+    ),
+    sell_in_out: () => <SellInOutCard sell={sell} />,
+    rows_with_sales: () => (
       <Card label={`${noun} con ventas`} icon={Boxes}>
         <div className={styles.valueRow}>
           <span className={styles.value} data-kpi-value>
@@ -277,7 +275,8 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
           <span className={styles.barFill} style={{ width: `${activePct ?? 0}%` }} />
         </div>
       </Card>
-
+    ),
+    ageing: () => (
       <Card label="Ageing promedio" icon={Hourglass}>
         <div className={styles.valueRow}>
           <span className={styles.value} data-kpi-value>
@@ -300,6 +299,22 @@ export default function MetricasKpiStrip({ kpis, canSeeMargin, groupBy, loading,
           )}
         </div>
       </Card>
+    ),
+  };
+  // The ads block is not a card of this row (`AdsKpiBlock`); the page asks `isVisible('ads')` itself.
+  const shown = metricasKpiOptions(kpis, { canSeeMargin, groupBy, tpSolo }).filter(({ id }) => cards[id] && isVisible(id));
+  if (shown.length === 0) return null;
+
+  return (
+    <section
+      className={styles.cards}
+      aria-label="Indicadores del período"
+      aria-busy={loading}
+      style={{ '--kpi-count': shown.length }}
+    >
+      {shown.map(({ id }) => (
+        <Fragment key={id}>{cards[id]()}</Fragment>
+      ))}
     </section>
   );
 }

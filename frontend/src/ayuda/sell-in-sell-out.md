@@ -2,23 +2,42 @@
 
 Área: Productos
 Ruta: Productos → Sell in / Sell out
-Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Sell out pide además sell_out.ver).
+Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Sell out pide además sell_out.ver, y la pestaña Grupos, permiso de edición de constantes: config.editar_constantes).
 
 ## Para qué sirve
 
-Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene dos pestañas: **Sell in** y **Sell out**.
+Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene tres pestañas: **Sell in**, **Sell out** y **Grupos** (los grupos de productos que alcanzan las campañas).
 
 ## Cómo se usa
 
-En **Sell in** podés filtrar por fechas, marca, moneda (ARS/USD), estado (Activa/Anulada) y aplicación (aplican/no aplican). También podés filtrar por tipo: **Por compra** o **Bono de marca**. La tabla muestra las compras y, debajo, los bonos de marca. Arriba hay tarjetas de resumen.
+En **Sell in** podés filtrar por fechas, búsqueda, marca, moneda (ARS/USD), estado (Activa/Anulada), **Producto**, **Proveedor** y aplicación (aplican/no aplican). También podés filtrar por tipo: **Por compra** o **Bono de marca**. La tabla muestra las compras y, debajo, los bonos de marca. Arriba hay tarjetas de resumen.
+
+- **Producto** y **Proveedor** se buscan y se eligen de la lista de resultados; la cruz al lado del elegido lo quita. Filtran solo las compras: las que tienen ese producto en alguna línea o son de ese proveedor. **Proveedor** aparece si tenés permiso para ver proveedores u órdenes de compra (administracion.ver_proveedores, administracion.ver_ordenes_compra o administracion.gestionar_ordenes_compra).
+- Los bonos de marca siguen la búsqueda (descripción o marca del bono), la marca, la moneda, el estado y las fechas. Con fechas, se ven los bonos cuyo rango de fechas se cruza con el período elegido, aunque sea un solo día. La marca muestra todos los bonos que alcanzan productos de esa marca: los de esa marca, los de una categoría con productos de esa marca, los de modelos de esa marca y los de una operación con productos de esa marca (facturados o recibidos). Un bono de operación que todavía no tiene productos facturados ni recibidos no se puede ubicar en una marca: aparece con cualquier marca elegida. Aplicación, Producto y Proveedor no filtran los bonos: un bono no tiene "aplica" y alcanza una marca, una categoría, modelos o una operación, no un proveedor.
+- Las tarjetas de bonos vigentes cuentan siempre todos los bonos activos, con cualquier filtro.
 
 Si tenés permiso, el botón **Nuevo sell in** abre el panel para crear una compra o un bono. Al tocar una fila se abre el panel lateral con el detalle.
 
-En **Sell out** se listan las campañas (buscables por nombre), con paginación. Si tenés permiso, **Nueva campaña** abre el panel de campaña.
+En **Sell out** se listan las campañas, con paginación. Se filtran por período (las campañas cuyas fechas tocan el período elegido; **Todas las fechas** lo quita), por nombre, por estado (Activa/Anulada), por tipo (Por unidad, Porcentaje, Monto total), por moneda (ARS/USD), por marca (las campañas que alcanzan algún producto de esa marca a través de sus grupos) y, si tenés permiso de gestión de campañas, por grupo. Si tenés permiso, **Nueva campaña** abre el panel de campaña.
 
-Para anular varias campañas de una vez (pide permiso de gestión de campañas, sell_out.gestionar): marcá la casilla de cada fila, la casilla del encabezado para toda la página, o **Seleccionar todo lo filtrado (N)** para todas las que coinciden con la búsqueda. La barra muestra cuántas hay seleccionadas; **Anular seleccionados** pide confirmación, dice cuántas se anulan y permite un motivo. El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban. Es todo o nada: si alguna no se puede anular, no se anula ninguna y el mensaje dice cuál y por qué. Si una se está recalculando, el mensaje la nombra y se puede reintentar en unos segundos. Las que ya estaban anuladas se omiten y el resultado las cuenta aparte. Se pueden anular hasta 500 por vez.
+Para anular varias campañas de una vez (pide permiso de gestión de campañas, sell_out.gestionar): marcá la casilla de cada fila, la casilla del encabezado para toda la página, o **Seleccionar todo lo filtrado (N)** para todas las que coinciden con los filtros. La barra muestra cuántas hay seleccionadas; **Anular seleccionados** pide confirmación, dice cuántas se anulan y permite un motivo. El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban. Es todo o nada: si alguna no se puede anular, no se anula ninguna y el mensaje dice cuál y por qué. Si una se está recalculando, el mensaje la nombra y se puede reintentar en unos segundos. Las que ya estaban anuladas se omiten y el resultado las cuenta aparte. Se pueden anular hasta 500 por vez.
 
 El botón **Actualizar** recarga todo.
+
+### Grupos de productos
+
+Las campañas de sell out alcanzan productos a través de **grupos**. En la pestaña **Grupos** se listan todos, con su descripción, sus filtros, cuántos productos alcanzan hoy y qué campañas los usan (las anuladas se cuentan aparte).
+
+- **Nuevo grupo** pide nombre y descripción; después se le agregan filtros.
+- **Editar** abre el panel lateral: ahí se cambia el nombre o la descripción (**Guardar nombre**), se agregan filtros y se quitan.
+- Cada **filtro** es una fila con marca, categoría, subcategoría y/o un producto (buscado por código o descripción). Un producto entra en el grupo si cumple **alguna** fila; dentro de una fila tiene que cumplir **todos** los campos elegidos. Un grupo sin filtros no alcanza productos.
+- Después de cada cambio se vuelve a contar cuántos productos alcanza el grupo.
+- Cambiar los filtros de un grupo cambia los productos que alcanzan las campañas que lo usan: esas campañas se recalculan solas.
+- Si una campaña **activa** usa el grupo, **Agregar filtro** y **Quitar** no guardan enseguida: primero el panel avisa qué campañas activas se van a recalcular y cuántos productos alcanza el grupo antes y después del cambio (por ejemplo, "Productos alcanzados: 42 → 30."). **Confirmar cambio** lo guarda; **Cancelar** no cambia nada. Sin campañas activas, el cambio se guarda enseguida.
+- **Eliminar grupo** no se puede en estos casos, y el mensaje dice por qué:
+  - Lo usa una campaña activa: el mensaje la nombra; hay que quitar el grupo de la campaña antes.
+  - Solo lo usan campañas anuladas: el mensaje las nombra. El grupo queda guardado porque es parte del historial de esas campañas.
+  - Lo usa un offset, o tiene consumo de offsets registrado (lo que esos offsets ya aplicaron en ventas).
 
 ### Anular varios a la vez
 
@@ -39,6 +58,16 @@ Al crear un bono de marca, **Base del bono** define cómo se calcula. Se elige u
 ### Bonos de marca: acumulables o no
 
 **Acumulable con otros bonos** viene tildada. Tildada, el bono se suma a los otros bonos que cobran sobre la misma unidad. Sin tildar, el bono no cobra sobre las unidades que ya cobró un bono anterior (creado antes), y los bonos posteriores tampoco cobran sobre las suyas. Se puede cambiar al editar el bono.
+
+### Lotes de un producto
+
+Cada venta toma las unidades del lote más viejo que todavía tiene (orden FIFO). Lo que descuenta por unidad depende del modo de costo del producto: por defecto es FIFO, y cada unidad descuenta el valor de su lote; con **ponderado** todas las unidades que quedan descuentan el promedio ponderado de los lotes, y con **último precio** descuentan el valor del lote más nuevo. El modo cambia el valor, nunca el orden en que se usan las unidades. Para ver cómo van a aplicar los lotes de un producto, abrí la sección **Lotes sell in** en el panel del producto de **Publicaciones ML** (pestaña Resumen) o en la ficha de información del producto de **Productos** (pestaña **Lotes sell in**).
+
+- Arriba dice qué descuenta la próxima venta, por ejemplo: "La próxima venta descuenta $ 33,33 por unidad (lote 2); quedan 2 unidades a ese valor, después $ 10,00". Si ningún lote tiene unidades hoy, dice que el costo vuelve al normal (y hasta cuándo, si queda un lote con fecha futura) y si aplica un bono de costo en su lugar; si el lote vigente es el último, dice qué aplica cuando se termine.
+- Debajo, los lotes en el orden en que se consumen, cada uno con su número, el estado, el descuento por unidad en pesos (una compra en USD, a su propio tipo de cambio), las unidades que quedan y las usadas, la fecha desde la que cuenta y la compra (#, proveedor, facturas; el proveedor y las facturas solo con el permiso de ver compras, el mismo de **Últimas compras**). Los estados son **Vigente** (el que toma la próxima venta), **En cola**, **Agotado** o **Desde dd/mm** (cuenta desde una fecha futura).
+- **Ver ventas** en un lote muestra las ventas que lo consumieron (canal, venta, fecha, unidades y descuento); **Ver más ventas** trae las siguientes.
+
+Es solo lectura: no cambia nada.
 
 ### Campañas de sell out: tipos
 
@@ -66,13 +95,36 @@ Con **Incluye IVA** tildado, el IVA se descuenta con el IVA de cada producto en 
 
 Lo sin asignar (y lo asignado a productos sin ventas) no se pierde: suma en los totales de **Métricas ML** (el indicador de sell out, el total con sell in/out y una línea final del CSV) cuando el período incluye el día que termina la campaña, no en la fila de ningún producto. Con filtros (marca, categoría, producto, etc.) cuenta solo si la campaña alcanza alguno de los productos filtrados. Si el reparto guardado no se puede calcular, la sección dice por qué y no suma nada.
 
+### Renovar una campaña
+
+Para el próximo trimestre no hace falta cargar la campaña de cero. Quien gestiona campañas tiene el botón **Renovar** en cada fila de la lista (también en la vista **Por programa**) y en **Ver campaña**, en campañas activas y también en anuladas. Abre el formulario de una **campaña nueva** con todo copiado y el aviso «Copia de «nombre». Revisá fechas y montos antes de guardar.». No se guarda nada hasta tocar **Guardar campaña**; **Cancelar** vuelve a la campaña original.
+
+- **Se copia**: el tipo y su monto (por unidad, porcentaje o monto total), la base del porcentaje, la moneda, el modo de tipo de cambio (el valor solo si es **Fijo**), los topes, **Acumulable**, **El monto incluye IVA**, la descripción, los grupos, los **Montos por producto**, y el **Reparto del monto total** (se guarda junto con la campaña; **No copiar el reparto** lo deja afuera, por ejemplo si cambiaste los grupos o bajaste el total, y se carga después desde la campaña guardada).
+- **No se copia**: el estado, lo que acreditó, el tipo de cambio **Al cobro** que se definió al cobrar, el offset de origen ni el historial de cambios. Tampoco los productos que ya no están en los grupos.
+- **Fechas**: por defecto, el trimestre calendario siguiente al que contiene la fecha hasta de la original (por ejemplo, una que termina el 15/11/2026 o el 31/12/2026 propone del 01/01/2027 al 31/03/2027). Se pueden cambiar.
+- **Nombre**: si termina en un período, se avanza al nuevo trimestre («Rebate Q4 2026» → «Rebate Q1 2027», «Rebate 4Q26» → «Rebate 1Q27», «Campaña noviembre 2026» → «Campaña enero 2027»). Si no, queda igual (por ejemplo «Promo modelo 3.0»). Se puede editar.
+
+- **Programa**: la copia queda en el mismo programa que la original mientras ese programa esté activo. Si está archivado, la copia queda sin programa.
+
+La campaña original no cambia: sigue como estaba, con su historial y lo que acreditó.
+
+### Programas
+
+Un **programa** agrupa campañas de sell out que son el mismo acuerdo: las que se renuevan cada trimestre o las que se cargaron con el mismo nombre y un número porque aplican a cosas distintas. Asignar un programa **no cambia la plata** de las campañas: lo que acreditan, sus topes y la ganancia siguen igual. Solo las agrupa.
+
+- **Ver: Por programa | Lista** (en la tarjeta de filtros, cuando hay programas): **Por programa** muestra una fila por programa con «N campañas · M nombres · desde – hasta» y cuántas están activas, y al final **Sin programa**. Tocar la fila la abre y lista sus campañas, con las mismas columnas, casillas, **Ver campaña** y **Renovar** que la lista. **Lista** es la lista de siempre. La vista elegida queda en la dirección de la página. Si hay al menos un programa, se abre en **Por programa**.
+- Los grupos siguen los filtros: los números de cada fila y las campañas que muestra son los que cumplen los filtros, y un programa sin campañas que los cumplan no aparece.
+- **Filtro Programa**: **Todos**, **Sin programa** o un programa. También vale para **Seleccionar todo lo filtrado**.
+- **Asignar a programa** (quien gestiona campañas): marcá campañas, o usá **Seleccionar todo lo filtrado**, y tocá **Asignar a programa** en la barra de selección. Elegí un **Programa existente** (solo los activos) o un **Programa nuevo** con nombre y descripción opcional, que se crea y se asigna en el mismo paso. Si el programa está archivado o el nombre ya existe, el aviso aparece en el mismo cuadro y no se asigna nada. Al terminar se muestra, por ejemplo, «3 campañas asignadas a «Programa». 1 ya lo tenía.».
+- **Sugerencias de programa** (quien gestiona campañas): cuando hay campañas sin programa con **exactamente las mismas fechas**, arriba de la lista aparece «N sugerencias de programa: campañas sin programa con las mismas fechas». **Ver sugerencias** abre un panel con una tarjeta por grupo: un nombre propuesto (las palabras con que empiezan todos los nombres, o las fechas si no comparten ninguna), que se puede editar, sus fechas, cuántas campañas y nombres tiene, y la lista de campañas. **Crear programa y asignar** crea el programa y le asigna esas campañas. **Descartar** oculta la tarjeta hasta que vuelvas a abrir la página; no se guarda nada. No se aplica nada hasta que lo confirmes.
+
 ## Filtros y columnas
 
-Sell in: fechas, marca, moneda, estado, aplicación, tipo. Sell out: búsqueda por nombre.
+Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicación, tipo (los bonos de marca siguen fechas, búsqueda, marca, moneda y estado). Sell out: período, nombre, estado, tipo, moneda, marca, grupo y programa. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan.
 
 ## Botones y acciones
 
-- **Nuevo sell in** / **Nueva campaña**: crean registros (según permiso).
+- **Nuevo sell in** / **Nueva campaña** / **Nuevo grupo**: crean registros (según permiso).
 - Tocar una fila: abre el panel lateral de detalle.
 - **Actualizar**: recarga datos.
 
@@ -80,6 +132,12 @@ Sell in: fechas, marca, moneda, estado, aplicación, tipo. Sell out: búsqueda p
 
 **¿Por qué no veo la pestaña Sell out?**
 Pide un permiso adicional (sell_out.ver). Pedíselo a un administrador.
+
+**¿Por qué no veo la pestaña Grupos?**
+Pide permiso de edición de constantes (config.editar_constantes), el mismo que gestionar offsets. Pedíselo a un administrador.
+
+**¿Por qué no puedo eliminar un grupo?**
+Lo usa una campaña de sell out, un offset, o tiene consumo de offsets registrado. Si lo usa una campaña activa, el mensaje la nombra: quitá el grupo de esa campaña y volvé a intentar. Si solo lo usan campañas anuladas, el grupo queda guardado porque es parte de su historial.
 
 **¿Qué diferencia hay entre sell in y sell out?**
 Sell in baja el costo de la compra; sell out suma ganancia por campaña (o la descuenta, si es un monto total negativo).
