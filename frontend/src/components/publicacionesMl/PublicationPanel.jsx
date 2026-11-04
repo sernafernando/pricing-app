@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -80,6 +81,16 @@ export default function PublicationPanel({
 
   const row = detail?.row;
   const mlUrl = buildMlItemUrl(row?.permalink);
+  // Flagged pubs mount the price/chooser body even outside MODO; keep it after
+  // discard so Nuevo precio can appear in the same session (flag may clear).
+  const [flaggedPricingSession, setFlaggedPricingSession] = useState(false);
+  useEffect(() => {
+    setFlaggedPricingSession(false);
+  }, [itemId]);
+  useEffect(() => {
+    if (detail?.row?.hay_mejores_ofertas) setFlaggedPricingSession(true);
+  }, [detail?.row?.hay_mejores_ofertas]);
+  const showPonerPreciosBody = ponerPreciosMode || flaggedPricingSession;
 
   return (
     <PanelShell
@@ -107,7 +118,7 @@ export default function PublicationPanel({
         </>
       }
       figures={
-        !ponerPreciosMode &&
+        !showPonerPreciosBody &&
         detail && <PanelFigures label="Cifras de la publicación" figures={publicationFigures(row, { canSeeMargin, canSeeSales })} />
       }
       onClose={onClose}
@@ -116,8 +127,9 @@ export default function PublicationPanel({
       error={status === 'error' ? describeError(error) : null}
       onRetry={reload}
     >
-      {status === 'ready' && ponerPreciosMode && (
+      {status === 'ready' && showPonerPreciosBody && (
         <PonerPreciosBody
+          key={itemId}
           detail={detail}
           itemId={itemId}
           canEditPrice={canEditPrice}
@@ -127,13 +139,13 @@ export default function PublicationPanel({
         />
       )}
 
-      {status === 'ready' && !ponerPreciosMode && active && (
+      {status === 'ready' && !showPonerPreciosBody && active && (
         <PanelTabs tabs={available} activeKey={active.key} onTabChange={onTabChange} label="Secciones de la publicación">
           <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} canViewPromos={canViewPromos} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} priceGroup={priceGroup} />
         </PanelTabs>
       )}
 
-      {status === 'ready' && !ponerPreciosMode && (
+      {status === 'ready' && !showPonerPreciosBody && (
         <PanelFooter key={itemId} detail={detail} itemId={itemId} canManage={canManage} onStatusChanged={handleWritten} />
       )}
     </PanelShell>

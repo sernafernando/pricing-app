@@ -11,6 +11,7 @@ vi.mock('../../../services/api', () => ({
     getMarkupParaPrecio: vi.fn(),
     getPromocionesItem: vi.fn(),
     postPromocionItem: vi.fn(),
+    descartarHayMejores: vi.fn(),
   },
 }));
 
@@ -63,6 +64,7 @@ beforeEach(() => {
   promocionesAPI.getMarkupParaPrecio.mockReset().mockResolvedValue({ data: { nuestro_markup: 18 } });
   promocionesAPI.getPromocionesItem.mockReset().mockResolvedValue({ data: { promotions: capturedPromotions } });
   promocionesAPI.postPromocionItem.mockReset().mockResolvedValue({ data: { status: 'submitted' } });
+  promocionesAPI.descartarHayMejores.mockReset().mockResolvedValue({ data: { ok: true } });
 });
 
 describe('PonerPreciosBody Enter suggest', () => {
@@ -113,5 +115,52 @@ describe('PonerPreciosBody Enter suggest', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       /El precio ya está guardado en Pricing\. No se pudo activar la promoción\./,
     );
+  });
+});
+
+describe('PonerPreciosBody flagged hay_mejores', () => {
+  const flaggedDetail = {
+    ...detail,
+    row: { ...detail.row, hay_mejores_ofertas: true, price: { amount: 80000, pricelist_id: 4, lista_nombre: 'Clásica' } },
+  };
+
+  beforeEach(() => {
+    // Baseline markup 10% so SMART (20) / DEAL (12) / Premium (15) at lower offer prices all qualify.
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 10 } });
+  });
+
+  it('hides Nuevo precio until Descartar, then shows it', async () => {
+    const user = userEvent.setup();
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+    await screen.findByRole('region', { name: 'Candidatas mejores' });
+    await screen.findByRole('button', { name: /SMART/i });
+    await user.click(screen.getByRole('button', { name: 'Descartar sugerencia' }));
+    await waitFor(() => expect(promocionesAPI.descartarHayMejores).toHaveBeenCalledWith('MLA1'));
+    expect(await screen.findByLabelText('Nuevo precio')).toBeInTheDocument();
+  });
+
+  it('applies a mejores SMART and leaves the pub without showing Nuevo precio', async () => {
+    const user = userEvent.setup();
+    const onLeavePub = vi.fn();
+    render(
+      <PonerPreciosBody
+        detail={flaggedDetail}
+        itemId="MLA1"
+        canEditPrice
+        canWritePromos
+        onLeavePub={onLeavePub}
+      />,
+    );
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: /SMART/i }));
+    await waitFor(() =>
+      expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith(
+        'MLA1',
+        expect.objectContaining({ promotion_id: 'P-MLA18137008', promotion_type: 'SMART' }),
+      ),
+    );
+    expect(onLeavePub).toHaveBeenCalled();
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
   });
 });

@@ -46,6 +46,12 @@ Flujo paralelo para cargar precios rápido. Al activarlo:
 - Al hacer clic en una fila, el panel lateral (~un tercio) abre **sin pestañas**: lista ERP, precio actual y un campo para el nuevo precio.
 - **Enter** en el nuevo precio: lo guarda en Pricing y te propone la mejor candidata **SMART**, la mejor **DEAL** y la **Premium** del mes (si hay). Elegís **una** sola; se activa en Mercado Libre y se actualiza Pricing, y el panel se cierra.
 
+## Hay mejores ofertas
+
+El filtro de promos **Hay mejores ofertas** lista publicaciones con candidatas que mejoran el precio vigente en Mercado Libre (mismo precio con más markup, o precio más bajo con markup igual o mayor).
+
+Al abrir una de esas publicaciones (con o sin MODO PONER PRECIOS), el panel muestra el precio actual y te deja elegir entre la mejor **SMART**, la mejor **DEAL** y la **Premium** del mes que pasen ese criterio (si no hay Premium, ese slot no aparece). El campo **Nuevo precio** no se muestra hasta que **Descartás** la sugerencia o aplicás una candidata (al aplicar, el panel se cierra).
+
 ## Botones y acciones
 
 - **MODO PONER PRECIOS**: activa o sale del flujo rápido de precios (hace falta permiso de editar precio y de escribir promociones).
