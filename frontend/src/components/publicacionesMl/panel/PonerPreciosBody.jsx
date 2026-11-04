@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { formatAmount } from '../../../utils/ventasMlFormat';
 import { parsePrecioInput } from '../../../utils/precioInput';
 import { publicationListLabel } from '../../../constants/mlPublicationTypes';
@@ -7,11 +7,10 @@ import { promocionesAPI } from '../../../services/api';
 import { resolvePromoName } from '../../promociones/resolvePromoName';
 import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
 import ModalTesla, { ModalFooterButtons } from '../../ModalTesla';
+import MejoresCandidatasBlock from './MejoresCandidatasBlock';
 import {
   enrollBodyForPromo,
-  hasPickedSlot,
   listRowForPricelist,
-  pickMejoresCandidatas,
   pickPonerPreciosPromos,
 } from './pickPonerPreciosPromos';
 import styles from './panel.module.css';
@@ -27,7 +26,7 @@ function slotEntries(picked) {
   ].filter(([, promo]) => promo);
 }
 
-/** MODO PONER PRECIOS / flagged hay_mejores: price write + SMART/DEAL/Premium pick. */
+/** MODO PONER PRECIOS: price write + SMART/DEAL/Premium pick after Enter. */
 export default function PonerPreciosBody({
   detail,
   itemId,
@@ -41,6 +40,8 @@ export default function PonerPreciosBody({
   const product = detail?.product;
   const productId = product?.item_id ?? row?.link?.producto_item_id;
   const flaggedOnOpen = Boolean(row?.hay_mejores_ofertas);
+  // Without promos.escribir discard/apply 403 — never gate Nuevo precio on the chooser.
+  const canAwaitMejores = flaggedOnOpen && canWritePromos;
 
   const [draft, setDraft] = useState(price?.amount != null ? String(price.amount) : '');
   const [busy, setBusy] = useState(false);
@@ -49,76 +50,10 @@ export default function PonerPreciosBody({
   const [typedPrice, setTypedPrice] = useState(null);
   const [baselineMarkup, setBaselineMarkup] = useState(null);
   const [enrolling, setEnrolling] = useState(false);
-  /** Flagged open: hide Nuevo precio until discard or apply. */
-  const [awaitingMejores, setAwaitingMejores] = useState(flaggedOnOpen);
-  const [loadingMejores, setLoadingMejores] = useState(flaggedOnOpen);
-  const [descartando, setDescartando] = useState(false);
-  /** Inline chooser for the flag path (modal stays for Enter-after-price). */
-  const [mejoresSlots, setMejoresSlots] = useState(null);
-
-  useEffect(() => {
-    if (!flaggedOnOpen) return undefined;
-    let cancelled = false;
-    (async () => {
-      setLoadingMejores(true);
-      setMessage(null);
-      try {
-        const baselinePrice = price?.amount;
-        let markup = null;
-        if (baselinePrice != null && Number.isFinite(Number(baselinePrice))) {
-          try {
-            const res = await promocionesAPI.getMarkupParaPrecio(itemId, Number(baselinePrice));
-            markup = res?.data?.nuestro_markup ?? null;
-          } catch {
-            markup = null;
-          }
-        }
-        if (cancelled) return;
-        setBaselineMarkup(markup);
-        if (!canWritePromos) {
-          setMejoresSlots(null);
-          return;
-        }
-        const promoRes = await promocionesAPI.getPromocionesItem(itemId);
-        if (cancelled) return;
-        const promotions = promoRes?.data?.promotions ?? promoRes?.data?.promociones ?? [];
-        const picked = pickMejoresCandidatas(promotions, {
-          baselinePrice: baselinePrice != null ? Number(baselinePrice) : null,
-          baselineMarkup: markup,
-        });
-        setMejoresSlots(hasPickedSlot(picked) ? picked : null);
-      } catch (err) {
-        if (!cancelled) {
-          setMessage({ tone: 'error', text: errorText(err, 'No se pudieron cargar las candidatas.') });
-          setMejoresSlots(null);
-        }
-      } finally {
-        if (!cancelled) setLoadingMejores(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [flaggedOnOpen, itemId, price?.amount, canWritePromos]);
+  const [awaitingMejores, setAwaitingMejores] = useState(canAwaitMejores);
 
   const closeSuggestions = () => {
     if (!enrolling) setSuggestions(null);
-  };
-
-  const discardMejores = async () => {
-    if (descartando) return;
-    setDescartando(true);
-    setMessage(null);
-    try {
-      await promocionesAPI.descartarHayMejores(itemId);
-      setMejoresSlots(null);
-      setAwaitingMejores(false);
-      onWritten?.();
-    } catch (err) {
-      setMessage({ tone: 'error', text: errorText(err, 'No se pudo descartar.') });
-    } finally {
-      setDescartando(false);
-    }
   };
 
   const runEnter = async () => {
@@ -172,35 +107,27 @@ export default function PonerPreciosBody({
     }
   };
 
-  const acceptSlot = async (slot, fromMejores) => {
-    const promo = fromMejores ? mejoresSlots?.[slot] : suggestions?.[slot];
+  const acceptSlot = async (slot) => {
+    const promo = suggestions?.[slot];
     if (!promo || enrolling) return;
     setEnrolling(true);
     setMessage(null);
     try {
       await promocionesAPI.postPromocionItem(itemId, enrollBodyForPromo(promo));
-      if (fromMejores) {
-        setMejoresSlots(null);
-        // Leave before unlocking Nuevo precio — apply ends the flagged session.
-      } else {
-        setSuggestions(null);
-      }
+      setSuggestions(null);
       onWritten?.();
       onLeavePub?.();
     } catch (err) {
       const detailText = errorText(err, 'No se pudo activar la promoción.');
       setMessage({
         tone: 'error',
-        text: fromMejores
-          ? detailText
-          : `El precio ya está guardado en Pricing. ${detailText}`,
+        text: `El precio ya está guardado en Pricing. ${detailText}`,
       });
       setEnrolling(false);
     }
   };
 
   const enterSlots = slotEntries(suggestions);
-  const flaggedSlots = slotEntries(mejoresSlots);
   const showPriceField = !awaitingMejores;
 
   return (
@@ -223,49 +150,14 @@ export default function PonerPreciosBody({
       </dl>
 
       {awaitingMejores && (
-        <div className={styles.ponerPreciosMejores} role="region" aria-label="Candidatas mejores">
-          <p className={styles.ponerPreciosMejoresLead}>
-            Hay candidatas mejores que el precio vigente en MeLi.
-            {baselineMarkup != null ? ` Markup vigente ~ ${formatAmount(baselineMarkup)}%.` : ''}
-          </p>
-          {loadingMejores ? (
-            <p className={styles.ponerPreciosOk} role="status">
-              Cargando candidatas…
-            </p>
-          ) : flaggedSlots.length > 0 ? (
-            <ul className={styles.ponerPreciosChoices}>
-              {flaggedSlots.map(([slot, promo]) => (
-                <li key={slot}>
-                  <button
-                    type="button"
-                    className="btn-tesla outline sm"
-                    disabled={enrolling || !canWritePromos}
-                    onClick={() => acceptSlot(slot, true)}
-                  >
-                    <span className={styles.ponerPreciosChoiceLabel}>{SLOT_LABELS[slot]}</span>
-                    <span className={styles.ponerPreciosChoiceMeta}>
-                      {resolvePromoName(promo) || promo.promotion_id}
-                      {promoDisplayPrice(promo) != null ? ` · $ ${formatAmount(promoDisplayPrice(promo))}` : ''}
-                      {promo.nuestro_markup != null ? ` · markup ${formatAmount(promo.nuestro_markup)}%` : ''}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className={styles.ponerPreciosOk} role="status">
-              No hay candidatas SMART / DEAL / Premium que superen el precio vigente.
-            </p>
-          )}
-          <button
-            type="button"
-            className="btn-tesla ghost sm"
-            disabled={descartando || enrolling}
-            onClick={discardMejores}
-          >
-            {descartando ? 'Descartando…' : 'Descartar sugerencia'}
-          </button>
-        </div>
+        <MejoresCandidatasBlock
+          itemId={itemId}
+          baselinePrice={price?.amount}
+          onWritten={onWritten}
+          onLeavePub={onLeavePub}
+          onDismissed={() => setAwaitingMejores(false)}
+          onUnavailable={() => setAwaitingMejores(false)}
+        />
       )}
 
       {showPriceField && (
@@ -313,7 +205,7 @@ export default function PonerPreciosBody({
         <ul className={styles.ponerPreciosChoices}>
           {enterSlots.map(([slot, promo]) => (
             <li key={slot}>
-              <button type="button" className="btn-tesla outline sm" disabled={enrolling} onClick={() => acceptSlot(slot, false)}>
+              <button type="button" className="btn-tesla outline sm" disabled={enrolling} onClick={() => acceptSlot(slot)}>
                 <span className={styles.ponerPreciosChoiceLabel}>{SLOT_LABELS[slot]}</span>
                 <span className={styles.ponerPreciosChoiceMeta}>
                   {resolvePromoName(promo) || promo.promotion_id}

@@ -79,6 +79,7 @@ describe('esMejorOferta / pickMejoresCandidatas', () => {
   it('rejects markup↑ at a higher consumer price', () => {
     expect(esMejorOferta(1100, 30, 1000, 20)).toBe(false);
     expect(esMejorOferta(1000, 30, 1000, 20)).toBe(true);
+    expect(esMejorOferta(1000, 20, 1000, 20)).toBe(false);
     expect(esMejorOferta(900, 20, 1000, 20)).toBe(true);
     expect(esMejorOferta(900, 25, 1000, 20)).toBe(true);
   });

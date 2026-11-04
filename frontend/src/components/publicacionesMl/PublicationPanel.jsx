@@ -13,6 +13,7 @@ import { PANEL_TABS, visibleTabs } from './panel/panelTabs';
 import { canViewProductPrices } from '../pricing/productPricePermissions';
 import { usePublicationDetail } from './panel/usePublicationDetail';
 import PanelFigures from './panel/PanelFigures';
+import MejoresCandidatasBlock from './panel/MejoresCandidatasBlock';
 import PonerPreciosBody from './panel/PonerPreciosBody';
 import { publicationFigures } from './panel/publicationFigures';
 import { pricePermissions } from '../pricing/productPricePermissions';
@@ -81,16 +82,17 @@ export default function PublicationPanel({
 
   const row = detail?.row;
   const mlUrl = buildMlItemUrl(row?.permalink);
-  // Flagged pubs mount the price/chooser body even outside MODO; keep it after
-  // discard so Nuevo precio can appear in the same session (flag may clear).
-  const [flaggedPricingSession, setFlaggedPricingSession] = useState(false);
+  // Outside MODO: chooser is a block above tabs (never replaces them). Hide after
+  // discard / unavailable; reset when switching publication.
+  const [mejoresBlockOpen, setMejoresBlockOpen] = useState(true);
   useEffect(() => {
-    setFlaggedPricingSession(false);
+    setMejoresBlockOpen(true);
   }, [itemId]);
-  useEffect(() => {
-    if (detail?.row?.hay_mejores_ofertas) setFlaggedPricingSession(true);
-  }, [detail?.row?.hay_mejores_ofertas]);
-  const showPonerPreciosBody = ponerPreciosMode || flaggedPricingSession;
+  const showMejoresBlock =
+    !ponerPreciosMode &&
+    canWritePromos &&
+    Boolean(detail?.row?.hay_mejores_ofertas) &&
+    mejoresBlockOpen;
 
   return (
     <PanelShell
@@ -118,7 +120,7 @@ export default function PublicationPanel({
         </>
       }
       figures={
-        !showPonerPreciosBody &&
+        !ponerPreciosMode &&
         detail && <PanelFigures label="Cifras de la publicación" figures={publicationFigures(row, { canSeeMargin, canSeeSales })} />
       }
       onClose={onClose}
@@ -127,7 +129,7 @@ export default function PublicationPanel({
       error={status === 'error' ? describeError(error) : null}
       onRetry={reload}
     >
-      {status === 'ready' && showPonerPreciosBody && (
+      {status === 'ready' && ponerPreciosMode && (
         <PonerPreciosBody
           key={itemId}
           detail={detail}
@@ -139,13 +141,25 @@ export default function PublicationPanel({
         />
       )}
 
-      {status === 'ready' && !showPonerPreciosBody && active && (
+      {status === 'ready' && showMejoresBlock && (
+        <MejoresCandidatasBlock
+          key={`mejores-${itemId}`}
+          itemId={itemId}
+          baselinePrice={row?.price?.amount}
+          onWritten={handleWritten}
+          onLeavePub={onClose}
+          onDismissed={() => setMejoresBlockOpen(false)}
+          onUnavailable={() => setMejoresBlockOpen(false)}
+        />
+      )}
+
+      {status === 'ready' && !ponerPreciosMode && active && (
         <PanelTabs tabs={available} activeKey={active.key} onTabChange={onTabChange} label="Secciones de la publicación">
           <active.Component detail={detail} itemId={itemId} canSeeMargin={canSeeMargin} canViewPromos={canViewPromos} dataState={dataState} onPromoApplied={handleWritten} onWritten={handleWritten} priceGroup={priceGroup} />
         </PanelTabs>
       )}
 
-      {status === 'ready' && !showPonerPreciosBody && (
+      {status === 'ready' && !ponerPreciosMode && (
         <PanelFooter key={itemId} detail={detail} itemId={itemId} canManage={canManage} onStatusChanged={handleWritten} />
       )}
     </PanelShell>

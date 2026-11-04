@@ -19,6 +19,14 @@ class TestEsMejorOferta:
             baseline_markup=20.0,
         )
 
+    def test_same_price_same_markup_is_not_better(self) -> None:
+        assert not es_mejor_oferta(
+            candidate_price=1000,
+            candidate_markup=20.0,
+            baseline_price=1000,
+            baseline_markup=20.0,
+        )
+
     def test_lower_price_same_markup_is_better(self) -> None:
         assert es_mejor_oferta(
             candidate_price=900,

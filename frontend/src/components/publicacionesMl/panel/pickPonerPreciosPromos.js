@@ -23,8 +23,10 @@ function markupOf(promo) {
 }
 
 /**
- * Mirror of backend `es_mejor_oferta`: markup↑ same price; markup= lower;
- * markup↑ lower. A higher consumer price is never better.
+ * Keep in sync with backend `es_mejor_oferta` (ml_promotions_hay_mejores.py):
+ * markup↑ same price; markup= lower; markup↑ lower. Higher consumer price never better.
+ * Shared cases: same+higher markup ✓; same+same markup ✗; higher price+higher markup ✗;
+ * lower price+same markup ✓; lower price+higher markup ✓; lower price+lower markup ✗.
  */
 export function esMejorOferta(candidatePrice, candidateMarkup, baselinePrice, baselineMarkup) {
   if (candidatePrice == null || candidateMarkup == null) return false;

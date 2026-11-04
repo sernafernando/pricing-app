@@ -125,7 +125,6 @@ describe('PonerPreciosBody flagged hay_mejores', () => {
   };
 
   beforeEach(() => {
-    // Baseline markup 10% so SMART (20) / DEAL (12) / Premium (15) at lower offer prices all qualify.
     promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 10 } });
   });
 
@@ -161,6 +160,41 @@ describe('PonerPreciosBody flagged hay_mejores', () => {
       ),
     );
     expect(onLeavePub).toHaveBeenCalled();
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+  });
+
+  it('shows Nuevo precio immediately without promos.escribir', () => {
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos={false} />);
+    expect(screen.getByLabelText('Nuevo precio')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Candidatas mejores' })).not.toBeInTheDocument();
+  });
+
+  it('unlocks Nuevo precio when baseline markup cannot be computed', async () => {
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: null } });
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
+    expect(await screen.findByLabelText('Nuevo precio')).toBeInTheDocument();
+  });
+
+  it('keeps the chooser and shows an error when apply fails', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.postPromocionItem.mockRejectedValueOnce({
+      response: { data: { detail: 'Promoción no disponible' } },
+    });
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
+    await user.click(await screen.findByRole('button', { name: /SMART/i }));
+    expect(await screen.findByRole('status')).toHaveTextContent(/Promoción no disponible/);
+    expect(screen.getByRole('region', { name: 'Candidatas mejores' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+  });
+
+  it('keeps the chooser and shows an error when discard fails', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.descartarHayMejores.mockRejectedValueOnce({
+      response: { data: { detail: 'Sin permiso' } },
+    });
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
+    await user.click(await screen.findByRole('button', { name: 'Descartar sugerencia' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(/Sin permiso/);
     expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
   });
 });
