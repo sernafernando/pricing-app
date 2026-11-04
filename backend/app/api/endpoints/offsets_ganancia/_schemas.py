@@ -56,6 +56,23 @@ class AlcancePrevio(BaseModel):
     despues: int
 
 
+class GruposEliminarIn(BaseModel):
+    """The groups to delete at once (the Grupos tab's "Borrar seleccionados")."""
+
+    ids: List[int] = Field(min_length=1, max_length=500)
+
+
+class GrupoRechazado(BaseModel):
+    id: int
+    nombre: Optional[str] = None
+    motivo: str
+
+
+class GruposEliminados(BaseModel):
+    eliminados: List[int]
+    rechazados: List[GrupoRechazado]
+
+
 class OffsetGrupoEditado(BaseModel):
     id: int
     nombre: str
