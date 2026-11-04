@@ -4,18 +4,11 @@ import { sellOutAPI } from '../../services/sellOutAPI';
 import { apiMessage } from '../sellIn/sellInFormat';
 import SellOutAsignarPrograma from './SellOutAsignarPrograma';
 import SellOutCampanasTable from './SellOutCampanasTable';
-import { ANULAR_MASIVO_MAX, SeleccionCambiada, resolverFiltradas, textoConfirmacion, textoResultado } from './sellOutSeleccion';
+import { ANULAR_MASIVO_MAX, errorDeSeleccion, resolverFiltradas, textoConfirmacion, textoResultado } from './sellOutSeleccion';
 import panelStyles from '../sellIn/SellInPanel.module.css';
 import styles from './SellOutAnularMasivo.module.css';
 
 const MOTIVO_MAX = 500; // backend `SellOutAnularMasivoIn.motivo` (auditoria.comentario is VARCHAR(500))
-
-/** Why "Seleccionar todo lo filtrado" failed, in Spanish: never the HTTP client's own (English) message. */
-function errorDeSeleccion(err) {
-  if (err instanceof SeleccionCambiada) return err.message;
-  if (err?.response) return apiMessage(err, 'No se pudieron seleccionar las campañas.');
-  return 'No se pudo conectar con el servidor para seleccionar las campañas.';
-}
 
 /**
  * The sell-out campaigns list with bulk void (`POST /sell-out/campanas/anular`, `sell_out.gestionar`): row and page

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Pagination, StatusPill } from '../kit';
 import { sellOutAPI } from '../../services/sellOutAPI';
-import { resolverFiltradas, SeleccionCambiada } from './sellOutSeleccion';
+import { errorDeSeleccion, resolverFiltradas } from './sellOutSeleccion';
 import { CabeceraCampanas, CampanaFila } from './SellOutCampanasTable';
 import { columnasCampanas, plural, resumenDeGrupo, textoActivas } from './sellOutProgramas';
 import tableStyles from '../sellIn/SellInTable.module.css';
@@ -74,7 +74,7 @@ function AsignarSinPrograma({ grupo, filtros, onAsignar }) {
       const ids = await resolverFiltradas(sellOutAPI.listar, { ...filtros, sin_programa: true }, grupo.campanas);
       onAsignar([...ids.keys()]);
     } catch (err) {
-      setError(err instanceof SeleccionCambiada ? err.message : 'No se pudieron leer las campañas sin programa.');
+      setError(errorDeSeleccion(err));
     } finally {
       setBusy(false);
     }

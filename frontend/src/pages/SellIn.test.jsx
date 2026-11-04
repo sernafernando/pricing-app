@@ -1200,6 +1200,24 @@ describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it.each([
+    [{ response: { status: 403, data: { detail: 'No tienes permiso: sell_out.ver' } } }, 'No tienes permiso: sell_out.ver'],
+    [new Error('Network Error'), 'No se pudo conectar con el servidor para seleccionar las campañas.'],
+  ])('"Asignar ahora" whose read fails shows the API message or the connection error', async (fallo, mensaje) => {
+    conProgramas();
+    sellOutAPI.listar.mockImplementation(async (p) => {
+      if (p.sin_programa) throw fallo;
+      return { data: CAMPANAS_LISTA };
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+
+    await user.click(await waitFor(() => within(filaDeGrupo('Sin programa')).getByRole('button', { name: 'Asignar ahora' })));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(mensaje);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('without sell_out.gestionar "Sin programa" has no "Asignar ahora"', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
     conProgramas();
