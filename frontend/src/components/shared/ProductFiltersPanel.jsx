@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { X } from 'lucide-react';
 import { useProductFilters } from '../../hooks/useProductFilters';
 import styles from './ProductFiltersPanel.module.css';
 
@@ -322,7 +323,7 @@ function SearchInput({ placeholder, value, onChange }) {
       />
       {value && (
         <button type="button" className={styles.searchClear} onClick={() => onChange('')} aria-label="Limpiar búsqueda">
-          ✕
+          <X size={12} aria-hidden="true" />
         </button>
       )}
     </div>
