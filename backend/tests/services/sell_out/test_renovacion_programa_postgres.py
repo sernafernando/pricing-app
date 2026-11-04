@@ -364,3 +364,17 @@ def test_a_copy_moved_to_another_program_still_renews_its_original_but_brings_no
             "motivo": f"ya renovada en la campaña {copia} (Modelo A Q1 2027)",
         }
     ]
+
+
+def test_more_campaigns_than_one_renewal_takes_is_refused_in_the_preview_saying_why(
+    engine, Sesion, monkeypatch
+) -> None:
+    monkeypatch.setattr(renovacion_programa, "RENOVAR_MAX", 1)
+    pid = _programa(Sesion)
+    for n in "AB":
+        _campana(engine, pid, f"Modelo {n} Q4 2026", Q4_DESDE, Q4_HASTA)
+    with Sesion() as db:
+        with pytest.raises(
+            campanas.SellOutError, match="El programa tiene 2 campañas para renovar: se renuevan hasta 1"
+        ):
+            renovacion_programa.previa(db, pid)

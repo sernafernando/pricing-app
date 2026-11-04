@@ -36,9 +36,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.sell_out import SellOutCampana, SellOutPrograma
+from app.schemas.sell_out import ASIGNAR_MAX
 from app.services.sell_out import campanas, programas, renovacion
 
 ANULADA = "anulada, no se renueva"
+RENOVAR_MAX = ASIGNAR_MAX  # `SellOutRenovarProgramaIn.campana_ids` takes at most this many
 
 
 class RenovacionDesactualizada(campanas.SellOutError):
@@ -126,6 +128,9 @@ def previa(db: Session, programa_id: int, *, bloquear: bool = False) -> dict:
     origen = min((_indice(c.fecha_hasta) for c in candidatas), default=ultimo)
     salida["periodo_desde"], salida["periodo_hasta"] = _limites(origen)
     salida["fecha_desde"], salida["fecha_hasta"] = _limites(origen + 1)
+    # ponytail: one `renovacion.borrador` per campaign (a few queries each, and again on renew) so the copy rules and
+    # the ITEMS_MAX refusal stay the per-campaign renewal's own; fine for tens of campaigns, batch it if programs
+    # grow to hundreds.
     for campana in ventana:
         if _indice(campana.fecha_hasta) != origen:
             if campana in candidatas:
@@ -147,6 +152,10 @@ def previa(db: Session, programa_id: int, *, bloquear: bool = False) -> dict:
             )
             continue
         salida["omitidas"].append({"campana_id": campana.id, "nombre": campana.nombre, "motivo": motivo})
+    if len(salida["renovar"]) > RENOVAR_MAX:
+        raise campanas.SellOutError(
+            f"El programa tiene {len(salida['renovar'])} campañas para renovar: se renuevan hasta {RENOVAR_MAX} por vez."
+        )
     return salida
 
 
