@@ -1251,6 +1251,16 @@ class TestProductOptions:
     def options(db, f=None, **params) -> dict:
         return listing.product_options(db, f if f is not None else parse_filter(**params))
 
+    def test_without_brand_and_without_subcategory_never_come_back_as_blank_options(self, conn, db) -> None:
+        # A product with no brand nor subcategory, and the "without" selections (`__none__`): never a blank option.
+        seed.add_product(conn, 74, "E1", "Cable", categoria="Redes")
+        seed.add_item(conn, "MLA5", status="active", official_store_id=1)
+        seed.add_link(conn, "MLA5", 74)
+        options = self.options(db, marcas="__none__", subcategorias="__none__")
+        assert "" not in options["marcas"] and None not in options["subcategorias"]
+        assert self.options(db, marcas="__none__")["subcategorias"] == []
+        assert self.options(db, subcategorias="__none__")["marcas"] == []
+
     def test_the_brands_are_those_of_the_publications_under_the_other_filters(self, db) -> None:
         assert self.options(db)["marcas"] == ["Epson", "Hikvision", "TP-Link"]
         assert self.options(db, estado="paused")["marcas"] == ["Epson"]
