@@ -456,9 +456,10 @@ class CampaignOut(BaseModel):
     advertiser_name: Optional[str] = None  # None: an advertiser without a known name
     name: Optional[str] = None
     status: Optional[str] = None
-    cost: float  # `ml_ads_campaign_days.cost` summed over the requested range
-    # What the contributions cover of the range: the Métricas ML board's rule over `ml_ads_item_days`, so it equals the
-    # board's figure. `cost` keeps the campaign rows; both bases match unless a day's item rows are incomplete.
+    # The campaign's `ml_ads_item_days.cost` over the requested range: the base the contributions and the Métricas ML
+    # board use (ml-ads-aportes-robust S7), so `cost - contribution` is the board's net.
+    cost: float
+    # What the contributions cover of the range: the Métricas ML board's rule over the same item rows.
     contribution: float
     contributions: list[ContributionOut]
 

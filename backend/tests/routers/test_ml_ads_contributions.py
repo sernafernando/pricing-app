@@ -9,7 +9,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsCampaignDay
+from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsItemDay
 from tests.routers.test_ml_publications_links import grant
 
 BASE = "/api/ml-ads"
@@ -23,7 +23,17 @@ def campaigns(db):
     for campaign_id, name in ((CAMP, "TP-Link routers"), (OTHER, "Epson")):
         db.add(MlAdsCampaign(advertiser_id=ADV, campaign_id=campaign_id, name=name, status="active", raw={}))
     for day, cost in ((date(2026, 10, 4), "100.50"), (date(2026, 10, 5), "200.25"), (date(2026, 11, 1), "999")):
-        db.add(MlAdsCampaignDay(advertiser_id=ADV, campaign_id=CAMP, day=day, cost=Decimal(cost), raw={}))
+        db.add(
+            MlAdsItemDay(
+                advertiser_id=ADV,
+                ad_group_id=1,
+                item_id="MLA1",
+                day=day,
+                campaign_id=CAMP,
+                cost=Decimal(cost),
+                raw={},
+            )
+        )
     for kind, value, start, end, settlement in (
         ("fixed_amount", "50.00", date(2026, 11, 1), date(2026, 11, 30), "full"),
         ("percentage", "30.00", date(2026, 10, 1), date(2026, 10, 31), None),

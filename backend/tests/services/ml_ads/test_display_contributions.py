@@ -74,9 +74,9 @@ def _rows(db) -> list[tuple]:
 
 
 @pytest.fixture()
-def db(pg_ads_db):
-    _seed(pg_ads_db)
-    return pg_ads_db
+def db(pg_ads_write_db):
+    _seed(pg_ads_write_db)
+    return pg_ads_write_db
 
 
 class TestCreate:
@@ -275,13 +275,13 @@ HOLD = 0.6  # seconds the first session keeps its locks
 
 
 @pytest.fixture()
-def sessions(pg_ads_engine):
-    make = sessionmaker(bind=pg_ads_engine)
+def sessions(pg_ads_write_engine):
+    make = sessionmaker(bind=pg_ads_write_engine)
     with make() as db:
         _seed(db)
         db.commit()
     yield make
-    with pg_ads_engine.begin() as conn:
+    with pg_ads_write_engine.begin() as conn:
         for table in ("ml_ads_campaign_contributions", "ml_ads_display_campaigns", "ml_ads_display_campaign_days"):
             conn.execute(text(f"DELETE FROM {table}"))
         conn.execute(text("DELETE FROM ml_ads_campaigns"))

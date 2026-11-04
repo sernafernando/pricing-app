@@ -4,6 +4,7 @@ S1 the brand is mandatory and comes from the marcas catalog (distinct `ProductoE
 S2 a fixed amount copied with IVA is converted to sin IVA once, when saved.
 S3 a `full` amount above the range spend needs an explicit confirmation.
 S4 a range ending past the ledger's `data_through` is saved with a warning (the preview says it too).
+S7 the loading page's cost is the campaign's item-row cost, the base the aporte and Métricas use.
 Campaigns, item days, ledger rows and the ERP product are DERIVED rows (no ML capture involved).
 """
 
@@ -15,7 +16,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.models.ml_ads import MlAdsDayLedger, MlAdsItemDay
+from app.models.ml_ads import MlAdsCampaignDay, MlAdsDayLedger, MlAdsItemDay
 from tests.routers.test_ml_ads_contributions_write import (  # noqa: F401 -- fixtures
     ADV,
     BASE,
@@ -148,3 +149,17 @@ class TestDataThrough:
         got = client.get(f"{BASE}/contributions/preview", headers=manager, params=_contribution()).json()
         assert len(got["warnings"]) == 1 and "2026-10-10" in got["warnings"][0]
         assert got["data_through"] == "2026-10-10"
+
+
+class TestCostBase:
+    def test_the_campaign_cost_is_its_item_rows_not_its_campaign_report(self, client, db, manager, catalog) -> None:
+        """The campaign report says 999 for 10-05 while its item rows add up to 1000: the page shows 1000."""
+        db.add(
+            MlAdsCampaignDay(advertiser_id=ADV, campaign_id=CAMP, day=date(2026, 10, 5), cost=Decimal("999"), raw={})
+        )
+        db.flush()
+        got = client.get(
+            f"{BASE}/campaigns", headers=manager, params={"date_from": "2026-10-01", "date_to": "2026-10-31"}
+        )
+        mine = next(c for c in got.json()["campaigns"] if c["campaign_id"] == CAMP)
+        assert mine["cost"] == 1000.0
