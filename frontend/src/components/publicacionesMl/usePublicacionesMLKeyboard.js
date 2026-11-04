@@ -262,10 +262,10 @@ export default function usePublicacionesMLKeyboard({
         return;
       }
       // A filter's own search takes the focus when it opens (ProductFiltersPanel), so from there Alt+letter still
-      // switches to another filter -- unless Alt types a character with it (a Mac: Alt+C is ç), which the search
-      // keeps; any other field keeps all its Alt keys.
+      // switches to another filter, by the key like everywhere else, on any layout -- unless Alt types a character
+      // with it (a Mac: Alt+C is ç, or a dead key), which the search keeps; any other field keeps all its Alt keys.
       const inFilterSearch = Boolean(event.target?.closest?.(FILTER_SEARCH));
-      const altTypesNothing = event.key?.toLowerCase() === event.code?.slice(3).toLowerCase();
+      const altTypesNothing = /^[a-z]$/i.test(event.key ?? '');
       if (inFilterSearch && altTypesNothing && event.altKey && !event.ctrlKey && !event.metaKey && FILTER_KEYS[event.code] && openFilter) {
         event.preventDefault();
         openFilter(FILTER_KEYS[event.code]);
