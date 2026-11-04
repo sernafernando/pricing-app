@@ -102,9 +102,49 @@ describe('AportesHistorial (Stitch 973006a2)', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('says so when the history cannot be loaded', async () => {
+  it('says so when the history cannot be loaded, with the backend message and no events', async () => {
     api.get.mockRejectedValue({ response: { data: { error: { message: 'boom' } } } });
     renderModal();
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('boom');
+    expect(screen.queryByRole('list', { name: 'Eventos del aporte' })).not.toBeInTheDocument();
+  });
+
+  it('says it is loading, and says so when an aporte has no recorded history', async () => {
+    let answer;
+    api.get.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    renderModal();
+    expect(screen.getByText('Cargando historial...')).toBeInTheDocument();
+    answer({ data: { events: [] } });
+    expect(
+      await screen.findByText('Este aporte no tiene cambios registrados: se cargó antes de que se guardara el historial.'),
+    ).toBeInTheDocument();
+  });
+
+  it('labels a change of type between percentage and amount on both sides', async () => {
+    const before = { ...APORTE_HISTORY.events[0].after, kind: 'percentage', value: '30.00', settlement: null };
+    const after = APORTE_HISTORY.events[0].after;
+    api.get.mockResolvedValue({
+      data: { events: [{ action: 'edited', user: 'Martín Gómez', at: '2026-10-18T13:05:00+00:00', before, after }] },
+    });
+    renderModal();
+    const [edited] = await events();
+    expect(within(edited).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Tipo: Porcentaje → Monto fijo',
+      'Valor: 30 % → $ 120.000,00',
+      'Cómo se liquida: Sin liquidación → Se recibe todo',
+    ]);
+  });
+
+  it('shows a range edit that only changes the year, with the years', async () => {
+    const before = APORTE_HISTORY.events[0].after;
+    const after = { ...before, date_to: '2027-10-25' };
+    api.get.mockResolvedValue({
+      data: { events: [{ action: 'edited', user: 'Martín Gómez', at: '2026-10-18T13:05:00+00:00', before, after }] },
+    });
+    renderModal();
+    const [edited] = await events();
+    expect(within(edited).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Rango: 16/10/2026 → 25/10/2026 → 16/10/2026 → 25/10/2027',
+    ]);
   });
 });

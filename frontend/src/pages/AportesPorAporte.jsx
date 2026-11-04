@@ -35,7 +35,6 @@ const SETTLEMENT_BADGES = {
 
 const percent = (value) => `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`;
 const share = (part, whole) => (whole > 0 ? percent((part / whole) * 100) : '—');
-// `2026-10-01` or `2026-10-01T10:00:00` -> `01/10`.
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const sum = (rows) => rows.reduce((total, row) => total + (row.covered || 0), 0);
 

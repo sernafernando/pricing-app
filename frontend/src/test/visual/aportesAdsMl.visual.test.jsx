@@ -9,7 +9,7 @@
  *   pnpm exec vitest run --project=visual aportesAdsMl
  *   VITE_APORTES_SHOTS_DIR=/tmp/shots pnpm exec vitest run --project=visual aportesAdsMl   (also saves screenshots)
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
@@ -155,6 +155,9 @@ const renderPage = async ({ width, height, theme }) => {
 };
 
 describe('Aportes de marcas (Ads ML) (visual)', () => {
+  // A failed assertion must not leave high contrast on for the next test.
+  afterEach(() => document.documentElement.classList.remove('high-contrast'));
+
   for (const [width, height] of [
     [1280, 800],
     [1440, 900],

@@ -75,6 +75,12 @@
   color: var(--cf-text-tertiary);
 }
 
+.muted {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
 .error {
   margin: 0 0 12px;
   color: var(--tone-danger-fg);

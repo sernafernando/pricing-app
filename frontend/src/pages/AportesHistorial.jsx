@@ -23,42 +23,62 @@ const ACTIONS = {
 const KINDS = { percentage: 'Porcentaje', fixed_amount: 'Monto fijo' };
 const SETTLEMENTS = { full: 'Se recibe todo', refund_difference: 'Devuelve la diferencia' };
 
-const valueLabel = (snap) => (snap.kind === 'percentage' ? 'Porcentaje' : 'Monto');
 const valueText = (snap) =>
   snap.kind === 'percentage'
     ? `${Number(snap.value).toLocaleString('es-AR', { maximumFractionDigits: 2 })} %`
     : formatSignedMoney(Number(snap.value));
-const rangeText = (snap) => `${dayMonth(snap.date_from)} → ${dayMonth(snap.date_to)}`;
+const fullDay = (iso) => iso.split('-').reverse().join('/');
+const rangeText = (snap, withYear) =>
+  withYear ? `${fullDay(snap.date_from)} → ${fullDay(snap.date_to)}` : `${dayMonth(snap.date_from)} → ${dayMonth(snap.date_to)}`;
 
-/** The fields of a snapshot an edit can change, in the form's order: label and text of each. */
+/**
+ * The fields of a snapshot, in the form's order. `same(before, after)`: whether an edit left it alone (on the raw
+ * values, so a change the text hides, such as only the year of a date, still shows); `loaded`: what a load lists, as
+ * the design (type, value, settlement of a fixed amount, range); `mono`: figures, set in monospace.
+ */
 const FIELDS = [
-  ['Marca', (s) => s.brand || 'Sin marca'],
-  ['Campaña', (s) => (s.campaign_id == null ? 'Toda la cuenta Display' : String(s.campaign_id))],
-  ['Tipo', (s) => KINDS[s.kind] || s.kind],
-  [valueLabel, valueText],
-  ['Cómo se liquida', (s) => SETTLEMENTS[s.settlement] || 'Sin liquidación'],
-  ['Rango', rangeText],
-  ['Nota', (s) => s.note || 'Sin nota'],
+  { label: () => 'Marca', text: (s) => s.brand || 'Sin marca', same: (a, b) => a.brand === b.brand },
+  {
+    label: () => 'Campaña',
+    text: (s) => (s.campaign_id == null ? 'Toda la cuenta Display' : String(s.campaign_id)),
+    same: (a, b) => a.campaign_id === b.campaign_id,
+  },
+  { label: () => 'Tipo', text: (s) => KINDS[s.kind] || s.kind, same: (a, b) => a.kind === b.kind, loaded: () => true },
+  {
+    // Named by its kind; "Valor" when an edit changed the kind, so neither side is mislabeled.
+    label: (before, after) =>
+      before && before.kind !== after.kind ? 'Valor' : after.kind === 'percentage' ? 'Porcentaje' : 'Monto',
+    text: valueText,
+    same: (a, b) => a.kind === b.kind && Number(a.value) === Number(b.value),
+    loaded: () => true,
+    mono: true,
+  },
+  {
+    label: () => 'Cómo se liquida',
+    text: (s) => SETTLEMENTS[s.settlement] || 'Sin liquidación',
+    same: (a, b) => a.settlement === b.settlement,
+    loaded: (s) => Boolean(s.settlement),
+  },
+  {
+    label: () => 'Rango',
+    text: rangeText,
+    same: (a, b) => a.date_from === b.date_from && a.date_to === b.date_to,
+    loaded: () => true,
+  },
+  { label: () => 'Nota', text: (s) => s.note || 'Sin nota', same: (a, b) => (a.note || null) === (b.note || null) },
 ];
 
-/** What a load shows, as the design: type, value, settlement (fixed amounts only) and range. */
-function loadedLines(snap) {
-  const lines = [
-    { label: 'Tipo', after: KINDS[snap.kind] || snap.kind },
-    { label: valueLabel(snap), after: valueText(snap) },
-  ];
-  if (snap.settlement) lines.push({ label: 'Cómo se liquida', after: SETTLEMENTS[snap.settlement] });
-  lines.push({ label: 'Rango', after: rangeText(snap) });
-  return lines;
-}
+/** What a load shows: the loaded fields of its snapshot. */
+const loadedLines = (snap) =>
+  FIELDS.filter((f) => f.loaded?.(snap)).map((f) => ({ label: f.label(null, snap), after: f.text(snap), mono: f.mono }));
 
-/** What an edit changed, field by field. */
+/** What an edit changed, field by field. A range whose day and month read the same shows its years. */
 function changedLines(before, after) {
-  return FIELDS.map(([label, text]) => ({
-    label: typeof label === 'function' ? label(after) : label,
-    before: text(before),
-    after: text(after),
-  })).filter((line) => line.before !== line.after);
+  return FIELDS.filter((f) => !f.same(before, after)).map((f) => {
+    let [old, now] = [f.text(before), f.text(after)];
+    if (old === now) [old, now] = [f.text(before, true), f.text(after, true)];
+    return { label: f.label(before, after), before: old, after: now, mono: f.mono };
+  });
 }
 
 function linesOf(event) {
@@ -79,8 +99,7 @@ function Event({ event }) {
       {lines.length > 0 && (
         <ul className={styles.lines}>
           {lines.map((line) => {
-            // Only figures go monospace, as the design: "$ 120.000,00", "30 %".
-            const mono = line.label === 'Monto' || line.label === 'Porcentaje' ? styles.mono : '';
+            const mono = line.mono ? styles.mono : '';
             return (
               <li key={line.label}>
                 {`${line.label}: `}
@@ -102,13 +121,17 @@ function Event({ event }) {
 
 /** `aporte`: the row of the "Por aporte" view whose history to show. */
 export default function AportesHistorial({ aporte, onClose }) {
-  const [state, setState] = useState({ events: null, error: null });
+  const [state, setState] = useState({ events: null, error: null, loading: true });
   useEffect(() => {
     let active = true;
     api
       .get(`/ml-ads/contributions/${aporte.id}/history`)
-      .then(({ data }) => active && setState({ events: data.events, error: null }))
-      .catch((err) => active && setState({ events: null, error: apiErrorMessage(err, 'No se pudo cargar el historial') }));
+      .then(({ data }) => active && setState({ events: data?.events ?? [], error: null, loading: false }))
+      .catch(
+        (err) =>
+          active &&
+          setState({ events: null, error: apiErrorMessage(err, 'No se pudo cargar el historial'), loading: false }),
+      );
     return () => {
       active = false;
     };
@@ -137,7 +160,13 @@ export default function AportesHistorial({ aporte, onClose }) {
           {state.error}
         </p>
       )}
-      {state.events && (
+      {state.loading && <p className={styles.muted}>Cargando historial...</p>}
+      {state.events?.length === 0 && (
+        <p className={styles.muted}>
+          Este aporte no tiene cambios registrados: se cargó antes de que se guardara el historial.
+        </p>
+      )}
+      {state.events?.length > 0 && (
         <ul className={styles.events} aria-label="Eventos del aporte">
           {state.events.map((event, index) => (
             <Event key={`${event.action}-${event.at}-${index}`} event={event} />
