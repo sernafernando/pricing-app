@@ -799,13 +799,15 @@ export default function PublicacionesML() {
       ? 'Ninguna publicación coincide con los filtros'
       : 'No hay publicaciones';
 
-  const chipGroup = (label, key, options, labels, counts) => (
+  // Each group's "Todas" is its own facet total (the rows without that group's selection), never the list's total:
+  // choosing "Eliminadas" must not turn "Todas" into the deleted count.
+  const chipGroup = (label, key, options, labels, axis) => (
     <FacetChips
       label={label}
       options={options}
       labels={labels}
-      counts={counts}
-      total={facets?.total}
+      counts={facets?.[axis]}
+      total={facets?.totals?.[axis]}
       activeValue={activeOf(filters[key])}
       onChange={csvChange(key)}
     />
@@ -959,7 +961,7 @@ export default function PublicacionesML() {
           </div>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Estado:</span>
-            {chipGroup('Filtrar por estado', 'estado', STATUS_OPTIONS, STATUS_LABELS, facets?.status)}
+            {chipGroup('Filtrar por estado', 'estado', STATUS_OPTIONS, STATUS_LABELS, 'status')}
           </div>
           {/* The layer and what paints on it wrap together. */}
           <div className={styles.filterGroup}>
@@ -1044,15 +1046,15 @@ export default function PublicacionesML() {
         <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Tipo:</span>
-            {chipGroup('Filtrar por tipo', 'tipo', TIPO_OPTIONS, TIPO_LABELS, facets?.listing)}
+            {chipGroup('Filtrar por tipo', 'tipo', TIPO_OPTIONS, TIPO_LABELS, 'listing')}
           </div>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Vínculo:</span>
-            {chipGroup('Filtrar por vínculo', 'vinculo', VINCULO_OPTIONS, VINCULO_LABELS, facets?.link)}
+            {chipGroup('Filtrar por vínculo', 'vinculo', VINCULO_OPTIONS, VINCULO_LABELS, 'link')}
           </div>
           <div className={styles.filterGroup}>
             <span className={styles.filterLabel}>Stock:</span>
-            {chipGroup('Filtrar por stock', 'stock', STOCK_OPTIONS, STOCK_LABELS, facets?.stock)}
+            {chipGroup('Filtrar por stock', 'stock', STOCK_OPTIONS, STOCK_LABELS, 'stock')}
           </div>
         </div>
         <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
@@ -1061,7 +1063,7 @@ export default function PublicacionesML() {
             <FacetChips
               label="Filtrar por tienda oficial"
               {...storeChips}
-              total={facets?.total}
+              total={facets?.totals?.stores}
               onChange={csvChange('tiendas')}
             />
           </div>

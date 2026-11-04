@@ -130,6 +130,8 @@ export const FACETS = {
   listing: { clasica: 120, premium: 100, catalogo: 30, full: 55 },
   link: { auto: 150, manual: 40, sin_producto: 25, conflicto: 2, no_evaluado: 18 },
   stock: { sin_stock: 14, full_sin_stock: 6 },
+  // Each chip group's "Todas": the rows without that group's own selection.
+  totals: { status: 235, stores: 235, listing: 235, link: 235, stock: 235 },
   total: 235,
 };
 

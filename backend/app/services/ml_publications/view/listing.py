@@ -33,6 +33,7 @@ from app.services.ml_publications.view.filters import (
     FULFILLMENT,
     LINK_SKU_DIVERGENT,
     NO_STORE,
+    STATUS_GONE,
     FilterError,
     PublicationFilter,
     T,
@@ -119,6 +120,7 @@ MARGIN_SORTS = frozenset({"costo", *PRICE_MARKUP_SORTS})
 DIRECTIONS = ("asc", "desc")
 FACET_AXES = AXES
 FACET_MAX_BRANDS = 100
+AXIS_TOTAL = "__axis_total__"  # the label of a flag axis' every-row count, never a flag name
 DEFAULT_LIMIT = 50
 # Room for Productos' "Todos" page (9999 rows): the list stays bounded by STATEMENT_TIMEOUT.
 MAX_LIMIT = 10_000
@@ -819,14 +821,17 @@ def _brand_counts(db: Session, f: PublicationFilter) -> dict:
     return {name: n for name, n in db.execute(query)}
 
 
-def _flags(db: Session, f: PublicationFilter, axis: Optional[str], clauses: dict) -> dict[str, int]:
+def _flags(db: Session, f: PublicationFilter, axis: Optional[str], clauses: dict) -> tuple[dict[str, int], int]:
+    """One count per flag plus the axis' total (every row, flagged or not), in the same statement."""
     counts = [func.count().filter(clause).label(name) for name, clause in clauses.items()]
-    return dict(db.execute(build_base_select(f, *counts, skip=axis)).one()._mapping)
+    row = dict(db.execute(build_base_select(f, *counts, func.count().label(AXIS_TOTAL), skip=axis)).one()._mapping)
+    return row, row.pop(AXIS_TOTAL)
 
 
 def _link_counts(db: Session, f: PublicationFilter) -> dict[str, int]:
     """The link axis: one count per link state, plus `sku_divergente` (a subset of `auto`, counted in the same
-    statement) when any row diverges. Like the states, a value with no rows is not offered."""
+    statement) when any row diverges. Like the states, a value with no rows is not offered. Every row has exactly
+    one state, so the axis total is the sum of the states (never of `sku_divergente`)."""
     state, count = link_state(), func.count()
     divergent = func.count().filter(link_divergence().isnot(None))
     query = build_base_select(f, state, count.label("n"), divergent.label("d"), skip="link")
@@ -839,7 +844,7 @@ def _link_counts(db: Session, f: PublicationFilter) -> dict[str, int]:
 def _promo_counts(db: Session, f: PublicationFilter, started: frozenset[str]) -> dict[str, int]:
     """The promo axis without its own selection: the promo filter's MLAs are left out of the scope, the PxQ ones stay."""
     own = replace(f, mla_scope=f.pxq_scope) if f.promo_filter else f
-    return _flags(db, own, None, promo_clauses(started))
+    return _flags(db, own, None, promo_clauses(started))[0]
 
 
 def facets(db: Session, f: PublicationFilter, promo_mlas: Optional[frozenset[str]] = None) -> dict[str, dict[str, int]]:
@@ -848,17 +853,34 @@ def facets(db: Session, f: PublicationFilter, promo_mlas: Optional[frozenset[str
     the tree writes them (`encode_key`): a screen shows the decoded name and sends the key back unchanged.
     `promo_mlas` (the MLAs with a started promotion, read from another database by the caller) adds the `promo`
     axis, with and without one, leaving out its own selection like the others; without it there is no such axis,
-    never a made-up zero."""
+    never a made-up zero.
+
+    `totals` is each chip group's "Todos": the rows without that group's own selection (the other filters still
+    apply), so choosing a chip never shrinks it; the list's own `total` stays the caller's. It costs no statement:
+    the status, store and link values are exclusive (their sum is every row, less the deleted ones for the status
+    axis, which counts them for its `gone` chip) and the flag axes count it alongside."""
     f = resolve_pm_pairs(db, f)
     by_status = _grouped(db, f, "status", status_value())
     by_store = _grouped(db, f, "stores", func.coalesce(cast(T.i.official_store_id, Text), NO_STORE))
     by_brand = _brand_counts(db, f)
+    by_listing, listing_total = _flags(db, f, "listing", listing_clauses())
+    by_stock, stock_total = _flags(db, f, "stock", stock_clauses())
+    by_link = _link_counts(db, f)
+    link_total = sum(n for state, n in by_link.items() if state != LINK_SKU_DIVERGENT)
     return {
         "status": by_status,
         "stores": by_store,
         "marcas": {encode_key(name): count for name, count in by_brand.items()},
-        "listing": _flags(db, f, "listing", listing_clauses()),
-        "link": _link_counts(db, f),
-        "stock": _flags(db, f, "stock", stock_clauses()),
+        "listing": by_listing,
+        "link": by_link,
+        "stock": by_stock,
+        "totals": {
+            # "Todos" lists the live rows: a deleted one shows only under its own `gone` chip
+            "status": sum(n for status, n in by_status.items() if status != STATUS_GONE),
+            "stores": sum(by_store.values()),
+            "listing": listing_total,
+            "link": link_total,
+            "stock": stock_total,
+        },
         **({"promo": _promo_counts(db, f, promo_mlas)} if promo_mlas is not None else {}),
     }

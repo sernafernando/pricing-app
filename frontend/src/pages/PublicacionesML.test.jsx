@@ -281,6 +281,32 @@ describe('facets', () => {
   });
 });
 
+describe('chip counts', () => {
+  // The owner's case: with "Eliminadas" chosen the list holds 5, yet "Todas" still counts the 300 there are.
+  const FILTERED = {
+    ...ITEMS_RESPONSE,
+    items: [ITEMS[0]],
+    total: 5,
+    facets: { ...FACETS, totals: { status: 300, stores: 310, listing: 320, link: 330, stock: 340 }, total: 5 },
+  };
+
+  it.each([
+    ['Filtrar por estado', /Eliminadas/, 300, /Activas.*180/],
+    ['Filtrar por tipo', /Premium/, 320, /Clásica.*120/],
+    ['Filtrar por vínculo', /Manual/, 330, /Automático.*150/],
+    ['Filtrar por stock', /Sin stock propio/, 340, /Full sin stock.*6/],
+    ['Filtrar por tienda oficial', /Sin tienda/, 310, /Sin tienda.*35/],
+  ])('%s: "Todas" counts what there is, not what its own chip leaves', async (group, chip, total, sibling) => {
+    await page();
+    respond(FILTERED);
+    await userEvent.click(within(screen.getByRole('group', { name: group })).getByRole('button', { name: chip }));
+    const chips = await screen.findByRole('group', { name: group });
+    await waitFor(() => expect(within(chips).getByRole('button', { name: new RegExp(`^Tod[ao]s · ${total}$`) })).toBeInTheDocument());
+    expect(within(chips).getByRole('button', { name: sibling })).toBeInTheDocument();
+    expect(within(chips).queryByRole('button', { name: /^Tod[ao]s · 5$/ })).not.toBeInTheDocument();
+  });
+});
+
 describe('filters', () => {
   it('a status chip filters by estado and goes back to page 1', async () => {
     await page('/ml-publicaciones?pagina=3');
