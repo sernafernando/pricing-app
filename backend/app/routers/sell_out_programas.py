@@ -18,6 +18,15 @@ this module is HTTP only.
 - `GET /sugerencias` proposes groups of campaigns without a program that share their exact dates (`fecha_desde`,
   `fecha_hasta`), each with a proposed name (`base`: the words all its names start with, or its date range);
   nothing is applied.
+- `GET /{id}/renovacion` (`sell_out.gestionar`) previews Renovar programa (`app.services.sell_out.renovacion_programa`)
+  and writes nothing. It lists the campaigns of the program's latest period that would get their next-quarter copy
+  (`renovar`, with the copy's name), the new dates, and the skipped ones with why (`omitidas`: voided, or already
+  renewed). An unknown program is a 404, an archived one a 422, and a campaign that cannot be copied a 422 naming it.
+- `POST /{id}/renovar` (`{"campana_ids": [...]}`: the preview's `renovar` ids) creates every copy in one transaction,
+  each through the create's own step, all in the program. It returns `creadas` (original and copy ids) and
+  `omitidas`. Ids that no longer match the preview (a second click, or a campaign renewed or voided meanwhile) are a
+  409 and create nothing. A campaign that cannot be created is a 422 naming it, and nothing is created. A campaign
+  being rebuilt is a 409, retry.
 """
 
 from __future__ import annotations
@@ -38,8 +47,12 @@ from app.schemas.sell_out import (
     SellOutProgramaListOut,
     SellOutProgramaOut,
     SellOutProgramaPatchIn,
+    SellOutRenovacionProgramaOut,
+    SellOutRenovarProgramaIn,
+    SellOutRenovarProgramaOut,
     SellOutSugerenciaListOut,
 )
+from app.services.sell_out import campanas, renovacion_programa
 from app.services.sell_out import programas as service
 
 router = APIRouter(prefix="/sell-out/programas", tags=["Sell out"])
@@ -122,3 +135,36 @@ def asignar_programa(
     except service.ProgramaError as exc:
         raise _error(db, exc) from exc
     return {"asignadas": asignadas, "sin_cambio": sin_cambio}
+
+
+def _error_renovacion(db: Session, exc: Exception) -> HTTPException:
+    if isinstance(exc, service.ProgramaError):
+        return _error(db, exc)
+    db.rollback()
+    conflicto = isinstance(exc, (renovacion_programa.RenovacionDesactualizada, campanas.SellOutRecalculando))
+    return HTTPException(status_code=status.HTTP_409_CONFLICT if conflicto else 422, detail=str(exc))
+
+
+@router.get("/{programa_id}/renovacion", response_model=SellOutRenovacionProgramaOut)
+def previa_renovacion(
+    programa_id: int, _user: Usuario = Depends(requiere_gestionar), db: Session = Depends(get_db)
+) -> dict:
+    """What Renovar programa would create and skip; writes nothing."""
+    try:
+        return renovacion_programa.previa(db, programa_id)
+    except (service.ProgramaError, campanas.SellOutError) as exc:
+        raise _error_renovacion(db, exc) from exc
+
+
+@router.post("/{programa_id}/renovar", response_model=SellOutRenovarProgramaOut)
+def renovar_programa(
+    programa_id: int,
+    data: SellOutRenovarProgramaIn,
+    user: Usuario = Depends(requiere_gestionar),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Create the next-quarter copy of each campaign the preview listed, all or nothing."""
+    try:
+        return renovacion_programa.renovar(db, programa_id, data.campana_ids, user.id)
+    except (service.ProgramaError, campanas.SellOutError) as exc:
+        raise _error_renovacion(db, exc) from exc

@@ -547,7 +547,7 @@ def crear_campana_sin_commit(
     db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
 ) -> SellOutCampana:
     """The create step without committing: validation, the row, its groups and items, one audit row and queueing.
-    Shared by the single create and Renovar programa (several in one transaction).
+    Shared by the single create and Renovar programa (`renovacion_programa.renovar`, several in one transaction).
 
     `offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`).
 
