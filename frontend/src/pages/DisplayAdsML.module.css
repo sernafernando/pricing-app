@@ -33,10 +33,10 @@
   color: var(--cf-text-tertiary);
 }
 
+/* The date inputs keep the app's own field box: form controls compose it (css-guard rule 2). */
 .rangeInput {
-  padding: 0;
-  background: transparent;
-  border: none;
+  composes: inputSm from '../styles/forms-tesla.css';
+  width: auto;
   font-family: var(--font-mono);
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
