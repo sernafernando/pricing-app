@@ -33,7 +33,7 @@ FACET_LOOKUPS_DDL = {
     "subcategorias_grupos": "CREATE TABLE subcategorias_grupos (id SERIAL PRIMARY KEY, subcat_id INTEGER, "
     "grupo_id INTEGER, nombre_subcategoria VARCHAR(200), cat_id VARCHAR(10), nombre_categoria VARCHAR(200), "
     "oculta BOOLEAN)",
-    "usuarios": "CREATE TABLE usuarios (id SERIAL PRIMARY KEY, nombre VARCHAR(255))",
+    "usuarios": "CREATE TABLE usuarios (id SERIAL PRIMARY KEY, nombre VARCHAR(255), email VARCHAR(255))",
 }
 
 
