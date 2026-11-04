@@ -29,11 +29,11 @@
 set -eE
 
 # Overridable so the deploy can be exercised against a scratch tree in tests.
-PROJECT_DIR="${PROJECT_DIR:-/var/www/html/pricing-app}"
+PROJECT_DIR="${PROJECT_DIR:-/srv/apps/pricing-app}"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
 # El frontend se buildea con un Node aparte para no tener que actualizar /usr/bin/node,
-# que lo usan otras apps del server (abm-direcciones, Medusa, Strapi).
+# que puede usar otro software del contenedor (LXC apps en xenon).
 FRONTEND_NODE_DIR="${FRONTEND_NODE_DIR:-/opt/node24}"
 
 NOTIFY_SCRIPT="$PROJECT_DIR/scripts/notify-wabot.sh"
