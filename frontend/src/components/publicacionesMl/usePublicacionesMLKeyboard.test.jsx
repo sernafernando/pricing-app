@@ -481,6 +481,15 @@ describe("Productos' bulk and filter shortcuts (S9b)", () => {
     expect(onOpenFilter).not.toHaveBeenCalled();
   });
 
+  it('in a filter search, Alt+letter switches filters by the key on any layout (AZERTY: the A key types q)', () => {
+    const onOpenFilter = vi.fn();
+    render(<Harness onOpenFilter={onOpenFilter} />);
+    expect(fireEvent.keyDown(screen.getByLabelText('Buscar marca'), { key: 'q', code: 'KeyA', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('auditoria');
+    expect(fireEvent.keyDown(screen.getByLabelText('Buscar marca'), { key: 'S', code: 'KeyS', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('subcategorias');
+  });
+
   it("Alt+A opens the Auditoría filters and Alt+C / Alt+F the presence ones (Productos' Avanzados), by the key", () => {
     const onOpenFilter = vi.fn();
     render(<Harness onOpenFilter={onOpenFilter} />);
