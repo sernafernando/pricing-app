@@ -245,6 +245,22 @@ describe('ProductFiltersPanel hidePm', () => {
   });
 });
 
+describe('ProductFiltersPanel hideSubcategorias', () => {
+  it('shows the Subcategoría button by default', () => {
+    render(panel());
+    expect(screen.getByRole('button', { name: 'Subcategoría' })).toBeInTheDocument();
+  });
+
+  it('hides Subcategoría when asked, and keeps Marca/Categoría', () => {
+    render(panel({ hideSubcategorias: true, hidePm: true }));
+    expect(screen.queryByRole('button', { name: 'Subcategoría' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'PM' })).not.toBeInTheDocument();
+    for (const name of ['Marca', 'Categoría']) {
+      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+    }
+  });
+});
+
 // Productos' filter functions (`pubml-filtros` S2), now in the shared panel so Publicaciones ML, Ventas ML and
 // Métricas ML all gain them.
 describe('ProductFiltersPanel like Productos', () => {

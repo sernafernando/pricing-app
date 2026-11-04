@@ -32,13 +32,20 @@ import styles from './ProductFiltersPanel.module.css';
  * @param {{marcas: string[], categorias: string[], subcategorias: object[], pms: object[]}} [props.options]
  *   The cross-filtered lists; empty until the screen's first response.
  * @param {boolean} [props.hidePm] Hides the PM button and its panel (a screen that takes no PM filter).
+ * @param {boolean} [props.hideSubcategorias] Hides the Subcategoría button and its panel.
  *
  * Like Productos' filter (`pubml-filtros` S2): each search takes the focus when its dropdown opens, selects its
  * text on focus and clears with ✕; a category header ticks all its shown subcategorías (indeterminate with an
  * x/y count when some are); a subcategoría shows its commission group (G{grupo_id}) and a PM its email, when the
  * options carry them.
  */
-export default function ProductFiltersPanel({ value, onChange, options, hidePm = false }) {
+export default function ProductFiltersPanel({
+  value,
+  onChange,
+  options,
+  hidePm = false,
+  hideSubcategorias = false,
+}) {
   const [panelAbierto, setPanelAbierto] = useState(null); // 'marcas' | 'categorias' | 'subcategorias' | 'pms' | null
   const containerRef = useRef(null);
 
@@ -137,17 +144,19 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
           )}
         </button>
 
-        <button
-          type="button"
-          className={`${styles.filterButton} ${selectedSubcategorias.length > 0 ? styles.filterButtonActive : ''}`}
-          data-filter="subcategorias"
-          onClick={() => togglePanel('subcategorias')}
-        >
-          Subcategoría
-          {selectedSubcategorias.length > 0 && (
-            <span className={styles.filterBadge}>{selectedSubcategorias.length}</span>
-          )}
-        </button>
+        {!hideSubcategorias && (
+          <button
+            type="button"
+            className={`${styles.filterButton} ${selectedSubcategorias.length > 0 ? styles.filterButtonActive : ''}`}
+            data-filter="subcategorias"
+            onClick={() => togglePanel('subcategorias')}
+          >
+            Subcategoría
+            {selectedSubcategorias.length > 0 && (
+              <span className={styles.filterBadge}>{selectedSubcategorias.length}</span>
+            )}
+          </button>
+        )}
 
         {!hidePm && (
           <button
@@ -230,7 +239,7 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
             </>
           )}
 
-          {panelAbierto === 'subcategorias' && (
+          {!hideSubcategorias && panelAbierto === 'subcategorias' && (
             <>
               <div className={styles.dropdownHeaderRow}>
                 <h3>Subcategorías</h3>

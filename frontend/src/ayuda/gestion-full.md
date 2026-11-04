@@ -10,7 +10,7 @@ Planifica cuánto mandar a Full: una fila por producto ERP y familia MLAU, con C
 
 ## Cómo se usa
 
-Arriba dice **Gestión Full**. Hay pestañas **Planificación**, **Consulta envíos**, con permiso `gestion_full.depositos` **Depósito** (U/caja e import), y con `gestion_full.gestor` **Envío** (armar paquete, Excel ML/ops, asignar inbound_id). En Planificación: búsqueda, marca, categoría, presencia Full y el check de stock ERP.
+Arriba dice **Gestión Full**. Hay pestañas **Planificación**, **Consulta envíos**, con permiso `gestion_full.depositos` **Depósito** (U/caja e import), y con `gestion_full.gestor` **Envío** (armar paquete, Excel ML/ops, asignar inbound_id). En Planificación: búsqueda, filtros de producto (Marca / Categoría, multi-selección como en Métricas/Ventas ML; sin Subcategoría ni PM), presencia Full y el check de stock ERP.
 
 En **Depósito**, por defecto ves **Pendientes**: productos sin U/caja que ya están en el **paquete de la semana** y/o marcados **Listo** (así el Excel no se traba). La columna Motivo dice Paquete / Listo. Con **Todos** cargás el catálogo ERP (búsqueda + import) como antes.
 
@@ -20,7 +20,8 @@ Por defecto: **En Full** y **sin** filas con Stock ERP en 0. La tabla ordena por
 
 Filtros:
 
-- Búsqueda libre, marca exacta, categoría exacta.
+- Búsqueda libre.
+- **Marca / Categoría:** multi-selección con listas que se cruzan según el resto de filtros (mismo panel que Métricas/Ventas ML). No hay Subcategoría ni PM en esta pantalla.
 - **Presencia Full:** En Full (default) = Stock Full > 0 **o** ventas Full 30d > 0. Fuera de Full = ambos en 0. Todos = sin ese filtro.
 - **Mostrar sin stock ERP:** apagado por default; al activarlo incluye filas con Stock ERP 0.
 
@@ -28,7 +29,7 @@ Columnas: EAN, Descripción, Código ML (inventory_id), Familia (MLAU), ventas F
 
 ## Botones y acciones
 
-- **Limpiar**: vuelve a búsqueda vacía, En Full, y oculta sin stock ERP.
+- **Limpiar**: vuelve a búsqueda vacía, sin marcas/categorías, En Full, y oculta sin stock ERP.
 - **Sugerido**: `min(Target − Stock Full, Stock ERP)` (mínimo 0): cuánto mandar para volver al último envío, sin pasarse del stock físico. Sin Target queda vacío.
 - **Target**: se actualiza solo sábado y domingo (consulta gradual a ML del último ingreso a Full). Un admin puede forzar un refresh puntual.
 - **Override**: solo PM/sub-PM del producto o admin. Se guarda al salir del campo (o Enter). Vaciar y salir borra el override; si está vacío, vale el Sugerido. Queda bloqueado cuando la fila está **Listo**.

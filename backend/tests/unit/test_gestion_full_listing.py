@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from app.services.gestion_full.listing import _row_dict, _sugerido, list_gestion_full
 
@@ -57,12 +57,20 @@ def test_sugerido_replenish_to_last_inbound_capped_by_stock_erp() -> None:
     assert _sugerido(None, 40, stock_erp=10) is None
 
 
-def test_list_gestion_full_passes_filters_and_pagination() -> None:
+def _mock_db_for_list(list_rows: list | None = None) -> MagicMock:
     db = MagicMock()
     count_result = MagicMock()
-    count_result.scalar.return_value = 2
+    count_result.scalar.return_value = 2 if list_rows else 0
     list_result = MagicMock()
-    list_result.mappings.return_value.all.return_value = [
+    list_result.mappings.return_value.all.return_value = list_rows or []
+    facet_result = MagicMock()
+    facet_result.all.return_value = [("M", "C")]
+    db.execute.side_effect = [count_result, list_result, facet_result]
+    return db
+
+
+def test_list_gestion_full_passes_filters_and_pagination() -> None:
+    list_rows = [
         SimpleNamespace(
             producto_item_id=1,
             ean="EAN1",
@@ -84,52 +92,89 @@ def test_list_gestion_full_passes_filters_and_pagination() -> None:
             override=None,
         )
     ]
-    db.execute.side_effect = [count_result, list_result]
+    db = _mock_db_for_list(list_rows)
 
-    payload = list_gestion_full(db, q="EAN", marca="M", categoria="C", limit=50, offset=10)
+    with patch(
+        "app.services.gestion_full.listing.product_facet_options",
+        return_value=MagicMock(model_dump=lambda: {"marcas": ["M"], "categorias": ["C"], "subcategorias": [], "pms": []}),
+    ):
+        payload = list_gestion_full(db, q="EAN", marcas=["M"], categorias=["C"], limit=50, offset=10)
 
     assert payload["total"] == 2
     assert payload["limit"] == 50
     assert payload["offset"] == 10
     assert len(payload["items"]) == 1
     assert payload["items"][0]["inventory_id"] == "INV1"
-    assert db.execute.call_count == 2
+    assert payload["facets"]["product"]["marcas"] == ["M"]
+    assert db.execute.call_count == 3
     params = db.execute.call_args_list[0].args[1]
     assert params["q"] == "EAN"
-    assert params["marca"] == "M"
-    assert params["categoria"] == "C"
+    assert params["has_marcas"] == 1
+    assert params["marcas_upper"] == ["M"]
+    assert params["has_categorias"] == 1
+    assert params["categorias_upper"] == ["C"]
     assert params["full_mode"] == "en"
     assert params["include_zero_stock"] == 0
 
 
-def test_list_gestion_full_passes_full_mode_and_zero_stock_flag() -> None:
-    db = MagicMock()
-    count_result = MagicMock()
-    count_result.scalar.return_value = 0
-    list_result = MagicMock()
-    list_result.mappings.return_value.all.return_value = []
-    db.execute.side_effect = [count_result, list_result]
+def test_list_gestion_full_multi_marcas_uppercases_for_sql() -> None:
+    db = _mock_db_for_list([])
+    with patch(
+        "app.services.gestion_full.listing.product_facet_options",
+        return_value=MagicMock(
+            model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}
+        ),
+    ):
+        list_gestion_full(db, marcas=["tp-link", "EPSON"], categorias=["Camaras"])
+    params = db.execute.call_args_list[0].args[1]
+    assert params["has_marcas"] == 1
+    assert params["marcas_upper"] == ["TP-LINK", "EPSON"]
+    assert params["categorias_upper"] == ["CAMARAS"]
 
-    list_gestion_full(db, full_mode="fuera", include_zero_stock=True)
+
+def test_list_gestion_full_passes_full_mode_and_zero_stock_flag() -> None:
+    db = _mock_db_for_list([])
+    with patch(
+        "app.services.gestion_full.listing.product_facet_options",
+        return_value=MagicMock(
+            model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}
+        ),
+    ):
+        list_gestion_full(db, full_mode="fuera", include_zero_stock=True)
     params = db.execute.call_args_list[0].args[1]
     assert params["full_mode"] == "fuera"
     assert params["include_zero_stock"] == 1
+    assert params["has_marcas"] == 0
+    assert params["marcas_upper"] == []
 
 
 def test_list_gestion_full_normalizes_invalid_full_mode_to_en() -> None:
-    db = MagicMock()
-    count_result = MagicMock()
-    count_result.scalar.return_value = 0
-    list_result = MagicMock()
-    list_result.mappings.return_value.all.return_value = []
-    db.execute.side_effect = [count_result, list_result]
-
-    list_gestion_full(db, full_mode="nope")
+    db = _mock_db_for_list([])
+    with patch(
+        "app.services.gestion_full.listing.product_facet_options",
+        return_value=MagicMock(
+            model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}
+        ),
+    ):
+        list_gestion_full(db, full_mode="nope")
     params = db.execute.call_args_list[0].args[1]
     assert params["full_mode"] == "en"
 
 
 def test_list_gestion_full_clamps_limit() -> None:
+    db = _mock_db_for_list([])
+    with patch(
+        "app.services.gestion_full.listing.product_facet_options",
+        return_value=MagicMock(
+            model_dump=lambda: {"marcas": [], "categorias": [], "subcategorias": [], "pms": []}
+        ),
+    ):
+        payload = list_gestion_full(db, limit=9999, offset=-5)
+    assert payload["limit"] == 500
+    assert payload["offset"] == 0
+
+
+def test_list_gestion_full_include_facets_false_skips_facet_query() -> None:
     db = MagicMock()
     count_result = MagicMock()
     count_result.scalar.return_value = 0
@@ -137,6 +182,7 @@ def test_list_gestion_full_clamps_limit() -> None:
     list_result.mappings.return_value.all.return_value = []
     db.execute.side_effect = [count_result, list_result]
 
-    payload = list_gestion_full(db, limit=9999, offset=-5)
-    assert payload["limit"] == 500
-    assert payload["offset"] == 0
+    payload = list_gestion_full(db, include_facets=False)
+    assert db.execute.call_count == 2
+    assert payload["facets"]["product"]["marcas"] == []
+    assert payload["facets"]["product"]["categorias"] == []

@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import api from '../services/api';
 import { useDebounce } from '../hooks/useDebounce';
 import { usePermisos } from '../contexts/PermisosContext';
+import ProductFiltersPanel from '../components/shared/ProductFiltersPanel';
 import GestionFullDepositosTab from '../components/gestionFull/GestionFullDepositosTab';
 import GestionFullGestorTab from '../components/gestionFull/GestionFullGestorTab';
 import GestionFullEnviosTab from '../components/gestionFull/GestionFullEnviosTab';
 import styles from './GestionFull.module.css';
 
 const GROUP_TONES = ['toneA', 'toneB', 'toneC'];
+const EMPTY_PRODUCT_FILTERS = { marcas: [], categorias: [], subcategorias: [], pms: [] };
+const EMPTY_PRODUCT_OPTIONS = { marcas: [], categorias: [], subcategorias: [], pms: [] };
 
 /** Assign a stable tint class per contiguous EAN group. */
 function withGroupTones(items) {
@@ -39,8 +42,8 @@ export default function GestionFull() {
   const puedeGestorPerm = tienePermiso('gestion_full.gestor');
   const [tab, setTab] = useState('plan');
   const [q, setQ] = useState('');
-  const [marca, setMarca] = useState('');
-  const [categoria, setCategoria] = useState('');
+  const [productFilters, setProductFilters] = useState(EMPTY_PRODUCT_FILTERS);
+  const [productOptions, setProductOptions] = useState(EMPTY_PRODUCT_OPTIONS);
   const [fullMode, setFullMode] = useState('en');
   const [includeZeroStock, setIncludeZeroStock] = useState(false);
   const [items, setItems] = useState([]);
@@ -54,6 +57,8 @@ export default function GestionFull() {
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const debouncedQ = useDebounce(q, 300);
+  // After Listo/Desbloquear we only need rows; keep panel options and skip the facet DISTINCT.
+  const skipFacetsRef = useRef(false);
 
   const rowKey = (row) => `${row.producto_item_id}-${row.user_product_id || row.inventory_id}`;
 
@@ -61,6 +66,8 @@ export default function GestionFull() {
     if (tab !== 'plan') return undefined;
     let cancelled = false;
     const load = async () => {
+      const wantFacets = !skipFacetsRef.current;
+      skipFacetsRef.current = false;
       setLoading(true);
       setLoadError(null);
       setSaveError(null);
@@ -68,10 +75,13 @@ export default function GestionFull() {
         const { data } = await api.get('/gestion-full', {
           params: {
             q: debouncedQ || undefined,
-            marca: marca || undefined,
-            categoria: categoria || undefined,
+            marcas: productFilters.marcas.length ? productFilters.marcas.join(',') : undefined,
+            categorias: productFilters.categorias.length
+              ? productFilters.categorias.join(',')
+              : undefined,
             full_mode: fullMode,
             include_zero_stock: includeZeroStock,
+            include_facets: wantFacets,
             limit: 200,
             offset: 0,
           },
@@ -81,6 +91,9 @@ export default function GestionFull() {
         setItems(nextItems);
         setTotal(data.total || 0);
         setPuedeGestor(Boolean(data.puede_gestor));
+        if (wantFacets) {
+          setProductOptions(data.facets?.product || EMPTY_PRODUCT_OPTIONS);
+        }
         const nextDrafts = {};
         nextItems.forEach((row) => {
           nextDrafts[row.inventory_id] = overrideDraftValue(row.override);
@@ -96,12 +109,11 @@ export default function GestionFull() {
     return () => {
       cancelled = true;
     };
-  }, [tab, debouncedQ, marca, categoria, fullMode, includeZeroStock, listNonce]);
+  }, [tab, debouncedQ, productFilters, fullMode, includeZeroStock, listNonce]);
 
   const clearFilters = () => {
     setQ('');
-    setMarca('');
-    setCategoria('');
+    setProductFilters(EMPTY_PRODUCT_FILTERS);
     setFullMode('en');
     setIncludeZeroStock(false);
   };
@@ -162,6 +174,7 @@ export default function GestionFull() {
         producto_item_id: row.producto_item_id,
         user_product_id: row.user_product_id,
       });
+      skipFacetsRef.current = true;
       setListNonce((n) => n + 1);
     } catch {
       setSaveError(`No se pudo cerrar la línea ${row.inventory_id}`);
@@ -180,6 +193,7 @@ export default function GestionFull() {
         producto_item_id: row.producto_item_id,
         user_product_id: row.user_product_id,
       });
+      skipFacetsRef.current = true;
       setListNonce((n) => n + 1);
     } catch {
       setSaveError(`No se pudo desbloquear ${row.inventory_id}`);
@@ -256,21 +270,12 @@ export default function GestionFull() {
             aria-label="Buscar"
           />
         </label>
-        <input
-          className={styles.input}
-          type="text"
-          value={marca}
-          onChange={(e) => setMarca(e.target.value)}
-          placeholder="Marca (exacta)"
-          aria-label="Marca"
-        />
-        <input
-          className={styles.input}
-          type="text"
-          value={categoria}
-          onChange={(e) => setCategoria(e.target.value)}
-          placeholder="Categoría (exacta)"
-          aria-label="Categoría"
+        <ProductFiltersPanel
+          value={productFilters}
+          onChange={setProductFilters}
+          options={productOptions}
+          hidePm
+          hideSubcategorias
         />
         <label className={styles.filterField}>
           <span className={styles.filterLabel}>Presencia Full</span>
