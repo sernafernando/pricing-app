@@ -93,6 +93,7 @@ def __getattr__(name: str) -> List[JobHandler]:
             from app.workers.handlers.ml_ads import ads
             from app.workers.handlers.ml_billing import billing
             from app.workers.handlers.ml_order_discounts import discounts
+            from app.workers.handlers.catalog_competition_refresh import catalog_competition_refresh
             from app.workers.handlers.ml_promo_refresh import promo_refresh
             from app.workers.handlers.ml_publications import (
                 freshness,
@@ -116,6 +117,7 @@ def __getattr__(name: str) -> List[JobHandler]:
                 sweep,
                 verify,
                 promo_refresh,
+                catalog_competition_refresh,
                 ads,
                 # promo-write-refresh P2: the ~60 s follow-up refresh after a promo write (was an unscheduled script).
                 promo_write_refresh,
