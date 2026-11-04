@@ -494,10 +494,12 @@ def _importe(valor: Decimal) -> str:
     return str(en_centavos) if en_centavos == valor else format(Decimal(valor).normalize(), "f")
 
 
+@_deadlock_es_ocupada
 def crear_campana(
     db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
 ) -> SellOutCampana:
-    """Create a campaign and commit (`crear_campana_sin_commit`)."""
+    """Create a campaign and commit (`crear_campana_sin_commit`). A deadlock with another writer (a renewal locks
+    the original's program row) is the busy refusal `SellOutRecalculando`, nothing stored."""
     campana = crear_campana_sin_commit(db, data, usuario_id, offset_origen_id=offset_origen_id)
     db.commit()
     db.refresh(campana)

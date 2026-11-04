@@ -5,7 +5,6 @@ new campaign while the original stays as it was."""
 from __future__ import annotations
 
 import threading
-
 from datetime import date
 from typing import Iterator, Optional
 
