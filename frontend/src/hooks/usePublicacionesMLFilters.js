@@ -218,9 +218,18 @@ function askedSort(filters) {
   return sort;
 }
 
+/**
+ * Sorted by Código, a product's publications sit together: within it they go by listing type, Clásica first (owner,
+ * 2026-11-04: "el orden también cuando estan varias publis del mismo producto juntas"), unless the sort names it.
+ */
+const withListingTypeWithinProduct = (sort) =>
+  sort[0]?.key === 'codigo' && !sort.some(({ key }) => key === 'tipo')
+    ? [sort[0], { key: 'tipo', dir: '' }, ...sort.slice(1)]
+    : sort;
+
 /** The URL's sort keys the user may ask for the publication list: any combination, figures included. */
 function listSort(filters, permissions) {
-  return askedSort(filters).filter(({ key }) => mayAsk(key, permissions));
+  return withListingTypeWithinProduct(askedSort(filters).filter(({ key }) => mayAsk(key, permissions)));
 }
 
 /**

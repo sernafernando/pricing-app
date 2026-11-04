@@ -8,6 +8,8 @@ import { PERMISOS_EDITAR_PRODUCTOS, PERMISOS_EDITAR_TIENDA } from '../pricing/pr
 /** Spec S3 keys, plus `titulo` as the table identity column (always kept). */
 export const PONER_PRECIOS_COLUMN_KEYS = [
   'titulo',
+  // Owner, 2026-11-04: "en la vista de poner precios ... también tienen que estar los badges de Clásica, 3 cuotas".
+  'tipo',
   'estado',
   'precio',
   'unidades_7d',
