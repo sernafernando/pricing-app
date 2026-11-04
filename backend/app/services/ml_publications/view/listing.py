@@ -882,8 +882,8 @@ def product_options(db: Session, f: PublicationFilter) -> dict[str, list]:
 
     ONE statement: the distinct (marca, categoria, subcategoria_id) of the linked products under `f` with its four
     product selections cleared, plus whether the pair belongs to one of the selected PMs (`pm_pairs`, already
-    resolved). It reads only the store's own tables and `productos_erp`, like the brand counts, never the names
-    (`subcategorias_grupos`, `usuarios`), so the cascade runs on bare rows."""
+    resolved). It reads only the store's own tables and the linked catalog rows (`T.pl_p`), like the brand counts,
+    never the names (`subcategorias_grupos`, `usuarios`), so the cascade runs on bare rows."""
     f = resolve_pm_pairs(db, f)
     open_f = replace(f, marcas=(), categorias=(), subcategorias=(), no_subcategoria=False, pms=(), pm_pairs=None)
     pl, pp = product_links("pl_options"), T.pl_p
