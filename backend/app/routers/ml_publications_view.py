@@ -1258,7 +1258,11 @@ def get_items(
         facet_counts = None
         if facets:
             with timer.stage("facets"):
-                facet_counts = {**listing.facets(db, f, _started_promotions()), "total": page.total}
+                facet_counts = {
+                    **listing.facets(db, f, _started_promotions()),
+                    "total": page.total,
+                    "product": listing.product_options(db, f),  # the Marca / Subcategoría lists (pubml-filtros S2)
+                }
     except FilterError as exc:
         raise _unprocessable(exc) from exc
     except DBAPIError as exc:

@@ -104,4 +104,52 @@ describe('ProductFilters', () => {
     await userEvent.click(await screen.findByLabelText('Gauss'));
     expect(setFilters).toHaveBeenCalledWith({ marcas: [], categorias: [], subcategorias: [], pms: [] });
   });
+
+  describe('with the screen facet (pubml-filtros S2: lists narrowed by every active filter)', () => {
+    const facet = { marcas: ['TP,LINK', 'Epson'], subcategorias: [12] };
+
+    beforeEach(() => {
+      productosAPI.subcategorias.mockResolvedValue({
+        data: {
+          categorias: [
+            { nombre: 'Redes', subcategorias: [{ id: 12, nombre: 'Routers' }, { id: 13, nombre: 'Switches' }] },
+            { nombre: 'Audio', subcategorias: [{ id: 40, nombre: 'Parlantes' }] },
+          ],
+        },
+      });
+    });
+
+    it('offers the facet brands instead of the catalog ones, and asks the catalog for none', async () => {
+      render(<ProductFilters filters={filters()} setFilters={vi.fn()} facet={facet} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Marca' }));
+      expect(await screen.findByLabelText('Epson')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Gauss')).not.toBeInTheDocument();
+      expect(productosAPI.marcas).not.toHaveBeenCalled();
+    });
+
+    it('a facet brand is written to the URL with the same key as a catalog one', async () => {
+      const setFilters = vi.fn();
+      render(<ProductFilters filters={filters()} setFilters={setFilters} facet={facet} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Marca' }));
+      await userEvent.click(await screen.findByLabelText('TP,LINK'));
+      expect(setFilters).toHaveBeenCalledWith({ marcas: ['TP%2CLINK'], categorias: [], subcategorias: [], pms: [] });
+    });
+
+    it('offers only the catalog subcategorías the facet lists, named and grouped by the catalog', async () => {
+      render(<ProductFilters filters={filters({ marcas: ['Epson'] })} setFilters={vi.fn()} facet={facet} />);
+      await userEvent.click(screen.getByRole('button', { name: /^Subcategor/ }));
+      expect(await screen.findByLabelText('Routers')).toBeInTheDocument();
+      expect(screen.queryByLabelText('Switches')).not.toBeInTheDocument();
+      expect(screen.queryByText('Audio')).not.toBeInTheDocument();
+      // the whole catalog, not one narrowed by the picked brands: the facet already narrows it
+      expect(productosAPI.subcategorias).toHaveBeenCalledWith({});
+    });
+
+    it('without the facet (before the first response, or on failure) the catalog lists stay', async () => {
+      render(<ProductFilters filters={filters({ pms: ['7'] })} setFilters={vi.fn()} facet={null} />);
+      await userEvent.click(screen.getByRole('button', { name: /^Marca/ }));
+      expect(await screen.findByLabelText('Gauss')).toBeInTheDocument();
+      expect(productosAPI.marcas).toHaveBeenCalledWith({ pms: '7' });
+    });
+  });
 });

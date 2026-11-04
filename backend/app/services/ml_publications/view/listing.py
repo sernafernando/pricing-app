@@ -24,6 +24,7 @@ from app.models.ml_publications import MlItemSellerPromotions
 from app.models.ml_tienda_oficial import MlTiendaOficial
 from app.models.publicacion_ml import PublicacionML
 from app.models.tipo_cambio import TipoCambio
+from app.services.ml_daily_metrics.groups import NO_GROUP
 from app.services.ml_publications.links import DIVERGENCE_OTHER_PRODUCT, sku_key
 from app.services.ml_publications.listing_kind import NO_TYPE_RANK, OTHER_RANK, listing_kind, listing_rank
 from app.services.ml_publications.view.display import round_display
@@ -38,6 +39,8 @@ from app.services.ml_publications.view.filters import (
     PublicationFilter,
     T,
     build_base_select,
+    catalog_conditions,
+    decode_key,
     encode_key,
     erp_stock,
     linked_product_conditions,
@@ -69,6 +72,7 @@ from app.services.ml_publications.view.metrics_sort import (
     publication_board,
     ranked_page,
 )
+from app.services.product_facets import ComboRow, ProductSelection, facet_values
 
 STATEMENT_TIMEOUT = "8s"
 SORT_ACTIVITY = "actividad"
@@ -884,3 +888,52 @@ def facets(db: Session, f: PublicationFilter, promo_mlas: Optional[frozenset[str
         },
         **({"promo": _promo_counts(db, f, promo_mlas)} if promo_mlas is not None else {}),
     }
+
+
+def _selected_names(keys: tuple[str, ...]) -> tuple[str, ...]:
+    """URL brand / category keys as the cascade compares them: decoded, `NO_GROUP` as the blank value."""
+    return tuple("" if key == NO_GROUP else decode_key(key) for key in keys)
+
+
+def product_options(db: Session, f: PublicationFilter) -> dict[str, list]:
+    """The Marca and Subcategoría lists of the product filter (`pubml-filtros` S2), like Productos': the values the
+    publications under every OTHER active filter have on their linked products, each list ignoring only its own
+    selection, a selected value always offered (the shared cascade, `product_facets.facet_values`). Brands come as
+    the catalog spells them (the panel encodes a pick with `encode_key`, as it does a catalog brand); subcategories
+    as ids, which the screen names from Productos' catalog. Categories and PMs stay the catalog's lists.
+
+    ONE statement: the distinct (marca, categoria, subcategoria_id) of the linked products under `f` with its four
+    product selections cleared, plus whether the pair belongs to one of the selected PMs (`pm_pairs`, already
+    resolved). It reads only the store's own tables and the linked catalog rows (`T.pl_p`), like the brand counts,
+    never the names (`subcategorias_grupos`, `usuarios`), so the cascade runs on bare rows."""
+    f = resolve_pm_pairs(db, f)
+    open_f = replace(f, marcas=(), categorias=(), subcategorias=(), no_subcategoria=False, pms=(), pm_pairs=None)
+    pl, pp = product_links("pl_options"), T.pl_p
+    pm_owned = catalog_conditions(replace(open_f, pms=f.pms, pm_pairs=f.pm_pairs, pm_group=None), pp)
+    query = (
+        build_base_select(
+            open_f,
+            func.nullif(func.trim(pp.marca), ""),
+            func.nullif(func.trim(pp.categoria), ""),
+            pp.subcategoria_id,
+            (pm_owned[0] if pm_owned else literal(False)).label("owned"),
+        )
+        .join(pl, pl.c.item_id == T.i.item_id)
+        .join(pp, pp.item_id == pl.c.producto_item_id)
+        .where(*linked_product_conditions(open_f, pl.c.producto_item_id, pp, T.i.item_id))
+        .distinct()
+    )
+    # A pair any selected PM owns carries the first of them: the cascade only asks whether it meets the selection.
+    owner = f.pms[0] if f.pms else None
+    rows = [
+        ComboRow(marca, categoria, subcat, None, None, owner if owned else None, None)
+        for marca, categoria, subcat, owned in db.execute(query)
+    ]
+    selection = ProductSelection(
+        marcas=_selected_names(f.marcas),
+        categorias=_selected_names(f.categorias),
+        subcategorias=(*f.subcategorias, *((None,) if f.no_subcategoria else ())),
+        pms=f.pms,
+    )
+    values = facet_values(rows, selection)
+    return {"marcas": values.marcas, "subcategorias": sorted(values.subcategoria_ids)}

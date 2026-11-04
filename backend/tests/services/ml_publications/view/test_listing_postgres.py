@@ -1231,6 +1231,81 @@ class TestFacets:
         assert len(statements) == len(listing.FACET_AXES) == 6
 
 
+class TestProductOptions:
+    """The Marca / Subcategoría lists of the product filter (`pubml-filtros` S2): what the publications under every
+    OTHER active filter have on their linked products, each list ignoring only its own selection."""
+
+    @pytest.fixture(autouse=True)
+    def rows(self, conn) -> None:
+        seed.add_product(conn, 70, "A1", "Router", marca="TP-Link", categoria="Redes", subcategoria_id=10)
+        seed.add_product(conn, 71, "B1", "Camara", marca="Hikvision", categoria="Camaras", subcategoria_id=20)
+        seed.add_product(conn, 72, "C1", "Impresora", marca="Epson", categoria="Impresoras", subcategoria_id=30)
+        seed.add_product(conn, 73, "D1", "Camara IP", marca="TP-Link", categoria="Camaras", subcategoria_id=21)
+        seed.add_item(conn, "MLA1", status="active", official_store_id=1)
+        seed.add_item(conn, "MLA2", status="active", official_store_id=1)
+        seed.add_item(conn, "MLA3", status="paused", official_store_id=1)
+        seed.add_item(conn, "MLA4", status="active", official_store_id=2)
+        seed.add_link(conn, "MLA1", 70)
+        seed.add_link(conn, "MLA2", 71)
+        seed.add_link(conn, "MLA3", 72)
+        seed.add_link(conn, "MLA4", 73)
+
+    @staticmethod
+    def options(db, f=None, **params) -> dict:
+        return listing.product_options(db, f if f is not None else parse_filter(**params))
+
+    def test_without_brand_and_without_subcategory_never_come_back_as_blank_options(self, conn, db) -> None:
+        # A product with no brand nor subcategory, and the "without" selections (`__none__`): never a blank option.
+        seed.add_product(conn, 74, "E1", "Cable", categoria="Redes")
+        seed.add_item(conn, "MLA5", status="active", official_store_id=1)
+        seed.add_link(conn, "MLA5", 74)
+        options = self.options(db, marcas="__none__", subcategorias="__none__")
+        assert "" not in options["marcas"] and None not in options["subcategorias"]
+        assert self.options(db, marcas="__none__")["subcategorias"] == []
+        assert self.options(db, subcategorias="__none__")["marcas"] == []
+
+    def test_the_brands_are_those_of_the_publications_under_the_other_filters(self, db) -> None:
+        assert self.options(db)["marcas"] == ["Epson", "Hikvision", "TP-Link"]
+        assert self.options(db, estado="paused")["marcas"] == ["Epson"]
+        assert self.options(db, tiendas="2")["marcas"] == ["TP-Link"]
+        assert self.options(db, categorias="CAMARAS")["marcas"] == ["Hikvision", "TP-Link"]
+        assert self.options(db, subcategorias="20")["marcas"] == ["Hikvision"]
+        pm = replace(parse_filter(pms="5"), pm_pairs=(("TP-LINK", "REDES"),))  # resolved, as the router hands it
+        assert self.options(db, pm)["marcas"] == ["TP-Link"]
+
+    def test_the_subcategories_are_those_of_the_publications_under_the_other_filters(self, db) -> None:
+        assert self.options(db)["subcategorias"] == [10, 20, 21, 30]
+        assert self.options(db, estado="paused")["subcategorias"] == [30]
+        assert self.options(db, tiendas="1")["subcategorias"] == [10, 20, 30]
+        assert self.options(db, marcas="TP-LINK")["subcategorias"] == [10, 21]
+        assert self.options(db, categorias="CAMARAS")["subcategorias"] == [20, 21]
+        pm = replace(parse_filter(pms="5"), pm_pairs=(("TP-LINK", "CAMARAS"),))
+        assert self.options(db, pm)["subcategorias"] == [21]
+
+    def test_each_list_ignores_its_own_selection(self, db) -> None:
+        assert self.options(db, marcas="EPSON")["marcas"] == ["Epson", "Hikvision", "TP-Link"]
+        assert self.options(db, subcategorias="10")["subcategorias"] == [10, 20, 21, 30]
+
+    def test_a_selected_value_stays_offered_when_the_other_filters_rule_it_out(self, db) -> None:
+        assert self.options(db, estado="paused", marcas="TP-LINK")["marcas"] == ["Epson", "TP-LINK"]
+        assert self.options(db, estado="paused", subcategorias="10")["subcategorias"] == [10, 30]
+        # a brand the publications have keeps their spelling: picking it writes the URL value it writes today
+        assert self.options(db, marcas="tp-link")["marcas"] == ["Epson", "Hikvision", "TP-Link"]
+
+    def test_the_lists_cost_one_statement(self, db) -> None:
+        from sqlalchemy import event
+
+        statements: list[str] = []
+        engine = db.get_bind()
+        record = lambda conn, cursor, statement, *rest: statements.append(statement)  # noqa: E731
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            self.options(db, estado="active", marcas="EPSON", subcategorias="99")
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        assert len(statements) == 1
+
+
 class TestSortKeys:
     """`orden` / `dir` as csv (Productos' multi-column sort): one value is today's single sort."""
 

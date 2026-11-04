@@ -10,11 +10,14 @@ import styles from './ProductFilters.module.css';
  * The selection lives in the URL (`usePublicacionesMLFilters`), so every view (Producto, Publicaciones, Agrupado)
  * asks its endpoint with it.
  *
- * @param {{filters: object, setFilters: (updates: object) => void, labelClassName?: string}} props
+ * `facet` is the screen's `facets.product` (`/items`): the Marca and Subcategoría lists narrowed by every other active
+ * filter; while it is missing the lists are the catalog's.
+ *
+ * @param {{filters: object, setFilters: (updates: object) => void, labelClassName?: string, facet?: object | null}} props
  */
-export default function ProductFilters({ filters, setFilters, labelClassName }) {
+export default function ProductFilters({ filters, setFilters, labelClassName, facet = null }) {
   const value = toPanelValue(filters);
-  const options = useProductFilterOptions(value);
+  const options = useProductFilterOptions(value, facet);
   const chips = activeProductChips(filters, options);
 
   return (

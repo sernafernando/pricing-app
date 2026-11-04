@@ -1119,7 +1119,7 @@ export default function PublicacionesML() {
           </div>
         </div>
         <div className={styles.filterBand} hidden={ponerPreciosMode && filtersCollapsed}>
-          <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} />
+          <ProductFilters filters={filters} setFilters={setFilters} labelClassName={styles.filterLabel} facet={facets?.product ?? null} />
           {/* Same band as the product filters, behind a button: a band of its own pushed the list's header below
               the fold at 1366x768. */}
           <PresenceFilters

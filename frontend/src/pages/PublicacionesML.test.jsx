@@ -368,6 +368,22 @@ describe('filters', () => {
   });
 });
 
+describe('the product filter options (pubml-filtros S2)', () => {
+  it('the Marca list comes from the facets of the current filters, not from the catalog', async () => {
+    respond({ ...ITEMS_RESPONSE, facets: { ...FACETS, product: { marcas: ['Gauss'], subcategorias: [] } } });
+    await page('/ml-publicaciones?estado=paused');
+    await userEvent.click(screen.getByRole('button', { name: 'Marca' }));
+    expect(await screen.findByLabelText('Gauss')).toBeInTheDocument();
+    expect(screen.queryByLabelText('EPSON')).not.toBeInTheDocument();
+  });
+
+  it('without the product facet the Marca list is the catalog one', async () => {
+    await page();
+    await userEvent.click(screen.getByRole('button', { name: 'Marca' }));
+    expect(await screen.findByLabelText('EPSON')).toBeInTheDocument();
+  });
+});
+
 describe('stat cards (S12d4, Productos; the Precios view)', () => {
   const statsParams = () => publicacionesMlAPI.stats.mock.calls.at(-1)[0];
 

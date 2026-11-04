@@ -26,7 +26,7 @@ Los números de los botones de filtro (estado, tipo, vínculo, stock y tienda) c
 
 Filtros: búsqueda, vista/agrupación, estado, tienda, presencia, tipo, vínculo, stock, producto, auditoría, color, promos, precios mayoristas y markup.
 
-Los filtros de **Producto** (marca, categoría, subcategoría y PM) funcionan como en Productos: al abrir uno, el cursor queda en la búsqueda (✕ la borra); en **Subcategoría**, tildar una categoría marca todas sus subcategorías a la vista (a medias muestra cuántas, por ejemplo 1/2), buscar el nombre de una categoría muestra todas sus subcategorías, y cada subcategoría muestra su grupo de comisión (G1, G2…); cada PM muestra su email.
+Los filtros de **Producto** (marca, categoría, subcategoría y PM) funcionan como en Productos: al abrir uno, el cursor queda en la búsqueda (✕ la borra); en **Subcategoría**, tildar una categoría marca todas sus subcategorías a la vista (a medias muestra cuántas, por ejemplo 1/2), buscar el nombre de una categoría muestra todas sus subcategorías, y cada subcategoría muestra su grupo de comisión (G1, G2…); cada PM muestra su email. Las listas de **Marca** y **Subcategoría** ofrecen solo lo que tienen las publicaciones que dejan pasar los demás filtros activos (estado, tienda, tipo, vínculo, stock, búsqueda, color, promo y los otros filtros de producto); lo ya tildado sigue a la vista para poder destildarlo. **Categoría** y **PM** muestran siempre la lista completa.
 
 Columnas: configurables con el selector de columnas (incluye código, descripción, marca, stock, costos, precios, markups, etc.).
 
