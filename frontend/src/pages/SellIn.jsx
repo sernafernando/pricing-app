@@ -7,7 +7,7 @@ import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import { sellOutAPI } from '../services/sellOutAPI';
 import DateRangeFilter from '../components/DateRangeFilter';
 import SearchInput from '../components/SearchInput';
-import { FacetChips, Pagination, SplitPanelLayout } from '../components/kit';
+import { FacetChips, Pagination, SegmentedControl, SplitPanelLayout } from '../components/kit';
 import SellInAnularMasivo from '../components/sellIn/SellInAnularMasivo';
 import SellInBonoPanel from '../components/sellIn/SellInBonoPanel';
 import SellInBonosTable from '../components/sellIn/SellInBonosTable';
@@ -24,6 +24,7 @@ import SellOutAnularMasivo from '../components/sellOut/SellOutAnularMasivo';
 import SellOutFiltros from '../components/sellOut/SellOutFiltros';
 import SellOutPorPrograma from '../components/sellOut/SellOutPorPrograma';
 import SellOutSugerencias from '../components/sellOut/SellOutSugerencias';
+import SellOutProgramas from '../components/sellOut/SellOutProgramas';
 import { useProgramas } from '../components/sellOut/useProgramas';
 import { FILTROS_CAMPANAS_VACIOS, paramsDeFiltros } from '../components/sellOut/sellOutFiltros';
 import GruposTab from '../components/grupos/GruposTab';
@@ -32,6 +33,11 @@ import styles from './SellIn.module.css';
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 const BONOS_PAGE_SIZES = [10, 25, 50];
 const CAMPANAS_PAGE_SIZES = [10, 25, 50];
+// The Sell out tab's two sections (`?seccion=`): the campaigns, or the programs that group them.
+const SECCIONES_SELL_OUT = [
+  { value: 'campanas', label: 'Campañas' },
+  { value: 'programas', label: 'Programas' },
+];
 const COMPRAS = { singular: 'compra', plural: 'compras' };
 const BONOS = { singular: 'bono', plural: 'bonos' };
 const REVIERTE_COMPRAS = 'Se liberan sus unidades: las ventas que tomaban pasan a las compras siguientes. Las compras que genera un bono de marca no se anulan acá.';
@@ -244,6 +250,7 @@ export default function SellIn() {
   // "Ver: Por programa | Lista" lives in the URL (`?vista=`) like the tab; by default grouped once a program exists.
   const vistaUrl = searchParams.get('vista');
   const vista = ['programas', 'lista'].includes(vistaUrl) ? vistaUrl : programas.length > 0 ? 'programas' : 'lista';
+  const seccion = searchParams.get('seccion') === 'programas' ? 'programas' : 'campanas';
   const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeGestionarGrupos ? [TAB_GRUPOS] : [])];
   const tabUrl = searchParams.get('tab');
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
@@ -309,6 +316,23 @@ export default function SellIn() {
       },
       { replace: true },
     );
+  const cambiarSeccion = (next) => {
+    setPanel(null);
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        if (next === 'campanas') params.delete('seccion');
+        else params.set('seccion', next);
+        return params;
+      },
+      { replace: true },
+    );
+  };
+  // A program's "Ver en Campañas": the campaigns list with that program as its Programa filter.
+  const verCampanasDePrograma = (programaId) => {
+    campanas.filtrar({ programa: String(programaId) });
+    cambiarSeccion('campanas');
+  };
   const programasCambiaron = () => {
     campanas.recargarActual();
     setVersionProgramas((v) => v + 1);
@@ -792,6 +816,17 @@ export default function SellIn() {
           </div>
         ) : (
           <div role="tabpanel" id="sell-out-panel" aria-labelledby="sell-out-tab">
+            <div className={styles.seccionSellOut}>
+              <SegmentedControl label="Sección" options={SECCIONES_SELL_OUT} value={seccion} onChange={cambiarSeccion} />
+            </div>
+            {seccion === 'programas' ? (
+              <SellOutProgramas
+                programas={programas}
+                puedeGestionar={puedeGestionarSellOut}
+                onCambio={programasCambiaron}
+                onVerCampanas={verCampanasDePrograma}
+              />
+            ) : (
             <section className={styles.sellOut} aria-labelledby="sell-out-campanas-titulo">
               {/* The tab already names the list (Stitch 04 has no section title): the heading only names the region. */}
               <h2 id="sell-out-campanas-titulo" className={styles.srOnly}>
@@ -867,6 +902,7 @@ export default function SellIn() {
                 </>
               )}
             </section>
+            )}
           </div>
         )}
       </SplitPanelLayout>

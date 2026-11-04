@@ -202,6 +202,11 @@
   border: 0;
 }
 
+/* The Sell out tab's "Campañas | Programas" switch, above either section. */
+.seccionSellOut {
+  margin-bottom: var(--spacing-sm);
+}
+
 /* The Sell out tab: the campaigns, their search and their list. */
 .sellOut {
   display: flex;

@@ -1042,6 +1042,34 @@ describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
     expect(sellOutAPI.porPrograma).not.toHaveBeenCalled();
   });
 
+  it('"Programas" swaps the campaigns for the programs view, kept in the URL, and "Campañas" brings them back', async () => {
+    conProgramas();
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const seccion = await screen.findByRole('group', { name: 'Sección' });
+    await user.click(within(seccion).getByRole('button', { name: 'Programas' }));
+
+    expect(screen.getByRole('heading', { name: 'Programas' })).toBeInTheDocument();
+    expect(screen.getByText(/Programa es el nivel superior/)).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /MARCA PROG/ })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Filtros de campañas' })).not.toBeInTheDocument();
+
+    await user.click(within(seccion).getByRole('button', { name: 'Campañas' }));
+    expect(await screen.findByRole('region', { name: 'Filtros de campañas' })).toBeInTheDocument();
+  });
+
+  it('"Ver en Campañas" in a program opens the campaigns list filtered by that program', async () => {
+    conProgramas();
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&seccion=programas&vista=lista'] });
+    await user.click(await screen.findByRole('button', { name: 'Ver campañas de MARCA PROG' }));
+    await user.click(await screen.findByRole('button', { name: 'Ver en Campañas' }));
+
+    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
+    expect(within(filtros).getByLabelText('Programa')).toHaveValue('7');
+    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ programa_id: 7, page: 1, page_size: 10 }));
+  });
+
   it('the Programa filter sends programa_id, or sin_programa for "Sin programa", back on page 1', async () => {
     conProgramas();
     const user = userEvent.setup();

@@ -35,11 +35,13 @@ const PROGRAMAS = '/sell-out/programas';
 
 /**
  * Sell-out programs (`app/routers/sell_out_programas.py`), the level that groups campaigns: `sell_out.ver` lists them
- * and their suggestions, `sell_out.gestionar` creates them and assigns campaigns. Metadata only: no money changes.
+ * and their suggestions, `sell_out.gestionar` creates, edits and archives them and assigns campaigns. Metadata only: no money changes.
  */
 export const sellOutProgramasAPI = {
   listar: (params) => api.get(PROGRAMAS, { params }),
   crear: (body) => api.post(PROGRAMAS, body),
+  // Only the fields sent change: `nombre`, `descripcion`, or `estado` ('archivado' / 'activo'). A taken name is a 409.
+  editar: (id, body) => api.patch(`${PROGRAMAS}/${id}`, body),
   // All or nothing: `{ asignadas, sin_cambio }`; an archived program or unknown campaigns are a 422.
   asignar: (campanaIds, programaId) => api.post(`${PROGRAMAS}/asignar`, { campana_ids: campanaIds, programa_id: programaId }),
   // Campaigns without a program that share their exact dates, each group with a proposed name (`base`).
