@@ -25,12 +25,14 @@ describe('AdsModeControl', () => {
     expect(screen.getByText('No se resta publicidad de Total Gauss ni del markup.')).toBeInTheDocument();
     rerender(<AdsModeControl value="mla" onChange={() => {}} />);
     expect(
-      screen.getByText('Resta del Total Gauss y del markup solo los Ads atribuidos a cada publicación.'),
+      screen.getByText(
+        'Resta del Total Gauss y del markup los Product Ads netos de aportes de marcas: los de cada publicación y, sin filtros, también los Ads sin producto.',
+      ),
     ).toBeInTheDocument();
     rerender(<AdsModeControl value="todo" onChange={() => {}} />);
     expect(
       screen.getByText(
-        'Resta del Total Gauss y del markup los Ads de cada publicación y además Display, Brand Ads y Ads sin producto.',
+        'Resta del Total Gauss y del markup los Product Ads netos de aportes y además Display (neto de aportes) y Brand Ads.',
       ),
     ).toBeInTheDocument();
   });

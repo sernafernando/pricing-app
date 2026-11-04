@@ -8,14 +8,14 @@
  * only exist in the downgraded state. Screenshots only when
  * `VITE_METRICAS_SHOTS_DIR` is set (a DEV aid, never a committed baseline).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
-import { setTheme } from './visualHelpers';
+import { contrastRatio, setTheme } from './visualHelpers';
 import MetricasML from '../../pages/MetricasML';
 import api from '../../services/api';
 import { BOARD_RESPONSE } from './metricasMlFixtures';
-import { ADS_KPIS } from '../../components/metricasMl/adsFixtures';
+import { ADS_KPIS, ADS_WATERFALL_TODO } from '../../components/metricasMl/adsFixtures';
 
 vi.mock('react-router-dom', async () => ({
   // The page keeps its filters in the URL (U1): an in-memory query, empty at the start.
@@ -54,8 +54,23 @@ const UNATTRIBUTED = {
 // What the API answers per position: `todo` asked but only `mla` applicable is the filtered case.
 const ADS_BY_POSITION = {
   mla: ADS_KPIS,
-  todo: { ...ADS_KPIS, requested: 'todo', applied: 'todo', subtracted_total: 19559119.51, unattributed: UNATTRIBUTED },
-  todo_filtered: { ...ADS_KPIS, requested: 'todo', applied: 'mla', subtracted_total: 2192372.86 },
+  todo: {
+    ...ADS_KPIS,
+    requested: 'todo',
+    applied: 'todo',
+    contribution: 1265000,
+    no_campaign: 84300,
+    subtracted_total: 18294119.51,
+    unattributed: UNATTRIBUTED,
+    waterfall: ADS_WATERFALL_TODO,
+  },
+  todo_filtered: {
+    ...ADS_KPIS,
+    requested: 'todo',
+    applied: 'mla',
+    subtracted_total: 2192372.86,
+    waterfall: { ...ADS_KPIS.waterfall, product_ads_publications: 2192372.86, product_ads_net: 2192372.86, total: 2192372.86 },
+  },
 };
 
 let filteredTodo = false;
@@ -81,6 +96,12 @@ const shot = async (name) => {
   if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/${name}.png` });
 };
 
+// The whole card, which runs past the 900 px viewport: the PR compares it with Stitch 5736acfc.
+const shotCard = async (name) => {
+  const card = document.querySelector('section[aria-label="Publicidad restada"]');
+  if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/${name}.png`, element: card });
+};
+
 const wrappedMoney = () =>
   [...document.querySelectorAll('[data-money]')]
     .filter((el) => el.getClientRects().length > 1 || el.scrollWidth > el.clientWidth + 1)
@@ -102,7 +123,7 @@ const renderPage = async (theme) => {
 const pick = (screen, label) => userEvent.click(screen.getByRole('button', { name: label }));
 
 describe.each(['light', 'dark'])('Métricas ML ads toggle (%s)', (theme) => {
-  it('off: no banner, no adjusted marks, no ads column', async () => {
+  it('off: no card, no adjusted marks, no ads column', async () => {
     const screen = await renderPage(theme);
     await expect.element(screen.getByText('No se resta publicidad de Total Gauss ni del markup.')).toBeVisible();
     expect(document.body.textContent).not.toContain('Publicidad restada');
@@ -110,30 +131,35 @@ describe.each(['light', 'dark'])('Métricas ML ads toggle (%s)', (theme) => {
     await shot(`ads-off-${theme}`);
   });
 
-  it('publicaciones: banner, adjusted cards with the original struck through, ads column', async () => {
+  it('publicaciones: card, adjusted cards with the original struck through, renamed ads column', async () => {
     const screen = await renderPage(theme);
     await pick(screen, 'Restar Ads de publicaciones');
-    await expect.element(screen.getByText(/Publicidad restada/)).toBeVisible();
-    await expect.element(screen.getByRole('columnheader', { name: /Publicidad \(inversión\)/ })).toBeVisible();
+    await expect.element(screen.getByRole('region', { name: 'Publicidad restada' })).toBeVisible();
+    await expect.element(screen.getByRole('columnheader', { name: /Publicidad restada \(neta de aportes\)/ })).toBeVisible();
+    await expect.element(screen.getByText('Inversión (bruta)')).toBeVisible();
     expect(document.querySelectorAll('s')).toHaveLength(1);
     await expect.element(screen.getByRole('region', { name: 'Publicidad (ML Ads)' })).toBeVisible();
     expect(wrappedMoney()).toEqual([]);
     await shot(`ads-publicaciones-${theme}`);
+    await shotCard(`card-publicaciones-${theme}`);
   });
 
-  it('todo: banner names the account-level spend', async () => {
+  it('todo: the card breaks the subtraction into Product Ads, aportes, Display and Brand Ads', async () => {
     const screen = await renderPage(theme);
     await pick(screen, 'Restar toda la publicidad');
-    await expect.element(screen.getByText(/sin producto y cuenta/)).toBeVisible();
+    const card = screen.getByRole('region', { name: 'Publicidad restada' });
+    await expect.element(card.getByText('− Aportes de marcas (Display)')).toBeVisible();
+    await expect.element(card.getByText('$ 18.294.119,51')).toBeVisible();
     expect(document.body.textContent).not.toContain('Con filtros solo se restan');
     await expect.element(screen.getByRole('region', { name: 'Publicidad sin producto' })).toBeVisible();
     await expect.element(screen.getByText('SIN PRODUCTO', { exact: true })).toBeVisible();
     expect(wrappedMoney()).toEqual([]);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);
     await shot(`ads-todo-${theme}`);
+    await shotCard(`card-todo-${theme}`);
   });
 
-  it('todo under filters: notice and Aplicado chip, banner at the publicaciones amount', async () => {
+  it('todo under filters: notice and Aplicado chip, card at the publicaciones amount', async () => {
     filteredTodo = true;
     const screen = await renderPage(theme);
     await pick(screen, 'Restar toda la publicidad');
@@ -141,5 +167,26 @@ describe.each(['light', 'dark'])('Métricas ML ads toggle (%s)', (theme) => {
     await expect.element(screen.getByText('Aplicado: Ads de publicaciones')).toBeVisible();
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(document.documentElement.clientWidth);
     await shot(`ads-todo-filtrado-${theme}`);
+  });
+});
+
+describe('Métricas ML "Publicidad restada" card, high contrast', () => {
+  afterEach(() => document.documentElement.classList.remove('high-contrast'));
+
+  it('keeps every chip and amount readable (4.5:1) on the card', async () => {
+    document.documentElement.classList.add('high-contrast');
+    const screen = await renderPage('light');
+    await pick(screen, 'Restar toda la publicidad');
+    const card = document.querySelector('section[aria-label="Publicidad restada"]');
+    await expect.element(screen.getByRole('region', { name: 'Publicidad restada' })).toBeVisible();
+    const cardBg = getComputedStyle(card).backgroundColor;
+    for (const el of card.querySelectorAll('li > span:not([aria-hidden])')) {
+      if (!el.textContent.trim()) continue;
+      const own = getComputedStyle(el).backgroundColor;
+      const bg = own === 'rgba(0, 0, 0, 0)' ? cardBg : own;
+      expect(contrastRatio(getComputedStyle(el).color, bg), el.textContent).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(wrappedMoney()).toEqual([]);
+    await shotCard('card-todo-light-hc');
   });
 });

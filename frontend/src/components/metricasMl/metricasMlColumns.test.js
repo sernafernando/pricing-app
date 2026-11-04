@@ -15,7 +15,7 @@ describe('buildBoardColumns: ads column', () => {
   it('adds the ads cost column, in its own group after the financial result, once ads are subtracted', () => {
     const columns = buildBoardColumns({ canSeeMargin: true, periodLabel: 'mes', groupBy: 'product', adsOn: true });
     const column = columns.find((col) => col.id === 'ads_cost');
-    expect(column).toMatchObject({ group: 'publicidad', header: 'Publicidad (inversión)' });
+    expect(column).toMatchObject({ group: 'publicidad', header: 'Publicidad restada (neta de aportes)' });
     expect(columns.findIndex((col) => col.id === 'ads_cost')).toBeGreaterThan(columns.findIndex((col) => col.id === 'total_gauss'));
   });
 

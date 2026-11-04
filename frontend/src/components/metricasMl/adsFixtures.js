@@ -24,4 +24,37 @@ export const ADS_KPIS = {
   subtracted_total: 17516239.51,
   coverage: { available: true, data_through: '2026-10-13', missing_days: [], mismatch_days: [] },
   unattributed: null,
+  // The "Publicidad restada" card lines (backend `KpiAdsWaterfall`): only Product Ads of publications here.
+  waterfall: {
+    product_ads_publications: 17516239.51,
+    product_ads_sin_producto: null,
+    product_ads_contribution: 0,
+    product_ads_net: 17516239.51,
+    no_campaign: 0,
+    display_gross: null,
+    display_contribution: null,
+    display_net: null,
+    brand: null,
+    account_subtracted: false,
+    total: 17516239.51,
+  },
+};
+
+/**
+ * DERIVED (not an API capture): "Restar toda" unfiltered with aportes on both channels, built so the lines add up
+ * the way the API computes them: 17.516.239,51 + 412.380 - 1.265.000 = 16.663.619,51 Product Ads neto;
+ * + 1.550.000 Display - 300.000 aporte + 380.500 Brand Ads = 18.294.119,51.
+ */
+export const ADS_WATERFALL_TODO = {
+  product_ads_publications: 17516239.51,
+  product_ads_sin_producto: 412380,
+  product_ads_contribution: 1265000,
+  product_ads_net: 16663619.51,
+  no_campaign: 84300,
+  display_gross: 1550000,
+  display_contribution: 300000,
+  display_net: 1250000,
+  brand: 380500,
+  account_subtracted: true,
+  total: 18294119.51,
 };

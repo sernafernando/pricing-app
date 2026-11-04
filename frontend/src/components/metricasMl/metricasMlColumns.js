@@ -78,7 +78,7 @@ export function buildBoardColumns({
     // "Costos TP" on: Total TP next to Total Gauss, which stays.
     ...(showTp ? [{ id: 'total_tp', group: 'resultado', header: 'Total TP' }] : []),
     // Only once the board subtracts ads: the Product Ads (net of IVA) charged to the row.
-    ...(adsOn ? [{ id: 'ads_cost', group: 'publicidad', header: 'Publicidad (inversión)' }] : []),
+    ...(adsOn ? [{ id: 'ads_cost', group: 'publicidad', header: 'Publicidad restada (neta de aportes)' }] : []),
     { id: 'last_sale', group: 'rotacion', header: 'Última venta' },
     { id: 'ageing', group: 'rotacion', header: 'Ageing' },
     // Real now (`productos_erp.stock`): out of the "coming soon" group.

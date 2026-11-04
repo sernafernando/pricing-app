@@ -45,13 +45,14 @@ describe('MetricasML with ads subtracted', () => {
     expect(screen.queryByRole('columnheader', { name: /Publicidad/ })).not.toBeInTheDocument();
   });
 
-  it('shows the banner, the adjusted cards and the ads column', async () => {
+  it('shows the Publicidad restada card, the adjusted cards and the ads column', async () => {
     answerWith(withAds(ADS_KPIS));
     await renderWithRouter(<MetricasML />);
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Publicidad restada: $ 17.516.239,51');
+    expect(await screen.findByRole('region', { name: 'Publicidad restada' })).toHaveTextContent('= Publicidad restada');
+    expect(screen.getByRole('region', { name: 'Publicidad restada' })).toHaveTextContent('$ 17.516.239,51');
     expect(screen.getAllByText('Ajustado')).toHaveLength(2);
-    expect(screen.getByRole('columnheader', { name: /Publicidad \(inversión\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Publicidad restada \(neta de aportes\)/ })).toBeInTheDocument();
     expect(screen.getByText('$ 410.200,00')).toBeInTheDocument();
   });
 
