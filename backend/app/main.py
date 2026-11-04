@@ -87,6 +87,7 @@ from app.routers import (
     ml_ventas_ops,
     ml_metricas,
     ml_publications_admin,
+    ml_publications_repair,
     ml_item_status,
     productos_propios,
     ml_item_overrides,
@@ -401,6 +402,7 @@ app.include_router(ml_promotions.router, prefix="/api")
 app.include_router(ml_ventas_ops.router, prefix="/api")
 app.include_router(ml_metricas.router, prefix="/api")
 app.include_router(ml_publications_admin.router, prefix="/api")
+app.include_router(ml_publications_repair.router, prefix="/api")
 app.include_router(ml_publications_links.router, prefix="/api")
 app.include_router(ml_item_status.router, prefix="/api")
 app.include_router(productos_propios.router, prefix="/api")
