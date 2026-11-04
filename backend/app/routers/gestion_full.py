@@ -23,6 +23,8 @@ from app.services.gestion_full.overrides import (
     resolve_producto_por_inventory_id,
     upsert_override,
 )
+from app.services.ml_sales_query.params import parse_csv_strings
+from app.services.product_facets import ProductFacetOptions
 from app.services.gestion_full.assign_inbound import (
     assign_inbound_to_lines,
     clear_inbound_ids,
@@ -95,6 +97,15 @@ class GestionFullItem(BaseModel):
     puede_editar_override: bool = False
 
 
+class GestionFullFacets(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    product: ProductFacetOptions = Field(
+        default_factory=ProductFacetOptions,
+        description="Cross-filtered marca/categoría options for ProductFiltersPanel.",
+    )
+
+
 class GestionFullListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -102,6 +113,7 @@ class GestionFullListResponse(BaseModel):
     limit: int
     offset: int
     items: list[GestionFullItem]
+    facets: GestionFullFacets = Field(default_factory=GestionFullFacets)
     puede_editar_override: bool = Field(
         description="True when the caller may write at least one override (full-view or PM/sub-PM scope)."
     )
@@ -270,8 +282,14 @@ class GestionFullAssignInboundBody(BaseModel):
 )
 def get_gestion_full(
     q: str = Query("", description="Search EAN, description, inventory_id or MLAU"),
-    marca: str = Query("", description="Exact brand filter"),
-    categoria: str = Query("", description="Exact category filter"),
+    marcas: Optional[str] = Query(
+        default=None,
+        description="CSV de marcas (case-insensitive, same as ProductFiltersPanel)",
+    ),
+    categorias: Optional[str] = Query(
+        default=None,
+        description="CSV de categorías (case-insensitive, same as ProductFiltersPanel)",
+    ),
     full_mode: str = Query(
         "en",
         description="en Full | fuera de Full | todos (en = stock_full>0 OR ventas Full 30d>0)",
@@ -290,8 +308,8 @@ def get_gestion_full(
     payload = list_gestion_full(
         db,
         q=q,
-        marca=marca,
-        categoria=categoria,
+        marcas=parse_csv_strings(marcas, "marcas"),
+        categorias=parse_csv_strings(categorias, "categorias"),
         full_mode=full_mode,
         include_zero_stock=include_zero_stock,
         limit=limit,

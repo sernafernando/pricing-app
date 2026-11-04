@@ -13,14 +13,23 @@ inbound, never above ERP stock. Null when Target is missing.
 Filters (defaults match envio-workflow-decisions D1 / D1b / D1c):
   full_mode=en|fuera|todos — en Full = stock_full>0 OR ventas_full_30d>0
   include_zero_stock — when false, hide stock_erp=0/null
+  marcas / categorias — multi-select, case-insensitive (same contract as
+  ProductFiltersPanel / product_facets)
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from app.services.product_facets import (
+    ComboRow,
+    ProductFacetOptions,
+    ProductSelection,
+    product_facet_options,
+)
 
 FullMode = Literal["en", "fuera", "todos"]
 
@@ -48,6 +57,47 @@ _FILTER_SQL = """
     )
 """
 
+# Multi-select product filters (case-insensitive). Empty selection = no filter.
+_PRODUCT_FILTER_SQL = """
+    AND (
+      :has_marcas = 0
+      OR upper(p.marca) = ANY(:marcas_upper)
+    )
+    AND (
+      :has_categorias = 0
+      OR upper(p.categoria) = ANY(:categorias_upper)
+    )
+"""
+
+_LINKED_CTE = """
+    linked AS (
+      SELECT DISTINCT ON (l.producto_item_id, i.user_product_id)
+        l.producto_item_id,
+        i.inventory_id,
+        i.user_product_id,
+        i.item_id AS mla
+      FROM ml_item_product_links l
+      JOIN ml_items i ON i.item_id = l.item_id
+      WHERE l.producto_item_id IS NOT NULL
+        AND l.variation_id = 0
+        AND i.inventory_id IS NOT NULL
+        AND i.user_product_id IS NOT NULL
+        AND i.never_existed IS NOT TRUE
+        AND i.gone_at IS NULL
+      ORDER BY l.producto_item_id, i.user_product_id, i.inventory_id, i.item_id
+    )
+"""
+
+_Q_SQL = """
+    WHERE (
+      :q = '' OR
+      p.codigo ILIKE '%' || :q || '%' OR
+      p.descripcion ILIKE '%' || :q || '%' OR
+      linked.inventory_id ILIKE '%' || :q || '%' OR
+      COALESCE(linked.user_product_id, '') ILIKE '%' || :q || '%'
+    )
+"""
+
 
 def _sugerido(
     target: Optional[int],
@@ -68,24 +118,25 @@ def _normalize_full_mode(full_mode: str) -> FullMode:
     return mode  # type: ignore[return-value]
 
 
+def _normalize_labels(values: Sequence[str] | None) -> list[str]:
+    """Trim, drop blanks, de-dupe case-insensitively (first spelling wins)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in values or ():
+        value = (raw or "").strip()
+        if not value:
+            continue
+        key = value.upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(value)
+    return out
+
+
 _LIST_SQL = text(
     f"""
-    WITH linked AS (
-      SELECT DISTINCT ON (l.producto_item_id, i.user_product_id)
-        l.producto_item_id,
-        i.inventory_id,
-        i.user_product_id,
-        i.item_id AS mla
-      FROM ml_item_product_links l
-      JOIN ml_items i ON i.item_id = l.item_id
-      WHERE l.producto_item_id IS NOT NULL
-        AND l.variation_id = 0
-        AND i.inventory_id IS NOT NULL
-        AND i.user_product_id IS NOT NULL
-        AND i.never_existed IS NOT TRUE
-        AND i.gone_at IS NULL
-      ORDER BY l.producto_item_id, i.user_product_id, i.inventory_id, i.item_id
-    ),
+    WITH {_LINKED_CTE},
     colecta_flex AS (
       SELECT
         lines.product AS producto_item_id,
@@ -134,15 +185,8 @@ _LIST_SQL = text(
     LEFT JOIN gestion_full_pm_ready ready
       ON ready.producto_item_id = linked.producto_item_id
      AND ready.user_product_id = linked.user_product_id
-    WHERE (
-      :q = '' OR
-      p.codigo ILIKE '%' || :q || '%' OR
-      p.descripcion ILIKE '%' || :q || '%' OR
-      linked.inventory_id ILIKE '%' || :q || '%' OR
-      COALESCE(linked.user_product_id, '') ILIKE '%' || :q || '%'
-    )
-    AND (:marca = '' OR p.marca = :marca)
-    AND (:categoria = '' OR p.categoria = :categoria)
+    {_Q_SQL}
+    {_PRODUCT_FILTER_SQL}
     {_FILTER_SQL}
     ORDER BY p.codigo ASC, linked.user_product_id ASC
     LIMIT :limit OFFSET :offset
@@ -151,35 +195,29 @@ _LIST_SQL = text(
 
 _COUNT_SQL = text(
     f"""
-    WITH linked AS (
-      SELECT DISTINCT ON (l.producto_item_id, i.user_product_id)
-        l.producto_item_id,
-        i.inventory_id,
-        i.user_product_id
-      FROM ml_item_product_links l
-      JOIN ml_items i ON i.item_id = l.item_id
-      WHERE l.producto_item_id IS NOT NULL
-        AND l.variation_id = 0
-        AND i.inventory_id IS NOT NULL
-        AND i.user_product_id IS NOT NULL
-        AND i.never_existed IS NOT TRUE
-        AND i.gone_at IS NULL
-      ORDER BY l.producto_item_id, i.user_product_id, i.inventory_id, i.item_id
-    )
+    WITH {_LINKED_CTE}
     SELECT COUNT(*)::int AS total
     FROM linked
     JOIN productos_erp p ON p.item_id = linked.producto_item_id
     LEFT JOIN ml_user_product_stock st ON st.user_product_id = linked.user_product_id
     LEFT JOIN ml_user_product_replenishment r ON r.user_product_id = linked.user_product_id
-    WHERE (
-      :q = '' OR
-      p.codigo ILIKE '%' || :q || '%' OR
-      p.descripcion ILIKE '%' || :q || '%' OR
-      linked.inventory_id ILIKE '%' || :q || '%' OR
-      COALESCE(linked.user_product_id, '') ILIKE '%' || :q || '%'
-    )
-    AND (:marca = '' OR p.marca = :marca)
-    AND (:categoria = '' OR p.categoria = :categoria)
+    {_Q_SQL}
+    {_PRODUCT_FILTER_SQL}
+    {_FILTER_SQL}
+    """
+)
+
+# Distinct (marca, categoría) under non-product filters only — product_facet_options
+# applies the marca/categoría selection with skip-own cross-filtering in memory.
+_FACET_PAIRS_SQL = text(
+    f"""
+    WITH {_LINKED_CTE}
+    SELECT DISTINCT p.marca, p.categoria
+    FROM linked
+    JOIN productos_erp p ON p.item_id = linked.producto_item_id
+    LEFT JOIN ml_user_product_stock st ON st.user_product_id = linked.user_product_id
+    LEFT JOIN ml_user_product_replenishment r ON r.user_product_id = linked.user_product_id
+    {_Q_SQL}
     {_FILTER_SQL}
     """
 )
@@ -217,32 +255,103 @@ def _row_dict(row: Any) -> dict[str, Any]:
     }
 
 
+def _base_params(
+    *,
+    q: str,
+    full_mode: str,
+    include_zero_stock: bool,
+) -> dict[str, Any]:
+    return {
+        "q": (q or "").strip(),
+        "full_mode": _normalize_full_mode(full_mode),
+        "include_zero_stock": 1 if include_zero_stock else 0,
+    }
+
+
+def _product_filter_params(
+    marcas: Sequence[str] | None,
+    categorias: Sequence[str] | None,
+) -> dict[str, Any]:
+    marcas_norm = _normalize_labels(marcas)
+    categorias_norm = _normalize_labels(categorias)
+    return {
+        "has_marcas": 1 if marcas_norm else 0,
+        "has_categorias": 1 if categorias_norm else 0,
+        "marcas_upper": [m.upper() for m in marcas_norm],
+        "categorias_upper": [c.upper() for c in categorias_norm],
+        "marcas": marcas_norm,
+        "categorias": categorias_norm,
+    }
+
+
+def _empty_product_facets() -> dict[str, Any]:
+    return ProductFacetOptions().model_dump()
+
+
+def _build_product_facets(
+    db: Session,
+    *,
+    q: str,
+    full_mode: str,
+    include_zero_stock: bool,
+    marcas: Sequence[str],
+    categorias: Sequence[str],
+) -> dict[str, Any]:
+    """Cross-filtered marca/categoría lists for ProductFiltersPanel."""
+    facet_params = _base_params(q=q, full_mode=full_mode, include_zero_stock=include_zero_stock)
+    pairs = db.execute(_FACET_PAIRS_SQL, facet_params).all()
+    rows = [
+        ComboRow(
+            marca=marca,
+            categoria=categoria,
+            subcategoria_id=None,
+            subcategoria_nombre=None,
+            subcategoria_categoria=None,
+            pm_id=None,
+            pm_nombre=None,
+        )
+        for marca, categoria in pairs
+    ]
+    selection = ProductSelection(marcas=tuple(marcas), categorias=tuple(categorias))
+    return product_facet_options(db, rows, selection).model_dump()
+
+
 def list_gestion_full(
     db: Session,
     *,
     q: str = "",
-    marca: str = "",
-    categoria: str = "",
+    marcas: Sequence[str] | None = None,
+    categorias: Sequence[str] | None = None,
     full_mode: str = "en",
     include_zero_stock: bool = False,
     limit: int = 100,
     offset: int = 0,
 ) -> dict[str, Any]:
     """Paginated Gestión Full rows ordered by EAN then MLAU (groups stay contiguous)."""
+    product = _product_filter_params(marcas, categorias)
     params = {
-        "q": (q or "").strip(),
-        "marca": (marca or "").strip(),
-        "categoria": (categoria or "").strip(),
-        "full_mode": _normalize_full_mode(full_mode),
-        "include_zero_stock": 1 if include_zero_stock else 0,
+        **_base_params(q=q, full_mode=full_mode, include_zero_stock=include_zero_stock),
+        "has_marcas": product["has_marcas"],
+        "has_categorias": product["has_categorias"],
+        "marcas_upper": product["marcas_upper"],
+        "categorias_upper": product["categorias_upper"],
         "limit": max(1, min(limit, 500)),
         "offset": max(0, offset),
     }
     total: Optional[int] = db.execute(_COUNT_SQL, params).scalar()
     rows = db.execute(_LIST_SQL, params).mappings().all()
+    facets_product = _build_product_facets(
+        db,
+        q=q,
+        full_mode=full_mode,
+        include_zero_stock=include_zero_stock,
+        marcas=product["marcas"],
+        categorias=product["categorias"],
+    )
     return {
         "total": int(total or 0),
         "limit": params["limit"],
         "offset": params["offset"],
         "items": [_row_dict(r) for r in rows],
+        "facets": {"product": facets_product or _empty_product_facets()},
     }
