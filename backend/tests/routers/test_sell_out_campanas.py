@@ -314,10 +314,41 @@ def _programa(db, admin_user, nombre: str = "MARCA PROG") -> SellOutPrograma:
 
 def test_list_and_detail_keep_their_keys_and_carry_no_program_until_assigned(client, gestor, grupos) -> None:
     out = _crear(client, gestor, grupos, nombre="MARCA PROG 24")
-    assert set(out) == CLAVES_PREVIAS | {"programa_id", "programa"}
-    assert (out["programa_id"], out["programa"]) == (None, None)
+    assert set(out) == CLAVES_PREVIAS | {"programa_id", "programa", "renovada_de_id"}
+    assert (out["programa_id"], out["programa"], out["renovada_de_id"]) == (None, None, None)
     assert client.get(f"{BASE}/{out['id']}", headers=gestor).json() == out
     assert client.get(BASE, headers=gestor).json()["items"] == [out]
+
+
+def test_create_list_and_detail_return_the_campaign_a_renewal_renews(client, gestor, grupos) -> None:
+    original = _crear(client, gestor, grupos, nombre="Modelo Q4 2026")
+    copia = _crear(client, gestor, grupos, nombre="Modelo Q1 2027", renovada_de_id=original["id"])
+
+    assert copia["renovada_de_id"] == original["id"]
+    assert client.get(f"{BASE}/{copia['id']}", headers=gestor).json()["renovada_de_id"] == original["id"]
+    items = {x["id"]: x for x in client.get(BASE, headers=gestor).json()["items"]}
+    assert (items[copia["id"]]["renovada_de_id"], items[original["id"]]["renovada_de_id"]) == (original["id"], None)
+
+
+def test_a_second_renewal_of_a_campaign_is_a_409_and_another_programs_link_a_422(
+    client, gestor, grupos, db, admin_user
+) -> None:
+    original = _crear(client, gestor, grupos, nombre="Modelo Q4 2026")
+    _crear(client, gestor, grupos, nombre="Modelo Q1 2027", renovada_de_id=original["id"])
+
+    otra = client.post(BASE, json=_body(grupos, nombre="Otra Q1 2027", renovada_de_id=original["id"]), headers=gestor)
+    assert otra.status_code == 409
+    assert f"La campaña {original['id']} ya está renovada" in _message(otra)
+
+    programa = _programa(db, admin_user, "MARCA PROG")
+    ajena = client.post(
+        BASE,
+        json=_body(grupos, nombre="Ajena", renovada_de_id=original["id"], programa_id=programa.id),
+        headers=gestor,
+    )
+    assert ajena.status_code == 422
+    assert "otro programa" in _message(ajena)
+    assert client.get(BASE, headers=gestor).json()["total"] == 2
 
 
 def test_list_and_detail_carry_the_program_of_each_campaign(client, gestor, grupos, db, admin_user) -> None:
@@ -792,6 +823,27 @@ def test_a_deadlock_on_a_single_edit_is_the_busy_409_and_nothing_changes(client,
     assert resp.status_code == 409, resp.text
     assert _message(resp) == "Otra operación está modificando la campaña en este momento. Reintentar en unos segundos."
     assert client.get(f"{BASE}/{out['id']}", headers=gestor).json()["nombre"] == out["nombre"]
+
+
+def test_a_deadlock_on_a_create_is_the_busy_409_and_nothing_is_stored(client, gestor, grupos, monkeypatch) -> None:
+    """A renewal locks the original's program row, so a create can lose a lock cycle too (40P01): a retry."""
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.sell_out import campanas as service
+
+    class _Deadlock(Exception):
+        pgcode = "40P01"
+
+    def _en_deadlock(db, campana_ids) -> None:
+        raise DBAPIError("INSERT INTO sell_out_dirty ...", {}, _Deadlock())
+
+    monkeypatch.setattr(service, "_encolar", _en_deadlock)
+
+    resp = client.post(BASE, json=_body(grupos), headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    assert _message(resp) == "Otra operación está modificando la campaña en este momento. Reintentar en unos segundos."
+    assert client.get(BASE, headers=gestor).json()["total"] == 0
 
 
 # ── Bulk void (`POST /anular`) ──────────────────────────────────────

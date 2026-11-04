@@ -135,4 +135,5 @@ def borrador(db: Session, campana_id: int) -> Optional[SellOutCampanaIn]:
         grupo_ids=campanas.grupo_ids_de(db, campana.id),
         items=items,
         programa_id=programa_id,
+        renovada_de_id=campana.id,
     )

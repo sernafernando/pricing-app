@@ -100,7 +100,7 @@ describe('valoresDeCampana', () => {
 describe('valoresDeBorrador', () => {
   const original = { ...CAMPANA_MIGRADA, items: [{ item_id: 4172, codigo: 'C13T00R120', descripcion: 'Epson EcoTank L8180', monto_unit: '30.00' }] };
 
-  it('a renewal draft fills a new campaign form; saving it sends the draft as it came, with its program', () => {
+  it('a renewal draft fills a new campaign form; saving it sends the draft as it came, with its program and original', () => {
     const valores = valoresDeBorrador(RENOVACION_MIGRADA, original);
     expect(valores).toMatchObject({
       nombre: 'RB 8180',
@@ -132,6 +132,7 @@ describe('valoresDeBorrador', () => {
       grupo_ids: [301],
       items: [{ item_id: 4172, monto_unit: '30.00' }],
       programa_id: 12,
+      renovada_de_id: 55,
     });
   });
 
@@ -144,13 +145,15 @@ describe('valoresDeBorrador', () => {
       { item_id: 4173, reparto_porcentaje: null, reparto_monto: '500000.00' },
     ]);
     expect(body).not.toHaveProperty('programa_id');
+    expect(body.renovada_de_id).toBe(70);
     // Switched to another type, the copied shares are not sent.
     expect(bodyDeCampana({ ...valores, tipo: 'porcentaje', porcentaje: '2' }).items).toEqual([]);
   });
 
   it('a stored campaign read back sends neither a program nor shares, as before', () => {
-    const body = bodyDeCampana(valoresDeCampana({ ...CAMPANA_MONTO_TOTAL, programa_id: 12 }));
+    const body = bodyDeCampana(valoresDeCampana({ ...CAMPANA_MONTO_TOTAL, programa_id: 12, renovada_de_id: 55 }));
     expect(body).not.toHaveProperty('programa_id');
+    expect(body).not.toHaveProperty('renovada_de_id');
     expect(body).not.toHaveProperty('items');
   });
 });

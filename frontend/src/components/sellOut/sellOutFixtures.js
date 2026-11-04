@@ -169,6 +169,7 @@ export const RENOVACION_MIGRADA = {
   grupo_ids: [301],
   items: [{ item_id: 4172, monto_unit: '30.00', reparto_porcentaje: null, reparto_monto: null }],
   programa_id: 12,
+  renovada_de_id: 55, // the campaign it renews (CAMPANA_MIGRADA)
 };
 
 /** `GET /{id}/renovacion` of CAMPANA_MONTO_TOTAL: its total and its two shares. */
@@ -191,6 +192,7 @@ export const RENOVACION_MONTO_TOTAL = {
     { item_id: 4173, monto_unit: null, reparto_porcentaje: null, reparto_monto: '500000.00' },
   ],
   programa_id: null,
+  renovada_de_id: 70, // CAMPANA_MONTO_TOTAL
 };
 
 // ── Programs (campanas-sistema slice E): `app/schemas/sell_out.py` SellOutPrograma*, SellOutGrupoPrograma*,

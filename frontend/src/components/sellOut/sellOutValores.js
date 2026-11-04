@@ -29,6 +29,7 @@ export const CAMPANA_VACIA = {
   // A renewal (`GET /{id}/renovacion`) only: the original's program and `monto_total` shares, sent with the create
   // so the copy is saved in one call (`[{ item_id, reparto_porcentaje, reparto_monto }]`).
   programaId: null,
+  renovadaDeId: null, // the campaign a renewal draft renews (`renovada_de_id`), sent only on create
   repartosCopiados: [],
 };
 
@@ -89,6 +90,7 @@ export function valoresDeBorrador(borrador, original) {
       ? borrador.items.map((i) => ({ item_id: i.item_id, reparto_porcentaje: i.reparto_porcentaje, reparto_monto: i.reparto_monto }))
       : [],
     programaId: borrador.programa_id ?? null,
+    renovadaDeId: borrador.renovada_de_id ?? null,
   };
 }
 
@@ -97,8 +99,8 @@ export function valoresDeBorrador(borrador, original) {
  * empty optionals as null. Amounts stay strings: the backend reads them as Decimal. `items` always goes (a full
  * replace): `[]` in a percentage campaign, which takes no per-product amounts. A `monto_total` campaign sends its
  * total and no caps, and no `items` (the API keeps the stored shares, set with `PUT /reparto`), except `[]` to drop
- * the per-unit amounts of a campaign switched to it. A renewal also sends its copied shares and its program
- * (`programa_id`, only when it has one: an edit never sends it).
+ * the per-unit amounts of a campaign switched to it. A renewal also sends its copied shares, its program
+ * (`programa_id`, only when it has one) and the campaign it renews (`renovada_de_id`); an edit sends neither.
  */
 export function bodyDeCampana(v) {
   if (v.tipo === 'monto_total') {
@@ -124,7 +126,10 @@ export function bodyDeCampana(v) {
   return { ...body, ...programa(v) };
 }
 
-const programa = (v) => (v.programaId != null ? { programa_id: v.programaId } : {});
+const programa = (v) => ({
+  ...(v.programaId != null ? { programa_id: v.programaId } : {}),
+  ...(v.renovadaDeId != null ? { renovada_de_id: v.renovadaDeId } : {}),
+});
 
 function bodyBase(v) {
   const porUnidad = v.tipo === 'por_unidad';

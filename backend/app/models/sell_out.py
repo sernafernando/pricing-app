@@ -82,6 +82,8 @@ from app.core.database import Base
 
 # Also declared by migration `20261225_sell_out_programas` (the schema parity test compares them).
 FK_SELL_OUT_CAMPANAS_PROGRAMA_ID = "fk_sell_out_campanas_programa_id"
+# Also declared by migration `20261230_sell_out_renovada_de`.
+FK_SELL_OUT_CAMPANAS_RENOVADA_DE_ID = "fk_sell_out_campanas_renovada_de_id"
 
 # Named so the group-delete endpoint can tell this RESTRICT violation from any other IntegrityError.
 FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID = "fk_sell_out_campana_grupos_grupo_id"
@@ -141,6 +143,7 @@ class SellOutCampana(Base):
         CheckConstraint("estado IN ('activa', 'anulada')", name="ck_sell_out_campanas_estado"),
         UniqueConstraint("offset_origen_id", name="uq_sell_out_campanas_offset_origen_id"),
         Index("ix_sell_out_campanas_programa_id", "programa_id"),
+        Index("ix_sell_out_campanas_renovada_de_id", "renovada_de_id"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -178,6 +181,13 @@ class SellOutCampana(Base):
     programa_id = Column(
         BigInteger,
         ForeignKey("sell_out_programas.id", ondelete="RESTRICT", name=FK_SELL_OUT_CAMPANAS_PROGRAMA_ID),
+        nullable=True,
+    )
+    # The campaign it renews (per-campaign "Renovar" or "Renovar programa"); NULL for one loaded by hand. A campaign
+    # with a non-voided renewal pointing at it is already renewed. Metadata only: no money path reads it.
+    renovada_de_id = Column(
+        BigInteger,
+        ForeignKey("sell_out_campanas.id", ondelete="SET NULL", name=FK_SELL_OUT_CAMPANAS_RENOVADA_DE_ID),
         nullable=True,
     )
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

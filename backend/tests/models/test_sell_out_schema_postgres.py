@@ -2,7 +2,7 @@
 
 The schema is built by every sell-out migration in order (`_MIGRATIONS`), so the
 parity test also covers `20261108_sell_out_consumos`, `20261207_sell_out_campana_items`,
-`20261214_sell_out_monto_total` and `20261225_sell_out_programas`; their own rules are proven
+`20261214_sell_out_monto_total`, `20261225_sell_out_programas` and `20261230_sell_out_renovada_de`; their own rules are proven
 in `tests/unit/test_migration_sell_out_consumos.py` and `tests/migrations/`.
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
@@ -32,6 +32,7 @@ _MIGRATIONS = [
         "20261207_sell_out_campana_items",
         "20261214_sell_out_monto_total",
         "20261225_sell_out_programas",
+        "20261230_sell_out_renovada_de",
     )
 ]
 TABLES = (

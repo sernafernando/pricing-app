@@ -94,6 +94,10 @@ class SellOutRecalculando(SellOutError):
     """A `sell_out.drain` batch is rebuilding the campaign; nothing was stored, retry shortly."""
 
 
+class SellOutYaRenovada(SellOutError):
+    """A renewal of a campaign that a non-voided campaign already renews: nothing was stored (a 409)."""
+
+
 def _encolar(db: Session, campana_ids: list[int]) -> None:
     """Queues the campaigns, waiting at most `queue.LOCK_TIMEOUT` for a queue row a running
     `sell_out.drain` batch holds; then the whole change is rolled back and refused, never left waiting."""
@@ -490,18 +494,78 @@ def _importe(valor: Decimal) -> str:
     return str(en_centavos) if en_centavos == valor else format(Decimal(valor).normalize(), "f")
 
 
+@_deadlock_es_ocupada
 def crear_campana(
     db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
 ) -> SellOutCampana:
-    """`offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`).
+    """Create a campaign and commit (`crear_campana_sin_commit`). A deadlock with another writer (a renewal locks
+    the original's program row) is the busy refusal `SellOutRecalculando`, nothing stored."""
+    campana = crear_campana_sin_commit(db, data, usuario_id, offset_origen_id=offset_origen_id)
+    db.commit()
+    db.refresh(campana)
+    return campana
+
+
+def _validar_renovacion(db: Session, data: SellOutCampanaIn) -> None:
+    """A renewal (`data.renovada_de_id`) names a stored campaign of the same program, and one no non-voided campaign
+    already renews. The copy of a campaign whose program is archived goes without program (`renovacion.borrador`),
+    so it may name it: an archived program has no Renovar programa preview to hide it from.
+
+    It first locks the original's program row (`FOR UPDATE`, the lock Renovar programa holds), or the original
+    itself when it has no program, so a concurrent Renovar programa or a second save of the same draft waits and
+    then sees the committed copy. Taken before `programas.validar_asignable`'s share lock, never after, so two
+    renewals never deadlock upgrading it. `SellOutError` (422) or `SellOutYaRenovada` (409), nothing stored."""
+    original = db.get(SellOutCampana, data.renovada_de_id)
+    if original is None:
+        raise SellOutError(f"La campaña {data.renovada_de_id} que se renueva no existe")
+    if original.programa_id is not None:
+        programa = (
+            db.query(SellOutPrograma)
+            .filter(SellOutPrograma.id == original.programa_id)
+            .populate_existing()
+            .with_for_update()
+            .one()
+        )
+        sin_programa_por_archivo = data.programa_id is None and programa.estado == "archivado"
+        if data.programa_id != original.programa_id and not sin_programa_por_archivo:
+            raise SellOutError(f"La campaña {original.id} que se renueva es de otro programa")
+    else:
+        db.query(SellOutCampana.id).filter(SellOutCampana.id == original.id).with_for_update().one()
+        if data.programa_id is not None:
+            raise SellOutError(f"La campaña {original.id} que se renueva es de otro programa")
+    copia = (
+        db.query(SellOutCampana)
+        .filter(SellOutCampana.renovada_de_id == original.id, SellOutCampana.estado != "anulada")
+        .order_by(SellOutCampana.id)
+        .first()
+    )
+    if copia is not None:
+        raise SellOutYaRenovada(f"La campaña {original.id} ya está renovada en la campaña {copia.id} ({copia.nombre}).")
+
+
+def crear_campana_sin_commit(
+    db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
+) -> SellOutCampana:
+    """The create step without committing: validation, the row, its groups and items, one audit row and queueing.
+    Shared by the single create and Renovar programa (several in one transaction).
+
+    `offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`).
 
     `data.programa_id`, when set, must name a program that takes campaigns (`programas.validar_asignable`: a
     `ProgramaNoExiste` or `ProgramaError`, nothing stored); it is stored and in the audit row, which keeps its shape
-    without one."""
+    without one. `data.renovada_de_id` (a renewal) is checked and locked by `_validar_renovacion`; it is stored and
+    audited the same way."""
     grupo_ids = validar(db, data)
+    if data.renovada_de_id is not None:
+        _validar_renovacion(db, data)
     if data.programa_id is not None:
         programas.validar_asignable(db, data.programa_id)
-    campana = SellOutCampana(usuario_id=usuario_id, offset_origen_id=offset_origen_id, programa_id=data.programa_id)
+    campana = SellOutCampana(
+        usuario_id=usuario_id,
+        offset_origen_id=offset_origen_id,
+        programa_id=data.programa_id,
+        renovada_de_id=data.renovada_de_id,
+    )
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)
     valores = _valores(campana, grupo_ids, items_de(db, [campana.id])[campana.id])
@@ -509,10 +573,10 @@ def crear_campana(
         valores["offset_origen_id"] = offset_origen_id
     if data.programa_id is not None:
         valores["programa_id"] = data.programa_id
+    if data.renovada_de_id is not None:
+        valores["renovada_de_id"] = data.renovada_de_id
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, valores)
     _encolar(db, [campana.id])
-    db.commit()
-    db.refresh(campana)
     return campana
 
 
@@ -932,6 +996,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         fila["grupos"] = grupos[c.id]
         fila["items"] = items[c.id]
         fila["programa_id"] = c.programa_id
+        fila["renovada_de_id"] = c.renovada_de_id
         fila["programa"] = de_programa.get(c.programa_id)
         salida.append(fila)
     return salida

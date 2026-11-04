@@ -411,8 +411,8 @@ def _estable(out: dict) -> dict:
 ORDEN = (
     "id nombre descripcion fecha_desde fecha_hasta tipo monto_unit porcentaje base_porcentaje moneda tc_modo "
     "tipo_cambio tc_definido_en tope_unidades tope_monto acumulable monto_incluye_iva estado usuario_id "
-    "offset_origen_id programa_id programa created_at updated_at grupos items resumen"
-).split()  # programa_id / programa: campaign system S1, on every type
+    "offset_origen_id programa_id renovada_de_id programa created_at updated_at grupos items resumen"
+).split()  # programa_id / programa: campaign system S1; renovada_de_id: Renovar programa; on every type
 RESUMEN_VACIO = {
     "lineas": 0,
     "unidades": 0,
@@ -438,6 +438,7 @@ COMUNES = {
     "estado": "activa",
     "offset_origen_id": None,
     "programa_id": None,  # campaign system S1: additive, None until assigned
+    "renovada_de_id": None,  # Renovar programa: additive, None unless the campaign is a renewal
     "programa": None,
     "grupos": ["Bono trimestral"],
 }
