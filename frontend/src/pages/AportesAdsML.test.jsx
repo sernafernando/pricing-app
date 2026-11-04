@@ -782,4 +782,19 @@ describe('"Por aporte" view (Stitch 55853ac1)', () => {
       expect(api.get.mock.calls.filter(([url]) => url === '/ml-ads/contributions')).toHaveLength(2),
     );
   });
+
+  it('names a campaign without a catalog name the same way in the table and in the delete confirmation', async () => {
+    const answerOthers = api.get.getMockImplementation();
+    const unnamed = { ...APORTES_VIEW.contributions[0], campaign_name: null };
+    api.get.mockImplementation((url, config) =>
+      url === '/ml-ads/contributions'
+        ? Promise.resolve({ data: { ...APORTES_VIEW, contributions: [unnamed] } })
+        : answerOthers(url, config),
+    );
+    const user = userEvent.setup();
+    const table = await porAporte(user);
+    expect(await within(table).findByText('Campaña 351001')).toBeInTheDocument();
+    await user.click(within(table).getByRole('button', { name: 'Borrar aporte de TP-Link' }));
+    expect(screen.getByText('¿Borrar este aporte?').closest('.modal-tesla')).toHaveTextContent('Campaña 351001');
+  });
 });

@@ -19,6 +19,7 @@ import AportesAdsMLForm from './AportesAdsMLForm';
 import AportesPorAporte from './AportesPorAporte';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
 import { formatSignedMoney } from '../utils/ventasMlTone';
+import { advertiserLabel, scopeOf } from '../utils/aportesScope';
 import styles from './AportesAdsML.module.css';
 
 const SETTLEMENT_LABELS = { full: 'Se recibe todo', refund_difference: 'Se devuelve la diferencia' };
@@ -54,11 +55,7 @@ const formatDay = (iso) => {
 
 const touchesRange = (c, range) => c.date_from <= range.to && c.date_to >= range.from;
 // What the delete confirmation names: the campaign, or the whole Display account (no campaign id).
-const deleteScope = (row) =>
-  row.campaign_id == null
-    ? { name: `Toda la cuenta Display · ${row.advertiser_name || `Anunciante ${row.advertiser_id}`}`, campaign_id: '' }
-    : { name: row.campaign_name, campaign_id: row.campaign_id };
-const advertiserLabel = (c) => c.advertiser_name || `Anunciante ${c.advertiser_id}`;
+const deleteScope = (row) => ({ name: scopeOf(row).name, campaign_id: row.campaign_id ?? '' });
 const sumOf = (rows, key) => rows.reduce((total, row) => total + (row[key] || 0), 0);
 const formatPercent = (value) => `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`;
 const contributionValue = (c) => (c.kind === 'percentage' ? `${c.value}%` : formatSignedMoney(c.value));

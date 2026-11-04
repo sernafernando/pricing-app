@@ -15,6 +15,7 @@ import api from '../services/api';
 import { SegmentedControl, StatusPill } from '../components/kit';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
 import { formatSignedMoney } from '../utils/ventasMlTone';
+import { scopeOf } from '../utils/aportesScope';
 import shell from './AportesAdsML.module.css';
 import styles from './AportesPorAporte.module.css';
 
@@ -36,14 +37,8 @@ const share = (part, whole) => (whole > 0 ? percent((part / whole) * 100) : '—
 const dayMonth = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const sum = (rows) => rows.reduce((total, row) => total + (row.covered || 0), 0);
-const advertiser = (row) => row.advertiser_name || `Anunciante ${row.advertiser_id}`;
 
 /** The scope's two lines: the campaign and its id, or the whole Display account. */
-function scopeOf(row) {
-  if (row.campaign_id == null) return { name: `Toda la cuenta Display · ${advertiser(row)}`, detail: 'Cuenta completa' };
-  return { name: row.campaign_name || `Campaña ${row.campaign_id}`, detail: String(row.campaign_id) };
-}
-
 function useAportes(range, refreshKey) {
   const [state, setState] = useState({ data: null, loading: true, error: null });
   const latest = useRef(0);
