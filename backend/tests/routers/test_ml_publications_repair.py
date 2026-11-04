@@ -114,7 +114,7 @@ def insert_event(
     return eid
 
 
-def insert_write(engine, mla, action, payload=None, usuario_id=None):
+def insert_write(engine, mla, action, payload=None, usuario_id=None, resource="item"):
     import json
 
     with engine.begin() as conn:
@@ -126,10 +126,11 @@ def insert_write(engine, mla, action, payload=None, usuario_id=None):
         conn.execute(
             text(
                 "INSERT INTO ml_write_log (mla, resource, action, payload, usuario_id) "
-                "VALUES (:mla, 'item', :action, CAST(:payload AS jsonb), :uid)"
+                "VALUES (:mla, :resource, :action, CAST(:payload AS jsonb), :uid)"
             ),
             {
                 "mla": mla,
+                "resource": resource,
                 "action": action,
                 "payload": json.dumps(payload) if payload is not None else None,
                 "uid": usuario_id,
@@ -182,6 +183,18 @@ class TestRuns:
         body = client.get(f"{BASE}/runs?desde={today.isoformat()}&hasta={today.isoformat()}", headers=reader).json()
         assert body["total"] == 1
 
+    def test_newest_first_ordering(self, client, pg, reader):
+        from datetime import datetime, timedelta, timezone
+
+        older = insert_run(pg, started_at=datetime.now(timezone.utc) - timedelta(days=1))
+        newer = insert_run(pg, started_at=datetime.now(timezone.utc))
+        body = client.get(f"{BASE}/runs", headers=reader).json()
+        assert [r["id"] for r in body["items"]] == [newer, older]
+
+    def test_invalid_date_returns_422(self, client, pg, reader):
+        assert client.get(f"{BASE}/runs?desde=not-a-date", headers=reader).status_code == 422
+        assert client.get(f"{BASE}/runs?hasta=2026-99-99", headers=reader).status_code == 422
+
 
 class TestRunDetail:
     def test_404(self, client, pg, reader):
@@ -215,6 +228,19 @@ class TestRunDetail:
         assert body["total"] == 1
         assert body["events"][0]["detail"] == "rate_limited"
 
+    def test_events_newest_first(self, client, pg, reader):
+        rid = insert_run(pg)
+        first = insert_event(pg, rid, mla_id="MLA1", action="changed", detail="shipping_put")
+        second = insert_event(pg, rid, mla_id="MLA2", action="skipped", detail="flex_refused")
+        body = client.get(f"{BASE}/runs/{rid}", headers=reader).json()
+        assert [e["id"] for e in body["events"]] == [second, first]
+
+    def test_pagination_bounds(self, client, pg, reader):
+        rid = insert_run(pg)
+        assert client.get(f"{BASE}/runs/{rid}?page=0", headers=reader).status_code == 422
+        assert client.get(f"{BASE}/runs/{rid}?page_size=0", headers=reader).status_code == 422
+        assert client.get(f"{BASE}/runs/{rid}?page_size=201", headers=reader).status_code == 422
+
 
 class TestMlaEvents:
     def test_events_across_runs_with_run_context(self, client, pg, reader):
@@ -239,6 +265,24 @@ class TestMlaEvents:
         actions = [w["action"] for w in body["ml_writes"]]
         assert sorted(actions) == ["enable_flex", "update_data", "update_shipping"]
         assert len(body["ml_writes"]) == 3
+
+    def test_events_newest_first(self, client, pg, reader):
+        r1 = insert_run(pg, job_type="envio")
+        r2 = insert_run(pg, job_type="sku")
+        insert_event(pg, r1, mla_id="MLA7", action="changed", detail="shipping_put")
+        insert_event(pg, r2, mla_id="MLA7", action="skipped", detail="flex_refused")
+        body = client.get(f"{BASE}/events?mla_id=MLA7", headers=reader).json()
+        assert body["events"][0]["run_job_type"] == "sku"
+
+    def test_pagination_bounds(self, client, pg, reader):
+        assert client.get(f"{BASE}/events?mla_id=MLA1&page=0", headers=reader).status_code == 422
+        assert client.get(f"{BASE}/events?mla_id=MLA1&page_size=0", headers=reader).status_code == 422
+        assert client.get(f"{BASE}/events?mla_id=MLA1&page_size=201", headers=reader).status_code == 422
+
+    def test_ml_writes_excludes_non_item_resource(self, client, pg, reader):
+        insert_write(pg, "MLA9", "update_shipping", {"shipping": {"x": 1}}, usuario_id=None, resource="promotion")
+        body = client.get(f"{BASE}/events?mla_id=MLA9", headers=reader).json()
+        assert body["ml_writes"] == []
 
     def test_mla_required(self, client, pg, reader):
         assert client.get(f"{BASE}/events", headers=reader).status_code == 422
