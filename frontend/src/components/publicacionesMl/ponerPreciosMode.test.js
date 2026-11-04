@@ -7,9 +7,10 @@ import {
 
 describe('visibilityForPonerPreciosMode', () => {
   it('keeps the S3 preset (and titulo) and hides the rest', () => {
-    const keys = [...PONER_PRECIOS_COLUMN_KEYS, 'tipo', 'stock_propio', 'facturado_30d', 'evento'];
+    const keys = [...PONER_PRECIOS_COLUMN_KEYS, 'stock_propio', 'facturado_30d', 'evento'];
     expect(visibilityForPonerPreciosMode(keys)).toEqual({
       titulo: true,
+      tipo: true,
       estado: true,
       precio: true,
       unidades_7d: true,
@@ -22,7 +23,6 @@ describe('visibilityForPonerPreciosMode', () => {
       stock_erp: true,
       codigo: true,
       marca: true,
-      tipo: false,
       stock_propio: false,
       facturado_30d: false,
       evento: false,
