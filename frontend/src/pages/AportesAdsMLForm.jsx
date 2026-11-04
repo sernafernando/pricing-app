@@ -167,34 +167,27 @@ function useDisplayCampaigns(enabled) {
  */
 function displayOptions(catalog, productAdsCampaigns, initial) {
   const names = new Map(productAdsCampaigns.map((c) => [c.advertiser_id, c.advertiser_name]));
-  const label = (advertiserId) => advertiserLabel({ advertiser_id: advertiserId, advertiser_name: names.get(advertiserId) });
-  const options = [];
-  const advertisers = [...new Set(catalog.map((c) => c.advertiser_id))];
-  advertisers.forEach((advertiserId) => {
-    options.push({
-      key: campaignKey(advertiserId, null, 'display'),
-      text: `Toda la cuenta Display · ${label(advertiserId)}`,
-    });
-    catalog
-      .filter((c) => c.advertiser_id === advertiserId)
-      .forEach((c) =>
-        options.push({
-          key: campaignKey(advertiserId, c.campaign_id, 'display'),
-          text: `${c.name || `Campaña ${c.campaign_id}`} · ${c.campaign_id} · ${label(advertiserId)}`,
-        }),
-      );
-  });
-  const current = initial.channel === 'display' ? campaignKey(initial.advertiser_id, initial.campaign_id, 'display') : '';
-  if (current && !options.some((o) => o.key === current)) {
-    const owner = initial.advertiser_name || names.get(initial.advertiser_id);
-    const account = advertiserLabel({ advertiser_id: initial.advertiser_id, advertiser_name: owner });
+  // One text for a choice, whether it comes from the catalog or from the edited aporte.
+  const option = (advertiserId, campaignId, campaignName, advertiserName = names.get(advertiserId)) => {
+    const account = advertiserLabel({ advertiser_id: advertiserId, advertiser_name: advertiserName });
     const text =
-      initial.campaign_id == null
+      campaignId == null
         ? `Toda la cuenta Display · ${account}`
-        : `${initial.campaign_name || `Campaña ${initial.campaign_id}`} · ${initial.campaign_id} · ${account}`;
-    options.unshift({ key: current, text });
-  }
-  return options;
+        : `${campaignName || `Campaña ${campaignId}`} · ${campaignId} · ${account}`;
+    return { key: campaignKey(advertiserId, campaignId, 'display'), text };
+  };
+  const options = [...new Set(catalog.map((c) => c.advertiser_id))].flatMap((advertiserId) => [
+    option(advertiserId, null),
+    ...catalog.filter((c) => c.advertiser_id === advertiserId).map((c) => option(advertiserId, c.campaign_id, c.name)),
+  ]);
+  if (initial.channel !== 'display') return options;
+  const current = option(
+    initial.advertiser_id,
+    initial.campaign_id,
+    initial.campaign_name,
+    initial.advertiser_name || names.get(initial.advertiser_id),
+  );
+  return options.some((o) => o.key === current.key) ? options : [current, ...options];
 }
 
 /** The preview's request: a whole Display account sends no `campaign_id`, which is how the query says "all". */

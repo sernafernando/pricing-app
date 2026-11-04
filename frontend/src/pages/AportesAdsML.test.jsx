@@ -901,6 +901,17 @@ describe('Display aportes (Stitch 7512c518)', () => {
     expect(screen.queryByLabelText('Campaña de Display')).not.toBeInTheDocument();
   });
 
+  it('drops a Product Ads preview when the channel switches to Display, never showing it as Display spend', async () => {
+    const user = userEvent.setup();
+    await openHeaderCreate(user);
+    await user.selectOptions(screen.getByLabelText('Campaña'), 'Notebooks · 66 · GAUSS');
+    await fillCommon(user, { value: '10', brand: 'EPSON' });
+    expect(await screen.findByLabelText('Lo que cubre el aporte')).toBeInTheDocument();
+    await user.click(within(channel()).getByRole('button', { name: 'Display' }));
+    expect(screen.queryByLabelText('Lo que cubre el aporte')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Display gastó/)).not.toBeInTheDocument();
+  });
+
   it('says why no Display campaign can be picked when the list fails to load', async () => {
     const answerOthers = api.get.getMockImplementation();
     api.get.mockImplementation((url, config) =>
