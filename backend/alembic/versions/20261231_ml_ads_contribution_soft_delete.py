@@ -1,7 +1,7 @@
 """ml_ads_campaign_contributions.deleted_at / deleted_by_id: deleting an aporte is soft (ml-ads-aportes-robust S6)
 
 Revision ID: 20261231_ml_ads_contribution_soft_delete
-Revises: 20261229_ml_ads_contribution_channel
+Revises: 20261104_catalog_competition_refresh_pending
 Create Date: 2026-11-04
 
 A deleted aporte keeps its row, marked with who removed it and when; every read ignores it. Both columns are set
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261231_ml_ads_contribution_soft_delete"
-down_revision: Union[str, None] = "20261229_ml_ads_contribution_channel"
+down_revision: Union[str, None] = "20261104_catalog_competition_refresh_pending"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
