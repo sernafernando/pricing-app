@@ -88,4 +88,4 @@ Dependen de permisos (editar precios, marcar color, acciones masivas).
 Agrupa las publicaciones por marca, categoría, subcategoría, etc., en un árbol expandible.
 
 **¿Cómo sé qué lote de sell in va a aplicar en la próxima venta?**
-En el panel del producto (pestaña Resumen) está la sección **Lotes sell in**: los lotes en orden FIFO con su estado (Vigente, En cola, Agotado, Desde dd/mm) y qué descuenta la próxima venta según el modo de costo del producto (FIFO, ponderado o último precio). Ver **Sell in / Sell out → Lotes de un producto**.
+En el panel del producto (pestaña Resumen) está la sección **Lotes sell in**: los lotes en orden FIFO con su estado (Vigente, En cola, Agotado, Desde dd/mm) y qué descuenta la próxima venta según el modo de costo del producto (FIFO, ponderado o último precio); debajo, la sección **Modo de costo** para cambiarlo con su vista previa, con los permisos de modo de costo. Ver **Sell in / Sell out → Lotes de un producto** y **Modo de costo de un producto**.

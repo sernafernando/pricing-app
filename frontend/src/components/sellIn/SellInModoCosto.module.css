@@ -1,0 +1,188 @@
+/* The cost-mode panel inside the sell-in lot viewer: current mode, the change form with its preview, the history. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.title,
+.subhead {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+}
+
+.subhead {
+  margin-top: var(--space-2);
+}
+
+.hint,
+.help,
+.note {
+  margin: 0;
+  color: var(--cf-text-secondary);
+}
+
+.help {
+  font-size: var(--font-xs);
+}
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.modebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.modebarLabel,
+.label {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.field > [role='group'] {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.input {
+  height: 30px;
+  padding: 0 var(--space-2);
+  font: inherit;
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-base);
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--cf-bg-hover);
+  border-left: 3px solid var(--cf-accent-blue);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.preview h4 {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.facts span {
+  color: var(--cf-text-secondary);
+}
+
+.warning {
+  margin: 0;
+  color: var(--tone-warning-fg);
+  font-weight: var(--font-semibold);
+}
+
+.mini {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.mini th,
+.mini td {
+  padding: var(--space-1) var(--space-2);
+  text-align: right;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.mini th:first-child {
+  text-align: left;
+}
+
+.mini thead th {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+}
+
+.mini tbody th {
+  font-weight: var(--font-normal);
+}
+
+.hist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hist li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.histDate {
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-secondary);
+}
+
+.histMeta {
+  color: var(--cf-text-secondary);
+}
+
+.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--cf-danger);
+}

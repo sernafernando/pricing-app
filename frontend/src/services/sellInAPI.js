@@ -53,4 +53,9 @@ const PRODUCTOS = '/sell-in/productos';
 export const sellInLotesAPI = {
   lotes: (itemId) => api.get(`${PRODUCTOS}/${itemId}/lotes`),
   consumos: (itemId, compraItemId, params) => api.get(`${PRODUCTOS}/${itemId}/lotes/${compraItemId}/consumos`, { params }),
+  // The product's cost modes (`sell_in.ver`): the history and the one governing today; a change is always previewed
+  // first (`{ modo, desde }`) and confirmed with the preview's `huella` (409: the product moved, preview again).
+  modos: (itemId) => api.get(`${PRODUCTOS}/${itemId}/modos`),
+  vistaPrevia: (itemId, body) => api.post(`${PRODUCTOS}/${itemId}/modos/vista-previa`, body),
+  confirmarModo: (itemId, body) => api.post(`${PRODUCTOS}/${itemId}/modos`, body),
 };

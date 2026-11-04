@@ -35,3 +35,8 @@
   background: var(--cf-bg-card);
   box-shadow: var(--cf-card-shadow);
 }
+
+.option:disabled {
+  color: var(--cf-text-tertiary);
+  cursor: not-allowed;
+}

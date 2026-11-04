@@ -67,7 +67,20 @@ Cada venta toma las unidades del lote más viejo que todavía tiene (orden FIFO)
 - Debajo, los lotes en el orden en que se consumen, cada uno con su número, el estado, el descuento por unidad en pesos (una compra en USD, a su propio tipo de cambio), las unidades que quedan y las usadas, la fecha desde la que cuenta y la compra (#, proveedor, facturas; el proveedor y las facturas solo con el permiso de ver compras, el mismo de **Últimas compras**). Los estados son **Vigente** (el que toma la próxima venta), **En cola**, **Agotado** o **Desde dd/mm** (cuenta desde una fecha futura).
 - **Ver ventas** en un lote muestra las ventas que lo consumieron (canal, venta, fecha, unidades y descuento); **Ver más ventas** trae las siguientes.
 
-Es solo lectura: no cambia nada.
+Los lotes son solo lectura. Debajo está la sección **Modo de costo**.
+
+### Modo de costo de un producto
+
+La sección **Modo de costo**, dentro de **Lotes sell in**, muestra con qué modo descuentan hoy las unidades del producto ("Modo actual": **FIFO (por defecto)** si nunca se cambió, o el modo y desde qué fecha) y el **Historial** de cambios, el más nuevo primero, con quién lo hizo.
+
+Para cambiarlo:
+
+1. En **Cambiar a**, elegí **FIFO**, **Ponderado (PPP)** o **Último precio**. **Manual** (cargar cantidad y costo a mano) todavía no está disponible.
+2. En **Desde**, la fecha desde la que rige. Por defecto es hoy.
+3. Tocá **Ver cómo queda**. La vista previa dice cuántas ventas ya registradas cambian, la diferencia total en pesos, cuántas unidades quedan y a qué descuento por unidad, y compara el descuento de la próxima unidad y de la más nueva antes y después. Con **Último precio** el total puede no coincidir con lo que tienen los lotes: la vista previa dice cuánto queda sin asignar o cuánto se asigna de más.
+4. Tocá **Confirmar cambio**, o **Cancelar** para no guardar nada. Si cambiás el modo o la fecha después de ver la vista previa, hay que verla de nuevo. Si el producto cambió mientras tanto (una venta o una compra nueva), el sistema pide volver a tocar **Ver cómo queda**.
+
+Permisos: **Ponderado (PPP)** necesita `sell_in.costo_ponderado` y **Último precio** `sell_in.costo_ultimo`; volver a **FIFO** se puede con cualquiera de los permisos de modo. Una fecha pasada necesita además `sell_in.costo_retroactivo` y recalcula las ventas registradas desde ese día. Sin ningún permiso de modo se ve el modo actual y el historial, sin poder cambiarlo.
 
 ### Campañas de sell out: tipos
 
