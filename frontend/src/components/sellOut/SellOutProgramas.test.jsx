@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SellOutProgramas from './SellOutProgramas';
 import { sellOutAPI, sellOutProgramasAPI } from '../../services/sellOutAPI';
-import { CAMPANAS_DEL_PROGRAMA, PROGRAMA_ARCHIVADO, PROGRAMA_MARCA } from './sellOutFixtures';
+import { CAMPANAS_DEL_PROGRAMA, PROGRAMA_ARCHIVADO, PROGRAMA_MARCA, RENOVACION_MARCA } from './sellOutFixtures';
 
 vi.mock('../../services/sellOutAPI', () => ({
   sellOutAPI: { listar: vi.fn() },
-  sellOutProgramasAPI: { crear: vi.fn(), editar: vi.fn(), asignar: vi.fn() },
+  sellOutProgramasAPI: { crear: vi.fn(), editar: vi.fn(), asignar: vi.fn(), renovacion: vi.fn(), renovar: vi.fn() },
 }));
 
 const PROGRAMA_VACIO = { ...PROGRAMA_MARCA, id: 9, nombre: 'MARCA Q1', campanas: 0, activas: 0, nombres: 0, desde: null, hasta: null };
@@ -156,6 +156,25 @@ describe('SellOutProgramas', () => {
     expect(onVerCampanas).toHaveBeenCalledWith(7);
   });
 
+  it('"Renovar programa" is on active programs only, and a renewal reports and reloads', async () => {
+    const user = userEvent.setup();
+    sellOutProgramasAPI.renovacion.mockResolvedValue({ data: RENOVACION_MARCA });
+    sellOutProgramasAPI.renovar.mockResolvedValue({
+      data: { creadas: [{ campana_id: 11, nueva_id: 901 }, { campana_id: 12, nueva_id: 902 }], omitidas: [] },
+    });
+    const { onCambio } = renderProgramas();
+
+    await user.click(screen.getByRole('button', { name: 'Todos' }));
+    expect(within(filaDe('Modelos SP')).queryByRole('button', { name: 'Renovar programa' })).not.toBeInTheDocument();
+    await user.click(within(filaDe('MARCA PROG')).getByRole('button', { name: 'Renovar programa' }));
+    const dialogo = screen.getByRole('dialog', { name: 'Renovar programa «MARCA PROG»' });
+    await user.click(await within(dialogo).findByRole('button', { name: 'Renovar 2 campañas' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(onCambio).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status')).toHaveTextContent('2 campañas renovadas en «MARCA PROG» para Ene–Mar 2027.');
+  });
+
   it('without sell_out.gestionar it only shows: no create, edit, archive or selection', async () => {
     const user = userEvent.setup();
     renderProgramas({ puedeGestionar: false });
@@ -163,6 +182,7 @@ describe('SellOutProgramas', () => {
     expect(screen.queryByRole('button', { name: 'Nuevo programa' })).not.toBeInTheDocument();
     expect(within(filaDe('MARCA PROG')).queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
     expect(within(filaDe('MARCA PROG')).queryByRole('button', { name: 'Archivar' })).not.toBeInTheDocument();
+    expect(within(filaDe('MARCA PROG')).queryByRole('button', { name: 'Renovar programa' })).not.toBeInTheDocument();
     await user.click(within(filaDe('MARCA PROG')).getByRole('button', { name: 'Ver campañas de MARCA PROG' }));
     await screen.findByText('MARCA PROG 3.0');
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();

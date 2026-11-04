@@ -1,0 +1,227 @@
+/* "Renovar programa" dialog (Stitch 26104b54): periods, the campaigns to copy, the skipped ones and the notices. */
+
+.cabecera {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.icono {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--cf-accent-blue);
+  background: color-mix(in srgb, var(--cf-accent-blue) 12%, transparent);
+  border-radius: 50%;
+}
+
+.subtitulo {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.periodos {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.periodo {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  color: var(--cf-text-secondary);
+}
+
+.destino {
+  color: var(--cf-accent-blue);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-accent-blue);
+  border-radius: var(--radius-md);
+}
+
+.periodoTitulo {
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.destino .periodoTitulo {
+  color: var(--cf-accent-blue);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-secondary);
+}
+
+.flecha {
+  flex-shrink: 0;
+  color: var(--cf-text-secondary);
+}
+
+.seccion {
+  margin-bottom: var(--space-4);
+}
+
+.seccionTitulo {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cuenta {
+  min-width: 1.25rem;
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  text-align: center;
+  color: var(--cf-bg-card);
+  background: var(--cf-accent-blue);
+  border-radius: var(--radius-full);
+}
+
+.cuentaNeutra {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+}
+
+.lista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.omitidas {
+  background: var(--cf-bg-hover);
+}
+
+.fila {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.fila + .fila {
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.secundario {
+  color: var(--cf-text-secondary);
+}
+
+/* A skipped row's text takes the room left and wraps there, so its badge stays on the row's right end. */
+.motivo {
+  flex: 1;
+  min-width: 0;
+}
+
+.idChip,
+.badge {
+  flex-shrink: 0;
+}
+
+.iconoAnulada {
+  flex-shrink: 0;
+  color: var(--tone-danger-fg);
+}
+
+.idChip,
+.badge {
+  margin-left: auto;
+}
+
+.idChip {
+  padding: 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-sm);
+}
+
+.afuera {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-3);
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--tone-warning-fg);
+  background: var(--tone-warning-bg);
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-md);
+}
+
+.afuera svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.nota {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.vacio {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.error {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
+}
+
+.pie {
+  align-items: center;
+}
+
+.listas {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-right: auto;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.punto {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--tone-success-fg);
+  border-radius: 50%;
+}

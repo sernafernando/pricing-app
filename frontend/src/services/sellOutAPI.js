@@ -35,7 +35,8 @@ const PROGRAMAS = '/sell-out/programas';
 
 /**
  * Sell-out programs (`app/routers/sell_out_programas.py`), the level that groups campaigns: `sell_out.ver` lists them
- * and their suggestions, `sell_out.gestionar` creates, edits and archives them and assigns campaigns. Metadata only: no money changes.
+ * and their suggestions, `sell_out.gestionar` creates, edits and archives them, assigns campaigns and renews a program (Renovar programa
+ * creates campaigns; the rest is metadata only).
  */
 export const sellOutProgramasAPI = {
   listar: (params) => api.get(PROGRAMAS, { params }),
@@ -46,4 +47,8 @@ export const sellOutProgramasAPI = {
   asignar: (campanaIds, programaId) => api.post(`${PROGRAMAS}/asignar`, { campana_ids: campanaIds, programa_id: programaId }),
   // Campaigns without a program that share their exact dates, each group with a proposed name (`base`).
   sugerencias: (params) => api.get(`${PROGRAMAS}/sugerencias`, { params }),
+  // Renovar programa's preview: the source period, the target quarter, `renovar`, `omitidas` and `quedan_afuera`.
+  renovacion: (id) => api.get(`${PROGRAMAS}/${id}/renovacion`),
+  // Creates the copies of the ids the preview listed, all or nothing; a 409 means the preview changed (read it again).
+  renovar: (id, campanaIds) => api.post(`${PROGRAMAS}/${id}/renovar`, { campana_ids: campanaIds }),
 };
