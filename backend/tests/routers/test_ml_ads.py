@@ -226,3 +226,9 @@ class TestDisplay:
         )
         assert body["daily"] == [{"day": DAY.isoformat(), "cost": 121938.82}]
         assert "coverage" in body
+
+    def test_each_campaign_carries_its_days(self, client, db, reader) -> None:
+        self._seed(db)
+        rows = {c["campaign_id"]: c for c in get(client, reader, "display").json()["campaigns"]}
+        assert rows[335306]["days"] == [{"day": DAY.isoformat(), "cost": 27226.79, "attributed_amount": 1658026.88}]
+        assert rows[340339]["days"] == []  # paused, no activity

@@ -315,8 +315,18 @@ class DisplayFigures:
 
 
 @dataclass(frozen=True)
+class DisplayCampaignDay:
+    """One stored day of one campaign: its cost and the sales ML attributes to it that day."""
+
+    day: date
+    cost: Decimal
+    attributed_amount: Decimal
+
+
+@dataclass(frozen=True)
 class DisplayCampaignReport(DisplayFigures):
-    """One campaign: its catalog (None when the catalog never listed it) over its summed figures."""
+    """One campaign: its catalog (None when the catalog never listed it) over its summed figures, and its stored
+    days in range by date (a day it had no row is absent; the report's `daily` says which days were covered)."""
 
     advertiser_id: int
     campaign_id: int
@@ -326,6 +336,7 @@ class DisplayCampaignReport(DisplayFigures):
     status: Optional[str]
     start_date: Optional[date]
     end_date: Optional[date]
+    days: tuple[DisplayCampaignDay, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -366,11 +377,15 @@ def display_report(db: Session, date_from: date, date_to: date) -> DisplayReport
     in_range = D.day.between(date_from, date_to)
     # One pass over the range's day rows: the figures add up per campaign, the attribution is read from `raw`.
     figures: dict[tuple[int, int], dict[str, Any]] = {}
-    for advertiser, campaign, cost, prints, clicks, reach, raw in db.execute(
-        select(D.advertiser_id, D.campaign_id, D.consumed_budget, D.prints, D.clicks, D.reach, D.raw).where(in_range)
+    days: dict[tuple[int, int], list[DisplayCampaignDay]] = {}
+    for advertiser, campaign, day, cost, prints, clicks, reach, raw in db.execute(
+        select(D.advertiser_id, D.campaign_id, D.day, D.consumed_budget, D.prints, D.clicks, D.reach, D.raw)
+        .where(in_range)
+        .order_by(D.day)
     ).all():
         row = figures.setdefault((advertiser, campaign), dict(_ZERO_FIGURES))
         amount, units = _attribution(raw)
+        days.setdefault((advertiser, campaign), []).append(DisplayCampaignDay(day, cost, amount))
         row["cost"] += cost
         row["prints"] += int(prints)
         row["clicks"] += int(clicks)
@@ -396,6 +411,7 @@ def display_report(db: Session, date_from: date, date_to: date) -> DisplayReport
                 status=entry.status if entry else None,
                 start_date=_day(entry.start_date) if entry else None,
                 end_date=_day(entry.end_date) if entry else None,
+                days=tuple(days.get(key, ())),
             )
         )
     campaigns.sort(key=lambda c: (-c.cost, c.advertiser_id, c.campaign_id))
