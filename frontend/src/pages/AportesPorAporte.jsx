@@ -10,12 +10,14 @@
  * a change to `refreshKey` asks again. No form loads a Display aporte yet, so Display rows have no pencil.
  */
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Info, Pencil, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, Clock, Info, Pencil, Search, Trash2 } from 'lucide-react';
 import api from '../services/api';
 import { SegmentedControl, StatusPill } from '../components/kit';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
 import { formatSignedMoney } from '../utils/ventasMlTone';
 import { scopeOf } from '../utils/aportesScope';
+import { dayMonth, stampDay } from '../utils/aportesDates';
+import AportesHistorial from './AportesHistorial';
 import shell from './AportesAdsML.module.css';
 import styles from './AportesPorAporte.module.css';
 
@@ -34,18 +36,6 @@ const SETTLEMENT_BADGES = {
 const percent = (value) => `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`;
 const share = (part, whole) => (whole > 0 ? percent((part / whole) * 100) : '—');
 // `2026-10-01` or `2026-10-01T10:00:00` -> `01/10`.
-const dayMonth = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
-const AR_DAY = new Intl.DateTimeFormat('en-US', {
-  day: 'numeric',
-  month: 'numeric',
-  timeZone: 'America/Argentina/Buenos_Aires',
-});
-/** The Argentine calendar day of a backend timestamp; one without an offset is UTC, as the backend stores it. */
-const stampDay = (iso) => {
-  const parts = AR_DAY.formatToParts(new Date(/(Z|[+-]\d\d:\d\d)$/.test(iso) ? iso : `${iso}Z`));
-  const part = (type) => parts.find((p) => p.type === type).value.padStart(2, '0');
-  return `${part('day')}/${part('month')}`;
-};
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const sum = (rows) => rows.reduce((total, row) => total + (row.covered || 0), 0);
 
@@ -145,7 +135,7 @@ function ByBrand({ rows }) {
   );
 }
 
-function Row({ row, canManage, onEdit, onDelete }) {
+function Row({ row, canManage, onEdit, onDelete, onHistory }) {
   const scope = scopeOf(row);
   const channel = CHANNEL_BADGES[row.channel];
   const settlement = SETTLEMENT_BADGES[row.settlement];
@@ -183,19 +173,29 @@ function Row({ row, canManage, onEdit, onDelete }) {
         </span>
       </td>
       <td>
-        {canManage && (
-          <span className={shell.actions}>
-            {row.channel === 'product_ads' && (
-              <button
-                type="button"
-                className={shell.btnIcon}
-                aria-label={`Editar aporte de ${brandOf(row)}`}
-                title="Editar"
-                onClick={() => onEdit(row)}
-              >
-                <Pencil size={14} />
-              </button>
-            )}
+        {/* Pencil, clock, trash, as the design; the history is read-only, so it needs no permission to manage. */}
+        <span className={shell.actions}>
+          {canManage && row.channel === 'product_ads' && (
+            <button
+              type="button"
+              className={shell.btnIcon}
+              aria-label={`Editar aporte de ${brandOf(row)}`}
+              title="Editar"
+              onClick={() => onEdit(row)}
+            >
+              <Pencil size={14} />
+            </button>
+          )}
+          <button
+            type="button"
+            className={shell.btnIcon}
+            aria-label={`Historial del aporte de ${brandOf(row)}`}
+            title="Historial"
+            onClick={() => onHistory(row)}
+          >
+            <Clock size={14} />
+          </button>
+          {canManage && (
             <button
               type="button"
               className={`${shell.btnIcon} ${shell.btnIconDanger}`}
@@ -205,8 +205,8 @@ function Row({ row, canManage, onEdit, onDelete }) {
             >
               <Trash2 size={14} />
             </button>
-          </span>
-        )}
+          )}
+        </span>
       </td>
     </tr>
   );
@@ -215,6 +215,7 @@ function Row({ row, canManage, onEdit, onDelete }) {
 export default function AportesPorAporte({ range, canManage, refreshKey, onEdit, onDelete }) {
   const { data, loading, error } = useAportes(range, refreshKey);
   const [search, setSearch] = useState('');
+  const [historyOf, setHistoryOf] = useState(null);
   const [brand, setBrand] = useState('');
   const [channel, setChannel] = useState('all');
   const rows = data?.contributions ?? [];
@@ -300,7 +301,14 @@ export default function AportesPorAporte({ range, canManage, refreshKey, onEdit,
             )}
             {!loading &&
               visible.map((row) => (
-                <Row key={row.id} row={row} canManage={canManage} onEdit={onEdit} onDelete={onDelete} />
+                <Row
+                  key={row.id}
+                  row={row}
+                  canManage={canManage}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  onHistory={setHistoryOf}
+                />
               ))}
           </tbody>
           {!loading && rows.length > 0 && (
@@ -319,6 +327,8 @@ export default function AportesPorAporte({ range, canManage, refreshKey, onEdit,
         <Info size={14} aria-hidden="true" /> Un aporte borrado deja de contar pero queda en el historial con quién lo
         borró y cuándo. &apos;Devuelve diferencia&apos; cuenta como máximo lo gastado en el rango.
       </p>
+
+      {historyOf && <AportesHistorial aporte={historyOf} onClose={() => setHistoryOf(null)} />}
     </>
   );
 }

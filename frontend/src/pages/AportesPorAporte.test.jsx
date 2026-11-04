@@ -110,10 +110,26 @@ describe('AportesPorAporte', () => {
     expect(onDelete).toHaveBeenCalledWith(APORTES_VIEW.contributions[1]);
   });
 
-  it('offers no action without the permission to manage aportes', async () => {
+  it('offers only the history without the permission to manage aportes', async () => {
     renderView({ canManage: false });
     await screen.findByText('Lucía Fernández · 02/10');
-    expect(within(table()).queryAllByRole('button')).toEqual([]);
+    expect(within(table()).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Historial del aporte de TP-Link',
+      'Historial del aporte de Xerox',
+      'Historial del aporte de Epson',
+    ]);
+  });
+
+  it('opens the history of an aporte from its clock (Stitch 973006a2)', async () => {
+    const user = userEvent.setup();
+    renderView();
+    await screen.findByText('Lucía Fernández · 02/10');
+    api.get.mockResolvedValueOnce({ data: { events: [] } });
+    await user.click(within(bodyRows()[1]).getByRole('button', { name: 'Historial del aporte de Xerox' }));
+    expect(await screen.findByText('Historial del aporte')).toBeInTheDocument();
+    expect(api.get).toHaveBeenLastCalledWith('/ml-ads/contributions/3/history');
+    await user.click(screen.getByRole('button', { name: 'Cerrar' }));
+    expect(screen.queryByText('Historial del aporte')).not.toBeInTheDocument();
   });
 
   it('drops a brand filter the new range no longer offers, like the campaigns view', async () => {
