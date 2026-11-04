@@ -185,9 +185,10 @@ class Settings(BaseSettings):
 
     # ML publications store (ml-publicaciones-store, design D19). Runtime flags
     # live in `ml_pub_settings` (DB); the values below are only the DEFAULT used
-    # when a key has no DB row, so a fresh deploy with no overrides is inert
-    # (PROMOS_WRITE_ENABLED precedent). The kill switch is env-only on purpose:
-    # it is the escape hatch for "the settings table is unreachable or wrong".
+    # when a key has no DB row. Most `*.enabled` flags default OFF so a fresh
+    # deploy is inert (PROMOS_WRITE_ENABLED precedent), with one documented
+    # exception below. The kill switch is env-only on purpose: it is the escape
+    # hatch for "the settings table is unreachable or wrong".
     ML_PUB_KILL_SWITCH: bool = False
     ML_PUB_REFRESH_ENABLED: bool = False
     ML_PUB_INTAKE_ENABLED: bool = False
@@ -199,6 +200,12 @@ class Settings(BaseSettings):
     # Refresh of the promotions mirror when a publication becomes active again (`ml_publications.promo_refresh`).
     ML_PUB_PROMO_REFRESH_ENABLED: bool = False
     ML_PUB_PROMO_REFRESH_RATE_PER_MIN: int = Field(default=30, ge=1, le=120)
+    # Drain of catalog_competition_refresh_pending after hay_mejores novelty.
+    # Documented exception to the all-off ML_PUB defaults (owner): ON by default
+    # so the drain runs without a manual post-deploy flip. Still disable via
+    # ml_pub_settings or ML_PUB_KILL_SWITCH. See settings_store module docstring.
+    ML_PUB_CATALOG_COMPETITION_REFRESH_ENABLED: bool = True
+    ML_PUB_CATALOG_COMPETITION_REFRESH_RATE_PER_MIN: int = Field(default=10, ge=1, le=120)
     ML_PUB_LINKS_ENABLED: bool = False
     ML_PUB_VERIFY_ENABLED: bool = False
     ML_PUB_DIVERGENCE_ENABLED: bool = False

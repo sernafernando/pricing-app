@@ -299,9 +299,9 @@ def undercutting_competitors(row: Optional[MLCatalogCompetition]) -> List[Dict[s
 
 async def refrescar_competencia_catalogo(db: Session, mlas: List[str]) -> List[MLCatalogCompetition]:
     """Fetches, buckets, prices and PERSISTS one snapshot row per MLA in
-    `mlas`. Called today by the manual per-MLA refresh endpoint (slice C2)
-    and, unchanged, by a future cron — adding the cron adds no schema
-    change and no new code path here.
+    `mlas`. Called by the manual per-MLA refresh endpoint (slice C2) and by
+    the `ml_publications.catalog_competition_refresh` worker (hay_mejores
+    enqueue). Same code path for both — no schema change per caller.
 
     Never raises for a single MLA's FETCH failure: a `not_catalog`, an
     `error`, or an unexpected exception still produces a persisted row, so

@@ -3,8 +3,13 @@
 Flags and tunables live in `ml_pub_settings` so an operator can change them
 without a deploy; handlers read them at the start of every run and at every
 batch boundary. The environment (`app.core.config.settings`) only supplies the
-DEFAULT for a key that has no row, so a fresh deploy is governed purely by the
-all-off env defaults.
+DEFAULT for a key that has no row, so a fresh deploy is governed by the env
+defaults (almost all `*.enabled` flags default OFF).
+
+Documented exception (owner): `catalog_competition_refresh.enabled` defaults
+ON (`ML_PUB_CATALOG_COMPETITION_REFRESH_ENABLED=True`) so hay_mejores → catalog
+competition drain runs without a manual post-deploy flip. Operators still turn
+it off via `ml_pub_settings` or `ML_PUB_KILL_SWITCH`.
 
 `ML_PUB_KILL_SWITCH` is environment-only on purpose: when set, every `*.enabled`
 flag reads as disabled regardless of the database, and the database is not even
@@ -104,6 +109,7 @@ _FLAGS = (
     "events",
     "promotions",
     "promo_refresh",
+    "catalog_competition_refresh",
     "links",
     "verify",
     "divergence",
@@ -123,6 +129,9 @@ SETTING_DEFS: Dict[str, _Def] = {
     "stock_rate_per_min": _Def("ML_PUB_STOCK_RATE_PER_MIN", _int_between(1, 100)),
     "replenishment_rate_per_min": _Def("ML_PUB_REPLENISHMENT_RATE_PER_MIN", _int_between(1, 100)),
     "promo_refresh.rate_per_min": _Def("ML_PUB_PROMO_REFRESH_RATE_PER_MIN", _int_between(1, 120)),
+    "catalog_competition_refresh.rate_per_min": _Def(
+        "ML_PUB_CATALOG_COMPETITION_REFRESH_RATE_PER_MIN", _int_between(1, 120)
+    ),
     "bulk_max_ids": _Def("ML_PUB_BULK_MAX_IDS", _int_between(1, 20)),
     "low_lane_min_share": _Def("ML_PUB_LOW_LANE_MIN_SHARE", _positive_number(1)),
     "view.ads_formula": _Def("ML_PUB_VIEW_ADS_FORMULA", _ads_formula),

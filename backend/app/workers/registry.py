@@ -93,6 +93,7 @@ def __getattr__(name: str) -> List[JobHandler]:
             from app.workers.handlers.ml_ads import ads
             from app.workers.handlers.ml_billing import billing
             from app.workers.handlers.ml_order_discounts import discounts
+            from app.workers.handlers.catalog_competition_refresh import catalog_competition_refresh
             from app.workers.handlers.ml_promo_refresh import promo_refresh
             from app.workers.handlers.ml_publications import (
                 freshness,
@@ -128,6 +129,8 @@ def __getattr__(name: str) -> List[JobHandler]:
                 gestion_full_inbound,
                 # Gestión Full envíos: every 3h reconcile open inbound_ids.
                 gestion_full_reconcile,
+                # hay_mejores → catalog competition snapshot refresh (path 1).
+                catalog_competition_refresh,
                 # publicaciones-repair: conditional envio/sku ticks under the shared Pacer.
                 envio_repair,
                 sku_repair,

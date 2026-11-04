@@ -134,13 +134,17 @@ def actualizar_hay_mejores_ofertas(
     """Persist flag from sale_price vs candidates. Never raises.
 
     Runs in a SAVEPOINT so a failure only skips the flag and never poisons the
-    outer promotions-sync transaction.
+    outer promotions-sync transaction. When the flag newly becomes true (or is
+    re-marked with a different fingerprint), enqueues a catalog-competition
+    snapshot refresh for the MLA (worker `ml_publications.catalog_competition_refresh`).
     """
     try:
         with db.begin_nested():
             row = db.query(MlItemSellerPromotions).filter(MlItemSellerPromotions.item_id == item_id).one_or_none()
             if row is None:
                 return None
+            prev_flag = bool(row.hay_mejores_ofertas)
+            prev_fingerprint = row.hay_mejores_fingerprint
             sale = db.query(MlItemSalePrice).filter(MlItemSalePrice.item_id == item_id).one_or_none()
             baseline = float(sale.amount) if sale is not None and sale.amount is not None else None
             raw = raw_promotions if raw_promotions is not None else row.raw
@@ -155,10 +159,33 @@ def actualizar_hay_mejores_ofertas(
             row.hay_mejores_ofertas = decision.hay_mejores
             row.hay_mejores_fingerprint = decision.fingerprint
             row.hay_mejores_descartado_fingerprint = decision.descartado_fingerprint
+            if decision.hay_mejores and (not prev_flag or prev_fingerprint != decision.fingerprint):
+                _enqueue_catalog_competition_refresh(db, item_id)
             return decision
     except Exception as exc:
         logger.warning("hay_mejores: failed for %s: %s", item_id, exc)
         return None
+
+
+def _enqueue_catalog_competition_refresh(db: Session, item_id: str) -> None:
+    """Best-effort enqueue of the catalog MLA to refresh; never undoes hay_mejores.
+
+    Runs in its own SAVEPOINT so a failed INSERT (missing table, lock, etc.)
+    cannot abort the outer hay_mejores nested transaction.
+    """
+    try:
+        from datetime import UTC, datetime
+
+        from app.services.catalog_competition_refresh_queue import enqueue
+        from app.services.catalog_competition_target import mla_for_catalog_competition_refresh
+
+        with db.begin_nested():
+            target = mla_for_catalog_competition_refresh(db, item_id)
+            if target is None:
+                return
+            enqueue(db, [target], datetime.now(UTC))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("hay_mejores: catalog competition enqueue failed for %s: %s", item_id, exc)
 
 
 def descartar_hay_mejores_ofertas(db: Session, item_id: str) -> bool:
