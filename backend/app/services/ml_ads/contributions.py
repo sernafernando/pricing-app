@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func, or_, tuple_
+from sqlalchemy import String, case, cast, func, or_, tuple_
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
@@ -35,6 +35,7 @@ from app.models.ml_ads import (
     MlAdsItemDay,
 )
 from app.models.producto import ProductoERP
+from app.models.usuario import Usuario
 from app.services.ml_ads.read import COVERED
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,176 @@ def list_campaigns(db: Session, date_from: date, date_to: date) -> list[Campaign
             row.contributions.append(contribution)
             row.contribution += contribution_in(daily, contribution, date_from, date_to)
     return list(rows.values())
+
+
+@dataclass
+class ContributionRow:
+    """One aporte as the "Por aporte" view lists it (Stitch 55853ac1)."""
+
+    contribution: MlAdsCampaignContribution
+    campaign_name: Optional[str]  # None: a campaign the catalog does not name, or the whole Display account
+    covered: Decimal  # what it covers of the window, on its channel's rule
+    loaded_by: Optional[str]
+    loaded_at: datetime
+    edited_by: Optional[str] = None
+    edited_at: Optional[datetime] = None
+
+
+@dataclass(frozen=True)
+class ContributionsView:
+    rows: list[ContributionRow]
+    product_ads_cost: Decimal  # every Product Ads item row of the window, with or without campaign
+    display_cost: Decimal
+    no_campaign_cost: Decimal  # item rows with no campaign (NULL or 0): no aporte can cover them
+
+
+AUDIT_WRITES = (TipoAccion.ML_ADS_APORTE_CREADO, TipoAccion.ML_ADS_APORTE_EDITADO)
+
+
+def list_contributions(db: Session, date_from: date, date_to: date) -> ContributionsView:
+    """Every live aporte whose range touches `[date_from, date_to]`, by start, with what it covers of the window and
+    "Cargado" from its `auditoria` rows (owner: names and dates come from the audit). An aporte loaded before aportes
+    were audited has no creation row: its own `created_by_id` / `created_at` stand in."""
+    C, item = MlAdsCampaignContribution, MlAdsItemDay
+    rows = (
+        db.query(C)
+        .filter(CONTRIBUTION_LIVE, C.date_from <= date_to, C.date_to >= date_from)
+        .order_by(C.date_from, C.id)
+        .all()
+    )
+    product_ads = [r for r in rows if r.channel == PRODUCT_ADS]
+    daily = _daily_spend(db, product_ads)
+    covered = {r: contribution_in(daily, r, date_from, date_to) for r in product_ads}
+    for row, shares in _display_shares(db, [r for r in rows if r.channel == DISPLAY], date_from, date_to).items():
+        covered[row] = sum(shares.values(), Decimal(0))
+    names = _campaign_names(db, rows)
+    audit = _audit_trail(db, [r.id for r in rows])
+    users = _user_names(
+        db, {r.created_by_id for r in rows} | {uid for trail in audit.values() for _t, uid, _w in trail}
+    )
+    listed = []
+    for row in rows:
+        trail = audit.get(row.id, [])
+        created = next(((uid, when) for tipo, uid, when in trail if tipo == TipoAccion.ML_ADS_APORTE_CREADO), None)
+        edited = next(
+            ((uid, when) for tipo, uid, when in reversed(trail) if tipo == TipoAccion.ML_ADS_APORTE_EDITADO), None
+        )
+        loaded_by, loaded_at = created or (row.created_by_id, row.created_at)
+        listed.append(
+            ContributionRow(
+                contribution=row,
+                campaign_name=names.get((row.channel, row.advertiser_id, row.campaign_id)),
+                covered=covered.get(row, Decimal(0)),
+                loaded_by=users.get(loaded_by),
+                loaded_at=loaded_at,
+                edited_by=users.get(edited[0]) if edited else None,
+                edited_at=edited[1] if edited else None,
+            )
+        )
+    in_window = item.day.between(date_from, date_to)
+    no_campaign = or_(item.campaign_id.is_(None), item.campaign_id == 0)
+    product_ads_cost, no_campaign_cost = (
+        db.query(
+            func.coalesce(func.sum(item.cost), 0),
+            func.coalesce(func.sum(case((no_campaign, item.cost), else_=0)), 0),
+        )
+        .filter(in_window)
+        .one()
+    )
+    D = MlAdsDisplayCampaignDay
+    display_cost = db.query(func.coalesce(func.sum(D.consumed_budget), 0)).filter(D.day.between(date_from, date_to))
+    return ContributionsView(
+        rows=listed,
+        product_ads_cost=Decimal(str(product_ads_cost)),
+        display_cost=Decimal(str(display_cost.scalar())),
+        no_campaign_cost=Decimal(str(no_campaign_cost)),
+    )
+
+
+def _campaign_names(db: Session, rows: list[MlAdsCampaignContribution]) -> dict[tuple[str, int, int], str]:
+    """(channel, advertiser, campaign) -> catalog name, for the campaigns `rows` name."""
+    names: dict[tuple[str, int, int], str] = {}
+    for channel, model in ((PRODUCT_ADS, MlAdsCampaign), (DISPLAY, MlAdsDisplayCampaign)):
+        keys = {(r.advertiser_id, r.campaign_id) for r in rows if r.channel == channel and r.campaign_id is not None}
+        if not keys:
+            continue
+        found = db.query(model.advertiser_id, model.campaign_id, model.name).filter(
+            tuple_(model.advertiser_id, model.campaign_id).in_(keys)
+        )
+        names.update({(channel, a, c): name for a, c, name in found if name})
+    return names
+
+
+def _audit_trail(db: Session, ids: list[int]) -> dict[int, list[tuple[TipoAccion, int, datetime]]]:
+    """aporte id -> its creation and edit audit rows (type, user, when), oldest first. The aporte's id lives in the
+    row's `valores_nuevos` (`_snapshot`), as `item_id` holds products."""
+    if not ids:
+        return {}
+    # Compared as text: other audit types may carry a non-numeric "id", and Postgres does not promise to apply the
+    # type filter before a cast would run on them.
+    aporte_id = cast(Auditoria.valores_nuevos["id"].as_string(), String)
+    found = (
+        db.query(aporte_id, Auditoria.tipo_accion, Auditoria.usuario_id, Auditoria.fecha)
+        .filter(Auditoria.tipo_accion.in_(AUDIT_WRITES), aporte_id.in_([str(i) for i in ids]))
+        .order_by(Auditoria.fecha, Auditoria.id)
+    )
+    trail: dict[int, list[tuple[TipoAccion, int, datetime]]] = {}
+    for row_id, tipo, user_id, when in found:
+        trail.setdefault(int(row_id), []).append((tipo, user_id, when))
+    return trail
+
+
+HISTORY_ACTIONS = {
+    TipoAccion.ML_ADS_APORTE_CREADO: "created",
+    TipoAccion.ML_ADS_APORTE_EDITADO: "edited",
+    TipoAccion.ML_ADS_APORTE_BORRADO: "deleted",
+}
+
+
+@dataclass(frozen=True)
+class HistoryEvent:
+    action: str  # created | edited | deleted
+    user: Optional[str]
+    at: datetime
+    before: Optional[dict]
+    after: Optional[dict]
+
+
+def history(db: Session, contribution_id: int) -> Optional[list[HistoryEvent]]:
+    """Every audit row of one aporte, deleted ones included, oldest first; None if no such aporte was ever loaded.
+    The id sits in `valores_nuevos` (created, edited) or `valores_anteriores` (deleted), compared as text."""
+    if db.get(MlAdsCampaignContribution, contribution_id) is None:
+        return None
+    key = str(contribution_id)
+    found = (
+        db.query(Auditoria)
+        .filter(
+            Auditoria.tipo_accion.in_(HISTORY_ACTIONS),
+            or_(
+                cast(Auditoria.valores_nuevos["id"].as_string(), String) == key,
+                cast(Auditoria.valores_anteriores["id"].as_string(), String) == key,
+            ),
+        )
+        .order_by(Auditoria.fecha, Auditoria.id)
+        .all()
+    )
+    users = _user_names(db, {row.usuario_id for row in found})
+    return [
+        HistoryEvent(
+            action=HISTORY_ACTIONS[row.tipo_accion],
+            user=users.get(row.usuario_id),
+            at=row.fecha,
+            before=row.valores_anteriores,
+            after=row.valores_nuevos,
+        )
+        for row in found
+    ]
+
+
+def _user_names(db: Session, ids: set[int]) -> dict[int, str]:
+    if not ids:
+        return {}
+    return dict(db.query(Usuario.id, Usuario.nombre).filter(Usuario.id.in_(ids)))
 
 
 DailySpend = dict[tuple[int, int], dict[date, Decimal]]
@@ -207,15 +378,29 @@ def display_contributions(db: Session, date_from: date, date_to: date) -> dict[t
     spreads its counted amount (`full`: all of it; `refund_difference`: at most the range's spend) by each row's share
     of the WHOLE range's spend, which may reach past the window; a range that spent nothing has nothing to spread
     over. The write API keeps a row from meeting two contributions. Campaigns nothing covers are absent."""
-    C, D = MlAdsCampaignContribution, MlAdsDisplayCampaignDay
+    C = MlAdsCampaignContribution
     rows = (
         db.query(C)
         .filter(C.channel == DISPLAY, CONTRIBUTION_LIVE, C.date_from <= date_to, C.date_to >= date_from)
         .order_by(C.id)
         .all()
     )
+    covered: dict[tuple[int, int], Decimal] = {}
+    for row, shares in _display_shares(db, rows, date_from, date_to).items():
+        for campaign, share in shares.items():
+            key = (row.advertiser_id, campaign)
+            covered[key] = covered.get(key, Decimal(0)) + share
+    return covered
+
+
+def _display_shares(
+    db: Session, rows: list[MlAdsCampaignContribution], date_from: date, date_to: date
+) -> dict[MlAdsCampaignContribution, dict[int, Decimal]]:
+    """What each Display contribution of `rows` covers of `[date_from, date_to]`, per Display campaign (the rule of
+    `display_contributions`). A contribution that covers nothing is absent."""
     if not rows:
         return {}
+    D = MlAdsDisplayCampaignDay
     days = (
         db.query(D.advertiser_id, D.campaign_id, D.day, D.consumed_budget)
         .filter(
@@ -224,7 +409,7 @@ def display_contributions(db: Session, date_from: date, date_to: date) -> dict[t
         )
         .all()
     )
-    covered: dict[tuple[int, int], Decimal] = {}
+    result: dict[MlAdsCampaignContribution, dict[int, Decimal]] = {}
     for row in rows:
         matching = [
             (campaign, day, Decimal(cost))
@@ -239,17 +424,14 @@ def display_contributions(db: Session, date_from: date, date_to: date) -> dict[t
                 window[campaign] = window.get(campaign, Decimal(0)) + cost
         value = Decimal(row.value)
         if row.kind == "percentage":
-            shares = {campaign: _counted(row.kind, value, None, cost) for campaign, cost in window.items()}
-        else:
-            spend = sum((cost for _campaign, _day, cost in matching), Decimal(0))
-            if spend <= 0:
-                continue
-            counted = _counted(row.kind, value, row.settlement, spend)
-            shares = {campaign: counted * cost / spend for campaign, cost in window.items()}
-        for campaign, share in shares.items():
-            key = (row.advertiser_id, campaign)
-            covered[key] = covered.get(key, Decimal(0)) + share
-    return covered
+            result[row] = {campaign: _counted(row.kind, value, None, cost) for campaign, cost in window.items()}
+            continue
+        spend = sum((cost for _campaign, _day, cost in matching), Decimal(0))
+        if spend <= 0:
+            continue
+        counted = _counted(row.kind, value, row.settlement, spend)
+        result[row] = {campaign: counted * cost / spend for campaign, cost in window.items()}
+    return result
 
 
 def _lock_product_ads_campaign(db: Session, data: ContributionData) -> None:
