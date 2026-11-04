@@ -16,4 +16,3 @@ Los filtros **Marca**, **Categoría**, **Subcategoría** y **PM** de Publicacion
 ## Para tener en cuenta
 
 - Funciona igual en las tres pantallas: es el mismo filtro.
-- En Ventas ML y Métricas ML, el grupo de comisión y el email del PM llegan en una próxima actualización.

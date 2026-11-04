@@ -4,7 +4,7 @@
 
 ## Resumen ejecutivo
 
-En **Ventas ML** y **Métricas ML**, el filtro **Subcategoría** muestra el grupo de comisión de cada subcategoría (G1, G2…) y el filtro **PM** muestra el email de cada PM, igual que en Productos y Publicaciones ML. Completa lo que la novedad "Filtros de producto: las funciones de Productos…" dejó para una próxima actualización.
+En **Ventas ML** y **Métricas ML**, el filtro **Subcategoría** muestra el grupo de comisión de cada subcategoría (G1, G2…) y el filtro **PM** muestra el email de cada PM, igual que en Productos y Publicaciones ML.
 
 ## Cómo se usa
 
