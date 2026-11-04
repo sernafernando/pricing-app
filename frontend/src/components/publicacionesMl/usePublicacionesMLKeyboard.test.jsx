@@ -472,6 +472,15 @@ describe("Productos' bulk and filter shortcuts (S9b)", () => {
     expect(onOpenFilter).not.toHaveBeenCalled();
   });
 
+  it('in a filter search, an Alt key that types a character (a Mac: Alt+C is ç) keeps typing it', () => {
+    const onOpenFilter = vi.fn();
+    render(<Harness onOpenFilter={onOpenFilter} />);
+    for (const [key, code] of [['ç', 'KeyC'], ['µ', 'KeyM'], ['π', 'KeyP']]) {
+      expect(fireEvent.keyDown(screen.getByLabelText('Buscar marca'), { key, code, altKey: true })).toBe(true);
+    }
+    expect(onOpenFilter).not.toHaveBeenCalled();
+  });
+
   it("Alt+A opens the Auditoría filters and Alt+C / Alt+F the presence ones (Productos' Avanzados), by the key", () => {
     const onOpenFilter = vi.fn();
     render(<Harness onOpenFilter={onOpenFilter} />);
