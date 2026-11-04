@@ -19,6 +19,8 @@ from app.models.sale_order_header_history import SaleOrderHeaderHistory
 from app.models.sale_order_status import SaleOrderStatus
 from app.models.tb_customer import TBCustomer
 from app.models.tb_item import TBItem
+from app.models.tb_rma_detail import TbRMADetail
+from app.models.tb_rma_header import TbRMAHeader
 from tests.integration.test_traza_ml_sin_pedido_erp_postgres import (  # noqa: F401 -- fixtures
     COMP_ID,
     ORDER_ID,
@@ -118,3 +120,31 @@ def test_an_invoice_of_another_branch_with_the_same_order_number_is_not_listed(d
     traza = _traza(db, PACK_ID)
 
     assert [s.articulo.item_id for s in traza.seriales] == [501]
+
+
+def test_an_rma_of_another_branch_invoice_with_the_same_order_number_is_not_listed(db, pedido_archivado_facturado):
+    """Same repeated order number: only the RMAs on the invoice of the sale's branch (45) belong to this sale."""
+    db.add_all(
+        [
+            CommercialTransaction(
+                comp_id=COMP_ID,
+                ct_transaction=70011,
+                ct_soh_id=SOH_ID,
+                ct_soh_bra_id=1,
+                ct_kindOf="B",
+                ct_pointOfSale=1,
+                ct_docNumber="00000003",
+                ct_date=datetime(2025, 1, 17),
+            ),
+            ItemTransaction(comp_id=COMP_ID, it_transaction=80011, ct_transaction=70011, item_id=999),
+            TbRMAHeader(comp_id=COMP_ID, rmah_id=600, bra_id=45, rmah_cd=datetime(2026, 10, 30)),
+            TbRMADetail(comp_id=COMP_ID, rmad_id=610, bra_id=45, rmah_id=600, it_transaction=80010, item_id=501),
+            TbRMAHeader(comp_id=COMP_ID, rmah_id=601, bra_id=1, rmah_cd=datetime(2025, 2, 1)),
+            TbRMADetail(comp_id=COMP_ID, rmad_id=611, bra_id=1, rmah_id=601, it_transaction=80011, item_id=999),
+        ]
+    )
+    db.flush()
+
+    traza = _traza(db, PACK_ID)
+
+    assert [(r.rmad_id, r.item_id) for r in traza.rma_por_factura] == [(610, 501)]

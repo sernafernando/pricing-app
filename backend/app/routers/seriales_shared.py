@@ -750,6 +750,7 @@ QUERY_RMA_BY_INVOICE = text("""
     LEFT JOIN productos_erp pe
         ON d.item_id = pe.item_id
     WHERE ct.ct_soh_id = :soh_id
+        AND ct.ct_soh_bra_id = :bra_id  -- order numbers repeat across branches
     ORDER BY h.rmah_cd ASC NULLS LAST, d.rmad_id ASC
 """)
 
@@ -1065,18 +1066,18 @@ def _build_rma(
 
 def _build_rma_by_invoice(
     db: Session,
-    soh_ids: list[int],
+    soh_keys: list[tuple[int, int]],
     exclude_rmad_ids: set[tuple[int, int, int]] | None = None,
 ) -> list[RMASerial]:
     """
     Busca RMAs vinculados a pedidos vía cadena de factura:
-    sale_order_header (soh_id) → commercial_transactions (ct_soh_id)
+    sale_order_header (soh_id, bra_id) → commercial_transactions (ct_soh_id, ct_soh_bra_id)
     → item_transactions (ct_transaction) → rma_detail (it_transaction)
 
     exclude_rmad_ids: set de (comp_id, rmad_id, bra_id) ya encontrados por serial,
     para deduplicar.
     """
-    if not soh_ids:
+    if not soh_keys:
         return []
 
     if exclude_rmad_ids is None:
@@ -1084,8 +1085,8 @@ def _build_rma_by_invoice(
 
     rma_list: list[RMASerial] = []
 
-    for soh_id in soh_ids:
-        result = db.execute(QUERY_RMA_BY_INVOICE, {"soh_id": soh_id})
+    for soh_id, bra_id in soh_keys:
+        result = db.execute(QUERY_RMA_BY_INVOICE, {"soh_id": soh_id, "bra_id": bra_id})
         rows = [dict(row._mapping) for row in result]
 
         for row in rows:

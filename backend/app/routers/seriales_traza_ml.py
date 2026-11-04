@@ -996,8 +996,10 @@ def traza_ml(
 
     # 3. Buscar RMAs vía factura (para productos no seriados o RMAs sin serial)
     # Cadena: soh_id → commercial_transactions → item_transactions → rma_detail
-    soh_ids = [row["soh_id"] for row in pedidos_rows if row["soh_id"]]
-    rma_por_factura = _build_rma_by_invoice(db, soh_ids, exclude_rmad_ids=rma_ids_por_serial)
+    soh_keys = [
+        (row["soh_id"], row["bra_id"]) for row in pedidos_rows if row["soh_id"] and row.get("bra_id") is not None
+    ]
+    rma_por_factura = _build_rma_by_invoice(db, soh_keys, exclude_rmad_ids=rma_ids_por_serial)
 
     # 4. Claims de ML (por order_id detectados + input si parece order_id)
     ml_order_ids_lookup: set[str] = {p.ml_id for p in pedidos if p.ml_id}
