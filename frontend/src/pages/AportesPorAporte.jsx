@@ -35,6 +35,17 @@ const percent = (value) => `${value.toLocaleString('es-AR', { maximumFractionDig
 const share = (part, whole) => (whole > 0 ? percent((part / whole) * 100) : '—');
 // `2026-10-01` or `2026-10-01T10:00:00` -> `01/10`.
 const dayMonth = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+const AR_DAY = new Intl.DateTimeFormat('en-US', {
+  day: 'numeric',
+  month: 'numeric',
+  timeZone: 'America/Argentina/Buenos_Aires',
+});
+/** The Argentine calendar day of a backend timestamp; one without an offset is UTC, as the backend stores it. */
+const stampDay = (iso) => {
+  const parts = AR_DAY.formatToParts(new Date(/(Z|[+-]\d\d:\d\d)$/.test(iso) ? iso : `${iso}Z`));
+  const part = (type) => parts.find((p) => p.type === type).value.padStart(2, '0');
+  return `${part('day')}/${part('month')}`;
+};
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const sum = (rows) => rows.reduce((total, row) => total + (row.covered || 0), 0);
 
@@ -167,8 +178,8 @@ function Row({ row, canManage, onEdit, onDelete }) {
       <td className={`${shell.num} ${shell.positive}`}>{formatSignedMoney(row.covered)}</td>
       <td>
         <span className={styles.loaded}>
-          <span>{`${row.loaded_by || 'Sin dato'} · ${dayMonth(row.loaded_at)}`}</span>
-          {row.edited_at && <span className={shell.muted}>{`Editado ${dayMonth(row.edited_at)}`}</span>}
+          <span>{`${row.loaded_by || 'Sin dato'} · ${stampDay(row.loaded_at)}`}</span>
+          {row.edited_at && <span className={shell.muted}>{`Editado ${stampDay(row.edited_at)}`}</span>}
         </span>
       </td>
       <td>

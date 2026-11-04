@@ -149,6 +149,18 @@ describe('AportesPorAporte', () => {
     expect(within(bodyRows()[0]).getAllByRole('cell')[0]).toHaveTextContent('Sin marca');
   });
 
+  it('shows when an aporte was loaded and edited on the Argentine calendar, not the UTC one', async () => {
+    const late = {
+      ...APORTES_VIEW.contributions[0],
+      loaded_at: '2026-10-03T01:30:00+00:00',
+      edited_at: '2026-10-19T02:00:00+00:00',
+    };
+    api.get.mockResolvedValue({ data: { ...APORTES_VIEW, contributions: [late] } });
+    renderView();
+    expect(await screen.findByText('Lucía Fernández · 02/10')).toBeInTheDocument();
+    expect(screen.getByText('Editado 18/10')).toBeInTheDocument();
+  });
+
   it('says so when the aportes cannot be loaded', async () => {
     api.get.mockRejectedValue({ response: { data: { error: { message: 'boom' } } } });
     renderView();
