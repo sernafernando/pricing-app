@@ -16,6 +16,7 @@ import api from '../services/api';
 import ModalTesla from '../components/ModalTesla';
 import { SegmentedControl, StatusPill } from '../components/kit';
 import AportesAdsMLForm from './AportesAdsMLForm';
+import AportesPorAporte from './AportesPorAporte';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
 import { formatSignedMoney } from '../utils/ventasMlTone';
 import styles from './AportesAdsML.module.css';
@@ -27,6 +28,15 @@ const SETTLEMENT_BADGES = {
   refund_difference: { text: 'Diferencia', tone: 'warning' },
 };
 const STATUS_PILLS = { active: { text: 'Activa', tone: 'success' }, paused: { text: 'Pausada', tone: 'neutral' } };
+// Stitch 55853ac1: the same aportes by campaign (the loading screen) or one row per aporte, both channels.
+const VIEWS = [
+  { value: 'campaign', label: 'Por campaña' },
+  { value: 'aporte', label: 'Por aporte' },
+];
+const VIEW_DESCRIPTIONS = {
+  campaign: 'Lo que una marca paga de una campaña de Product Ads deja de restarse en Métricas ML.',
+  aporte: 'Cada aporte cargado, qué marca lo paga y cuánto cubre en el período, en Product Ads y Display.',
+};
 const SEGMENTS = [
   { value: 'all', label: 'Todas' },
   { value: 'with', label: 'Con aporte' },
@@ -43,6 +53,11 @@ const formatDay = (iso) => {
 };
 
 const touchesRange = (c, range) => c.date_from <= range.to && c.date_to >= range.from;
+// What the delete confirmation names: the campaign, or the whole Display account (no campaign id).
+const deleteScope = (row) =>
+  row.campaign_id == null
+    ? { name: `Toda la cuenta Display · ${row.advertiser_name || `Anunciante ${row.advertiser_id}`}`, campaign_id: '' }
+    : { name: row.campaign_name, campaign_id: row.campaign_id };
 const advertiserLabel = (c) => c.advertiser_name || `Anunciante ${c.advertiser_id}`;
 const sumOf = (rows, key) => rows.reduce((total, row) => total + (row[key] || 0), 0);
 const formatPercent = (value) => `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`;
@@ -123,6 +138,9 @@ export default function AportesAdsML() {
     from: isoDay(new Date(today.getFullYear(), today.getMonth(), 1)),
     to: isoDay(today),
   });
+  const [view, setView] = useState('campaign');
+  // Bumped after a save or a delete, so the "Por aporte" view asks again.
+  const [aportesKey, setAportesKey] = useState(0);
   const [campaigns, setCampaigns] = useState([]);
   const [search, setSearch] = useState('');
   const [segment, setSegment] = useState('all');
@@ -180,6 +198,7 @@ export default function AportesAdsML() {
     setCreatingFor(null);
     setEditing(null);
     fetchCampaigns();
+    setAportesKey((k) => k + 1);
   };
 
   // Closing mid-delete would let a late failure surface on the next contribution's modal.
@@ -196,6 +215,7 @@ export default function AportesAdsML() {
       await api.delete(`/ml-ads/contributions/${deleteTarget.contribution.id}`);
       setDeleteTarget(null);
       fetchCampaigns();
+      setAportesKey((k) => k + 1);
     } catch (err) {
       setDeleteError(apiErrorMessage(err, 'No se pudo borrar el aporte'));
     } finally {
@@ -222,9 +242,10 @@ export default function AportesAdsML() {
       <header className={styles.header}>
         <div>
           <h2 className={styles.title}>Aportes de marcas (Ads ML)</h2>
-          <p className={styles.description}>
-            Lo que una marca paga de una campaña de Product Ads deja de restarse en Métricas ML.
-          </p>
+          <p className={styles.description}>{VIEW_DESCRIPTIONS[view]}</p>
+          <div className={styles.views}>
+            <SegmentedControl label="Vista" options={VIEWS} value={view} onChange={setView} />
+          </div>
         </div>
         <div className={styles.headerActions}>
           <div className={styles.range}>
@@ -255,186 +276,198 @@ export default function AportesAdsML() {
         </div>
       </header>
 
-      <section className={styles.kpis} aria-label="Resumen de aportes">
-        <div className={styles.kpi}>
-          <span className={styles.kpiLabel}>Costo Ads del período</span>
-          <span className={styles.kpiValue}>{money(totals.cost)}</span>
-          <span className={styles.kpiSub}>
-            {loading ? '—' : `${visible.length} ${visible.length === 1 ? 'campaña' : 'campañas'}`}
-          </span>
-        </div>
-        <div className={styles.kpi}>
-          <span className={styles.kpiLabel}>Aporte de marcas</span>
-          <span className={`${styles.kpiValue} ${styles.positive}`}>{money(totals.contribution)}</span>
-          <span className={styles.kpiSub}>
-            {!loading && totals.cost > 0 ? `${formatPercent((totals.contribution / totals.cost) * 100)} del costo` : '—'}
-          </span>
-        </div>
-        <div className={styles.kpi}>
-          <span className={styles.kpiLabel}>Costo neto</span>
-          <span className={styles.kpiValue}>{money(totals.cost - totals.contribution)}</span>
-          <span className={styles.kpiSub}>Lo que se resta en Métricas ML</span>
-        </div>
-        <div className={styles.kpi}>
-          <span className={styles.kpiLabel}>Campañas con aporte</span>
-          <span className={styles.kpiValue}>
-            {loading ? (
-              '—'
-            ) : (
-              <>
-                {visible.filter(withContribution).length} <span className={styles.kpiOf}>de {visible.length}</span>
-              </>
-            )}
-          </span>
-          <span className={styles.kpiSub}>Con un aporte que toca el rango</span>
-        </div>
-      </section>
+      {view === 'aporte' ? (
+        <AportesPorAporte
+          range={range}
+          canManage={canManage}
+          refreshKey={aportesKey}
+          onEdit={setEditing}
+          onDelete={(row) => setDeleteTarget({ contribution: row, campaign: deleteScope(row) })}
+        />
+      ) : (
+        <>
+          <section className={styles.kpis} aria-label="Resumen de aportes">
+            <div className={styles.kpi}>
+              <span className={styles.kpiLabel}>Costo Ads del período</span>
+              <span className={styles.kpiValue}>{money(totals.cost)}</span>
+              <span className={styles.kpiSub}>
+                {loading ? '—' : `${visible.length} ${visible.length === 1 ? 'campaña' : 'campañas'}`}
+              </span>
+            </div>
+            <div className={styles.kpi}>
+              <span className={styles.kpiLabel}>Aporte de marcas</span>
+              <span className={`${styles.kpiValue} ${styles.positive}`}>{money(totals.contribution)}</span>
+              <span className={styles.kpiSub}>
+                {!loading && totals.cost > 0 ? `${formatPercent((totals.contribution / totals.cost) * 100)} del costo` : '—'}
+              </span>
+            </div>
+            <div className={styles.kpi}>
+              <span className={styles.kpiLabel}>Costo neto</span>
+              <span className={styles.kpiValue}>{money(totals.cost - totals.contribution)}</span>
+              <span className={styles.kpiSub}>Lo que se resta en Métricas ML</span>
+            </div>
+            <div className={styles.kpi}>
+              <span className={styles.kpiLabel}>Campañas con aporte</span>
+              <span className={styles.kpiValue}>
+                {loading ? (
+                  '—'
+                ) : (
+                  <>
+                    {visible.filter(withContribution).length} <span className={styles.kpiOf}>de {visible.length}</span>
+                  </>
+                )}
+              </span>
+              <span className={styles.kpiSub}>Con un aporte que toca el rango</span>
+            </div>
+          </section>
 
-      <div className={styles.toolbar}>
-        <label className={styles.search}>
-          <Search size={14} aria-hidden="true" />
-          <input
-            type="search"
-            className={styles.searchInput}
-            aria-label="Buscar campaña"
-            placeholder="Buscar campaña…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </label>
-        <SegmentedControl label="Aportes" options={SEGMENTS} value={segment} onChange={setSegment} />
-        <label className={styles.advertiser}>
-          <span>Anunciante</span>
-          <select className={styles.advertiserSelect} value={advertiserFilter} onChange={(e) => setAdvertiser(e.target.value)}>
-            <option value="">Todos</option>
-            {advertisers.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+          <div className={styles.toolbar}>
+            <label className={styles.search}>
+              <Search size={14} aria-hidden="true" />
+              <input
+                type="search"
+                className={styles.searchInput}
+                aria-label="Buscar campaña"
+                placeholder="Buscar campaña…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </label>
+            <SegmentedControl label="Aportes" options={SEGMENTS} value={segment} onChange={setSegment} />
+            <label className={styles.advertiser}>
+              <span>Anunciante</span>
+              <select className={styles.advertiserSelect} value={advertiserFilter} onChange={(e) => setAdvertiser(e.target.value)}>
+                <option value="">Todos</option>
+                {advertisers.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
-      {loadError && (
-        <div className={styles.alertError} role="alert">
-          <AlertTriangle size={16} /> {loadError}
-        </div>
-      )}
-
-      <div className={styles.tableCard}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Campaña</th>
-              <th>Estado</th>
-              <th className={styles.num}>Costo del período</th>
-              <th className={styles.num}>Aporte</th>
-              <th className={styles.num}>Neto</th>
-              <th>Aportes cargados</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={6} className={styles.muted}>Cargando...</td>
-              </tr>
-            )}
-            {!loading && campaigns.length > 0 && visible.length === 0 && (
-              <tr>
-                <td colSpan={6} className={styles.muted}>Ninguna campaña coincide con los filtros.</td>
-              </tr>
-            )}
-            {!loading && campaigns.length === 0 && !loadError && (
-              <tr>
-                <td colSpan={6} className={styles.muted}>Todavía no hay campañas de Product Ads sincronizadas.</td>
-              </tr>
-            )}
-            {!loading &&
-              visible.map((c) => {
-                const status = STATUS_PILLS[c.status];
-                return (
-                  <tr key={`${c.advertiser_id}-${c.campaign_id}`}>
-                    <td>
-                      <div className={styles.campaign}>
-                        <span className={styles.campaignName}>{c.name || `Campaña ${c.campaign_id}`}</span>
-                        <span className={styles.keep}>
-                          <StatusPill tone="info">{advertiserLabel(c)}</StatusPill>
-                        </span>
-                      </div>
-                      <span className={styles.campaignId}>{c.campaign_id}</span>
-                    </td>
-                    <td>
-                      {status ? (
-                        <span className={styles.keep}>
-                          <StatusPill tone={status.tone} dot>
-                            {status.text}
-                          </StatusPill>
-                        </span>
-                      ) : (
-                        <span className={styles.muted}>{c.status || '—'}</span>
-                      )}
-                    </td>
-                    <td className={styles.num}>{formatSignedMoney(c.cost)}</td>
-                    <td className={`${styles.num} ${c.contribution > 0 ? styles.positive : styles.muted}`}>
-                      {formatSignedMoney(c.contribution)}
-                    </td>
-                    <td className={styles.num}>{formatSignedMoney(c.cost - c.contribution)}</td>
-                    <td>
-                      <div className={styles.chips}>
-                        {c.contributions.length === 0 ? (
-                          <span className={styles.none}>Sin aportes</span>
-                        ) : (
-                          <ul className={styles.chipList}>
-                            {c.contributions.map((k) => (
-                              <ContributionItem
-                                key={k.id}
-                                c={k}
-                                canManage={canManage}
-                                onEdit={setEditing}
-                                onDelete={(contribution) => setDeleteTarget({ contribution, campaign: c })}
-                              />
-                            ))}
-                          </ul>
-                        )}
-                        {canManage && (
-                          <button
-                            type="button"
-                            className={styles.addLink}
-                            aria-label={`Agregar aporte a ${c.name || `Campaña ${c.campaign_id}`}`}
-                            onClick={() => setCreatingFor(c)}
-                          >
-                            <Plus size={14} /> Aporte
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-          </tbody>
-          {!loading && campaigns.length > 0 && (
-            <tfoot>
-              <tr>
-                <td colSpan={2}>
-                  Total ({visible.length} de {campaigns.length} {campaigns.length === 1 ? 'campaña' : 'campañas'})
-                </td>
-                <td className={styles.num}>{formatSignedMoney(totals.cost)}</td>
-                <td className={`${styles.num} ${totals.contribution > 0 ? styles.positive : styles.muted}`}>
-                  {formatSignedMoney(totals.contribution)}
-                </td>
-                <td className={styles.num}>{formatSignedMoney(totals.cost - totals.contribution)}</td>
-                <td />
-              </tr>
-            </tfoot>
+          {loadError && (
+            <div className={styles.alertError} role="alert">
+              <AlertTriangle size={16} /> {loadError}
+            </div>
           )}
-        </table>
-      </div>
 
-      <p className={styles.footnote}>
-        <Info size={14} aria-hidden="true" /> El aporte de monto fijo se reparte por costo entre los días del rango.
-        Un aporte «Diferencia» cuenta como máximo lo gastado en el rango.
-      </p>
+          <div className={styles.tableCard}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Campaña</th>
+                  <th>Estado</th>
+                  <th className={styles.num}>Costo del período</th>
+                  <th className={styles.num}>Aporte</th>
+                  <th className={styles.num}>Neto</th>
+                  <th>Aportes cargados</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && (
+                  <tr>
+                    <td colSpan={6} className={styles.muted}>Cargando...</td>
+                  </tr>
+                )}
+                {!loading && campaigns.length > 0 && visible.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className={styles.muted}>Ninguna campaña coincide con los filtros.</td>
+                  </tr>
+                )}
+                {!loading && campaigns.length === 0 && !loadError && (
+                  <tr>
+                    <td colSpan={6} className={styles.muted}>Todavía no hay campañas de Product Ads sincronizadas.</td>
+                  </tr>
+                )}
+                {!loading &&
+                  visible.map((c) => {
+                    const status = STATUS_PILLS[c.status];
+                    return (
+                      <tr key={`${c.advertiser_id}-${c.campaign_id}`}>
+                        <td>
+                          <div className={styles.campaign}>
+                            <span className={styles.campaignName}>{c.name || `Campaña ${c.campaign_id}`}</span>
+                            <span className={styles.keep}>
+                              <StatusPill tone="info">{advertiserLabel(c)}</StatusPill>
+                            </span>
+                          </div>
+                          <span className={styles.campaignId}>{c.campaign_id}</span>
+                        </td>
+                        <td>
+                          {status ? (
+                            <span className={styles.keep}>
+                              <StatusPill tone={status.tone} dot>
+                                {status.text}
+                              </StatusPill>
+                            </span>
+                          ) : (
+                            <span className={styles.muted}>{c.status || '—'}</span>
+                          )}
+                        </td>
+                        <td className={styles.num}>{formatSignedMoney(c.cost)}</td>
+                        <td className={`${styles.num} ${c.contribution > 0 ? styles.positive : styles.muted}`}>
+                          {formatSignedMoney(c.contribution)}
+                        </td>
+                        <td className={styles.num}>{formatSignedMoney(c.cost - c.contribution)}</td>
+                        <td>
+                          <div className={styles.chips}>
+                            {c.contributions.length === 0 ? (
+                              <span className={styles.none}>Sin aportes</span>
+                            ) : (
+                              <ul className={styles.chipList}>
+                                {c.contributions.map((k) => (
+                                  <ContributionItem
+                                    key={k.id}
+                                    c={k}
+                                    canManage={canManage}
+                                    onEdit={setEditing}
+                                    onDelete={(contribution) => setDeleteTarget({ contribution, campaign: c })}
+                                  />
+                                ))}
+                              </ul>
+                            )}
+                            {canManage && (
+                              <button
+                                type="button"
+                                className={styles.addLink}
+                                aria-label={`Agregar aporte a ${c.name || `Campaña ${c.campaign_id}`}`}
+                                onClick={() => setCreatingFor(c)}
+                              >
+                                <Plus size={14} /> Aporte
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+              {!loading && campaigns.length > 0 && (
+                <tfoot>
+                  <tr>
+                    <td colSpan={2}>
+                      Total ({visible.length} de {campaigns.length} {campaigns.length === 1 ? 'campaña' : 'campañas'})
+                    </td>
+                    <td className={styles.num}>{formatSignedMoney(totals.cost)}</td>
+                    <td className={`${styles.num} ${totals.contribution > 0 ? styles.positive : styles.muted}`}>
+                      {formatSignedMoney(totals.contribution)}
+                    </td>
+                    <td className={styles.num}>{formatSignedMoney(totals.cost - totals.contribution)}</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+
+          <p className={styles.footnote}>
+            <Info size={14} aria-hidden="true" /> El aporte de monto fijo se reparte por costo entre los días del rango.
+            Un aporte «Diferencia» cuenta como máximo lo gastado en el rango.
+          </p>
+        </>
+      )}
 
       {creatingFor && (
         <AportesAdsMLForm

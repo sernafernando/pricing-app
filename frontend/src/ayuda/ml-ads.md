@@ -31,6 +31,17 @@ El botón **Agregar aporte** (si tenés permiso) crea un aporte nuevo.
 - **Monto mayor al costo**: si un monto fijo que "Se recibe todo" supera el costo de la campaña en el rango, el neto queda negativo. Para guardarlo tenés que marcar **Confirmo que el aporte supera el costo de la campaña en el rango**. Si después cambiás la campaña, el tipo, el monto, si incluye IVA, las fechas o cómo se liquida, la casilla se desmarca y se vuelve a pedir.
 - **Aviso de datos**: si el rango termina después del último día con datos de Ads, el formulario lo avisa. El aporte que cuenta va a cambiar cuando lleguen esos días.
 
+### Vista Por aporte
+
+Debajo de la descripción hay un selector **Por campaña / Por aporte**. **Por campaña** es la tabla de siempre. **Por aporte** lista cada aporte cargado del rango, de Product Ads y de Display:
+
+- **Tarjetas**: **Aportes del período** (total, cuántas marcas y aportes), **Product Ads** y **Display** (cada uno con el porcentaje de su costo que cubren) y **Sin campaña**: el costo de Product Ads sin campaña, que ningún aporte cubre.
+- **Por marca**: cuánto aportó cada marca en el rango y su parte del total, de mayor a menor. La barra violeta es una marca que solo aporta a Display.
+- **Filtros**: buscador por marca o campaña, **Marca** y **Todos / Product Ads / Display**.
+- **Columnas**: Marca, Canal, Campaña / Alcance (un aporte de Display a toda la cuenta dice **Toda la cuenta Display** y **Cuenta completa**), Tipo, Valor, Rango, Cubre en el período, Cargado (quién lo cargó y cuándo, y si se editó) y Acciones.
+- **Acciones**: el lápiz edita un aporte de Product Ads; el tacho borra cualquier aporte. Los aportes de Display todavía no se editan desde la pantalla.
+- Un aporte cargado antes de que existiera el registro de cambios muestra como **Cargado** a quien figura como su creador.
+
 ### Filtros y columnas
 
 Filtros: rango de fechas, búsqueda por campaña, segmento (todas/con aporte/sin aporte), anunciante.

@@ -1,0 +1,159 @@
+/* "Por aporte" view (Stitch 55853ac1): what the page's shared styles (AportesAdsML.module.css) do not have. */
+
+.subPads {
+  color: var(--tone-success-fg);
+}
+
+.subDisplay {
+  color: var(--tone-purple-fg);
+}
+
+.kpiWarning {
+  background: var(--tone-warning-bg);
+  border-color: var(--tone-warning-border);
+}
+
+/* The tile's own text in amber; the "Atención" pill keeps its colors. */
+.kpiWarning > span:not(.kpiHead),
+.kpiHead > span:first-child {
+  color: var(--tone-warning-fg);
+}
+
+.kpiHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.brands {
+  margin-bottom: var(--spacing-md, 16px);
+  padding: 16px 20px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+.brandsHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.brandsTitle {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-primary);
+}
+
+.brandList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px 32px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.brand {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  row-gap: 6px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.brandName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brandAmount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.brandShare {
+  margin-left: 6px;
+  color: var(--cf-text-tertiary);
+}
+
+.track {
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+  background: var(--tone-neutral-bg);
+  border-radius: 9999px;
+}
+
+.bar {
+  display: block;
+  height: 100%;
+  background: var(--brand-primary);
+}
+
+.barDisplay {
+  background: var(--tone-purple-fg);
+}
+
+.brandsTotal {
+  margin: 12px 0 0;
+  padding-top: 10px;
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  text-align: right;
+  color: var(--cf-text-primary);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.channels {
+  margin-left: auto;
+}
+
+.brandCell {
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+}
+
+/* Owner: badges stay on one line, never wrapped. */
+.nowrap {
+  white-space: nowrap;
+}
+
+.kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* Campaign name over its id (or the Display scope over "Cuenta completa"), as in the design. */
+.scope {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.range {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.loaded {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}

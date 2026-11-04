@@ -9,6 +9,7 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import AportesAdsML from './AportesAdsML';
 import api from '../services/api';
+import { APORTES_VIEW } from './aportesFixtures';
 
 const permisosDenegados = new Set();
 vi.mock('../contexts/PermisosContext', () => ({
@@ -115,6 +116,7 @@ async function fillCommon(user, { value = '10', brand = 'TP-Link' } = {}) {
 const MARCAS = { marcas: ['EPSON', 'Lenovo', 'TP-Link'] };
 const answer = (url, preview) => {
   if (url === '/marcas') return MARCAS;
+  if (url === '/ml-ads/contributions') return APORTES_VIEW;
   return url.endsWith('/preview') ? preview : CAMPAIGNS;
 };
 
@@ -732,5 +734,52 @@ describe('robust loading (ml-ads-aportes-robust)', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
     expect(api.post.mock.calls[0][1]).toMatchObject({ kind: 'percentage', value: 12.5 });
+  });
+});
+
+describe('"Por aporte" view (Stitch 55853ac1)', () => {
+  const porAporte = async (user) => {
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    await user.click(screen.getByRole('button', { name: 'Por aporte' }));
+    return screen.findByRole('table', { name: 'Aportes del período' });
+  };
+
+  it('switches from the campaigns to one row per aporte, for the same range', async () => {
+    const user = userEvent.setup();
+    const table = await porAporte(user);
+    expect(await within(table).findByText('Lucía Fernández · 02/10')).toBeInTheDocument();
+    expect(screen.queryByText('Routers')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('Cada aporte cargado, qué marca lo paga y cuánto cubre en el período, en Product Ads y Display.'),
+    ).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith('/ml-ads/contributions', { params: expect.any(Object) });
+    await user.click(screen.getByRole('button', { name: 'Por campaña' }));
+    expect(await screen.findByText('Routers')).toBeInTheDocument();
+  });
+
+  it('edits a Product Ads aporte in the same form and lists it again after saving', async () => {
+    const user = userEvent.setup();
+    const table = await porAporte(user);
+    await user.click(await within(table).findByRole('button', { name: 'Editar aporte de TP-Link' }));
+    expect(screen.getByText('Editar aporte')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/ml-ads/contributions/1', expect.any(Object)));
+    await waitFor(() =>
+      expect(api.get.mock.calls.filter(([url]) => url === '/ml-ads/contributions')).toHaveLength(2),
+    );
+  });
+
+  it('deletes an aporte after confirming, naming the whole Display account, and lists again', async () => {
+    const user = userEvent.setup();
+    const table = await porAporte(user);
+    await user.click(await within(table).findByRole('button', { name: 'Borrar aporte de Xerox' }));
+    const dialog = screen.getByText('¿Borrar este aporte?').closest('.modal-tesla');
+    expect(dialog).toHaveTextContent('Toda la cuenta Display · GAUSS');
+    await user.click(screen.getByRole('button', { name: 'Borrar aporte' }));
+    await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/ml-ads/contributions/3'));
+    await waitFor(() =>
+      expect(api.get.mock.calls.filter(([url]) => url === '/ml-ads/contributions')).toHaveLength(2),
+    );
   });
 });
