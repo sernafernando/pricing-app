@@ -32,15 +32,15 @@ def _data(campaign_id: int, start: int, end: int) -> contributions.ContributionD
 
 
 @pytest.fixture()
-def sessions(pg_ads_engine):
-    make = sessionmaker(bind=pg_ads_engine)
+def sessions(pg_ads_write_engine):
+    make = sessionmaker(bind=pg_ads_write_engine)
     with make() as db:
         for campaign_id in (CAMP, OTHER):
             db.add(MlAdsCampaign(advertiser_id=ADV, campaign_id=campaign_id, raw={}))
         db.add(ProductoERP(item_id=1, codigo="COD1", descripcion="Router", marca="TP-LINK"))  # DERIVED
         db.commit()
     yield make
-    with pg_ads_engine.begin() as conn:
+    with pg_ads_write_engine.begin() as conn:
         conn.execute(text("DELETE FROM ml_ads_campaign_contributions"))
         conn.execute(text("DELETE FROM ml_ads_campaigns"))
         conn.execute(text("DELETE FROM productos_erp"))

@@ -8,7 +8,7 @@ the shared conftest nor `app/models/__init__.py` is edited (same precedent as `m
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import Column, MetaData, Table, inspect
+from sqlalchemy import Column, MetaData, Table
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
@@ -26,8 +26,8 @@ _PRISTINE_TYPES = {column: column.type for table in ADS_TABLES for column in tab
 
 
 # An aporte write adds its `auditoria` row (ml-ads-aportes-robust S5). The stand-in keeps every column and type but not
-# the foreign key to `usuarios`, which these per-test tables do not build; it is created only when absent and dropped
-# only by the fixture that created it.
+# the foreign key to `usuarios`, which these per-test tables do not build. It lives only in `pg_ads_write_engine`'s
+# throwaway schema, so a real `auditoria` another test left in the shared database never takes its place.
 AUDIT_STANDIN = Table(
     "auditoria",
     MetaData(),
@@ -68,16 +68,39 @@ def pg_ads_engine():
     # metadata (enum bookkeeping) and can collide with other module-scoped Postgres fixtures.
     for table in tables:
         table.create(bind=eng, checkfirst=True)
-    own_audit = not inspect(eng).has_table("auditoria")
-    if own_audit:
-        AUDIT_STANDIN.create(bind=eng)
     yield eng
-    if own_audit:
-        AUDIT_STANDIN.drop(bind=eng)
     for table in reversed(tables):
         table.drop(bind=eng, checkfirst=True)
     _patch_pg_types_for_sqlite()
     eng.dispose()
+
+
+@pytest.fixture()
+def pg_ads_write_engine():
+    """Postgres engine for the tests that write aportes: the `pg_ads_engine` tables plus the `auditoria` stand-in, in a
+    throwaway schema (whatever other tests left in the shared database is invisible inside it)."""
+    from tests.conftest import _patch_pg_types_for_sqlite
+    from tests.services.sell._schema import throwaway_schema
+
+    restore_pg_types()
+    tables = [*ADS_TABLES, WorkerJobState.__table__, ProductoERP.__table__, AUDIT_STANDIN]
+    try:
+        with throwaway_schema("ads_write", tables) as engine:
+            yield engine
+    finally:
+        _patch_pg_types_for_sqlite()
+
+
+@pytest.fixture()
+def pg_ads_write_db(pg_ads_write_engine):
+    """Transactional session over `pg_ads_write_engine`, rolled back after each test."""
+    connection = pg_ads_write_engine.connect()
+    transaction = connection.begin()
+    session = sessionmaker(bind=connection)()
+    yield session
+    session.close()
+    transaction.rollback()
+    connection.close()
 
 
 @pytest.fixture()

@@ -6,7 +6,6 @@ instead of the board silently counting a contribution of 0 for it. DERIVED fixtu
 11 owns MLA1 and sells Total Gauss 300 on 09-03; the period is 09-01..09-07.
 """
 
-# ruff: noqa: F811 -- the imported fixtures are re-named by the tests that use them
 from __future__ import annotations
 
 import dataclasses
@@ -15,9 +14,9 @@ from decimal import Decimal
 
 from app.services.ml_daily_metrics import board
 from app.services.ml_daily_metrics.kpi_strip import build_board_kpis
-from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- fixtures
-    _frozen_clock,
-)
+
+# Imported only to activate its autouse fixture: the board reads "today" from a frozen clock.
+from tests.integration.test_ml_metricas_board_router import _frozen_clock  # noqa: F401
 from tests.services.ml_daily_metrics.test_board_ads_contributions import _ad, _contribution, _kpis, _product
 from tests.services.ml_daily_metrics.test_board_ads_subtract import ON
 
