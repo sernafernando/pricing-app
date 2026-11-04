@@ -245,15 +245,22 @@ class MlAdsCampaignDay(Base):
 
 CONTRIBUTION_KINDS = ("percentage", "fixed_amount")
 CONTRIBUTION_SETTLEMENTS = ("full", "refund_difference")
+CONTRIBUTION_CHANNELS = ("product_ads", "display")
 
 
 class MlAdsCampaignContribution(Base):
-    """A brand's contribution to one Product Ads campaign over `[date_from, date_to]` (ml-ads-brand-contribution S4).
+    """A brand's contribution to one campaign over `[date_from, date_to]` (ml-ads-brand-contribution S4).
+
+    `channel` says which ads it covers (ml-ads-display-contributions S2): `product_ads` (a campaign of
+    `ml_ads_campaigns`, applied to its item rows) or `display` (a campaign of `ml_ads_display_campaigns`, applied to
+    its day rows). A Display contribution with `campaign_id` NULL covers the whole Display account of its advertiser;
+    only Display may leave it NULL.
 
     Loaded by hand (S2). `percentage` covers that share of each day's cost; `fixed_amount` is money spread over the
     range's days by each day's cost (S5, S6: applied by the Board, not stored here). A fixed amount's `settlement` says
     whether the brand pays it whole (`full`) or only up to the range's spend (`refund_difference`). Ranges of one
-    campaign never overlap (rejected by the write API). The audit ids carry no FK so the `ml_ads_*` tables stay
+    campaign never overlap, nor does a whole-account Display range with a campaign one of the same advertiser
+    (rejected by the write API). The audit ids carry no FK so the `ml_ads_*` tables stay
     self-contained (users are deactivated, never deleted).
     """
 
@@ -261,7 +268,8 @@ class MlAdsCampaignContribution(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     advertiser_id = Column(BigInteger, nullable=False)
-    campaign_id = Column(BigInteger, nullable=False)
+    campaign_id = Column(BigInteger, nullable=True)  # NULL: the whole Display account (channel 'display' only)
+    channel = Column(String(16), nullable=False, server_default="product_ads", default="product_ads")
     kind = Column(String(16), nullable=False)
     value = Column(Numeric(16, 2), nullable=False)
     date_from = Column(Date, nullable=False)
@@ -286,6 +294,11 @@ class MlAdsCampaignContribution(Base):
         CheckConstraint(
             "(kind = 'fixed_amount') = (settlement IS NOT NULL)",
             name="ck_ml_ads_campaign_contributions_settlement_kind",
+        ),
+        CheckConstraint(_in_list("channel", CONTRIBUTION_CHANNELS), name="ck_ml_ads_campaign_contributions_channel"),
+        CheckConstraint(
+            "campaign_id IS NOT NULL OR channel = 'display'",
+            name="ck_ml_ads_campaign_contributions_channel_campaign",
         ),
         Index("ix_ml_ads_campaign_contributions_campaign", "advertiser_id", "campaign_id"),
     )
