@@ -123,6 +123,19 @@ class TestStatus:
         assert items["late"] == 1
         assert 170 < items["oldest_late_seconds"] < 200
 
+    # Owner, 2026-11-03: "pero 5 segundos de diferencia no es demora si el objetivo es dos min, tendríamos que
+    # tener un 5% de tolerancia".
+    def test_a_delay_within_five_percent_of_the_target_is_not_late(self, env) -> None:
+        put_item(env, "MLA1", checked=ago(30))
+        notify(env, "MLA1", received=datetime.now(timezone.utc) - timedelta(seconds=125))  # target 120, +4 %
+        put_item(env, "MLA2", checked=ago(30))
+        notify(env, "MLA2", received=datetime.now(timezone.utc) - timedelta(seconds=130))  # +8 %
+
+        items = measure(env)["resources"]["items"]
+
+        assert items["late"] == 1
+        assert 129 < items["oldest_late_seconds"] < 140
+
     def test_an_item_not_in_the_store_yet_is_late_too(self, env) -> None:
         notify(env, "MLA9", received=ago(3))
 
