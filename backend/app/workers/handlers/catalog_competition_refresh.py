@@ -3,7 +3,7 @@
 When `hay_mejores_ofertas` is newly set, the promotions store enqueues the MLA into
 `catalog_competition_refresh_pending`. This handler persists a fresh
 `ml_catalog_competition` snapshot via `refrescar_competencia_catalogo` (same path as the
-panel's refresh button). No UI — runs in the ML worker.
+panel's refresh button). No UI; runs in the ML worker.
 
 Gated by `catalog_competition_refresh.enabled` (kill switch overrides) and
 `catalog_competition_refresh.rate_per_min`. Shares the in-process ML `Pacer` with the
