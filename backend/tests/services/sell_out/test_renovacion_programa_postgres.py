@@ -324,3 +324,43 @@ def test_a_link_from_the_latest_quarter_into_the_one_before_brings_it_in(engine,
     assert (previa["periodo_desde"], previa["fecha_desde"]) == (Q3_DESDE, Q4_DESDE)
     assert [r["campana_id"] for r in previa["renovar"]] == [q3[1]]
     assert [f["campana_id"] for f in previa["quedan_afuera"]] == [q4]
+
+
+def test_a_voided_copy_does_not_count_as_a_renewal(engine, Sesion) -> None:
+    pid = _programa(Sesion)
+    original = _campana(engine, pid, "Modelo A Q4 2026", Q4_DESDE, Q4_HASTA)
+    with Sesion() as db:
+        copia = campanas.crear_campana(db, renovacion.borrador(db, original), USUARIO).id
+        campanas.anular_campana(db, copia, USUARIO, None)
+
+    with Sesion() as db:
+        previa = renovacion_programa.previa(db, pid)
+    # A voided campaign does not set the latest quarter either: L is still Q4, and the original renews again.
+    assert (previa["periodo_desde"], previa["fecha_desde"]) == (Q4_DESDE, Q1_DESDE)
+    assert [r["campana_id"] for r in previa["renovar"]] == [original]
+    assert previa["omitidas"] == previa["quedan_afuera"] == []
+    with Sesion() as db:
+        out = renovacion_programa.renovar(db, pid, [original], USUARIO)
+    assert [c["campana_id"] for c in out["creadas"]] == [original]
+
+
+def test_a_copy_moved_to_another_program_still_renews_its_original_but_brings_no_quarter_back(engine, Sesion) -> None:
+    pid, otro = _programa(Sesion, "MARCA PROG"), _programa(Sesion, "Otro")
+    q3 = _campana(engine, pid, "Modelo Q3 2026", Q3_DESDE, Q3_HASTA)  # pre-link, already renewed by hand
+    q4 = _campana(engine, pid, "Modelo A Q4 2026", Q4_DESDE, Q4_HASTA)
+    with Sesion() as db:
+        copia = campanas.crear_campana(db, renovacion.borrador(db, q4), USUARIO).id
+        programas.asignar(db, [copia], otro, USUARIO)
+    # A copy of Q3 in the other program, ending in Q4: the other program's link, not this one's.
+    _campana(engine, otro, "Ajena Q4 2026", Q4_DESDE, Q4_HASTA, renovada_de_id=q3)
+
+    with Sesion() as db:
+        previa = renovacion_programa.previa(db, pid)
+    assert (previa["periodo_desde"], previa["renovar"]) == (Q4_DESDE, [])  # Q3 is not brought back
+    assert previa["omitidas"] == [
+        {
+            "campana_id": q4,
+            "nombre": "Modelo A Q4 2026",
+            "motivo": f"ya renovada en la campaña {copia} (Modelo A Q1 2027)",
+        }
+    ]

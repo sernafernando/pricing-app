@@ -2,12 +2,12 @@
 (owner: "Renovar programa" on a program; the per-campaign renewal is `renovacion`).
 
 - **Source period** (orchestrator's rule, 2026-11-04): L is the calendar quarter of the program's latest
-  `fecha_hasta` (voided campaigns included). The candidates are the program's non-voided campaigns that are not
-  renewed yet and end in quarter L, or in L-1 when a campaign of the program in L names one of L-1 in
-  `renovada_de_id` (no backfill: campaigns renewed before the link existed point nowhere, and must not be renewed
-  again). The source period is the earliest quarter among the candidates, and its
-  candidates are renewed. So one campaign renewed by hand (its copy ends in L) does not hide the rest of L-1, a
-  full renewal moves on to the copies, and a quarter older than L-1 is never picked.
+  `fecha_hasta` among its non-voided campaigns (a voided copy must not hide its original's quarter). The candidates
+  are the program's non-voided campaigns that are not renewed yet and end in quarter L, or in L-1 when a campaign of
+  the program in L names one of L-1 in `renovada_de_id` (no backfill: campaigns renewed before the link existed
+  point nowhere, and must not be renewed again). The source period is the earliest quarter among the candidates,
+  and its candidates are renewed. So one campaign renewed by hand (its copy ends in L) does not hide the rest of
+  L-1, a full renewal moves on to the copies, and a quarter older than L-1 is never picked.
 - **Already renewed**: another non-voided campaign names it in `renovada_de_id`. No name or date heuristics: a
   renamed copy still counts.
 - **Skipped and listed** (`omitidas`): the source period's voided campaigns ("anulada, no se renueva") and its
@@ -94,7 +94,9 @@ def previa(db: Session, programa_id: int, *, bloquear: bool = False) -> dict:
         "quedan_afuera": [],
     }
     ultima: Optional[date] = (
-        db.query(func.max(SellOutCampana.fecha_hasta)).filter(SellOutCampana.programa_id == programa.id).scalar()
+        db.query(func.max(SellOutCampana.fecha_hasta))
+        .filter(SellOutCampana.programa_id == programa.id, SellOutCampana.estado != "anulada")
+        .scalar()
     )
     if ultima is None:
         return salida
