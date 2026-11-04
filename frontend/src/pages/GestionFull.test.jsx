@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import GestionFull from './GestionFull';
 
 vi.mock('../services/api', () => ({
@@ -101,6 +102,7 @@ describe('GestionFull', () => {
           offset: 0,
           full_mode: 'en',
           include_zero_stock: false,
+          include_facets: true,
         }),
       }),
     );
@@ -124,6 +126,102 @@ describe('GestionFull', () => {
           }),
         }),
       );
+    });
+  });
+
+  it('sends marcas/categorias CSV from the product panel and Limpiar clears them', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        total: 0,
+        items: [],
+        puede_editar_override: false,
+        facets: {
+          product: {
+            marcas: ['Sony', 'LG'],
+            categorias: ['Audio', 'Video'],
+            subcategorias: [],
+            pms: [],
+          },
+        },
+      },
+    });
+    render(<GestionFull />);
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Marca' }));
+    await userEvent.click(await screen.findByText('Sony'));
+    await userEvent.click(screen.getByRole('button', { name: 'Categoría' }));
+    await userEvent.click(await screen.findByText('Audio'));
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(
+        '/gestion-full',
+        expect.objectContaining({
+          params: expect.objectContaining({
+            marcas: 'Sony',
+            categorias: 'Audio',
+          }),
+        }),
+      );
+    });
+
+    fireEvent.change(screen.getByLabelText('Presencia Full'), { target: { value: 'fuera' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Limpiar' }));
+
+    await waitFor(() => {
+      const last = api.get.mock.calls.at(-1)?.[1]?.params;
+      expect(last?.marcas).toBeUndefined();
+      expect(last?.categorias).toBeUndefined();
+      expect(last?.full_mode).toBe('en');
+      expect(last?.include_zero_stock).toBe(false);
+    });
+  });
+
+  it('skips facets on list refresh after Cerrar', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        total: 1,
+        items: [
+          {
+            producto_item_id: 1,
+            ean: 'EAN-A',
+            descripcion: 'Producto A',
+            inventory_id: 'INV1',
+            user_product_id: 'MLAU1',
+            override: 3,
+            sugerido: 8,
+            pm_ready: false,
+            puede_editar_override: true,
+          },
+        ],
+        puede_editar_override: true,
+        puede_gestor: false,
+        facets: {
+          product: { marcas: ['Sony'], categorias: [], subcategorias: [], pms: [] },
+        },
+      },
+    });
+    api.post.mockResolvedValue({
+      data: {
+        producto_item_id: 1,
+        user_product_id: 'MLAU1',
+        inventory_id: 'INV1',
+        qty_pm: 3,
+        pm_ready: true,
+      },
+    });
+
+    render(<GestionFull />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cerrar' }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      const refresh = api.get.mock.calls.find(
+        ([, cfg]) => cfg?.params?.include_facets === false,
+      );
+      expect(refresh).toBeTruthy();
     });
   });
 

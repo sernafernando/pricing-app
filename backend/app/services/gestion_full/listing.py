@@ -324,10 +324,15 @@ def list_gestion_full(
     categorias: Sequence[str] | None = None,
     full_mode: str = "en",
     include_zero_stock: bool = False,
+    include_facets: bool = True,
     limit: int = 100,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """Paginated Gestión Full rows ordered by EAN then MLAU (groups stay contiguous)."""
+    """Paginated Gestión Full rows ordered by EAN then MLAU (groups stay contiguous).
+
+    `include_facets=False` skips the DISTINCT pairs query (e.g. Planificación
+    refresh after Listo/Desbloquear when the panel options are already loaded).
+    """
     product = _product_filter_params(marcas, categorias)
     params = {
         **_base_params(q=q, full_mode=full_mode, include_zero_stock=include_zero_stock),
@@ -340,14 +345,17 @@ def list_gestion_full(
     }
     total: Optional[int] = db.execute(_COUNT_SQL, params).scalar()
     rows = db.execute(_LIST_SQL, params).mappings().all()
-    facets_product = _build_product_facets(
-        db,
-        q=q,
-        full_mode=full_mode,
-        include_zero_stock=include_zero_stock,
-        marcas=product["marcas"],
-        categorias=product["categorias"],
-    )
+    if include_facets:
+        facets_product = _build_product_facets(
+            db,
+            q=q,
+            full_mode=full_mode,
+            include_zero_stock=include_zero_stock,
+            marcas=product["marcas"],
+            categorias=product["categorias"],
+        )
+    else:
+        facets_product = _empty_product_facets()
     return {
         "total": int(total or 0),
         "limit": params["limit"],

@@ -290,6 +290,14 @@ def get_gestion_full(
         default=None,
         description="CSV de categorías (case-insensitive, same as ProductFiltersPanel)",
     ),
+    marca: str = Query(
+        "",
+        description="Deprecated scalar brand; used only when `marcas` is empty",
+    ),
+    categoria: str = Query(
+        "",
+        description="Deprecated scalar category; used only when `categorias` is empty",
+    ),
     full_mode: str = Query(
         "en",
         description="en Full | fuera de Full | todos (en = stock_full>0 OR ventas Full 30d>0)",
@@ -299,19 +307,31 @@ def get_gestion_full(
         False,
         description="When false (default), hide rows with stock_erp 0/null",
     ),
+    include_facets: bool = Query(
+        True,
+        description="When false, skip product facet DISTINCT (caller already has options)",
+    ),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
     """List Full replenishment rows. Defaults: en Full + hide zero ERP stock."""
+    marcas_list = parse_csv_strings(marcas, "marcas")
+    categorias_list = parse_csv_strings(categorias, "categorias")
+    # Backward compat: old ?marca= / ?categoria= scalar query params.
+    if not marcas_list and (marca or "").strip():
+        marcas_list = ((marca or "").strip(),)
+    if not categorias_list and (categoria or "").strip():
+        categorias_list = ((categoria or "").strip(),)
     payload = list_gestion_full(
         db,
         q=q,
-        marcas=parse_csv_strings(marcas, "marcas"),
-        categorias=parse_csv_strings(categorias, "categorias"),
+        marcas=marcas_list,
+        categorias=categorias_list,
         full_mode=full_mode,
         include_zero_stock=include_zero_stock,
+        include_facets=include_facets,
         limit=limit,
         offset=offset,
     )

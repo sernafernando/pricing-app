@@ -172,3 +172,17 @@ def test_list_gestion_full_clamps_limit() -> None:
         payload = list_gestion_full(db, limit=9999, offset=-5)
     assert payload["limit"] == 500
     assert payload["offset"] == 0
+
+
+def test_list_gestion_full_include_facets_false_skips_facet_query() -> None:
+    db = MagicMock()
+    count_result = MagicMock()
+    count_result.scalar.return_value = 0
+    list_result = MagicMock()
+    list_result.mappings.return_value.all.return_value = []
+    db.execute.side_effect = [count_result, list_result]
+
+    payload = list_gestion_full(db, include_facets=False)
+    assert db.execute.call_count == 2
+    assert payload["facets"]["product"]["marcas"] == []
+    assert payload["facets"]["product"]["categorias"] == []

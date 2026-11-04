@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import api from '../services/api';
 import { useDebounce } from '../hooks/useDebounce';
@@ -57,6 +57,8 @@ export default function GestionFull() {
   const [loadError, setLoadError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const debouncedQ = useDebounce(q, 300);
+  // After Listo/Desbloquear we only need rows; keep panel options and skip the facet DISTINCT.
+  const skipFacetsRef = useRef(false);
 
   const rowKey = (row) => `${row.producto_item_id}-${row.user_product_id || row.inventory_id}`;
 
@@ -64,6 +66,8 @@ export default function GestionFull() {
     if (tab !== 'plan') return undefined;
     let cancelled = false;
     const load = async () => {
+      const wantFacets = !skipFacetsRef.current;
+      skipFacetsRef.current = false;
       setLoading(true);
       setLoadError(null);
       setSaveError(null);
@@ -77,6 +81,7 @@ export default function GestionFull() {
               : undefined,
             full_mode: fullMode,
             include_zero_stock: includeZeroStock,
+            include_facets: wantFacets,
             limit: 200,
             offset: 0,
           },
@@ -86,7 +91,9 @@ export default function GestionFull() {
         setItems(nextItems);
         setTotal(data.total || 0);
         setPuedeGestor(Boolean(data.puede_gestor));
-        setProductOptions(data.facets?.product || EMPTY_PRODUCT_OPTIONS);
+        if (wantFacets) {
+          setProductOptions(data.facets?.product || EMPTY_PRODUCT_OPTIONS);
+        }
         const nextDrafts = {};
         nextItems.forEach((row) => {
           nextDrafts[row.inventory_id] = overrideDraftValue(row.override);
@@ -167,6 +174,7 @@ export default function GestionFull() {
         producto_item_id: row.producto_item_id,
         user_product_id: row.user_product_id,
       });
+      skipFacetsRef.current = true;
       setListNonce((n) => n + 1);
     } catch {
       setSaveError(`No se pudo cerrar la línea ${row.inventory_id}`);
@@ -185,6 +193,7 @@ export default function GestionFull() {
         producto_item_id: row.producto_item_id,
         user_product_id: row.user_product_id,
       });
+      skipFacetsRef.current = true;
       setListNonce((n) => n + 1);
     } catch {
       setSaveError(`No se pudo desbloquear ${row.inventory_id}`);
