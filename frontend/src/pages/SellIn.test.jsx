@@ -697,7 +697,7 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
 
     sellOutAPI.detalle.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, estado: 'anulada' } });
     await user.click(within(fila).getByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionadas' }));
     await user.click(within(seccion).getByRole('button', { name: 'Confirmar anulación' }));
 
     await waitFor(() => expect(sellOutAPI.detalle).toHaveBeenCalledTimes(2));
@@ -714,7 +714,7 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await user.click(within(fila).getByRole('button', { name: 'Ver campaña' }));
     await screen.findByRole('heading', { name: 'RB 8180', level: 2 });
     await user.click(within(fila).getByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionadas' }));
     await user.click(within(seccion).getByRole('button', { name: 'Confirmar anulación' }));
 
     await user.click(screen.getByRole('button', { name: 'Cerrar' })); // while the bulk void is in flight
@@ -733,7 +733,7 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
     const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
     await user.click(within(fila).getByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionadas' }));
     await user.click(within(seccion).getByRole('button', { name: 'Confirmar anulación' }));
 
     await user.type(screen.getByPlaceholderText('Buscar campaña por nombre…'), 'Epson'); // while it is in flight
@@ -1139,11 +1139,92 @@ describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
     expect(await screen.findByText('RB 8180')).toBeInTheDocument();
   });
 
+  it('the campaigns of an open group are nested under it with a ↳ marker; the flat list has none', async () => {
+    conProgramas();
+    sellOutAPI.listar.mockImplementation(async (p) => ({ data: p.programa_id === 7 ? CAMPANAS_DEL_PROGRAMA : CAMPANAS_LISTA }));
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+
+    await user.click(await waitFor(() => screen.getByRole('button', { name: /^MARCA PROG/ })));
+    const fila = (await screen.findByText('MARCA PROG 3.0')).closest('tr');
+    expect(within(fila).getByText('↳')).toHaveAttribute('aria-hidden', 'true');
+
+    await user.click(within(screen.getByRole('group', { name: 'Ver' })).getByRole('button', { name: 'Lista' }));
+    const plana = (await screen.findByText('RB 8180')).closest('tr');
+    expect(within(plana).queryByText('↳')).not.toBeInTheDocument();
+  });
+
   it('a program without campaigns under the filters gets no group row', async () => {
     conProgramas(); // MARCA PROG and Modelos SP exist; only MARCA PROG has campaigns under the filters
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
     await waitFor(() => filaDeGrupo('MARCA PROG'));
     expect(screen.queryByRole('button', { name: /^Modelos SP/ })).not.toBeInTheDocument();
+  });
+
+  it('"Asignar ahora" on "Sin programa" assigns every unassigned campaign under the filters', async () => {
+    conProgramas();
+    sellOutAPI.listar.mockImplementation(async (p) => ({
+      data: p.sin_programa ? { items: [CAMPANA_MIGRADA], total: 1, page: 1, page_size: 200 } : CAMPANAS_LISTA,
+    }));
+    sellOutProgramasAPI.asignar.mockResolvedValue({ data: { asignadas: 1, sin_cambio: 0 } });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
+    await user.selectOptions(within(filtros).getByLabelText('Estado'), 'activa');
+    await waitFor(() => expect(lastParams(sellOutAPI.porPrograma)).toEqual({ estado: 'activa', page: 1, page_size: 50 }));
+
+    await user.click(await waitFor(() => within(filaDeGrupo('Sin programa')).getByRole('button', { name: 'Asignar ahora' })));
+    expect(sellOutAPI.listar).toHaveBeenLastCalledWith({ estado: 'activa', sin_programa: true, page: 1, page_size: 200 });
+    const dialogo = await screen.findByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
+    await user.selectOptions(within(dialogo).getByLabelText('Programa'), '7');
+    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
+
+    expect(sellOutProgramasAPI.asignar).toHaveBeenCalledWith([55], 7);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(within(filaDeGrupo('MARCA PROG')).queryByRole('button', { name: 'Asignar ahora' })).not.toBeInTheDocument();
+  });
+
+  it('"Asignar ahora" that cannot resolve the unassigned campaigns says so and opens no dialog', async () => {
+    conProgramas();
+    sellOutAPI.listar.mockImplementation(async (p) => ({
+      data: p.sin_programa ? { items: [], total: 0, page: 1, page_size: 200 } : CAMPANAS_LISTA,
+    }));
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+
+    await user.click(await waitFor(() => within(filaDeGrupo('Sin programa')).getByRole('button', { name: 'Asignar ahora' })));
+
+    expect(
+      await screen.findByText('La lista de campañas cambió mientras se seleccionaba. Actualizá la lista y volvé a intentar.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [{ response: { status: 403, data: { detail: 'No tienes permiso: sell_out.ver' } } }, 'No tienes permiso: sell_out.ver'],
+    [new Error('Network Error'), 'No se pudo conectar con el servidor para seleccionar las campañas.'],
+  ])('"Asignar ahora" whose read fails shows the API message or the connection error', async (fallo, mensaje) => {
+    conProgramas();
+    sellOutAPI.listar.mockImplementation(async (p) => {
+      if (p.sin_programa) throw fallo;
+      return { data: CAMPANAS_LISTA };
+    });
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+
+    await user.click(await waitFor(() => within(filaDeGrupo('Sin programa')).getByRole('button', { name: 'Asignar ahora' })));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(mensaje);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('without sell_out.gestionar "Sin programa" has no "Asignar ahora"', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
+    conProgramas();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+
+    await waitFor(() => filaDeGrupo('Sin programa'));
+    expect(screen.queryByRole('button', { name: 'Asignar ahora' })).not.toBeInTheDocument();
   });
 
   it('"Asignar a programa" assigns the selected campaigns to an active program and reloads the list and groups', async () => {

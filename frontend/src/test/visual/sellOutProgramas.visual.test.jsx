@@ -91,10 +91,11 @@ describe.each([
     const filtros = box(document.querySelector('[aria-label="Filtros de campañas"]'));
     const tabla = box(document.querySelector('#sell-out-panel table'));
     expect(tabla.top).toBeGreaterThanOrEqual(filtros.bottom - 0.5);
-    // The group row's pill sits at the row's right edge, as in the design.
+    // The group row's pill follows its summary, as on Stitch 5ee03d7d (it is not pushed to the row's end).
     const grupo = document.querySelector('#sell-out-panel tbody tr');
     const pill = [...grupo.querySelectorAll('span')].find((s) => s.textContent === '2 activas');
-    expect(box(grupo).right - box(pill).right).toBeLessThan(40);
+    const resumen = grupo.querySelector('[class*="resumen"]');
+    expect(box(pill).left - box(resumen).right).toBeLessThan(24);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/programas-lista-${theme}-${width}.png` });
 

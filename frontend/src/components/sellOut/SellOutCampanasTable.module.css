@@ -6,3 +6,35 @@
   justify-content: flex-end;
   gap: var(--space-1);
 }
+
+/* The campaign's name with its id beside it (Stitch 5ee03d7d): what the operator quotes to find or mention a campaign. */
+.nombre {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* A row under a program (Stitch 5ee03d7d): the whole cell moves in, after the ↳ marker. */
+.anidada > * {
+  margin-left: var(--space-4);
+}
+
+.flecha {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.hija {
+  font-weight: var(--font-semibold);
+}
+
+.idChip {
+  padding: 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+  border-radius: var(--radius-sm);
+}
