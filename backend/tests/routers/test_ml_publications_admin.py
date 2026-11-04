@@ -136,7 +136,8 @@ class TestContract:
         # `ml_publications.promo_refresh` drains a queue every 15 s behind `promo_refresh.enabled`: nothing to request.
         # `promo_write.refresh` drains the post-write queue every 30 s behind the PROMOS_WRITE_ENABLED kill switch.
         # `ml_publications.freshness` measures every minute with no flag and makes no ML call: nothing to request.
-        # `ml_publications.catalog_competition_refresh` drains hay_mejores queue: nothing to request.
+        # `ml_publications.catalog_competition_refresh` drains hay_mejores queue behind
+        # `catalog_competition_refresh.enabled`: nothing to request.
         # `gestion_full.inbound` / `gestion_full.reconcile`: nothing to request via admin.
         # `publicacion_repair.*` run on kill-switch / write flags; nothing to request from admin.
         env_gated = {

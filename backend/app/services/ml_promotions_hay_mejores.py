@@ -168,17 +168,22 @@ def actualizar_hay_mejores_ofertas(
 
 
 def _enqueue_catalog_competition_refresh(db: Session, item_id: str) -> None:
-    """Best-effort enqueue of the catalog MLA to refresh; never undoes hay_mejores."""
+    """Best-effort enqueue of the catalog MLA to refresh; never undoes hay_mejores.
+
+    Runs in its own SAVEPOINT so a failed INSERT (missing table, lock, etc.)
+    cannot abort the outer hay_mejores nested transaction.
+    """
     try:
         from datetime import UTC, datetime
 
         from app.services.catalog_competition_refresh_queue import enqueue
         from app.services.catalog_competition_target import mla_for_catalog_competition_refresh
 
-        target = mla_for_catalog_competition_refresh(db, item_id)
-        if target is None:
-            return
-        enqueue(db, [target], datetime.now(UTC))
+        with db.begin_nested():
+            target = mla_for_catalog_competition_refresh(db, item_id)
+            if target is None:
+                return
+            enqueue(db, [target], datetime.now(UTC))
     except Exception as exc:  # noqa: BLE001
         logger.warning("hay_mejores: catalog competition enqueue failed for %s: %s", item_id, exc)
 

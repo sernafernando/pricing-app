@@ -199,6 +199,9 @@ class Settings(BaseSettings):
     # Refresh of the promotions mirror when a publication becomes active again (`ml_publications.promo_refresh`).
     ML_PUB_PROMO_REFRESH_ENABLED: bool = False
     ML_PUB_PROMO_REFRESH_RATE_PER_MIN: int = Field(default=30, ge=1, le=120)
+    # Drain of catalog_competition_refresh_pending after hay_mejores novelty.
+    ML_PUB_CATALOG_COMPETITION_REFRESH_ENABLED: bool = False
+    ML_PUB_CATALOG_COMPETITION_REFRESH_RATE_PER_MIN: int = Field(default=10, ge=1, le=120)
     ML_PUB_LINKS_ENABLED: bool = False
     ML_PUB_VERIFY_ENABLED: bool = False
     ML_PUB_DIVERGENCE_ENABLED: bool = False

@@ -104,6 +104,7 @@ _FLAGS = (
     "events",
     "promotions",
     "promo_refresh",
+    "catalog_competition_refresh",
     "links",
     "verify",
     "divergence",
@@ -123,6 +124,9 @@ SETTING_DEFS: Dict[str, _Def] = {
     "stock_rate_per_min": _Def("ML_PUB_STOCK_RATE_PER_MIN", _int_between(1, 100)),
     "replenishment_rate_per_min": _Def("ML_PUB_REPLENISHMENT_RATE_PER_MIN", _int_between(1, 100)),
     "promo_refresh.rate_per_min": _Def("ML_PUB_PROMO_REFRESH_RATE_PER_MIN", _int_between(1, 120)),
+    "catalog_competition_refresh.rate_per_min": _Def(
+        "ML_PUB_CATALOG_COMPETITION_REFRESH_RATE_PER_MIN", _int_between(1, 120)
+    ),
     "bulk_max_ids": _Def("ML_PUB_BULK_MAX_IDS", _int_between(1, 20)),
     "low_lane_min_share": _Def("ML_PUB_LOW_LANE_MIN_SHARE", _positive_number(1)),
     "view.ads_formula": _Def("ML_PUB_VIEW_ADS_FORMULA", _ads_formula),
