@@ -424,3 +424,45 @@ class TestFrontendBuildNode:
         assert result.returncode == 0, result.stderr
         assert self.pnpm_calls(env) == ["pnpm system install --frozen-lockfile", "pnpm system run build"]
         assert f"No está {node_dir}/bin/node" in result.stdout
+
+
+ROOT_ID_STUB = """#!/usr/bin/env bash
+[ "${1:-}" = "-u" ] && { echo 0; exit 0; }
+exec /usr/bin/id "$@"
+"""
+
+MISSING_SUDO_STUB = """#!/usr/bin/env bash
+echo "sudo $*" >> "$STUB_DIR/calls.log"
+echo "sudo: command not found" >&2
+exit 127
+"""
+
+
+class TestRunningAsRootWithoutSudo:
+    """The xenon LXC runs the deploy as root and has no `sudo` installed. Restarts must call
+    systemctl directly there instead of failing on `sudo` and only warning about it."""
+
+    def as_root_without_sudo(self, env) -> None:
+        env._write(env.stub / "bin" / "id", ROOT_ID_STUB)
+        env._write(env.stub / "bin" / "sudo", MISSING_SUDO_STUB)
+        env.healthy("pricing-worker")
+        env.healthy("pricing-worker-ml")
+
+    def test_workers_are_restarted_without_sudo(self, env) -> None:
+        self.as_root_without_sudo(env)
+
+        result = env.verify()
+
+        assert result.returncode == 0 and problems(result) == [], result.stdout
+        assert sorted(env.restarted()) == ["pricing-worker", "pricing-worker-ml"]
+        assert not [c for c in env.calls() if c.startswith("sudo ")]
+
+    def test_the_backend_is_restarted_without_sudo(self, env) -> None:
+        self.as_root_without_sudo(env)
+
+        result = env.deploy()
+
+        assert result.returncode == 0, result.stderr
+        assert "pricing-api" in env.restarted()
+        assert not [c for c in env.calls() if c.startswith("sudo ")]
+        assert "No se pudo reiniciar el servicio" not in result.stdout + result.stderr

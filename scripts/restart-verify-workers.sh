@@ -83,6 +83,15 @@ advanced() {
 
 unit_exists() { systemctl cat "$1" >/dev/null 2>&1; }
 
+# Root (xenon LXC, no `sudo` installed) restarts directly; any other user goes through sudo.
+as_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
 # 1) Decide, read the baseline heartbeat, restart.
 for i in "${!UNITS[@]}"; do
   unit=${UNITS[$i]}
@@ -104,8 +113,8 @@ for i in "${!UNITS[@]}"; do
   fi
 
   log "Reiniciando ${unit}..."
-  if ! sudo systemctl restart "$unit" 2>/dev/null; then
-    report_problem "$i" "no se pudo reiniciar (sudo systemctl restart ${unit})"
+  if ! as_root systemctl restart "$unit" 2>/dev/null; then
+    report_problem "$i" "no se pudo reiniciar (systemctl restart ${unit})"
     continue
   fi
   # The baseline is read right AFTER `restart` returns, never before: `restart` waits for the old

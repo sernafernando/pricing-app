@@ -58,6 +58,16 @@ log() { echo -e "${GREEN}[DEPLOY]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 err() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Corre un comando como root: directo si ya somos root (LXC de xenon, que no trae `sudo`), con
+# sudo si no. Sin esto, en el LXC el restart fallaba contra un `sudo` inexistente y solo avisaba.
+as_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
 # ponytail (docs/tech-debt-ledger.md): todo el cuerpo ejecutable vive adentro de
 # main() y se invoca al final del archivo. Bash lee los scripts por chunks
 # llevando un offset de byte, asi que el `git pull` de mas abajo -- que reescribe
@@ -386,7 +396,7 @@ BACKEND_STATUS="no reiniciado"
 if [ "$SKIP_BACKEND" = false ]; then
   CURRENT_STEP="restart del backend"
   log "Reiniciando backend..."
-  sudo systemctl restart pricing-api 2>/dev/null || warn "No se pudo reiniciar el servicio (¿existe pricing-api.service?)"
+  as_root systemctl restart pricing-api 2>/dev/null || warn "No se pudo reiniciar el servicio (¿existe pricing-api.service?)"
 
   CURRENT_STEP="health check del backend"
   log "Esperando que el backend responda en $HEALTHCHECK_URL..."
