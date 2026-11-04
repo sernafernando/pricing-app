@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   bestByMarkup,
   enrollBodyForPromo,
+  esMejorOferta,
+  hasPickedSlot,
   listRowForPricelist,
+  pickMejoresCandidatas,
   pickPonerPreciosPromos,
 } from './pickPonerPreciosPromos';
 import { LISTS } from '../../pricing/priceWrites';
@@ -69,5 +72,38 @@ describe('pickPonerPreciosPromos', () => {
   it('maps pricelist ids to Lista ML rows', () => {
     expect(listRowForPricelist(4, LISTS)?.id).toBe('ml-clasica');
     expect(listRowForPricelist(17, LISTS)?.id).toBe('ml-3');
+  });
+});
+
+describe('esMejorOferta / pickMejoresCandidatas', () => {
+  it('rejects markup↑ at a higher consumer price', () => {
+    expect(esMejorOferta(1100, 30, 1000, 20)).toBe(false);
+    expect(esMejorOferta(1000, 30, 1000, 20)).toBe(true);
+    expect(esMejorOferta(1000, 20, 1000, 20)).toBe(false);
+    expect(esMejorOferta(900, 20, 1000, 20)).toBe(true);
+    expect(esMejorOferta(900, 25, 1000, 20)).toBe(true);
+  });
+
+  it('keeps only slots that beat the status quo, best SMART when two qualify', () => {
+    const promotions = [
+      asApiPromo(capture.promotions[0], 22),
+      {
+        ...asApiPromo(capture.promotions[0], 18),
+        promotion_id: 'P-WEAKER-SMART',
+        price: 74000,
+      },
+      asApiPromo(capture.promotions[1], 8),
+      asApiPromo(capture.promotions[2], 12),
+    ];
+    // Baseline above SMART offer price with lower markup → SMART qualifies; DEAL 8% does not beat 20%.
+    const picked = pickMejoresCandidatas(promotions, {
+      baselinePrice: 80000,
+      baselineMarkup: 20,
+      monthName: 'octubre',
+    });
+    expect(picked.smart.promotion_id).toBe('P-MLA18137008');
+    expect(picked.deal).toBeNull();
+    expect(picked.premium).toBeNull();
+    expect(hasPickedSlot(picked)).toBe(true);
   });
 });

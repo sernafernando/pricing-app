@@ -1,7 +1,8 @@
 """Hay mejores ofertas: candidates vs consumer MeLi price (sale_price).
 
-Better = higher markup OR lower price with markup ≥. Discard fingerprints
-block instant re-flag; a new better novelty re-marks.
+Better = markup↑ at same price, or lower price with markup ≥ baseline.
+A higher consumer price is never better. Discard fingerprints block instant
+re-flag; a new better novelty re-marks.
 """
 
 from __future__ import annotations
@@ -38,13 +39,19 @@ def es_mejor_oferta(
     baseline_price: Optional[float],
     baseline_markup: Optional[float],
 ) -> bool:
+    """Better vs status quo: markup↑ same price; markup= lower; markup↑ lower.
+
+    Never treats a higher consumer price as better, even with higher markup.
+    """
     if candidate_price is None or candidate_markup is None:
         return False
     if baseline_price is None or baseline_markup is None:
         return False
-    if candidate_markup > baseline_markup:
-        return True
-    return candidate_price < baseline_price and candidate_markup >= baseline_markup
+    if candidate_price > baseline_price:
+        return False
+    if candidate_price == baseline_price:
+        return candidate_markup > baseline_markup
+    return candidate_markup >= baseline_markup
 
 
 def _format_fingerprint_price(price: float) -> str:

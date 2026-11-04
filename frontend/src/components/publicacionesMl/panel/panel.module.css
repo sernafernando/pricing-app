@@ -969,6 +969,18 @@
   color: var(--cf-text-secondary);
 }
 
+.ponerPreciosMejores {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.ponerPreciosMejoresLead {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
 .ponerPreciosChoices {
   display: flex;
   flex-direction: column;
