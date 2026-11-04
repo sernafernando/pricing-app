@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel
 
+from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_daily_metrics import board
 
 
@@ -126,6 +127,28 @@ class KpiAdsUnattributed(BaseModel):
     account_level: KpiAccountLevel
 
 
+class KpiAdsWaterfall(BaseModel):
+    """The "Publicidad restada" card of Métricas ML (Stitch 5736acfc): what the board subtracted, line by line, on its
+    own basis (net of IVA), so the lines add up to `total` (= `KpiAds.subtracted_total`) to the cent.
+
+    `product_ads_publications + product_ads_sin_producto - product_ads_contribution = product_ads_net`;
+    `display_gross - display_contribution = display_net`; `total = product_ads_net (+ display_net + brand when
+    account_subtracted)`. `no_campaign` is the part of the Product Ads on item rows with no campaign, which no aporte
+    can cover. The "sin producto" and account-level lines are null under a filter or a PM scope (no row owns them)."""
+
+    product_ads_publications: float
+    product_ads_sin_producto: Optional[float] = None
+    product_ads_contribution: float
+    product_ads_net: float
+    no_campaign: float
+    display_gross: Optional[float] = None
+    display_contribution: Optional[float] = None
+    display_net: Optional[float] = None
+    brand: Optional[float] = None
+    account_subtracted: bool
+    total: float
+
+
 class KpiAds(BaseModel):
     """Product Ads of the KPI rows (only with `restar_publicidad` and `ver_ganancia`). Informational context:
     the ratios use the API cost basis and are never linked to specific sales; `cost_total` is ML's gross cost net
@@ -160,6 +183,7 @@ class KpiAds(BaseModel):
     no_campaign: float = 0.0
     coverage: Optional[KpiCoverage] = None
     unattributed: Optional[KpiAdsUnattributed] = None
+    waterfall: Optional[KpiAdsWaterfall] = None
 
 
 class BoardKpis(BaseModel):
@@ -279,7 +303,38 @@ def _kpi_ads(a: board.AdsKpis, gross: Any) -> KpiAds:
             mismatch_days=[KpiCoverageDay.model_validate(d, from_attributes=True) for d in a.coverage.mismatch_days],
         ),
         unattributed=_kpi_unattributed(a.unattributed),
+        waterfall=_kpi_waterfall(a),
     )
+
+
+def _kpi_waterfall(a: board.AdsKpis) -> KpiAdsWaterfall:
+    """Each line from the figures the board subtracted (`cents` already applied there), so differences are exact:
+    the aporte lines are gross minus net, never a separate rounding."""
+    u = a.unattributed
+    sin_producto = board.cents(ads_cost_net_of_iva(u.sin_producto_api, board.ADS_SOURCE)) if u else None
+    lines = dict(
+        product_ads_publications=a.cost_total - (sin_producto or 0),
+        product_ads_sin_producto=sin_producto,
+        product_ads_contribution=a.cost_total - a.net,
+        product_ads_net=a.net,
+        no_campaign=board.cents(ads_cost_net_of_iva(a.no_campaign, board.ADS_SOURCE)),
+        account_subtracted=bool(u and u.subtracted),
+        total=a.subtracted_total,
+    )
+    if u is not None:
+        account = u.account_level
+        display_gross = board.cents(ads_cost_net_of_iva(account.display_api, "display"))
+        brand = board.cents(account.brand)
+        # The board subtracts the account level as ONE rounded sum; Display net is that sum minus Brand Ads, so the
+        # lines add up to `total` even if Brand Ads ever carried sub-cent amounts.
+        display_net = board.cents(account.display_net + account.brand) - brand
+        lines.update(
+            display_gross=display_gross,
+            display_contribution=display_gross - display_net,
+            display_net=display_net,
+            brand=brand,
+        )
+    return KpiAdsWaterfall(**{k: (v if isinstance(v, bool) else round_money(v)) for k, v in lines.items()})
 
 
 def _kpi_unattributed(u: Optional[board.AdsUnattributed]) -> Optional[KpiAdsUnattributed]:
