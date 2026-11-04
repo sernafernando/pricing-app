@@ -4,7 +4,8 @@ columns and the bonus queue) and `20261112_sell_in_compras_porcentaje` (fixed
 amount or percentage) and `20261114_sell_in_bonos_alcance` (a bonus's scope and
 kind, and its models), so the parity check covers the tables as they are now
 (`20261115_sell_in_bono_queue_alcance` only replaces the queue's triggers), and `20261227_sell_in_modos_producto`
-(a product's dated cost modes, and the manual consumptions that point at one).
+(a product's dated cost modes, and the manual consumptions that point at one), and `20261105_tacticals`
+(`tactical_id`, and a cost bonus may be per unit).
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
 bare stand-ins of the tables it references (usuarios, proveedores,
@@ -41,6 +42,7 @@ _MIGRATIONS = [
         "20261215_sell_in_bono_acumulable",
         "20261217_drop_sell_in_compras_pedido_compra_id",
         "20261227_sell_in_modos_producto",
+        "20261105_tacticals",
     )
 ]
 TABLES = {"sell_in_compras", "sell_in_compra_items", "sell_in_consumos", "sell_in_modos_producto"}
@@ -54,6 +56,10 @@ _STUBS = [
     "CREATE TABLE productos_erp (item_id INTEGER PRIMARY KEY, marca VARCHAR(100), categoria VARCHAR(100))",
     "CREATE TABLE pedido_compra_lineas_facturadas (id BIGSERIAL PRIMARY KEY, pedido_id BIGINT, item_id INTEGER, "
     "cantidad INTEGER, importe_neto NUMERIC(18, 2), moneda VARCHAR(3))",
+    # What `20261105_tacticals` also alters on the sell-out side, and the trigger function it reuses.
+    "CREATE TABLE sell_out_campanas (id BIGINT PRIMARY KEY)",
+    "CREATE TABLE offset_grupos (id INTEGER PRIMARY KEY)",
+    "CREATE FUNCTION sell_out_set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$",
     "INSERT INTO usuarios VALUES (7)",
     "INSERT INTO proveedores VALUES (3)",
     "INSERT INTO pedidos_compra (id) VALUES (900)",
@@ -139,7 +145,7 @@ def orm_engine():
     """
     from tests.conftest import _restore_pristine_pg_types
 
-    tables = [Base.metadata.tables[name] for name in sorted(TABLES | BONO_TABLES)]
+    tables = [Base.metadata.tables[name] for name in sorted(TABLES | BONO_TABLES | {"tacticals"})]
     found = {column: column.type for table in tables for column in table.columns}
 
     def build(eng) -> None:
@@ -550,7 +556,7 @@ class TestCostModes:
         with engine.begin() as conn:
             modo_id = conn.execute(text(_INSERT_MODO), _modo(**_MANUAL)).scalar_one()
             conn.execute(text(_INSERT_CONSUMO_MODO), {"line": None, "modo": modo_id, "ref": 1, "descuento": "-5"})
-        down = _load_migration(_MIGRATIONS[-1])
+        down = _load_migration(_BACKEND_ROOT / "alembic" / "versions" / "20261227_sell_in_modos_producto.py")
         with engine.connect() as conn:
             from alembic.operations import Operations
             from alembic.runtime.migration import MigrationContext

@@ -1,6 +1,6 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import false, func
 from app.core.database import Base
 
 
@@ -15,6 +15,9 @@ class OffsetGrupo(Base):
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)
     descripcion = Column(String(255), nullable=True)
+    # Created by a tactical line for its own products (tacticals T1): never listed in the Grupos tab nor offered to
+    # pick; it lives and dies with its campaign.
+    oculto = Column(Boolean, nullable=False, default=False, server_default=false())
 
     # Auditoría
     usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)

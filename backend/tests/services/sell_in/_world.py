@@ -23,6 +23,7 @@ from typing import Iterator, List, Optional, Tuple
 
 from sqlalchemy import Engine, text
 
+from app.models.tactical import Tactical
 from app.models.auditoria import Auditoria
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
@@ -50,6 +51,7 @@ STUBS = [
 ]
 TABLES = [
     ProductoERP.__table__,
+    Tactical.__table__,  # `tactical_id` of campaigns, bonuses and purchases (tacticals T1)
     SellInBonoMarca.__table__,  # referenced by a generated purchase's bono_id
     SellInCompra.__table__,
     SellInCompraItem.__table__,
