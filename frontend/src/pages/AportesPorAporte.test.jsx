@@ -95,7 +95,7 @@ describe('AportesPorAporte', () => {
     expect(api.get).toHaveBeenCalledTimes(1);
   });
 
-  it('edits Product Ads aportes and deletes any, with the permission to manage them', async () => {
+  it('edits and deletes any aporte, with the permission to manage them', async () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();
     const user = userEvent.setup();
@@ -104,8 +104,8 @@ describe('AportesPorAporte', () => {
     const [pct, display] = bodyRows();
     await user.click(within(pct).getByRole('button', { name: 'Editar aporte de TP-Link' }));
     expect(onEdit).toHaveBeenCalledWith(APORTES_VIEW.contributions[0]);
-    // No form loads a Display aporte yet (pending its Stitch screen): no pencil on that row.
-    expect(within(display).queryByRole('button', { name: /Editar/ })).not.toBeInTheDocument();
+    await user.click(within(display).getByRole('button', { name: 'Editar aporte de Xerox' }));
+    expect(onEdit).toHaveBeenLastCalledWith(APORTES_VIEW.contributions[1]);
     await user.click(within(display).getByRole('button', { name: 'Borrar aporte de Xerox' }));
     expect(onDelete).toHaveBeenCalledWith(APORTES_VIEW.contributions[1]);
   });

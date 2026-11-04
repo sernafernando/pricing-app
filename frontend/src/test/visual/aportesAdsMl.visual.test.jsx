@@ -16,6 +16,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { setTheme } from './visualHelpers';
 import AportesAdsML from '../../pages/AportesAdsML';
 import { APORTE_HISTORY } from '../../pages/aportesFixtures';
+import { DISPLAY_REPORT } from '../fixtures/mlAdsDisplay';
 
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
@@ -123,8 +124,14 @@ const APORTES_STITCH = {
 
 vi.mock('../../services/api', () => ({
   default: {
-    get: vi.fn((url) => {
-      if (url === '/marcas') return Promise.resolve({ data: { marcas: ['EPSON', 'HP', 'TP-Link'] } });
+    get: vi.fn((url, config) => {
+      if (url === '/marcas') return Promise.resolve({ data: { marcas: ['EPSON', 'HP', 'TP-Link', 'Xerox'] } });
+      if (url === '/ml-ads/display') return Promise.resolve({ data: DISPLAY_REPORT });
+      if (url.endsWith('/preview') && config.params.channel === 'display') {
+        // DERIVED from Stitch 7512c518: Display spent 1,200,000 in the range and the aporte covers 300,000.
+        const display = { spend: 1200000, counted: 300000, net: 900000, warnings: [], data_through: null, over_spend: false };
+        return Promise.resolve({ data: display });
+      }
       if (url === '/ml-ads/contributions') return Promise.resolve({ data: APORTES_STITCH });
       if (url.endsWith('/history')) return Promise.resolve({ data: APORTE_HISTORY });
       // DERIVED: the ledger closed through 10-20, so a range to 10-31 shows the missing-data line (ml-ads-aportes-robust S4).
@@ -296,6 +303,54 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
       const modal = list.closest('.modal-tesla');
       expect(modal.scrollWidth).toBeLessThanOrEqual(modal.clientWidth + 1);
       if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/modal-historial-1440-${mode}.png`, element: modal });
+      document.documentElement.classList.remove('high-contrast');
+    });
+  }
+
+  for (const [theme, highContrast] of [
+    ['light', false],
+    ['dark', false],
+    ['light', true],
+  ]) {
+    const mode = `${theme}${highContrast ? '-hc' : ''}`;
+    it(`lays out the add modal on Display: channel after the brand, whole account, one-sentence summary (${mode})`, async () => {
+      const screen = await renderPage({ width: 1440, height: 1500, theme });
+      document.documentElement.classList.toggle('high-contrast', highContrast);
+      await userEvent.click(screen.getByRole('button', { name: 'Agregar aporte', exact: true }));
+      await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Marca' }), 'Xerox');
+      const channel = screen.getByRole('group', { name: 'Canal' });
+      await userEvent.click(channel.getByRole('button', { name: 'Display' }));
+      const campaign = screen.getByRole('combobox', { name: 'Campaña de Display' });
+      await expect.element(campaign.getByRole('option', { name: 'Toda la cuenta Display · GAUSS' })).toBeInTheDocument();
+      await userEvent.selectOptions(campaign, '25713-all');
+      await userEvent.click(screen.getByRole('button', { name: 'Monto fijo' }));
+      await userEvent.fill(screen.getByLabelText('Monto', { exact: true }), '300000');
+      await userEvent.click(screen.getByLabelText('Se recibe todo'));
+      await userEvent.fill(screen.getByLabelText('Desde', { exact: true }).nth(1), '2026-10-01');
+      await userEvent.fill(screen.getByLabelText('Hasta', { exact: true }).nth(1), '2026-10-31');
+      const summary = screen.getByText(/^En el rango, Display gastó/);
+      await expect.element(summary).toBeVisible();
+      await expect
+        .element(summary)
+        .toHaveTextContent('En el rango, Display gastó $ 1.200.000,00; este aporte cubre $ 300.000,00.');
+
+      const top = (el) => el.getBoundingClientRect().top;
+      const [brand, group, select] = [
+        screen.getByRole('combobox', { name: 'Marca' }).element(),
+        channel.element(),
+        campaign.element(),
+      ];
+      expect(top(brand)).toBeLessThan(top(group));
+      expect(top(group)).toBeLessThan(top(select));
+      const [productAds, display] = group.querySelectorAll('button');
+      expect(display.getBoundingClientRect().top).toBe(productAds.getBoundingClientRect().top);
+      await expect.element(screen.getByText(/^Toda la cuenta: el aporte cubre/)).toBeVisible();
+      for (const figure of summary.element().querySelectorAll('strong, span')) {
+        expect(figure.getBoundingClientRect().height).toBeLessThanOrEqual(24);
+      }
+      const modal = group.closest('.modal-tesla');
+      expect(modal.scrollWidth).toBeLessThanOrEqual(modal.clientWidth + 1);
+      if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/modal-agregar-display-1440-${mode}.png`, element: modal });
       document.documentElement.classList.remove('high-contrast');
     });
   }

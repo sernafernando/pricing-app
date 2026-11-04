@@ -12,6 +12,11 @@
  * ml-ads-aportes-robust: the brand is picked from `GET /marcas` and is mandatory (S1); a fixed amount can be typed
  * with IVA, which the backend stores without it (S2); a `full` amount above the range cost is saved only after
  * confirming it (S3); and the form says when the range ends after the last day with Ads data (S4).
+ *
+ * ml-ads-aportes-vista S5 (Stitch 7512c518): the channel comes right after the brand. A Display aporte names one
+ * campaign of the Display catalog (`GET /ml-ads/display`) or the advertiser's whole Display account ("Toda la cuenta",
+ * sent as `campaign_id: null`), and its preview reads as one sentence on the Display spend. An edit keeps its channel
+ * and campaign, as the backend requires.
  */
 import { useState, useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
@@ -21,7 +26,13 @@ import api from '../services/api';
 import { formatSignedMoney } from '../utils/ventasMlTone';
 import { formatDate } from '../utils/displayAds';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
+import { advertiserLabel } from '../utils/aportesScope';
 import styles from './AportesAdsMLForm.module.css';
+
+const CHANNELS = [
+  { value: 'product_ads', label: 'Product Ads' },
+  { value: 'display', label: 'Display' },
+];
 
 const KINDS = [
   { value: 'percentage', label: 'Porcentaje del costo' },
@@ -35,15 +46,23 @@ const SETTLEMENTS = [
 
 const PREVIEW_DELAY_MS = 300;
 
-const campaignKey = (advertiserId, campaignId) => (campaignId == null ? '' : `${advertiserId}-${campaignId}`);
+/** The campaign choice's value: `adv-campaign`, or `adv-all` for a Display aporte over the whole account. */
+const WHOLE_ACCOUNT = 'all';
+function campaignKey(advertiserId, campaignId, channel = 'product_ads') {
+  if (campaignId != null) return `${advertiserId}-${campaignId}`;
+  return channel === 'display' && advertiserId != null ? `${advertiserId}-${WHOLE_ACCOUNT}` : '';
+}
+const wholeAccount = (key) => key.endsWith(`-${WHOLE_ACCOUNT}`);
 
 /**
  * The form state from `initial`, shaped like the API's contribution: a new one passes `advertiser_id` and
  * `campaign_id` (or nothing, to choose the campaign in the form), so every other field starts empty.
  */
 function initialForm(initial) {
+  const channel = initial.channel || 'product_ads';
   return {
-    campaign: campaignKey(initial.advertiser_id, initial.campaign_id),
+    channel,
+    campaign: campaignKey(initial.advertiser_id, initial.campaign_id, channel),
     kind: initial.kind || 'percentage',
     value: initial.value == null ? '' : String(initial.value),
     settlement: initial.settlement || '',
@@ -57,10 +76,10 @@ function initialForm(initial) {
 }
 
 function payloadOf(form) {
-  const [advertiserId, campaignId] = form.campaign.split('-').map(Number);
+  const [advertiserId, campaignId] = form.campaign.split('-');
   const body = {
-    advertiser_id: advertiserId,
-    campaign_id: campaignId,
+    advertiser_id: Number(advertiserId),
+    campaign_id: campaignId === WHOLE_ACCOUNT ? null : Number(campaignId),
     kind: form.kind,
     value: Number(form.value),
     date_from: form.dateFrom,
@@ -68,6 +87,8 @@ function payloadOf(form) {
     brand: form.brand.trim() || null,
     note: form.note.trim() || null,
   };
+  // Product Ads is the backend's default channel, so its body stays as it always was.
+  if (form.channel === 'display') body.channel = 'display';
   if (form.kind === 'fixed_amount') {
     body.settlement = form.settlement;
     if (form.ivaIncluded) body.iva_included = true;
@@ -115,6 +136,74 @@ function useMarcas(current) {
   return { marcas, failed: state.failed };
 }
 
+/** Today as `YYYY-MM-DD` in local time: the window of the Display catalog request. */
+const today = () => new Date().toLocaleDateString('en-CA');
+
+/**
+ * The Display catalog, asked once the form is on Display. `GET /ml-ads/display` lists every catalog campaign whatever
+ * the range, so one day is enough. `failed` says the list could not load.
+ */
+function useDisplayCampaigns(enabled) {
+  const [state, setState] = useState({ campaigns: [], failed: false });
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let active = true;
+    const day = today();
+    api
+      .get('/ml-ads/display', { params: { date_from: day, date_to: day } })
+      .then((response) => active && setState({ campaigns: response.data?.campaigns ?? [], failed: false }))
+      .catch(() => active && setState({ campaigns: [], failed: true }));
+    return () => {
+      active = false;
+    };
+  }, [enabled]);
+  return state;
+}
+
+/**
+ * The Display choices: per advertiser, its whole account first and then its campaigns. The advertiser is named as the
+ * Product Ads campaigns name it (the Display catalog carries no name). An edited aporte's choice stays listed even
+ * before (or without) the catalog.
+ */
+function displayOptions(catalog, productAdsCampaigns, initial) {
+  const names = new Map(productAdsCampaigns.map((c) => [c.advertiser_id, c.advertiser_name]));
+  const label = (advertiserId) => advertiserLabel({ advertiser_id: advertiserId, advertiser_name: names.get(advertiserId) });
+  const options = [];
+  const advertisers = [...new Set(catalog.map((c) => c.advertiser_id))];
+  advertisers.forEach((advertiserId) => {
+    options.push({
+      key: campaignKey(advertiserId, null, 'display'),
+      text: `Toda la cuenta Display · ${label(advertiserId)}`,
+    });
+    catalog
+      .filter((c) => c.advertiser_id === advertiserId)
+      .forEach((c) =>
+        options.push({
+          key: campaignKey(advertiserId, c.campaign_id, 'display'),
+          text: `${c.name || `Campaña ${c.campaign_id}`} · ${c.campaign_id} · ${label(advertiserId)}`,
+        }),
+      );
+  });
+  const current = initial.channel === 'display' ? campaignKey(initial.advertiser_id, initial.campaign_id, 'display') : '';
+  if (current && !options.some((o) => o.key === current)) {
+    const owner = initial.advertiser_name || names.get(initial.advertiser_id);
+    const account = advertiserLabel({ advertiser_id: initial.advertiser_id, advertiser_name: owner });
+    const text =
+      initial.campaign_id == null
+        ? `Toda la cuenta Display · ${account}`
+        : `${initial.campaign_name || `Campaña ${initial.campaign_id}`} · ${initial.campaign_id} · ${account}`;
+    options.unshift({ key: current, text });
+  }
+  return options;
+}
+
+/** The preview's request: a whole Display account sends no `campaign_id`, which is how the query says "all". */
+function previewParams(body) {
+  if (body.campaign_id != null) return body;
+  const { campaign_id: _wholeAccount, ...rest } = body;
+  return rest;
+}
+
 const AMOUNT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
 
 /**
@@ -144,6 +233,9 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
   const [preview, setPreview] = useState(null);
   const latestPreview = useRef(0);
   const { marcas, failed: marcasFailed } = useMarcas(initial.brand || '');
+  const onDisplay = form.channel === 'display';
+  const displayCatalog = useDisplayCampaigns(onDisplay);
+  const editing = initial.id != null;
   // The amount as typed while the field has focus (null otherwise, when it shows es-AR grouping).
   const [amountText, setAmountText] = useState(null);
   // The backend rejected a save on `value`: it is the over-spend rule, even if the preview never answered.
@@ -167,7 +259,7 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
     if (!body) return undefined;
     const timer = setTimeout(async () => {
       try {
-        const { data } = await api.get('/ml-ads/contributions/preview', { params: JSON.parse(body) });
+        const { data } = await api.get('/ml-ads/contributions/preview', { params: previewParams(JSON.parse(body)) });
         if (request === latestPreview.current) setPreview(data);
       } catch {
         // Only the line is lost; saving still reports its own errors.
@@ -204,7 +296,7 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
       isOpen
       onClose={onClose}
       title={title}
-      subtitle="El aporte se descuenta del costo de Ads de la campaña en Métricas ML."
+      subtitle="El aporte se descuenta del costo de Ads en Métricas ML."
       size="md"
       footer={
         <div className={styles.modalFooter}>
@@ -239,23 +331,53 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
             </span>
           )}
         </label>
-        <label className={styles.field} htmlFor="aporte-campana">
-          <span className={styles.label}>Campaña</span>
+        <div className={styles.field}>
+          <span className={styles.label}>Canal</span>
+          <SegmentedControl
+            label="Canal"
+            options={CHANNELS}
+            value={form.channel}
+            onChange={(channel) => setForm((f) => ({ ...f, channel, campaign: '' }))}
+            disabled={editing}
+          />
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="aporte-campana">
+            {onDisplay ? 'Campaña de Display' : 'Campaña'}
+          </label>
           <select
             id="aporte-campana"
             className={styles.input}
             value={form.campaign}
             onChange={set('campaign')}
-            disabled={initial.id != null}
+            disabled={editing}
+            aria-describedby={onDisplay && wholeAccount(form.campaign) ? 'aporte-campana-hint' : undefined}
           >
             <option value="">Elegí una campaña</option>
-            {campaigns.map((c) => (
-              <option key={campaignKey(c.advertiser_id, c.campaign_id)} value={campaignKey(c.advertiser_id, c.campaign_id)}>
-                {c.name || `Campaña ${c.campaign_id}`} · {c.campaign_id} · {c.advertiser_name || c.advertiser_id}
-              </option>
-            ))}
+            {onDisplay
+              ? displayOptions(displayCatalog.campaigns, campaigns, initial).map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.text}
+                  </option>
+                ))
+              : campaigns.map((c) => (
+                  <option key={campaignKey(c.advertiser_id, c.campaign_id)} value={campaignKey(c.advertiser_id, c.campaign_id)}>
+                    {c.name || `Campaña ${c.campaign_id}`} · {c.campaign_id} · {c.advertiser_name || c.advertiser_id}
+                  </option>
+                ))}
           </select>
-        </label>
+          {onDisplay && wholeAccount(form.campaign) && (
+            <span id="aporte-campana-hint" className={styles.hint}>
+              Toda la cuenta: el aporte cubre todas las campañas de Display del anunciante en el rango.
+            </span>
+          )}
+          {onDisplay && displayCatalog.failed && (
+            <span className={styles.fieldError} role="alert">
+              No se pudo cargar la lista de campañas de Display. Cerrá el formulario y volvé a abrirlo.
+            </span>
+          )}
+        </div>
 
         <div className={styles.field}>
           <span className={styles.label}>Tipo de aporte</span>
@@ -343,7 +465,14 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
           </div>
         </div>
 
-        {preview && (
+        {preview && onDisplay && (
+          <p className={styles.previewLine}>
+            En el rango, Display gastó <strong className={styles.money}>{formatSignedMoney(preview.spend)}</strong>; este
+            aporte cubre <span className={`${styles.money} ${styles.covered}`}>{formatSignedMoney(preview.counted)}</span>.
+          </p>
+        )}
+
+        {preview && !onDisplay && (
           <dl className={styles.preview} aria-label="Lo que cubre el aporte">
             <dt>Costo de la campaña en el rango</dt>
             <dd>{formatSignedMoney(preview.spend)}</dd>

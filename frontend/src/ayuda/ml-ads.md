@@ -27,6 +27,9 @@ El botón **Agregar aporte** (si tenés permiso) crea un aporte nuevo.
 ### Cargar un aporte
 
 - **Marca**: es obligatoria y se elige de la lista de marcas, la misma que usan Productos y Sell-in. Así los totales de una marca no se parten por cómo se escribió.
+- **Canal**: va después de la marca. **Product Ads** carga el aporte a una campaña de Product Ads. **Display** carga el aporte a una campaña de Display, o a **Toda la cuenta Display** del anunciante: en ese caso cubre todas sus campañas de Display en el rango.
+- **Resumen de Display**: con Canal **Display**, el formulario dice cuánto gastó Display en el rango y cuánto cubre el aporte. Por ejemplo: "En el rango, Display gastó $ 1.200.000,00; este aporte cubre $ 300.000,00".
+- **Al editar**: el canal y la campaña quedan fijos. Para cambiarlos, borrá el aporte y cargalo de nuevo.
 - **El monto incluye IVA**: aparece con un monto fijo. Marcalo si copiaste el monto de una factura con IVA; se guarda sin IVA, que es como viene el costo de Ads.
 - **Monto mayor al costo**: si un monto fijo que "Se recibe todo" supera el costo de la campaña en el rango, el neto queda negativo. Para guardarlo tenés que marcar **Confirmo que el aporte supera el costo de la campaña en el rango**. Si después cambiás la campaña, el tipo, el monto, si incluye IVA, las fechas o cómo se liquida, la casilla se desmarca y se vuelve a pedir.
 - **Aviso de datos**: si el rango termina después del último día con datos de Ads, el formulario lo avisa. El aporte que cuenta va a cambiar cuando lleguen esos días.
@@ -39,7 +42,7 @@ Debajo de la descripción hay un selector **Por campaña / Por aporte**. **Por c
 - **Por marca**: cuánto aportó cada marca en el rango y su parte del total, de mayor a menor. La barra violeta es una marca que solo aporta a Display.
 - **Filtros**: buscador por marca o campaña, **Marca** y **Todos / Product Ads / Display**.
 - **Columnas**: Marca, Canal, Campaña / Alcance (un aporte de Display a toda la cuenta dice **Toda la cuenta Display** y **Cuenta completa**), Tipo, Valor, Rango, Cubre en el período, Cargado (quién lo cargó y cuándo, y si se editó) y Acciones.
-- **Acciones**: el lápiz edita un aporte de Product Ads; el reloj abre su historial; el tacho borra cualquier aporte. Los aportes de Display todavía no se editan desde la pantalla.
+- **Acciones**: el lápiz edita el aporte, de Product Ads o de Display; el reloj abre su historial; el tacho lo borra.
 - **Historial del aporte** (reloj, no hace falta permiso de gestión): cada cambio del aporte, del más viejo al más nuevo, con quién lo hizo y cuándo (hora de Argentina). **Cargado** muestra con qué se cargó; **Editado** muestra solo lo que cambió, con el valor anterior tachado. Un aporte borrado sale de la lista, así que su historial ya no se abre desde la pantalla (queda guardado quién lo borró y cuándo).
 - Un aporte cargado antes de que existiera el registro de cambios muestra como **Cargado** a quien figura como su creador.
 

@@ -4,9 +4,11 @@ import styles from './SegmentedControl.module.css';
  * Two-or-more-way switch ("Agrupar por: Producto | Publicación"), the
  * design's segmented pill. Plain buttons with `aria-pressed`: one of them is
  * always the current value, or none while nothing is picked yet. An option with
- * `disabled` (and a `title` saying why) cannot be picked.
+ * `disabled` (and a `title` saying why) cannot be picked; `disabled` on the control
+ * locks the whole choice (a field that can be read but not changed, such as an
+ * edited aporte's channel).
  */
-export default function SegmentedControl({ label, options, value, onChange }) {
+export default function SegmentedControl({ label, options, value, onChange, disabled = false }) {
   return (
     <div className={styles.group} role="group" aria-label={label}>
       {options.map((option) => (
@@ -15,7 +17,7 @@ export default function SegmentedControl({ label, options, value, onChange }) {
           type="button"
           className={`${styles.option} ${option.value === value ? styles.active : ''}`}
           aria-pressed={option.value === value}
-          disabled={option.disabled}
+          disabled={disabled || option.disabled}
           title={option.title}
           onClick={() => option.value !== value && onChange(option.value)}
         >

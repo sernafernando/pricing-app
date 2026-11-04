@@ -7,7 +7,7 @@
  * split by brand. The search, brand and channel filters work on the loaded rows, without a new request.
  *
  * The page owns the range, the forms and the delete confirmation: `onEdit(row)` and `onDelete(row)` hand it the row;
- * a change to `refreshKey` asks again. No form loads a Display aporte yet, so Display rows have no pencil.
+ * a change to `refreshKey` asks again. Every row can be edited, Display ones included.
  */
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Clock, Info, Pencil, Search, Trash2 } from 'lucide-react';
@@ -174,7 +174,7 @@ function Row({ row, canManage, onEdit, onDelete, onHistory }) {
       <td>
         {/* Pencil, clock, trash, as the design; the history is read-only, so it needs no permission to manage. */}
         <span className={shell.actions}>
-          {canManage && row.channel === 'product_ads' && (
+          {canManage && (
             <button
               type="button"
               className={shell.btnIcon}
