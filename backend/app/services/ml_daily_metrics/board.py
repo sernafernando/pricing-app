@@ -123,6 +123,7 @@ from app.models.ml_publications import MlItem
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInBonoConsumo, SellInConsumo
 from app.models.sell_out import SellOutCampana, SellOutConsumo
+from app.services.ml_ads.contributions import display_contributions
 from app.services.ml_ads.iva import ads_cost_net_of_iva
 from app.services.ml_ads.owner import ads_owner_select
 from app.services.ml_daily_metrics import groups as grouping
@@ -752,13 +753,18 @@ class AdsUnattributed:
 
 @dataclass
 class AccountLevel:
-    """Display and Brand Ads of the period and of its comparison period (account level, never on a row)."""
+    """Display and Brand Ads of the period and of its comparison period (account level, never on a row).
+
+    `display_net` is what comes off the totals: Display net of IVA and of the Display brand contributions
+    (`display_contribution`, ml-ads-display-contributions S2); `display_api` stays ML's gross."""
 
     display_api: Decimal
     display_net: Decimal
     brand: Decimal
     prev_display_net: Decimal
     prev_brand: Decimal
+    display_contribution: Decimal = Decimal("0")
+    prev_display_contribution: Decimal = Decimal("0")
 
 
 @dataclass
@@ -1392,8 +1398,11 @@ class Board:
         self.prev_account_covered = all(whole(source) for source in ACCOUNT_SOURCES)
 
     def _account_level(self) -> AccountLevel:
-        """Display (net through the single IVA function) and Brand Ads (stored cost, basis never measured) of
-        the period and the comparison period: ONE statement over both account-level tables."""
+        """Display (net of its brand contributions and through the single IVA function) and Brand Ads (stored cost,
+        basis never measured) of the period and the comparison period: ONE statement over both account-level tables,
+        plus the Display contributions (`contributions.display_contributions`, the Product Ads rule of `_ads_source`
+        over the Display day rows; nothing to read when none touches the range)."""
+
         D, B = MlAdsDisplayCampaignDay, MlAdsBrandDay
 
         def parts(day: Any, amount: Any, label: str):
@@ -1421,20 +1430,24 @@ class Board:
         # Brand Ads' cost was measured on 2026-10-08 (Engram #2307) and is all zero, so there is no IVA basis to
         # apply (`ads_cost_net_of_iva` refuses "brand_ads"): it is subtracted as stored (owner decision, #2720).
         brand, prev_brand = found.get("brand", (Decimal(0), Decimal(0)))
+        covered = sum(display_contributions(self.db, self.f.date_from, self.f.date_to).values(), Decimal(0))
+        prev_covered = sum(display_contributions(self.db, self.prev_from, self.prev_to).values(), Decimal(0))
         return AccountLevel(
             display_api=display,
-            display_net=ads_cost_net_of_iva(display, "display"),
+            display_net=ads_cost_net_of_iva(display - covered, "display"),
             brand=brand,
-            prev_display_net=ads_cost_net_of_iva(prev_display, "display"),
+            prev_display_net=ads_cost_net_of_iva(prev_display - prev_covered, "display"),
             prev_brand=prev_brand,
+            display_contribution=covered,
+            prev_display_contribution=prev_covered,
         )
 
     def _ads_source(self) -> Any:
         """Product Ads cost per (MLA, ad day) over the period and its comparison, summed over ad groups, with the
         brand contributions that cover part of it (ml-ads-brand-contribution S5, S6, S9), computed per item row.
 
-        An item row belongs to a contribution by its own (`advertiser_id`, `campaign_id`, `day`); no campaign (NULL
-        or 0) never does. A campaign's ranges never overlap (the write API rejects it under the campaign row lock), so a
+        An item row belongs to a Product Ads contribution by its own (`advertiser_id`, `campaign_id`, `day`); no
+        campaign (NULL or 0) never does, nor does a Display contribution whose campaign id equals the row's. A campaign's ranges never overlap (the write API rejects it under the campaign row lock), so a
         row meets at most one.
         `percentage` covers p% of the row; `fixed_amount` spreads its counted amount (`full`: all of it;
         `refund_difference`: at most the range's spend) by the row's share of the WHOLE range's spend, which may
@@ -1446,7 +1459,10 @@ class Board:
             return and_(C.date_from <= self._day(end), C.date_to >= self._day(start))
 
         in_range = and_(
-            I.advertiser_id == C.advertiser_id, I.campaign_id == C.campaign_id, day.between(C.date_from, C.date_to)
+            C.channel == "product_ads",
+            I.advertiser_id == C.advertiser_id,
+            I.campaign_id == C.campaign_id,
+            day.between(C.date_from, C.date_to),
         )
         spend = (
             select(C.id.label("id"), func.sum(I.cost).label("spend"))
