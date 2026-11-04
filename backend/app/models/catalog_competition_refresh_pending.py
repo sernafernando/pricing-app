@@ -26,7 +26,4 @@ class CatalogCompetitionRefreshPending(Base):
     __table_args__ = (Index("ix_catalog_competition_refresh_pending_due_at", "due_at"),)
 
     def __repr__(self) -> str:  # pragma: no cover
-        return (
-            f"<CatalogCompetitionRefreshPending mla={self.mla!r} "
-            f"due_at={self.due_at!r} attempts={self.attempts!r}>"
-        )
+        return f"<CatalogCompetitionRefreshPending mla={self.mla!r} due_at={self.due_at!r} attempts={self.attempts!r}>"
