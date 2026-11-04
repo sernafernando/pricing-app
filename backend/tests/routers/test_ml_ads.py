@@ -353,6 +353,16 @@ class TestDisplayContributions:
         totals = body["totals"]
         assert (totals["cost"], totals["contribution"], totals["net"]) == (122938.82, 9992.84, 112945.98)
 
+    def test_a_fixed_amount_beyond_the_window_shows_only_the_window_share(self, client, manager) -> None:
+        """10000 `full` on 301232 for October; its range spends 50464.21, of which 10-06 alone holds 1000."""
+        assert (
+            self._post(client, manager, campaign_id=self.MIX, kind="fixed_amount", value="10000", settlement="full")
+        ).status_code == 201
+        body = get(client, manager, "display", date_from="2026-10-06", date_to="2026-10-06").json()
+        [mix] = [c for c in body["campaigns"] if c["campaign_id"] == self.MIX]
+        assert (mix["cost"], mix["contribution"], mix["net"]) == (1000.0, 198.16, 801.84)
+        assert (body["totals"]["contribution"], body["totals"]["net"]) == (198.16, 801.84)
+
     def test_the_product_ads_listing_does_not_show_display_contributions(self, client, manager) -> None:
         assert self._post(client, manager, campaign_id=self.MIX).status_code == 201
         listed = get(client, manager, "campaigns", date_from="2026-10-01", date_to="2026-10-31").json()
