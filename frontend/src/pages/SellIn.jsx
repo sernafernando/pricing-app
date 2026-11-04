@@ -215,8 +215,8 @@ function useCampanas(enabled) {
  * one page, two tabs. Sell in holds the purchase discounts that lower the cost
  * of that purchase's units and the brand bonuses; Sell out holds the campaigns.
  * The selected tab lives in the URL (`?tab=sell-out`) so a reload keeps it.
- * `sell_in.ver` reads the page, `sell_out.ver` shows the Sell out tab, `config.editar_constantes` (the offset
- * groups API permission) the Grupos tab (`?tab=grupos`).
+ * `sell_in.ver` reads the page, `sell_out.ver` shows the Sell out tab, `grupos.ver` the Grupos tab (`?tab=grupos`),
+ * where `config.editar_constantes` (the offset groups write permission) also creates, edits and deletes.
  */
 export default function SellIn() {
   const { tienePermiso } = usePermisos();
@@ -236,6 +236,7 @@ export default function SellIn() {
   const campanas = useCampanas(puedeVer && puedeVerSellOut);
   const puedeGestionarSellOut = puedeVerSellOut && tienePermiso('sell_out.gestionar');
   const [searchParams, setSearchParams] = useSearchParams();
+  const puedeVerGrupos = tienePermiso('grupos.ver');
   const puedeGestionarGrupos = tienePermiso('config.editar_constantes');
   // "Actualizar" bumps it: the Grupos tab asks its groups again.
   const [versionGrupos, setVersionGrupos] = useState(0);
@@ -251,7 +252,7 @@ export default function SellIn() {
   const vistaUrl = searchParams.get('vista');
   const vista = ['programas', 'lista'].includes(vistaUrl) ? vistaUrl : programas.length > 0 ? 'programas' : 'lista';
   const seccion = searchParams.get('seccion') === 'programas' ? 'programas' : 'campanas';
-  const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeGestionarGrupos ? [TAB_GRUPOS] : [])];
+  const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeVerGrupos ? [TAB_GRUPOS] : [])];
   const tabUrl = searchParams.get('tab');
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
   const [tipo, setTipo] = useState('');
@@ -527,7 +528,7 @@ export default function SellIn() {
             <span className={styles.tabCount}>{campanas.lista ? campanas.lista.total.toLocaleString('es-AR') : campanas.error ? '—' : '…'}</span>
           </button>
         )}
-        {puedeGestionarGrupos && (
+        {puedeVerGrupos && (
           <button
             type="button"
             role="tab"
@@ -613,7 +614,11 @@ export default function SellIn() {
       >
         {tab === TAB_GRUPOS ? (
           <div role="tabpanel" id="grupos-panel" aria-labelledby="grupos-tab">
-            <GruposTab version={versionGrupos} onGruposCambiados={() => setCambiosGrupos((v) => v + 1)} />
+            <GruposTab
+              version={versionGrupos}
+              onGruposCambiados={() => setCambiosGrupos((v) => v + 1)}
+              puedeEditar={puedeGestionarGrupos}
+            />
           </div>
         ) : enSellIn ? (
           <div role="tabpanel" id="sell-in-panel" aria-labelledby="sell-in-tab">

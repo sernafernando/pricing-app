@@ -14,6 +14,7 @@ vi.mock('../../services/offsetGruposAPI', () => ({
     crear: vi.fn(),
     editar: vi.fn(),
     eliminar: vi.fn(),
+    eliminarVarios: vi.fn(),
     agregarFiltro: vi.fn(),
     alcancePrevio: vi.fn(),
     eliminarFiltro: vi.fn(),
@@ -130,7 +131,7 @@ describe('GruposTab — list', () => {
     offsetGruposAPI.listar.mockResolvedValue({ data: [TPLINK, VACIO, NUEVO] });
     await user.type(within(panel).getByLabelText('Nombre'), 'Mercusys');
     await user.click(within(panel).getByRole('button', { name: 'Crear grupo' }));
-    expect(await screen.findByRole('cell', { name: /Mercusys/ })).toBeInTheDocument();
+    expect(await screen.findByRole('cell', { name: 'Mercusys' })).toBeInTheDocument();
     offsetGruposAPI.listar.mockResolvedValue({ data: [TPLINK, VACIO] });
     rerender(<GruposTab version={1} />);
     await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Grupo' })).not.toBeInTheDocument());
@@ -354,5 +355,64 @@ describe('GruposTab — filters and preview', () => {
     await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
     await confirmarCambio(user, panel);
     expect(await within(panel).findByRole('alert')).toHaveTextContent('Filtro no encontrado');
+  });
+});
+
+// Owner (tactical S9): "no tengo una forma de borrar los grupos de manera masiva".
+describe('GruposTab — Borrar seleccionados', () => {
+  const marcar = async (user, nombre) => user.click(within(await fila(nombre)).getByRole('checkbox', { name: `Seleccionar ${nombre}` }));
+
+  it('deletes the checked groups after a confirmation and says what was deleted and why each other one stays', async () => {
+    const user = userEvent.setup();
+    const onGruposCambiados = vi.fn();
+    offsetGruposAPI.eliminarVarios.mockResolvedValue({
+      data: { eliminados: [2], rechazados: [{ id: 1, nombre: 'TP-Link redes', motivo: RECHAZO }] },
+    });
+    renderWithRouter(<GruposTab onGruposCambiados={onGruposCambiados} />);
+    expect(screen.queryByRole('button', { name: /Borrar seleccionados/ })).not.toBeInTheDocument();
+    await marcar(user, 'TP-Link redes');
+    await marcar(user, 'Sin filtros');
+    await user.click(screen.getByRole('button', { name: 'Borrar seleccionados (2)' }));
+    expect(offsetGruposAPI.eliminarVarios).not.toHaveBeenCalled();
+    const confirmar = screen.getByRole('group', { name: 'Confirmar borrado' });
+    expect(confirmar).toHaveTextContent('¿Borrar 2 grupos? Un grupo que usa una campaña de sell out o un offset no se borra.');
+    await user.click(within(confirmar).getByRole('button', { name: 'Borrar 2 grupos' }));
+    expect(offsetGruposAPI.eliminarVarios).toHaveBeenCalledWith([1, 2]);
+    const resultado = await screen.findByRole('status');
+    expect(resultado).toHaveTextContent('Se borró 1 grupo.');
+    expect(resultado).toHaveTextContent(`No se borró 1 grupo: TP-Link redes: ${RECHAZO}`);
+    expect(onGruposCambiados).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(offsetGruposAPI.listar).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('button', { name: /Borrar seleccionados/ })).not.toBeInTheDocument();
+  });
+
+  it('the header checkbox checks every group and Cancelar deletes nothing', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<GruposTab />);
+    await fila('TP-Link redes');
+    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar todos los grupos' }));
+    await user.click(screen.getByRole('button', { name: 'Borrar seleccionados (2)' }));
+    await user.click(within(screen.getByRole('group', { name: 'Confirmar borrado' })).getByRole('button', { name: 'Cancelar' }));
+    expect(offsetGruposAPI.eliminarVarios).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Borrar seleccionados (2)' })).toBeInTheDocument();
+  });
+
+  it('a failed delete says why and keeps the selection', async () => {
+    const user = userEvent.setup();
+    offsetGruposAPI.eliminarVarios.mockRejectedValue({ response: { data: { error: { message: 'No tienes permiso para gestionar offsets de ganancia' } } } });
+    renderWithRouter(<GruposTab />);
+    await marcar(user, 'Sin filtros');
+    await user.click(screen.getByRole('button', { name: 'Borrar seleccionados (1)' }));
+    await user.click(within(screen.getByRole('group', { name: 'Confirmar borrado' })).getByRole('button', { name: 'Borrar 1 grupo' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('No tienes permiso para gestionar offsets de ganancia');
+    expect(screen.getByRole('button', { name: 'Borrar seleccionados (1)' })).toBeInTheDocument();
+  });
+
+  it('without the edit permission nothing can be checked, created or edited', async () => {
+    renderWithRouter(<GruposTab puedeEditar={false} />);
+    await fila('TP-Link redes');
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Nuevo grupo/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
   });
 });
