@@ -121,37 +121,42 @@ export default function MejoresCandidatasBlock({
 
   return (
     <div className={styles.ponerPreciosMejores} role="region" aria-label="Candidatas mejores">
-      <p className={styles.ponerPreciosMejoresLead}>
-        Hay candidatas mejores que el precio vigente en MeLi.
-        {baselineMarkup != null ? ` Markup vigente ~ ${formatAmount(baselineMarkup)}%.` : ''}
-      </p>
       {loading ? (
         <p className={styles.ponerPreciosOk} role="status">
           Cargando candidatas…
+          {baselineMarkup != null ? ` Markup vigente ~ ${formatAmount(baselineMarkup)}%.` : ''}
         </p>
       ) : entries.length > 0 ? (
-        <ul className={styles.ponerPreciosChoices}>
-          {entries.map(([slot, promo]) => (
-            <li key={slot}>
-              <button
-                type="button"
-                className="btn-tesla outline sm"
-                disabled={enrolling}
-                onClick={() => accept(slot)}
-              >
-                <span className={styles.ponerPreciosChoiceLabel}>{SLOT_LABELS[slot]}</span>
-                <span className={styles.ponerPreciosChoiceMeta}>
-                  {resolvePromoName(promo) || promo.promotion_id}
-                  {promoDisplayPrice(promo) != null ? ` · $ ${formatAmount(promoDisplayPrice(promo))}` : ''}
-                  {promo.nuestro_markup != null ? ` · markup ${formatAmount(promo.nuestro_markup)}%` : ''}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <>
+          <p className={styles.ponerPreciosMejoresLead}>
+            Hay candidatas mejores que el precio vigente en MeLi.
+            {baselineMarkup != null ? ` Markup vigente ~ ${formatAmount(baselineMarkup)}%.` : ''}
+          </p>
+          <ul className={styles.ponerPreciosChoices}>
+            {entries.map(([slot, promo]) => (
+              <li key={slot}>
+                <button
+                  type="button"
+                  className="btn-tesla outline sm"
+                  disabled={enrolling}
+                  onClick={() => accept(slot)}
+                >
+                  <span className={styles.ponerPreciosChoiceLabel}>{SLOT_LABELS[slot]}</span>
+                  <span className={styles.ponerPreciosChoiceMeta}>
+                    {resolvePromoName(promo) || promo.promotion_id}
+                    {promoDisplayPrice(promo) != null ? ` · $ ${formatAmount(promoDisplayPrice(promo))}` : ''}
+                    {promo.nuestro_markup != null ? ` · markup ${formatAmount(promo.nuestro_markup)}%` : ''}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
       ) : (
         <p className={styles.ponerPreciosOk} role="status">
-          No hay candidatas SMART / DEAL / Premium que superen el precio vigente.
+          No hay candidatas SMART / DEAL / Premium que superen el precio vigente
+          {baselineMarkup != null ? ` (markup vigente ~ ${formatAmount(baselineMarkup)}%)` : ''}.
+          Podés descartar el aviso si quedó desactualizado.
         </p>
       )}
       <button

@@ -125,6 +125,17 @@ describe('loading the detail', () => {
     );
   });
 
+  it('shows the listing type badge between copy MLA and the seller-panel links once detail is ready', async () => {
+    renderPanel();
+    await screen.findByRole('heading', { name: /Router TP-Link Archer AX55/ });
+    const copy = screen.getByRole('button', { name: 'Copiar MLA' });
+    const seller = screen.getByRole('link', { name: 'Ver en el panel de ML' });
+    const meta = copy.parentElement;
+    const tipo = within(meta).getByText('6 cuotas');
+    expect(copy.compareDocumentPosition(tipo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tipo.compareDocumentPosition(seller) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('a publication without a title still has a heading', async () => {
     publicacionesMlAPI.detail.mockResolvedValue({ data: makeDetail({ row: ITEMS[2] }) });
     renderPanel({ itemId: 'MLA1100000003' });

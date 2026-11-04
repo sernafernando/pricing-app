@@ -4,6 +4,7 @@ import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { buildMlItemUrl } from '../../utils/mlSidePanel';
 import { describeLoadError } from './loadErrors';
+import ListingKindBadge from './ListingKindBadge';
 import MlSellerLinks from './MlSellerLinks';
 import PublicationStatusPill from './PublicationStatusPill';
 import PanelFooter from './panel/PanelFooter';
@@ -108,6 +109,7 @@ export default function PublicationPanel({
           <div className={styles.meta}>
             <span className={styles.itemId}>{itemId}</span>
             <CopyButton value={itemId} label="Copiar MLA" compact />
+            {detail && <ListingKindBadge kind={row.listing_kind} />}
             <MlSellerLinks itemId={itemId} />
             {detail && <PublicationStatusPill status={row.status} gone={row.gone} subStatus={detail.subStatus} />}
           </div>
