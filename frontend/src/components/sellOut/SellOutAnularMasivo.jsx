@@ -21,11 +21,12 @@ function errorDeSeleccion(err) {
  * checkboxes, "Seleccionar todo lo filtrado" (fail-closed, `resolverFiltradas`), a confirmation and the result. All or
  * nothing on the server: a refusal voids nothing and names each refused campaign. Without `puedeGestionar` it is the
  * plain table. The parent keys it by the filters, so a new search starts a new selection; `onAnuladas(ids)` gets the
- * voided ids.
+ * voided ids. With a selection the bar and its confirmation float (sticky under the top bar) while the list scrolls.
  *
  * The same selection (rows, or "todo lo filtrado") feeds "Asignar a programa" (`SellOutAsignarPrograma`, with
  * `programas`); `onAsignadas()` runs after an assignment. `renderTabla(props)` draws the rows instead of the flat
- * table (the "Por programa" view); it gets `seleccion` and `onToggle` only with `puedeGestionar`. `onRenovar` (the
+ * table (the "Por programa" view); it gets `seleccion`, `onToggle` and `onAsignar(ids)` (opens "Asignar a programa"
+ * with those campaigns) only with `puedeGestionar`. `onRenovar` (the
  * page passes it with `sell_out.gestionar`) gives each row "Renovar".
  */
 export default function SellOutAnularMasivo({
@@ -48,7 +49,7 @@ export default function SellOutAnularMasivo({
   const [busy, setBusy] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState(null); // { mensaje, rechazadas: [{ id, motivo }] }
-  const [asignando, setAsignando] = useState(false);
+  const [asignando, setAsignando] = useState(null); // the campaign ids the assign dialog gets
 
   if (!puedeGestionar) {
     return renderTabla ? (
@@ -110,59 +111,61 @@ export default function SellOutAnularMasivo({
 
   return (
     <>
-      <div className={styles.bar}>
-        {seleccion.size > 0 && (
-          <span className={styles.count}>
-            {seleccion.size === 1 ? '1 seleccionada' : `${seleccion.size} seleccionadas`}
-          </span>
-        )}
-        <div className={styles.actions}>
-          <button type="button" className="btn-tesla ghost sm" onClick={seleccionarFiltradas} disabled={busy}>
-            {`Seleccionar todo lo filtrado (${total})`}
-          </button>
+      <div className={seleccion.size > 0 ? styles.flotante : undefined}>
+        <div className={styles.bar}>
           {seleccion.size > 0 && (
-            <>
-              <button type="button" className="btn-tesla outline sm" onClick={() => cambiar(new Map())} disabled={busy}>
-                Limpiar selección
-              </button>
-              <button type="button" className="btn-tesla outline sm" onClick={() => setAsignando(true)} disabled={busy}>
-                Asignar a programa
-              </button>
-              <button type="button" className="btn-tesla danger sm" onClick={() => setConfirmando(true)} disabled={busy || confirmando}>
-                Anular seleccionados
-              </button>
-            </>
+            <span className={styles.count}>
+              {seleccion.size === 1 ? '1 seleccionada' : `${seleccion.size} seleccionadas`}
+            </span>
           )}
-        </div>
-      </div>
-      {confirmando && (
-        <section className={styles.confirm} aria-label="Confirmar anulación">
-          <p>{textoConfirmacion(seleccion.size - yaAnuladas, yaAnuladas)}</p>
-          <p className={panelStyles.hint}>
-            El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban.
-            Si alguna no se puede anular, no se anula ninguna.
-          </p>
-          {demasiadas && <p className={panelStyles.hint}>{`Se pueden anular hasta ${ANULAR_MASIVO_MAX} campañas por vez.`}</p>}
-          <label className={panelStyles.field} htmlFor={`${id}-motivo`}>
-            <span className={panelStyles.label}>Motivo (opcional)</span>
-            <textarea
-              id={`${id}-motivo`}
-              className={panelStyles.textarea}
-              maxLength={MOTIVO_MAX}
-              value={motivo}
-              onChange={(e) => setMotivo(e.target.value)}
-            />
-          </label>
-          <div className={panelStyles.confirmActions}>
-            <button type="button" className="btn-tesla outline sm" onClick={() => setConfirmando(false)} disabled={busy}>
-              Cancelar
+          <div className={styles.actions}>
+            <button type="button" className="btn-tesla ghost sm" onClick={seleccionarFiltradas} disabled={busy}>
+              {`Seleccionar todo lo filtrado (${total})`}
             </button>
-            <button type="button" className="btn-tesla danger sm" onClick={anular} disabled={busy || demasiadas}>
-              Confirmar anulación
-            </button>
+            {seleccion.size > 0 && (
+              <>
+                <button type="button" className="btn-tesla outline sm" onClick={() => cambiar(new Map())} disabled={busy}>
+                  Limpiar selección
+                </button>
+                <button type="button" className="btn-tesla outline sm" onClick={() => setAsignando([...seleccion.keys()])} disabled={busy}>
+                  Asignar a programa
+                </button>
+                <button type="button" className="btn-tesla danger sm" onClick={() => setConfirmando(true)} disabled={busy || confirmando}>
+                  Anular seleccionados
+                </button>
+              </>
+            )}
           </div>
-        </section>
-      )}
+        </div>
+        {confirmando && (
+          <section className={styles.confirm} aria-label="Confirmar anulación">
+            <p>{textoConfirmacion(seleccion.size - yaAnuladas, yaAnuladas)}</p>
+            <p className={panelStyles.hint}>
+              El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban.
+              Si alguna no se puede anular, no se anula ninguna.
+            </p>
+            {demasiadas && <p className={panelStyles.hint}>{`Se pueden anular hasta ${ANULAR_MASIVO_MAX} campañas por vez.`}</p>}
+            <label className={panelStyles.field} htmlFor={`${id}-motivo`}>
+              <span className={panelStyles.label}>Motivo (opcional)</span>
+              <textarea
+                id={`${id}-motivo`}
+                className={panelStyles.textarea}
+                maxLength={MOTIVO_MAX}
+                value={motivo}
+                onChange={(e) => setMotivo(e.target.value)}
+              />
+            </label>
+            <div className={panelStyles.confirmActions}>
+              <button type="button" className="btn-tesla outline sm" onClick={() => setConfirmando(false)} disabled={busy}>
+                Cancelar
+              </button>
+              <button type="button" className="btn-tesla danger sm" onClick={anular} disabled={busy || demasiadas}>
+                Confirmar anulación
+              </button>
+            </div>
+          </section>
+        )}
+      </div>
       {resultado && (
         <div className={`${styles.message} ${styles.ok}`} role="status">
           {resultado}
@@ -182,12 +185,12 @@ export default function SellOutAnularMasivo({
       )}
       {asignando && (
         <SellOutAsignarPrograma
-          campanaIds={[...seleccion.keys()]}
+          campanaIds={asignando}
           programas={programas}
-          onClose={() => setAsignando(false)}
+          onClose={() => setAsignando(null)}
           onProgramaCreado={() => onAsignadas?.()}
           onAsignadas={(texto) => {
-            setAsignando(false);
+            setAsignando(null);
             cambiar(new Map());
             setResultado(texto);
             onAsignadas?.();
@@ -195,7 +198,7 @@ export default function SellOutAnularMasivo({
         />
       )}
       {renderTabla ? (
-        renderTabla({ selectedId, onSelect, onRenovar, seleccion, onToggle: alternar })
+        renderTabla({ selectedId, onSelect, onRenovar, seleccion, onToggle: alternar, onAsignar: setAsignando })
       ) : (
         <SellOutCampanasTable
           campanas={campanas}

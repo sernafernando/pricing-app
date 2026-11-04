@@ -8,6 +8,24 @@
   color: var(--cf-text-primary);
 }
 
+/* With a selection, the bar and its confirmation float over the list as it scrolls (Stitch 5ee03d7d). */
+.flotante {
+  position: sticky;
+  top: calc(var(--cf-topbar-height) + var(--space-2));
+  z-index: 5;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--spacing-md);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.flotante .bar,
+.flotante .confirm:last-child {
+  margin-bottom: 0;
+}
+
 .count {
   font-weight: 600;
   font-variant-numeric: tabular-nums;

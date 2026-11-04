@@ -51,6 +51,13 @@ describe('SellOutAnularMasivo', () => {
     expect(screen.queryByRole('button', { name: /Seleccionar todo lo filtrado/ })).not.toBeInTheDocument();
   });
 
+  it('each row shows the campaign id as an «ID #n» chip under its name', () => {
+    renderLista();
+
+    expect(within(fila('Campaña 2')).getByText('ID #2')).toBeInTheDocument();
+    expect(within(fila('Campaña 3')).getByText('ID #3')).toBeInTheDocument();
+  });
+
   it('row checkboxes and the header checkbox select the visible page and the bar counts them', async () => {
     const user = userEvent.setup();
     renderLista();

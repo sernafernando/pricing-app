@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { Pagination, StatusPill } from '../kit';
 import { sellOutAPI } from '../../services/sellOutAPI';
+import { resolverFiltradas, SeleccionCambiada } from './sellOutSeleccion';
 import { CabeceraCampanas, CampanaFila } from './SellOutCampanasTable';
 import { columnasCampanas, plural, resumenDeGrupo, textoActivas } from './sellOutProgramas';
 import tableStyles from '../sellIn/SellInTable.module.css';
@@ -60,8 +61,40 @@ function CampanasDelGrupo({ grupo, filtros, version, columnas, seleccion, onTogg
   );
 }
 
-function Grupo({ grupo, abierto, onAlternar, ...resto }) {
-  const nombre = grupo.programa_id == null ? 'Sin programa' : grupo.nombre;
+/** "Asignar ahora" on "Sin programa": every unassigned campaign under the list's filters (fail-closed, as
+ * "Seleccionar todo lo filtrado") goes to the assign dialog. */
+function AsignarSinPrograma({ grupo, filtros, onAsignar }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const asignar = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const ids = await resolverFiltradas(sellOutAPI.listar, { ...filtros, sin_programa: true }, grupo.campanas);
+      onAsignar([...ids.keys()]);
+    } catch (err) {
+      setError(err instanceof SeleccionCambiada ? err.message : 'No se pudieron leer las campañas sin programa.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className={styles.asignar}>
+      {error && (
+        <span className={styles.error} role="alert">
+          {error}
+        </span>
+      )}
+      <button type="button" className="btn-tesla outline sm" onClick={asignar} disabled={busy}>
+        Asignar ahora
+      </button>
+    </span>
+  );
+}
+
+function Grupo({ grupo, abierto, onAlternar, onAsignar, ...resto }) {
+  const sinPrograma = grupo.programa_id == null;
+  const nombre = sinPrograma ? 'Sin programa' : grupo.nombre;
   const Chevron = abierto ? ChevronDown : ChevronRight;
   return (
     <tbody>
@@ -78,6 +111,7 @@ function Grupo({ grupo, abierto, onAlternar, ...resto }) {
                 <StatusPill tone="success">{textoActivas(grupo.activas)}</StatusPill>
               </span>
             )}
+            {sinPrograma && onAsignar && <AsignarSinPrograma grupo={grupo} filtros={resto.filtros} onAsignar={onAsignar} />}
           </div>
         </td>
       </tr>
@@ -91,10 +125,10 @@ function Grupo({ grupo, abierto, onAlternar, ...resto }) {
  * under the list's filters (`GET /sell-out/campanas/por-programa`, so a program with none is not shown and the request
  * count stays one per page of groups), then "Sin programa". Expanding a group reads its campaigns with the same filters
  * plus the program, shown with the flat list's row (checkbox, "Ver campaña", "Renovar"). A new `version` reads the
- * groups and the open ones again. `seleccion` / `onToggle` come from the bulk bar; without them there are no
- * checkboxes.
+ * groups and the open ones again. `seleccion` / `onToggle` / `onAsignar` come from the bulk bar; without them there
+ * are no checkboxes and "Sin programa" has no "Asignar ahora".
  */
-export default function SellOutPorPrograma({ filtros, version, seleccion, onToggle, selectedId, onSelect, onRenovar }) {
+export default function SellOutPorPrograma({ filtros, version, seleccion, onToggle, onAsignar, selectedId, onSelect, onRenovar }) {
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(GRUPOS_POR_PAGINA);
   const [datos, setDatos] = useState(null);
@@ -161,6 +195,7 @@ export default function SellOutPorPrograma({ filtros, version, seleccion, onTogg
               grupo={g}
               abierto={abiertos.has(claveDe(g))}
               onAlternar={() => alternar(claveDe(g))}
+              onAsignar={onAsignar}
               filtros={filtros}
               version={version}
               columnas={columnas}

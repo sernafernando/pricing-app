@@ -58,6 +58,7 @@ export function CampanaFila({ campana, selectedId, onSelect, seleccion, onToggle
       )}
       <td>
         <div>{campana.nombre}</div>
+        <span className={filaStyles.idChip}>{`ID #${campana.id}`}</span>
         {campana.offset_origen_id != null && <div className={styles.sub}>{`Del offset #${campana.offset_origen_id}`}</div>}
       </td>
       <td>
