@@ -18,6 +18,7 @@ from decimal import Decimal
 from typing import Optional
 
 from app.models.ml_ads import MlAdsCampaignContribution, MlAdsDisplayCampaignDay
+from app.services.ml_ads import contributions
 from app.services.ml_daily_metrics import board
 from tests.integration.test_ml_metricas_board_router import (  # noqa: F401 -- fixtures
     _frozen_clock,
@@ -180,3 +181,6 @@ def test_postgres_numeric_spreads_a_display_fixed_amount_to_the_cent(board_pg) -
     assert account.display_api == Decimal("55.01")  # 30 + 15 + 10.01
     assert board.cents(account.display_contribution) == Decimal("9.73")  # 10 x 45/70 = 6.4285... + 3.3033
     assert board.cents(account.display_net) == Decimal("45.28")
+    # The Display tab computes the same figure (`contributions.display_contributions`).
+    tab = contributions.display_contributions(board_pg, date(2026, 9, 1), date(2026, 9, 7))
+    assert board.cents(sum(tab.values())) == board.cents(account.display_contribution)
