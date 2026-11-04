@@ -3,8 +3,13 @@
 Flags and tunables live in `ml_pub_settings` so an operator can change them
 without a deploy; handlers read them at the start of every run and at every
 batch boundary. The environment (`app.core.config.settings`) only supplies the
-DEFAULT for a key that has no row, so a fresh deploy is governed purely by the
-all-off env defaults.
+DEFAULT for a key that has no row, so a fresh deploy is governed by the env
+defaults (almost all `*.enabled` flags default OFF).
+
+Documented exception (owner): `catalog_competition_refresh.enabled` defaults
+ON (`ML_PUB_CATALOG_COMPETITION_REFRESH_ENABLED=True`) so hay_mejores → catalog
+competition drain runs without a manual post-deploy flip. Operators still turn
+it off via `ml_pub_settings` or `ML_PUB_KILL_SWITCH`.
 
 `ML_PUB_KILL_SWITCH` is environment-only on purpose: when set, every `*.enabled`
 flag reads as disabled regardless of the database, and the database is not even

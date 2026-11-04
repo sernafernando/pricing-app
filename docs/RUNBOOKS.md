@@ -1130,6 +1130,20 @@ workers. Gates: `ML_PUB_KILL_SWITCH` and `ML_ITEM_DATA_WRITE_ENABLED`
 `publicacion_repair_event`. Restart `pricing-worker-ml` after deploy so
 the registry picks up the handlers.
 
+### Catalog competition refresh (`ml_publications.catalog_competition_refresh`)
+
+When `hay_mejores_ofertas` newly flags (or fingerprint novelty), the store
+enqueues the catalog MLA into `catalog_competition_refresh_pending`. This
+handler drains that queue via `refrescar_competencia_catalogo` (same path as
+the panel refresh), paced with the shared ML `Pacer`.
+
+- **Default ON** (`ML_PUB_CATALOG_COMPETITION_REFRESH_ENABLED=True`): documented
+  exception to the usual all-off `ML_PUB_*.enabled` env defaults (owner). No
+  manual post-deploy flip is required for the drain to run.
+- **Disable:** `ml_pub_settings` key `catalog_competition_refresh.enabled=false`,
+  or `ML_PUB_KILL_SWITCH=true` (env-only, forces every `*.enabled` off).
+- **Rate:** `catalog_competition_refresh.rate_per_min` (env default 10/min).
+
 ### ML Ads ingestion (`ml_ads.ingest`)
 
 Handler of `pricing-worker-ml` (no cron). It copies ML Product Ads cost per
