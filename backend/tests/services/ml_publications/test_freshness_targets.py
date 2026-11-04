@@ -35,3 +35,19 @@ class TestTheMessage:
 
         assert "estado de la publicación: 2 publicaciones" in message
         assert "familia: 1 familia," in message
+
+    # Owner, 2026-11-03: "pero me dice más atrasada 2 min y el objetivo es 2 min". A delay just past its target
+    # was rounded down to the target itself.
+    @pytest.mark.parametrize(
+        ("late", "target", "shown"),
+        [
+            (125, 120, "la más atrasada 3 min (objetivo 2 min)"),
+            (301, 300, "la más atrasada 6 min (objetivo 5 min)"),
+            (25.2 * 3600, 25 * 3600, "la más atrasada 26 h (objetivo 25 h)"),
+            (44 * 3600, 25 * 3600, "la más atrasada 44 h (objetivo 25 h)"),
+        ],
+    )
+    def test_the_delay_is_rounded_up_so_it_never_reads_as_the_target(self, late, target, shown) -> None:
+        report = {"resources": {"items": {"late": 1, "oldest_late_seconds": late, "target_seconds": target}}}
+
+        assert shown in freshness.late_message(report)

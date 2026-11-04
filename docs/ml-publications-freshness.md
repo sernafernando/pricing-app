@@ -20,15 +20,17 @@ later: waiting out the minimum age is the store's choice, not a delay.
 | Visits | 25 h (age of the last check on active items; the sweep laps them once a day) |
 
 Only the resources in `bundle_resources` are measured; visits only while `sweep.enabled` is on. Stock (the
-publication's available quantity) is not measured. Targets live in `ML_PUB_FRESHNESS_TARGET_SECONDS`.
+publication's available quantity) is not measured. Targets live in `ML_PUB_FRESHNESS_TARGET_SECONDS`. A delay
+counts as late only past its target plus 5 % (`LATE_TOLERANCE`): 2 min 5 s is not late against a 2 min target.
 
 The handler's `worker_job_state.detail` holds the last report: per resource `late` and `oldest_late_seconds`,
 and per queue lane the waiting count and the oldest wait.
 
 ## Alerts
 
-A resource that becomes late sends one WhatsApp; it is not repeated while it stays late, and one more message
-says when everything is back. An alert wabot did not take is tried again on the next tick (`detail.alert`).
+A resource that becomes late sends one WhatsApp; it is not repeated while it stays late or comes back for less
+than an hour (`FRESHNESS_QUIET`), and one more message says when everything has been back that long. The
+message rounds the delay up, so it never reads as the target itself. An alert wabot did not take is tried again on the next tick (`detail.alert`).
 
 The message goes to `WABOT_OWNER_TO` (digits only, country code first: `54911...`) through `WABOT_URL` with
 `WABOT_TOKEN` (backend `.env`). wabot sends a message without a recipient to the users' group, so nothing is

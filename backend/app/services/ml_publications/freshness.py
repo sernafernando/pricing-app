@@ -14,6 +14,7 @@ the store reads (owner, 2026-10-27).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping
 
@@ -33,6 +34,9 @@ from app.services.ml_publications.resources import (
 
 ITEMS = "items"
 VISITS = "visits"
+# A delay counts as late only past its target plus 5 %: "5 segundos de diferencia no es demora si el objetivo es
+# dos min, tendríamos que tener un 5% de tolerancia" (owner, 2026-11-03).
+LATE_TOLERANCE = 1.05
 
 
 @dataclass(frozen=True)
@@ -115,7 +119,7 @@ def measure(db: Session) -> Dict[str, Any]:
                 "item_kind": ITEM_KIND,
                 "kinds": list(measured.kinds),
                 "asked": asked,
-                "target": targets[name],
+                "target": targets[name] * LATE_TOLERANCE,
             },
         ).one()
         resources[name] = {
@@ -124,7 +128,7 @@ def measure(db: Session) -> Dict[str, Any]:
             "oldest_late_seconds": _number(row.oldest),
         }
     if VISITS in collected and config["sweep.enabled"].value is True:
-        row = db.execute(_VISITS_SQL, {"target": targets[VISITS]}).one()
+        row = db.execute(_VISITS_SQL, {"target": targets[VISITS] * LATE_TOLERANCE}).one()
         resources[VISITS] = {
             "target_seconds": targets[VISITS],
             "late": row.late,
@@ -145,9 +149,12 @@ LABELS: Dict[str, str] = {
 }
 
 
-def _duration(seconds: float) -> str:
+def _duration(seconds: float, *, up: bool = False) -> str:
+    """Minutes, or hours from two hours on. A delay (`up`) rounds up, so one just past its target never reads as
+    the target itself ("2 min, objetivo 2 min", owner 2026-11-03)."""
     minutes = seconds / 60
-    return f"{minutes / 60:.0f} h" if minutes >= 120 else f"{minutes:.0f} min"
+    value, unit = (minutes / 60, "h") if minutes >= 120 else (minutes, "min")
+    return f"{math.ceil(value - 1e-9) if up else round(value)} {unit}"
 
 
 def _unit(name: str, count: int) -> str:
@@ -165,7 +172,7 @@ def late_message(report: Mapping[str, Any]) -> str:
             count = measured["late"]
             lines.append(
                 f"- {LABELS[name]}: {count} {_unit(name, count)}, "
-                f"la más atrasada {_duration(measured['oldest_late_seconds'])} "
+                f"la más atrasada {_duration(measured['oldest_late_seconds'], up=True)} "
                 f"(objetivo {_duration(measured['target_seconds'])})"
             )
     return "\n".join(lines)
