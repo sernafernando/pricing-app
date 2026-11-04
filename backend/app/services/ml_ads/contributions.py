@@ -28,7 +28,6 @@ from app.models.auditoria import Auditoria, TipoAccion
 from app.models.ml_ads import (
     MlAdsCampaign,
     MlAdsCampaignContribution,
-    MlAdsCampaignDay,
     MlAdsDayLedger,
     MlAdsDisplayCampaign,
     MlAdsDisplayCampaignDay,
@@ -83,12 +82,13 @@ class Preview:
 
 
 def list_campaigns(db: Session, date_from: date, date_to: date) -> list[CampaignRow]:
-    """Every catalogued campaign with all its contributions (by start) and its cost in `[date_from, date_to]`.
+    """Every catalogued campaign with all its contributions (by start) and its cost in `[date_from, date_to]`: its
+    item rows, the base the contributions and the Board use (ml-ads-aportes-robust S7), not the campaign report.
 
     All contributions, not only those touching the range: the loading screen lists them all. The catalogue is only
     ever upserted (nothing deletes from `ml_ads_campaigns`) and writes require a catalogued campaign, so no
     contribution is left without its campaign. Not paginated, like the other `/ml-ads` reads: two advertisers."""
-    day = MlAdsCampaignDay
+    day = MlAdsItemDay
     sums = (
         db.query(day.advertiser_id, day.campaign_id, func.sum(day.cost))
         .filter(day.day.between(date_from, date_to))

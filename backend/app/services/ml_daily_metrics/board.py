@@ -249,8 +249,10 @@ ADS_METRICS = (
     "organic_units",
     "organic_amount",
 )
-# `ads_contribution`: the brand contributions covering part of `ads_cost_api` (ml-ads-brand-contribution S9).
-ADS_PAIR_COLUMNS = ("ads_cost_api", "ads_contribution", *(f"ads_{name}" for name in ADS_METRICS))
+# `ads_contribution`: the brand contributions covering part of `ads_cost_api` (ml-ads-brand-contribution S9);
+# `ads_no_campaign`: the part of `ads_cost_api` on item rows with no campaign, which no contribution can cover
+# (ml-ads-aportes-robust S8).
+ADS_PAIR_COLUMNS = ("ads_cost_api", "ads_contribution", "ads_no_campaign", *(f"ads_{name}" for name in ADS_METRICS))
 ADS_COVERED = ("closed", "mismatch")
 ACCOUNT_SOURCES = ("display", "brand_ads")
 # The columns of the request's temp tables that get `ANALYZE` statistics (see
@@ -727,6 +729,9 @@ class AdsKpis:
     subtracted_total: Decimal = Decimal("0")
     # The brand contributions covering part of `cost_api`, same basis (ml-ads-brand-contribution S9).
     contribution: Decimal = Decimal("0")
+    # The part of `cost_api` on item rows with no campaign (NULL or 0): no contribution can cover it, so it always
+    # comes off whole (ml-ads-aportes-robust S8).
+    no_campaign: Decimal = Decimal("0")
     coverage: Optional["AdsCoverage"] = None
     # Only in the unfiltered view: spend that no row owns.
     unattributed: Optional["AdsUnattributed"] = None
@@ -1489,7 +1494,8 @@ class Board:
 
     def _ads_source(self) -> Any:
         """Product Ads cost per (MLA, ad day) over the period and its comparison, summed over ad groups, with the
-        brand contributions that cover part of it (ml-ads-brand-contribution S5, S6, S9), computed per item row.
+        brand contributions that cover part of it (ml-ads-brand-contribution S5, S6, S9), computed per item row, and
+        the cost of its item rows with no campaign (`no_campaign`, ml-ads-aportes-robust S8).
 
         An item row belongs to a Product Ads contribution by its own (`advertiser_id`, `campaign_id`, `day`); no
         campaign (NULL or 0) never does, nor does a Display contribution whose campaign id equals the row's. A
@@ -1528,16 +1534,18 @@ class Board:
             (spend.c.spend > 0, I.cost * literal_column("1.0") * counted / spend.c.spend),
             else_=0,
         )
+        no_campaign = or_(I.campaign_id.is_(None), I.campaign_id == 0)
         query = (
             select(
                 I.item_id.label("mla"),
                 day.label("day"),
                 func.sum(I.cost).label("cost"),
                 func.sum(share).label("contribution"),
+                func.sum(case((no_campaign, I.cost), else_=0)).label("no_campaign"),
                 *(func.sum(getattr(I, name)).label(name) for name in ADS_METRICS),
             )
             .select_from(I)
-            .outerjoin(C, and_(in_range, I.campaign_id != 0))
+            .outerjoin(C, and_(in_range, ~no_campaign))
             .outerjoin(spend, spend.c.id == C.id)
             .where(
                 or_(
@@ -1569,6 +1577,7 @@ class Board:
                 ads_cost_net_of_iva(func.sum(previous), ADS_SOURCE).label("prev_ads"),
                 func.sum(current).label("ads_cost_api"),
                 func.sum(contribution).label("ads_contribution"),
+                func.sum(case((in_period, A.c.no_campaign), else_=0)).label("ads_no_campaign"),
                 *(func.sum(case((in_period, A.c[name]), else_=0)).label(f"ads_{name}") for name in ADS_METRICS),
             )
             .select_from(A.join(owner, owner.c.mla == A.c.mla))
@@ -2651,7 +2660,7 @@ class Board:
         if self.ads_unattributed:
             A = self.ads_lines
             in_period = self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to)
-            names = ("cost", "contribution", *ADS_METRICS)
+            names = ("cost", "contribution", "no_campaign", *ADS_METRICS)
             sums = [func.sum(case((in_period, A.c[name]), else_=0)) for name in names]
             owned_by_nobody = select(func.coalesce(func.sum(self.t.c.ads_cost), 0)).where(
                 self.t.c.product == NO_PRODUCT
@@ -2660,7 +2669,7 @@ class Board:
         else:
             members = self._member_table("")
             query = select(*(func.sum(members.c[name]) for name in ADS_PAIR_COLUMNS))
-        cost_api, contribution, *metrics = (value or 0 for value in self.db.execute(query).one())
+        cost_api, contribution, no_campaign, *metrics = (value or 0 for value in self.db.execute(query).one())
         sin_producto = Decimal(str(metrics.pop())) if self.ads_unattributed else Decimal(0)
         by_name = dict(zip(ADS_METRICS, metrics))
         cost_api, contribution = Decimal(str(cost_api)), Decimal(str(contribution))
@@ -2683,6 +2692,7 @@ class Board:
             applied="todo" if self.ads_all else "mla",
             subtracted_total=subtracted + (cents(account.display_net + account.brand) if self.ads_all else 0),
             contribution=cents(contribution),
+            no_campaign=cents(Decimal(str(no_campaign))),
             coverage=self._ads_coverage(),
             unattributed=(
                 AdsUnattributed(cents(sin_producto), account, subtracted=self.ads_all) if account is not None else None

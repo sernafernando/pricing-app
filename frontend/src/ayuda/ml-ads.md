@@ -37,6 +37,8 @@ Filtros: rango de fechas, búsqueda por campaña, segmento (todas/con aporte/sin
 
 Columnas: Campaña, Estado, Costo del período, Aporte, Neto, Aportes cargados.
 
+**Costo del período** suma el gasto de los anuncios de la campaña, el mismo que usa Métricas ML; así el **Neto** coincide con lo que Métricas ML descuenta.
+
 ### Botones y acciones
 
 - **Agregar aporte**: crea un aporte (si tenés permiso de gestión).
