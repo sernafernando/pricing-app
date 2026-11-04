@@ -9,7 +9,15 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import MlAds from './MlAds';
 
 vi.mock('./AportesAdsML', () => ({ default: () => <p>contenido aportes</p> }));
-vi.mock('./DisplayAdsML', () => ({ default: () => <p>contenido display</p> }));
+vi.mock('./DisplayAdsML', async () => {
+  const { useEffect } = await import('react');
+  return {
+    default: function DisplayStub({ onActiveCount }) {
+      useEffect(() => onActiveCount?.(4), [onActiveCount]);
+      return <p>contenido display</p>;
+    },
+  };
+});
 
 function Where() {
   return <span data-testid="where">{useLocation().search}</span>;
@@ -69,5 +77,16 @@ describe('MlAds', () => {
     await user.keyboard('{ArrowRight}');
     expect(screen.getByRole('tab', { name: 'Display' })).toHaveFocus();
     expect(screen.getByText('contenido display')).toBeInTheDocument();
+  });
+
+  it('the Display tab shows how many campaigns are active once Display reported them', () => {
+    renderAt('/ml-ads-aportes?tab=display');
+    const tab = screen.getByRole('tab', { name: 'Display' });
+    expect(tab).toHaveTextContent('4 Activas');
+  });
+
+  it('before Display reported, the tab has no count', () => {
+    renderAt('/ml-ads-aportes');
+    expect(screen.getByRole('tab', { name: 'Display' })).not.toHaveTextContent('Activas');
   });
 });

@@ -1,83 +1,317 @@
-/* DisplayAdsML — the Display tab. The shell (container, header, KPI tiles, toolbar, table) is AportesAdsML's;
-   only what Display adds lives here: five KPI tiles, the daily cost chart and the table's extra columns. */
+/* DisplayAdsML — the Display tab, after the approved Stitch screen 56a8ea4c. The shell (container, KPI tiles, table)
+   is AportesAdsML's; what Display adds lives here: the header range, four KPI tiles with chips, the daily cost
+   stacked by campaign, the expandable trend row and the table card's head and foot. Colours are the app's tokens,
+   so dark mode follows on its own. */
 
+/* Header controls (rendered into the ML Ads header) */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.rangeBox {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 6px 10px;
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  color: var(--cf-text-tertiary);
+}
+
+.rangeField {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-tertiary);
+}
+
+/* The date inputs keep the app's own field box: form controls compose it (css-guard rule 2). */
+.rangeInput {
+  composes: inputSm from '../styles/forms-tesla.css';
+  width: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.rangeDash {
+  color: var(--cf-text-tertiary);
+}
+
+.rangeDays {
+  padding-left: var(--spacing-sm);
+  border-left: 1px solid var(--cf-border-default);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+  white-space: nowrap;
+}
+
+.refresh {
+  composes: btn-tesla secondary sm from '../styles/buttons-tesla.css';
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* KPI tiles */
 @media (min-width: 1024px) {
   .kpis {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
-.chartCard {
+.kpiHead {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  padding: 14px 16px;
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-lg);
+  align-items: center;
+  justify-content: space-between;
+  color: var(--cf-text-tertiary);
 }
 
-.chartHeader {
+.kpiFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.kpiValueRow {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  flex-wrap: wrap;
   gap: var(--spacing-sm);
+  min-width: 0;
 }
 
-.chartAverage {
+.chip {
+  padding: 2px 8px;
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-base);
+  background: var(--cf-bg-hover);
   font-family: var(--font-mono);
   font-size: var(--font-xs);
   color: var(--cf-text-secondary);
   white-space: nowrap;
 }
 
-.chart {
-  display: block;
-  width: 100%;
-  height: 160px;
+.up {
+  color: var(--tone-success-fg);
+  background: var(--tone-success-bg);
+  border-color: var(--tone-success-border);
 }
 
-.grid {
-  stroke: var(--cf-border-subtle);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
+.down {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
 }
 
-.area {
-  fill: var(--cf-accent-blue);
-  opacity: 0.12;
+.neutral {
+  white-space: normal;
 }
 
-.line {
-  fill: none;
-  stroke: var(--cf-accent-blue);
-  stroke-width: 2;
+.good {
+  color: var(--money-positive);
 }
 
-.dot {
-  fill: var(--cf-accent-blue);
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
-.axis {
+/* Cards */
+.chartCard {
   display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: 16px 20px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+.chartHeader {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: var(--font-base);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.cardSub {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+}
+
+.legendValue {
   font-family: var(--font-mono);
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
 }
 
-.count {
-  margin-left: auto;
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+/* Series: Stitch's blue, indigo, teal and amber, then green and gray (orchestrator, 2026-11-04). */
+.s0 {
+  color: var(--cf-accent-blue);
+  fill: var(--cf-accent-blue);
+}
+
+.s1 {
+  color: var(--cf-accent-purple);
+  fill: var(--cf-accent-purple);
+}
+
+.s2 {
+  color: var(--cf-accent-teal);
+  fill: var(--cf-accent-teal);
+}
+
+.s3 {
+  color: var(--cf-accent-orange);
+  fill: var(--cf-accent-orange);
+}
+
+.s4 {
+  color: var(--cf-accent-green);
+  fill: var(--cf-accent-green);
+}
+
+.s5 {
+  color: var(--cf-accent-gray);
+  fill: var(--cf-accent-gray);
+}
+
+.chartEmpty {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
+.plot {
+  position: relative;
+}
+
+.stack {
+  display: block;
+  width: 100%;
+  height: 220px;
+}
+
+.grid {
+  stroke: var(--cf-border-subtle);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.yAxis {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--gutter);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-family: var(--font-mono);
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);
-  white-space: nowrap;
+  pointer-events: none;
+}
+
+.axis {
+  display: flex;
+  justify-content: space-between;
+  padding-left: var(--gutter);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+/* Table card */
+.tableHead {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.tableSearch {
+  margin-left: auto;
+  width: min(360px, 100%);
 }
 
 .campaign {
   display: flex;
-  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
   min-width: 200px;
+}
+
+.campaignText {
+  display: flex;
+  flex-direction: column;
+}
+
+.expand {
+  display: inline-flex;
+  padding: 1px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-base);
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+}
+
+.expand:hover {
+  color: var(--cf-text-primary);
+}
+
+.expand:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 1px;
 }
 
 .nowrap {
@@ -87,10 +321,91 @@
 .date {
   font-family: var(--font-mono);
   font-size: var(--font-xs);
-  white-space: nowrap;
   color: var(--cf-text-secondary);
 }
 
 .idle td {
   color: var(--cf-text-tertiary);
+}
+
+.trendRow > td {
+  padding: 8px 16px 12px 36px;
+}
+
+.trend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  padding: 12px 16px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+}
+
+.trendText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.trendTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.trendDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--cf-accent-blue);
+}
+
+.trendFigures {
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.trendFigures strong {
+  color: var(--cf-text-primary);
+}
+
+.trendFigures strong.good {
+  color: var(--money-positive);
+}
+
+.trendSpark {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.trendDays {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.tableFoot {
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--cf-border-default);
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.tableFoot strong {
+  color: var(--cf-text-primary);
+}
+
+.note {
+  font-style: italic;
 }
