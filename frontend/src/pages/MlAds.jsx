@@ -5,8 +5,12 @@
  *
  * Accessible tabs: a `role="tablist"` with arrow-key navigation; only the active tab's content is rendered, in the
  * one always-present tab panel.
+ *
+ * Header and tabs follow the approved Stitch screen 56a8ea4c: one card with the title, the active tab's controls on
+ * the right (`headerSlot`, where Display puts its range and Actualizar) and the tab bar. The Display tab shows how
+ * many campaigns are active once Display reported them; the number stays while another tab is open.
  */
-import { useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import AportesAdsML from './AportesAdsML';
 import DisplayAdsML from './DisplayAdsML';
@@ -26,6 +30,9 @@ export default function MlAds() {
   const [params, setParams] = useSearchParams();
   const active = TABS.find((t) => t.key === params.get('tab')) ?? TABS[0];
   const buttons = useRef({});
+  const [headerSlot, setHeaderSlot] = useState(null);
+  const [activeDisplay, setActiveDisplay] = useState(null);
+  const onActiveCount = useCallback((n) => setActiveDisplay(n), []);
 
   const select = (key) => {
     setParams(
@@ -53,9 +60,13 @@ export default function MlAds() {
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>ML Ads</h1>
-        <p className={styles.description}>Publicidad de Mercado Libre: aportes de marcas y campañas de Display.</p>
-      </header>
+        <div className={styles.headerTop}>
+          <div>
+            <h1 className={styles.title}>ML Ads</h1>
+            <p className={styles.description}>Publicidad de Mercado Libre: aportes de marcas y campañas de Display.</p>
+          </div>
+          <div ref={setHeaderSlot} className={styles.headerSlot} />
+        </div>
       <div className={styles.tabs} role="tablist" aria-label="Secciones de ML Ads" onKeyDown={onKeyDown}>
         {TABS.map((tab) => {
           const selected = tab.key === active.key;
@@ -75,12 +86,16 @@ export default function MlAds() {
               onClick={() => select(tab.key)}
             >
               {tab.label}
+              {tab.key === 'display' && activeDisplay !== null && (
+                <span className={styles.badge} aria-hidden="true">{`${activeDisplay} Activas`}</span>
+              )}
             </button>
           );
         })}
       </div>
+      </header>
       <div role="tabpanel" id={PANEL_ID} aria-labelledby={`ml-ads-tab-${active.key}`}>
-        <Component />
+        <Component headerSlot={headerSlot} onActiveCount={onActiveCount} />
       </div>
     </div>
   );
