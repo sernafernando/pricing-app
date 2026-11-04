@@ -50,6 +50,7 @@ function CampanasDelGrupo({ grupo, filtros, version, columnas, seleccion, onTogg
           onRenovar={onRenovar}
           seleccion={seleccion}
           onToggle={onToggle}
+          anidada
         />
       ))}
       {lista.total > lista.items.length &&
@@ -103,11 +104,11 @@ function Grupo({ grupo, abierto, onAlternar, onAsignar, ...resto }) {
           <div className={styles.cabecera}>
             <button type="button" className={styles.alternar} aria-expanded={abierto} onClick={onAlternar}>
               <Chevron size={16} aria-hidden="true" />
-              <span className={styles.nombre}>{nombre}</span>
+              <span className={sinPrograma ? `${styles.nombre} ${styles.sinPrograma}` : styles.nombre}>{nombre}</span>
             </button>
             <span className={styles.resumen}>{resumenDeGrupo(grupo)}</span>
             {grupo.activas > 0 && (
-              <span className={styles.activas}>
+              <span>
                 <StatusPill tone="success">{textoActivas(grupo.activas)}</StatusPill>
               </span>
             )}

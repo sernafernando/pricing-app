@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
-import { contrastRatio, setTheme } from './visualHelpers';
+import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
 import SellIn from '../../pages/SellIn';
 import { sellInAPI, sellInBonosAPI } from '../../services/sellInAPI';
 import { BONOS_LISTA, LISTA, RESUMEN } from '../../components/sellIn/sellInFixtures';
@@ -100,8 +100,23 @@ describe.each([
 
     // The chip reads at AA on its own background; the button sits on the group row's right half.
     expect(contrastRatio(getComputedStyle(chip.element()).color, fondo(chip.element()))).toBeGreaterThanOrEqual(4.5);
-    const fila = box(asignar.element().closest('tr'));
-    expect(box(asignar.element()).left).toBeGreaterThan(fila.left + fila.width / 2);
+    // The group header reads as Stitch: bold name in the text color, then the summary, then the pill / "Asignar
+    // ahora" right after it (not pushed to the row's far end).
+    const grupo = screen.getByRole('button', { name: /^MARCA PROG/ }).element().closest('tr');
+    const nombre = [...grupo.querySelectorAll('span')].find((n) => n.textContent === 'MARCA PROG');
+    expect(Number(getComputedStyle(nombre).fontWeight)).toBeGreaterThanOrEqual(600);
+    expect(getComputedStyle(nombre).color).toBe(tokenColor('--cf-text-primary'));
+    const resumen = box(grupo.querySelector('[class*="resumen"]'));
+    const pill = box(screen.getByText('2 activas').element());
+    expect(pill.left - resumen.right).toBeLessThan(24);
+    const sinResumen = box(asignar.element().closest('tr').querySelector('[class*="resumen"]'));
+    expect(box(asignar.element()).left - sinResumen.right).toBeLessThan(120);
+    // Its campaigns are indented under it, after a ↳ marker.
+    const flecha = box(screen.getByText('MODELO 8100').element().closest('tr').querySelector('[aria-hidden="true"]'));
+    const nombreHija = box(screen.getByText('MODELO 8100').element());
+    expect(nombreHija.left).toBeGreaterThan(flecha.right);
+    const cabecera = box([...document.querySelectorAll('th')].find((th) => th.textContent === 'Campaña'));
+    expect(flecha.left - cabecera.left).toBeGreaterThanOrEqual(12); // nested: further in than the column's start
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/campanas-asignar-ahora-${modo}.png` });
     document.documentElement.classList.remove('high-contrast');

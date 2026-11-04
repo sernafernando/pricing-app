@@ -17,7 +17,7 @@
   gap: var(--space-2);
   padding: 0;
   font: inherit;
-  color: var(--cf-accent-blue);
+  color: var(--cf-text-secondary);
   background: none;
   border: none;
   cursor: pointer;
@@ -30,32 +30,25 @@
 }
 
 .nombre {
+  font-size: var(--font-sm);
   font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.sinPrograma {
+  color: var(--cf-text-secondary);
 }
 
 .resumen {
-  font-size: var(--font-sm);
+  font-size: var(--font-xs);
   color: var(--cf-text-secondary);
   font-variant-numeric: tabular-nums;
-}
-
-.resumen::before {
-  content: '· ';
-}
-
-.activas {
-  margin-left: auto;
 }
 
 .asignar {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  margin-left: auto;
-}
-
-.activas + .asignar {
-  margin-left: 0;
 }
 
 .enlace {

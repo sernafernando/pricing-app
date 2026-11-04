@@ -1111,6 +1111,21 @@ describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
     expect(await screen.findByText('RB 8180')).toBeInTheDocument();
   });
 
+  it('the campaigns of an open group are nested under it with a ↳ marker; the flat list has none', async () => {
+    conProgramas();
+    sellOutAPI.listar.mockImplementation(async (p) => ({ data: p.programa_id === 7 ? CAMPANAS_DEL_PROGRAMA : CAMPANAS_LISTA }));
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+
+    await user.click(await waitFor(() => screen.getByRole('button', { name: /^MARCA PROG/ })));
+    const fila = (await screen.findByText('MARCA PROG 3.0')).closest('tr');
+    expect(within(fila).getByText('↳')).toHaveAttribute('aria-hidden', 'true');
+
+    await user.click(within(screen.getByRole('group', { name: 'Ver' })).getByRole('button', { name: 'Lista' }));
+    const plana = (await screen.findByText('RB 8180')).closest('tr');
+    expect(within(plana).queryByText('↳')).not.toBeInTheDocument();
+  });
+
   it('a program without campaigns under the filters gets no group row', async () => {
     conProgramas(); // MARCA PROG and Modelos SP exist; only MARCA PROG has campaigns under the filters
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
