@@ -74,7 +74,7 @@ def _asignar(client, headers, campana_ids: list[int], programa_id):
 
 # ── Permissions ─────────────────────────────────────────────────────
 
-ESCRITURAS = [("post", BASE), ("patch", f"{BASE}/1"), ("post", f"{BASE}/asignar")]
+ESCRITURAS = [("post", BASE), ("patch", f"{BASE}/1"), ("post", f"{BASE}/asignar"), ("post", f"{BASE}/1/renovar")]
 LECTURAS = [("get", BASE), ("get", f"{BASE}/sugerencias")]
 _BODY = {"nombre": "MARCA PROG", "campana_ids": [1], "programa_id": None}
 
@@ -360,3 +360,68 @@ def test_both_lists_are_paginated_like_the_campaigns(client, gestor, grupo) -> N
     assert [g["base"] for g in sugeridas["items"]] == ["Del 01/11/2025 al 31/12/2026"]
     assert (sugeridas["total"], sugeridas["page"], sugeridas["page_size"]) == (2, 1, 1)
     assert client.get(BASE, params={"page_size": 201}, headers=gestor).status_code == 422
+
+
+# ── Renovar programa ────────────────────────────────────────────────
+
+
+def test_the_renewal_preview_needs_gestionar(client, auth_headers, lector) -> None:
+    assert client.get(f"{BASE}/1/renovacion", headers=auth_headers).status_code == 403
+    resp = client.get(f"{BASE}/1/renovacion", headers=lector)
+    assert resp.status_code == 403
+    assert GESTIONAR in _message(resp)
+    assert client.get(f"{BASE}/1/renovacion").status_code in (401, 403)
+
+
+def test_preview_then_renew_creates_each_copy_in_the_program(client, gestor, grupo) -> None:
+    programa = _programa(client, gestor)
+    a = _campana(client, gestor, grupo, "Modelo A Q4 2026", fecha_desde="2026-10-01", fecha_hasta="2026-12-31")
+    b = _campana(client, gestor, grupo, "Modelo B Q4 2026", fecha_desde="2026-10-01", fecha_hasta="2026-12-31")
+    assert _asignar(client, gestor, [a["id"], b["id"]], programa["id"]).status_code == 200
+
+    previa = client.get(f"{BASE}/{programa['id']}/renovacion", headers=gestor)
+    assert previa.status_code == 200, previa.text
+    assert previa.json() == {
+        "programa_id": programa["id"],
+        "programa": "MARCA PROG",
+        "periodo_desde": "2026-10-01",
+        "periodo_hasta": "2026-12-31",
+        "fecha_desde": "2027-01-01",
+        "fecha_hasta": "2027-03-31",
+        "renovar": [
+            {"campana_id": a["id"], "nombre": "Modelo A Q4 2026", "nombre_nuevo": "Modelo A Q1 2027"},
+            {"campana_id": b["id"], "nombre": "Modelo B Q4 2026", "nombre_nuevo": "Modelo B Q1 2027"},
+        ],
+        "omitidas": [],
+        "quedan_afuera": [],
+    }
+
+    resp = client.post(f"{BASE}/{programa['id']}/renovar", json={"campana_ids": [a["id"], b["id"]]}, headers=gestor)
+    assert resp.status_code == 200, resp.text
+    creadas = resp.json()["creadas"]
+    assert [c["campana_id"] for c in creadas] == [a["id"], b["id"]]
+    for creada in creadas:
+        copia = client.get(f"{CAMPANAS}/{creada['nueva_id']}", headers=gestor).json()
+        assert (copia["programa_id"], copia["renovada_de_id"], copia["fecha_desde"]) == (
+            programa["id"],
+            creada["campana_id"],
+            "2027-01-01",
+        )
+
+    # The same click again: the preview changed, a 409, nothing created.
+    otra = client.post(f"{BASE}/{programa['id']}/renovar", json={"campana_ids": [a["id"], b["id"]]}, headers=gestor)
+    assert otra.status_code == 409
+    assert "cambió" in _message(otra)
+    assert client.get(CAMPANAS, headers=gestor).json()["total"] == 4
+
+
+def test_renewal_errors_unknown_404_archived_422_and_empty_selection_422(client, gestor) -> None:
+    archivado = _programa(client, gestor, "Viejo")
+    client.patch(f"{BASE}/{archivado['id']}", json={"estado": "archivado"}, headers=gestor)
+
+    assert client.get(f"{BASE}/999999/renovacion", headers=gestor).status_code == 404
+    assert client.post(f"{BASE}/999999/renovar", json={"campana_ids": [1]}, headers=gestor).status_code == 404
+    resp = client.get(f"{BASE}/{archivado['id']}/renovacion", headers=gestor)
+    assert resp.status_code == 422
+    assert "archivado" in _message(resp)
+    assert client.post(f"{BASE}/{archivado['id']}/renovar", json={"campana_ids": []}, headers=gestor).status_code == 422

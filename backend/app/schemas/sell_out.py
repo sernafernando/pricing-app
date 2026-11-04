@@ -484,6 +484,57 @@ class SellOutAsignarOut(BaseModel):
     sin_cambio: int  # already had it
 
 
+class SellOutRenovarCampanaOut(BaseModel):
+    campana_id: int
+    nombre: str
+    nombre_nuevo: str  # the copy's name: its trailing period advanced (`renovacion.nombre_renovado`)
+
+
+class SellOutRenovacionOmitidaOut(BaseModel):
+    campana_id: int
+    nombre: str
+    motivo: str  # "anulada, no se renueva" or "ya renovada en la campaña N (nombre)"
+
+
+class SellOutQuedaAfueraOut(BaseModel):
+    campana_id: int
+    nombre: str
+    fecha_hasta: date
+
+
+class SellOutRenovacionProgramaOut(BaseModel):
+    """`GET /{id}/renovacion`: what Renovar programa would do (`renovacion_programa.previa`): the source period
+    (`periodo_desde`, `periodo_hasta`), the target quarter (`fecha_desde`, `fecha_hasta`), the campaigns renewed,
+    the skipped ones with why, and the not-renewed ones of the other quarter of the window, left for a later pass.
+    The dates are None, with nothing to renew, when the program has no campaigns."""
+
+    programa_id: int
+    programa: str
+    periodo_desde: Optional[date]
+    periodo_hasta: Optional[date]
+    fecha_desde: Optional[date]
+    fecha_hasta: Optional[date]
+    renovar: list[SellOutRenovarCampanaOut]
+    omitidas: list[SellOutRenovacionOmitidaOut]
+    quedan_afuera: list[SellOutQuedaAfueraOut]
+
+
+class SellOutRenovarProgramaIn(BaseModel):
+    """`POST /{id}/renovar`: the campaign ids the preview listed under `renovar`."""
+
+    campana_ids: list[int] = Field(min_length=1, max_length=ASIGNAR_MAX)
+
+
+class SellOutRenovadaOut(BaseModel):
+    campana_id: int  # the original
+    nueva_id: int  # its copy
+
+
+class SellOutRenovarProgramaOut(BaseModel):
+    creadas: list[SellOutRenovadaOut]
+    omitidas: list[SellOutRenovacionOmitidaOut]
+
+
 class SellOutSugerenciaCampanaOut(BaseModel):
     id: int
     nombre: str

@@ -493,7 +493,20 @@ def _importe(valor: Decimal) -> str:
 def crear_campana(
     db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
 ) -> SellOutCampana:
-    """`offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`).
+    """Create a campaign and commit (`crear_campana_sin_commit`)."""
+    campana = crear_campana_sin_commit(db, data, usuario_id, offset_origen_id=offset_origen_id)
+    db.commit()
+    db.refresh(campana)
+    return campana
+
+
+def crear_campana_sin_commit(
+    db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
+) -> SellOutCampana:
+    """The create step without committing: validation, the row, its groups and items, one audit row and queueing.
+    Shared by the single create and Renovar programa (`renovacion_programa.renovar`, several in one transaction).
+
+    `offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`).
 
     `data.programa_id`, when set, must name a program that takes campaigns (`programas.validar_asignable`: a
     `ProgramaNoExiste` or `ProgramaError`, nothing stored); it is stored and in the audit row, which keeps its shape
@@ -521,8 +534,6 @@ def crear_campana(
         valores["renovada_de_id"] = data.renovada_de_id
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, valores)
     _encolar(db, [campana.id])
-    db.commit()
-    db.refresh(campana)
     return campana
 
 
