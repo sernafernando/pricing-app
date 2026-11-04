@@ -1144,6 +1144,59 @@ the panel refresh), paced with the shared ML `Pacer`.
   or `ML_PUB_KILL_SWITCH=true` (env-only, forces every `*.enabled` off).
 - **Rate:** `catalog_competition_refresh.rate_per_min` (env default 10/min).
 
+### Hay mejores — offline recompute (one-shot, no ML)
+
+After the stricter `es_mejor_oferta` rules (never a higher consumer price than
+the current `sale_price`), rows that were flagged under the old rule can keep
+`hay_mejores_ofertas=true` until promotions are written again. The panel
+“Refrescar promociones” button only reconciles the **bridge** mirror
+(ml-webhook); it does **not** recompute this flag. Catalog competition refresh
+also does **not** clear stale flags (it only runs on newly-true / fingerprint
+novelty).
+
+**Fix:** recompute from the stored mirror (`ml_item_seller_promotions.raw` +
+`ml_item_sale_prices.amount`) with no MercadoLibre calls:
+
+```bash
+cd backend
+# Canary / dry-run (rolls back writes + any catalog enqueue side effects)
+python -m app.scripts.recompute_hay_mejores_ofertas --dry-run --flagged-only --limit 20
+python -m app.scripts.recompute_hay_mejores_ofertas --dry-run --flagged-only
+# Apply
+python -m app.scripts.recompute_hay_mejores_ofertas --flagged-only
+# Single MLA
+python -m app.scripts.recompute_hay_mejores_ofertas --item-ids MLA3132338320
+```
+
+Run on the API/worker host **after** this script is deployed (Fernando).
+Default scope is flagged-only (~hundreds of rows). `--all` walks every
+promotions row (tens of thousands) — only if you need a full pass.
+
+**Side effect:** items that **remain** flagged with a **changed** fingerprint
+still go through `actualizar_hay_mejores_ofertas`, which enqueues catalog
+competition refresh for those MLAs (same as a live novelty). Cleared flags do
+not enqueue. `--dry-run` rolls that enqueue back with the rest of the
+transaction.
+
+**Verify after apply:**
+
+```sql
+SELECT count(*) FILTER (WHERE hay_mejores_ofertas) AS flagged
+FROM ml_item_seller_promotions;
+-- Spot-check: fingerprint prices should not sit above sale_price for flagged rows.
+```
+
+**Admin UI button:** not shipped. This is a rare post-criteria / incident
+one-shot; a permanent admin control is optional later if false positives
+recur often enough to justify the surface.
+
+**If the mirror itself is stale** (sale/promos wrong vs ML), recompute is not
+enough — enqueue a publications refresh instead:
+
+```bash
+python -m app.scripts.ml_publications_enqueue MLA… --resources promotions sale_price
+```
+
 ### ML Ads ingestion (`ml_ads.ingest`)
 
 Handler of `pricing-worker-ml` (no cron). It copies ML Product Ads cost per
