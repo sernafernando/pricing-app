@@ -46,6 +46,26 @@ describe('ProductFilters', () => {
     expect(setFilters).toHaveBeenCalledWith({ marcas: [], categorias: [], subcategorias: ['12'], pms: ['7'] });
   });
 
+  it('a category header in Subcategoría writes all its subcategorías (pubml-filtros S2)', async () => {
+    const setFilters = vi.fn();
+    render(<ProductFilters filters={filters()} setFilters={setFilters} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Subcategoría' }));
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Redes' }));
+    expect(setFilters).toHaveBeenCalledWith({ marcas: [], categorias: [], subcategorias: ['12'], pms: [] });
+  });
+
+  it('shows the commission group of a subcategoría and the email of a PM, like Productos', async () => {
+    productosAPI.subcategorias.mockResolvedValue({
+      data: { categorias: [{ nombre: 'Redes', subcategorias: [{ id: 12, nombre: 'Routers', grupo_id: 3 }] }] },
+    });
+    productosAPI.pms.mockResolvedValue({ data: [{ id: 7, nombre: 'Ana', email: 'ana@example.com' }] });
+    render(<ProductFilters filters={filters()} setFilters={vi.fn()} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Subcategoría' }));
+    expect(await screen.findByText('G3')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'PM' }));
+    expect(await screen.findByText('Ana (ana@example.com)')).toBeInTheDocument();
+  });
+
   it('narrows the brands by the picked subcategories and PMs, and the subcategories by the brands and PMs', async () => {
     render(<ProductFilters filters={filters({ marcas: ['TP%2CLINK'], subcategorias: ['12'], pms: ['7'] })} setFilters={vi.fn()} />);
     await waitFor(() => expect(productosAPI.marcas).toHaveBeenCalledWith({ subcategorias: '12', pms: '7' }));

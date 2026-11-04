@@ -630,6 +630,23 @@ input[type="checkbox"]:checked::after {
   transform: translate(-50%, -50%) rotate(45deg);
 }
 
+/* Some but not all of a group ticked (e.g. a category header): a dash in the checked colors. */
+input[type="checkbox"]:indeterminate {
+  background: var(--checkbox-checked-bg);
+  border-color: var(--checkbox-checked-color);
+}
+
+input[type="checkbox"]:indeterminate::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 2px;
+  background: var(--checkbox-checked-color);
+  transform: translate(-50%, -50%);
+}
+
 input[type="checkbox"]:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px rgba(92, 140, 255, 0.3);
@@ -647,7 +664,8 @@ input[type="checkbox"]:focus-visible {
 }
 
 /* Needed for specificity: the light base rule above outranks plain :checked. */
-:root[data-theme="light"] input[type="checkbox"]:checked {
+:root[data-theme="light"] input[type="checkbox"]:checked,
+:root[data-theme="light"] input[type="checkbox"]:indeterminate {
   background: var(--checkbox-checked-bg);
   border-color: var(--checkbox-checked-color);
 }

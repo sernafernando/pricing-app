@@ -52,7 +52,7 @@ export default function useProductFilterOptions(value) {
   );
   const categorias = useOptionList(() => productosAPI.categorias().then((response) => response.data?.categorias), 'all');
   const pms = useOptionList(
-    () => productosAPI.pms().then((response) => (Array.isArray(response.data) ? response.data.map(({ id, nombre }) => ({ id, nombre })) : NONE)),
+    () => productosAPI.pms().then((response) => (Array.isArray(response.data) ? response.data.map(({ id, nombre, email }) => ({ id, nombre, email })) : NONE)),
     'all',
   );
   return { marcas, categorias, subcategorias, pms };

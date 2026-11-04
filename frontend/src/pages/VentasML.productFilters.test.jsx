@@ -83,6 +83,19 @@ describe('Product filters (marca / categoría / subcategoría / PM) on VentasML'
     });
   });
 
+  it('a category header in Subcategoría sends all its subcategorías (pubml-filtros S2)', async () => {
+    await renderWithRouter(<VentasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Subcategoría' }));
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Audio' }));
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(
+        '/ml-ventas-ops/sales',
+        expect.objectContaining({ params: expect.objectContaining({ subcategorias: '3' }) }),
+      );
+    });
+  });
+
   it('picking a brand narrows the categories and subcategories offered next', async () => {
     await renderWithRouter(<VentasML />);
     await userEvent.click(await screen.findByRole('button', { name: 'Marca' }));

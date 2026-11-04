@@ -35,6 +35,8 @@ const FILTER_KEYS = {
   KeyC: 'presencia',
   KeyF: 'presencia',
 };
+// The search inside a product filter dropdown (`ProductFiltersPanel`'s `data-filter-search`).
+const FILTER_SEARCH = '[data-filter-search]';
 const NO_ROW = 'Posicionate sobre una publicación (flecha abajo) para usar este atajo';
 
 function copyAction(event) {
@@ -257,6 +259,14 @@ export default function usePublicacionesMLKeyboard({
       if (event.ctrlKey && !event.shiftKey && !event.altKey && event.code === 'KeyF' && search?.current) {
         event.preventDefault();
         search.current.focus();
+        return;
+      }
+      // A filter's own search takes the focus when it opens (ProductFiltersPanel), so from there Alt+letter still
+      // switches to another filter; any other field keeps its Alt keys (a Mac types a character with them).
+      const inFilterSearch = Boolean(event.target?.closest?.(FILTER_SEARCH));
+      if (inFilterSearch && event.altKey && !event.ctrlKey && !event.metaKey && FILTER_KEYS[event.code] && openFilter) {
+        event.preventDefault();
+        openFilter(FILTER_KEYS[event.code]);
         return;
       }
       if (isTyping(event.target)) return;
