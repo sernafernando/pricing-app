@@ -732,6 +732,8 @@ class AdsKpis:
     # The part of `cost_api` on item rows with no campaign (NULL or 0): no contribution can cover it, so it always
     # comes off whole (ml-ads-aportes-robust S8).
     no_campaign: Decimal = Decimal("0")
+    # The Product Ads that came off the totals: `cost_api` net of IVA and of `contribution` (the S4 waterfall).
+    net: Decimal = Decimal("0")
     coverage: Optional["AdsCoverage"] = None
     # Only in the unfiltered view: spend that no row owns.
     unattributed: Optional["AdsUnattributed"] = None
@@ -753,6 +755,8 @@ class AdsUnattributed:
     sin_producto_cost: Decimal
     account_level: "AccountLevel"
     subtracted: bool
+    # ML's gross Product Ads cost of the "sin producto" MLAs, API basis (the S4 waterfall's "sin producto" line).
+    sin_producto_api: Decimal = Decimal("0")
 
 
 @dataclass
@@ -2662,15 +2666,19 @@ class Board:
             in_period = self._in_ads_period(A.c.day, self.f.date_from, self.f.date_to)
             names = ("cost", "contribution", "no_campaign", *ADS_METRICS)
             sums = [func.sum(case((in_period, A.c[name]), else_=0)) for name in names]
-            owned_by_nobody = select(func.coalesce(func.sum(self.t.c.ads_cost), 0)).where(
-                self.t.c.product == NO_PRODUCT
-            )
-            query = select(*sums, owned_by_nobody.scalar_subquery())
+            nobody = self.t.c.product == NO_PRODUCT
+            owned_by_nobody = select(func.coalesce(func.sum(self.t.c.ads_cost), 0)).where(nobody)
+            nobody_api = select(func.coalesce(func.sum(self.t.c.ads_cost_api), 0)).where(nobody)
+            query = select(*sums, owned_by_nobody.scalar_subquery(), nobody_api.scalar_subquery())
         else:
             members = self._member_table("")
             query = select(*(func.sum(members.c[name]) for name in ADS_PAIR_COLUMNS))
         cost_api, contribution, no_campaign, *metrics = (value or 0 for value in self.db.execute(query).one())
-        sin_producto = Decimal(str(metrics.pop())) if self.ads_unattributed else Decimal(0)
+        sin_producto = sin_producto_api = Decimal(0)
+        if self.ads_unattributed:
+            # The two scalar subqueries close the select, in this order: owned_by_nobody, nobody_api.
+            *metrics, sin_producto, sin_producto_api = metrics
+            sin_producto, sin_producto_api = Decimal(str(sin_producto)), Decimal(str(sin_producto_api))
         by_name = dict(zip(ADS_METRICS, metrics))
         cost_api, contribution = Decimal(str(cost_api)), Decimal(str(contribution))
         # ML's gross cost stays the block's cost; what came off Total Gauss is net of the contributions (S9).
@@ -2693,9 +2701,14 @@ class Board:
             subtracted_total=subtracted + (cents(account.display_net + account.brand) if self.ads_all else 0),
             contribution=cents(contribution),
             no_campaign=cents(Decimal(str(no_campaign))),
+            net=subtracted,
             coverage=self._ads_coverage(),
             unattributed=(
-                AdsUnattributed(cents(sin_producto), account, subtracted=self.ads_all) if account is not None else None
+                AdsUnattributed(
+                    cents(sin_producto), account, subtracted=self.ads_all, sin_producto_api=sin_producto_api
+                )
+                if account is not None
+                else None
             ),
         )
 
