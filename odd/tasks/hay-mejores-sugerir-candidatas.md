@@ -20,9 +20,10 @@ S5. Apply stays fire-and-forget (existing enroll); discard uses existing descart
 | ID | Specs | Route | Status | Commit |
 |----|-------|-------|--------|--------|
 | T1 | S1 (stricter `es_mejor_oferta` + unit tests) | inline | done | 0648c698f |
-| T2 | S2–S5 (chooser on flag in panel + gate Nuevo precio; ayuda/novedad) | inline | pending | — |
+| T2 | S2–S5 (chooser on flag in panel + gate Nuevo precio; ayuda/novedad) | inline | done | e3141aafa |
 
 ## Log
 
 L1. User (alignment): delay OK; flagged filter already works; on click of pubs with better candidatas the panel should let choose among candidatas (keep showing current; price field only after discard or apply); chooser = 3 slots, only those that pass today’s criteria vs status quo, best per type / omit missing Premium; suggestion only for previously flagged pubs; “bueno listo”.
 L2. T1: `es_mejor_oferta` rejects higher consumer price even with higher markup; unit test added. Commit 0648c698f.
+L3. T2: flagged open → inline SMART/DEAL/Premium chooser; Nuevo precio after discard; apply leaves; mounts outside MODO via flaggedPricingSession. Ayuda + novedad. Commit e3141aafa. Branch ~418 add+del vs main (ask-on-risk at PR time).
