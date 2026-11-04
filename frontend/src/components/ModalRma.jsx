@@ -508,7 +508,7 @@ export default function ModalRma({ caso, onClose }) {
                       {(trazaResult.pedidos || []).length > 0 && (
                         <div className={styles.trazaOperacion}>
                           {trazaResult.pedidos.map((pedido) => (
-                            <div key={pedido.soh_id} className={styles.trazaOperacionCard}>
+                            <div key={`${pedido.soh_id}-${pedido.ml_id}`} className={styles.trazaOperacionCard}>
                               <div className={styles.trazaOperacionHeader}>
                                 <ShoppingCart size={14} />
                                 {pedido.ml_id ? (
@@ -528,7 +528,7 @@ export default function ModalRma({ caso, onClose }) {
                                 )}
                               </div>
                               <div className={styles.trazaOperacionDetails}>
-                                {pedido.cust_id && (
+                                {pedido.cust_id > 0 && (
                                   <div className={styles.trazaOperacionDetail}>
                                     <Hash size={12} />
                                     <span>Cliente #{pedido.cust_id}</span>
@@ -540,7 +540,7 @@ export default function ModalRma({ caso, onClose }) {
                                     <span>{pedido.cliente}</span>
                                   </div>
                                 )}
-                                {pedido.soh_id && pedido.ml_id && (
+                                {pedido.soh_id > 0 && pedido.ml_id && (
                                   <div className={styles.trazaOperacionDetail}>
                                     <ShoppingCart size={12} />
                                     <span>Pedido #{pedido.soh_id}</span>
