@@ -1,11 +1,13 @@
 /**
  * ML Ads, Display tab -- the real page, real CSS, real Chromium (ml-ads-cupones-display S8).
  *
- * Data: `src/test/fixtures/mlAdsDisplay.js` (real captures). At the widths operators use, in both themes:
- *  - the tab bar shows Aportes and Display, Display selected;
+ * Layout: the approved Stitch screen 56a8ea4c. Data: `src/test/fixtures/mlAdsDisplay.js` (real captures), over its
+ * range 07/09-06/10/2026 with the first campaign's trend open, as the screen shows it. At the widths operators use,
+ * in both themes:
+ *  - the tab bar shows Aportes and Display, Display selected, with its active count;
  *  - KPI values and money cells never overflow their box;
- *  - the 15-column table scrolls inside its card and never pushes the page sideways;
- *  - the daily cost chart is drawn.
+ *  - the table scrolls inside its card and never pushes the page sideways;
+ *  - the daily cost stacked by campaign and the open row's trend are drawn.
  *
  *   pnpm exec vitest run --project=visual mlAdsDisplay   (CI; locally only with the owner's OK)
  *   VITE_ML_ADS_SHOTS_DIR=/tmp/shots ...                  (also saves screenshots)
@@ -18,6 +20,8 @@ import { setTheme } from './visualHelpers';
 import MlAds from '../../pages/MlAds';
 import { DISPLAY_REPORT } from '../fixtures/mlAdsDisplay';
 
+const PREVIOUS_MISSING = [{ source: 'display', advertiser_id: 25713, day: '2026-08-08', status: null }];
+
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
   PermisosProvider: ({ children }) => children,
@@ -25,7 +29,17 @@ vi.mock('../../contexts/PermisosContext', () => ({
 
 vi.mock('../../services/api', () => ({
   default: {
-    get: vi.fn((url) => Promise.resolve({ data: url === '/ml-ads/display' ? DISPLAY_REPORT : { campaigns: [] } })),
+    // No period before the captures was stored: the previous period answers with its days missing.
+    get: vi.fn((url, config) =>
+      Promise.resolve({
+        data:
+          url !== '/ml-ads/display'
+            ? { campaigns: [] }
+            : config.params.date_from < '2026-09-07'
+              ? { ...DISPLAY_REPORT, coverage: { ...DISPLAY_REPORT.coverage, missing_days: PREVIOUS_MISSING } }
+              : DISPLAY_REPORT,
+      }),
+    ),
     post: vi.fn(),
     put: vi.fn(),
     delete: vi.fn(),
@@ -34,7 +48,16 @@ vi.mock('../../services/api', () => ({
 }));
 
 const SHOTS_DIR = import.meta.env.VITE_ML_ADS_SHOTS_DIR;
-const shot = async (name) => SHOTS_DIR && page.screenshot({ path: `${SHOTS_DIR}/${name}.png` });
+// The viewport (`name`), plus the whole page laid out at that width (`name-full`): the iframe only paints its
+// viewport, so it grows to the page's height for the full shot and goes back afterwards.
+const shot = async (name, width, height) => {
+  if (!SHOTS_DIR) return;
+  await page.screenshot({ path: `${SHOTS_DIR}/${name}.png` });
+  const shell = document.querySelector('[data-shell]');
+  await page.viewport(width, Math.max(height, shell.scrollHeight + 16));
+  await page.screenshot({ path: `${SHOTS_DIR}/${name}-full.png`, element: shell });
+  await page.viewport(width, height);
+};
 
 describe('ML Ads Display tab (visual)', () => {
   for (const [width, height] of [
@@ -48,15 +71,22 @@ describe('ML Ads Display tab (visual)', () => {
         setTheme(theme);
         document.body.style.background = 'var(--cf-bg-app)';
         const screen = await render(
-          <MemoryRouter initialEntries={['/ml-ads-aportes?tab=display']}>
-            <Routes>
-              <Route path="/ml-ads-aportes" element={<MlAds />} />
-            </Routes>
-          </MemoryRouter>,
+          <div data-shell>
+            <MemoryRouter initialEntries={['/ml-ads-aportes?tab=display']}>
+              <Routes>
+                <Route path="/ml-ads-aportes" element={<MlAds />} />
+              </Routes>
+            </MemoryRouter>
+          </div>,
         );
+        await screen.getByLabelText('Desde').fill('2026-09-07');
+        await screen.getByLabelText('Hasta').fill('2026-10-06');
         await expect.element(screen.getByText('DisplayCatalogo-Consideracion')).toBeVisible();
         await expect.element(screen.getByRole('tab', { name: 'Display' })).toHaveAttribute('aria-selected', 'true');
-        await expect.element(screen.getByRole('img', { name: /Costo diario/ })).toBeVisible();
+        await expect.element(screen.getByRole('tab', { name: 'Display' })).toHaveTextContent('4 Activas');
+        await expect.element(screen.getByRole('img', { name: /Costo diario por campaña/ })).toBeVisible();
+        await screen.getByRole('button', { name: 'Ver tendencia diaria de DisplayCatalogo', exact: true }).click();
+        await expect.element(screen.getByRole('img', { name: 'Costo diario de DisplayCatalogo', exact: true })).toBeVisible();
 
         for (const value of document.querySelectorAll('span[class*="kpiValue"]')) {
           expect(value.scrollWidth).toBeLessThanOrEqual(value.parentElement.clientWidth);
@@ -68,7 +98,7 @@ describe('ML Ads Display tab (visual)', () => {
           expect(name.getBoundingClientRect().height).toBeLessThanOrEqual(42);
         }
         expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-        await shot(`display-${width}-${theme}`);
+        await shot(`display-${width}-${theme}`, width, height);
       });
     }
   }

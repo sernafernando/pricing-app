@@ -1,4 +1,5 @@
-/* MlAds — the "ML Ads" page header and its tab bar; each tab brings its own container (AportesAdsML's shell). */
+/* MlAds — the "ML Ads" page header card and its tab bar, after the approved Stitch screen 56a8ea4c; each tab brings
+   its own container (AportesAdsML's shell). */
 
 .page {
   display: flex;
@@ -6,7 +7,26 @@
 }
 
 .header {
-  padding: var(--spacing-lg) var(--spacing-lg) 0;
+  margin: var(--spacing-lg) var(--spacing-lg) 0;
+  padding: 20px 24px 16px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cf-card-shadow);
+}
+
+.headerTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--spacing-md);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--cf-border-subtle);
+}
+
+.headerSlot:empty {
+  display: none;
 }
 
 .title {
@@ -24,17 +44,18 @@
 
 .tabs {
   display: flex;
-  gap: var(--spacing-lg);
-  margin: var(--spacing-md) var(--spacing-lg) 0;
-  border-bottom: 1px solid var(--cf-border-default);
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
 }
 
 .tab {
-  padding: var(--spacing-sm) 0;
-  margin-bottom: -1px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 8px 20px;
   background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
   font-size: var(--font-sm);
   font-weight: var(--font-medium);
   color: var(--cf-text-secondary);
@@ -51,7 +72,18 @@
 }
 
 .active {
-  color: var(--cf-accent-blue);
-  border-bottom-color: var(--cf-accent-blue);
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+  border-color: var(--tone-info-border);
+  font-weight: var(--font-semibold);
+}
+
+.badge {
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: var(--tone-info-fg);
+  color: var(--cf-bg-card);
+  font-family: var(--font-mono);
+  font-size: 11px;
   font-weight: var(--font-semibold);
 }

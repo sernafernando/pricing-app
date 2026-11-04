@@ -39,15 +39,24 @@ Columnas: Campaña, Estado, Costo del período, Aporte, Neto, Aportes cargados.
 
 ## Pestaña Display
 
-Elegí el rango de fechas (Desde/Hasta). Se muestran tarjetas KPI del período: **Costo** (sin IVA, como lo informa MercadoLibre), **Impresiones** (con el CPM), **Clics** (con el CTR), **Ventas atribuidas** (con las unidades) y **ROAS** (ventas atribuidas / costo).
+Arriba a la derecha elegí el rango con **Desde** y **Hasta**; al lado se ve cuántos días tiene. **Actualizar** vuelve a pedir las cifras del rango. La pestaña **Display** muestra cuántas campañas están activas (por ejemplo **4 Activas**).
 
-Debajo, el gráfico **Costo diario** muestra lo gastado cada día del rango. Un día sin gasto (por ejemplo, con todas las campañas pausadas) vale cero; un día que todavía no se trajo de MercadoLibre queda como un hueco en la línea.
+Se muestran cuatro tarjetas del período:
 
-El buscador filtra por nombre o ID de campaña y el filtro **Todas / Activas / Pausadas** por estado; los dos filtran lo que ya está cargado.
+- **Costo Display**: lo gastado, sin IVA, como lo informa MercadoLibre.
+- **Ventas atribuidas**: las ventas que MercadoLibre atribuye a Display, con las unidades vendidas y la variación contra el período anterior del mismo largo (por ejemplo **+18,4 % vs per. ant.**). Si a alguno de los dos períodos le faltan días de Display sin guardar, en lugar del porcentaje dice **Sin comparación** y cuántos días faltan.
+- **ROAS consolidado**: ventas atribuidas / costo.
+- **Impresiones & clics**: las impresiones, con los clics, el CTR, el alcance y el CPM.
 
-Columnas: Campaña (con su ID), Objetivo, Estado, Desde, Hasta, Costo, Impresiones, Clics, Alcance, CTR, CPC, CPM, Ventas atribuidas, Unidades, ROAS. La fila **Total** suma las campañas visibles y recalcula CTR, CPC, CPM y ROAS sobre esas sumas.
+Debajo, el gráfico **Costo diario por campaña** muestra lo gastado cada día, con una barra por día dividida por campaña. La leyenda lista las campañas que gastaron en el rango, con su total. Un día sin gasto vale cero; un día que todavía no se trajo de MercadoLibre queda vacío.
 
-- Un **—** en CTR, CPC, CPM o ROAS quiere decir que no hay base para calcularlo (por ejemplo, una campaña sin clics no tiene CPC). No es cero.
+En la tabla **Campañas**, el filtro **Todas / Activas / Pausadas** y el buscador por nombre o ID filtran lo que ya está cargado.
+
+Columnas: Campaña (con su ID), Estado, Objetivo, Vigencia, Costo, Impresiones, Alcance, Clics, CTR, CPM, CPC, Ventas atrib., Unid., ROAS. La fila **Total** suma las campañas visibles, dice cuántas son y cuántas están activas y pausadas, y recalcula CTR, CPM, CPC y ROAS sobre esas sumas. Abajo dice cuántas campañas se están mostrando del total.
+
+Con la flecha al lado del nombre se abre la **tendencia diaria** de la campaña: su costo de cada día del rango, la **inversión promedio diaria** (lo gastado dividido por los días guardados del rango) y el **retorno diario pico** (el día con mejor ROAS). Una campaña sin días en el rango dice "Sin actividad en el período".
+
+- Un **—** en CTR, CPC, CPM o ROAS quiere decir que no hay base para calcularlo (por ejemplo, una campaña sin clics no tiene CPC). No es cero. Una campaña sin actividad muestra sus ceros reales.
 - El **Alcance**, como las demás cifras, es la suma del alcance de cada día: una persona alcanzada dos días (o por dos campañas) cuenta dos veces.
 - Si faltan días de Display sin guardar en el rango, aparece un aviso: las cifras pueden estar incompletas. Si **Desde** queda después de **Hasta**, la pantalla pide un rango válido y no muestra cifras.
 

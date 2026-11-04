@@ -134,3 +134,34 @@ class TestDisplayReport:
             read.DisplayDayCost(DAY, Decimal("121938.82")),
             read.DisplayDayCost(DAY + timedelta(days=1), Decimal(0)),
         ]
+
+
+class TestDisplayCampaignDays:
+    """Each campaign's stored days (cost and attributed sales), for the stacked chart, the row trend, the average
+    daily spend and the peak daily ROAS. Only stored days: a closed day without rows is in the report's `daily`."""
+
+    def test_a_campaign_lists_each_stored_day_with_its_cost_and_attributed_sales(self, db) -> None:
+        _seed(db)
+        # DERIVED: the captured 335306 day copied two days later (DAY + 1 stays without rows).
+        fact = next(f for f in display_facts() if f.campaign_id == 335306)
+        later = DAY + timedelta(days=2)
+        store.upsert_display_days(db, [replace(fact, day=later, raw={**fact.raw, "date": later.isoformat()})], now=NOW)
+        row = _campaign(read.display_report(db, DAY, later), 335306)
+        assert row.days == (
+            read.DisplayCampaignDay(DAY, Decimal("27226.79"), Decimal("1658026.88")),
+            read.DisplayCampaignDay(later, Decimal("27226.79"), Decimal("1658026.88")),
+        )
+
+    def test_a_campaign_without_days_in_range_has_none(self, db) -> None:
+        _seed(db)
+        report = read.display_report(db, DAY + timedelta(days=1), DAY + timedelta(days=1))
+        assert all(c.days == () for c in report.campaigns)
+
+    def test_a_catalog_campaign_without_activity_has_no_days(self, db) -> None:
+        _seed(db)
+        assert _campaign(read.display_report(db, DAY, DAY), 340339).days == ()
+
+    def test_the_days_of_every_campaign_add_up_to_the_daily_cost(self, db) -> None:
+        _seed(db)
+        report = read.display_report(db, DAY, DAY)
+        assert sum(d.cost for c in report.campaigns for d in c.days) == report.daily[0].cost

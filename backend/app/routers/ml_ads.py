@@ -10,10 +10,11 @@ writes are the brand contributions the team loads.
 - `GET /ml-ads/account-level`: Display per campaign (subtractable: its IVA basis is measured) and Brand Ads
   (informational only, no net cost). Never attributed to an MLA.
 - `GET /ml-ads/display`: the Display tab (ml-ads-cupones-display S7): every Display campaign with its catalog, its
-  summed figures, computed ratios (CTR, CPC, CPM, ROAS; null without a base) and ML-attributed sales; the period
-  totals; and the cost of each day (a day Display closed without activity reads zero; one never fetched is absent).
-  Each campaign and the totals also carry `contribution` (what the Display brand contributions cover of the range:
-  the campaign's own plus its share of whole-account ones) and `net` (`cost - contribution`).
+  summed figures, computed ratios (CTR, CPC, CPM, ROAS; null without a base), ML-attributed sales and its stored
+  days (cost and attributed sales per day); the period totals; and the cost of each day (a day Display closed
+  without activity reads zero; one never fetched is absent). Each campaign and the totals also carry `contribution`
+  (what the Display brand contributions cover of the range: the campaign's own plus its share of whole-account ones)
+  and `net` (`cost - contribution`).
 - `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with its Product Ads brand contributions, its cost in
   the range (ml-ads-brand-contribution S8) and what those contributions cover of it (ml-ads-contribution-redesign S6).
   `GET /ml-ads/contributions/preview` answers what a contribution would cover, taking the create body as its query.
@@ -162,6 +163,12 @@ class DisplayTotalsOut(DisplayFiguresOut, DisplayContributionOut):
     pass
 
 
+class DisplayCampaignDayOut(BaseModel):
+    day: date
+    cost: float
+    attributed_amount: float
+
+
 class DisplayCampaignReportOut(DisplayFiguresOut, DisplayContributionOut):
     advertiser_id: int
     campaign_id: int
@@ -171,6 +178,7 @@ class DisplayCampaignReportOut(DisplayFiguresOut, DisplayContributionOut):
     status: Optional[str]
     start_date: Optional[date]
     end_date: Optional[date]
+    days: list[DisplayCampaignDayOut]
 
 
 class DisplayDayOut(BaseModel):
@@ -367,6 +375,10 @@ def get_display(w: Window = Depends(window), db: Session = Depends(get_db)) -> D
                 status=c.status,
                 start_date=c.start_date,
                 end_date=c.end_date,
+                days=[
+                    DisplayCampaignDayOut(day=d.day, cost=_money(d.cost), attributed_amount=_money(d.attributed_amount))
+                    for d in c.days
+                ],
             )
             for c in got.campaigns
         ],
