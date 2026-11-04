@@ -170,13 +170,15 @@ class TestRuns:
         assert body["total"] == 1
 
     def test_date_range_filters(self, client, pg, reader):
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, time, timedelta
+        from zoneinfo import ZoneInfo
 
-        today = datetime.now(timezone.utc).date()
+        ar = ZoneInfo("America/Argentina/Buenos_Aires")
+        today = datetime.now(ar).date()
         yesterday = today - timedelta(days=1)
-        insert_run(pg, started_at=datetime.combine(yesterday, datetime.min.time(), tzinfo=timezone.utc))
-        insert_run(pg, started_at=datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc))
-        # hasta as date-only includes the whole day
+        insert_run(pg, started_at=datetime.combine(yesterday, datetime.min.time(), tzinfo=ar))
+        # 22:00 Argentina is 01:00 UTC the next day: must still count for today.
+        insert_run(pg, started_at=datetime.combine(today, time(22, 0), tzinfo=ar))
         body = client.get(f"{BASE}/runs?desde={today.isoformat()}&hasta={today.isoformat()}", headers=reader).json()
         assert body["total"] == 1
 

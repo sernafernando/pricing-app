@@ -7,6 +7,7 @@ repair rows of `ml_write_log`. Permission gate: `ml_ops.ver` (`require_permiso`)
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -118,23 +119,28 @@ class MlaEventsOut(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────
 
 
+_AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+
+
 def _parse_dt(value: Optional[str], *, end_of_day: bool = False) -> Optional[datetime]:
     if value is None:
         return None
     text = value.strip()
     if not text:
         return None
-    # Accept date-only or full ISO; normalize to tz-aware UTC when naive.
+    # Accept date-only or full ISO; normalize to tz-aware. A date-only value is
+    # interpreted in Argentina's zone, since that is what the date picker means.
     try:
         dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"fecha inválida: {value}"
         ) from exc
+    date_only = "T" not in text and " " not in text
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=_AR_TZ if date_only else timezone.utc)
     # A date-only `hasta` covers the whole day, not just its midnight.
-    if end_of_day and "T" not in text and " " not in text:
+    if end_of_day and date_only:
         dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
     return dt
 
