@@ -200,7 +200,8 @@ class Settings(BaseSettings):
     ML_PUB_PROMO_REFRESH_ENABLED: bool = False
     ML_PUB_PROMO_REFRESH_RATE_PER_MIN: int = Field(default=30, ge=1, le=120)
     # Drain of catalog_competition_refresh_pending after hay_mejores novelty.
-    ML_PUB_CATALOG_COMPETITION_REFRESH_ENABLED: bool = False
+    # Owner: on by default (no manual post-deploy step); kill switch / ml_pub_settings still turn it off.
+    ML_PUB_CATALOG_COMPETITION_REFRESH_ENABLED: bool = True
     ML_PUB_CATALOG_COMPETITION_REFRESH_RATE_PER_MIN: int = Field(default=10, ge=1, le=120)
     ML_PUB_LINKS_ENABLED: bool = False
     ML_PUB_VERIFY_ENABLED: bool = False
