@@ -29,11 +29,11 @@
 set -eE
 
 # Overridable so the deploy can be exercised against a scratch tree in tests.
-PROJECT_DIR="${PROJECT_DIR:-/var/www/html/pricing-app}"
+PROJECT_DIR="${PROJECT_DIR:-/srv/apps/pricing-app}"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 BACKEND_DIR="$PROJECT_DIR/backend"
 # El frontend se buildea con un Node aparte para no tener que actualizar /usr/bin/node,
-# que lo usan otras apps del server (abm-direcciones, Medusa, Strapi).
+# que puede usar otro software del contenedor (LXC apps en xenon).
 FRONTEND_NODE_DIR="${FRONTEND_NODE_DIR:-/opt/node24}"
 
 NOTIFY_SCRIPT="$PROJECT_DIR/scripts/notify-wabot.sh"
@@ -57,6 +57,16 @@ NC='\033[0m'
 log() { echo -e "${GREEN}[DEPLOY]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 err() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# Corre un comando como root: directo si ya somos root (LXC de xenon, que no trae `sudo`), con
+# sudo si no. Sin esto, en el LXC el restart fallaba contra un `sudo` inexistente y solo avisaba.
+as_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
 
 # ponytail (docs/tech-debt-ledger.md): todo el cuerpo ejecutable vive adentro de
 # main() y se invoca al final del archivo. Bash lee los scripts por chunks
@@ -386,7 +396,7 @@ BACKEND_STATUS="no reiniciado"
 if [ "$SKIP_BACKEND" = false ]; then
   CURRENT_STEP="restart del backend"
   log "Reiniciando backend..."
-  sudo systemctl restart pricing-api 2>/dev/null || warn "No se pudo reiniciar el servicio (¿existe pricing-api.service?)"
+  as_root systemctl restart pricing-api 2>/dev/null || warn "No se pudo reiniciar el servicio (¿existe pricing-api.service?)"
 
   CURRENT_STEP="health check del backend"
   log "Esperando que el backend responda en $HEALTHCHECK_URL..."
