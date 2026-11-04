@@ -11,7 +11,8 @@ Performance and visits are ITEM-keyed. Replenishment is USER-PRODUCT-keyed: its 
 product of the stored fulfillment (Full) items with a sweep status, not gone, and its entries are of kind
 `user_product`. An item with no user product is simply not eligible (nothing to fetch, no error).
 
-Eligible: status in `sweep.statuses` (never `closed`), not gone, never-existed excluded, no parked queue entry; a performance state
+Eligible: status in `sweep.statuses` (never `closed`), not gone, never-existed excluded, no parked queue entry; visits
+only of an item active now or seen leaving `active` within `VISITS_ACTIVE_WINDOW` of the tick; a performance state
 stored as `applicable = false` (a catalog product item answers "not supported") only after
 `ML_PUB_NOT_APPLICABLE_RECHECK_DAYS`. Only resources named in `bundle_resources` are swept: a name that is not
 listed would be dropped by the refresh handler and the item selected again on every tick.
@@ -54,6 +55,9 @@ BACKLOG_TICKS = 3
 STATEMENT_TIMEOUT = "20s"
 # Yielded ticks in a row (10 minutes each) after which the sweep logs that live work is starving it: 6 hours.
 STARVATION_TICKS = 36
+# Visits only: an item not active now is swept while it was active within this window of the tick (owner: an item
+# paused before it cannot change its visits).
+VISITS_ACTIVE_WINDOW = timedelta(hours=24)
 
 OUTCOME_SUCCESS = "success"
 OUTCOME_YIELDED = "yielded"
@@ -84,6 +88,7 @@ _ELIGIBLE = (
     + """
       {parked}
       {not_applicable}
+      {recently_active}
 """
 )
 # Replenishment: one candidate per user product (DISTINCT over its Full items), joined to its state row.
@@ -110,6 +115,13 @@ _NOT_PARKED = (
 # Performance only: a stored "not applicable" answer is rechecked at the long interval.
 _NOT_APPLICABLE = (
     "AND (s.applicable IS DISTINCT FROM FALSE OR s.last_checked_at IS NULL OR s.last_checked_at < :recheck_before)"
+)
+# Visits only: active now, or the item change log saw it leave `active` since `:active_since` (the store writes one
+# row per item change with the previous status in `context`; `ix_ml_change_log_item` serves the lookup).
+_RECENTLY_ACTIVE = (
+    "AND (i.status = 'active' OR EXISTS (SELECT 1 FROM ml_change_log c "
+    "WHERE c.item_id = i.item_id AND c.resource_type = 'item' AND c.observed_at >= :active_since "
+    "AND c.context->>'status_old' = 'active'))"
 )
 _NOT_QUEUED = "AND NOT EXISTS (SELECT 1 FROM ml_pub_refresh_queue q WHERE q.kind = '{kind}' AND q.entity_id = {id})"
 
@@ -203,18 +215,23 @@ def _eligible_sql(resource: str) -> str:
         table=_TABLES[resource],
         parked=parked,
         not_applicable=_NOT_APPLICABLE if resource == PERFORMANCE_RESOURCE else "",
+        recently_active=_RECENTLY_ACTIVE if resource == VISITS_RESOURCE else "",
     )
 
 
 def _tick(
-    statuses: Sequence[str], resources: Sequence[str], recheck_before: datetime, result: SweepResult
+    statuses: Sequence[str],
+    resources: Sequence[str],
+    recheck_before: datetime,
+    active_since: datetime,
+    result: SweepResult,
 ) -> Optional[str]:
     """Selects and enqueues one tick. Returns an outcome that ends it early (yielded, backlog) or None."""
     with database.get_background_db() as session:
         session.execute(text(f"SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT}'"))
         if session.execute(_LIVE_WORK, {"lane": queue.LANE_NOTIFICATION}).first() is not None:
             return OUTCOME_YIELDED
-        params = {"statuses": list(statuses), "recheck_before": recheck_before}
+        params = {"statuses": list(statuses), "recheck_before": recheck_before, "active_since": active_since}
         for resource in resources:
             eligible = session.execute(text("SELECT count(*) " + _eligible_sql(resource)), params).scalar() or 0
             result.resources[resource] = ResourceTick(eligible=eligible, batch=batch_size(eligible))
@@ -284,7 +301,9 @@ def run_sweep(
         if not resources:
             result.outcome = OUTCOME_NO_RESOURCES
         else:
-            early = _tick(statuses, resources, started - timedelta(days=recheck_days), result)
+            early = _tick(
+                statuses, resources, started - timedelta(days=recheck_days), started - VISITS_ACTIVE_WINDOW, result
+            )
             result.outcome = early or OUTCOME_SUCCESS
         result.yielded_in_a_row = _yield_streak(result.outcome)
         if result.yielded_in_a_row == STARVATION_TICKS:

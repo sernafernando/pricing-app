@@ -325,6 +325,11 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
   non-closed status: `active`, `paused`, `under_review`, `inactive`, `pending`; `closed` is never swept and is
   rejected by the setting), not gone. A performance state stored as `not_applicable` (a catalog product item) is
   rechecked only after `ML_PUB_NOT_APPLICABLE_RECHECK_DAYS` (30 days). Visits are one item per call.
+* Visits narrow that set further: an item is eligible for visits only while it is `active`, or when the item change
+  log (`ml_change_log`, `resource_type = 'item'`, `context.status_old = 'active'`) saw it leave `active` within the
+  24 h before the tick (`VISITS_ACTIVE_WINDOW`). An item paused before that cannot gain visits, so it is not
+  refetched. An item that leaves `active` gets one last read within the day it stopped. The freshness measure
+  (`late` for visits) counts active items only, a subset of this set, so nothing it counts is left out of the sweep.
 * With `refresh.enabled` off the entries only wait in the queue (nothing fetches them), and while live entries wait
   (intake keeps enqueuing) the tick records `yielded`: expected, not a fault (each tick's run record
   carries `yielded_in_a_row`; a long streak, logged as a warning at 36 ticks, means live work is starving the sweep).
@@ -337,6 +342,10 @@ and of every other flag). Neither adds a cron, a timer or a LISTEN/NOTIFY: the s
 * Sizing (2026-10-06): about 24.6k eligible items (16.2k of them paused) x 2 resources = about 49k calls a day =
   0.57 req/s, close to 30% of the 2 req/s budget. With `sweep.statuses = ["active"]` (about 7.8k items) it is about
   15.6k calls a day = 0.18 req/s. Each tick's run record carries `calls_per_day` and `requests_per_second`.
+* Sizing (2026-11-03, with the visits window): performance stays at about 26.7k eligible items (26.7k calls a day);
+  visits drop from 26.7k to the about 9.2k active items plus the ones that left `active` in the last 24 h, so about
+  9.2k-10k calls a day (batch about 64-70 per tick instead of 186). Together about 36k calls a day = 0.42 req/s,
+  down from about 53k = 0.62 req/s.
 
 The sweep handler reports success even when a tick fails (the next tick, ten minutes later, retries it), so
 `worker_job_state.last_success_at` is not a health signal for it: watch `outcome` and `last_error` in `ml_pub_job_runs`
