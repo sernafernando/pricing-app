@@ -371,9 +371,10 @@ def data_through(db: Session, channel: str, advertiser_id: int) -> Optional[date
     return through
 
 
-def warnings(db: Session, data: ContributionData) -> list[str]:
-    """What to tell whoever saves `data` without stopping them (S4): a range ending after the ads data loaded so far."""
-    through = data_through(db, data.channel, data.advertiser_id)
+def warnings(db: Session, data: ContributionData, through: Optional[date] = None) -> list[str]:
+    """What to tell whoever saves `data` without stopping them (S4): a range ending after the ads data loaded so far.
+    `through` is `data_through` when the caller already has it; otherwise it is read here."""
+    through = through or data_through(db, data.channel, data.advertiser_id)
     if through is None or data.date_to <= through:
         return []
     return [

@@ -541,12 +541,13 @@ def get_campaigns(w: Window = Depends(window), db: Session = Depends(get_db)) ->
 def preview_contribution(body: Annotated[ContributionIn, Query()], db: Session = Depends(get_db)) -> PreviewOut:
     data = _data(body)
     result = contributions.preview(db, data)
+    through = contributions.data_through(db, data.channel, data.advertiser_id)
     return PreviewOut(
         spend=_money(result.spend),
         counted=_money(result.counted),
         net=_money(result.spend - result.counted),
-        warnings=contributions.warnings(db, data),
-        data_through=contributions.data_through(db, data.channel, data.advertiser_id),
+        warnings=contributions.warnings(db, data, through),
+        data_through=through,
         over_spend=contributions.exceeds_spend(data, result.spend),
     )
 

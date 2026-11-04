@@ -110,23 +110,23 @@ def _preview(client, auth_headers, **body):
 @pytest.mark.parametrize(
     "body, expected",
     [
-        ({"kind": "percentage", "value": "30"}, {"spend": 200.0, "counted": 60.0, "net": 140.0}),
+        ({"kind": "percentage", "value": "30"}, {"spend": 200.0, "counted": 60.0, "net": 140.0, "over_spend": False}),
         (
             {"kind": "fixed_amount", "value": "500", "settlement": "refund_difference"},
-            {"spend": 200.0, "counted": 200.0, "net": 0.0},
+            {"spend": 200.0, "counted": 200.0, "net": 0.0, "over_spend": False},
         ),
         (
             {"kind": "fixed_amount", "value": "500", "settlement": "full"},
-            {"spend": 200.0, "counted": 500.0, "net": -300.0},
+            {"spend": 200.0, "counted": 500.0, "net": -300.0, "over_spend": True},
         ),
         (
             {"kind": "fixed_amount", "value": "50", "settlement": "refund_difference"},
-            {"spend": 200.0, "counted": 50.0, "net": 150.0},
+            {"spend": 200.0, "counted": 50.0, "net": 150.0, "over_spend": False},
         ),
         # A range that spent nothing has nothing to spread a fixed amount over: the board counts none of it.
         (
             {"campaign_id": 351099, "kind": "fixed_amount", "value": "500", "settlement": "full"},
-            {"spend": 0.0, "counted": 0.0, "net": 0.0},
+            {"spend": 0.0, "counted": 0.0, "net": 0.0, "over_spend": True},
         ),
     ],
 )
@@ -134,12 +134,7 @@ def test_the_preview_counts_like_the_board_without_writing(client, db, auth_head
     before = db.query(MlAdsCampaignContribution).count()
     response = _preview(client, auth_headers, **body)
     assert response.status_code == 200
-    assert response.json() == {
-        **expected,
-        "warnings": [],
-        "data_through": None,
-        "over_spend": body.get("settlement") == "full",
-    }
+    assert response.json() == {**expected, "warnings": [], "data_through": None}
     assert db.query(MlAdsCampaignContribution).count() == before
 
 

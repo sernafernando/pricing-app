@@ -25,22 +25,52 @@
 }
 
 /* The value's unit sits beside the control, so the control keeps the shared box and focus ring. */
-.affixed {
+/* The value's unit sits inside the box: the box carries the shared control look (forms-tesla `.input`) and its
+   focus ring, the bare field inside only holds the text. */
+.amountBox {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  box-sizing: border-box;
+  min-height: var(--input-height-base);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: var(--border-1) solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  transition:
+    border-color var(--duration-200) var(--ease-out),
+    background-color var(--duration-200) var(--ease-out),
+    box-shadow var(--duration-200) var(--ease-out);
+}
+
+.amountBox:focus-within {
+  border-color: var(--cf-accent-blue);
+  background: var(--cf-bg-hover);
+  box-shadow: 0 0 0 var(--border-2) var(--cf-accent-blue-light);
+}
+
+@media (forced-colors: active) {
+  .amountBox:focus-within {
+    outline: 2px solid Highlight;
+  }
 }
 
 .affix {
   color: var(--cf-text-tertiary);
-  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
-.affixedInput {
-  composes: input from '../styles/forms-tesla.css';
+.amountBare {
   flex: 1;
   min-width: 0;
-  font-family: var(--font-mono);
+  padding: 0;
+  font: inherit;
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+  border: 0;
+  background: transparent;
+  outline: none;
 }
 
 /* "Cómo se liquida": two option cards side by side; the radio stays for keyboard and screen readers. */
@@ -111,10 +141,13 @@
   color: var(--cf-text-tertiary);
 }
 
+/* Label / value pairs: each figure on its own line, never wrapped mid-number. */
 .preview {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-1) var(--space-4);
   margin: 0;
   padding: var(--space-3);
-  font-family: var(--font-mono);
   font-size: var(--font-xs);
   line-height: 1.5;
   color: var(--cf-text-secondary);
@@ -149,6 +182,23 @@
   background: var(--tone-warning-bg);
   border: 1px solid var(--tone-warning-border);
   border-radius: var(--radius-md);
+}
+
+.preview dt {
+  margin: 0;
+}
+
+.preview dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.fieldError {
+  font-size: var(--font-xs);
+  color: var(--tone-danger-fg);
 }
 
 .modalFooter {

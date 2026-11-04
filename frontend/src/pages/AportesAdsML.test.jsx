@@ -439,9 +439,17 @@ describe('manage contributions', () => {
     await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
     await fillCommon(user, { value: '500000' });
     await user.click(screen.getByLabelText('Devuelve la diferencia'));
-    expect(
-      await screen.findByText('Costo de la campaña en el rango: $ 742.300,00 · Aporte que cuenta: $ 500.000,00 · Neto: $ 242.300,00'),
-    ).toBeInTheDocument();
+    const summary = within(await screen.findByLabelText('Lo que cubre el aporte'));
+    expect(summary.getAllByRole('term').map((t) => t.textContent)).toEqual([
+      'Costo de la campaña en el rango',
+      'Aporte que cuenta',
+      'Neto',
+    ]);
+    expect(summary.getAllByRole('definition').map((d) => d.textContent)).toEqual([
+      '$ 742.300,00',
+      '$ 500.000,00',
+      '$ 242.300,00',
+    ]);
     expect(api.get).toHaveBeenLastCalledWith('/ml-ads/contributions/preview', {
       params: {
         advertiser_id: 25713,
@@ -561,7 +569,7 @@ describe('robust loading (ml-ads-aportes-robust)', () => {
     await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
     await fillCommon(user, { value: '5000' });
     await user.click(screen.getByLabelText('Se recibe todo'));
-    await screen.findByText(/Costo de la campaña en el rango/);
+    await screen.findByLabelText('Lo que cubre el aporte');
     expect(screen.queryByLabelText(/Confirmo que el aporte supera/)).not.toBeInTheDocument();
   });
 
@@ -580,7 +588,66 @@ describe('robust loading (ml-ads-aportes-robust)', () => {
     const user = userEvent.setup();
     await openCreate(user);
     await fillCommon(user);
-    await screen.findByText(/Costo de la campaña en el rango/);
+    await screen.findByLabelText('Lo que cubre el aporte');
     expect(screen.queryByText(/Hay datos de Ads hasta/)).not.toBeInTheDocument();
+  });
+
+  it('puts the brand first, before the campaign', async () => {
+    const user = userEvent.setup();
+    await openCreate(user);
+    const labels = [...document.querySelectorAll('#aporte-ads-form label > span:first-child')].map((l) => l.textContent);
+    expect(labels.slice(0, 2)).toEqual(['Marca', 'Campaña']);
+  });
+
+  it('shows the amount with es-AR thousands separators and sends the number', async () => {
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '1500000,5' });
+    expect(valueInput()).toHaveValue('1.500.000,5');
+    await user.click(screen.getByLabelText('Devuelve la diferencia'));
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post.mock.calls[0][1]).toMatchObject({ value: 1500000.5 });
+  });
+
+  it('previews before a brand is picked', async () => {
+    const user = userEvent.setup();
+    await openCreate(user);
+    await fillCommon(user, { brand: null });
+    expect(await screen.findByLabelText('Lo que cubre el aporte')).toBeInTheDocument();
+  });
+
+  it('says so when the brand list cannot load', async () => {
+    api.get.mockImplementation((url) =>
+      url === '/marcas' ? Promise.reject(new Error('down')) : Promise.resolve({ data: answer(url, {}) }),
+    );
+    const user = userEvent.setup();
+    await openCreate(user);
+    expect(
+      await screen.findByText('No se pudo cargar la lista de marcas. Cerrá el formulario y volvé a abrirlo.'),
+    ).toBeInTheDocument();
+  });
+
+  it('offers the confirmation when the backend rejects the amount even without a preview', async () => {
+    api.get.mockImplementation((url) =>
+      url.endsWith('/preview') ? Promise.reject(new Error('down')) : Promise.resolve({ data: answer(url, {}) }),
+    );
+    api.post
+      .mockRejectedValueOnce({
+        response: { status: 422, data: { error: { field: 'value', message: 'the amount is above the range spend of 0.00' } } },
+      })
+      .mockResolvedValueOnce({ data: {} });
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '5000' });
+    await user.click(screen.getByLabelText('Se recibe todo'));
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await user.click(await screen.findByLabelText('Confirmo que el aporte supera el costo de la campaña en el rango'));
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    expect(api.post.mock.calls[1][1]).toMatchObject({ confirm_over_spend: true });
+    expect(api.post.mock.calls[0][1]).not.toHaveProperty('confirm_over_spend');
   });
 });
