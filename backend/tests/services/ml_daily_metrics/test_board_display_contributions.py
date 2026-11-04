@@ -110,6 +110,16 @@ def test_a_refund_difference_counts_only_up_to_the_display_spend(db) -> None:
     assert (out.ads.unattributed.account_level.display.cost_net, k.tg) == (0.0, Decimal("-300.00"))
 
 
+def test_a_full_amount_above_the_display_spend_leaves_a_negative_display_net(db) -> None:
+    """A `full` 2000 over 1200 of Display is counted whole: the net is -800, so the totals gain 800 (as Product Ads)."""
+    _sale_with_ads(db)
+    _contribution(db, "fixed_amount", "2000", settlement="full")
+    k, out, _rows = _kpis(db, TODO)
+    display = out.ads.unattributed.account_level.display
+    assert (display.cost_net, display.contribution) == (-800.0, 2000.0)
+    assert k.tg == Decimal("500.00")  # 300 - 100 + 800 - 500
+
+
 def test_contributions_of_other_campaigns_advertisers_days_or_channels_change_nothing(db) -> None:
     _sale_with_ads(db)
     before = _kpis(db, TODO)
