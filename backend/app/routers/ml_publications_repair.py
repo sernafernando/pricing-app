@@ -199,8 +199,11 @@ def get_run(
     eq = db.query(PublicacionRepairEvent).filter(PublicacionRepairEvent.run_id == run_id)
     if action:
         eq = eq.filter(PublicacionRepairEvent.action == action)
-    if detail:
-        eq = eq.filter(PublicacionRepairEvent.detail == detail)
+    if detail is not None:
+        if detail == "":
+            eq = eq.filter(PublicacionRepairEvent.detail.is_(None))
+        else:
+            eq = eq.filter(PublicacionRepairEvent.detail == detail)
 
     total = eq.count()
     events = (
