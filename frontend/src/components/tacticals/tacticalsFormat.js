@@ -1,0 +1,99 @@
+import { formatDateOnly, parseDateOnly } from '../../utils/dateUtils';
+
+/** Display and request helpers of the tactical list (`GET /tacticals`). */
+
+const NUMERO = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
+const PORCENTAJE = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 4 });
+const DIA_MES_ANIO = { day: '2-digit', month: '2-digit', year: 'numeric' };
+/** "Vence en N días" shows from this many days before the end (handoffs/tactical-tarea.md, decision T5). */
+const DIAS_AVISO = 7;
+/** Past this share of its cap a bar turns to warning. */
+const AVISO_PORCENTAJE = 90;
+const MS_DIA = 24 * 60 * 60 * 1000;
+
+const vacio = (value) => value === null || value === undefined || value === '';
+const redondear = (n) => Math.round(n * 10) / 10;
+
+/** `USD 3.000`, `ARS 1.240.000`: the tactical's currency code, es-AR thousands, no forced decimals. */
+export function formatMontoTactical(value, moneda) {
+  if (vacio(value)) return '—';
+  const num = Number(value);
+  return Number.isNaN(num) ? '—' : `${moneda} ${NUMERO.format(num)}`;
+}
+
+export const formatUnidades = (value) => (vacio(value) ? '—' : NUMERO.format(Number(value)));
+
+/** The line's amount as it was loaded: `USD 220 / u`, `3,5 %` or `USD 3.000`. */
+export function valorDeLinea({ modo_monto: modo, valor }, moneda) {
+  if (modo === 'porcentaje') return `${PORCENTAJE.format(Number(valor))} %`;
+  const monto = formatMontoTactical(valor, moneda);
+  return modo === 'por_unidad' ? `${monto} / u` : monto;
+}
+
+/** `01/11 al 30/11/2026`. The start is cut from the full date: es-AR does not pad a day-month-only format. */
+export const vigenciaDe = (desde, hasta) =>
+  `${formatDateOnly(desde, DIA_MES_ANIO).slice(0, 5)} al ${formatDateOnly(hasta, DIA_MES_ANIO)}`;
+
+/** The state pill: Anulado, Vencido, Vence hoy / en N días, or Vigente. */
+export function estadoDe({ estado, fecha_hasta: hasta }, hoy = new Date()) {
+  if (estado === 'anulado') return { texto: 'Anulado', tono: 'neutral' };
+  const fin = parseDateOnly(hasta);
+  const dia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  const restan = fin ? Math.round((fin - dia) / MS_DIA) : null;
+  if (restan === null || restan > DIAS_AVISO) return { texto: 'Vigente', tono: 'success' };
+  if (restan < 0) return { texto: 'Vencido', tono: 'neutral' };
+  if (restan === 0) return { texto: 'Vence hoy', tono: 'warning' };
+  return { texto: `Vence en ${restan} ${restan === 1 ? 'día' : 'días'}`, tono: 'warning' };
+}
+
+/** What a brand, category or invoice line reaches; product lines are shown as chips instead. */
+export function alcanceDe(linea) {
+  if (linea.alcance === 'marca') return { titulo: `Marca ${linea.marca}`, detalle: 'Todos los productos de la marca' };
+  if (linea.alcance === 'categoria') {
+    return { titulo: `Categoría ${linea.categoria}`, detalle: 'Todos los productos de la categoría' };
+  }
+  return { titulo: `Factura del pedido ${linea.pedido_compra_id}`, detalle: null };
+}
+
+function medir(usado, tope) {
+  const porcentaje = Math.min(100, redondear((usado / tope) * 100));
+  const tono = porcentaje >= 100 ? 'full' : porcentaje > AVISO_PORCENTAJE ? 'warn' : 'normal';
+  return { porcentaje, tono };
+}
+
+/** How much of its cap a line used: the unit cap when it has one, else the money cap, else nothing to measure. */
+export function avanceDeLinea(linea) {
+  if (!vacio(linea.tope_unidades)) return medir(Number(linea.unidades_usadas ?? 0), Number(linea.tope_unidades));
+  if (!vacio(linea.tope_monto)) return medir(Number(linea.monto_usado ?? 0), Number(linea.tope_monto));
+  return null;
+}
+
+/**
+ * The header row's progress (decision T5): units used over the unit caps of the lines that have one, money used
+ * over all lines, and the money cap only when every line has one.
+ */
+export function avanceDeTactical(lineas) {
+  const conTope = lineas.filter((l) => !vacio(l.tope_unidades));
+  let unidades = null;
+  if (conTope.length > 0) {
+    const usadas = conTope.reduce((s, l) => s + Number(l.unidades_usadas ?? 0), 0);
+    const tope = conTope.reduce((s, l) => s + Number(l.tope_unidades), 0);
+    unidades = { usadas, tope, ...medir(usadas, tope) };
+  }
+  const montoUsado = lineas.reduce((s, l) => s + Number(l.monto_usado ?? 0), 0);
+  const todasConTope = lineas.length > 0 && lineas.every((l) => !vacio(l.tope_monto));
+  const topeMonto = todasConTope ? lineas.reduce((s, l) => s + Number(l.tope_monto), 0) : null;
+  return { unidades, montoUsado, topeMonto };
+}
+
+export const FILTROS_VACIOS = { tipo: 'todos', marca: '', estado: 'vigentes', desde: '', hasta: '', q: '' };
+
+/** The list's query: only the filters that are set ("Todos" sends no tipo). */
+export function paramsDeFiltros(filtros, { page, pageSize }) {
+  const params = {};
+  if (filtros.tipo !== 'todos') params.tipo = filtros.tipo;
+  for (const campo of ['marca', 'estado', 'desde', 'hasta']) if (filtros[campo]) params[campo] = filtros[campo];
+  const q = filtros.q.trim();
+  if (q) params.q = q;
+  return { ...params, page, page_size: pageSize };
+}

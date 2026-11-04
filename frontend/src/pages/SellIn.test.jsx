@@ -8,6 +8,7 @@ import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, PRODUCTOS, RESUMEN } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI, sellOutProgramasAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
+import { tacticalsAPI } from '../services/tacticalsAPI';
 import {
   CAMPANA_MIGRADA,
   CAMPANAS_DEL_PROGRAMA,
@@ -21,6 +22,31 @@ import {
   SUGERENCIAS_VACIO,
 } from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
+
+const TACTICAL = {
+  id: 7,
+  tipo: 'sell_in',
+  nombre: 'Rebate TP-Link noviembre',
+  marca: 'TP-Link',
+  referencia: null,
+  fecha_desde: '2026-11-01',
+  fecha_hasta: '2026-11-30',
+  moneda: 'USD',
+  estado: 'activo',
+  lineas: [
+    {
+      id: 71,
+      alcance: 'marca',
+      marca: 'TP-Link',
+      modo_monto: 'porcentaje',
+      valor: '3.6',
+      tope_unidades: null,
+      tope_monto: null,
+      unidades_usadas: null,
+      monto_usado: '1800',
+    },
+  ],
+};
 
 vi.mock('../services/sellInAPI', () => ({
   sellInAPI: {
@@ -59,6 +85,8 @@ vi.mock('../services/sellOutAPI', () => ({
   sellOutProgramasAPI: { listar: vi.fn(), crear: vi.fn(), asignar: vi.fn(), sugerencias: vi.fn() },
 }));
 
+vi.mock('../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn() } }));
+
 vi.mock('../services/offsetGruposAPI', () => ({
   offsetGruposAPI: { listar: vi.fn(), alcance: vi.fn(), opciones: vi.fn(), crear: vi.fn() },
 }));
@@ -92,6 +120,7 @@ beforeEach(() => {
   offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
   offsetGruposAPI.alcance.mockResolvedValue({ data: [{ grupo_id: 1, productos: 3, campanas: [] }] });
   offsetGruposAPI.opciones.mockResolvedValue({ data: { marcas: [], categorias: [], subcategorias: [] } });
+  tacticalsAPI.listar.mockResolvedValue({ data: { items: [TACTICAL], total: 1 } });
 });
 
 /** Prints where the router is, so a test can read the tab the URL keeps. */
@@ -1688,5 +1717,37 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
     expect(screen.getByText('1 sugerencia de programa: campañas sin programa con las mismas fechas')).toBeInTheDocument();
     expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
     expect(sellOutProgramasAPI.asignar).not.toHaveBeenCalled();
+  });
+});
+
+describe('SellIn page — Tacticals tab', () => {
+  it('lists the tacticals only once the tab is opened, with the brands to filter by, and keeps the tab in the URL', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <SellIn />
+        <Ubicacion />
+      </>,
+    );
+    await screen.findByText('Bonificación Q4 switches');
+    expect(tacticalsAPI.listar).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('tab', { name: 'Tacticals' }));
+
+    const panel = screen.getByRole('tabpanel', { name: 'Tacticals' });
+    expect(await within(panel).findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
+    expect(within(within(panel).getByLabelText('Marca')).getByRole('option', { name: 'TP-Link' })).toBeInTheDocument();
+    expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=tacticals');
+  });
+
+  it('"Actualizar" on the Tacticals tab asks the list again', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    expect(await screen.findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
+    expect(tacticalsAPI.listar).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+
+    await waitFor(() => expect(tacticalsAPI.listar).toHaveBeenCalledTimes(2));
   });
 });

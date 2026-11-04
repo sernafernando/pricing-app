@@ -28,6 +28,7 @@ import SellOutProgramas from '../components/sellOut/SellOutProgramas';
 import { useProgramas } from '../components/sellOut/useProgramas';
 import { FILTROS_CAMPANAS_VACIOS, paramsDeFiltros } from '../components/sellOut/sellOutFiltros';
 import GruposTab from '../components/grupos/GruposTab';
+import TacticalsList from '../components/tacticals/TacticalsList';
 import styles from './SellIn.module.css';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
@@ -66,6 +67,7 @@ const BONOS_VIGENTES_MAX = 200;
 const PERMISOS_PROVEEDORES = ['administracion.ver_proveedores', 'administracion.ver_ordenes_compra', 'administracion.gestionar_ordenes_compra'];
 const TAB_SELL_OUT = 'sell-out';
 const TAB_GRUPOS = 'grupos';
+const TAB_TACTICALS = 'tacticals';
 
 /** The brand list Productos and Publicaciones ML filter by (`GET /marcas`); empty on failure. */
 function useMarcas(enabled) {
@@ -216,7 +218,8 @@ function useCampanas(enabled) {
  * of that purchase's units and the brand bonuses; Sell out holds the campaigns.
  * The selected tab lives in the URL (`?tab=sell-out`) so a reload keeps it.
  * `sell_in.ver` reads the page, `sell_out.ver` shows the Sell out tab, `config.editar_constantes` (the offset
- * groups API permission) the Grupos tab (`?tab=grupos`).
+ * groups API permission) the Grupos tab (`?tab=grupos`). Every reader of the page sees the Tacticals tab
+ * (`?tab=tacticals`): the brands' programs, filterable by brand; the tacticals API decides which ones come back.
  */
 export default function SellIn() {
   const { tienePermiso } = usePermisos();
@@ -251,7 +254,12 @@ export default function SellIn() {
   const vistaUrl = searchParams.get('vista');
   const vista = ['programas', 'lista'].includes(vistaUrl) ? vistaUrl : programas.length > 0 ? 'programas' : 'lista';
   const seccion = searchParams.get('seccion') === 'programas' ? 'programas' : 'campanas';
-  const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeGestionarGrupos ? [TAB_GRUPOS] : [])];
+  const tabsVisibles = [
+    'sell-in',
+    ...(puedeVerSellOut ? [TAB_SELL_OUT] : []),
+    TAB_TACTICALS,
+    ...(puedeGestionarGrupos ? [TAB_GRUPOS] : []),
+  ];
   const tabUrl = searchParams.get('tab');
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
   const [tipo, setTipo] = useState('');
@@ -527,6 +535,18 @@ export default function SellIn() {
             <span className={styles.tabCount}>{campanas.lista ? campanas.lista.total.toLocaleString('es-AR') : campanas.error ? '—' : '…'}</span>
           </button>
         )}
+        <button
+          type="button"
+          role="tab"
+          id="tacticals-tab"
+          aria-selected={tab === TAB_TACTICALS}
+          aria-controls={tab === TAB_TACTICALS ? 'tacticals-panel' : undefined}
+          tabIndex={tab === TAB_TACTICALS ? 0 : -1}
+          className={`${styles.tab} ${tab === TAB_TACTICALS ? styles.tabActive : ''}`}
+          onClick={() => cambiarTab(TAB_TACTICALS)}
+        >
+          Tacticals
+        </button>
         {puedeGestionarGrupos && (
           <button
             type="button"
@@ -611,7 +631,11 @@ export default function SellIn() {
           ) : null
         }
       >
-        {tab === TAB_GRUPOS ? (
+        {tab === TAB_TACTICALS ? (
+          <div role="tabpanel" id="tacticals-panel" aria-labelledby="tacticals-tab">
+            <TacticalsList marcas={marcas} version={versionGrupos} />
+          </div>
+        ) : tab === TAB_GRUPOS ? (
           <div role="tabpanel" id="grupos-panel" aria-labelledby="grupos-tab">
             <GruposTab version={versionGrupos} onGruposCambiados={() => setCambiosGrupos((v) => v + 1)} />
           </div>
