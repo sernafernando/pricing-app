@@ -28,6 +28,8 @@ export const PAGE_SIZE = 50;
 // Productos' sizes, 9999 being its "Todos" (the backend caps `limit` at 10000).
 export const ALL_ROWS = 9999;
 export const PAGE_SIZES = [25, 50, 100, 200, 500, ALL_ROWS];
+// The tables render only the rows in view past this many (the 200, 500 and Todos pages), like Envíos Flex.
+export const VIRTUALIZE_FROM = 100;
 export const pageSizeLabel = (size) => (size === ALL_ROWS ? 'Todos' : String(size));
 
 const CSV_KEYS = [

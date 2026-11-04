@@ -20,6 +20,8 @@ Los números de los botones de filtro (estado, tipo, vínculo, stock y tienda) c
 
 **Limpiar filtros** vuelve al punto de partida.
 
+**Filas por página** (abajo de la tabla) elige cuántas filas trae cada página. Con 200, 500 o **Todos**, la tabla dibuja solo las filas que se ven y va dibujando las demás al desplazarse, así la pantalla no se traba con miles de filas; las flechas, Inicio y Fin del teclado recorren la lista entera.
+
 ## Filtros y columnas
 
 Filtros: búsqueda, vista/agrupación, estado, tienda, presencia, tipo, vínculo, stock, producto, auditoría, color, promos, precios mayoristas y markup.

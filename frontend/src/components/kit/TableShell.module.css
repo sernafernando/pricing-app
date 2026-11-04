@@ -228,3 +228,9 @@
   text-align: center;
   color: var(--cf-text-tertiary);
 }
+
+/* A virtualized table's spacers: the height of the rows out of view, nothing drawn. */
+.spacer {
+  padding: 0;
+  border: 0;
+}
