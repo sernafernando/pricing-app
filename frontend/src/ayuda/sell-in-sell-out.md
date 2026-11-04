@@ -112,6 +112,17 @@ La campaña original no cambia: sigue como estaba, con su historial y lo que acr
 
 Un **programa** agrupa campañas de sell out que son el mismo acuerdo: las que se renuevan cada trimestre o las que se cargaron con el mismo nombre y un número porque aplican a cosas distintas. Asignar un programa **no cambia la plata** de las campañas: lo que acreditan, sus topes y la ganancia siguen igual. Solo las agrupa.
 
+**Programa es el nivel superior.** Agrupa una campaña y sus repeticiones a lo largo de los quarters, y dura en el tiempo: por ejemplo, «EPSON PROG» junta todas sus campañas de cada trimestre. Cada **campaña** es el monto de un período sobre un alcance (productos, grupos). **Renovar** crea la campaña del quarter siguiente y la deja en el mismo programa.
+
+- **Sección: Campañas | Programas** (arriba de la pestaña **Sell out**): **Campañas** es la lista de campañas; **Programas** es la vista para crear y ordenar los programas. La sección elegida queda en la dirección de la página.
+- **Programas** muestra una fila por programa con **Campañas**, **Activas**, **Nombres distintos**, **Vigencia** (de la primera fecha de inicio a la última de fin de sus campañas, o «Sin campañas») y **Estado**. Se filtra por **Activos**, **Archivados** o **Todos**, y se busca por nombre.
+- Tocar la flecha de un programa lista sus campañas. **Ver en Campañas** abre la lista de campañas con el filtro Programa puesto en ese programa.
+- Quien gestiona campañas también puede:
+  - **Nuevo programa**: nombre (no puede repetirse) y descripción opcional. Se crea vacío; las campañas se suman con **Asignar a programa**, con las sugerencias o moviéndolas desde otro programa.
+  - **Editar**: cambiar el nombre o la descripción. Solo se guarda lo que cambiaste.
+  - **Archivar** / **Reactivar**: un programa archivado no recibe campañas nuevas y una renovación de sus campañas queda sin programa. Sus campañas no cambian.
+  - En un programa abierto, marcar campañas y tocar **Quitar del programa** (quedan sin programa) o **Mover a otro programa** (el mismo cuadro de **Asignar a programa**).
+
 - **Ver: Por programa | Lista** (en la tarjeta de filtros, cuando hay programas): **Por programa** muestra una fila por programa con «N campañas · M nombres · desde – hasta» y cuántas están activas, y al final **Sin programa**. Tocar la fila la abre y lista sus campañas, con las mismas columnas, casillas, **Ver campaña** y **Renovar** que la lista. **Lista** es la lista de siempre. La vista elegida queda en la dirección de la página. Si hay al menos un programa, se abre en **Por programa**.
 - Los grupos siguen los filtros: los números de cada fila y las campañas que muestra son los que cumplen los filtros, y un programa sin campañas que los cumplan no aparece.
 - **Filtro Programa**: **Todos**, **Sin programa** o un programa. También vale para **Seleccionar todo lo filtrado**.

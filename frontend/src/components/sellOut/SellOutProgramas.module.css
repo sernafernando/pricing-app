@@ -1,0 +1,124 @@
+/* Programas view of the Sell out tab (Stitch 5ee03d7d plus program management): programs table, nested campaigns. */
+
+.programas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cabecera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.encabezado {
+  margin: 0;
+  font-size: var(--font-lg);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.jerarquia {
+  margin: var(--space-1) 0 0;
+  max-width: 72ch;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.buscar {
+  min-width: 16rem;
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-sm);
+}
+
+.buscar:focus-visible,
+.alternar:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+}
+
+.nombre {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.alternar {
+  display: inline-flex;
+  padding: 0;
+  color: var(--cf-accent-blue);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.titulo {
+  font-weight: var(--font-semibold);
+}
+
+.acciones {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.anidada {
+  background: var(--cf-bg-hover);
+}
+
+.campanas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: var(--space-6);
+}
+
+.barra {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+}
+
+.pie,
+.aviso {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.ok {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--tone-success-fg);
+  background: var(--tone-success-bg);
+  border: 1px solid var(--tone-success-border);
+  border-radius: var(--radius-sm);
+}
+
+.error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-sm);
+}
