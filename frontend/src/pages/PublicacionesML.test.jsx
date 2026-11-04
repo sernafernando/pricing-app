@@ -453,6 +453,24 @@ describe('sorting and paging', () => {
     expect(within(header(/^Facturado 30D/)).getByTestId('sort-order')).toHaveTextContent('3');
   });
 
+  // Owner, 2026-11-04: "el orden también cuando estan varias publis del mismo producto juntas". Sorted by Código, a
+  // product's publications sit together and come by listing type within it, as in the Producto view.
+  for (const [view, entry] of [
+    ['Publicación', '/ml-publicaciones?orden=codigo&dir=asc'],
+    ['Precios', '/ml-publicaciones?vista=precios&orden=codigo&dir=asc'],
+  ]) {
+    it(`${view} view sorted by Código: a product's publications come by listing type, Tipo numbered second`, async () => {
+      await page(entry);
+      await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'codigo,tipo', dir: 'asc,asc' }));
+      expect(within(screen.getByRole('columnheader', { name: /^Tipo/ })).getByTestId('sort-order')).toHaveTextContent('2');
+    });
+  }
+
+  it('a sort by any other column is not given the listing type after it', async () => {
+    await page('/ml-publicaciones?orden=marca&dir=asc');
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'marca', dir: 'asc' }));
+  });
+
   // Owner, 2026-11-02: "primero ordene las clásicas, después las 3 cuotas, después las 6, etc".
   it('defaults to the listing type, then Facturado 30D highest first: the whole set ranked by the backend', async () => {
     await page();

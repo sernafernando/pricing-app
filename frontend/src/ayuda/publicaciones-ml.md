@@ -34,14 +34,14 @@ Columna **Tipo**: una etiqueta con el tipo de cada publicación (**Clásica**, *
 
 Bajo la columna **Precio** también se ve la lista ERP de esa publicación (**Clásica**, **3 Cuotas**, … o **PVP**), tomada de `publicaciones_ml` (no del tipo de listado de Mercado Libre).
 
-Orden: las publicaciones arrancan ordenadas por tipo (primero las Clásicas, después 3, 6, 9 y 12 cuotas, al final cualquier otro tipo) y, dentro de cada tipo, por facturación de 30 días (o por última actividad si no ves ventas). Al hacer clic en el título de una columna, manda esa columna. Las publicaciones de un producto, al expandirlo o en su panel lateral, también salen ordenadas por tipo y, dentro de cada tipo, por última actividad.
+Orden: las publicaciones arrancan ordenadas por tipo (primero las Clásicas, después 3, 6, 9 y 12 cuotas, al final cualquier otro tipo) y, dentro de cada tipo, por facturación de 30 días (o por última actividad si no ves ventas). Al hacer clic en el título de una columna, manda esa columna. Si ordenás por **Código**, las publicaciones de un mismo producto quedan juntas y, entre ellas, salen por tipo (Clásica, 3, 6, 9 y 12 cuotas): **Tipo** aparece como segundo orden. Vale para las vistas Publicaciones y Precios y para MODO PONER PRECIOS. Las publicaciones de un producto, al expandirlo o en su panel lateral, también salen ordenadas por tipo y, dentro de cada tipo, por última actividad.
 
 ## MODO PONER PRECIOS
 
 Flujo paralelo para cargar precios rápido. Al activarlo:
 
 - Se ocultan los KPIs y las tarjetas de arriba, y la vista pasa a **Publicaciones** (no agrupado).
-- Queda un juego fijo de columnas (estado, precio, ventas, markups, ageing, stocks, código, marca).
+- Queda un juego fijo de columnas (tipo, estado, precio, ventas, markups, ageing, stocks, código, marca). La columna **Tipo** muestra la etiqueta **Clásica**, **3 cuotas**, **6 cuotas**, etc., igual que en la lista normal.
 - Podés **Minimizar filtros** para ganar espacio en la lista.
 - Al hacer clic en una fila, el panel lateral (~un tercio) abre **sin pestañas**: lista ERP, precio actual y un campo para el nuevo precio.
 - **Enter** en el nuevo precio: lo guarda en Pricing y te propone la mejor candidata **SMART**, la mejor **DEAL** y la **Premium** del mes (si hay). Elegís **una** sola; se activa en Mercado Libre y se actualiza Pricing, y el panel se cierra.

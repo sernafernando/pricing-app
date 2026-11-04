@@ -462,6 +462,33 @@ describe('Publicaciones ML (visual)', () => {
         screen.unmount();
       });
 
+      // Owner, 2026-11-04: "en la vista de poner precios ... también tienen que estar los badges de Clásica, 3 cuotas,
+      // etc y el orden también cuando estan varias publis del mismo producto juntas".
+      for (const highContrast of width === 1366 ? [false, true] : []) {
+        it(`${width}x${height} ${theme}${highContrast ? ', high contrast' : ''}: MODO PONER PRECIOS shows the Tipo badges, sorted by Código then Tipo`, async () => {
+          document.documentElement.classList.toggle('high-contrast', highContrast);
+          let screen;
+          try {
+            screen = await renderPage({ width, height, theme, entry: '/ml-publicaciones?orden=codigo&dir=asc' });
+            await screen.getByRole('button', { name: 'MODO PONER PRECIOS' }).click();
+            const tipo = () => scrollerOf().querySelector('thead th[data-column="tipo"]');
+            await expect.poll(() => tipo()).toBeTruthy();
+            expect(tipo().querySelector('[data-testid="sort-order"]')?.textContent).toBe('2');
+            expect(scrollerOf().querySelector('tbody td[data-column="tipo"]')?.textContent).toBeTruthy();
+            expect(overflowingCells(scrollerOf())).toEqual([]);
+            if (PRODUCT_SHOTS_DIR) {
+              // Tall enough for several rows, the Código column (the first sort) in view at the right.
+              await page.viewport(1920, 1300);
+              await frame();
+              await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/poner-precios-tipo-${theme}${highContrast ? '-hc' : ''}.png` });
+            }
+          } finally {
+            screen?.unmount();
+            document.documentElement.classList.remove('high-contrast');
+          }
+        });
+      }
+
       it(`${width}x${height} ${theme}: our own, Full and ERP stock sit in three columns under STOCK, headers and figures on one line`, async () => {
         const screen = await renderPage({ width, height, theme });
         const scroller = scrollerOf();

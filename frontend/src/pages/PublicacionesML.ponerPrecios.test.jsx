@@ -134,10 +134,23 @@ describe('MODO PONER PRECIOS shell', () => {
     await screen.findByText('MLA1100000001');
     const table = screen.getByRole('table');
     expect(within(table).getByText('Código')).toBeInTheDocument();
-    expect(within(table).queryByText('Tipo')).not.toBeInTheDocument();
+    // Owner, 2026-11-04: "en la vista de poner precios ... también tienen que estar los badges de Clásica, 3 cuotas".
+    expect(within(table).getByRole('columnheader', { name: /^Tipo/ })).toBeInTheDocument();
+    expect(within(table).getAllByText('Clásica').length).toBeGreaterThan(0);
     const toggle = screen.getByRole('button', { name: /Minimizar filtros/i });
     await user.click(toggle);
     expect(screen.getByLabelText('Filtrar por tipo').closest('[hidden]')).toBeTruthy();
+  });
+
+  it("sorted by Código, a product's publications come by listing type", async () => {
+    const user = userEvent.setup();
+    await page();
+    await user.click(modeButton());
+    await screen.findByText('MLA1100000001');
+    await user.click(within(screen.getByRole('columnheader', { name: /^Código/ })).getByRole('button'));
+    await waitFor(() =>
+      expect(publicacionesMlAPI.items.mock.calls.at(-1)[0]).toMatchObject({ orden: 'codigo,tipo', dir: 'asc,asc' }),
+    );
   });
 
   it('exits and restores the previous vista', async () => {
