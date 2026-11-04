@@ -125,8 +125,10 @@
   white-space: nowrap;
 }
 
-/* Owner: badges stay on one line, never wrapped. */
-.nowrap {
+/* Owner: badges stay on one line, never wrapped. The kit pill wraps by itself (white-space: normal), so its
+   children are held too, or a squeezed column splits "PRODUCT ADS" in two. */
+.nowrap,
+.nowrap > * {
   white-space: nowrap;
 }
 

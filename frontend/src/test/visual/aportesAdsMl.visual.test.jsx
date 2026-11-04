@@ -239,7 +239,11 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
       const table = document.querySelector('table[aria-label="Aportes del período"]');
       const pills = [...table.querySelectorAll('tbody span[class*="nowrap"], tbody span[class*="pill"]')];
       expect(pills.length).toBeGreaterThan(0);
-      for (const pill of pills) expect(pill.getBoundingClientRect().height).toBeLessThanOrEqual(26);
+      for (const pill of pills) {
+        const box = pill.getBoundingClientRect();
+        const cell = pill.closest('td').getBoundingClientRect();
+        expect(box.height, `"${pill.textContent}" ${box.width}px in a ${cell.width}px cell`).toBeLessThanOrEqual(26);
+      }
       for (const cell of table.querySelectorAll('td[class*="num"]')) {
         expect(cell.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1);
         expect(cell.getBoundingClientRect().height).toBeLessThanOrEqual(72);
