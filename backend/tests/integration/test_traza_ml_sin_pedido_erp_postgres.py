@@ -6,7 +6,9 @@
 `GET /seriales/traza/ml/{ml_id}` falls back to the ML order header when no ERP sale order (`tb_sale_order_header`)
 links to the sale; that fallback has no `soh_id` (0), so neither serials nor invoice items were found and the RMA
 modal had no article to add. The sale's products now come from the ML order detail, whether the user types the pack
-id or the order id. The rows follow the model columns (anonymized: no real buyer data, the repository is public).
+id or the order id. The rows copy the shape captured from production for the reported pack (2026-11-04, read-only, owner's
+OK): header with NULL cust_id and NULL mlbra_id, detail rows whose items are in tb_item, and the ERP order only in
+tb_sale_order_header_history (archived after its invoice). Ids, names, CUIT and phone are replaced (the repository is public).
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from app.models.item_transaction import ItemTransaction
 from app.models.mercadolibre_order_detail import MercadoLibreOrderDetail
 from app.models.mercadolibre_order_header import MercadoLibreOrderHeader
 from app.models.sale_order_header import SaleOrderHeader
+from app.models.sale_order_header_history import SaleOrderHeaderHistory
 from app.models.tb_item import TBItem
 from app.routers import seriales_traza_ml
 from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable
@@ -86,17 +89,30 @@ def venta_sin_pedido_erp(db):
         MercadoLibreOrderHeader(
             comp_id=COMP_ID,
             mlo_id=MLO_ID,
-            cust_id=0,
+            cust_id=None,
             mlorder_id=ORDER_ID,
             ml_pack_id=PACK_ID,
             mlshippingid="40000000001",
             mlo_cd=datetime(2026, 10, 25, 10, 0),
             mlo_status="paid",
-            mlbra_id=45,
+            mlbra_id=None,
             mluser_first_name="Comprador",
             mluser_last_name="De Prueba",
             identificationnumber=20000000001,
             mluser_phone="XXXXXXX",
+        )
+    )
+    # As captured: the ERP order left tb_sale_order_header and only its history snapshot remains.
+    db.add(
+        SaleOrderHeaderHistory(
+            comp_id=COMP_ID,
+            bra_id=45,
+            soh_id=31000,
+            sohh_id=1,
+            soh_mlid=ORDER_ID,
+            mlo_id=MLO_ID,
+            ssos_id=50,
+            sohh_cd=datetime(2026, 10, 28, 18, 59),
         )
     )
     db.add_all(
