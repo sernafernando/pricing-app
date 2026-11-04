@@ -227,6 +227,19 @@ def test_cargado_comes_from_the_audit_rows_and_falls_back_to_the_row_without_the
     assert rows[seeded["fixed"]]["edited_at"] is None
 
 
+def test_audit_times_say_they_are_utc_so_the_screen_can_show_argentine_time(
+    client, db, rol_ventas, auth_headers, seeded
+) -> None:
+    # auditoria.fecha is stored naive in UTC (datetime.utcnow); sent without an offset, a browser reads it as local time.
+    row = next(
+        r for r in _get(client, db, rol_ventas, auth_headers).json()["contributions"] if r["id"] == seeded["pct"]
+    )
+    assert row["loaded_at"].endswith(("Z", "+00:00"))
+    assert row["edited_at"].endswith(("Z", "+00:00"))
+    events = client.get(f"{BASE}/contributions/{seeded['pct']}/history", headers=auth_headers).json()["events"]
+    assert all(e["at"].endswith(("Z", "+00:00")) for e in events)
+
+
 def test_the_costs_the_tiles_divide_by(client, db, rol_ventas, auth_headers, seeded) -> None:
     totals = _get(client, db, rol_ventas, auth_headers).json()["totals"]
     assert totals == {"product_ads_cost": 795.05, "display_cost": 1200.0, "no_campaign_cost": 94.3}

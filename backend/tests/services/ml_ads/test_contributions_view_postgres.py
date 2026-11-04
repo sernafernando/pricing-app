@@ -6,7 +6,7 @@ row of another type can break it, whatever order Postgres applies the filters in
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import insert
@@ -37,8 +37,8 @@ def test_the_trail_finds_the_aporte_rows_among_other_types_with_non_numeric_ids(
     trail = contributions._audit_trail(db, [41, 99])
     assert trail == {
         41: [
-            (TipoAccion.ML_ADS_APORTE_CREADO, 7, datetime(2026, 10, 2, 10, 0)),
-            (TipoAccion.ML_ADS_APORTE_EDITADO, 8, datetime(2026, 10, 18, 16, 0)),
+            (TipoAccion.ML_ADS_APORTE_CREADO, 7, datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc)),
+            (TipoAccion.ML_ADS_APORTE_EDITADO, 8, datetime(2026, 10, 18, 16, 0, tzinfo=timezone.utc)),
         ]
     }
 
@@ -74,6 +74,6 @@ def test_the_history_reads_the_id_from_before_on_a_delete(pg_ads_write_db, monke
     _audit(db, TipoAccion.MODIFICAR_PRECIO_CLASICA, {"id": "MLA55"}, datetime(2026, 10, 4))
     db.flush()
     assert [(e.action, e.at) for e in contributions.history(db, 55)] == [
-        ("created", datetime(2026, 10, 2)),
-        ("deleted", datetime(2026, 10, 9)),
+        ("created", datetime(2026, 10, 2, tzinfo=timezone.utc)),
+        ("deleted", datetime(2026, 10, 9, tzinfo=timezone.utc)),
     ]

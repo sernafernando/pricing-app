@@ -169,7 +169,7 @@ def list_contributions(db: Session, date_from: date, date_to: date) -> Contribut
         edited = next(
             ((uid, when) for tipo, uid, when in reversed(trail) if tipo == TipoAccion.ML_ADS_APORTE_EDITADO), None
         )
-        loaded_by, loaded_at = created or (row.created_by_id, row.created_at)
+        loaded_by, loaded_at = created or (row.created_by_id, as_utc(row.created_at))
         listed.append(
             ContributionRow(
                 contribution=row,
@@ -232,8 +232,13 @@ def _audit_trail(db: Session, ids: list[int]) -> dict[int, list[tuple[TipoAccion
     )
     trail: dict[int, list[tuple[TipoAccion, int, datetime]]] = {}
     for row_id, tipo, user_id, when in found:
-        trail.setdefault(int(row_id), []).append((tipo, user_id, when))
+        trail.setdefault(int(row_id), []).append((tipo, user_id, as_utc(when)))
     return trail
+
+
+def as_utc(when: datetime) -> datetime:
+    """auditoria.fecha is stored naive in UTC (datetime.utcnow); say so, or a browser reads it as its own time."""
+    return when.replace(tzinfo=timezone.utc) if when.tzinfo is None else when
 
 
 HISTORY_ACTIONS = {
@@ -275,7 +280,7 @@ def history(db: Session, contribution_id: int) -> Optional[list[HistoryEvent]]:
         HistoryEvent(
             action=HISTORY_ACTIONS[row.tipo_accion],
             user=users.get(row.usuario_id),
-            at=row.fecha,
+            at=as_utc(row.fecha),
             before=row.valores_anteriores,
             after=row.valores_nuevos,
         )
