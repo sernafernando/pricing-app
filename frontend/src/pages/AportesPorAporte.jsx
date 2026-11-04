@@ -38,7 +38,9 @@ const dayMonth = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const sum = (rows) => rows.reduce((total, row) => total + (row.covered || 0), 0);
 
-/** The scope's two lines: the campaign and its id, or the whole Display account. */
+/** Shown, grouped and filtered by; an aporte saved before the brand was required has none. Never written back. */
+const brandOf = (row) => row.brand || 'Sin marca';
+
 function useAportes(range, refreshKey) {
   const [state, setState] = useState({ data: null, loading: true, error: null });
   const latest = useRef(0);
@@ -59,7 +61,7 @@ function useAportes(range, refreshKey) {
 }
 
 function Tiles({ rows, totals }) {
-  const brands = new Set(rows.map((r) => r.brand)).size;
+  const brands = new Set(rows.map(brandOf)).size;
   const pads = sum(rows.filter((r) => r.channel === 'product_ads'));
   const display = sum(rows.filter((r) => r.channel === 'display'));
   return (
@@ -95,11 +97,11 @@ function Tiles({ rows, totals }) {
 
 function ByBrand({ rows }) {
   const total = sum(rows);
-  const brands = Object.entries(
-    rows.reduce((acc, row) => ({ ...acc, [row.brand]: (acc[row.brand] || 0) + (row.covered || 0) }), {}),
-  ).sort(([, a], [, b]) => b - a);
+  const byBrand = new Map();
+  for (const row of rows) byBrand.set(brandOf(row), (byBrand.get(brandOf(row)) || 0) + (row.covered || 0));
+  const brands = [...byBrand].sort(([, a], [, b]) => b - a);
   // A brand that only pays Display gets the Display color, as in the design.
-  const onlyDisplay = (brand) => rows.every((row) => row.brand !== brand || row.channel === 'display');
+  const onlyDisplay = (brand) => rows.every((row) => brandOf(row) !== brand || row.channel === 'display');
   return (
     <section className={styles.brands} aria-label="Por marca">
       <header className={styles.brandsHeader}>
@@ -136,7 +138,7 @@ function Row({ row, canManage, onEdit, onDelete }) {
   const settlement = SETTLEMENT_BADGES[row.settlement];
   return (
     <tr>
-      <td className={styles.brandCell}>{row.brand}</td>
+      <td className={styles.brandCell}>{brandOf(row)}</td>
       <td>
         <span className={styles.nowrap}>{channel && <StatusPill tone={channel.tone}>{channel.text}</StatusPill>}</span>
       </td>
@@ -174,7 +176,7 @@ function Row({ row, canManage, onEdit, onDelete }) {
               <button
                 type="button"
                 className={shell.btnIcon}
-                aria-label={`Editar aporte de ${row.brand}`}
+                aria-label={`Editar aporte de ${brandOf(row)}`}
                 title="Editar"
                 onClick={() => onEdit(row)}
               >
@@ -184,7 +186,7 @@ function Row({ row, canManage, onEdit, onDelete }) {
             <button
               type="button"
               className={`${shell.btnIcon} ${shell.btnIconDanger}`}
-              aria-label={`Borrar aporte de ${row.brand}`}
+              aria-label={`Borrar aporte de ${brandOf(row)}`}
               title="Borrar"
               onClick={() => onDelete(row)}
             >
@@ -203,12 +205,12 @@ export default function AportesPorAporte({ range, canManage, refreshKey, onEdit,
   const [brand, setBrand] = useState('');
   const [channel, setChannel] = useState('all');
   const rows = data?.contributions ?? [];
-  const brands = [...new Set(rows.map((r) => r.brand))].sort();
+  const brands = [...new Set(rows.map(brandOf))].sort();
   const needle = search.trim().toLowerCase();
   const visible = rows.filter(
     (r) =>
-      (!needle || `${r.brand} ${scopeOf(r).name} ${r.campaign_id ?? ''}`.toLowerCase().includes(needle)) &&
-      (!brand || r.brand === brand) &&
+      (!needle || `${brandOf(r)} ${scopeOf(r).name} ${r.campaign_id ?? ''}`.toLowerCase().includes(needle)) &&
+      (!brand || brandOf(r) === brand) &&
       (channel === 'all' || r.channel === channel),
   );
   return (

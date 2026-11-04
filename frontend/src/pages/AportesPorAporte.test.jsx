@@ -132,6 +132,16 @@ describe('AportesPorAporte', () => {
     ).toBeInTheDocument();
   });
 
+  it('groups an aporte saved before the brand was required under "Sin marca"', async () => {
+    const legacy = { ...APORTES_VIEW.contributions[0], brand: null };
+    api.get.mockResolvedValue({ data: { ...APORTES_VIEW, contributions: [legacy] } });
+    renderView();
+    const brands = await screen.findByRole('region', { name: 'Por marca' });
+    await waitFor(() => expect(within(brands).getAllByRole('listitem')).toHaveLength(1));
+    expect(within(brands).getByRole('listitem')).toHaveTextContent('Sin marca$ 60,15(100 %)');
+    expect(within(bodyRows()[0]).getAllByRole('cell')[0]).toHaveTextContent('Sin marca');
+  });
+
   it('says so when the aportes cannot be loaded', async () => {
     api.get.mockRejectedValue({ response: { data: { error: { message: 'boom' } } } });
     renderView();
