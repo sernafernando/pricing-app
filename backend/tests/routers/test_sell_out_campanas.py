@@ -825,6 +825,27 @@ def test_a_deadlock_on_a_single_edit_is_the_busy_409_and_nothing_changes(client,
     assert client.get(f"{BASE}/{out['id']}", headers=gestor).json()["nombre"] == out["nombre"]
 
 
+def test_a_deadlock_on_a_create_is_the_busy_409_and_nothing_is_stored(client, gestor, grupos, monkeypatch) -> None:
+    """A renewal locks the original's program row, so a create can lose a lock cycle too (40P01): a retry."""
+    from sqlalchemy.exc import DBAPIError
+
+    from app.services.sell_out import campanas as service
+
+    class _Deadlock(Exception):
+        pgcode = "40P01"
+
+    def _en_deadlock(db, campana_ids) -> None:
+        raise DBAPIError("INSERT INTO sell_out_dirty ...", {}, _Deadlock())
+
+    monkeypatch.setattr(service, "_encolar", _en_deadlock)
+
+    resp = client.post(BASE, json=_body(grupos), headers=gestor)
+
+    assert resp.status_code == 409, resp.text
+    assert _message(resp) == "Otra operación está modificando la campaña en este momento. Reintentar en unos segundos."
+    assert client.get(BASE, headers=gestor).json()["total"] == 0
+
+
 # ── Bulk void (`POST /anular`) ──────────────────────────────────────
 
 MASIVO = f"{BASE}/anular"
