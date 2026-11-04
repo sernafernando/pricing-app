@@ -139,10 +139,6 @@
   min-width: 0;
 }
 
-.idChip,
-.badge {
-  flex-shrink: 0;
-}
 
 .iconoAnulada {
   flex-shrink: 0;
@@ -151,6 +147,7 @@
 
 .idChip,
 .badge {
+  flex-shrink: 0;
   margin-left: auto;
 }
 
