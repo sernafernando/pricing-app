@@ -466,6 +466,22 @@ describe('sorting and paging', () => {
     });
   }
 
+  it('sorted by Código highest first, Tipo still goes Clásica first within the product', async () => {
+    await page('/ml-publicaciones?orden=codigo&dir=desc');
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'codigo,tipo', dir: 'desc,asc' }));
+  });
+
+  it("a sort that names Tipo keeps the user's own direction and order, Tipo never twice", async () => {
+    await page('/ml-publicaciones?orden=codigo,tipo&dir=asc,desc');
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'codigo,tipo', dir: 'asc,desc' }));
+  });
+
+  it('a plain click on the Tipo header while sorted by Código sorts by Tipo alone', async () => {
+    await page('/ml-publicaciones?orden=codigo&dir=asc');
+    await userEvent.click(within(screen.getByRole('columnheader', { name: /^Tipo/ })).getByRole('button'));
+    await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'tipo', dir: 'asc' }));
+  });
+
   it('a sort by any other column is not given the listing type after it', async () => {
     await page('/ml-publicaciones?orden=marca&dir=asc');
     await waitFor(() => expect(lastParams()).toMatchObject({ orden: 'marca', dir: 'asc' }));
