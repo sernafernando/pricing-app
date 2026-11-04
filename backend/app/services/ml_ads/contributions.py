@@ -192,11 +192,13 @@ def list_contributions(db: Session, date_from: date, date_to: date) -> Contribut
         .one()
     )
     D = MlAdsDisplayCampaignDay
-    display_cost = db.query(func.coalesce(func.sum(D.consumed_budget), 0)).filter(D.day.between(date_from, date_to))
+    display_cost = (
+        db.query(func.coalesce(func.sum(D.consumed_budget), 0)).filter(D.day.between(date_from, date_to)).scalar()
+    )
     return ContributionsView(
         rows=listed,
         product_ads_cost=Decimal(str(product_ads_cost)),
-        display_cost=Decimal(str(display_cost.scalar())),
+        display_cost=Decimal(str(display_cost)),
         no_campaign_cost=Decimal(str(no_campaign_cost)),
     )
 

@@ -166,6 +166,11 @@ def test_viewing_needs_ver_ganancia(client, auth_headers, seeded) -> None:
     assert response.status_code == 403
 
 
+def test_the_history_needs_ver_ganancia_too(client, auth_headers, seeded) -> None:
+    response = client.get(f"{BASE}/contributions/1/history", headers=auth_headers)
+    assert response.status_code == 403
+
+
 def test_an_inverted_range_is_422(client, db, rol_ventas, auth_headers) -> None:
     response = _get(client, db, rol_ventas, auth_headers, {**OCTOBER, "date_from": "2026-11-01"})
     assert response.status_code == 422
