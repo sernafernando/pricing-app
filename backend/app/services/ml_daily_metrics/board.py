@@ -1472,6 +1472,7 @@ class Board:
 
         meets = and_(
             C.channel == "display",
+            C.deleted_at.is_(None),  # a soft-deleted contribution covers nothing (ml-ads-aportes-robust S6)
             D.advertiser_id == C.advertiser_id,
             or_(C.campaign_id.is_(None), D.campaign_id == C.campaign_id),
             D.day.between(C.date_from, C.date_to),
@@ -1516,6 +1517,7 @@ class Board:
 
         in_range = and_(
             C.channel == "product_ads",
+            C.deleted_at.is_(None),  # a soft-deleted contribution covers nothing (ml-ads-aportes-robust S6)
             I.advertiser_id == C.advertiser_id,
             I.campaign_id == C.campaign_id,
             day.between(C.date_from, C.date_to),
