@@ -50,6 +50,11 @@ class TipoAccion(str, enum.Enum):
     # sell out: one row per campaign whose program changed (campaign system S1; `item_id` NULL, `campana_id` and the
     # program before/after travel in the values). Same VARCHAR(50) column: no DDL.
     SELL_OUT_CAMPANA_PROGRAMA = "sell_out_campana_programa"
+    # ML Ads brand aportes (ml-ads-aportes-robust S5): one row per load, edit or delete (`item_id` NULL; the aporte,
+    # its id included, travels in the values: before/after). Same VARCHAR(50) column: no DDL.
+    ML_ADS_APORTE_CREADO = "ml_ads_aporte_creado"
+    ML_ADS_APORTE_EDITADO = "ml_ads_aporte_editado"
+    ML_ADS_APORTE_BORRADO = "ml_ads_aporte_borrado"
 
 
 class Auditoria(Base):

@@ -88,6 +88,9 @@ function validate(form, { previewing = false } = {}) {
 }
 
 const OVER_SPEND_ERROR = 'Confirmá que el aporte supera el costo de la campaña en el rango.';
+// The over-spend is measured on one campaign, kind, amount (with or without IVA), range and settlement: changing any
+// of them asks again.
+const RESETS_OVER_SPEND = new Set(['campaign', 'kind', 'value', 'ivaIncluded', 'dateFrom', 'dateTo', 'settlement']);
 
 /** A `full` amount the backend flags above the range spend (S3): by the preview, or by a save it rejected on `value`. */
 const fullAmount = (form) => form.kind === 'fixed_amount' && form.settlement === 'full';
@@ -146,8 +149,14 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
   // The backend rejected a save on `value`: it is the over-spend rule, even if the preview never answered.
   const [rejectedOverSpend, setRejectedOverSpend] = useState(false);
 
-  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
-  const toggle = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.checked }));
+  // A confirmation (or a backend rejection) holds only for the inputs it was given on (`RESETS_OVER_SPEND`).
+  const update = (key, value) => {
+    const resets = RESETS_OVER_SPEND.has(key);
+    setForm((f) => ({ ...f, [key]: value, ...(resets ? { confirmOverSpend: false } : {}) }));
+    if (resets) setRejectedOverSpend(false);
+  };
+  const set = (key) => (e) => update(key, e.target.value);
+  const toggle = (key) => (e) => update(key, e.target.checked);
   const body = validate(form, { previewing: true }) === null ? JSON.stringify(payloadOf(form)) : null;
   const overSpend = fullAmount(form) && (preview?.over_spend === true || rejectedOverSpend);
   const pastData = preview?.data_through && form.dateTo > preview.data_through ? preview.data_through : null;
@@ -254,7 +263,7 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
             label="Tipo de aporte"
             options={KINDS}
             value={form.kind}
-            onChange={(kind) => setForm((f) => ({ ...f, kind }))}
+            onChange={(kind) => update('kind', kind)}
           />
         </div>
 
@@ -274,7 +283,7 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
               onBlur={() => setAmountText(null)}
               onChange={(e) => {
                 setAmountText(e.target.value);
-                setForm((f) => ({ ...f, value: amountOf(e.target.value) }));
+                update('value', amountOf(e.target.value));
               }}
             />
             {percentage && <span className={styles.affix}>%</span>}

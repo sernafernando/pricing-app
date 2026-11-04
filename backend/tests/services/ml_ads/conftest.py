@@ -8,9 +8,11 @@ the shared conftest nor `app/models/__init__.py` is edited (same precedent as `m
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import Column, MetaData, Table, inspect
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
+from app.models.auditoria import Auditoria
 from app.models import ml_ads as _ml_ads  # noqa: F401  (registers the tables in Base.metadata)
 from app.models.producto import ProductoERP
 from app.models.worker_job_state import WorkerJobState
@@ -21,6 +23,16 @@ ADS_TABLES = [table for name, table in Base.metadata.tables.items() if name.star
 # own snapshot before these tables are imported, so `_restore_pristine_pg_types` cannot undo what the
 # SQLite `engine` fixture does to them (JSONB -> JSON, BigInteger primary keys -> Integer).
 _PRISTINE_TYPES = {column: column.type for table in ADS_TABLES for column in table.columns}
+
+
+# An aporte write adds its `auditoria` row (ml-ads-aportes-robust S5). The stand-in keeps every column and type but not
+# the foreign key to `usuarios`, which these per-test tables do not build; it is created only when absent and dropped
+# only by the fixture that created it.
+AUDIT_STANDIN = Table(
+    "auditoria",
+    MetaData(),
+    *(Column(c.name, c.type, primary_key=c.primary_key, nullable=c.nullable) for c in Auditoria.__table__.columns),
+)
 
 
 def restore_pg_types() -> None:
@@ -56,7 +68,12 @@ def pg_ads_engine():
     # metadata (enum bookkeeping) and can collide with other module-scoped Postgres fixtures.
     for table in tables:
         table.create(bind=eng, checkfirst=True)
+    own_audit = not inspect(eng).has_table("auditoria")
+    if own_audit:
+        AUDIT_STANDIN.create(bind=eng)
     yield eng
+    if own_audit:
+        AUDIT_STANDIN.drop(bind=eng)
     for table in reversed(tables):
         table.drop(bind=eng, checkfirst=True)
     _patch_pg_types_for_sqlite()
