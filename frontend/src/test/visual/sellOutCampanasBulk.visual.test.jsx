@@ -1,5 +1,5 @@
 /**
- * The Sell out campaigns list after Stitch 5ee03d7d: the «ID #n» chip under each campaign's name, "Asignar ahora" on
+ * The Sell out campaigns list after Stitch 5ee03d7d: the «ID #n» chip beside each campaign's name, "Asignar ahora" on
  * the "Sin programa" group, and the bulk bar floating at the bottom center of the window. Light, dark and
  * high contrast. Real Chromium geometry: jsdom does no layout.
  *
