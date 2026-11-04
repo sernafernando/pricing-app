@@ -235,6 +235,15 @@ class TestVisitsOnlyOfItemsActiveNowOrInTheLastDay:
         run(bundle=["core", "visits"])
         assert queue_rows(env) == {item: {"lane": queue.LANE_SWEEP, "resources": ["visits"]}}
 
+    def test_the_window_is_twenty_four_hours_from_the_tick(self, env) -> None:
+        (inside,) = put_items(env, 1, status="paused", prefix="MLI")
+        put_status_change(env, inside, hours_ago=23)
+        (outside,) = put_items(env, 1, status="paused", prefix="MLO")
+        put_status_change(env, outside, hours_ago=25)
+        result = run(bundle=["core", "visits"])
+        assert set(queue_rows(env)) == {inside}
+        assert result.resources["visits"].eligible == 1
+
     def test_an_active_item_is_swept_for_visits(self, env) -> None:
         (item,) = put_items(env, 1)
         run(bundle=["core", "visits"])
