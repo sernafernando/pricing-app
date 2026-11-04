@@ -10,7 +10,8 @@
  * cover; a failed preview just shows nothing.
  *
  * ml-ads-aportes-robust: the brand is picked from `GET /marcas` and is mandatory (S1); a fixed amount can be typed
- * with IVA, which the backend stores without it (S2).
+ * with IVA, which the backend stores without it (S2); a `full` amount above the range cost is saved only after
+ * confirming it (S3); and the form says when the range ends after the last day with Ads data (S4).
  */
 import { useState, useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
@@ -18,6 +19,7 @@ import ModalTesla from '../components/ModalTesla';
 import { SegmentedControl } from '../components/kit';
 import api from '../services/api';
 import { formatSignedMoney } from '../utils/ventasMlTone';
+import { formatDate } from '../utils/displayAds';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
 import styles from './AportesAdsMLForm.module.css';
 
@@ -50,6 +52,7 @@ function initialForm(initial) {
     brand: initial.brand || '',
     note: initial.note || '',
     ivaIncluded: false,
+    confirmOverSpend: false,
   };
 }
 
@@ -72,32 +75,59 @@ function payloadOf(form) {
   return body;
 }
 
-function validate(form) {
+/** What blocks saving; `previewing` skips the brand, which changes nothing the preview counts. */
+function validate(form, { previewing = false } = {}) {
+  if (!previewing && !form.brand.trim()) return 'Elegí la marca.';
   if (!form.campaign) return 'Elegí la campaña.';
   if (!(Number(form.value) > 0)) return 'El valor tiene que ser mayor a cero.';
   if (form.kind === 'percentage' && Number(form.value) > 100) return 'Un porcentaje no puede superar 100.';
   if (form.kind === 'fixed_amount' && !form.settlement) return 'Elegí si se recibe todo o se devuelve la diferencia.';
   if (!form.dateFrom || !form.dateTo) return 'Completá el rango de fechas.';
   if (form.dateFrom > form.dateTo) return 'La fecha desde no puede ser posterior a la fecha hasta.';
-  if (!form.brand.trim()) return 'Elegí la marca.';
   return null;
 }
 
-/** The brand list (`GET /marcas`), keeping an edited aporte's brand visible even when the list lacks it. */
+const OVER_SPEND_ERROR = 'Confirmá que el aporte supera el costo de la campaña en el rango.';
+
+/** A `full` amount the backend flags above the range spend (S3): by the preview, or by a save it rejected on `value`. */
+const fullAmount = (form) => form.kind === 'fixed_amount' && form.settlement === 'full';
+
+/**
+ * The brand list (`GET /marcas`), keeping an edited aporte's brand visible even when the list lacks it. `failed`
+ * says the list could not load, so the form can say why no brand can be picked.
+ */
 function useMarcas(current) {
-  const [marcas, setMarcas] = useState([]);
+  const [state, setState] = useState({ marcas: [], failed: false });
   useEffect(() => {
     let active = true;
     api
       .get('/marcas')
-      .then((response) => active && setMarcas(response.data?.marcas ?? []))
-      .catch(() => active && setMarcas([]));
+      .then((response) => active && setState({ marcas: response.data?.marcas ?? [], failed: false }))
+      .catch(() => active && setState({ marcas: [], failed: true }));
     return () => {
       active = false;
     };
   }, []);
-  return current && !marcas.includes(current) ? [current, ...marcas] : marcas;
+  const marcas = current && !state.marcas.includes(current) ? [current, ...state.marcas] : state.marcas;
+  return { marcas, failed: state.failed };
 }
+
+const AMOUNT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
+
+/**
+ * The typed amount -> the form's value ("500000.5"). With a comma it is es-AR ("1.500.000,5": dots group thousands);
+ * without one, a single dot followed by at most two digits is a decimal point ("1500.50", "12.5"), and any other dot
+ * groups thousands ("1.500", "1.500.000"). A decimal point is never dropped, so an amount never grows by 100.
+ */
+function amountOf(typed) {
+  const text = typed.trim();
+  if (text.includes(',')) return text.replace(/\./g, '').replace(',', '.');
+  if (/^\d*\.\d{0,2}$/.test(text)) return text;
+  return text.replace(/\./g, '');
+}
+
+/** The value as es-AR shows it ("500.000,5") while the field is not being edited. */
+const shownAmount = (value) => (value !== '' && Number.isFinite(Number(value)) ? AMOUNT.format(Number(value)) : value);
 
 /**
  * `initial`: the contribution to start from (see `initialForm`); with an `id` it is an edit, and an edit cannot
@@ -110,12 +140,17 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState(null);
   const latestPreview = useRef(0);
-  const marcas = useMarcas(initial.brand || '');
+  const { marcas, failed: marcasFailed } = useMarcas(initial.brand || '');
+  // The amount as typed while the field has focus (null otherwise, when it shows es-AR grouping).
+  const [amountText, setAmountText] = useState(null);
+  // The backend rejected a save on `value`: it is the over-spend rule, even if the preview never answered.
+  const [rejectedOverSpend, setRejectedOverSpend] = useState(false);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const toggle = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.checked }));
-  const complete = validate(form) === null;
-  const body = complete ? JSON.stringify(payloadOf(form)) : null;
+  const body = validate(form, { previewing: true }) === null ? JSON.stringify(payloadOf(form)) : null;
+  const overSpend = fullAmount(form) && (preview?.over_spend === true || rejectedOverSpend);
+  const pastData = preview?.data_through && form.dateTo > preview.data_through ? preview.data_through : null;
 
   useEffect(() => {
     const request = ++latestPreview.current;
@@ -134,7 +169,7 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
 
   const handleSave = async (e) => {
     e.preventDefault();
-    const invalid = validate(form);
+    const invalid = validate(form) || (overSpend && !form.confirmOverSpend ? OVER_SPEND_ERROR : null);
     if (invalid) {
       setFormError(invalid);
       return;
@@ -142,9 +177,12 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
     setSaving(true);
     setFormError(null);
     try {
-      await submit(payloadOf(form));
+      const confirmed = overSpend && form.confirmOverSpend;
+      await submit(confirmed ? { ...payloadOf(form), confirm_over_spend: true } : payloadOf(form));
       onSaved();
     } catch (err) {
+      const rejectedOnValue = err?.response?.status === 422 && err.response.data?.error?.field === 'value';
+      if (rejectedOnValue && fullAmount(form)) setRejectedOverSpend(true);
       setFormError(apiErrorMessage(err, 'No se pudo guardar el aporte'));
       setSaving(false);
     }
@@ -176,6 +214,22 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
             <AlertTriangle size={16} /> {formError}
           </div>
         )}
+        <label className={styles.field} htmlFor="aporte-marca">
+          <span className={styles.label}>Marca</span>
+          <select id="aporte-marca" className={styles.input} value={form.brand} onChange={set('brand')}>
+            <option value="">Elegí una marca</option>
+            {marcas.map((marca) => (
+              <option key={marca} value={marca}>
+                {marca}
+              </option>
+            ))}
+          </select>
+          {marcasFailed && (
+            <span className={styles.fieldError} role="alert">
+              No se pudo cargar la lista de marcas. Cerrá el formulario y volvé a abrirlo.
+            </span>
+          )}
+        </label>
         <label className={styles.field} htmlFor="aporte-campana">
           <span className={styles.label}>Campaña</span>
           <select
@@ -206,17 +260,22 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
 
         <label className={styles.field} htmlFor="aporte-valor">
           <span className={styles.label}>{percentage ? 'Porcentaje' : 'Monto'}</span>
-          <span className={styles.affixed}>
+          <span className={styles.amountBox}>
             {!percentage && <span className={styles.affix}>$</span>}
             <input
               id="aporte-valor"
               aria-label={percentage ? 'Porcentaje' : 'Monto'}
-              type="number"
-              min="0"
-              step="0.01"
-              className={styles.affixedInput}
-              value={form.value}
-              onChange={set('value')}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              className={styles.amountBare}
+              value={amountText ?? shownAmount(form.value)}
+              onFocus={() => setAmountText(form.value.replace('.', ','))}
+              onBlur={() => setAmountText(null)}
+              onChange={(e) => {
+                setAmountText(e.target.value);
+                setForm((f) => ({ ...f, value: amountOf(e.target.value) }));
+              }}
             />
             {percentage && <span className={styles.affix}>%</span>}
           </span>
@@ -276,24 +335,38 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
         </div>
 
         {preview && (
-          <p className={styles.preview}>
-            {`Costo de la campaña en el rango: ${formatSignedMoney(preview.spend)} · Aporte que cuenta: ${formatSignedMoney(
-              preview.counted,
-            )} · Neto: ${formatSignedMoney(preview.net)}`}
+          <dl className={styles.preview} aria-label="Lo que cubre el aporte">
+            <dt>Costo de la campaña en el rango</dt>
+            <dd>{formatSignedMoney(preview.spend)}</dd>
+            <dt>Aporte que cuenta</dt>
+            <dd>{formatSignedMoney(preview.counted)}</dd>
+            <dt>Neto</dt>
+            <dd>{formatSignedMoney(preview.net)}</dd>
+          </dl>
+        )}
+
+        {pastData && (
+          <p className={styles.warning} role="status">
+            {`Hay datos de Ads hasta el ${formatDate(pastData)}: lo que cae después todavía no se cargó y el aporte va a cambiar cuando llegue.`}
           </p>
         )}
 
-        <label className={styles.field} htmlFor="aporte-marca">
-          <span className={styles.label}>Marca</span>
-          <select id="aporte-marca" className={styles.input} value={form.brand} onChange={set('brand')}>
-            <option value="">Elegí una marca</option>
-            {marcas.map((marca) => (
-              <option key={marca} value={marca}>
-                {marca}
-              </option>
-            ))}
-          </select>
-        </label>
+        {overSpend && (
+          <div className={`${styles.check} ${styles.warning}`}>
+            <input
+              id="aporte-confirmar"
+              type="checkbox"
+              aria-describedby="aporte-confirmar-hint"
+              checked={form.confirmOverSpend}
+              onChange={toggle('confirmOverSpend')}
+            />
+            <label htmlFor="aporte-confirmar">Confirmo que el aporte supera el costo de la campaña en el rango</label>
+            <span id="aporte-confirmar-hint" className={styles.checkHint}>
+              El neto queda negativo: Métricas ML suma la diferencia.
+            </span>
+          </div>
+        )}
+
         <label className={styles.field} htmlFor="aporte-nota">
           <span className={styles.label}>Nota (opcional)</span>
           <textarea

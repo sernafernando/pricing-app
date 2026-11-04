@@ -17,23 +17,24 @@ from __future__ import annotations
 import dataclasses
 import logging
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import func, or_, tuple_
 from sqlalchemy.orm import Session
 
-from app.models.producto import ProductoERP
-
 from app.models.ml_ads import (
     MlAdsCampaign,
     MlAdsCampaignContribution,
     MlAdsCampaignDay,
+    MlAdsDayLedger,
     MlAdsDisplayCampaign,
     MlAdsDisplayCampaignDay,
     MlAdsItemDay,
 )
+from app.models.producto import ProductoERP
+from app.services.ml_ads.read import COVERED
 
 logger = logging.getLogger(__name__)
 
@@ -333,6 +334,54 @@ def _catalog_brand(db: Session, brand: Optional[str]) -> str:
     return found.strip()
 
 
+def exceeds_spend(data: ContributionData, spend: Decimal) -> bool:
+    """A `full` amount above its range's spend (none spent yet included) leaves a negative net (S3)."""
+    return data.kind == "fixed_amount" and data.settlement == "full" and data.value > spend
+
+
+def _check_spend(db: Session, data: ContributionData, confirmed: bool) -> None:
+    """Such an amount is saved only when confirmed, and the 422 says the spend."""
+    if confirmed:
+        return
+    spend = preview(db, data).spend
+    if not exceeds_spend(data, spend):
+        return
+    raise ContributionError(
+        "value",
+        f"the amount is above the range spend of {spend:.2f}, so the net goes negative; confirm to load it anyway",
+    )
+
+
+def data_through(db: Session, channel: str, advertiser_id: int) -> Optional[date]:
+    """The last day D such that the advertiser's ledger of `channel` is closed (or mismatch) every day from its oldest
+    ledgered day through D; None while nothing is closed."""
+    L = MlAdsDayLedger
+    days = {
+        day
+        for (day,) in db.query(L.day).filter(
+            L.source == channel, L.advertiser_id == advertiser_id, L.status.in_(COVERED)
+        )
+    }
+    if not days:
+        return None
+    through = min(days)
+    while through + timedelta(days=1) in days:
+        through += timedelta(days=1)
+    return through
+
+
+def save_warnings(db: Session, data: ContributionData, through: Optional[date] = None) -> list[str]:
+    """What to tell whoever saves `data` without stopping them (S4): a range ending after the ads data loaded so far.
+    `through` is `data_through` when the caller already has it; otherwise it is read here."""
+    through = through or data_through(db, data.channel, data.advertiser_id)
+    if through is None or data.date_to <= through:
+        return []
+    return [
+        f"the range ends after {through.isoformat()}, the last day with ads data: its figures will change as the "
+        "missing days arrive"
+    ]
+
+
 def _locked(db: Session, contribution_id: int) -> Optional[MlAdsCampaignContribution]:
     """The contribution row under FOR UPDATE, taken before the campaign lock so edit and delete serialize."""
     return (
@@ -349,12 +398,16 @@ def _apply(row: MlAdsCampaignContribution, data: ContributionData, user_id: int)
     row.updated_by_id = user_id
 
 
-def _validated(db: Session, data: ContributionData) -> ContributionData:
-    return dataclasses.replace(data, brand=_catalog_brand(db, data.brand))
+def _validated(db: Session, data: ContributionData, confirmed: bool) -> ContributionData:
+    data = dataclasses.replace(data, brand=_catalog_brand(db, data.brand))
+    _check_spend(db, data, confirmed)
+    return data
 
 
-def create(db: Session, data: ContributionData, user_id: int) -> MlAdsCampaignContribution:
-    data = _validated(db, data)
+def create(
+    db: Session, data: ContributionData, user_id: int, *, confirm_over_spend: bool = False
+) -> MlAdsCampaignContribution:
+    data = _validated(db, data, confirm_over_spend)
     _check(db, data)
     row = MlAdsCampaignContribution(created_by_id=user_id)
     _apply(row, data, user_id)
@@ -365,7 +418,7 @@ def create(db: Session, data: ContributionData, user_id: int) -> MlAdsCampaignCo
 
 
 def update(
-    db: Session, contribution_id: int, data: ContributionData, user_id: int
+    db: Session, contribution_id: int, data: ContributionData, user_id: int, *, confirm_over_spend: bool = False
 ) -> Optional[MlAdsCampaignContribution]:
     """`None` when the contribution does not exist (also when a concurrent delete wins the row lock)."""
     row = _locked(db, contribution_id)
@@ -377,7 +430,7 @@ def update(
         raise ContributionError(
             "campaign_id", "a contribution cannot move to another campaign; delete it and load it again"
         )
-    data = _validated(db, data)
+    data = _validated(db, data, confirm_over_spend)
     _check(db, data, exclude_id=contribution_id)
     _apply(row, data, user_id)
     db.commit()

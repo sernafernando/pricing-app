@@ -76,7 +76,8 @@ vi.mock('../../services/api', () => ({
   default: {
     get: vi.fn((url) => {
       if (url === '/marcas') return Promise.resolve({ data: { marcas: ['EPSON', 'HP', 'TP-Link'] } });
-      const preview = { spend: 742300, counted: 500000, net: 242300 };
+      // DERIVED: the ledger closed through 10-20, so a range to 10-31 shows the missing-data line (ml-ads-aportes-robust S4).
+      const preview = { spend: 742300, counted: 500000, net: 242300, warnings: [], data_through: '2026-10-20' };
       return Promise.resolve({ data: url.endsWith('/preview') ? preview : { campaigns: CAMPAIGNS } });
     }),
     post: vi.fn(),
@@ -133,22 +134,49 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
     }
   }
 
-  it('opens the add modal with its preview and the delete modal with its summary', async () => {
-    const screen = await renderPage({ width: 1440, height: 900, theme: 'light' });
-    await userEvent.click(screen.getByRole('button', { name: 'Agregar aporte', exact: true }));
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Campaña' }), '25713-351204887');
-    await userEvent.click(screen.getByRole('button', { name: 'Monto fijo' }));
-    await userEvent.fill(screen.getByLabelText('Monto', { exact: true }), '500000');
-    await userEvent.click(screen.getByLabelText('Devuelve la diferencia'));
-    await userEvent.fill(screen.getByLabelText('Desde', { exact: true }).nth(1), '2026-10-01');
-    await userEvent.fill(screen.getByLabelText('Hasta', { exact: true }).nth(1), '2026-10-31');
-    await userEvent.click(screen.getByLabelText('El monto incluye IVA'));
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Marca' }), 'EPSON');
-    await expect.element(screen.getByText(/Aporte que cuenta: \$ 500\.000,00/)).toBeVisible();
-    screen.getByRole('combobox', { name: 'Marca' }).element().scrollIntoView({ block: 'end' });
-    await shot('modal-agregar-1440-light');
-    await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+  for (const [theme, highContrast] of [
+    ['light', false],
+    ['dark', false],
+    ['light', true],
+  ]) {
+    const mode = `${theme}${highContrast ? '-hc' : ''}`;
+    it(`lays out the add modal: brand first, $ inside the amount, one figure per line (${mode})`, async () => {
+      // Tall enough for the whole form, so the shot shows every field without scrolling the modal.
+      const screen = await renderPage({ width: 1440, height: 1400, theme });
+      document.documentElement.classList.toggle('high-contrast', highContrast);
+      await userEvent.click(screen.getByRole('button', { name: 'Agregar aporte', exact: true }));
+      await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Marca' }), 'EPSON');
+      await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Campaña' }), '25713-351204887');
+      await userEvent.click(screen.getByRole('button', { name: 'Monto fijo' }));
+      await userEvent.fill(screen.getByLabelText('Monto', { exact: true }), '500000');
+      await userEvent.click(screen.getByLabelText('Devuelve la diferencia'));
+      await userEvent.fill(screen.getByLabelText('Desde', { exact: true }).nth(1), '2026-10-01');
+      await userEvent.fill(screen.getByLabelText('Hasta', { exact: true }).nth(1), '2026-10-31');
+      await userEvent.click(screen.getByLabelText('El monto incluye IVA'));
+      await expect.element(screen.getByLabelText('Lo que cubre el aporte')).toBeVisible();
+      await expect.element(screen.getByText(/Hay datos de Ads hasta el 20\/10\/2026/)).toBeVisible();
 
+      const amount = screen.getByLabelText('Monto', { exact: true }).element();
+      expect(amount.value).toBe('500.000');
+      const box = amount.parentElement.getBoundingClientRect();
+      const dollar = amount.parentElement.firstElementChild.getBoundingClientRect();
+      expect(dollar.left).toBeGreaterThanOrEqual(box.left);
+      expect(dollar.right).toBeLessThanOrEqual(amount.getBoundingClientRect().left);
+      for (const figure of document.querySelectorAll('dl[aria-label="Lo que cubre el aporte"] dd')) {
+        expect(getComputedStyle(figure).fontVariantNumeric).toContain('tabular-nums');
+        expect(figure.getBoundingClientRect().height).toBeLessThanOrEqual(24);
+      }
+      const form = document.getElementById('aporte-ads-form');
+      expect(form.querySelector('label').textContent).toMatch(/^Marca/);
+
+      const modal = form.closest('.modal-tesla');
+      if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/modal-agregar-1440-${mode}.png`, element: modal });
+      document.documentElement.classList.remove('high-contrast');
+    });
+  }
+
+  it('opens the delete modal with its summary', async () => {
+    const screen = await renderPage({ width: 1440, height: 900, theme: 'light' });
     await userEvent.click(screen.getByRole('button', { name: 'Borrar aporte $ 200.000,00' }));
     await expect.element(screen.getByText('¿Borrar este aporte?')).toBeVisible();
     await shot('modal-borrar-1440-light');
