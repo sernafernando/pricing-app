@@ -274,3 +274,23 @@ export const SUGERENCIAS = {
   page_size: 200,
 };
 export const SUGERENCIAS_VACIO = { items: [], total: 0, page: 1, page_size: 200 };
+
+/** `GET /sell-out/programas/7/renovacion`: Oct–Dic 2026 into Ene–Mar 2027, two to copy, one voided, one already
+ * renewed, and one of the next quarter left for a later pass. */
+export const RENOVACION_MARCA = {
+  programa_id: 7,
+  programa: 'MARCA PROG',
+  periodo_desde: '2026-10-01',
+  periodo_hasta: '2026-12-31',
+  fecha_desde: '2027-01-01',
+  fecha_hasta: '2027-03-31',
+  renovar: [
+    { campana_id: 11, nombre: 'Modelo A Q4 2026', nombre_nuevo: 'Modelo A Q1 2027' },
+    { campana_id: 12, nombre: 'Modelo B Q4 2026', nombre_nuevo: 'Modelo B Q1 2027' },
+  ],
+  omitidas: [
+    { campana_id: 13, nombre: 'Modelo C Q4 2026', motivo: 'anulada, no se renueva' },
+    { campana_id: 14, nombre: 'Modelo D Q4 2026', motivo: 'ya renovada en la campaña 812 (Modelo D Q1 2027)' },
+  ],
+  quedan_afuera: [{ campana_id: 15, nombre: 'Modelo E Q1 2027', fecha_hasta: '2027-03-31' }],
+};

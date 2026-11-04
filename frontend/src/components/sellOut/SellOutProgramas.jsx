@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, RefreshCw } from 'lucide-react';
 import { SegmentedControl, StatusPill } from '../kit';
 import { sellOutAPI, sellOutProgramasAPI } from '../../services/sellOutAPI';
 import { apiMessage } from '../sellIn/sellInFormat';
 import SellOutAsignarPrograma from './SellOutAsignarPrograma';
 import SellOutProgramaDialog from './SellOutProgramaDialog';
+import SellOutRenovarPrograma from './SellOutRenovarPrograma';
 import { fechasDe, nombreNormalizado, plural } from './sellOutProgramas';
 import tableStyles from '../sellIn/SellInTable.module.css';
 import styles from './SellOutProgramas.module.css';
@@ -157,7 +158,7 @@ function CampanasDelPrograma({ programa, programas, puedeGestionar, onCambio, on
   );
 }
 
-function FilaPrograma({ programa, abierto, onAlternar, puedeGestionar, onEditar, onEstado, busy }) {
+function FilaPrograma({ programa, abierto, onAlternar, puedeGestionar, onEditar, onEstado, onRenovar, busy }) {
   const Chevron = abierto ? ChevronDown : ChevronRight;
   const archivado = programa.estado === 'archivado';
   return (
@@ -189,6 +190,11 @@ function FilaPrograma({ programa, abierto, onAlternar, puedeGestionar, onEditar,
       <td>
         {puedeGestionar && (
           <div className={styles.acciones}>
+            {!archivado && (
+              <button type="button" className="btn-tesla ghost sm" onClick={onRenovar} disabled={busy}>
+                <RefreshCw size={14} aria-hidden="true" /> Renovar programa
+              </button>
+            )}
             <button type="button" className="btn-tesla ghost sm" onClick={onEditar} disabled={busy}>
               Editar
             </button>
@@ -211,7 +217,7 @@ function FilaPrograma({ programa, abierto, onAlternar, puedeGestionar, onEditar,
  * The Programas view of the Sell out tab (campanas-sistema slice E; Stitch 5ee03d7d plus the management the owner
  * asked for): the programs (`programas`, every one from `useProgramas`) with their campaigns' counts and dates, filtered
  * by state and name here. With `puedeGestionar` (`sell_out.gestionar`): "Nuevo programa", "Editar", "Archivar" /
- * "Reactivar" (`PATCH estado`), and in an expanded program "Quitar del programa" / "Mover a otro programa".
+ * "Reactivar" (`PATCH estado`), "Renovar programa" on active programs (`SellOutRenovarPrograma`), and in an expanded program "Quitar del programa" / "Mover a otro programa".
  * `onCambio()` runs after any change so the page reads programs and campaigns again; `onVerCampanas(id)` opens the
  * campaigns list filtered by that program.
  */
@@ -220,6 +226,7 @@ export default function SellOutProgramas({ programas, puedeGestionar = false, on
   const [q, setQ] = useState('');
   const [abierto, setAbierto] = useState(null);
   const [dialogo, setDialogo] = useState(null); // { programa } to edit, {} to create
+  const [renovando, setRenovando] = useState(null); // the program "Renovar programa" opened for
   const [aviso, setAviso] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -310,6 +317,7 @@ export default function SellOutProgramas({ programas, puedeGestionar = false, on
                 puedeGestionar={puedeGestionar}
                 onEditar={() => setDialogo({ programa: p })}
                 onEstado={(nuevo) => cambiarEstado(p, nuevo)}
+                onRenovar={() => setRenovando(p)}
                 busy={busy}
               />
               {abierto === p.id && (
@@ -330,6 +338,17 @@ export default function SellOutProgramas({ programas, puedeGestionar = false, on
           ))}
         </table>
       </div>
+      {renovando && (
+        <SellOutRenovarPrograma
+          programa={renovando}
+          onClose={() => setRenovando(null)}
+          onRenovado={(texto) => {
+            setRenovando(null);
+            setAviso(texto);
+            onCambio();
+          }}
+        />
+      )}
       {dialogo && (
         <SellOutProgramaDialog
           programa={dialogo.programa}

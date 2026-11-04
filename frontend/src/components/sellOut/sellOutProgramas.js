@@ -35,6 +35,19 @@ export { plural };
 /** «01/08/2026 – 31/10/2026». */
 export const fechasDe = (desde, hasta) => `${formatDateOnly(desde, DIA)} – ${formatDateOnly(hasta, DIA)}`;
 
+const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+/** «Oct–Dic 2026»: the calendar quarter holding `fecha` ('YYYY-MM-DD'). */
+export function trimestreDe(fecha) {
+  const [anio, mes] = fecha.split('-').map(Number);
+  const primero = Math.floor((mes - 1) / 3) * 3;
+  return `${MESES[primero]}–${MESES[primero + 2]} ${anio}`;
+}
+
+/** «2 campañas renovadas en «MARCA PROG» para Ene–Mar 2027.», the Programas line after Renovar programa. */
+export const textoRenovado = (creadas, programa, fechaDesde) =>
+  `${plural(creadas, 'campaña renovada', 'campañas renovadas')} en «${programa}» para ${trimestreDe(fechaDesde)}.`;
+
 /** A campaign name as the backend's `nombres` compares it: ignoring case and repeated spaces. */
 export const nombreNormalizado = (nombre) => nombre.split(/\s+/).filter(Boolean).join(' ').toLowerCase();
 
