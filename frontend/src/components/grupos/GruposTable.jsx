@@ -1,5 +1,6 @@
 import { resumenFiltro } from './grupoFormat';
 import styles from '../sellIn/SellInTable.module.css';
+import own from './Grupos.module.css';
 
 const anuladasTexto = (n) => (n === 1 ? '1 anulada' : `${n} anuladas`);
 
@@ -19,7 +20,7 @@ export default function GruposTable({ grupos, subcategorias, selectedId, onSelec
         <thead>
           <tr>
             {editable && (
-              <th>
+              <th className={own.casilla}>
                 <input
                   type="checkbox"
                   aria-label="Seleccionar todos los grupos"
@@ -50,7 +51,7 @@ export default function GruposTable({ grupos, subcategorias, selectedId, onSelec
             return (
               <tr key={grupo.id} className={selectedId === grupo.id ? styles.rowSelected : ''}>
                 {editable && (
-                  <td>
+                  <td className={own.casilla}>
                     <input
                       type="checkbox"
                       aria-label={`Seleccionar ${grupo.nombre}`}

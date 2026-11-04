@@ -76,3 +76,8 @@
 .resultado ul {
   padding-left: var(--space-4);
 }
+
+/* The checkbox column takes only the checkbox's width. */
+.casilla {
+  width: 1%;
+}
