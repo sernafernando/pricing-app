@@ -28,7 +28,7 @@ El botón **Agregar aporte** (si tenés permiso) crea un aporte nuevo.
 
 - **Marca**: es obligatoria y se elige de la lista de marcas, la misma que usan Productos y Sell-in. Así los totales de una marca no se parten por cómo se escribió.
 - **El monto incluye IVA**: aparece con un monto fijo. Marcalo si copiaste el monto de una factura con IVA; se guarda sin IVA, que es como viene el costo de Ads.
-- **Monto mayor al costo**: si un monto fijo que "Se recibe todo" supera el costo de la campaña en el rango, el neto queda negativo. Para guardarlo tenés que marcar **Confirmo que el aporte supera el costo de la campaña en el rango**.
+- **Monto mayor al costo**: si un monto fijo que "Se recibe todo" supera el costo de la campaña en el rango, el neto queda negativo. Para guardarlo tenés que marcar **Confirmo que el aporte supera el costo de la campaña en el rango**. Si después cambiás la campaña, el tipo, el monto, si incluye IVA, las fechas o cómo se liquida, la casilla se desmarca y se vuelve a pedir.
 - **Aviso de datos**: si el rango termina después del último día con datos de Ads, el formulario lo avisa. El aporte que cuenta va a cambiar cuando lleguen esos días.
 
 ### Filtros y columnas

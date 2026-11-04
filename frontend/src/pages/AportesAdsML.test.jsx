@@ -552,6 +552,64 @@ describe('robust loading (ml-ads-aportes-robust)', () => {
     expect(api.post.mock.calls[0][1]).toMatchObject({ settlement: 'full', confirm_over_spend: true });
   });
 
+  const CONFIRM_LABEL = 'Confirmo que el aporte supera el costo de la campaña en el rango';
+  it.each([
+    ['amount', (user) => user.type(valueInput(), '0')],
+    ['range', async (user) => {
+      const hasta = screen.getByLabelText('Hasta', { selector: '#aporte-hasta' });
+      await user.clear(hasta);
+      await user.type(hasta, '2026-10-20');
+    }],
+    ['campaign', (user) => user.selectOptions(screen.getByLabelText('Campaña'), screen.getByRole('option', { name: /^Routers/ }))],
+    ['IVA choice', (user) => user.click(screen.getByLabelText('El monto incluye IVA'))],
+    ['kind', async (user) => {
+      await user.click(screen.getByRole('button', { name: 'Porcentaje del costo' }));
+      await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    }],
+    ['settlement', async (user) => {
+      await user.click(screen.getByLabelText('Devuelve la diferencia'));
+      await user.click(screen.getByLabelText('Se recibe todo'));
+    }],
+  ])('changing the %s after confirming clears the confirmation and asks again', async (_what, change) => {
+    previewWith({ spend: 1000, counted: 5000, net: -4000, over_spend: true });
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '5000' });
+    await user.click(screen.getByLabelText('Se recibe todo'));
+    await user.click(await screen.findByLabelText(CONFIRM_LABEL));
+    expect(screen.getByLabelText(CONFIRM_LABEL)).toBeChecked();
+    await change(user);
+    expect(await screen.findByLabelText(CONFIRM_LABEL)).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    expect(await screen.findByText('Confirmá que el aporte supera el costo de la campaña en el rango.')).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('a backend rejection of the amount stops counting once the amount changes', async () => {
+    api.get.mockImplementation((url) =>
+      url.endsWith('/preview') ? Promise.reject(new Error('down')) : Promise.resolve({ data: answer(url, {}) }),
+    );
+    api.post
+      .mockRejectedValueOnce({
+        response: { status: 422, data: { error: { field: 'value', message: 'the amount is above the range spend of 0.00' } } },
+      })
+      .mockResolvedValueOnce({ data: {} });
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '5000' });
+    await user.click(screen.getByLabelText('Se recibe todo'));
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await screen.findByLabelText(CONFIRM_LABEL);
+    await user.clear(valueInput());
+    await user.type(valueInput(), '500');
+    expect(screen.queryByLabelText(CONFIRM_LABEL)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    expect(api.post.mock.calls[1][1]).not.toHaveProperty('confirm_over_spend');
+  });
+
   it('asks to confirm when the backend says so, even on a range that spent nothing yet', async () => {
     previewWith({ spend: 0, counted: 0, net: 0, over_spend: true });
     const user = userEvent.setup();

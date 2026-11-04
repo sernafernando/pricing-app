@@ -7,5 +7,5 @@
 ## Cómo se usa
 
 1. Entrá a **ML Ads → Aportes** y tocá **Agregar aporte** (o el lápiz de un aporte para editarlo).
-2. Si el monto "Se recibe todo" supera el costo de la campaña en el rango, aparece **Confirmo que el aporte supera el costo de la campaña en el rango**. Marcalo para poder guardar.
+2. Si el monto "Se recibe todo" supera el costo de la campaña en el rango, aparece **Confirmo que el aporte supera el costo de la campaña en el rango**. Marcalo para poder guardar. Si después cambiás la campaña, el tipo, el monto, si incluye IVA, las fechas o cómo se liquida, la casilla se desmarca y hay que confirmar de nuevo.
 3. Si ves el aviso amarillo **Hay datos de Ads hasta el…**, el rango llega a días que todavía no se cargaron. Podés guardar igual: el aporte que cuenta se va a ajustar cuando lleguen.
