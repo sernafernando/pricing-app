@@ -51,9 +51,11 @@ from app.services.sell_out.tope import cents
 CANALES = ("ml", "fuera", "tn")
 
 # Two-key advisory locks show the first key as `classid` and the second as `objid`, with `objsubid` 2.
+# pg_locks lists the whole cluster, so only this database's locks are this database's campaigns.
 _EN_CURSO_SQL = text(
     "SELECT DISTINCT objid FROM pg_locks WHERE locktype = 'advisory' AND granted AND objsubid = 2 "
-    "AND classid = :ns AND objid = ANY(CAST(:ids AS oid[]))"
+    "AND classid = :ns AND objid = ANY(CAST(:ids AS oid[])) "
+    "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())"
 )
 
 
