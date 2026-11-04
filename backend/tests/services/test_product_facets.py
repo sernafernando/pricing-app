@@ -180,3 +180,18 @@ def test_a_selected_id_missing_from_the_universe_is_looked_up_by_name(db, seeded
     options = _options(db, [("Epson", "Impresoras", 10)], ProductSelection(subcategorias=(11,), pms=(seeded["beto"],)))
     assert [s["nombre"] for g in options.subcategorias for s in g["subcategorias"] if s["id"] == 11] == ["Tinta"]
     assert {p["id"]: p["nombre"] for p in options.pms}[seeded["beto"]] == "Beto"
+
+
+def test_options_carry_the_subcategoria_group_and_the_pm_email_like_productos(db, seeded) -> None:
+    # Productos' panel shows G{grupo_id} next to a subcategory and the PM's email (`pubml-filtros` S2).
+    options = _options(db, COMBOS, ProductSelection())
+    assert {s["id"]: s.get("grupo_id") for g in options.subcategorias for s in g["subcategorias"]} == dict.fromkeys(
+        [10, 11, 20, 30, 31], 1
+    )
+    assert {p["id"]: p.get("email") for p in options.pms} == {seeded["ana"]: "ana@x.com", seeded["beto"]: "beto@x.com"}
+
+
+def test_a_looked_up_selection_carries_its_group_and_email_too(db, seeded) -> None:
+    options = _options(db, [("Epson", "Impresoras", 10)], ProductSelection(subcategorias=(11,), pms=(seeded["beto"],)))
+    assert [s.get("grupo_id") for g in options.subcategorias for s in g["subcategorias"] if s["id"] == 11] == [1]
+    assert {p["id"]: p.get("email") for p in options.pms}[seeded["beto"]] == "beto@x.com"
