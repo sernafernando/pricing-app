@@ -114,8 +114,17 @@ function useMarcas(current) {
 
 const AMOUNT = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
 
-/** "500.000,5" or "500000,5" (es-AR) -> "500000.5", the form's value; anything else is kept as typed. */
-const amountOf = (typed) => typed.replace(/\./g, '').replace(',', '.').trim();
+/**
+ * The typed amount -> the form's value ("500000.5"). With a comma it is es-AR ("1.500.000,5": dots group thousands);
+ * without one, a single dot followed by at most two digits is a decimal point ("1500.50", "12.5"), and any other dot
+ * groups thousands ("1.500", "1.500.000"). A decimal point is never dropped, so an amount never grows by 100.
+ */
+function amountOf(typed) {
+  const text = typed.trim();
+  if (text.includes(',')) return text.replace(/\./g, '').replace(',', '.');
+  if (/^\d*\.\d{0,2}$/.test(text)) return text;
+  return text.replace(/\./g, '');
+}
 
 /** The value as es-AR shows it ("500.000,5") while the field is not being edited. */
 const shownAmount = (value) => (value !== '' && Number.isFinite(Number(value)) ? AMOUNT.format(Number(value)) : value);
@@ -132,7 +141,8 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
   const [preview, setPreview] = useState(null);
   const latestPreview = useRef(0);
   const { marcas, failed: marcasFailed } = useMarcas(initial.brand || '');
-  const [editingAmount, setEditingAmount] = useState(false);
+  // The amount as typed while the field has focus (null otherwise, when it shows es-AR grouping).
+  const [amountText, setAmountText] = useState(null);
   // The backend rejected a save on `value`: it is the over-spend rule, even if the preview never answered.
   const [rejectedOverSpend, setRejectedOverSpend] = useState(false);
 
@@ -259,10 +269,13 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
               inputMode="decimal"
               autoComplete="off"
               className={styles.amountBare}
-              value={editingAmount ? form.value.replace('.', ',') : shownAmount(form.value)}
-              onFocus={() => setEditingAmount(true)}
-              onBlur={() => setEditingAmount(false)}
-              onChange={(e) => setForm((f) => ({ ...f, value: amountOf(e.target.value) }))}
+              value={amountText ?? shownAmount(form.value)}
+              onFocus={() => setAmountText(form.value.replace('.', ','))}
+              onBlur={() => setAmountText(null)}
+              onChange={(e) => {
+                setAmountText(e.target.value);
+                setForm((f) => ({ ...f, value: amountOf(e.target.value) }));
+              }}
             />
             {percentage && <span className={styles.affix}>%</span>}
           </span>

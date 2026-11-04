@@ -650,4 +650,29 @@ describe('robust loading (ml-ads-aportes-robust)', () => {
     expect(api.post.mock.calls[1][1]).toMatchObject({ confirm_over_spend: true });
     expect(api.post.mock.calls[0][1]).not.toHaveProperty('confirm_over_spend');
   });
+
+  it.each([
+    ['1500.50', 1500.5],
+    ['1.500.000', 1500000],
+    ['1.500', 1500],
+    ['1500,5', 1500.5],
+  ])('reads %s as %s, never multiplying a decimal point away', async (typed, sent) => {
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: typed });
+    await user.click(screen.getByLabelText('Devuelve la diferencia'));
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post.mock.calls[0][1]).toMatchObject({ value: sent });
+  });
+
+  it('reads a percentage typed with a decimal point', async () => {
+    const user = userEvent.setup();
+    await openCreate(user);
+    await fillCommon(user, { value: '12.5' });
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post.mock.calls[0][1]).toMatchObject({ kind: 'percentage', value: 12.5 });
+  });
 });

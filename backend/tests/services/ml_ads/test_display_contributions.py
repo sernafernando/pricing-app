@@ -13,9 +13,9 @@ Real Postgres. The Display days and catalog are the captured 2026-10-05 response
 
 from __future__ import annotations
 
+import dataclasses
 import threading
 import time
-import dataclasses
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -199,10 +199,10 @@ class TestRobust:
         db.add(MlAdsDayLedger(source="display", advertiser_id=GAUSS, day=OCT_5, status="closed"))
         db.add(MlAdsDayLedger(source="display", advertiser_id=GAUSS, day=date(2026, 10, 6), status="refetch"))
         db.flush()
-        [warning] = contributions.warnings(db, _data(None))
+        [warning] = contributions.save_warnings(db, _data(None))
         assert "2026-10-05" in warning
-        assert contributions.warnings(db, _data(None, first=OCT_5, last=OCT_5)) == []
-        assert contributions.warnings(db, _data(None, channel="product_ads")) == []  # another ledger
+        assert contributions.save_warnings(db, _data(None, first=OCT_5, last=OCT_5)) == []
+        assert contributions.save_warnings(db, _data(None, channel="product_ads")) == []  # another ledger
 
 
 def _saved(db, *data: contributions.ContributionData) -> None:

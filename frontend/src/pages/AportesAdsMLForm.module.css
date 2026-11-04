@@ -24,7 +24,6 @@
   composes: alertError from './AportesAdsML.module.css';
 }
 
-/* The value's unit sits beside the control, so the control keeps the shared box and focus ring. */
 /* The value's unit sits inside the box: the box carries the shared control look (forms-tesla `.input`) and its
    focus ring, the bare field inside only holds the text. */
 .amountBox {

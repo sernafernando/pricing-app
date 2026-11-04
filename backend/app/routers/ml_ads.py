@@ -507,7 +507,7 @@ def _data(body: ContributionIn) -> contributions.ContributionData:
 
 
 def _saved(db: Session, row: MlAdsCampaignContribution, data: contributions.ContributionData) -> ContributionSavedOut:
-    return ContributionSavedOut(**_contribution_out(row).model_dump(), warnings=contributions.warnings(db, data))
+    return ContributionSavedOut(**_contribution_out(row).model_dump(), warnings=contributions.save_warnings(db, data))
 
 
 def _not_found(contribution_id: int) -> Exception:
@@ -546,7 +546,7 @@ def preview_contribution(body: Annotated[ContributionIn, Query()], db: Session =
         spend=_money(result.spend),
         counted=_money(result.counted),
         net=_money(result.spend - result.counted),
-        warnings=contributions.warnings(db, data, through),
+        warnings=contributions.save_warnings(db, data, through),
         data_through=through,
         over_spend=contributions.exceeds_spend(data, result.spend),
     )

@@ -24,9 +24,6 @@ from typing import Optional
 from sqlalchemy import func, or_, tuple_
 from sqlalchemy.orm import Session
 
-from app.models.producto import ProductoERP
-from app.services.ml_ads.read import COVERED
-
 from app.models.ml_ads import (
     MlAdsCampaign,
     MlAdsCampaignContribution,
@@ -36,6 +33,8 @@ from app.models.ml_ads import (
     MlAdsDisplayCampaignDay,
     MlAdsItemDay,
 )
+from app.models.producto import ProductoERP
+from app.services.ml_ads.read import COVERED
 
 logger = logging.getLogger(__name__)
 
@@ -371,7 +370,7 @@ def data_through(db: Session, channel: str, advertiser_id: int) -> Optional[date
     return through
 
 
-def warnings(db: Session, data: ContributionData, through: Optional[date] = None) -> list[str]:
+def save_warnings(db: Session, data: ContributionData, through: Optional[date] = None) -> list[str]:
     """What to tell whoever saves `data` without stopping them (S4): a range ending after the ads data loaded so far.
     `through` is `data_through` when the caller already has it; otherwise it is read here."""
     through = through or data_through(db, data.channel, data.advertiser_id)
