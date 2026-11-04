@@ -116,6 +116,13 @@ describe('AportesPorAporte', () => {
     expect(within(table()).queryAllByRole('button')).toEqual([]);
   });
 
+  it('waits for a whole range before asking, like the campaigns view', async () => {
+    renderView({ range: { from: '2026-10-31', to: '2026-10-01' } });
+    renderView({ range: { from: '2026-10-01', to: '' } });
+    await waitFor(() => expect(screen.queryAllByRole('alert')).toEqual([]));
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
   it('asks again when the page says something changed', async () => {
     const { rerender } = renderView();
     await screen.findByText('Lucía Fernández · 02/10');

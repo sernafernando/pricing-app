@@ -45,6 +45,8 @@ function useAportes(range, refreshKey) {
   const [state, setState] = useState({ data: null, loading: true, error: null });
   const latest = useRef(0);
   useEffect(() => {
+    // Half-typed or inverted dates: wait, as the campaigns view does, instead of showing the backend's 422.
+    if (!(range.from && range.to && range.from <= range.to)) return;
     const request = ++latest.current;
     setState((s) => ({ ...s, loading: true, error: null }));
     api
