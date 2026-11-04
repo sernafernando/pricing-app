@@ -98,8 +98,8 @@ def _motivo_para_conservar(db: Session, grupo_id: int) -> Optional[str]:
 
 @router.get("/offset-grupos", response_model=List[OffsetGrupoResponse])
 def listar_grupos(db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
-    """Lista todos los grupos de offsets con sus filtros"""
-    grupos = db.query(OffsetGrupo).order_by(OffsetGrupo.nombre).all()
+    """Lista los grupos de offsets con sus filtros; los ocultos (los de cada línea de un tactical) no."""
+    grupos = db.query(OffsetGrupo).filter(OffsetGrupo.oculto.is_(False)).order_by(OffsetGrupo.nombre).all()
 
     resultado = []
     for grupo in grupos:
@@ -138,6 +138,7 @@ def alcance_grupos(db: Session = Depends(get_db), current_user: Usuario = Depend
         db.query(OffsetGrupo.id, SellOutCampana.id, SellOutCampana.nombre, SellOutCampana.estado)
         .outerjoin(SellOutCampanaGrupo, SellOutCampanaGrupo.grupo_id == OffsetGrupo.id)
         .outerjoin(SellOutCampana, SellOutCampana.id == SellOutCampanaGrupo.campana_id)
+        .filter(OffsetGrupo.oculto.is_(False))
         .order_by(OffsetGrupo.id, SellOutCampana.estado, SellOutCampana.fecha_desde.desc(), SellOutCampana.id)
     )
     for grupo_id, campana_id, nombre, estado in rows:
@@ -282,7 +283,8 @@ def eliminar_grupos(
     if not verificar_permiso(db, current_user, PERMISO_GRUPOS):
         raise HTTPException(status_code=403, detail=_SIN_PERMISO)
     ids = list(dict.fromkeys(pedido.ids))
-    grupos = {g.id: g for g in db.query(OffsetGrupo).filter(OffsetGrupo.id.in_(ids))}
+    # A tactical line's hidden group is not the tab's to delete: it answers as unknown.
+    grupos = {g.id: g for g in db.query(OffsetGrupo).filter(OffsetGrupo.id.in_(ids), OffsetGrupo.oculto.is_(False))}
     eliminados: List[int] = []
     rechazados: List[dict] = []
     for grupo_id in ids:

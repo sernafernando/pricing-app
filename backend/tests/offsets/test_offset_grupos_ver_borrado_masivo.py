@@ -197,3 +197,33 @@ class TestBorradoMasivo:
         ]
         monkeypatch.setattr(db, "flush", flush_real)
         assert _ids_que_quedan(db, [tomado, libre]) == [tomado]
+
+
+class TestOcultos:
+    """Owner (S4): "el grupo se creaba automáticamente, y no hace falta que el usuario vea los grupos ni para
+    elegirlos". A tactical line's own group (`oculto`) is never listed, counted or deleted from the Grupos tab."""
+
+    def test_a_hidden_group_is_not_listed_nor_in_the_reach(self, client, db, editor) -> None:
+        visible = _grupo(db, "Visible")
+        oculto = OffsetGrupo(nombre="Línea 1 del tactical", oculto=True)
+        db.add(oculto)
+        db.flush()
+
+        lista = client.get("/api/offset-grupos", headers=editor)
+        alcance = client.get("/api/offset-grupos-alcance", headers=editor)
+
+        assert [g["id"] for g in lista.json()] == [visible]
+        assert [row["grupo_id"] for row in alcance.json()] == [visible]
+
+    def test_the_bulk_delete_does_not_reach_a_hidden_group(self, client, db, editor) -> None:
+        oculto = OffsetGrupo(nombre="Línea 1 del tactical", oculto=True)
+        db.add(oculto)
+        db.flush()
+
+        resp = client.post(URL, json={"ids": [oculto.id]}, headers=editor)
+
+        assert resp.json() == {
+            "eliminados": [],
+            "rechazados": [{"id": oculto.id, "nombre": None, "motivo": "Grupo no encontrado"}],
+        }
+        assert _ids_que_quedan(db, [oculto.id]) == [oculto.id]
