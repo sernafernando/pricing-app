@@ -166,7 +166,8 @@ function DefaultSection({ title, children }) {
  * The sell-in lots of a product as the next sales will consume them (`GET /sell-in/productos/{id}/lotes`): FIFO order,
  * each lot's purchase, the date it counts from, units, units consumed and left, unit discount in ARS and status
  * (Vigente, En cola, Agotado, Desde dd/mm); what the next sale gets; per lot, the sales that consumed it; and the
- * product's cost mode (`SellInModoCosto`), the only part that writes, behind its own permissions. Without the permission that shows the product (403) it renders nothing. Mount it with `key={productItemId}`.
+ * product's cost mode (`SellInModoCosto`), the only part that writes, behind its own permissions. Without the
+ * permission that shows the product (403) it renders nothing. Mount it with `key={productItemId}`.
  *
  * @param {object} props
  * @param {number} props.productItemId The ERP product.
