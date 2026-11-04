@@ -502,6 +502,12 @@ def delete(db: Session, contribution_id: int, user_id: int) -> bool:
         row.date_to,
     )
     _audit(db, TipoAccion.ML_ADS_APORTE_BORRADO, user_id, _snapshot(row), None)
-    row.deleted_at, row.deleted_by_id = datetime.now(timezone.utc), user_id
+    # An explicit UPDATE that sets `updated_at` to itself: the model's `onupdate` would otherwise stamp the deletion
+    # time on it, and `updated_at` / `updated_by_id` must keep describing the last edit.
+    C = MlAdsCampaignContribution
+    db.query(C).filter(C.id == row.id).update(
+        {C.deleted_at: datetime.now(timezone.utc), C.deleted_by_id: user_id, C.updated_at: C.updated_at},
+        synchronize_session=False,
+    )
     db.commit()
     return True

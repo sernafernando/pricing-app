@@ -7,7 +7,7 @@ ERP product are DERIVED rows.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -75,6 +75,18 @@ def test_a_delete_keeps_the_row_marked_with_who_and_when(db) -> None:
     [kept] = db.query(MlAdsCampaignContribution).all()
     assert (kept.id, kept.deleted_by_id, kept.value) == (row.id, OTHER_USER, Decimal("30.00"))
     assert kept.deleted_at is not None
+
+
+def test_a_delete_keeps_the_last_edit_as_it_was(db) -> None:
+    """`updated_at` / `updated_by_id` keep describing the last edit; who deleted it and when live in their own columns."""
+    row = contributions.create(db, _data(), USER)
+    edited_at = datetime(2026, 10, 2, 9, 30, tzinfo=timezone.utc)
+    db.query(MlAdsCampaignContribution).filter_by(id=row.id).update({"updated_at": edited_at})
+    db.flush()
+    contributions.delete(db, row.id, OTHER_USER)
+    db.expire_all()
+    kept = db.get(MlAdsCampaignContribution, row.id)
+    assert (kept.updated_at, kept.updated_by_id, kept.deleted_by_id) == (edited_at, USER, OTHER_USER)
 
 
 def test_a_deleted_aporte_cannot_be_deleted_or_edited_again(db) -> None:
