@@ -51,6 +51,7 @@ class ProductSelection:
 class SubcategoriaOption(BaseModel):
     id: int
     nombre: str
+    grupo_id: Optional[int] = None  # commission group, shown as G{grupo_id} like Productos
 
 
 class SubcategoriaGroup(BaseModel):
@@ -61,12 +62,13 @@ class SubcategoriaGroup(BaseModel):
 class PmOption(BaseModel):
     id: int
     nombre: str
+    email: Optional[str] = None  # shown next to the name, like Productos
 
 
 class ProductFacetOptions(BaseModel):
     """What the four dropdowns offer. `subcategorias` keeps the grouped shape
-    (`[{nombre: categoría, subcategorias: [{id, nombre}]}]`) of Productos'
-    `/subcategorias`."""
+    (`[{nombre: categoría, subcategorias: [{id, nombre, grupo_id}]}]`) of
+    Productos' `/subcategorias`; a PM is `{id, nombre, email}`."""
 
     marcas: List[str] = []
     categorias: List[str] = []
@@ -76,8 +78,9 @@ class ProductFacetOptions(BaseModel):
 
 class ComboRow(NamedTuple):
     """One distinct combination of the universe, with its lookups: the
-    subcategory's name and group, and one PM of the (marca, categoría) pair
-    (a combination with no PM has `pm_id=None`)."""
+    subcategory's name, category and commission group, and one PM of the
+    (marca, categoría) pair with its email (a combination with no PM has
+    `pm_id=None`)."""
 
     marca: Optional[str]
     categoria: Optional[str]
@@ -86,6 +89,8 @@ class ComboRow(NamedTuple):
     subcategoria_categoria: Optional[str]
     pm_id: Optional[int]
     pm_nombre: Optional[str]
+    subcategoria_grupo_id: Optional[int] = None
+    pm_email: Optional[str] = None
 
 
 def _upper(value: Optional[str]) -> str:
@@ -111,6 +116,8 @@ def product_combo_statement(source: Select) -> Select:
             SubcategoriaGrupo.nombre_categoria,
             MarcaPM.usuario_id,
             Usuario.nombre,
+            SubcategoriaGrupo.grupo_id,
+            Usuario.email,
         )
         .select_from(combos)
         .outerjoin(SubcategoriaGrupo, SubcategoriaGrupo.subcat_id == subcat)
@@ -149,7 +156,9 @@ def product_facet_options(db: Session, rows: Iterable[ComboRow], selection: Prod
     # One entry per (marca, categoría, subcategoría) key, in upper case.
     keys: Dict[Tuple[str, str, Optional[int]], Tuple[Optional[str], Optional[str], Set[int]]] = {}
     sub_names: Dict[int, Tuple[str, str]] = {}
+    sub_groups: Dict[int, Optional[int]] = {}
     pm_names: Dict[int, str] = {}
+    pm_emails: Dict[int, Optional[str]] = {}
     for row in rows:
         key = (_upper(row.marca), _upper(row.categoria), row.subcategoria_id)
         seen = keys.get(key)
@@ -157,6 +166,7 @@ def product_facet_options(db: Session, rows: Iterable[ComboRow], selection: Prod
         if row.pm_id is not None:
             pms.add(row.pm_id)
             pm_names[row.pm_id] = row.pm_nombre or str(row.pm_id)
+            pm_emails[row.pm_id] = row.pm_email
         # Same value spelled twice ("EPSON"/"Epson"): keep the spelling that sorts last.
         keys[key] = (
             max(seen[0] or "", row.marca or "") or None if seen else row.marca,
@@ -165,6 +175,7 @@ def product_facet_options(db: Session, rows: Iterable[ComboRow], selection: Prod
         )
         if row.subcategoria_id is not None and row.subcategoria_nombre:
             sub_names[row.subcategoria_id] = (row.subcategoria_nombre, row.subcategoria_categoria or NO_CATEGORY_LABEL)
+            sub_groups[row.subcategoria_id] = row.subcategoria_grupo_id
 
     sel_marcas = {_upper(m) for m in selection.marcas}
     sel_categorias = {_upper(c) for c in selection.categorias}
@@ -199,23 +210,30 @@ def product_facet_options(db: Session, rows: Iterable[ComboRow], selection: Prod
     # up. (A universe value with no name is just not offered, like Productos.)
     missing_subs = {i for i in sel_subs if i not in sub_names}
     if missing_subs:
-        for subcat_id, nombre, categoria in db.execute(
+        for subcat_id, nombre, categoria, grupo_id in db.execute(
             select(
-                SubcategoriaGrupo.subcat_id, SubcategoriaGrupo.nombre_subcategoria, SubcategoriaGrupo.nombre_categoria
+                SubcategoriaGrupo.subcat_id,
+                SubcategoriaGrupo.nombre_subcategoria,
+                SubcategoriaGrupo.nombre_categoria,
+                SubcategoriaGrupo.grupo_id,
             ).where(SubcategoriaGrupo.subcat_id.in_(missing_subs))
         ):
             if nombre:
                 sub_names[subcat_id] = (nombre, categoria or NO_CATEGORY_LABEL)
+                sub_groups[subcat_id] = grupo_id
     missing_pms = {i for i in sel_pms if i not in pm_names}
     if missing_pms:
-        for user_id, nombre in db.execute(select(Usuario.id, Usuario.nombre).where(Usuario.id.in_(missing_pms))):
+        for user_id, nombre, email in db.execute(
+            select(Usuario.id, Usuario.nombre, Usuario.email).where(Usuario.id.in_(missing_pms))
+        ):
             pm_names[user_id] = nombre or str(user_id)
+            pm_emails[user_id] = email
 
     grouped: Dict[str, List[SubcategoriaOption]] = defaultdict(list)
     for sub_id in sorted(sub_ids, key=lambda i: (sub_names.get(i, ("", ""))[1], sub_names.get(i, ("", ""))[0])):
         if sub_id in sub_names:
             nombre, grupo = sub_names[sub_id]
-            grouped[grupo].append(SubcategoriaOption(id=sub_id, nombre=nombre))
+            grouped[grupo].append(SubcategoriaOption(id=sub_id, nombre=nombre, grupo_id=sub_groups.get(sub_id)))
     return ProductFacetOptions(
         marcas=marcas,
         categorias=categorias,
@@ -223,7 +241,7 @@ def product_facet_options(db: Session, rows: Iterable[ComboRow], selection: Prod
             SubcategoriaGroup(nombre=grupo, subcategorias=subs).model_dump() for grupo, subs in sorted(grouped.items())
         ],
         pms=[
-            PmOption(id=pm_id, nombre=pm_names[pm_id]).model_dump()
+            PmOption(id=pm_id, nombre=pm_names[pm_id], email=pm_emails.get(pm_id)).model_dump()
             for pm_id in sorted(pm_ids, key=lambda i: (pm_names.get(i, ""), i))
             if pm_id in pm_names
         ],

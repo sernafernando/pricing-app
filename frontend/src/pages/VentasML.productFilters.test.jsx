@@ -96,6 +96,25 @@ describe('Product filters (marca / categoría / subcategoría / PM) on VentasML'
     });
   });
 
+  it('shows the commission group and the PM email the sales response carries (pubml-filtros S2)', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/ml-ventas-ops/sales') {
+        const product = {
+          ...PRODUCT_OPTIONS,
+          subcategorias: [{ nombre: 'Audio', subcategorias: [{ id: 3, nombre: 'Parlantes', grupo_id: 4 }] }],
+          pms: [{ id: 10, nombre: 'Ana', email: 'ana@example.com' }],
+        };
+        return Promise.resolve({ data: { sales: [], total: 0, limit: 50, offset: 0, facets: { product } } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    await renderWithRouter(<VentasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Subcategoría' }));
+    expect(await screen.findByText('G4')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'PM' }));
+    expect(await screen.findByText('Ana (ana@example.com)')).toBeInTheDocument();
+  });
+
   it('picking a brand narrows the categories and subcategories offered next', async () => {
     await renderWithRouter(<VentasML />);
     await userEvent.click(await screen.findByRole('button', { name: 'Marca' }));

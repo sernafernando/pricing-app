@@ -15,7 +15,7 @@ Entrá a **Reportes → Ventas ML**. Elegí el período arriba a la izquierda (o
 Afiná con los filtros:
 - **Tienda**: Gauss, TP-Link Oficial u otras tiendas oficiales.
 - **Operación** (el dinero) y **Mercadería** (el producto): son dos ejes independientes. Una venta cancelada puede tener la mercadería todavía en el depósito, o ya devuelta.
-- **Producto**: marca, categoría, subcategoría y PM. Las opciones se ajustan entre sí. Como en Productos: al abrir uno, el cursor queda en la búsqueda (✕ la borra); en **Subcategoría**, tildar una categoría marca todas sus subcategorías a la vista (a medias muestra cuántas, por ejemplo 1/2), y buscar el nombre de una categoría muestra todas sus subcategorías.
+- **Producto**: marca, categoría, subcategoría y PM. Las opciones se ajustan entre sí. Como en Productos: al abrir uno, el cursor queda en la búsqueda (✕ la borra); en **Subcategoría**, tildar una categoría marca todas sus subcategorías a la vista (a medias muestra cuántas, por ejemplo 1/2), buscar el nombre de una categoría muestra todas sus subcategorías, cada subcategoría muestra su grupo de comisión (G1, G2…) y cada PM su email.
 - **Solo con alertas**: deja únicamente las ventas que tienen algo para revisar.
 - **Incluir**: tildes para mostrar u ocultar ventas A revisar, En disputa, Mixta, Provisorio y Canceladas. Cuando ocultás una categoría, te dice cuántas está escondiendo.
 
