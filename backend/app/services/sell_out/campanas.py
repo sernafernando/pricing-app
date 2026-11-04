@@ -942,6 +942,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         fila["grupos"] = grupos[c.id]
         fila["items"] = items[c.id]
         fila["programa_id"] = c.programa_id
+        fila["renovada_de_id"] = c.renovada_de_id
         fila["programa"] = de_programa.get(c.programa_id)
         salida.append(fila)
     return salida

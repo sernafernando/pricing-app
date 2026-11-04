@@ -5,7 +5,7 @@ new campaign while the original stays as it was."""
 from __future__ import annotations
 
 from datetime import date
-from typing import Iterator
+from typing import Iterator, Optional
 
 import pytest
 from sqlalchemy import Engine, text
@@ -73,7 +73,7 @@ def test_the_draft_of_an_unknown_campaign_is_none(Sesion) -> None:
         assert renovacion.borrador(db, 999) is None
 
 
-def _renovada_de(engine: Engine, campana_id: int):
+def _renovada_de(engine: Engine, campana_id: int) -> Optional[int]:
     with engine.connect() as conn:
         return conn.execute(
             text("SELECT renovada_de_id FROM sell_out_campanas WHERE id = :c"), {"c": campana_id}

@@ -320,6 +320,16 @@ def test_list_and_detail_keep_their_keys_and_carry_no_program_until_assigned(cli
     assert client.get(BASE, headers=gestor).json()["items"] == [out]
 
 
+def test_create_list_and_detail_return_the_campaign_a_renewal_renews(client, gestor, grupos) -> None:
+    original = _crear(client, gestor, grupos, nombre="Modelo Q4 2026")
+    copia = _crear(client, gestor, grupos, nombre="Modelo Q1 2027", renovada_de_id=original["id"])
+
+    assert copia["renovada_de_id"] == original["id"]
+    assert client.get(f"{BASE}/{copia['id']}", headers=gestor).json()["renovada_de_id"] == original["id"]
+    items = {x["id"]: x for x in client.get(BASE, headers=gestor).json()["items"]}
+    assert (items[copia["id"]]["renovada_de_id"], items[original["id"]]["renovada_de_id"]) == (original["id"], None)
+
+
 def test_list_and_detail_carry_the_program_of_each_campaign(client, gestor, grupos, db, admin_user) -> None:
     epson = _programa(db, admin_user, "MARCA PROG")
     rebate = _programa(db, admin_user, "Rebate")
