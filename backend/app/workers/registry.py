@@ -117,7 +117,6 @@ def __getattr__(name: str) -> List[JobHandler]:
                 sweep,
                 verify,
                 promo_refresh,
-                catalog_competition_refresh,
                 ads,
                 # promo-write-refresh P2: the ~60 s follow-up refresh after a promo write (was an unscheduled script).
                 promo_write_refresh,
@@ -130,6 +129,8 @@ def __getattr__(name: str) -> List[JobHandler]:
                 gestion_full_inbound,
                 # Gestión Full envíos: every 3h reconcile open inbound_ids.
                 gestion_full_reconcile,
+                # hay_mejores → catalog competition snapshot refresh (path 1).
+                catalog_competition_refresh,
                 # publicaciones-repair: conditional envio/sku ticks under the shared Pacer.
                 envio_repair,
                 sku_repair,
