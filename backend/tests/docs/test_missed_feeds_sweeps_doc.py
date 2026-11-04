@@ -59,6 +59,13 @@ def test_the_sizing_is_the_one_the_design_states(section) -> None:
     assert round(sweeps.requests_per_second(sweeps.daily_calls(24_600, 24_600)), 2) == 0.57
 
 
+def test_the_visits_window_and_its_sizing_are_the_real_ones(section) -> None:
+    assert sweeps.VISITS_ACTIVE_WINDOW == timedelta(hours=24)
+    for needle in ("VISITS_ACTIVE_WINDOW", "within the 24 h before the tick", "about 36k calls a day", "0.42 req/s"):
+        assert needle in section, needle
+    assert round(sweeps.requests_per_second(sweeps.daily_calls(26_700, 9_200)), 2) == 0.42
+
+
 def test_the_default_statuses_are_every_non_closed_status_and_closed_is_never_swept(section) -> None:
     assert set(settings.ML_PUB_SWEEP_STATUSES) == {"active", "paused", "under_review", "inactive", "pending"}
     assert "`closed`" in section and "never" in section

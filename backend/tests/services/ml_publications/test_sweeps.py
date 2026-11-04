@@ -68,6 +68,20 @@ def put_state(engine, table: str, item_id: str, *, checked_ago_days: Optional[fl
         conn.execute(text(f"INSERT INTO {table} ({columns}) VALUES ({values})"), params)
 
 
+def put_status_change(engine, item_id: str, *, hours_ago: float, old: str = "active", new: str = "paused") -> None:
+    """The item change-log row the store writes when the item's status moves from `old` to `new`."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO ml_change_log (resource_type, entity_id, item_id, kind, observed_at, changed_paths, "
+                "changes, context) VALUES ('item', :id, :id, 'change', now() - (:h * interval '1 hour'), "
+                "ARRAY['status'], '[]', jsonb_build_object('status_old', CAST(:old AS text), "
+                "'status_new', CAST(:new AS text)))"
+            ),
+            {"id": item_id, "h": hours_ago, "old": old, "new": new},
+        )
+
+
 def queue_rows(engine) -> Dict[str, dict]:
     with engine.connect() as conn:
         rows = conn.execute(text("SELECT entity_id, lane, resources FROM ml_pub_refresh_queue")).fetchall()
@@ -202,6 +216,60 @@ class TestSelection:
         rows = queue_rows(env)
         assert rows[ids[0]] == {"lane": queue.LANE_BACKFILL, "resources": ["bundle"]}
         assert rows[ids[1]]["resources"] == ["visits"]
+
+
+class TestVisitsOnlyOfItemsActiveNowOrInTheLastDay:
+    """Owner: visits of the items that are active and of those active in the last 24 h at query time; an item
+    paused before that cannot change its visits. Performance keeps the `sweep.statuses` eligibility."""
+
+    def test_an_item_paused_two_days_ago_is_not_swept_for_visits(self, env) -> None:
+        (item,) = put_items(env, 1, status="paused", prefix="MLP")
+        put_status_change(env, item, hours_ago=48)
+        result = run(bundle=["core", "visits"])
+        assert queue_rows(env) == {}
+        assert result.resources["visits"].eligible == 0
+
+    def test_an_item_paused_three_hours_ago_is_still_swept_for_visits(self, env) -> None:
+        (item,) = put_items(env, 1, status="paused", prefix="MLP")
+        put_status_change(env, item, hours_ago=3)
+        run(bundle=["core", "visits"])
+        assert queue_rows(env) == {item: {"lane": queue.LANE_SWEEP, "resources": ["visits"]}}
+
+    def test_the_window_is_twenty_four_hours_from_the_tick(self, env) -> None:
+        (inside,) = put_items(env, 1, status="paused", prefix="MLI")
+        put_status_change(env, inside, hours_ago=23)
+        (outside,) = put_items(env, 1, status="paused", prefix="MLO")
+        put_status_change(env, outside, hours_ago=25)
+        result = run(bundle=["core", "visits"])
+        assert set(queue_rows(env)) == {inside}
+        assert result.resources["visits"].eligible == 1
+
+    def test_an_active_item_is_swept_for_visits(self, env) -> None:
+        (item,) = put_items(env, 1)
+        run(bundle=["core", "visits"])
+        assert queue_rows(env) == {item: {"lane": queue.LANE_SWEEP, "resources": ["visits"]}}
+
+    def test_a_recent_change_of_an_item_that_was_not_active_does_not_count(self, env) -> None:
+        (item,) = put_items(env, 1, status="paused", prefix="MLP")
+        put_status_change(env, item, hours_ago=3, old="under_review", new="paused")
+        assert run(bundle=["core", "visits"]).resources["visits"].eligible == 0
+
+    def test_an_item_never_seen_changing_and_not_active_is_not_swept_for_visits(self, env) -> None:
+        put_items(env, 1, status="paused", prefix="MLP")
+        assert run(bundle=["core", "visits"]).resources["visits"].eligible == 0
+
+    def test_performance_still_sweeps_every_status_of_the_setting(self, env) -> None:
+        (old_pause,) = put_items(env, 1, status="paused", prefix="MLP")
+        put_status_change(env, old_pause, hours_ago=48)
+        put_items(env, 1, status="under_review", prefix="MLU")
+        result = run(bundle=["core", "performance"])
+        assert result.resources["performance"].eligible == 2
+        assert set(queue_rows(env)) == {old_pause}  # K = 1
+
+    def test_the_status_setting_still_narrows_visits(self, env) -> None:
+        (item,) = put_items(env, 1, status="paused", prefix="MLP")
+        put_status_change(env, item, hours_ago=3)
+        assert run(statuses=ACTIVE_ONLY, bundle=["core", "visits"]).resources["visits"].eligible == 0
 
 
 class TestParkedEntries:
