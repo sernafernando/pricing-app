@@ -4,7 +4,7 @@
 
 ## Resumen ejecutivo
 
-Las campañas que todavía no tienen programa se asignan de una vez desde la fila **Sin programa**. Cada campaña muestra su número («ID #n») y la barra de selección queda a la vista mientras se baja por la lista.
+Las campañas que todavía no tienen programa se asignan de una vez desde la fila **Sin programa**. Cada campaña muestra su número («ID #n») y las acciones sobre las seleccionadas quedan en una barra flotante abajo de la ventana.
 
 ## Cómo se usa
 
@@ -16,6 +16,6 @@ Las campañas que todavía no tienen programa se asignan de una vez desde la fil
 
 - **Asignar ahora** respeta los filtros: con un filtro activo, solo toma las campañas sin programa que lo cumplen.
 - Si la lista cambia mientras se leen las campañas, avisa y no abre nada; actualizá y volvé a intentar.
-- El «ID #n» está debajo del nombre en la lista y en la vista por programa.
-- Con campañas seleccionadas, la barra (**Asignar a programa**, **Anular seleccionados**) flota arriba de la lista.
+- El «ID #n» está al lado del nombre, en la lista y en la vista por programa.
+- Con campañas seleccionadas aparece una barra flotante abajo y al centro, con **Asignar a programa**, **Anular seleccionadas** y **×** para limpiar la selección. **Anular seleccionadas** abre la confirmación arriba de la lista y la trae a la vista.
 - **Asignar ahora** y la selección son solo para quien gestiona campañas.

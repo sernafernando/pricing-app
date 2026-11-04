@@ -58,6 +58,32 @@
   margin-left: 0;
 }
 
+.enlace {
+  padding: 0;
+  font: inherit;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--cf-accent-blue);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.enlace:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.enlace:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.enlace:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .error {
   font-size: var(--font-sm);
   color: var(--tone-danger-fg);

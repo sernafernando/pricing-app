@@ -85,7 +85,7 @@ function AsignarSinPrograma({ grupo, filtros, onAsignar }) {
           {error}
         </span>
       )}
-      <button type="button" className="btn-tesla outline sm" onClick={asignar} disabled={busy}>
+      <button type="button" className={styles.enlace} onClick={asignar} disabled={busy}>
         Asignar ahora
       </button>
     </span>

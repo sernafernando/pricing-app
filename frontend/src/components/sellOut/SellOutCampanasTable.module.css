@@ -7,15 +7,20 @@
   gap: var(--space-1);
 }
 
-/* The campaign id under its name (Stitch 5ee03d7d): what the operator quotes to find or mention a campaign. */
+/* The campaign's name with its id beside it (Stitch 5ee03d7d): what the operator quotes to find or mention a campaign. */
+.nombre {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .idChip {
-  display: inline-block;
-  margin-top: var(--space-1);
   padding: 0 var(--space-1);
+  font-family: var(--font-mono);
   font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
   color: var(--cf-text-secondary);
   background: var(--cf-bg-hover);
-  border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-sm);
 }

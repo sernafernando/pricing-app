@@ -8,22 +8,89 @@
   color: var(--cf-text-primary);
 }
 
-/* With a selection, the bar and its confirmation float over the list as it scrolls (Stitch 5ee03d7d). */
+/* With a selection, the actions float at the bottom of the window (Stitch 5ee03d7d): a pill in the inverse colors
+   (the theme's text color as background), so it reads as a layer above the list in either theme. */
 .flotante {
-  position: sticky;
-  top: calc(var(--cf-topbar-height) + var(--space-2));
-  z-index: 5;
-  padding: var(--space-2) var(--space-3);
-  margin-bottom: var(--spacing-md);
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
+  position: fixed;
+  bottom: var(--space-6);
+  left: 50%;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--font-xs);
+  color: var(--cf-bg-card);
+  background: var(--cf-text-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  transform: translateX(-50%);
 }
 
-.flotante .bar,
-.flotante .confirm:last-child {
-  margin-bottom: 0;
+.flotante .count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--space-3);
+  border-right: 1px solid color-mix(in srgb, var(--cf-bg-card) 35%, transparent);
+}
+
+.punto {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--cf-accent-blue);
+  border-radius: 50%;
+}
+
+.accion {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  font: inherit;
+  font-weight: var(--font-medium);
+  color: inherit;
+  background: color-mix(in srgb, var(--cf-bg-card) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cf-bg-card) 45%, transparent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.accion:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--cf-bg-card) 20%, transparent);
+}
+
+.cerrar {
+  display: inline-flex;
+  padding: var(--space-1);
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.cerrar:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.accion:focus-visible,
+.cerrar:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+}
+
+.accion:disabled,
+.cerrar:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* While the bar floats, the page gets room at its end, so the bar never covers the last row or the pagination
+   (the page draws the pagination after this component). */
+:global(body):has(.flotante) {
+  padding-bottom: calc(var(--space-6) * 3);
 }
 
 .count {
@@ -31,12 +98,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-left: auto;
-}
 
 .confirm {
   display: flex;

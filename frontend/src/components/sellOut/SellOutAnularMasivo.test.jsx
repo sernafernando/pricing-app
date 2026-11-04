@@ -1,5 +1,5 @@
 /**
- * SellOutAnularMasivo: the campaigns list with row selection and "Anular seleccionados" (bulk void, all or nothing,
+ * SellOutAnularMasivo: the campaigns list with row selection and "Anular seleccionadas" (bulk void, all or nothing,
  * `POST /sell-out/campanas/anular`). "Seleccionar todo lo filtrado" resolves every filtered id from the list endpoint
  * and is fail-closed: it refuses when the ids it got do not add up to the list total.
  */
@@ -47,7 +47,7 @@ describe('SellOutAnularMasivo', () => {
 
     expect(screen.getByText('Campaña 1')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Anular seleccionados/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Anular seleccionadas/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Seleccionar todo lo filtrado/ })).not.toBeInTheDocument();
   });
 
@@ -56,6 +56,22 @@ describe('SellOutAnularMasivo', () => {
 
     expect(within(fila('Campaña 2')).getByText('ID #2')).toBeInTheDocument();
     expect(within(fila('Campaña 3')).getByText('ID #3')).toBeInTheDocument();
+  });
+
+  it('the bulk actions appear in their own floating bar only with a selection, and × clears it', async () => {
+    const user = userEvent.setup();
+    renderLista();
+
+    expect(screen.queryByRole('complementary', { name: 'Acciones masivas de campañas' })).not.toBeInTheDocument();
+    await user.click(casilla('Campaña 1'));
+    const barra = screen.getByRole('complementary', { name: 'Acciones masivas de campañas' });
+    expect(within(barra).getByText('1 seleccionada')).toBeInTheDocument();
+    expect(within(barra).getByRole('button', { name: 'Asignar a programa' })).toBeInTheDocument();
+    expect(within(barra).getByRole('button', { name: 'Anular seleccionadas' })).toBeInTheDocument();
+
+    await user.click(within(barra).getByRole('button', { name: 'Limpiar selección' }));
+    expect(screen.queryByRole('complementary', { name: 'Acciones masivas de campañas' })).not.toBeInTheDocument();
+    expect(casilla('Campaña 1')).not.toBeChecked();
   });
 
   it('row checkboxes and the header checkbox select the visible page and the bar counts them', async () => {
@@ -137,7 +153,7 @@ describe('SellOutAnularMasivo', () => {
     const { onAnuladas } = renderLista();
 
     await user.click(screen.getByRole('checkbox', { name: 'Seleccionar la página' }));
-    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionadas' }));
 
     const confirmacion = screen.getByRole('region', { name: 'Confirmar anulación' });
     expect(confirmacion).toHaveTextContent('Se van a anular 2 campañas.');
@@ -172,7 +188,7 @@ describe('SellOutAnularMasivo', () => {
 
     await user.click(casilla('Campaña 1'));
     await user.click(casilla('Campaña 2'));
-    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(screen.getByRole('button', { name: 'Anular seleccionadas' }));
     await user.click(screen.getByRole('button', { name: 'Confirmar anulación' }));
 
     const alerta = await screen.findByRole('alert');

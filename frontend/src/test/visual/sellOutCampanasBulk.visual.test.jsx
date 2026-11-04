@@ -1,6 +1,6 @@
 /**
  * The Sell out campaigns list after Stitch 5ee03d7d: the «ID #n» chip under each campaign's name, "Asignar ahora" on
- * the "Sin programa" group, and the bulk bar floating under the top bar while a long list scrolls. Light, dark and
+ * the "Sin programa" group, and the bulk bar floating at the bottom center of the window. Light, dark and
  * high contrast. Real Chromium geometry: jsdom does no layout.
  *
  *   VITE_SELLINOUT_SHOTS_DIR=<dir> pnpm exec vitest run --project=visual sellOutCampanasBulk   (also saves screenshots)
@@ -62,7 +62,9 @@ const box = (el) => el.getBoundingClientRect();
 const fondo = (el) => {
   for (let n = el; n; n = n.parentElement) {
     const bg = getComputedStyle(n).backgroundColor;
-    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') return bg;
+    // A translucent tint (the bar's buttons) is not the backdrop: keep climbing to the opaque one.
+    const translucido = /\/\s*0?\.\d+\)$|rgba\([^)]*,\s*0?\.\d+\)$|rgba\([^)]*,\s*0\)$/.test(bg);
+    if (bg && bg !== 'transparent' && !translucido) return bg;
   }
   return getComputedStyle(document.body).backgroundColor;
 };
@@ -105,21 +107,30 @@ describe.each([
     document.documentElement.classList.remove('high-contrast');
   });
 
-  it('with a selection the bulk bar stays under the top bar while the list scrolls', async () => {
+  it('with a selection the bulk bar floats at the bottom center of the window and covers no row at the end', async () => {
     const screen = await preparar('/sell-in?tab=sell-out&vista=lista');
     await page.viewport(width, 560); // shorter than the page, so it scrolls
     await screen.getByRole('checkbox', { name: 'Seleccionar MODELO 8100' }).click();
     await screen.getByRole('checkbox', { name: 'Seleccionar MODELO 8101' }).click();
-    const contador = screen.getByText('2 seleccionadas');
-    await expect.element(contador).toBeVisible();
+    const barra = screen.getByRole('complementary', { name: 'Acciones masivas de campañas' });
+    await expect.element(barra).toBeVisible();
 
     window.scrollTo(0, document.documentElement.scrollHeight);
     await new Promise((r) => requestAnimationFrame(r));
     expect(window.scrollY).toBeGreaterThan(0);
-    const barra = box(screen.getByRole('button', { name: 'Anular seleccionados' }).element());
-    const topbar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--cf-topbar-height')) || 0;
-    expect(barra.top).toBeGreaterThanOrEqual(topbar);
-    expect(barra.bottom).toBeLessThanOrEqual(560);
+    const b = box(barra.element());
+    expect(b.bottom).toBeLessThanOrEqual(560);
+    expect(b.bottom).toBeGreaterThan(560 - 60); // at the bottom of the window
+    expect(Math.abs((b.left + b.right) / 2 - width / 2)).toBeLessThan(2); // centered on the window
+    // Scrolled to the end, the last row and the pagination stay above the bar.
+    const ultima = box(screen.getByText('MODELO 8109').element().closest('tr'));
+    expect(ultima.bottom).toBeLessThanOrEqual(b.top);
+    expect(box(screen.getByRole('button', { name: 'Siguiente' }).element()).bottom).toBeLessThanOrEqual(b.top);
+    // The bar's own labels read at AA on it ("Anular seleccionadas" is the app's danger button, painted by a gradient).
+    const asignar = screen.getByRole('button', { name: 'Asignar a programa' }).element();
+    expect(contrastRatio(getComputedStyle(asignar).color, fondo(asignar))).toBeGreaterThanOrEqual(4.5);
+    const contador = screen.getByText('2 seleccionadas').element();
+    expect(contrastRatio(getComputedStyle(contador).color, fondo(contador))).toBeGreaterThanOrEqual(4.5);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/campanas-barra-flotante-${modo}.png` });
     window.scrollTo(0, 0);
     document.documentElement.classList.remove('high-contrast');

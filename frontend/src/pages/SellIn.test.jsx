@@ -697,7 +697,7 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
 
     sellOutAPI.detalle.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, estado: 'anulada' } });
     await user.click(within(fila).getByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionadas' }));
     await user.click(within(seccion).getByRole('button', { name: 'Confirmar anulación' }));
 
     await waitFor(() => expect(sellOutAPI.detalle).toHaveBeenCalledTimes(2));
@@ -714,7 +714,7 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await user.click(within(fila).getByRole('button', { name: 'Ver campaña' }));
     await screen.findByRole('heading', { name: 'RB 8180', level: 2 });
     await user.click(within(fila).getByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionadas' }));
     await user.click(within(seccion).getByRole('button', { name: 'Confirmar anulación' }));
 
     await user.click(screen.getByRole('button', { name: 'Cerrar' })); // while the bulk void is in flight
@@ -733,7 +733,7 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
     const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
     await user.click(within(fila).getByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionados' }));
+    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionadas' }));
     await user.click(within(seccion).getByRole('button', { name: 'Confirmar anulación' }));
 
     await user.type(screen.getByPlaceholderText('Buscar campaña por nombre…'), 'Epson'); // while it is in flight
