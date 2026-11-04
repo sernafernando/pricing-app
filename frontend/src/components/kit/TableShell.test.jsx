@@ -3,10 +3,24 @@
  * the unit project runs with `css: false`, so "sticky inside its own
  * scroller" is proved in real Chromium by `src/test/visual/kit.visual.test.jsx`.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TableShell from './TableShell';
+
+// jsdom lays nothing out, so the virtualizer is told which rows the scroller shows: the first `view.last + 1`.
+const view = vi.hoisted(() => ({ last: 19 }));
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: ({ count, getItemKey }) => {
+    const items = Array.from({ length: Math.min(count, view.last + 1) }, (_, index) => ({
+      index,
+      key: getItemKey(index),
+      start: index * 56,
+      end: (index + 1) * 56,
+    }));
+    return { getVirtualItems: () => items, getTotalSize: () => count * 56, measureElement: () => {} };
+  },
+}));
 
 const COLUMNS = [
   { key: 'title', header: 'Publicación', width: 320, render: (r) => r.title },
@@ -328,5 +342,38 @@ describe('row tone (getRowTone)', () => {
     expect(hinted).toHaveAttribute('title', 'Color global: Info');
     expect(plain).not.toHaveAttribute('data-tone');
     expect(plain).not.toHaveAttribute('data-marker');
+  });
+});
+
+describe('the end of a virtualized table (onEndReached)', () => {
+  const many = (count, from = 0) =>
+    Array.from({ length: count }, (_, i) => ({ id: `R${from + i}`, title: `Row ${from + i}`, price: i, stock: i }));
+  afterEach(() => {
+    view.last = 19;
+  });
+
+  it('is reached once the last rows come into view, once per rows, and again when more rows arrive', () => {
+    const onEndReached = vi.fn();
+    const rows = many(200);
+    view.last = 150; // 49 rows below the view: far from the end
+    const { rerender } = renderShell({ rows, virtualizeFrom: 100, onEndReached });
+    expect(onEndReached).not.toHaveBeenCalled();
+    view.last = 199 - 15; // within OVERSCAN of the last row
+    rerender(<TableShell columns={COLUMNS} rows={rows} getRowKey={(r) => r.id} virtualizeFrom={100} onEndReached={onEndReached} />);
+    expect(onEndReached).toHaveBeenCalledTimes(1);
+    rerender(<TableShell columns={COLUMNS} rows={rows} getRowKey={(r) => r.id} virtualizeFrom={100} onEndReached={onEndReached} />);
+    expect(onEndReached).toHaveBeenCalledTimes(1); // the same rows: not again
+    const more = [...rows, ...many(100, 200)];
+    view.last = 299;
+    rerender(<TableShell columns={COLUMNS} rows={more} getRowKey={(r) => r.id} virtualizeFrom={100} onEndReached={onEndReached} />);
+    expect(onEndReached).toHaveBeenCalledTimes(2);
+  });
+
+  it('is never reached by a table that renders every row', () => {
+    const onEndReached = vi.fn();
+    view.last = 199;
+    renderShell({ rows: many(200), onEndReached });
+    renderShell({ rows: many(50), virtualizeFrom: 100, onEndReached });
+    expect(onEndReached).not.toHaveBeenCalled();
   });
 });

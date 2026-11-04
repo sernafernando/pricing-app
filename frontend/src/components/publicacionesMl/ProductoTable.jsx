@@ -76,6 +76,7 @@ export default function ProductoTable({
   prearmadasStats = NO_PREARMADAS,
   listingById = NO_LISTING,
   virtualizeFrom,
+  onEndReached,
 }) {
   const { rows, toggle, loadMore } = tree;
 
@@ -151,6 +152,7 @@ export default function ProductoTable({
       emptyMessage={emptyMessage}
       ariaLabel="Publicaciones de Mercado Libre por producto"
       virtualizeFrom={virtualizeFrom}
+      onEndReached={onEndReached}
     />
   );
 }

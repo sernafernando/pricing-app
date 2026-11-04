@@ -83,6 +83,31 @@ vi.mock('../services/api', () => ({
   registerAuthFailureHandler: vi.fn(),
 }));
 
+// jsdom lays nothing out: a test that needs the end of a long list in view says so (`virtualView.all`), and the
+// virtualizer then shows every row; otherwise it is the real one.
+const virtualView = vi.hoisted(() => ({ all: false }));
+vi.mock('@tanstack/react-virtual', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    useVirtualizer: (options) => {
+      const real = actual.useVirtualizer(options);
+      if (!virtualView.all) return real;
+      const items = Array.from({ length: options.count }, (_, index) => ({
+        index,
+        key: options.getItemKey(index),
+        start: index * 56,
+        end: (index + 1) * 56,
+      }));
+      return Object.assign(Object.create(real), {
+        getVirtualItems: () => items,
+        getTotalSize: () => options.count * 56,
+        measureElement: () => {},
+      });
+    },
+  };
+});
+
 // Team management has its own tests; here only that the page opens it and reloads its teams after.
 vi.mock('../components/EquiposModal', () => ({
   default: ({ isOpen, onClose }) =>
@@ -576,10 +601,118 @@ describe('page size', () => {
     await waitFor(() => expect(lastParams()).toMatchObject({ limit: 25, offset: 0 }));
   });
 
-  it('"Todos" asks for every row on one page, as Productos does', async () => {
+  it('"Todos" goes back to the first page and asks its first part, not 9999 rows at once', async () => {
     await page('/ml-publicaciones?pagina=3');
     await userEvent.selectOptions(screen.getByLabelText('Filas por página'), 'Todos');
-    await waitFor(() => expect(lastParams()).toMatchObject({ limit: 9999, offset: 0 }));
+    await waitFor(() => expect(lastParams()).toMatchObject({ limit: 500, offset: 0 }));
+  });
+});
+
+describe('"Todos" in parts of 500 as the list scrolls (filtros S4)', () => {
+  // A part of the list: 500 asked, 101 answered (enough to render only the rows in view), out of 1200. The first part
+  // carries the fixture's rows, so the page shows MLA1100000001; the others, rows of their own offset.
+  const part = (offset, prefix = 'MLA13') =>
+    Array.from({ length: 101 }, (_, i) => makeItem({ item_id: `${prefix}${String(offset + i).padStart(8, '0')}` }));
+  const answer = (params) => ({
+    data: {
+      ...ITEMS_RESPONSE,
+      ...(params.facets && { facets: FACETS }),
+      total: 1200,
+      items: params.offset === 0 ? [...ITEMS, ...part(0)] : part(params.offset),
+    },
+  });
+  // Here the scroller shows every row, so the end of each part is in view as soon as it renders.
+  beforeEach(() => {
+    virtualView.all = true;
+    publicacionesMlAPI.items.mockImplementation((params) => Promise.resolve(answer(params)));
+  });
+  afterEach(() => {
+    virtualView.all = false;
+  });
+
+  it('asks 500 at offset 0 with the facets, then the next parts with the same filters and sort, until the total', async () => {
+    await page('/ml-publicaciones?limite=9999&estado=active');
+    await waitFor(() => expect(calls()).toHaveLength(3));
+    const { facets, ...first } = calls()[0];
+    expect(facets).toBe(true);
+    expect(first).toMatchObject({ estado: 'active', orden: 'tipo,facturado_30d', dir: 'asc,desc', limit: 500, offset: 0 });
+    expect(calls()[1]).toEqual({ ...first, offset: 500 });
+    expect(calls()[2]).toEqual({ ...first, offset: 1000, limit: 200 });
+    expect(await screen.findByText('MLA1300001000')).toBeInTheDocument();
+    expect(screen.getByText('MLA1300000500')).toBeInTheDocument();
+    // The pager keeps the whole list's total, and the facets stay those of the first part.
+    expect(screen.getByText('mostrando 1-1200 de 1200 publicaciones')).toBeInTheDocument();
+    const tienda = screen.getByRole('group', { name: 'Filtrar por tienda oficial' });
+    expect(within(tienda).getByRole('button', { name: /Sin tienda.*35/ })).toBeInTheDocument();
+    await act(async () => {});
+    expect(calls()).toHaveLength(3);
+  });
+
+  it('a filter change starts again at offset 0, and a part of the previous list is never appended', async () => {
+    let releaseStale;
+    publicacionesMlAPI.items.mockImplementation((params) =>
+      !params.estado && params.offset === 500
+        ? new Promise((resolve) => {
+            releaseStale = () => resolve({ data: { ...ITEMS_RESPONSE, total: 1200, items: part(500, 'MLA19') } });
+          })
+        : Promise.resolve(answer(params)),
+    );
+    await page('/ml-publicaciones?limite=9999');
+    await waitFor(() => expect(lastParams()).toMatchObject({ offset: 500 }));
+    const estado = screen.getByRole('group', { name: 'Filtrar por estado' });
+    await userEvent.click(within(estado).getByRole('button', { name: /Activas/ }));
+    await waitFor(() => expect(calls().some((params) => params.estado === 'active' && params.offset === 0)).toBe(true));
+    expect(calls().find((params) => params.estado === 'active')).toMatchObject({ limit: 500, offset: 0, facets: true });
+    await screen.findByText('MLA1300001000');
+    await act(async () => releaseStale());
+    expect(screen.queryByText('MLA1900000500')).not.toBeInTheDocument();
+  });
+
+  it('a failed part says so and "Reintentar" asks it again, so the list is never cut short in silence', async () => {
+    let failOnce = true;
+    publicacionesMlAPI.items.mockImplementation((params) => {
+      if (params.offset === 500 && failOnce) {
+        failOnce = false;
+        return Promise.reject(httpError(503));
+      }
+      return Promise.resolve(answer(params));
+    });
+    await page('/ml-publicaciones?limite=9999');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('No se pudieron traer más publicaciones');
+    expect(screen.queryByText('MLA1300000500')).not.toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole('button', { name: 'Reintentar' }));
+    expect(await screen.findByText('MLA1300000500')).toBeInTheDocument();
+    expect(calls().filter((params) => params.offset === 500)).toHaveLength(2);
+    expect(screen.queryByText('No se pudieron traer más publicaciones', { exact: false })).not.toBeInTheDocument();
+  });
+
+  it('while parts are still coming, the header checkbox checks the rows loaded so far, never the ones not in yet', async () => {
+    const pick = (mla) => screen.getByRole('checkbox', { name: `Seleccionar la publicación ${mla}` });
+    let releaseSecond;
+    publicacionesMlAPI.items.mockImplementation((params) =>
+      params.offset === 500
+        ? new Promise((resolve) => {
+            releaseSecond = () => resolve(answer(params));
+          })
+        : Promise.resolve(answer(params)),
+    );
+    await page('/ml-publicaciones?limite=9999');
+    await waitFor(() => expect(lastParams()).toMatchObject({ offset: 500 }));
+    const all = screen.getByRole('checkbox', { name: 'Seleccionar las filas de la página' });
+    await userEvent.click(all);
+    expect(all).toBeChecked();
+    expect(pick('MLA1300000100')).toBeChecked();
+    await act(async () => releaseSecond());
+    expect(await screen.findByText('MLA1300000500')).toBeInTheDocument();
+    expect(pick('MLA1300000500')).not.toBeChecked();
+    expect(all).not.toBeChecked();
+  });
+
+  it.each([50, 500])('a page of %i still asks one request of that size', async (size) => {
+    await page(`/ml-publicaciones?limite=${size}`);
+    await act(async () => {});
+    expect(calls()).toEqual([expect.objectContaining({ limit: size, offset: 0, facets: true })]);
   });
 });
 

@@ -16,3 +16,4 @@ En **Publicaciones ML**, elegir **Todos** (o 200 o 500) en **Filas por página**
 
 - Funciona en las vistas Publicaciones, Precios y Producto. La vista Agrupado ya cargaba de a 100 con **Ver más**.
 - Las páginas de 25, 50 y 100 filas no cambian.
+- Con **Todos**, las filas se traen de a 500 a medida que se baja por la lista, en lugar de pedirlas todas juntas al abrirla.

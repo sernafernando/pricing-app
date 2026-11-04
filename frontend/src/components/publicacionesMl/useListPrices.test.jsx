@@ -95,6 +95,44 @@ describe('useListPrices', () => {
     expect(signals.every((signal) => signal.aborted)).toBe(true);
   });
 
+  it('a list that grows ("Todos" appends a part) asks only the new products and keeps the shown prices meanwhile', async () => {
+    productosAPI.listar.mockImplementation(({ item_ids }) =>
+      Promise.resolve(listed(...item_ids.split(',').map((id) => ({ item_id: Number(id), precio_lista_ml: Number(id) * 10 })))),
+    );
+    const { result, rerender } = renderHook(({ ids }) => useListPrices(ids, true), { initialProps: { ids: [1, 2] } });
+    await waitFor(() => expect(result.current.byId.get(2).precio_lista_ml).toBe(20));
+    let release;
+    productosAPI.listar.mockImplementationOnce(
+      ({ item_ids }) =>
+        new Promise((resolve) => {
+          release = () => resolve(listed(...item_ids.split(',').map((id) => ({ item_id: Number(id), precio_lista_ml: Number(id) * 10 }))));
+        }),
+    );
+    rerender({ ids: [1, 2, 3, null] });
+    // While the new part is asked, the prices already on show stay.
+    expect(result.current.byId.get(1).precio_lista_ml).toBe(10);
+    expect(productosAPI.listar).toHaveBeenLastCalledWith({ item_ids: '3', page: 1, page_size: 1 }, { signal: expect.any(AbortSignal) });
+    release();
+    await waitFor(() => expect(result.current.byId.get(3).precio_lista_ml).toBe(30));
+    expect(result.current.byId.get(1).precio_lista_ml).toBe(10);
+    expect(result.current.loading).toBe(false);
+    expect(productosAPI.listar).toHaveBeenCalledTimes(2);
+  });
+
+  it('a grown list whose new part fails keeps the prices already shown and says the rest failed', async () => {
+    productosAPI.listar.mockImplementation(({ item_ids }) =>
+      Promise.resolve(listed(...item_ids.split(',').map((id) => ({ item_id: Number(id), precio_lista_ml: Number(id) * 10 })))),
+    );
+    const { result, rerender } = renderHook(({ ids }) => useListPrices(ids, true), { initialProps: { ids: [1, 2] } });
+    await waitFor(() => expect(result.current.byId.get(2).precio_lista_ml).toBe(20));
+    productosAPI.listar.mockRejectedValueOnce(new Error('503'));
+    rerender({ ids: [1, 2, 3] });
+    await waitFor(() => expect(result.current.error).toBe(true));
+    expect(result.current.byId.get(1).precio_lista_ml).toBe(10);
+    expect(result.current.byId.has(3)).toBe(false);
+    expect(result.current.loading).toBe(false);
+  });
+
   it('asks nothing when disabled or with no product on show', () => {
     renderHook(() => useListPrices([7], false));
     renderHook(() => useListPrices([null], true));

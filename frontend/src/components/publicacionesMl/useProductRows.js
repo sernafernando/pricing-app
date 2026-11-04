@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { publicacionesMlAPI } from '../../services/api';
-import { buildProductsParams, effectiveProductSortKeys, headerSort } from '../../hooks/usePublicacionesMLFilters';
+import {
+  ALL_ROWS,
+  LAZY_CHUNK,
+  buildProductsParams,
+  effectiveProductSortKeys,
+  headerSort,
+} from '../../hooks/usePublicacionesMLFilters';
 import { buildLeafParams } from './groupNodes';
 import { flattenTree } from './groupTree';
 
@@ -17,6 +23,10 @@ import { flattenTree } from './groupTree';
  * the same, so closing and opening it again asks for nothing; a new list
  * (filters, sort, page, permission) starts over, collapsed, and an answer to a
  * request of the previous list is dropped.
+ *
+ * "Todos" (`ALL_ROWS`) is not one request: the products come LAZY_CHUNK at a time, the first part with the list and
+ * each next one on `loadMoreProducts` (the table's end in view), with the same params, appended, until the page's
+ * products (`total`) are in. The pager's figures are the first part's.
  */
 const ROOT = '';
 // `sinMlaCount`: Productos' Sin MLA card; null when unknown (a publication filter is on, or nothing loaded yet).
@@ -51,10 +61,19 @@ export function readProduct(raw) {
   };
 }
 
-/** Pages are by offset: a publication that moved between two requests stays once. */
-function appendPage(rows, page) {
-  const seen = new Set(rows.map((row) => row.item_id));
-  return [...rows, ...page.filter((row) => !seen.has(row.item_id))];
+/** Pages are by offset: a row that moved between two requests stays once (publications by `item_id`). */
+export function appendPage(rows, page, keyOf = (row) => row.item_id) {
+  const seen = new Set(rows.map(keyOf));
+  return [...rows, ...page.filter((row) => !seen.has(keyOf(row)))];
+}
+
+/**
+ * The products' request for the part at `offset` of the page: the page itself, or with "Todos" its LAZY_CHUNK rows
+ * from there (never past `end`, the page's products once the first part said how many).
+ */
+function productsPartParams(params, lazy, offset, end) {
+  if (!lazy) return params;
+  return { ...params, offset: params.offset + offset, limit: Math.min(LAZY_CHUNK, (end ?? LAZY_CHUNK) - offset) };
 }
 
 export default function useProductRows({ filters, pageSize, canSeeSales = false, canSeeMargin = false, enabled = true }) {
@@ -64,6 +83,8 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
   const [summary, setSummary] = useState(NO_SUMMARY);
   const generation = useRef(0);
   const inflight = useRef(new Set());
+  // With "Todos", the page's products as the list's first part said (null until then): where its parts stop.
+  const latestEnd = useRef(null);
   const permissions = useMemo(() => ({ canSeeSales, canSeeMargin }), [canSeeSales, canSeeMargin]);
   const latest = useRef({ filters, pageSize, permissions });
   // Declared before the effect that loads the products, so that effect reads this render's values.
@@ -88,22 +109,33 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
       ...all,
       [key]: { rows: [], total: 0, ...all[key], path: leaf ? [key] : [], leaf, node, status: offset === 0 ? 'loading' : 'more', error: null },
     }));
-    const request = leaf
-      ? publicacionesMlAPI.items(buildLeafParams(current, node, offset))
-      : publicacionesMlAPI.products(buildProductsParams(current, size, allowed));
+    const lazy = !leaf && size === ALL_ROWS;
+    const productsParams = leaf ? null : buildProductsParams(current, size, allowed);
+    const asked = leaf ? null : productsPartParams(productsParams, lazy, offset, latestEnd.current);
+    const request = leaf ? publicacionesMlAPI.items(buildLeafParams(current, node, offset)) : publicacionesMlAPI.products(asked);
     request
       .then((response) => {
         pending.delete(page);
         if (mine !== generation.current) return;
         if (!leaf) {
           const rows = (response.data?.rows ?? []).map(readProduct);
-          // The page is the whole branch: the pager, not "Ver más", moves through the products.
-          setBranches((all) => ({ ...all, [key]: { ...all[key], status: 'ready', rows, total: rows.length } }));
-          setSummary({
-            total: response.data?.total ?? 0,
-            mlaCount: response.data?.mla_count ?? 0,
-            sinMlaCount: response.data?.sin_mla_count ?? null,
+          // The page is the whole branch: the pager, not "Ver más", moves through the products. With "Todos" a
+          // part is appended, and `next` / `end` say what `loadMoreProducts` asks next and where the page ends.
+          if (offset === 0 && lazy) {
+            latestEnd.current = Math.min(ALL_ROWS, Math.max(0, (response.data?.total ?? 0) - productsParams.offset));
+          }
+          setBranches((all) => {
+            const merged = offset === 0 ? rows : appendPage(all[key].rows, rows, (row) => row.key);
+            const more = lazy ? { next: offset + asked.limit, end: latestEnd.current } : {};
+            return { ...all, [key]: { ...all[key], status: 'ready', rows: merged, total: merged.length, ...more } };
           });
+          if (offset === 0) {
+            setSummary({
+              total: response.data?.total ?? 0,
+              mlaCount: response.data?.mla_count ?? 0,
+              sinMlaCount: response.data?.sin_mla_count ?? null,
+            });
+          }
           return;
         }
         const items = response.data?.items ?? [];
@@ -127,6 +159,7 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
   useEffect(() => {
     generation.current += 1;
     inflight.current = new Set();
+    latestEnd.current = null;
     setExpanded(new Set());
     setBranches({});
     setSummary(NO_SUMMARY);
@@ -150,14 +183,21 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
     [expanded, branches, fetchPage],
   );
 
-  // "Ver más" and "Reintentar" ask for what the branch does not have yet (the products: their page again).
+  // "Ver más" and "Reintentar" ask for what the branch does not have yet (the products: their page again, or with
+  // "Todos" the part that failed once the first one is in).
   const loadMore = useCallback(
     (pathKey) => {
       const branch = branches[pathKey];
-      if (branch) fetchPage(pathKey, branch.node, pathKey === ROOT ? 0 : branch.rows.length);
+      if (branch) fetchPage(pathKey, branch.node, pathKey === ROOT ? (branch.next ?? 0) : branch.rows.length);
     },
     [branches, fetchPage],
   );
+
+  // "Todos": the next part of the products, when the list has one left and none in flight; otherwise nothing.
+  const loadMoreProducts = useCallback(() => {
+    const root = branches[ROOT];
+    if (root?.status === 'ready' && root.next != null && root.next < root.end) fetchPage(ROOT, null, root.next);
+  }, [branches, fetchPage]);
 
   const rows = useMemo(() => flattenTree({ branches, expanded }), [branches, expanded]);
   const root = branches[ROOT];
@@ -165,6 +205,7 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
     rows,
     toggle,
     loadMore,
+    loadMoreProducts,
     sort,
     total: summary.total,
     mlaCount: summary.mlaCount,
