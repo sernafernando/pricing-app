@@ -260,6 +260,7 @@ from app.models.equipo import Equipo, EquipoMiembro, ProductoColor, PublicacionC
 # from this package is absent from Base.metadata and the next
 # `alembic revision --autogenerate` emits drop_table for its table.
 from app.models.ml_catalog_competition import MLCatalogCompetition
+from app.models.catalog_competition_refresh_pending import CatalogCompetitionRefreshPending
 
 # Per-sale discounts (ml-ads-cupones-display T3a); registered for the same reason.
 from app.models.ml_order_discounts import MlOrderDiscountLine, MlOrderDiscounts, MlOrderDiscountsState
@@ -477,6 +478,7 @@ __all__ = [
     "MlPublicationLink",
     "MlItemRelation",
     "MLCatalogCompetition",
+    "CatalogCompetitionRefreshPending",
     "MlPxqTier",
     "MlWriteLog",
     "TnImageNormalizationRun",
