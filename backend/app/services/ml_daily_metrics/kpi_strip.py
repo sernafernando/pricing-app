@@ -96,9 +96,13 @@ class KpiCoverage(BaseModel):
 
 
 class KpiDisplaySpend(BaseModel):
+    """`cost_api` ML's gross Display cost; `cost_net` what comes off the totals: net of IVA and of `contribution`, the
+    Display brand contributions covering part of it (ml-ads-display-contributions S2)."""
+
     cost_api: float
     cost_net: float
     subtracted: bool
+    contribution: float = 0.0
 
 
 class KpiBrandSpend(BaseModel):
@@ -286,6 +290,7 @@ def _kpi_unattributed(u: Optional[board.AdsUnattributed]) -> Optional[KpiAdsUnat
                 cost_api=round_money(account.display_api),
                 cost_net=round_money(account.display_net),
                 subtracted=u.subtracted,
+                contribution=round_money(account.display_contribution),
             ),
             brand=KpiBrandSpend(cost=round_money(account.brand), subtracted=u.subtracted),
         ),

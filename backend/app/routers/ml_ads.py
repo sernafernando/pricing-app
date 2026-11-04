@@ -12,18 +12,24 @@ writes are the brand contributions the team loads.
 - `GET /ml-ads/display`: the Display tab (ml-ads-cupones-display S7): every Display campaign with its catalog, its
   summed figures, computed ratios (CTR, CPC, CPM, ROAS; null without a base), ML-attributed sales and its stored
   days (cost and attributed sales per day); the period totals; and the cost of each day (a day Display closed
-  without activity reads zero; one never fetched is absent).
-- `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with its brand contributions, its cost in the range
-  (ml-ads-brand-contribution S8) and what those contributions cover of it (ml-ads-contribution-redesign S6).
+  without activity reads zero; one never fetched is absent). Each campaign and the totals also carry `contribution`
+  (what the Display brand contributions cover of the range: the campaign's own plus its share of whole-account ones)
+  and `net` (`cost - contribution`).
+- `GET /ml-ads/campaigns`: every catalogued Product Ads campaign with its Product Ads brand contributions, its cost in
+  the range (ml-ads-brand-contribution S8) and what those contributions cover of it (ml-ads-contribution-redesign S6).
   `GET /ml-ads/contributions/preview` answers what a contribution would cover, taking the create body as its query.
   `POST /ml-ads/contributions`, `PUT|DELETE /ml-ads/contributions/{id}` load, edit and delete a contribution and also
-  need `ml_metricas.gestionar_aportes_ads` (S7); they write only that table.
+  need `ml_metricas.gestionar_aportes_ads` (S7); they write only that table. A contribution's `channel` is
+  `product_ads` (the default, a campaign of the Product Ads catalog) or `display` (ml-ads-display-contributions S2: a
+  campaign of the Display catalog, or the advertiser's whole Display account when `campaign_id` is left out). An edit
+  keeps its channel and campaign.
 
 Every cost read above carries the `coverage` of the same range (ledger days not fetched, and mismatch days), so a gap is
 never shown as zero spend. A range is `date_from <= date_to` and at most 366 days; `mlas` and `product_ids` take up
 to 500 values; anything else is a 422 with the app's envelope and the offending `field`. A contribution body that
-breaks its own shape (kind, value bounds, two decimals, date order) is FastAPI's standard 422 (`detail[].loc`); an
-unknown campaign or an overlapping range is the app's envelope with `field`. Money is a float with two decimals,
+breaks its own shape (kind, value bounds, two decimals, date order, channel, a Product Ads one without `campaign_id`)
+is FastAPI's standard 422 (`detail[].loc`); an unknown campaign, an overlapping range or an edit that changes the
+channel or the campaign is the app's envelope with `field`. Money is a float with two decimals,
 rounded once here.
 """
 
@@ -146,13 +152,24 @@ class DisplayFiguresOut(BaseModel):
     roas: Optional[float]
 
 
+class DisplayContributionOut(BaseModel):
+    # What the Display brand contributions cover of `cost` in the range, and what is left (ml-ads-display-contributions
+    # S2); `net` is negative when a `full` amount exceeds the spend.
+    contribution: float = 0.0
+    net: float
+
+
+class DisplayTotalsOut(DisplayFiguresOut, DisplayContributionOut):
+    pass
+
+
 class DisplayCampaignDayOut(BaseModel):
     day: date
     cost: float
     attributed_amount: float
 
 
-class DisplayCampaignReportOut(DisplayFiguresOut):
+class DisplayCampaignReportOut(DisplayFiguresOut, DisplayContributionOut):
     advertiser_id: int
     campaign_id: int
     name: Optional[str]
@@ -171,7 +188,7 @@ class DisplayDayOut(BaseModel):
 
 class DisplayReportOut(BaseModel):
     coverage: CoverageOut
-    totals: DisplayFiguresOut
+    totals: DisplayTotalsOut
     campaigns: list[DisplayCampaignReportOut]
     daily: list[DisplayDayOut]
 
@@ -334,14 +351,22 @@ def _figures(row: read.DisplayFigures) -> dict:
 
 @router.get("/display", response_model=DisplayReportOut)
 def get_display(w: Window = Depends(window), db: Session = Depends(get_db)) -> DisplayReportOut:
-    """The Display tab: campaigns by cost (catalog ones with no day in range read zero), totals and daily cost."""
+    """The Display tab: campaigns by cost (catalog ones with no day in range read zero), totals and daily cost, each
+    with what the Display brand contributions cover of it (the Métricas ML board's rule) and the net."""
     got = read.display_report(db, w.date_from, w.date_to)
+    covered = contributions.display_contributions(db, w.date_from, w.date_to)
+    total = sum(covered.values(), Decimal(0))
+
+    def _net(cost: Decimal, contribution: Decimal) -> dict:
+        return dict(contribution=_money(contribution), net=_money(cost - contribution))
+
     return DisplayReportOut(
         coverage=_coverage(w, db),
-        totals=DisplayFiguresOut(**_figures(got.totals)),
+        totals=DisplayTotalsOut(**_figures(got.totals), **_net(got.totals.cost, total)),
         campaigns=[
             DisplayCampaignReportOut(
                 **_figures(c),
+                **_net(c.cost, covered.get((c.advertiser_id, c.campaign_id), Decimal(0))),
                 advertiser_id=c.advertiser_id,
                 campaign_id=c.campaign_id,
                 name=c.name,
@@ -366,10 +391,12 @@ def get_display(w: Window = Depends(window), db: Session = Depends(get_db)) -> D
 
 class ContributionIn(BaseModel):
     """`percentage`: 0 < value <= 100. `fixed_amount`: money > 0 with its `settlement` (S6). Both with at most two
-    decimals (S4)."""
+    decimals (S4). `channel` defaults to Product Ads, which needs `campaign_id`; a Display one without it covers the
+    advertiser's whole Display account (ml-ads-display-contributions S2)."""
 
+    channel: Literal["product_ads", "display"] = "product_ads"
     advertiser_id: int
-    campaign_id: int
+    campaign_id: Optional[int] = None
     kind: Literal["percentage", "fixed_amount"]
     value: Decimal = Field(gt=0, max_digits=16, decimal_places=2)
     date_from: date
@@ -386,13 +413,16 @@ class ContributionIn(BaseModel):
             raise ValueError("a fixed amount says how it settles (full or refund_difference); a percentage does not")
         if self.date_from > self.date_to:
             raise ValueError("date_from must not be after date_to")
+        if self.channel == "product_ads" and self.campaign_id is None:
+            raise ValueError("a Product Ads contribution names its campaign_id; only Display covers a whole account")
         return self
 
 
 class ContributionOut(BaseModel):
     id: int
+    channel: str
     advertiser_id: int
-    campaign_id: int
+    campaign_id: Optional[int]  # None: the whole Display account
     kind: str
     value: float
     date_from: date
@@ -432,6 +462,7 @@ class CampaignsOut(BaseModel):
 def _contribution_out(row: MlAdsCampaignContribution) -> ContributionOut:
     return ContributionOut(
         id=row.id,
+        channel=row.channel,
         advertiser_id=row.advertiser_id,
         campaign_id=row.campaign_id,
         kind=row.kind,
