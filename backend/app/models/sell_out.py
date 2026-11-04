@@ -82,6 +82,7 @@ from app.core.database import Base
 
 # Also declared by migration `20261225_sell_out_programas` (the schema parity test compares them).
 FK_SELL_OUT_CAMPANAS_PROGRAMA_ID = "fk_sell_out_campanas_programa_id"
+# Also declared by migration `20261230_sell_out_renovada_de`.
 FK_SELL_OUT_CAMPANAS_RENOVADA_DE_ID = "fk_sell_out_campanas_renovada_de_id"
 
 # Named so the group-delete endpoint can tell this RESTRICT violation from any other IntegrityError.
