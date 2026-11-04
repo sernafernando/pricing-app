@@ -29,6 +29,7 @@ export const CAMPANA_VACIA = {
   // A renewal (`GET /{id}/renovacion`) only: the original's program and `monto_total` shares, sent with the create
   // so the copy is saved in one call (`[{ item_id, reparto_porcentaje, reparto_monto }]`).
   programaId: null,
+  renovadaDeId: null, // the campaign a renewal draft renews (`renovada_de_id`), sent only on create
   repartosCopiados: [],
 };
 

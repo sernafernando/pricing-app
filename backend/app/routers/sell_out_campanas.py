@@ -17,7 +17,9 @@ price, and that credit is added to profit. The rules live in
   span, plus `sin_programa`, the same for the campaigns without a program (None when there are none).
 - `POST ""` may set the campaign's program (`programa_id`, optional): an unknown one is a 404, an archived one a
   422 («El programa «X» está archivado.»). `PUT /{id}` keeps the stored program and ignores one sent: assignment
-  is `POST /api/sell-out/programas/asignar`, which audits it.
+  is `POST /api/sell-out/programas/asignar`, which audits it. A renewal sets `renovada_de_id`, the campaign it
+  renews. That campaign must exist and be of the same program (422; a copy of an archived program's campaign goes
+  without program). A campaign that a non-voided campaign already renews is a 409.
 - `GET /{id}/renovacion` (`sell_out.gestionar`) is the renewal draft of a campaign, active or voided: a NEW
   campaign in the exact shape `POST ""` takes, with the next calendar quarter's dates and the name's trailing
   period advanced (`app.services.sell_out.renovacion`). It writes nothing; saving it is an ordinary create, and
@@ -145,7 +147,7 @@ def _no_existe(campana_id: int) -> HTTPException:
 
 def _error(db: Session, exc: service.SellOutError) -> HTTPException:
     db.rollback()
-    conflicto = (service.SellOutYaAnulada, service.SellOutRecalculando)
+    conflicto = (service.SellOutYaAnulada, service.SellOutRecalculando, service.SellOutYaRenovada)
     if isinstance(exc, service.SellOutSinPermiso):
         code = status.HTTP_403_FORBIDDEN
     else:
