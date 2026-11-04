@@ -51,7 +51,7 @@ describe('SellOutAnularMasivo', () => {
     expect(screen.queryByRole('button', { name: /Seleccionar todo lo filtrado/ })).not.toBeInTheDocument();
   });
 
-  it('each row shows the campaign id as an «ID #n» chip under its name', () => {
+  it('each row shows the campaign id as an «ID #n» chip beside its name', () => {
     renderLista();
 
     expect(within(fila('Campaña 2')).getByText('ID #2')).toBeInTheDocument();
@@ -72,6 +72,8 @@ describe('SellOutAnularMasivo', () => {
     await user.click(within(barra).getByRole('button', { name: 'Limpiar selección' }));
     expect(screen.queryByRole('complementary', { name: 'Acciones masivas de campañas' })).not.toBeInTheDocument();
     expect(casilla('Campaña 1')).not.toBeChecked();
+    // The focus does not fall to the page: it lands on the control the bar came from.
+    expect(screen.getByRole('button', { name: /^Seleccionar todo lo filtrado/ })).toHaveFocus();
   });
 
   it('row checkboxes and the header checkbox select the visible page and the bar counts them', async () => {

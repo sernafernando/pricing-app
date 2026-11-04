@@ -46,6 +46,7 @@ export default function SellOutAnularMasivo({
   const [error, setError] = useState(null); // { mensaje, rechazadas: [{ id, motivo }] }
   const [asignando, setAsignando] = useState(null); // the campaign ids the assign dialog gets
   const confirmacion = useRef(null);
+  const seleccionarTodo = useRef(null); // where × leaves the focus once the bar is gone
   // The floating bar opens the confirmation above the list: bring it into view (the list may be scrolled down).
   useEffect(() => {
     if (confirmando) confirmacion.current?.scrollIntoView?.({ block: 'nearest' });
@@ -112,7 +113,7 @@ export default function SellOutAnularMasivo({
   return (
     <>
       <div className={styles.bar}>
-        <button type="button" className="btn-tesla ghost sm" onClick={seleccionarFiltradas} disabled={busy}>
+        <button ref={seleccionarTodo} type="button" className="btn-tesla ghost sm" onClick={seleccionarFiltradas} disabled={busy}>
           {`Seleccionar todo lo filtrado (${total})`}
         </button>
       </div>
@@ -136,7 +137,10 @@ export default function SellOutAnularMasivo({
           <button
             type="button"
             className={styles.cerrar}
-            onClick={() => cambiar(new Map())}
+            onClick={() => {
+              cambiar(new Map());
+              seleccionarTodo.current?.focus();
+            }}
             disabled={busy}
             aria-label="Limpiar selección"
             title="Limpiar selección"

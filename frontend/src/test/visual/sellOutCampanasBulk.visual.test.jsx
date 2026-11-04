@@ -6,7 +6,7 @@
  *   VITE_SELLINOUT_SHOTS_DIR=<dir> pnpm exec vitest run --project=visual sellOutCampanasBulk   (also saves screenshots)
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
@@ -54,6 +54,11 @@ beforeEach(() => {
   sellInBonosAPI.listar.mockResolvedValue({ data: BONOS_LISTA });
 });
 
+afterEach(() => {
+  document.documentElement.classList.remove('high-contrast'); // even when an assertion failed first
+  window.scrollTo(0, 0);
+});
+
 const Shell = ({ children }) => (
   <div style={{ paddingTop: 'var(--cf-topbar-height)', paddingLeft: 'var(--cf-sidebar-width-collapsed)' }}>{children}</div>
 );
@@ -90,7 +95,7 @@ describe.each([
   };
   const modo = `${theme}${highContrast ? '-hc' : ''}`;
 
-  it('"Sin programa" carries "Asignar ahora" at the row end and the expanded rows show their id chip', async () => {
+  it('"Sin programa" carries "Asignar ahora" right after its summary and the expanded rows show their id chip', async () => {
     const screen = await preparar('/sell-in?tab=sell-out');
     const asignar = screen.getByRole('button', { name: 'Asignar ahora' });
     await expect.element(asignar).toBeVisible();
@@ -119,7 +124,6 @@ describe.each([
     expect(flecha.left - cabecera.left).toBeGreaterThanOrEqual(12); // nested: further in than the column's start
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/campanas-asignar-ahora-${modo}.png` });
-    document.documentElement.classList.remove('high-contrast');
   });
 
   it('with a selection the bulk bar floats at the bottom center of the window and covers no row at the end', async () => {
@@ -147,7 +151,5 @@ describe.each([
     const contador = screen.getByText('2 seleccionadas').element();
     expect(contrastRatio(getComputedStyle(contador).color, fondo(contador))).toBeGreaterThanOrEqual(4.5);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/campanas-barra-flotante-${modo}.png` });
-    window.scrollTo(0, 0);
-    document.documentElement.classList.remove('high-contrast');
   });
 });
