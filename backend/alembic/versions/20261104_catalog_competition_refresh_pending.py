@@ -1,7 +1,7 @@
 """catalog_competition_refresh_pending queue for hay_mejores → snapshot refresh.
 
 Revision ID: 20261104_catalog_competition_refresh_pending
-Revises: 20261229_ml_ads_contribution_channel
+Revises: 20261230_sell_out_renovada_de
 Create Date: 2026-11-04
 
 One row per MLA. Enqueued when hay_mejores_ofertas newly flags (or re-marks with a
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20261104_catalog_competition_refresh_pending"
-down_revision: Union[str, Sequence[str], None] = "20261229_ml_ads_contribution_channel"
+down_revision: Union[str, Sequence[str], None] = "20261230_sell_out_renovada_de"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
