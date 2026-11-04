@@ -24,7 +24,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsDisplayCampaignDay
+from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsDayLedger, MlAdsDisplayCampaignDay
 from app.models.producto import ProductoERP
 from app.services.ml_ads import contributions, mapper, store
 from tests.services.ml_ads.captures import load
@@ -174,7 +174,7 @@ class TestUpdate:
 
 
 class TestRobust:
-    """ml-ads-aportes-robust S1 on Postgres, for a Display aporte."""
+    """ml-ads-aportes-robust S1, S3, S4 on Postgres and on Display spend (121938.82 on 10-05 for the whole account)."""
 
     def test_the_brand_is_stored_as_the_catalog_spells_it(self, db) -> None:
         row = contributions.create(db, dataclasses.replace(_data(None), brand=" xerox "), 7)
@@ -185,6 +185,24 @@ class TestRobust:
             contributions.create(db, dataclasses.replace(_data(None), brand="Epson"), 7)
         assert error.value.field == "brand"
         assert _rows(db) == []
+
+    def test_a_full_display_amount_above_the_spend_needs_confirming(self, db) -> None:
+        data = _data(None, kind="fixed_amount", value="200000", settlement="full")
+        with pytest.raises(contributions.ContributionError) as error:
+            contributions.create(db, data, 7)
+        assert error.value.field == "value" and "121938.82" in str(error.value)
+        assert _rows(db) == []
+        contributions.create(db, data, 7, confirm_over_spend=True)
+        assert _rows(db) == [(GAUSS, None, "display", "fixed_amount", Decimal("200000.00"))]
+
+    def test_a_range_past_the_display_ledger_warns(self, db) -> None:
+        db.add(MlAdsDayLedger(source="display", advertiser_id=GAUSS, day=OCT_5, status="closed"))
+        db.add(MlAdsDayLedger(source="display", advertiser_id=GAUSS, day=date(2026, 10, 6), status="refetch"))
+        db.flush()
+        [warning] = contributions.warnings(db, _data(None))
+        assert "2026-10-05" in warning
+        assert contributions.warnings(db, _data(None, first=OCT_5, last=OCT_5)) == []
+        assert contributions.warnings(db, _data(None, channel="product_ads")) == []  # another ledger
 
 
 def _saved(db, *data: contributions.ContributionData) -> None:

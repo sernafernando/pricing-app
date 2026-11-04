@@ -134,7 +134,12 @@ def test_the_preview_counts_like_the_board_without_writing(client, db, auth_head
     before = db.query(MlAdsCampaignContribution).count()
     response = _preview(client, auth_headers, **body)
     assert response.status_code == 200
-    assert response.json() == expected
+    assert response.json() == {
+        **expected,
+        "warnings": [],
+        "data_through": None,
+        "over_spend": body.get("settlement") == "full",
+    }
     assert db.query(MlAdsCampaignContribution).count() == before
 
 

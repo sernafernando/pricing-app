@@ -349,6 +349,9 @@ class TestDisplayContributions:
             "spend": 121938.82,
             "counted": 12193.88,
             "net": 109744.94,
+            "warnings": [],
+            "data_through": None,
+            "over_spend": False,
         }
 
     def test_the_display_tab_carries_each_campaign_contribution_and_net(self, client, manager) -> None:

@@ -140,7 +140,10 @@ class TestCreate:
 
     @pytest.mark.parametrize("settlement", ["full", "refund_difference"])
     def test_a_fixed_amount_stores_how_it_settles(self, client, db, manager, settlement) -> None:
-        response = _create(client, manager, kind="fixed_amount", value="500000", settlement=settlement)
+        # No spend in the range: a `full` amount is above it, so it is confirmed (ml-ads-aportes-robust S3).
+        response = _create(
+            client, manager, kind="fixed_amount", value="500000", settlement=settlement, confirm_over_spend=True
+        )
         assert response.status_code == 201
         assert response.json()["settlement"] == settlement
         assert [r.settlement for r in _rows(db)] == [settlement]

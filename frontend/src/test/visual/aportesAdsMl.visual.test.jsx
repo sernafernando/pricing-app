@@ -76,7 +76,8 @@ vi.mock('../../services/api', () => ({
   default: {
     get: vi.fn((url) => {
       if (url === '/marcas') return Promise.resolve({ data: { marcas: ['EPSON', 'HP', 'TP-Link'] } });
-      const preview = { spend: 742300, counted: 500000, net: 242300 };
+      // DERIVED: the ledger closed through 10-20, so a range to 10-31 shows the missing-data line (ml-ads-aportes-robust S4).
+      const preview = { spend: 742300, counted: 500000, net: 242300, warnings: [], data_through: '2026-10-20' };
       return Promise.resolve({ data: url.endsWith('/preview') ? preview : { campaigns: CAMPAIGNS } });
     }),
     post: vi.fn(),
@@ -145,6 +146,7 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
     await userEvent.click(screen.getByLabelText('El monto incluye IVA'));
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Marca' }), 'EPSON');
     await expect.element(screen.getByText(/Aporte que cuenta: \$ 500\.000,00/)).toBeVisible();
+    await expect.element(screen.getByText(/Hay datos de Ads hasta el 20\/10\/2026/)).toBeVisible();
     screen.getByRole('combobox', { name: 'Marca' }).element().scrollIntoView({ block: 'end' });
     await shot('modal-agregar-1440-light');
     await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));

@@ -122,7 +122,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   permisosDenegados.clear();
   api.get.mockImplementation((url) =>
-    Promise.resolve({ data: answer(url, { spend: 742300, counted: 500000, net: 242300 }) }),
+    Promise.resolve({ data: answer(url, { spend: 742300, counted: 500000, net: 242300, warnings: [], data_through: null }) }),
   );
   api.post.mockResolvedValue({ data: {} });
   api.put.mockResolvedValue({ data: {} });
@@ -485,6 +485,9 @@ describe('manage contributions', () => {
 });
 
 describe('robust loading (ml-ads-aportes-robust)', () => {
+  const previewWith = (preview) =>
+    api.get.mockImplementation((url) => Promise.resolve({ data: answer(url, { warnings: [], data_through: null, ...preview }) }));
+
   it('picks the brand from the brand list and does not save without one', async () => {
     const user = userEvent.setup();
     await openCreate(user);
@@ -521,5 +524,63 @@ describe('robust loading (ml-ads-aportes-robust)', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
     expect(api.post.mock.calls[0][1]).not.toHaveProperty('iva_included');
+    expect(api.post.mock.calls[0][1]).not.toHaveProperty('confirm_over_spend');
+  });
+
+  it('asks to confirm a full amount above the range cost before saving it', async () => {
+    previewWith({ spend: 1000, counted: 5000, net: -4000, over_spend: true });
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '5000' });
+    await user.click(screen.getByLabelText('Se recibe todo'));
+    const confirm = await screen.findByLabelText('Confirmo que el aporte supera el costo de la campaña en el rango');
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    expect(await screen.findByText('Confirmá que el aporte supera el costo de la campaña en el rango.')).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+    await user.click(confirm);
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post.mock.calls[0][1]).toMatchObject({ settlement: 'full', confirm_over_spend: true });
+  });
+
+  it('asks to confirm when the backend says so, even on a range that spent nothing yet', async () => {
+    previewWith({ spend: 0, counted: 0, net: 0, over_spend: true });
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '5000' });
+    await user.click(screen.getByLabelText('Se recibe todo'));
+    expect(await screen.findByLabelText('Confirmo que el aporte supera el costo de la campaña en el rango')).toBeInTheDocument();
+  });
+
+  it('asks nothing when the backend does not flag it', async () => {
+    previewWith({ spend: 1000, counted: 5000, net: -4000, over_spend: false });
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '5000' });
+    await user.click(screen.getByLabelText('Se recibe todo'));
+    await screen.findByText(/Costo de la campaña en el rango/);
+    expect(screen.queryByLabelText(/Confirmo que el aporte supera/)).not.toBeInTheDocument();
+  });
+
+  it('says when the range ends after the last day with Ads data', async () => {
+    previewWith({ spend: 1000, counted: 100, net: 900, data_through: '2026-10-10' });
+    const user = userEvent.setup();
+    await openCreate(user);
+    await fillCommon(user);
+    expect(
+      await screen.findByText('Hay datos de Ads hasta el 10/10/2026: lo que cae después todavía no se cargó y el aporte va a cambiar cuando llegue.'),
+    ).toBeInTheDocument();
+  });
+
+  it('says nothing when the range ends on or before that day', async () => {
+    previewWith({ spend: 1000, counted: 100, net: 900, data_through: '2026-10-15' });
+    const user = userEvent.setup();
+    await openCreate(user);
+    await fillCommon(user);
+    await screen.findByText(/Costo de la campaña en el rango/);
+    expect(screen.queryByText(/Hay datos de Ads hasta/)).not.toBeInTheDocument();
   });
 });

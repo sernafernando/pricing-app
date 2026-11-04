@@ -10,7 +10,8 @@
  * cover; a failed preview just shows nothing.
  *
  * ml-ads-aportes-robust: the brand is picked from `GET /marcas` and is mandatory (S1); a fixed amount can be typed
- * with IVA, which the backend stores without it (S2).
+ * with IVA, which the backend stores without it (S2); a `full` amount above the range cost is saved only after
+ * confirming it (S3); and the form says when the range ends after the last day with Ads data (S4).
  */
 import { useState, useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
@@ -18,6 +19,7 @@ import ModalTesla from '../components/ModalTesla';
 import { SegmentedControl } from '../components/kit';
 import api from '../services/api';
 import { formatSignedMoney } from '../utils/ventasMlTone';
+import { formatDate } from '../utils/displayAds';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
 import styles from './AportesAdsMLForm.module.css';
 
@@ -50,6 +52,7 @@ function initialForm(initial) {
     brand: initial.brand || '',
     note: initial.note || '',
     ivaIncluded: false,
+    confirmOverSpend: false,
   };
 }
 
@@ -68,6 +71,7 @@ function payloadOf(form) {
   if (form.kind === 'fixed_amount') {
     body.settlement = form.settlement;
     if (form.ivaIncluded) body.iva_included = true;
+    if (form.confirmOverSpend && form.settlement === 'full') body.confirm_over_spend = true;
   }
   return body;
 }
@@ -82,6 +86,10 @@ function validate(form) {
   if (!form.brand.trim()) return 'Elegí la marca.';
   return null;
 }
+
+/** The backend's own rule (S3): saving needs the confirmation; the preview says when. */
+const overSpends = (form, preview) =>
+  form.kind === 'fixed_amount' && form.settlement === 'full' && preview?.over_spend === true;
 
 /** The brand list (`GET /marcas`), keeping an edited aporte's brand visible even when the list lacks it. */
 function useMarcas(current) {
@@ -115,7 +123,10 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const toggle = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.checked }));
   const complete = validate(form) === null;
-  const body = complete ? JSON.stringify(payloadOf(form)) : null;
+  // The confirmation changes nothing the preview counts, so it stays out of the preview's request.
+  const body = complete ? JSON.stringify(payloadOf({ ...form, confirmOverSpend: false })) : null;
+  const overSpend = overSpends(form, preview);
+  const pastData = preview?.data_through && form.dateTo > preview.data_through ? preview.data_through : null;
 
   useEffect(() => {
     const request = ++latestPreview.current;
@@ -134,7 +145,9 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
 
   const handleSave = async (e) => {
     e.preventDefault();
-    const invalid = validate(form);
+    const invalid =
+      validate(form) ||
+      (overSpend && !form.confirmOverSpend ? 'Confirmá que el aporte supera el costo de la campaña en el rango.' : null);
     if (invalid) {
       setFormError(invalid);
       return;
@@ -281,6 +294,28 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
               preview.counted,
             )} · Neto: ${formatSignedMoney(preview.net)}`}
           </p>
+        )}
+
+        {pastData && (
+          <p className={styles.warning} role="status">
+            {`Hay datos de Ads hasta el ${formatDate(pastData)}: lo que cae después todavía no se cargó y el aporte va a cambiar cuando llegue.`}
+          </p>
+        )}
+
+        {overSpend && (
+          <div className={`${styles.check} ${styles.warning}`}>
+            <input
+              id="aporte-confirmar"
+              type="checkbox"
+              aria-describedby="aporte-confirmar-hint"
+              checked={form.confirmOverSpend}
+              onChange={toggle('confirmOverSpend')}
+            />
+            <label htmlFor="aporte-confirmar">Confirmo que el aporte supera el costo de la campaña en el rango</label>
+            <span id="aporte-confirmar-hint" className={styles.checkHint}>
+              El neto queda negativo: Métricas ML suma la diferencia.
+            </span>
+          </div>
         )}
 
         <label className={styles.field} htmlFor="aporte-marca">

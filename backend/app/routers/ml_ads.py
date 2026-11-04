@@ -409,6 +409,8 @@ class ContributionIn(BaseModel):
     note: Optional[str] = Field(None, max_length=1000)
     # S2: a fixed amount typed with IVA is stored sin IVA, converted once (`iva.amount_without_iva`).
     iva_included: bool = False
+    # S3: a `full` amount above the range spend is saved only with this set.
+    confirm_over_spend: bool = False
 
     @model_validator(mode="after")
     def _bounds(self) -> "ContributionIn":
@@ -443,6 +445,11 @@ class ContributionOut(BaseModel):
     updated_at: datetime
 
 
+class ContributionSavedOut(ContributionOut):
+    # S4: what to tell whoever saved it, without stopping them (a range ending after the last day with ads data).
+    warnings: list[str] = []
+
+
 class CampaignOut(BaseModel):
     advertiser_id: int
     campaign_id: int
@@ -460,6 +467,12 @@ class PreviewOut(BaseModel):
     spend: float  # the campaign's cost over the contribution's range
     counted: float  # what Métricas ML would subtract less
     net: float  # spend - counted; negative when a `full` amount exceeds the spend
+    warnings: list[str] = []  # the same warnings saving it would answer
+    # The last day with ads data of the contribution's channel and advertiser (None while nothing is closed), so a
+    # form can say in its own words that the range reaches past it (ml-ads-aportes-robust S4).
+    data_through: Optional[date] = None
+    # Saving it needs `confirm_over_spend` (S3): a `full` amount above the range spend, none spent yet included.
+    over_spend: bool = False
 
 
 class CampaignsOut(BaseModel):
@@ -487,10 +500,14 @@ def _contribution_out(row: MlAdsCampaignContribution) -> ContributionOut:
 
 
 def _data(body: ContributionIn) -> contributions.ContributionData:
-    fields = body.model_dump(exclude={"iva_included"})
+    fields = body.model_dump(exclude={"iva_included", "confirm_over_spend"})
     if body.iva_included:
         fields["value"] = amount_without_iva(body.value)
     return contributions.ContributionData(**fields)
+
+
+def _saved(db: Session, row: MlAdsCampaignContribution, data: contributions.ContributionData) -> ContributionSavedOut:
+    return ContributionSavedOut(**_contribution_out(row).model_dump(), warnings=contributions.warnings(db, data))
 
 
 def _not_found(contribution_id: int) -> Exception:
@@ -522,40 +539,49 @@ def get_campaigns(w: Window = Depends(window), db: Session = Depends(get_db)) ->
 
 @router.get("/contributions/preview", response_model=PreviewOut)
 def preview_contribution(body: Annotated[ContributionIn, Query()], db: Session = Depends(get_db)) -> PreviewOut:
-    result = contributions.preview(db, _data(body))
+    data = _data(body)
+    result = contributions.preview(db, data)
     return PreviewOut(
-        spend=_money(result.spend), counted=_money(result.counted), net=_money(result.spend - result.counted)
+        spend=_money(result.spend),
+        counted=_money(result.counted),
+        net=_money(result.spend - result.counted),
+        warnings=contributions.warnings(db, data),
+        data_through=contributions.data_through(db, data.channel, data.advertiser_id),
+        over_spend=contributions.exceeds_spend(data, result.spend),
     )
 
 
 @router.post(
-    "/contributions", response_model=ContributionOut, status_code=status.HTTP_201_CREATED, dependencies=_manage
+    "/contributions", response_model=ContributionSavedOut, status_code=status.HTTP_201_CREATED, dependencies=_manage
 )
 def create_contribution(
     body: ContributionIn, user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)
-) -> ContributionOut:
+) -> ContributionSavedOut:
+    data = _data(body)
     try:
-        return _contribution_out(contributions.create(db, _data(body), user.id))
+        row = contributions.create(db, data, user.id, confirm_over_spend=body.confirm_over_spend)
+        return _saved(db, row, data)
     except contributions.ContributionError as exc:
         db.rollback()
         raise _unprocessable(exc.field, str(exc))
 
 
-@router.put("/contributions/{contribution_id}", response_model=ContributionOut, dependencies=_manage)
+@router.put("/contributions/{contribution_id}", response_model=ContributionSavedOut, dependencies=_manage)
 def update_contribution(
     contribution_id: int,
     body: ContributionIn,
     user: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> ContributionOut:
+) -> ContributionSavedOut:
+    data = _data(body)
     try:
-        row = contributions.update(db, contribution_id, _data(body), user.id)
+        row = contributions.update(db, contribution_id, data, user.id, confirm_over_spend=body.confirm_over_spend)
     except contributions.ContributionError as exc:
         db.rollback()
         raise _unprocessable(exc.field, str(exc))
     if row is None:
         raise _not_found(contribution_id)
-    return _contribution_out(row)
+    return _saved(db, row, data)
 
 
 @router.delete("/contributions/{contribution_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_manage)
