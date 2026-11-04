@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
-import { contrastRatio, setTheme, tokenColor } from './visualHelpers';
+import { contrastRatio, rgba, setTheme, tokenColor } from './visualHelpers';
 import PublicacionesML from '../../pages/PublicacionesML';
 import { useTreeViewStore } from '../../store/treeViewStore';
 import { resetPromoPulls } from '../../components/promociones/promoPullTtl';
@@ -2319,6 +2319,68 @@ describe('row colors and the color layer (S8)', () => {
         await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/paint-menu-1366-${theme}.png` });
       }
       screen.unmount();
+    });
+  }
+
+  // Owner (2026-11-03): "los badges no tienen fondo, entonces, por ejemplo el de clásica en verde casi no se lee, el de
+  // activa sobre verde casi no se lee, los días en verde casi no se leen, los colores en naranja casi no se leen, y eso
+  // que tengo el modo alto contraste activado". Every text a painted row shows reads at AA on what paints right
+  // behind it: the row's tone, or a badge's (or a colored figure's) own solid surface, never a tint over the tone.
+  const PALETTE = ['rojo', 'naranja', 'amarillo', 'verde', 'azul', 'purpura', 'gris'];
+  // Only an rgb()/rgba() value is read for its alpha: any other serialization (color(), oklch()) is not taken as solid.
+  const isRgb = (color) => /^rgba?\(/.test(color);
+  const isOpaque = (color) => isRgb(color) && rgba(color)[3] === 1;
+  const paintedBehind = (el) => {
+    for (let node = el; node; node = node.parentElement) {
+      const { backgroundColor } = getComputedStyle(node);
+      if (!isRgb(backgroundColor) || rgba(backgroundColor)[3] > 0) return backgroundColor;
+    }
+    return null;
+  };
+  const textsOf = (row) =>
+    [...row.querySelectorAll('*')].filter((el) => {
+      const own = [...el.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+      const box = el.getBoundingClientRect();
+      return own && box.width > 1 && box.height > 1 && getComputedStyle(el).visibility !== 'hidden';
+    });
+
+  for (const [theme, highContrast] of [['light', false], ['dark', false], ['light', true], ['dark', true]]) {
+    const mode = highContrast ? ', high contrast' : '';
+    it(`1366x768 ${theme}${mode}: badges, days and colored figures read on every palette color`, async () => {
+      publicacionesMlAPI.items.mockResolvedValue({
+        data: {
+          ...RESPONSE,
+          items: RESPONSE.items.map((item, index) => (index < PALETTE.length ? { ...item, color_marcado: PALETTE[index] } : item)),
+        },
+      });
+      document.documentElement.classList.toggle('high-contrast', highContrast);
+      let screen;
+      try {
+        screen = await renderPage({ width: 1366, height: 768, theme });
+        const rows = [...document.querySelectorAll('tbody tr[data-tone]')];
+        expect(rows).toHaveLength(PALETTE.length);
+        const unreadable = [];
+        for (const row of rows) {
+          for (const el of textsOf(row)) {
+            const behind = paintedBehind(el);
+            const { color } = getComputedStyle(el);
+            const label = `${row.title} "${el.textContent.trim()}"`;
+            if (!behind || !isOpaque(behind)) unreadable.push(`${label}: no solid surface (${behind})`);
+            else if (contrastRatio(color, behind) < 4.5) unreadable.push(`${label}: ${contrastRatio(color, behind).toFixed(2)}`);
+          }
+        }
+        expect(unreadable).toEqual([]);
+        if (PRODUCT_SHOTS_DIR) {
+          // Tall enough for the seven painted rows, the table scrolled to them.
+          await page.viewport(1920, 1400);
+          scrollerOf().scrollTop = rows[0].offsetTop - 80;
+          await frame();
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/palette-rows-${theme}${highContrast ? '-hc' : ''}.png` });
+        }
+      } finally {
+        screen?.unmount();
+        document.documentElement.classList.remove('high-contrast');
+      }
     });
   }
 
