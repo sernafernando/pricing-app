@@ -564,6 +564,37 @@ def _fetch_pedidos_rows_from_history_fallback(
     return pedidos_rows, ml_ids, shipping_ids, pack_ids
 
 
+# Buyer data the ML header has when the archived ERP order has no ERP customer.
+_BUYER_FIELDS = ("cliente_nombre", "cliente_dni", "cliente_telefono", "cliente_email")
+
+
+def _resolve_archived_orders(db: Session, header_rows: list[dict]) -> tuple[list[dict], bool]:
+    """Replace each ML-header row (`soh_id` 0) by its ERP order kept in `tb_sale_order_header_history`.
+
+    An ERP order leaves `tb_sale_order_header` once archived; its history snapshot keeps the real `soh_id`, which
+    reaches the invoice. The ML buyer data fills what the ERP customer lacks, and the row keeps its `mlo_id`."""
+    rows: list[dict] = []
+    resolved = False
+    for header in header_rows:
+        mlo_id = header.get("mlo_id")
+        history = (
+            [dict(r._mapping) for r in db.execute(QUERY_PEDIDOS_HISTORY_BY_MLOID, {"mlo_id": mlo_id})]
+            if not header.get("soh_id") and mlo_id is not None
+            else []
+        )
+        if not history:
+            rows.append(header)
+            continue
+        resolved = True
+        for order in history:
+            for field in _BUYER_FIELDS:
+                if not order.get(field):
+                    order[field] = header.get(field)
+            order["mlo_id"] = mlo_id
+            rows.append(order)
+    return rows, resolved
+
+
 def _fetch_webhook_previews(
     order_ids: list[str],
     pack_ids: list[str],
@@ -676,6 +707,7 @@ def _build_non_serial_items_from_invoice(
             {
                 "soh_id": soh_id,
                 "comp_id": comp_id,
+                "bra_id": pedido_row.get("bra_id"),
             },
         )
 
@@ -742,21 +774,20 @@ def _build_non_serial_items_from_invoice(
 def _build_items_from_ml_order_detail(
     db: Session,
     pedidos_rows: list[dict],
-    known_item_ids: set[int],
 ) -> list[TrazaMLSerialItem]:
-    """Items for an RMA from the ML order detail, for the sales with no ERP sale order (`soh_id` 0)."""
+    """Items for an RMA from the ML order detail, when neither serials nor an invoice gave any."""
     items: dict[int, TrazaMLSerialItem] = {}
     for pedido_row in pedidos_rows:
         mlo_id = pedido_row.get("mlo_id")
         comp_id = pedido_row.get("comp_id")
-        if pedido_row.get("soh_id") or mlo_id is None or comp_id is None:
+        if mlo_id is None or comp_id is None:
             continue
         for row in db.execute(QUERY_ITEMS_BY_MLO_ID, {"mlo_id": mlo_id, "comp_id": comp_id}):
             mapped = dict(row._mapping)
             if mapped.get("item_id") is None:
                 continue
             item_id = int(mapped["item_id"])
-            if item_id in known_item_ids or item_id in items:
+            if item_id in items:
                 continue
             item_code = mapped.get("item_code")
             item_desc = mapped.get("item_desc")
@@ -858,6 +889,9 @@ def traza_ml(
             pedidos_rows = [dict(r._mapping) for r in result_mlo]
         if pedidos_rows:
             busqueda_por = f"{busqueda_por}_fallback_mlo_direct"
+            pedidos_rows, archivados = _resolve_archived_orders(db, pedidos_rows)
+            if archivados:
+                busqueda_por = f"{busqueda_por}_sohh"
 
     if not pedidos_rows:
         pedidos_rows = _fetch_pedidos_rows_from_gbp_fallback(db, ml_id)
@@ -956,14 +990,16 @@ def traza_ml(
     seriales_presentes = {item.serial for item in seriales_list if item.serial}
     seriales_no_seriados = _build_non_serial_items_from_invoice(db, pedidos_rows, seriales_presentes)
     seriales_list.extend(seriales_no_seriados)
-    # 2c. Sales with no ERP sale order: their products come from the ML order detail
-    known_item_ids = {item.articulo.item_id for item in seriales_list if item.articulo}
-    seriales_list.extend(_build_items_from_ml_order_detail(db, pedidos_rows, known_item_ids))
+    # 2c. No serials nor invoice (no ERP order, or one not invoiced yet): the products of the ML order detail
+    if not seriales_list:
+        seriales_list.extend(_build_items_from_ml_order_detail(db, pedidos_rows))
 
     # 3. Buscar RMAs vía factura (para productos no seriados o RMAs sin serial)
     # Cadena: soh_id → commercial_transactions → item_transactions → rma_detail
-    soh_ids = [row["soh_id"] for row in pedidos_rows if row["soh_id"]]
-    rma_por_factura = _build_rma_by_invoice(db, soh_ids, exclude_rmad_ids=rma_ids_por_serial)
+    soh_keys = [
+        (row["soh_id"], row["bra_id"]) for row in pedidos_rows if row["soh_id"] and row.get("bra_id") is not None
+    ]
+    rma_por_factura = _build_rma_by_invoice(db, soh_keys, exclude_rmad_ids=rma_ids_por_serial)
 
     # 4. Claims de ML (por order_id detectados + input si parece order_id)
     ml_order_ids_lookup: set[str] = {p.ml_id for p in pedidos if p.ml_id}

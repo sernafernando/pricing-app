@@ -197,6 +197,7 @@ def test_a_sale_with_erp_order_still_lists_its_invoice_items_only(db, venta_sin_
                 comp_id=COMP_ID,
                 ct_transaction=70002,
                 ct_soh_id=31001,
+                ct_soh_bra_id=45,
                 ct_kindOf="FC",
                 ct_pointOfSale=4,
                 ct_docNumber="00000001",
