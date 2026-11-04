@@ -44,7 +44,7 @@ class ProductSelection:
 
     marcas: Tuple[str, ...] = ()
     categorias: Tuple[str, ...] = ()
-    subcategorias: Tuple[int, ...] = ()
+    subcategorias: Tuple[Optional[int], ...] = ()  # None: the products with no subcategory
     pms: Tuple[int, ...] = ()
 
 
@@ -151,31 +151,34 @@ def _distinct_spellings(values: Iterable[Optional[str]], selected: Iterable[str]
     return [shown[key] for key in sorted(shown)]
 
 
-def product_facet_options(db: Session, rows: Iterable[ComboRow], selection: ProductSelection) -> ProductFacetOptions:
-    """The four option lists for `rows` (`product_combo_rows`) under `selection`."""
+class FacetValues(NamedTuple):
+    """The cascade's raw answer: brand and category spellings, subcategory and PM ids (no names)."""
+
+    marcas: List[str]
+    categorias: List[str]
+    subcategoria_ids: Set[int]
+    pm_ids: Set[int]
+
+
+def facet_values(rows: Iterable[ComboRow], selection: ProductSelection) -> FacetValues:
+    """The cascade over `rows` under `selection`, with no lookup: each list keeps every selection but its own, plus
+    its own selected values. Only the key columns and `pm_id` of the rows are read, so a screen that cannot join
+    the names (Publicaciones ML) reuses it with bare rows. A `None` among `selection.subcategorias` is the products
+    with no subcategory; it is never offered back."""
     # One entry per (marca, categoría, subcategoría) key, in upper case.
     keys: Dict[Tuple[str, str, Optional[int]], Tuple[Optional[str], Optional[str], Set[int]]] = {}
-    sub_names: Dict[int, Tuple[str, str]] = {}
-    sub_groups: Dict[int, Optional[int]] = {}
-    pm_names: Dict[int, str] = {}
-    pm_emails: Dict[int, Optional[str]] = {}
     for row in rows:
         key = (_upper(row.marca), _upper(row.categoria), row.subcategoria_id)
         seen = keys.get(key)
         pms: Set[int] = set(seen[2]) if seen else set()
         if row.pm_id is not None:
             pms.add(row.pm_id)
-            pm_names[row.pm_id] = row.pm_nombre or str(row.pm_id)
-            pm_emails[row.pm_id] = row.pm_email
         # Same value spelled twice ("EPSON"/"Epson"): keep the spelling that sorts last.
         keys[key] = (
             max(seen[0] or "", row.marca or "") or None if seen else row.marca,
             max(seen[1] or "", row.categoria or "") or None if seen else row.categoria,
             pms,
         )
-        if row.subcategoria_id is not None and row.subcategoria_nombre:
-            sub_names[row.subcategoria_id] = (row.subcategoria_nombre, row.subcategoria_categoria or NO_CATEGORY_LABEL)
-            sub_groups[row.subcategoria_id] = row.subcategoria_grupo_id
 
     sel_marcas = {_upper(m) for m in selection.marcas}
     sel_categorias = {_upper(c) for c in selection.categorias}
@@ -199,16 +202,39 @@ def product_facet_options(db: Session, rows: Iterable[ComboRow], selection: Prod
             out.append((key, value))
         return out
 
-    marcas = _distinct_spellings([v[0] for _, v in survivors("marcas")], selection.marcas)
-    categorias = _distinct_spellings([v[1] for _, v in survivors("categorias")], selection.categorias)
-    sub_ids: Set[int] = {key[2] for key, _ in survivors("subcategorias") if key[2] is not None} | sel_subs
+    sub_ids: Set[int] = {key[2] for key, _ in survivors("subcategorias") if key[2] is not None}
     pm_ids: Set[int] = set(sel_pms)
     for _, value in survivors("pms"):
         pm_ids |= value[2]
+    return FacetValues(
+        marcas=_distinct_spellings([v[0] for _, v in survivors("marcas")], selection.marcas),
+        categorias=_distinct_spellings([v[1] for _, v in survivors("categorias")], selection.categorias),
+        subcategoria_ids=sub_ids | {i for i in sel_subs if i is not None},
+        pm_ids=pm_ids,
+    )
+
+
+def product_facet_options(db: Session, rows: Iterable[ComboRow], selection: ProductSelection) -> ProductFacetOptions:
+    """The four option lists for `rows` (`product_combo_rows`) under `selection`."""
+    rows = list(rows)
+    sub_names: Dict[int, Tuple[str, str]] = {}
+    sub_groups: Dict[int, Optional[int]] = {}
+    pm_names: Dict[int, str] = {}
+    pm_emails: Dict[int, Optional[str]] = {}
+    for row in rows:
+        if row.pm_id is not None:
+            pm_names[row.pm_id] = row.pm_nombre or str(row.pm_id)
+            pm_emails[row.pm_id] = row.pm_email
+        if row.subcategoria_id is not None and row.subcategoria_nombre:
+            sub_names[row.subcategoria_id] = (row.subcategoria_nombre, row.subcategoria_categoria or NO_CATEGORY_LABEL)
+            sub_groups[row.subcategoria_id] = row.subcategoria_grupo_id
+    marcas, categorias, sub_ids, pm_ids = facet_values(rows, selection)
+    sel_subs = set(selection.subcategorias)
+    sel_pms = set(selection.pms)
 
     # A SELECTED value the universe does not hold has no name in `rows`: look it
     # up. (A universe value with no name is just not offered, like Productos.)
-    missing_subs = {i for i in sel_subs if i not in sub_names}
+    missing_subs = {i for i in sel_subs if i is not None and i not in sub_names}
     if missing_subs:
         for subcat_id, nombre, categoria, grupo_id in db.execute(
             select(

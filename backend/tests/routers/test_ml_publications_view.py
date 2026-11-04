@@ -232,6 +232,13 @@ class TestContract:
         assert facets["status"] == {"active": 1, "paused": 1}
         assert facets["total"] == 1  # the filtered list total, as the screen's counter
 
+    def test_the_facets_carry_the_product_options_next_to_the_counts(self, client, pg, reader) -> None:
+        seed_rows(pg, self.fill)
+        facets = get(client, reader, facets="true", estado="active").json()["facets"]
+        assert facets["product"] == {"marcas": ["TP-Link"], "subcategorias": []}
+        assert {"status", "stores", "marcas", "listing", "link", "stock", "total"} <= set(facets)
+        assert facets["marcas"] == {"TP-LINK": 1}  # the brand counts as before
+
     def test_the_facets_count_the_publications_with_and_without_a_started_promotion(
         self, client, pg, reader, monkeypatch
     ) -> None:
@@ -432,7 +439,8 @@ class TestStatementCount:
         get(client, reader)
         without = self.statements(client, pg, reader, limit=10)
         with_facets = self.statements(client, pg, reader, limit=10, facets="true")
-        assert len(with_facets) - len(without) == len(listing.FACET_AXES)
+        # one per axis, plus ONE for the product filter's Marca / Subcategoría lists (`listing.product_options`)
+        assert len(with_facets) - len(without) == len(listing.FACET_AXES) + 1
 
 
 class TestProductManagerFilter:
