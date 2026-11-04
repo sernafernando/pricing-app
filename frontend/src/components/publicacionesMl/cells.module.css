@@ -42,7 +42,7 @@
   border: 1px solid var(--tone-info-border);
   border-radius: var(--radius-base);
   background: var(--tone-info-bg);
-  color: var(--tone-info-fg);
+  color: var(--tone-badge-fg, var(--tone-info-fg));
   font-size: var(--font-xs);
   white-space: nowrap;
 }

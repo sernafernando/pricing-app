@@ -153,8 +153,9 @@
   --cf-text-tertiary: var(--row-tone-fg);
   --cf-text-muted: var(--row-tone-fg);
   /* The palette is light in both themes, so a dark theme's light tone colors and tinted (see-through) badge
-     backgrounds would not read on it. Inside a painted row each tone draws with the palette's dark accent of its
-     hue (black in high contrast) -- AA on every palette color -- and a badge sits on its own solid surface. */
+     backgrounds would not read on it. Inside a painted row a tone's text draws with the palette's dark accent of its
+     hue (black in high contrast) -- AA on every palette color -- and a badge is a solid color of its hue that stands
+     out from every palette color, its text in `--tone-badge-fg`. */
   --tone-success-fg: var(--product-ok-accent);
   --tone-danger-fg: var(--product-urgent-accent);
   --tone-warning-fg: var(--product-warning-accent);
@@ -163,18 +164,19 @@
   --tone-neutral-fg: var(--product-inactive-accent);
   --money-positive: var(--product-ok-accent);
   --money-negative: var(--product-urgent-accent);
-  --tone-success-bg: var(--product-badge-surface);
-  --tone-danger-bg: var(--product-badge-surface);
-  --tone-warning-bg: var(--product-badge-surface);
-  --tone-info-bg: var(--product-badge-surface);
-  --tone-purple-bg: var(--product-badge-surface);
-  --tone-neutral-bg: var(--product-badge-surface);
-  --tone-success-border: var(--product-ok-accent);
-  --tone-danger-border: var(--product-urgent-accent);
-  --tone-warning-border: var(--product-warning-accent);
-  --tone-info-border: var(--product-info-accent);
-  --tone-purple-border: var(--product-review-accent);
-  --tone-neutral-border: var(--product-inactive-accent);
+  --tone-success-bg: var(--product-badge-ok);
+  --tone-danger-bg: var(--product-badge-urgent);
+  --tone-warning-bg: var(--product-badge-warning);
+  --tone-info-bg: var(--product-badge-info);
+  --tone-purple-bg: var(--product-badge-review);
+  --tone-neutral-bg: var(--product-badge-inactive);
+  --tone-success-border: var(--product-badge-ok);
+  --tone-danger-border: var(--product-badge-urgent);
+  --tone-warning-border: var(--product-badge-warning);
+  --tone-info-border: var(--product-badge-info);
+  --tone-purple-border: var(--product-badge-review);
+  --tone-neutral-border: var(--product-badge-inactive);
+  --tone-badge-fg: var(--product-badge-text);
 }
 
 .row[data-tone] .cell {
