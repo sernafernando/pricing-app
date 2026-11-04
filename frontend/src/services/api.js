@@ -978,4 +978,10 @@ export const publicacionesMlAPI = {
   searchProducts: (q) => api.get('/buscar-productos-erp', { params: { q } }),
 };
 
+export const publicacionRepairAPI = {
+  runs: (params, config) => api.get('/ml-publications/repair/runs', { params, ...config }),
+  run: (runId, params, config) => api.get(`/ml-publications/repair/runs/${encodeURIComponent(runId)}`, { params, ...config }),
+  eventsByMla: (mla, params, config) => api.get('/ml-publications/repair/events', { params: { mla_id: mla, ...params }, ...config }),
+};
+
 export default api;

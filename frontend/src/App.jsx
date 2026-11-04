@@ -61,6 +61,7 @@ const GestionFull = lazy(() => import('./pages/GestionFull'));
 const ConsultasRanking = lazy(() => import('./pages/ConsultasRanking'));
 const Traza = lazy(() => import('./pages/Traza'));
 const FreeShippingAlerts = lazy(() => import('./pages/FreeShippingAlerts'));
+const RepairControl = lazy(() => import('./pages/RepairControl'));
 const SeguimientoEnvios = lazy(() => import('./pages/SeguimientoEnvios'));
 const Empleados = lazy(() => import('./pages/Empleados'));
 const RRHHPresentismo = lazy(() => import('./pages/RRHHPresentismo'));
@@ -163,6 +164,7 @@ const protectedRoutes = [
   { path: '/consultas/ranking', component: ConsultasRanking, permisos: ['consultas.ver_ranking', 'consultas.ver_mi_ranking'] },
   { path: '/traza', component: Traza, permiso: 'traza.ver' },
   { path: '/free-shipping-alerts', component: FreeShippingAlerts, permiso: 'alertas.ver_free_shipping' },
+  { path: '/ml-repair-control', component: RepairControl, permiso: 'ml_ops.ver' },
   { path: '/seguimiento-envios', component: SeguimientoEnvios, permiso: 'seguimiento_envios.ver' },
   { path: '/rrhh/empleados', component: Empleados, permiso: 'rrhh.ver' },
   { path: '/rrhh/presentismo', component: RRHHPresentismo, permiso: 'rrhh.ver' },
