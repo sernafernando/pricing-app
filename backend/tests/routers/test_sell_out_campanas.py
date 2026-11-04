@@ -330,6 +330,27 @@ def test_create_list_and_detail_return_the_campaign_a_renewal_renews(client, ges
     assert (items[copia["id"]]["renovada_de_id"], items[original["id"]]["renovada_de_id"]) == (original["id"], None)
 
 
+def test_a_second_renewal_of_a_campaign_is_a_409_and_another_programs_link_a_422(
+    client, gestor, grupos, db, admin_user
+) -> None:
+    original = _crear(client, gestor, grupos, nombre="Modelo Q4 2026")
+    _crear(client, gestor, grupos, nombre="Modelo Q1 2027", renovada_de_id=original["id"])
+
+    otra = client.post(BASE, json=_body(grupos, nombre="Otra Q1 2027", renovada_de_id=original["id"]), headers=gestor)
+    assert otra.status_code == 409
+    assert f"La campaña {original['id']} ya está renovada" in _message(otra)
+
+    programa = _programa(db, admin_user, "MARCA PROG")
+    ajena = client.post(
+        BASE,
+        json=_body(grupos, nombre="Ajena", renovada_de_id=original["id"], programa_id=programa.id),
+        headers=gestor,
+    )
+    assert ajena.status_code == 422
+    assert "otro programa" in _message(ajena)
+    assert client.get(BASE, headers=gestor).json()["total"] == 2
+
+
 def test_list_and_detail_carry_the_program_of_each_campaign(client, gestor, grupos, db, admin_user) -> None:
     epson = _programa(db, admin_user, "MARCA PROG")
     rebate = _programa(db, admin_user, "Rebate")

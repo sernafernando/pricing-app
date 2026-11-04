@@ -4,6 +4,8 @@ new campaign while the original stays as it was."""
 
 from __future__ import annotations
 
+import threading
+
 from datetime import date
 from typing import Iterator, Optional
 
@@ -11,7 +13,9 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.services.sell_out import campanas, renovacion
+from app.models.sell_out import SellOutPrograma
+from app.schemas.sell_out import SellOutProgramaIn
+from app.services.sell_out import campanas, programas, renovacion
 from tests.services.sell_out import _world as w
 
 pytestmark = pytest.mark.postgres
@@ -131,3 +135,104 @@ def test_deleting_the_original_clears_the_link(engine, Sesion) -> None:
     w.execute(engine, "DELETE FROM sell_out_campanas WHERE id = :c", c=original)
 
     assert _renovada_de(engine, nueva) is None
+
+
+# ── Independent verification (2026-11-04): one copy per campaign, in its program ──
+
+
+def _programa(Sesion: sessionmaker, nombre: str = "MARCA PROG", estado: str = "activo") -> int:
+    with Sesion() as db:
+        pid = programas.crear(db, SellOutProgramaIn(nombre=nombre), USUARIO).id
+    if estado != "activo":
+        w.execute(Sesion.kw["bind"], "UPDATE sell_out_programas SET estado = :e WHERE id = :i", e=estado, i=pid)
+    return pid
+
+
+def _original(engine: Engine, programa: Optional[int] = None, **values) -> int:
+    grupo = w.grupo(engine, [{"marca": "TP-LINK"}])
+    return w.campana(
+        engine, [grupo], date(2026, 10, 1), date(2026, 12, 31), nombre="Modelo Q4 2026", programa_id=programa, **values
+    )
+
+
+@pytest.mark.parametrize("con_programa", [True, False])
+def test_saving_a_renewal_twice_is_refused_and_stores_nothing(engine, Sesion, con_programa) -> None:
+    original = _original(engine, _programa(Sesion) if con_programa else None)
+    with Sesion() as db:
+        draft = renovacion.borrador(db, original)
+        campanas.crear_campana(db, draft, USUARIO)
+    antes = _foto(engine)
+
+    with Sesion() as db:
+        with pytest.raises(campanas.SellOutYaRenovada, match=rf"La campaña {original} ya está renovada"):
+            campanas.crear_campana(db, renovacion.borrador(db, original), USUARIO)
+    assert _foto(engine) == antes
+
+
+def test_a_voided_copy_does_not_block_a_new_renewal(engine, Sesion) -> None:
+    original = _original(engine, _programa(Sesion))
+    with Sesion() as db:
+        copia = campanas.crear_campana(db, renovacion.borrador(db, original), USUARIO).id
+        campanas.anular_campana(db, copia, USUARIO, None)
+    with Sesion() as db:
+        nueva = campanas.crear_campana(db, renovacion.borrador(db, original), USUARIO).id
+    assert _renovada_de(engine, nueva) == original
+
+
+def test_the_renewed_campaign_must_be_of_the_same_program(engine, Sesion) -> None:
+    uno, otro = _programa(Sesion, "Uno"), _programa(Sesion, "Otro")
+    original = _original(engine, uno)
+    sin_programa = _original(engine, None)
+    antes = _foto(engine)
+    with Sesion() as db:
+        draft = renovacion.borrador(db, original)
+        for cambio in ({"programa_id": otro}, {"programa_id": None}):
+            with pytest.raises(campanas.SellOutError, match="otro programa"):
+                campanas.crear_campana(db, draft.model_copy(update=cambio), USUARIO)
+        ajena = renovacion.borrador(db, sin_programa).model_copy(update={"programa_id": uno})
+        with pytest.raises(campanas.SellOutError, match="otro programa"):
+            campanas.crear_campana(db, ajena, USUARIO)
+    assert _foto(engine) == antes
+
+
+def test_a_campaign_of_an_archived_program_still_renews_without_program(engine, Sesion) -> None:
+    original = _original(engine, _programa(Sesion, "Viejo", "archivado"))
+    with Sesion() as db:
+        draft = renovacion.borrador(db, original)
+        assert draft.programa_id is None
+        nueva = campanas.crear_campana(db, draft, USUARIO).id
+    assert _renovada_de(engine, nueva) == original
+
+
+def test_a_renewal_waits_for_the_program_lock_and_then_sees_the_copy(engine, Sesion) -> None:
+    """The race with Renovar programa: a per-campaign save waits on the program row the renewal holds, then finds
+    the copy it committed and is refused."""
+    pid = _programa(Sesion)
+    original = _original(engine, pid)
+    with Sesion() as primera:
+        primera.query(SellOutPrograma).filter(SellOutPrograma.id == pid).with_for_update().one()
+        campanas.crear_campana_sin_commit(primera, renovacion.borrador(primera, original), USUARIO)
+        resultado: list = []
+
+        def segunda() -> None:
+            with Sesion() as db:
+                try:
+                    campanas.crear_campana(db, renovacion.borrador(db, original), USUARIO)
+                    resultado.append("creada")
+                except campanas.SellOutYaRenovada:
+                    resultado.append("rechazada")
+
+        hilo = threading.Thread(target=segunda)
+        hilo.start()
+        hilo.join(1.0)
+        assert hilo.is_alive()  # waiting on the program row
+        primera.commit()
+    hilo.join(10)
+    assert resultado == ["rechazada"]
+    with engine.connect() as conn:
+        assert (
+            conn.execute(
+                text("SELECT count(*) FROM sell_out_campanas WHERE renovada_de_id = :c"), {"c": original}
+            ).scalar()
+            == 1
+        )

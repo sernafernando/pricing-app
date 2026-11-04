@@ -145,7 +145,7 @@ def _no_existe(campana_id: int) -> HTTPException:
 
 def _error(db: Session, exc: service.SellOutError) -> HTTPException:
     db.rollback()
-    conflicto = (service.SellOutYaAnulada, service.SellOutRecalculando)
+    conflicto = (service.SellOutYaAnulada, service.SellOutRecalculando, service.SellOutYaRenovada)
     if isinstance(exc, service.SellOutSinPermiso):
         code = status.HTTP_403_FORBIDDEN
     else:
