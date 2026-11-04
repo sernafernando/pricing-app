@@ -249,7 +249,7 @@
 .yAxis {
   position: absolute;
   inset: 0 auto 0 0;
-  width: 6.4%;
+  width: var(--gutter);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -262,7 +262,7 @@
 .axis {
   display: flex;
   justify-content: space-between;
-  padding-left: 6.4%;
+  padding-left: var(--gutter);
   font-family: var(--font-mono);
   font-size: var(--font-xs);
   color: var(--cf-text-tertiary);

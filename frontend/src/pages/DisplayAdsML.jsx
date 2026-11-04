@@ -37,7 +37,7 @@ import { SegmentedControl, Sparkline, StatusPill } from '../components/kit';
 import { apiErrorMessage } from '../utils/apiErrorMessage';
 import { formatSignedMoney } from '../utils/ventasMlTone';
 import { StackedDailyCost } from './DisplayAdsMLCharts';
-import { campaignDailyCosts, daysOf, formatDate, isoDay } from '../utils/displayAds';
+import { campaignDailyCosts, campaignName, daysOf, formatDate, isoDay } from '../utils/displayAds';
 import shell from './AportesAdsML.module.css';
 import styles from './DisplayAdsML.module.css';
 
@@ -86,13 +86,16 @@ const missingDays = (report) =>
 /** The attributed-sales change against the previous period, or why there is none. */
 function comparisonOf(report, previous) {
   if (!report || !previous) return null;
-  const gap = missingDays(previous);
-  if (missingDays(report) > 0 || gap > 0) {
-    const days = gap || missingDays(report);
-    const which = gap ? 'del período anterior' : 'del período';
-    return { text: `Sin comparación: faltan ${plural(days, 'día', 'días')} ${which}`, tone: 'neutral' };
+  // A gap in either period would compare incomplete figures. The chosen period's own gap is named first, since it
+  // also shows as the missing-days warning; otherwise the previous period's.
+  const own = missingDays(report);
+  const prior = missingDays(previous);
+  if (own > 0 || prior > 0) {
+    const where = own > 0 ? 'del período' : 'del período anterior';
+    return { text: `Sin comparación: faltan ${plural(own || prior, 'día', 'días')} ${where}`, tone: 'neutral' };
   }
   const before = previous.totals?.attributed_amount;
+  // No sales in the previous period: a percentage over zero has no base, so nothing is shown.
   if (!before) return null;
   const change = (report.totals.attributed_amount - before) / before;
   return {
@@ -115,7 +118,7 @@ function trendOf(campaign, report) {
 }
 
 function TrendRow({ campaign, report }) {
-  const name = campaign.name || `Campaña ${campaign.campaign_id}`;
+  const name = campaignName(campaign);
   const { average, peak } = trendOf(campaign, report);
   const days = daysOf(report.range.from, report.range.to).length;
   return (
@@ -211,8 +214,9 @@ export default function DisplayAdsML({ headerSlot = null, onActiveCount }) {
   const count = (status) => campaigns.filter((c) => c.status === status).length;
   const active = shown ? count('active') : null;
 
+  // Without current figures (an invalid range, a failed load) the count is cleared, so the tab never keeps a stale one.
   useEffect(() => {
-    if (active !== null) onActiveCount?.(active);
+    onActiveCount?.(active);
   }, [active, onActiveCount]);
 
   if (!puedeVerGanancia) {
@@ -418,7 +422,7 @@ export default function DisplayAdsML({ headerSlot = null, onActiveCount }) {
                 const idle = !c.cost && !c.prints;
                 const key = keyOf(c);
                 const expanded = open.has(key);
-                const name = c.name || `Campaña ${c.campaign_id}`;
+                const name = campaignName(c);
                 return (
                   <Fragment key={key}>
                     <tr className={idle ? styles.idle : undefined}>

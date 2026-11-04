@@ -153,6 +153,25 @@ describe('DisplayAdsML', () => {
     expect(screen.queryByText(/vs per\. ant\./)).not.toBeInTheDocument();
   });
 
+  it('does not compare when the period itself has Display days missing, and says so', async () => {
+    const missing = [{ source: 'display', advertiser_id: 25713, day: '2026-09-20', status: null }];
+    const current = { ...DISPLAY_REPORT, coverage: { ...DISPLAY_REPORT.coverage, missing_days: missing } };
+    api.get.mockImplementation((url, { params }) =>
+      Promise.resolve({ data: params.date_from === '2026-08-08' ? DISPLAY_REPORT : current }),
+    );
+    render(<DisplayAdsML />);
+    setRange('2026-09-07', '2026-10-06');
+    expect(await screen.findByText('Sin comparación: faltan 1 día del período')).toBeInTheDocument();
+  });
+
+  it('without the current figures the active count is cleared, so the tab never shows a stale one', async () => {
+    const onActiveCount = vi.fn();
+    render(<DisplayAdsML onActiveCount={onActiveCount} />);
+    await waitFor(() => expect(onActiveCount).toHaveBeenLastCalledWith(4));
+    fireEvent.change(screen.getByLabelText('Desde'), { target: { value: '2099-01-01' } });
+    await waitFor(() => expect(onActiveCount).toHaveBeenLastCalledWith(null));
+  });
+
   it('Actualizar asks the range again', async () => {
     const user = userEvent.setup();
     render(<DisplayAdsML />);

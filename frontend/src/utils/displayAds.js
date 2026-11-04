@@ -45,3 +45,6 @@ export function campaignDailyCosts(campaign, daily, range) {
   const byDay = new Map(campaign.days.map((d) => [d.day, d.cost]));
   return daysOf(range.from, range.to).map((day) => (covered.has(day) ? byDay.get(day) || 0 : null));
 }
+
+/** A campaign's name, or "Campaña <id>" when the catalog never listed it. */
+export const campaignName = (campaign) => campaign.name || `Campaña ${campaign.campaign_id}`;

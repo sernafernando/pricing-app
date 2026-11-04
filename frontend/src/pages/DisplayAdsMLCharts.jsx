@@ -3,14 +3,17 @@
  * covered (`daily`) and a campaign had no row is zero; a day never fetched is a gap, never drawn as zero spend.
  */
 import { formatSignedMoney } from '../utils/ventasMlTone';
-import { daysOf, formatDate, formatShortMoney } from '../utils/displayAds';
+import { campaignName, daysOf, formatDate, formatShortMoney } from '../utils/displayAds';
 import styles from './DisplayAdsML.module.css';
 
-// Series colors in the order of the Stitch legend (blue, indigo, teal, amber), then green and gray for a 5th+.
+// Series colors in the order of the Stitch legend (blue, indigo, teal, amber), then green and gray for the 5th and
+// 6th campaign (orchestrator, 2026-11-04). A 7th starts the palette again.
 const SERIES = ['s0', 's1', 's2', 's3', 's4', 's5'];
 const seriesClass = (index) => styles[SERIES[index % SERIES.length]];
 
+// `left` is the y-axis gutter in viewBox units; the axis labels get the same share of the width (`--gutter`).
 const STACK = { width: 1000, height: 220, left: 64, bottom: 8, top: 8 };
+const GUTTER = `${(STACK.left / STACK.width) * 100}%`;
 
 /** The niceness of the axis: the top tick is the max rounded up to 1, 2 or 5 times a power of ten. */
 function niceTop(max) {
@@ -47,7 +50,7 @@ export function StackedDailyCost({ campaigns, daily, range }) {
           {spent.map((c, i) => (
             <li key={`${c.advertiser_id}-${c.campaign_id}`} className={styles.legendItem}>
               <span className={`${styles.swatch} ${seriesClass(i)}`} aria-hidden="true" />
-              <span>{c.name || `Campaña ${c.campaign_id}`}</span>
+              <span>{campaignName(c)}</span>
               <span className={styles.legendValue}>({formatShortMoney(c.cost)})</span>
             </li>
           ))}
@@ -57,7 +60,7 @@ export function StackedDailyCost({ campaigns, daily, range }) {
         <p className={styles.chartEmpty}>Sin días guardados en el rango.</p>
       ) : (
         <>
-          <div className={styles.plot}>
+          <div className={styles.plot} style={{ '--gutter': GUTTER }}>
             <svg
               className={styles.stack}
               viewBox={`0 0 ${STACK.width} ${STACK.height}`}
@@ -82,7 +85,7 @@ export function StackedDailyCost({ campaigns, daily, range }) {
                       base += cost;
                       return (
                         <rect key={s} className={seriesClass(s)} x={x} y={y} width={barWidth} height={height}>
-                          <title>{`${formatDate(day)} · ${spent[s].name || spent[s].campaign_id}: ${formatSignedMoney(cost)}`}</title>
+                          <title>{`${formatDate(day)} · ${campaignName(spent[s])}: ${formatSignedMoney(cost)}`}</title>
                         </rect>
                       );
                     })}
@@ -96,7 +99,7 @@ export function StackedDailyCost({ campaigns, daily, range }) {
               ))}
             </div>
           </div>
-          <div className={styles.axis} aria-hidden="true">
+          <div className={styles.axis} style={{ '--gutter': GUTTER }} aria-hidden="true">
             {dayTicks.map((i) => (
               <span key={i}>{formatDate(days[i]).slice(0, 5)}</span>
             ))}
