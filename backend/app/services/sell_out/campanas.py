@@ -497,11 +497,19 @@ def crear_campana(
 
     `data.programa_id`, when set, must name a program that takes campaigns (`programas.validar_asignable`: a
     `ProgramaNoExiste` or `ProgramaError`, nothing stored); it is stored and in the audit row, which keeps its shape
-    without one."""
+    without one. `data.renovada_de_id` (a renewal) must name a stored campaign (`SellOutError` otherwise, nothing
+    stored); it is stored and audited the same way."""
     grupo_ids = validar(db, data)
     if data.programa_id is not None:
         programas.validar_asignable(db, data.programa_id)
-    campana = SellOutCampana(usuario_id=usuario_id, offset_origen_id=offset_origen_id, programa_id=data.programa_id)
+    if data.renovada_de_id is not None and db.get(SellOutCampana, data.renovada_de_id) is None:
+        raise SellOutError(f"La campaña {data.renovada_de_id} que se renueva no existe")
+    campana = SellOutCampana(
+        usuario_id=usuario_id,
+        offset_origen_id=offset_origen_id,
+        programa_id=data.programa_id,
+        renovada_de_id=data.renovada_de_id,
+    )
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)
     valores = _valores(campana, grupo_ids, items_de(db, [campana.id])[campana.id])
@@ -509,6 +517,8 @@ def crear_campana(
         valores["offset_origen_id"] = offset_origen_id
     if data.programa_id is not None:
         valores["programa_id"] = data.programa_id
+    if data.renovada_de_id is not None:
+        valores["renovada_de_id"] = data.renovada_de_id
     _audit(db, TipoAccion.SELL_OUT_CAMPANA_CREADA, usuario_id, None, valores)
     _encolar(db, [campana.id])
     db.commit()

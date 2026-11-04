@@ -127,6 +127,8 @@ class SellOutCampanaIn(BaseModel):
     # Its program (campaign system S1), on create only: absent or None means none. An edit ignores it and keeps the
     # stored one; assignment goes through `POST /api/sell-out/programas/asignar`, which audits it.
     programa_id: Optional[int] = Field(default=None, ge=INT_MIN, le=INT_MAX)
+    # The campaign it renews (the renewal draft sets it), on create only like `programa_id`: an edit keeps the stored one.
+    renovada_de_id: Optional[int] = Field(default=None, ge=1, le=2**63 - 1)
 
     @model_validator(mode="wrap")
     @classmethod
@@ -367,6 +369,7 @@ class SellOutCampanaOut(BaseModel):
     offset_origen_id: Optional[int] = None  # read-only: the legacy offset it was migrated from (T15)
     # Its program (metadata only), set with `POST /api/sell-out/programas/asignar`, never by an edit.
     programa_id: Optional[int] = None
+    renovada_de_id: Optional[int] = None
     programa: Optional[SellOutProgramaRefOut] = None
     created_at: datetime
     updated_at: datetime
