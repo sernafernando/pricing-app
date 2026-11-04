@@ -360,3 +360,71 @@ class TestFacturaIgnoraCosto:
             db.commit()
 
         assert [(g[0], g[1], g[4]) for g in b.generadas(engine)] == [(factura, pedido, Decimal("6.00"))]
+
+
+@pytest.mark.postgres
+class TestPorUnidad:
+    """Tacticals T1: a cost bonus may give a fixed ARS amount per sold unit (`tipo = 'por_unidad'`) instead of a %,
+    never above the unit cost, with the same VAT, model, stacking and cap rules."""
+
+    def test_each_sold_unit_gets_the_fixed_amount(self, engine: Engine) -> None:
+        bono = b.bono_costo(engine, monto_unit="36.00")
+        ref = _fuera(engine, 2964, 2, D(2026, 10, 5))
+
+        _items(engine, 2964)
+
+        assert _filas(engine) == [(bono, ref, 2964, 2, Decimal("72.00"))]
+
+    def test_the_amount_is_never_above_the_unit_cost(self, engine: Engine) -> None:
+        bono = b.bono_costo(engine, monto_unit="1500.00")
+        ref = _fuera(engine, 2964, 1, D(2026, 10, 5), costo_unit="1000.00")
+
+        _items(engine, 2964)
+
+        assert _filas(engine) == [(bono, ref, 2964, 1, Decimal("1000.00"))]
+
+    def test_with_vat_the_amount_is_divided_by_the_products_own_rate(self, engine: Engine) -> None:
+        b.set_iva(engine, 2964, 21.0)
+        bono = b.bono_costo(engine, monto_unit="121.00", incluye_iva=True)
+        ref = _fuera(engine, 2964, 1, D(2026, 10, 5))
+
+        _items(engine, 2964)
+
+        assert _filas(engine) == [(bono, ref, 2964, 1, Decimal("100.00"))]
+
+    def test_a_model_with_its_own_amount_uses_it(self, engine: Engine) -> None:
+        bono = b.bono_costo(engine, alcance="modelos", marca=None, modelos=(2964, 950), monto_unit="10.00")
+        b.valor_de_modelo(engine, bono, 2964, monto="25.00")
+        propio = _fuera(engine, 2964, 1, D(2026, 10, 5))
+        del_bono = _fuera(engine, 950, 1, D(2026, 10, 5))
+
+        _items(engine, 2964, 950)
+
+        assert sorted(_filas(engine)) == sorted(
+            [(bono, propio, 2964, 1, Decimal("25.00")), (bono, del_bono, 950, 1, Decimal("10.00"))]
+        )
+
+    def test_it_stacks_with_a_percentage_bonus_up_to_the_cost(self, engine: Engine) -> None:
+        primero = b.bono_costo(engine, "60.00")
+        segundo = b.bono_costo(engine, monto_unit="500.00")
+        ref = _fuera(engine, 2964, 1, D(2026, 10, 5))
+
+        _items(engine, 2964)
+
+        # 600.00 from the first; the fixed one only the 400.00 left of the 1000.00 cost.
+        assert _filas(engine) == [
+            (primero, ref, 2964, 1, Decimal("600.00")),
+            (segundo, ref, 2964, 1, Decimal("400.00")),
+        ]
+
+    def test_the_unit_cap_cuts_it(self, engine: Engine) -> None:
+        bono = b.bono_costo(engine, monto_unit="10.00", tope_unidades=3)
+        primera = _fuera(engine, 2964, 2, D(2026, 10, 5))
+        segunda = _fuera(engine, 2964, 2, D(2026, 10, 6))
+
+        _bonos(engine, bono)
+
+        assert _filas(engine) == [
+            (bono, primera, 2964, 2, Decimal("20.00")),
+            (bono, segunda, 2964, 1, Decimal("10.00")),
+        ]

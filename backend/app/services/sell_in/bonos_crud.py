@@ -20,7 +20,7 @@ updates or voids what it generates. The detail reports what it generated so
 far (active purchases, their units and amount).
 
 A bonus's `base` (T25d) is set on create and never changes: a cost bonus
-('costo_venta', a % of each sale's cost, ARS, brand/category/models) turned
+('costo_venta', a % of each sale's cost or an amount per unit, ARS, brand/category/models) turned
 into an invoice bonus would keep the sales rows it generated
 (`sell_in_bono_consumos`) and count them twice. What a cost bonus generated, and
 its cap, come from those sales rows; `incluye_iva` exists only on it.
@@ -136,11 +136,9 @@ def _validar_alcance(db: Session, data: SellInBonoIn) -> tuple[Optional[str], Op
 
 
 def _validar_base(data: SellInBonoIn, base: str, incluye_iva: bool) -> None:
-    """A cost bonus is a % of the sale's cost in ARS over a brand, category or models (the DB CHECK
-    `ck_sell_in_bonos_marca_costo_venta`); only it may take its % with VAT included (S33)."""
+    """A cost bonus is a % of the sale's cost, or an amount per unit (tacticals T1), in ARS over a brand, category or
+    models (the DB CHECK `ck_sell_in_bonos_marca_costo_venta`); only it may take its value with VAT included (S33)."""
     if base == BASE_COSTO_VENTA:
-        if data.tipo != "porcentaje":
-            raise SellInBonoError("Un bono sobre el costo tiene que ser por porcentaje")
         if data.moneda != "ARS":
             raise SellInBonoError("Un bono sobre el costo va en pesos (ARS)")
         if data.alcance == "factura":

@@ -188,6 +188,15 @@ class TestCostBonus:
         }
         assert payload.markups_sell_in["clasica"] == round((60000 / 48500 - 1) * 100, 2)
 
+    def test_a_per_unit_cost_bonus_gives_its_fixed_amount_capped_at_the_cost(self, engine):
+        # Tacticals T1: `tipo = 'por_unidad'` gives its ARS amount per unit, never above the cost (50000).
+        fijo = _bono_costo(engine, monto_unit="2000.00")
+        _bono_costo(engine, monto_unit="60000.00")  # only the 48000 left of the cost
+
+        sell_in = _payload(engine).sell_in
+
+        assert (sell_in.bono_ids[0], sell_in.descuento_unit, sell_in.costo) == (fijo, 50000.0, 0.0)
+
     def test_a_used_up_lot_gives_way_to_the_cost_bonus(self, engine):
         si.compra(engine, [(ROUTER, 2, "200.00")], D(2026, 10, 1))
         si.venta(engine, "fuera", ROUTER, 2, D(2026, 10, 20))
