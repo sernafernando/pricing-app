@@ -142,6 +142,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         // the page shows nothing but a notice.
         { label: 'ML Ads', path: '/ml-ads-aportes', permiso: 'ml_metricas.ver_ganancia', badge: 'Nuevo' },
         { label: 'Publicaciones ML', path: '/ml-publicaciones', permiso: 'productos.ver,ml_ops.ver', multiple: true, badge: 'Nuevo' },
+        { label: 'Control reparación', path: '/ml-repair-control', permiso: 'ml_ops.ver', badge: 'Nuevo' },
         { label: 'Ventas ML', path: '/ml-ventas-listado', permiso: 'ml_ops.ver' },
         { label: 'Dashboard TP-Link', path: '/dashboard-tplink', permiso: 'dashboard_tplink.ver' },
         { label: 'Ventas por Fuera', path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },

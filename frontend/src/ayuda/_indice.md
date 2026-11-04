@@ -32,6 +32,7 @@ Este índice lista todas las pantallas de la aplicación, en el mismo orden en q
 | 26 | Ventas ML | `ventas-ml.md` | `/ml-ventas-listado` | Reportes → Ventas ML | Acceso a Ventas ML |
 | 27b | Gestión Full | `gestion-full.md` | `/gestion-full` | Reportes → Gestión Full | Acceso a Productos o a Ventas ML; override solo PM/sub-PM o admin |
 | 27 | Publicaciones ML | `publicaciones-ml.md` | `/ml-publicaciones` | Reportes → Publicaciones ML | Acceso a Productos o a Ventas ML |
+| 27c | Control reparación | `control-reparacion.md` | `/ml-repair-control` | Reportes → Control reparación | Permiso ml_ops.ver (control de reparación de publicaciones) |
 | 28 | Dashboard TP-Link | `dashboard-tp-link.md` | `/dashboard-tplink` | Reportes → Dashboard TP-Link | Acceso al tablero de TP-Link |
 | 29 | Ventas por Fuera | `ventas-por-fuera.md` | `/dashboard-ventas-fuera` | Reportes → Ventas por Fuera | Acceso al tablero de ventas por fuera |
 | 30 | Tienda Nube | `tienda-nube.md` | `/dashboard-tienda-nube` | Reportes → Tienda Nube | Acceso al tablero de Tienda Nube |

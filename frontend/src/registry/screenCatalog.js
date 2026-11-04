@@ -141,6 +141,7 @@ export const SCREENS = [
   { path: '/notificaciones', label: 'Notificaciones', section: OTRAS, permisos: ['reportes.ver_notificaciones'], scope: 'permiso' },
   { path: '/perfiles-medidas', label: 'Perfiles de medidas', section: OTRAS, permisos: ['admin.gestionar_tn_perfiles'], scope: 'permiso' },
   { path: '/ml-publicaciones', label: 'Publicaciones ML', section: 'Reportes', permisos: ['productos.ver', 'ml_ops.ver'], scope: 'permiso' },
+  { path: '/ml-repair-control', label: 'Control reparación', section: 'Reportes', permisos: ['ml_ops.ver'], scope: 'permiso' },
 ];
 
 /**
