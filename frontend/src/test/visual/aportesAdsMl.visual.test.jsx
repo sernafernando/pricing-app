@@ -246,7 +246,12 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
       }
       for (const cell of table.querySelectorAll('td[class*="num"]')) {
         expect(cell.scrollWidth).toBeLessThanOrEqual(cell.clientWidth + 1);
-        expect(cell.getBoundingClientRect().height).toBeLessThanOrEqual(72);
+        // One line of figures: every text box of the cell sits on the same line. (The cell's own height is the
+        // row's, which a two-line campaign name sets.)
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        const lines = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));
+        expect(lines.size, `"${cell.textContent}" wraps`).toBeLessThanOrEqual(1);
       }
       for (const row of table.querySelectorAll('tbody tr')) {
         const cells = [...row.children];
