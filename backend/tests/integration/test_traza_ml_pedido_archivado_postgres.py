@@ -18,6 +18,7 @@ from app.models.item_transaction import ItemTransaction
 from app.models.sale_order_header_history import SaleOrderHeaderHistory
 from app.models.sale_order_status import SaleOrderStatus
 from app.models.tb_customer import TBCustomer
+from app.models.tb_item import TBItem
 from tests.integration.test_traza_ml_sin_pedido_erp_postgres import (  # noqa: F401 -- fixtures
     COMP_ID,
     ORDER_ID,
@@ -92,3 +93,28 @@ def test_an_archived_order_without_erp_customer_keeps_the_ml_buyer(db, venta_sin
     [pedido] = traza.pedidos
     assert pedido.soh_id == SOH_ID
     assert (pedido.cliente, pedido.cliente_dni) == ("Comprador De Prueba", "20000000001")
+
+
+def test_an_invoice_of_another_branch_with_the_same_order_number_is_not_listed(db, pedido_archivado_facturado):
+    """As captured: the order number of the sale (branch 45) also appears on a 2025 invoice of branch 1."""
+    db.add_all(
+        [
+            TBItem(comp_id=COMP_ID, item_id=999, item_code="7790000000999", item_desc="Producto de otra sucursal"),
+            CommercialTransaction(
+                comp_id=COMP_ID,
+                ct_transaction=70011,
+                ct_soh_id=SOH_ID,
+                ct_soh_bra_id=1,
+                ct_kindOf="B",
+                ct_pointOfSale=1,
+                ct_docNumber="00000003",
+                ct_date=datetime(2025, 1, 17),
+            ),
+            ItemTransaction(comp_id=COMP_ID, it_transaction=80011, ct_transaction=70011, item_id=999),
+        ]
+    )
+    db.flush()
+
+    traza = _traza(db, PACK_ID)
+
+    assert [s.articulo.item_id for s in traza.seriales] == [501]

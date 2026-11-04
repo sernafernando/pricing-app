@@ -855,6 +855,7 @@ QUERY_FACTURA_ITEMS_BY_SOHID = text("""
         ON it.item_id = pe.item_id
     WHERE ct.comp_id = :comp_id
         AND ct.ct_soh_id = :soh_id
+        AND ct.ct_soh_bra_id = :bra_id  -- order numbers repeat across branches
     ORDER BY ct.ct_date DESC NULLS LAST, ct.ct_transaction DESC, it.it_transaction DESC
 """)
 

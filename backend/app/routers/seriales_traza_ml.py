@@ -707,6 +707,7 @@ def _build_non_serial_items_from_invoice(
             {
                 "soh_id": soh_id,
                 "comp_id": comp_id,
+                "bra_id": pedido_row.get("bra_id"),
             },
         )
 
