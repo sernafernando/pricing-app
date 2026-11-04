@@ -1,8 +1,15 @@
-"""Brand contributions to Product Ads campaigns: reads and writes (ml-ads-brand-contribution S4, S7, S8).
+"""Brand contributions to ads campaigns: reads and writes (ml-ads-brand-contribution S4, S7, S8).
 
 Only stores what the team loads (S2). How a contribution lowers the subtracted cost (S5, S6) is the Board's job; the
 loading page's figures (`contribution_in`, `preview`, ml-ads-contribution-redesign S6) repeat the Board's rule over the
 same item rows so both show the same amount.
+
+A contribution has a `channel` (ml-ads-display-contributions S2): `product_ads` covers one campaign of
+`ml_ads_campaigns` over its item rows (`ml_ads_item_days`); `display` covers one campaign of `ml_ads_display_campaigns`
+or, with no campaign, the whole Display account of the advertiser, over its day rows
+(`ml_ads_display_campaign_days.consumed_budget`). Both follow the same rules (`percentage` p% of each row,
+`fixed_amount` spread by each row's share of the whole range's spend); `display_contributions` is the one place that
+computes the Display figure, for the Display tab and for the Board alike.
 """
 
 from __future__ import annotations
@@ -13,16 +20,25 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func, tuple_
+from sqlalchemy import func, or_, tuple_
 from sqlalchemy.orm import Session
 
-from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsCampaignDay, MlAdsItemDay
+from app.models.ml_ads import (
+    MlAdsCampaign,
+    MlAdsCampaignContribution,
+    MlAdsCampaignDay,
+    MlAdsDisplayCampaign,
+    MlAdsDisplayCampaignDay,
+    MlAdsItemDay,
+)
 
 logger = logging.getLogger(__name__)
 
 # ponytail: advertiser names hardcoded (not stored); persist them from the Ads API when the catalogue sync gains them.
 # These are the two advertisers the Ads API lists for the account; any other shows its id.
 ADVERTISER_NAMES = {25713: "GAUSS", 714700: "TPLINK"}
+
+PRODUCT_ADS, DISPLAY = "product_ads", "display"
 
 
 class ContributionError(Exception):
@@ -36,7 +52,7 @@ class ContributionError(Exception):
 @dataclass(frozen=True)
 class ContributionData:
     advertiser_id: int
-    campaign_id: int
+    campaign_id: Optional[int]  # None: the whole Display account (channel `display` only)
     kind: str
     value: Decimal
     date_from: date
@@ -44,6 +60,7 @@ class ContributionData:
     brand: Optional[str]
     note: Optional[str]
     settlement: Optional[str] = None
+    channel: str = PRODUCT_ADS
 
 
 @dataclass
@@ -77,8 +94,10 @@ def list_campaigns(db: Session, date_from: date, date_to: date) -> list[Campaign
         (c.advertiser_id, c.campaign_id): CampaignRow(c, Decimal(costs.get((c.advertiser_id, c.campaign_id)) or 0))
         for c in db.query(MlAdsCampaign).order_by(MlAdsCampaign.advertiser_id, MlAdsCampaign.campaign_id)
     }
+    # Product Ads only: a Display campaign id may equal a Product Ads one and must not land on it.
     contributions = (
         db.query(MlAdsCampaignContribution)
+        .filter(MlAdsCampaignContribution.channel == PRODUCT_ADS)
         .order_by(MlAdsCampaignContribution.date_from, MlAdsCampaignContribution.id)
         .all()
     )
@@ -156,35 +175,141 @@ def contribution_in(daily: DailySpend, row: MlAdsCampaignContribution, date_from
     return _counted(row.kind, Decimal(row.value), row.settlement, spend) * window / spend
 
 
+def _display_spend(db: Session, advertiser_id: int, campaign_id: Optional[int], start: date, end: date) -> Decimal:
+    """The Display cost over `[start, end]` of one campaign, or of every campaign of the advertiser (None)."""
+    D = MlAdsDisplayCampaignDay
+    query = db.query(func.sum(D.consumed_budget)).filter(D.advertiser_id == advertiser_id, D.day.between(start, end))
+    if campaign_id is not None:
+        query = query.filter(D.campaign_id == campaign_id)
+    return Decimal(query.scalar() or 0)
+
+
 def preview(db: Session, data: ContributionData) -> Preview:
-    """What `data` would cover if saved, over its whole range. Writes nothing."""
-    spend = _spend(db, data.advertiser_id, data.campaign_id, data.date_from, data.date_to)
+    """What `data` would cover if saved, over its whole range, on its channel's spend. Writes nothing."""
+    if data.channel == DISPLAY:
+        spend = _display_spend(db, data.advertiser_id, data.campaign_id, data.date_from, data.date_to)
+    else:
+        spend = _spend(db, data.advertiser_id, data.campaign_id, data.date_from, data.date_to)
     return Preview(spend, _counted(data.kind, data.value, data.settlement, spend))
 
 
-def _check(db: Session, data: ContributionData, exclude_id: Optional[int] = None) -> None:
-    """The campaign is catalogued (its row is locked so two writes on one campaign serialize) and no other
-    contribution of it shares a day with `[date_from, date_to]` (both ends inclusive)."""
-    campaign = (
-        db.query(MlAdsCampaign)
-        .filter(MlAdsCampaign.advertiser_id == data.advertiser_id, MlAdsCampaign.campaign_id == data.campaign_id)
-        .with_for_update()
-        .first()
+def display_contributions(db: Session, date_from: date, date_to: date) -> dict[tuple[int, int], Decimal]:
+    """What the Display contributions cover of `[date_from, date_to]`, per (advertiser, Display campaign).
+
+    The Board's Product Ads rule over the Display day rows: a contribution matches the rows of its advertiser in its
+    range, of its campaign or (whole account) of every campaign. `percentage` covers p% of each row; `fixed_amount`
+    spreads its counted amount (`full`: all of it; `refund_difference`: at most the range's spend) by each row's share
+    of the WHOLE range's spend, which may reach past the window; a range that spent nothing has nothing to spread
+    over. The write API keeps a row from meeting two contributions. Campaigns nothing covers are absent."""
+    C, D = MlAdsCampaignContribution, MlAdsDisplayCampaignDay
+    rows = db.query(C).filter(C.channel == DISPLAY, C.date_from <= date_to, C.date_to >= date_from).order_by(C.id).all()
+    if not rows:
+        return {}
+    days = (
+        db.query(D.advertiser_id, D.campaign_id, D.day, D.consumed_budget)
+        .filter(
+            D.advertiser_id.in_({r.advertiser_id for r in rows}),
+            D.day.between(min(r.date_from for r in rows), max(r.date_to for r in rows)),
+        )
+        .all()
     )
+    covered: dict[tuple[int, int], Decimal] = {}
+    for row in rows:
+        matching = [
+            (campaign, day, Decimal(cost))
+            for advertiser, campaign, day, cost in days
+            if advertiser == row.advertiser_id
+            and (row.campaign_id is None or campaign == row.campaign_id)
+            and row.date_from <= day <= row.date_to
+        ]
+        window: dict[int, Decimal] = {}
+        for campaign, day, cost in matching:
+            if date_from <= day <= date_to:
+                window[campaign] = window.get(campaign, Decimal(0)) + cost
+        value = Decimal(row.value)
+        if row.kind == "percentage":
+            shares = {campaign: _counted(row.kind, value, None, cost) for campaign, cost in window.items()}
+        else:
+            spend = sum((cost for _campaign, _day, cost in matching), Decimal(0))
+            if spend <= 0:
+                continue
+            counted = _counted(row.kind, value, row.settlement, spend)
+            shares = {campaign: counted * cost / spend for campaign, cost in window.items()}
+        for campaign, share in shares.items():
+            key = (row.advertiser_id, campaign)
+            covered[key] = covered.get(key, Decimal(0)) + share
+    return covered
+
+
+def _lock_product_ads_campaign(db: Session, data: ContributionData) -> None:
+    """The Product Ads campaign is catalogued; its row is locked so two writes on one campaign serialize."""
+    campaign = None
+    if data.campaign_id is not None:
+        campaign = (
+            db.query(MlAdsCampaign)
+            .filter(MlAdsCampaign.advertiser_id == data.advertiser_id, MlAdsCampaign.campaign_id == data.campaign_id)
+            .with_for_update()
+            .first()
+        )
     if campaign is None:
         raise ContributionError(
             "campaign_id", f"campaign {data.campaign_id} of advertiser {data.advertiser_id} is unknown"
         )
-    clash = db.query(MlAdsCampaignContribution.id).filter(
-        MlAdsCampaignContribution.advertiser_id == data.advertiser_id,
-        MlAdsCampaignContribution.campaign_id == data.campaign_id,
-        MlAdsCampaignContribution.date_from <= data.date_to,
-        MlAdsCampaignContribution.date_to >= data.date_from,
+
+
+def _lock_display_account(db: Session, data: ContributionData) -> None:
+    """The Display campaign (or, without one, the advertiser's Display account) is catalogued.
+
+    Every Display write of an advertiser locks ALL of that advertiser's `ml_ads_display_campaigns` rows, in
+    campaign order (no deadlock between two writers), whether it covers one campaign or the whole account: a
+    whole-account write and a campaign write of the same advertiser must serialize, and locking only the campaign row
+    would not stop a concurrent whole-account one. The catalog is only ever upserted (never deleted), so the rows an
+    earlier write locked are among those any later write locks: two writes always share a locked row. The catalog of
+    one advertiser holds a handful of campaigns."""
+    catalog = (
+        db.query(MlAdsDisplayCampaign.campaign_id)
+        .filter(MlAdsDisplayCampaign.advertiser_id == data.advertiser_id)
+        .order_by(MlAdsDisplayCampaign.campaign_id)
+        .with_for_update()
+        .all()
     )
+    ids = {campaign_id for (campaign_id,) in catalog}
+    if data.campaign_id is None and not ids:
+        raise ContributionError("campaign_id", f"advertiser {data.advertiser_id} has no Display campaigns")
+    if data.campaign_id is not None and data.campaign_id not in ids:
+        raise ContributionError(
+            "campaign_id", f"Display campaign {data.campaign_id} of advertiser {data.advertiser_id} is unknown"
+        )
+
+
+def _check(db: Session, data: ContributionData, exclude_id: Optional[int] = None) -> None:
+    """The campaign is in its channel's catalog (locked, see the `_lock_*` helpers) and no other contribution that
+    covers the same spend shares a day with `[date_from, date_to]` (both ends inclusive).
+
+    The same spend: on Product Ads, the same campaign. On Display, the same campaign or the advertiser's whole
+    account: a whole-account range clashes with every Display range of the advertiser, a campaign range with that
+    campaign's and with the whole-account ones. Channels never clash with each other (a Display campaign id may
+    equal a Product Ads one)."""
+    C = MlAdsCampaignContribution
+    clash = db.query(C.id).filter(
+        C.advertiser_id == data.advertiser_id,
+        C.channel == data.channel,
+        C.date_from <= data.date_to,
+        C.date_to >= data.date_from,
+    )
+    if data.channel == DISPLAY:
+        _lock_display_account(db, data)
+        if data.campaign_id is not None:
+            clash = clash.filter(or_(C.campaign_id == data.campaign_id, C.campaign_id.is_(None)))
+        message = "the range overlaps another Display contribution covering the same spend (the campaign or the whole account)"
+    else:
+        _lock_product_ads_campaign(db, data)
+        clash = clash.filter(C.campaign_id == data.campaign_id)
+        message = "the range overlaps another contribution of the same campaign"
     if exclude_id is not None:
-        clash = clash.filter(MlAdsCampaignContribution.id != exclude_id)
+        clash = clash.filter(C.id != exclude_id)
     if clash.first() is not None:
-        raise ContributionError("date_from", "the range overlaps another contribution of the same campaign")
+        raise ContributionError("date_from", message)
 
 
 def _locked(db: Session, contribution_id: int) -> Optional[MlAdsCampaignContribution]:
@@ -220,6 +345,8 @@ def update(
     row = _locked(db, contribution_id)
     if row is None:
         return None
+    if row.channel != data.channel:
+        raise ContributionError("channel", "a contribution cannot move to another channel; delete it and load it again")
     if (row.advertiser_id, row.campaign_id) != (data.advertiser_id, data.campaign_id):
         raise ContributionError(
             "campaign_id", "a contribution cannot move to another campaign; delete it and load it again"
@@ -237,9 +364,10 @@ def delete(db: Session, contribution_id: int, user_id: int) -> bool:
     if row is None:
         return False
     logger.info(
-        "ml-ads contribution %s deleted by user %s: advertiser %s campaign %s %s %s %s..%s",
+        "ml-ads contribution %s deleted by user %s: %s advertiser %s campaign %s %s %s %s..%s",
         row.id,
         user_id,
+        row.channel,
         row.advertiser_id,
         row.campaign_id,
         row.kind,

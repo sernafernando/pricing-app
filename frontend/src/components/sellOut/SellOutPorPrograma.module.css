@@ -17,7 +17,7 @@
   gap: var(--space-2);
   padding: 0;
   font: inherit;
-  color: var(--cf-accent-blue);
+  color: var(--cf-text-secondary);
   background: none;
   border: none;
   cursor: pointer;
@@ -30,21 +30,56 @@
 }
 
 .nombre {
+  font-size: var(--font-sm);
   font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.sinPrograma {
+  color: var(--cf-text-secondary);
 }
 
 .resumen {
-  font-size: var(--font-sm);
+  font-size: var(--font-xs);
   color: var(--cf-text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
-.resumen::before {
-  content: '· ';
+.asignar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-.activas {
-  margin-left: auto;
+.enlace {
+  padding: 0;
+  font: inherit;
+  font-size: var(--font-sm);
+  font-weight: var(--font-medium);
+  color: var(--cf-accent-blue);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.enlace:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.enlace:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.enlace:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.error {
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
 }
 
 .aviso {

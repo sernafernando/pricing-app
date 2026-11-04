@@ -1,3 +1,5 @@
+import { apiMessage } from '../sellIn/sellInFormat';
+
 /** Page size used to resolve every filtered campaign: the list endpoint's maximum (`page_size` le=200). */
 export const PAGINA_SELECCION = 200;
 /** Backend `ANULAR_MASIVO_MAX` (`app/routers/sell_out_campanas.py`). */
@@ -13,6 +15,16 @@ export class SeleccionCambiada extends Error {
     super(SELECCION_CAMBIADA);
     this.name = 'SeleccionCambiada';
   }
+}
+
+/**
+ * Why resolving the filtered campaigns failed, in Spanish, never the HTTP client's own (English) message. A
+ * `SeleccionCambiada` gives its own text, an API answer gives its message, and anything else is a connection error.
+ */
+export function errorDeSeleccion(err) {
+  if (err instanceof SeleccionCambiada) return err.message;
+  if (err?.response) return apiMessage(err, 'No se pudieron seleccionar las campañas.');
+  return 'No se pudo conectar con el servidor para seleccionar las campañas.';
 }
 
 /**

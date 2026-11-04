@@ -7,6 +7,7 @@ import { promocionesAPI } from '../../../services/api';
 import { resolvePromoName } from '../../promociones/resolvePromoName';
 import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
 import ModalTesla, { ModalFooterButtons } from '../../ModalTesla';
+import MejoresCandidatasBlock from './MejoresCandidatasBlock';
 import {
   enrollBodyForPromo,
   listRowForPricelist,
@@ -16,7 +17,16 @@ import styles from './panel.module.css';
 
 const SLOT_LABELS = { smart: 'SMART', deal: 'DEAL', premium: 'Premium' };
 
-/** MODO PONER PRECIOS: Enter writes Pricing, then PM picks exactly one promo. */
+function slotEntries(picked) {
+  if (!picked) return [];
+  return [
+    ['smart', picked.smart],
+    ['deal', picked.deal],
+    ['premium', picked.premium],
+  ].filter(([, promo]) => promo);
+}
+
+/** MODO PONER PRECIOS: price write + SMART/DEAL/Premium pick after Enter. */
 export default function PonerPreciosBody({
   detail,
   itemId,
@@ -29,6 +39,9 @@ export default function PonerPreciosBody({
   const price = row?.price;
   const product = detail?.product;
   const productId = product?.item_id ?? row?.link?.producto_item_id;
+  const flaggedOnOpen = Boolean(row?.hay_mejores_ofertas);
+  // Without promos.escribir discard/apply 403 — never gate Nuevo precio on the chooser.
+  const canAwaitMejores = flaggedOnOpen && canWritePromos;
 
   const [draft, setDraft] = useState(price?.amount != null ? String(price.amount) : '');
   const [busy, setBusy] = useState(false);
@@ -37,6 +50,7 @@ export default function PonerPreciosBody({
   const [typedPrice, setTypedPrice] = useState(null);
   const [baselineMarkup, setBaselineMarkup] = useState(null);
   const [enrolling, setEnrolling] = useState(false);
+  const [awaitingMejores, setAwaitingMejores] = useState(canAwaitMejores);
 
   const closeSuggestions = () => {
     if (!enrolling) setSuggestions(null);
@@ -104,23 +118,17 @@ export default function PonerPreciosBody({
       onWritten?.();
       onLeavePub?.();
     } catch (err) {
-      // Always mention Pricing already saved — errorText alone would hide that behind a string detail.
-      const detail = errorText(err, 'No se pudo activar la promoción.');
+      const detailText = errorText(err, 'No se pudo activar la promoción.');
       setMessage({
         tone: 'error',
-        text: `El precio ya está guardado en Pricing. ${detail}`,
+        text: `El precio ya está guardado en Pricing. ${detailText}`,
       });
       setEnrolling(false);
     }
   };
 
-  const slots = suggestions
-    ? [
-        ['smart', suggestions.smart],
-        ['deal', suggestions.deal],
-        ['premium', suggestions.premium],
-      ].filter(([, promo]) => promo)
-    : [];
+  const enterSlots = slotEntries(suggestions);
+  const showPriceField = !awaitingMejores;
 
   return (
     <div className={styles.ponerPreciosBody}>
@@ -140,24 +148,38 @@ export default function PonerPreciosBody({
           </div>
         )}
       </dl>
-      <label className={styles.ponerPreciosField}>
-        <span>Nuevo precio</span>
-        <input
-          type="text"
-          inputMode="decimal"
-          className={styles.ponerPreciosInput}
-          value={draft}
-          disabled={!canEditPrice || busy}
-          aria-label="Nuevo precio"
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter' || busy) return;
-            e.preventDefault();
-            e.stopPropagation();
-            runEnter();
-          }}
+
+      {awaitingMejores && (
+        <MejoresCandidatasBlock
+          itemId={itemId}
+          baselinePrice={price?.amount}
+          onWritten={onWritten}
+          onLeavePub={onLeavePub}
+          onDismissed={() => setAwaitingMejores(false)}
+          onUnavailable={() => setAwaitingMejores(false)}
         />
-      </label>
+      )}
+
+      {showPriceField && (
+        <label className={styles.ponerPreciosField}>
+          <span>Nuevo precio</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            className={styles.ponerPreciosInput}
+            value={draft}
+            disabled={!canEditPrice || busy}
+            aria-label="Nuevo precio"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter' || busy) return;
+              e.preventDefault();
+              e.stopPropagation();
+              runEnter();
+            }}
+          />
+        </label>
+      )}
       {message && (
         <p className={message.tone === 'error' ? styles.ponerPreciosError : styles.ponerPreciosOk} role="status">
           {message.text}
@@ -181,7 +203,7 @@ export default function PonerPreciosBody({
         footer={<ModalFooterButtons onCancel={closeSuggestions} cancelText="Cancelar" cancelDisabled={enrolling} />}
       >
         <ul className={styles.ponerPreciosChoices}>
-          {slots.map(([slot, promo]) => (
+          {enterSlots.map(([slot, promo]) => (
             <li key={slot}>
               <button type="button" className="btn-tesla outline sm" disabled={enrolling} onClick={() => acceptSlot(slot)}>
                 <span className={styles.ponerPreciosChoiceLabel}>{SLOT_LABELS[slot]}</span>

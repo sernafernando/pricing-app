@@ -752,13 +752,18 @@ class AdsUnattributed:
 
 @dataclass
 class AccountLevel:
-    """Display and Brand Ads of the period and of its comparison period (account level, never on a row)."""
+    """Display and Brand Ads of the period and of its comparison period (account level, never on a row).
+
+    `display_net` is what comes off the totals: Display net of IVA and of the Display brand contributions
+    (`display_contribution`, ml-ads-display-contributions S2); `display_api` stays ML's gross."""
 
     display_api: Decimal
     display_net: Decimal
     brand: Decimal
     prev_display_net: Decimal
     prev_brand: Decimal
+    display_contribution: Decimal = Decimal("0")
+    prev_display_contribution: Decimal = Decimal("0")
 
 
 @dataclass
@@ -1392,50 +1397,104 @@ class Board:
         self.prev_account_covered = all(whole(source) for source in ACCOUNT_SOURCES)
 
     def _account_level(self) -> AccountLevel:
-        """Display (net through the single IVA function) and Brand Ads (stored cost, basis never measured) of
-        the period and the comparison period: ONE statement over both account-level tables."""
+        """Display (net of its brand contributions and through the single IVA function) and Brand Ads (stored cost,
+        basis never measured) of the period and the comparison period: ONE statement over both account-level tables
+        and the Display contributions (`_display_contribution_share`), so the request keeps its statement count."""
         D, B = MlAdsDisplayCampaignDay, MlAdsBrandDay
 
-        def parts(day: Any, amount: Any, label: str):
+        def parts(day: Any, amount: Any, label: str, base: Any = None):
             def within(start: date, end: date) -> Any:
                 return func.coalesce(func.sum(case((self._in_ads_period(day, start, end), amount), else_=0)), 0)
 
-            return select(
+            query = select(
                 literal(label).label("kind"),
                 within(self.f.date_from, self.f.date_to).label("now"),
                 within(self.prev_from, self.prev_to).label("before"),
-            ).where(
+            )
+            if base is not None:
+                query = query.select_from(base)
+            return query.where(
                 or_(
                     self._in_ads_period(day, self.f.date_from, self.f.date_to),
                     self._in_ads_period(day, self.prev_from, self.prev_to),
                 )
             )
 
+        share, covered_rows = self._display_contribution_share()
         found = {
             kind: (Decimal(str(now)), Decimal(str(before)))
             for kind, now, before in self.db.execute(
-                union_all(parts(D.day, D.consumed_budget, "display"), parts(B.day, B.cost, "brand"))
+                union_all(
+                    parts(D.day, D.consumed_budget, "display"),
+                    parts(B.day, B.cost, "brand"),
+                    parts(D.day, share, "display_contribution", covered_rows),
+                )
             )
         }
         display, prev_display = found.get("display", (Decimal(0), Decimal(0)))
         # Brand Ads' cost was measured on 2026-10-08 (Engram #2307) and is all zero, so there is no IVA basis to
         # apply (`ads_cost_net_of_iva` refuses "brand_ads"): it is subtracted as stored (owner decision, #2720).
         brand, prev_brand = found.get("brand", (Decimal(0), Decimal(0)))
+        covered, prev_covered = found.get("display_contribution", (Decimal(0), Decimal(0)))
         return AccountLevel(
             display_api=display,
-            display_net=ads_cost_net_of_iva(display, "display"),
+            display_net=ads_cost_net_of_iva(display - covered, "display"),
             brand=brand,
-            prev_display_net=ads_cost_net_of_iva(prev_display, "display"),
+            prev_display_net=ads_cost_net_of_iva(prev_display - prev_covered, "display"),
             prev_brand=prev_brand,
+            display_contribution=covered,
+            prev_display_contribution=prev_covered,
         )
+
+    def _display_contribution_share(self) -> Tuple[Any, Any]:
+        """What the Display brand contributions cover of each Display day row (ml-ads-display-contributions S2), as
+        `(share, rows)`: the share expression and the day rows joined to the contribution each one meets.
+
+        `_ads_source`'s rule over the Display day rows, and the same as `contributions.display_contributions` (the
+        Display tab): a Display contribution matches its advertiser's rows in its range, of its campaign or, with no
+        campaign, of every campaign. `percentage` covers p% of the row; `fixed_amount` spreads its counted amount
+        (`full`: all of it; `refund_difference`: at most the range's spend) by the row's share of the WHOLE range's
+        Display spend; a range that spent nothing has nothing to spread over. The write API keeps a row from meeting
+        two contributions (no overlap per campaign, nor between a whole-account range and a campaign one)."""
+        D, C = MlAdsDisplayCampaignDay, MlAdsCampaignContribution
+
+        def touches(start: date, end: date) -> Any:
+            return and_(C.date_from <= self._day(end), C.date_to >= self._day(start))
+
+        meets = and_(
+            C.channel == "display",
+            D.advertiser_id == C.advertiser_id,
+            or_(C.campaign_id.is_(None), D.campaign_id == C.campaign_id),
+            D.day.between(C.date_from, C.date_to),
+        )
+        spend = (
+            select(C.id.label("id"), func.sum(D.consumed_budget).label("spend"))
+            .select_from(C)
+            .join(D, meets)
+            .where(
+                C.kind == "fixed_amount",
+                or_(touches(self.f.date_from, self.f.date_to), touches(self.prev_from, self.prev_to)),
+            )
+            .group_by(C.id)
+            .cte("display_contribution_spend")
+        )
+        counted = case((C.settlement == "full", C.value), (C.value < spend.c.spend, C.value), else_=spend.c.spend)
+        # `1.0` keeps SQLite (the unit tests) off integer division; Postgres reads it as numeric.
+        share = case(
+            (C.kind == "percentage", D.consumed_budget * C.value / literal_column("100.0")),
+            (spend.c.spend > 0, D.consumed_budget * literal_column("1.0") * counted / spend.c.spend),
+            else_=0,
+        )
+        return share, D.__table__.join(C, meets).outerjoin(spend, spend.c.id == C.id)
 
     def _ads_source(self) -> Any:
         """Product Ads cost per (MLA, ad day) over the period and its comparison, summed over ad groups, with the
         brand contributions that cover part of it (ml-ads-brand-contribution S5, S6, S9), computed per item row.
 
-        An item row belongs to a contribution by its own (`advertiser_id`, `campaign_id`, `day`); no campaign (NULL
-        or 0) never does. A campaign's ranges never overlap (the write API rejects it under the campaign row lock), so a
-        row meets at most one.
+        An item row belongs to a Product Ads contribution by its own (`advertiser_id`, `campaign_id`, `day`); no
+        campaign (NULL or 0) never does, nor does a Display contribution whose campaign id equals the row's. A
+        campaign's ranges never overlap (the write API rejects it under the campaign row lock), so a row meets at most
+        one.
         `percentage` covers p% of the row; `fixed_amount` spreads its counted amount (`full`: all of it;
         `refund_difference`: at most the range's spend) by the row's share of the WHOLE range's spend, which may
         reach past the request's days; a range that spent nothing has nothing to spread over."""
@@ -1446,7 +1505,10 @@ class Board:
             return and_(C.date_from <= self._day(end), C.date_to >= self._day(start))
 
         in_range = and_(
-            I.advertiser_id == C.advertiser_id, I.campaign_id == C.campaign_id, day.between(C.date_from, C.date_to)
+            C.channel == "product_ads",
+            I.advertiser_id == C.advertiser_id,
+            I.campaign_id == C.campaign_id,
+            day.between(C.date_from, C.date_to),
         )
         spend = (
             select(C.id.label("id"), func.sum(I.cost).label("spend"))

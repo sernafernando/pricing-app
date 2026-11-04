@@ -150,6 +150,7 @@ QUERY_PEDIDOS_BY_MLO_DIRECT = text("""
         0 AS soh_id,
         COALESCE(mlo.mlbra_id, 45) AS bra_id,
         mlo.comp_id,
+        mlo.mlo_id,
         mlo.mlo_cd AS soh_cd,
         COALESCE(NULLIF(mlo.cust_id, 0), 0) AS cust_id,
         COALESCE(cust.cust_name,
@@ -181,6 +182,7 @@ QUERY_PEDIDOS_BY_MLO_PACKID_DIRECT = text("""
         0 AS soh_id,
         COALESCE(mlo.mlbra_id, 45) AS bra_id,
         mlo.comp_id,
+        mlo.mlo_id,
         mlo.mlo_cd AS soh_cd,
         COALESCE(NULLIF(mlo.cust_id, 0), 0) AS cust_id,
         COALESCE(cust.cust_name,
@@ -212,6 +214,7 @@ QUERY_PEDIDOS_BY_MLO_SHIPPINGID_DIRECT = text("""
         0 AS soh_id,
         COALESCE(mlo.mlbra_id, 45) AS bra_id,
         mlo.comp_id,
+        mlo.mlo_id,
         mlo.mlo_cd AS soh_cd,
         COALESCE(NULLIF(mlo.cust_id, 0), 0) AS cust_id,
         COALESCE(cust.cust_name,
@@ -360,6 +363,22 @@ QUERY_PEDIDOS_HISTORY_BY_MLOID = text("""
         ON s.ssos_id = ssos.ssos_id
     WHERE s.rn = 1
     ORDER BY s.soh_cd ASC NULLS LAST
+""")
+
+# Products of an ML sale known only to the ML order tables (no ERP sale order to reach its invoice).
+QUERY_ITEMS_BY_MLO_ID = text("""
+    SELECT
+        d.mlod_id,
+        d.item_id,
+        ti.item_code,
+        COALESCE(ti.item_desc, d.mlo_title) AS item_desc
+    FROM tb_mercadolibre_orders_detail d
+    LEFT JOIN tb_item ti
+        ON ti.comp_id = d.comp_id
+        AND ti.item_id = d.item_id
+    WHERE d.mlo_id = :mlo_id
+        AND d.comp_id = :comp_id
+    ORDER BY d.mlod_id
 """)
 
 QUERY_SERIALES_BY_PEDIDO = text("""
@@ -649,7 +668,7 @@ def _build_non_serial_items_from_invoice(
     for pedido_row in pedidos_rows:
         soh_id = pedido_row.get("soh_id")
         comp_id = pedido_row.get("comp_id")
-        if soh_id is None or comp_id is None:
+        if not soh_id or comp_id is None:  # 0: no ERP sale order, so no invoice of its own
             continue
 
         result = db.execute(
@@ -718,6 +737,40 @@ def _build_non_serial_items_from_invoice(
         dedup[item.articulo.item_id] = item
 
     return list(dedup.values())
+
+
+def _build_items_from_ml_order_detail(
+    db: Session,
+    pedidos_rows: list[dict],
+    known_item_ids: set[int],
+) -> list[TrazaMLSerialItem]:
+    """Items for an RMA from the ML order detail, for the sales with no ERP sale order (`soh_id` 0)."""
+    items: dict[int, TrazaMLSerialItem] = {}
+    for pedido_row in pedidos_rows:
+        mlo_id = pedido_row.get("mlo_id")
+        comp_id = pedido_row.get("comp_id")
+        if pedido_row.get("soh_id") or mlo_id is None or comp_id is None:
+            continue
+        for row in db.execute(QUERY_ITEMS_BY_MLO_ID, {"mlo_id": mlo_id, "comp_id": comp_id}):
+            mapped = dict(row._mapping)
+            if mapped.get("item_id") is None:
+                continue
+            item_id = int(mapped["item_id"])
+            if item_id in known_item_ids or item_id in items:
+                continue
+            item_code = mapped.get("item_code")
+            item_desc = mapped.get("item_desc")
+            items[item_id] = TrazaMLSerialItem(
+                serial="",
+                articulo=ArticuloInfo(
+                    item_id=item_id,
+                    codigo=str(item_code) if item_code else str(item_id),
+                    descripcion=str(item_desc) if item_desc else f"Item {item_id}",
+                ),
+                movimientos=[],
+                rma=[],
+            )
+    return list(items.values())
 
 
 # =============================================================================
@@ -864,6 +917,8 @@ def traza_ml(
     rma_ids_por_serial: set[tuple[int, int, int]] = set()
 
     for pedido_row in pedidos_rows:
+        if not pedido_row["soh_id"]:  # 0: no ERP sale order, so no serials of its own
+            continue
         result_seriales = db.execute(
             QUERY_SERIALES_BY_PEDIDO,
             {
@@ -901,10 +956,13 @@ def traza_ml(
     seriales_presentes = {item.serial for item in seriales_list if item.serial}
     seriales_no_seriados = _build_non_serial_items_from_invoice(db, pedidos_rows, seriales_presentes)
     seriales_list.extend(seriales_no_seriados)
+    # 2c. Sales with no ERP sale order: their products come from the ML order detail
+    known_item_ids = {item.articulo.item_id for item in seriales_list if item.articulo}
+    seriales_list.extend(_build_items_from_ml_order_detail(db, pedidos_rows, known_item_ids))
 
     # 3. Buscar RMAs vía factura (para productos no seriados o RMAs sin serial)
     # Cadena: soh_id → commercial_transactions → item_transactions → rma_detail
-    soh_ids = [row["soh_id"] for row in pedidos_rows]
+    soh_ids = [row["soh_id"] for row in pedidos_rows if row["soh_id"]]
     rma_por_factura = _build_rma_by_invoice(db, soh_ids, exclude_rmad_ids=rma_ids_por_serial)
 
     # 4. Claims de ML (por order_id detectados + input si parece order_id)

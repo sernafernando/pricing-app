@@ -29,8 +29,10 @@ vi.mock('../../services/api', () => ({
   },
   promocionesAPI: {
     getPromocionesItem: vi.fn(() => Promise.resolve({ data: { promotions: [] } })),
+    getMarkupParaPrecio: vi.fn(() => Promise.resolve({ data: { nuestro_markup: 12 } })),
     refreshItemPromociones: vi.fn(() => Promise.resolve({ data: { ok: true } })),
     postPromocionItem: vi.fn(),
+    descartarHayMejores: vi.fn(() => Promise.resolve({ data: { ok: true } })),
     confirmarSinPromosML: vi.fn(() => Promise.resolve({ data: { sin_promos_confirmado: true, promos_en_ml: 0 } })),
   },
   preciosAPI: { obtenerProducto: vi.fn(), tipoCambioActual: vi.fn(), calcularMarkup: vi.fn(), calcularPorMarkup: vi.fn(), setRapido: vi.fn(), setCuota: vi.fn() },
@@ -41,6 +43,7 @@ vi.mock('../../services/api', () => ({
 let canSeeMargin = false;
 let canManage = true;
 let canSeePromos = true;
+let canWritePromos = true;
 let canSeeProducts = true;
 let canSeeSales = true;
 // The price-edit codes the user holds (every other code is granted).
@@ -61,6 +64,7 @@ vi.mock('../../contexts/PermisosContext', () => ({
       if (permiso === 'ml_metricas.ver') return canSeeSales;
       if (permiso === 'ml_ops.gestionar') return canManage;
       if (permiso === 'promos.ver') return canSeePromos;
+      if (permiso === 'promos.escribir') return canWritePromos;
       if (permiso === 'productos.ver') return canSeeProducts;
       if (PRICE_EDIT_CODES.includes(permiso)) return priceEditCodes.includes(permiso);
       return true;
@@ -81,10 +85,13 @@ beforeEach(() => {
   canSeeMargin = false;
   canManage = true;
   canSeePromos = true;
+  canWritePromos = true;
   canSeeProducts = true;
   canSeeSales = true;
   priceEditCodes = [];
   promocionesAPI.getPromocionesItem.mockClear();
+  promocionesAPI.getMarkupParaPrecio.mockReset().mockResolvedValue({ data: { nuestro_markup: 12 } });
+  promocionesAPI.descartarHayMejores.mockReset().mockResolvedValue({ data: { ok: true } });
   promocionesAPI.refreshItemPromociones.mockClear();
   publicacionesMlAPI.detail.mockReset();
   publicacionesMlAPI.detail.mockResolvedValue({ data: DETAIL_RESPONSE });
@@ -687,5 +694,43 @@ describe('header figures (S1)', () => {
     renderPanel({ tab });
     await screen.findByRole('region', { name: 'Cifras de la publicación' });
     expect(figures().closest('header')).not.toBeNull();
+  });
+});
+
+describe('hay_mejores chooser outside MODO', () => {
+  const flaggedDetail = () =>
+    makeDetail({
+      row: {
+        ...DETAIL_RESPONSE.row,
+        hay_mejores_ofertas: true,
+        price: { ...(DETAIL_RESPONSE.row.price || {}), amount: 80000 },
+      },
+    });
+
+  it('keeps tabs and footer while showing the chooser block', async () => {
+    publicacionesMlAPI.detail.mockResolvedValue({ data: flaggedDetail() });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Candidatas mejores' });
+    expect(screen.getByRole('tablist', { name: 'Secciones de la publicación' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+  });
+
+  it('hides the chooser after Descartar and keeps tabs', async () => {
+    const user = userEvent.setup();
+    publicacionesMlAPI.detail.mockResolvedValue({ data: flaggedDetail() });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('region', { name: 'Candidatas mejores' });
+    await user.click(screen.getByRole('button', { name: 'Descartar sugerencia' }));
+    await waitFor(() => expect(promocionesAPI.descartarHayMejores).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Candidatas mejores' })).not.toBeInTheDocument());
+    expect(screen.getByRole('tablist', { name: 'Secciones de la publicación' })).toBeInTheDocument();
+  });
+
+  it('does not mount the chooser without promos.escribir', async () => {
+    canWritePromos = false;
+    publicacionesMlAPI.detail.mockResolvedValue({ data: flaggedDetail() });
+    renderPanel({ tab: 'resumen' });
+    await screen.findByRole('tablist', { name: 'Secciones de la publicación' });
+    expect(screen.queryByRole('region', { name: 'Candidatas mejores' })).not.toBeInTheDocument();
   });
 });

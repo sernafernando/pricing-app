@@ -22,6 +22,22 @@ function markupOf(promo) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/**
+ * Keep in sync with backend `es_mejor_oferta` (ml_promotions_hay_mejores.py):
+ * markup↑ same price; markup= lower; markup↑ lower. Higher consumer price never better.
+ * Shared cases: same+higher markup ✓; same+same markup ✗; higher price+higher markup ✗;
+ * lower price+same markup ✓; lower price+higher markup ✓; lower price+lower markup ✗.
+ */
+export function esMejorOferta(candidatePrice, candidateMarkup, baselinePrice, baselineMarkup) {
+  if (candidatePrice == null || candidateMarkup == null) return false;
+  if (baselinePrice == null || baselineMarkup == null) return false;
+  if (!(Number.isFinite(candidatePrice) && Number.isFinite(candidateMarkup))) return false;
+  if (!(Number.isFinite(baselinePrice) && Number.isFinite(baselineMarkup))) return false;
+  if (candidatePrice > baselinePrice) return false;
+  if (candidatePrice === baselinePrice) return candidateMarkup > baselineMarkup;
+  return candidateMarkup >= baselineMarkup;
+}
+
 /** Best candidate by `nuestro_markup`. Skips null/non-finite markups (no arbitrary first pick). */
 export function bestByMarkup(promos) {
   let best = null;
@@ -37,8 +53,7 @@ export function bestByMarkup(promos) {
   return best;
 }
 
-export function pickPonerPreciosPromos(promotions, { monthName = currentMonthNameEs() } = {}) {
-  const candidates = (promotions || []).filter((promo) => promo?.status === 'candidate');
+function pickSlots(candidates, monthName) {
   return {
     smart: bestByMarkup(candidates.filter((p) => p.promotion_type === 'SMART')),
     deal: bestByMarkup(candidates.filter((p) => p.promotion_type === 'DEAL')),
@@ -46,6 +61,27 @@ export function pickPonerPreciosPromos(promotions, { monthName = currentMonthNam
       candidates.filter((p) => p.promotion_type === 'SELLER_CAMPAIGN' && isPremiumCurrentMonth(p, monthName)),
     ),
   };
+}
+
+export function pickPonerPreciosPromos(promotions, { monthName = currentMonthNameEs() } = {}) {
+  const candidates = (promotions || []).filter((promo) => promo?.status === 'candidate');
+  return pickSlots(candidates, monthName);
+}
+
+/** Best SMART/DEAL/Premium that beat the MeLi status quo (flagged-pub chooser). */
+export function pickMejoresCandidatas(
+  promotions,
+  { baselinePrice, baselineMarkup, monthName = currentMonthNameEs() } = {},
+) {
+  const candidates = (promotions || []).filter((promo) => promo?.status === 'candidate');
+  const better = candidates.filter((promo) =>
+    esMejorOferta(promoDisplayPrice(promo), markupOf(promo), baselinePrice, baselineMarkup),
+  );
+  return pickSlots(better, monthName);
+}
+
+export function hasPickedSlot(picked) {
+  return Boolean(picked?.smart || picked?.deal || picked?.premium);
 }
 
 export function enrollBodyForPromo(promo) {
