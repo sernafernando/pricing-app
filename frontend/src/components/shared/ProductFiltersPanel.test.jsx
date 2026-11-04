@@ -244,3 +244,88 @@ describe('ProductFiltersPanel hidePm', () => {
     }
   });
 });
+
+// Productos' filter functions (`pubml-filtros` S2), now in the shared panel so Publicaciones ML, Ventas ML and
+// Métricas ML all gain them.
+describe('ProductFiltersPanel like Productos', () => {
+  const AUDIO = {
+    ...OPTIONS,
+    subcategorias: [
+      { nombre: 'Audio', subcategorias: [{ id: 3, nombre: 'Parlantes', grupo_id: 5 }, { id: 4, nombre: 'Auriculares' }] },
+      { nombre: 'Video', subcategorias: [{ id: 7, nombre: 'Televisores' }] },
+    ],
+    pms: [{ id: 10, nombre: 'Ana', email: 'ana@example.com' }],
+  };
+  const categoryBox = (name) => screen.getByRole('checkbox', { name: new RegExp(`^${name}`) });
+
+  it('a category header ticks every subcategoría it shows', async () => {
+    const onChange = vi.fn();
+    render(panel({ onChange, options: AUDIO }));
+    await userEvent.click(screen.getByRole('button', { name: 'Subcategoría' }));
+    await userEvent.click(categoryBox('Audio'));
+    expect(onChange).toHaveBeenCalledWith({ ...EMPTY, subcategorias: [3, 4] });
+  });
+
+  it('a partly ticked category shows indeterminate with its x/y count', async () => {
+    render(panel({ options: AUDIO, value: { ...EMPTY, subcategorias: [3] } }));
+    await userEvent.click(screen.getByRole('button', { name: /^Subcategoría/ }));
+    const box = categoryBox('Audio');
+    expect(box).not.toBeChecked();
+    expect(box.indeterminate).toBe(true);
+    expect(screen.getByText('1/2')).toBeInTheDocument();
+    expect(categoryBox('Video').indeterminate).toBe(false);
+  });
+
+  it('a fully ticked category header un-ticks its subcategorías and keeps the rest', async () => {
+    const onChange = vi.fn();
+    render(panel({ onChange, options: AUDIO, value: { ...EMPTY, subcategorias: [3, 4, 7] } }));
+    await userEvent.click(screen.getByRole('button', { name: /^Subcategoría/ }));
+    expect(categoryBox('Audio')).toBeChecked();
+    await userEvent.click(categoryBox('Audio'));
+    expect(onChange).toHaveBeenCalledWith({ ...EMPTY, subcategorias: [7] });
+  });
+
+  it('the subcategoría search also matches the category name, showing all its subcategorías', async () => {
+    render(panel({ options: AUDIO }));
+    await userEvent.click(screen.getByRole('button', { name: 'Subcategoría' }));
+    await userEvent.type(screen.getByPlaceholderText('Buscar subcategoría...'), 'audio');
+    expect(screen.getByText('Parlantes')).toBeInTheDocument();
+    expect(screen.getByText('Auriculares')).toBeInTheDocument();
+    expect(screen.queryByText('Televisores')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['Marca', 'Buscar marca...'],
+    ['Categoría', 'Buscar categoría...'],
+    ['Subcategoría', 'Buscar subcategoría...'],
+  ])('opening %s focuses its search, which selects its text and clears with ✕', async (button, placeholder) => {
+    render(panel({ options: AUDIO }));
+    await userEvent.click(screen.getByRole('button', { name: button }));
+    const input = screen.getByPlaceholderText(placeholder);
+    await waitFor(() => expect(input).toHaveFocus());
+    expect(screen.queryByRole('button', { name: 'Limpiar búsqueda' })).not.toBeInTheDocument();
+
+    await userEvent.type(input, 'xy');
+    input.blur();
+    fireEvent.focus(input);
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 2]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Limpiar búsqueda' }));
+    expect(input).toHaveValue('');
+  });
+
+  it('shows the subcategoría group badge and the PM email', async () => {
+    render(panel({ options: AUDIO }));
+    await userEvent.click(screen.getByRole('button', { name: 'Subcategoría' }));
+    expect(screen.getByText('G5')).toBeInTheDocument();
+    expect(screen.getAllByText(/^G\d/)).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'PM' }));
+    expect(screen.getByText('Ana (ana@example.com)')).toBeInTheDocument();
+  });
+
+  it('a PM with no email shows only the name', async () => {
+    render(panel());
+    await userEvent.click(screen.getByRole('button', { name: 'PM' }));
+    expect(screen.getByText('Ana')).toBeInTheDocument();
+  });
+});

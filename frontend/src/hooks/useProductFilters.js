@@ -28,7 +28,9 @@ const includesText = (text, needle) => text.toLowerCase().includes(needle.toLowe
  *    is the canonical one (a selection spelled differently shows once,
  *    checked); a subcategoría or PM with no name on hand shows as
  *    `Subcategoría #id` / `PM #id`, and
- *  - filters the lists by the typed search, client-side.
+ *  - filters the lists by the typed search, client-side (a search matching a
+ *    category's name keeps all its subcategorías, like Productos), and
+ *  - ticks or un-ticks a whole category's subcategorías at once.
  *
  * @param {{value?: object, onChange?: Function, options?: object}} [args]
  *   `options`: `{marcas: string[], categorias: string[],
@@ -65,10 +67,13 @@ export function useProductFilters({ value = EMPTY_VALUE, onChange, options } = {
       .filter((id) => !listedIds.has(id))
       .map((id) => ({ id, nombre: `Subcategoría #${id}` }));
     const all = missing.length > 0 ? [...groups, { nombre: 'Seleccionadas', subcategorias: missing }] : groups;
+    // Like Productos: a search that matches the category's name keeps all its subcategorías.
     return all
       .map((grupo) => ({
         ...grupo,
-        subcategorias: (grupo.subcategorias || []).filter((sub) => includesText(sub.nombre, busquedaSubcategoria)),
+        subcategorias: includesText(grupo.nombre, busquedaSubcategoria)
+          ? grupo.subcategorias || []
+          : (grupo.subcategorias || []).filter((sub) => includesText(sub.nombre, busquedaSubcategoria)),
       }))
       .filter((grupo) => grupo.subcategorias.length > 0);
   }, [offered.subcategorias, selectedSubcategorias, busquedaSubcategoria]);
@@ -110,6 +115,17 @@ export function useProductFilters({ value = EMPTY_VALUE, onChange, options } = {
     (id) => emit({ subcategorias: toggleIn(selectedSubcategorias, id) }),
     [selectedSubcategorias, emit],
   );
+  // A category header ticks every subcategoría it shows, or un-ticks them all once they all are.
+  const toggleSubcategoriaGrupo = useCallback(
+    (ids) => {
+      const all = ids.length > 0 && ids.every((id) => selectedSubcategorias.includes(id));
+      const next = all
+        ? selectedSubcategorias.filter((id) => !ids.includes(id))
+        : [...selectedSubcategorias, ...ids.filter((id) => !selectedSubcategorias.includes(id))];
+      emit({ subcategorias: next });
+    },
+    [selectedSubcategorias, emit],
+  );
   const togglePm = useCallback((id) => emit({ pms: toggleIn(selectedPms, id) }), [selectedPms, emit]);
 
   return {
@@ -132,6 +148,7 @@ export function useProductFilters({ value = EMPTY_VALUE, onChange, options } = {
     toggleMarca,
     toggleCategoria,
     toggleSubcategoria,
+    toggleSubcategoriaGrupo,
     togglePm,
   };
 }

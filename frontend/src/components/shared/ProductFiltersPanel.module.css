@@ -110,7 +110,25 @@
 }
 
 .searchWrap {
+  position: relative;
   padding: var(--spacing-md);
+}
+
+.searchClear {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--spacing-md) + var(--spacing-xs));
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  line-height: 1;
+}
+
+.searchClear:hover {
+  color: var(--text-primary);
 }
 
 .searchWrap input {
@@ -135,10 +153,25 @@
 }
 
 .groupLabel {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
   font-size: var(--font-xs);
   font-weight: var(--font-semibold);
   color: var(--text-secondary);
   padding: var(--spacing-xs) var(--spacing-sm) 0;
+  cursor: pointer;
+}
+
+.groupCount,
+.groupBadge {
+  margin-left: auto;
+  padding: 1px var(--spacing-xs);
+  border-radius: var(--radius-full);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
 }
 
 .item {

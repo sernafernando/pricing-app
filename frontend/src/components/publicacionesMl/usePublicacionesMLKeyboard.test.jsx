@@ -42,6 +42,9 @@ function Harness({ onOpen = () => {}, onExport, onPaintRow, onToggleRow, onExten
   return (
     <div>
       <input ref={searchRef} aria-label="Buscar" />
+      <div data-filter-search>
+        <input aria-label="Buscar marca" />
+      </div>
       {help && <p>Ayuda abierta</p>}
       {navigating && <p>Navegando</p>}
       <TableShell
@@ -492,6 +495,34 @@ describe("Productos' bulk and filter shortcuts (S9b)", () => {
     expect(onOpenFilter).toHaveBeenLastCalledWith('subcategorias');
     fireEvent.keyDown(document.body, { key: 'p', code: 'KeyP', altKey: true });
     expect(onOpenFilter).toHaveBeenLastCalledWith('pms');
+  });
+
+  it('from a filter search Alt+letter switches filters; from any other field it does not', () => {
+    const onOpenFilter = vi.fn();
+    render(<Harness onOpenFilter={onOpenFilter} />);
+    expect(fireEvent.keyDown(screen.getByLabelText('Buscar marca'), { key: 'p', code: 'KeyP', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('pms');
+    onOpenFilter.mockClear();
+    expect(fireEvent.keyDown(screen.getByLabelText('Buscar'), { key: 'µ', code: 'KeyM', altKey: true })).toBe(true);
+    expect(onOpenFilter).not.toHaveBeenCalled();
+  });
+
+  it('in a filter search, an Alt key that types a character (a Mac: Alt+C is ç) keeps typing it', () => {
+    const onOpenFilter = vi.fn();
+    render(<Harness onOpenFilter={onOpenFilter} />);
+    for (const [key, code] of [['ç', 'KeyC'], ['µ', 'KeyM'], ['π', 'KeyP']]) {
+      expect(fireEvent.keyDown(screen.getByLabelText('Buscar marca'), { key, code, altKey: true })).toBe(true);
+    }
+    expect(onOpenFilter).not.toHaveBeenCalled();
+  });
+
+  it('in a filter search, Alt+letter switches filters by the key on any layout (AZERTY: the A key types q)', () => {
+    const onOpenFilter = vi.fn();
+    render(<Harness onOpenFilter={onOpenFilter} />);
+    expect(fireEvent.keyDown(screen.getByLabelText('Buscar marca'), { key: 'q', code: 'KeyA', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('auditoria');
+    expect(fireEvent.keyDown(screen.getByLabelText('Buscar marca'), { key: 'S', code: 'KeyS', altKey: true })).toBe(false);
+    expect(onOpenFilter).toHaveBeenLastCalledWith('subcategorias');
   });
 
   it("Alt+A opens the Auditoría filters and Alt+C / Alt+F the presence ones (Productos' Avanzados), by the key", () => {

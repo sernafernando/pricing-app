@@ -547,6 +547,15 @@ describe('MetricasML cross-filtered product filters', () => {
 
     await waitFor(() => expect(lastBoardParams()).not.toHaveProperty('categorias'));
   });
+
+  it('a category header in Subcategoría sends all its subcategorías (pubml-filtros S2)', async () => {
+    answerWithProduct();
+    await renderWithRouter(<MetricasML />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Subcategoría' }));
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Insumos' }));
+
+    await waitFor(() => expect(lastBoardParams()).toMatchObject({ subcategorias: '20' }));
+  });
 });
 
 describe('MetricasML publications sub-rows', () => {

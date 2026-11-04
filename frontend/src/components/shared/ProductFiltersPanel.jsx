@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { X } from 'lucide-react';
 import { useProductFilters } from '../../hooks/useProductFilters';
 import styles from './ProductFiltersPanel.module.css';
 
@@ -31,6 +32,11 @@ import styles from './ProductFiltersPanel.module.css';
  * @param {{marcas: string[], categorias: string[], subcategorias: object[], pms: object[]}} [props.options]
  *   The cross-filtered lists; empty until the screen's first response.
  * @param {boolean} [props.hidePm] Hides the PM button and its panel (a screen that takes no PM filter).
+ *
+ * Like Productos' filter (`pubml-filtros` S2): each search takes the focus when its dropdown opens, selects its
+ * text on focus and clears with ✕; a category header ticks all its shown subcategorías (indeterminate with an
+ * x/y count when some are); a subcategoría shows its commission group (G{grupo_id}) and a PM its email, when the
+ * options carry them.
  */
 export default function ProductFiltersPanel({ value, onChange, options, hidePm = false }) {
   const [panelAbierto, setPanelAbierto] = useState(null); // 'marcas' | 'categorias' | 'subcategorias' | 'pms' | null
@@ -56,6 +62,7 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
     toggleMarca,
     toggleCategoria,
     toggleSubcategoria,
+    toggleSubcategoriaGrupo,
     togglePm,
   } = useProductFilters({ value, onChange, options });
 
@@ -171,14 +178,7 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
                   </button>
                 )}
               </div>
-              <div className={styles.searchWrap}>
-                <input
-                  type="text"
-                  placeholder="Buscar marca..."
-                  value={busquedaMarca}
-                  onChange={(e) => setBusquedaMarca(e.target.value)}
-                />
-              </div>
+              <SearchInput placeholder="Buscar marca..." value={busquedaMarca} onChange={setBusquedaMarca} />
               <div className={styles.content}>
                 {marcasFiltradas.map((marca) => (
                   <label
@@ -211,14 +211,7 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
                   </button>
                 )}
               </div>
-              <div className={styles.searchWrap}>
-                <input
-                  type="text"
-                  placeholder="Buscar categoría..."
-                  value={busquedaCategoria}
-                  onChange={(e) => setBusquedaCategoria(e.target.value)}
-                />
-              </div>
+              <SearchInput placeholder="Buscar categoría..." value={busquedaCategoria} onChange={setBusquedaCategoria} />
               <div className={styles.content}>
                 {categoriasFiltradas.map((categoria) => (
                   <label
@@ -251,18 +244,11 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
                   </button>
                 )}
               </div>
-              <div className={styles.searchWrap}>
-                <input
-                  type="text"
-                  placeholder="Buscar subcategoría..."
-                  value={busquedaSubcategoria}
-                  onChange={(e) => setBusquedaSubcategoria(e.target.value)}
-                />
-              </div>
+              <SearchInput placeholder="Buscar subcategoría..." value={busquedaSubcategoria} onChange={setBusquedaSubcategoria} />
               <div className={styles.content}>
                 {subcategoriaGruposFiltrados.map((grupo) => (
                   <div key={grupo.nombre}>
-                    <div className={styles.groupLabel}>{grupo.nombre}</div>
+                    <CategoryHeader grupo={grupo} selected={selectedSubcategorias} onToggle={toggleSubcategoriaGrupo} />
                     {grupo.subcategorias.map((sub) => (
                       <label
                         key={sub.id}
@@ -276,6 +262,7 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
                           onChange={() => toggleSubcategoria(sub.id)}
                         />
                         <span>{sub.nombre}</span>
+                        {sub.grupo_id != null && <span className={styles.groupBadge}>G{sub.grupo_id}</span>}
                       </label>
                     ))}
                   </div>
@@ -309,7 +296,7 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
                       checked={selectedPms.includes(pm.id)}
                       onChange={() => togglePm(pm.id)}
                     />
-                    <span>{pm.nombre}</span>
+                    <span>{pm.email ? `${pm.nombre} (${pm.email})` : pm.nombre}</span>
                   </label>
                 ))}
               </div>
@@ -318,5 +305,48 @@ export default function ProductFiltersPanel({ value, onChange, options, hidePm =
         </div>
       )}
     </div>
+  );
+}
+
+/** A dropdown's search: focused when the dropdown opens, its text selected on focus, cleared with ✕. */
+function SearchInput({ placeholder, value, onChange }) {
+  return (
+    <div className={styles.searchWrap} data-filter-search>
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={(e) => e.target.select()}
+        // Opening the dropdown is asking to search it, like Productos.
+        autoFocus
+      />
+      {value && (
+        <button type="button" className={styles.searchClear} onClick={() => onChange('')} aria-label="Limpiar búsqueda">
+          <X size={12} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** A subcategoría group's header: one checkbox for every subcategoría it shows, indeterminate when some are ticked. */
+function CategoryHeader({ grupo, selected, onToggle }) {
+  const ids = grupo.subcategorias.map((sub) => sub.id);
+  const ticked = ids.filter((id) => selected.includes(id)).length;
+  const all = ids.length > 0 && ticked === ids.length;
+  return (
+    <label className={styles.groupLabel}>
+      <input
+        type="checkbox"
+        checked={all}
+        ref={(input) => {
+          if (input) input.indeterminate = ticked > 0 && !all;
+        }}
+        onChange={() => onToggle(ids)}
+      />
+      {grupo.nombre}
+      {ticked > 0 && <span className={styles.groupCount}>{`${ticked}/${ids.length}`}</span>}
+    </label>
   );
 }
