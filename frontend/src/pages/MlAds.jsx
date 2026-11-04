@@ -67,32 +67,32 @@ export default function MlAds() {
           </div>
           <div ref={setHeaderSlot} className={styles.headerSlot} />
         </div>
-      <div className={styles.tabs} role="tablist" aria-label="Secciones de ML Ads" onKeyDown={onKeyDown}>
-        {TABS.map((tab) => {
-          const selected = tab.key === active.key;
-          return (
-            <button
-              key={tab.key}
-              ref={(node) => {
-                buttons.current[tab.key] = node;
-              }}
-              type="button"
-              role="tab"
-              id={`ml-ads-tab-${tab.key}`}
-              aria-selected={selected}
-              aria-controls={PANEL_ID}
-              tabIndex={selected ? 0 : -1}
-              className={`${styles.tab} ${selected ? styles.active : ''}`}
-              onClick={() => select(tab.key)}
-            >
-              {tab.label}
-              {tab.key === 'display' && activeDisplay !== null && (
-                <span className={styles.badge} aria-hidden="true">{`${activeDisplay} Activas`}</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+        <div className={styles.tabs} role="tablist" aria-label="Secciones de ML Ads" onKeyDown={onKeyDown}>
+          {TABS.map((tab) => {
+            const selected = tab.key === active.key;
+            return (
+              <button
+                key={tab.key}
+                ref={(node) => {
+                  buttons.current[tab.key] = node;
+                }}
+                type="button"
+                role="tab"
+                id={`ml-ads-tab-${tab.key}`}
+                aria-selected={selected}
+                aria-controls={PANEL_ID}
+                tabIndex={selected ? 0 : -1}
+                className={`${styles.tab} ${selected ? styles.active : ''}`}
+                onClick={() => select(tab.key)}
+              >
+                {tab.label}
+                {tab.key === 'display' && activeDisplay !== null && (
+                  <span className={styles.badge} aria-hidden="true">{`${activeDisplay} Activas`}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </header>
       <div role="tabpanel" id={PANEL_ID} aria-labelledby={`ml-ads-tab-${active.key}`}>
         <Component headerSlot={headerSlot} onActiveCount={onActiveCount} />

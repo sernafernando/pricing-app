@@ -58,43 +58,43 @@ export function StackedDailyCost({ campaigns, daily, range }) {
       ) : (
         <>
           <div className={styles.plot}>
-          <svg
-            className={styles.stack}
-            viewBox={`0 0 ${STACK.width} ${STACK.height}`}
-            preserveAspectRatio="none"
-            role="img"
-            aria-label={`Costo diario por campaña, ${known} de ${days.length} días con datos`}
-          >
-            {ticks.map((v) => (
-              <line key={v} className={styles.grid} x1={STACK.left} x2={STACK.width} y1={toY(v)} y2={toY(v)} />
-            ))}
-            {days.map((day, i) => {
-              if (totals[i] === null) return null;
-              const x = STACK.left + i * slot + (slot - barWidth) / 2;
-              let base = 0;
-              return (
-                <g key={day}>
-                  {costOf.map((m, s) => {
-                    const cost = m.get(day) || 0;
-                    if (!cost) return null;
-                    const y = toY(base + cost);
-                    const height = toY(base) - y;
-                    base += cost;
-                    return (
-                      <rect key={s} className={seriesClass(s)} x={x} y={y} width={barWidth} height={height}>
-                        <title>{`${formatDate(day)} · ${spent[s].name || spent[s].campaign_id}: ${formatSignedMoney(cost)}`}</title>
-                      </rect>
-                    );
-                  })}
-                </g>
-              );
-            })}
-          </svg>
-          <div className={styles.yAxis} aria-hidden="true">
-            {[...ticks].reverse().map((v) => (
-              <span key={v}>{formatShortMoney(v)}</span>
-            ))}
-          </div>
+            <svg
+              className={styles.stack}
+              viewBox={`0 0 ${STACK.width} ${STACK.height}`}
+              preserveAspectRatio="none"
+              role="img"
+              aria-label={`Costo diario por campaña, ${known} de ${days.length} días con datos`}
+            >
+              {ticks.map((v) => (
+                <line key={v} className={styles.grid} x1={STACK.left} x2={STACK.width} y1={toY(v)} y2={toY(v)} />
+              ))}
+              {days.map((day, i) => {
+                if (totals[i] === null) return null;
+                const x = STACK.left + i * slot + (slot - barWidth) / 2;
+                let base = 0;
+                return (
+                  <g key={day}>
+                    {costOf.map((m, s) => {
+                      const cost = m.get(day) || 0;
+                      if (!cost) return null;
+                      const y = toY(base + cost);
+                      const height = toY(base) - y;
+                      base += cost;
+                      return (
+                        <rect key={s} className={seriesClass(s)} x={x} y={y} width={barWidth} height={height}>
+                          <title>{`${formatDate(day)} · ${spent[s].name || spent[s].campaign_id}: ${formatSignedMoney(cost)}`}</title>
+                        </rect>
+                      );
+                    })}
+                  </g>
+                );
+              })}
+            </svg>
+            <div className={styles.yAxis} aria-hidden="true">
+              {[...ticks].reverse().map((v) => (
+                <span key={v}>{formatShortMoney(v)}</span>
+              ))}
+            </div>
           </div>
           <div className={styles.axis} aria-hidden="true">
             {dayTicks.map((i) => (
