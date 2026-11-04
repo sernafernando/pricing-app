@@ -39,37 +39,37 @@
 }
 
 .success {
-  color: var(--tone-success-fg);
+  color: var(--tone-badge-fg, var(--tone-success-fg));
   background: var(--tone-success-bg);
   border-color: var(--tone-success-border);
 }
 
 .danger {
-  color: var(--tone-danger-fg);
+  color: var(--tone-badge-fg, var(--tone-danger-fg));
   background: var(--tone-danger-bg);
   border-color: var(--tone-danger-border);
 }
 
 .warning {
-  color: var(--tone-warning-fg);
+  color: var(--tone-badge-fg, var(--tone-warning-fg));
   background: var(--tone-warning-bg);
   border-color: var(--tone-warning-border);
 }
 
 .info {
-  color: var(--tone-info-fg);
+  color: var(--tone-badge-fg, var(--tone-info-fg));
   background: var(--tone-info-bg);
   border-color: var(--tone-info-border);
 }
 
 .purple {
-  color: var(--tone-purple-fg);
+  color: var(--tone-badge-fg, var(--tone-purple-fg));
   background: var(--tone-purple-bg);
   border-color: var(--tone-purple-border);
 }
 
 .neutral {
-  color: var(--tone-neutral-fg);
+  color: var(--tone-badge-fg, var(--tone-neutral-fg));
   background: var(--tone-neutral-bg);
   border-color: var(--tone-neutral-border);
 }

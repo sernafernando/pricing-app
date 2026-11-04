@@ -2337,6 +2337,22 @@ describe('row colors and the color layer (S8)', () => {
     }
     return null;
   };
+  // Owner (2026-11-04): "los badges con fondo blanco y letras negras en las filas con color quedaron horribles, fijate
+  // de medir los contrastes con cada color y ponerle el color acorde". A badge (any element with a solid surface of its
+  // own) stands out from its row's color at the WCAG non-text minimum, 3:1, besides its text reading at AA on it.
+  // A badge is a bordered box or a box with a surface of its own; one that blends into the row (its surface the row's
+  // color, or none at all) is still a badge and must be reported, not skipped. Controls (checkbox, expand button)
+  // and the thumbnail frame are not badges.
+  const THUMBNAIL = '[class*="thumbnail"]';
+  const surfacesOf = (row) =>
+    [...row.querySelectorAll('td *')].filter((el) => {
+      if (['INPUT', 'BUTTON'].includes(el.tagName) || el.matches(THUMBNAIL) || el.closest(THUMBNAIL)) return false;
+      const { backgroundColor, borderTopWidth } = getComputedStyle(el);
+      const cell = getComputedStyle(el.closest('td')).backgroundColor;
+      const box = el.getBoundingClientRect();
+      const bordered = parseFloat(borderTopWidth) > 0;
+      return box.width > 1 && box.height > 1 && (bordered || (isOpaque(backgroundColor) && backgroundColor !== cell));
+    });
   const textsOf = (row) =>
     [...row.querySelectorAll('*')].filter((el) => {
       const own = [...el.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
@@ -2346,7 +2362,7 @@ describe('row colors and the color layer (S8)', () => {
 
   for (const [theme, highContrast] of [['light', false], ['dark', false], ['light', true], ['dark', true]]) {
     const mode = highContrast ? ', high contrast' : '';
-    it(`1366x768 ${theme}${mode}: badges, days and colored figures read on every palette color`, async () => {
+    it(`1366x768 ${theme}${mode}: badges, days and colored figures read on every palette color and badges stand out from it`, async () => {
       publicacionesMlAPI.items.mockResolvedValue({
         data: {
           ...RESPONSE,
@@ -2369,7 +2385,22 @@ describe('row colors and the color layer (S8)', () => {
             else if (contrastRatio(color, behind) < 4.5) unreadable.push(`${label}: ${contrastRatio(color, behind).toFixed(2)}`);
           }
         }
-        expect(unreadable).toEqual([]);
+        const blending = [];
+        for (const row of rows) {
+          for (const el of surfacesOf(row)) {
+            const cell = getComputedStyle(el.closest('td')).backgroundColor;
+            const { backgroundColor } = getComputedStyle(el);
+            const label = `${row.title} "${el.textContent.trim()}"`;
+            if (!isOpaque(backgroundColor)) blending.push(`${label}: no surface of its own (${backgroundColor})`);
+            else if (contrastRatio(backgroundColor, cell) < 3) blending.push(`${label}: ${contrastRatio(backgroundColor, cell).toFixed(2)}`);
+          }
+          // The thumbnail frame keeps the row's color (an image holder, not a dark block).
+          for (const frameEl of row.querySelectorAll(`td ${THUMBNAIL}`)) {
+            const cell = getComputedStyle(frameEl.closest('td')).backgroundColor;
+            const { backgroundColor } = getComputedStyle(frameEl);
+            if (backgroundColor !== cell) blending.push(`${row.title} thumbnail frame: ${backgroundColor}, row ${cell}`);
+          }
+        }
         if (PRODUCT_SHOTS_DIR) {
           // Tall enough for the seven painted rows, the table scrolled to them.
           await page.viewport(1920, 1400);
@@ -2377,6 +2408,8 @@ describe('row colors and the color layer (S8)', () => {
           await frame();
           await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/palette-rows-${theme}${highContrast ? '-hc' : ''}.png` });
         }
+        expect(unreadable).toEqual([]);
+        expect(blending).toEqual([]);
       } finally {
         screen?.unmount();
         document.documentElement.classList.remove('high-contrast');

@@ -763,8 +763,15 @@ input[type="checkbox"]:focus-visible {
   --product-inactive-bg: #d1d5db;
   --product-inactive-text: #374151;
   --product-inactive-accent: #1f2937;
-  /* A badge's own surface on a painted row: the palette is light in every theme, so this is too. */
-  --product-badge-surface: #ffffff;
+  /* A badge on a painted row: a solid color of its own hue with light text. The palette is light in every theme, so
+     these are too; each one stands out from every palette color at 3:1 or more and its text reads on it at AA. */
+  --product-badge-ok: #047857;
+  --product-badge-urgent: #b91c1c;
+  --product-badge-warning: #92400e;
+  --product-badge-info: #1d4ed8;
+  --product-badge-review: #7e22ce;
+  --product-badge-inactive: #4b5563;
+  --product-badge-text: #ffffff;
 }
 
 /* ============================================
@@ -797,4 +804,12 @@ input[type="checkbox"]:focus-visible {
   
   --product-inactive-text: #000000;
   --product-inactive-accent: #000000;
+
+  /* Badges on painted rows: the darkest shade of each hue (5:1 or more on every palette color, text at AAA). */
+  --product-badge-ok: #064e3b;
+  --product-badge-urgent: #7f1d1d;
+  --product-badge-warning: #7c2d12;
+  --product-badge-info: #1e3a8a;
+  --product-badge-review: #581c87;
+  --product-badge-inactive: #1f2937;
 }
