@@ -100,18 +100,29 @@ const campaignRequests = () => api.get.mock.calls.filter(([url]) => url === '/ml
 
 const valueInput = () => screen.getByLabelText(/^(Porcentaje|Monto)$/);
 
-async function fillCommon(user, { value = '10' } = {}) {
+async function fillCommon(user, { value = '10', brand = 'TP-Link' } = {}) {
   await user.clear(valueInput());
   await user.type(valueInput(), value);
   await user.type(screen.getByLabelText('Desde', { selector: '#aporte-desde' }), '2026-10-01');
   await user.type(screen.getByLabelText('Hasta', { selector: '#aporte-hasta' }), '2026-10-15');
+  if (brand) {
+    await screen.findByRole('option', { name: brand });
+    await user.selectOptions(screen.getByLabelText('Marca'), brand);
+  }
 }
+
+// The brands an aporte may name: `GET /marcas`, the list Productos and Sell-in use (ml-ads-aportes-robust S1).
+const MARCAS = { marcas: ['EPSON', 'Lenovo', 'TP-Link'] };
+const answer = (url, preview) => {
+  if (url === '/marcas') return MARCAS;
+  return url.endsWith('/preview') ? preview : CAMPAIGNS;
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   permisosDenegados.clear();
   api.get.mockImplementation((url) =>
-    Promise.resolve({ data: url.endsWith('/preview') ? { spend: 742300, counted: 500000, net: 242300 } : CAMPAIGNS }),
+    Promise.resolve({ data: answer(url, { spend: 742300, counted: 500000, net: 242300 }) }),
   );
   api.post.mockResolvedValue({ data: {} });
   api.put.mockResolvedValue({ data: {} });
@@ -321,7 +332,7 @@ describe('manage contributions', () => {
       date_from: '2026-10-01',
       date_to: '2026-10-15',
       settlement: 'full',
-      brand: null,
+      brand: 'TP-Link',
       note: null,
     });
   });
@@ -331,7 +342,7 @@ describe('manage contributions', () => {
     await openCreate(user);
     expect(screen.queryByLabelText('Se recibe todo')).not.toBeInTheDocument();
     await fillCommon(user, { value: '25' });
-    await user.type(screen.getByLabelText('Marca'), 'Lenovo');
+    await user.selectOptions(screen.getByLabelText('Marca'), 'Lenovo');
     await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
     const [, body] = api.post.mock.calls[0];
@@ -440,7 +451,7 @@ describe('manage contributions', () => {
         date_from: '2026-10-01',
         date_to: '2026-10-15',
         settlement: 'refund_difference',
-        brand: null,
+        brand: 'TP-Link',
         note: null,
       },
     });
@@ -470,5 +481,45 @@ describe('manage contributions', () => {
     await fillCommon(user);
     await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
     expect(await screen.findByText('No se pudo guardar el aporte')).toHaveAttribute('role', 'alert');
+  });
+});
+
+describe('robust loading (ml-ads-aportes-robust)', () => {
+  it('picks the brand from the brand list and does not save without one', async () => {
+    const user = userEvent.setup();
+    await openCreate(user);
+    await fillCommon(user, { brand: null });
+    expect(api.get).toHaveBeenCalledWith('/marcas');
+    expect(within(screen.getByLabelText('Marca')).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Elegí una marca',
+      'EPSON',
+      'Lenovo',
+      'TP-Link',
+    ]);
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    expect(await screen.findByText('Elegí la marca.')).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('sends a fixed amount typed with IVA marked, so it is stored without it', async () => {
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '121000' });
+    await user.click(screen.getByLabelText('Devuelve la diferencia'));
+    await user.click(screen.getByLabelText('El monto incluye IVA'));
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post.mock.calls[0][1]).toMatchObject({ value: 121000, iva_included: true });
+  });
+
+  it('a percentage offers no IVA choice and sends none', async () => {
+    const user = userEvent.setup();
+    await openCreate(user);
+    expect(screen.queryByLabelText('El monto incluye IVA')).not.toBeInTheDocument();
+    await fillCommon(user);
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    expect(api.post.mock.calls[0][1]).not.toHaveProperty('iva_included');
   });
 });

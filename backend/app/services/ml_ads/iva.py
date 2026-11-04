@@ -53,3 +53,9 @@ def ads_cost_net_of_iva(value: Money, source: str = "product_ads") -> Money:
     if source not in API_COST_INCLUDES_IVA:
         raise ValueError(f"ads cost basis of {source!r} was never measured")
     return value / IVA_ML_DIVISOR if API_COST_INCLUDES_IVA[source] else value
+
+
+def amount_without_iva(value: Decimal) -> Decimal:
+    """A brand aporte typed with IVA (copied from an invoice) on the ads cost's basis, to the cent (ml-ads-aportes-robust
+    S2). Converted once, when saved: the stored value is always sin IVA."""
+    return (value / IVA_ML_DIVISOR).quantize(Decimal("0.01"))

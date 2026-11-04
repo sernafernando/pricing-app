@@ -8,6 +8,9 @@
  * `settlement` only for a fixed amount. The backend's 422 message (overlapping range, unknown campaign) is shown in
  * the form, which stays open. While the body is complete, `GET /ml-ads/contributions/preview` says what it would
  * cover; a failed preview just shows nothing.
+ *
+ * ml-ads-aportes-robust: the brand is picked from `GET /marcas` and is mandatory (S1); a fixed amount can be typed
+ * with IVA, which the backend stores without it (S2).
  */
 import { useState, useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
@@ -46,6 +49,7 @@ function initialForm(initial) {
     dateTo: initial.date_to || '',
     brand: initial.brand || '',
     note: initial.note || '',
+    ivaIncluded: false,
   };
 }
 
@@ -61,7 +65,10 @@ function payloadOf(form) {
     brand: form.brand.trim() || null,
     note: form.note.trim() || null,
   };
-  if (form.kind === 'fixed_amount') body.settlement = form.settlement;
+  if (form.kind === 'fixed_amount') {
+    body.settlement = form.settlement;
+    if (form.ivaIncluded) body.iva_included = true;
+  }
   return body;
 }
 
@@ -72,7 +79,24 @@ function validate(form) {
   if (form.kind === 'fixed_amount' && !form.settlement) return 'Elegí si se recibe todo o se devuelve la diferencia.';
   if (!form.dateFrom || !form.dateTo) return 'Completá el rango de fechas.';
   if (form.dateFrom > form.dateTo) return 'La fecha desde no puede ser posterior a la fecha hasta.';
+  if (!form.brand.trim()) return 'Elegí la marca.';
   return null;
+}
+
+/** The brand list (`GET /marcas`), keeping an edited aporte's brand visible even when the list lacks it. */
+function useMarcas(current) {
+  const [marcas, setMarcas] = useState([]);
+  useEffect(() => {
+    let active = true;
+    api
+      .get('/marcas')
+      .then((response) => active && setMarcas(response.data?.marcas ?? []))
+      .catch(() => active && setMarcas([]));
+    return () => {
+      active = false;
+    };
+  }, []);
+  return current && !marcas.includes(current) ? [current, ...marcas] : marcas;
 }
 
 /**
@@ -86,8 +110,10 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
   const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState(null);
   const latestPreview = useRef(0);
+  const marcas = useMarcas(initial.brand || '');
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const toggle = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.checked }));
   const complete = validate(form) === null;
   const body = complete ? JSON.stringify(payloadOf(form)) : null;
 
@@ -197,6 +223,22 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
         </label>
 
         {!percentage && (
+          <div className={styles.check}>
+            <input
+              id="aporte-iva"
+              type="checkbox"
+              aria-describedby="aporte-iva-hint"
+              checked={form.ivaIncluded}
+              onChange={toggle('ivaIncluded')}
+            />
+            <label htmlFor="aporte-iva">El monto incluye IVA</label>
+            <span id="aporte-iva-hint" className={styles.checkHint}>
+              Se guarda sin IVA, como el costo de Ads.
+            </span>
+          </div>
+        )}
+
+        {!percentage && (
           <fieldset className={styles.settlement}>
             <legend className={styles.label}>Cómo se liquida</legend>
             {SETTLEMENTS.map((option) => (
@@ -243,14 +285,14 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
 
         <label className={styles.field} htmlFor="aporte-marca">
           <span className={styles.label}>Marca</span>
-          <input
-            id="aporte-marca"
-            type="text"
-            maxLength={120}
-            className={styles.input}
-            value={form.brand}
-            onChange={set('brand')}
-          />
+          <select id="aporte-marca" className={styles.input} value={form.brand} onChange={set('brand')}>
+            <option value="">Elegí una marca</option>
+            {marcas.map((marca) => (
+              <option key={marca} value={marca}>
+                {marca}
+              </option>
+            ))}
+          </select>
         </label>
         <label className={styles.field} htmlFor="aporte-nota">
           <span className={styles.label}>Nota (opcional)</span>

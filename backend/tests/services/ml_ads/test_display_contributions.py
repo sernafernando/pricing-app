@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import threading
 import time
+import dataclasses
 from datetime import date
 from decimal import Decimal
 from typing import Optional
@@ -24,6 +25,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution, MlAdsDisplayCampaignDay
+from app.models.producto import ProductoERP
 from app.services.ml_ads import contributions, mapper, store
 from tests.services.ml_ads.captures import load
 from tests.services.ml_ads.test_display import _facts as display_facts
@@ -44,6 +46,7 @@ def _seed(db) -> None:
     body = load("display_day_2026_10_05_25713.json")["campaigns"]["body"]
     store.upsert_display_catalog(db, mapper.map_display_catalog(GAUSS, body), now=T0)
     db.add(MlAdsCampaign(advertiser_id=TPLINK, campaign_id=PADS, raw={}))  # DERIVED: a Product Ads catalog row
+    db.add(ProductoERP(item_id=1, codigo="COD1", descripcion="Toner", marca="XEROX"))  # DERIVED: the brand's ERP row
     db.flush()
 
 
@@ -88,7 +91,7 @@ class TestCreate:
 
     def test_without_a_channel_it_is_product_ads_as_before(self, db) -> None:
         data = contributions.ContributionData(
-            TPLINK, PADS, "percentage", Decimal("30"), *OCTOBER, None, None
+            TPLINK, PADS, "percentage", Decimal("30"), *OCTOBER, "Xerox", None
         )  # the positional shape existing callers use
         assert contributions.create(db, data, 7).channel == "product_ads"
 
@@ -168,6 +171,20 @@ class TestUpdate:
             contributions.update(db, row.id, _data(XEROX, channel="product_ads"), 8)
         assert err.value.field == "channel"
         assert [r[2] for r in _rows(db)] == ["display"]
+
+
+class TestRobust:
+    """ml-ads-aportes-robust S1 on Postgres, for a Display aporte."""
+
+    def test_the_brand_is_stored_as_the_catalog_spells_it(self, db) -> None:
+        row = contributions.create(db, dataclasses.replace(_data(None), brand=" xerox "), 7)
+        assert row.brand == "XEROX"
+
+    def test_a_brand_with_no_products_is_rejected_on_brand(self, db) -> None:
+        with pytest.raises(contributions.ContributionError) as error:
+            contributions.create(db, dataclasses.replace(_data(None), brand="Epson"), 7)
+        assert error.value.field == "brand"
+        assert _rows(db) == []
 
 
 def _saved(db, *data: contributions.ContributionData) -> None:

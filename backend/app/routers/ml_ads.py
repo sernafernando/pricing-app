@@ -50,6 +50,7 @@ from app.core.exceptions import ErrorCode, api_error
 from app.models.ml_ads import MlAdsCampaignContribution
 from app.models.usuario import Usuario
 from app.services.ml_ads import contributions, read
+from app.services.ml_ads.iva import amount_without_iva
 
 PERMISO_GANANCIA = "ml_metricas.ver_ganancia"
 PERMISO_APORTES = "ml_metricas.gestionar_aportes_ads"
@@ -402,11 +403,17 @@ class ContributionIn(BaseModel):
     date_from: date
     date_to: date
     settlement: Optional[Literal["full", "refund_difference"]] = None
+    # Mandatory when saved and picked from GET /marcas (ml-ads-aportes-robust S1); optional here so the preview answers
+    # while the form is still being filled. The service reports a missing or unknown brand on `brand`.
     brand: Optional[str] = Field(None, max_length=120)
     note: Optional[str] = Field(None, max_length=1000)
+    # S2: a fixed amount typed with IVA is stored sin IVA, converted once (`iva.amount_without_iva`).
+    iva_included: bool = False
 
     @model_validator(mode="after")
     def _bounds(self) -> "ContributionIn":
+        if self.iva_included and self.kind != "fixed_amount":
+            raise ValueError("only a fixed amount can be typed with IVA; a percentage has no IVA to take off")
         if self.kind == "percentage" and self.value > 100:
             raise ValueError("a percentage is at most 100")
         if (self.kind == "fixed_amount") != (self.settlement is not None):
@@ -480,7 +487,10 @@ def _contribution_out(row: MlAdsCampaignContribution) -> ContributionOut:
 
 
 def _data(body: ContributionIn) -> contributions.ContributionData:
-    return contributions.ContributionData(**body.model_dump())
+    fields = body.model_dump(exclude={"iva_included"})
+    if body.iva_included:
+        fields["value"] = amount_without_iva(body.value)
+    return contributions.ContributionData(**fields)
 
 
 def _not_found(contribution_id: int) -> Exception:

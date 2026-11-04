@@ -74,11 +74,11 @@ const CAMPAIGNS = [
 
 vi.mock('../../services/api', () => ({
   default: {
-    get: vi.fn((url) =>
-      Promise.resolve({
-        data: url.endsWith('/preview') ? { spend: 742300, counted: 500000, net: 242300 } : { campaigns: CAMPAIGNS },
-      }),
-    ),
+    get: vi.fn((url) => {
+      if (url === '/marcas') return Promise.resolve({ data: { marcas: ['EPSON', 'HP', 'TP-Link'] } });
+      const preview = { spend: 742300, counted: 500000, net: 242300 };
+      return Promise.resolve({ data: url.endsWith('/preview') ? preview : { campaigns: CAMPAIGNS } });
+    }),
     post: vi.fn(),
     put: vi.fn(),
     delete: vi.fn(),
@@ -138,11 +138,14 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Agregar aporte', exact: true }));
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Campaña' }), '25713-351204887');
     await userEvent.click(screen.getByRole('button', { name: 'Monto fijo' }));
-    await userEvent.fill(screen.getByLabelText('Monto'), '500000');
+    await userEvent.fill(screen.getByLabelText('Monto', { exact: true }), '500000');
     await userEvent.click(screen.getByLabelText('Devuelve la diferencia'));
     await userEvent.fill(screen.getByLabelText('Desde', { exact: true }).nth(1), '2026-10-01');
     await userEvent.fill(screen.getByLabelText('Hasta', { exact: true }).nth(1), '2026-10-31');
+    await userEvent.click(screen.getByLabelText('El monto incluye IVA'));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Marca' }), 'EPSON');
     await expect.element(screen.getByText(/Aporte que cuenta: \$ 500\.000,00/)).toBeVisible();
+    screen.getByRole('combobox', { name: 'Marca' }).element().scrollIntoView({ block: 'end' });
     await shot('modal-agregar-1440-light');
     await userEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
 

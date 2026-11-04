@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
 from app.models import ml_ads as _ml_ads  # noqa: F401  (registers the tables in Base.metadata)
+from app.models.producto import ProductoERP
 from app.models.worker_job_state import WorkerJobState
 
 ADS_TABLES = [table for name, table in Base.metadata.tables.items() if name.startswith("ml_ads_")]
@@ -29,7 +30,7 @@ def restore_pg_types() -> None:
 
 @pytest.fixture()
 def pg_ads_engine():
-    """Postgres engine with only the `ml_ads_*` tables and `worker_job_state`, created and dropped per test.
+    """Postgres engine with only the `ml_ads_*` tables, `worker_job_state` and `productos_erp`, created and dropped per test.
 
     Per-test DDL (three small tables) keeps the migration round trip in `test_models_migration.py`
     free of any ordering dependency with the model-built tables.
@@ -46,7 +47,8 @@ def pg_ads_engine():
     if not _postgres_reachable():
         pytest.skip(f"PostgreSQL not reachable at {POSTGRES_TEST_URL}")
 
-    tables = [*ADS_TABLES, WorkerJobState.__table__]
+    # `productos_erp`: an aporte's brand must be one of its marcas (ml-ads-aportes-robust S1).
+    tables = [*ADS_TABLES, WorkerJobState.__table__, ProductoERP.__table__]
     _restore_pristine_pg_types(tables)
     restore_pg_types()
     eng = create_engine(POSTGRES_TEST_URL)

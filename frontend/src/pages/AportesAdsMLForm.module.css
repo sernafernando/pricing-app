@@ -123,6 +123,23 @@
   border-radius: var(--radius-md);
 }
 
+/* A yes/no choice with its consequence below it (the amount includes IVA). */
+.check {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--space-2);
+  align-items: center;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  cursor: pointer;
+}
+
+.checkHint {
+  grid-column: 2;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
 .modalFooter {
   display: flex;
   justify-content: flex-end;

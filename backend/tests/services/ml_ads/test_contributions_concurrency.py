@@ -18,6 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution
+from app.models.producto import ProductoERP
 from app.services.ml_ads import contributions
 
 ADV, CAMP, OTHER = 714700, 351001, 351002
@@ -26,7 +27,7 @@ HOLD = 0.6  # seconds A keeps the lock
 
 def _data(campaign_id: int, start: int, end: int) -> contributions.ContributionData:
     return contributions.ContributionData(
-        ADV, campaign_id, "percentage", Decimal("30"), date(2026, 10, start), date(2026, 10, end), None, None
+        ADV, campaign_id, "percentage", Decimal("30"), date(2026, 10, start), date(2026, 10, end), "TP-LINK", None
     )
 
 
@@ -36,11 +37,13 @@ def sessions(pg_ads_engine):
     with make() as db:
         for campaign_id in (CAMP, OTHER):
             db.add(MlAdsCampaign(advertiser_id=ADV, campaign_id=campaign_id, raw={}))
+        db.add(ProductoERP(item_id=1, codigo="COD1", descripcion="Router", marca="TP-LINK"))  # DERIVED
         db.commit()
     yield make
     with pg_ads_engine.begin() as conn:
         conn.execute(text("DELETE FROM ml_ads_campaign_contributions"))
         conn.execute(text("DELETE FROM ml_ads_campaigns"))
+        conn.execute(text("DELETE FROM productos_erp"))
 
 
 def _hold_lock(make, locked: threading.Event) -> None:
