@@ -44,6 +44,7 @@ def sessions(pg_ads_engine):
         conn.execute(text("DELETE FROM ml_ads_campaign_contributions"))
         conn.execute(text("DELETE FROM ml_ads_campaigns"))
         conn.execute(text("DELETE FROM productos_erp"))
+        conn.execute(text("DELETE FROM auditoria"))
 
 
 def _hold_lock(make, locked: threading.Event) -> None:

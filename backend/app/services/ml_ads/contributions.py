@@ -17,13 +17,14 @@ from __future__ import annotations
 import dataclasses
 import logging
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import func, or_, tuple_
 from sqlalchemy.orm import Session
 
+from app.models.auditoria import Auditoria, TipoAccion
 from app.models.ml_ads import (
     MlAdsCampaign,
     MlAdsCampaignContribution,
@@ -392,6 +393,38 @@ def _locked(db: Session, contribution_id: int) -> Optional[MlAdsCampaignContribu
     )
 
 
+def _snapshot(row: MlAdsCampaignContribution) -> dict:
+    """What an audit row keeps of an aporte (S5): every field a person loads, JSON-safe."""
+    return {
+        "id": row.id,
+        "channel": row.channel,
+        "advertiser_id": row.advertiser_id,
+        "campaign_id": row.campaign_id,
+        "kind": row.kind,
+        "value": f"{Decimal(row.value):.2f}",
+        "date_from": row.date_from.isoformat(),
+        "date_to": row.date_to.isoformat(),
+        "settlement": row.settlement,
+        "brand": row.brand,
+        "note": row.note,
+    }
+
+
+def _audit(db: Session, tipo: TipoAccion, user_id: int, before: Optional[dict], after: Optional[dict]) -> None:
+    """One `auditoria` row in the caller's transaction (as sell-in bonuses do: `registrar_auditoria` commits on its
+    own, which would split the change from its record)."""
+    db.add(
+        Auditoria(
+            item_id=None,
+            usuario_id=user_id,
+            tipo_accion=tipo,
+            valores_anteriores=before,
+            valores_nuevos=after,
+            fecha=datetime.now(timezone.utc).replace(tzinfo=None),  # naive UTC, like the column's default
+        )
+    )
+
+
 def _apply(row: MlAdsCampaignContribution, data: ContributionData, user_id: int) -> None:
     for name, value in vars(data).items():
         setattr(row, name, value)
@@ -412,6 +445,8 @@ def create(
     row = MlAdsCampaignContribution(created_by_id=user_id)
     _apply(row, data, user_id)
     db.add(row)
+    db.flush()  # the id the audit row names
+    _audit(db, TipoAccion.ML_ADS_APORTE_CREADO, user_id, None, _snapshot(row))
     db.commit()
     db.refresh(row)
     return row
@@ -432,14 +467,16 @@ def update(
         )
     data = _validated(db, data, confirm_over_spend)
     _check(db, data, exclude_id=contribution_id)
+    before = _snapshot(row)
     _apply(row, data, user_id)
+    _audit(db, TipoAccion.ML_ADS_APORTE_EDITADO, user_id, before, _snapshot(row))
     db.commit()
     db.refresh(row)
     return row
 
 
 def delete(db: Session, contribution_id: int, user_id: int) -> bool:
-    """The row goes away; the log line keeps who removed what (the table only knows creator and last editor)."""
+    """The row goes away; its `auditoria` row (S5) and the log line keep who removed what."""
     row = _locked(db, contribution_id)
     if row is None:
         return False
@@ -455,6 +492,7 @@ def delete(db: Session, contribution_id: int, user_id: int) -> bool:
         row.date_from,
         row.date_to,
     )
+    _audit(db, TipoAccion.ML_ADS_APORTE_BORRADO, user_id, _snapshot(row), None)
     db.delete(row)
     db.commit()
     return True
