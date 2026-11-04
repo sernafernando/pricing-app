@@ -14,6 +14,7 @@ computes the Display figure, for the Display tab and for the Board alike.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from dataclasses import dataclass, field
 from datetime import date
@@ -22,6 +23,8 @@ from typing import Optional
 
 from sqlalchemy import func, or_, tuple_
 from sqlalchemy.orm import Session
+
+from app.models.producto import ProductoERP
 
 from app.models.ml_ads import (
     MlAdsCampaign,
@@ -312,6 +315,24 @@ def _check(db: Session, data: ContributionData, exclude_id: Optional[int] = None
         raise ContributionError("date_from", message)
 
 
+def _catalog_brand(db: Session, brand: Optional[str]) -> str:
+    """The brand as the marcas catalog spells it (ml-ads-aportes-robust S1): mandatory, matched without case or
+    surrounding spaces against the distinct `ProductoERP.marca` (what `GET /marcas` lists), as sell-in bonuses do."""
+    typed = (brand or "").strip()
+    if not typed:
+        raise ContributionError("brand", "the brand is mandatory; pick it from the brand list")
+    found = (
+        db.query(ProductoERP.marca)
+        .filter(func.upper(func.trim(ProductoERP.marca)) == typed.upper())
+        .order_by(ProductoERP.marca)
+        .limit(1)
+        .scalar()
+    )
+    if found is None:
+        raise ContributionError("brand", f"there are no products of the brand {typed}; pick it from the brand list")
+    return found.strip()
+
+
 def _locked(db: Session, contribution_id: int) -> Optional[MlAdsCampaignContribution]:
     """The contribution row under FOR UPDATE, taken before the campaign lock so edit and delete serialize."""
     return (
@@ -328,7 +349,12 @@ def _apply(row: MlAdsCampaignContribution, data: ContributionData, user_id: int)
     row.updated_by_id = user_id
 
 
+def _validated(db: Session, data: ContributionData) -> ContributionData:
+    return dataclasses.replace(data, brand=_catalog_brand(db, data.brand))
+
+
 def create(db: Session, data: ContributionData, user_id: int) -> MlAdsCampaignContribution:
+    data = _validated(db, data)
     _check(db, data)
     row = MlAdsCampaignContribution(created_by_id=user_id)
     _apply(row, data, user_id)
@@ -351,6 +377,7 @@ def update(
         raise ContributionError(
             "campaign_id", "a contribution cannot move to another campaign; delete it and load it again"
         )
+    data = _validated(db, data)
     _check(db, data, exclude_id=contribution_id)
     _apply(row, data, user_id)
     db.commit()

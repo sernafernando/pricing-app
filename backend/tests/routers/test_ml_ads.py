@@ -261,6 +261,9 @@ class TestDisplayContributions:
             )
         )
         db.add(MlAdsCampaign(advertiser_id=GAUSS, campaign_id=self.MIX, name="pads", raw={}))
+        from app.models.producto import ProductoERP
+
+        db.add(ProductoERP(item_id=1, codigo="COD1", descripcion="Toner", marca="Xerox"))  # DERIVED: the brand
         db.flush()
         return admin_auth_headers
 
@@ -342,7 +345,11 @@ class TestDisplayContributions:
     def test_the_preview_reads_the_display_spend(self, client, manager) -> None:
         response = client.get(f"{BASE}/contributions/preview", headers=manager, params=self._body(date_to="2026-10-05"))
         assert response.status_code == 200
-        assert response.json() == {"spend": 121938.82, "counted": 12193.88, "net": 109744.94}
+        assert response.json() == {
+            "spend": 121938.82,
+            "counted": 12193.88,
+            "net": 109744.94,
+        }
 
     def test_the_display_tab_carries_each_campaign_contribution_and_net(self, client, manager) -> None:
         """301232 at 20% on 10-05 (9892.842) plus a whole-account 10% on 10-06 (100 of its 1000)."""

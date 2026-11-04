@@ -12,6 +12,7 @@ from decimal import Decimal
 import pytest
 
 from app.models.ml_ads import MlAdsCampaign, MlAdsCampaignContribution
+from app.models.producto import ProductoERP
 from tests.routers.test_ml_publications_links import grant
 
 BASE = "/api/ml-ads"
@@ -40,6 +41,8 @@ def _contribution(**overrides) -> dict:
 def campaigns(db):
     for campaign_id, name in ((CAMP, "TP-Link routers"), (OTHER, "Epson")):
         db.add(MlAdsCampaign(advertiser_id=ADV, campaign_id=campaign_id, name=name, status="active", raw={}))
+    for item_id, marca in ((1, "TP-Link"), (2, "Epson")):  # the brands an aporte may name (ml-ads-aportes-robust S1)
+        db.add(ProductoERP(item_id=item_id, codigo=f"COD{item_id}", descripcion=marca, marca=marca))
     db.flush()
 
 
@@ -130,10 +133,10 @@ class TestCreate:
         assert body["created_by_id"] == admin_user.id
 
     def test_a_fixed_amount_keeps_its_two_decimals(self, client, db, manager) -> None:
-        response = _create(client, manager, **FIXED, value="150000.75", brand=None, note=None)
+        response = _create(client, manager, **FIXED, value="150000.75", note=None)
         assert response.status_code == 201
         assert response.json()["value"] == 150000.75
-        assert [(r.kind, r.value, r.brand) for r in _rows(db)] == [("fixed_amount", Decimal("150000.75"), None)]
+        assert [(r.kind, r.value, r.note) for r in _rows(db)] == [("fixed_amount", Decimal("150000.75"), None)]
 
     @pytest.mark.parametrize("settlement", ["full", "refund_difference"])
     def test_a_fixed_amount_stores_how_it_settles(self, client, db, manager, settlement) -> None:

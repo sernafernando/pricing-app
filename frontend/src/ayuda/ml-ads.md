@@ -24,6 +24,11 @@ Debajo hay un buscador por campaña, un filtro **Todas / Con aporte / Sin aporte
 
 El botón **Agregar aporte** (si tenés permiso) crea un aporte nuevo.
 
+### Cargar un aporte
+
+- **Marca**: es obligatoria y se elige de la lista de marcas, la misma que usan Productos y Sell-in. Así los totales de una marca no se parten por cómo se escribió.
+- **El monto incluye IVA**: aparece con un monto fijo. Marcalo si copiaste el monto de una factura con IVA; se guarda sin IVA, que es como viene el costo de Ads.
+
 ### Filtros y columnas
 
 Filtros: rango de fechas, búsqueda por campaña, segmento (todas/con aporte/sin aporte), anunciante.
@@ -66,6 +71,9 @@ MercadoLibre conserva solo 90 días de métricas de Display; por eso se guardan 
 
 **¿Qué formas de liquidación hay?**
 "Se recibe todo" (full) y "Se devuelve la diferencia" (refund_difference).
+
+**Cargué un monto con IVA, ¿por qué se ve otro valor?**
+Si marcaste **El monto incluye IVA**, se guarda sin IVA (dividido por 1,21), igual que el costo de Ads con el que se compara.
 
 **¿Qué pasa si borro un aporte?**
 El costo que cubría vuelve a descontarse en Métricas ML.
