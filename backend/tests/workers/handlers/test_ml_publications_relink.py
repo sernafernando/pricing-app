@@ -510,4 +510,5 @@ class TestRegistry:
             "ml_publications.verify",
             "ml_publications.promo_refresh",
             "ml_publications.freshness",
+            "ml_publications.catalog_competition_refresh",
         ]
