@@ -11,6 +11,7 @@ vi.mock('../../../services/api', () => ({
     getMarkupParaPrecio: vi.fn(),
     getPromocionesItem: vi.fn(),
     postPromocionItem: vi.fn(),
+    descartarHayMejores: vi.fn(),
   },
 }));
 
@@ -63,6 +64,7 @@ beforeEach(() => {
   promocionesAPI.getMarkupParaPrecio.mockReset().mockResolvedValue({ data: { nuestro_markup: 18 } });
   promocionesAPI.getPromocionesItem.mockReset().mockResolvedValue({ data: { promotions: capturedPromotions } });
   promocionesAPI.postPromocionItem.mockReset().mockResolvedValue({ data: { status: 'submitted' } });
+  promocionesAPI.descartarHayMejores.mockReset().mockResolvedValue({ data: { ok: true } });
 });
 
 describe('PonerPreciosBody Enter suggest', () => {
@@ -113,5 +115,86 @@ describe('PonerPreciosBody Enter suggest', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       /El precio ya está guardado en Pricing\. No se pudo activar la promoción\./,
     );
+  });
+});
+
+describe('PonerPreciosBody flagged hay_mejores', () => {
+  const flaggedDetail = {
+    ...detail,
+    row: { ...detail.row, hay_mejores_ofertas: true, price: { amount: 80000, pricelist_id: 4, lista_nombre: 'Clásica' } },
+  };
+
+  beforeEach(() => {
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: 10 } });
+  });
+
+  it('hides Nuevo precio until Descartar, then shows it', async () => {
+    const user = userEvent.setup();
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+    await screen.findByRole('region', { name: 'Candidatas mejores' });
+    await screen.findByRole('button', { name: /SMART/i });
+    await user.click(screen.getByRole('button', { name: 'Descartar sugerencia' }));
+    await waitFor(() => expect(promocionesAPI.descartarHayMejores).toHaveBeenCalledWith('MLA1'));
+    expect(await screen.findByLabelText('Nuevo precio')).toBeInTheDocument();
+  });
+
+  it('applies a mejores SMART and leaves the pub without showing Nuevo precio', async () => {
+    const user = userEvent.setup();
+    const onLeavePub = vi.fn();
+    render(
+      <PonerPreciosBody
+        detail={flaggedDetail}
+        itemId="MLA1"
+        canEditPrice
+        canWritePromos
+        onLeavePub={onLeavePub}
+      />,
+    );
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: /SMART/i }));
+    await waitFor(() =>
+      expect(promocionesAPI.postPromocionItem).toHaveBeenCalledWith(
+        'MLA1',
+        expect.objectContaining({ promotion_id: 'P-MLA18137008', promotion_type: 'SMART' }),
+      ),
+    );
+    expect(onLeavePub).toHaveBeenCalled();
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+  });
+
+  it('shows Nuevo precio immediately without promos.escribir', () => {
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos={false} />);
+    expect(screen.getByLabelText('Nuevo precio')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Candidatas mejores' })).not.toBeInTheDocument();
+  });
+
+  it('unlocks Nuevo precio when baseline markup cannot be computed', async () => {
+    promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: null } });
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
+    expect(await screen.findByLabelText('Nuevo precio')).toBeInTheDocument();
+  });
+
+  it('keeps the chooser and shows an error when apply fails', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.postPromocionItem.mockRejectedValueOnce({
+      response: { data: { detail: 'Promoción no disponible' } },
+    });
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
+    await user.click(await screen.findByRole('button', { name: /SMART/i }));
+    expect(await screen.findByRole('status')).toHaveTextContent(/Promoción no disponible/);
+    expect(screen.getByRole('region', { name: 'Candidatas mejores' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
+  });
+
+  it('keeps the chooser and shows an error when discard fails', async () => {
+    const user = userEvent.setup();
+    promocionesAPI.descartarHayMejores.mockRejectedValueOnce({
+      response: { data: { detail: 'Sin permiso' } },
+    });
+    render(<PonerPreciosBody detail={flaggedDetail} itemId="MLA1" canEditPrice canWritePromos />);
+    await user.click(await screen.findByRole('button', { name: 'Descartar sugerencia' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(/Sin permiso/);
+    expect(screen.queryByLabelText('Nuevo precio')).not.toBeInTheDocument();
   });
 });

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { CopyButton } from '../kit';
 import { usePermisos } from '../../contexts/PermisosContext';
@@ -12,6 +13,7 @@ import { PANEL_TABS, visibleTabs } from './panel/panelTabs';
 import { canViewProductPrices } from '../pricing/productPricePermissions';
 import { usePublicationDetail } from './panel/usePublicationDetail';
 import PanelFigures from './panel/PanelFigures';
+import MejoresCandidatasBlock from './panel/MejoresCandidatasBlock';
 import PonerPreciosBody from './panel/PonerPreciosBody';
 import { publicationFigures } from './panel/publicationFigures';
 import { pricePermissions } from '../pricing/productPricePermissions';
@@ -80,6 +82,17 @@ export default function PublicationPanel({
 
   const row = detail?.row;
   const mlUrl = buildMlItemUrl(row?.permalink);
+  // Outside MODO: chooser is a block above tabs (never replaces them). Hide after
+  // discard / unavailable; reset when switching publication.
+  const [mejoresBlockOpen, setMejoresBlockOpen] = useState(true);
+  useEffect(() => {
+    setMejoresBlockOpen(true);
+  }, [itemId]);
+  const showMejoresBlock =
+    !ponerPreciosMode &&
+    canWritePromos &&
+    Boolean(detail?.row?.hay_mejores_ofertas) &&
+    mejoresBlockOpen;
 
   return (
     <PanelShell
@@ -118,12 +131,25 @@ export default function PublicationPanel({
     >
       {status === 'ready' && ponerPreciosMode && (
         <PonerPreciosBody
+          key={itemId}
           detail={detail}
           itemId={itemId}
           canEditPrice={canEditPrice}
           canWritePromos={canWritePromos}
           onWritten={handleWritten}
           onLeavePub={onClose}
+        />
+      )}
+
+      {status === 'ready' && showMejoresBlock && (
+        <MejoresCandidatasBlock
+          key={`mejores-${itemId}`}
+          itemId={itemId}
+          baselinePrice={row?.price?.amount}
+          onWritten={handleWritten}
+          onLeavePub={onClose}
+          onDismissed={() => setMejoresBlockOpen(false)}
+          onUnavailable={() => setMejoresBlockOpen(false)}
         />
       )}
 

@@ -41,9 +41,10 @@ export function CabeceraCampanas({ seleccionable, paginaSeleccionada, onTogglePa
 
 /**
  * One campaign row: the same in the flat list and inside a program group (`SellOutPorPrograma`). With `onRenovar`
- * (`sell_out.gestionar`) it also has "Renovar", the panel's renewal: it gets the campaign id.
+ * (`sell_out.gestionar`) it also has "Renovar", the panel's renewal: it gets the campaign id. `anidada`: a row under a
+ * program in the "Por programa" view, indented with a ↳ marker (Stitch 5ee03d7d).
  */
-export function CampanaFila({ campana, selectedId, onSelect, seleccion, onToggle, onRenovar }) {
+export function CampanaFila({ campana, selectedId, onSelect, seleccion, onToggle, onRenovar, anidada = false }) {
   return (
     <tr className={selectedId === campana.id ? styles.rowSelected : ''}>
       {seleccion != null && (
@@ -56,8 +57,16 @@ export function CampanaFila({ campana, selectedId, onSelect, seleccion, onToggle
           />
         </td>
       )}
-      <td>
-        <div>{campana.nombre}</div>
+      <td className={anidada ? filaStyles.anidada : undefined}>
+        <div className={filaStyles.nombre}>
+          {anidada && (
+            <span className={filaStyles.flecha} aria-hidden="true">
+              ↳
+            </span>
+          )}
+          <span className={anidada ? filaStyles.hija : undefined}>{campana.nombre}</span>
+          <span className={filaStyles.idChip}>{`ID #${campana.id}`}</span>
+        </div>
         {campana.offset_origen_id != null && <div className={styles.sub}>{`Del offset #${campana.offset_origen_id}`}</div>}
       </td>
       <td>

@@ -226,3 +226,151 @@ class TestDisplay:
         )
         assert body["daily"] == [{"day": DAY.isoformat(), "cost": 121938.82}]
         assert "coverage" in body
+
+    def test_each_campaign_carries_its_days(self, client, db, reader) -> None:
+        self._seed(db)
+        rows = {c["campaign_id"]: c for c in get(client, reader, "display").json()["campaigns"]}
+        assert rows[335306]["days"] == [{"day": DAY.isoformat(), "cost": 27226.79, "attributed_amount": 1658026.88}]
+        assert rows[340339]["days"] == []  # paused, no activity
+
+
+class TestDisplayContributions:
+    """ml-ads-display-contributions S2: a brand contribution for Display, whole account or one campaign.
+
+    The Display days and catalog are the captured 2026-10-05 ones of advertiser 25713; the 2026-10-06 day of 301232,
+    the contributions and the Product Ads catalog row are DERIVED."""
+
+    MIX = 301232  # captured: 49464.21 on 2026-10-05
+
+    @pytest.fixture()
+    def manager(self, db, rol_admin, admin_auth_headers):
+        grant(db, rol_admin, GANANCIA, "ml_metricas.gestionar_aportes_ads")
+        TestDisplay()._seed(db)
+        from decimal import Decimal
+
+        from app.models.ml_ads import MlAdsCampaign, MlAdsDisplayCampaignDay
+
+        # DERIVED: one more Display day, and a Product Ads campaign whose id collides with a Display one.
+        db.add(
+            MlAdsDisplayCampaignDay(
+                advertiser_id=GAUSS,
+                campaign_id=self.MIX,
+                day=date(2026, 10, 6),
+                consumed_budget=Decimal("1000"),
+                raw={},
+            )
+        )
+        db.add(MlAdsCampaign(advertiser_id=GAUSS, campaign_id=self.MIX, name="pads", raw={}))
+        db.flush()
+        return admin_auth_headers
+
+    @staticmethod
+    def _body(**overrides) -> dict:
+        body = {
+            "channel": "display",
+            "advertiser_id": GAUSS,
+            "kind": "percentage",
+            "value": "10",
+            "date_from": "2026-10-01",
+            "date_to": "2026-10-31",
+            "brand": "Xerox",
+        }
+        body.update(overrides)
+        return {k: v for k, v in body.items() if v is not None}
+
+    @staticmethod
+    def _rows(db) -> list[tuple]:
+        from app.models.ml_ads import MlAdsCampaignContribution as C
+
+        db.expire_all()
+        return [(r.channel, r.advertiser_id, r.campaign_id, r.kind) for r in db.query(C).order_by(C.id)]
+
+    def _post(self, client, headers, **overrides):
+        return client.post(f"{BASE}/contributions", headers=headers, json=self._body(**overrides))
+
+    def test_a_whole_account_contribution_is_created_without_a_campaign(self, client, db, manager) -> None:
+        response = self._post(client, manager)
+        assert response.status_code == 201
+        body = response.json()
+        assert (body["channel"], body["advertiser_id"], body["campaign_id"], body["value"]) == (
+            "display",
+            GAUSS,
+            None,
+            10.0,
+        )
+        assert self._rows(db) == [("display", GAUSS, None, "percentage")]
+
+    def test_without_a_channel_it_is_product_ads_as_before(self, client, db, manager) -> None:
+        response = self._post(client, manager, channel=None, campaign_id=self.MIX)
+        assert response.status_code == 201 and response.json()["channel"] == "product_ads"
+        assert self._rows(db) == [("product_ads", GAUSS, self.MIX, "percentage")]
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [{"channel": "product_ads"}, {"channel": None}, {"channel": "brand_ads"}],
+        ids=["product-ads-without-campaign", "default-without-campaign", "unknown-channel"],
+    )
+    def test_a_body_that_breaks_the_channel_shape_is_fastapis_422(self, client, db, manager, overrides) -> None:
+        response = self._post(client, manager, **overrides)
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["loc"][0] == "body"
+        assert self._rows(db) == []
+
+    def test_an_overlap_with_the_whole_account_is_the_apps_422_on_date_from(self, client, db, manager) -> None:
+        assert self._post(client, manager).status_code == 201
+        clash = self._post(client, manager, campaign_id=self.MIX, date_from="2026-10-31", date_to="2026-11-15")
+        assert clash.status_code == 422
+        error = clash.json()["error"]
+        assert error["field"] == "date_from" and "Display" in error["message"]
+        assert self._rows(db) == [("display", GAUSS, None, "percentage")]
+
+    def test_an_unknown_display_campaign_is_the_apps_422_on_campaign_id(self, client, db, manager) -> None:
+        response = self._post(client, manager, campaign_id=999)
+        assert response.status_code == 422 and response.json()["error"]["field"] == "campaign_id"
+        assert self._rows(db) == []
+
+    def test_an_edit_cannot_change_the_channel(self, client, db, manager) -> None:
+        created = self._post(client, manager, campaign_id=self.MIX).json()
+        moved = client.put(
+            f"{BASE}/contributions/{created['id']}",
+            headers=manager,
+            json=self._body(channel="product_ads", campaign_id=self.MIX),
+        )
+        assert moved.status_code == 422 and moved.json()["error"]["field"] == "channel"
+        assert self._rows(db) == [("display", GAUSS, self.MIX, "percentage")]
+
+    def test_the_preview_reads_the_display_spend(self, client, manager) -> None:
+        response = client.get(f"{BASE}/contributions/preview", headers=manager, params=self._body(date_to="2026-10-05"))
+        assert response.status_code == 200
+        assert response.json() == {"spend": 121938.82, "counted": 12193.88, "net": 109744.94}
+
+    def test_the_display_tab_carries_each_campaign_contribution_and_net(self, client, manager) -> None:
+        """301232 at 20% on 10-05 (9892.842) plus a whole-account 10% on 10-06 (100 of its 1000)."""
+        assert self._post(client, manager, campaign_id=self.MIX, value="20", date_to="2026-10-05").status_code == 201
+        assert self._post(client, manager, date_from="2026-10-06").status_code == 201
+        body = get(client, manager, "display", date_from="2026-10-05", date_to="2026-10-06").json()
+        rows = {c["campaign_id"]: c for c in body["campaigns"]}
+        assert (rows[self.MIX]["cost"], rows[self.MIX]["contribution"], rows[self.MIX]["net"]) == (
+            50464.21,
+            9992.84,
+            40471.37,
+        )
+        assert (rows[335306]["contribution"], rows[335306]["net"]) == (0.0, 27226.79)
+        totals = body["totals"]
+        assert (totals["cost"], totals["contribution"], totals["net"]) == (122938.82, 9992.84, 112945.98)
+
+    def test_a_fixed_amount_beyond_the_window_shows_only_the_window_share(self, client, manager) -> None:
+        """10000 `full` on 301232 for October; its range spends 50464.21, of which 10-06 alone holds 1000."""
+        assert (
+            self._post(client, manager, campaign_id=self.MIX, kind="fixed_amount", value="10000", settlement="full")
+        ).status_code == 201
+        body = get(client, manager, "display", date_from="2026-10-06", date_to="2026-10-06").json()
+        [mix] = [c for c in body["campaigns"] if c["campaign_id"] == self.MIX]
+        assert (mix["cost"], mix["contribution"], mix["net"]) == (1000.0, 198.16, 801.84)
+        assert (body["totals"]["contribution"], body["totals"]["net"]) == (198.16, 801.84)
+
+    def test_the_product_ads_listing_does_not_show_display_contributions(self, client, manager) -> None:
+        assert self._post(client, manager, campaign_id=self.MIX).status_code == 201
+        listed = get(client, manager, "campaigns", date_from="2026-10-01", date_to="2026-10-31").json()
+        [pads] = [c for c in listed["campaigns"] if c["campaign_id"] == self.MIX]
+        assert (pads["contributions"], pads["contribution"]) == ([], 0.0)

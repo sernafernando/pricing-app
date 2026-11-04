@@ -1,31 +1,27 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { FolderInput, X, XCircle } from 'lucide-react';
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { apiMessage } from '../sellIn/sellInFormat';
 import SellOutAsignarPrograma from './SellOutAsignarPrograma';
 import SellOutCampanasTable from './SellOutCampanasTable';
-import { ANULAR_MASIVO_MAX, SeleccionCambiada, resolverFiltradas, textoConfirmacion, textoResultado } from './sellOutSeleccion';
+import { ANULAR_MASIVO_MAX, errorDeSeleccion, resolverFiltradas, textoConfirmacion, textoResultado } from './sellOutSeleccion';
 import panelStyles from '../sellIn/SellInPanel.module.css';
 import styles from './SellOutAnularMasivo.module.css';
 
 const MOTIVO_MAX = 500; // backend `SellOutAnularMasivoIn.motivo` (auditoria.comentario is VARCHAR(500))
-
-/** Why "Seleccionar todo lo filtrado" failed, in Spanish: never the HTTP client's own (English) message. */
-function errorDeSeleccion(err) {
-  if (err instanceof SeleccionCambiada) return err.message;
-  if (err?.response) return apiMessage(err, 'No se pudieron seleccionar las campañas.');
-  return 'No se pudo conectar con el servidor para seleccionar las campañas.';
-}
 
 /**
  * The sell-out campaigns list with bulk void (`POST /sell-out/campanas/anular`, `sell_out.gestionar`): row and page
  * checkboxes, "Seleccionar todo lo filtrado" (fail-closed, `resolverFiltradas`), a confirmation and the result. All or
  * nothing on the server: a refusal voids nothing and names each refused campaign. Without `puedeGestionar` it is the
  * plain table. The parent keys it by the filters, so a new search starts a new selection; `onAnuladas(ids)` gets the
- * voided ids.
+ * voided ids. With a selection, its actions float at the bottom of the window (Stitch 5ee03d7d): «N seleccionadas»,
+ * "Asignar a programa", "Anular seleccionadas" and × ("Limpiar selección").
  *
  * The same selection (rows, or "todo lo filtrado") feeds "Asignar a programa" (`SellOutAsignarPrograma`, with
  * `programas`); `onAsignadas()` runs after an assignment. `renderTabla(props)` draws the rows instead of the flat
- * table (the "Por programa" view); it gets `seleccion` and `onToggle` only with `puedeGestionar`. `onRenovar` (the
+ * table (the "Por programa" view); it gets `seleccion`, `onToggle` and `onAsignar(ids)` (opens "Asignar a programa"
+ * with those campaigns) only with `puedeGestionar`. `onRenovar` (the
  * page passes it with `sell_out.gestionar`) gives each row "Renovar".
  */
 export default function SellOutAnularMasivo({
@@ -48,7 +44,13 @@ export default function SellOutAnularMasivo({
   const [busy, setBusy] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState(null); // { mensaje, rechazadas: [{ id, motivo }] }
-  const [asignando, setAsignando] = useState(false);
+  const [asignando, setAsignando] = useState(null); // the campaign ids the assign dialog gets
+  const confirmacion = useRef(null);
+  const seleccionarTodo = useRef(null); // where × leaves the focus once the bar is gone
+  // The floating bar opens the confirmation above the list: bring it into view (the list may be scrolled down).
+  useEffect(() => {
+    if (confirmando) confirmacion.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [confirmando]);
 
   if (!puedeGestionar) {
     return renderTabla ? (
@@ -111,32 +113,44 @@ export default function SellOutAnularMasivo({
   return (
     <>
       <div className={styles.bar}>
-        {seleccion.size > 0 && (
+        <button ref={seleccionarTodo} type="button" className="btn-tesla ghost sm" onClick={seleccionarFiltradas} disabled={busy}>
+          {`Seleccionar todo lo filtrado (${total})`}
+        </button>
+      </div>
+      {seleccion.size > 0 && (
+        <aside className={styles.flotante} aria-label="Acciones masivas de campañas">
           <span className={styles.count}>
+            <span className={styles.punto} aria-hidden="true" />
             {seleccion.size === 1 ? '1 seleccionada' : `${seleccion.size} seleccionadas`}
           </span>
-        )}
-        <div className={styles.actions}>
-          <button type="button" className="btn-tesla ghost sm" onClick={seleccionarFiltradas} disabled={busy}>
-            {`Seleccionar todo lo filtrado (${total})`}
+          <button type="button" className={styles.accion} onClick={() => setAsignando([...seleccion.keys()])} disabled={busy}>
+            <FolderInput size={15} aria-hidden="true" /> Asignar a programa
           </button>
-          {seleccion.size > 0 && (
-            <>
-              <button type="button" className="btn-tesla outline sm" onClick={() => cambiar(new Map())} disabled={busy}>
-                Limpiar selección
-              </button>
-              <button type="button" className="btn-tesla outline sm" onClick={() => setAsignando(true)} disabled={busy}>
-                Asignar a programa
-              </button>
-              <button type="button" className="btn-tesla danger sm" onClick={() => setConfirmando(true)} disabled={busy || confirmando}>
-                Anular seleccionados
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+          <button
+            type="button"
+            className="btn-tesla danger sm"
+            onClick={() => setConfirmando(true)}
+            disabled={busy || confirmando}
+          >
+            <XCircle size={15} aria-hidden="true" /> Anular seleccionadas
+          </button>
+          <button
+            type="button"
+            className={styles.cerrar}
+            onClick={() => {
+              cambiar(new Map());
+              seleccionarTodo.current?.focus();
+            }}
+            disabled={busy}
+            aria-label="Limpiar selección"
+            title="Limpiar selección"
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </aside>
+      )}
       {confirmando && (
-        <section className={styles.confirm} aria-label="Confirmar anulación">
+        <section ref={confirmacion} className={styles.confirm} aria-label="Confirmar anulación">
           <p>{textoConfirmacion(seleccion.size - yaAnuladas, yaAnuladas)}</p>
           <p className={panelStyles.hint}>
             El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban.
@@ -182,12 +196,12 @@ export default function SellOutAnularMasivo({
       )}
       {asignando && (
         <SellOutAsignarPrograma
-          campanaIds={[...seleccion.keys()]}
+          campanaIds={asignando}
           programas={programas}
-          onClose={() => setAsignando(false)}
+          onClose={() => setAsignando(null)}
           onProgramaCreado={() => onAsignadas?.()}
           onAsignadas={(texto) => {
-            setAsignando(false);
+            setAsignando(null);
             cambiar(new Map());
             setResultado(texto);
             onAsignadas?.();
@@ -195,7 +209,7 @@ export default function SellOutAnularMasivo({
         />
       )}
       {renderTabla ? (
-        renderTabla({ selectedId, onSelect, onRenovar, seleccion, onToggle: alternar })
+        renderTabla({ selectedId, onSelect, onRenovar, seleccion, onToggle: alternar, onAsignar: setAsignando })
       ) : (
         <SellOutCampanasTable
           campanas={campanas}

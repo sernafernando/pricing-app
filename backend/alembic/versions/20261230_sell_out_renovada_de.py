@@ -1,7 +1,7 @@
 """sell out: a campaign names the campaign it renews (sell_out_campanas.renovada_de_id)
 
 Revision ID: 20261230_sell_out_renovada_de
-Revises: 20261224_gestion_full_envio_last_polled
+Revises: 20261229_ml_ads_contribution_channel
 Create Date: 2026-11-04
 
 Renovar programa (S4). The orchestrator's decision: "add `renovada_de_id` (nullable FK to sell_out_campanas, ON DELETE
@@ -32,7 +32,7 @@ from typing import List, Sequence, Union
 from alembic import op
 
 revision: str = "20261230_sell_out_renovada_de"
-down_revision: Union[str, Sequence[str], None] = "20261224_gestion_full_envio_last_polled"
+down_revision: Union[str, Sequence[str], None] = "20261229_ml_ads_contribution_channel"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
