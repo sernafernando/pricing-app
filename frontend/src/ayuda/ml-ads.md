@@ -8,7 +8,7 @@ Permiso: Acceso a Métricas ML y, además, permiso para ver ganancias (ml_metric
 
 Reúne la publicidad de MercadoLibre en pestañas:
 
-- **Aportes**: los aportes que las marcas hacen a las campañas de Product Ads. Ese monto deja de restarse en Métricas ML. Cada aporte puede ser un porcentaje o un monto fijo sobre un rango de fechas, con una forma de liquidación. Un aporte también puede ser para Display (toda la cuenta Display del anunciante o una campaña): ese monto se descuenta del Display que Métricas ML resta con "Restar toda la publicidad".
+- **Aportes**: los aportes que las marcas hacen a las campañas de Product Ads. Ese monto deja de restarse en Métricas ML. Cada aporte puede ser un porcentaje o un monto fijo sobre un rango de fechas, con una forma de liquidación.
 - **Display**: las campañas de Display de la cuenta, con su costo, su rendimiento y las ventas que MercadoLibre les atribuye.
 
 Arriba dice **ML Ads** y debajo están las pestañas **Aportes** y **Display**. La pantalla abre en **Aportes**; el link a la pestaña Display la abre directo.
