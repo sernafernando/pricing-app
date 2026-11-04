@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Iterator, List
 
 import pytest
-from sqlalchemy import Engine, event, text
+from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.sell_out import SellOutCampana
@@ -227,6 +227,28 @@ class TestRecalculo:
                 )
 
         assert (r[libre]["recalculo"]["estado"], r[tomada]["recalculo"]["estado"]) == ("en_cola", "recalculando")
+
+    def test_a_lock_held_in_another_database_of_the_cluster_is_not_this_campaigns(self, engine: Engine) -> None:
+        # pg_locks lists the whole cluster: another database (another xdist worker, or another
+        # app database on the same server) locking the same campaign id is not this campaign.
+        grupo = w.grupo(engine, [ROUTERS])
+        campana = w.campana(engine, [grupo])
+        otra_base = create_engine(engine.url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+        try:
+            with otra_base.connect() as otra:
+                otra.execute(
+                    text("SELECT pg_advisory_lock(:ns, :id)"), {"ns": asignacion.LOCK_NAMESPACE, "id": campana}
+                )
+                try:
+                    r = _resumenes(engine, campana)
+                finally:
+                    otra.execute(
+                        text("SELECT pg_advisory_unlock(:ns, :id)"), {"ns": asignacion.LOCK_NAMESPACE, "id": campana}
+                    )
+        finally:
+            otra_base.dispose()
+
+        assert r[campana]["recalculo"]["estado"] == "al_dia"
 
 
 class TestConsultas:
