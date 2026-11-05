@@ -6,7 +6,7 @@ Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la 
 
 ## Para qué sirve
 
-Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene tres pestañas: **Sell in**, **Sell out** y **Grupos** (los grupos de productos que alcanzan las campañas).
+Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene cuatro pestañas: **Sell in**, **Sell out**, **Tacticals** (los programas de las marcas, filtrables por marca) y **Grupos** (los grupos de productos que alcanzan las campañas).
 
 ## Cómo se usa
 
@@ -151,9 +151,32 @@ Un **programa** agrupa campañas de sell out que son el mismo acuerdo: las que s
 - **Asignar a programa** (quien gestiona campañas): marcá campañas, o usá **Seleccionar todo lo filtrado**, y tocá **Asignar a programa** en la barra de selección. Elegí un **Programa existente** (solo los activos) o un **Programa nuevo** con nombre y descripción opcional, que se crea y se asigna en el mismo paso. Si el programa está archivado o el nombre ya existe, el aviso aparece en el mismo cuadro y no se asigna nada. Al terminar se muestra, por ejemplo, «3 campañas asignadas a «Programa». 1 ya lo tenía.».
 - **Sugerencias de programa** (quien gestiona campañas): cuando hay campañas sin programa con **exactamente las mismas fechas**, arriba de la lista aparece «N sugerencias de programa: campañas sin programa con las mismas fechas». **Ver sugerencias** abre un panel con una tarjeta por grupo: un nombre propuesto (las palabras con que empiezan todos los nombres, o las fechas si no comparten ninguna), que se puede editar, sus fechas, cuántas campañas y nombres tiene, y la lista de campañas. **Crear programa y asignar** crea el programa y le asigna esas campañas. **Descartar** oculta la tarjeta hasta que vuelvas a abrir la página; no se guarda nada. No se aplica nada hasta que lo confirmes.
 
+### Tacticals
+
+Un **tactical** es un programa de una marca: sell in baja el costo, sell out suma a la ganancia. Cada tactical tiene una marca adjunta para poder filtrarlo por marca, y una o más líneas (productos, una marca, una categoría o, en sell in, una factura) con su monto y sus topes.
+
+- La pestaña **Tacticals** la ve todo el que entra a la página. Al lado del nombre dice cuántos tacticals vigentes hay.
+- Filtros:
+  - **Tipo**: Todos, Sell in o Sell out.
+  - **Marca**: la marca adjunta del tactical.
+  - **Estado**: Vigentes (al abrir), Vencidos o Anulados.
+  - **Vigencia**: Desde y Hasta.
+  - **Buscar**: por nombre o referencia.
+  - **Limpiar filtros** vuelve a los vigentes de todas las marcas.
+- Columnas:
+  - **Nombre**, con la referencia debajo.
+  - **Tipo**, **Marca**, **Vigencia** y **Líneas**.
+  - **Avance**: unidades usadas sobre la suma de los topes de unidades de sus líneas, con la barra, y debajo el monto usado. El monto dice «de» el total solo cuando todas las líneas tienen tope de monto.
+  - **Estado**: Vigente, «Vence en N días» (cuando faltan 7 días o menos), Vencido o Anulado.
+- La flecha de cada fila muestra sus líneas:
+  - **Qué incluye**: los productos, o la marca, la categoría o la factura.
+  - **Monto**: por unidad, porcentaje o monto total.
+  - **Tope unidades**, **Usadas**, **Tope monto** y **Usado**.
+  - **Avance**: la barra del tope de unidades o, si no tiene, del tope de monto. Al llegar al tope dice «Tope alcanzado».
+
 ## Filtros y columnas
 
-Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicación, tipo (los bonos de marca siguen fechas, búsqueda, marca, moneda y estado). Sell out: período, nombre, estado, tipo, moneda, marca, grupo y programa. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan.
+Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicación, tipo (los bonos de marca siguen fechas, búsqueda, marca, moneda y estado). Sell out: período, nombre, estado, tipo, moneda, marca, grupo y programa. Tacticals: tipo, marca, estado, vigencia y búsqueda. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan.
 
 ## Botones y acciones
 

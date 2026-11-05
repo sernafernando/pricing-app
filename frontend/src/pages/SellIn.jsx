@@ -5,6 +5,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import { sellOutAPI } from '../services/sellOutAPI';
+import { tacticalsAPI } from '../services/tacticalsAPI';
 import DateRangeFilter from '../components/DateRangeFilter';
 import SearchInput from '../components/SearchInput';
 import { FacetChips, Pagination, SegmentedControl, SplitPanelLayout } from '../components/kit';
@@ -28,6 +29,7 @@ import SellOutProgramas from '../components/sellOut/SellOutProgramas';
 import { useProgramas } from '../components/sellOut/useProgramas';
 import { FILTROS_CAMPANAS_VACIOS, paramsDeFiltros } from '../components/sellOut/sellOutFiltros';
 import GruposTab from '../components/grupos/GruposTab';
+import TacticalsList from '../components/tacticals/TacticalsList';
 import styles from './SellIn.module.css';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
@@ -66,6 +68,27 @@ const BONOS_VIGENTES_MAX = 200;
 const PERMISOS_PROVEEDORES = ['administracion.ver_proveedores', 'administracion.ver_ordenes_compra', 'administracion.gestionar_ordenes_compra'];
 const TAB_SELL_OUT = 'sell-out';
 const TAB_GRUPOS = 'grupos';
+const TAB_TACTICALS = 'tacticals';
+
+/**
+ * The Tacticals tab's count: the current tacticals (`GET /tacticals`, one row asked). `disponible` turns false only on a
+ * 404, a server without the tacticals API, which hides the tab; any other failure keeps it with `error`.
+ */
+function useConteoTacticals(enabled, version) {
+  const [estado, setEstado] = useState({ total: null, error: false, disponible: true });
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let active = true;
+    tacticalsAPI
+      .listar({ estado: 'vigentes', page: 1, page_size: 1 })
+      .then(({ data }) => active && setEstado({ total: data.total, error: false, disponible: true }))
+      .catch((err) => active && setEstado({ total: null, error: true, disponible: err?.response?.status !== 404 }));
+    return () => {
+      active = false;
+    };
+  }, [enabled, version]);
+  return estado;
+}
 
 /** The brand list Productos and Publicaciones ML filter by (`GET /marcas`); empty on failure. */
 function useMarcas(enabled) {
@@ -216,7 +239,9 @@ function useCampanas(enabled) {
  * of that purchase's units and the brand bonuses; Sell out holds the campaigns.
  * The selected tab lives in the URL (`?tab=sell-out`) so a reload keeps it.
  * `sell_in.ver` reads the page, `sell_out.ver` shows the Sell out tab, `grupos.ver` the Grupos tab (`?tab=grupos`),
- * where `config.editar_constantes` (the offset groups write permission) also creates, edits and deletes.
+ * where `config.editar_constantes` (the offset groups write permission) also creates, edits and deletes. Every reader
+ * of the page sees the Tacticals tab (`?tab=tacticals`): the brands' programs, filterable by brand; the tacticals API
+ * decides which ones come back.
  */
 export default function SellIn() {
   const { tienePermiso } = usePermisos();
@@ -240,6 +265,7 @@ export default function SellIn() {
   const puedeGestionarGrupos = tienePermiso('config.editar_constantes');
   // "Actualizar" bumps it: the Grupos tab asks its groups again.
   const [versionGrupos, setVersionGrupos] = useState(0);
+  const tacticals = useConteoTacticals(puedeVer, versionGrupos);
   // A group created, changed or deleted in the Grupos tab: the campaign form's groups are asked again.
   const [cambiosGrupos, setCambiosGrupos] = useState(0);
   const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut, versionGrupos + cambiosGrupos);
@@ -252,7 +278,12 @@ export default function SellIn() {
   const vistaUrl = searchParams.get('vista');
   const vista = ['programas', 'lista'].includes(vistaUrl) ? vistaUrl : programas.length > 0 ? 'programas' : 'lista';
   const seccion = searchParams.get('seccion') === 'programas' ? 'programas' : 'campanas';
-  const tabsVisibles = ['sell-in', ...(puedeVerSellOut ? [TAB_SELL_OUT] : []), ...(puedeVerGrupos ? [TAB_GRUPOS] : [])];
+  const tabsVisibles = [
+    'sell-in',
+    ...(puedeVerSellOut ? [TAB_SELL_OUT] : []),
+    ...(tacticals.disponible ? [TAB_TACTICALS] : []),
+    ...(puedeVerGrupos ? [TAB_GRUPOS] : []),
+  ];
   const tabUrl = searchParams.get('tab');
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
   const [tipo, setTipo] = useState('');
@@ -528,6 +559,23 @@ export default function SellIn() {
             <span className={styles.tabCount}>{campanas.lista ? campanas.lista.total.toLocaleString('es-AR') : campanas.error ? '—' : '…'}</span>
           </button>
         )}
+        {tacticals.disponible && (
+          <button
+            type="button"
+            role="tab"
+            id="tacticals-tab"
+            aria-selected={tab === TAB_TACTICALS}
+            aria-controls={tab === TAB_TACTICALS ? 'tacticals-panel' : undefined}
+            tabIndex={tab === TAB_TACTICALS ? 0 : -1}
+            className={`${styles.tab} ${tab === TAB_TACTICALS ? styles.tabActive : ''}`}
+            onClick={() => cambiarTab(TAB_TACTICALS)}
+          >
+            <span>Tacticals</span> <span className={styles.srOnly}>·</span>{' '}
+            <span className={styles.tabCount}>
+              {tacticals.total != null ? tacticals.total.toLocaleString('es-AR') : tacticals.error ? '—' : '…'}
+            </span>
+          </button>
+        )}
         {puedeVerGrupos && (
           <button
             type="button"
@@ -612,7 +660,11 @@ export default function SellIn() {
           ) : null
         }
       >
-        {tab === TAB_GRUPOS ? (
+        {tab === TAB_TACTICALS ? (
+          <div role="tabpanel" id="tacticals-panel" aria-labelledby="tacticals-tab">
+            <TacticalsList marcas={marcas} version={versionGrupos} />
+          </div>
+        ) : tab === TAB_GRUPOS ? (
           <div role="tabpanel" id="grupos-panel" aria-labelledby="grupos-tab">
             <GruposTab
               version={versionGrupos}

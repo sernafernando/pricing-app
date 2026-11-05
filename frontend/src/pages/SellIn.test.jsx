@@ -8,6 +8,8 @@ import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, PRODUCTOS, RESUMEN } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI, sellOutProgramasAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
+import { tacticalsAPI } from '../services/tacticalsAPI';
+import { TACTICAL_REBATE, pagina } from '../components/tacticals/tacticalsFixtures';
 import {
   CAMPANA_MIGRADA,
   CAMPANAS_DEL_PROGRAMA,
@@ -21,6 +23,8 @@ import {
   SUGERENCIAS_VACIO,
 } from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
+
+const TACTICAL = { ...TACTICAL_REBATE, id: 7, nombre: 'Rebate TP-Link noviembre', marca: 'TP-Link' };
 
 vi.mock('../services/sellInAPI', () => ({
   sellInAPI: {
@@ -59,6 +63,8 @@ vi.mock('../services/sellOutAPI', () => ({
   sellOutProgramasAPI: { listar: vi.fn(), crear: vi.fn(), asignar: vi.fn(), sugerencias: vi.fn() },
 }));
 
+vi.mock('../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn() } }));
+
 vi.mock('../services/offsetGruposAPI', () => ({
   offsetGruposAPI: { listar: vi.fn(), alcance: vi.fn(), opciones: vi.fn(), crear: vi.fn() },
 }));
@@ -92,6 +98,7 @@ beforeEach(() => {
   offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
   offsetGruposAPI.alcance.mockResolvedValue({ data: [{ grupo_id: 1, productos: 3, campanas: [] }] });
   offsetGruposAPI.opciones.mockResolvedValue({ data: { marcas: [], categorias: [], subcategorias: [] } });
+  tacticalsAPI.listar.mockResolvedValue({ data: pagina([TACTICAL]) });
 });
 
 /** Prints where the router is, so a test can read the tab the URL keeps. */
@@ -1700,5 +1707,58 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
     expect(screen.getByText('1 sugerencia de programa: campañas sin programa con las mismas fechas')).toBeInTheDocument();
     expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
     expect(sellOutProgramasAPI.asignar).not.toHaveBeenCalled();
+  });
+});
+
+// The list's own requests, leaving out the tab's count (page_size 1, on page load).
+const listadosDeTacticals = () => tacticalsAPI.listar.mock.calls.filter(([params]) => params.page_size !== 1).length;
+
+describe('SellIn page — Tacticals tab', () => {
+  it('counts the current tacticals on the tab, lists them once it is opened with the brands to filter by, and keeps the tab in the URL', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <SellIn />
+        <Ubicacion />
+      </>,
+    );
+    await screen.findByText('Bonificación Q4 switches');
+    expect(tacticalsAPI.listar).toHaveBeenCalledWith({ estado: 'vigentes', page: 1, page_size: 1 });
+    expect(await screen.findByRole('tab', { name: 'Tacticals · 1' })).toBeInTheDocument();
+    expect(listadosDeTacticals()).toBe(0);
+
+    await user.click(screen.getByRole('tab', { name: 'Tacticals · 1' }));
+
+    const panel = screen.getByRole('tabpanel', { name: /Tacticals/ });
+    expect(await within(panel).findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
+    expect(within(within(panel).getByLabelText('Marca')).getByRole('option', { name: 'TP-Link' })).toBeInTheDocument();
+    expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=tacticals');
+  });
+
+  it('"Actualizar" on the Tacticals tab asks the list again', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    expect(await screen.findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
+    expect(listadosDeTacticals()).toBe(1);
+
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+
+    await waitFor(() => expect(listadosDeTacticals()).toBe(2));
+  });
+
+  it('a server without the tacticals API (404) shows no Tacticals tab, and ?tab=tacticals falls back to Sell in', async () => {
+    tacticalsAPI.listar.mockRejectedValue({ response: { status: 404 } });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+
+    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('tab', { name: /Tacticals/ })).not.toBeInTheDocument());
+    expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('any other failure keeps the tab, with a dash for the count', async () => {
+    tacticalsAPI.listar.mockRejectedValue({ response: { status: 500 } });
+    renderWithRouter(<SellIn />);
+
+    expect(await screen.findByRole('tab', { name: 'Tacticals · —' })).toBeInTheDocument();
   });
 });
