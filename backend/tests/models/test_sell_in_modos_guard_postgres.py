@@ -1,5 +1,7 @@
-"""No way around "only a manual mode row carries a negative consumption" nor around append-only modes, on the migrated
-schema (#1996 verification): updates, upserts, COPY, DELETE and TRUNCATE are all refused with the data unchanged."""
+"""No way around "only a manual mode row is a consumption's mode source" nor around append-only modes, on the migrated
+schema (#1996 verification): updates, upserts, COPY, DELETE and TRUNCATE are all refused with the data unchanged. A
+purchase line's consumption may be negative on a product with a manual block (`20261106_sell_in_modo_manual`): both
+products here have one, so the sign rule itself is proven by `TestManualSign`."""
 
 from __future__ import annotations
 
@@ -45,7 +47,7 @@ def _foto(engine):  # noqa: F811
         )
 
 
-def test_only_the_three_expected_user_triggers_guard_the_tables(engine) -> None:  # noqa: F811
+def test_only_the_four_expected_user_triggers_guard_the_tables(engine) -> None:  # noqa: F811
     with engine.connect() as conn:
         filas = conn.execute(
             text(
@@ -56,6 +58,7 @@ def test_only_the_three_expected_user_triggers_guard_the_tables(engine) -> None:
         ).all()
     assert [tuple(f) for f in filas] == [
         ("sell_in_consumos", "trg_sell_in_consumos_modo_manual", "O"),
+        ("sell_in_consumos", "trg_sell_in_consumos_signo", "O"),
         ("sell_in_modos_producto", "trg_sell_in_modos_producto_append_only", "O"),
         ("sell_in_modos_producto", "trg_sell_in_modos_producto_no_truncate", "O"),
     ]
@@ -68,10 +71,8 @@ def test_only_the_three_expected_user_triggers_guard_the_tables(engine) -> None:
         "UPDATE sell_in_consumos SET modo_id = :otro WHERE venta_ref = 1",  # another product's manual row
         "UPDATE sell_in_consumos SET item_id = 4513 WHERE venta_ref = 1",  # moved away from its block
         "UPDATE sell_in_consumos SET modo_id = NULL WHERE venta_ref = 1",  # no source, and negative
-        "UPDATE sell_in_consumos SET modo_id = NULL, compra_item_id = :line WHERE venta_ref = 1",  # negative on a line
         "UPDATE sell_in_consumos SET compra_item_id = NULL, modo_id = :ponderado, descuento_ars = -1 "
         "WHERE venta_ref = 2",  # line row onto a non-manual mode
-        "UPDATE sell_in_consumos SET descuento_ars = -1 WHERE venta_ref = 2",  # line row goes negative
         "UPDATE sell_in_modos_producto SET modo = 'ponderado', cantidad = NULL, costo_unit = NULL, "
         "costo_base_unit = NULL WHERE id = :manual",
         "UPDATE sell_in_modos_producto SET item_id = 4513 WHERE id = :manual",

@@ -289,16 +289,16 @@ class SellInCompraItem(Base):
 
 class SellInConsumo(Base):
     """Units of one sale that took part of a sell in. The source is a purchase line (`compra_item_id`) or, for a
-    manual block, its cost-mode row (`modo_id`): exactly one. Only a manual consumption may be negative (a manual
-    cost above the product's frozen cost raises the sale's cost); a migration trigger refuses a `modo_id` that is not
-    a `manual` row of the same product."""
+    manual block, its cost-mode row (`modo_id`): exactly one. A consumption may be negative only on a product with a
+    manual cost mode (a typed cost above the product's frozen cost raises the sale's cost, and a later pool hands that
+    on to purchase lines): the `trg_sell_in_consumos_signo` migration trigger refuses it elsewhere. Another migration
+    trigger refuses a `modo_id` that is not a `manual` row of the same product."""
 
     __tablename__ = "sell_in_consumos"
     __table_args__ = (
         UniqueConstraint("canal", "venta_ref", "compra_item_id", name="uq_sell_in_consumos_canal_venta_item"),
         CheckConstraint("canal IN ('ml', 'fuera', 'tn')", name="ck_sell_in_consumos_canal"),
         CheckConstraint("unidades > 0", name="ck_sell_in_consumos_unidades_positivas"),
-        CheckConstraint("descuento_ars >= 0 OR modo_id IS NOT NULL", name="ck_sell_in_consumos_descuento_no_negativo"),
         CheckConstraint("(compra_item_id IS NULL) <> (modo_id IS NULL)", name="ck_sell_in_consumos_origen"),
         Index("ix_sell_in_consumos_item_fecha", "item_id", "fecha_venta"),
         Index("ix_sell_in_consumos_compra_item_id", "compra_item_id"),
