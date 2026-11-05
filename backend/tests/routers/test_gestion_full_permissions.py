@@ -18,14 +18,14 @@ def viewer(db, rol_admin, admin_auth_headers, grant_permiso):
 
 @pytest.fixture()
 def depositos(db, rol_admin, admin_auth_headers, grant_permiso):
-    grant_permiso(rol_admin, VIEW)
+    """Depósito role: GF depositos only (no productos.ver / ml_ops.ver)."""
     grant_permiso(rol_admin, DEPOSITOS)
     return admin_auth_headers
 
 
 @pytest.fixture()
 def gestor(db, rol_admin, admin_auth_headers, grant_permiso):
-    grant_permiso(rol_admin, VIEW)
+    """Gestor role: GF gestor only (entry via VIEW_PERMISOS includes gestor)."""
     grant_permiso(rol_admin, GESTOR)
     return admin_auth_headers
 
@@ -63,6 +63,16 @@ def test_view_endpoints_forbid_without_view_perm(client, auth_headers, url):
 def test_view_endpoints_allow_with_view_perm(client, viewer, url):
     # Business outcome may be 200 (empty list) or 404 (no package); never 403.
     assert client.get(url, headers=viewer).status_code in (200, 404)
+
+
+@pytest.mark.parametrize("url", VIEW_GETS)
+def test_view_endpoints_allow_with_depositos_only(client, depositos, url):
+    assert client.get(url, headers=depositos).status_code in (200, 404)
+
+
+@pytest.mark.parametrize("url", VIEW_GETS)
+def test_view_endpoints_allow_with_gestor_only(client, gestor, url):
+    assert client.get(url, headers=gestor).status_code in (200, 404)
 
 
 @pytest.mark.parametrize("method,url,body", DEPOSITOS_ENDPOINTS)

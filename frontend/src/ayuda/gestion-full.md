@@ -2,7 +2,7 @@
 
 Área: Operaciones
 Ruta: Operaciones → Gestión Full
-Permiso: Acceso a Productos o a Ventas ML (productos.ver o ml_ops.ver). Para editar el override hace falta ser PM/sub-PM del producto o admin.
+Permiso: entrar a la pantalla con `productos.ver`, `ml_ops.ver`, `gestion_full.depositos` o `gestion_full.gestor` (cualquiera alcanza; depósito no necesita Productos ni Ventas ML). Pestaña **Depósito** exige `gestion_full.depositos`; pestaña **Envío** exige `gestion_full.gestor`. Para editar el override hace falta ser PM/sub-PM del producto o admin.
 
 ## Para qué sirve
 

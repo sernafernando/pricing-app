@@ -65,7 +65,14 @@ from app.services.pm_scope import get_pares_marca_categoria_usuario, is_full_vie
 
 router = APIRouter(prefix="/gestion-full", tags=["gestion-full"])
 
-VIEW_PERMISOS = ["productos.ver", "ml_ops.ver"]
+# Entry to the screen/API: product/ops viewers, or GF-specific roles that
+# must reach /gestion-full without productos.ver / ml_ops.ver (depositos tab).
+VIEW_PERMISOS = [
+    "productos.ver",
+    "ml_ops.ver",
+    "gestion_full.depositos",
+    "gestion_full.gestor",
+]
 PERM_DEPOSITOS = "gestion_full.depositos"
 PERM_GESTOR = "gestion_full.gestor"
 
