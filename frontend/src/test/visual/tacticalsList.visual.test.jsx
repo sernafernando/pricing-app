@@ -41,7 +41,7 @@ vi.mock('../../services/sellOutAPI', () => ({
   sellOutProgramasAPI: { listar: vi.fn(), sugerencias: vi.fn() },
 }));
 
-vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn() } }));
+vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), editar: vi.fn() } }));
 
 const TACTICALS = [
   {
@@ -135,5 +135,29 @@ describe.each([
     const abajo = document.elementFromPoint(menu.left + menu.width / 2, menu.bottom - 2);
     expect(abajo.closest('[role="menu"]')).not.toBeNull();
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-acciones-${theme}-${width}.png` });
+  });
+
+  it('opens the Editar dialog whole inside the window, with every line', async () => {
+    await page.viewport(width, height);
+    setTheme(theme);
+    document.body.style.background = 'var(--cf-bg-app)';
+    const screen = await render(
+      <MemoryRouter initialEntries={['/sell-in?tab=tacticals']}>
+        <Shell>
+          <SellIn />
+        </Shell>
+      </MemoryRouter>,
+    );
+
+    await screen.getByRole('button', { name: `Acciones de ${TACTICAL_BPS.nombre}` }).click();
+    await screen.getByRole('menuitem', { name: 'Editar' }).click();
+    const dialogo = screen.getByRole('dialog', { name: `Editar ${TACTICAL_BPS.nombre}` });
+    await expect.element(dialogo).toBeVisible();
+    await expect.element(screen.getByLabelText('Tope de monto de la línea 2')).toBeVisible();
+    const caja = document.querySelector('[role="dialog"]').getBoundingClientRect();
+    expect(caja.top).toBeGreaterThanOrEqual(0);
+    expect(caja.bottom).toBeLessThanOrEqual(height + 0.5);
+    expect(caja.right).toBeLessThanOrEqual(width + 0.5);
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-editar-${theme}-${width}.png` });
   });
 });

@@ -10,7 +10,7 @@ import TacticalsList from './TacticalsList';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
 import { TACTICAL_BPS, TACTICAL_REBATE, pagina } from './tacticalsFixtures';
 
-vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn() } }));
+vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), editar: vi.fn() } }));
 
 const BPS = TACTICAL_BPS;
 const REBATE = TACTICAL_REBATE;
@@ -209,10 +209,76 @@ describe('TacticalsList row actions', () => {
     const acciones = await screen.findByRole('button', { name: 'Acciones de Rebate HP Q1FY27' });
 
     await userEvent.click(acciones);
-    expect(screen.getByRole('menuitem', { name: 'Renovar' })).toHaveFocus();
+    expect(screen.getByRole('menuitem', { name: 'Editar' })).toHaveFocus();
     await userEvent.keyboard('{Escape}');
 
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(acciones).toHaveFocus();
+  });
+
+  it('offers Editar on a live tactical only, before Renovar', async () => {
+    const ANULADO = { ...REBATE, id: 4, nombre: 'Rebate anulado', estado: 'anulado' };
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([BPS, ANULADO], 2) });
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} onRenovar={vi.fn()} />);
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Editar', 'Renovar']);
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('button', { name: 'Acciones de Rebate anulado' }));
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Renovar']);
+  });
+});
+
+describe('TacticalsList Editar', () => {
+  const abrirEditar = async () => {
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} onRenovar={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Editar' }));
+    return screen.getByRole('dialog', { name: 'Editar Tacticals BPS Noviembre Q1FY27' });
+  };
+
+  it('saves only what changed, closes and asks the list again', async () => {
+    tacticalsAPI.editar.mockResolvedValue({ data: BPS });
+    const dialogo = await abrirEditar();
+
+    expect(within(dialogo).getByLabelText('Nombre')).toHaveValue('Tacticals BPS Noviembre Q1FY27');
+    expect(within(dialogo).getByText('Ya usó 62 u · USD 12.760')).toBeInTheDocument();
+    const fecha = within(dialogo).getByLabelText('Fecha hasta');
+    await userEvent.clear(fecha);
+    await userEvent.type(fecha, '2026-12-31');
+    const tope = within(dialogo).getByLabelText('Tope de unidades de la línea 1');
+    await userEvent.clear(tope);
+    await userEvent.type(tope, '120');
+    const pedidas = tacticalsAPI.listar.mock.calls.length;
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Guardar cambios' }));
+
+    expect(tacticalsAPI.editar).toHaveBeenCalledWith(1, { fecha_hasta: '2026-12-31', lineas: [{ linea: 1, tope_unidades: 120 }] });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(tacticalsAPI.listar.mock.calls.length).toBeGreaterThan(pedidas);
+  });
+
+  it("shows the server's refusal inside the dialog and keeps it open", async () => {
+    tacticalsAPI.editar.mockRejectedValue({
+      response: { status: 422, data: { error: { message: 'Línea 1: el tope de unidades (10) no puede quedar debajo de lo ya usado (62)' } } },
+    });
+    const dialogo = await abrirEditar();
+    const tope = within(dialogo).getByLabelText('Tope de unidades de la línea 1');
+    await userEvent.clear(tope);
+    await userEvent.type(tope, '10');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Guardar cambios' }));
+
+    expect(await within(dialogo).findByRole('alert')).toHaveTextContent('no puede quedar debajo de lo ya usado (62)');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('does not send a form it cannot read, and Escape closes without saving', async () => {
+    const dialogo = await abrirEditar();
+    await userEvent.clear(within(dialogo).getByLabelText('Nombre'));
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Guardar cambios' }));
+
+    expect(within(dialogo).getByRole('alert')).toHaveTextContent('El nombre no puede quedar vacío.');
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(tacticalsAPI.editar).not.toHaveBeenCalled();
   });
 });

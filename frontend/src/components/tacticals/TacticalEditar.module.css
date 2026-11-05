@@ -1,0 +1,114 @@
+/* TacticalEditar: the Editar dialog, in the style of TacticalDescartar (Sell in / Sell out dialogs). */
+
+.ghost {
+  composes: btn-tesla ghost sm from '../../styles/buttons-tesla.css';
+}
+
+.primary {
+  composes: btn-tesla primary sm from '../../styles/buttons-tesla.css';
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: var(--bg-overlay);
+}
+
+.dlg {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--cf-shadow-modal);
+}
+
+.dlg h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ayuda,
+.nota {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
+.campo,
+.tope {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+}
+
+.control {
+  min-height: 32px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.lineas {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.lineas legend {
+  margin-bottom: 4px;
+  font-size: var(--font-sm);
+  font-weight: 600;
+}
+
+.linea {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.lineaHead {
+  font-size: var(--font-sm);
+}
+
+.topes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.error {
+  padding: 8px;
+  font-size: var(--font-sm);
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border: 1px solid var(--tone-danger-border);
+  border-radius: var(--radius-sm);
+}
+
+.dlgRow {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
