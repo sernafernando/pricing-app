@@ -81,7 +81,7 @@ def test_the_preview_counts_the_sales_that_change_and_saves_nothing(engine: Engi
     # FIFO: 80 at 10 + 20 at 8 = 960; weighted from Oct 15: 180 left worth 1600, 100 of them = 888.89, and the
     # 711.11 left over 80 units.
     assert (vista.ventas_cambian, vista.diferencia_ars) == (1, Decimal("-71.11"))
-    assert (vista.unidades_restantes, vista.descuento_unit) == (80, Decimal("8.888875"))
+    assert (vista.unidades_restantes, vista.descuento_unit, vista.del_bloque) == (80, Decimal("8.888875"), False)
     assert (vista.sin_asignar_antes, vista.sin_asignar_despues) == (Decimal("0.00"), Decimal("0.00"))
     assert si.consumos(engine) == antes and _modos(engine) == [] and _auditoria(engine) == []
 

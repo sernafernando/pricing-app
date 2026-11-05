@@ -65,6 +65,7 @@ class VistaPreviaOut(BaseModel):
     diferencia_ars: Decimal  # their new sell in minus the current one (negative: less sell in)
     unidades_restantes: int  # the units the next sale draws from, after the change (from `desde` when to come)
     descuento_unit: Optional[Decimal]  # their unit value; None: no unit left
+    del_bloque: bool = False  # the next sale draws from a manual block (D6)
     sin_asignar_antes: Decimal  # ARS the lots hold that no unit hands out (positive) or handed beyond them, today
     sin_asignar_despues: Decimal  # the same once the change governs (from `desde` when to come)
     huella: str  # send it back to confirm

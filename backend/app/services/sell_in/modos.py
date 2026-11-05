@@ -73,6 +73,7 @@ class VistaPrevia:
     diferencia_ars: Decimal  # their new sell in minus the current one
     unidades_restantes: int  # the units the next sale draws from, after the change
     descuento_unit: Optional[Decimal]  # their unit value; None: no unit left
+    del_bloque: bool  # the next sale draws from a manual block (D6)
     sin_asignar_antes: Decimal  # ARS the lots hold that no unit hands out, today
     sin_asignar_despues: Decimal  # the same after the change
     huella: str
@@ -278,6 +279,7 @@ def _simular(
         diferencia_ars=diferencia,
         unidades_restantes=unidades,
         descuento_unit=descuento,
+        del_bloque=queda is not None and queda.compra_item_id < 0,
         sin_asignar_antes=sin_antes,
         sin_asignar_despues=sin_despues,
         huella=hashlib.sha256(json.dumps(contenido, separators=(",", ":")).encode()).hexdigest(),

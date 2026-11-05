@@ -41,11 +41,12 @@ def test_preview_shows_the_frozen_cost_and_confirm_saves_the_block(client, db, m
     vista = client.post(f"{BASE}/4512/modos/vista-previa", json=_cuerpo(), headers=manualista)
     assert vista.status_code == 200, vista.text
     datos = vista.json()
-    # 30 units typed at 52 000 against 50 000 frozen: each raises the cost by 2 000.
-    assert (datos["costo_base_unit"], datos["unidades_restantes"], datos["descuento_unit"]) == (
+    # 30 units typed at 52 000 against 50 000 frozen: each raises the cost by 2 000; the next sale takes the block.
+    assert (datos["costo_base_unit"], datos["unidades_restantes"], datos["descuento_unit"], datos["del_bloque"]) == (
         "50000.000000",
         30,
         "-2000.000000",
+        True,
     )
 
     resp = client.post(f"{BASE}/4512/modos", json=_cuerpo(huella=datos["huella"]), headers=manualista)
