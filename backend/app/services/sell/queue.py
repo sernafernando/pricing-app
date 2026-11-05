@@ -40,6 +40,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.combos.componentes import componentes_de
+
 CHANNEL = "sell_dirty"
 BATCH_SIZE = 500
 
@@ -280,10 +282,14 @@ def products_of(db: Session, claimed: Sequence[Tuple[str, int, Optional[int]]]) 
     """Every product each claimed line touches: its queued product plus the ones its consumptions are filed under,
     from purchases (`sell_in_consumos`) or from % of cost bonuses (`sell_in_bono_consumos`, T25b: a sale moved to
     another product is queued under the new one only, and a cost bonus usually has no purchase row to find the old
-    one by)."""
+    one by), plus the components of a queued combo."""
     products: Dict[Line, Set[int]] = {
         (canal, ref): ({item} if item is not None else set()) for canal, ref, item in claimed
     }
+    # A combo's line moves its components' FIFO too (`app.services.combos.ventas`).
+    combos = componentes_de(db, {item for _, _, item in claimed if item is not None})
+    for canal, ref, item in claimed:
+        products[(canal, ref)] |= set(combos.get(item, {}))
     if products:
         for canal, ref, item in db.execute(_FILED_UNDER_SQL, _arrays(products)):
             products[(canal, ref)].add(item)

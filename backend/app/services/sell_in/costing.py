@@ -54,8 +54,12 @@ app's own tables (`ml_sale_lines`, `ventas_fuera_ml_metricas`,
 `ventas_tienda_nube_metricas`, `sell_in_*`), never an ERP mirror (`tb_*`), so
 replacing the ERP does not change it.
 
-A combo line is a sale of its own `item_id`, like any product: decomposing it
-into components waits for an app-owned bill of materials (owner decision pending).
+Combos (owner, 2026-11-05: "El combo consume los lotes de sell in de cada
+componente"): a combo line is, for each component, a sale of `qty x cantidad`
+units under the component's `item_id` with the line's own `venta_ref`
+(`app.services.combos.ventas`); the combo never consumes its own lots. Like ML
+costing, the FIFO refuses while the bill of materials is unsynced
+(`CombosNoSincronizados`) instead of counting a combo as a plain item.
 
 A USD purchase is consumed in pesos at the purchase's own `tipo_cambio`, never at the
 sale-date rate: the owner's decision (2026-10-17).
@@ -85,6 +89,7 @@ from app.models.ml_sale_line import MlSaleLine
 from app.models.sell_in import SellInCompra, SellInCompraItem, SellInConsumo, SellInModoProducto
 from app.models.venta_fuera_ml_metrica import VentaFueraMLMetrica
 from app.models.venta_tienda_nube_metrica import VentaTiendaNubeMetrica
+from app.services.combos.ventas import partes_de_combos, unidades_de
 from app.services.sell_in.fifo import Consumo, Dinero, Lote, Periodo, Venta, asignar, orden_fifo, periodo_en
 from app.services.sell_in.split import unit_discount
 
@@ -436,17 +441,26 @@ class FifoPurchaseCosting:
 
     @staticmethod
     def _ventas(db: Session, lotes: Dict[int, List[Lote]]) -> Dict[int, List[Venta]]:
-        """The positive sales of the products that have purchase lines, from the oldest line's date."""
+        """The positive sales of the products that have purchase lines, from the oldest line's date; a combo's line
+        counts for each component that has lines, never for the combo itself (module docstring)."""
         if not lotes:
             return {}
-        ids = sorted(lotes)
+        combos = partes_de_combos(db, lotes)
+        ids = sorted(set(lotes) | set(combos))
+
+        def destinos(item_id: int, unidades: int) -> List[Tuple[int, int]]:
+            if item_id in combos:
+                return [(p.componente, unidades_de(unidades, p)) for p in combos[item_id] if p.componente in lotes]
+            return [(item_id, unidades)] if item_id in lotes else []
+
         desde = min(lote.fecha for item in lotes.values() for lote in item)
         ventas: Dict[int, List[Venta]] = defaultdict(list)
         ml = db.query(MlSaleLine.item_row_id, MlSaleLine.product, MlSaleLine.day, MlSaleLine.qty).filter(
             MlSaleLine.product.in_(ids), MlSaleLine.day >= desde, MlSaleLine.qty > 0
         )
         for ref, item_id, dia, qty in ml:
-            ventas[item_id].append(Venta("ml", ref, dia, int(qty)))
+            for destino, unidades in destinos(item_id, int(qty)):
+                ventas[destino].append(Venta("ml", ref, dia, unidades))
         inicio = datetime.combine(desde, time(0), tzinfo=timezone.utc)
         for canal, model in VENTAS_FACTURADAS:
             rows = db.query(
@@ -456,13 +470,16 @@ class FifoPurchaseCosting:
             for ref, item_id, fecha, signo, cantidad, cust_id in rows:
                 unidades = unidades_firmadas(signo, cantidad)
                 if unidades > 0:
-                    ventas[item_id].append(Venta(canal, ref, utc_date(fecha), unidades))
+                    for destino, suyas in destinos(item_id, unidades):
+                        ventas[destino].append(Venta(canal, ref, utc_date(fecha), suyas))
                 elif unidades < 0:
                     devoluciones.append((ref, item_id, utc_date(fecha), unidades, cust_id))
+            # Resolved on the sold item (the combo's own earlier sale), then given back by each component.
             objetivos = resolver_objetivos(db, model, devoluciones)
             for ref, item_id, fecha, unidades, _ in devoluciones:
                 objetivo = objetivos.get(ref)
-                ventas[item_id].append(Venta(canal, ref, fecha, unidades, (canal, objetivo) if objetivo else None))
+                for destino, suyas in destinos(item_id, unidades):
+                    ventas[destino].append(Venta(canal, ref, fecha, suyas, (canal, objetivo) if objetivo else None))
         return ventas
 
     @staticmethod
