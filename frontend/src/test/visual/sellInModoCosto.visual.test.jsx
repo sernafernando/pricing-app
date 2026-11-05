@@ -46,7 +46,7 @@ vi.mock('../../services/sellInAPI', () => ({
       Promise.resolve({
         data:
           cuerpo.modo === 'manual'
-            ? { ventas_cambian: 0, diferencia_ars: '0.00', unidades_restantes: 200, descuento_unit: '-2000.000000', sin_asignar_antes: '0.00', sin_asignar_despues: '1081120.00', huella: 'a'.repeat(64), costo_base_unit: '148000.000000' }
+            ? { ventas_cambian: 0, diferencia_ars: '0.00', unidades_restantes: 200, descuento_unit: '-2000.000000', sin_asignar_antes: '0.00', sin_asignar_despues: '1081120.00', huella: 'a'.repeat(64), costo_base_unit: '148000.000000', del_bloque: true }
             : { ventas_cambian: 6, diferencia_ars: '-18240.50', unidades_restantes: 200, descuento_unit: '5280.400000', sin_asignar_antes: '0.00', sin_asignar_despues: '200.00', huella: 'a'.repeat(64) },
       }),
     ),

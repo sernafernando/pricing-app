@@ -1,17 +1,12 @@
 import { useEffect, useId, useState } from 'react';
 import { sellInLotesAPI } from '../../services/sellInAPI';
 import SellInModoCosto from './SellInModoCosto';
+import { money } from './money';
 import styles from './SellInLotes.module.css';
 
 const TITLE = 'Lotes sell in';
 const PAGE_SIZE = 20;
 
-const MONEY = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-/** ARS with its sign in front of the symbol: a manual block's surcharge reads "-$ 2.000,00". */
-const money = (value) => {
-  const n = Number(value);
-  return `${n < 0 ? '-' : ''}$ ${MONEY.format(Math.abs(n))}`;
-};
 
 const CHANNELS = { ml: 'ML', fuera: 'Fuera de ML', tn: 'Tienda Nube' };
 

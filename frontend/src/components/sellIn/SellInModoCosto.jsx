@@ -4,14 +4,9 @@ import { usePermisos } from '../../contexts/PermisosContext';
 import SegmentedControl from '../kit/SegmentedControl';
 import StatusPill from '../kit/StatusPill';
 import SellInModoPorDefecto from './SellInModoPorDefecto';
+import { money } from './money';
 import styles from './SellInModoCosto.module.css';
 
-const MONEY = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-/** ARS with its sign in front of the symbol: "-$ 18.240,50". */
-const money = (value) => {
-  const n = Number(value);
-  return `${n < 0 ? '-' : ''}$ ${MONEY.format(Math.abs(n))}`;
-};
 
 /** 'YYYY-MM-DD' (or an ISO datetime) as dd/mm/yyyy, without going through a Date (no time zone shift). */
 function day(value) {
@@ -73,7 +68,7 @@ function Preview({ vista, pedido, antes, onConfirm, onCancel, saving }) {
   // The block's own value per unit; the next sale takes it only while the block has units (a past date's recorded
   // sales may have used it up, and a later purchase is next).
   const valorBloque = modo === 'manual' ? Number(vista.costo_base_unit) - Number(pedido.costo_unit) : null;
-  const delBloque = valorBloque != null && Math.abs(Number(vista.descuento_unit) - valorBloque) < 0.005;
+  const delBloque = modo === 'manual' && vista.del_bloque;
   let quedan = `Quedan ${vista.unidades_restantes} u a ${money(vista.descuento_unit)} de sell in c/u`;
   if (vista.descuento_unit == null) quedan = `Quedan ${vista.unidades_restantes} u sin sell in`;
   else if (delBloque) quedan = `Quedan ${vista.unidades_restantes} u a ${money(pedido.costo_unit)} c/u (manual)`;

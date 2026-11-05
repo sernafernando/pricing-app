@@ -379,6 +379,7 @@ describe('the manual mode', () => {
     unidades_restantes: 30,
     descuento_unit: '-2000.000000',
     costo_base_unit: '50000.000000',
+    del_bloque: true,
   };
 
   async function elegirManual(user) {
@@ -453,8 +454,10 @@ describe('the manual mode', () => {
   });
 
   it('when recorded sales already used the block up, the units left are not said to be at the typed cost', async () => {
-    // A past `desde`: the next sale takes a later purchase at 5 346, not the manual block.
-    sellInLotesAPI.vistaPrevia.mockResolvedValue({ data: { ...MANUAL, unidades_restantes: 100, descuento_unit: '5346.000000' } });
+    // A past `desde`: the next sale takes a later purchase, not the manual block, even at the block's own value.
+    sellInLotesAPI.vistaPrevia.mockResolvedValue({
+      data: { ...MANUAL, unidades_restantes: 100, descuento_unit: '-2000.000000', del_bloque: false },
+    });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderPanel();
     const region = await elegirManual(user);
@@ -463,7 +466,7 @@ describe('the manual mode', () => {
     await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
 
     const vista = await screen.findByRole('region', { name: 'Así queda' });
-    expect(vista).toHaveTextContent('Quedan 100 u a $ 5.346,00 de sell in c/u');
+    expect(vista).toHaveTextContent('Quedan 100 u a -$ 2.000,00 de sell in c/u');
     expect(vista).not.toHaveTextContent('(manual)');
   });
 
