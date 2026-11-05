@@ -1,0 +1,190 @@
+/**
+ * The lines of Nuevo tactical as pure state: what each can charge at most, what stops a save, and the body of
+ * `POST /tacticals` (handoffs/tactical-tarea.md, "Contrato final").
+ */
+import { describe, it, expect } from 'vitest';
+import {
+  conAlcance,
+  conLineaDeLaPantalla,
+  copiarLinea,
+  cuerpoDe,
+  dinero,
+  lineasPara,
+  maximoACobrar,
+  maximoTotal,
+  modosNoDisponibles,
+  nuevaLinea,
+  numeroDe,
+  problemaDe,
+  puedeCompartir,
+  unidadesDelTope,
+} from './tacticalLineas';
+import { CATALOGO, OPERACIONES } from './tacticalFixtures';
+
+const producto = (id) => CATALOGO.find((p) => p.item_id === id);
+const linea = (cambios) => ({ ...nuevaLinea(), ...cambios });
+const FORM = {
+  tipo: 'sell_out',
+  nombre: ' Tacticals BPS ',
+  marca: 'HP',
+  referencia: '',
+  fechaDesde: '2026-11-01',
+  fechaHasta: '2026-11-30',
+  moneda: 'USD',
+  tcModo: 'al_cobro',
+  tipoCambio: '',
+  incluyeIva: false,
+  acumulable: true,
+  nota: '',
+};
+
+describe('numeroDe reads an amount as typed in Argentina', () => {
+  it.each([
+    ['3,6', 3.6],
+    ['1.500', 1500],
+    ['3000,5', 3000.5],
+    [' 850000 ', 850000],
+  ])('%s -> %s', (texto, n) => expect(numeroDe(texto)).toBe(n));
+
+  it.each(['', '  ', 'abc', '300u', '1,500,000', '-5'])('%j -> null', (texto) => expect(numeroDe(texto)).toBeNull());
+});
+
+describe('what a line can charge at most', () => {
+  const tres = [201, 202, 203].map(producto);
+
+  it('a total amount is itself; a percentage only its money cap', () => {
+    expect(maximoACobrar(linea({ alcance: 'factura', modo: 'monto_total', monto: '850.000' }))).toBe(850000);
+    expect(maximoACobrar(linea({ modo: 'porcentaje', monto: '3,6', topeMonto: '5000' }))).toBe(5000);
+    expect(maximoACobrar(linea({ modo: 'porcentaje', monto: '3,6' }))).toBeNull();
+  });
+
+  it('per unit: amount x unit cap, per product unless shared, never above the money cap', () => {
+    const porProducto = linea({ productos: tres, monto: '12', topeUnidades: '300' });
+    expect(maximoACobrar(porProducto)).toBe(10800);
+    expect(unidadesDelTope(porProducto)).toBe(900);
+    const compartida = { ...porProducto, compartido: true };
+    expect(maximoACobrar(compartida)).toBe(3600);
+    expect(unidadesDelTope(compartida)).toBe(300);
+    expect(maximoACobrar({ ...compartida, topeMonto: '3000' })).toBe(3000);
+    expect(maximoTotal([porProducto, { ...compartida, topeMonto: '3000' }])).toBe(13800);
+  });
+
+  it('only several products can share a cap', () => {
+    expect(puedeCompartir(linea({ productos: [producto(101)] }))).toBe(false);
+    expect(puedeCompartir(linea({ productos: tres }))).toBe(true);
+    expect(puedeCompartir(linea({ alcance: 'marca', productos: tres }))).toBe(false);
+  });
+
+  it('writes money as the design does', () => {
+    expect(dinero('USD', 19800)).toBe('USD 19.800');
+    expect(dinero('ARS', 850000.4)).toBe('$ 850.000');
+  });
+});
+
+describe('scopes and amount kinds', () => {
+  it('an invoice is charged as a total amount; leaving it goes back to per unit', () => {
+    const factura = conAlcance(linea({ modo: 'porcentaje' }), 'factura');
+    expect(factura.modo).toBe('monto_total');
+    expect(conAlcance(factura, 'marca').modo).toBe('por_unidad');
+  });
+
+  it('on sell in a total amount is an invoice line only', () => {
+    expect(modosNoDisponibles('sell_in', 'productos')).toEqual(['monto_total']);
+    expect(modosNoDisponibles('sell_in', 'factura')).toEqual([]);
+    expect(modosNoDisponibles('sell_out', 'productos')).toEqual([]);
+  });
+
+  it('switching to sell out turns invoice lines into empty product lines and drops total amounts', () => {
+    const [a, b] = lineasPara('sell_out', [
+      linea({ alcance: 'factura', modo: 'monto_total', facturas: [OPERACIONES[0]] }),
+      linea({ alcance: 'marca', modo: 'monto_total' }),
+    ]);
+    expect(a).toEqual(expect.objectContaining({ alcance: 'productos', modo: 'por_unidad', facturas: [] }));
+    expect(b.modo).toBe('por_unidad');
+  });
+
+  it('a copy is its own line with its own lists', () => {
+    const original = linea({ productos: [producto(101)] });
+    const copia = copiarLinea(original);
+    expect(copia.id).not.toBe(original.id);
+    copia.productos.push(producto(102));
+    expect(original.productos).toHaveLength(1);
+  });
+});
+
+describe('what stops a save, first thing only', () => {
+  const lista = linea({ productos: [producto(101)], monto: '220' });
+
+  it.each([
+    [{ nombre: ' ' }, [lista], 'Poné un nombre para el tactical antes de crearlo.'],
+    [{ marca: '' }, [lista], 'Elegí la marca del tactical.'],
+    [{ fechaHasta: '' }, [lista], 'Completá la vigencia del tactical.'],
+    [{ fechaDesde: '2026-12-01' }, [lista], 'La fecha desde no puede ser posterior a la fecha hasta.'],
+    [{ tcModo: 'fijo' }, [lista], 'Completá el tipo de cambio fijo.'],
+    [{}, [], 'Agregá al menos una línea antes de crear el tactical.'],
+    [{}, [linea({ monto: '1' }), linea({ monto: '1' })], 'Hay 2 líneas sin productos. Completalas o eliminalas.'],
+    [{}, [linea({ alcance: 'marca', monto: '1' })], 'Hay 1 línea sin marca. Completala o eliminala.'],
+    [{}, [{ ...lista, monto: '' }], 'Hay 1 línea sin monto. Completala o eliminala.'],
+    [{}, [{ ...lista, modo: 'porcentaje', monto: '360' }], 'Hay 1 línea con un porcentaje mayor a 100. Corregila.'],
+    [{}, [{ ...lista, topeMonto: '1,500,000' }], 'Hay 1 línea con un tope que no es un número. Corregila o borrá el tope.'],
+    [{}, [{ ...lista, topeUnidades: '1,5' }], 'Hay 1 línea con un tope de unidades que no es entero. Corregila.'],
+  ])('%j with %#', (cambios, lineas, mensaje) => expect(problemaDe({ ...FORM, ...cambios }, lineas)).toBe(mensaje));
+
+  it('nothing when it can be sent', () => {
+    expect(problemaDe(FORM, [lista])).toBeNull();
+  });
+});
+
+describe('the body of POST /tacticals (Contrato final)', () => {
+  it('USD keeps tc_modo, and tipo_cambio only with a fixed rate', () => {
+    const lineas = [linea({ productos: [producto(101)], monto: '220', topeUnidades: '90' })];
+    const { body } = cuerpoDe(FORM, lineas);
+    expect(body).toEqual({
+      tipo: 'sell_out',
+      nombre: 'Tacticals BPS',
+      marca: 'HP',
+      referencia: null,
+      fecha_desde: '2026-11-01',
+      fecha_hasta: '2026-11-30',
+      moneda: 'USD',
+      tc_modo: 'al_cobro',
+      incluye_iva: false,
+      acumulable: true,
+      nota: null,
+      lineas: [
+        {
+          alcance: 'productos',
+          item_ids: [101],
+          modo_monto: 'por_unidad',
+          valor: 220,
+          tope_unidades: 90,
+          tope_monto: null,
+          tope_por_producto: true,
+        },
+      ],
+    });
+    const fijo = cuerpoDe({ ...FORM, tcModo: 'fijo', tipoCambio: '1.450,5' }, lineas).body;
+    expect(fijo).toEqual(expect.objectContaining({ tc_modo: 'fijo', tipo_cambio: 1450.5 }));
+  });
+
+  it('ARS sends no exchange-rate field; tope_por_producto only on products lines; one line per invoice', () => {
+    const form = { ...FORM, tipo: 'sell_in', moneda: 'ARS' };
+    const { body, origen } = cuerpoDe(form, [
+      linea({ alcance: 'marca', marca: 'TP-Link', modo: 'porcentaje', monto: '3,6' }),
+      linea({ alcance: 'factura', modo: 'monto_total', monto: '850000', facturas: OPERACIONES.slice(0, 2) }),
+    ]);
+    expect(body).not.toHaveProperty('tc_modo');
+    expect(body).not.toHaveProperty('tipo_cambio');
+    const sinTope = { tope_unidades: null, tope_monto: null };
+    expect(body.lineas).toEqual([
+      { alcance: 'marca', marca: 'TP-Link', modo_monto: 'porcentaje', valor: 3.6, ...sinTope },
+      { alcance: 'factura', pedido_compra_id: 9001, modo_monto: 'monto_total', valor: 850000, ...sinTope },
+      { alcance: 'factura', pedido_compra_id: 9002, modo_monto: 'monto_total', valor: 850000, ...sinTope },
+    ]);
+    expect(origen).toEqual([1, 2, 2]);
+    expect(conLineaDeLaPantalla('Línea 3: la factura 9002 ya tiene un sell in.', origen)).toBe(
+      'Línea 2: la factura 9002 ya tiene un sell in.',
+    );
+    expect(conLineaDeLaPantalla('La marca no existe.', origen)).toBe('La marca no existe.');
+  });
+});
