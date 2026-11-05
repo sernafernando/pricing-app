@@ -452,6 +452,21 @@ describe('the manual mode', () => {
     );
   });
 
+  it('when recorded sales already used the block up, the units left are not said to be at the typed cost', async () => {
+    // A past `desde`: the next sale takes a later purchase at 5 346, not the manual block.
+    sellInLotesAPI.vistaPrevia.mockResolvedValue({ data: { ...MANUAL, unidades_restantes: 100, descuento_unit: '5346.000000' } });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+
+    const vista = await screen.findByRole('region', { name: 'Así queda' });
+    expect(vista).toHaveTextContent('Quedan 100 u a $ 5.346,00 de sell in c/u');
+    expect(vista).not.toHaveTextContent('(manual)');
+  });
+
   it('changing a figure drops the preview', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderPanel();

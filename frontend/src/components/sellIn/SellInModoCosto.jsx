@@ -70,9 +70,13 @@ function efectoManual(valor) {
 function Preview({ vista, pedido, antes, onConfirm, onCancel, saving }) {
   const id = useId();
   const { modo } = pedido;
+  // The block's own value per unit; the next sale takes it only while the block has units (a past date's recorded
+  // sales may have used it up, and a later purchase is next).
+  const valorBloque = modo === 'manual' ? Number(vista.costo_base_unit) - Number(pedido.costo_unit) : null;
+  const delBloque = valorBloque != null && Math.abs(Number(vista.descuento_unit) - valorBloque) < 0.005;
   let quedan = `Quedan ${vista.unidades_restantes} u a ${money(vista.descuento_unit)} de sell in c/u`;
   if (vista.descuento_unit == null) quedan = `Quedan ${vista.unidades_restantes} u sin sell in`;
-  else if (modo === 'manual') quedan = `Quedan ${vista.unidades_restantes} u a ${money(pedido.costo_unit)} c/u (manual)`;
+  else if (delBloque) quedan = `Quedan ${vista.unidades_restantes} u a ${money(pedido.costo_unit)} c/u (manual)`;
   // FIFO keeps each lot's own value, so "after" is one figure only for the pooled modes.
   const comparar = modo !== 'fifo' && vista.descuento_unit != null;
   return (
@@ -94,7 +98,7 @@ function Preview({ vista, pedido, antes, onConfirm, onCancel, saving }) {
               <span>Costo del producto congelado:</span> <b>{money(vista.costo_base_unit)}</b>
             </li>
             <li>
-              <span>{efectoManual(vista.descuento_unit)}</span>
+              <span>{efectoManual(valorBloque)}</span>
             </li>
           </>
         )}
