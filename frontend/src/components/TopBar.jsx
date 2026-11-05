@@ -10,13 +10,34 @@ import FreeShippingBadge from './FreeShippingBadge';
 import TicketBadge from './TicketBadge';
 import BirthdayBadge from './BirthdayBadge';
 import { useWeather } from '../hooks/useWeather';
+import { usePermisos } from '../contexts/PermisosContext';
 import api from '../services/api';
-import { toLocalDateString } from '../utils/dateUtils';
+import { businessToday } from '../utils/dateRangePresets';
+import { defaultView } from '../utils/metricasMlUrl';
+import { buildMetricasMLParams } from '../utils/metricasMlParams';
+import { tpRequestParams } from '../utils/metricasMlTp';
+import { isTpSolo } from './ventasMl/tpMode';
 import styles from './TopBar.module.css';
 import logoIcon from '../assets/white-g-logo.png';
 
 // Served from public/: the TP-Link logo is a brand asset, not a bundled icon.
 export const TPLINK_LOGO_SRC = '/brand/tplink-logo-white.png';
+
+/**
+ * The request Métricas ML makes for today with nothing else chosen: its "Facturado bruto" is the chip's amount.
+ * One row is enough, the KPIs sum the whole board.
+ */
+function facturadoHoyParams(tpSolo, today = businessToday()) {
+  const view = defaultView(today);
+  return {
+    ...buildMetricasMLParams({ ...view, fechaDesde: today, fechaHasta: today, tpSolo }),
+    ...tpRequestParams(tpSolo),
+    sort: view.sort.key,
+    sort_dir: view.sort.desc ? 'desc' : 'asc',
+    limit: 1,
+    offset: 0,
+  };
+}
 
 export default function TopBar({ sidebarExpanded = true, sidebarHidden = false, onMobileMenuToggle }) {
   const user = useAuthStore((state) => state.user);
@@ -27,27 +48,37 @@ export default function TopBar({ sidebarExpanded = true, sidebarHidden = false, 
   const [facturadoHoy, setFacturadoHoy] = useState(null);
   const [loadingMetric, setLoadingMetric] = useState(false);
   const { weather } = useWeather();
+  const { permisos, tienePermiso } = usePermisos();
+  const puedeVerMetricas = tienePermiso('ml_metricas.ver');
+  const tpSolo = isTpSolo(permisos);
 
   // Determinar si el usuario puede ver facturado ML
   // Los que ven $0 o no tienen acceso a la métrica, ven el clima
   const showFacturado = facturadoHoy !== null && Number(facturadoHoy) > 0;
 
   useEffect(() => {
-    if (user) {
-      setLoadingMetric(true);
-      const hoy = toLocalDateString();
-      api.get(`/dashboard-ml/metricas-generales?fecha_desde=${hoy}&fecha_hasta=${hoy}`)
-        .then(res => {
-          setFacturadoHoy(res.data.total_ventas_ml);
-        })
-        .catch(() => {
-          setFacturadoHoy(null);
-        })
-        .finally(() => {
-          setLoadingMetric(false);
-        });
+    if (!user || !puedeVerMetricas) {
+      setFacturadoHoy(null);
+      setLoadingMetric(false);
+      return;
     }
-  }, [user]);
+    let cancelled = false;
+    setLoadingMetric(true);
+    api
+      .get('/ml-metricas/board', { params: facturadoHoyParams(tpSolo) })
+      .then((res) => {
+        if (!cancelled) setFacturadoHoy(res.data?.kpis?.gross?.value ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setFacturadoHoy(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingMetric(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, puedeVerMetricas, tpSolo]);
 
   const logout = useAuthStore((state) => state.logout);
 
@@ -124,7 +155,7 @@ export default function TopBar({ sidebarExpanded = true, sidebarHidden = false, 
           </div>
         )}
         {!loadingMetric && showFacturado && (
-          <Link to="/dashboard-metricas-ml" className={styles.metricCard} title="Facturado ML hoy - Click para ver métricas">
+          <Link to="/metricas-ml" className={styles.metricCard} title="Facturado ML hoy - Click para ver métricas">
             <span className={styles.metricLabel}>Facturado ML Hoy</span>
             <span className={styles.metricValue}>
               ${Number(facturadoHoy).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
