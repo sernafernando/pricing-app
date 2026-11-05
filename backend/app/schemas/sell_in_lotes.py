@@ -79,3 +79,21 @@ class ConsumosLoteOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ProductoCostoOut(BaseModel):
+    """A row of the Sell in "Productos" list; see `app.services.sell_in.productos_costo`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    item_id: int
+    codigo: Optional[str]
+    descripcion: Optional[str]
+    modo: Optional[str]  # the mode governing today; None: FIFO, the default
+    unidades: int
+    sell_in_unit: Optional[Decimal]  # ARS the next sale takes per unit; None: no line counts today
+    ultima_compra: date
+
+
+class ProductosCostoOut(BaseModel):
+    productos: List[ProductoCostoOut]

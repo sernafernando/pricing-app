@@ -16,7 +16,7 @@ from app.api.endpoints.productos_listing import PERMISOS_VER_PRODUCTO
 from app.core.database import get_db
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
-from app.schemas.sell_in_lotes import ConsumosLoteOut, LotesProductoOut
+from app.schemas.sell_in_lotes import ConsumosLoteOut, LotesProductoOut, ProductosCostoOut
 from app.schemas.sell_in_modos import (
     ModoConfirmarIn,
     ModoIn,
@@ -27,7 +27,7 @@ from app.schemas.sell_in_modos import (
     VistaPreviaOut,
 )
 from app.services.permisos_service import verificar_permiso
-from app.services.sell_in import modos, visor_lotes
+from app.services.sell_in import modos, productos_costo, visor_lotes
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,14 @@ def fijar_modo_por_defecto(
 ) -> dict:
     """Admins only: change the selector's preselected mode (audited). Nothing is recomputed."""
     return {"modo": modos.fijar_modo_por_defecto(db, body.modo, admin.id)}
+
+
+@router.get("/costos", response_model=ProductosCostoOut, dependencies=[Depends(require_permiso("sell_in.ver"))])
+def productos_con_costo(db: Session = Depends(get_db)) -> dict:
+    """Sell in's "Productos" list: every product with units left in its lots, with its cost mode, units, the next
+    sale's sell in per unit and its latest purchase, in a fixed number of queries (`productos_costo`). Writes
+    nothing."""
+    return {"productos": productos_costo.productos(db, date.today())}
 
 
 @router.get("/{item_id}/lotes", response_model=LotesProductoOut)
