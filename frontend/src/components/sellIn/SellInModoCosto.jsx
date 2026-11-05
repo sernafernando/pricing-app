@@ -205,6 +205,8 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
   };
 
   const preview = async () => {
+    // Freeze the previewed mode: a default read or saved later must not relabel the preview or what is confirmed.
+    setModo(seleccion);
     setBusy('preview');
     setError(null);
     try {

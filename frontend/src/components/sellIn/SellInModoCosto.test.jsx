@@ -311,6 +311,28 @@ describe('the default mode', () => {
     expect(elegido(region)).toEqual(['Último precio']);
   });
 
+  it('a default saved while a preview is open does not change the previewed mode', async () => {
+    rol = 'ADMIN';
+    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'ponderado' } });
+    const user = userEvent.setup();
+    renderPanel();
+    const region = await panel();
+    await waitFor(() => expect(elegido(region)).toEqual(['Ponderado (PPP)']));
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+    await screen.findByRole('region', { name: 'Así queda' });
+
+    await user.click(within(region).getByRole('button', { name: 'Modo por defecto' }));
+    await user.click(within(screen.getByRole('group', { name: 'Modo por defecto' })).getByRole('button', { name: 'Último precio' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Modo por defecto' })).not.toBeInTheDocument());
+
+    expect(elegido(region)).toEqual(['Ponderado (PPP)']);
+    const preview = screen.getByRole('region', { name: 'Así queda' });
+    expect(preview).toHaveTextContent('Después (Ponderado (PPP))');
+    await user.click(within(preview).getByRole('button', { name: 'Confirmar cambio' }));
+    expect(sellInLotesAPI.confirmarModo).toHaveBeenCalledWith(950, expect.objectContaining({ modo: 'ponderado' }));
+  });
+
   it('a failed save keeps the modal open and says so', async () => {
     rol = 'SUPERADMIN';
     sellInLotesAPI.fijarModoPorDefecto.mockRejectedValue(httpError(403));
