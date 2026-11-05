@@ -25,6 +25,7 @@ from sqlalchemy import Engine, text
 
 from app.models.tactical import Tactical
 from app.models.auditoria import Auditoria
+from app.models.combo_componente import ComboComponente
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.producto import ProductoERP
@@ -65,6 +66,7 @@ TABLES = [
     MlOrderItemOps.__table__,
     MlSaleLine.__table__,
     SellDirty.__table__,
+    ComboComponente.__table__,  # combo sales count as their components' (combos in sell in / sell out)
 ]
 _MODELS = {"fuera": VentaFueraMLMetrica, "tn": VentaTiendaNubeMetrica}
 _refs = itertools.count(600_000)
@@ -95,6 +97,9 @@ def clean(engine: Engine) -> None:
         conn.execute(text("DELETE FROM sell_in_consumos"))  # a manual block's go with neither purchase nor line
         conn.execute(text("DELETE FROM sell_in_modos_producto"))
         conn.execute(text("DELETE FROM sell_in_compras"))  # cascades to items
+        conn.execute(
+            text("DELETE FROM combo_componentes WHERE combo_item_id <> 999999001")
+        )  # keeps the seed (`_schema`)
         conn.execute(text("DELETE FROM sell_dirty"))
 
 
@@ -260,3 +265,13 @@ def esperar_bloqueado_por(engine: Engine, pid: int) -> None:
                 return
             assert monotonic() < limite, f"nothing ever waited on backend {pid}"
             sleep(0.05)
+
+
+def combo(engine: Engine, combo_item_id: int, componentes: dict) -> None:
+    """`combo_item_id` made of `{componente_item_id: cantidad}` in the bill of materials."""
+    with engine.begin() as conn:
+        for componente, cantidad in componentes.items():
+            conn.execute(
+                text("INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :k, :q)"),
+                {"c": combo_item_id, "k": componente, "q": cantidad},
+            )

@@ -41,7 +41,7 @@ vi.mock('../../services/sellOutAPI', () => ({
   sellOutProgramasAPI: { listar: vi.fn(), sugerencias: vi.fn() },
 }));
 
-vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn() } }));
+vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), editar: vi.fn() } }));
 
 const TACTICALS = [
   {
@@ -110,5 +110,54 @@ describe.each([
     await expect.element(screen.getByText('Vence en 3 días')).toBeVisible();
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-lista-${theme}-${width}.png` });
+  });
+
+  it("opens a row's actions menu whole, under its button, on the last row too", async () => {
+    await page.viewport(width, height);
+    setTheme(theme);
+    document.body.style.background = 'var(--cf-bg-app)';
+    const screen = await render(
+      <MemoryRouter initialEntries={['/sell-in?tab=tacticals']}>
+        <Shell>
+          <SellIn />
+        </Shell>
+      </MemoryRouter>,
+    );
+
+    await screen.getByRole('button', { name: 'Acciones de Rebate HP Q1FY27' }).click();
+    const item = screen.getByRole('menuitem', { name: 'Renovar' });
+    await expect.element(item).toBeVisible();
+    const boton = document.querySelector('[aria-label="Acciones de Rebate HP Q1FY27"]').getBoundingClientRect();
+    const menu = document.querySelector('[role="menu"]').getBoundingClientRect();
+    expect(menu.top).toBeGreaterThanOrEqual(boton.bottom);
+    expect(menu.right).toBeLessThanOrEqual(width + 0.5);
+    // Nothing clips it (the table scrolls sideways): its bottom edge is still the menu's own.
+    const abajo = document.elementFromPoint(menu.left + menu.width / 2, menu.bottom - 2);
+    expect(abajo.closest('[role="menu"]')).not.toBeNull();
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-acciones-${theme}-${width}.png` });
+  });
+
+  it('opens the Editar dialog whole inside the window, with every line', async () => {
+    await page.viewport(width, height);
+    setTheme(theme);
+    document.body.style.background = 'var(--cf-bg-app)';
+    const screen = await render(
+      <MemoryRouter initialEntries={['/sell-in?tab=tacticals']}>
+        <Shell>
+          <SellIn />
+        </Shell>
+      </MemoryRouter>,
+    );
+
+    await screen.getByRole('button', { name: `Acciones de ${TACTICAL_BPS.nombre}` }).click();
+    await screen.getByRole('menuitem', { name: 'Editar' }).click();
+    const dialogo = screen.getByRole('dialog', { name: `Editar ${TACTICAL_BPS.nombre}` });
+    await expect.element(dialogo).toBeVisible();
+    await expect.element(screen.getByLabelText('Tope de monto de la línea 2')).toBeVisible();
+    const caja = document.querySelector('[role="dialog"]').getBoundingClientRect();
+    expect(caja.top).toBeGreaterThanOrEqual(0);
+    expect(caja.bottom).toBeLessThanOrEqual(height + 0.5);
+    expect(caja.right).toBeLessThanOrEqual(width + 0.5);
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-editar-${theme}-${width}.png` });
   });
 });

@@ -44,6 +44,12 @@
   composes: btn-tesla primary sm from '../styles/buttons-tesla.css';
 }
 
+.cargando {
+  padding: 24px 14px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
 .error {
   margin-bottom: 16px;
   padding: 10px 14px;

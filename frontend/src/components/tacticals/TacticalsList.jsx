@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import SearchInput from '../SearchInput';
 import { Pagination, SegmentedControl } from '../kit';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
+import TacticalEditar from './TacticalEditar';
 import TacticalFila from './TacticalFila';
 import { COLUMNAS_TACTICAL, FILTROS_VACIOS, paramsDeFiltros } from './tacticalsFormat';
 import tablaStyles from './TacticalFila.module.css';
@@ -22,9 +23,11 @@ const FILAS_POR_PAGINA = 50;
 /**
  * The Tacticals tab (S7): the brands' programs filtered by tipo, brand, state, dates and a search, one row per
  * tactical with its overall progress; expanding a row shows its lines with their caps and usage. A new `version`
- * (the page's "Actualizar") asks the list again.
+ * (the page's "Actualizar") asks the list again. A row of a kind the user manages (`puedeGestionar(tipo)`) has an
+ * actions menu (tacticals F1): Editar, on a tactical that is not voided, opens the Editar dialog and asks the list
+ * again after saving; Renovar hands the tactical to `onRenovar`.
  */
-export default function TacticalsList({ marcas = [], version = 0 }) {
+export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar }) {
   const [filtros, setFiltros] = useState(FILTROS_VACIOS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(FILAS_POR_PAGINA);
@@ -32,6 +35,8 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
   const [respuesta, setRespuesta] = useState(null);
   const [error, setError] = useState(false);
   const [abiertos, setAbiertos] = useState(() => new Set());
+  const [editando, setEditando] = useState(null);
+  const [guardados, setGuardados] = useState(0);
 
   const claveDe = (f, desde) => JSON.stringify(paramsDeFiltros(f, { page: Math.floor(desde / pageSize) + 1, pageSize }));
   const clave = claveDe(filtros, offset);
@@ -46,7 +51,7 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
     return () => {
       activo = false;
     };
-  }, [clave, version]);
+  }, [clave, version, guardados]);
 
   // A reload can leave the page past the end (tacticals voided or expired meanwhile): go to the last page with some,
   // or to the first one when none are left.
@@ -71,6 +76,14 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
       else siguiente.add(id);
       return siguiente;
     });
+
+  const accionesDe = (tactical) => {
+    if (!puedeGestionar(tactical.tipo)) return [];
+    const acciones = [];
+    if (tactical.estado !== 'anulado') acciones.push({ label: 'Editar', onSelect: () => setEditando(tactical) });
+    if (onRenovar) acciones.push({ label: 'Renovar', onSelect: () => onRenovar(tactical) });
+    return acciones;
+  };
 
   return (
     <>
@@ -136,6 +149,9 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
                   <th scope="col" className={tablaStyles.num}>Líneas</th>
                   <th scope="col">Avance</th>
                   <th scope="col">Estado</th>
+                  <th scope="col">
+                    <span className={styles.srOnly}>Acciones</span>
+                  </th>
                 </tr>
               </thead>
               {datos.items.length === 0 && (
@@ -148,7 +164,13 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
                 </tbody>
               )}
               {datos.items.map((tactical) => (
-                <TacticalFila key={tactical.id} tactical={tactical} abierto={abiertos.has(tactical.id)} onAlternar={() => alternar(tactical.id)} />
+                <TacticalFila
+                  key={tactical.id}
+                  tactical={tactical}
+                  abierto={abiertos.has(tactical.id)}
+                  onAlternar={() => alternar(tactical.id)}
+                  acciones={accionesDe(tactical)}
+                />
               ))}
             </table>
           </div>
@@ -170,6 +192,16 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
             }
           />
         </div>
+      )}
+      {editando && (
+        <TacticalEditar
+          tactical={editando}
+          onCerrar={() => setEditando(null)}
+          onGuardado={() => {
+            setEditando(null);
+            setGuardados((n) => n + 1);
+          }}
+        />
       )}
     </>
   );

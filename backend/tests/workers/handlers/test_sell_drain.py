@@ -611,6 +611,12 @@ class TestTransientClassification:
     def test_a_python_error_is_not_transient(self) -> None:
         assert not sell_drain.is_transient(RuntimeError("boom"))
 
+    def test_an_unsynced_combo_bill_of_materials_is_transient(self) -> None:
+        # Nothing wrong with the lines: they stay queued, uncharged, until the combos sync fills the table.
+        from app.services.combos.componentes import CombosNoSincronizados
+
+        assert sell_drain.is_transient(CombosNoSincronizados())
+
 
 @pytest.mark.postgres
 class TestTransientFailure:

@@ -50,6 +50,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_background_db
+from app.services.combos.componentes import CombosNoSincronizados
 from app.services.sell import queue
 from app.services.sell_in import bonos_costo
 from app.services.sell_in.costing import RecomputeResult, get_costing
@@ -72,7 +73,11 @@ def is_transient(exc: BaseException) -> bool:
     """True for an infrastructure error that says nothing about the line being
     processed, so retrying later can succeed: an invalidated connection, a
     connection-level `OperationalError` without SQLSTATE, a class 08 SQLSTATE,
-    or one of `_TRANSIENT_SQLSTATES`."""
+    or one of `_TRANSIENT_SQLSTATES`. Also an unsynced combo bill of materials
+    (`CombosNoSincronizados`): the lines are fine, and they drain once the
+    combos sync fills the table, instead of being charged and parked."""
+    if isinstance(exc, CombosNoSincronizados):
+        return True
     if not isinstance(exc, DBAPIError):
         return False
     if exc.connection_invalidated:
