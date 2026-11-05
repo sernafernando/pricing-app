@@ -191,12 +191,12 @@ class Dinero:
 
     def __init__(self, lotes: List[Lote], periodos: Iterable[Periodo] = ()) -> None:
         self.lotes = lotes
+        self._recargo = any(lote.descuento_ars < 0 for lote in lotes)  # a manual block raising the cost
         self.periodos = list(periodos)
         _validar_manuales(lotes, self.periodos)
         self._pendientes = gobiernan(self.periodos)
         self.usadas = [0] * len(lotes)
         self._reemplazados: set = set()  # lots a manual block replaced: nothing left on them
-        self._recargo = any(lote.descuento_ars < 0 for lote in lotes)  # a manual block raising the cost
         self._modo = "fifo"
         self._lote_seg: Dict[int, Tuple[int, Decimal, int]] = {}  # FIFO: lot -> (start used units, base, units)
         # `ponderado`: [lots counting, money, units, units taken];
@@ -309,9 +309,9 @@ class Dinero:
         self.usadas[i] += unidades
         # A used-up lot carries the half cent rounding gave it beyond its total (-0.005 at most) into what comes next;
         # only lots of a few thousandths, or none, can fail to cover it, and a row never goes below zero for that.
-        # A product with a manual surcharge block hands out negative money as it is (the block's rows, or a pool
-        # holding it).
-        return monto if self._recargo else max(monto, Decimal("0.00"))
+        # On a product with a manual surcharge block, negative money is handed out as it is (the block's own rows, or a
+        # pool holding it); a lot's own non-negative money, or any money on another product, never goes below zero.
+        return monto if self._recargo and seg[1] < 0 else max(monto, Decimal("0.00"))
 
     def restante(self, fecha: date) -> Decimal:
         """The money every unit left would get, all sold on `fecha` after the rows fed so far, without feeding them:
