@@ -78,6 +78,10 @@ describe('avanceDeLinea', () => {
     expect(avanceDeLinea({ tope_unidades: null, tope_monto: null, monto_usado: '500' })).toBeNull();
   });
 
+  it('a line one short of its cap is not full, even when the percentage rounds to 100', () => {
+    expect(avanceDeLinea({ tope_unidades: 2500, unidades_usadas: 2499 })).toEqual({ porcentaje: 99.9, tono: 'warn' });
+  });
+
   it('a zero cap has nothing to measure', () => {
     expect(avanceDeLinea({ tope_unidades: 0, unidades_usadas: 0 })).toBeNull();
     expect(avanceDeTactical([{ tope_unidades: 0, unidades_usadas: 0, tope_monto: null, monto_usado: '0' }]).unidades).toBeNull();

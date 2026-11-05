@@ -58,8 +58,10 @@ export function alcanceDe(linea) {
 
 function medir(usado, tope) {
   if (!(tope > 0)) return null;
-  const porcentaje = Math.min(100, redondear((usado / tope) * 100));
-  const tono = porcentaje >= 100 ? 'full' : porcentaje > AVISO_PORCENTAJE ? 'warn' : 'normal';
+  // Full only when the cap is really reached: 2499 of 2500 rounds to 100 but still has room, so it stays below it.
+  const lleno = usado >= tope;
+  const porcentaje = lleno ? 100 : Math.min(99.9, redondear((usado / tope) * 100));
+  const tono = lleno ? 'full' : porcentaje > AVISO_PORCENTAJE ? 'warn' : 'normal';
   return { porcentaje, tono };
 }
 
