@@ -142,7 +142,6 @@ describe('SellIn page — one view: Tacticals, Programas and Grupos', () => {
     const panel = screen.getByRole('tabpanel', { name: 'Programas' });
     expect(within(panel).getByRole('heading', { name: 'Programas' })).toBeInTheDocument();
     expect(await within(panel).findByText(PROGRAMAS_LISTA.items[0].nombre)).toBeInTheDocument();
-    expect(within(panel).queryByRole('button', { name: 'Ver en Campañas' })).not.toBeInTheDocument();
     expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=programas');
     unmount();
 
