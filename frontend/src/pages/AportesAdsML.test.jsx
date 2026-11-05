@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 import AportesAdsML from './AportesAdsML';
 import api from '../services/api';
 import { APORTES_VIEW } from './aportesFixtures';
+import { DISPLAY_REPORT } from '../test/fixtures/mlAdsDisplay';
 
 const permisosDenegados = new Set();
 vi.mock('../contexts/PermisosContext', () => ({
@@ -117,6 +118,7 @@ const MARCAS = { marcas: ['EPSON', 'Lenovo', 'TP-Link'] };
 const answer = (url, preview) => {
   if (url === '/marcas') return MARCAS;
   if (url === '/ml-ads/contributions') return APORTES_VIEW;
+  if (url === '/ml-ads/display') return DISPLAY_REPORT;
   return url.endsWith('/preview') ? preview : CAMPAIGNS;
 };
 
@@ -572,6 +574,12 @@ describe('robust loading (ml-ads-aportes-robust)', () => {
       await user.click(screen.getByLabelText('Devuelve la diferencia'));
       await user.click(screen.getByLabelText('Se recibe todo'));
     }],
+    ['channel', async (user) => {
+      await user.click(within(screen.getByRole('group', { name: 'Canal' })).getByRole('button', { name: 'Display' }));
+      const select = await screen.findByLabelText('Campaña de Display');
+      await within(select).findByRole('option', { name: 'XeroxB110 · 335306 · GAUSS' });
+      await user.selectOptions(select, 'XeroxB110 · 335306 · GAUSS');
+    }],
   ])('changing the %s after confirming clears the confirmation and asks again', async (_what, change) => {
     previewWith({ spend: 1000, counted: 5000, net: -4000, over_spend: true });
     const user = userEvent.setup();
@@ -610,6 +618,26 @@ describe('robust loading (ml-ads-aportes-robust)', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
     expect(api.post.mock.calls[1][1]).not.toHaveProperty('confirm_over_spend');
+  });
+
+  it('switching the channel drops a backend rejection and a confirmation given on the old channel', async () => {
+    api.get.mockImplementation((url) =>
+      url.endsWith('/preview') ? Promise.reject(new Error('down')) : Promise.resolve({ data: answer(url, {}) }),
+    );
+    api.post.mockRejectedValueOnce({
+      response: { status: 422, data: { error: { field: 'value', message: 'the amount is above the range spend of 0.00' } } },
+    });
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '5000' });
+    await user.click(screen.getByLabelText('Se recibe todo'));
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await user.click(await screen.findByLabelText(CONFIRM_LABEL));
+    await user.click(within(screen.getByRole('group', { name: 'Canal' })).getByRole('button', { name: 'Display' }));
+    expect(screen.queryByLabelText(CONFIRM_LABEL)).not.toBeInTheDocument();
+    await user.click(within(screen.getByRole('group', { name: 'Canal' })).getByRole('button', { name: 'Product Ads' }));
+    expect(screen.queryByLabelText(CONFIRM_LABEL)).not.toBeInTheDocument();
   });
 
   it('asks to confirm when the backend says so, even on a range that spent nothing yet', async () => {
@@ -652,11 +680,17 @@ describe('robust loading (ml-ads-aportes-robust)', () => {
     expect(screen.queryByText(/Hay datos de Ads hasta/)).not.toBeInTheDocument();
   });
 
-  it('puts the brand first, before the campaign', async () => {
+  it('puts the brand first, then the channel, then the campaign', async () => {
     const user = userEvent.setup();
     await openCreate(user);
-    const labels = [...document.querySelectorAll('#aporte-ads-form label > span:first-child')].map((l) => l.textContent);
-    expect(labels.slice(0, 2)).toEqual(['Marca', 'Campaña']);
+    const fields = [
+      screen.getByLabelText('Marca'),
+      screen.getByRole('group', { name: 'Canal' }),
+      screen.getByLabelText('Campaña'),
+      screen.getByRole('group', { name: 'Tipo de aporte' }),
+    ];
+    const after = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    fields.slice(1).forEach((field, i) => expect(after(fields[i], field)).toBe(true));
   });
 
   it('shows the amount with es-AR thousands separators and sends the number', async () => {
@@ -796,5 +830,174 @@ describe('"Por aporte" view (Stitch 55853ac1)', () => {
     expect(await within(table).findByText('Campaña 351001')).toBeInTheDocument();
     await user.click(within(table).getByRole('button', { name: 'Borrar aporte de TP-Link' }));
     expect(screen.getByText('¿Borrar este aporte?').closest('.modal-tesla')).toHaveTextContent('Campaña 351001');
+  });
+});
+
+describe('Display aportes (Stitch 7512c518)', () => {
+  const DISPLAY_PREVIEW = { spend: 1200000, counted: 300000, net: 900000, warnings: [], data_through: null, over_spend: false };
+  const modal = () => screen.getByRole('button', { name: 'Guardar aporte' }).closest('.modal-tesla');
+  const channel = () => within(modal()).getByRole('group', { name: 'Canal' });
+  const follows = (first, second) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
+  const previewCalls = () => api.get.mock.calls.filter(([url]) => url === '/ml-ads/contributions/preview');
+
+  async function openHeaderCreate(user) {
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    await user.click(screen.getByRole('button', { name: 'Agregar aporte' }));
+  }
+
+  async function chooseWholeDisplayAccount(user) {
+    await user.click(within(channel()).getByRole('button', { name: 'Display' }));
+    const select = await screen.findByLabelText('Campaña de Display');
+    await within(select).findByRole('option', { name: 'Toda la cuenta Display · GAUSS' });
+    await user.selectOptions(select, 'Toda la cuenta Display · GAUSS');
+  }
+
+  it('asks the channel right after the brand and offers each advertiser\'s whole Display account', async () => {
+    const user = userEvent.setup();
+    await openHeaderCreate(user);
+    expect(within(channel()).getByRole('button', { name: 'Product Ads' })).toHaveAttribute('aria-pressed', 'true');
+    expect(follows(screen.getByLabelText('Marca'), channel())).toBe(true);
+    expect(follows(channel(), screen.getByLabelText('Campaña'))).toBe(true);
+
+    await chooseWholeDisplayAccount(user);
+    expect(api.get).toHaveBeenCalledWith('/ml-ads/display', { params: expect.objectContaining({ date_from: expect.any(String) }) });
+    const select = screen.getByLabelText('Campaña de Display');
+    expect(within(select).getByRole('option', { name: 'XeroxB110 · 335306 · GAUSS' })).toBeInTheDocument();
+    expect(follows(channel(), select)).toBe(true);
+    expect(
+      screen.getByText('Toda la cuenta: el aporte cubre todas las campañas de Display del anunciante en el rango.'),
+    ).toBeInTheDocument();
+  });
+
+  it('a full amount above the whole Display account asks about the account, not a campaign', async () => {
+    api.get.mockImplementation((url) =>
+      Promise.resolve({
+        data:
+          url === '/ml-ads/contributions/preview'
+            ? { ...DISPLAY_PREVIEW, counted: 5000000, net: -3800000, over_spend: true }
+            : answer(url, {}),
+      }),
+    );
+    const user = userEvent.setup();
+    await openHeaderCreate(user);
+    await chooseWholeDisplayAccount(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '5000000', brand: 'EPSON' });
+    await user.click(screen.getByLabelText('Se recibe todo'));
+    expect(
+      await screen.findByLabelText('Confirmo que el aporte supera el costo de la cuenta de Display en el rango'),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    expect(
+      await screen.findByText('Confirmá que el aporte supera el costo de la cuenta de Display en el rango.'),
+    ).toBeInTheDocument();
+  });
+
+  it('saves a whole-account Display aporte and previews it on the Display spend', async () => {
+    api.get.mockImplementation((url, config) =>
+      Promise.resolve({
+        data:
+          url === '/ml-ads/contributions/preview' && config.params.channel === 'display'
+            ? DISPLAY_PREVIEW
+            : answer(url, { spend: 742300, counted: 500000, net: 242300, warnings: [], data_through: null }),
+      }),
+    );
+    const user = userEvent.setup();
+    await openHeaderCreate(user);
+    await chooseWholeDisplayAccount(user);
+    await fillCommon(user, { value: '25', brand: 'EPSON' });
+
+    const sentence = 'En el rango, Display gastó $ 1.200.000,00; este aporte cubre $ 300.000,00.';
+    expect(await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === sentence)).toBeInTheDocument();
+    expect(screen.queryByRole('definition')).not.toBeInTheDocument();
+    const [, { params }] = previewCalls().at(-1);
+    expect(params).toEqual(expect.objectContaining({ channel: 'display', advertiser_id: 25713 }));
+    expect(params).not.toHaveProperty('campaign_id');
+
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/ml-ads/contributions',
+        expect.objectContaining({ channel: 'display', advertiser_id: 25713, campaign_id: null, kind: 'percentage', value: 25 }),
+      ),
+    );
+  });
+
+  it('saves one Display campaign by its id', async () => {
+    const user = userEvent.setup();
+    await openHeaderCreate(user);
+    await user.click(within(channel()).getByRole('button', { name: 'Display' }));
+    const select = await screen.findByLabelText('Campaña de Display');
+    await within(select).findByRole('option', { name: 'XeroxB110 · 335306 · GAUSS' });
+    await user.selectOptions(select, 'XeroxB110 · 335306 · GAUSS');
+    expect(screen.queryByText(/^Toda la cuenta:/)).not.toBeInTheDocument();
+    await fillCommon(user, { value: '25', brand: 'EPSON' });
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/ml-ads/contributions',
+        expect.objectContaining({ channel: 'display', advertiser_id: 25713, campaign_id: 335306 }),
+      ),
+    );
+  });
+
+  it('goes back to the Product Ads campaigns, unchosen, when the channel goes back', async () => {
+    const user = userEvent.setup();
+    await openHeaderCreate(user);
+    await chooseWholeDisplayAccount(user);
+    await user.click(within(channel()).getByRole('button', { name: 'Product Ads' }));
+    expect(screen.getByLabelText('Campaña')).toHaveValue('');
+    expect(screen.queryByLabelText('Campaña de Display')).not.toBeInTheDocument();
+  });
+
+  it('drops a Product Ads preview when the channel switches to Display, never showing it as Display spend', async () => {
+    const user = userEvent.setup();
+    await openHeaderCreate(user);
+    await user.selectOptions(screen.getByLabelText('Campaña'), 'Notebooks · 66 · GAUSS');
+    await fillCommon(user, { value: '10', brand: 'EPSON' });
+    expect(await screen.findByLabelText('Lo que cubre el aporte')).toBeInTheDocument();
+    await user.click(within(channel()).getByRole('button', { name: 'Display' }));
+    expect(screen.queryByLabelText('Lo que cubre el aporte')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Display gastó/)).not.toBeInTheDocument();
+  });
+
+  it('says why no Display campaign can be picked when the list fails to load, and retries it in place', async () => {
+    const answerOthers = api.get.getMockImplementation();
+    let fail = true;
+    api.get.mockImplementation((url, config) =>
+      url === '/ml-ads/display' && fail ? Promise.reject(new Error('boom')) : answerOthers(url, config),
+    );
+    const user = userEvent.setup();
+    await openHeaderCreate(user);
+    await user.click(within(channel()).getByRole('button', { name: 'Display' }));
+    expect(await screen.findByText('No se pudo cargar la lista de campañas de Display.')).toBeInTheDocument();
+    fail = false;
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+    const select = screen.getByLabelText('Campaña de Display');
+    expect(await within(select).findByRole('option', { name: 'Toda la cuenta Display · GAUSS' })).toBeInTheDocument();
+    expect(screen.queryByText('No se pudo cargar la lista de campañas de Display.')).not.toBeInTheDocument();
+  });
+
+  it('edits a Display aporte from the Por aporte view, its channel and account locked', async () => {
+    const user = userEvent.setup();
+    render(<AportesAdsML />);
+    await screen.findByText('Routers');
+    await user.click(screen.getByRole('button', { name: 'Por aporte' }));
+    await user.click(await screen.findByRole('button', { name: 'Editar aporte de Xerox' }));
+    expect(screen.getByText('Editar aporte')).toBeInTheDocument();
+    const display = within(channel()).getByRole('button', { name: 'Display' });
+    expect(display).toHaveAttribute('aria-pressed', 'true');
+    expect(display).toBeDisabled();
+    const select = screen.getByLabelText('Campaña de Display');
+    expect(select).toBeDisabled();
+    expect(await within(select).findByRole('option', { name: 'Toda la cuenta Display · GAUSS', selected: true })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith(
+        '/ml-ads/contributions/3',
+        expect.objectContaining({ channel: 'display', advertiser_id: 25713, campaign_id: null, brand: 'Xerox', value: 25 }),
+      ),
+    );
   });
 });

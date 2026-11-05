@@ -200,6 +200,11 @@
   color: var(--tone-danger-fg);
 }
 
+/* Asks the failed Display list again without closing the form. */
+.retry {
+  composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
+}
+
 .modalFooter {
   display: flex;
   justify-content: flex-end;
@@ -213,4 +218,34 @@
 
 .btnSecondary {
   composes: btnSecondary from './AportesAdsML.module.css';
+}
+
+/* What a choice means, under its field ("Toda la cuenta" of a Display aporte). */
+.hint {
+  font-size: var(--font-xs);
+  line-height: 1.5;
+  color: var(--cf-text-secondary);
+}
+
+/* A Display aporte's preview: one sentence on the Display spend (Stitch 7512c518). */
+.previewLine {
+  margin: 0;
+  padding: var(--space-3);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.money {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+}
+
+.covered {
+  color: var(--tone-success-fg);
 }
