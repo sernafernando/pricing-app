@@ -1,0 +1,203 @@
+/* The cost-mode panel inside the sell-in lot viewer: three cards, as in the approved design -- the mode and its
+   change form, the preview ("Así queda") and the history. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-top: var(--space-3);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-card);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.body {
+  padding: var(--space-3);
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+}
+
+.hint,
+.help,
+.note {
+  margin: 0;
+  color: var(--cf-text-secondary);
+}
+
+.help {
+  font-size: var(--font-xs);
+}
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.modebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.modebarLabel,
+.label {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.field > [role='group'] {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.input {
+  composes: input inputSm from '../../styles/forms-tesla.css';
+  width: 20rem;
+  max-width: 100%;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.divided {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  background: var(--tone-info-bg);
+  border: 1px solid var(--tone-info-border);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+}
+
+.preview h4 {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--tone-info-fg);
+}
+
+.facts b,
+.mini td,
+.histDate {
+  font-family: var(--font-mono);
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.facts span {
+  color: var(--cf-text-secondary);
+}
+
+.warning {
+  margin: 0;
+  color: var(--tone-warning-fg);
+  font-weight: var(--font-semibold);
+}
+
+.mini {
+  width: 100%;
+  background: var(--cf-bg-card);
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.mini th,
+.mini td {
+  padding: var(--space-1) var(--space-2);
+  text-align: right;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.mini th:first-child {
+  text-align: left;
+}
+
+.mini thead th {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-secondary);
+}
+
+.mini tbody th {
+  font-weight: var(--font-normal);
+}
+
+.hist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hist li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.histDate {
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-secondary);
+}
+
+.histMeta {
+  color: var(--cf-text-secondary);
+}
+
+.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--cf-danger);
+}

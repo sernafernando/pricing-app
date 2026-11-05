@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { sellInLotesAPI } from '../../services/sellInAPI';
+import SellInModoCosto from './SellInModoCosto';
 import styles from './SellInLotes.module.css';
 
 const TITLE = 'Lotes sell in';
@@ -164,8 +165,9 @@ function DefaultSection({ title, children }) {
 /**
  * The sell-in lots of a product as the next sales will consume them (`GET /sell-in/productos/{id}/lotes`): FIFO order,
  * each lot's purchase, the date it counts from, units, units consumed and left, unit discount in ARS and status
- * (Vigente, En cola, Agotado, Desde dd/mm); what the next sale gets; and, per lot, the sales that consumed it. Read
- * only. Without the permission that shows the product (403) it renders nothing. Mount it with `key={productItemId}`.
+ * (Vigente, En cola, Agotado, Desde dd/mm); what the next sale gets; per lot, the sales that consumed it; and the
+ * product's cost mode (`SellInModoCosto`), the only part that writes, behind its own permissions. Without the
+ * permission that shows the product (403) it renders nothing. Mount it with `key={productItemId}`.
  *
  * @param {object} props
  * @param {number} props.productItemId The ERP product.
@@ -258,6 +260,12 @@ export default function SellInLotes({ productItemId, container = DefaultSection 
             })}
           </ol>
         )}
+        <SellInModoCosto
+          productItemId={productItemId}
+          lotes={lotes}
+          proxima={proxima}
+          onChanged={() => setAttempt((n) => n + 1)}
+        />
       </div>
     );
   }

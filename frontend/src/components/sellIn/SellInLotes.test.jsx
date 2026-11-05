@@ -11,8 +11,14 @@ import SellInLotes from './SellInLotes';
 import { sellInLotesAPI } from '../../services/sellInAPI';
 
 vi.mock('../../services/sellInAPI', () => ({
-  sellInLotesAPI: { lotes: vi.fn(), consumos: vi.fn() },
+  // The cost-mode panel inside the viewer (`SellInModoCosto.test.jsx`) is out of the way here: no `sell_in.ver`.
+  sellInLotesAPI: {
+    lotes: vi.fn(),
+    consumos: vi.fn(),
+    modos: vi.fn(() => Promise.reject(Object.assign(new Error('HTTP 403'), { response: { status: 403 } }))),
+  },
 }));
+vi.mock('../../contexts/PermisosContext', () => ({ usePermisos: () => ({ tienePermiso: () => false }) }));
 
 const httpError = (status) => Object.assign(new Error(`HTTP ${status}`), { response: { status, data: {} } });
 
