@@ -63,7 +63,7 @@ function QueIncluye({ linea }) {
 }
 
 function Lineas({ tactical }) {
-  const { moneda, lineas } = tactical;
+  const { lineas } = tactical;
   const guion = <span className={styles.guion}>—</span>;
   return (
     <div className={styles.sub}>
@@ -88,11 +88,11 @@ function Lineas({ tactical }) {
                 <td>
                   <QueIncluye linea={linea} />
                 </td>
-                <td className={styles.num}>{valorDeLinea(linea, moneda)}</td>
+                <td className={styles.num}>{valorDeLinea(linea)}</td>
                 <td className={styles.num}>{linea.tope_unidades == null ? guion : formatUnidades(linea.tope_unidades)}</td>
                 <td className={styles.num}>{linea.unidades_usadas == null ? guion : formatUnidades(linea.unidades_usadas)}</td>
-                <td className={styles.num}>{linea.tope_monto == null ? guion : formatMontoTactical(linea.tope_monto, moneda)}</td>
-                <td className={styles.num}>{formatMontoTactical(linea.monto_usado, moneda)}</td>
+                <td className={styles.num}>{linea.tope_monto == null ? guion : formatMontoTactical(linea.tope_monto, linea.moneda)}</td>
+                <td className={styles.num}>{formatMontoTactical(linea.monto_usado, linea.moneda)}</td>
                 <td>
                   {avance ? (
                     <div className={styles.subAvance}>
@@ -115,9 +115,8 @@ function Lineas({ tactical }) {
 function Tactical({ tactical, abierto, onAlternar }) {
   const tipo = TIPO_PILL[tactical.tipo] ?? { texto: tactical.tipo, tono: 'neutral' };
   const estado = estadoDe(tactical);
-  const { unidades, montoUsado, topeMonto } = avanceDeTactical(tactical.lineas);
+  const { unidades, monto } = avanceDeTactical(tactical.lineas);
   const Chevron = abierto ? ChevronDown : ChevronRight;
-  const usado = formatMontoTactical(montoUsado, tactical.moneda);
   return (
     <tbody>
       <tr className={abierto ? styles.abierto : undefined}>
@@ -157,7 +156,7 @@ function Tactical({ tactical, abierto, onAlternar }) {
             ) : (
               <span className={styles.guion}>—</span>
             )}
-            <span className={styles.monto}>{topeMonto == null ? usado : `${usado} de ${formatMontoTactical(topeMonto, tactical.moneda)}`}</span>
+            <span className={styles.monto}>{monto}</span>
           </div>
         </td>
         <td>
@@ -256,7 +255,7 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
         </fieldset>
         <div className={`${styles.campo} ${styles.buscar}`}>
           <span className={styles.label}>Buscar</span>
-          <SearchInput value={filtros.q} onChange={(q) => filtrar({ q })} debounce={300} placeholder="Buscar por nombre o producto" />
+          <SearchInput value={filtros.q} onChange={(q) => filtrar({ q })} debounce={300} placeholder="Buscar por nombre o referencia" />
         </div>
         <button type="button" className={styles.limpiar} onClick={() => filtrar(FILTROS_VACIOS)}>
           Limpiar filtros

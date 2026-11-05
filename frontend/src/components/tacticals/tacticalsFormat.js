@@ -23,8 +23,8 @@ export function formatMontoTactical(value, moneda) {
 
 export const formatUnidades = (value) => (vacio(value) ? '—' : NUMERO.format(Number(value)));
 
-/** The line's amount as it was loaded: `USD 220 / u`, `3,5 %` or `USD 3.000`. */
-export function valorDeLinea({ modo_monto: modo, valor }, moneda) {
+/** The line's amount as it was loaded, in the line's own currency: `USD 220 / u`, `3,5 %` or `USD 3.000`. */
+export function valorDeLinea({ modo_monto: modo, valor, moneda }) {
   if (modo === 'porcentaje') return `${PORCENTAJE.format(Number(valor))} %`;
   const monto = formatMontoTactical(valor, moneda);
   return modo === 'por_unidad' ? `${monto} / u` : monto;
@@ -52,7 +52,7 @@ export function alcanceDe(linea) {
   if (linea.alcance === 'categoria') {
     return { titulo: `Categoría ${linea.categoria}`, detalle: 'Todos los productos de la categoría' };
   }
-  return { titulo: `Factura del pedido ${linea.pedido_compra_id}`, detalle: null };
+  return { titulo: `Factura del pedido ${linea.pedido_numero ?? `#${linea.pedido_compra_id}`}`, detalle: null };
 }
 
 function medir(usado, tope) {
@@ -70,8 +70,9 @@ export function avanceDeLinea(linea) {
 }
 
 /**
- * The header row's progress (decision T5): units used over the unit caps of the lines that have one, money used
- * over all lines, and the money cap only when every line has one.
+ * The header row's progress (decision T5): units used over the unit caps of the lines that have one, and the money
+ * used per currency (a USD tactical's cost-reduction lines count in ARS), with the money cap of a currency only when
+ * every line in it has one: `USD 300 · ARS 12.000 de ARS 50.000`.
  */
 export function avanceDeTactical(lineas) {
   const conTope = lineas.filter((l) => !vacio(l.tope_unidades));
@@ -82,10 +83,16 @@ export function avanceDeTactical(lineas) {
     const avance = medir(usadas, tope);
     if (avance) unidades = { usadas, tope, ...avance };
   }
-  const montoUsado = lineas.reduce((s, l) => s + Number(l.monto_usado ?? 0), 0);
-  const todasConTope = lineas.length > 0 && lineas.every((l) => !vacio(l.tope_monto));
-  const topeMonto = todasConTope ? lineas.reduce((s, l) => s + Number(l.tope_monto), 0) : null;
-  return { unidades, montoUsado, topeMonto };
+  const monedas = [...new Set(lineas.map((l) => l.moneda))];
+  const monto = monedas
+    .map((moneda) => {
+      const deMoneda = lineas.filter((l) => l.moneda === moneda);
+      const usado = formatMontoTactical(deMoneda.reduce((s, l) => s + Number(l.monto_usado ?? 0), 0), moneda);
+      if (!deMoneda.every((l) => !vacio(l.tope_monto))) return usado;
+      return `${usado} de ${formatMontoTactical(deMoneda.reduce((s, l) => s + Number(l.tope_monto), 0), moneda)}`;
+    })
+    .join(' · ');
+  return { unidades, monto };
 }
 
 export const FILTROS_VACIOS = { tipo: 'todos', marca: '', estado: 'vigentes', desde: '', hasta: '', q: '' };

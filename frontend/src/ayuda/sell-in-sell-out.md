@@ -146,7 +146,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
   - **Marca**: la marca adjunta del tactical.
   - **Estado**: Vigentes (al abrir), Vencidos o Anulados.
   - **Vigencia**: Desde y Hasta.
-  - **Buscar**: por nombre o producto.
+  - **Buscar**: por nombre o referencia.
   - **Limpiar filtros** vuelve a los vigentes de todas las marcas.
 - Columnas:
   - **Nombre**, con la referencia debajo.

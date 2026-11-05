@@ -9,6 +9,7 @@ import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, PRODUCTOS, RESUMEN } fr
 import { sellOutAPI, sellOutProgramasAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
 import { tacticalsAPI } from '../services/tacticalsAPI';
+import { TACTICAL_REBATE, pagina } from '../components/tacticals/tacticalsFixtures';
 import {
   CAMPANA_MIGRADA,
   CAMPANAS_DEL_PROGRAMA,
@@ -23,30 +24,7 @@ import {
 } from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
 
-const TACTICAL = {
-  id: 7,
-  tipo: 'sell_in',
-  nombre: 'Rebate TP-Link noviembre',
-  marca: 'TP-Link',
-  referencia: null,
-  fecha_desde: '2026-11-01',
-  fecha_hasta: '2026-11-30',
-  moneda: 'USD',
-  estado: 'activo',
-  lineas: [
-    {
-      id: 71,
-      alcance: 'marca',
-      marca: 'TP-Link',
-      modo_monto: 'porcentaje',
-      valor: '3.6',
-      tope_unidades: null,
-      tope_monto: null,
-      unidades_usadas: null,
-      monto_usado: '1800',
-    },
-  ],
-};
+const TACTICAL = { ...TACTICAL_REBATE, id: 7, nombre: 'Rebate TP-Link noviembre', marca: 'TP-Link' };
 
 vi.mock('../services/sellInAPI', () => ({
   sellInAPI: {
@@ -120,7 +98,7 @@ beforeEach(() => {
   offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
   offsetGruposAPI.alcance.mockResolvedValue({ data: [{ grupo_id: 1, productos: 3, campanas: [] }] });
   offsetGruposAPI.opciones.mockResolvedValue({ data: { marcas: [], categorias: [], subcategorias: [] } });
-  tacticalsAPI.listar.mockResolvedValue({ data: { items: [TACTICAL], total: 1 } });
+  tacticalsAPI.listar.mockResolvedValue({ data: pagina([TACTICAL]) });
 });
 
 /** Prints where the router is, so a test can read the tab the URL keeps. */

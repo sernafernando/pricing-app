@@ -17,6 +17,7 @@ import { BONOS_LISTA, LISTA, RESUMEN } from '../../components/sellIn/sellInFixtu
 import { sellOutAPI, sellOutProgramasAPI } from '../../services/sellOutAPI';
 import { CAMPANAS_LISTA, PROGRAMAS_VACIO } from '../../components/sellOut/sellOutFixtures';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
+import { TACTICAL_BPS, TACTICAL_REBATE, lineaDeProducto, pagina } from '../../components/tacticals/tacticalsFixtures';
 
 const SHOTS_DIR = import.meta.env.VITE_SELLINOUT_SHOTS_DIR;
 
@@ -42,87 +43,39 @@ vi.mock('../../services/sellOutAPI', () => ({
 
 vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn() } }));
 
-const producto = (id, itemId, descripcion, valor, tope, usadas) => ({
-  id,
-  alcance: 'productos',
-  productos: [{ item_id: itemId, descripcion }],
-  modo_monto: 'por_unidad',
-  valor: String(valor),
-  tope_unidades: tope,
-  tope_monto: null,
-  unidades_usadas: usadas,
-  monto_usado: String(valor * usadas),
-});
-
-const BASE = { marca: 'HP', moneda: 'USD', estado: 'activo', fecha_desde: '2026-11-01', referencia: null };
 const TACTICALS = [
   {
-    ...BASE,
-    id: 1,
-    tipo: 'sell_out',
-    nombre: 'Tacticals BPS Noviembre Q1FY27',
-    referencia: 'Q1 FY27 · BPS',
-    fecha_hasta: '2026-11-30',
+    ...TACTICAL_BPS,
     lineas: [
-      producto(11, 101, 'AIO HP G2 R5 16G 512 W11H', 220, 90, 58),
-      producto(12, 102, 'AIO PRO S4 G1 U5225T 24GB 512GB 24"', 170, 99, 41),
-      producto(13, 103, 'Notebook HP 250RG10 5-120U', 100, 62, 62),
-      producto(14, 104, 'Notebook HP 255r G10 R3-7335u 8gb 512gb', 85, 106, 19),
+      lineaDeProducto(11, 101, 'AIO-G2-R5', 'AIO HP G2 R5 16G 512 W11H', 220, 90, 58),
+      lineaDeProducto(12, 102, 'AIO-PRO-S4', 'AIO PRO S4 G1 U5225T 24GB 512GB 24"', 170, 99, 41),
+      lineaDeProducto(13, 103, 'NB-250RG10', 'Notebook HP 250RG10 5-120U', 100, 62, 62),
+      lineaDeProducto(14, 104, 'NB-255R-G10', 'Notebook HP 255r G10 R3-7335u 8gb 512gb', 85, 106, 19),
       {
+        ...TACTICAL_BPS.lineas[2],
         id: 15,
-        alcance: 'productos',
-        productos: [
-          { item_id: 201, descripcion: 'Monitor V24i G5' },
-          { item_id: 202, descripcion: 'Monitor V27i G5' },
-          { item_id: 203, descripcion: 'Monitor P24 G5' },
-        ],
-        modo_monto: 'por_unidad',
-        valor: '12',
-        tope_unidades: 300,
-        tope_monto: '3000',
-        unidades_usadas: 132,
-        monto_usado: '1584',
+        productos: [...TACTICAL_BPS.lineas[2].productos, { item_id: 203, codigo: 'MON-P24', descripcion: 'Monitor P24 G5' }],
       },
     ],
   },
   {
-    ...BASE,
+    ...TACTICAL_BPS,
     id: 2,
-    tipo: 'sell_out',
     nombre: 'Monitores HP noviembre',
+    referencia: null,
     fecha_hasta: '2026-11-15',
     lineas: [
-      { ...producto(21, 201, 'Monitor HP V24i G5', 12, 180, 172), tope_monto: '2160' },
-      { ...producto(22, 202, 'Monitor HP V27i G5', 12, 120, 108), tope_monto: '1440' },
+      { ...lineaDeProducto(21, 201, 'MON-V24I', 'Monitor HP V24i G5', 12, 180, 172), tope_monto: '2160' },
+      { ...lineaDeProducto(22, 202, 'MON-V27I', 'Monitor HP V27i G5', 12, 120, 108), tope_monto: '1440' },
     ],
   },
-  {
-    ...BASE,
-    id: 3,
-    tipo: 'sell_in',
-    nombre: 'Rebate HP Q1FY27',
-    moneda: 'ARS',
-    fecha_hasta: '2027-01-31',
-    lineas: [
-      {
-        id: 31,
-        alcance: 'marca',
-        marca: 'HP',
-        modo_monto: 'porcentaje',
-        valor: '3.5',
-        tope_unidades: null,
-        tope_monto: null,
-        unidades_usadas: null,
-        monto_usado: '1240000',
-      },
-    ],
-  },
+  TACTICAL_REBATE,
 ];
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(2026, 10, 12, 10));
-  tacticalsAPI.listar.mockResolvedValue({ data: { items: TACTICALS, total: TACTICALS.length } });
+  tacticalsAPI.listar.mockResolvedValue({ data: pagina(TACTICALS) });
   sellOutAPI.listar.mockResolvedValue({ data: CAMPANAS_LISTA });
   sellOutAPI.grupos.mockResolvedValue({ data: [] });
   sellOutProgramasAPI.listar.mockResolvedValue({ data: PROGRAMAS_VACIO });

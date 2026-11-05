@@ -1,91 +1,19 @@
 /**
  * Tactical list by brand (owner, 2026-11-04, S7: "el tactical tiene que podersele cargar una marca adjunta para
  * después poder filtrar por marca"). Built from the pending design handoffs/diseno-tactical/listado-tacticals-PENDIENTE.html
- * on the draft contract of GET /api/tacticals (handoffs/tactical-tarea.md). The fixtures carry the design's numbers;
- * swap them for a real capture once T1's endpoint exists.
+ * on the final contract of GET /api/tacticals (handoffs/tactical-tarea.md, "Contrato final"); see tacticalsFixtures.js.
  */
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TacticalsList from './TacticalsList';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
+import { TACTICAL_BPS, TACTICAL_REBATE, pagina } from './tacticalsFixtures';
 
 vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn() } }));
 
-const BPS = {
-  id: 1,
-  tipo: 'sell_out',
-  nombre: 'Tacticals BPS Noviembre Q1FY27',
-  marca: 'HP',
-  referencia: 'Q1 FY27 · BPS',
-  fecha_desde: '2026-11-01',
-  fecha_hasta: '2026-11-30',
-  moneda: 'USD',
-  estado: 'activo',
-  lineas: [
-    {
-      id: 11,
-      alcance: 'productos',
-      productos: [{ item_id: 101, descripcion: 'AIO HP G2 R5 16G 512 W11H' }],
-      modo_monto: 'por_unidad',
-      valor: '220',
-      tope_unidades: 90,
-      tope_monto: null,
-      unidades_usadas: 58,
-      monto_usado: '12760',
-    },
-    {
-      id: 12,
-      alcance: 'productos',
-      productos: [{ item_id: 102, descripcion: 'Notebook HP 250RG10 5-120U' }],
-      modo_monto: 'por_unidad',
-      valor: '100',
-      tope_unidades: 62,
-      tope_monto: null,
-      unidades_usadas: 62,
-      monto_usado: '6200',
-    },
-    {
-      id: 13,
-      alcance: 'productos',
-      productos: [
-        { item_id: 201, descripcion: 'Monitor V24i G5' },
-        { item_id: 202, descripcion: 'Monitor V27i G5' },
-      ],
-      modo_monto: 'por_unidad',
-      valor: '12',
-      tope_unidades: 300,
-      tope_monto: '3000',
-      unidades_usadas: 132,
-      monto_usado: '1584',
-    },
-  ],
-};
-
-const REBATE = {
-  id: 3,
-  tipo: 'sell_in',
-  nombre: 'Rebate HP Q1FY27',
-  marca: 'HP',
-  referencia: null,
-  fecha_desde: '2026-11-01',
-  fecha_hasta: '2027-01-31',
-  moneda: 'ARS',
-  estado: 'activo',
-  lineas: [
-    {
-      id: 31,
-      alcance: 'marca',
-      marca: 'HP',
-      modo_monto: 'porcentaje',
-      valor: '3.5',
-      tope_unidades: null,
-      tope_monto: null,
-      unidades_usadas: null,
-      monto_usado: '1240000',
-    },
-  ],
-};
+const BPS = TACTICAL_BPS;
+const REBATE = TACTICAL_REBATE;
 
 const MARCAS = ['HP', 'Lenovo', 'TP-Link'];
 
@@ -96,7 +24,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(2026, 10, 12, 10));
-  tacticalsAPI.listar.mockResolvedValue({ data: { items: [BPS, REBATE], total: 2 } });
+  tacticalsAPI.listar.mockResolvedValue({ data: pagina([BPS, REBATE], 2) });
 });
 
 afterEach(() => {
@@ -172,7 +100,7 @@ describe('TacticalsList money cap', () => {
       ...BPS,
       lineas: BPS.lineas.map((linea, i) => ({ ...linea, tope_monto: ['15000', '6200', '3000'][i] })),
     };
-    tacticalsAPI.listar.mockResolvedValue({ data: { items: [conTopes], total: 1 } });
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([conTopes], 1) });
     render(<TacticalsList marcas={MARCAS} />);
 
     expect(await screen.findByText('USD 20.544 de USD 24.200')).toBeInTheDocument();
@@ -192,7 +120,7 @@ describe('TacticalsList filters', () => {
     await waitFor(() => expect(ultimaConsulta()).toMatchObject({ estado: 'anulados' }));
     await userEvent.type(screen.getByLabelText('Desde'), '2026-11-01');
     await waitFor(() => expect(ultimaConsulta()).toMatchObject({ desde: '2026-11-01' }));
-    await userEvent.type(screen.getByRole('searchbox', { name: 'Buscar por nombre o producto' }), 'bps');
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Buscar por nombre o referencia' }), 'bps');
     await waitFor(() => expect(ultimaConsulta()).toMatchObject({ q: 'bps' }));
 
     await userEvent.click(screen.getByRole('button', { name: 'Limpiar filtros' }));
@@ -206,7 +134,7 @@ describe('TacticalsList paging', () => {
   it('a reload that leaves the page past the end goes to the last page with tacticals', async () => {
     const muchos = Array.from({ length: 25 }, (_, i) => ({ ...REBATE, id: 100 + i, nombre: `Rebate ${i + 1}` }));
     tacticalsAPI.listar.mockImplementation(async ({ page }) => ({
-      data: page === 1 ? { items: muchos, total: 26 } : { items: [{ ...REBATE, id: 200, nombre: 'Rebate 26' }], total: 26 },
+      data: page === 1 ? pagina(muchos, 26) : pagina([{ ...REBATE, id: 200, nombre: 'Rebate 26' }], 26, 2),
     }));
     const { rerender } = render(<TacticalsList marcas={MARCAS} />);
     await screen.findByText('Rebate 1');
@@ -215,7 +143,7 @@ describe('TacticalsList paging', () => {
     expect(await screen.findByText('Rebate 26')).toBeInTheDocument();
 
     tacticalsAPI.listar.mockImplementation(async ({ page }) => ({
-      data: page === 1 ? { items: muchos, total: 25 } : { items: [], total: 25 },
+      data: page === 1 ? pagina(muchos, 25) : pagina([], 25, 2),
     }));
     rerender(<TacticalsList marcas={MARCAS} version={1} />);
 
@@ -226,7 +154,7 @@ describe('TacticalsList paging', () => {
 
 describe('TacticalsList empty and error', () => {
   it('says there are none under the filters', async () => {
-    tacticalsAPI.listar.mockResolvedValue({ data: { items: [], total: 0 } });
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([], 0) });
     render(<TacticalsList marcas={MARCAS} />);
     expect(await screen.findByText('No hay tacticals con estos filtros.')).toBeInTheDocument();
   });

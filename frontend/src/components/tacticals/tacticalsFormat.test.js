@@ -18,9 +18,9 @@ const HOY = new Date(2026, 10, 12);
 
 describe('valorDeLinea', () => {
   it('shows a per-unit amount, a percentage and a total in the tactical currency', () => {
-    expect(valorDeLinea({ modo_monto: 'por_unidad', valor: '220' }, 'USD')).toBe('USD 220 / u');
-    expect(valorDeLinea({ modo_monto: 'porcentaje', valor: '3.5' }, 'ARS')).toBe('3,5 %');
-    expect(valorDeLinea({ modo_monto: 'monto_total', valor: '3000' }, 'USD')).toBe('USD 3.000');
+    expect(valorDeLinea({ modo_monto: 'por_unidad', valor: '220', moneda: 'USD' })).toBe('USD 220 / u');
+    expect(valorDeLinea({ modo_monto: 'porcentaje', valor: '3.5', moneda: 'ARS' })).toBe('3,5 %');
+    expect(valorDeLinea({ modo_monto: 'monto_total', valor: '3000', moneda: 'USD' })).toBe('USD 3.000');
   });
 });
 
@@ -57,7 +57,14 @@ describe('alcanceDe', () => {
       titulo: 'Categoría Monitores',
       detalle: 'Todos los productos de la categoría',
     });
-    expect(alcanceDe({ alcance: 'factura', pedido_compra_id: 5521 })).toEqual({ titulo: 'Factura del pedido 5521', detalle: null });
+    expect(alcanceDe({ alcance: 'factura', pedido_compra_id: 5521, pedido_numero: 'OC-1840' })).toEqual({
+      titulo: 'Factura del pedido OC-1840',
+      detalle: null,
+    });
+    expect(alcanceDe({ alcance: 'factura', pedido_compra_id: 5521, pedido_numero: null })).toEqual({
+      titulo: 'Factura del pedido #5521',
+      detalle: null,
+    });
   });
 });
 
@@ -80,23 +87,30 @@ describe('avanceDeLinea', () => {
 describe('avanceDeTactical', () => {
   it('adds units over the lines with a unit cap and money over all lines', () => {
     const lineas = [
-      { tope_unidades: 90, unidades_usadas: 58, tope_monto: null, monto_usado: '12760' },
-      { tope_unidades: 300, unidades_usadas: 132, tope_monto: '3000', monto_usado: '1584' },
-      { tope_unidades: null, unidades_usadas: 7, tope_monto: null, monto_usado: '100' },
+      { tope_unidades: 90, unidades_usadas: 58, tope_monto: null, monto_usado: '12760', moneda: 'USD' },
+      { tope_unidades: 300, unidades_usadas: 132, tope_monto: '3000', monto_usado: '1584', moneda: 'USD' },
+      { tope_unidades: null, unidades_usadas: 7, tope_monto: null, monto_usado: '100', moneda: 'USD' },
     ];
     expect(avanceDeTactical(lineas)).toEqual({
       unidades: { usadas: 190, tope: 390, porcentaje: 48.7, tono: 'normal' },
-      montoUsado: 14444,
-      topeMonto: null,
+      monto: 'USD 14.444',
     });
   });
 
   it('gives the money cap only when every line has one, and no units when no line caps them', () => {
     const lineas = [
-      { tope_unidades: null, tope_monto: '1000', monto_usado: '400' },
-      { tope_unidades: null, tope_monto: '500', monto_usado: '100' },
+      { tope_unidades: null, tope_monto: '1000', monto_usado: '400', moneda: 'USD' },
+      { tope_unidades: null, tope_monto: '500', monto_usado: '100', moneda: 'USD' },
     ];
-    expect(avanceDeTactical(lineas)).toEqual({ unidades: null, montoUsado: 500, topeMonto: 1500 });
+    expect(avanceDeTactical(lineas)).toEqual({ unidades: null, monto: 'USD 500 de USD 1.500' });
+  });
+
+  it('keeps each currency apart: a USD tactical can hold an ARS cost-reduction line', () => {
+    const lineas = [
+      { tope_unidades: null, tope_monto: null, monto_usado: '300', moneda: 'USD' },
+      { tope_unidades: null, tope_monto: '50000', monto_usado: '12000', moneda: 'ARS' },
+    ];
+    expect(avanceDeTactical(lineas)).toEqual({ unidades: null, monto: 'USD 300 · ARS 12.000 de ARS 50.000' });
   });
 });
 
