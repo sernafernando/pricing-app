@@ -49,33 +49,45 @@ def test_clear_inbound_blocked_when_locked() -> None:
     pkg = SimpleNamespace(id=1, status="locked", lines=[])
     db = _db_returning(pkg)
     with pytest.raises(PermissionError):
-        clear_inbound_ids(db, pkg)
+        clear_inbound_ids(db, pkg, usuario_id=1)
+
+
+def _line(**kwargs: object) -> SimpleNamespace:
+    base = dict(
+        package_id=1,
+        inventory_id="INV",
+        qty_pm=1,
+        qty_export_reason=None,
+        inbound_id=None,
+    )
+    base.update(kwargs)
+    return SimpleNamespace(**base)
 
 
 def test_assign_rejects_open_package() -> None:
-    ln1 = SimpleNamespace(id=1, inbound_id=None, qty_export=2)
+    ln1 = _line(id=1, qty_export=2, producto_item_id=10, user_product_id="U1")
     pkg = SimpleNamespace(id=1, status="open", lines=[ln1])
     db = _db_returning(pkg)
     with pytest.raises(ValueError, match="exported"):
-        assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A")
+        assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A", usuario_id=1)
 
 
 def test_assign_then_hard_lock() -> None:
     from unittest.mock import patch
 
-    ln1 = SimpleNamespace(
+    ln1 = _line(
         id=1,
-        inbound_id=None,
         qty_export=2,
         producto_item_id=10,
         user_product_id="U1",
+        inventory_id="INV1",
     )
-    ln2 = SimpleNamespace(
+    ln2 = _line(
         id=2,
-        inbound_id=None,
         qty_export=3,
         producto_item_id=20,
         user_product_id="U2",
+        inventory_id="INV2",
     )
     pkg = SimpleNamespace(
         id=1,
@@ -91,15 +103,15 @@ def test_assign_then_hard_lock() -> None:
         import app.services.gestion_full.reconcile  # noqa: F401
     except ImportError:
         # Stack 14 CI: reconcile/envío land in #1981 — assign still hard-locks alone.
-        assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A")
+        assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A", usuario_id=1)
         assert ln1.inbound_id == "A"
-        assign_inbound_to_lines(db, pkg, line_ids=[2], inbound_id="B")
+        assign_inbound_to_lines(db, pkg, line_ids=[2], inbound_id="B", usuario_id=1)
         assert ln2.inbound_id == "B"
         assert pkg.status == "locked"
         return
 
     with patch("app.services.gestion_full.reconcile.ensure_envio") as ensure:
-        assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A")
+        assign_inbound_to_lines(db, pkg, line_ids=[1], inbound_id="A", usuario_id=1)
         assert ln1.inbound_id == "A"
         assert pkg.status == "exported"  # not all assigned yet
         ensure.assert_called()
@@ -107,7 +119,7 @@ def test_assign_then_hard_lock() -> None:
         assert ensure.call_args.kwargs.get("commit") is False
         assert db.commit.call_count >= 1
 
-        assign_inbound_to_lines(db, pkg, line_ids=[2], inbound_id="B")
+        assign_inbound_to_lines(db, pkg, line_ids=[2], inbound_id="B", usuario_id=1)
         assert ln2.inbound_id == "B"
         assert pkg.status == "locked"
 
@@ -231,7 +243,7 @@ def test_clear_inbound_closes_orphan_envio() -> None:
     )
     db = _db_clear_inbound(pkg, envios=[envio])
 
-    n = clear_inbound_ids(db, pkg)
+    n = clear_inbound_ids(db, pkg, usuario_id=1)
     assert n == 1
     assert ln.inbound_id is None
     assert envio.reception_closed_at is not None
@@ -252,5 +264,5 @@ def test_clear_inbound_keeps_envio_that_already_received() -> None:
     )
     db = _db_clear_inbound(pkg, envios=[envio])
 
-    clear_inbound_ids(db, pkg)
+    clear_inbound_ids(db, pkg, usuario_id=1)
     assert envio.reception_closed_at is None

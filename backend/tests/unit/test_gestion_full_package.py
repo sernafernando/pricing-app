@@ -43,6 +43,7 @@ def test_upsert_package_line_rejects_negative() -> None:
             user_product_id="MLAU",
             inventory_id="INV",
             qty_pm=-1,
+            usuario=SimpleNamespace(id=1),
         )
 
 
@@ -101,8 +102,9 @@ def test_upsert_package_line_creates() -> None:
         user_product_id="MLAU2",
         inventory_id="INV2",
         qty_pm=12,
+        usuario=SimpleNamespace(id=1),
     )
-    db.add.assert_called_once()
+    assert db.add.call_count >= 1  # package line + auditoria
     db.commit.assert_called_once()
     assert line.qty_pm == 12
     assert line.qty_export == 12
@@ -143,9 +145,12 @@ def test_add_all_ready_lines_to_package() -> None:
         out_pkg, touched = add_all_ready_lines_to_package(db, usuario=usuario)
     assert out_pkg is pkg
     assert touched == 1
-    db.add.assert_called_once()
-    added = db.add.call_args[0][0]
-    assert added.qty_export == 12
+    assert db.add.call_count >= 1
+    line_adds = [
+        c.args[0] for c in db.add.call_args_list if type(c.args[0]).__name__ == "GestionFullPackageLine"
+    ]
+    assert len(line_adds) == 1
+    assert line_adds[0].qty_export == 12
     lock.assert_called_once()
     db.commit.assert_called()
 
@@ -291,7 +296,10 @@ def test_add_all_ready_exported_skips_new_listo_lines() -> None:
     ):
         _pkg, touched = add_all_ready_lines_to_package(db, usuario=SimpleNamespace(id=1))
     assert touched == 1
-    db.add.assert_not_called()
+    line_adds = [
+        c.args[0] for c in db.add.call_args_list if type(c.args[0]).__name__ == "GestionFullPackageLine"
+    ]
+    assert line_adds == []  # no new package lines; auditoria may still be written
     db.flush.assert_called()
     db.expire.assert_called()
 
@@ -324,6 +332,7 @@ def test_set_qty_export_caps_and_audits() -> None:
         qty_export=10,
         qty_export_reason=None,
         producto_item_id=99,
+        inventory_id="INV-99",
     )
     pkg = SimpleNamespace(id=1, status="open")
     db = MagicMock()

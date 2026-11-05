@@ -12,8 +12,10 @@ from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.models.auditoria import TipoAccion
 from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.usuario import Usuario
+from app.services.gestion_full.audit import registrar
 from app.services.gestion_full.listing import _sugerido
 
 _ROW_FOR_READY_SQL = text(
@@ -211,6 +213,18 @@ def mark_pm_ready(
         ready_at=datetime.now(UTC),
     )
     db.add(ready)
+    registrar(
+        db,
+        tipo=TipoAccion.GESTION_FULL_PM_READY,
+        usuario_id=int(usuario.id),
+        item_id=int(producto_item_id),
+        despues={
+            "producto_item_id": int(producto_item_id),
+            "user_product_id": str(user_product_id),
+            "inventory_id": str(row["inventory_id"]),
+            "qty_pm": int(qty),
+        },
+    )
     db.commit()
     db.refresh(ready)
     return ready
@@ -221,6 +235,7 @@ def unlock_pm_ready(
     *,
     producto_item_id: int,
     user_product_id: str,
+    usuario: Usuario,
 ) -> bool:
     """Remove ready lock so the PM can edit again. Returns True if a row was removed."""
     row = get_pm_ready(
@@ -230,6 +245,24 @@ def unlock_pm_ready(
     )
     if row is None:
         return False
+    antes = {
+        "producto_item_id": int(row.producto_item_id),
+        "user_product_id": str(row.user_product_id),
+        "inventory_id": str(row.inventory_id),
+        "qty_pm": int(row.qty_pm),
+    }
     db.delete(row)
+    registrar(
+        db,
+        tipo=TipoAccion.GESTION_FULL_PM_UNLOCK,
+        usuario_id=int(usuario.id),
+        item_id=int(producto_item_id),
+        antes=antes,
+        despues={
+            "producto_item_id": int(producto_item_id),
+            "user_product_id": str(user_product_id),
+            "pm_ready": False,
+        },
+    )
     db.commit()
     return True

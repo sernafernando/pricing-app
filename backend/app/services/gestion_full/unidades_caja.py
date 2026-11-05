@@ -8,11 +8,13 @@ from typing import Any, Optional
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.models.auditoria import TipoAccion
 from app.models.gestion_full_package import GestionFullPackageLine
 from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.gestion_full_unidades_caja import GestionFullUnidadesCaja
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
+from app.services.gestion_full.audit import registrar
 from app.services.gestion_full.package import get_active_package
 
 
@@ -28,6 +30,7 @@ def upsert_unidades_caja(
     if unidades < 1:
         raise ValueError("unidades must be >= 1")
     row = db.get(GestionFullUnidadesCaja, producto_item_id)
+    antes = None if row is None else {"producto_item_id": int(producto_item_id), "unidades": int(row.unidades)}
     if row is None:
         row = GestionFullUnidadesCaja(
             producto_item_id=producto_item_id,
@@ -41,17 +44,34 @@ def upsert_unidades_caja(
         row.updated_by_id = usuario.id
         row.updated_at = datetime.now(UTC)
     if commit:
+        registrar(
+            db,
+            tipo=TipoAccion.GESTION_FULL_CAJA,
+            usuario_id=int(usuario.id),
+            item_id=int(producto_item_id),
+            antes=antes,
+            despues={"producto_item_id": int(producto_item_id), "unidades": int(unidades)},
+        )
         db.commit()
         db.refresh(row)
     return row
 
 
-def clear_unidades_caja(db: Session, *, producto_item_id: int) -> None:
+def clear_unidades_caja(db: Session, *, producto_item_id: int, usuario: Usuario) -> None:
     """Delete the units-per-box row if present."""
     row = db.get(GestionFullUnidadesCaja, producto_item_id)
     if row is None:
         return
+    antes = {"producto_item_id": int(producto_item_id), "unidades": int(row.unidades)}
     db.delete(row)
+    registrar(
+        db,
+        tipo=TipoAccion.GESTION_FULL_CAJA,
+        usuario_id=int(usuario.id),
+        item_id=int(producto_item_id),
+        antes=antes,
+        despues={"producto_item_id": int(producto_item_id), "unidades": None},
+    )
     db.commit()
 
 
@@ -131,6 +151,14 @@ def import_unidades_caja_por_ean(
         updated += 1
 
     if updated:
+        registrar(
+            db,
+            tipo=TipoAccion.GESTION_FULL_CAJA_IMPORT,
+            usuario_id=int(usuario.id),
+            despues={"updated": updated, "errors": len(errors)},
+            masivo=True,
+            productos_afectados=updated,
+        )
         db.commit()
     return {"updated": updated, "errors": errors}
 

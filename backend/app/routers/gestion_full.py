@@ -428,7 +428,7 @@ def post_pm_ready(
 def post_pm_unlock(
     body: GestionFullPmReadyBody,
     db: Session = Depends(get_db),
-    _current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Gestor unlocks a PM-ready line so the PM can edit override again."""
     existing = get_pm_ready(
@@ -447,6 +447,7 @@ def post_pm_unlock(
         db,
         producto_item_id=body.producto_item_id,
         user_product_id=body.user_product_id,
+        usuario=current_user,
     )
     return {
         "producto_item_id": body.producto_item_id,
@@ -542,6 +543,7 @@ def post_package_line(
             user_product_id=ready.user_product_id,
             inventory_id=ready.inventory_id,
             qty_pm=ready.qty_pm,
+            usuario=current_user,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
@@ -714,7 +716,7 @@ def _package_response(pkg: Any) -> dict[str, Any]:
 def post_assign_inbound(
     body: GestionFullAssignInboundBody,
     db: Session = Depends(get_db),
-    _current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Assign inbound_id to selected package lines; hard-locks when all have one."""
     pkg = get_active_package(db)
@@ -726,6 +728,7 @@ def post_assign_inbound(
             pkg,
             line_ids=body.line_ids,
             inbound_id=body.inbound_id,
+            usuario_id=int(current_user.id),
         )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
@@ -748,14 +751,14 @@ def post_assign_inbound(
 def post_remove_package_lines(
     body: GestionFullRemoveLinesBody,
     db: Session = Depends(get_db),
-    _current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Remove selected inventories (package lines) from the active send package."""
     pkg = get_active_package(db)
     if pkg is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no hay paquete activo")
     try:
-        remove_package_lines(db, pkg, line_ids=body.line_ids)
+        remove_package_lines(db, pkg, line_ids=body.line_ids, usuario_id=int(current_user.id))
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
     except ValueError as exc:
@@ -776,14 +779,14 @@ def post_remove_package_lines(
 )
 def post_clear_inbounds(
     db: Session = Depends(get_db),
-    _current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Clear all inbound_ids so Excel can be regenerated (D6)."""
     pkg = get_active_package(db)
     if pkg is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no hay paquete activo")
     try:
-        clear_inbound_ids(db, pkg)
+        clear_inbound_ids(db, pkg, usuario_id=int(current_user.id))
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
     db.refresh(pkg)
@@ -813,7 +816,7 @@ def post_clear_inbounds(
 )
 def get_package_export_ml(
     db: Session = Depends(get_db),
-    _current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ) -> StreamingResponse:
     """Download official ML Full Excel filled from the active package."""
     pkg = get_active_package(db)
@@ -833,7 +836,7 @@ def get_package_export_ml(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from None
-    mark_package_exported(db, pkg)
+    mark_package_exported(db, pkg, usuario_id=int(current_user.id))
     return StreamingResponse(
         io.BytesIO(payload),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -849,7 +852,7 @@ def get_package_export_ml(
 )
 def get_package_export_ops(
     db: Session = Depends(get_db),
-    _current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(get_current_user),
 ) -> StreamingResponse:
     """Download ops Excel (EAN, descripción, qty_export) for the active package."""
     pkg = get_active_package(db)
@@ -863,7 +866,7 @@ def get_package_export_ops(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from None
-    mark_package_exported(db, pkg)
+    mark_package_exported(db, pkg, usuario_id=int(current_user.id))
     return StreamingResponse(
         io.BytesIO(payload),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -920,7 +923,7 @@ def patch_unidades_caja(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="producto ERP no encontrado")
 
     if body.unidades is None:
-        clear_unidades_caja(db, producto_item_id=producto_item_id)
+        clear_unidades_caja(db, producto_item_id=producto_item_id, usuario=current_user)
         return {"producto_item_id": producto_item_id, "unidades_por_caja": None}
 
     row = upsert_unidades_caja(
@@ -966,7 +969,7 @@ def patch_gestion_full_override(
         )
 
     if body.cantidad is None:
-        clear_override(db, inventory_id=inventory_id)
+        clear_override(db, inventory_id=inventory_id, usuario=current_user)
         return {"inventory_id": inventory_id, "override": None}
 
     row = upsert_override(db, inventory_id=inventory_id, cantidad=body.cantidad, usuario=current_user)

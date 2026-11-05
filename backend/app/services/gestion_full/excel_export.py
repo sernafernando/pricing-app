@@ -240,8 +240,16 @@ def prepare_package_for_export(db: Session, package: GestionFullPackage) -> Gest
     return pkg
 
 
-def mark_package_exported(db: Session, package: GestionFullPackage) -> GestionFullPackage:
+def mark_package_exported(
+    db: Session,
+    package: GestionFullPackage,
+    *,
+    usuario_id: int,
+) -> GestionFullPackage:
     """Re-cap qty_export to stock_erp, then flip open → exported (idempotent if exported)."""
+    from app.models.auditoria import TipoAccion
+    from app.services.gestion_full.audit import registrar
+
     pkg = (
         db.query(GestionFullPackage)
         .filter(GestionFullPackage.id == package.id)
@@ -252,9 +260,22 @@ def mark_package_exported(db: Session, package: GestionFullPackage) -> GestionFu
     if pkg.status == PACKAGE_STATUS_LOCKED:
         raise ValueError("paquete hard-locked")
     recap_qty_export_to_stock(db, pkg)
+    became_exported = False
     if pkg.status == PACKAGE_STATUS_OPEN:
         pkg.status = PACKAGE_STATUS_EXPORTED
         pkg.exported_at = datetime.now(UTC)
+        became_exported = True
+    if became_exported:
+        registrar(
+            db,
+            tipo=TipoAccion.GESTION_FULL_EXPORTED,
+            usuario_id=int(usuario_id),
+            despues={
+                "package_id": int(pkg.id),
+                "exported_at": pkg.exported_at.isoformat() if pkg.exported_at else None,
+                "line_count": len(pkg.lines),
+            },
+        )
     db.commit()
     db.refresh(pkg)
     return pkg

@@ -8,6 +8,7 @@ from typing import Iterable, Optional
 from sqlalchemy import func, tuple_
 from sqlalchemy.orm import Session
 
+from app.models.auditoria import TipoAccion
 from app.models.gestion_full_package import (
     PACKAGE_STATUS_EXPORTED,
     PACKAGE_STATUS_LOCKED,
@@ -16,6 +17,7 @@ from app.models.gestion_full_package import (
     GestionFullPackageLine,
 )
 from app.models.gestion_full_pm_ready import GestionFullPmReady
+from app.services.gestion_full.audit import line_snapshot, registrar
 
 
 def _package_for_update(db: Session, package: GestionFullPackage) -> GestionFullPackage:
@@ -75,7 +77,12 @@ def _close_orphan_envios(db: Session, cleared: set[str]) -> None:
         envio.reception_closed_at = now
 
 
-def clear_inbound_ids(db: Session, package: GestionFullPackage) -> int:
+def clear_inbound_ids(
+    db: Session,
+    package: GestionFullPackage,
+    *,
+    usuario_id: int,
+) -> int:
     """Clear all inbound assignments (required before Excel regenerate).
 
     Closes local envío rows that no longer have any package line referencing them,
@@ -98,6 +105,19 @@ def clear_inbound_ids(db: Session, package: GestionFullPackage) -> int:
         # autoflush=False in production — flush so the ref count sees cleared lines.
         db.flush()
         _close_orphan_envios(db, cleared)
+        registrar(
+            db,
+            tipo=TipoAccion.GESTION_FULL_INBOUND_CLEAR,
+            usuario_id=int(usuario_id),
+            despues={
+                "package_id": int(pkg.id),
+                "cleared_inbounds": sorted(cleared),
+                "lines_cleared": n,
+                "status": pkg.status,
+            },
+            masivo=True,
+            productos_afectados=n,
+        )
         db.commit()
     return n
 
@@ -108,6 +128,7 @@ def assign_inbound_to_lines(
     *,
     line_ids: Iterable[int],
     inbound_id: str,
+    usuario_id: int,
 ) -> list[GestionFullPackageLine]:
     """Set the same inbound_id on selected lines (1:1 line→inbound allowed shared id).
 
@@ -138,7 +159,20 @@ def assign_inbound_to_lines(
     if missing:
         raise LookupError(f"líneas no del paquete: {sorted(missing)}")
 
-    maybe_hard_lock(db, pkg, already_locked=True)
+    registrar(
+        db,
+        tipo=TipoAccion.GESTION_FULL_INBOUND_SET,
+        usuario_id=int(usuario_id),
+        despues={
+            "package_id": int(pkg.id),
+            "inbound_id": inbound,
+            "line_ids": sorted(id_set),
+            "lines": [line_snapshot(ln) for ln in updated],
+        },
+        masivo=len(updated) > 1,
+        productos_afectados=len(updated),
+    )
+    maybe_hard_lock(db, pkg, already_locked=True, usuario_id=usuario_id)
 
     try:
         from app.services.gestion_full.reconcile import ensure_envio
@@ -160,6 +194,7 @@ def maybe_hard_lock(
     package: GestionFullPackage,
     *,
     already_locked: bool = False,
+    usuario_id: Optional[int] = None,
 ) -> Optional[GestionFullPackage]:
     """Lock when every shippable line (qty_export ≥ 1) has inbound_id (D3 / D3b).
 
@@ -179,7 +214,19 @@ def maybe_hard_lock(
     pkg.locked_at = datetime.now(UTC)
     if pkg.exported_at is None:
         pkg.exported_at = pkg.locked_at
-    _consume_pm_ready_for_package(db, pkg)
+    consumed = _consume_pm_ready_for_package(db, pkg)
+    if usuario_id is not None:
+        registrar(
+            db,
+            tipo=TipoAccion.GESTION_FULL_LOCKED,
+            usuario_id=int(usuario_id),
+            despues={
+                "package_id": int(pkg.id),
+                "locked_at": pkg.locked_at.isoformat() if pkg.locked_at else None,
+                "shippable_lines": len(ship_lines),
+                "pm_ready_consumed": int(consumed),
+            },
+        )
     if not already_locked:
         db.commit()
         db.refresh(pkg)

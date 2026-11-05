@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.auditoria import Auditoria
 from app.models.gestion_full_package import (
     PACKAGE_STATUS_EXPORTED,
     PACKAGE_STATUS_LOCKED,
@@ -38,6 +39,7 @@ _ORM_TABLES = [
     GestionFullPackageLine.__table__,
     GestionFullQtyExportAudit.__table__,
     GestionFullPmReady.__table__,
+    Auditoria.__table__,
 ]
 # #1981+ ships envío; assign calls ensure_envio when reconcile is importable.
 try:
@@ -184,11 +186,12 @@ class TestHardLockConsumesPmReady:
                     qty_pm=5,
                 )
             )
+            db.execute(text("INSERT INTO usuarios (id, nombre) VALUES (1, 'gestor')"))
             db.commit()
             db.refresh(pkg)
 
             # Before #1981 reconcile is missing — assign already no-ops ensure_envio.
-            assign_inbound_to_lines(db, pkg, line_ids=[line_id], inbound_id="INB-ASSIGN")
+            assign_inbound_to_lines(db, pkg, line_ids=[line_id], inbound_id="INB-ASSIGN", usuario_id=1)
             db.refresh(pkg)
 
             assert pkg.status == PACKAGE_STATUS_LOCKED

@@ -55,6 +55,21 @@ class TipoAccion(str, enum.Enum):
     ML_ADS_APORTE_CREADO = "ml_ads_aporte_creado"
     ML_ADS_APORTE_EDITADO = "ml_ads_aporte_editado"
     ML_ADS_APORTE_BORRADO = "ml_ads_aporte_borrado"
+    # Gestión Full: one row per human mutation (same VARCHAR(50) column — no DDL).
+    # Destructive ops (remove lines) store a denormalized snapshot so history survives CASCADE.
+    GESTION_FULL_OVERRIDE = "gestion_full_override"
+    GESTION_FULL_PM_READY = "gestion_full_pm_ready"
+    GESTION_FULL_PM_UNLOCK = "gestion_full_pm_unlock"
+    GESTION_FULL_LINE_ADD = "gestion_full_line_add"
+    GESTION_FULL_LINES_READY = "gestion_full_lines_ready"
+    GESTION_FULL_QTY_EXPORT = "gestion_full_qty_export"
+    GESTION_FULL_INBOUND_SET = "gestion_full_inbound_set"
+    GESTION_FULL_LINES_REMOVE = "gestion_full_lines_remove"
+    GESTION_FULL_INBOUND_CLEAR = "gestion_full_inbound_clear"
+    GESTION_FULL_EXPORTED = "gestion_full_exported"
+    GESTION_FULL_LOCKED = "gestion_full_locked"
+    GESTION_FULL_CAJA = "gestion_full_caja"
+    GESTION_FULL_CAJA_IMPORT = "gestion_full_caja_import"
 
 
 class Auditoria(Base):
