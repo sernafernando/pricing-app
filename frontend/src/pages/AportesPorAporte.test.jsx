@@ -116,6 +116,27 @@ describe('AportesPorAporte', () => {
     expect(within(table()).queryAllByRole('button')).toEqual([]);
   });
 
+  it('drops a brand filter the new range no longer offers, like the campaigns view', async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderView();
+    await screen.findByText('Lucía Fernández · 02/10');
+    await user.selectOptions(screen.getByLabelText('Marca'), 'Epson');
+    const withoutEpson = APORTES_VIEW.contributions.filter((row) => row.brand !== 'Epson');
+    api.get.mockResolvedValue({ data: { ...APORTES_VIEW, contributions: withoutEpson } });
+    rerender(
+      <AportesPorAporte
+        range={{ from: '2026-09-01', to: '2026-09-30' }}
+        canManage
+        refreshKey={0}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(bodyRows()).toHaveLength(withoutEpson.length));
+    expect(screen.getByLabelText('Marca')).toHaveValue('');
+  });
+
   it('waits for a whole range before asking, like the campaigns view', async () => {
     renderView({ range: { from: '2026-10-31', to: '2026-10-01' } });
     renderView({ range: { from: '2026-10-01', to: '' } });

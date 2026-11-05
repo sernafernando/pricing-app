@@ -219,11 +219,13 @@ export default function AportesPorAporte({ range, canManage, refreshKey, onEdit,
   const [channel, setChannel] = useState('all');
   const rows = data?.contributions ?? [];
   const brands = [...new Set(rows.map(brandOf))].sort();
+  // A range without the chosen brand drops the filter instead of hiding every row behind 'Todas'.
+  const brandFilter = brands.includes(brand) ? brand : '';
   const needle = search.trim().toLowerCase();
   const visible = rows.filter(
     (r) =>
       (!needle || `${brandOf(r)} ${scopeOf(r).name} ${r.campaign_id ?? ''}`.toLowerCase().includes(needle)) &&
-      (!brand || brandOf(r) === brand) &&
+      (!brandFilter || brandOf(r) === brandFilter) &&
       (channel === 'all' || r.channel === channel),
   );
   return (
@@ -245,7 +247,7 @@ export default function AportesPorAporte({ range, canManage, refreshKey, onEdit,
         </label>
         <label className={shell.advertiser}>
           <span>Marca</span>
-          <select className={shell.advertiserSelect} value={brand} onChange={(e) => setBrand(e.target.value)}>
+          <select className={shell.advertiserSelect} value={brandFilter} onChange={(e) => setBrand(e.target.value)}>
             <option value="">Todas</option>
             {brands.map((name) => (
               <option key={name} value={name}>
