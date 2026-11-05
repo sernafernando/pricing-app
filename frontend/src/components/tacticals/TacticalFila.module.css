@@ -1,0 +1,217 @@
+/* One tactical of the list (handoffs/diseno-tactical/listado-tacticals-PENDIENTE.html): the table its rows live in,
+   the row with its progress, and the expanded lines. */
+
+.tabla {
+  width: 100%;
+  min-width: 960px;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--cf-text-primary);
+}
+
+.tabla th {
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.tabla td {
+  padding: 11px 12px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.tabla > tbody > tr:hover,
+.abierto {
+  background: var(--cf-bg-hover);
+}
+
+.tabla > tbody > tr.filaLineas:hover {
+  background: none;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tabla th.num {
+  text-align: right;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.twisty {
+  width: 32px;
+}
+
+.alternar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--cf-text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.nombre {
+  display: block;
+  font-weight: var(--font-semibold);
+}
+
+.referencia {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.avance {
+  display: grid;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.unidades {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.monto {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+}
+
+.guion {
+  font-family: var(--font-mono);
+  color: var(--cf-text-secondary);
+}
+
+.bar {
+  height: 4px;
+  overflow: hidden;
+  background: var(--cf-border-default);
+  border-radius: var(--radius-full);
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+  background: var(--cf-accent-blue);
+  border-radius: var(--radius-full);
+}
+
+.bar.warn > span {
+  background: var(--cf-accent-orange);
+}
+
+.bar.full > span {
+  background: var(--tone-warning-fg);
+}
+
+.sub {
+  padding: var(--space-2) var(--space-2) var(--space-3);
+}
+
+.subTitulo {
+  margin: 0 0 var(--space-2);
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cf-text-secondary);
+}
+
+.subTabla {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--font-xs);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.subTabla th {
+  padding: 7px 12px;
+  font-size: 10.5px;
+  background: var(--cf-bg-hover);
+}
+
+.subTabla td {
+  padding: 8px 12px;
+  vertical-align: middle;
+}
+
+.subTabla tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.subTabla td.num {
+  font-family: var(--font-mono);
+}
+
+.subAvance {
+  display: grid;
+  gap: 4px;
+  min-width: 110px;
+}
+
+.subAvance .bar {
+  height: 3px;
+}
+
+.tag {
+  font-size: 10.5px;
+  font-weight: var(--font-medium);
+  color: var(--tone-warning-fg);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.chip {
+  max-width: 260px;
+  overflow: hidden;
+  padding: 3px 8px;
+  font-size: var(--font-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.alcance small {
+  display: block;
+  font-size: 11px;
+  color: var(--cf-text-secondary);
+}
+
+.alternar:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

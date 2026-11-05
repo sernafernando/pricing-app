@@ -1,0 +1,165 @@
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { StatusPill } from '../kit';
+import {
+  COLUMNAS_TACTICAL,
+  alcanceDe,
+  avanceDeLinea,
+  avanceDeTactical,
+  estadoDe,
+  formatMontoTactical,
+  formatUnidades,
+  valorDeLinea,
+  vigenciaDe,
+} from './tacticalsFormat';
+import styles from './TacticalFila.module.css';
+
+const TIPO_PILL = { sell_in: { texto: 'Sell in', tono: 'neutral' }, sell_out: { texto: 'Sell out', tono: 'info' } };
+const PORCENTAJE = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 });
+
+function Barra({ avance, etiqueta }) {
+  return (
+    <div className={`${styles.bar} ${styles[avance.tono] ?? ''}`} role="img" aria-label={`${PORCENTAJE.format(avance.porcentaje)}% ${etiqueta}`}>
+      <span style={{ width: `${avance.porcentaje}%` }} />
+    </div>
+  );
+}
+
+/** "Qué incluye": product chips, or the brand / category / invoice the line reaches. */
+function QueIncluye({ linea }) {
+  if (linea.alcance === 'productos') {
+    return (
+      <span className={styles.chips}>
+        {(linea.productos ?? []).map((p) => (
+          <span key={p.item_id} className={styles.chip} title={p.descripcion}>
+            {p.descripcion}
+          </span>
+        ))}
+      </span>
+    );
+  }
+  const { titulo, detalle } = alcanceDe(linea);
+  return (
+    <span className={styles.alcance}>
+      {titulo}
+      {detalle && <small>{detalle}</small>}
+    </span>
+  );
+}
+
+function Lineas({ tactical }) {
+  const { lineas } = tactical;
+  const guion = <span className={styles.guion}>—</span>;
+  return (
+    <div className={styles.sub}>
+      <p className={styles.subTitulo}>Líneas del tactical ({lineas.length})</p>
+      <table className={styles.subTabla}>
+        <thead>
+          <tr>
+            <th scope="col">Qué incluye</th>
+            <th scope="col" className={styles.num}>Monto</th>
+            <th scope="col" className={styles.num}>Tope unidades</th>
+            <th scope="col" className={styles.num}>Usadas</th>
+            <th scope="col" className={styles.num}>Tope monto</th>
+            <th scope="col" className={styles.num}>Usado</th>
+            <th scope="col">Avance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lineas.map((linea) => {
+            const avance = avanceDeLinea(linea);
+            return (
+              <tr key={linea.id}>
+                <td>
+                  <QueIncluye linea={linea} />
+                </td>
+                <td className={styles.num}>{valorDeLinea(linea)}</td>
+                <td className={styles.num}>{linea.tope_unidades == null ? guion : formatUnidades(linea.tope_unidades)}</td>
+                <td className={styles.num}>{linea.unidades_usadas == null ? guion : formatUnidades(linea.unidades_usadas)}</td>
+                <td className={styles.num}>{linea.tope_monto == null ? guion : formatMontoTactical(linea.tope_monto, linea.moneda)}</td>
+                <td className={styles.num}>{formatMontoTactical(linea.monto_usado, linea.moneda)}</td>
+                <td>
+                  {avance ? (
+                    <div className={styles.subAvance}>
+                      <Barra avance={avance} etiqueta={linea.tope_unidades == null ? 'del tope de monto' : 'del tope de unidades'} />
+                      {avance.tono === 'full' && <span className={styles.tag}>Tope alcanzado</span>}
+                    </div>
+                  ) : (
+                    guion
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * One tactical as a `<tbody>`: its row (type, brand, dates, line count, progress over the caps, state) and, when
+ * `abierto`, its lines with amount, caps, usage and a "Tope alcanzado" mark.
+ */
+export default function TacticalFila({ tactical, abierto, onAlternar }) {
+  const tipo = TIPO_PILL[tactical.tipo] ?? { texto: tactical.tipo, tono: 'neutral' };
+  const estado = estadoDe(tactical);
+  const { unidades, monto } = avanceDeTactical(tactical.lineas);
+  const Chevron = abierto ? ChevronDown : ChevronRight;
+  return (
+    <tbody>
+      <tr className={abierto ? styles.abierto : undefined}>
+        <td className={styles.twisty}>
+          <button
+            type="button"
+            className={styles.alternar}
+            aria-expanded={abierto}
+            aria-controls={abierto ? `tactical-${tactical.id}-lineas` : undefined}
+            aria-label={`${abierto ? 'Ocultar' : 'Ver'} las líneas de ${tactical.nombre}`}
+            onClick={onAlternar}
+          >
+            <Chevron size={16} aria-hidden="true" />
+          </button>
+        </td>
+        <td>
+          <span className={styles.nombre}>{tactical.nombre}</span>
+          {tactical.referencia && <small className={styles.referencia}>{tactical.referencia}</small>}
+        </td>
+        <td>
+          <StatusPill tone={tipo.tono} variant="soft">
+            {tipo.texto}
+          </StatusPill>
+        </td>
+        <td>{tactical.marca}</td>
+        <td className={styles.nowrap}>{vigenciaDe(tactical.fecha_desde, tactical.fecha_hasta)}</td>
+        <td className={styles.num}>{tactical.lineas.length}</td>
+        <td>
+          <div className={styles.avance}>
+            {unidades ? (
+              <>
+                <Barra avance={unidades} etiqueta="de las unidades consumidas" />
+                <span className={styles.unidades}>
+                  {formatUnidades(unidades.usadas)} / {formatUnidades(unidades.tope)} u
+                </span>
+              </>
+            ) : (
+              <span className={styles.guion}>—</span>
+            )}
+            <span className={styles.monto}>{monto}</span>
+          </div>
+        </td>
+        <td>
+          <StatusPill tone={estado.tono} variant="soft">
+            {estado.texto}
+          </StatusPill>
+        </td>
+      </tr>
+      {abierto && (
+        <tr id={`tactical-${tactical.id}-lineas`} className={styles.filaLineas}>
+          <td colSpan={COLUMNAS_TACTICAL}>
+            <Lineas tactical={tactical} />
+          </td>
+        </tr>
+      )}
+    </tbody>
+  );
+}
