@@ -215,6 +215,8 @@ export default function RepairControl() {
         </Link>
       ),
     },
+    { key: 'titulo', header: 'Título ML', width: 220, render: (e) => e.title || '—' },
+    { key: 'descripcion', header: 'Descripción ERP', width: 220, render: (e) => e.descripcion || '—' },
     { key: 'accion', header: 'Acción', width: 90, render: (e) => ACTION_LABEL[e.action] || e.action },
     { key: 'motivo', header: 'Motivo', width: 160, render: (e) => e.detail || '—' },
     {

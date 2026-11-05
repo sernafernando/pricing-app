@@ -34,7 +34,19 @@ const RUN = {
 const DETAIL = {
   run: RUN,
   events: [
-    { id: 11, run_id: 1, mla_id: 'MLA1', item_id: 42, action: 'changed', before: { a: 1 }, after: { a: 2 }, detail: 'shipping_put', created_at: new Date().toISOString() },
+    {
+      id: 11,
+      run_id: 1,
+      mla_id: 'MLA1',
+      item_id: 42,
+      action: 'changed',
+      before: { a: 1 },
+      after: { a: 2 },
+      detail: 'shipping_put',
+      title: 'Cable HDMI 2m',
+      descripcion: 'CABLE HDMI 2 METROS',
+      created_at: new Date().toISOString(),
+    },
   ],
   total: 1,
   page: 1,
@@ -75,6 +87,8 @@ describe('RepairControl', () => {
     await waitFor(() => expect(publicacionRepairAPI.run).toHaveBeenCalled());
     await waitFor(() => expect(screen.getAllByText(/shipping_put/i).length).toBeGreaterThan(0));
     await waitFor(() => expect(screen.getAllByText(/a: 1/).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getByText('Cable HDMI 2m')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('CABLE HDMI 2 METROS')).toBeInTheDocument());
   });
 
   it('filters events when a motivo chip is clicked', async () => {

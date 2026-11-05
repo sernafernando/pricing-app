@@ -31,6 +31,8 @@ from app.services.publicacion_repair.envio import MODIFIABLE_STATUSES, is_ml_ite
 logger = logging.getLogger(__name__)
 
 DETAIL_HAS_VARIATIONS = "has_variations"
+# Successful SELLER_SKU PUT — motive is SKU drift vs ERP (see before/after).
+DETAIL_SELLER_SKU = "seller_sku"
 
 
 def normalize_sku(value: Any) -> Optional[str]:
@@ -59,7 +61,7 @@ def seller_sku_payload(erp_codigo: str) -> dict[str, Any]:
 def _classify_data_write(result: dict[str, Any]) -> tuple[str, Optional[str]]:
     """Return action (changed|skipped|error) and detail."""
     if result.get("ok"):
-        return ACTION_CHANGED, None
+        return ACTION_CHANGED, DETAIL_SELLER_SKU
     if result.get("ambiguous"):
         return ACTION_ERROR, "ambiguous_write"
     body = result.get("body") if isinstance(result.get("body"), dict) else {}

@@ -75,6 +75,8 @@ def test_run_sku_repair_fixes_drift_only(monkeypatch: pytest.MonkeyPatch, patche
     actions = {e["mla_id"]: e["action"] for e in events}
     assert actions["MLA_DRIFT"] == "changed"
     assert actions["MLA_CLOSED"] == "skipped"
+    by_mla = {e["mla_id"]: e for e in events}
+    assert by_mla["MLA_DRIFT"]["detail"] == sku_mod.DETAIL_SELLER_SKU
 
 
 def test_run_sku_repair_kill_switch(monkeypatch: pytest.MonkeyPatch, patched_audit) -> None:
