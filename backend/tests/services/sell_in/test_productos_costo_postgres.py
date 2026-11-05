@@ -60,9 +60,10 @@ def test_one_row_per_product_with_units_left_and_its_mode_units_next_sale_and_la
         proxima_950 = visor_lotes.lotes_de_producto(db, 950, HOY).proxima
         proxima_2964 = visor_lotes.lotes_de_producto(db, 2964, HOY).proxima
 
-    # 2270's only line is used up; its manual block counts from 10/25 with its typed unit.
+    # 2270's only line is used up; its manual block counts from 10/25 with its typed unit (a block is no purchase:
+    # the latest purchase stays its line's date).
     assert [(x.item_id, x.codigo, x.modo, x.unidades, x.ultima_compra) for x in filas] == [
-        (2270, "C2270", None, 1, date(2026, 10, 25)),
+        (2270, "C2270", None, 1, date(2026, 10, 3)),
         (2964, "C2964", "ponderado", 6, date(2026, 10, 9)),
         (950, "C950", None, 7, date(2026, 11, 3)),
     ]  # same description: by code
