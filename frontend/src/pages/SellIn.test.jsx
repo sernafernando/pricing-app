@@ -1778,6 +1778,18 @@ describe('SellIn page — Tacticals tab', () => {
     expect(listadosDeTacticals()).toBe(0);
   });
 
+  it('the arrow keys skip the Tacticals tab while its count has not answered', async () => {
+    const user = userEvent.setup();
+    tacticalsAPI.listar.mockImplementation(() => new Promise(() => {}));
+    renderWithRouter(<SellIn />);
+    await user.click(await screen.findByRole('tab', { name: /Sell out/ }));
+
+    await user.keyboard('{ArrowRight}');
+
+    expect(screen.queryByText('Cargando tacticals…')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Grupos/ })).toHaveFocus();
+  });
+
   it('a server without the tacticals API (404) shows no Tacticals tab, and ?tab=tacticals falls back to Sell in', async () => {
     tacticalsAPI.listar.mockRejectedValue({ response: { status: 404 } });
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });

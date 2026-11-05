@@ -314,17 +314,19 @@ export default function SellIn() {
   const selBonos = useSeleccionMasiva();
   const [aviso, setAviso] = useState(null);
   // Arrow keys move between the tabs (WAI-ARIA tabs pattern, automatic activation).
+  // Only the drawn ones: the Tacticals tab is not drawn until its count answers.
   const onTabsKeyDown = (event) => {
-    const actual = tabsVisibles.indexOf(tab);
+    const tabs = tabsVisibles.filter((t) => t !== TAB_TACTICALS || tacticals.disponible === true);
+    const actual = tabs.indexOf(tab);
     const destino = {
-      ArrowRight: (actual + 1) % tabsVisibles.length,
-      ArrowLeft: (actual - 1 + tabsVisibles.length) % tabsVisibles.length,
+      ArrowRight: (actual + 1) % tabs.length,
+      ArrowLeft: (actual - 1 + tabs.length) % tabs.length,
       Home: 0,
-      End: tabsVisibles.length - 1,
+      End: tabs.length - 1,
     }[event.key];
     if (destino === undefined) return;
     event.preventDefault();
-    const next = tabsVisibles[destino];
+    const next = tabs[destino];
     cambiarTab(next);
     document.getElementById(`${next}-tab`)?.focus();
   };
