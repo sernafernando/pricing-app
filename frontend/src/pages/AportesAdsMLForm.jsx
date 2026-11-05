@@ -141,10 +141,11 @@ const today = () => new Date().toLocaleDateString('en-CA');
 
 /**
  * The Display catalog, asked once the form is on Display. `GET /ml-ads/display` lists every catalog campaign whatever
- * the range, so one day is enough. `failed` says the list could not load.
+ * the range, so one day is enough. `failed` says the list could not load; `retry()` asks again in place.
  */
 function useDisplayCampaigns(enabled) {
   const [state, setState] = useState({ campaigns: [], failed: false });
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!enabled) return undefined;
     let active = true;
@@ -156,8 +157,12 @@ function useDisplayCampaigns(enabled) {
     return () => {
       active = false;
     };
-  }, [enabled]);
-  return state;
+  }, [enabled, attempt]);
+  const retry = () => {
+    setState({ campaigns: [], failed: false });
+    setAttempt((n) => n + 1);
+  };
+  return { ...state, retry };
 }
 
 /**
@@ -366,8 +371,11 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
             </span>
           )}
           {onDisplay && displayCatalog.failed && (
-            <span className={styles.fieldError} role="alert">
-              No se pudo cargar la lista de campañas de Display. Cerrá el formulario y volvé a abrirlo.
+            <span className={styles.fieldError}>
+              <span role="alert">No se pudo cargar la lista de campañas de Display.</span>{' '}
+              <button type="button" className={styles.retry} onClick={displayCatalog.retry}>
+                Reintentar
+              </button>
             </span>
           )}
         </div>

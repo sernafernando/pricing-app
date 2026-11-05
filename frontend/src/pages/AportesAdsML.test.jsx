@@ -912,17 +912,21 @@ describe('Display aportes (Stitch 7512c518)', () => {
     expect(screen.queryByText(/Display gastó/)).not.toBeInTheDocument();
   });
 
-  it('says why no Display campaign can be picked when the list fails to load', async () => {
+  it('says why no Display campaign can be picked when the list fails to load, and retries it in place', async () => {
     const answerOthers = api.get.getMockImplementation();
+    let fail = true;
     api.get.mockImplementation((url, config) =>
-      url === '/ml-ads/display' ? Promise.reject(new Error('boom')) : answerOthers(url, config),
+      url === '/ml-ads/display' && fail ? Promise.reject(new Error('boom')) : answerOthers(url, config),
     );
     const user = userEvent.setup();
     await openHeaderCreate(user);
     await user.click(within(channel()).getByRole('button', { name: 'Display' }));
-    expect(
-      await screen.findByText('No se pudo cargar la lista de campañas de Display. Cerrá el formulario y volvé a abrirlo.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('No se pudo cargar la lista de campañas de Display.')).toBeInTheDocument();
+    fail = false;
+    await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+    const select = screen.getByLabelText('Campaña de Display');
+    expect(await within(select).findByRole('option', { name: 'Toda la cuenta Display · GAUSS' })).toBeInTheDocument();
+    expect(screen.queryByText('No se pudo cargar la lista de campañas de Display.')).not.toBeInTheDocument();
   });
 
   it('edits a Display aporte from the Por aporte view, its channel and account locked', async () => {

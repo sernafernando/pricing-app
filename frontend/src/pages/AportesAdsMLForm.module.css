@@ -200,6 +200,11 @@
   color: var(--tone-danger-fg);
 }
 
+/* Asks the failed Display list again without closing the form. */
+.retry {
+  composes: btn-tesla ghost sm from '../styles/buttons-tesla.css';
+}
+
 .modalFooter {
   display: flex;
   justify-content: flex-end;
