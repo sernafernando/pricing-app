@@ -406,7 +406,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
       {editandoDefecto && (
         <SellInModoPorDefecto
           actual={porDefecto}
-          options={ORDEN.map((value) => ({ value, label: MODOS[value].label }))}
+          options={ORDEN.filter((value) => value !== 'manual').map((value) => ({ value, label: MODOS[value].label }))}
           onClose={() => setEditandoDefecto(false)}
           onSaved={(value) => {
             setPorDefecto(value);

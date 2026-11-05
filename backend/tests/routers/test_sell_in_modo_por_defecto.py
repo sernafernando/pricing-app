@@ -37,7 +37,7 @@ def test_an_admin_sets_it_and_everyone_reads_it(client, db, ven_panel, admin_aut
     assert db.query(Configuracion).filter(Configuracion.clave == CLAVE).one().valor == "ponderado"
     assert client.get(URL, headers=auth_headers).json() == {"modo": "ponderado"}
 
-    assert client.put(URL, json={"modo": "manual"}, headers=admin_auth_headers).json() == {"modo": "manual"}
+    assert client.put(URL, json={"modo": "ultimo"}, headers=admin_auth_headers).json() == {"modo": "ultimo"}
     assert db.query(Configuracion).filter(Configuracion.clave == CLAVE).count() == 1
 
 
@@ -46,14 +46,16 @@ def test_a_non_admin_cannot_change_it(client, db, ven_panel, auth_headers) -> No
     assert db.query(Configuracion).filter(Configuracion.clave == CLAVE).count() == 0
 
 
-@pytest.mark.parametrize("body", [{"modo": "promedio"}, {}, {"modo": "fifo", "otro": 1}])
+# Manual is refused: it would fall back to FIFO for everyone anyway.
+@pytest.mark.parametrize("body", [{"modo": "manual"}, {"modo": "promedio"}, {}, {"modo": "fifo", "otro": 1}])
 def test_an_unknown_mode_is_refused(client, db, ven_panel, admin_auth_headers, body) -> None:
     assert client.put(URL, json=body, headers=admin_auth_headers).status_code == 422
     assert db.query(Configuracion).filter(Configuracion.clave == CLAVE).count() == 0
 
 
-def test_a_broken_stored_value_reads_as_fifo(client, db, ven_panel, auth_headers) -> None:
-    db.add(Configuracion(clave=CLAVE, valor="cualquiera", tipo="string"))
+@pytest.mark.parametrize("valor", ["cualquiera", "manual"])
+def test_a_broken_stored_value_reads_as_fifo(client, db, ven_panel, auth_headers, valor) -> None:
+    db.add(Configuracion(clave=CLAVE, valor=valor, tipo="string"))
     db.commit()
     assert client.get(URL, headers=auth_headers).json() == {"modo": "fifo"}
 

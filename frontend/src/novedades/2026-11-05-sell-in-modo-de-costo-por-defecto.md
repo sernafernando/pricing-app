@@ -7,7 +7,8 @@
 Ahora un administrador elige el **modo por defecto**: el modo que aparece ya elegido en **Cambiar a**, en la sección **Modo de costo** del visor de lotes. Por ejemplo, si se decide trabajar con PPP, el selector abre en **Ponderado (PPP)** y nadie elige FIFO sin querer.
 
 - No recalcula nada: los productos sin modo propio siguen en FIFO.
-- Si el usuario no tiene permiso para el modo por defecto, o si es **Manual**, el selector abre en **FIFO**.
+- Se puede elegir **FIFO**, **Ponderado (PPP)** o **Último precio**.
+- Si el usuario no tiene permiso para el modo por defecto, el selector abre en **FIFO**.
 - Si nadie lo cambió, sigue siendo **FIFO**.
 
 ## Cómo se usa

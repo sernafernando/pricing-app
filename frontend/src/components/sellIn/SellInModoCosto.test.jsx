@@ -285,7 +285,8 @@ describe('the default mode', () => {
     expect(elegido(await panel())).toEqual(['FIFO']);
   });
 
-  it('is not offered to change unless the user is an admin', async () => {
+  it.each(['VENTAS', 'PRICING_MANAGER', undefined])('is not offered to change to a non-admin (%s)', async (r) => {
+    rol = r;
     renderPanel();
     const region = await panel();
     expect(within(region).queryByRole('button', { name: 'Modo por defecto' })).not.toBeInTheDocument();
@@ -301,7 +302,8 @@ describe('the default mode', () => {
     expect(screen.getByText(/No recalcula nada/)).toBeInTheDocument();
     const grupo = screen.getByRole('group', { name: 'Modo por defecto' });
     expect(within(grupo).getByRole('button', { name: 'FIFO' })).toHaveAttribute('aria-pressed', 'true');
-    expect(within(grupo).getByRole('button', { name: 'Manual' })).toBeEnabled();
+    // Manual would fall back to FIFO for everyone, so it is not offered.
+    expect(within(grupo).getAllByRole('button').map((b) => b.textContent)).toEqual(['FIFO', 'Ponderado (PPP)', 'Último precio']);
     await user.click(within(grupo).getByRole('button', { name: 'Último precio' }));
     await user.click(screen.getByRole('button', { name: 'Guardar' }));
     expect(sellInLotesAPI.fijarModoPorDefecto).toHaveBeenCalledWith('ultimo');

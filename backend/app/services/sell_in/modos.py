@@ -239,16 +239,16 @@ def _orden(montos: Dict[Tuple[str, int], Decimal]) -> List[list]:
 
 
 CLAVE_POR_DEFECTO = "sell_in_modo_por_defecto"
-MODOS = MODOS_ESCRITOS + ("manual",)
 
 
 def modo_por_defecto(db: Session) -> str:
-    """The mode the panel's selector opens preselected with (global, `configuracion`); FIFO when unset or unknown.
+    """The mode the panel's selector opens preselected with (global, `configuracion`); FIFO when unset, unknown or
+    `manual`.
 
     It only preselects the selector: a product without a mode row stays FIFO here, whatever this says.
     """
     fila = db.query(Configuracion).filter(Configuracion.clave == CLAVE_POR_DEFECTO).first()
-    return fila.valor if fila is not None and fila.valor in MODOS else "fifo"
+    return fila.valor if fila is not None and fila.valor in MODOS_ESCRITOS else "fifo"
 
 
 def fijar_modo_por_defecto(db: Session, modo: str) -> str:

@@ -12,7 +12,7 @@ import styles from './SellInModoCosto.module.css';
  *
  * @param {object} props
  * @param {string} props.actual The saved default.
- * @param {{ value: string, label: string }[]} props.options Every mode, in the selector's order.
+ * @param {{ value: string, label: string }[]} props.options The modes a default may be (not Manual), in the selector's order.
  * @param {Function} props.onClose Closes without saving.
  * @param {Function} props.onSaved Called with the saved mode.
  */
