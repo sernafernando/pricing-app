@@ -263,15 +263,15 @@ export default function SellIn() {
   const [searchParams, setSearchParams] = useSearchParams();
   const puedeVerGrupos = tienePermiso('grupos.ver');
   const puedeGestionarGrupos = tienePermiso('config.editar_constantes');
-  // "Actualizar" bumps it: the Grupos tab asks its groups again.
-  const [versionGrupos, setVersionGrupos] = useState(0);
-  const tacticals = useConteoTacticals(puedeVer, versionGrupos);
+  // "Actualizar" bumps it: every tab of the page (Grupos, Tacticals, the sell out lists) asks its data again.
+  const [versionPagina, setVersionPagina] = useState(0);
+  const tacticals = useConteoTacticals(puedeVer, versionPagina);
   // A group created, changed or deleted in the Grupos tab: the campaign form's groups are asked again.
   const [cambiosGrupos, setCambiosGrupos] = useState(0);
-  const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut, versionGrupos + cambiosGrupos);
+  const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut, versionPagina + cambiosGrupos);
   // An assignment or a program created from a suggestion bumps it: programs, groups and suggestions are asked again.
   const [versionProgramas, setVersionProgramas] = useState(0);
-  const programas = useProgramas(puedeVer && puedeVerSellOut, versionGrupos + versionProgramas);
+  const programas = useProgramas(puedeVer && puedeVerSellOut, versionPagina + versionProgramas);
   // The suggestions "Descartar" hid, for this session only (nothing is stored).
   const [descartadas, setDescartadas] = useState(() => new Set());
   // "Ver: Por programa | Lista" lives in the URL (`?vista=`) like the tab; by default grouped once a program exists.
@@ -511,7 +511,7 @@ export default function SellIn() {
               bonos.recargar();
               bonosVigentes.recargar();
               campanas.recargar();
-              setVersionGrupos((v) => v + 1);
+              setVersionPagina((v) => v + 1);
             }}
             disabled={loading}
           >
@@ -662,12 +662,12 @@ export default function SellIn() {
       >
         {tab === TAB_TACTICALS ? (
           <div role="tabpanel" id="tacticals-panel" aria-labelledby="tacticals-tab">
-            <TacticalsList marcas={marcas} version={versionGrupos} />
+            <TacticalsList marcas={marcas} version={versionPagina} />
           </div>
         ) : tab === TAB_GRUPOS ? (
           <div role="tabpanel" id="grupos-panel" aria-labelledby="grupos-tab">
             <GruposTab
-              version={versionGrupos}
+              version={versionPagina}
               onGruposCambiados={() => setCambiosGrupos((v) => v + 1)}
               puedeEditar={puedeGestionarGrupos}
             />
@@ -900,7 +900,7 @@ export default function SellIn() {
               />
               {puedeGestionarSellOut && (
                 <SellOutSugerencias
-                  version={versionGrupos + versionProgramas}
+                  version={versionPagina + versionProgramas}
                   descartadas={descartadas}
                   onDescartar={(clave) => setDescartadas((actual) => new Set(actual).add(clave))}
                   onCambio={programasCambiaron}
@@ -937,7 +937,7 @@ export default function SellIn() {
                     renderTabla={
                       vista === 'programas'
                         ? (props) => (
-                            <SellOutPorPrograma filtros={paramsDeFiltros(campanas.filtros)} version={versionGrupos + versionProgramas} {...props} />
+                            <SellOutPorPrograma filtros={paramsDeFiltros(campanas.filtros)} version={versionPagina + versionProgramas} {...props} />
                           )
                         : undefined
                     }
