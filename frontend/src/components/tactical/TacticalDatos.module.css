@@ -1,0 +1,152 @@
+/* The type and data card of Nuevo tactical (approved OpenDesign screens), on the app's tokens. */
+
+.card {
+  margin-bottom: 16px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.typebar {
+  padding: 14px 16px;
+  background: var(--cf-bg-hover);
+  border-bottom: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.typebarRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.typebarHelp {
+  max-width: 78ch;
+  margin: 6px 0 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.cardHead {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.cardHead h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cardBody {
+  padding: 16px;
+}
+
+.gridForm {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 20px;
+}
+
+.span2 {
+  grid-column: span 2;
+}
+
+.field {
+  display: grid;
+  align-content: start;
+  gap: 0;
+}
+
+.field > label,
+.lbl {
+  margin-bottom: 5px;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+}
+
+.subLabel {
+  font-weight: 400 !important;
+  color: var(--cf-text-tertiary) !important;
+}
+
+.req {
+  font-weight: 600;
+  color: var(--brand-primary);
+}
+
+.optional {
+  font-weight: 400;
+  color: var(--cf-text-tertiary);
+}
+
+.help {
+  margin-top: 4px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+/* One height for every single-line control of the card, so they line up with the segmented controls. */
+.ctl {
+  composes: input from '../../styles/forms-tesla.css';
+  height: 34px;
+  min-height: 34px;
+  margin: 0;
+}
+
+textarea.ctl {
+  height: auto;
+  min-height: 64px;
+  resize: vertical;
+}
+
+.tcFijo {
+  margin-top: 6px;
+}
+
+.dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.checks {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+}
+
+.check input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--brand-primary);
+}
+
+@media (width <= 1180px) {
+  .gridForm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (width <= 760px) {
+  .gridForm {
+    grid-template-columns: 1fr;
+  }
+
+  .span2 {
+    grid-column: span 1;
+  }
+}

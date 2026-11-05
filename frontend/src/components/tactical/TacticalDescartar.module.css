@@ -1,0 +1,45 @@
+/* "¿Descartar el tactical?" (approved OpenDesign screens), on the app's tokens. */
+
+.ghost {
+  composes: btn-tesla ghost sm from '../../styles/buttons-tesla.css';
+}
+
+.danger {
+  composes: btn-tesla danger sm from '../../styles/buttons-tesla.css';
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: var(--bg-overlay);
+}
+
+.dlg {
+  width: min(420px, calc(100vw - 32px));
+  padding: 16px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--cf-shadow-modal);
+}
+
+.dlg h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dlg p {
+  margin: 0 0 14px;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
+.dlgRow {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
