@@ -158,10 +158,13 @@ def gobiernan(periodos: List[Periodo]) -> List[int]:
 
 
 def _validar_manuales(lotes: List[Lote], periodos: List[Periodo]) -> None:
-    """Every manual block has its governing manual period on its own date, and the other way round."""
+    """Every manual block has its governing manual period on its own date, and the other way round. A manual period
+    read without its block (`modo_id` unset) is left out: it only fails once a sale reaches it (`Dinero`)."""
     bloques = sorted((lote.modo_id, lote.fecha) for lote in lotes if lote.modo_id is not None)
     manuales = sorted(
-        (periodos[k].modo_id, periodos[k].desde) for k in gobiernan(periodos) if periodos[k].modo == "manual"
+        (periodos[k].modo_id, periodos[k].desde)
+        for k in gobiernan(periodos)
+        if periodos[k].modo == "manual" and periodos[k].modo_id is not None
     )
     if bloques != manuales:
         raise ValueError(f"manual blocks {bloques} do not match the manual periods {manuales}")
@@ -253,6 +256,8 @@ class Dinero:
             if periodo.modo not in ("fifo", "ponderado", "ultimo", "manual"):
                 # Refused only once it governs a sale: a row dated after them changes nothing yet.
                 raise ValueError(f"cost mode {periodo.modo!r} is not supported here")
+            if periodo.modo == "manual" and periodo.modo_id is None:
+                raise ValueError("a manual cost mode read without its block cannot be replayed")
             if self._modo != "fifo":
                 # The pool takes in the lots that started counting before the new period, sold from or not.
                 self._unir(periodo.desde - timedelta(days=1))
