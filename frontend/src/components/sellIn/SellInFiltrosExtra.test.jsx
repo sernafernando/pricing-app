@@ -8,7 +8,7 @@ import SellInFiltrosExtra from './SellInFiltrosExtra';
 
 vi.mock('../../services/sellInAPI', () => ({ sellInAPI: { proveedores: vi.fn() } }));
 
-// The supplier search's answer (`GET /administracion/proveedores`), as SellInCreatePanel.test.jsx reads it.
+// The supplier search's answer (`GET /administracion/proveedores`).
 const PROVEEDORES = { proveedores: [{ id: 7, nombre: 'TP-Link', cuit: '30-1' }], total: 1, page: 1, page_size: 10 };
 
 beforeEach(() => {

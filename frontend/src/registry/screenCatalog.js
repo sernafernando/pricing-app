@@ -142,6 +142,7 @@ export const SCREENS = [
   { path: '/ayuda', label: 'Ayuda', section: 'Ayuda', permisos: [], scope: 'public' },
 
   // ── Otras (routes without a sidebar entry) ────────────────
+  { path: '/sell-in/tactical/nuevo', label: 'Nuevo tactical', section: OTRAS, permisos: ['sell_in.ver'], scope: 'permiso' },
   { path: '/notificaciones', label: 'Notificaciones', section: OTRAS, permisos: ['reportes.ver_notificaciones'], scope: 'permiso' },
   { path: '/perfiles-medidas', label: 'Perfiles de medidas', section: OTRAS, permisos: ['admin.gestionar_tn_perfiles'], scope: 'permiso' },
 ];
@@ -176,6 +177,7 @@ export const PERMISOS_ADICIONALES = {
     ordenes: ['/pedidos-preparacion'],
     alertas: ['/gestion/alertas'],
     reportes: [],
+    sell_in: ['/sell-in'], // Also opens Nuevo tactical; its gestionar codes act on both, the list first.
     // Prefixes no access permission uses.
     tienda: ['/tienda'],
     config: ['/admin'], // Admin tabs Comisiones / Constantes Pricing.

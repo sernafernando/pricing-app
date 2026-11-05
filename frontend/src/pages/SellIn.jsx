@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, RefreshCw, ShieldAlert } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
 import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
@@ -14,7 +14,6 @@ import SellInBonoPanel from '../components/sellIn/SellInBonoPanel';
 import SellInBonosTable from '../components/sellIn/SellInBonosTable';
 import SellInDetailPanel from '../components/sellIn/SellInDetailPanel';
 import SellInFiltrosExtra from '../components/sellIn/SellInFiltrosExtra';
-import SellInNuevoPanel from '../components/sellIn/SellInNuevoPanel';
 import SellInResumen from '../components/sellIn/SellInResumen';
 import SellInTable from '../components/sellIn/SellInTable';
 import { resolverIdsFiltrados } from '../components/sellIn/sellInAnularMasivo';
@@ -30,6 +29,8 @@ import { useProgramas } from '../components/sellOut/useProgramas';
 import { FILTROS_CAMPANAS_VACIOS, paramsDeFiltros } from '../components/sellOut/sellOutFiltros';
 import GruposTab from '../components/grupos/GruposTab';
 import TacticalsList from '../components/tacticals/TacticalsList';
+import Toast from '../components/Toast';
+import { useToast } from '../hooks/useToast';
 import styles from './SellIn.module.css';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
@@ -52,7 +53,7 @@ function notaGeneradas(anulables, generadas) {
 }
 
 const REVIERTE_BONOS = 'Después se anulan las compras que generó cada bono, y un bono sobre el costo deja de aplicarse a sus ventas.';
-const PANEL_LABELS = { crear: 'Nuevo sell in', detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out' };
+const PANEL_LABELS = { detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out' };
 const APLICA_LABELS = { si: 'Aplican', no: 'No aplican' };
 const EMPTY_FILTERS = { aplica: 'si', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', filtro: '', producto: null, proveedor: null };
 const TIPO_LABELS = { compra: 'Por compra', bono: 'Bono de marca' };
@@ -296,7 +297,8 @@ export default function SellIn() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const requestRef = useRef(0);
-  // The side panel: `{ tipo: 'crear' }`, `{ tipo: 'detalle', id }` (a purchase) or `{ tipo: 'bono', id }`; null when closed.
+  // The side panel: `{ tipo: 'detalle', id }` (a purchase) or `{ tipo: 'bono', id }`; null when closed. Creating goes to
+  // Nuevo tactical (`/sell-in/tactical/nuevo`).
   const [panel, setPanel] = useState(null);
   const cerrarPanel = useCallback(() => setPanel(null), []);
   const verBono = useCallback((id) => setPanel({ tipo: 'bono', id }), []);
@@ -313,6 +315,16 @@ export default function SellIn() {
   const selCompras = useSeleccionMasiva();
   const selBonos = useSeleccionMasiva();
   const [aviso, setAviso] = useState(null);
+  // Nuevo tactical comes back here with what it created ("Tactical creado: …"), shown once as a toast.
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { toast, showToast, hideToast } = useToast(6000);
+  const avisoTactical = location.state?.aviso;
+  useEffect(() => {
+    if (!avisoTactical) return;
+    showToast(avisoTactical);
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [avisoTactical, showToast, navigate, location.pathname, location.search]);
   // Arrow keys move between the tabs (WAI-ARIA tabs pattern, automatic activation).
   // Only the drawn ones: the Tacticals tab is not drawn until its count answers.
   const onTabsKeyDown = (event) => {
@@ -522,12 +534,12 @@ export default function SellIn() {
             <RefreshCw size={14} /> Actualizar
           </button>
           {enSellIn && puedeGestionar && (
-            <button type="button" className="btn-tesla primary sm" onClick={() => setPanel({ tipo: 'crear' })}>
+            <button type="button" className="btn-tesla primary sm" onClick={() => navigate('/sell-in/tactical/nuevo?tipo=sell_in')}>
               <Plus size={14} /> Nuevo sell in
             </button>
           )}
           {enSellOut && puedeGestionarSellOut && (
-            <button type="button" className="btn-tesla primary sm" onClick={() => setPanel({ tipo: 'campana', id: null })}>
+            <button type="button" className="btn-tesla primary sm" onClick={() => navigate('/sell-in/tactical/nuevo?tipo=sell_out')}>
               <Plus size={14} /> Nueva campaña
             </button>
           )}
@@ -608,21 +620,7 @@ export default function SellIn() {
         width="lg"
         ariaLabel={PANEL_LABELS[panel?.tipo] ?? 'Detalle del sell in'}
         panel={
-          panel?.tipo === 'crear' ? (
-            <SellInNuevoPanel
-              marcas={marcas}
-              onClose={cerrarPanel}
-              onCreated={(compra) => {
-                setPanel({ tipo: 'detalle', id: compra.id });
-                cargar();
-              }}
-              onBonoCreado={(bono) => {
-                verBono(bono.id);
-                bonos.recargar();
-                bonosVigentes.recargar();
-              }}
-            />
-          ) : panel?.tipo === 'bono' ? (
+          panel?.tipo === 'bono' ? (
             <SellInBonoPanel
               key={`bono-${panel.id}`}
               bonoId={panel.id}
@@ -969,6 +967,7 @@ export default function SellIn() {
           </div>
         )}
       </SplitPanelLayout>
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   );
 }

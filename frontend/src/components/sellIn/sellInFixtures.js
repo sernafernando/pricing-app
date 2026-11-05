@@ -1,8 +1,7 @@
 /**
  * Test fixtures for the sell-in screen, shaped exactly like the backend's
  * Pydantic responses (`backend/app/schemas/sell_in.py`: `SellInCompraOut`,
- * `SellInCompraListOut`, `SellInCompraResumenOut`, `SellInPreviewOut`,
- * `SellInPrefillOut`, `SellInOperacionesOut`).
+ * `SellInCompraListOut`, `SellInCompraResumenOut`, `SellInOperacionesOut`).
  * Decimals travel as strings, as Pydantic serialises them.
  *
  * The values come from the backend's own tests
@@ -106,27 +105,6 @@ export const RESUMEN = {
   unidades_total: 32,
 };
 
-export const PREVIEW = {
-  moneda: 'ARS',
-  formula: 'proporcional',
-  monto_total: '1000.00',
-  // `SellInPreviewLinea`: a purchase line without its id and consumption counts.
-  lineas: COMPRA_ARS.items.map((item) => {
-    const linea = { ...item };
-    delete linea.id;
-    delete linea.unidades_consumidas;
-    delete linea.unidades_restantes;
-    return linea;
-  }),
-  totales: {
-    cantidad: 20,
-    costo_base_total: '4000',
-    monto_asignado_total: '1000.00',
-    costo_con_sell_in_total: '3000',
-    porcentaje: '25.00',
-  },
-};
-
 /** `GET /productos` rows (`ProductoResponse`), the fields the picker reads. */
 export const PRODUCTOS = [
   { item_id: 4512, codigo: 'SW-8', descripcion: 'Switch 8 bocas', marca: 'TP-Link', moneda_costo: 'ARS', costo: 100 },
@@ -136,22 +114,9 @@ export const PRODUCTOS = [
 /** A purchase linked to two Compras operations (`pedido_compra_id` mirrors the first one). */
 export const COMPRA_CON_OPERACIONES = { ...COMPRA_ARS, id: 4, pedido_compra_id: 15, pedido_compra_ids: [15, 16] };
 
-/** `GET /sell-in/compras/prefill` (`SellInPrefillOut`) for operations 15 and 16 of supplier 7. */
-export const PREFILL = {
-  pedido_compra_ids: [15, 16],
-  proveedor_id: 7,
-  proveedor_nombre: 'TP-Link',
-  moneda: 'USD',
-  fecha_ingreso: '2026-10-05',
-  items: [
-    { item_id: 4512, codigo: 'SW-8', descripcion: 'Switch 8 bocas', cantidad: 12 },
-    { item_id: 4513, codigo: 'SW-16', descripcion: 'Switch 16 bocas', cantidad: 4 },
-  ],
-};
-
 /**
  * `GET /sell-in/compras/operaciones` (`SellInOperacionesOut`) items, newest first: operations 15 and 16 of
- * TP-Link (7) in USD, the ones `PREFILL` reads, and 20 of Mercusys (9) in ARS. Shaped like the backend's
+ * TP-Link (7) in USD, and 20 of Mercusys (9) in ARS. Shaped like the backend's
  * `test_each_option_carries_what_identifies_the_operation`.
  */
 export const OPERACIONES = [

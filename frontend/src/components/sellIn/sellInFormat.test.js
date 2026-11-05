@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { apiMessage, buildBonosParams, buildSellInParams, formatMonto, formatPorcentaje, sumaManual } from './sellInFormat';
+import { apiMessage, buildBonosParams, buildSellInParams, formatMonto, formatPorcentaje } from './sellInFormat';
 
 describe('buildSellInParams', () => {
   it('sends only the filters that are set, marcas as CSV', () => {
@@ -77,13 +77,6 @@ describe('formatPorcentaje', () => {
     expect(formatPorcentaje('0.1234')).toBe('0,1234 %');
     expect(formatPorcentaje(null)).toBe('—');
     expect(formatPorcentaje('abc')).toBe('—');
-  });
-});
-
-describe('sumaManual', () => {
-  it('adds the manual amounts in cents so 0.1 + 0.2 is 0.3', () => {
-    expect(sumaManual(['0.1', '0.2'])).toBe(0.3);
-    expect(sumaManual(['', '5'])).toBe(5);
   });
 });
 

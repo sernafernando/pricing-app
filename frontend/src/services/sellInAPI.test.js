@@ -14,14 +14,10 @@ describe('sellInAPI', () => {
     expect(api.get).toHaveBeenCalledWith('/sell-in/compras/resumen', { params: { aplica: 'si' } });
   });
 
-  it('reads one purchase, previews, creates and voids', () => {
+  it('reads one purchase and voids it', () => {
     sellInAPI.detalle(5);
-    sellInAPI.preview({ moneda: 'ARS' });
-    sellInAPI.crear({ moneda: 'ARS' });
     sellInAPI.anular(5, 'cargada dos veces');
     expect(api.get).toHaveBeenCalledWith('/sell-in/compras/5');
-    expect(api.post).toHaveBeenCalledWith('/sell-in/compras/preview', { moneda: 'ARS' });
-    expect(api.post).toHaveBeenCalledWith('/sell-in/compras', { moneda: 'ARS' });
     expect(api.post).toHaveBeenCalledWith('/sell-in/compras/5/anular', { motivo: 'cargada dos veces' });
   });
 
@@ -41,14 +37,6 @@ describe('sellInAPI', () => {
   it("reads one Compras operation's products for the picker's popover", () => {
     sellInAPI.operacionProductos(16);
     expect(api.get).toHaveBeenCalledWith('/sell-in/compras/operaciones/16/productos');
-  });
-
-  it('asks the prefill of several operations as a repeated query parameter', () => {
-    sellInAPI.prefill([15, 16]);
-    expect(api.get).toHaveBeenCalledWith('/sell-in/compras/prefill', {
-      params: { pedido_compra_ids: [15, 16] },
-      paramsSerializer: { indexes: null },
-    });
   });
 
   it('voids without a reason as an empty one', () => {
