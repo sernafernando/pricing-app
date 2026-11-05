@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  baselineMarkupFromPromos,
   bestByMarkup,
   enrollBodyForPromo,
   esMejorOferta,
@@ -7,6 +8,7 @@ import {
   listRowForPricelist,
   pickMejoresCandidatas,
   pickPonerPreciosPromos,
+  pricesClose,
 } from './pickPonerPreciosPromos';
 import { LISTS } from '../../pricing/priceWrites';
 import capture from './fixtures/ponerPreciosPromos.capture.json';
@@ -72,6 +74,42 @@ describe('pickPonerPreciosPromos', () => {
   it('maps pricelist ids to Lista ML rows', () => {
     expect(listRowForPricelist(4, LISTS)?.id).toBe('ml-clasica');
     expect(listRowForPricelist(17, LISTS)?.id).toBe('ml-3');
+  });
+});
+
+describe('baselineMarkupFromPromos', () => {
+  it('uses cofunded started markup when offer price matches sale', () => {
+    expect(
+      baselineMarkupFromPromos(
+        [
+          {
+            status: 'started',
+            promotion_type: 'PRICE_MATCHING',
+            application_status: 'active',
+            price: 555867.8,
+            nuestro_markup: 1.4,
+          },
+          {
+            status: 'candidate',
+            promotion_type: 'SMART',
+            price: 526957,
+            nuestro_markup: -5.06,
+          },
+        ],
+        555867.83,
+      ),
+    ).toBe(1.4);
+  });
+
+  it('returns null without a matching cofunded started offer', () => {
+    expect(
+      baselineMarkupFromPromos(
+        [{ status: 'candidate', promotion_type: 'SMART', price: 526957, nuestro_markup: -5.06 }],
+        555867.83,
+      ),
+    ).toBeNull();
+    expect(pricesClose(555867.83, 555867.8)).toBe(true);
+    expect(pricesClose(555867.83, 400000)).toBe(false);
   });
 });
 

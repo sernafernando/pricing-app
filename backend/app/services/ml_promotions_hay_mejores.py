@@ -3,6 +3,10 @@
 Better = markup↑ at same price, or lower price with markup ≥ baseline.
 A higher consumer price is never better. Discard fingerprints block instant
 re-flag; a new better novelty re-marks.
+
+Baseline markup: co-funded when a started SMART / PRE_NEGOTIATED /
+PRICE_MATCHING offer matches sale_price (``markup_baseline_vigente``);
+otherwise plain ``markup_para_precio(sale)``.
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ from app.core.logging import get_logger
 from app.models.ml_publications import MlItemSalePrice, MlItemSellerPromotions
 from app.services.ml_promotions_pricing import (
     enriquecer_markup_por_promo,
-    markup_para_precio,
+    markup_baseline_vigente,
     precio_de_oferta,
 )
 from app.services.ml_publications.parsers.seller_promotions import STATUS_CANDIDATE, promotion_key
@@ -103,8 +107,15 @@ def listar_mejores_candidatas(
     mla: str,
     candidates: Sequence[Mapping[str, Any]],
     baseline_price: float,
+    *,
+    raw_promotions: Any = None,
 ) -> List[MejorTuple]:
-    baseline_markup = markup_para_precio(db, mla, baseline_price)
+    """Candidates that beat the MeLi status quo (sale_price + correct baseline markup).
+
+    ``raw_promotions`` (full mirror, including started) selects co-funded vs
+    plain baseline via ``markup_baseline_vigente``.
+    """
+    baseline_markup = markup_baseline_vigente(db, mla, baseline_price, raw_promotions=raw_promotions)
     if baseline_markup is None:
         return []
     promos = [normalizar_entrada_seller_promo(entry) for entry in candidates]
@@ -153,7 +164,13 @@ def actualizar_hay_mejores_ofertas(
                 decision = decidir_flag_hay_mejores(mejores=[], descartado_fingerprint=None)
             else:
                 decision = decidir_flag_hay_mejores(
-                    mejores=listar_mejores_candidatas(db, item_id, candidates, baseline),
+                    mejores=listar_mejores_candidatas(
+                        db,
+                        item_id,
+                        candidates,
+                        baseline,
+                        raw_promotions=raw,
+                    ),
                     descartado_fingerprint=row.hay_mejores_descartado_fingerprint,
                 )
             row.hay_mejores_ofertas = decision.hay_mejores

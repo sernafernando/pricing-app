@@ -1146,6 +1146,12 @@ the panel refresh), paced with the shared ML `Pacer`.
 
 ### Hay mejores — offline recompute (one-shot, no ML)
 
+Baseline markup for the flag (and the panel chooser) uses co-funded math when
+a **started** SMART / PRE_NEGOTIATED / PRICE_MATCHING offer matches
+`sale_price` (same as the promo card); otherwise plain `markup_para_precio(sale)`
+with no ML co-funding. Re-run this script after that logic ships so flags
+computed with the plain-sale baseline get corrected.
+
 After the stricter `es_mejor_oferta` rules (never a higher consumer price than
 the current `sale_price`), rows that were flagged under the old rule can keep
 `hay_mejores_ofertas=true` until promotions are written again. The panel
