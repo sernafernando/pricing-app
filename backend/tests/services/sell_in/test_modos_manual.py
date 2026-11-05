@@ -107,6 +107,17 @@ def test_a_later_weighted_row_weighs_the_manual_units_with_the_later_lots() -> N
     assert [(x[0], x[1]) for x in consumos[7]] == [(BLOQUE, 30), (3, 30)]
 
 
+def test_a_later_weighted_row_hands_the_surcharge_to_the_purchase_line_too() -> None:
+    caro = lote_manual(M, OCT25, 30, Decimal("-60000"))  # 30 typed at 52 000 against 50 000 frozen
+    nueva = _lote(3, 30, "600", fecha=NOV1)  # 30 at 20
+    periodos = [PERIODO, Periodo(NOV2, "ponderado")]
+
+    consumos = _por_venta(asignar(DOS_LOTES + [caro, nueva], [_venta(7, 60, NOV5)], periodos))
+
+    # 30 at -2 000 plus 30 at 20: 60 at -990, the purchase line's share negative as well.
+    assert consumos[7] == [(BLOQUE, 30, Decimal("-29700.00")), (3, 30, Decimal("-29700.00"))]
+
+
 def test_a_second_manual_row_replaces_what_the_first_block_left() -> None:
     otro = lote_manual(M + 1, NOV1, 10, Decimal("50"))
     periodos = [PERIODO, Periodo(NOV1, "manual", M + 1)]
