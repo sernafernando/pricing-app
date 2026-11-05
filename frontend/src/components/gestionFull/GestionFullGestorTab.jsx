@@ -132,6 +132,25 @@ export default function GestionFullGestorTab() {
     }
   };
 
+  const removeSelected = async () => {
+    if (selected.size === 0 || locked) return;
+    setBusy(true);
+    setMsg(null);
+    setError(null);
+    try {
+      const count = selected.size;
+      await api.post('/gestion-full/package/remove-lines', {
+        line_ids: [...selected],
+      });
+      setMsg(`Quitadas ${count} línea(s) del envío`);
+      setNonce((n) => n + 1);
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'No se pudieron quitar las líneas del envío');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const clearInbounds = async () => {
     setBusy(true);
     setMsg(null);
@@ -270,6 +289,14 @@ export default function GestionFullGestorTab() {
           onClick={assign}
         >
           Asignar a selección ({selected.size})
+        </button>
+        <button
+          type="button"
+          className={styles.unlockBtn}
+          disabled={busy || selected.size === 0 || locked}
+          onClick={removeSelected}
+        >
+          Quitar del envío ({selected.size})
         </button>
       </div>
 

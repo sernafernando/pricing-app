@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from datetime import UTC
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -266,3 +266,46 @@ def set_qty_export(
     db.commit()
     db.refresh(line)
     return line
+
+
+def remove_package_lines(
+    db: Session,
+    package: GestionFullPackage,
+    *,
+    line_ids: Iterable[int],
+) -> int:
+    """Delete selected lines from the active package (same selection UX as assign-inbound).
+
+    Closes orphan envíos whose inbound_id no longer appears on any line. Refuses a
+    hard-locked package. May hard-lock afterwards if every remaining shippable line
+    already has an inbound_id.
+    """
+    from app.services.gestion_full.assign_inbound import _close_orphan_envios, maybe_hard_lock
+
+    pkg = _package_for_update(db, package.id)
+    if pkg.status == PACKAGE_STATUS_LOCKED:
+        raise PermissionError("package hard-locked")
+
+    id_set = {int(x) for x in line_ids}
+    if not id_set:
+        raise ValueError("sin líneas")
+
+    to_delete = [ln for ln in pkg.lines if int(ln.id) in id_set]
+    missing = id_set - {int(ln.id) for ln in to_delete}
+    if missing:
+        raise LookupError(f"líneas no del paquete: {sorted(missing)}")
+
+    cleared: set[str] = set()
+    for ln in to_delete:
+        if ln.inbound_id is not None and str(ln.inbound_id).strip():
+            cleared.add(str(ln.inbound_id).strip())
+        db.delete(ln)
+
+    db.flush()
+    if cleared:
+        _close_orphan_envios(db, cleared)
+    db.expire(pkg, ["lines"])
+    maybe_hard_lock(db, pkg, already_locked=True)
+    db.commit()
+    db.refresh(pkg)
+    return len(to_delete)

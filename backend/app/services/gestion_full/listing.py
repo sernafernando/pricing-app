@@ -67,6 +67,24 @@ _PRODUCT_FILTER_SQL = """
       :has_categorias = 0
       OR upper(p.categoria) = ANY(:categorias_upper)
     )
+    AND (
+      :has_pms = 0
+      OR EXISTS (
+        SELECT 1
+        FROM marcas_pm mpm
+        WHERE mpm.usuario_id = ANY(:pms)
+          AND upper(mpm.marca) = upper(p.marca)
+          AND upper(mpm.categoria) = upper(p.categoria)
+      )
+    )
+"""
+
+# Planificación: only rows with an active PM Listo freeze.
+_LISTO_FILTER_SQL = """
+    AND (
+      :solo_listo = 0
+      OR ready.producto_item_id IS NOT NULL
+    )
 """
 
 _LINKED_CTE = """
@@ -194,6 +212,7 @@ _LIST_SQL = text(
     {_Q_SQL}
     {_PRODUCT_FILTER_SQL}
     {_FILTER_SQL}
+    {_LISTO_FILTER_SQL}
     ORDER BY p.codigo ASC, linked.user_product_id ASC
     LIMIT :limit OFFSET :offset
     """
@@ -207,24 +226,36 @@ _COUNT_SQL = text(
     JOIN productos_erp p ON p.item_id = linked.producto_item_id
     LEFT JOIN ml_user_product_stock st ON st.user_product_id = linked.user_product_id
     LEFT JOIN ml_user_product_replenishment r ON r.user_product_id = linked.user_product_id
+    LEFT JOIN gestion_full_pm_ready ready
+      ON ready.producto_item_id = linked.producto_item_id
+     AND ready.user_product_id = linked.user_product_id
     {_Q_SQL}
     {_PRODUCT_FILTER_SQL}
     {_FILTER_SQL}
+    {_LISTO_FILTER_SQL}
     """
 )
 
-# Distinct (marca, categoría) under non-product filters only — product_facet_options
-# applies the marca/categoría selection with skip-own cross-filtering in memory.
+# Distinct (marca, categoría, PM) under non-product filters — product_facet_options
+# applies marca/categoría/PM selection with skip-own cross-filtering in memory.
 _FACET_PAIRS_SQL = text(
     f"""
     WITH {_LINKED_CTE}
-    SELECT DISTINCT p.marca, p.categoria
+    SELECT DISTINCT p.marca, p.categoria, mpm.usuario_id, u.nombre
     FROM linked
     JOIN productos_erp p ON p.item_id = linked.producto_item_id
     LEFT JOIN ml_user_product_stock st ON st.user_product_id = linked.user_product_id
     LEFT JOIN ml_user_product_replenishment r ON r.user_product_id = linked.user_product_id
+    LEFT JOIN gestion_full_pm_ready ready
+      ON ready.producto_item_id = linked.producto_item_id
+     AND ready.user_product_id = linked.user_product_id
+    LEFT JOIN marcas_pm mpm
+      ON upper(mpm.marca) = upper(p.marca)
+     AND upper(mpm.categoria) = upper(p.categoria)
+    LEFT JOIN usuarios u ON u.id = mpm.usuario_id
     {_Q_SQL}
     {_FILTER_SQL}
+    {_LISTO_FILTER_SQL}
     """
 )
 
@@ -266,25 +297,38 @@ def _base_params(
     q: str,
     full_mode: str,
     include_zero_stock: bool,
+    solo_listo: bool = False,
 ) -> dict[str, Any]:
     return {
         "q": (q or "").strip(),
         "full_mode": _normalize_full_mode(full_mode),
         "include_zero_stock": 1 if include_zero_stock else 0,
+        "solo_listo": 1 if solo_listo else 0,
     }
 
 
 def _product_filter_params(
     marcas: Sequence[str] | None,
     categorias: Sequence[str] | None,
+    pms: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     marcas_norm = _normalize_labels(marcas)
     categorias_norm = _normalize_labels(categorias)
+    pms_norm: list[int] = []
+    seen_pm: set[int] = set()
+    for raw in pms or ():
+        pid = int(raw)
+        if pid in seen_pm:
+            continue
+        seen_pm.add(pid)
+        pms_norm.append(pid)
     return {
         "has_marcas": 1 if marcas_norm else 0,
         "has_categorias": 1 if categorias_norm else 0,
+        "has_pms": 1 if pms_norm else 0,
         "marcas_upper": [m.upper() for m in marcas_norm],
         "categorias_upper": [c.upper() for c in categorias_norm],
+        "pms": pms_norm,
         "marcas": marcas_norm,
         "categorias": categorias_norm,
     }
@@ -300,11 +344,18 @@ def _build_product_facets(
     q: str,
     full_mode: str,
     include_zero_stock: bool,
+    solo_listo: bool,
     marcas: Sequence[str],
     categorias: Sequence[str],
+    pms: Sequence[int],
 ) -> dict[str, Any]:
-    """Cross-filtered marca/categoría lists for ProductFiltersPanel."""
-    facet_params = _base_params(q=q, full_mode=full_mode, include_zero_stock=include_zero_stock)
+    """Cross-filtered marca/categoría/PM lists for ProductFiltersPanel."""
+    facet_params = _base_params(
+        q=q,
+        full_mode=full_mode,
+        include_zero_stock=include_zero_stock,
+        solo_listo=solo_listo,
+    )
     pairs = db.execute(_FACET_PAIRS_SQL, facet_params).all()
     rows = [
         ComboRow(
@@ -313,12 +364,16 @@ def _build_product_facets(
             subcategoria_id=None,
             subcategoria_nombre=None,
             subcategoria_categoria=None,
-            pm_id=None,
-            pm_nombre=None,
+            pm_id=pm_id,
+            pm_nombre=pm_nombre,
         )
-        for marca, categoria in pairs
+        for marca, categoria, pm_id, pm_nombre in pairs
     ]
-    selection = ProductSelection(marcas=tuple(marcas), categorias=tuple(categorias))
+    selection = ProductSelection(
+        marcas=tuple(marcas),
+        categorias=tuple(categorias),
+        pms=tuple(pms),
+    )
     return product_facet_options(db, rows, selection).model_dump()
 
 
@@ -328,8 +383,10 @@ def list_gestion_full(
     q: str = "",
     marcas: Sequence[str] | None = None,
     categorias: Sequence[str] | None = None,
+    pms: Sequence[int] | None = None,
     full_mode: str = "en",
     include_zero_stock: bool = False,
+    solo_listo: bool = False,
     include_facets: bool = True,
     limit: int = 100,
     offset: int = 0,
@@ -339,13 +396,20 @@ def list_gestion_full(
     `include_facets=False` skips the DISTINCT pairs query (e.g. Planificación
     refresh after Listo/Desbloquear when the panel options are already loaded).
     """
-    product = _product_filter_params(marcas, categorias)
+    product = _product_filter_params(marcas, categorias, pms)
     params = {
-        **_base_params(q=q, full_mode=full_mode, include_zero_stock=include_zero_stock),
+        **_base_params(
+            q=q,
+            full_mode=full_mode,
+            include_zero_stock=include_zero_stock,
+            solo_listo=solo_listo,
+        ),
         "has_marcas": product["has_marcas"],
         "has_categorias": product["has_categorias"],
+        "has_pms": product["has_pms"],
         "marcas_upper": product["marcas_upper"],
         "categorias_upper": product["categorias_upper"],
+        "pms": product["pms"],
         "limit": max(1, min(limit, 500)),
         "offset": max(0, offset),
     }
@@ -357,8 +421,10 @@ def list_gestion_full(
             q=q,
             full_mode=full_mode,
             include_zero_stock=include_zero_stock,
+            solo_listo=solo_listo,
             marcas=product["marcas"],
             categorias=product["categorias"],
+            pms=product["pms"],
         )
     else:
         facets_product = _empty_product_facets()
