@@ -96,3 +96,29 @@ def test_text_filters_are_bounded(client, sell_out) -> None:
 
 def test_the_note_is_bounded(client, productos, sell_out) -> None:
     assert client.post(BASE, json=_body(nota="x" * 2001), headers=sell_out).status_code == 422
+
+
+def test_a_busy_create_is_a_409_and_stores_nothing(client, productos, sell_out, monkeypatch, db) -> None:
+    from app.models.tactical import Tactical
+    from app.services.sell_out import campanas
+
+    def _recalculando(*_args, **_kwargs):
+        raise campanas.SellOutRecalculando("La campaña se está recalculando")
+
+    monkeypatch.setattr(campanas, "crear_campana_sin_commit", _recalculando)
+
+    resp = client.post(BASE, json=_body(), headers=sell_out)
+
+    assert resp.status_code == 409
+    assert _message(resp) == "Línea 1: La campaña se está recalculando"
+    assert db.query(Tactical).count() == 0
+
+
+def test_voiding_twice_is_a_409(client, productos, sell_out) -> None:
+    creado = client.post(BASE, json=_body(), headers=sell_out).json()
+    assert client.post(f"{BASE}/{creado['id']}/anular", headers=sell_out).status_code == 200
+
+    resp = client.post(f"{BASE}/{creado['id']}/anular", headers=sell_out)
+
+    assert resp.status_code == 409
+    assert "anulado" in _message(resp)

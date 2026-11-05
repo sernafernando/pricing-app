@@ -50,7 +50,7 @@ from app.models.tactical import Tactical
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn
 from app.schemas.sell_out import SellOutCampanaIn
-from app.schemas.tacticals import TacticalIn, TacticalLineaIn
+from app.schemas.tacticals import HIJOS_MAX, TacticalIn, TacticalLineaIn
 from app.services.sell_in import bonos_crud, compras
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import campanas
@@ -355,7 +355,18 @@ def crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
     return tactical
 
 
+def _validar_hijos(data: TacticalIn) -> None:
+    """A per-product line stores one child per product: bound what one create (one transaction) may store."""
+    hijos = sum(len(set(linea.item_ids)) if linea.tope_por_producto else 1 for linea in data.lineas)
+    if hijos > HIJOS_MAX:
+        raise TacticalError(
+            f"Un tactical crea hasta {HIJOS_MAX} campañas o bonos y este crearía {hijos} (con tope por producto, "
+            "cada producto es uno): partilo en varios tacticals"
+        )
+
+
 def _crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
+    _validar_hijos(data)
     nombre, marca, tc_modo = _validar_cabecera(db, data)
     tactical = Tactical(
         tipo=data.tipo,

@@ -25,6 +25,7 @@ of an `al_cobro` campaign is set with `definir_tipo_cambio`, never by an edit.
 from __future__ import annotations
 
 import functools
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -158,18 +159,22 @@ def _validar_tc(data: SellOutCampanaIn, actual: Optional[SellOutCampana]) -> Non
             )
 
 
-def validar(db: Session, data: SellOutCampanaIn, actual: Optional[SellOutCampana] = None) -> list[int]:
+def validar(
+    db: Session, data: SellOutCampanaIn, actual: Optional[SellOutCampana] = None, *, ocultos: Collection[int] = ()
+) -> list[int]:
     """Raise `SellOutError` on the first broken rule; return the campaign's distinct group ids, in order.
 
-    A USD campaign without `tc_modo` gets `al_cobro` (the default), set on `data` in place.
+    A USD campaign without `tc_modo` gets `al_cobro` (the default), set on `data` in place. A hidden group (a
+    tactical line's own, `OffsetGrupo.oculto`) is taken only when listed in `ocultos`; any other reads as missing,
+    so no campaign request can attach (or probe) another tactical's group.
     """
     validar_campos(data, actual)
     grupo_ids = list(dict.fromkeys(data.grupo_ids))
     if not grupo_ids:
         raise SellOutError("Seleccione al menos un grupo de productos")
-    existentes = {gid for (gid,) in db.query(OffsetGrupo.id).filter(OffsetGrupo.id.in_(grupo_ids))}
+    existentes = dict(db.query(OffsetGrupo.id, OffsetGrupo.oculto).filter(OffsetGrupo.id.in_(grupo_ids)))
     for gid in grupo_ids:
-        if gid not in existentes:
+        if gid not in existentes or (existentes[gid] and gid not in ocultos):
             raise SellOutError(f"El grupo {gid} no existe")
     return grupo_ids
 
@@ -565,7 +570,9 @@ def crear_campana_sin_commit(
     without one. `data.renovada_de_id` (a renewal) is checked and locked by `_validar_renovacion`; it is stored and
     audited the same way. `tactical`: the `(tactical_id, tactical_linea)` it is a line of (`app.services.tacticals`).
     """
-    grupo_ids = validar(db, data)
+    # A tactical's entry is built by `app.services.tacticals` around the hidden group it just created, never by a
+    # request: only then may it name a hidden group.
+    grupo_ids = validar(db, data, ocultos=data.grupo_ids if tactical else ())
     if data.renovada_de_id is not None:
         _validar_renovacion(db, data)
     if data.programa_id is not None:
@@ -604,19 +611,23 @@ def bloquear(db: Session, campana_id: int) -> Optional[SellOutCampana]:
     return campana
 
 
-def _con_grupos_ocultos(db: Session, campana_id: int, data: SellOutCampanaIn) -> SellOutCampanaIn:
-    """`data` with the hidden groups the campaign already has (a tactical line's own group, `OffsetGrupo.oculto`):
-    no group list offers them, so an edit from the campaign panel or the bulk edit never sends them back, and
-    dropping them would take the line's products away from the campaign."""
-    ocultos = [
+def ocultos_de(db: Session, campana_id: int) -> list[int]:
+    """The hidden groups the campaign already has (a tactical line's own group, `OffsetGrupo.oculto`)."""
+    return [
         gid
         for (gid,) in db.query(SellOutCampanaGrupo.grupo_id)
         .join(OffsetGrupo, OffsetGrupo.id == SellOutCampanaGrupo.grupo_id)
         .filter(SellOutCampanaGrupo.campana_id == campana_id, OffsetGrupo.oculto.is_(True))
         .order_by(SellOutCampanaGrupo.grupo_id)
-        if gid not in data.grupo_ids
     ]
-    return data.model_copy(update={"grupo_ids": [*data.grupo_ids, *ocultos]}) if ocultos else data
+
+
+def _con_grupos_ocultos(data: SellOutCampanaIn, ocultos: list[int]) -> SellOutCampanaIn:
+    """`data` with the campaign's own hidden groups: no group list nor campaign payload shows them, so an edit from
+    the campaign panel or the bulk edit never sends them back, and dropping them would take the line's products
+    away from the campaign."""
+    faltan = [gid for gid in ocultos if gid not in data.grupo_ids]
+    return data.model_copy(update={"grupo_ids": [*data.grupo_ids, *faltan]}) if faltan else data
 
 
 def editar_campana_sin_commit(
@@ -639,8 +650,9 @@ def editar_campana_sin_commit(
     campana = bloquear(db, campana_id)
     if campana is None:
         return None
-    data = _con_grupos_ocultos(db, campana_id, data)
-    grupo_ids = validar(db, data, campana)
+    ocultos = ocultos_de(db, campana_id)
+    data = _con_grupos_ocultos(data, ocultos)
+    grupo_ids = validar(db, data, campana, ocultos=ocultos)
     antes = _valores(campana, grupo_ids_de(db, campana_id), items_de(db, [campana_id])[campana_id])
     if compartian is None:
         compartian = asignacion.vinculadas(db, [campana_id])  # before the edit unlinks them
@@ -1001,15 +1013,16 @@ def por_programa(
 
 
 def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
-    """Each campaign with its groups (id and name, in link order), its per-product amounts (by item_id) and its
-    program (`{id, nombre}` or None; metadata, never part of an edit), in one query each for the whole page."""
+    """Each campaign with its groups (id and name, in link order; never a hidden one, a tactical line's own group,
+    which is technical and kept by the edit step), its per-product amounts (by item_id) and its program
+    (`{id, nombre}` or None; metadata, never part of an edit), in one query each for the whole page."""
     ids = [c.id for c in campanas]
     grupos: dict[int, list[dict]] = {i: [] for i in ids}
     if ids:
         rows = (
             db.query(SellOutCampanaGrupo.campana_id, OffsetGrupo.id, OffsetGrupo.nombre)
             .join(OffsetGrupo, OffsetGrupo.id == SellOutCampanaGrupo.grupo_id)
-            .filter(SellOutCampanaGrupo.campana_id.in_(ids))
+            .filter(SellOutCampanaGrupo.campana_id.in_(ids), OffsetGrupo.oculto.is_(False))
             .order_by(SellOutCampanaGrupo.id)
         )
         for campana_id, gid, nombre in rows:
@@ -1033,6 +1046,7 @@ def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:
         fila["items"] = items[c.id]
         fila["programa_id"] = c.programa_id
         fila["renovada_de_id"] = c.renovada_de_id
+        fila["tactical_id"] = c.tactical_id
         fila["programa"] = de_programa.get(c.programa_id)
         salida.append(fila)
     return salida

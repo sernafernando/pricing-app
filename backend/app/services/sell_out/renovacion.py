@@ -108,6 +108,7 @@ def borrador(db: Session, campana_id: int) -> Optional[SellOutCampanaIn]:
             f"La campaña tiene {len(items)} productos con monto propio o reparto: una renovación copia hasta "
             f"{ITEMS_MAX}. Cargá la nueva campaña a mano o reducí el reparto."
         )
+    ocultos = set(campanas.ocultos_de(db, campana.id))  # a tactical line's own: a plain create refuses it
     nombre = nombre_renovado(campana.nombre, desde)
     if len(nombre) > NOMBRE_MAX:  # a longer month ("mayo" -> "julio") past the column: keep the original, editable
         nombre = campana.nombre
@@ -132,7 +133,7 @@ def borrador(db: Session, campana_id: int) -> Optional[SellOutCampanaIn]:
         tope_monto=campana.tope_monto,
         acumulable=campana.acumulable,
         monto_incluye_iva=campana.monto_incluye_iva,
-        grupo_ids=campanas.grupo_ids_de(db, campana.id),
+        grupo_ids=[g for g in campanas.grupo_ids_de(db, campana.id) if g not in ocultos],
         items=items,
         programa_id=programa_id,
         renovada_de_id=campana.id,

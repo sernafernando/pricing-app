@@ -167,4 +167,14 @@ describe('faltantes', () => {
     expect(faltantes({ ...POR_UNIDAD, topeUnidades: '500' })).toEqual([]);
     expect(faltantes(POR_UNIDAD)).toEqual([]);
   });
+
+  it("does not ask a tactical line's campaign for groups: its hidden group is never shown and the API keeps it", () => {
+    const valores = valoresDeCampana({ ...CAMPANA_MIGRADA, grupos: [], tactical_id: 12 });
+
+    expect(valores.tacticalId).toBe(12);
+    expect(valores.grupoIds).toEqual([]);
+    expect(faltantes(valores)).not.toContain('productos alcanzados');
+    expect(bodyDeCampana(valores)).not.toHaveProperty('tactical_id');
+    expect(faltantes({ ...POR_UNIDAD, grupoIds: [] })).toEqual(['productos alcanzados']);
+  });
 });

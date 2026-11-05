@@ -26,6 +26,7 @@ from app.models.sell_out import (
 from app.schemas.sell_out import SellOutCampanaIn
 from app.schemas.tacticals import TacticalIn
 from app.services import tacticals as service
+from app.services.sell_out import edicion_masiva, renovacion
 from tests.services.sell._schema import throwaway_schema
 from tests.services.sell_in import _bono_world as bw
 
@@ -316,3 +317,75 @@ class TestEditarCampanaDeUnTactical:
         with engine.connect() as conn:
             assert conn.execute(text("SELECT grupo_id FROM sell_out_campana_grupos")).scalars().all() == [gid]
             assert conn.execute(text("SELECT monto_unit FROM sell_out_campanas")).scalar() == Decimal("12.00")
+
+    def test_the_bulk_edit_keeps_its_hidden_group(self, db, engine) -> None:
+        """The bulk edit rebuilds each campaign from its stored values, which no longer list the hidden group."""
+        service.crear(db, _tactical(), USUARIO)
+        with engine.connect() as conn:
+            cid, gid = conn.execute(text("SELECT campana_id, grupo_id FROM sell_out_campana_grupos")).one()
+
+        assert edicion_masiva.editar_campanas(db, [cid], {"fecha_hasta": date(2026, 11, 20)}, USUARIO) == ([cid], [])
+
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT grupo_id FROM sell_out_campana_grupos")).scalars().all() == [gid]
+            assert conn.execute(text("SELECT fecha_hasta FROM sell_out_campanas")).scalar() == date(2026, 11, 20)
+
+    def test_the_campaign_list_never_shows_a_hidden_group(self, db, engine) -> None:
+        tactical = service.crear(db, _tactical(), USUARIO)
+        campana = db.query(SellOutCampana).filter(SellOutCampana.tactical_id == tactical.id).one()
+
+        [fila] = service.campanas.serializar(db, [campana])
+        assert (fila["grupos"], fila["tactical_id"]) == ([], tactical.id)
+
+    def test_a_renewal_draft_never_copies_a_hidden_group(self, db, engine) -> None:
+        """Saving the draft is a plain create, which refuses a hidden group: the draft leaves it out."""
+        tactical = service.crear(db, _tactical(), USUARIO)
+        campana = db.query(SellOutCampana).filter(SellOutCampana.tactical_id == tactical.id).one()
+
+        assert renovacion.borrador(db, campana.id).grupo_ids == []
+
+
+class TestHiddenGroupsAreTheTacticalsOwn:
+    def _oculto(self, db, engine) -> int:
+        service.crear(db, _tactical(), USUARIO)
+        with engine.connect() as conn:
+            return conn.execute(text("SELECT grupo_id FROM sell_out_campana_grupos")).scalar()
+
+    def _campana(self, grupo_ids: list[int]) -> SellOutCampanaIn:
+        return SellOutCampanaIn(
+            nombre="Ajena", fecha_desde=date(2026, 11, 1), fecha_hasta=date(2026, 11, 30), tipo="por_unidad",
+            monto_unit=Decimal("3"), moneda="ARS", grupo_ids=grupo_ids,
+        )  # fmt: skip
+
+    def test_a_campaign_create_cannot_take_a_tactical_s_hidden_group(self, db, engine) -> None:
+        gid = self._oculto(db, engine)
+
+        with pytest.raises(service.campanas.SellOutError, match=f"^El grupo {gid} no existe$"):
+            service.campanas.crear_campana(db, self._campana([gid]), USUARIO)
+        assert _contar(engine, "sell_out_campanas") == 1
+
+    def test_a_campaign_edit_cannot_take_another_tactical_s_hidden_group(self, db, engine) -> None:
+        gid = self._oculto(db, engine)
+        visible = OffsetGrupo(nombre="Visible", usuario_id=USUARIO)
+        db.add(visible)
+        db.commit()
+        propia = service.campanas.crear_campana(db, self._campana([visible.id]), USUARIO)
+
+        with pytest.raises(service.campanas.SellOutError, match=f"^El grupo {gid} no existe$"):
+            service.campanas.editar_campana(db, propia.id, self._campana([visible.id, gid]), USUARIO)
+        db.rollback()
+        assert _contar(engine, "sell_out_campana_grupos", f"campana_id = {propia.id}") == 1
+
+
+class TestChildrenCap:
+    def test_a_create_past_the_children_cap_is_refused_before_storing(self, db, engine) -> None:
+        linea = {"alcance": "productos", "modo_monto": "por_unidad", "valor": "5", "tope_por_producto": True}
+        lineas = [{**linea, "item_ids": list(range(1, 301))}, {**linea, "item_ids": list(range(301, 601))}]
+
+        with pytest.raises(service.TacticalError) as exc:
+            service.crear(db, _tactical(lineas=lineas), USUARIO)
+        assert str(exc.value) == (
+            "Un tactical crea hasta 500 campañas o bonos y este crearía 600 (con tope por producto, cada producto "
+            "es uno): partilo en varios tacticals"
+        )
+        assert _contar(engine, "tacticals") == 0

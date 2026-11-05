@@ -370,6 +370,8 @@ class SellOutCampanaOut(BaseModel):
     # Its program (metadata only), set with `POST /api/sell-out/programas/asignar`, never by an edit.
     programa_id: Optional[int] = None
     renovada_de_id: Optional[int] = None
+    # read-only: the tactical it is a line of; its own hidden group is never in `grupos` (the edit step keeps it)
+    tactical_id: Optional[int] = None
     programa: Optional[SellOutProgramaRefOut] = None
     created_at: datetime
     updated_at: datetime

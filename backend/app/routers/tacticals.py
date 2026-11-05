@@ -7,6 +7,8 @@ build against is `handoffs/tactical-tarea.md` "Contrato final".
 - The author comes from the token, never from the body.
 - `GET ""` is paginated, newest start first, filtered by kind, brand, estado (vigentes | vencidos | anulados), a
   period its dates overlap (an inverted one is a 422) and free text over name or reference.
+- A create stores at most `HIJOS_MAX` (500) campaigns or bonuses (a per-product line counts each product): past it,
+  a 422 before anything is stored.
 - A broken rule is a 422 with one Spanish message ("Línea N: ..." when a line broke it); a campaign being
   recomputed is a 409 (retry; nothing stored); voiding twice is a 409; an unknown tactical is a 404.
 """

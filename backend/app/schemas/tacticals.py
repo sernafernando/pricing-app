@@ -26,6 +26,7 @@ MARCA_MAX = 100  # productos_erp.marca is VARCHAR(100)
 LINEAS_MAX = 100
 ITEMS_MAX = 500
 NOTA_MAX = 2000
+HIJOS_MAX = 500  # campaigns or bonuses one create may store: one per-product line over a full product list
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
 INT_MAX = 2**31 - 1
 MONTO = {"max_digits": 18, "decimal_places": 2}

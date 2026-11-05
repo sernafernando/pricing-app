@@ -19,6 +19,9 @@ export const CAMPANA_VACIA = {
   acumulable: true,
   montoIncluyeIva: false,
   grupoIds: [],
+  // The tactical it is a line of (`tactical_id`), read-only: its own hidden group is never listed, so it needs no
+  // visible group and the API keeps the hidden one on edit.
+  tacticalId: null,
   // Products with their own amount per unit (`por_unidad` only; a `monto_total` campaign's shares are edited apart,
   // in its reparto section, so they never enter the form): `{ itemId, codigo, descripcion, monto }`.
   // The API names each stored product (`codigo`/`descripcion`); null when it left the ERP catalog.
@@ -58,6 +61,7 @@ export function valoresDeCampana(campana) {
     acumulable: campana.acumulable,
     montoIncluyeIva: campana.monto_incluye_iva,
     grupoIds: (campana.grupos ?? []).map((g) => g.id),
+    tacticalId: campana.tactical_id ?? null,
     repartosGuardados: campana.tipo === 'monto_total' ? (campana.items ?? []).length : 0,
     items: (campana.tipo === 'monto_total' ? [] : campana.items ?? []).map((i) => ({
       itemId: i.item_id,
@@ -167,6 +171,6 @@ export function faltantes(v) {
   if (v.tipo === 'monto_total' && !distintoDeCero(v.montoTotal)) faltan.push('monto total');
   if (v.moneda === 'USD' && v.tcModo === 'fijo' && !positivo(v.tipoCambio)) faltan.push('tipo de cambio');
   if (opcional(v.topeUnidades) !== null && !Number.isInteger(Number(v.topeUnidades))) faltan.push('tope de unidades entero');
-  if (v.grupoIds.length === 0) faltan.push('productos alcanzados');
+  if (v.grupoIds.length === 0 && (v.tacticalId ?? null) === null) faltan.push('productos alcanzados');
   return faltan;
 }
