@@ -16,7 +16,7 @@ Never crashes: any promo whose cost/publication/effective-price cannot be
 resolved gets `nuestro_markup = None`.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from sqlalchemy.orm import Session
 
@@ -287,6 +287,88 @@ def markup_para_precio(db: Session, mla: str, price: float) -> Optional[float]:
         return None
 
     return _markup_con_contexto(db, context, price, mla=mla)
+
+
+# Types where ML co-funds the discount (`_co_funding_amount`). A started
+# offer of one of these is the real status quo when its consumer price is
+# the sale_price — plain `markup_para_precio(sale)` would understate markup.
+COFUNDED_PROMOTION_TYPES: frozenset[str] = frozenset({"SMART", "PRE_NEGOTIATED", "PRICE_MATCHING"})
+
+# Pesos: sale_price and started `price` can differ by cents (e.g. 555867.83 vs 555867.8).
+_BASELINE_PRICE_TOLERANCE_ARS = 1.0
+
+
+def _prices_close(
+    left: Optional[float], right: Optional[float], *, tolerance: float = _BASELINE_PRICE_TOLERANCE_ARS
+) -> bool:
+    if left is None or right is None:
+        return False
+    try:
+        return abs(float(left) - float(right)) <= tolerance
+    except (TypeError, ValueError):
+        return False
+
+
+def markup_baseline_vigente(
+    db: Session,
+    mla: str,
+    baseline_price: float,
+    *,
+    raw_promotions: Any = None,
+) -> Optional[float]:
+    """Seller markup for the MeLi status-quo price used by hay_mejores.
+
+    - If a **started** SMART / PRE_NEGOTIATED / PRICE_MATCHING entry's offer
+      price matches ``baseline_price`` (sale), use the co-funded chain
+      (same as the promo card / ``enriquecer_markup_por_promo``).
+    - Otherwise use plain ``markup_para_precio`` (no co-funding) — list
+      price, DEAL/seller campaigns, or no matching cofunded started offer.
+
+    ``raw_promotions`` is the seller-promotions mirror list (store `raw` or
+    the same shape). Never raises: None when markup cannot be computed.
+    """
+    if baseline_price is None or baseline_price <= 0:
+        return None
+
+    started_cofunded: List[Dict[str, Any]] = []
+    if isinstance(raw_promotions, list):
+        for entry in raw_promotions:
+            if not isinstance(entry, Mapping):
+                continue
+            status = entry.get("status")
+            promo_type = entry.get("type") or entry.get("promotion_type")
+            if status != "started" or promo_type not in COFUNDED_PROMOTION_TYPES:
+                continue
+            started_cofunded.append(
+                {
+                    "mla": mla,
+                    "promotion_id": entry.get("id") or entry.get("promotion_id"),
+                    "promotion_type": promo_type,
+                    "status": status,
+                    "price": entry.get("price"),
+                    "original_price": entry.get("original_price"),
+                    "suggested_discounted_price": entry.get("suggested_discounted_price"),
+                    "payload": dict(entry.get("payload") or entry),
+                }
+            )
+
+    if started_cofunded:
+        try:
+            enriquecer_markup_por_promo(db, mla, started_cofunded)
+        except Exception as e:
+            logger.warning("Error enriqueciendo baseline cofunded mla %s: %s", mla, e)
+            return markup_para_precio(db, mla, baseline_price)
+
+        matched = [
+            promo
+            for promo in started_cofunded
+            if _prices_close(precio_de_oferta(promo), baseline_price) and promo.get("nuestro_markup") is not None
+        ]
+        if matched:
+            # Same consumer price: pick the best reported markup (ties rare).
+            return max(float(promo["nuestro_markup"]) for promo in matched)
+
+    return markup_para_precio(db, mla, baseline_price)
 
 
 def markup_de_oferta_live(

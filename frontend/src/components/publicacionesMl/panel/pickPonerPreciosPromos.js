@@ -8,6 +8,41 @@ const MONTHS_ES = [
   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
 ];
 
+/** Keep in sync with backend `COFUNDED_PROMOTION_TYPES` (ml_promotions_pricing). */
+export const COFUNDED_PROMOTION_TYPES = new Set(['SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING']);
+
+/** Pesos: sale vs started offer can differ by cents. Keep in sync with backend tolerance. */
+const BASELINE_PRICE_TOLERANCE_ARS = 1;
+
+export function pricesClose(left, right, tolerance = BASELINE_PRICE_TOLERANCE_ARS) {
+  if (left == null || right == null) return false;
+  const a = Number(left);
+  const b = Number(right);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) <= tolerance;
+}
+
+/**
+ * Status-quo markup for the chooser: co-funded started offer matching
+ * `baselinePrice` (same chain as the promo card), else null so the caller
+ * falls back to `getMarkupParaPrecio` (plain sale, no co-funding).
+ */
+export function baselineMarkupFromPromos(promotions, baselinePrice) {
+  if (baselinePrice == null || !Number.isFinite(Number(baselinePrice))) return null;
+  const started = (promotions || []).filter(
+    (promo) =>
+      promo?.status === 'started' &&
+      COFUNDED_PROMOTION_TYPES.has(promo.promotion_type) &&
+      typeof promo.nuestro_markup === 'number' &&
+      Number.isFinite(promo.nuestro_markup) &&
+      pricesClose(promoDisplayPrice(promo), baselinePrice),
+  );
+  if (!started.length) return null;
+  const active = started.filter((promo) => promo.application_status === 'active');
+  const pool = active.length ? active : started;
+  return Math.max(...pool.map((promo) => promo.nuestro_markup));
+}
+
 export function currentMonthNameEs(now = new Date()) {
   return MONTHS_ES[now.getMonth()];
 }

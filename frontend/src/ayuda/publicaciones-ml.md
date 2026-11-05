@@ -48,7 +48,7 @@ Flujo paralelo para cargar precios rápido. Al activarlo:
 
 ## Hay mejores ofertas
 
-El filtro de promos **Hay mejores ofertas** lista publicaciones con candidatas que mejoran el precio vigente en Mercado Libre (mismo precio con más markup, o precio más bajo con markup igual o mayor).
+El filtro de promos **Hay mejores ofertas** lista publicaciones con candidatas que mejoran el precio vigente en Mercado Libre (mismo precio con más markup, o precio más bajo con markup igual o mayor). El markup del precio vigente usa el aporte de Mercado Libre cuando la publicación ya tiene una SMART / PRE_NEGOTIATED / PRICE_MATCHING aplicada a ese precio; si no, se calcula sobre el sale sin cofinanciación.
 
 Al abrir una de esas publicaciones fuera de MODO PONER PRECIOS (y con permiso para escribir promos), arriba de las pestañas aparece un bloque para elegir la mejor **SMART**, la mejor **DEAL** y la **Premium** del mes que pasen ese criterio (si no hay Premium, ese slot no aparece); las pestañas siguen disponibles. Si el aviso quedó desactualizado y ninguna de esas tres supera el precio vigente, el bloque lo dice y deja **Descartar** el aviso. En MODO PONER PRECIOS, el mismo selector aparece antes del campo **Nuevo precio**, que solo se muestra después de **Descartar** la sugerencia (al aplicar una candidata, el panel se cierra). Sin permiso para escribir promos, el selector no se muestra y el panel normal (o el campo de precio en el modo) sigue usable.
 

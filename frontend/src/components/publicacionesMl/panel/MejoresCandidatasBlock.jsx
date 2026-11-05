@@ -5,6 +5,7 @@ import { promocionesAPI } from '../../../services/api';
 import { resolvePromoName } from '../../promociones/resolvePromoName';
 import { promoDisplayPrice } from '../../promociones/promoDisplayPrice';
 import {
+  baselineMarkupFromPromos,
   enrollBodyForPromo,
   hasPickedSlot,
   pickMejoresCandidatas,
@@ -50,8 +51,13 @@ export default function MejoresCandidatasBlock({
       setLoading(true);
       setMessage(null);
       try {
-        let markup = null;
-        if (baselinePrice != null && Number.isFinite(Number(baselinePrice))) {
+        const promoRes = await promocionesAPI.getPromocionesItem(itemId);
+        if (cancelled) return;
+        const promotions = promoRes?.data?.promotions ?? promoRes?.data?.promociones ?? [];
+        // Co-funded started (SMART / PRE_NEGOTIATED / PRICE_MATCHING) matching
+        // sale → same markup as the promo card; else plain getMarkupParaPrecio.
+        let markup = baselineMarkupFromPromos(promotions, baselinePrice);
+        if (markup == null && baselinePrice != null && Number.isFinite(Number(baselinePrice))) {
           try {
             const res = await promocionesAPI.getMarkupParaPrecio(itemId, Number(baselinePrice));
             markup = res?.data?.nuestro_markup ?? null;
@@ -65,9 +71,6 @@ export default function MejoresCandidatasBlock({
           return;
         }
         setBaselineMarkup(markup);
-        const promoRes = await promocionesAPI.getPromocionesItem(itemId);
-        if (cancelled) return;
-        const promotions = promoRes?.data?.promotions ?? promoRes?.data?.promociones ?? [];
         const picked = pickMejoresCandidatas(promotions, {
           baselinePrice: Number(baselinePrice),
           baselineMarkup: markup,

@@ -554,3 +554,90 @@ class TestMarkupParaPrecio:
             patch("app.services.ml_promotions_pricing.calcular_comision_ml_total", side_effect=RuntimeError("boom")),
         ):
             assert markup_para_precio(db, "MLA1", 850.0) is None
+
+
+# ── markup_baseline_vigente ───────────────────────────────────────
+
+
+class TestMarkupBaselineVigente:
+    def test_uses_cofunded_started_when_price_matches_sale(self) -> None:
+        from app.services.ml_promotions_pricing import markup_baseline_vigente
+
+        db = MagicMock()
+        raw = [
+            {
+                "id": "P-1",
+                "type": "PRICE_MATCHING",
+                "status": "started",
+                "price": 555867.8,
+                "original_price": 939442,
+                "payload": {"meli_percentage": 10},
+            },
+            {
+                "id": "P-2",
+                "type": "SMART",
+                "status": "candidate",
+                "price": 526957,
+                "original_price": 939442,
+            },
+        ]
+
+        def _enrich(_db, _mla, promos):
+            for promo in promos:
+                promo["nuestro_markup"] = 1.4
+            return promos
+
+        with patch("app.services.ml_promotions_pricing.enriquecer_markup_por_promo", side_effect=_enrich):
+            assert markup_baseline_vigente(db, "MLA1", 555867.83, raw_promotions=raw) == pytest.approx(1.4)
+
+    def test_falls_back_to_plain_markup_without_cofunded_started(self) -> None:
+        from app.services.ml_promotions_pricing import markup_baseline_vigente
+
+        db = MagicMock()
+        raw = [
+            {
+                "id": "P-2",
+                "type": "SMART",
+                "status": "candidate",
+                "price": 526957,
+            },
+            {
+                "id": "C-1",
+                "type": "SELLER_CAMPAIGN",
+                "status": "started",
+                "price": 599999,
+            },
+        ]
+        with patch(
+            "app.services.ml_promotions_pricing.markup_para_precio",
+            return_value=-5.1,
+        ) as plain:
+            assert markup_baseline_vigente(db, "MLA1", 555867.83, raw_promotions=raw) == -5.1
+            plain.assert_called_once_with(db, "MLA1", 555867.83)
+
+    def test_falls_back_when_started_cofunded_price_does_not_match_sale(self) -> None:
+        from app.services.ml_promotions_pricing import markup_baseline_vigente
+
+        db = MagicMock()
+        raw = [
+            {
+                "id": "P-1",
+                "type": "PRICE_MATCHING",
+                "status": "started",
+                "price": 400000,
+                "original_price": 939442,
+                "payload": {"meli_percentage": 10},
+            },
+        ]
+
+        def _enrich(_db, _mla, promos):
+            for promo in promos:
+                promo["nuestro_markup"] = 1.4
+            return promos
+
+        with (
+            patch("app.services.ml_promotions_pricing.enriquecer_markup_por_promo", side_effect=_enrich),
+            patch("app.services.ml_promotions_pricing.markup_para_precio", return_value=-5.1) as plain,
+        ):
+            assert markup_baseline_vigente(db, "MLA1", 555867.83, raw_promotions=raw) == -5.1
+            plain.assert_called_once()

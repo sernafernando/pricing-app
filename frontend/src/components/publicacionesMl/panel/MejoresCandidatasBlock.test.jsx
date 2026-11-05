@@ -61,4 +61,34 @@ describe('MejoresCandidatasBlock', () => {
     });
     expect(screen.getByRole('button', { name: /SMART/ })).toBeInTheDocument();
   });
+
+  it('uses cofunded started markup as vigente and does not call getMarkupParaPrecio', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          {
+            status: 'started',
+            promotion_type: 'PRICE_MATCHING',
+            application_status: 'active',
+            promotion_id: 'P-LIVE',
+            price: 555867.8,
+            nuestro_markup: 1.4,
+            name: 'Gánale',
+          },
+          {
+            status: 'candidate',
+            promotion_type: 'SMART',
+            promotion_id: 'P-SMART',
+            price: 526957,
+            nuestro_markup: -5.06,
+            name: 'Potencia',
+          },
+        ],
+      },
+    });
+    render(<MejoresCandidatasBlock itemId="MLA3" baselinePrice={555867.83} />);
+    expect(await screen.findByText(/No hay candidatas SMART \/ DEAL \/ Premium/)).toBeInTheDocument();
+    expect(screen.getByText(/markup vigente ~ 1,40%/i)).toBeInTheDocument();
+    expect(promocionesAPI.getMarkupParaPrecio).not.toHaveBeenCalled();
+  });
 });
