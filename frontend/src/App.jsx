@@ -56,6 +56,7 @@ const MetricasML = lazy(() => import('./pages/MetricasML'));
 const MlAds = lazy(() => import('./pages/MlAds'));
 const ApiDocs = lazy(() => import('./pages/ApiDocs'));
 const SellIn = lazy(() => import('./pages/SellIn'));
+const TacticalNuevo = lazy(() => import('./pages/TacticalNuevo'));
 const PublicacionesML = lazy(() => import('./pages/PublicacionesML'));
 const GestionFull = lazy(() => import('./pages/GestionFull'));
 const ConsultasRanking = lazy(() => import('./pages/ConsultasRanking'));
@@ -121,6 +122,7 @@ const protectedRoutes = [
   { path: '/tienda', component: Tienda, permiso: 'productos.ver_tienda' },
   { path: '/precios-listas', component: PreciosListas, permiso: 'productos.ver' },
   { path: '/sell-in', component: SellIn, permiso: 'sell_in.ver' },
+  { path: '/sell-in/tactical/nuevo', component: TacticalNuevo, permiso: 'sell_in.ver' },
   { path: '/ultimos-cambios', component: UltimosCambios, permiso: 'productos.ver_auditoria' },
   // No permiso: visible to any logged-in user (see AppLayout's outer auth
   // guard) — feature announcements are not a permission-gated concept.

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useSearchParams } from 'react-router-dom';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
@@ -25,6 +25,23 @@ import {
 import SellIn from './SellIn';
 
 const TACTICAL = { ...TACTICAL_REBATE, id: 7, nombre: 'Rebate TP-Link noviembre', marca: 'TP-Link' };
+
+function NuevoTacticalProbe() {
+  const [params] = useSearchParams();
+  return <p>{`Nuevo tactical: ${params.get('tipo')}`}</p>;
+}
+
+/** SellIn with the Nuevo tactical route next to it, so a button that goes there shows where it went. */
+function renderConNuevoTactical(entrada) {
+  return render(
+    <MemoryRouter initialEntries={[entrada]}>
+      <Routes>
+        <Route path="/sell-in" element={<SellIn />} />
+        <Route path="/sell-in/tactical/nuevo" element={<NuevoTacticalProbe />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
 
 vi.mock('../services/sellInAPI', () => ({
   sellInAPI: {
@@ -237,25 +254,6 @@ describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
     expect(vigentes).toHaveTextContent('—');
     expect(vigentes).toHaveTextContent('No se pudieron cargar');
     expect(within(cards).getByText('Compras alcanzadas').parentElement).toHaveTextContent('—');
-  });
-
-  it('saving a brand bonus asks the active bonuses again, so its cards follow the list', async () => {
-    const user = userEvent.setup();
-    const vigentesPedidos = () => sellInBonosAPI.listar.mock.calls.filter(([params]) => params?.estado === 'activa').length;
-    sellInBonosAPI.crear.mockResolvedValue({ data: BONO });
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    await waitFor(() => expect(vigentesPedidos()).toBe(1));
-    await waitFor(() => expect(screen.getByRole('option', { name: 'TP-Link' })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /Nuevo sell in/ }));
-    const panel = screen.getByRole('complementary', { name: 'Nuevo sell in' });
-    await user.click(within(panel).getByRole('button', { name: 'Bono de marca' }));
-    await user.selectOptions(within(panel).getByLabelText('Marca'), 'TP-Link');
-    await user.type(within(panel).getByLabelText('Monto por unidad'), '3');
-    await user.type(within(panel).getByLabelText('Factura desde'), '2026-09-01');
-    await user.type(within(panel).getByLabelText('Factura hasta'), '2026-11-30');
-    await user.click(within(panel).getByRole('button', { name: 'Guardar bono' }));
-    await waitFor(() => expect(vigentesPedidos()).toBe(2));
   });
 
   it('the summary adds the active brand bonuses, their brands and the purchases they reached', async () => {
@@ -526,15 +524,12 @@ describe('SellIn page — list', () => {
     expect(lastParams(sellInAPI.resumen)).toEqual({ aplica: 'si', moneda: 'USD', estado: 'anulada', marcas: 'TP-Link' });
   });
 
-  it('"Nuevo sell in" opens the create panel beside the list, never a modal', async () => {
+  it('"Nuevo sell in" opens Nuevo tactical on sell in', async () => {
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
+    renderConNuevoTactical('/sell-in');
     await screen.findByText('Bonificación Q4 switches');
     await user.click(screen.getByRole('button', { name: /Nuevo sell in/ }));
-    const panel = screen.getByRole('complementary', { name: 'Nuevo sell in' });
-    expect(within(panel).getByRole('heading', { name: 'Nuevo sell in · Por compra' })).toBeInTheDocument();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByText('Bonificación Q4 switches')).toBeInTheDocument();
+    expect(await screen.findByText('Nuevo tactical: sell_in')).toBeInTheDocument();
   });
 
   it('"Detalle" opens the purchase in the side panel', async () => {
@@ -606,23 +601,6 @@ describe('SellIn page — brand bonuses', () => {
     await waitFor(() => expect(sellInBonosAPI.detalle).toHaveBeenCalledWith(3));
   });
 
-  it('a bonus created from the switch opens in the panel and the bonus list reloads', async () => {
-    const user = userEvent.setup();
-    sellInBonosAPI.crear.mockResolvedValue({ data: BONO });
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    await waitFor(() => expect(screen.getByRole('option', { name: 'TP-Link' })).toBeInTheDocument());
-    await user.click(screen.getByRole('button', { name: /Nuevo sell in/ }));
-    const panel = screen.getByRole('complementary', { name: 'Nuevo sell in' });
-    await user.click(within(panel).getByRole('button', { name: 'Bono de marca' }));
-    await user.selectOptions(within(panel).getByLabelText('Marca'), 'TP-Link');
-    await user.type(within(panel).getByLabelText('Monto por unidad'), '3');
-    await user.type(within(panel).getByLabelText('Factura desde'), '2026-09-01');
-    await user.type(within(panel).getByLabelText('Factura hasta'), '2026-11-30');
-    await user.click(within(panel).getByRole('button', { name: 'Guardar bono' }));
-    expect(await screen.findByRole('complementary', { name: 'Bono de marca' })).toBeInTheDocument();
-    await waitFor(() => expect(listadosDeBonos()).toBe(2));
-  });
 });
 
 describe('SellIn page — purchases generated by a brand bonus', () => {
@@ -773,25 +751,6 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
   });
 
-  it('a group created in Grupos is offered in "Nueva campaña" without reloading the page', async () => {
-    const user = userEvent.setup();
-    const NUEVO = { id: 3, nombre: 'Mercusys', descripcion: null, filtros: [] };
-    offsetGruposAPI.crear.mockResolvedValue({ data: NUEVO });
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
-    expect(await screen.findByText('TP-Link redes')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Nuevo grupo' }));
-    const panel = screen.getByRole('complementary', { name: 'Grupo' });
-    sellOutAPI.grupos.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }, NUEVO] });
-    offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }, NUEVO] });
-    await user.type(within(panel).getByLabelText('Nombre'), 'Mercusys');
-    await user.click(within(panel).getByRole('button', { name: 'Crear grupo' }));
-    await waitFor(() => expect(offsetGruposAPI.crear).toHaveBeenCalled());
-
-    await user.click(screen.getByRole('tab', { name: /Sell out/ }));
-    await user.click(await screen.findByRole('button', { name: /Nueva campaña/ }));
-    expect(await screen.findByRole('checkbox', { name: 'Mercusys' })).toBeInTheDocument();
-  });
-
   it('"Actualizar" also asks again the groups a new campaign can reach', async () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
@@ -800,26 +759,17 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await waitFor(() => expect(sellOutAPI.grupos).toHaveBeenCalledTimes(2));
   });
 
-  it('"Nueva campaña" opens the form with the offset groups; saving shows the new campaign and reloads the list', async () => {
+  it('"Nueva campaña" opens Nuevo tactical on sell out', async () => {
     const user = userEvent.setup();
-    sellOutAPI.crear.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, id: 95, nombre: 'Epson diciembre' } });
-    sellOutAPI.detalle.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, id: 95, nombre: 'Epson diciembre' } });
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    renderConNuevoTactical('/sell-in?tab=sell-out');
     await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole('button', { name: /Nueva campaña/ }));
+    expect(await screen.findByText('Nuevo tactical: sell_out')).toBeInTheDocument();
+  });
 
-    expect(await screen.findByRole('heading', { name: 'Nueva campaña de sell out' })).toBeInTheDocument();
-    await user.type(screen.getByLabelText('Nombre'), 'Epson diciembre');
-    await user.type(screen.getByLabelText('Monto por unidad'), '12');
-    await user.type(screen.getByLabelText('Desde'), '2026-12-01');
-    await user.type(screen.getByLabelText('Hasta'), '2026-12-31');
-    await user.click(await screen.findByRole('checkbox', { name: 'TP-Link redes' }));
-    await user.click(screen.getByRole('button', { name: 'Guardar campaña' }));
-
-    expect(await screen.findByRole('heading', { name: 'Epson diciembre', level: 2 })).toBeInTheDocument();
-    expect(sellOutAPI.detalle).toHaveBeenCalledWith(95);
-    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
+  it('shows once what Nuevo tactical created when it comes back', async () => {
+    renderConNuevoTactical({ pathname: '/sell-in', state: { aviso: 'Tactical creado: Rebate TP-Link · 2 líneas.' } });
+    expect(await screen.findByText('Tactical creado: Rebate TP-Link · 2 líneas.')).toBeInTheDocument();
   });
 
   it('"Renovar" saves the copy as a new campaign and shows it like "Nueva campaña"; the original is not edited', async () => {

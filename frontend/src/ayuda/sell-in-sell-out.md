@@ -16,13 +16,29 @@ En **Sell in** podés filtrar por fechas, búsqueda, marca, moneda (ARS/USD), es
 - Los bonos de marca siguen la búsqueda (descripción o marca del bono), la marca, la moneda, el estado y las fechas. Con fechas, se ven los bonos cuyo rango de fechas se cruza con el período elegido, aunque sea un solo día. La marca muestra todos los bonos que alcanzan productos de esa marca: los de esa marca, los de una categoría con productos de esa marca, los de modelos de esa marca y los de una operación con productos de esa marca (facturados o recibidos). Un bono de operación que todavía no tiene productos facturados ni recibidos no se puede ubicar en una marca: aparece con cualquier marca elegida. Aplicación, Producto y Proveedor no filtran los bonos: un bono no tiene "aplica" y alcanza una marca, una categoría, modelos o una operación, no un proveedor.
 - Las tarjetas de bonos vigentes cuentan siempre todos los bonos activos, con cualquier filtro.
 
-Si tenés permiso, el botón **Nuevo sell in** abre el panel para crear una compra o un bono. Al tocar una fila se abre el panel lateral con el detalle.
+Si tenés permiso (sell_in.gestionar), el botón **Nuevo sell in** abre la pantalla **Nuevo tactical** con el tipo Sell in elegido (ver más abajo). Al tocar una fila se abre el panel lateral con el detalle.
 
-En **Sell out** se listan las campañas, con paginación. Se filtran por período (las campañas cuyas fechas tocan el período elegido; **Todas las fechas** lo quita), por nombre, por estado (Activa/Anulada), por tipo (Por unidad, Porcentaje, Monto total), por moneda (ARS/USD), por marca (las campañas que alcanzan algún producto de esa marca a través de sus grupos) y, si tenés permiso de gestión de campañas, por grupo. Si tenés permiso, **Nueva campaña** abre el panel de campaña.
+En **Sell out** se listan las campañas, con paginación. Se filtran por período (las campañas cuyas fechas tocan el período elegido; **Todas las fechas** lo quita), por nombre, por estado (Activa/Anulada), por tipo (Por unidad, Porcentaje, Monto total), por moneda (ARS/USD), por marca (las campañas que alcanzan algún producto de esa marca a través de sus grupos) y, si tenés permiso de gestión de campañas, por grupo. Si tenés permiso (sell_out.gestionar), **Nueva campaña** abre la pantalla **Nuevo tactical** con el tipo Sell out elegido.
 
 Para anular varias campañas de una vez (pide permiso de gestión de campañas, sell_out.gestionar): marcá la casilla de cada fila, la casilla del encabezado para toda la página, o **Seleccionar todo lo filtrado (N)** para todas las que coinciden con los filtros. La barra muestra cuántas hay seleccionadas; **Anular seleccionadas** pide confirmación, dice cuántas se anulan y permite un motivo. El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban. Es todo o nada: si alguna no se puede anular, no se anula ninguna y el mensaje dice cuál y por qué. Si una se está recalculando, el mensaje la nombra y se puede reintentar en unos segundos. Las que ya estaban anuladas se omiten y el resultado las cuenta aparte. Se pueden anular hasta 500 por vez. Con algo seleccionado aparece una barra flotante abajo y al centro de la ventana, con **N seleccionadas**, **Asignar a programa**, **Anular seleccionadas** y **×** para limpiar la selección; queda a mano mientras bajás por la lista.
 
 El botón **Actualizar** recarga todo.
+
+### Nuevo tactical
+
+Un tactical es un acuerdo con una marca: sus datos y todas sus líneas se cargan en una sola pantalla y se crean juntos con **Crear tactical**.
+
+1. **Tipo**: **Sell out** (la marca te paga por cada unidad vendida en el rango) o **Sell in** (baja el costo de lo que vendés en el rango). Solo se puede elegir el tipo que tu permiso deja gestionar.
+2. **Datos del tactical**: nombre, marca (sirve para filtrar los tacticals por marca), referencia de la marca (opcional), vigencia **Desde**/**Hasta**, moneda y condiciones. Sell out arranca en USD y sell in en ARS. En USD aparece **Tipo de cambio**: **Al cobro**, **Fijo** (pide el valor) o **Día de la venta**. **Los montos incluyen IVA** y **Se acumula con otras campañas** (marcado de entrada) son las condiciones. La nota es opcional.
+3. **Líneas**: cada línea tiene un alcance y un monto con sus topes.
+   - Alcance: **Productos** (uno o varios: **+ Producto** abre el buscador, se tildan los que van y **Agregar a la línea**; cada uno queda como etiqueta con su cruz para quitarlo), **Marca**, **Categoría** y, solo en sell in, **Factura** (**+ Factura** busca las compras por número, proveedor o fecha; se pueden tildar varias). Una línea de factura se cobra siempre como **monto total** y el monto se reparte entre los productos de la factura según lo facturado.
+   - Monto: **por unidad** o **%**; en sell in, una línea de factura también puede ser **monto total** (en productos, marca o categoría no está disponible). Los montos se escriben como en Argentina (3,6 o 1.500).
+   - Topes: **Tope unidades** y **Tope monto**; corta el que se alcance primero. Con varios productos, la pastilla **Por producto** (cada producto con sus topes) se puede cambiar a **Compartido** (un solo tope para todos).
+   - **Máximo a cobrar** es lo más que puede dar la línea: el monto total; con %, el tope de monto; por unidad, monto × tope de unidades (por cada producto si los topes son por producto), sin pasar el tope de monto.
+   - Cada línea se puede **duplicar** o **eliminar**. **+ Agregar línea** suma una y abre el buscador de productos.
+4. La barra de abajo resume: en sell out, líneas, productos, tope total de unidades y máximo a cobrar; en sell in, líneas, marca y vigencia.
+
+Si falta algo, un aviso arriba dice qué (por ejemplo, «Hay 1 línea sin productos. Completala o eliminala.»). Un tope que no se puede leer como número (o de unidades con decimales) o un porcentaje mayor a 100 también frenan el alta: nunca se manda una línea sin el tope que escribiste. Si el servidor rechaza una línea, el aviso nombra la línea como la ves en pantalla. Al crear, vuelve al listado y muestra «Tactical creado: …». **Cancelar** pregunta antes de descartar lo cargado.
 
 ### Grupos de productos
 
@@ -182,7 +198,9 @@ Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicaci
 
 ## Botones y acciones
 
-- **Nuevo sell in** / **Nueva campaña** / **Nuevo grupo**: crean registros (según permiso).
+- **Nuevo sell in** / **Nueva campaña**: abren **Nuevo tactical** (según permiso).
+- **Nuevo grupo**: crea un grupo (según permiso).
+- **Crear tactical**: crea el tactical con todas sus líneas; **Cancelar** lo descarta después de confirmar.
 - Tocar una fila: abre el panel lateral de detalle.
 - **Actualizar**: recarga datos.
 
