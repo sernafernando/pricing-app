@@ -12,7 +12,8 @@ their own create steps (same validation, audit rows and queueing), so allocation
   invoiced lines.
 
 Every child carries `tactical_id` and `tactical_linea` (its 1-based line). The header's dates, currency, FX, VAT flag
-and `acumulable` are copied to every child, which is what the engines read.
+and `acumulable` are copied to every child, which is what the engines read, except where an engine has its own: an
+invoice line converts at its operation's rate (a fixed rate is refused there) and a cost bonus is ARS.
 
 One atomic create: the header and every child in one transaction; the first refused line rolls everything back and
 comes back as `TacticalError` with "Línea N: ..." (the engine's own message after it). A campaign whose queue row a
@@ -26,6 +27,7 @@ consumed an invoice total (converted to its currency at its own rate).
 
 from __future__ import annotations
 
+import functools
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
@@ -250,6 +252,11 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
     if parte.pedido is not None:
         if data.incluye_iva:
             raise TacticalError("una línea por factura no lleva montos con IVA: va sobre el neto facturado")
+        if tactical.tc_modo == "fijo":
+            raise TacticalError(
+                "un % o monto por unidad sobre una factura usa el tipo de cambio de la operación: no lleva tipo de "
+                "cambio fijo"
+            )
         campos = {"alcance": "factura", "pedido_id": parte.pedido.id, "moneda": data.moneda, "base": BASE_FACTURA}
     else:
         if linea.modo_monto == "monto_total":
@@ -317,6 +324,25 @@ def _total_de_factura(db, tactical, data, linea, numero, pedido, descripcion, us
     compras.crear_compra_sin_commit(db, entrada, usuario_id, tactical=(tactical.id, numero))
 
 
+def _ocupado_si_deadlock(operacion):
+    """A deadlock (40P01) with another writer of a campaign is `TacticalOcupado` (rolled back, retry), never a raw
+    error: the engines' own wrapper (`campanas._deadlock_es_ocupada`), with this module's error."""
+
+    @campanas._deadlock_es_ocupada
+    def con_rollback(db: Session, *args, **kwargs):
+        return operacion(db, *args, **kwargs)
+
+    @functools.wraps(operacion)
+    def envuelta(db: Session, *args, **kwargs):
+        try:
+            return con_rollback(db, *args, **kwargs)
+        except campanas.SellOutRecalculando as exc:
+            raise TacticalOcupado(str(exc)) from exc
+
+    return envuelta
+
+
+@_ocupado_si_deadlock
 def crear(db: Session, data: TacticalIn, usuario_id: int) -> Tactical:
     """The header and every child, all or nothing (module docstring); commits."""
     try:
@@ -387,6 +413,7 @@ def _cabecera(t: Tactical) -> dict:
 # --- void ---------------------------------------------------------------------------------------------------------
 
 
+@_ocupado_si_deadlock
 def anular(db: Session, tactical_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[Tactical]:
     """Void the tactical and every active child through its engine's void step (module docstring). None when it
     does not exist; `TacticalYaAnulado` on a second call; `TacticalOcupado` when a campaign is being recomputed."""

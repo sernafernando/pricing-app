@@ -92,3 +92,7 @@ def test_unknown_is_404_and_an_inverted_period_is_422(client, sell_out) -> None:
 def test_text_filters_are_bounded(client, sell_out) -> None:
     assert client.get(BASE, params={"q": "x" * 201}, headers=sell_out).status_code == 422
     assert client.get(BASE, params={"marca": "x" * 101}, headers=sell_out).status_code == 422
+
+
+def test_the_note_is_bounded(client, productos, sell_out) -> None:
+    assert client.post(BASE, json=_body(nota="x" * 2001), headers=sell_out).status_code == 422

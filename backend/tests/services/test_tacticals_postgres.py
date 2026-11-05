@@ -9,6 +9,7 @@ from typing import Iterator
 
 import pytest
 from sqlalchemy import Engine, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.offset_grupo import OffsetGrupo
@@ -272,3 +273,27 @@ class TestListar:
         assert ids(tipos=["sell_out"]) == [vigente.id, vencido.id]
         assert ids(q="hot") == [vigente.id]
         assert ids(desde=date(2026, 10, 15), hasta=date(2026, 10, 20)) == [vencido.id]
+
+
+class TestRefusalsFromGGA:
+    def test_an_invoice_bonus_does_not_take_a_fixed_rate(self, db, engine) -> None:
+        pedido = bw.pedido(engine, {2964: 10}, date(2026, 11, 10))
+        linea = {"alcance": "factura", "pedido_compra_id": pedido, "modo_monto": "porcentaje", "valor": "5"}
+        data = _tactical("sell_in", [linea], moneda="USD", tc_modo="fijo", tipo_cambio="1400")
+
+        with pytest.raises(service.TacticalError, match="^Línea 1: .*tipo de cambio de la operación"):
+            service.crear(db, data, USUARIO)
+
+    def test_a_deadlock_while_voiding_is_busy_not_a_crash(self, db, engine, monkeypatch) -> None:
+        tactical = service.crear(db, _tactical(), USUARIO)
+
+        class _Deadlock(Exception):
+            pgcode = "40P01"
+
+        def _bloquear(*_args, **_kwargs):
+            raise DBAPIError("SELECT ... FOR UPDATE", {}, _Deadlock())
+
+        monkeypatch.setattr(service.campanas, "bloquear", _bloquear)
+        with pytest.raises(service.TacticalOcupado):
+            service.anular(db, tactical.id, USUARIO, None)
+        assert _contar(engine, "tacticals", "estado = 'activo'") == 1

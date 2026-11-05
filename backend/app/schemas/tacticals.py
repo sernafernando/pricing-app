@@ -25,6 +25,7 @@ NOMBRE_MAX = 200
 MARCA_MAX = 100  # productos_erp.marca is VARCHAR(100)
 LINEAS_MAX = 100
 ITEMS_MAX = 500
+NOTA_MAX = 2000
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
 INT_MAX = 2**31 - 1
 MONTO = {"max_digits": 18, "decimal_places": 2}
@@ -57,7 +58,7 @@ class TacticalIn(BaseModel):
     tipo_cambio: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=6)  # `fijo` only
     incluye_iva: bool = False
     acumulable: bool = True
-    nota: Optional[str] = None
+    nota: Optional[str] = Field(default=None, max_length=NOTA_MAX)
     lineas: list[TacticalLineaIn] = Field(min_length=1, max_length=LINEAS_MAX)
 
 
