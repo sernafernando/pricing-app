@@ -325,13 +325,35 @@ def crear_bono(
 ) -> SellInBonoMarca:
     """`offset_origen_id`: the legacy offset a migration loads this bonus from (the offsets script only; the API
     never takes it), set before the first flush so the audit row carries it."""
+    bono = crear_bono_sin_commit(db, data, usuario_id, offset_origen_id=offset_origen_id)
+    db.commit()
+    db.refresh(bono)
+    return bono
+
+
+def crear_bono_sin_commit(
+    db: Session,
+    data: SellInBonoIn,
+    usuario_id: int,
+    *,
+    offset_origen_id: Optional[int] = None,
+    tactical: Optional[tuple[int, int]] = None,
+) -> SellInBonoMarca:
+    """The create step without committing: validation, the row, its models and one audit row. Shared by the single
+    create and a tactical's lines (`app.services.tacticals`, several in one transaction). `tactical`: the
+    `(tactical_id, tactical_linea)` it is a line of, set before the first flush."""
     campos = validar(db, data)
-    bono = SellInBonoMarca(usuario_id=usuario_id, estado="activa", offset_origen_id=offset_origen_id)
+    tactical_id, tactical_linea = tactical or (None, None)
+    bono = SellInBonoMarca(
+        usuario_id=usuario_id,
+        estado="activa",
+        offset_origen_id=offset_origen_id,
+        tactical_id=tactical_id,
+        tactical_linea=tactical_linea,
+    )
     db.add(bono)
     _asignar(db, bono, data, campos)
     _audit(db, TipoAccion.SELL_IN_BONO_CREADO, usuario_id, None, _valores(db, bono))
-    db.commit()
-    db.refresh(bono)
     return bono
 
 

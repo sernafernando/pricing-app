@@ -544,7 +544,12 @@ def _validar_renovacion(db: Session, data: SellOutCampanaIn) -> None:
 
 
 def crear_campana_sin_commit(
-    db: Session, data: SellOutCampanaIn, usuario_id: int, *, offset_origen_id: Optional[int] = None
+    db: Session,
+    data: SellOutCampanaIn,
+    usuario_id: int,
+    *,
+    offset_origen_id: Optional[int] = None,
+    tactical: Optional[tuple[int, int]] = None,
 ) -> SellOutCampana:
     """The create step without committing: validation, the row, its groups and items, one audit row and queueing.
     Shared by the single create and Renovar programa (`renovacion_programa.renovar`, several in one transaction).
@@ -554,7 +559,8 @@ def crear_campana_sin_commit(
     `data.programa_id`, when set, must name a program that takes campaigns (`programas.validar_asignable`: a
     `ProgramaNoExiste` or `ProgramaError`, nothing stored); it is stored and in the audit row, which keeps its shape
     without one. `data.renovada_de_id` (a renewal) is checked and locked by `_validar_renovacion`; it is stored and
-    audited the same way."""
+    audited the same way. `tactical`: the `(tactical_id, tactical_linea)` it is a line of (`app.services.tacticals`).
+    """
     grupo_ids = validar(db, data)
     if data.renovada_de_id is not None:
         _validar_renovacion(db, data)
@@ -565,6 +571,8 @@ def crear_campana_sin_commit(
         offset_origen_id=offset_origen_id,
         programa_id=data.programa_id,
         renovada_de_id=data.renovada_de_id,
+        tactical_id=tactical[0] if tactical else None,
+        tactical_linea=tactical[1] if tactical else None,
     )
     db.add(campana)
     _asignar(db, campana, data, grupo_ids)

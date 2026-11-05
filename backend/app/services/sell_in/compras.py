@@ -352,6 +352,22 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
     failure of the recompute that follows (an `IntegrityError` included) is rolled back and raised
     as itself: it says nothing about the purchase's references.
     """
+    compra = crear_compra_sin_commit(db, data, usuario_id)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()  # never leave the session aborted
+        raise
+    db.refresh(compra)
+    return compra
+
+
+def crear_compra_sin_commit(
+    db: Session, data: SellInCompraCreate, usuario_id: int, *, tactical: Optional[tuple[int, int]] = None
+) -> SellInCompra:
+    """`crear_compra` without the commit, for a tactical's invoice total (`app.services.tacticals`, one transaction
+    with the rest of the tactical). A failure rolls the WHOLE session back, as `crear_compra` does. `tactical`: the
+    `(tactical_id, tactical_linea)` it is a line of."""
     if data.cuenta_desde == "ingreso" and data.fecha_ingreso is None:
         raise SellInError("Para contar desde el ingreso hace falta la fecha de ingreso")
     _validar_referencias(db, data)
@@ -365,7 +381,7 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
         raise SellInError(str(exc)) from exc
 
     try:
-        compra, items = _guardar(db, data, calculo, usuario_id, ids, ops)
+        compra, items = _guardar(db, data, calculo, usuario_id, ids, ops, tactical)
     except IntegrityError as exc:
         db.rollback()
         raise SellInError(
@@ -378,11 +394,9 @@ def crear_compra(db: Session, data: SellInCompraCreate, usuario_id: int) -> Sell
         # The sales already made since the purchase counts consume it in the same transaction.
         get_costing().recompute(db, [item.item_id for item in items], isolate_failures=False)
         bonos_costo.seguir_fifo(db, [item.item_id for item in items])  # T25b: they take what the FIFO leaves
-        db.commit()
     except Exception:
         db.rollback()  # a failed recompute takes the purchase with it; never leave the session aborted
         raise
-    db.refresh(compra)
     return compra
 
 
@@ -393,6 +407,7 @@ def _guardar(
     usuario_id: int,
     ids: list[int],
     ops: Optional[Operaciones],
+    tactical: Optional[tuple[int, int]] = None,
 ) -> Tuple[SellInCompra, List[SellInCompraItem]]:
     """Writes the purchase, its operation links, lines and audit rows (flushed, not committed): every
     `IntegrityError` it raises is about the purchase's own references. Without a supplier of its own the
@@ -412,6 +427,8 @@ def _guardar(
         estado="activa",
         descripcion=data.descripcion,
         usuario_id=usuario_id,
+        tactical_id=tactical[0] if tactical else None,
+        tactical_linea=tactical[1] if tactical else None,
     )
     db.add(compra)
     db.flush()
