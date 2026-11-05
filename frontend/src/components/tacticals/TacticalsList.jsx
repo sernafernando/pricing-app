@@ -126,7 +126,7 @@ function Tactical({ tactical, abierto, onAlternar }) {
             type="button"
             className={styles.alternar}
             aria-expanded={abierto}
-            aria-controls={`tactical-${tactical.id}-lineas`}
+            aria-controls={abierto ? `tactical-${tactical.id}-lineas` : undefined}
             aria-label={`${abierto ? 'Ocultar' : 'Ver'} las líneas de ${tactical.nombre}`}
             onClick={onAlternar}
           >
@@ -157,7 +157,7 @@ function Tactical({ tactical, abierto, onAlternar }) {
             ) : (
               <span className={styles.guion}>—</span>
             )}
-            <span className={styles.monto}>{topeMonto == null ? usado : `${usado} de ${formatUnidades(topeMonto)}`}</span>
+            <span className={styles.monto}>{topeMonto == null ? usado : `${usado} de ${formatMontoTactical(topeMonto, tactical.moneda)}`}</span>
           </div>
         </td>
         <td>

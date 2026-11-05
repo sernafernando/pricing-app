@@ -183,7 +183,7 @@
 
 .unidades {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -240,7 +240,7 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 12.5px;
+  font-size: var(--font-xs);
   background: var(--cf-bg-card);
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-md);
@@ -291,7 +291,7 @@
   max-width: 260px;
   overflow: hidden;
   padding: 3px 8px;
-  font-size: 12px;
+  font-size: var(--font-xs);
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--cf-text-primary);

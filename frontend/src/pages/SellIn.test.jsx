@@ -1720,8 +1720,11 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
   });
 });
 
+// The list's own requests, leaving out the tab's count (page_size 1, on page load).
+const listadosDeTacticals = () => tacticalsAPI.listar.mock.calls.filter(([params]) => params.page_size !== 1).length;
+
 describe('SellIn page — Tacticals tab', () => {
-  it('lists the tacticals only once the tab is opened, with the brands to filter by, and keeps the tab in the URL', async () => {
+  it('counts the current tacticals on the tab, lists them once it is opened with the brands to filter by, and keeps the tab in the URL', async () => {
     const user = userEvent.setup();
     renderWithRouter(
       <>
@@ -1730,11 +1733,13 @@ describe('SellIn page — Tacticals tab', () => {
       </>,
     );
     await screen.findByText('Bonificación Q4 switches');
-    expect(tacticalsAPI.listar).not.toHaveBeenCalled();
+    expect(tacticalsAPI.listar).toHaveBeenCalledWith({ estado: 'vigentes', page: 1, page_size: 1 });
+    expect(await screen.findByRole('tab', { name: 'Tacticals · 1' })).toBeInTheDocument();
+    expect(listadosDeTacticals()).toBe(0);
 
-    await user.click(screen.getByRole('tab', { name: 'Tacticals' }));
+    await user.click(screen.getByRole('tab', { name: 'Tacticals · 1' }));
 
-    const panel = screen.getByRole('tabpanel', { name: 'Tacticals' });
+    const panel = screen.getByRole('tabpanel', { name: /Tacticals/ });
     expect(await within(panel).findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
     expect(within(within(panel).getByLabelText('Marca')).getByRole('option', { name: 'TP-Link' })).toBeInTheDocument();
     expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=tacticals');
@@ -1744,10 +1749,26 @@ describe('SellIn page — Tacticals tab', () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
     expect(await screen.findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
-    expect(tacticalsAPI.listar).toHaveBeenCalledTimes(1);
+    expect(listadosDeTacticals()).toBe(1);
 
     await user.click(screen.getByRole('button', { name: /Actualizar/ }));
 
-    await waitFor(() => expect(tacticalsAPI.listar).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(listadosDeTacticals()).toBe(2));
+  });
+
+  it('a server without the tacticals API (404) shows no Tacticals tab, and ?tab=tacticals falls back to Sell in', async () => {
+    tacticalsAPI.listar.mockRejectedValue({ response: { status: 404 } });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+
+    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('tab', { name: /Tacticals/ })).not.toBeInTheDocument());
+    expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('any other failure keeps the tab, with a dash for the count', async () => {
+    tacticalsAPI.listar.mockRejectedValue({ response: { status: 500 } });
+    renderWithRouter(<SellIn />);
+
+    expect(await screen.findByRole('tab', { name: 'Tacticals · —' })).toBeInTheDocument();
   });
 });

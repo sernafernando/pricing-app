@@ -166,6 +166,19 @@ describe('TacticalsList rows', () => {
   });
 });
 
+describe('TacticalsList money cap', () => {
+  it('when every line has a money cap the row says how much of it was used, both in the currency', async () => {
+    const conTopes = {
+      ...BPS,
+      lineas: BPS.lineas.map((linea, i) => ({ ...linea, tope_monto: ['15000', '6200', '3000'][i] })),
+    };
+    tacticalsAPI.listar.mockResolvedValue({ data: { items: [conTopes], total: 1 } });
+    render(<TacticalsList marcas={MARCAS} />);
+
+    expect(await screen.findByText('USD 20.544 de USD 24.200')).toBeInTheDocument();
+  });
+});
+
 describe('TacticalsList filters', () => {
   it('sends tipo, brand, state, dates and search, and Limpiar filtros goes back to the current ones', async () => {
     render(<TacticalsList marcas={MARCAS} />);

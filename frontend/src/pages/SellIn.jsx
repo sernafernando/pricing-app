@@ -5,6 +5,7 @@ import { usePermisos } from '../contexts/PermisosContext';
 import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
 import { sellOutAPI } from '../services/sellOutAPI';
+import { tacticalsAPI } from '../services/tacticalsAPI';
 import DateRangeFilter from '../components/DateRangeFilter';
 import SearchInput from '../components/SearchInput';
 import { FacetChips, Pagination, SegmentedControl, SplitPanelLayout } from '../components/kit';
@@ -68,6 +69,26 @@ const PERMISOS_PROVEEDORES = ['administracion.ver_proveedores', 'administracion.
 const TAB_SELL_OUT = 'sell-out';
 const TAB_GRUPOS = 'grupos';
 const TAB_TACTICALS = 'tacticals';
+
+/**
+ * The Tacticals tab's count: the current tacticals (`GET /tacticals`, one row asked). `disponible` turns false only on a
+ * 404, a server without the tacticals API, which hides the tab; any other failure keeps it with `error`.
+ */
+function useConteoTacticals(enabled, version) {
+  const [estado, setEstado] = useState({ total: null, error: false, disponible: true });
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let active = true;
+    tacticalsAPI
+      .listar({ estado: 'vigentes', page: 1, page_size: 1 })
+      .then(({ data }) => active && setEstado({ total: data.total, error: false, disponible: true }))
+      .catch((err) => active && setEstado({ total: null, error: true, disponible: err?.response?.status !== 404 }));
+    return () => {
+      active = false;
+    };
+  }, [enabled, version]);
+  return estado;
+}
 
 /** The brand list Productos and Publicaciones ML filter by (`GET /marcas`); empty on failure. */
 function useMarcas(enabled) {
@@ -242,6 +263,7 @@ export default function SellIn() {
   const puedeGestionarGrupos = tienePermiso('config.editar_constantes');
   // "Actualizar" bumps it: the Grupos tab asks its groups again.
   const [versionGrupos, setVersionGrupos] = useState(0);
+  const tacticals = useConteoTacticals(puedeVer, versionGrupos);
   // A group created, changed or deleted in the Grupos tab: the campaign form's groups are asked again.
   const [cambiosGrupos, setCambiosGrupos] = useState(0);
   const gruposOffset = useGruposOffset(puedeVer && puedeGestionarSellOut, versionGrupos + cambiosGrupos);
@@ -257,7 +279,7 @@ export default function SellIn() {
   const tabsVisibles = [
     'sell-in',
     ...(puedeVerSellOut ? [TAB_SELL_OUT] : []),
-    TAB_TACTICALS,
+    ...(tacticals.disponible ? [TAB_TACTICALS] : []),
     ...(puedeGestionarGrupos ? [TAB_GRUPOS] : []),
   ];
   const tabUrl = searchParams.get('tab');
@@ -535,18 +557,23 @@ export default function SellIn() {
             <span className={styles.tabCount}>{campanas.lista ? campanas.lista.total.toLocaleString('es-AR') : campanas.error ? '—' : '…'}</span>
           </button>
         )}
-        <button
-          type="button"
-          role="tab"
-          id="tacticals-tab"
-          aria-selected={tab === TAB_TACTICALS}
-          aria-controls={tab === TAB_TACTICALS ? 'tacticals-panel' : undefined}
-          tabIndex={tab === TAB_TACTICALS ? 0 : -1}
-          className={`${styles.tab} ${tab === TAB_TACTICALS ? styles.tabActive : ''}`}
-          onClick={() => cambiarTab(TAB_TACTICALS)}
-        >
-          Tacticals
-        </button>
+        {tacticals.disponible && (
+          <button
+            type="button"
+            role="tab"
+            id="tacticals-tab"
+            aria-selected={tab === TAB_TACTICALS}
+            aria-controls={tab === TAB_TACTICALS ? 'tacticals-panel' : undefined}
+            tabIndex={tab === TAB_TACTICALS ? 0 : -1}
+            className={`${styles.tab} ${tab === TAB_TACTICALS ? styles.tabActive : ''}`}
+            onClick={() => cambiarTab(TAB_TACTICALS)}
+          >
+            <span>Tacticals</span> <span className={styles.srOnly}>·</span>{' '}
+            <span className={styles.tabCount}>
+              {tacticals.total != null ? tacticals.total.toLocaleString('es-AR') : tacticals.error ? '—' : '…'}
+            </span>
+          </button>
+        )}
         {puedeGestionarGrupos && (
           <button
             type="button"
