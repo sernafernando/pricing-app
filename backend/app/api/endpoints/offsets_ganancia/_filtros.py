@@ -24,7 +24,8 @@ def agregar_filtro_a_grupo(
     """Agrega un filtro a un grupo existente"""
     if not verificar_permiso(db, current_user, "config.editar_constantes"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
-    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    # A tactical line's hidden group: its filters are the line's scope, changed only by the tactical.
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id, OffsetGrupo.oculto.is_(False)).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
 
@@ -63,7 +64,10 @@ def eliminar_filtro_de_grupo(
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
     filtro = (
         db.query(OffsetGrupoFiltro)
-        .filter(OffsetGrupoFiltro.id == filtro_id, OffsetGrupoFiltro.grupo_id == grupo_id)
+        .join(OffsetGrupo, OffsetGrupo.id == OffsetGrupoFiltro.grupo_id)
+        .filter(
+            OffsetGrupoFiltro.id == filtro_id, OffsetGrupoFiltro.grupo_id == grupo_id, OffsetGrupo.oculto.is_(False)
+        )
         .first()
     )
 
@@ -85,7 +89,8 @@ def actualizar_filtros_grupo(
     """Reemplaza todos los filtros de un grupo con los nuevos"""
     if not verificar_permiso(db, current_user, "config.editar_constantes"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
-    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    # A tactical line's hidden group: its filters are the line's scope, changed only by the tactical.
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id, OffsetGrupo.oculto.is_(False)).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
 
@@ -138,7 +143,8 @@ def obtener_filtros_grupo(
     """Obtiene todos los filtros de un grupo"""
     from app.models.tb_subcategory import TBSubCategory
 
-    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    # A tactical line's hidden group is not listed anywhere, its filters included.
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id, OffsetGrupo.oculto.is_(False)).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
 

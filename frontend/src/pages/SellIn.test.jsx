@@ -390,7 +390,7 @@ describe('SellIn page — Producto and Proveedor filters of the purchases (S4)',
 });
 
 describe('SellIn page — Grupos tab (T30)', () => {
-  it('with config.editar_constantes a Grupos tab lists the groups and keeps itself in the URL', async () => {
+  it('with grupos.ver a Grupos tab lists the groups and keeps itself in the URL', async () => {
     const user = userEvent.setup();
     renderWithRouter(
       <>
@@ -418,12 +418,24 @@ describe('SellIn page — Grupos tab (T30)', () => {
     expect(offsetGruposAPI.alcance).toHaveBeenCalledTimes(2);
   });
 
-  it('without config.editar_constantes there is no Grupos tab, and ?tab=grupos falls back to Sell in', async () => {
-    mockTienePermiso.mockImplementation((codigo) => codigo !== 'config.editar_constantes');
+  // Owner (tactical S9): "hoy no existe un permiso para que se vean los grupos, así que solo yo los veo"; on #2083:
+  // "sí, sacalo y dejala solo con grupos.ver" (config.editar_constantes alone no longer shows the tab).
+  it('without grupos.ver there is no Grupos tab, even with config.editar_constantes, and ?tab=grupos falls back to Sell in', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'grupos.ver');
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
     expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Grupos' })).not.toBeInTheDocument();
     expect(offsetGruposAPI.listar).not.toHaveBeenCalled();
+  });
+
+  it('with grupos.ver alone the Grupos tab only reads: no Nuevo grupo, no Editar, nothing to check', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'config.editar_constantes');
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
+    const panel = await screen.findByRole('tabpanel', { name: 'Grupos' });
+    expect(await within(panel).findByText('TP-Link redes')).toBeInTheDocument();
+    expect(within(panel).queryByRole('button', { name: /Nuevo grupo/ })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('checkbox')).not.toBeInTheDocument();
   });
 });
 

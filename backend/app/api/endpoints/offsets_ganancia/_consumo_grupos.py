@@ -24,7 +24,7 @@ def obtener_consumo_grupo(
     grupo_id: int, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el detalle de consumo de un grupo de offsets"""
-    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id, OffsetGrupo.oculto.is_(False)).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
 
@@ -144,7 +144,7 @@ def recalcular_consumo_grupo(
     """
     if not verificar_permiso(db, current_user, "config.editar_constantes"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
-    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id, OffsetGrupo.oculto.is_(False)).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
 

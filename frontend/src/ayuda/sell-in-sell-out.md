@@ -2,7 +2,7 @@
 
 Área: Productos
 Ruta: Productos → Sell in / Sell out
-Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Sell out pide además sell_out.ver, y la pestaña Grupos, permiso de edición de constantes: config.editar_constantes).
+Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Sell out pide además sell_out.ver, y la pestaña Grupos, grupos.ver; crear, editar y borrar grupos pide además el permiso de edición de constantes: config.editar_constantes).
 
 ## Para qué sirve
 
@@ -38,6 +38,8 @@ Las campañas de sell out alcanzan productos a través de **grupos**. En la pest
   - Lo usa una campaña activa: el mensaje la nombra; hay que quitar el grupo de la campaña antes.
   - Solo lo usan campañas anuladas: el mensaje las nombra. El grupo queda guardado porque es parte del historial de esas campañas.
   - Lo usa un offset, o tiene consumo de offsets registrado (lo que esos offsets ya aplicaron en ventas).
+- **Borrar seleccionados** borra varios grupos a la vez: marcá la casilla de cada uno (la del encabezado marca todos) y confirmá. Se borran los que se pueden borrar; los demás se quedan, y el aviso dice cuántos se borraron y, para cada uno de los que quedaron, el mismo motivo que daría **Eliminar grupo**.
+- Con el permiso para ver grupos (grupos.ver) pero sin el de edición de constantes, la pestaña es de lectura: no aparecen **Nuevo grupo**, **Editar** ni las casillas.
 
 ### Anular varios a la vez
 
@@ -165,7 +167,10 @@ Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicaci
 Pide un permiso adicional (sell_out.ver). Pedíselo a un administrador.
 
 **¿Por qué no veo la pestaña Grupos?**
-Pide permiso de edición de constantes (config.editar_constantes), el mismo que gestionar offsets. Pedíselo a un administrador.
+Pide el permiso para ver grupos (grupos.ver); el de edición de constantes no alcanza. Pedíselo a un administrador.
+
+**¿Por qué veo la pestaña Grupos pero no puedo crear, editar ni borrar?**
+Eso pide además el permiso de edición de constantes (config.editar_constantes), el mismo que gestionar offsets. Pedíselo a un administrador.
 
 **¿Por qué no puedo eliminar un grupo?**
 Lo usa una campaña de sell out, un offset, o tiene consumo de offsets registrado. Si lo usa una campaña activa, el mensaje la nombra: quitá el grupo de esa campaña y volvé a intentar. Si solo lo usan campañas anuladas, el grupo queda guardado porque es parte de su historial.
