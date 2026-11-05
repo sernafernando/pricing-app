@@ -1,0 +1,54 @@
+/* The approved tactical design's segmented control (OpenDesign "Nuevo tactical"), on the app's tokens. */
+
+.seg {
+  display: inline-flex;
+  overflow: hidden;
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.seg button {
+  min-height: 30px;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--cf-border-default);
+}
+
+.seg button:last-child {
+  border-right: 0;
+}
+
+.seg button:hover:not(:disabled) {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+}
+
+.seg button[aria-pressed='true'] {
+  color: var(--text-inverse);
+  background: var(--brand-primary);
+}
+
+.seg button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.xs button {
+  min-height: 24px;
+  padding: 4px 7px;
+  font-size: 11px;
+}
+
+.xxs button {
+  min-height: 22px;
+  padding: 3px 6px;
+  font-size: 10.5px;
+}
