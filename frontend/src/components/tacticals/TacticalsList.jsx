@@ -203,6 +203,12 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
     };
   }, [clave, version]);
 
+  // A reload can leave the page past the end (tacticals voided or expired meanwhile): go to the last page with some.
+  const fueraDeRango = datos != null && datos.total > 0 && offset >= datos.total;
+  useEffect(() => {
+    if (fueraDeRango) setOffset((Math.ceil(datos.total / pageSize) - 1) * pageSize);
+  }, [fueraDeRango, datos, pageSize]);
+
   const filtrar = (cambio) => {
     setFiltros((actual) => ({ ...actual, ...cambio }));
     setOffset(0);

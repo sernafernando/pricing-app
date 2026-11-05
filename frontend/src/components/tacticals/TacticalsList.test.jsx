@@ -202,6 +202,28 @@ describe('TacticalsList filters', () => {
   });
 });
 
+describe('TacticalsList paging', () => {
+  it('a reload that leaves the page past the end goes to the last page with tacticals', async () => {
+    const muchos = Array.from({ length: 25 }, (_, i) => ({ ...REBATE, id: 100 + i, nombre: `Rebate ${i + 1}` }));
+    tacticalsAPI.listar.mockImplementation(async ({ page }) => ({
+      data: page === 1 ? { items: muchos, total: 26 } : { items: [{ ...REBATE, id: 200, nombre: 'Rebate 26' }], total: 26 },
+    }));
+    const { rerender } = render(<TacticalsList marcas={MARCAS} />);
+    await screen.findByText('Rebate 1');
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /filas/i }), '25');
+    await userEvent.click(screen.getByRole('button', { name: /siguiente/i }));
+    expect(await screen.findByText('Rebate 26')).toBeInTheDocument();
+
+    tacticalsAPI.listar.mockImplementation(async ({ page }) => ({
+      data: page === 1 ? { items: muchos, total: 25 } : { items: [], total: 25 },
+    }));
+    rerender(<TacticalsList marcas={MARCAS} version={1} />);
+
+    expect(await screen.findByText('Rebate 1')).toBeInTheDocument();
+    expect(ultimaConsulta()).toMatchObject({ page: 1, page_size: 25 });
+  });
+});
+
 describe('TacticalsList empty and error', () => {
   it('says there are none under the filters', async () => {
     tacticalsAPI.listar.mockResolvedValue({ data: { items: [], total: 0 } });

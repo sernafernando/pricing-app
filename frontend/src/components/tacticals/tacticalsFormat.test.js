@@ -70,6 +70,11 @@ describe('avanceDeLinea', () => {
     expect(avanceDeLinea({ tope_unidades: null, tope_monto: '2000', monto_usado: '500' })).toEqual({ porcentaje: 25, tono: 'normal' });
     expect(avanceDeLinea({ tope_unidades: null, tope_monto: null, monto_usado: '500' })).toBeNull();
   });
+
+  it('a zero cap has nothing to measure', () => {
+    expect(avanceDeLinea({ tope_unidades: 0, unidades_usadas: 0 })).toBeNull();
+    expect(avanceDeTactical([{ tope_unidades: 0, unidades_usadas: 0, tope_monto: null, monto_usado: '0' }]).unidades).toBeNull();
+  });
 });
 
 describe('avanceDeTactical', () => {

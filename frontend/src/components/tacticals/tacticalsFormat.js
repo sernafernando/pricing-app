@@ -56,6 +56,7 @@ export function alcanceDe(linea) {
 }
 
 function medir(usado, tope) {
+  if (!(tope > 0)) return null;
   const porcentaje = Math.min(100, redondear((usado / tope) * 100));
   const tono = porcentaje >= 100 ? 'full' : porcentaje > AVISO_PORCENTAJE ? 'warn' : 'normal';
   return { porcentaje, tono };
@@ -78,7 +79,8 @@ export function avanceDeTactical(lineas) {
   if (conTope.length > 0) {
     const usadas = conTope.reduce((s, l) => s + Number(l.unidades_usadas ?? 0), 0);
     const tope = conTope.reduce((s, l) => s + Number(l.tope_unidades), 0);
-    unidades = { usadas, tope, ...medir(usadas, tope) };
+    const avance = medir(usadas, tope);
+    if (avance) unidades = { usadas, tope, ...avance };
   }
   const montoUsado = lineas.reduce((s, l) => s + Number(l.monto_usado ?? 0), 0);
   const todasConTope = lineas.length > 0 && lineas.every((l) => !vacio(l.tope_monto));

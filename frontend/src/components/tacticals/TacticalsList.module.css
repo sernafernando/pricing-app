@@ -123,12 +123,12 @@
   border-bottom: 1px solid var(--cf-border-default);
 }
 
-.tabla tbody tr:hover,
+.tabla > tbody > tr:hover,
 .abierto {
   background: var(--cf-bg-hover);
 }
 
-.filaLineas:hover {
+.tabla > tbody > tr.filaLineas:hover {
   background: none;
 }
 
