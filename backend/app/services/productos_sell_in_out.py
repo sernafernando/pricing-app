@@ -52,7 +52,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import Numeric, and_, cast, func, literal, null, or_, select, true, union_all
+from sqlalchemy import Numeric, and_, case, cast, func, literal, null, or_, select, true, union_all
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
@@ -250,7 +250,7 @@ def resolver_sell_in_out_batch(
     return SellInOutBatch(hoy, sell_in, campanas, bna, _bonos_costo(db, pares))
 
 
-_Par = Tuple[int, int, Optional[Decimal]]  # (bono_id, item_id, the product's own % in the bonus or None)
+_Par = Tuple[int, int, Optional[Decimal]]  # (bono_id, item_id, the product's own % or ARS per unit, or None)
 
 
 def _campanas_y_bonos(db: Session, ids: List[int], sin_lote: List[int], hoy: date):
@@ -267,9 +267,14 @@ def _campanas_y_bonos(db: Session, ids: List[int], sin_lote: List[int], hoy: dat
         return alcance.campanas_de_filas(campanas, ventas), []
     b, i, p = SellInBonoMarca, SellInBonoItem, ProductoERP
     bonos = (
-        # A model's own value is of the bonus's kind: one of the two is set, or neither.
+        # A model's own value of the bonus's kind, picked like the allocator (`bonos_costo.recalcular`).
         select(
-            b.id, p.item_id, b.fecha_desde, b.fecha_hasta, literal("bono"), func.coalesce(i.porcentaje, i.monto_unit)
+            b.id,
+            p.item_id,
+            b.fecha_desde,
+            b.fecha_hasta,
+            literal("bono"),
+            case((b.tipo == "por_unidad", i.monto_unit), else_=i.porcentaje),
         )
         .select_from(p)
         .join(b, true())

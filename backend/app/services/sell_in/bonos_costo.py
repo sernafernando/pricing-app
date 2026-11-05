@@ -13,9 +13,10 @@ Owner: "agregá el de sell in, es para operaciones viejas que no tienen la factu
   `alcance.Venta.costo_unit`). A sale whose cost is unknown is skipped, counted in `pendientes` per bonus.
 - Amount per unit (`unitario`): the model's own % (`sell_in_bono_items.porcentaje`) or the bonus's, of that cost;
   or, on a `por_unidad` bonus (tacticals T1), the model's own `monto_unit` or the bonus's, in ARS, whatever the
-  cost (the cut below keeps it at most the cost). With `incluye_iva` (S33: "el tilde tendría que restar el iva, a la cuenta siempre debería llegar 2,71") the % is first
-  divided by (1 + that product's own VAT rate), by sell out's own per-product rule (`tope.credito_unitario` on a
-  `monto_incluye_iva` campaign); a product reached with no VAT rate fails (configuration, never guessed).
+  cost (the cut below keeps it at most the cost). With `incluye_iva` (S33: "el tilde tendría que restar el iva,
+  a la cuenta siempre debería llegar 2,71") the value is first divided by (1 + that product's own VAT rate), by sell
+  out's own per-product rule (`tope.credito_unitario` on a `monto_incluye_iva` campaign); a product reached with no
+  VAT rate fails (configuration, never guessed).
 - Exclusive per unit with invoice-based sell in (rule 5, owner "ok"): the units a sale already took from a
   purchase (`sell_in_consumos` of that (canal, venta_ref), as stored: FIFO's rows are already net of returns) are
   `ocupadas`; the bonus takes only the rest. A return frees its units here in full: the FIFO resolves it to the same
