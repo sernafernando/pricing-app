@@ -19,6 +19,9 @@ from app.models.rol import Rol
 from tests.models.test_sell_in_schema_postgres import _MIGRATIONS, _STUBS, _load_migration
 from tests.services.sell._schema import throwaway_schema
 
+# This revision by name: later ones are appended to the shared chain (20261105_tacticals, ...).
+_PROPIA = next(path for path in _MIGRATIONS if "20261227_sell_in_modos_producto" in str(path))
+_ANTERIORES = _MIGRATIONS[: _MIGRATIONS.index(_PROPIA)]
 CODIGOS = ["sell_in.costo_manual", "sell_in.costo_ponderado", "sell_in.costo_retroactivo", "sell_in.costo_ultimo"]
 _GRANTS = text("""
     SELECT p.codigo, r.codigo FROM roles_permisos_base rp
@@ -42,7 +45,7 @@ def _before(engine: Engine) -> None:
                 VALUES (1, 'ADMIN', 'Admin', true, 1, true), (2, 'PRICING', 'Pricing', false, 4, true)
             """)
         )
-    for path in _MIGRATIONS[:-1]:
+    for path in _ANTERIORES:
         _step(engine, path, "upgrade")
 
 
@@ -55,7 +58,7 @@ def engine() -> Iterator[Engine]:
 
 @pytest.mark.postgres
 def test_upgrade_seeds_the_four_permissions_for_admin_only(engine: Engine) -> None:
-    _step(engine, _MIGRATIONS[-1], "upgrade")
+    _step(engine, _PROPIA, "upgrade")
 
     with engine.connect() as conn:
         grants = conn.execute(_GRANTS).all()
@@ -67,8 +70,8 @@ def test_upgrade_seeds_the_four_permissions_for_admin_only(engine: Engine) -> No
 
 @pytest.mark.postgres
 def test_upgrade_twice_keeps_one_permission_and_grant_each(engine: Engine) -> None:
-    _step(engine, _MIGRATIONS[-1], "upgrade")
-    _step(engine, _MIGRATIONS[-1], "upgrade")
+    _step(engine, _PROPIA, "upgrade")
+    _step(engine, _PROPIA, "upgrade")
 
     with engine.connect() as conn:
         assert conn.execute(text("SELECT count(*) FROM permisos")).scalar_one() == 4
@@ -77,7 +80,7 @@ def test_upgrade_twice_keeps_one_permission_and_grant_each(engine: Engine) -> No
 
 @pytest.mark.postgres
 def test_downgrade_removes_the_permissions_their_grants_and_overrides(engine: Engine) -> None:
-    _step(engine, _MIGRATIONS[-1], "upgrade")
+    _step(engine, _PROPIA, "upgrade")
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -86,7 +89,7 @@ def test_downgrade_removes_the_permissions_their_grants_and_overrides(engine: En
             )
         )
 
-    _step(engine, _MIGRATIONS[-1], "downgrade")
+    _step(engine, _PROPIA, "downgrade")
 
     with engine.connect() as conn:
         assert conn.execute(text("SELECT count(*) FROM permisos")).scalar_one() == 0

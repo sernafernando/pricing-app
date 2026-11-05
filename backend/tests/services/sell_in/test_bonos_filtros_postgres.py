@@ -40,7 +40,7 @@ _BONOS = {
 
 
 def _schema():
-    return bonos_schema("sell_in_bf", ["sell_in_bonos_marca"], _STUBS)
+    return bonos_schema("sell_in_bf", ["tacticals", "sell_in_bonos_marca"], _STUBS)
 
 
 @pytest.fixture(scope="module")
