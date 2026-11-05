@@ -4,7 +4,13 @@
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
   min-height: 0;
-  height: 100%;
+  /*
+   * Bound height so .tableWrap can flex-shrink and own sticky scroll.
+   * overflow:auto (not hidden): AlertBanners above <main> must not clip the
+   * bottom of the page — the page can scroll a little if the viewport is short.
+   */
+  height: calc(100dvh - var(--cf-topbar-height));
+  overflow: auto;
   background: var(--cf-bg-app);
   color: var(--cf-text-primary);
 }
@@ -148,8 +154,11 @@
 }
 
 .tableWrap {
-  flex: 1;
+  flex: 1 1 auto;
+  /* min-height:0 so flex can shrink below content; 12rem floor for usability. */
+  min-height: 0;
   overflow: auto;
+  /* Remaining space after title/tabs/filters (no fixed 11rem guess). */
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-base);
   background: var(--cf-bg-card);
@@ -157,7 +166,9 @@
 
 .table {
   width: 100%;
-  border-collapse: collapse;
+  /* `separate` required for sticky <th>; collapse breaks sticky in Chromium. */
+  border-collapse: separate;
+  border-spacing: 0;
   min-width: 78rem;
   font-size: var(--font-sm);
 }
@@ -174,11 +185,13 @@
 .table th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
   background: var(--cf-bg-card);
   color: var(--cf-text-secondary);
   font-weight: var(--font-medium);
   font-size: var(--font-xs);
+  /* Travels with the sticky cell (collapsed border would stay behind). */
+  box-shadow: inset 0 -1px 0 var(--cf-border-default);
 }
 
 .mono {
