@@ -137,15 +137,11 @@ def _live_labels(
     titles: dict[str, Optional[str]] = {}
     descripciones: dict[int, Optional[str]] = {}
     if mlas:
-        for item_id, title in (
-            db.query(MlItem.item_id, MlItem.title).filter(MlItem.item_id.in_(mlas)).all()
-        ):
+        for item_id, title in db.query(MlItem.item_id, MlItem.title).filter(MlItem.item_id.in_(mlas)).all():
             titles[str(item_id)] = title
     if item_ids:
         for item_id, descripcion in (
-            db.query(ProductoERP.item_id, ProductoERP.descripcion)
-            .filter(ProductoERP.item_id.in_(item_ids))
-            .all()
+            db.query(ProductoERP.item_id, ProductoERP.descripcion).filter(ProductoERP.item_id.in_(item_ids)).all()
         ):
             descripciones[int(item_id)] = descripcion
     return titles, descripciones
