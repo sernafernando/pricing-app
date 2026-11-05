@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session
 from app.models.ml_sale_line import MlSaleLine
 from app.models.sell_out import SellOutCampana, SellOutConsumo
 from app.services.sell_in.costing import VENTAS_FACTURADAS
+from app.services.combos.componentes import componentes_de, exigir_combos_disponibles
 from app.services.sell_out import alcance
 
 CHANNEL = "sell_out_dirty"
@@ -140,7 +141,12 @@ def campanas_de_ventas(db: Session, lines: Sequence[Line]) -> Set[int]:
         if por_canal.get(canal):
             dia = func.date(func.timezone("UTC", model.fecha_venta))  # the UTC date, like `alcance.ventas`
             ventas += db.query(model.item_id, dia).filter(model.it_transaction.in_(por_canal[canal]))
-    return ids | alcance.campanas_por_venta(db, [(int(item), dia) for item, dia in ventas if item is not None])
+    ventas = [(int(item), dia) for item, dia in ventas if item is not None]
+    if ventas:  # a combo's line moves its components' campaigns (`alcance` module docstring)
+        exigir_combos_disponibles(db)
+        combos = componentes_de(db, {item for item, _ in ventas})
+        ventas += [(componente, dia) for item, dia in ventas for componente in combos.get(item, {})]
+    return ids | alcance.campanas_por_venta(db, ventas)
 
 
 def enqueue_ventas(db: Session, lines: Sequence[Line]) -> None:

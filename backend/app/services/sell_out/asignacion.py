@@ -100,7 +100,7 @@ LOCK_SQL = text(
 
 _TC_ESCALA = Decimal("0.000001")  # `sell_out_consumos.tc_venta` is NUMERIC(18, 6)
 
-Clave = Tuple[str, int]  # (canal, venta_ref)
+Clave = tope.Clave  # (canal, venta_ref, item_id)
 Productos = Dict[int, Dict[int, Optional[Decimal]]]
 Montos = Dict[int, Dict[int, Decimal]]  # campana_id -> item_id -> its own amount per unit
 Repartos = Dict[int, Dict[int, reparto.Reparto]]  # campana_id -> item_id -> its share of the total
@@ -360,7 +360,7 @@ def _asignar(
         for v in sorted(ventas, key=lambda x: x.unidades < 0):  # sales first: a return checks its sale
             if v.item_id not in alcance_c or not alcance.en_campana(c, v):
                 continue
-            if v.objetivo is not None and v.objetivo not in admitidas:
+            if v.objetivo is not None and (*v.objetivo, v.item_id) not in admitidas:
                 continue  # it returns a sale this campaign does not count (before it, or waiting for its base)
             iva = alcance_c[v.item_id]
             if c.monto_incluye_iva and iva is None:
@@ -375,7 +375,7 @@ def _asignar(
             except _BaseDesconocida:
                 pendientes[c.id] = pendientes.get(c.id, 0) + 1
                 continue
-            clave = (v.canal, v.venta_ref)
+            clave = (v.canal, v.venta_ref, v.item_id)
             admitidas.add(clave)
             ocupado = set().union(*(tenidas[p].get(clave, ()) for p in antes))
             libres[clave] = [u for u in range(abs(v.unidades)) if u not in ocupado]
@@ -465,15 +465,21 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
         activas, productos, ventas, tasas, montos_item(db, activas), repartos_item(db, activas)
     )
 
-    guardados: Dict[Tuple[int, str, int], Tuple[int, tuple]] = {}
+    guardados: Dict[Tuple[int, str, int, int], Tuple[int, tuple]] = {}
     t = SellOutConsumo
     for rid, cid, canal, ref, item_id, fecha, unidades, monto, tc in db.query(
         t.id, t.campana_id, t.canal, t.venta_ref, t.item_id, t.fecha_venta, t.unidades, t.monto, t.tc_venta
     ).filter(t.campana_id.in_(cierre)):
-        guardados[(cid, canal, ref)] = (rid, (item_id, fecha, unidades, Decimal(monto), tc))
+        guardados[(cid, canal, ref, item_id)] = (rid, (item_id, fecha, unidades, Decimal(monto), tc))
     por_id = {c.id: c for c in activas}
     nuevos = {
-        (cid, x.canal, x.venta_ref): (x.item_id, x.fecha_venta, x.unidades, x.monto, _tc_fila(por_id[cid], x, tasas))
+        (cid, x.canal, x.venta_ref, x.item_id): (
+            x.item_id,
+            x.fecha_venta,
+            x.unidades,
+            x.monto,
+            _tc_fila(por_id[cid], x, tasas),
+        )
         for cid, consumos in deseados.items()
         for x in consumos
     }
@@ -481,7 +487,7 @@ def recalcular(db: Session, campana_ids: Iterable[int]) -> RecomputeResult:
     insertar = [clave for clave, valores in nuevos.items() if guardados.get(clave, (None, None))[1] != valores]
     filas = []
     for clave in insertar:
-        cid, canal, ref = clave
+        cid, canal, ref, _ = clave
         item_id, fecha, unidades, monto, tasa = nuevos[clave]
         filas.append(
             {

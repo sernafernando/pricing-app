@@ -112,6 +112,8 @@ Al crear o editar una campaña se elige el **Tipo**:
 - **Porcentaje**: un porcentaje del costo o del precio neto de cada venta, con topes opcionales.
 - **Monto total**: un único importe para toda la campaña, que suma una sola vez al total. No lleva topes: el monto total es el tope. Puede ser **negativo**: en ese caso descuenta de la ganancia y la lista lo muestra resaltado como **Deducción de ganancia**.
 
+**Combos en sell out:** la venta de un combo (por ejemplo una notebook con -WH) cuenta para las campañas de **cada componente**, como si se hubiera vendido cada uno por separado: la cantidad vendida por la cantidad de ese componente en el combo, una fila por componente. En una campaña por **Porcentaje**, a cada componente le toca la parte del precio (o del costo) del combo proporcional a su costo dentro del combo; si algún componente no tiene costo cargado, el combo se reparte en partes iguales por unidad. El combo nunca cuenta como producto propio, aunque un grupo lo alcance. Lo mismo vale para los bonos de marca por % del costo de la venta.
+
 ### Reparto del monto total
 
 Una campaña por **Monto total** muestra, al abrirla con **Ver campaña**, la sección **Reparto del monto total**. Ahí se elige a qué productos de la campaña se le asigna el monto y cuánto a cada uno. No se reparte en partes iguales ni por unidades: lo decide quien reparte. Dentro de cada producto, su parte se distribuye entre sus ventas en las fechas de la campaña.

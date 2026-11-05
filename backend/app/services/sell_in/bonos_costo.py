@@ -83,7 +83,7 @@ BASE = BASE_COSTO_VENTA
 LOCK_TIMEOUT = sell_out_queue.LOCK_TIMEOUT
 CIEN = Decimal(100)
 
-Clave = Tuple[str, int]  # (canal, venta_ref)
+Clave = tope.Clave  # (canal, venta_ref, item_id): a combo sale is one line per component
 _Fila = Tuple[int, date, int, Decimal]  # (item_id, fecha_venta, unidades, descuento_ars)
 
 
@@ -213,9 +213,9 @@ def _componente(
     ventas: List[alcance.Venta],
     fifo: Dict[Clave, int],
     pendientes: Dict[int, int],
-) -> Dict[Tuple[int, str, int], _Fila]:
+) -> Dict[Tuple[int, str, int, int], _Fila]:
     """The desired rows of one component: its bonuses in id order over its sales (module docstring)."""
-    deseadas: Dict[Tuple[int, str, int], _Fila] = {}
+    deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     # Per sale and unit number: what earlier bonuses give that unit.
     usado: Dict[Clave, Dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     tenidas: Dict[int, Dict[Clave, List[int]]] = {}  # per bonus and line: the unit numbers it took or freed (S36)
@@ -227,7 +227,7 @@ def _componente(
         for v in sorted(ventas, key=lambda x: x.unidades < 0):  # sales first: a return checks its sale
             if v.item_id not in alcances[bono.id] or not (bono.fecha_desde <= v.fecha <= bono.fecha_hasta):
                 continue
-            clave = (v.canal, v.venta_ref)
+            clave = (v.canal, v.venta_ref, v.item_id)
             if v.unidades > 0:
                 if v.costo_unit is None:
                     pendientes[bono.id] = pendientes.get(bono.id, 0) + 1
@@ -235,7 +235,7 @@ def _componente(
                 # The units invoice-based sell in took come first; the FIFO's rows are already net of returns.
                 ocupado = set(range(min(fifo.get(clave, 0), v.unidades)))
             else:
-                if v.objetivo is not None and v.objetivo not in unitarios:
+                if v.objetivo is not None and (*v.objetivo, v.item_id) not in unitarios:
                     continue  # it returns a sale this bonus does not count
                 ocupado = set()  # the FIFO's rows are net of the return already: it frees its units here in full
             ocupado.update(*(tenidas[p].get(clave, ()) for p in antes))
@@ -269,8 +269,8 @@ def _componente(
         )
         por_linea: Dict[Clave, int] = {}
         for x in tope.asignar(campana, lineas, por_linea=por_linea):
-            clave = (x.canal, x.venta_ref)
-            deseadas[(bono.id, x.canal, x.venta_ref)] = (x.item_id, x.fecha_venta, x.unidades, x.monto)
+            clave = (x.canal, x.venta_ref, x.item_id)
+            deseadas[(bono.id, *clave)] = (x.item_id, x.fecha_venta, x.unidades, x.monto)
             for u in libres[clave][: x.unidades]:
                 usado[clave][u] += unitarios[clave]
         tenidas[bono.id] = {clave: libres[clave][:n] for clave, n in por_linea.items()}
@@ -316,15 +316,15 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
         hasta = max(b.fecha_hasta for b in activos.values())
         ventas = alcance.ventas(db, alcanzados, desde, hasta)
     fifo: Dict[Clave, int] = {
-        (canal, int(ref)): int(unidades)
-        for canal, ref, unidades in db.query(
-            SellInConsumo.canal, SellInConsumo.venta_ref, func.sum(SellInConsumo.unidades)
+        (canal, int(ref), item_id): int(unidades)
+        for canal, ref, item_id, unidades in db.query(
+            SellInConsumo.canal, SellInConsumo.venta_ref, SellInConsumo.item_id, func.sum(SellInConsumo.unidades)
         )
         .filter(SellInConsumo.item_id.in_(ids))
-        .group_by(SellInConsumo.canal, SellInConsumo.venta_ref)
+        .group_by(SellInConsumo.canal, SellInConsumo.venta_ref, SellInConsumo.item_id)
     }
 
-    deseadas: Dict[Tuple[int, str, int], _Fila] = {}
+    deseadas: Dict[Tuple[int, str, int, int], _Fila] = {}
     fallidos: Set[int] = set()
     for componente in _componentes(activos, alcances, productos):
         suyos = [b for b in activos.values() if alcances[b.id] & componente]
@@ -348,7 +348,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
             for b in suyos:
                 result.productos_fallidos.setdefault(b.id, set()).update(componente)
 
-    guardadas: Dict[Tuple[int, str, int], Tuple[int, _Fila]] = {}
+    guardadas: Dict[Tuple[int, str, int, int], Tuple[int, _Fila]] = {}
     t = SellInBonoConsumo
     for rid, bid, canal, ref, item_id, fecha, unidades, monto in (
         db.query(t.id, t.bono_id, t.canal, t.venta_ref, t.item_id, t.fecha_venta, t.unidades, t.descuento_ars)
@@ -356,7 +356,7 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
         .filter(t.item_id.in_(ids), SellInBonoMarca.base == BASE)
     ):
         # Only cost bonuses' rows: a row of any other kind is never this call's to delete.
-        guardadas[(bid, canal, ref)] = (rid, (item_id, fecha, unidades, Decimal(monto)))
+        guardadas[(bid, canal, ref, item_id)] = (rid, (item_id, fecha, unidades, Decimal(monto)))
     # A failed component keeps its rows; a sale re-filed into another product keeps its key there too.
     retenidas = {clave for clave, (_, fila) in guardadas.items() if fila[0] in fallidos}
     borrar = [rid for clave, (rid, fila) in guardadas.items() if clave not in retenidas and deseadas.get(clave) != fila]

@@ -18,6 +18,7 @@ from sqlalchemy import Engine, text
 
 from app.models.tactical import Tactical
 from app.models.auditoria import Auditoria
+from app.models.combo_componente import ComboComponente
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
 from app.models.offset_grupo import OffsetGrupo
@@ -59,6 +60,7 @@ TABLES = [
     VentaTiendaNubeMetrica.__table__,
     MlOrderItemOps.__table__,
     MlSaleLine.__table__,
+    ComboComponente.__table__,  # combo sales count for their components' campaigns
 ]
 # item_id -> (marca, categoria, subcategoria_id, iva)
 PRODUCTOS = {

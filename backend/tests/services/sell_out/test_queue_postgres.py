@@ -184,8 +184,9 @@ class TestFanOut:
             event.remove(engine, "before_cursor_execute", _count)
 
         assert [q[0] for q in w.queued(engine)] == ids
-        # consumptions + one per channel + reach + the upsert, whatever the number of lines
-        assert len(statements) == 6
+        # consumptions + one per channel + the bill of materials (synced check, components) + reach + the upsert,
+        # whatever the number of lines
+        assert len(statements) == 8
 
     def test_no_lines_or_no_reach_queue_nothing(self, engine: Engine) -> None:
         w.campana(engine, [w.grupo(engine, [ROUTERS])])
