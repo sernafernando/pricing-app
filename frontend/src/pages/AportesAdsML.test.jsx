@@ -574,6 +574,12 @@ describe('robust loading (ml-ads-aportes-robust)', () => {
       await user.click(screen.getByLabelText('Devuelve la diferencia'));
       await user.click(screen.getByLabelText('Se recibe todo'));
     }],
+    ['channel', async (user) => {
+      await user.click(within(screen.getByRole('group', { name: 'Canal' })).getByRole('button', { name: 'Display' }));
+      const select = await screen.findByLabelText('Campaña de Display');
+      await within(select).findByRole('option', { name: 'XeroxB110 · 335306 · GAUSS' });
+      await user.selectOptions(select, 'XeroxB110 · 335306 · GAUSS');
+    }],
   ])('changing the %s after confirming clears the confirmation and asks again', async (_what, change) => {
     previewWith({ spend: 1000, counted: 5000, net: -4000, over_spend: true });
     const user = userEvent.setup();
@@ -612,6 +618,26 @@ describe('robust loading (ml-ads-aportes-robust)', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
     expect(api.post.mock.calls[1][1]).not.toHaveProperty('confirm_over_spend');
+  });
+
+  it('switching the channel drops a backend rejection and a confirmation given on the old channel', async () => {
+    api.get.mockImplementation((url) =>
+      url.endsWith('/preview') ? Promise.reject(new Error('down')) : Promise.resolve({ data: answer(url, {}) }),
+    );
+    api.post.mockRejectedValueOnce({
+      response: { status: 422, data: { error: { field: 'value', message: 'the amount is above the range spend of 0.00' } } },
+    });
+    const user = userEvent.setup();
+    await openCreate(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '5000' });
+    await user.click(screen.getByLabelText('Se recibe todo'));
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    await user.click(await screen.findByLabelText(CONFIRM_LABEL));
+    await user.click(within(screen.getByRole('group', { name: 'Canal' })).getByRole('button', { name: 'Display' }));
+    expect(screen.queryByLabelText(CONFIRM_LABEL)).not.toBeInTheDocument();
+    await user.click(within(screen.getByRole('group', { name: 'Canal' })).getByRole('button', { name: 'Product Ads' }));
+    expect(screen.queryByLabelText(CONFIRM_LABEL)).not.toBeInTheDocument();
   });
 
   it('asks to confirm when the backend says so, even on a range that spent nothing yet', async () => {
@@ -841,6 +867,30 @@ describe('Display aportes (Stitch 7512c518)', () => {
     expect(follows(channel(), select)).toBe(true);
     expect(
       screen.getByText('Toda la cuenta: el aporte cubre todas las campañas de Display del anunciante en el rango.'),
+    ).toBeInTheDocument();
+  });
+
+  it('a full amount above the whole Display account asks about the account, not a campaign', async () => {
+    api.get.mockImplementation((url, config) =>
+      Promise.resolve({
+        data:
+          url === '/ml-ads/contributions/preview'
+            ? { ...DISPLAY_PREVIEW, counted: 5000000, net: -3800000, over_spend: true }
+            : answer(url, {}),
+      }),
+    );
+    const user = userEvent.setup();
+    await openHeaderCreate(user);
+    await chooseWholeDisplayAccount(user);
+    await user.click(screen.getByRole('button', { name: 'Monto fijo' }));
+    await fillCommon(user, { value: '5000000', brand: 'EPSON' });
+    await user.click(screen.getByLabelText('Se recibe todo'));
+    expect(
+      await screen.findByLabelText('Confirmo que el aporte supera el costo de la cuenta de Display en el rango'),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Guardar aporte' }));
+    expect(
+      await screen.findByText('Confirmá que el aporte supera el costo de la cuenta de Display en el rango.'),
     ).toBeInTheDocument();
   });
 

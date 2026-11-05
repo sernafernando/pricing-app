@@ -31,7 +31,7 @@ El botón **Agregar aporte** (si tenés permiso) crea un aporte nuevo.
 - **Resumen de Display**: con Canal **Display**, el formulario dice cuánto gastó Display en el rango y cuánto cubre el aporte. Por ejemplo: "En el rango, Display gastó $ 1.200.000,00; este aporte cubre $ 300.000,00".
 - **Al editar**: el canal y la campaña quedan fijos. Para cambiarlos, borrá el aporte y cargalo de nuevo.
 - **El monto incluye IVA**: aparece con un monto fijo. Marcalo si copiaste el monto de una factura con IVA; se guarda sin IVA, que es como viene el costo de Ads.
-- **Monto mayor al costo**: si un monto fijo que "Se recibe todo" supera el costo de la campaña en el rango, el neto queda negativo. Para guardarlo tenés que marcar **Confirmo que el aporte supera el costo de la campaña en el rango**. Si después cambiás la campaña, el tipo, el monto, si incluye IVA, las fechas o cómo se liquida, la casilla se desmarca y se vuelve a pedir.
+- **Monto mayor al costo**: si un monto fijo que "Se recibe todo" supera el costo de la campaña en el rango, el neto queda negativo. Para guardarlo tenés que marcar **Confirmo que el aporte supera el costo de la campaña en el rango** (en un aporte a toda la cuenta de Display dice "de la cuenta de Display"). Si después cambiás el canal, la campaña, el tipo, el monto, si incluye IVA, las fechas o cómo se liquida, la casilla se desmarca y se vuelve a pedir.
 - **Aviso de datos**: si el rango termina después del último día con datos de Ads, el formulario lo avisa. El aporte que cuenta va a cambiar cuando lleguen esos días.
 
 ### Vista Por aporte

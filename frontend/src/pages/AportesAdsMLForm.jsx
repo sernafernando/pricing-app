@@ -108,7 +108,9 @@ function validate(form, { previewing = false } = {}) {
   return null;
 }
 
-const OVER_SPEND_ERROR = 'Confirmá que el aporte supera el costo de la campaña en el rango.';
+// What a full amount goes over: one campaign's cost, or the whole Display account's when the aporte covers the account.
+const overSpendTarget = (form) =>
+  form.channel === 'display' && wholeAccount(form.campaign) ? 'la cuenta de Display' : 'la campaña';
 // The over-spend is measured on one campaign, kind, amount (with or without IVA), range and settlement: changing any
 // of them asks again.
 const RESETS_OVER_SPEND = new Set(['campaign', 'kind', 'value', 'ivaIncluded', 'dateFrom', 'dateTo', 'settlement']);
@@ -245,6 +247,11 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
     setForm((f) => ({ ...f, [key]: value, ...(resets ? { confirmOverSpend: false } : {}) }));
     if (resets) setRejectedOverSpend(false);
   };
+  // Another channel is another campaign: it drops the campaign and, like any campaign change, the over-spend answer.
+  const changeChannel = (channel) => {
+    setForm((f) => ({ ...f, channel, campaign: '', confirmOverSpend: false }));
+    setRejectedOverSpend(false);
+  };
   const set = (key) => (e) => update(key, e.target.value);
   const toggle = (key) => (e) => update(key, e.target.checked);
   const body = validate(form, { previewing: true }) === null ? JSON.stringify(payloadOf(form)) : null;
@@ -268,7 +275,7 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
 
   const handleSave = async (e) => {
     e.preventDefault();
-    const invalid = validate(form) || (overSpend && !form.confirmOverSpend ? OVER_SPEND_ERROR : null);
+    const invalid = validate(form) || (overSpend && !form.confirmOverSpend ? `Confirmá que el aporte supera el costo de ${overSpendTarget(form)} en el rango.` : null);
     if (invalid) {
       setFormError(invalid);
       return;
@@ -335,7 +342,7 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
             label="Canal"
             options={CHANNELS}
             value={form.channel}
-            onChange={(channel) => setForm((f) => ({ ...f, channel, campaign: '' }))}
+            onChange={changeChannel}
             disabled={editing}
           />
         </div>
@@ -499,7 +506,7 @@ export default function AportesAdsMLForm({ title, initial, campaigns, submit, on
               checked={form.confirmOverSpend}
               onChange={toggle('confirmOverSpend')}
             />
-            <label htmlFor="aporte-confirmar">Confirmo que el aporte supera el costo de la campaña en el rango</label>
+            <label htmlFor="aporte-confirmar">Confirmo que el aporte supera el costo de {overSpendTarget(form)} en el rango</label>
             <span id="aporte-confirmar-hint" className={styles.checkHint}>
               El neto queda negativo: Métricas ML suma la diferencia.
             </span>
