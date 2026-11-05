@@ -1,0 +1,111 @@
+/* Sell in's Productos list (DESIGN.md "Dense table"), as in the approved cost-mode design's list: product name over
+   its mono code, the cost mode as a pill, right-aligned tabular numbers and the total units under the table. */
+
+.card {
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+}
+
+.scroller {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--cf-text-primary);
+}
+
+.table th {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+}
+
+.table td {
+  padding: 10px 16px;
+  vertical-align: middle;
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.table tbody tr:hover {
+  background: var(--cf-bg-hover);
+}
+
+.num,
+.table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.producto {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  color: var(--cf-text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.producto:hover .nombre {
+  text-decoration: underline;
+}
+
+.producto:focus-visible {
+  outline: 2px solid var(--cf-accent-blue);
+  outline-offset: 2px;
+  border-radius: var(--radius-base);
+}
+
+.codigo {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--cf-text-secondary);
+}
+
+.pill {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-default);
+  border-radius: 999px;
+}
+
+.total {
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  border-top: 1px solid var(--cf-border-default);
+}
+
+.nota {
+  margin: 0;
+  padding: var(--spacing-md);
+  color: var(--cf-text-secondary);
+}
+
+.error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--spacing-md);
+  color: var(--cf-danger);
+}
