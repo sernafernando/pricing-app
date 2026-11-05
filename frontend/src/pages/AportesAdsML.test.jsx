@@ -871,7 +871,7 @@ describe('Display aportes (Stitch 7512c518)', () => {
   });
 
   it('a full amount above the whole Display account asks about the account, not a campaign', async () => {
-    api.get.mockImplementation((url, config) =>
+    api.get.mockImplementation((url) =>
       Promise.resolve({
         data:
           url === '/ml-ads/contributions/preview'
