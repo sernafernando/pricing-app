@@ -37,14 +37,9 @@ def pg(client, request, monkeypatch):
     MlWriteLog.__table__.create(bind=engine, checkfirst=True)
     # Live-label joins for the control view (title / ERP descripcion).
     with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE IF NOT EXISTS ml_items (item_id text PRIMARY KEY, title text)"))
         conn.execute(
-            text("CREATE TABLE IF NOT EXISTS ml_items (item_id text PRIMARY KEY, title text)")
-        )
-        conn.execute(
-            text(
-                "CREATE TABLE IF NOT EXISTS productos_erp "
-                "(item_id integer PRIMARY KEY, descripcion varchar(500))"
-            )
+            text("CREATE TABLE IF NOT EXISTS productos_erp (item_id integer PRIMARY KEY, descripcion varchar(500))")
         )
 
     factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
@@ -233,15 +228,8 @@ class TestRunDetail:
 
     def test_events_include_live_title_and_descripcion(self, client, pg, reader):
         with pg.begin() as conn:
-            conn.execute(
-                text("INSERT INTO ml_items (item_id, title) VALUES ('MLA1', 'Cable HDMI 2m')")
-            )
-            conn.execute(
-                text(
-                    "INSERT INTO productos_erp (item_id, descripcion) "
-                    "VALUES (42, 'CABLE HDMI 2 METROS')"
-                )
-            )
+            conn.execute(text("INSERT INTO ml_items (item_id, title) VALUES ('MLA1', 'Cable HDMI 2m')"))
+            conn.execute(text("INSERT INTO productos_erp (item_id, descripcion) VALUES (42, 'CABLE HDMI 2 METROS')"))
         rid = insert_run(pg)
         insert_event(
             pg,
