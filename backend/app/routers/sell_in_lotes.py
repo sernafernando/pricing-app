@@ -125,7 +125,7 @@ def modos_de_producto(item_id: int, db: Session = Depends(get_db)) -> dict:
 def _validar_cambio(db: Session, usuario: Usuario, item_id: int, body: ModoIn, hoy: date) -> None:
     """422 for a mode not written here, 403 naming the permission missing (D7), 404 for an unknown product."""
     if body.modo not in modos.MODOS_ESCRITOS:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Cost mode '{body.modo}' cannot be set yet")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Cost mode '{body.modo}' cannot be set here")
     falta = modos.permiso_faltante(body.modo, body.desde, hoy, lambda codigo: verificar_permiso(db, usuario, codigo))
     if falta is not None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing permission: {falta}")

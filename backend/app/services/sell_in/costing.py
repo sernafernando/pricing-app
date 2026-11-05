@@ -326,12 +326,13 @@ class FifoPurchaseCosting:
         valued as a sale on the replay day would get them (`_replay`): what the mode preview shows (D2, D5). Zero under
         FIFO and `ponderado` but for rounding; `ultimo` and a switch back to FIFO from a pool can leave money unhanded
         (positive) or hand out more than the lots hold (negative). Raises like the replay."""
-        item = self.lotes(db, [item_id]).get(item_id, [])
+        lotes, periodos = self._con_bloques(db, [item_id])
+        item = lotes.get(item_id, [])
         if not item:
             return Decimal("0.00")
         lineas = [lote.compra_item_id for lote in item]
         filas = self._filas_guardadas(db, lineas).get(item_id, [])
-        dinero, dia = self._replay(item, self.periodos(db, [item_id]).get(item_id, []), filas, hoy)
+        dinero, dia = self._replay(item, periodos.get(item_id, []), filas, hoy)
         dado = db.query(func.coalesce(func.sum(SellInConsumo.descuento_ars), 0)).filter(de_lotes(lineas))
         total = sum((lote.descuento_ars for lote in item), Decimal(0))
         resto = total - Decimal(dado.scalar()) - dinero.restante(dia)
