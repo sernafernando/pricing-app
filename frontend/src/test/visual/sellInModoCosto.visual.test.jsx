@@ -1,7 +1,7 @@
 /**
  * The cost-mode panel inside the sell-in lot viewer -- real CSS, real Chromium: in a product-panel-width column the
  * mode switch, the date, the preview (with its before/after table and the last-price warning) and the history fit
- * without overflowing, in light, dark and high contrast.
+ * without overflowing, in light, dark and high contrast; the admin's default-mode modal fits a phone-width screen.
  *
  *   pnpm exec vitest run --project=visual sellInModoCosto
  *   VITE_SELLIN_MODO_SHOTS_DIR=<dir> pnpm exec vitest run --project=visual sellInModoCosto   (also saves screenshots)
@@ -47,9 +47,11 @@ vi.mock('../../services/sellInAPI', () => ({
       }),
     ),
     confirmarModo: vi.fn(),
+    modoPorDefecto: vi.fn(() => Promise.resolve({ data: { modo: 'ponderado' } })),
+    fijarModoPorDefecto: vi.fn(),
   },
 }));
-vi.mock('../../contexts/PermisosContext', () => ({ usePermisos: () => ({ tienePermiso: () => true }) }));
+vi.mock('../../contexts/PermisosContext', () => ({ usePermisos: () => ({ tienePermiso: () => true, rol: 'ADMIN' }) }));
 
 afterEach(() => document.documentElement.classList.remove('high-contrast'));
 
@@ -77,5 +79,26 @@ describe('SellInModoCosto in the lot viewer (visual)', () => {
         if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/modo-costo-${theme}${highContrast ? '-hc' : ''}.png` });
       });
     }
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`the admin's default-mode modal fits a phone-width screen, ${theme}`, async () => {
+      await page.viewport(390, 844);
+      setTheme(theme);
+      document.body.style.background = 'var(--cf-bg-app)';
+      const screen = await render(
+        <div style={{ padding: 16, background: 'var(--cf-bg-card)' }}>
+          <SellInLotes productItemId={950} />
+        </div>,
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Modo por defecto' }));
+      const grupo = page.getByRole('group', { name: 'Modo por defecto' });
+      await expect.element(grupo).toBeVisible();
+      await userEvent.click(grupo.getByRole('button', { name: 'Último precio' }));
+      const modal = document.querySelector('.modal-tesla');
+      expect(modal.scrollWidth).toBeLessThanOrEqual(modal.clientWidth + 1);
+      expect(modal.getBoundingClientRect().right).toBeLessThanOrEqual(390);
+      if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/modo-por-defecto-${theme}.png` });
+    });
   }
 });

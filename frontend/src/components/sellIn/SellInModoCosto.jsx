@@ -3,6 +3,7 @@ import { sellInLotesAPI } from '../../services/sellInAPI';
 import { usePermisos } from '../../contexts/PermisosContext';
 import SegmentedControl from '../kit/SegmentedControl';
 import StatusPill from '../kit/StatusPill';
+import SellInModoPorDefecto from './SellInModoPorDefecto';
 import styles from './SellInModoCosto.module.css';
 
 const MONEY = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -45,6 +46,7 @@ const MODOS = {
   manual: { label: 'Manual', nota: 'Manual: cargás la cantidad y el costo unitario que quedan.' },
 };
 const ORDEN = ['fifo', 'ponderado', 'ultimo', 'manual'];
+const ADMINS = ['ADMIN', 'SUPERADMIN'];
 
 /** What the preview says about ARS the lots hold that no unit hands out (positive) or handed beyond them (negative). */
 function SinAsignar({ valor }) {
@@ -143,14 +145,16 @@ function errorText(error, accion) {
  * @param {Function} props.onChanged Called after a change is saved, so the viewer reloads its lots.
  */
 export default function SellInModoCosto({ productItemId, lotes, proxima, onChanged }) {
-  const { tienePermiso } = usePermisos();
+  const { tienePermiso, rol } = usePermisos();
   const headingId = useId();
   const desdeId = useId();
   const helpId = useId();
   const histId = useId();
   const [read, setRead] = useState({ status: 'loading', data: null });
   const [attempt, setAttempt] = useState(0);
-  const [modo, setModo] = useState(null);
+  const [modo, setModo] = useState(null); // null: not picked, the selector shows the preselected mode
+  const [porDefecto, setPorDefecto] = useState('fifo');
+  const [editandoDefecto, setEditandoDefecto] = useState(false);
   const [desde, setDesde] = useState(today);
   const [vista, setVista] = useState(null);
   const [busy, setBusy] = useState(null); // 'preview' | 'confirm'
@@ -167,6 +171,18 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
     };
   }, [productItemId, attempt]);
 
+  useEffect(() => {
+    let current = true;
+    // Unreadable: the selector just opens on FIFO.
+    sellInLotesAPI
+      .modoPorDefecto()
+      .then(({ data }) => current && setPorDefecto(data.modo))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, []);
+
   if (read.status === 'forbidden') return null;
 
   const puede = {
@@ -176,6 +192,11 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
   };
   const puedeCambiar = puede.ponderado || puede.ultimo || puede.manual;
   const retroactivo = tienePermiso(RETROACTIVO);
+  // Manual cannot be saved yet; any other mode needs its permission, FIFO any of them.
+  const permitido = (value) => value !== 'manual' && (value === 'fifo' ? puedeCambiar : puede[value]);
+  // The admin's default opens preselected only when this user may set it; otherwise FIFO.
+  const seleccion = modo ?? (permitido(porDefecto) ? porDefecto : 'fifo');
+  const esAdmin = ADMINS.includes(rol);
   const hoy = today();
 
   const drop = () => {
@@ -184,13 +205,18 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
   };
 
   const preview = async () => {
+    // Freeze the previewed mode: a default read or saved later must not relabel the preview or what is confirmed.
+    // A failed preview unfreezes it, so an untouched selector follows the default again.
+    const elegidoAntes = modo;
+    setModo(seleccion);
     setBusy('preview');
     setError(null);
     try {
-      const { data } = await sellInLotesAPI.vistaPrevia(productItemId, { modo, desde });
+      const { data } = await sellInLotesAPI.vistaPrevia(productItemId, { modo: seleccion, desde });
       setVista(data);
     } catch (err) {
       setVista(null);
+      setModo(elegidoAntes);
       setError(errorText(err, 'No se pudo calcular la vista previa'));
     } finally {
       setBusy(null);
@@ -201,7 +227,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
     setBusy('confirm');
     setError(null);
     try {
-      await sellInLotesAPI.confirmarModo(productItemId, { modo, desde, huella: vista.huella });
+      await sellInLotesAPI.confirmarModo(productItemId, { modo: seleccion, desde, huella: vista.huella });
       setVista(null);
       setModo(null);
       setAttempt((n) => n + 1);
@@ -251,13 +277,13 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
       if (value === 'manual') {
         return { value, label: MODOS[value].label, disabled: true, title: 'La carga manual todavía no está disponible' };
       }
-      const permitido = value === 'fifo' ? puedeCambiar : puede[value];
+      const ok = permitido(value);
       return {
         value,
         label: MODOS[value].label,
         // Locked while a request runs, so a preview never lands under another mode's name.
-        disabled: !permitido || busy != null,
-        title: permitido ? undefined : `Necesitás el permiso ${PERMISO[value]}`,
+        disabled: !ok || busy != null,
+        title: ok ? undefined : `Necesitás el permiso ${PERMISO[value]}`,
       };
     });
 
@@ -277,7 +303,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
               <SegmentedControl
                 label="Cambiar a"
                 options={options}
-                value={modo}
+                value={seleccion}
                 onChange={(value) => {
                   setModo(value);
                   drop();
@@ -307,13 +333,13 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
                   : 'Para una fecha pasada necesitás el permiso de costo retroactivo.'}
               </span>
             </div>
-            {modo && <p className={styles.note}>{MODOS[modo].nota}</p>}
+            <p className={styles.note}>{MODOS[seleccion].nota}</p>
             {!vista && (
               <div className={`${styles.actions} ${styles.divided}`}>
                 <button
                   type="button"
                   className="btn-tesla outline sm"
-                  disabled={!modo || !desde || busy === 'preview'}
+                  disabled={!desde || busy === 'preview'}
                   onClick={preview}
                 >
                   {busy === 'preview' ? 'Calculando…' : 'Ver cómo queda'}
@@ -331,7 +357,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
     );
     if (puedeCambiar && vista) {
       previewCard = (
-        <Preview vista={vista} modo={modo} antes={antes} onConfirm={confirm} onCancel={drop} saving={busy === 'confirm'} />
+        <Preview vista={vista} modo={seleccion} antes={antes} onConfirm={confirm} onCancel={drop} saving={busy === 'confirm'} />
       );
     }
     if (historial.length > 0) {
@@ -365,16 +391,34 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
   return (
     <>
       <section className={styles.card} aria-labelledby={headingId}>
-        <header className={styles.head}>
-          <h4 id={headingId} className={styles.title}>
-            Modo de costo
-          </h4>
-          <p className={styles.hint}>Define con qué descuento de sell in salen las unidades cuando vendés.</p>
+        <header className={`${styles.head} ${styles.headRow}`}>
+          <div className={styles.headText}>
+            <h4 id={headingId} className={styles.title}>
+              Modo de costo
+            </h4>
+            <p className={styles.hint}>Define con qué descuento de sell in salen las unidades cuando vendés.</p>
+          </div>
+          {esAdmin && (
+            <button type="button" className="btn-tesla outline sm" onClick={() => setEditandoDefecto(true)}>
+              Modo por defecto
+            </button>
+          )}
         </header>
         <div className={styles.body}>{body}</div>
       </section>
       {previewCard}
       {historyCard}
+      {editandoDefecto && (
+        <SellInModoPorDefecto
+          actual={porDefecto}
+          options={ORDEN.filter((value) => value !== 'manual').map((value) => ({ value, label: MODOS[value].label }))}
+          onClose={() => setEditandoDefecto(false)}
+          onSaved={(value) => {
+            setPorDefecto(value);
+            setEditandoDefecto(false);
+          }}
+        />
+      )}
     </>
   );
 }

@@ -43,7 +43,8 @@ USUARIO = 7
 GRUPO = 1
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
-    "CREATE TABLE offset_grupos (id INTEGER PRIMARY KEY, nombre VARCHAR(100) NOT NULL)",
+    # `oculto`: an edit keeps a tactical line's hidden group (tacticals T1)
+    "CREATE TABLE offset_grupos (id INTEGER PRIMARY KEY, nombre VARCHAR(100) NOT NULL, oculto BOOLEAN NOT NULL DEFAULT false)",
     "CREATE TABLE offsets_ganancia (id INTEGER PRIMARY KEY)",  # the legacy offset a campaign migrates (T15)
     "INSERT INTO offsets_ganancia VALUES (123)",
     f"INSERT INTO usuarios VALUES ({USUARIO})",

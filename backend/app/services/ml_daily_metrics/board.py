@@ -116,6 +116,7 @@ from app.models.ml_ads import (
     MlAdsDayLedger,
     MlAdsDisplayCampaignDay,
     MlAdsItemDay,
+    item_day_without_campaign,
 )
 from app.models.ml_order_item_costo import MlOrderItemCosto
 from app.models.ml_orders_ops import MlOpsSyncCursor, MlOrderItemOps, MlOrdersOps, MlShipmentOps
@@ -1472,6 +1473,7 @@ class Board:
 
         meets = and_(
             C.channel == "display",
+            C.deleted_at.is_(None),  # a soft-deleted contribution covers nothing (ml-ads-aportes-robust S6)
             D.advertiser_id == C.advertiser_id,
             or_(C.campaign_id.is_(None), D.campaign_id == C.campaign_id),
             D.day.between(C.date_from, C.date_to),
@@ -1516,6 +1518,7 @@ class Board:
 
         in_range = and_(
             C.channel == "product_ads",
+            C.deleted_at.is_(None),  # a soft-deleted contribution covers nothing (ml-ads-aportes-robust S6)
             I.advertiser_id == C.advertiser_id,
             I.campaign_id == C.campaign_id,
             day.between(C.date_from, C.date_to),
@@ -1538,7 +1541,7 @@ class Board:
             (spend.c.spend > 0, I.cost * literal_column("1.0") * counted / spend.c.spend),
             else_=0,
         )
-        no_campaign = or_(I.campaign_id.is_(None), I.campaign_id == 0)
+        no_campaign = item_day_without_campaign(I)
         query = (
             select(
                 I.item_id.label("mla"),

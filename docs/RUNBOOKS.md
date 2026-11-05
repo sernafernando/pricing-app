@@ -1326,3 +1326,47 @@ Empty or whitespace `pedido_factura_documentos.numero` is a notify
 enough. Chicho assigns that permission; do not assign it in DB from this
 runbook.
 
+
+---
+
+## 8) Sell out fresh start (delete every legacy campaign, group and offset)
+
+One-off, irreversible. The owner asked for it ("empezar de 0 borra todas las
+campañas que existan hoy y grupos viejos, es literal, empezar de 0"): every
+legacy sell-out campaign, program, product group and offset is deleted, with
+their consumptions, queue rows and campaign/program audit rows, so everything
+is loaded again with tacticals. Sell in (purchases, bonuses, cost modes) is not
+touched. Run it only when the owner says so, with the orchestrator.
+
+The script refuses (exit 1, nothing deleted) when any tactical exists, so it
+only works before the first tactical is loaded.
+
+1. **Stop the sell out drain.** It runs inside `pricing-worker`:
+   `sudo systemctl stop pricing-worker`, and make sure nobody is loading
+   campaigns or tacticals. The script also takes the drain's per-campaign lock
+   and gives up after 5 s, or on a deadlock, if the drain or a load in progress
+   still holds one ("Otro proceso está usando las campañas: pará el worker de
+   sell out y volvé a correrlo. No se borró nada.", exit 1, nothing deleted).
+2. **Confirm today's database backup exists** and note its file name. There is
+   no other way back.
+3. **Dry run** (deletes nothing; prints the rows each table holds as one JSON
+   line, `antes` / `despues`), from `backend/`:
+
+   ```bash
+   venv/bin/python -m app.scripts.fresh_start_sell_out
+   ```
+
+   Check the counts with the owner.
+4. **Apply** (one transaction: everything or nothing):
+
+   ```bash
+   venv/bin/python -m app.scripts.fresh_start_sell_out --apply --confirm "BORRAR TODO"
+   ```
+
+   `despues` must be all zeros. A missing or different confirmation exits 2
+   and deletes nothing. A second run is a no-op.
+5. **Start the worker again**: `sudo systemctl start pricing-worker`.
+
+Sequences are kept (new ids continue after the old ones).
+`sell_in_bonos_marca.offset_origen_id` keeps the id of an offset that no
+longer exists; it has no FK, so this is expected.

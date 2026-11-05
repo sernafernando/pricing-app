@@ -13,7 +13,7 @@ import Pagination from '../components/ventasMl/Pagination';
 import SegmentedControl from '../components/metricasMl/SegmentedControl';
 import ToggleChips from '../components/metricasMl/ToggleChips';
 import SwitchChip from '../components/metricasMl/SwitchChip';
-import AdsAppliedBanner from '../components/metricasMl/AdsAppliedBanner';
+import PublicidadRestada from '../components/metricasMl/PublicidadRestada';
 import AdsKpiBlock from '../components/metricasMl/AdsKpiBlock';
 import AdsUnattributedPanel from '../components/metricasMl/AdsUnattributedPanel';
 import AdsModeControl from '../components/metricasMl/AdsModeControl';
@@ -870,7 +870,7 @@ export default function MetricasML() {
         </div>
       </section>
 
-      <AdsAppliedBanner ads={ads} />
+      <PublicidadRestada ads={ads} />
 
       <MetricasKpiStrip kpis={board?.kpis} canSeeMargin={canSeeMargin} groupBy={groupBy} loading={loading} tpSolo={tpSolo} isVisible={kpiVisible} />
 

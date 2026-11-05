@@ -42,6 +42,8 @@ class TipoAccion(str, enum.Enum):
     # cost mode: one row per mode row saved (`item_id` is the product; the row, its date and what the preview showed
     # travel in the values).
     SELL_IN_MODO_CREADO = "sell_in_modo_creado"
+    # the cost-mode selector's default: one row per admin change (`item_id` NULL; the mode before and after).
+    SELL_IN_MODO_POR_DEFECTO = "sell_in_modo_por_defecto"
     # sell out: one row per campaign load, edit or void (`item_id` is NULL, `campana_id` travels in the values).
     SELL_OUT_CAMPANA_CREADA = "sell_out_campana_creada"
     SELL_OUT_CAMPANA_EDITADA = "sell_out_campana_editada"
@@ -50,6 +52,10 @@ class TipoAccion(str, enum.Enum):
     # sell out: one row per campaign whose program changed (campaign system S1; `item_id` NULL, `campana_id` and the
     # program before/after travel in the values). Same VARCHAR(50) column: no DDL.
     SELL_OUT_CAMPANA_PROGRAMA = "sell_out_campana_programa"
+    # tacticals (T1): one row per tactical created or voided (`item_id` NULL, `tactical_id` and its lines' children in
+    # the values); each child writes its own engine's row too. Same VARCHAR(50) column: no DDL.
+    TACTICAL_CREADO = "tactical_creado"
+    TACTICAL_ANULADO = "tactical_anulado"
     # ML Ads brand aportes (ml-ads-aportes-robust S5): one row per load, edit or delete (`item_id` NULL; the aporte,
     # its id included, travels in the values: before/after). Same VARCHAR(50) column: no DDL.
     ML_ADS_APORTE_CREADO = "ml_ads_aporte_creado"

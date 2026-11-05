@@ -25,6 +25,7 @@ _PATH = Path(__file__).resolve().parents[3] / "alembic" / "versions" / f"{REVISI
 # migration of the table applied.
 _SETTLEMENT_PATH = _PATH.with_name("20261116_ml_ads_contribution_settlement.py")
 _CHANNEL_PATH = _PATH.with_name("20261229_ml_ads_contribution_channel.py")
+_SOFT_DELETE_PATH = _PATH.with_name("20261231_ml_ads_contribution_soft_delete.py")
 _INSERT = (
     f"INSERT INTO {TABLE} (advertiser_id, campaign_id, kind, value, date_from, date_to, created_by_id, "
     "updated_by_id) VALUES (714700, 351001, :kind, :value, :desde, :hasta, 7, 7)"
@@ -79,6 +80,7 @@ def engine():
         run_migration(eng, "upgrade")
         run_migration(eng, "upgrade", _SETTLEMENT_PATH)
         run_migration(eng, "upgrade", _CHANNEL_PATH)
+        run_migration(eng, "upgrade", _SOFT_DELETE_PATH)
 
     with throwaway_schema(build) as eng:
         yield eng
@@ -109,6 +111,7 @@ def test_migrated_schema_matches_the_orm_and_downgrade_drops_it(engine) -> None:
     assert ("ix_ml_ads_campaign_contributions_campaign",) == tuple(
         n for n, _ in migrated["indexes"] if n.startswith("ix_")
     )
+    run_migration(engine, "downgrade", _SOFT_DELETE_PATH)
     run_migration(engine, "downgrade", _CHANNEL_PATH)
     run_migration(engine, "downgrade", _SETTLEMENT_PATH)
     run_migration(engine, "downgrade")

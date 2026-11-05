@@ -11,13 +11,21 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_algun_permiso, require_permiso
+from app.api.deps import get_current_admin, get_current_user, require_algun_permiso, require_permiso
 from app.api.endpoints.productos_listing import PERMISOS_VER_PRODUCTO
 from app.core.database import get_db
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
 from app.schemas.sell_in_lotes import ConsumosLoteOut, LotesProductoOut
-from app.schemas.sell_in_modos import ModoConfirmarIn, ModoIn, ModoProductoOut, ModosProductoOut, VistaPreviaOut
+from app.schemas.sell_in_modos import (
+    ModoConfirmarIn,
+    ModoIn,
+    ModoPorDefectoIn,
+    ModoPorDefectoOut,
+    ModoProductoOut,
+    ModosProductoOut,
+    VistaPreviaOut,
+)
 from app.services.permisos_service import verificar_permiso
 from app.services.sell_in import modos, visor_lotes
 
@@ -36,6 +44,27 @@ router = APIRouter(
     tags=["Sell in"],
     dependencies=[Depends(require_algun_permiso(PERMISOS_VER_PRODUCTO))],
 )
+
+
+@router.get(
+    "/modo-por-defecto", response_model=ModoPorDefectoOut, dependencies=[Depends(require_permiso("sell_in.ver"))]
+)
+def modo_por_defecto(db: Session = Depends(get_db)) -> dict:
+    """The cost mode the panel's selector opens preselected with (FIFO when unset). It never changes costing: a
+    product without a mode row stays FIFO, and the selector still offers only the modes the user may set."""
+    return {"modo": modos.modo_por_defecto(db)}
+
+
+@router.put(
+    "/modo-por-defecto",
+    response_model=ModoPorDefectoOut,
+    dependencies=[Depends(require_permiso("sell_in.ver"))],
+)
+def fijar_modo_por_defecto(
+    body: ModoPorDefectoIn, db: Session = Depends(get_db), admin: Usuario = Depends(get_current_admin)
+) -> dict:
+    """Admins only: change the selector's preselected mode (audited). Nothing is recomputed."""
+    return {"modo": modos.fijar_modo_por_defecto(db, body.modo, admin.id)}
 
 
 @router.get("/{item_id}/lotes", response_model=LotesProductoOut)

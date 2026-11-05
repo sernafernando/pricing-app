@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from app.services import ml_promotions_hay_mejores as hay_mejores
@@ -202,4 +203,57 @@ class TestListarMejoresBaselineWiring:
         ]
         assert listar_mejores_candidatas(MagicMock(), "MLA1", candidates, 555867.83, raw_promotions=candidates) == [
             ("P-SMART", 526957.0)
+        ]
+
+
+class TestActualizarForwardsRawPromotions:
+    """actualizar_hay_mejores_ofertas must pass mirror raw into listar_mejores_candidatas."""
+
+    def test_forwards_raw_promotions_kwarg_to_listar(self, monkeypatch) -> None:
+        seen: dict = {}
+        raw = [
+            {
+                "id": "P-LIVE",
+                "type": "PRICE_MATCHING",
+                "status": "started",
+                "price": 1000,
+            },
+            {"id": "C-1", "type": "SMART", "status": "candidate", "price": 900},
+        ]
+        row = SimpleNamespace(
+            hay_mejores_ofertas=False,
+            hay_mejores_fingerprint=None,
+            hay_mejores_descartado_fingerprint=None,
+            raw=None,
+        )
+        sale = SimpleNamespace(amount=1000.0)
+
+        class _Nested:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        db = MagicMock()
+        db.begin_nested.return_value = _Nested()
+        db.query.return_value.filter.return_value.one_or_none.side_effect = [row, sale]
+
+        def _listar(_db, mla, candidates, baseline, *, raw_promotions=None):
+            seen["mla"] = mla
+            seen["candidates"] = candidates
+            seen["baseline"] = baseline
+            seen["raw"] = raw_promotions
+            return [("C-1", 900.0)]
+
+        monkeypatch.setattr(hay_mejores, "listar_mejores_candidatas", _listar)
+        monkeypatch.setattr(hay_mejores, "_enqueue_catalog_competition_refresh", lambda *_a, **_k: None)
+
+        decision = hay_mejores.actualizar_hay_mejores_ofertas(db, "MLA1", raw_promotions=raw)
+        assert decision is not None and decision.hay_mejores is True
+        assert seen["mla"] == "MLA1"
+        assert seen["baseline"] == 1000.0
+        assert seen["raw"] == raw
+        assert seen["candidates"] == [
+            {"id": "C-1", "type": "SMART", "status": "candidate", "price": 900},
         ]

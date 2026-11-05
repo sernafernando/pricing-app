@@ -242,11 +242,20 @@ class TestUpdate:
 
 
 class TestDelete:
-    def test_delete_removes_the_row(self, client, db, manager) -> None:
+    def test_delete_hides_the_row_and_keeps_who_deleted_it(self, client, db, manager, admin_user) -> None:
+        """ml-ads-aportes-robust S6: a soft delete; the listing no longer shows it and a second delete is a 404."""
         contribution_id = _create(client, manager).json()["id"]
         assert client.delete(f"{BASE}/contributions/{contribution_id}", headers=manager).status_code == 204
-        assert _rows(db) == []
+        assert [(r.id, r.deleted_by_id) for r in _rows(db)] == [(contribution_id, admin_user.id)]
+        listed = client.get(
+            f"{BASE}/campaigns", headers=manager, params={"date_from": "2026-10-01", "date_to": "2026-10-31"}
+        )
+        assert all(c["contributions"] == [] for c in listed.json()["campaigns"])
         assert client.delete(f"{BASE}/contributions/{contribution_id}", headers=manager).status_code == 404
+        assert (
+            client.put(f"{BASE}/contributions/{contribution_id}", headers=manager, json=_contribution()).status_code
+            == 404
+        )
 
     def test_delete_logs_who_removed_what(self, client, manager, admin_user, caplog) -> None:
         contribution_id = _create(client, manager).json()["id"]
