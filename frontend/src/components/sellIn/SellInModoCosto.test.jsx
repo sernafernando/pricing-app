@@ -487,6 +487,34 @@ describe('the manual mode', () => {
     expect(await within(region).findByRole('alert')).toHaveTextContent(texto);
   });
 
+  it('shows any other server reason as it comes', async () => {
+    sellInLotesAPI.vistaPrevia.mockRejectedValue(
+      Object.assign(new Error('HTTP 422'), {
+        response: { status: 422, data: { error: { message: 'The history cannot be replayed' } } },
+      }),
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+
+    expect(await within(region).findByRole('alert')).toHaveTextContent(
+      'No se pudo calcular la vista previa: The history cannot be replayed',
+    );
+  });
+
+  it.each(['1.0000001', '1234567890123'])('waits for a unit cost the server can store (%s)', async (costo) => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    await user.type(within(region).getByLabelText('Costo unitario'), costo);
+
+    expect(within(region).getByRole('button', { name: 'Ver cómo queda' })).toBeDisabled();
+  });
+
   it('changing a figure drops the preview', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderPanel();

@@ -143,7 +143,10 @@ function Preview({ vista, pedido, antes, onConfirm, onCancel, saving }) {
   );
 }
 
-// The server's reasons a user can act on, in the screen's words; anything else gets the generic retry text.
+// What the server stores for a unit cost: 18 digits, 6 of them decimals.
+const COSTO_UNIT = /^\d{1,12}(\.\d{1,6})?$/;
+
+// The server's reasons a user can act on, in the screen's words; any other reason is shown as it comes.
 const MOTIVOS = {
   'The product has no cost to freeze': 'el producto no tiene costo cargado para congelar.',
   "There is no USD rate to freeze the product's cost in pesos":
@@ -157,7 +160,8 @@ function errorText(error, accion) {
   }
   if (status === 403) return 'No tenés permiso para ese cambio.';
   const data = error?.response?.data;
-  const motivo = MOTIVOS[data?.error?.message ?? data?.detail];
+  const mensaje = data?.error?.message ?? data?.detail;
+  const motivo = MOTIVOS[mensaje] ?? (typeof mensaje === 'string' ? mensaje : null);
   return motivo ? `${accion}: ${motivo}` : `${accion}. Probá de nuevo.`;
 }
 
@@ -233,7 +237,8 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
   // The admin's default opens preselected only when this user may set it (never Manual: it needs its own figures).
   const seleccion = modo ?? (porDefecto !== 'manual' && permitido(porDefecto) ? porDefecto : 'fifo');
   const esManual = seleccion === 'manual';
-  const manualOk = Number.isInteger(Number(cantidad)) && Number(cantidad) > 0 && Number(costoUnit) > 0;
+  const manualOk =
+    Number.isInteger(Number(cantidad)) && Number(cantidad) > 0 && COSTO_UNIT.test(costoUnit) && Number(costoUnit) > 0;
   const esAdmin = ADMINS.includes(rol);
   const hoy = today();
 
