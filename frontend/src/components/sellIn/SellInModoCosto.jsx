@@ -157,7 +157,7 @@ function errorText(error, accion) {
   if (status === 403) return 'No tenés permiso para ese cambio.';
   const data = error?.response?.data;
   const mensaje = data?.error?.message ?? data?.detail;
-  const motivo = MOTIVOS[mensaje] ?? (typeof mensaje === 'string' ? mensaje : null);
+  const motivo = Object.hasOwn(MOTIVOS, mensaje) ? MOTIVOS[mensaje] : typeof mensaje === 'string' ? mensaje : null;
   return motivo ? `${accion}: ${motivo}` : `${accion}. Probá de nuevo.`;
 }
 
