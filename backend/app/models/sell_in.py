@@ -28,6 +28,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -35,6 +36,7 @@ from sqlalchemy import (
 from sqlalchemy.sql import func, text
 
 from app.core.database import Base
+from app.models.tactical import TACTICAL_LINEA
 
 
 class SellInBonoMarca(Base):
@@ -79,6 +81,7 @@ class SellInBonoMarca(Base):
         ),
         UniqueConstraint("offset_origen_id", name="uq_sell_in_bonos_marca_offset_origen_id"),
         Index("ix_sell_in_bonos_marca_tactical_id", "tactical_id"),
+        CheckConstraint(TACTICAL_LINEA, name="ck_sell_in_bonos_marca_tactical_linea"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -125,6 +128,7 @@ class SellInBonoMarca(Base):
         ForeignKey("tacticals.id", ondelete="RESTRICT", name="fk_sell_in_bonos_marca_tactical_id"),
         nullable=True,
     )
+    tactical_linea = Column(SmallInteger, nullable=True)  # its 1-based line in the tactical; NULL without one
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # Also kept current by the `sell_in_bonos_marca_updated_at` trigger.
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -206,6 +210,7 @@ class SellInCompra(Base):
             name="ck_sell_in_compras_porcentaje_segun_tipo",
         ),
         Index("ix_sell_in_compras_tactical_id", "tactical_id"),
+        CheckConstraint(TACTICAL_LINEA, name="ck_sell_in_compras_tactical_linea"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -235,6 +240,7 @@ class SellInCompra(Base):
         ForeignKey("tacticals.id", ondelete="RESTRICT", name="fk_sell_in_compras_tactical_id"),
         nullable=True,
     )
+    tactical_linea = Column(SmallInteger, nullable=True)  # its 1-based line in the tactical; NULL without one
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # Also kept current by the `sell_in_compras_updated_at` trigger, so raw SQL updates refresh it too.
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

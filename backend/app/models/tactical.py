@@ -25,6 +25,8 @@ from app.core.database import Base
 # Also declared by migration `20261105_tacticals` (the schema parity test compares them).
 TIPO = "tipo IN ('sell_in', 'sell_out')"
 ESTADO = "estado IN ('activo', 'anulado')"
+# The CHECK each line engine's table carries (`ck_<table>_tactical_linea`).
+TACTICAL_LINEA = "(tactical_id IS NULL AND tactical_linea IS NULL) OR (tactical_id IS NOT NULL AND tactical_linea IS NOT NULL AND tactical_linea >= 1)"
 TC_MODO = (
     "(moneda = 'ARS' AND tc_modo IS NULL AND tipo_cambio IS NULL) OR "
     "(moneda = 'USD' AND tc_modo IS NOT NULL AND ("

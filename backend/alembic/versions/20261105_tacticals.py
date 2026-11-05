@@ -10,7 +10,9 @@ grupo se creaba automáticamente, y no hace falta que el usuario vea los grupos"
 - `tacticals`: the header (`app.models.tactical`). `updated_at` is kept by a BEFORE UPDATE trigger on the existing
   `sell_out_set_updated_at()` function (20261105), like the programs'.
 - `tactical_id BIGINT NULL` on `sell_out_campanas`, `sell_in_bonos_marca` and `sell_in_compras`, FK ON DELETE
-  RESTRICT, indexed. Every existing row stays NULL: no backfill. The bonus and purchase update triggers do not read
+  RESTRICT, indexed, with `tactical_linea SMALLINT NULL`: the 1-based line of the tactical the row was created from
+  (a per-product line creates several rows with the same number). CHECK `ck_<table>_tactical_linea`: both NULL, or
+  both set with the line >= 1. Every existing row stays NULL: no backfill. The bonus and purchase update triggers do not read
   the column, so setting it queues nothing.
 - `offset_grupos.oculto BOOLEAN NOT NULL DEFAULT false`: a group a tactical line creates for its own products.
 - `ck_sell_in_bonos_marca_costo_venta` no longer requires `tipo = 'porcentaje'`: a cost bonus may be a fixed ARS amount
@@ -58,6 +60,7 @@ COSTO_VENTA_PREVIO = (
     "(base = 'factura' AND NOT incluye_iva) "
     "OR (base = 'costo_venta' AND tipo = 'porcentaje' AND moneda = 'ARS' AND alcance IN ('marca', 'categoria', 'modelos'))"
 )
+TACTICAL_LINEA = "(tactical_id IS NULL AND tactical_linea IS NULL) OR (tactical_id IS NOT NULL AND tactical_linea IS NOT NULL AND tactical_linea >= 1)"
 LINEAS = ("sell_out_campanas", "sell_in_bonos_marca", "sell_in_compras")
 
 UPGRADE_TACTICALS = f"""
@@ -101,12 +104,17 @@ ALTER TABLE {tabla} ADD COLUMN IF NOT EXISTS tactical_id BIGINT;
 ALTER TABLE {tabla} DROP CONSTRAINT IF EXISTS fk_{tabla}_tactical_id;
 ALTER TABLE {tabla} ADD CONSTRAINT fk_{tabla}_tactical_id
   FOREIGN KEY (tactical_id) REFERENCES tacticals (id) ON DELETE RESTRICT;
-CREATE INDEX IF NOT EXISTS ix_{tabla}_tactical_id ON {tabla} (tactical_id)
+CREATE INDEX IF NOT EXISTS ix_{tabla}_tactical_id ON {tabla} (tactical_id);
+ALTER TABLE {tabla} ADD COLUMN IF NOT EXISTS tactical_linea SMALLINT;
+ALTER TABLE {tabla} DROP CONSTRAINT IF EXISTS ck_{tabla}_tactical_linea;
+ALTER TABLE {tabla} ADD CONSTRAINT ck_{tabla}_tactical_linea CHECK ({TACTICAL_LINEA})
 """
 
 
 def _downgrade_linea(tabla: str) -> str:
     return f"""
+ALTER TABLE {tabla} DROP CONSTRAINT IF EXISTS ck_{tabla}_tactical_linea;
+ALTER TABLE {tabla} DROP COLUMN IF EXISTS tactical_linea;
 DROP INDEX IF EXISTS ix_{tabla}_tactical_id;
 ALTER TABLE {tabla} DROP CONSTRAINT IF EXISTS fk_{tabla}_tactical_id;
 ALTER TABLE {tabla} DROP COLUMN IF EXISTS tactical_id

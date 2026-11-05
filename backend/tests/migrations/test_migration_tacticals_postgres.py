@@ -92,11 +92,24 @@ class TestUpgrade:
         with engine.connect() as conn:
             assert conn.execute(text("SELECT oculto FROM offset_grupos")).scalars().all() == [False]
 
+    def test_a_child_carries_its_line_number_only_with_its_tactical(self, engine: Engine) -> None:
+        _step(engine, "upgrade")
+        with engine.begin() as conn:
+            tactical = conn.execute(text(_TACTICAL)).scalar_one()
+        for tabla in _LINEAS:
+            assert tuple(_columna(engine, tabla, "tactical_linea"))[:2] == ("smallint", "YES")
+            with engine.begin() as conn:
+                conn.execute(text(f"UPDATE {tabla} SET tactical_id = :t, tactical_linea = 2"), {"t": tactical})
+            for valores in ("tactical_id = NULL", "tactical_linea = NULL", "tactical_linea = 0"):
+                with pytest.raises(IntegrityError):
+                    with engine.begin() as conn:
+                        conn.execute(text(f"UPDATE {tabla} SET {valores}"))
+
     def test_a_tactical_with_a_line_cannot_be_deleted(self, engine: Engine) -> None:
         _step(engine, "upgrade")
         with engine.begin() as conn:
             tactical = conn.execute(text(_TACTICAL)).scalar_one()
-            conn.execute(text("UPDATE sell_out_campanas SET tactical_id = :t"), {"t": tactical})
+            conn.execute(text("UPDATE sell_out_campanas SET tactical_id = :t, tactical_linea = 1"), {"t": tactical})
 
         with pytest.raises(IntegrityError):
             with engine.begin() as conn:
@@ -162,6 +175,7 @@ class TestDowngrade:
 
         for tabla in _LINEAS:
             assert _columna(engine, tabla, "tactical_id") is None
+            assert _columna(engine, tabla, "tactical_linea") is None
         assert _columna(engine, "offset_grupos", "oculto") is None
         with engine.connect() as conn:
             assert conn.execute(text("SELECT to_regclass('tacticals')")).scalar() is None
