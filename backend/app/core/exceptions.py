@@ -19,7 +19,7 @@ The global exception handler in main.py ensures this shape even for
 unhandled errors and FastAPI validation errors.
 """
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -174,7 +174,7 @@ def _status_to_code(status_code: int) -> str:
     return mapping.get(status_code, ErrorCode.INTERNAL_ERROR)
 
 
-def combos_no_sincronizados_handler(request, exc) -> JSONResponse:
+def combos_no_sincronizados_handler(request: Request, exc: Exception) -> JSONResponse:
     """`CombosNoSincronizados` raised by a service under any route (sell in and sell out count a combo as its
     components): the same 503 `COMBOS_NOT_SYNCED` envelope `deps.exigir_combos_sincronizados` answers, never a 500."""
     from app.services.combos.componentes import DETALLE_COMBOS_NO_SINCRONIZADOS

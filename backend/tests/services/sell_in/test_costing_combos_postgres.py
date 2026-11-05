@@ -12,7 +12,9 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
+from app.services.combos import store
 from app.services.combos.componentes import CombosNoSincronizados
+from app.services.combos.reconcile import plan_combo
 from app.services.sell import queue
 from app.services.sell_in.costing import get_costing
 from tests.services.sell._schema import SEMILLA_COMBOS
@@ -111,3 +113,38 @@ def test_an_unsynced_bill_of_materials_is_refused_not_counted_as_the_combos_own_
     finally:
         with engine.begin() as conn:
             conn.execute(text(SEMILLA_COMBOS))
+
+
+def _queued_items(engine: Engine) -> list:
+    with engine.connect() as conn:
+        return [tuple(r) for r in conn.execute(text("SELECT canal, venta_ref, item_id FROM sell_dirty ORDER BY 1, 2"))]
+
+
+def test_a_bill_of_materials_change_requeues_every_sale_of_the_combo(engine: Engine) -> None:
+    """S4: the drain then recomputes the new components, the old ones (their rows are filed under them) and the
+    sell-out campaigns of both."""
+    w.combo(engine, COMBO, {NOTEBOOK: 1, WH: 2})
+    fuera = w.venta(engine, "fuera", COMBO, 1, date(2026, 10, 6))
+    ml = w.venta(engine, "ml", COMBO, 1, date(2026, 10, 7))
+    w.venta(engine, "fuera", NOTEBOOK, 1, date(2026, 10, 8))  # not a sale of the combo
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM sell_dirty"))
+
+    with sessionmaker(bind=engine)() as db:
+        store.apply(db, plan_combo(COMBO, {NOTEBOOK: 1}, store.load_combo(db, COMBO)))
+        db.commit()
+
+    assert _queued_items(engine) == [("fuera", fuera, COMBO), ("ml", ml, COMBO)]
+
+
+def test_an_empty_plan_queues_nothing(engine: Engine) -> None:
+    w.combo(engine, COMBO, {NOTEBOOK: 1, WH: 2})
+    w.venta(engine, "fuera", COMBO, 1, date(2026, 10, 6))
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM sell_dirty"))
+
+    with sessionmaker(bind=engine)() as db:
+        store.apply(db, plan_combo(COMBO, {NOTEBOOK: 1, WH: 2}, store.load_combo(db, COMBO)))
+        db.commit()
+
+    assert _queued_items(engine) == []
