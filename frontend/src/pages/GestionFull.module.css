@@ -4,9 +4,13 @@
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
   min-height: 0;
-  /* Bound height so .tableWrap (overflow:auto) is the scroll parent for sticky th. */
-  height: calc(100vh - var(--cf-topbar-height));
-  overflow: hidden;
+  /*
+   * Bound height so .tableWrap can flex-shrink and own sticky scroll.
+   * overflow:auto (not hidden): AlertBanners above <main> must not clip the
+   * bottom of the page — the page can scroll a little if the viewport is short.
+   */
+  height: calc(100dvh - var(--cf-topbar-height));
+  overflow: auto;
   background: var(--cf-bg-app);
   color: var(--cf-text-primary);
 }
@@ -150,11 +154,11 @@
 }
 
 .tableWrap {
-  flex: 1;
+  flex: 1 1 auto;
+  /* min-height:0 so flex can shrink below content; 12rem floor for usability. */
   min-height: 0;
   overflow: auto;
-  /* Fallback if a parent flex chain fails (banners, nested layout). */
-  max-height: calc(100vh - var(--cf-topbar-height) - 11rem);
+  /* Remaining space after title/tabs/filters (no fixed 11rem guess). */
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-base);
   background: var(--cf-bg-card);
