@@ -45,7 +45,7 @@ export const SCREENS = [
   { path: '/clientes', label: 'Clientes', section: 'Operaciones', permisos: ['clientes.ver'], scope: 'permiso' },
   { path: '/config-operaciones', label: 'Configuración', section: 'Operaciones', permisos: ['envios_flex.config'], scope: 'permiso' },
   { path: '/etiquetas/reescribir-lh', label: 'Reescribir ^LH', section: 'Operaciones', permisos: ['etiquetas.reescribir_lh'], scope: 'permiso' },
-  { path: '/gestion-full', label: 'Gestión Full', section: 'Operaciones', permisos: ['productos.ver', 'ml_ops.ver'], scope: 'permiso' },
+  { path: '/gestion-full', label: 'Gestión Full', section: 'Operaciones', permisos: ['gestion_full.ver'], scope: 'permiso' },
 
   // ── Consultas ─────────────────────────────────────────────
   { path: '/traza', label: 'Traza', section: 'Consultas', permisos: ['traza.ver'], scope: 'permiso' },

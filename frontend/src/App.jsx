@@ -139,7 +139,7 @@ const protectedRoutes = [
   { path: '/mla-banlist', component: Banlist, permiso: 'admin.gestionar_mla_banlist' },
   { path: '/dashboard-metricas-ml', component: DashboardMetricasML, permiso: 'ventas_ml.ver_dashboard' },
   { path: '/metricas-ml', component: MetricasML, permiso: 'ml_metricas.ver' },
-  { path: '/gestion-full', component: GestionFull, permisos: ['productos.ver', 'ml_ops.ver'] },
+  { path: '/gestion-full', component: GestionFull, permiso: 'gestion_full.ver' },
   { path: '/ml-ads-aportes', component: MlAds, permiso: 'ml_metricas.ver' },
   { path: '/dashboard-tplink', component: DashboardTPLink, permiso: 'dashboard_tplink.ver' },
   { path: '/dashboard-ventas-fuera', component: DashboardVentasFuera, permiso: 'ventas_fuera.ver_dashboard' },

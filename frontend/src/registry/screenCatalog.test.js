@@ -192,6 +192,14 @@ describe('sidebar sections (owner 2026-11-05: Reportes is only for reports)', ()
   });
 });
 
+describe('Gestión Full access (owner 2026-11-05: its own permission, not Productos)', () => {
+  it('opens with gestion_full.ver alone in the catalog, the routes and the sidebar', () => {
+    expect(byPath.get('/gestion-full').permisos).toEqual(['gestion_full.ver']);
+    expect(appRoutes.find((r) => r.path === '/gestion-full').permisos).toEqual(['gestion_full.ver']);
+    expect(sidebarSource).toMatch(/label: 'Gestión Full', path: '\/gestion-full', permiso: 'gestion_full.ver'/);
+  });
+});
+
 describe('screen catalog shape', () => {
   it('uses a valid scope, and public screens need no permission', () => {
     for (const screen of SCREENS) {

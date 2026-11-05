@@ -103,7 +103,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Clientes', path: '/clientes', permiso: 'clientes.ver' },
         { label: 'Configuración', path: '/config-operaciones', permiso: 'envios_flex.config' },
         { label: 'Reescribir ^LH', path: '/etiquetas/reescribir-lh', permiso: 'etiquetas.reescribir_lh' },
-        { label: 'Gestión Full', path: '/gestion-full', permiso: 'productos.ver,ml_ops.ver', multiple: true, badge: 'Nuevo' },
+        { label: 'Gestión Full', path: '/gestion-full', permiso: 'gestion_full.ver', badge: 'Nuevo' },
       ],
     },
     {
