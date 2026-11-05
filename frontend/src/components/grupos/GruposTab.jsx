@@ -14,13 +14,14 @@ import own from './Grupos.module.css';
  * The "Grupos" tab of Sell in / Sell out (T30): the product groups sell-out campaigns reach, with the products
  * each reaches and the campaigns using it; "Editar" / "Nuevo grupo" open the side panel, and the checked groups go
  * at once with "Borrar seleccionados" (tactical S9). The page shows it with `grupos.ver`; `puedeEditar`
- * (`config.editar_constantes`, the permission of every group write) adds the panel and the checkboxes. A new
+ * (`config.editar_constantes`, the permission of every group write; off unless passed) adds the panel and the
+ * checkboxes. A new
  * `version` (the page's "Actualizar") asks the groups again and keeps the open panel; `onGruposCambiados` tells the
  * page a group was created, changed or deleted, so the campaign form offers the current groups.
  */
 const gruposTexto = (n) => (n === 1 ? '1 grupo' : `${n} grupos`);
 
-export default function GruposTab({ version = 0, onGruposCambiados = () => {}, puedeEditar = true }) {
+export default function GruposTab({ version = 0, onGruposCambiados = () => {}, puedeEditar = false }) {
   const { grupos, opciones, error, errorOpciones, recargar } = useGrupos(version);
   const [marcados, setMarcados] = useState(() => new Set());
   const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
@@ -30,10 +31,10 @@ export default function GruposTab({ version = 0, onGruposCambiados = () => {}, p
   const [resultado, setResultado] = useState(null);
   // Only the checked groups the list still has: one deleted elsewhere drops out of the count.
   const seleccionados = (grupos ?? []).filter((g) => marcados.has(g.id)).map((g) => g.id);
-  const marcar = (ids, marcar) =>
+  const marcar = (ids, seleccionar) =>
     setMarcados((actual) => {
       const siguiente = new Set(actual);
-      ids.forEach((id) => (marcar ? siguiente.add(id) : siguiente.delete(id)));
+      ids.forEach((id) => (seleccionar ? siguiente.add(id) : siguiente.delete(id)));
       return siguiente;
     });
   const borrarSeleccionados = async () => {

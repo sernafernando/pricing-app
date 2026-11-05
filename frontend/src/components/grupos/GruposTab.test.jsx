@@ -69,7 +69,7 @@ const confirmarCambio = async (user, panel) => user.click(await within(panel).fi
 
 describe('GruposTab — list', () => {
   it('lists each group with its description, filters, products reached and the campaigns using it', async () => {
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const tplink = await fila('TP-Link redes');
     expect(within(tplink).getByText('Routers y switches')).toBeInTheDocument();
     expect(within(tplink).getByText('Marca TP-LINK · Categoría Routers')).toBeInTheDocument();
@@ -85,7 +85,7 @@ describe('GruposTab — list', () => {
   it('says it is loading while the groups and their reach are asked, and never together with the error', async () => {
     let responder;
     offsetGruposAPI.alcance.mockReturnValue(new Promise((resolve) => (responder = resolve)));
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     expect(screen.getByText('Cargando grupos…')).toBeInTheDocument();
     responder({ data: ALCANCE });
     expect(await screen.findByText('TP-Link redes')).toBeInTheDocument();
@@ -94,16 +94,16 @@ describe('GruposTab — list', () => {
 
   it('a failed load shows the error without the loading text', async () => {
     offsetGruposAPI.alcance.mockRejectedValue(new Error('500'));
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los grupos.');
     expect(screen.queryByText('Cargando grupos…')).not.toBeInTheDocument();
   });
 
   it('a new version asks the groups again and keeps the open panel', async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<GruposTab version={0} />);
+    const { rerender } = render(<GruposTab puedeEditar version={0} />);
     await abrir(user, 'TP-Link redes');
-    rerender(<GruposTab version={1} />);
+    rerender(<GruposTab puedeEditar version={1} />);
     await waitFor(() => expect(offsetGruposAPI.listar).toHaveBeenCalledTimes(2));
     expect(offsetGruposAPI.alcance).toHaveBeenCalledTimes(2);
     expect(screen.getByRole('complementary', { name: 'Grupo' })).toBeInTheDocument();
@@ -111,10 +111,10 @@ describe('GruposTab — list', () => {
 
   it('a reload without the open group (someone deleted it) closes the panel', async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<GruposTab version={0} />);
+    const { rerender } = render(<GruposTab puedeEditar version={0} />);
     await abrir(user, 'TP-Link redes');
     offsetGruposAPI.listar.mockResolvedValue({ data: [VACIO] });
-    rerender(<GruposTab version={1} />);
+    rerender(<GruposTab puedeEditar version={1} />);
     await waitFor(() => expect(screen.queryByText('TP-Link redes')).not.toBeInTheDocument());
     expect(screen.queryByRole('complementary', { name: 'Grupo' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Crear grupo' })).not.toBeInTheDocument();
@@ -124,7 +124,7 @@ describe('GruposTab — list', () => {
     const user = userEvent.setup();
     const NUEVO = { id: 3, nombre: 'Mercusys', descripcion: null, filtros: [] };
     offsetGruposAPI.crear.mockResolvedValue({ data: NUEVO });
-    const { rerender } = render(<GruposTab version={0} />);
+    const { rerender } = render(<GruposTab puedeEditar version={0} />);
     await fila('TP-Link redes');
     await user.click(screen.getByRole('button', { name: 'Nuevo grupo' }));
     const panel = screen.getByRole('complementary', { name: 'Grupo' });
@@ -133,16 +133,16 @@ describe('GruposTab — list', () => {
     await user.click(within(panel).getByRole('button', { name: 'Crear grupo' }));
     expect(await screen.findByRole('cell', { name: 'Mercusys' })).toBeInTheDocument();
     offsetGruposAPI.listar.mockResolvedValue({ data: [TPLINK, VACIO] });
-    rerender(<GruposTab version={1} />);
+    rerender(<GruposTab puedeEditar version={1} />);
     await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Grupo' })).not.toBeInTheDocument());
   });
 
   it('when the filter options fail it says so, and the next reload asks them again', async () => {
     offsetGruposAPI.opciones.mockRejectedValueOnce(new Error('500'));
-    const { rerender } = render(<GruposTab version={0} />);
+    const { rerender } = render(<GruposTab puedeEditar version={0} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar las marcas, categorías y subcategorías');
     expect(screen.getByText('TP-Link redes')).toBeInTheDocument();
-    rerender(<GruposTab version={1} />);
+    rerender(<GruposTab puedeEditar version={1} />);
     await waitFor(() => expect(offsetGruposAPI.opciones).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('Subcategoría Wi-Fi 6')).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -150,12 +150,12 @@ describe('GruposTab — list', () => {
 
   it('says so when the groups cannot be read', async () => {
     offsetGruposAPI.listar.mockRejectedValue(new Error('500'));
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los grupos.');
   });
 
   it('warns that changing a group changes which products its campaigns reach', async () => {
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     await fila('TP-Link redes');
     expect(screen.getByText(/Cambiar un grupo cambia los productos que alcanzan las campañas de sell out que lo usan/)).toBeInTheDocument();
   });
@@ -166,7 +166,7 @@ describe('GruposTab — create, rename, delete', () => {
     const user = userEvent.setup();
     const NUEVO = { id: 3, nombre: 'Mercusys', descripcion: null, filtros: [] };
     offsetGruposAPI.crear.mockResolvedValue({ data: NUEVO });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     await fila('TP-Link redes');
     await user.click(screen.getByRole('button', { name: 'Nuevo grupo' }));
     const panel = screen.getByRole('complementary', { name: 'Grupo' });
@@ -181,7 +181,7 @@ describe('GruposTab — create, rename, delete', () => {
   it('renames and describes a group', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.editar.mockResolvedValue({ data: { id: 1, nombre: 'Redes TP-Link', descripcion: 'Todo TP-Link' } });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'TP-Link redes');
     const nombre = within(panel).getByLabelText('Nombre');
     await user.clear(nombre);
@@ -197,7 +197,7 @@ describe('GruposTab — create, rename, delete', () => {
   it('deleting a group used by an active campaign shows the refusal and keeps the group', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.eliminar.mockRejectedValue({ response: { status: 400, data: { error: { message: RECHAZO } } } });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'TP-Link redes');
     await user.click(within(panel).getByRole('button', { name: 'Eliminar grupo' }));
     await user.click(within(panel).getByRole('button', { name: 'Confirmar eliminación' }));
@@ -209,7 +209,7 @@ describe('GruposTab — create, rename, delete', () => {
   it('deleting a group closes the panel and reloads the list', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.eliminar.mockResolvedValue({ data: { mensaje: 'Grupo eliminado' } });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'Sin filtros');
     offsetGruposAPI.listar.mockResolvedValue({ data: [TPLINK] });
     await user.click(within(panel).getByRole('button', { name: 'Eliminar grupo' }));
@@ -222,7 +222,7 @@ describe('GruposTab — create, rename, delete', () => {
 describe('GruposTab — filters and preview', () => {
   it('the panel shows the products reached and the campaigns using the group', async () => {
     const user = userEvent.setup();
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'TP-Link redes');
     expect(within(panel).getByText('Alcanza 42 productos.')).toBeInTheDocument();
     expect(within(panel).getByText('Noviembre TP-Link')).toBeInTheDocument();
@@ -232,7 +232,7 @@ describe('GruposTab — filters and preview', () => {
   it('adds a filter row with brand and category, then the preview refreshes', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.agregarFiltro.mockResolvedValue({ data: { id: 13 } });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'TP-Link redes');
     expect(within(panel).getByRole('button', { name: 'Agregar filtro' })).toBeDisabled();
     await user.selectOptions(within(panel).getByLabelText('Marca'), 'MERCUSYS');
@@ -249,7 +249,7 @@ describe('GruposTab — filters and preview', () => {
     const user = userEvent.setup();
     productosAPI.listar.mockResolvedValue({ data: { productos: [{ item_id: 2964, codigo: 'ARCHER', descripcion: 'Archer C6', marca: 'TP-LINK' }] } });
     offsetGruposAPI.agregarFiltro.mockResolvedValue({ data: { id: 13 } });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'TP-Link redes');
     await user.type(within(panel).getByPlaceholderText('Buscar producto por código o descripción…'), 'archer');
     await user.click(await within(panel).findByRole('button', { name: /ARCHER · Archer C6/ }));
@@ -262,7 +262,7 @@ describe('GruposTab — filters and preview', () => {
   it('removes a filter row, then the preview refreshes', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.eliminarFiltro.mockResolvedValue({ data: {} });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'TP-Link redes');
     offsetGruposAPI.alcance.mockResolvedValue({ data: [{ ...ALCANCE[0], productos: 30 }, ALCANCE[1]] });
     await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
@@ -274,7 +274,7 @@ describe('GruposTab — filters and preview', () => {
   it('after a filter change the panel stays busy until the list and the preview come back', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.eliminarFiltro.mockResolvedValue({ data: {} });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'TP-Link redes');
     let responder;
     offsetGruposAPI.alcance.mockReturnValue(new Promise((r) => (responder = r)));
@@ -290,7 +290,7 @@ describe('GruposTab — filters and preview', () => {
   it('with an active campaign, adding a filter asks first naming it and showing the products before -> after', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.agregarFiltro.mockResolvedValue({ data: { id: 13 } });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'TP-Link redes');
     await user.selectOptions(within(panel).getByLabelText('Marca'), 'MERCUSYS');
     await user.click(within(panel).getByRole('button', { name: 'Agregar filtro' }));
@@ -309,7 +309,7 @@ describe('GruposTab — filters and preview', () => {
   it('with an active campaign, removing a filter asks first; "Cancelar" saves nothing', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.alcancePrevio.mockResolvedValue({ data: { antes: 42, despues: 30 } });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'TP-Link redes');
     await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
     const aviso = await within(panel).findByRole('group', { name: 'Confirmar cambio de filtros' });
@@ -328,7 +328,7 @@ describe('GruposTab — filters and preview', () => {
       data: [ALCANCE[0], { grupo_id: 2, productos: 0, campanas: [{ id: 6, nombre: 'Octubre anulada', estado: 'anulada' }] }],
     });
     offsetGruposAPI.agregarFiltro.mockResolvedValue({ data: { id: 14 } });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'Sin filtros');
     await user.selectOptions(within(panel).getByLabelText('Marca'), 'MERCUSYS');
     await user.click(within(panel).getByRole('button', { name: 'Agregar filtro' }));
@@ -340,7 +340,7 @@ describe('GruposTab — filters and preview', () => {
   it('a failed preview says so and saves nothing', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.alcancePrevio.mockRejectedValue(new Error('boom'));
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'TP-Link redes');
     await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
     expect(await within(panel).findByRole('alert')).toHaveTextContent('No se pudo calcular el alcance del cambio.');
@@ -350,7 +350,7 @@ describe('GruposTab — filters and preview', () => {
   it('a failed filter change says so', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.eliminarFiltro.mockRejectedValue({ response: { data: { error: { message: 'Filtro no encontrado' } } } });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     const panel = await abrir(user, 'TP-Link redes');
     await user.click(within(panel).getByRole('button', { name: 'Quitar Subcategoría Wi-Fi 6' }));
     await confirmarCambio(user, panel);
@@ -368,7 +368,7 @@ describe('GruposTab — Borrar seleccionados', () => {
     offsetGruposAPI.eliminarVarios.mockResolvedValue({
       data: { eliminados: [2], rechazados: [{ id: 1, nombre: 'TP-Link redes', motivo: RECHAZO }] },
     });
-    renderWithRouter(<GruposTab onGruposCambiados={onGruposCambiados} />);
+    renderWithRouter(<GruposTab puedeEditar onGruposCambiados={onGruposCambiados} />);
     expect(screen.queryByRole('button', { name: /Borrar seleccionados/ })).not.toBeInTheDocument();
     await marcar(user, 'TP-Link redes');
     await marcar(user, 'Sin filtros');
@@ -388,7 +388,7 @@ describe('GruposTab — Borrar seleccionados', () => {
 
   it('the header checkbox checks every group and Cancelar deletes nothing', async () => {
     const user = userEvent.setup();
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     await fila('TP-Link redes');
     await user.click(screen.getByRole('checkbox', { name: 'Seleccionar todos los grupos' }));
     await user.click(screen.getByRole('button', { name: 'Borrar seleccionados (2)' }));
@@ -400,7 +400,7 @@ describe('GruposTab — Borrar seleccionados', () => {
   it('a failed delete says why and keeps the selection', async () => {
     const user = userEvent.setup();
     offsetGruposAPI.eliminarVarios.mockRejectedValue({ response: { data: { error: { message: 'No tienes permiso para gestionar offsets de ganancia' } } } });
-    renderWithRouter(<GruposTab />);
+    renderWithRouter(<GruposTab puedeEditar />);
     await marcar(user, 'Sin filtros');
     await user.click(screen.getByRole('button', { name: 'Borrar seleccionados (1)' }));
     await user.click(within(screen.getByRole('group', { name: 'Confirmar borrado' })).getByRole('button', { name: 'Borrar 1 grupo' }));
@@ -408,8 +408,8 @@ describe('GruposTab — Borrar seleccionados', () => {
     expect(screen.getByRole('button', { name: 'Borrar seleccionados (1)' })).toBeInTheDocument();
   });
 
-  it('without the edit permission nothing can be checked, created or edited', async () => {
-    renderWithRouter(<GruposTab puedeEditar={false} />);
+  it('without the edit permission (the default) nothing can be checked, created or edited', async () => {
+    renderWithRouter(<GruposTab />);
     await fila('TP-Link redes');
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Nuevo grupo/ })).not.toBeInTheDocument();

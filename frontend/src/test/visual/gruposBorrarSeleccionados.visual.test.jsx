@@ -54,7 +54,7 @@ describe.each([
     const screen = await render(
       <MemoryRouter>
         <div style={{ padding: 'var(--space-4)' }}>
-          <GruposTab />
+          <GruposTab puedeEditar />
         </div>
       </MemoryRouter>,
     );
