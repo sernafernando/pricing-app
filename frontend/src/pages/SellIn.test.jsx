@@ -418,22 +418,14 @@ describe('SellIn page — Grupos tab (T30)', () => {
     expect(offsetGruposAPI.alcance).toHaveBeenCalledTimes(2);
   });
 
-  // Owner (tactical S9): "hoy no existe un permiso para que se vean los grupos, así que solo yo los veo".
-  it('without grupos.ver nor config.editar_constantes there is no Grupos tab, and ?tab=grupos falls back to Sell in', async () => {
-    mockTienePermiso.mockImplementation((codigo) => codigo !== 'grupos.ver' && codigo !== 'config.editar_constantes');
+  // Owner (tactical S9): "hoy no existe un permiso para que se vean los grupos, así que solo yo los veo"; on #2083:
+  // "sí, sacalo y dejala solo con grupos.ver" (config.editar_constantes alone no longer shows the tab).
+  it('without grupos.ver there is no Grupos tab, even with config.editar_constantes, and ?tab=grupos falls back to Sell in', async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'grupos.ver');
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
     expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Grupos' })).not.toBeInTheDocument();
     expect(offsetGruposAPI.listar).not.toHaveBeenCalled();
-  });
-
-  // Before grupos.ver the tab showed with config.editar_constantes, and the backend still reads the groups with it.
-  it('with config.editar_constantes and without grupos.ver the Grupos tab still shows and edits', async () => {
-    mockTienePermiso.mockImplementation((codigo) => codigo !== 'grupos.ver');
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
-    const panel = await screen.findByRole('tabpanel', { name: 'Grupos' });
-    expect(await within(panel).findByText('TP-Link redes')).toBeInTheDocument();
-    expect(within(panel).getByRole('button', { name: /Nuevo grupo/ })).toBeInTheDocument();
   });
 
   it('with grupos.ver alone the Grupos tab only reads: no Nuevo grupo, no Editar, nothing to check', async () => {
