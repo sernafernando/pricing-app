@@ -143,7 +143,7 @@ export default function TacticalFila({ tactical, abierto, onAlternar }) {
                 </span>
               </>
             ) : (
-              <span className={styles.guion}>—</span>
+              GUION
             )}
             <span className={styles.monto}>{monto}</span>
           </div>
