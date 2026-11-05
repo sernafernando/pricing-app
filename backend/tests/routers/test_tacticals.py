@@ -87,3 +87,8 @@ def test_unknown_is_404_and_an_inverted_period_is_422(client, sell_out) -> None:
     assert client.post(f"{BASE}/999/anular", headers=sell_out).status_code == 404
     resp = client.get(BASE, params={"desde": "2026-11-10", "hasta": "2026-11-01"}, headers=sell_out)
     assert resp.status_code == 422
+
+
+def test_text_filters_are_bounded(client, sell_out) -> None:
+    assert client.get(BASE, params={"q": "x" * 201}, headers=sell_out).status_code == 422
+    assert client.get(BASE, params={"marca": "x" * 101}, headers=sell_out).status_code == 422

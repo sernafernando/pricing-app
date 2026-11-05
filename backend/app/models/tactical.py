@@ -12,8 +12,7 @@ never deleted, it is voided), so allocation, FIFO and caps are not rewritten:
 `marca` is the `productos_erp.marca` text the list filters by. The header's dates, currency, FX, VAT flag and
 `acumulable` are copied to every child, which is what the engines read; the header keeps them to show and filter.
 `tc_modo` / `tipo_cambio` follow `SellOutCampana`'s FX rules (NULL on ARS). A tactical will be voided (`anulado`)
-with all its children, through each engine's own void step. The tacticals service that creates and voids them is the
-next slice; until it lands no row carries a `tactical_id` and no group is `oculto`.
+with all its children, through each engine's own void step. `app.services.tacticals` creates and voids them.
 """
 
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Integer

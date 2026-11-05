@@ -24,6 +24,8 @@ from app.core.database import get_db
 from app.models.tactical import Tactical
 from app.models.usuario import Usuario
 from app.schemas.tacticals import (
+    MARCA_MAX,
+    NOMBRE_MAX,
     EstadoFiltro,
     TacticalAnularIn,
     TacticalIn,
@@ -73,11 +75,11 @@ def crear_tactical(data: TacticalIn, user: Usuario = Depends(get_current_user), 
 @router.get("", response_model=TacticalListOut)
 def listar_tacticals(
     tipo: Optional[TipoTactical] = None,
-    marca: Optional[str] = None,
+    marca: Optional[str] = Query(None, max_length=MARCA_MAX),
     estado: Optional[EstadoFiltro] = None,
     desde: Optional[date] = None,
     hasta: Optional[date] = None,
-    q: Optional[str] = None,
+    q: Optional[str] = Query(None, max_length=NOMBRE_MAX),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=PAGE_SIZE_MAX),
     user: Usuario = Depends(get_current_user),
