@@ -1,0 +1,96 @@
+/* "Historial del aporte" (Stitch 973006a2): one card per audit event, oldest first. */
+
+.events {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The event's accent on its left edge: the tone of its chip. */
+.event {
+  padding-left: 12px;
+  border-left: 2px solid var(--cf-border-default);
+}
+
+.created {
+  border-left-color: var(--tone-info-border);
+}
+
+.edited {
+  border-left-color: var(--tone-warning-border);
+}
+
+.deleted {
+  border-left-color: var(--tone-danger-border);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.who {
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 12px;
+  list-style: none;
+  font-size: var(--font-sm);
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-subtle, var(--cf-bg-app));
+  border: 1px solid var(--cf-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.before {
+  color: var(--cf-text-tertiary);
+}
+
+.after {
+  color: var(--cf-text-primary);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 16px 0 0;
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.muted {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--cf-text-tertiary);
+}
+
+.error {
+  margin: 0 0 12px;
+  color: var(--tone-danger-fg);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btnSecondary {
+  composes: btnSecondary from './AportesAdsML.module.css';
+}

@@ -9,12 +9,13 @@
  *   pnpm exec vitest run --project=visual aportesAdsMl
  *   VITE_APORTES_SHOTS_DIR=/tmp/shots pnpm exec vitest run --project=visual aportesAdsMl   (also saves screenshots)
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render } from 'vitest-browser-react';
 import { page, userEvent } from 'vitest/browser';
 import { MemoryRouter } from 'react-router-dom';
 import { setTheme } from './visualHelpers';
 import AportesAdsML from '../../pages/AportesAdsML';
+import { APORTE_HISTORY } from '../../pages/aportesFixtures';
 
 vi.mock('../../contexts/PermisosContext', () => ({
   usePermisos: () => ({ permisos: [], tienePermiso: () => true, cargandoPermisos: false }),
@@ -125,6 +126,7 @@ vi.mock('../../services/api', () => ({
     get: vi.fn((url) => {
       if (url === '/marcas') return Promise.resolve({ data: { marcas: ['EPSON', 'HP', 'TP-Link'] } });
       if (url === '/ml-ads/contributions') return Promise.resolve({ data: APORTES_STITCH });
+      if (url.endsWith('/history')) return Promise.resolve({ data: APORTE_HISTORY });
       // DERIVED: the ledger closed through 10-20, so a range to 10-31 shows the missing-data line (ml-ads-aportes-robust S4).
       const preview = { spend: 742300, counted: 500000, net: 242300, warnings: [], data_through: '2026-10-20' };
       return Promise.resolve({ data: url.endsWith('/preview') ? preview : { campaigns: CAMPAIGNS } });
@@ -153,6 +155,9 @@ const renderPage = async ({ width, height, theme }) => {
 };
 
 describe('Aportes de marcas (Ads ML) (visual)', () => {
+  // A failed assertion must not leave high contrast on for the next test.
+  afterEach(() => document.documentElement.classList.remove('high-contrast'));
+
   for (const [width, height] of [
     [1280, 800],
     [1440, 900],
@@ -265,6 +270,32 @@ describe('Aportes de marcas (Ads ML) (visual)', () => {
       expect(getComputedStyle(displayBar).backgroundColor).not.toBe(getComputedStyle(productBar).backgroundColor);
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1440);
       await shot(`por-aporte-1440-${mode}`);
+      document.documentElement.classList.remove('high-contrast');
+    });
+  }
+
+  for (const [theme, highContrast] of [
+    ['light', false],
+    ['dark', false],
+    ['light', true],
+  ]) {
+    const mode = `${theme}${highContrast ? '-hc' : ''}`;
+    it(`lays out the history modal: one card per event, struck old values, one line each (${mode})`, async () => {
+      const screen = await renderPage({ width: 1440, height: 1500, theme });
+      document.documentElement.classList.toggle('high-contrast', highContrast);
+      await userEvent.click(screen.getByRole('button', { name: 'Por aporte' }));
+      await expect.element(screen.getByText('Total (7 aportes)')).toBeVisible();
+      await userEvent.click(screen.getByRole('button', { name: 'Historial del aporte de Logitech' }).nth(1));
+      await expect.element(screen.getByText('Martín Gómez · 18/10/2026 10:05')).toBeVisible();
+
+      const list = document.querySelector('ul[aria-label="Eventos del aporte"]');
+      expect(list.children.length).toBe(2);
+      for (const line of list.querySelectorAll('li li')) expect(line.getBoundingClientRect().height).toBeLessThanOrEqual(24);
+      const struck = list.querySelector('del');
+      expect(getComputedStyle(struck).textDecorationLine).toContain('line-through');
+      const modal = list.closest('.modal-tesla');
+      expect(modal.scrollWidth).toBeLessThanOrEqual(modal.clientWidth + 1);
+      if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/modal-historial-1440-${mode}.png`, element: modal });
       document.documentElement.classList.remove('high-contrast');
     });
   }
