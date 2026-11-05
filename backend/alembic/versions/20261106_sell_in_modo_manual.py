@@ -1,7 +1,7 @@
 """sell in: the manual cost mode's surcharge may reach purchase lines through a pool
 
 Revision ID: 20261106_sell_in_modo_manual
-Revises: 20261105_merge_grupos_ver_ml_ads_soft_delete
+Revises: 20261106_gestion_full_ver
 Create Date: 2026-11-06
 
 Owner: "otro permiso aparte para poder setear cantidad y costo a mano [...] un costo a mano que sea el de reposición",
@@ -27,7 +27,7 @@ from typing import List, Sequence, Union
 from alembic import op
 
 revision: str = "20261106_sell_in_modo_manual"
-down_revision: Union[str, None] = "20261105_merge_grupos_ver_ml_ads_soft_delete"
+down_revision: Union[str, None] = "20261106_gestion_full_ver"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
