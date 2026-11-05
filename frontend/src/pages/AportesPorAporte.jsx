@@ -323,8 +323,8 @@ export default function AportesPorAporte({ range, canManage, refreshKey, onEdit,
       </div>
 
       <p className={shell.footnote}>
-        <Info size={14} aria-hidden="true" /> Un aporte borrado deja de contar pero queda en el historial con quién lo
-        borró y cuándo. &apos;Devuelve diferencia&apos; cuenta como máximo lo gastado en el rango.
+        <Info size={14} aria-hidden="true" /> Un aporte borrado deja de contar y sale de la lista; queda guardado quién
+        lo borró y cuándo. &apos;Devuelve diferencia&apos; cuenta como máximo lo gastado en el rango.
       </p>
 
       {historyOf && <AportesHistorial aporte={historyOf} onClose={() => setHistoryOf(null)} />}

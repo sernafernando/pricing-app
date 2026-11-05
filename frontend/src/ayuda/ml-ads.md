@@ -40,7 +40,7 @@ Debajo de la descripción hay un selector **Por campaña / Por aporte**. **Por c
 - **Filtros**: buscador por marca o campaña, **Marca** y **Todos / Product Ads / Display**.
 - **Columnas**: Marca, Canal, Campaña / Alcance (un aporte de Display a toda la cuenta dice **Toda la cuenta Display** y **Cuenta completa**), Tipo, Valor, Rango, Cubre en el período, Cargado (quién lo cargó y cuándo, y si se editó) y Acciones.
 - **Acciones**: el lápiz edita un aporte de Product Ads; el reloj abre su historial; el tacho borra cualquier aporte. Los aportes de Display todavía no se editan desde la pantalla.
-- **Historial del aporte** (reloj, no hace falta permiso de gestión): cada cambio del aporte, del más viejo al más nuevo, con quién lo hizo y cuándo (hora de Argentina). **Cargado** muestra con qué se cargó; **Editado** muestra solo lo que cambió, con el valor anterior tachado; **Borrado** dice quién lo borró y cuándo.
+- **Historial del aporte** (reloj, no hace falta permiso de gestión): cada cambio del aporte, del más viejo al más nuevo, con quién lo hizo y cuándo (hora de Argentina). **Cargado** muestra con qué se cargó; **Editado** muestra solo lo que cambió, con el valor anterior tachado. Un aporte borrado sale de la lista, así que su historial ya no se abre desde la pantalla (queda guardado quién lo borró y cuándo).
 - Un aporte cargado antes de que existiera el registro de cambios muestra como **Cargado** a quien figura como su creador.
 
 ### Filtros y columnas

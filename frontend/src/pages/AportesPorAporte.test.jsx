@@ -171,7 +171,7 @@ describe('AportesPorAporte', () => {
     renderView();
     expect(
       await screen.findByText(
-        "Un aporte borrado deja de contar pero queda en el historial con quién lo borró y cuándo. 'Devuelve diferencia' cuenta como máximo lo gastado en el rango.",
+        "Un aporte borrado deja de contar y sale de la lista; queda guardado quién lo borró y cuándo. 'Devuelve diferencia' cuenta como máximo lo gastado en el rango.",
       ),
     ).toBeInTheDocument();
   });
