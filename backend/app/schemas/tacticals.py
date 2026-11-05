@@ -11,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 TipoTactical = Literal["sell_in", "sell_out"]
 Alcance = Literal["productos", "marca", "categoria", "factura"]
@@ -61,6 +61,28 @@ class TacticalIn(BaseModel):
     acumulable: bool = True
     nota: Optional[str] = Field(default=None, max_length=NOTA_MAX)
     lineas: list[TacticalLineaIn] = Field(min_length=1, max_length=LINEAS_MAX)
+
+
+class TacticalLineaTopesIn(BaseModel):
+    """One line's caps on edit: a cap left out keeps the stored one, an explicit null removes it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    linea: int = Field(ge=1, le=LINEAS_MAX)  # its 1-based line; every child of a per-product line takes them
+    tope_unidades: Optional[int] = Field(default=None, ge=1, le=INT_MAX, strict=True)
+    tope_monto: Optional[Decimal] = Field(default=None, **MONTO)  # in the tactical's `moneda`
+
+
+class TacticalEditarIn(BaseModel):
+    """The fields safe on live money (tacticals F1); a field left out keeps its value. Lines, values, scope and the
+    other header fields are not editable (an unknown field is a 422): changing them is Anular + Renovar."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    nombre: Optional[str] = Field(default=None, max_length=NOMBRE_MAX)
+    nota: Optional[str] = Field(default=None, max_length=NOTA_MAX)  # null or blank clears it
+    fecha_hasta: Optional[date] = None  # inclusive; never before today nor before `fecha_desde`
+    lineas: list[TacticalLineaTopesIn] = Field(default_factory=list, max_length=LINEAS_MAX)
 
 
 class TacticalAnularIn(BaseModel):

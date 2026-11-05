@@ -56,6 +56,7 @@ class TipoAccion(str, enum.Enum):
     # the values); each child writes its own engine's row too. Same VARCHAR(50) column: no DDL.
     TACTICAL_CREADO = "tactical_creado"
     TACTICAL_ANULADO = "tactical_anulado"
+    TACTICAL_EDITADO = "tactical_editado"
     # ML Ads brand aportes (ml-ads-aportes-robust S5): one row per load, edit or delete (`item_id` NULL; the aporte,
     # its id included, travels in the values: before/after). Same VARCHAR(50) column: no DDL.
     ML_ADS_APORTE_CREADO = "ml_ads_aporte_creado"

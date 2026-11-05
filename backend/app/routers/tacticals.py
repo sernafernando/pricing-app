@@ -7,6 +7,8 @@ build against is `handoffs/tactical-tarea.md` "Contrato final".
 - The author comes from the token, never from the body.
 - `GET ""` is paginated, newest start first, filtered by kind, brand, estado (vigentes | vencidos | anulados), a
   period its dates overlap (an inverted one is a 422) and free text over name or reference.
+- `PATCH /{id}` changes only what is safe on live money: name, note, end date (never before today nor before the
+  start) and the lines' caps (never below what a child already used); a voided tactical is a 409.
 - A create stores at most `HIJOS_MAX` (500) campaigns or bonuses (a per-product line counts each product): past it,
   a 422 before anything is stored.
 - A broken rule is a 422 with one Spanish message ("Línea N: ..." when a line broke it); a campaign being
@@ -30,6 +32,7 @@ from app.schemas.tacticals import (
     NOMBRE_MAX,
     EstadoFiltro,
     TacticalAnularIn,
+    TacticalEditarIn,
     TacticalIn,
     TacticalListOut,
     TacticalOut,
@@ -105,6 +108,25 @@ def detalle_tactical(
     tactical_id: int, user: Usuario = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> dict:
     return service.serializar(db, [_buscar(db, user, tactical_id, "ver")])[0]
+
+
+@router.patch("/{tactical_id}", response_model=TacticalOut)
+def editar_tactical(
+    tactical_id: int,
+    data: TacticalEditarIn,
+    user: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Change the name, note, end date or the lines' caps (only those: the rest is Anular + Renovar); every active
+    child takes it through its engine's edit step. Same permission as the create."""
+    _buscar(db, user, tactical_id, "gestionar")
+    try:
+        tactical = service.editar(db, tactical_id, data, user.id)
+    except service.TacticalError as exc:
+        raise _error(exc) from exc
+    if tactical is None:  # gone between the check and the lock
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"El tactical {tactical_id} no existe")
+    return service.serializar(db, [tactical])[0]
 
 
 @router.post("/{tactical_id}/anular", response_model=TacticalOut)
