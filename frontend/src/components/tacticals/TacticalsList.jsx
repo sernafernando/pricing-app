@@ -52,9 +52,12 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
     if (fueraDeRango) setOffset(Math.max(0, (Math.ceil(datos.total / pageSize) - 1) * pageSize));
   }, [fueraDeRango, datos, pageSize]);
 
+  // New filters are a new list: say it is loading rather than keep the previous rows, and start with every row closed.
   const filtrar = (cambio) => {
     setFiltros((actual) => ({ ...actual, ...cambio }));
     setOffset(0);
+    setDatos(null);
+    setAbiertos(new Set());
   };
   const alternar = (id) =>
     setAbiertos((actual) => {

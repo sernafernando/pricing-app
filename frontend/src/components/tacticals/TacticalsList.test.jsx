@@ -47,6 +47,20 @@ describe('TacticalsList rows', () => {
 });
 
 describe('TacticalsList filters', () => {
+  it('a filter change shows the loading message instead of the previous rows, and closes the open ones', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver las líneas de Tacticals BPS Noviembre Q1FY27' }));
+
+    let responder;
+    tacticalsAPI.listar.mockImplementation(() => new Promise((resolve) => (responder = resolve)));
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Marca' }), 'HP');
+
+    expect(screen.getByText('Cargando tacticals…')).toBeInTheDocument();
+    expect(screen.queryByText('Tacticals BPS Noviembre Q1FY27')).not.toBeInTheDocument();
+    responder({ data: pagina([BPS, REBATE]) });
+    expect(await screen.findByRole('button', { name: 'Ver las líneas de Tacticals BPS Noviembre Q1FY27' })).toBeInTheDocument();
+  });
+
   it('sends tipo, brand, state, dates and search, and Limpiar filtros goes back to the current ones', async () => {
     render(<TacticalsList marcas={MARCAS} />);
     await screen.findByText('Tacticals BPS Noviembre Q1FY27');
