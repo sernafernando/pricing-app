@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -29,6 +29,8 @@ from sqlalchemy.orm import Session
 from app.models.producto import ProductoERP
 from app.services.combos.componentes import combos_que_contienen, componentes_de, exigir_combos_disponibles
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
+
+CENT = Decimal("0.01")
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,21 @@ def unidades_de(qty: int, parte: Parte) -> int:
     if unidades != unidades.to_integral_value():
         raise ValueError(f"combo component {parte.componente}: {qty} x {parte.cantidad} is not a whole number of units")
     return int(unidades)
+
+
+def repartir(total: Decimal, partes: List[Parte]) -> List[Decimal]:
+    """`total` (a combo line's price or cost, rounded to cents) split by `peso`, one amount per part in order, adding
+    up to it EXACTLY: each part gets its share truncated to cents and the cents left go one each to the parts with
+    the largest remainder (the earlier part on a tie). Never a cent lost or made up."""
+    total = total.quantize(CENT, rounding=ROUND_HALF_UP)
+    crudos = [total * p.peso for p in partes]
+    montos = [c.quantize(CENT, rounding=ROUND_DOWN) for c in crudos]
+    sobrantes = int((total - sum(montos, Decimal(0))) / CENT)
+    por_resto = sorted(range(len(partes)), key=lambda i: (-(crudos[i] - montos[i]), i))
+    paso = CENT if sobrantes >= 0 else -CENT
+    for i in por_resto[: abs(sobrantes)]:
+        montos[i] += paso
+    return montos
 
 
 def _partes(comps: Dict[int, Decimal], costos: Dict[int, Decimal]) -> List[Parte]:
