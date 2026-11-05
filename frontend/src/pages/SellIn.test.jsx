@@ -81,7 +81,7 @@ vi.mock('../services/sellOutAPI', () => ({
   sellOutProgramasAPI: { listar: vi.fn(), crear: vi.fn(), asignar: vi.fn(), sugerencias: vi.fn() },
 }));
 
-vi.mock('../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn() } }));
+vi.mock('../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), anular: vi.fn() } }));
 
 vi.mock('../services/offsetGruposAPI', () => ({
   offsetGruposAPI: { listar: vi.fn(), alcance: vi.fn(), opciones: vi.fn(), crear: vi.fn() },
@@ -224,6 +224,11 @@ describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
     const { unmount } = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
     expect(await screen.findByRole('button', { name: /Nuevo tactical/ })).toBeInTheDocument();
     unmount();
+    // Nuevo tactical itself asks only gestionar, so the button does too.
+    mockTienePermiso.mockImplementation((codigo) => ['sell_in.ver', 'sell_out.gestionar'].includes(codigo));
+    const otra = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    expect(await screen.findByRole('button', { name: /Nuevo tactical/ })).toBeInTheDocument();
+    otra.unmount();
     mockTienePermiso.mockImplementation((codigo) => ['sell_in.ver', 'sell_out.ver'].includes(codigo));
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
     await screen.findByRole('tabpanel', { name: /Tacticals/ });
@@ -787,12 +792,11 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
   });
 
-  it('without sell_out.gestionar there is no "Nueva campaña" and the groups are not asked', async () => {
+  it('without sell_out.gestionar the groups are not asked', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
     const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
     await within(seccion).findByText('RB 8180');
-    expect(screen.queryByRole('button', { name: /Nueva campaña/ })).not.toBeInTheDocument();
     expect(sellOutAPI.grupos).not.toHaveBeenCalled();
   });
 
@@ -1682,6 +1686,20 @@ describe('SellIn page — Tacticals tab', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Renovar' }));
 
     expect(await screen.findByText('Nuevo tactical: sell_in renovando 7')).toBeInTheDocument();
+  });
+
+  it('voiding a tactical reloads what Actualizar reloads: the Sell in and Sell out counts too', async () => {
+    const user = userEvent.setup();
+    tacticalsAPI.anular.mockResolvedValue({ data: {} });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    await user.click(await screen.findByRole('button', { name: 'Acciones de Rebate TP-Link noviembre' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Anular' }));
+    const resumenes = sellInAPI.resumen.mock.calls.length;
+    const campanas = sellOutAPI.listar.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'Anular tactical' }));
+
+    await waitFor(() => expect(sellInAPI.resumen.mock.calls.length).toBeGreaterThan(resumenes));
+    await waitFor(() => expect(sellOutAPI.listar.mock.calls.length).toBeGreaterThan(campanas));
   });
 
   it("without the kind's gestionar a tactical has no actions menu", async () => {

@@ -326,4 +326,17 @@ describe('TacticalsList Anular', () => {
     await userEvent.click(within(dialogo).getByRole('button', { name: 'Cancelar' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
+
+  it('while voiding, Cancelar and Escape wait for the answer', async () => {
+    let responder;
+    tacticalsAPI.anular.mockReturnValue(new Promise((resolve) => (responder = resolve)));
+    const dialogo = await abrirAnular('Rebate HP Q1FY27');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Anular tactical' }));
+
+    expect(within(dialogo).getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    responder({ data: {} });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
 });

@@ -14,6 +14,6 @@ La pestaña **Tacticals** tiene ahora el botón **Nuevo tactical**: reemplaza a 
 
 ## Para tener en cuenta
 
-- Los dos botones aparecen si podés gestionar sell in o sell out (sell_in.gestionar o sell_out.gestionar).
+- **Nuevo tactical** aparece si podés gestionar sell in o sell out (sell_in.gestionar o sell_out.gestionar). **Anular** aparece si podés gestionar el tipo de ese tactical.
 - Al crear o cancelar un tactical, volvés a la pestaña Tacticals.
 - Anular no se puede deshacer. En sell out, las campañas dejan de acreditar y se recalculan las ventas que alcanzaban. En sell in, los bonos dejan de aplicarse y se anulan las compras que generaron.

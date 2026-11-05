@@ -2,7 +2,7 @@
  * TacticalAnular — "¿Anular <tactical>?" from a Tacticals row's actions menu (tacticals vista única, S2b). It says what
  * voiding reverses, in the words the old Sell in / Sell out tabs used, takes an optional reason (it goes to the audit
  * rows) and voids the tactical with every child (`POST /tacticals/{id}/anular`). The server's refusal shows inside.
- * Same focus handling as the other Sell in / Sell out dialogs; Escape cancels.
+ * Same focus handling as the other Sell in / Sell out dialogs; Escape cancels, except while the void is on its way.
  */
 import { useState } from 'react';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
@@ -46,8 +46,9 @@ export default function TacticalAnular({ tactical, onCerrar, onAnulado }) {
         aria-modal="true"
         aria-labelledby={titulo}
         onKeyDown={(e) => {
-          if (e.key === 'Escape') onCerrar();
-          else foco.onKeyDown(e);
+          if (e.key === 'Escape') {
+            if (!enviando) onCerrar();
+          } else foco.onKeyDown(e);
         }}
       >
         <h3 id={titulo}>¿Anular {tactical.nombre}?</h3>
@@ -71,7 +72,7 @@ export default function TacticalAnular({ tactical, onCerrar, onAnulado }) {
           </div>
         )}
         <div className={styles.dlgRow}>
-          <button type="button" className={styles.ghost} onClick={onCerrar}>
+          <button type="button" className={styles.ghost} onClick={onCerrar} disabled={enviando}>
             Cancelar
           </button>
           <button type="button" className={styles.danger} onClick={anular} disabled={enviando}>
