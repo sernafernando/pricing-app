@@ -416,7 +416,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
                     className={styles.inputNum}
                     type="number"
                     min="0"
-                    step="0.01"
+                    step="any"
                     inputMode="decimal"
                     value={costoUnit}
                     disabled={busy != null}
