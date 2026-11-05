@@ -65,3 +65,30 @@ def test_the_product_mode_routes_still_answer(client, ven_panel, auth_headers) -
     resp = client.get("/api/sell-in/productos/999999/modos", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["item_id"] == 999999
+
+
+def test_each_change_is_audited_with_who_before_and_after(
+    client, db, ven_panel, admin_user, admin_auth_headers
+) -> None:
+    from app.models.auditoria import Auditoria, TipoAccion
+
+    client.put(URL, json={"modo": "ponderado"}, headers=admin_auth_headers)
+    client.put(URL, json={"modo": "ultimo"}, headers=admin_auth_headers)
+    filas = (
+        db.query(Auditoria)
+        .filter(Auditoria.tipo_accion == TipoAccion.SELL_IN_MODO_POR_DEFECTO)
+        .order_by(Auditoria.id)
+        .all()
+    )
+    assert [(f.usuario_id, f.item_id, f.valores_anteriores, f.valores_nuevos) for f in filas] == [
+        (admin_user.id, None, {"modo": "fifo"}, {"modo": "ponderado"}),
+        (admin_user.id, None, {"modo": "ponderado"}, {"modo": "ultimo"}),
+    ]
+
+
+def test_a_refused_change_is_not_audited(client, db, ven_panel, auth_headers, admin_auth_headers) -> None:
+    from app.models.auditoria import Auditoria
+
+    client.put(URL, json={"modo": "ponderado"}, headers=auth_headers)
+    client.put(URL, json={"modo": "manual"}, headers=admin_auth_headers)
+    assert db.query(Auditoria).count() == 0

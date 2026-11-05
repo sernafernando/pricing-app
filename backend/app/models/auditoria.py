@@ -42,6 +42,8 @@ class TipoAccion(str, enum.Enum):
     # cost mode: one row per mode row saved (`item_id` is the product; the row, its date and what the preview showed
     # travel in the values).
     SELL_IN_MODO_CREADO = "sell_in_modo_creado"
+    # the cost-mode selector's default: one row per admin change (`item_id` NULL; the mode before and after).
+    SELL_IN_MODO_POR_DEFECTO = "sell_in_modo_por_defecto"
     # sell out: one row per campaign load, edit or void (`item_id` is NULL, `campana_id` travels in the values).
     SELL_OUT_CAMPANA_CREADA = "sell_out_campana_creada"
     SELL_OUT_CAMPANA_EDITADA = "sell_out_campana_editada"

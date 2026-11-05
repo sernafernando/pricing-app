@@ -206,6 +206,8 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
 
   const preview = async () => {
     // Freeze the previewed mode: a default read or saved later must not relabel the preview or what is confirmed.
+    // A failed preview unfreezes it, so an untouched selector follows the default again.
+    const elegidoAntes = modo;
     setModo(seleccion);
     setBusy('preview');
     setError(null);
@@ -214,6 +216,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
       setVista(data);
     } catch (err) {
       setVista(null);
+      setModo(elegidoAntes);
       setError(errorText(err, 'No se pudo calcular la vista previa'));
     } finally {
       setBusy(null);

@@ -251,8 +251,10 @@ def modo_por_defecto(db: Session) -> str:
     return fila.valor if fila is not None and fila.valor in MODOS_ESCRITOS else "fifo"
 
 
-def fijar_modo_por_defecto(db: Session, modo: str) -> str:
-    """Store the selector's preselected mode (upsert of its `configuracion` key) and commit."""
+def fijar_modo_por_defecto(db: Session, modo: str, usuario_id: int) -> str:
+    """Store the selector's preselected mode (upsert of its `configuracion` key), audit who changed it from what to
+    what, and commit."""
+    antes = modo_por_defecto(db)
     fila = db.query(Configuracion).filter(Configuracion.clave == CLAVE_POR_DEFECTO).first()
     if fila is None:
         db.add(
@@ -265,5 +267,16 @@ def fijar_modo_por_defecto(db: Session, modo: str) -> str:
         )
     else:
         fila.valor = modo
+    db.add(
+        Auditoria(
+            item_id=None,
+            usuario_id=usuario_id,
+            tipo_accion=TipoAccion.SELL_IN_MODO_POR_DEFECTO,
+            valores_anteriores={"modo": antes},
+            valores_nuevos={"modo": modo},
+            es_masivo=False,
+            fecha=datetime.now(timezone.utc).replace(tzinfo=None),  # naive UTC, like the column's default
+        )
+    )
     db.commit()
     return modo

@@ -58,11 +58,13 @@ def modo_por_defecto(db: Session = Depends(get_db)) -> dict:
 @router.put(
     "/modo-por-defecto",
     response_model=ModoPorDefectoOut,
-    dependencies=[Depends(require_permiso("sell_in.ver")), Depends(get_current_admin)],
+    dependencies=[Depends(require_permiso("sell_in.ver"))],
 )
-def fijar_modo_por_defecto(body: ModoPorDefectoIn, db: Session = Depends(get_db)) -> dict:
-    """Admins only: change the selector's preselected mode. Nothing is recomputed."""
-    return {"modo": modos.fijar_modo_por_defecto(db, body.modo)}
+def fijar_modo_por_defecto(
+    body: ModoPorDefectoIn, db: Session = Depends(get_db), admin: Usuario = Depends(get_current_admin)
+) -> dict:
+    """Admins only: change the selector's preselected mode (audited). Nothing is recomputed."""
+    return {"modo": modos.fijar_modo_por_defecto(db, body.modo, admin.id)}
 
 
 @router.get("/{item_id}/lotes", response_model=LotesProductoOut)

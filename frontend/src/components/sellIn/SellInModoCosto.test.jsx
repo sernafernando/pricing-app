@@ -333,6 +333,24 @@ describe('the default mode', () => {
     expect(sellInLotesAPI.confirmarModo).toHaveBeenCalledWith(950, expect.objectContaining({ modo: 'ponderado' }));
   });
 
+  it('after a failed preview the selector follows the default again', async () => {
+    rol = 'ADMIN';
+    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'ponderado' } });
+    sellInLotesAPI.vistaPrevia.mockRejectedValue(httpError(500));
+    const user = userEvent.setup();
+    renderPanel();
+    const region = await panel();
+    await waitFor(() => expect(elegido(region)).toEqual(['Ponderado (PPP)']));
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+    await within(region).findByRole('alert');
+
+    await user.click(within(region).getByRole('button', { name: 'Modo por defecto' }));
+    await user.click(within(screen.getByRole('group', { name: 'Modo por defecto' })).getByRole('button', { name: 'Último precio' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Modo por defecto' })).not.toBeInTheDocument());
+    expect(elegido(region)).toEqual(['Último precio']);
+  });
+
   it('a failed save keeps the modal open and says so', async () => {
     rol = 'SUPERADMIN';
     sellInLotesAPI.fijarModoPorDefecto.mockRejectedValue(httpError(403));
