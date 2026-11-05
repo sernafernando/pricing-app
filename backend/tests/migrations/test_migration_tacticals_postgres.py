@@ -128,7 +128,7 @@ class TestUpgrade:
         with engine.begin() as conn:
             conn.execute(text("UPDATE tacticals SET nombre = 'Otro' WHERE id = :t"), {"t": tactical})
             creado, cambiado = conn.execute(text("SELECT created_at, updated_at FROM tacticals")).one()
-        assert cambiado >= creado
+        assert cambiado > creado  # set by the trigger in a later transaction
 
     def test_it_runs_twice(self, engine: Engine) -> None:
         _step(engine, "upgrade")
