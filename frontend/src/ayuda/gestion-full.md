@@ -20,7 +20,7 @@ Por defecto: **En Full** y **sin** filas con Stock ERP en 0. La tabla ordena por
 
 Filtros:
 
-- Búsqueda libre.
+- Búsqueda libre: EAN, descripción, Código ML (`inventory_id`), MLAU o **family_id** exacto (el id numérico de familia de ML).
 - **Marca / Categoría:** multi-selección con listas que se cruzan según el resto de filtros (mismo panel que Métricas/Ventas ML). No hay Subcategoría ni PM en esta pantalla.
 - **Presencia Full:** En Full (default) = Stock Full > 0 **o** ventas Full 30d > 0. Fuera de Full = ambos en 0. Todos = sin ese filtro.
 - **Mostrar sin stock ERP:** apagado por default; al activarlo incluye filas con Stock ERP 0.

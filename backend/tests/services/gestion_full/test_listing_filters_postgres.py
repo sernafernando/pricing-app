@@ -44,6 +44,7 @@ _STUB_DDL = (
       item_id TEXT PRIMARY KEY,
       inventory_id TEXT,
       user_product_id TEXT,
+      family_id BIGINT,
       never_existed BOOLEAN DEFAULT FALSE,
       gone_at TIMESTAMPTZ
     )
@@ -149,6 +150,7 @@ def _seed_linked_row(
     user_product_id: str,
     stock: int = 10,
     full_quantity: int = 5,
+    family_id: int | None = None,
 ) -> None:
     db.execute(
         text(
@@ -166,10 +168,10 @@ def _seed_linked_row(
     )
     db.execute(
         text(
-            "INSERT INTO ml_items (item_id, inventory_id, user_product_id, never_existed, gone_at) "
-            "VALUES (:mla, :inv, :mlau, FALSE, NULL)"
+            "INSERT INTO ml_items (item_id, inventory_id, user_product_id, family_id, never_existed, gone_at) "
+            "VALUES (:mla, :inv, :mlau, :fid, FALSE, NULL)"
         ),
-        {"mla": mla, "inv": inventory_id, "mlau": user_product_id},
+        {"mla": mla, "inv": inventory_id, "mlau": user_product_id, "fid": family_id},
     )
     db.execute(
         text(
@@ -308,5 +310,39 @@ class TestGestionFullListingFiltersPostgres:
             assert payload["total"] == 1
             assert payload["facets"]["product"]["marcas"] == []
             assert payload["facets"]["product"]["categorias"] == []
+        finally:
+            db.close()
+
+    def test_q_matches_exact_family_id(self, pg_engine: Engine) -> None:
+        db = _session(pg_engine)
+        try:
+            _seed_linked_row(
+                db,
+                producto_item_id=1,
+                ean="EAN-1",
+                marca="TP-LINK",
+                categoria="Camaras",
+                mla="MLA1",
+                inventory_id="INV1",
+                user_product_id="MLAU1",
+                family_id=4135291218508008,
+            )
+            _seed_linked_row(
+                db,
+                producto_item_id=2,
+                ean="EAN-2",
+                marca="EPSON",
+                categoria="Camaras",
+                mla="MLA2",
+                inventory_id="INV2",
+                user_product_id="MLAU2",
+                family_id=999,
+            )
+            db.commit()
+
+            payload = list_gestion_full(db, q="4135291218508008", full_mode="en")
+            assert [r["inventory_id"] for r in payload["items"]] == ["INV1"]
+            # Partial / wrong id must not match via family_id.
+            assert list_gestion_full(db, q="413529", full_mode="en")["items"] == []
         finally:
             db.close()

@@ -75,7 +75,8 @@ _LINKED_CTE = """
         l.producto_item_id,
         i.inventory_id,
         i.user_product_id,
-        i.item_id AS mla
+        i.item_id AS mla,
+        i.family_id
       FROM ml_item_product_links l
       JOIN ml_items i ON i.item_id = l.item_id
       WHERE l.producto_item_id IS NOT NULL
@@ -88,13 +89,18 @@ _LINKED_CTE = """
     )
 """
 
+# family_id is exact (bigint as text): partial ILIKE would false-match other families.
 _Q_SQL = """
     WHERE (
       :q = '' OR
       p.codigo ILIKE '%' || :q || '%' OR
       p.descripcion ILIKE '%' || :q || '%' OR
       linked.inventory_id ILIKE '%' || :q || '%' OR
-      COALESCE(linked.user_product_id, '') ILIKE '%' || :q || '%'
+      COALESCE(linked.user_product_id, '') ILIKE '%' || :q || '%' OR
+      (
+        linked.family_id IS NOT NULL
+        AND CAST(linked.family_id AS TEXT) = :q
+      )
     )
 """
 
