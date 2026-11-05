@@ -78,15 +78,22 @@ describe('pickPonerPreciosPromos', () => {
 });
 
 describe('baselineMarkupFromPromos', () => {
-  it('uses cofunded started markup when offer price matches sale', () => {
+  it('uses max cofunded started markup when offer price matches sale (same as backend)', () => {
     expect(
       baselineMarkupFromPromos(
         [
           {
             status: 'started',
             promotion_type: 'PRICE_MATCHING',
-            application_status: 'active',
+            application_status: 'programmed',
             price: 555867.8,
+            nuestro_markup: 1.2,
+          },
+          {
+            status: 'started',
+            promotion_type: 'SMART',
+            application_status: 'active',
+            price: 555867.5,
             nuestro_markup: 1.4,
           },
           {
