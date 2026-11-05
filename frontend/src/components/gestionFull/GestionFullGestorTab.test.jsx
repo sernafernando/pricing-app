@@ -19,6 +19,43 @@ describe('GestionFullGestorTab', () => {
     api.patch.mockReset();
   });
 
+  it('removes selected lines from the package', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        id: 1,
+        week_monday: '2026-10-26',
+        status: 'open',
+        lines: [
+          {
+            id: 10,
+            producto_item_id: 1,
+            user_product_id: 'MLAU1',
+            inventory_id: 'INV1',
+            qty_pm: 5,
+            qty_export: 5,
+            inbound_id: null,
+          },
+        ],
+      },
+    });
+    api.post.mockResolvedValue({ data: { id: 1, week_monday: '2026-10-26', status: 'open', lines: [] } });
+
+    render(<GestionFullGestorTab />);
+    await waitFor(() => expect(screen.getByText('INV1')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByLabelText('Seleccionar línea 10'));
+    fireEvent.click(screen.getByRole('button', { name: /Quitar del envío/ }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/gestion-full/package/remove-lines', {
+        line_ids: [10],
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/Quitadas 1 línea/)).toBeInTheDocument();
+    });
+  });
+
   it('loads package lines and assigns inbound to selection', async () => {
     api.get.mockResolvedValue({
       data: {

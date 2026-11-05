@@ -23,7 +23,7 @@ from app.services.gestion_full.overrides import (
     resolve_producto_por_inventory_id,
     upsert_override,
 )
-from app.services.ml_sales_query.params import parse_csv_strings
+from app.services.ml_sales_query.params import parse_csv_ids, parse_csv_strings
 from app.services.product_facets import ProductFacetOptions
 from app.services.gestion_full.assign_inbound import (
     assign_inbound_to_lines,
@@ -41,6 +41,7 @@ from app.services.gestion_full.package import (
     add_all_ready_lines_to_package,
     get_active_package,
     get_or_create_open_package,
+    remove_package_lines,
     set_qty_export,
     upsert_package_line,
 )
@@ -275,6 +276,12 @@ class GestionFullAssignInboundBody(BaseModel):
     line_ids: list[int] = Field(..., min_length=1, max_length=500)
 
 
+class GestionFullRemoveLinesBody(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    line_ids: list[int] = Field(..., min_length=1, max_length=500)
+
+
 @router.get(
     "",
     response_model=GestionFullListResponse,
@@ -293,6 +300,10 @@ def get_gestion_full(
         default=None,
         description="CSV de categorías (case-insensitive, same as ProductFiltersPanel)",
     ),
+    pms: Optional[str] = Query(
+        default=None,
+        description="CSV de ids de PM (marcas_pm.usuario_id)",
+    ),
     marca: str = Query(
         "",
         description="Deprecated scalar brand; used only when `marcas` is empty",
@@ -310,6 +321,10 @@ def get_gestion_full(
         False,
         description="When false (default), hide rows with stock_erp 0/null",
     ),
+    solo_listo: bool = Query(
+        False,
+        description="When true, only rows with an active PM Listo (pm_ready) freeze",
+    ),
     include_facets: bool = Query(
         True,
         description="When false, skip product facet DISTINCT (caller already has options)",
@@ -322,6 +337,7 @@ def get_gestion_full(
     """List Full replenishment rows. Defaults: en Full + hide zero ERP stock."""
     marcas_list = parse_csv_strings(marcas, "marcas")
     categorias_list = parse_csv_strings(categorias, "categorias")
+    pms_list = parse_csv_ids(pms, "pms")
     # Backward compat: old ?marca= / ?categoria= scalar query params.
     if not marcas_list and (marca or "").strip():
         marcas_list = ((marca or "").strip(),)
@@ -332,8 +348,10 @@ def get_gestion_full(
         q=q,
         marcas=marcas_list,
         categorias=categorias_list,
+        pms=pms_list,
         full_mode=full_mode,
         include_zero_stock=include_zero_stock,
+        solo_listo=solo_listo,
         include_facets=include_facets,
         limit=limit,
         offset=offset,
@@ -667,6 +685,27 @@ def get_envio_detail(
     return detail
 
 
+def _package_response(pkg: Any) -> dict[str, Any]:
+    return {
+        "id": pkg.id,
+        "week_monday": pkg.week_monday.isoformat(),
+        "status": pkg.status,
+        "lines": [
+            {
+                "id": ln.id,
+                "producto_item_id": ln.producto_item_id,
+                "user_product_id": ln.user_product_id,
+                "inventory_id": ln.inventory_id,
+                "qty_pm": ln.qty_pm,
+                "qty_export": ln.qty_export,
+                "qty_export_reason": ln.qty_export_reason,
+                "inbound_id": ln.inbound_id,
+            }
+            for ln in pkg.lines
+        ],
+    }
+
+
 @router.post(
     "/package/assign-inbound",
     response_model=GestionFullPackageResponse,
@@ -698,24 +737,36 @@ def post_assign_inbound(
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
     db.refresh(pkg)
-    return {
-        "id": pkg.id,
-        "week_monday": pkg.week_monday.isoformat(),
-        "status": pkg.status,
-        "lines": [
-            {
-                "id": ln.id,
-                "producto_item_id": ln.producto_item_id,
-                "user_product_id": ln.user_product_id,
-                "inventory_id": ln.inventory_id,
-                "qty_pm": ln.qty_pm,
-                "qty_export": ln.qty_export,
-                "qty_export_reason": ln.qty_export_reason,
-                "inbound_id": ln.inbound_id,
-            }
-            for ln in pkg.lines
-        ],
-    }
+    return _package_response(pkg)
+
+
+@router.post(
+    "/package/remove-lines",
+    response_model=GestionFullPackageResponse,
+    dependencies=[Depends(require_permiso(PERM_GESTOR))],
+)
+def post_remove_package_lines(
+    body: GestionFullRemoveLinesBody,
+    db: Session = Depends(get_db),
+    _current_user: Usuario = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Remove selected inventories (package lines) from the active send package."""
+    pkg = get_active_package(db)
+    if pkg is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no hay paquete activo")
+    try:
+        remove_package_lines(db, pkg, line_ids=body.line_ids)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+    db.refresh(pkg)
+    return _package_response(pkg)
 
 
 @router.post(

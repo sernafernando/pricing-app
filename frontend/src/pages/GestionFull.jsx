@@ -46,6 +46,7 @@ export default function GestionFull() {
   const [productOptions, setProductOptions] = useState(EMPTY_PRODUCT_OPTIONS);
   const [fullMode, setFullMode] = useState('en');
   const [includeZeroStock, setIncludeZeroStock] = useState(false);
+  const [soloListo, setSoloListo] = useState(false);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [puedeGestor, setPuedeGestor] = useState(false);
@@ -79,8 +80,10 @@ export default function GestionFull() {
             categorias: productFilters.categorias.length
               ? productFilters.categorias.join(',')
               : undefined,
+            pms: productFilters.pms.length ? productFilters.pms.join(',') : undefined,
             full_mode: fullMode,
             include_zero_stock: includeZeroStock,
+            solo_listo: soloListo,
             include_facets: wantFacets,
             limit: 200,
             offset: 0,
@@ -109,13 +112,14 @@ export default function GestionFull() {
     return () => {
       cancelled = true;
     };
-  }, [tab, debouncedQ, productFilters, fullMode, includeZeroStock, listNonce]);
+  }, [tab, debouncedQ, productFilters, fullMode, includeZeroStock, soloListo, listNonce]);
 
   const clearFilters = () => {
     setQ('');
     setProductFilters(EMPTY_PRODUCT_FILTERS);
     setFullMode('en');
     setIncludeZeroStock(false);
+    setSoloListo(false);
   };
 
   const onDraftChange = (inventoryId, value) => {
@@ -274,7 +278,6 @@ export default function GestionFull() {
           value={productFilters}
           onChange={setProductFilters}
           options={productOptions}
-          hidePm
           hideSubcategorias
         />
         <label className={styles.filterField}>
@@ -297,6 +300,15 @@ export default function GestionFull() {
             onChange={(e) => setIncludeZeroStock(e.target.checked)}
           />
           Mostrar sin stock ERP
+        </label>
+        <label className={styles.check}>
+          <input
+            type="checkbox"
+            checked={soloListo}
+            onChange={(e) => setSoloListo(e.target.checked)}
+            aria-label="Solo Listo"
+          />
+          Solo Listo
         </label>
         <button type="button" className={styles.clearBtn} onClick={clearFilters}>
           Limpiar

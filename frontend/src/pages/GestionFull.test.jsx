@@ -129,6 +129,25 @@ describe('GestionFull', () => {
     });
   });
 
+  it('sends solo_listo when Solo Listo is checked', async () => {
+    api.get.mockResolvedValue({ data: { total: 0, items: [], puede_editar_override: false } });
+    render(<GestionFull />);
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByLabelText('Solo Listo'));
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(
+        '/gestion-full',
+        expect.objectContaining({
+          params: expect.objectContaining({
+            solo_listo: true,
+          }),
+        }),
+      );
+    });
+  });
+
   it('sends marcas/categorias CSV from the product panel and Limpiar clears them', async () => {
     api.get.mockResolvedValue({
       data: {

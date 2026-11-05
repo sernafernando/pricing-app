@@ -40,6 +40,14 @@ _STUB_DDL = (
     )
     """,
     """
+    CREATE TABLE marcas_pm (
+      id SERIAL PRIMARY KEY,
+      marca TEXT NOT NULL,
+      categoria TEXT NOT NULL,
+      usuario_id INTEGER NOT NULL
+    )
+    """,
+    """
     CREATE TABLE ml_items (
       item_id TEXT PRIMARY KEY,
       inventory_id TEXT,

@@ -70,7 +70,7 @@ def _mock_db_for_list(list_rows: list | None = None) -> MagicMock:
     list_result = MagicMock()
     list_result.mappings.return_value.all.return_value = list_rows or []
     facet_result = MagicMock()
-    facet_result.all.return_value = [("M", "C")]
+    facet_result.all.return_value = [("M", "C", None, None)]
     db.execute.side_effect = [count_result, list_result, facet_result]
     return db
 
@@ -121,6 +121,9 @@ def test_list_gestion_full_passes_filters_and_pagination() -> None:
     assert params["categorias_upper"] == ["C"]
     assert params["full_mode"] == "en"
     assert params["include_zero_stock"] == 0
+    assert params["has_pms"] == 0
+    assert params["pms"] == []
+    assert params["solo_listo"] == 0
 
 
 def test_list_gestion_full_multi_marcas_uppercases_for_sql() -> None:
