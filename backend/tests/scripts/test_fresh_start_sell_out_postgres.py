@@ -331,8 +331,34 @@ def test_a_campaign_the_drain_holds_stops_the_run_within_the_lock_timeout(engine
 
         assert code == 1
         assert summary is None
-        assert "Otro proceso está recalculando campañas" in err
+        assert "Otro proceso está usando campañas o tacticals" in err
         assert _conteo(engine) == ESPERADO
+    finally:
+        otra.dispose()
+
+
+def test_a_campaign_being_loaded_meanwhile_stops_the_run(engine, correr, monkeypatch):
+    """A campaign another transaction is still writing is not in the run's snapshot: the run must wait for it
+    (and give up), never delete what it read and leave the new one behind."""
+    _mundo(engine)
+    monkeypatch.setattr(script, "LOCK_TIMEOUT", "200ms")
+    otra = create_engine(engine.url, connect_args={"options": f"-csearch_path={_schema(engine)}"})
+    try:
+        with otra.connect() as conn, conn.begin():
+            conn.execute(
+                text(
+                    "INSERT INTO sell_out_campanas (nombre, fecha_desde, fecha_hasta, tipo, monto_unit, moneda, "
+                    "acumulable, monto_incluye_iva, estado, usuario_id) VALUES ('Nueva', '2026-11-01', '2026-11-30', "
+                    "'por_unidad', 10, 'ARS', true, false, 'activa', 7)"
+                )
+            )
+
+            code, summary, err = correr("--apply", "--confirm", CONFIRMACION)
+
+        assert code == 1
+        assert summary is None
+        assert "Otro proceso está usando campañas o tacticals" in err
+        assert _conteo(engine) == {**ESPERADO, "sell_out_campanas": 3}
     finally:
         otra.dispose()
 

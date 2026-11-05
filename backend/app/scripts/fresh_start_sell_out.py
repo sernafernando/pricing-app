@@ -19,9 +19,10 @@ the id of the offset it came from. Sequences are kept (no RESTART IDENTITY). The
 groups' filters, so the filter triggers find no active campaign and queue nothing.
 
 Refuses, deleting nothing (exit 1), when any tactical exists, any campaign belongs to one or any group is used by one:
-the new system's data is never touched. Takes the drain's advisory lock of every campaign (`asignacion.LOCK_SQL`, the
-lock `asignacion.recalcular` takes) waiting at most `LOCK_TIMEOUT`, so it cannot run while the drain rebuilds one;
-the session's `lock_timeout` is restored afterwards (`queue.lock_timeout`).
+the new system's data is never touched. Locks `tacticals` and `sell_out_campanas` against writes (SHARE) and takes
+the drain's advisory lock of every campaign (`asignacion.LOCK_SQL`, the lock `asignacion.recalcular` takes), waiting
+at most `LOCK_TIMEOUT` for each, so it cannot run while the drain rebuilds a campaign or someone is loading one or a
+tactical; the session's `lock_timeout` is restored afterwards (`queue.lock_timeout`).
 
 Dry run is the DEFAULT: it prints the rows each table holds and deletes nothing. `--apply` deletes, and only with
 `--confirm "BORRAR TODO"` (otherwise exit 2). Prints one JSON line (`dry_run`, `antes`, `despues`: rows per table);
@@ -110,7 +111,9 @@ def ejecutar(db: Session, *, apply: bool) -> tuple[dict[str, int], dict[str, int
     Raises `FreshStartRechazado` (tacticals, or a lock not taken in time) with everything as it was."""
     try:
         with queue.lock_timeout(db, LOCK_TIMEOUT):
-            db.execute(text("LOCK TABLE tacticals IN SHARE MODE"))  # no tactical appears until this commits
+            # No tactical or campaign is written until this commits, and none is being written now: a campaign
+            # still uncommitted elsewhere would miss the snapshot below and be left behind.
+            db.execute(text("LOCK TABLE tacticals, sell_out_campanas IN SHARE MODE"))
             ids = [i for (i,) in db.execute(text("SELECT id FROM sell_out_campanas ORDER BY id"))]
             if ids:
                 db.execute(asignacion.LOCK_SQL, {"ns": asignacion.LOCK_NAMESPACE, "ids": ids})
@@ -127,8 +130,8 @@ def ejecutar(db: Session, *, apply: bool) -> tuple[dict[str, int], dict[str, int
         if getattr(exc.orig, "pgcode", None) != queue.LOCK_NOT_AVAILABLE:
             raise
         raise FreshStartRechazado(
-            "Otro proceso está recalculando campañas (el drain de sell out): detener pricing-worker y volver a "
-            "correr el script. No se borró nada."
+            "Otro proceso está usando campañas o tacticals (el drain de sell out o una carga en curso): detener "
+            "pricing-worker, esperar que nadie esté cargando y volver a correr el script. No se borró nada."
         ) from exc
     return antes, despues
 

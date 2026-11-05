@@ -1342,9 +1342,10 @@ The script refuses (exit 1, nothing deleted) when any tactical exists, so it
 only works before the first tactical is loaded.
 
 1. **Stop the sell out drain.** It runs inside `pricing-worker`:
-   `sudo systemctl stop pricing-worker`. The script also takes the drain's
-   per-campaign lock and gives up after 5 s ("Otro proceso está recalculando
-   campañas") if the drain still holds one.
+   `sudo systemctl stop pricing-worker`, and make sure nobody is loading
+   campaigns or tacticals. The script also takes the drain's per-campaign lock
+   and gives up after 5 s ("Otro proceso está usando campañas o tacticals") if
+   the drain or a load in progress still holds one.
 2. **Confirm today's database backup exists** and note its file name. There is
    no other way back.
 3. **Dry run** (deletes nothing; prints the rows each table holds as one JSON
