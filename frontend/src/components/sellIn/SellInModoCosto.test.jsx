@@ -138,6 +138,23 @@ describe('changing the mode', () => {
     expect(within(modos).getByRole('button', { name: 'Manual' })).toBeDisabled();
   });
 
+  it("shows the server's reason when a preview cannot be made", async () => {
+    sellInLotesAPI.vistaPrevia.mockRejectedValue(
+      Object.assign(new Error('HTTP 422'), {
+        response: { status: 422, data: { error: { message: 'The history cannot be replayed' } } },
+      }),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    const region = await panel();
+    await user.click(within(region).getByRole('button', { name: 'Ponderado (PPP)' }));
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+
+    expect(await within(region).findByRole('alert')).toHaveTextContent(
+      'No se pudo calcular la vista previa: The history cannot be replayed',
+    );
+  });
+
   it('previews the change from today and confirms it with the fingerprint, then reloads the modes and the lots', async () => {
     const user = userEvent.setup();
     renderPanel();
