@@ -30,7 +30,7 @@ def test_upsert_unidades_caja_creates_when_missing() -> None:
 
     row = upsert_unidades_caja(db, producto_item_id=42, unidades=12, usuario=usuario)
 
-    db.add.assert_called_once()
+    assert db.add.call_count >= 1  # caja row + auditoria
     db.commit.assert_called_once()
     assert row.producto_item_id == 42
     assert row.unidades == 12
@@ -40,7 +40,7 @@ def test_upsert_unidades_caja_creates_when_missing() -> None:
 def test_clear_unidades_caja_noop_when_missing() -> None:
     db = MagicMock()
     db.get.return_value = None
-    clear_unidades_caja(db, producto_item_id=1)
+    clear_unidades_caja(db, producto_item_id=1, usuario=SimpleNamespace(id=1))
     db.delete.assert_not_called()
     db.commit.assert_not_called()
 

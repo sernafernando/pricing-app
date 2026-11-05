@@ -9,6 +9,7 @@ from typing import Iterable, Optional
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.auditoria import TipoAccion
 from app.models.gestion_full_package import (
     PACKAGE_STATUS_EXPORTED,
     PACKAGE_STATUS_LOCKED,
@@ -20,6 +21,7 @@ from app.models.gestion_full_package import (
 from app.models.gestion_full_pm_ready import GestionFullPmReady
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
+from app.services.gestion_full.audit import line_snapshot, registrar
 
 
 def week_monday_on(day: date) -> date:
@@ -86,6 +88,7 @@ def upsert_package_line(
     user_product_id: str,
     inventory_id: str,
     qty_pm: int,
+    usuario: Usuario,
 ) -> GestionFullPackageLine:
     """Add or refresh a line; auto qty_export capped to ERP stock."""
     if qty_pm < 0:
@@ -106,6 +109,7 @@ def upsert_package_line(
         )
         .one_or_none()
     )
+    created = line is None
     if line is None:
         if pkg.status == PACKAGE_STATUS_EXPORTED:
             raise ValueError("paquete ya exportado: líneas Listo nuevas van al próximo envío")
@@ -118,6 +122,7 @@ def upsert_package_line(
             qty_export=capped,
         )
         db.add(line)
+        db.flush()  # line.id for audit snapshot
     else:
         line.inventory_id = inventory_id
         line.qty_pm = qty_pm
@@ -127,6 +132,13 @@ def upsert_package_line(
                 line.qty_export = min(int(line.qty_export), stock)
             else:
                 line.qty_export = capped
+    registrar(
+        db,
+        tipo=TipoAccion.GESTION_FULL_LINE_ADD,
+        usuario_id=int(usuario.id),
+        item_id=int(producto_item_id),
+        despues={**line_snapshot(line), "created": created},
+    )
     db.commit()
     db.refresh(line)
     return line
@@ -204,7 +216,16 @@ def add_all_ready_lines_to_package(
     # Stock→0 on the last unassigned shippable line must hard-lock like set_qty_export.
     from app.services.gestion_full.assign_inbound import maybe_hard_lock
 
-    maybe_hard_lock(db, pkg, already_locked=True)
+    if touched:
+        registrar(
+            db,
+            tipo=TipoAccion.GESTION_FULL_LINES_READY,
+            usuario_id=int(usuario.id),
+            despues={"package_id": int(pkg.id), "touched": touched, "status": pkg.status},
+            masivo=True,
+            productos_afectados=touched,
+        )
+    maybe_hard_lock(db, pkg, already_locked=True, usuario_id=int(usuario.id))
     db.commit()
     db.refresh(pkg)
     return pkg, touched
@@ -244,6 +265,7 @@ def set_qty_export(
         .one()
     )
     old = line.qty_export
+    old_reason = line.qty_export_reason
     qty_unchanged = old == capped and (reason or None) == (line.qty_export_reason or None)
     if not qty_unchanged:
         line.qty_export = capped
@@ -259,10 +281,30 @@ def set_qty_export(
                 updated_by_id=usuario.id,
             )
         )
+        registrar(
+            db,
+            tipo=TipoAccion.GESTION_FULL_QTY_EXPORT,
+            usuario_id=int(usuario.id),
+            item_id=int(line.producto_item_id),
+            antes={
+                "line_id": int(line.id),
+                "package_id": int(line.package_id),
+                "inventory_id": str(line.inventory_id),
+                "qty_export": int(old),
+                "reason": old_reason,
+            },
+            despues={
+                "line_id": int(line.id),
+                "package_id": int(line.package_id),
+                "inventory_id": str(line.inventory_id),
+                "qty_export": int(capped),
+                "reason": reason,
+            },
+        )
     # Always evaluate hard-lock (even when qty unchanged — e.g. PATCH 0 no-op after Sumar).
     from app.services.gestion_full.assign_inbound import maybe_hard_lock
 
-    maybe_hard_lock(db, pkg, already_locked=True)
+    maybe_hard_lock(db, pkg, already_locked=True, usuario_id=int(usuario.id))
     db.commit()
     db.refresh(line)
     return line
@@ -273,6 +315,7 @@ def remove_package_lines(
     package: GestionFullPackage,
     *,
     line_ids: Iterable[int],
+    usuario_id: int,
 ) -> int:
     """Delete selected lines from the active package (same selection UX as assign-inbound).
 
@@ -295,6 +338,7 @@ def remove_package_lines(
     if missing:
         raise LookupError(f"líneas no del paquete: {sorted(missing)}")
 
+    snapshots = [line_snapshot(ln) for ln in to_delete]
     cleared: set[str] = set()
     for ln in to_delete:
         if ln.inbound_id is not None and str(ln.inbound_id).strip():
@@ -305,7 +349,19 @@ def remove_package_lines(
     if cleared:
         _close_orphan_envios(db, cleared)
     db.expire(pkg, ["lines"])
-    maybe_hard_lock(db, pkg, already_locked=True)
+    registrar(
+        db,
+        tipo=TipoAccion.GESTION_FULL_LINES_REMOVE,
+        usuario_id=int(usuario_id),
+        despues={
+            "package_id": int(pkg.id),
+            "removed": snapshots,
+            "cleared_inbounds": sorted(cleared),
+        },
+        masivo=len(snapshots) > 1,
+        productos_afectados=len(snapshots),
+    )
+    maybe_hard_lock(db, pkg, already_locked=True, usuario_id=int(usuario_id))
     db.commit()
     db.refresh(pkg)
     return len(to_delete)

@@ -104,7 +104,7 @@ def test_mark_pm_ready_creates_row() -> None:
             usuario=usuario,
         )
 
-    db.add.assert_called_once()
+    assert db.add.call_count >= 1  # pm_ready + auditoria
     db.commit.assert_called_once()
     assert row.producto_item_id == 7
     assert row.user_product_id == "MLAU9"
@@ -116,5 +116,5 @@ def test_mark_pm_ready_creates_row() -> None:
 def test_unlock_pm_ready_noop_when_missing() -> None:
     db = MagicMock()
     with patch("app.services.gestion_full.pm_ready.get_pm_ready", return_value=None):
-        assert unlock_pm_ready(db, producto_item_id=1, user_product_id="X") is False
+        assert unlock_pm_ready(db, producto_item_id=1, user_product_id="X", usuario=SimpleNamespace(id=1)) is False
     db.delete.assert_not_called()

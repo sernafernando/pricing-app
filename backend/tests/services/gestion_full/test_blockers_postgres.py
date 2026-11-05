@@ -19,6 +19,7 @@ from openpyxl import load_workbook
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.auditoria import Auditoria
 from app.models.gestion_full_envio import GestionFullEnvio, GestionFullInboundReceptionOp
 from app.models.gestion_full_package import (
     PACKAGE_STATUS_EXPORTED,
@@ -60,6 +61,7 @@ _ORM_TABLES = [
     GestionFullUnidadesCaja.__table__,
     GestionFullEnvio.__table__,
     GestionFullInboundReceptionOp.__table__,
+    Auditoria.__table__,
 ]
 
 _STUB_DDL = (
@@ -285,6 +287,7 @@ class TestHardLockConsumesPmReady:
                     qty_pm=5,
                 )
             )
+            db.execute(text("INSERT INTO usuarios (id, nombre) VALUES (1, 'gestor')"))
             db.commit()
             db.refresh(pkg)
 
@@ -292,7 +295,7 @@ class TestHardLockConsumesPmReady:
                 "app.services.gestion_full.reconcile.ensure_envio",
                 lambda *_a, **_k: None,
             )
-            assign_inbound_to_lines(db, pkg, line_ids=[line_id], inbound_id="INB-ASSIGN")
+            assign_inbound_to_lines(db, pkg, line_ids=[line_id], inbound_id="INB-ASSIGN", usuario_id=1)
             db.refresh(pkg)
 
             assert pkg.status == PACKAGE_STATUS_LOCKED
@@ -604,10 +607,11 @@ class TestRound2Blockers:
                 last_polled_at=None,
             )
             db.add_all([env_old, env_new])
+            db.execute(text("INSERT INTO usuarios (id, nombre) VALUES (1, 'gestor')"))
             db.commit()
             db.refresh(pkg)
 
-            clear_inbound_ids(db, pkg)
+            clear_inbound_ids(db, pkg, usuario_id=1)
             db.refresh(env_old)
             assert env_old.reception_closed_at is not None
             # INB-NEW was never on a line — still open; null last_polled sorts first
@@ -699,10 +703,11 @@ class TestRound3Blockers:
                 week_monday=pkg.week_monday,
             )
             db.add(envio)
+            db.execute(text("INSERT INTO usuarios (id, nombre) VALUES (1, 'gestor')"))
             db.commit()
             db.refresh(pkg)
 
-            clear_inbound_ids(db, pkg)
+            clear_inbound_ids(db, pkg, usuario_id=1)
             db.refresh(envio)
             assert envio.reception_closed_at is not None
 
@@ -718,7 +723,7 @@ class TestRound3Blockers:
             assert "SAME-INB" in [e.inbound_id for e in list_open_envios(db)]
 
             # assign also reopens via ensure_envio(commit=False) in same txn
-            assign_inbound_to_lines(db, pkg, line_ids=[line_id], inbound_id="SAME-INB")
+            assign_inbound_to_lines(db, pkg, line_ids=[line_id], inbound_id="SAME-INB", usuario_id=1)
             db.refresh(envio)
             assert envio.reception_closed_at is None
             assert pkg.status == PACKAGE_STATUS_LOCKED

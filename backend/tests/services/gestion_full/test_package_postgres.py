@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.auditoria import Auditoria
 from app.models.gestion_full_package import (
     GestionFullPackage,
     GestionFullPackageLine,
@@ -33,6 +34,7 @@ _ORM_TABLES = [
     GestionFullPackage.__table__,
     GestionFullPackageLine.__table__,
     GestionFullQtyExportAudit.__table__,
+    Auditoria.__table__,
 ]
 
 _STUB_DDL = (

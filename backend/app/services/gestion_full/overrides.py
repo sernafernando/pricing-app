@@ -8,8 +8,10 @@ from typing import Any, Optional
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.models.auditoria import TipoAccion
 from app.models.gestion_full_override import GestionFullOverride
 from app.models.usuario import Usuario
+from app.services.gestion_full.audit import registrar
 from app.services.pm_scope import get_pares_marca_categoria_usuario
 
 _RESOLVE_PRODUCT_SQL = text(
@@ -94,6 +96,7 @@ def upsert_override(
     """Create or update the override qty for inventory_id."""
     row = db.get(GestionFullOverride, inventory_id)
     now = datetime.now(UTC)
+    antes = None if row is None else {"inventory_id": inventory_id, "cantidad": int(row.cantidad)}
     if row is None:
         row = GestionFullOverride(
             inventory_id=inventory_id,
@@ -106,16 +109,31 @@ def upsert_override(
         row.cantidad = cantidad
         row.updated_by_id = usuario.id
         row.updated_at = now
+    registrar(
+        db,
+        tipo=TipoAccion.GESTION_FULL_OVERRIDE,
+        usuario_id=int(usuario.id),
+        despues={"inventory_id": inventory_id, "cantidad": int(cantidad)},
+        antes=antes,
+    )
     db.commit()
     db.refresh(row)
     return row
 
 
-def clear_override(db: Session, *, inventory_id: str) -> bool:
+def clear_override(db: Session, *, inventory_id: str, usuario: Usuario) -> bool:
     """Delete override row. Returns True when a row was removed."""
     row = db.get(GestionFullOverride, inventory_id)
     if row is None:
         return False
+    antes = {"inventory_id": inventory_id, "cantidad": int(row.cantidad)}
     db.delete(row)
+    registrar(
+        db,
+        tipo=TipoAccion.GESTION_FULL_OVERRIDE,
+        usuario_id=int(usuario.id),
+        antes=antes,
+        despues={"inventory_id": inventory_id, "cantidad": None},
+    )
     db.commit()
     return True
