@@ -69,7 +69,6 @@ describe('MejoresCandidatasBlock', () => {
           {
             status: 'started',
             promotion_type: 'PRICE_MATCHING',
-            application_status: 'active',
             promotion_id: 'P-LIVE',
             price: 555867.8,
             nuestro_markup: 1.4,

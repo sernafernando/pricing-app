@@ -24,7 +24,8 @@ export function pricesClose(left, right, tolerance = BASELINE_PRICE_TOLERANCE_AR
 
 /**
  * Status-quo markup for the chooser: co-funded started offer matching
- * `baselinePrice` (same chain as the promo card), else null so the caller
+ * `baselinePrice` (same chain as the promo card / backend
+ * `markup_baseline_vigente`: max among matches), else null so the caller
  * falls back to `getMarkupParaPrecio` (plain sale, no co-funding).
  */
 export function baselineMarkupFromPromos(promotions, baselinePrice) {
@@ -38,9 +39,7 @@ export function baselineMarkupFromPromos(promotions, baselinePrice) {
       pricesClose(promoDisplayPrice(promo), baselinePrice),
   );
   if (!started.length) return null;
-  const active = started.filter((promo) => promo.application_status === 'active');
-  const pool = active.length ? active : started;
-  return Math.max(...pool.map((promo) => promo.nuestro_markup));
+  return Math.max(...started.map((promo) => promo.nuestro_markup));
 }
 
 export function currentMonthNameEs(now = new Date()) {
