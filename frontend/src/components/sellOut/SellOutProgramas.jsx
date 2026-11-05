@@ -136,9 +136,11 @@ function CampanasDelPrograma({ programa, programas, puedeGestionar, onCambio, on
       {lista && (
         <p className={styles.pie}>
           {lista.total > lista.items.length && `Se muestran ${lista.items.length} de ${lista.total} campañas. `}
-          <button type="button" className="btn-tesla ghost sm" onClick={() => onVerCampanas(programa.id)}>
-            Ver en Campañas
-          </button>
+          {onVerCampanas && (
+            <button type="button" className="btn-tesla ghost sm" onClick={() => onVerCampanas(programa.id)}>
+              Ver en Campañas
+            </button>
+          )}
         </p>
       )}
       {moviendo && (
@@ -218,8 +220,8 @@ function FilaPrograma({ programa, abierto, onAlternar, puedeGestionar, onEditar,
  * asked for): the programs (`programas`, every one from `useProgramas`) with their campaigns' counts and dates, filtered
  * by state and name here. With `puedeGestionar` (`sell_out.gestionar`): "Nuevo programa", "Editar", "Archivar" /
  * "Reactivar" (`PATCH estado`), "Renovar programa" on active programs (`SellOutRenovarPrograma`), and in an expanded program "Quitar del programa" / "Mover a otro programa".
- * `onCambio()` runs after any change so the page reads programs and campaigns again; `onVerCampanas(id)` opens the
- * campaigns list filtered by that program.
+ * `onCambio()` runs after any change so the page reads programs and campaigns again; `onVerCampanas(id)`, when given,
+ * opens the campaigns list filtered by that program.
  */
 export default function SellOutProgramas({ programas, puedeGestionar = false, onCambio, onVerCampanas }) {
   const [estado, setEstado] = useState('activo');

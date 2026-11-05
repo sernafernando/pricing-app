@@ -2,25 +2,15 @@
 
 Área: Productos
 Ruta: Productos → Sell in / Sell out
-Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Sell out pide además sell_out.ver, y la pestaña Grupos, grupos.ver; la pestaña Productos pide además poder ver productos (productos.ver o un permiso de edición de precios); crear, editar y borrar grupos pide además el permiso de edición de constantes: config.editar_constantes).
+Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Programas pide además sell_out.ver, y la pestaña Grupos, grupos.ver; la pestaña Productos pide además poder ver productos (productos.ver o un permiso de edición de precios); crear, editar y borrar grupos pide además el permiso de edición de constantes: config.editar_constantes).
 
 ## Para qué sirve
 
-Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene cinco pestañas: **Sell in**, **Sell out**, **Tacticals** (los programas de las marcas, filtrables por marca), **Grupos** (los grupos de productos que alcanzan las campañas) y **Productos** (el modo de costo de cada producto con lotes).
+Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene cuatro pestañas: **Tacticals** (los acuerdos con las marcas, de sell in y de sell out, en una sola lista), **Programas** (los programas que agrupan campañas de sell out), **Grupos** (los grupos de productos que alcanzan las campañas) y **Productos** (el modo de costo de cada producto con lotes). Se abre en **Tacticals**. Las pestañas **Sell in** y **Sell out** ya no están: todo lo que mostraban se ve en **Tacticals**, y un link viejo a una de ellas abre **Tacticals** con ese tipo elegido.
 
 ## Cómo se usa
 
-En **Sell in** podés filtrar por fechas, búsqueda, marca, moneda (ARS/USD), estado (Activa/Anulada), **Producto**, **Proveedor** y aplicación (aplican/no aplican). También podés filtrar por tipo: **Por compra** o **Bono de marca**. La tabla muestra las compras y, debajo, los bonos de marca. Arriba hay tarjetas de resumen.
-
-- **Producto** y **Proveedor** se buscan y se eligen de la lista de resultados; la cruz al lado del elegido lo quita. Filtran solo las compras: las que tienen ese producto en alguna línea o son de ese proveedor. **Proveedor** aparece si tenés permiso para ver proveedores u órdenes de compra (administracion.ver_proveedores, administracion.ver_ordenes_compra o administracion.gestionar_ordenes_compra).
-- Los bonos de marca siguen la búsqueda (descripción o marca del bono), la marca, la moneda, el estado y las fechas. Con fechas, se ven los bonos cuyo rango de fechas se cruza con el período elegido, aunque sea un solo día. La marca muestra todos los bonos que alcanzan productos de esa marca: los de esa marca, los de una categoría con productos de esa marca, los de modelos de esa marca y los de una operación con productos de esa marca (facturados o recibidos). Un bono de operación que todavía no tiene productos facturados ni recibidos no se puede ubicar en una marca: aparece con cualquier marca elegida. Aplicación, Producto y Proveedor no filtran los bonos: un bono no tiene "aplica" y alcanza una marca, una categoría, modelos o una operación, no un proveedor.
-- Las tarjetas de bonos vigentes cuentan siempre todos los bonos activos, con cualquier filtro.
-
-Los sell in nuevos se cargan desde la pestaña **Tacticals**, con **Nuevo tactical** (ver más abajo). Al tocar una fila se abre el panel lateral con el detalle.
-
-En **Sell out** se listan las campañas, con paginación. Se filtran por período (las campañas cuyas fechas tocan el período elegido; **Todas las fechas** lo quita), por nombre, por estado (Activa/Anulada), por tipo (Por unidad, Porcentaje, Monto total), por moneda (ARS/USD), por marca (las campañas que alcanzan algún producto de esa marca a través de sus grupos) y, si tenés permiso de gestión de campañas, por grupo. Las campañas nuevas se cargan desde la pestaña **Tacticals**, con **Nuevo tactical**.
-
-Para anular varias campañas de una vez (pide permiso de gestión de campañas, sell_out.gestionar): marcá la casilla de cada fila, la casilla del encabezado para toda la página, o **Seleccionar todo lo filtrado (N)** para todas las que coinciden con los filtros. La barra muestra cuántas hay seleccionadas; **Anular seleccionadas** pide confirmación, dice cuántas se anulan y permite un motivo. El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban. Es todo o nada: si alguna no se puede anular, no se anula ninguna y el mensaje dice cuál y por qué. Si una se está recalculando, el mensaje la nombra y se puede reintentar en unos segundos. Las que ya estaban anuladas se omiten y el resultado las cuenta aparte. Se pueden anular hasta 500 por vez. Con algo seleccionado aparece una barra flotante abajo y al centro de la ventana, con **N seleccionadas**, **Asignar a programa**, **Anular seleccionadas** y **×** para limpiar la selección; queda a mano mientras bajás por la lista.
+Cada sell in y cada campaña de sell out se carga como un tactical, con **Nuevo tactical** en la pestaña **Tacticals** (ver más abajo). Lo que tomó cada línea se ve con **Ver ventas**.
 
 El botón **Actualizar** recarga todo.
 
@@ -56,12 +46,6 @@ Las campañas de sell out alcanzan productos a través de **grupos**. En la pest
   - Lo usa un offset, o tiene consumo de offsets registrado (lo que esos offsets ya aplicaron en ventas).
 - **Borrar seleccionados** borra varios grupos a la vez: marcá la casilla de cada uno (la del encabezado marca todos) y confirmá. Se borran los que se pueden borrar; los demás se quedan, y el aviso dice cuántos se borraron y, para cada uno de los que quedaron, el mismo motivo que daría **Eliminar grupo**.
 - Con el permiso para ver grupos (grupos.ver) pero sin el de edición de constantes, la pestaña es de lectura: no aparecen **Nuevo grupo**, **Editar** ni las casillas.
-
-### Anular varios a la vez
-
-En las listas de compras y de bonos de marca, cada fila tiene una casilla. La del encabezado marca la página, y **Seleccionar todo lo filtrado (N)** marca todo lo que muestran los filtros. Las compras que genera un bono de marca no tienen casilla, porque se anulan anulando el bono: **Seleccionar todo lo filtrado** las deja afuera y lo avisa (por ejemplo, "3 anulables; 2 generadas por bonos no se pueden anular a mano"). Con algo marcado aparece **N seleccionados** y el botón **Anular seleccionados**, que pide confirmación y dice cuántos se anulan y qué se revierte: en una compra se liberan sus unidades, y en un bono se anulan las compras que generó.
-
-Se anula todo o nada: si alguno no se puede anular, no se anula ninguno y se lista cuál y por qué. Si otra operación está modificando esos registros en ese momento, tampoco se anula ninguno y pide reintentar en unos segundos. Los ya anulados se saltean. Se anulan hasta 500 por vez y hace falta el mismo permiso que para anular de a uno.
 
 ### Bonos de marca: base del bono
 
@@ -136,9 +120,9 @@ Con **Incluye IVA** tildado, el IVA se descuenta con el IVA de cada producto en 
 
 Lo sin asignar (y lo asignado a productos sin ventas) no se pierde: suma en los totales de **Métricas ML** (el indicador de sell out, el total con sell in/out y una línea final del CSV) cuando el período incluye el día que termina la campaña, no en la fila de ningún producto. Con filtros (marca, categoría, producto, etc.) cuenta solo si la campaña alcanza alguno de los productos filtrados. Si el reparto guardado no se puede calcular, la sección dice por qué y no suma nada.
 
-### Renovar una campaña
+### Renovar las campañas de un programa: qué se copia
 
-Para el próximo trimestre no hace falta cargar la campaña de cero. Quien gestiona campañas tiene el botón **Renovar** en cada fila de la lista (también en la vista **Por programa**) y en **Ver campaña**, en campañas activas y también en anuladas. Abre el formulario de una **campaña nueva** con todo copiado y el aviso «Copia de «nombre». Revisá fechas y montos antes de guardar.». No se guarda nada hasta tocar **Guardar campaña**; **Cancelar** vuelve a la campaña original.
+**Renovar programa** (pestaña **Programas**) crea las campañas del trimestre siguiente con todo copiado de las originales. Para un tactical entero, usá **Renovar** en el menú del tactical.
 
 - **Se copia**: el tipo y su monto (por unidad, porcentaje o monto total), la base del porcentaje, la moneda, el modo de tipo de cambio (el valor solo si es **Fijo**), los topes, **Acumulable**, **El monto incluye IVA**, la descripción, los grupos, los **Montos por producto**, y el **Reparto del monto total** (se guarda junto con la campaña; **No copiar el reparto** lo deja afuera, por ejemplo si cambiaste los grupos o bajaste el total, y se carga después desde la campaña guardada).
 - **No se copia**: el estado, lo que acreditó, el tipo de cambio **Al cobro** que se definió al cobrar, el offset de origen ni el historial de cambios. Tampoco los productos que ya no están en los grupos.
@@ -155,14 +139,14 @@ Un **programa** agrupa campañas de sell out que son el mismo acuerdo: las que s
 
 **Programa es el nivel superior.** Agrupa una campaña y sus repeticiones a lo largo de los quarters, y dura en el tiempo: por ejemplo, «EPSON PROG» junta todas sus campañas de cada trimestre. Cada **campaña** es el monto de un período sobre un alcance (productos, grupos). **Renovar** crea la campaña del quarter siguiente y la deja en el mismo programa.
 
-- **Sección: Campañas | Programas** (arriba de la pestaña **Sell out**): **Campañas** es la lista de campañas; **Programas** es la vista para crear y ordenar los programas. La sección elegida queda en la dirección de la página.
+- La pestaña **Programas** (pide sell_out.ver) es la vista para crear y ordenar los programas. Un link viejo a la sección Programas de Sell out la abre.
 - **Programas** muestra una fila por programa con **Campañas**, **Activas**, **Nombres distintos**, **Vigencia** (de la primera fecha de inicio a la última de fin de sus campañas, o «Sin campañas») y **Estado**. Se filtra por **Activos**, **Archivados** o **Todos**, y se busca por nombre.
-- Tocar la flecha de un programa lista sus campañas. **Ver en Campañas** abre la lista de campañas con el filtro Programa puesto en ese programa.
+- Tocar la flecha de un programa lista sus campañas.
 - Quien gestiona campañas también puede:
-  - **Nuevo programa**: nombre (no puede repetirse) y descripción opcional. Se crea vacío; las campañas se suman con **Asignar a programa**, con las sugerencias o moviéndolas desde otro programa.
+  - **Nuevo programa**: nombre (no puede repetirse) y descripción opcional. Se crea vacío; las campañas se suman con las sugerencias o moviéndolas desde otro programa.
   - **Editar**: cambiar el nombre o la descripción. Solo se guarda lo que cambiaste.
   - **Archivar** / **Reactivar**: un programa archivado no recibe campañas nuevas y una renovación de sus campañas queda sin programa. Sus campañas no cambian.
-  - En un programa abierto, marcar campañas y tocar **Quitar del programa** (quedan sin programa) o **Mover a otro programa** (el mismo cuadro de **Asignar a programa**).
+  - En un programa abierto, marcar campañas y tocar **Quitar del programa** (quedan sin programa) o **Mover a otro programa**.
   - **Renovar programa** (solo en programas activos): crea de una vez la campaña del trimestre siguiente de cada campaña del último período del programa, con las mismas reglas que **Renovar** en una campaña (lo que se copia, las fechas y el nombre) y en el mismo programa. Antes de crear nada muestra:
     - el período que se renueva y el trimestre nuevo (por ejemplo, **Oct–Dic 2026** → **Ene–Mar 2027**, con sus fechas);
     - **Se crearán N**: cada campaña con su nombre actual → el nombre nuevo, las fechas nuevas y el **ID #** de la campaña original;
@@ -170,12 +154,7 @@ Un **programa** agrupa campañas de sell out que son el mismo acuerdo: las que s
     - en amarillo, las campañas del otro trimestre que quedan sin renovar en esta pasada. Pasa cuando se renovaron algunas a mano: primero se termina el período más viejo, y las otras se renuevan la próxima vez.
   - **Renovar N campañas** crea todas o ninguna. Si mientras mirabas la vista previa alguien renovó o anuló una de esas campañas, no se crea nada, aparece el aviso y la vista previa se vuelve a leer. Un programa sin campañas para renovar lo dice y no deja confirmar. Se renuevan hasta 500 campañas por vez. Las campañas nuevas se pueden editar después, como cualquier otra.
 
-- **Ver: Por programa | Lista** (en la tarjeta de filtros, cuando hay programas): **Por programa** muestra una fila por programa con «N campañas · M nombres · desde – hasta» y cuántas están activas, y al final **Sin programa**. Tocar la fila la abre y lista sus campañas, con las mismas columnas, casillas, **Ver campaña** y **Renovar** que la lista. **Lista** es la lista de siempre. La vista elegida queda en la dirección de la página. Si hay al menos un programa, se abre en **Por programa**. Quien gestiona campañas tiene **Asignar ahora** en la fila **Sin programa**: abre **Asignar a programa** con todas las campañas sin programa que coinciden con los filtros. Si la lista cambió mientras se leían, lo avisa y no abre nada.
-- Los grupos siguen los filtros: los números de cada fila y las campañas que muestra son los que cumplen los filtros, y un programa sin campañas que los cumplan no aparece.
-- **ID de la campaña**: al lado del nombre de cada campaña figura «ID #n», el número para buscarla o nombrarla.
-- **Filtro Programa**: **Todos**, **Sin programa** o un programa. También vale para **Seleccionar todo lo filtrado**.
-- **Asignar a programa** (quien gestiona campañas): marcá campañas, o usá **Seleccionar todo lo filtrado**, y tocá **Asignar a programa** en la barra de selección. Elegí un **Programa existente** (solo los activos) o un **Programa nuevo** con nombre y descripción opcional, que se crea y se asigna en el mismo paso. Si el programa está archivado o el nombre ya existe, el aviso aparece en el mismo cuadro y no se asigna nada. Al terminar se muestra, por ejemplo, «3 campañas asignadas a «Programa». 1 ya lo tenía.».
-- **Sugerencias de programa** (quien gestiona campañas): cuando hay campañas sin programa con **exactamente las mismas fechas**, arriba de la lista aparece «N sugerencias de programa: campañas sin programa con las mismas fechas». **Ver sugerencias** abre un panel con una tarjeta por grupo: un nombre propuesto (las palabras con que empiezan todos los nombres, o las fechas si no comparten ninguna), que se puede editar, sus fechas, cuántas campañas y nombres tiene, y la lista de campañas. **Crear programa y asignar** crea el programa y le asigna esas campañas. **Descartar** oculta la tarjeta hasta que vuelvas a abrir la página; no se guarda nada. No se aplica nada hasta que lo confirmes.
+- **Sugerencias de programa** (quien gestiona campañas): cuando hay campañas sin programa con **exactamente las mismas fechas**, arriba de los programas aparece «N sugerencias de programa: campañas sin programa con las mismas fechas». **Ver sugerencias** abre un panel con una tarjeta por grupo: un nombre propuesto (las palabras con que empiezan todos los nombres, o las fechas si no comparten ninguna), que se puede editar, sus fechas, cuántas campañas y nombres tiene, y la lista de campañas. **Crear programa y asignar** crea el programa y le asigna esas campañas. **Descartar** oculta la tarjeta hasta que vuelvas a abrir la página; no se guarda nada. No se aplica nada hasta que lo confirmes.
 
 ### Tacticals
 
@@ -209,7 +188,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
 
 ## Filtros y columnas
 
-Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicación, tipo (los bonos de marca siguen fechas, búsqueda, marca, moneda y estado). Sell out: período, nombre, estado, tipo, moneda, marca, grupo y programa. Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: producto, modo de costo, unidades, sell in por unidad y última compra.
+Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Programas: estado (Activos, Archivados, Todos) y nombre. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: producto, modo de costo, unidades, sell in por unidad y última compra.
 
 ## Botones y acciones
 
@@ -219,12 +198,15 @@ Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicaci
 - **Editar** (acciones de una fila de Tacticals): cambia nombre, nota, fecha hasta y topes; **Guardar cambios** manda solo lo que cambiaste.
 - **Renovar** (acciones de una fila de Tacticals): abre **Nuevo tactical** cargado con ese tactical, con fechas nuevas por elegir.
 - **Anular** (acciones de una fila de Tacticals): anula el tactical con todas sus líneas, después de confirmar.
-- Tocar una fila: abre el panel lateral de detalle.
+- **Ver ventas** (en cada línea de un tactical): abre al costado lo que cargó esa línea, solo para mirar.
 - **Actualizar**: recarga datos.
 
 ## Preguntas frecuentes
 
-**¿Por qué no veo la pestaña Sell out?**
+**¿Dónde quedaron las pestañas Sell in y Sell out?**
+Todo está en **Tacticals**: elegí **Sell in** o **Sell out** en **Tipo**. Los programas de sell out pasaron a la pestaña **Programas**.
+
+**¿Por qué no veo la pestaña Programas?**
 Pide un permiso adicional (sell_out.ver). Pedíselo a un administrador.
 
 **¿Por qué no veo la pestaña Grupos?**
@@ -241,6 +223,3 @@ Sell in baja el costo de la compra; sell out suma ganancia por campaña (o la de
 
 **¿Por qué no puedo cambiar el reparto de una campaña?**
 Repartir pide permiso de reparto (lo tienen los PM y los administradores) o de gestión de campañas, y la campaña tiene que estar activa. Un PM solo puede repartir productos de sus marcas.
-
-**¿Por qué "Seleccionar todo lo filtrado" dice que la lista cambió?**
-Antes de anular, la pantalla trae todas las campañas de la búsqueda y las cuenta. Si no coinciden con el total de la lista (por ejemplo, alguien cargó o anuló una campaña en ese momento), no selecciona nada para no anular de más ni de menos. Tocá **Actualizar** y volvé a intentar.

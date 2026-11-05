@@ -28,10 +28,11 @@ const FILAS_POR_PAGINA = 50;
  * actions menu (tacticals F1): Editar, on a tactical that is not voided, opens the Editar dialog and asks the list
  * again after saving; Renovar hands the tactical to `onRenovar`; Anular, on a tactical that is not voided, asks for
  * confirmation, voids it and its children, asks the list again and tells `onCambio` (the page's tab count). An
- * expanded line's "Ver ventas" hands that line to `onVerLinea` (the page opens its record).
+ * expanded line's "Ver ventas" hands that line to `onVerLinea` (the page opens its record). `tipoInicial` (`todos`,
+ * `sell_in` or `sell_out`) is the Tipo the list opens with; Limpiar filtros goes back to Todos.
  */
-export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar, onCambio, onVerLinea }) {
-  const [filtros, setFiltros] = useState(FILTROS_VACIOS);
+export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar, onCambio, onVerLinea, tipoInicial = 'todos' }) {
+  const [filtros, setFiltros] = useState(() => ({ ...FILTROS_VACIOS, tipo: tipoInicial }));
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(FILAS_POR_PAGINA);
   // The last answer with the query it answers: a new query shows the loading message until its own answer arrives.

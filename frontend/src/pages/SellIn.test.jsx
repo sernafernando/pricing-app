@@ -1,3 +1,7 @@
+/**
+ * Sell in / Sell out, one view (owner, 2026-11-05: "trae todo a tacticals"; handoffs/tacticals-vista-unica-tarea.md):
+ * Tacticals, Programas and Grupos tabs. The old Sell in / Sell out tabs' links land on Tacticals with that Tipo.
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -5,23 +9,12 @@ import { MemoryRouter, Route, Routes, useLocation, useSearchParams } from 'react
 import { renderWithRouter } from '../test/renderWithRouter';
 import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI, sellInLotesAPI } from '../services/sellInAPI';
-import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, PRODUCTOS, RESUMEN } from '../components/sellIn/sellInFixtures';
+import { ALCANCE, BONO } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI, sellOutProgramasAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
 import { tacticalsAPI } from '../services/tacticalsAPI';
-import { TACTICAL_REBATE, pagina } from '../components/tacticals/tacticalsFixtures';
-import {
-  CAMPANA_MIGRADA,
-  CAMPANAS_DEL_PROGRAMA,
-  CAMPANAS_LISTA,
-  CONSUMOS_USD,
-  GRUPOS_POR_PROGRAMA,
-  PROGRAMAS_LISTA,
-  PROGRAMAS_VACIO,
-  RENOVACION_MIGRADA,
-  SUGERENCIAS,
-  SUGERENCIAS_VACIO,
-} from '../components/sellOut/sellOutFixtures';
+import { TACTICAL_REBATE, TACTICAL_BPS, pagina } from '../components/tacticals/tacticalsFixtures';
+import { CAMPANA_MIGRADA, CONSUMOS_USD, PROGRAMAS_LISTA, PROGRAMAS_VACIO, SUGERENCIAS, SUGERENCIAS_VACIO } from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
 
 const TACTICAL = { ...TACTICAL_REBATE, id: 7, nombre: 'Rebate TP-Link noviembre', marca: 'TP-Link' };
@@ -45,46 +38,13 @@ function renderConNuevoTactical(entrada) {
 }
 
 vi.mock('../services/sellInAPI', () => ({
-  sellInAPI: {
-    listar: vi.fn(),
-    resumen: vi.fn(),
-    detalle: vi.fn(),
-    preview: vi.fn(),
-    crear: vi.fn(),
-    anular: vi.fn(),
-    anularMasivo: vi.fn(),
-    proveedores: vi.fn(),
-  },
-  sellInBonosAPI: {
-    listar: vi.fn(),
-    detalle: vi.fn(),
-    alcance: vi.fn(),
-    crear: vi.fn(),
-    editar: vi.fn(),
-    anular: vi.fn(),
-    anularMasivo: vi.fn(),
-  },
-  sellInLotesAPI: {
-    productos: vi.fn(),
-    lotes: vi.fn(),
-    consumos: vi.fn(),
-    modos: vi.fn(),
-    modoPorDefecto: vi.fn(),
-  },
+  sellInAPI: { listar: vi.fn(), resumen: vi.fn(), detalle: vi.fn() },
+  sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn(), alcance: vi.fn() },
+  sellInLotesAPI: { productos: vi.fn(), lotes: vi.fn(), consumos: vi.fn(), modos: vi.fn(), modoPorDefecto: vi.fn() },
 }));
 
 vi.mock('../services/sellOutAPI', () => ({
-  sellOutAPI: {
-    listar: vi.fn(),
-    detalle: vi.fn(),
-    crear: vi.fn(),
-    editar: vi.fn(),
-    grupos: vi.fn(),
-    consumos: vi.fn(),
-    anularVarias: vi.fn(),
-    renovacion: vi.fn(),
-    porPrograma: vi.fn(),
-  },
+  sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn(), consumos: vi.fn() },
   sellOutProgramasAPI: { listar: vi.fn(), crear: vi.fn(), asignar: vi.fn(), sugerencias: vi.fn() },
 }));
 
@@ -101,23 +61,15 @@ vi.mock('../contexts/PermisosContext', () => ({
 }));
 
 const lastParams = (fn) => fn.mock.calls[fn.mock.calls.length - 1][0];
-// The bonus list's own requests, leaving out the active bonuses the summary cards ask for.
-const listadosDeBonos = () => sellInBonosAPI.listar.mock.calls.filter(([params]) => params?.estado !== 'activa').length;
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockTienePermiso.mockReturnValue(true);
-  sellInAPI.listar.mockResolvedValue({ data: LISTA });
-  sellInAPI.resumen.mockResolvedValue({ data: RESUMEN });
   productosAPI.marcas.mockResolvedValue({ data: { marcas: ['Mercusys', 'TP-Link'] } });
-  sellInBonosAPI.listar.mockResolvedValue({ data: BONOS_LISTA });
   sellInBonosAPI.detalle.mockResolvedValue({ data: BONO });
   sellInBonosAPI.alcance.mockResolvedValue({ data: ALCANCE });
-  sellOutAPI.listar.mockResolvedValue({ data: CAMPANAS_LISTA });
   sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
   sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
-  sellOutAPI.grupos.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
-  sellOutAPI.porPrograma.mockResolvedValue({ data: GRUPOS_POR_PROGRAMA });
   sellOutProgramasAPI.listar.mockResolvedValue({ data: PROGRAMAS_VACIO });
   sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS_VACIO });
   offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
@@ -132,290 +84,140 @@ function Ubicacion() {
   return <output data-testid="ubicacion">{search}</output>;
 }
 
-const bonosPorEstado = (params) =>
-  params?.estado === 'activa' ? { data: { items: [BONO], total: 1, page: 1, page_size: 200 } } : { data: BONOS_LISTA };
-
-describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
-  it('is one "Sell in / Sell out" page with both tabs counted, Sell in selected and no campaigns in it', async () => {
+describe('SellIn page — one view: Tacticals, Programas and Grupos', () => {
+  it('has no Sell in or Sell out tab, and asks no purchase, bonus or campaign list', async () => {
     renderWithRouter(<SellIn />);
-    expect(screen.getByRole('heading', { name: 'Sell in / Sell out', level: 1 })).toBeInTheDocument();
-    const tabs = screen.getByRole('tablist', { name: 'Sell in / Sell out' });
-    expect(await within(tabs).findByRole('tab', { name: 'Sell in · 4' })).toHaveAttribute('aria-selected', 'true');
-    expect(await within(tabs).findByRole('tab', { name: 'Sell out · 2' })).toHaveAttribute('aria-selected', 'false');
-    const panel = screen.getByRole('tabpanel', { name: /Sell in/ });
-    expect(await within(panel).findByText('Bonificación Q4 switches')).toBeInTheDocument();
-    expect(within(panel).getByRole('region', { name: 'Bonos de marca' })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Campañas de sell out' })).not.toBeInTheDocument();
+    await screen.findByText('Rebate TP-Link noviembre');
+
+    expect(screen.getAllByRole('tab').map((t) => t.textContent.replace(/\s+/g, ' ').trim())).toEqual(['Tacticals · 1', 'Programas', 'Grupos']);
+    expect(sellInAPI.listar).not.toHaveBeenCalled();
+    expect(sellInAPI.resumen).not.toHaveBeenCalled();
+    expect(sellInBonosAPI.listar).not.toHaveBeenCalled();
+    expect(sellOutAPI.listar).not.toHaveBeenCalled();
   });
 
-  it('the Sell out tab shows the campaigns, hides the sell ins and keeps itself in the URL', async () => {
-    const user = userEvent.setup();
+  it.each([
+    ['/sell-in?tab=sell-in', 'Sell in'],
+    ['/sell-in?tab=sell-out', 'Sell out'],
+  ])('an old %s link opens Tacticals with Tipo %s, and the URL drops the old tab', async (entrada, tipo) => {
     renderWithRouter(
       <>
         <SellIn />
         <Ubicacion />
       </>,
-      { initialEntries: ['/sell-in'] },
+      { initialEntries: [entrada] },
     );
-    await screen.findByText('Bonificación Q4 switches');
-    await user.click(screen.getByRole('tab', { name: /Sell out/ }));
-    expect(screen.getByRole('tab', { name: /Sell out/ })).toHaveAttribute('aria-selected', 'true');
-    const panel = screen.getByRole('tabpanel', { name: /Sell out/ });
-    expect(await within(panel).findByText('RB 8180')).toBeInTheDocument();
-    expect(screen.queryByText('Bonificación Q4 switches')).not.toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Bonos de marca' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=sell-out');
-    await user.click(screen.getByRole('tab', { name: /Sell in/ }));
-    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
-    expect(screen.getByTestId('ubicacion')).toHaveTextContent(/^$/);
+
+    expect(await screen.findByRole('tab', { name: /Tacticals/ })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('button', { name: tipo })).toHaveAttribute('aria-pressed', 'true');
+    const listados = () => tacticalsAPI.listar.mock.calls.map(([params]) => params).filter((params) => params.page_size !== 1);
+    await waitFor(() => expect(listados().at(-1)).toMatchObject({ tipo: tipo === 'Sell in' ? 'sell_in' : 'sell_out' }));
+    await waitFor(() => expect(screen.getByTestId('ubicacion')).toHaveTextContent(/^$/));
   });
 
-  it('opens on the Sell out tab when the URL says so (a reload keeps the tab)', async () => {
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    expect(screen.getByRole('tab', { name: /Sell out/ })).toHaveAttribute('aria-selected', 'true');
-    expect(await screen.findByText('RB 8180')).toBeInTheDocument();
+  it('an old Sell out link to its Programas section opens the Programas tab', async () => {
+    renderWithRouter(
+      <>
+        <SellIn />
+        <Ubicacion />
+      </>,
+      { initialEntries: ['/sell-in?tab=sell-out&seccion=programas'] },
+    );
+
+    expect(await screen.findByRole('tab', { name: 'Programas' })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=programas'));
   });
 
-  it('without sell_out.ver there is no Sell out tab, and ?tab=sell-out falls back to Sell in', async () => {
+  it('the Programas tab lists the programs, keeps itself in the URL, and needs sell_out.ver', async () => {
+    const user = userEvent.setup();
+    sellOutProgramasAPI.listar.mockResolvedValue({ data: PROGRAMAS_LISTA });
+    const { unmount } = renderWithRouter(
+      <>
+        <SellIn />
+        <Ubicacion />
+      </>,
+    );
+    await user.click(await screen.findByRole('tab', { name: 'Programas' }));
+
+    const panel = screen.getByRole('tabpanel', { name: 'Programas' });
+    expect(within(panel).getByRole('heading', { name: 'Programas' })).toBeInTheDocument();
+    expect(await within(panel).findByText(PROGRAMAS_LISTA.items[0].nombre)).toBeInTheDocument();
+    expect(within(panel).queryByRole('button', { name: 'Ver en Campañas' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=programas');
+    unmount();
+
+    vi.clearAllMocks();
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.ver');
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: /Sell out/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveAttribute('aria-selected', 'true');
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
+    expect(await screen.findByRole('tab', { name: /Tacticals/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: 'Programas' })).not.toBeInTheDocument();
+    expect(sellOutProgramasAPI.listar).not.toHaveBeenCalled();
   });
 
-  it('moves between tabs with the arrow keys, and only the selected tab is in the Tab order', async () => {
+  it('the arrow keys move between the tabs', async () => {
     const user = userEvent.setup();
     renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    const sellIn = screen.getByRole('tab', { name: /Sell in/ });
-    expect(sellIn).toHaveAttribute('tabindex', '0');
-    expect(sellIn).toHaveAttribute('aria-controls', 'sell-in-panel');
-    expect(screen.getByRole('tab', { name: /Sell out/ })).toHaveAttribute('tabindex', '-1');
-    expect(screen.getByRole('tab', { name: /Sell out/ })).not.toHaveAttribute('aria-controls');
-    sellIn.focus();
+    (await screen.findByRole('tab', { name: /Tacticals/ })).focus();
+
     await user.keyboard('{ArrowRight}');
-    const sellOut = screen.getByRole('tab', { name: /Sell out/ });
-    expect(sellOut).toHaveAttribute('aria-selected', 'true');
-    expect(sellOut).toHaveFocus();
-    expect(await screen.findByText('RB 8180')).toBeInTheDocument();
-    await user.keyboard('{ArrowLeft}');
-    expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Programas' })).toHaveFocus();
+    await user.keyboard('{End}');
+    expect(screen.getByRole('tab', { name: 'Grupos' })).toHaveAttribute('aria-selected', 'true');
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('tab', { name: /Tacticals/ })).toHaveFocus();
   });
 
-  it('the Tipo chips say what each count covers', async () => {
-    renderWithRouter(<SellIn />);
-    const chips = await screen.findByRole('group', { name: 'Tipo' });
-    expect(await within(chips).findByRole('button', { name: 'Bono de marca · 2' })).toHaveAttribute(
-      'title',
-      'Los bonos de marca con los filtros de arriba, salvo Aplicación, Producto y Proveedor',
-    );
-    expect(within(chips).getByRole('button', { name: 'Por compra · 2' })).toHaveAttribute('title', 'Los sell in por compra con los filtros de arriba');
-  });
-
-  it('"Nuevo tactical" lives on the Tacticals tab and opens Nuevo tactical; the old create buttons are gone', async () => {
+  it('"Nuevo tactical" shows on Tacticals only and opens Nuevo tactical', async () => {
     const user = userEvent.setup();
-    renderConNuevoTactical('/sell-in');
-    await screen.findByText('Bonificación Q4 switches');
-    expect(screen.queryByRole('button', { name: /Nuevo sell in|Nueva campaña|Nuevo tactical/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: /Sell out/ }));
-    expect(screen.queryByRole('button', { name: /Nueva campaña|Nuevo tactical/ })).not.toBeInTheDocument();
-    await user.click(await screen.findByRole('tab', { name: /Tacticals/ }));
+    renderConNuevoTactical('/sell-in?tab=grupos');
+    await screen.findByRole('tabpanel', { name: 'Grupos' });
+    expect(screen.queryByRole('button', { name: /Nuevo tactical/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Tacticals/ }));
     await user.click(await screen.findByRole('button', { name: /Nuevo tactical/ }));
     expect(await screen.findByText('Nuevo tactical: null')).toBeInTheDocument();
   });
 
   it('offers "Nuevo tactical" with either gestionar permission, and not without one', async () => {
-    mockTienePermiso.mockImplementation((codigo) => ['sell_in.ver', 'sell_out.ver', 'sell_out.gestionar'].includes(codigo));
-    const { unmount } = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    mockTienePermiso.mockImplementation((codigo) => ['sell_in.ver', 'sell_out.gestionar'].includes(codigo));
+    const { unmount } = renderWithRouter(<SellIn />);
     expect(await screen.findByRole('button', { name: /Nuevo tactical/ })).toBeInTheDocument();
     unmount();
-    // Nuevo tactical itself asks only gestionar, so the button does too.
-    mockTienePermiso.mockImplementation((codigo) => ['sell_in.ver', 'sell_out.gestionar'].includes(codigo));
-    const otra = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
-    expect(await screen.findByRole('button', { name: /Nuevo tactical/ })).toBeInTheDocument();
-    otra.unmount();
     mockTienePermiso.mockImplementation((codigo) => ['sell_in.ver', 'sell_out.ver'].includes(codigo));
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    renderWithRouter(<SellIn />);
     await screen.findByRole('tabpanel', { name: /Tacticals/ });
     expect(screen.queryByRole('button', { name: /Nuevo tactical/ })).not.toBeInTheDocument();
   });
 
-  it('a tab whose list failed shows "—" instead of waiting forever', async () => {
-    sellOutAPI.listar.mockRejectedValue(new Error('boom'));
-    sellInAPI.resumen.mockRejectedValue(new Error('boom'));
-    renderWithRouter(<SellIn />);
-    expect(await screen.findByRole('tab', { name: 'Sell out · —' })).toBeInTheDocument();
-    expect(await screen.findByRole('tab', { name: 'Sell in · —' })).toBeInTheDocument();
-  });
-
-  it('the Tipo chips count purchases and brand bonuses and show one list or both', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    const chips = await screen.findByRole('group', { name: 'Tipo' });
-    expect(await within(chips).findByRole('button', { name: 'Todos · 4' })).toHaveAttribute('aria-pressed', 'true');
-    expect(within(chips).getByRole('button', { name: 'Por compra · 2' })).toBeInTheDocument();
-    expect(within(chips).getByRole('button', { name: 'Bono de marca · 2' })).toBeInTheDocument();
-    await screen.findByText('Bonificación Q4 switches');
-
-    await user.click(within(chips).getByRole('button', { name: 'Bono de marca · 2' }));
-    expect(screen.queryByText('Bonificación Q4 switches')).not.toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Bonos de marca' })).toBeInTheDocument();
-
-    await user.click(within(chips).getByRole('button', { name: 'Por compra · 2' }));
-    expect(screen.getByText('Bonificación Q4 switches')).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Bonos de marca' })).not.toBeInTheDocument();
-  });
-
-  it('when the active bonuses cannot be read, their cards say so instead of disappearing', async () => {
-    sellInBonosAPI.listar.mockImplementation(async (params) => {
-      if (params?.estado === 'activa') throw new Error('boom');
-      return { data: BONOS_LISTA };
-    });
-    renderWithRouter(<SellIn />);
-    const cards = await screen.findByRole('region', { name: 'Resumen' });
-    const vigentes = (await within(cards).findByText('Bonos de marca vigentes')).parentElement;
-    expect(vigentes).toHaveTextContent('—');
-    expect(vigentes).toHaveTextContent('No se pudieron cargar');
-    expect(within(cards).getByText('Compras alcanzadas').parentElement).toHaveTextContent('—');
-  });
-
-  it('the summary adds the active brand bonuses, their brands and the purchases they reached', async () => {
-    sellInBonosAPI.listar.mockImplementation(async (params) => bonosPorEstado(params));
-    renderWithRouter(<SellIn />);
-    const cards = await screen.findByRole('region', { name: 'Resumen' });
-    await waitFor(() => expect(sellInBonosAPI.listar).toHaveBeenCalledWith({ estado: 'activa', page: 1, page_size: 200 }));
-    const vigentes = (await within(cards).findByText('Bonos de marca vigentes')).parentElement;
-    expect(vigentes).toHaveTextContent('1');
-    expect(vigentes).toHaveTextContent('1 marca');
-    const alcanzadas = within(cards).getByText('Compras alcanzadas').parentElement;
-    expect(alcanzadas).toHaveTextContent('18');
-    expect(alcanzadas).toHaveTextContent('por bonos de marca');
-  });
-});
-
-// The bonus list's own page requests: not the active bonuses of the summary cards nor "todo lo filtrado" (200 rows).
-const listadosDeLaListaDeBonos = () => sellInBonosAPI.listar.mock.calls.map(([params]) => params).filter((params) => params.page_size !== 200);
-// The supplier search's answer (`GET /administracion/proveedores`).
-const PROVEEDORES = { proveedores: [{ id: 7, nombre: 'TP-Link', cuit: '30-1' }], total: 1, page: 1, page_size: 10 };
-
-describe('SellIn page — the top filters also filter the brand bonuses (S4)', () => {
-  it('the bonus list follows search, brand, currency, estado and dates, never Aplicación, and goes back to page 1', async () => {
-    const user = userEvent.setup();
-    sellInBonosAPI.listar.mockResolvedValue({ data: { ...BONOS_LISTA, total: 500 } });
-    renderWithRouter(<SellIn />);
-    const bonos = await screen.findByRole('region', { name: 'Bonos de marca' });
-    await user.click(await within(bonos).findByRole('button', { name: 'Página 2' }));
-    await waitFor(() => expect(listadosDeLaListaDeBonos().at(-1)).toEqual({ page: 2, page_size: 10 }));
-
-    await user.selectOptions(screen.getByLabelText('Moneda'), 'USD');
-    await user.selectOptions(screen.getByLabelText('Estado'), 'anulada');
-    await waitFor(() => expect(screen.getByRole('option', { name: 'TP-Link' })).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText('Marca'), 'TP-Link');
-    await user.type(screen.getByPlaceholderText('Buscar por descripción, proveedor o producto…'), 'rebate');
-    await user.click(screen.getByTitle('Seleccionar rango personalizado'));
-    await user.type(screen.getByLabelText('Desde'), '2026-10-01');
-    await user.type(screen.getByLabelText('Hasta'), '2026-10-31');
-    await user.click(screen.getByRole('button', { name: 'Aplicar' }));
-    await user.click(within(screen.getByRole('group', { name: 'Aplicación' })).getByRole('button', { name: /Todas/ }));
-
-    const esperados = { q: 'rebate', marcas: 'TP-Link', moneda: 'USD', estado: 'anulada', fecha_desde: '2026-10-01', fecha_hasta: '2026-10-31' };
-    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual({ ...esperados, aplica: 'todas', page: 1, page_size: 50 }));
-    expect(listadosDeLaListaDeBonos().at(-1)).toEqual({ ...esperados, page: 1, page_size: 10 });
-  });
-
-  it('the active bonuses of the summary cards still ask only estado=activa, whatever the filters', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    await user.selectOptions(screen.getByLabelText('Moneda'), 'USD');
-    await user.selectOptions(screen.getByLabelText('Estado'), 'anulada');
-    await waitFor(() => expect(listadosDeLaListaDeBonos().at(-1)).toEqual({ moneda: 'USD', estado: 'anulada', page: 1, page_size: 10 }));
-
-    const vigentes = sellInBonosAPI.listar.mock.calls.map(([params]) => params).filter((params) => params.page_size === 200);
-    expect(vigentes.length).toBeGreaterThan(0);
-    vigentes.forEach((params) => expect(params).toEqual({ estado: 'activa', page: 1, page_size: 200 }));
-  });
-
-  it('the bonuses\' "Seleccionar todo lo filtrado" asks every page with the filters on screen', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    await user.selectOptions(screen.getByLabelText('Moneda'), 'USD');
-    await waitFor(() => expect(listadosDeLaListaDeBonos().at(-1)).toEqual({ moneda: 'USD', page: 1, page_size: 10 }));
-    sellInBonosAPI.listar.mockClear();
-
-    const bonos = screen.getByRole('region', { name: 'Bonos de marca' });
-    await user.click(within(bonos).getByRole('button', { name: 'Seleccionar todo lo filtrado (2)' }));
-
-    expect(await within(bonos).findByText('2 seleccionados')).toBeInTheDocument();
-    expect(sellInBonosAPI.listar).toHaveBeenCalledWith({ moneda: 'USD', page: 1, page_size: 200 });
-  });
-
-  it('other bonus filters drop the bonuses checked under the previous ones', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    await user.click(await screen.findByRole('checkbox', { name: `Seleccionar bono #${BONO.id}` }));
-    const bonos = screen.getByRole('region', { name: 'Bonos de marca' });
-    expect(within(bonos).getByText('1 seleccionado')).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText('Moneda'), 'USD');
-    await waitFor(() => expect(within(bonos).queryByText('1 seleccionado')).not.toBeInTheDocument());
-  });
-});
-
-describe('SellIn page — what the new Sell in filters show when something is missing (S4)', () => {
-  it('a failed bonos reload after a filter change shows the error and not the bonos of the previous filters', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    expect(await screen.findByText('Bono anulado')).toBeInTheDocument();
-    sellInBonosAPI.listar.mockImplementation(async (params) =>
-      params?.page_size === 200 ? { data: { items: [BONO], total: 1, page: 1, page_size: 200 } } : Promise.reject(new Error('caído')),
+  it('shows once what Nuevo tactical created when it comes back', async () => {
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/sell-in', search: '?tab=tacticals', state: { aviso: 'Tactical creado: Rebate' } }]}>
+        <Routes>
+          <Route path="/sell-in" element={<SellIn />} />
+        </Routes>
+      </MemoryRouter>,
     );
-    await user.selectOptions(within(screen.getByRole('region', { name: 'Filtros' })).getByLabelText('Moneda'), 'USD');
-    expect(await screen.findByText('No se pudieron cargar los bonos de marca.')).toBeInTheDocument();
-    expect(screen.queryByText('Bono anulado')).not.toBeInTheDocument();
+    expect(await screen.findByText('Tactical creado: Rebate')).toBeInTheDocument();
   });
 
-  it('without a permission to read suppliers there is no Proveedor filter (its search would answer 403); Producto stays', async () => {
-    mockTienePermiso.mockImplementation((codigo) => !codigo.startsWith('administracion.'));
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    const filtros = screen.getByRole('region', { name: 'Filtros' });
-    expect(within(filtros).queryByRole('group', { name: 'Proveedor' })).not.toBeInTheDocument();
-    expect(within(filtros).getByRole('group', { name: 'Producto' })).toBeInTheDocument();
-  });
-});
-
-describe('SellIn page — Producto and Proveedor filters of the purchases (S4)', () => {
-  beforeEach(() => {
-    productosAPI.listar.mockResolvedValue({ data: { productos: PRODUCTOS, total: 2, page: 1, page_size: 10 } });
-    sellInAPI.proveedores.mockResolvedValue({ data: PROVEEDORES });
-  });
-
-  it('filter the purchases, their summary and "todo lo filtrado" by id, and not the bonuses', async () => {
+  it("Ver ventas on a sell out line opens its campaign with the sales it credited, read only", async () => {
     const user = userEvent.setup();
+    tacticalsAPI.listar.mockResolvedValue({ data: pagina([TACTICAL_BPS]) });
     renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    const filtros = screen.getByRole('region', { name: 'Filtros' });
+    await user.click(await screen.findByRole('button', { name: `Ver las líneas de ${TACTICAL_BPS.nombre}` }));
+    await user.click(screen.getByRole('button', { name: 'Ver ventas de la línea 3' }));
 
-    await user.type(within(within(filtros).getByRole('group', { name: 'Producto' })).getByRole('searchbox'), 'sw');
-    await user.click(await within(filtros).findByRole('button', { name: /SW-8 · Switch 8 bocas/ }));
-    await user.type(within(within(filtros).getByRole('group', { name: 'Proveedor' })).getByRole('searchbox'), 'tp');
-    await user.click(await within(filtros).findByRole('button', { name: /TP-Link/ }));
+    const panel = await screen.findByRole('complementary', { name: 'Campaña de sell out' });
+    expect(await within(panel).findByRole('heading', { name: CAMPANA_MIGRADA.nombre })).toBeInTheDocument();
+    expect(sellOutAPI.detalle).toHaveBeenCalledWith(TACTICAL_BPS.lineas[2].id);
+    await waitFor(() => expect(sellOutAPI.consumos).toHaveBeenCalled());
+    expect(within(panel).queryByRole('button', { name: /Anular campaña|Guardar|Renovar/ })).not.toBeInTheDocument();
+  });
 
-    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual({ aplica: 'si', item_id: 4512, proveedor_id: 7, page: 1, page_size: 50 }));
-    expect(lastParams(sellInAPI.resumen)).toEqual({ aplica: 'si', item_id: 4512, proveedor_id: 7 });
-    expect(listadosDeLaListaDeBonos().at(-1)).toEqual({ page: 1, page_size: 10 });
-    expect(within(filtros).getByText('SW-8 · Switch 8 bocas')).toBeInTheDocument();
-
-    await user.click(screen.getAllByRole('button', { name: 'Seleccionar todo lo filtrado (2)' })[0]);
-    expect(lastParams(sellInAPI.listar)).toEqual({ aplica: 'si', item_id: 4512, proveedor_id: 7, page: 1, page_size: 200 });
-
-    await user.click(within(filtros).getByRole('button', { name: 'Quitar producto' }));
-    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual({ aplica: 'si', proveedor_id: 7, page: 1, page_size: 50 }));
-    await user.click(within(filtros).getByRole('button', { name: 'Quitar proveedor' }));
-    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual({ aplica: 'si', page: 1, page_size: 50 }));
+  it('without sell_in.ver it says so and asks nothing', () => {
+    mockTienePermiso.mockReturnValue(false);
+    renderWithRouter(<SellIn />);
+    expect(screen.getByText('No tenés permiso para ver sell in.')).toBeInTheDocument();
+    expect(tacticalsAPI.listar).not.toHaveBeenCalled();
   });
 });
 
@@ -428,13 +230,13 @@ describe('SellIn page — Grupos tab (T30)', () => {
         <Ubicacion />
       </>,
     );
-    await screen.findByText('Bonificación Q4 switches');
+    await screen.findByText('Rebate TP-Link noviembre');
     expect(offsetGruposAPI.listar).not.toHaveBeenCalled();
     await user.click(screen.getByRole('tab', { name: 'Grupos' }));
     expect(screen.getByRole('tab', { name: 'Grupos' })).toHaveAttribute('aria-selected', 'true');
     const panel = screen.getByRole('tabpanel', { name: 'Grupos' });
     expect(await within(panel).findByText('TP-Link redes')).toBeInTheDocument();
-    expect(screen.queryByText('Bonificación Q4 switches')).not.toBeInTheDocument();
+    expect(screen.queryByText('Rebate TP-Link noviembre')).not.toBeInTheDocument();
     expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=grupos');
   });
 
@@ -450,10 +252,10 @@ describe('SellIn page — Grupos tab (T30)', () => {
 
   // Owner (tactical S9): "hoy no existe un permiso para que se vean los grupos, así que solo yo los veo"; on #2083:
   // "sí, sacalo y dejala solo con grupos.ver" (config.editar_constantes alone no longer shows the tab).
-  it('without grupos.ver there is no Grupos tab, even with config.editar_constantes, and ?tab=grupos falls back to Sell in', async () => {
+  it('without grupos.ver there is no Grupos tab, even with config.editar_constantes, and ?tab=grupos falls back to Tacticals', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'grupos.ver');
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=grupos'] });
-    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
+    expect(await screen.findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Grupos' })).not.toBeInTheDocument();
     expect(offsetGruposAPI.listar).not.toHaveBeenCalled();
   });
@@ -469,1055 +271,14 @@ describe('SellIn page — Grupos tab (T30)', () => {
   });
 });
 
-describe('SellIn page — list', () => {
-  it('opens on the sell ins that apply, and asks the summary for the same filters', async () => {
-    renderWithRouter(<SellIn />);
-    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
-    expect(lastParams(sellInAPI.listar)).toEqual({ aplica: 'si', page: 1, page_size: 50 });
-    expect(lastParams(sellInAPI.resumen)).toEqual({ aplica: 'si' });
-  });
 
-  it('counts the Aplican / No aplican / Todas chips from resumen.conteo and filters by aplica', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    const chips = await screen.findByRole('group', { name: 'Aplicación' });
-    // The chips render with 0 before resumen answers: wait for its counts.
-    expect(await within(chips).findByRole('button', { name: 'Aplican · 3' })).toHaveAttribute('aria-pressed', 'true');
-    expect(within(chips).getByRole('button', { name: 'No aplican · 1' })).toBeInTheDocument();
-    await user.click(within(chips).getByRole('button', { name: 'Todas · 4' }));
-    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual({ aplica: 'todas', page: 1, page_size: 50 }));
-    await user.click(within(chips).getByRole('button', { name: 'No aplican · 1' }));
-    await waitFor(() => expect(lastParams(sellInAPI.listar).aplica).toBe('no'));
-  });
-
-  it('shows the summary cards from resumen', async () => {
-    renderWithRouter(<SellIn />);
-    const cards = await screen.findByRole('region', { name: 'Resumen' });
-    await waitFor(() => expect(within(cards).getByText('USD 5,50')).toBeInTheDocument());
-    expect(within(cards).getByText('$ 3.000,00')).toBeInTheDocument();
-    expect(within(cards).getByText('32')).toBeInTheDocument();
-    expect(within(cards).getByText('3')).toBeInTheDocument();
-  });
-
-  it('renders supplier, amount, units and only the Activa / Anulada states', async () => {
-    renderWithRouter(<SellIn />);
-    const fila = (await screen.findByText('Bonificación Q4 switches')).closest('tr');
-    expect(within(fila).getByText('TP-Link')).toBeInTheDocument();
-    expect(within(fila).getByText('$ 1.000,00')).toBeInTheDocument();
-    expect(within(fila).getByText('20 / 20')).toBeInTheDocument();
-    expect(within(fila).getByText('Activa')).toBeInTheDocument();
-    expect(within(fila).getByText('Aplica')).toBeInTheDocument();
-
-    const anulada = screen.getByText('Descuento access points').closest('tr');
-    expect(within(anulada).getByText('USD 2,00')).toBeInTheDocument();
-    expect(within(anulada).getByText('TC 1.250,50')).toBeInTheDocument();
-    expect(within(anulada).getByText('Anulada')).toBeInTheDocument();
-    expect(within(anulada).getByText('No aplica')).toBeInTheDocument();
-  });
-
-  it('expands a row into its lines with the cost before and after the sell in', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    await user.click(screen.getAllByRole('button', { name: 'Ver ítems' })[0]);
-    const linea = screen.getByText('Switch 8 bocas').closest('tr');
-    expect(within(linea).getByText('SW-8')).toBeInTheDocument();
-    expect(within(linea).getByText('$ 250,00')).toBeInTheDocument();
-    expect(within(linea).getByText('$ 100,00')).toBeInTheDocument();
-    expect(within(linea).getByText('$ 75,00')).toBeInTheDocument();
-    expect(screen.getByText(/Reparto proporcional/)).toBeInTheDocument();
-  });
-
-  it('sends search, brand, currency and estado filters and resets to page 1', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    await user.selectOptions(screen.getByLabelText('Moneda'), 'USD');
-    await user.selectOptions(screen.getByLabelText('Estado'), 'anulada');
-    await waitFor(() => expect(screen.getByRole('option', { name: 'TP-Link' })).toBeInTheDocument());
-    await user.selectOptions(screen.getByLabelText('Marca'), 'TP-Link');
-    await waitFor(() =>
-      expect(lastParams(sellInAPI.listar)).toEqual({
-        aplica: 'si',
-        moneda: 'USD',
-        estado: 'anulada',
-        marcas: 'TP-Link',
-        page: 1,
-        page_size: 50,
-      }),
-    );
-    expect(lastParams(sellInAPI.resumen)).toEqual({ aplica: 'si', moneda: 'USD', estado: 'anulada', marcas: 'TP-Link' });
-  });
-
-  it('"Detalle" opens the purchase in the side panel', async () => {
-    const user = userEvent.setup();
-    sellInAPI.detalle.mockResolvedValue({ data: LISTA.items[0] });
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    await user.click(screen.getAllByRole('button', { name: 'Detalle' })[0]);
-    const panel = screen.getByRole('complementary', { name: 'Detalle del sell in' });
-    expect(await within(panel).findByRole('heading', { name: 'Bonificación Q4 switches' })).toBeInTheDocument();
-    expect(sellInAPI.detalle).toHaveBeenCalledWith(1);
-  });
-
-  it('without sell_in.ver it says so and asks nothing', () => {
-    mockTienePermiso.mockReturnValue(false);
-    renderWithRouter(<SellIn />);
-    expect(screen.getByText(/No tenés permiso para ver sell in/)).toBeInTheDocument();
-    expect(sellInAPI.listar).not.toHaveBeenCalled();
-  });
-
-  it('shows the API message when the list fails', async () => {
-    sellInAPI.listar.mockRejectedValue({ response: { status: 500, data: { detail: 'boom' } } });
-    renderWithRouter(<SellIn />);
-    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los sell in.');
-  });
-});
-
-describe('SellIn page — brand bonuses', () => {
-  it('"Actualizar" reloads the brand bonuses too', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    await screen.findByRole('region', { name: 'Bonos de marca' });
-    await waitFor(() => expect(listadosDeBonos()).toBe(1));
-    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
-    await waitFor(() => expect(listadosDeBonos()).toBe(2));
-  });
-
-  it('lists the brand bonuses with what they generated, and opens one in the side panel', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    const bonos = await screen.findByRole('region', { name: 'Bonos de marca' });
-    const fila = (await within(bonos).findByText('Bono TP-Link USD 3/u')).closest('tr');
-    expect(sellInBonosAPI.listar).toHaveBeenCalledWith({ page: 1, page_size: 10 });
-    expect(within(fila).getByText('Marca TP-LINK')).toBeInTheDocument();
-    expect(within(fila).getByText('USD 3,00 / u')).toBeInTheDocument();
-    expect(within(fila).getByText('18 compras · 1.040 u')).toBeInTheDocument();
-    expect(within(fila).getByText('Activo')).toBeInTheDocument();
-    await user.click(within(fila).getByRole('button', { name: 'Ver bono' }));
-    const panel = screen.getByRole('complementary', { name: 'Bono de marca' });
-    expect(await within(panel).findByRole('heading', { name: 'Bono TP-Link USD 3/u' })).toBeInTheDocument();
-    expect(sellInBonosAPI.detalle).toHaveBeenCalledWith(3);
-  });
-
-  it('marks a purchase generated by a bonus and links to that bonus', async () => {
-    const user = userEvent.setup();
-    sellInAPI.listar.mockResolvedValue({ data: { ...LISTA, items: [COMPRA_BONO], total: 1 } });
-    renderWithRouter(<SellIn />);
-    const fila = (await screen.findByText('Bono de marca TP-LINK (bono 3)')).closest('tr');
-    expect(within(fila).getByText('Bono de marca')).toBeInTheDocument();
-    await user.click(within(fila).getByRole('button', { name: 'Ver bono #3' }));
-    expect(screen.getByRole('complementary', { name: 'Bono de marca' })).toBeInTheDocument();
-    await waitFor(() => expect(sellInBonosAPI.detalle).toHaveBeenCalledWith(3));
-  });
-
-});
-
-describe('SellIn page — purchases generated by a brand bonus', () => {
-  it('leaves manual purchases without the badge', async () => {
-    renderWithRouter(<SellIn />);
-    const fila = (await screen.findByText('Bonificación Q4 switches')).closest('tr');
-    expect(within(fila).queryByText('Bono de marca')).not.toBeInTheDocument();
-  });
-});
-
-describe('SellIn page — sell-out campaigns (T8)', () => {
-  it('lists the campaigns with their benefit, validity, credit and state', async () => {
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
-    expect(fila).toHaveTextContent('USD 36,00 por unidad');
-    expect(fila).toHaveTextContent('01/01/2026 – 31/12/2026');
-    expect(fila).toHaveTextContent('30 u');
-    expect(fila).toHaveTextContent('Activa');
-    expect(within(seccion).getByText('TP-Link 2% noviembre').closest('tr')).toHaveTextContent('Anulada');
-    expect(lastParams(sellOutAPI.listar)).toEqual({ page: 1, page_size: 10 });
-  });
-
-  it('searches the campaigns by name and goes back to page 1', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await user.type(within(seccion).getByPlaceholderText('Buscar campaña por nombre…'), 'RB');
-    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ q: 'RB', page: 1, page_size: 10 }));
-  });
-
-  it('filters the campaigns by estado, tipo, moneda, marca and grupo, back on page 1', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
-    await waitFor(() => expect(within(filtros).getByRole('option', { name: 'TP-Link redes' })).toBeInTheDocument());
-    await user.selectOptions(within(filtros).getByLabelText('Estado'), 'activa');
-    await user.selectOptions(within(filtros).getByLabelText('Tipo'), 'monto_total');
-    await user.selectOptions(within(filtros).getByLabelText('Moneda'), 'USD');
-    await user.selectOptions(within(filtros).getByLabelText('Marca'), 'TP-Link');
-    await user.selectOptions(within(filtros).getByLabelText('Grupo'), '1');
-    await waitFor(() =>
-      expect(lastParams(sellOutAPI.listar)).toEqual({
-        estado: 'activa',
-        tipo: 'monto_total',
-        moneda: 'USD',
-        marca: 'TP-Link',
-        grupo_id: 1,
-        page: 1,
-        page_size: 10,
-      }),
-    );
-  });
-
-  it('filters the campaigns by a period they overlap, and "Todas las fechas" clears it', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
-    await user.click(within(filtros).getByRole('button', { name: 'Mes actual' }));
-    await waitFor(() =>
-      expect(lastParams(sellOutAPI.listar)).toEqual({
-        desde: expect.stringMatching(/^\d{4}-\d{2}-01$/),
-        hasta: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
-        page: 1,
-        page_size: 10,
-      }),
-    );
-    await user.click(within(filtros).getByRole('button', { name: 'Todas las fechas' }));
-    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ page: 1, page_size: 10 }));
-  });
-
-  it('"Ver campaña" opens it in the side panel', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
-    await user.click(within(fila).getByRole('button', { name: 'Ver campaña' }));
-    expect(await screen.findByRole('heading', { name: 'RB 8180', level: 2 })).toBeInTheDocument();
-    expect(sellOutAPI.detalle).toHaveBeenCalledWith(55);
-  });
-
-  it('a bulk void of the campaign open in the side panel reads it again, so the panel shows it voided', async () => {
-    const user = userEvent.setup();
-    sellOutAPI.anularVarias.mockResolvedValue({ data: { anuladas: [55], omitidas: [] } });
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
-    await user.click(within(fila).getByRole('button', { name: 'Ver campaña' }));
-    await screen.findByRole('heading', { name: 'RB 8180', level: 2 });
-    expect(sellOutAPI.detalle).toHaveBeenCalledTimes(1);
-
-    sellOutAPI.detalle.mockResolvedValue({ data: { ...CAMPANA_MIGRADA, estado: 'anulada' } });
-    await user.click(within(fila).getByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionadas' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Confirmar anulación' }));
-
-    await waitFor(() => expect(sellOutAPI.detalle).toHaveBeenCalledTimes(2));
-    expect(sellOutAPI.detalle).toHaveBeenLastCalledWith(55);
-  });
-
-  it('a bulk void that answers after the panel was closed does not reopen it', async () => {
-    const user = userEvent.setup();
-    let responder;
-    sellOutAPI.anularVarias.mockReturnValue(new Promise((resolve) => (responder = resolve)));
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
-    await user.click(within(fila).getByRole('button', { name: 'Ver campaña' }));
-    await screen.findByRole('heading', { name: 'RB 8180', level: 2 });
-    await user.click(within(fila).getByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionadas' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Confirmar anulación' }));
-
-    await user.click(screen.getByRole('button', { name: 'Cerrar' })); // while the bulk void is in flight
-    expect(screen.queryByRole('heading', { name: 'RB 8180', level: 2 })).not.toBeInTheDocument();
-    responder({ data: { anuladas: [55], omitidas: [] } });
-
-    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
-    expect(screen.queryByRole('heading', { name: 'RB 8180', level: 2 })).not.toBeInTheDocument();
-  });
-
-  it('a bulk void that answers after a new search reloads the current search, not the old one', async () => {
-    const user = userEvent.setup();
-    let responder;
-    sellOutAPI.anularVarias.mockReturnValue(new Promise((resolve) => (responder = resolve)));
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
-    await user.click(within(fila).getByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Anular seleccionadas' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Confirmar anulación' }));
-
-    await user.type(screen.getByPlaceholderText('Buscar campaña por nombre…'), 'Epson'); // while it is in flight
-    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenLastCalledWith(expect.objectContaining({ q: 'Epson' })));
-    const antes = sellOutAPI.listar.mock.calls.length;
-    responder({ data: { anuladas: [55], omitidas: [] } });
-
-    await waitFor(() => expect(sellOutAPI.listar.mock.calls.length).toBeGreaterThan(antes));
-    expect(sellOutAPI.listar).toHaveBeenLastCalledWith(expect.objectContaining({ q: 'Epson' }));
-  });
-
-  it('"Actualizar" reloads the campaigns too', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
-    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
-    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
-  });
-
-  it('"Actualizar" also asks again the groups a new campaign can reach', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    await waitFor(() => expect(sellOutAPI.grupos).toHaveBeenCalledTimes(1));
-    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
-    await waitFor(() => expect(sellOutAPI.grupos).toHaveBeenCalledTimes(2));
-  });
-
-  it('shows once what Nuevo tactical created when it comes back', async () => {
-    renderConNuevoTactical({ pathname: '/sell-in', state: { aviso: 'Tactical creado: Rebate TP-Link · 2 líneas.' } });
-    expect(await screen.findByText('Tactical creado: Rebate TP-Link · 2 líneas.')).toBeInTheDocument();
-  });
-
-  it('"Renovar" saves the copy as a new campaign and shows it like "Nueva campaña"; the original is not edited', async () => {
-    const user = userEvent.setup();
-    const NUEVA = { ...CAMPANA_MIGRADA, id: 96, fecha_desde: '2027-01-01', fecha_hasta: '2027-03-31' };
-    sellOutAPI.renovacion.mockResolvedValue({ data: RENOVACION_MIGRADA });
-    sellOutAPI.crear.mockResolvedValue({ data: NUEVA });
-    sellOutAPI.detalle.mockImplementation(async (id) => ({ data: id === 96 ? NUEVA : CAMPANA_MIGRADA }));
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(1));
-    const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
-    await user.click(within(fila).getByRole('button', { name: 'Ver campaña' }));
-    await screen.findByRole('heading', { name: 'RB 8180', level: 2 });
-    // The panel's own button: each row has one too (slice E).
-    await user.click(screen.getAllByRole('button', { name: 'Renovar' }).find((b) => !b.closest('table')));
-    expect(await screen.findByText('Copia de «RB 8180». Revisá fechas y montos antes de guardar.')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Guardar campaña' }));
-
-    await waitFor(() => expect(sellOutAPI.detalle).toHaveBeenCalledWith(96));
-    expect(await screen.findByRole('heading', { name: 'RB 8180', level: 2 })).toBeInTheDocument();
-    expect(await screen.findByLabelText('Desde')).toHaveValue('2027-01-01');
-    expect(screen.queryByText(/Copia de/)).not.toBeInTheDocument();
-    expect(sellOutAPI.editar).not.toHaveBeenCalled();
-    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
-  });
-
-  it('without sell_out.gestionar the groups are not asked', async () => {
-    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await within(seccion).findByText('RB 8180');
-    expect(sellOutAPI.grupos).not.toHaveBeenCalled();
-  });
-
-  it('without sell_out.ver the section is not shown and nothing is asked', async () => {
-    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.ver');
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Campañas de sell out' })).not.toBeInTheDocument();
-    expect(sellOutAPI.listar).not.toHaveBeenCalled();
-  });
-});
-
-describe('SellIn page — bulk void (anular masivo)', () => {
-  it('voids the selected purchases after confirming, then reloads the list and says what happened', async () => {
-    const user = userEvent.setup();
-    sellInAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [1], ya_anuladas: [2] } });
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    const listados = sellInAPI.listar.mock.calls.length;
-
-    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar la página de sell in' }));
-    expect(screen.getByRole('checkbox', { name: 'Seleccionar compra #1' })).toBeChecked();
-    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
-    const pane = screen.getByRole('dialog', { name: 'Anular 2 compras' });
-    expect(pane).toHaveTextContent('Se liberan sus unidades');
-    await user.click(within(pane).getByRole('button', { name: 'Sí, anular 2' }));
-
-    expect(sellInAPI.anularMasivo).toHaveBeenCalledWith([1, 2], '');
-    expect(await screen.findByRole('status')).toHaveTextContent('Se anuló 1 compra. 1 ya estaba anulada.');
-    expect(sellInAPI.listar.mock.calls.length).toBeGreaterThan(listados);
-    expect(screen.getByRole('checkbox', { name: 'Seleccionar compra #1' })).not.toBeChecked();
-  });
-
-  it('goes back to page 1 after a bulk void: what it voided leaves the list, so the page it was on may no longer exist', async () => {
-    const user = userEvent.setup();
-    sellInAPI.listar.mockResolvedValue({ data: { ...LISTA, total: 500 } });
-    sellInAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [1, 2], ya_anuladas: [] } });
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    await user.click(screen.getAllByRole('button', { name: 'Página 2' })[0]);
-    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ page: 2 })));
-
-    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar la página de sell in' }));
-    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
-    await user.click(screen.getByRole('button', { name: 'Sí, anular 2' }));
-
-    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ page: 1 })));
-  });
-
-  it('reloads with the page on screen when the void ends, not the one it started on', async () => {
-    const user = userEvent.setup();
-    let soltar;
-    sellInAPI.listar.mockResolvedValue({ data: { ...LISTA, total: 500 } });
-    sellInAPI.anularMasivo.mockImplementation(() => new Promise((resolve) => (soltar = () => resolve({ data: { anuladas: [1, 2], ya_anuladas: [] } }))));
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    await user.click(screen.getAllByRole('button', { name: 'Página 2' })[0]);
-    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ page: 2 })));
-    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar la página de sell in' }));
-    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
-    await user.click(screen.getByRole('button', { name: 'Sí, anular 2' }));
-
-    await user.click(screen.getAllByRole('button', { name: 'Página 1' })[0]);
-    await waitFor(() => expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ page: 1 })));
-    const listados = sellInAPI.listar.mock.calls.length;
-    soltar();
-
-    await screen.findByRole('status');
-    await waitFor(() => expect(sellInAPI.listar.mock.calls.length).toBeGreaterThan(listados));
-    expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ page: 1 }));
-  });
-
-  it('the bonus list also goes back to page 1 after a bulk void', async () => {
-    const user = userEvent.setup();
-    sellInBonosAPI.listar.mockResolvedValue({ data: { ...BONOS_LISTA, total: 500 } });
-    sellInBonosAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [BONO.id], ya_anuladas: [] } });
-    // The list's own reads, not the active-bonus ones the purchase form takes (`estado: 'activa'`).
-    const paginaDeLaLista = () => sellInBonosAPI.listar.mock.calls.map(([p]) => p).filter((p) => !p?.estado).at(-1)?.page;
-    renderWithRouter(<SellIn />);
-    const bonos = await screen.findByRole('region', { name: 'Bonos de marca' });
-    await user.click(await within(bonos).findByRole('button', { name: 'Página 2' }));
-    await waitFor(() => expect(paginaDeLaLista()).toBe(2));
-
-    await user.click(within(bonos).getByRole('checkbox', { name: `Seleccionar bono #${BONO.id}` }));
-    await user.click(within(bonos).getByRole('button', { name: 'Anular seleccionados' }));
-    await user.click(within(bonos).getByRole('button', { name: 'Sí, anular 1' }));
-
-    await screen.findByRole('status');
-    await waitFor(() => expect(paginaDeLaLista()).toBe(1));
-  });
-
-  it('a purchase a bonus generated cannot be selected: no checkbox, and "todo lo filtrado" leaves it out and says so', async () => {
-    const user = userEvent.setup();
-    sellInAPI.listar.mockResolvedValue({ data: { ...LISTA, items: [LISTA.items[0], COMPRA_BONO], total: 2, generadas: 1 } });
-    sellInAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [LISTA.items[0].id], ya_anuladas: [] } });
-    renderWithRouter(<SellIn />);
-    await screen.findByRole('checkbox', { name: `Seleccionar compra #${LISTA.items[0].id}` });
-    expect(screen.queryByRole('checkbox', { name: `Seleccionar compra #${COMPRA_BONO.id}` })).not.toBeInTheDocument();
-    expect(screen.getByText('1 anulable; 1 generada por bonos no se puede anular a mano.')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar la página de sell in' }));
-    expect(screen.getByText('1 seleccionado')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Limpiar selección' }));
-
-    await user.click(screen.getByRole('button', { name: 'Seleccionar todo lo filtrado (1)' }));
-    expect(await screen.findByText('1 seleccionado')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
-    await user.click(screen.getByRole('button', { name: 'Sí, anular 1' }));
-    expect(sellInAPI.anularMasivo).toHaveBeenCalledWith([LISTA.items[0].id], '');
-  });
-
-  it('"Seleccionar todo lo filtrado" asks every page with the filters on screen', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-
-    await user.click(screen.getAllByRole('button', { name: 'Seleccionar todo lo filtrado (2)' })[0]);
-
-    expect(lastParams(sellInAPI.listar)).toEqual(expect.objectContaining({ aplica: 'si', page: 1, page_size: 200 }));
-    expect(await screen.findByText('2 seleccionados')).toBeInTheDocument();
-  });
-
-  it('voids the selected brand bonuses through their own bulk endpoint', async () => {
-    const user = userEvent.setup();
-    sellInBonosAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [BONO.id], ya_anuladas: [] } });
-    renderWithRouter(<SellIn />);
-    await user.click(await screen.findByRole('checkbox', { name: `Seleccionar bono #${BONO.id}` }));
-    const bonos = screen.getByRole('region', { name: 'Bonos de marca' });
-    await user.click(within(bonos).getByRole('button', { name: 'Anular seleccionados' }));
-    await user.click(within(bonos).getByRole('button', { name: 'Sí, anular 1' }));
-
-    expect(sellInBonosAPI.anularMasivo).toHaveBeenCalledWith([BONO.id], '');
-    expect(await screen.findByRole('status')).toHaveTextContent('Se anuló 1 bono.');
-  });
-
-  it('without sell_in.gestionar there is nothing to select', async () => {
-    mockTienePermiso.mockImplementation((codigo) => codigo === 'sell_in.ver');
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    expect(screen.queryByRole('checkbox', { name: /Seleccionar/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Seleccionar todo lo filtrado/ })).not.toBeInTheDocument();
-  });
-
-  it('says what happened even when only the bonus list is shown', async () => {
-    const user = userEvent.setup();
-    sellInBonosAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [BONO.id], ya_anuladas: [] } });
-    renderWithRouter(<SellIn />);
-    const chips = await screen.findByRole('group', { name: 'Tipo' });
-    await user.click(await within(chips).findByRole('button', { name: 'Bono de marca · 2' }));
-    await user.click(screen.getByRole('checkbox', { name: `Seleccionar bono #${BONO.id}` }));
-    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
-    await user.click(screen.getByRole('button', { name: 'Sí, anular 1' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Se anuló 1 bono.');
-  });
-
-  it('drops "todo lo filtrado" when the filters changed while it was read', async () => {
-    const user = userEvent.setup();
-    let soltar;
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    sellInAPI.listar.mockImplementationOnce(() => new Promise((resolve) => (soltar = () => resolve({ data: LISTA }))));
-    await user.click(screen.getAllByRole('button', { name: 'Seleccionar todo lo filtrado (2)' })[0]);
-    await user.click(screen.getByRole('button', { name: /No aplican/ }));
-    soltar();
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('Los filtros cambiaron mientras se seleccionaba. Volvé a intentarlo.');
-    expect(screen.queryByText('2 seleccionados')).not.toBeInTheDocument();
-  });
-
-  it('closes the side panel of a purchase it voided, and the notice goes away on the next selection', async () => {
-    const user = userEvent.setup();
-    sellInAPI.detalle.mockResolvedValue({ data: LISTA.items[0] });
-    sellInAPI.anularMasivo.mockResolvedValue({ data: { anuladas: [1], ya_anuladas: [] } });
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    await user.click(screen.getAllByRole('button', { name: 'Detalle' })[0]);
-    expect(screen.getByRole('complementary', { name: 'Detalle del sell in' })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar compra #1' }));
-    await user.click(screen.getByRole('button', { name: 'Anular seleccionados' }));
-    await user.click(screen.getByRole('button', { name: 'Sí, anular 1' }));
-
-    expect(await screen.findByRole('status')).toHaveTextContent('Se anuló 1 compra.');
-    expect(screen.queryByRole('complementary', { name: 'Detalle del sell in' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('checkbox', { name: 'Seleccionar compra #2' }));
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
-  });
-});
-
-// ── Programs (campanas-sistema slice E) ─────────────────────────────
-
-const conProgramas = () => sellOutProgramasAPI.listar.mockResolvedValue({ data: PROGRAMAS_LISTA });
-const filaDeGrupo = (nombre) => screen.getByRole('button', { name: new RegExp(`^${nombre}`) }).closest('tr');
-
-describe('SellIn page — sell-out programs (campanas-sistema slice E)', () => {
-  it('without programs the flat list and its filter defaults are as before: no Programa filter and no view toggle', async () => {
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
-    expect(await screen.findByText('RB 8180')).toBeInTheDocument();
-    await waitFor(() => expect(sellOutProgramasAPI.listar).toHaveBeenCalled());
-    expect(lastParams(sellOutAPI.listar)).toEqual({ page: 1, page_size: 10 });
-    expect(within(filtros).getByLabelText('Moneda')).toHaveValue('');
-    expect(within(filtros).getByLabelText('Estado')).toHaveValue('');
-    expect(within(filtros).queryByLabelText('Programa')).not.toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: 'Ver' })).not.toBeInTheDocument();
-    expect(sellOutAPI.porPrograma).not.toHaveBeenCalled();
-  });
-
-  it('"Programas" swaps the campaigns for the programs view, kept in the URL, and "Campañas" brings them back', async () => {
-    conProgramas();
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const seccion = await screen.findByRole('group', { name: 'Sección' });
-    await user.click(within(seccion).getByRole('button', { name: 'Programas' }));
-
-    expect(screen.getByRole('heading', { name: 'Programas' })).toBeInTheDocument();
-    expect(screen.getByText(/Programa es el nivel superior/)).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: /MARCA PROG/ })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Filtros de campañas' })).not.toBeInTheDocument();
-
-    await user.click(within(seccion).getByRole('button', { name: 'Campañas' }));
-    expect(await screen.findByRole('region', { name: 'Filtros de campañas' })).toBeInTheDocument();
-  });
-
-  it('"Ver en Campañas" in a program opens the campaigns list filtered by that program', async () => {
-    conProgramas();
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&seccion=programas&vista=lista'] });
-    await user.click(await screen.findByRole('button', { name: 'Ver campañas de MARCA PROG' }));
-    await user.click(await screen.findByRole('button', { name: 'Ver en Campañas' }));
-
-    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
-    expect(within(filtros).getByLabelText('Programa')).toHaveValue('7');
-    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ programa_id: 7, page: 1, page_size: 10 }));
-  });
-
-  it('the Programa filter sends programa_id, or sin_programa for "Sin programa", back on page 1', async () => {
-    conProgramas();
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
-    const programa = await within(filtros).findByLabelText('Programa');
-    expect(within(programa).getAllByRole('option').map((o) => o.textContent)).toEqual(['Todos', 'Sin programa', 'MARCA PROG', 'Modelos SP']);
-    await user.selectOptions(programa, '7');
-    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ programa_id: 7, page: 1, page_size: 10 }));
-    await user.selectOptions(programa, 'sin');
-    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ sin_programa: true, page: 1, page_size: 10 }));
-  });
-
-  it('"Seleccionar todo lo filtrado" resolves the campaigns with the program filter too', async () => {
-    conProgramas();
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
-    await user.selectOptions(await within(filtros).findByLabelText('Programa'), '7');
-    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ programa_id: 7, page: 1, page_size: 10 }));
-    await user.click(await screen.findByRole('button', { name: 'Seleccionar todo lo filtrado (2)' }));
-    await waitFor(() => expect(lastParams(sellOutAPI.listar)).toEqual({ programa_id: 7, page: 1, page_size: 200 }));
-    expect(await screen.findByText('2 seleccionadas')).toBeInTheDocument();
-  });
-
-  it('with programs the list opens grouped "Por programa": a row per program with its counts, then "Sin programa"', async () => {
-    conProgramas();
-    renderWithRouter(
-      <>
-        <SellIn />
-        <Ubicacion />
-      </>,
-      { initialEntries: ['/sell-in?tab=sell-out'] },
-    );
-    const ver = await screen.findByRole('group', { name: 'Ver' });
-    expect(within(ver).getByRole('button', { name: 'Por programa' })).toHaveAttribute('aria-pressed', 'true');
-    const marca = await waitFor(() => filaDeGrupo('MARCA PROG'));
-    expect(marca).toHaveTextContent('3 campañas · 2 nombres · 01/08/2026 – 31/10/2026');
-    expect(marca).toHaveTextContent('2 activas');
-    expect(filaDeGrupo('Sin programa')).toHaveTextContent('1 campaña · 1 nombre · 01/01/2026 – 31/12/2026');
-    expect(screen.queryByText('RB 8180')).not.toBeInTheDocument(); // collapsed
-    expect(lastParams(sellOutAPI.porPrograma)).toEqual({ page: 1, page_size: 50 });
-
-    await userEvent.setup().click(within(ver).getByRole('button', { name: 'Lista' }));
-    expect(await screen.findByText('RB 8180')).toBeInTheDocument();
-    expect(screen.getByTestId('ubicacion')).toHaveTextContent('vista=lista');
-  });
-
-  it('expanding a group asks its campaigns with the active filters plus the program, or sin_programa', async () => {
-    conProgramas();
-    sellOutAPI.listar.mockImplementation(async (p) => ({ data: p.programa_id === 7 ? CAMPANAS_DEL_PROGRAMA : CAMPANAS_LISTA }));
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
-    await user.selectOptions(within(filtros).getByLabelText('Estado'), 'activa');
-    await waitFor(() => expect(lastParams(sellOutAPI.porPrograma)).toEqual({ estado: 'activa', page: 1, page_size: 50 }));
-
-    await user.click(await waitFor(() => screen.getByRole('button', { name: /^MARCA PROG/ })));
-    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenLastCalledWith({ estado: 'activa', programa_id: 7, page: 1, page_size: 200 }));
-    const fila = (await screen.findByText('MARCA PROG 3.0')).closest('tr');
-    expect(within(fila).getByRole('checkbox', { name: 'Seleccionar MARCA PROG 3.0' })).toBeInTheDocument();
-    expect(within(fila).getByRole('button', { name: 'Ver campaña' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^MARCA PROG/ })).toHaveAttribute('aria-expanded', 'true');
-
-    await user.click(screen.getByRole('button', { name: /^Sin programa/ }));
-    await waitFor(() => expect(sellOutAPI.listar).toHaveBeenLastCalledWith({ estado: 'activa', sin_programa: true, page: 1, page_size: 200 }));
-    expect(await screen.findByText('RB 8180')).toBeInTheDocument();
-  });
-
-  it('the campaigns of an open group are nested under it with a ↳ marker; the flat list has none', async () => {
-    conProgramas();
-    sellOutAPI.listar.mockImplementation(async (p) => ({ data: p.programa_id === 7 ? CAMPANAS_DEL_PROGRAMA : CAMPANAS_LISTA }));
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-
-    await user.click(await waitFor(() => screen.getByRole('button', { name: /^MARCA PROG/ })));
-    const fila = (await screen.findByText('MARCA PROG 3.0')).closest('tr');
-    expect(within(fila).getByText('↳')).toHaveAttribute('aria-hidden', 'true');
-
-    await user.click(within(screen.getByRole('group', { name: 'Ver' })).getByRole('button', { name: 'Lista' }));
-    const plana = (await screen.findByText('RB 8180')).closest('tr');
-    expect(within(plana).queryByText('↳')).not.toBeInTheDocument();
-  });
-
-  it('a program without campaigns under the filters gets no group row', async () => {
-    conProgramas(); // MARCA PROG and Modelos SP exist; only MARCA PROG has campaigns under the filters
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    await waitFor(() => filaDeGrupo('MARCA PROG'));
-    expect(screen.queryByRole('button', { name: /^Modelos SP/ })).not.toBeInTheDocument();
-  });
-
-  it('"Asignar ahora" on "Sin programa" assigns every unassigned campaign under the filters', async () => {
-    conProgramas();
-    sellOutAPI.listar.mockImplementation(async (p) => ({
-      data: p.sin_programa ? { items: [CAMPANA_MIGRADA], total: 1, page: 1, page_size: 200 } : CAMPANAS_LISTA,
-    }));
-    sellOutProgramasAPI.asignar.mockResolvedValue({ data: { asignadas: 1, sin_cambio: 0 } });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
-    await user.selectOptions(within(filtros).getByLabelText('Estado'), 'activa');
-    await waitFor(() => expect(lastParams(sellOutAPI.porPrograma)).toEqual({ estado: 'activa', page: 1, page_size: 50 }));
-
-    await user.click(await waitFor(() => within(filaDeGrupo('Sin programa')).getByRole('button', { name: 'Asignar ahora' })));
-    expect(sellOutAPI.listar).toHaveBeenLastCalledWith({ estado: 'activa', sin_programa: true, page: 1, page_size: 200 });
-    const dialogo = await screen.findByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
-    await user.selectOptions(within(dialogo).getByLabelText('Programa'), '7');
-    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
-
-    expect(sellOutProgramasAPI.asignar).toHaveBeenCalledWith([55], 7);
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(within(filaDeGrupo('MARCA PROG')).queryByRole('button', { name: 'Asignar ahora' })).not.toBeInTheDocument();
-  });
-
-  it('"Asignar ahora" that cannot resolve the unassigned campaigns says so and opens no dialog', async () => {
-    conProgramas();
-    sellOutAPI.listar.mockImplementation(async (p) => ({
-      data: p.sin_programa ? { items: [], total: 0, page: 1, page_size: 200 } : CAMPANAS_LISTA,
-    }));
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-
-    await user.click(await waitFor(() => within(filaDeGrupo('Sin programa')).getByRole('button', { name: 'Asignar ahora' })));
-
-    expect(
-      await screen.findByText('La lista de campañas cambió mientras se seleccionaba. Actualizá la lista y volvé a intentar.'),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  });
-
-  it.each([
-    [{ response: { status: 403, data: { detail: 'No tienes permiso: sell_out.ver' } } }, 'No tienes permiso: sell_out.ver'],
-    [new Error('Network Error'), 'No se pudo conectar con el servidor para seleccionar las campañas.'],
-  ])('"Asignar ahora" whose read fails shows the API message or the connection error', async (fallo, mensaje) => {
-    conProgramas();
-    sellOutAPI.listar.mockImplementation(async (p) => {
-      if (p.sin_programa) throw fallo;
-      return { data: CAMPANAS_LISTA };
-    });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-
-    await user.click(await waitFor(() => within(filaDeGrupo('Sin programa')).getByRole('button', { name: 'Asignar ahora' })));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(mensaje);
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  });
-
-  it('without sell_out.gestionar "Sin programa" has no "Asignar ahora"', async () => {
-    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
-    conProgramas();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-
-    await waitFor(() => filaDeGrupo('Sin programa'));
-    expect(screen.queryByRole('button', { name: 'Asignar ahora' })).not.toBeInTheDocument();
-  });
-
-  it('"Asignar a programa" assigns the selected campaigns to an active program and reloads the list and groups', async () => {
-    conProgramas();
-    sellOutProgramasAPI.asignar.mockResolvedValue({ data: { asignadas: 1, sin_cambio: 1 } });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('checkbox', { name: 'Seleccionar TP-Link 2% noviembre' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
-
-    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (2 campañas)' });
-    expect(dialogo).toHaveTextContent('Asignar un programa no cambia la plata de las campañas: solo las agrupa.');
-    const select = within(dialogo).getByLabelText('Programa');
-    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Elegí un programa', 'MARCA PROG']); // archived ones are not offered
-    const listados = sellOutAPI.listar.mock.calls.length;
-    const agrupados = sellOutAPI.porPrograma.mock.calls.length;
-    await user.selectOptions(select, '7');
-    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
-
-    expect(sellOutProgramasAPI.asignar).toHaveBeenCalledWith([55, 60], 7);
-    expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
-    expect(await within(seccion).findByRole('status')).toHaveTextContent('1 campaña asignada a «MARCA PROG». 1 ya lo tenía.');
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(within(seccion).getByRole('checkbox', { name: 'Seleccionar RB 8180' })).not.toBeChecked();
-    await waitFor(() => expect(sellOutAPI.listar.mock.calls.length).toBeGreaterThan(listados));
-    expect(sellOutAPI.porPrograma.mock.calls.length).toBe(agrupados); // the flat view asks no groups
-  });
-
-  it('"Programa nuevo" creates the program, then assigns the campaigns to it', async () => {
-    conProgramas();
-    sellOutProgramasAPI.crear.mockResolvedValue({ data: { ...PROGRAMAS_LISTA.items[0], id: 12, nombre: 'MODELOS SP', campanas: 0, activas: 0, nombres: 0 } });
-    sellOutProgramasAPI.asignar.mockResolvedValue({ data: { asignadas: 1, sin_cambio: 0 } });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
-    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
-    await user.click(within(dialogo).getByRole('radio', { name: 'Programa nuevo' }));
-    await user.type(within(dialogo).getByLabelText('Nombre'), '  MODELOS SP ');
-    await user.type(within(dialogo).getByLabelText('Descripción (opcional)'), 'Modelos de la marca');
-    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
-
-    await waitFor(() => expect(sellOutProgramasAPI.asignar).toHaveBeenCalledWith([55], 12));
-    expect(sellOutProgramasAPI.crear).toHaveBeenCalledWith({ nombre: 'MODELOS SP', descripcion: 'Modelos de la marca' });
-    expect(sellOutProgramasAPI.crear.mock.invocationCallOrder[0]).toBeLessThan(sellOutProgramasAPI.asignar.mock.invocationCallOrder[0]);
-    expect(await within(seccion).findByRole('status')).toHaveTextContent('1 campaña asignada a «MODELOS SP».');
-  });
-
-  it('the API refusal (an archived program) shows inline in the dialog, which stays open', async () => {
-    conProgramas();
-    sellOutProgramasAPI.asignar.mockRejectedValue({
-      response: { status: 422, data: { error: { message: 'El programa «MARCA PROG» está archivado.' } } },
-    });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
-    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
-    await user.selectOptions(within(dialogo).getByLabelText('Programa'), '7');
-    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
-
-    expect(await within(dialogo).findByRole('alert')).toHaveTextContent('El programa «MARCA PROG» está archivado.');
-    expect(within(seccion).getByRole('checkbox', { name: 'Seleccionar RB 8180' })).toBeChecked();
-  });
-
-  it('a row\'s "Renovar" opens the new-campaign form prefilled with the renewal draft', async () => {
-    sellOutAPI.renovacion.mockResolvedValue({ data: RENOVACION_MIGRADA });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    const fila = (await within(seccion).findByText('RB 8180')).closest('tr');
-    await user.click(within(fila).getByRole('button', { name: 'Renovar' }));
-
-    await waitFor(() => expect(sellOutAPI.renovacion).toHaveBeenCalledWith(55));
-    expect(await screen.findByText('Copia de «RB 8180». Revisá fechas y montos antes de guardar.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Guardar campaña' })).toBeInTheDocument();
-    expect(sellOutAPI.crear).not.toHaveBeenCalled();
-  });
-
-  it('a grouped row has "Renovar" too', async () => {
-    conProgramas();
-    sellOutAPI.listar.mockImplementation(async (p) => ({ data: p.programa_id === 7 ? CAMPANAS_DEL_PROGRAMA : CAMPANAS_LISTA }));
-    sellOutAPI.renovacion.mockResolvedValue({ data: RENOVACION_MIGRADA });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    await user.click(await waitFor(() => screen.getByRole('button', { name: /^MARCA PROG/ })));
-    const fila = (await screen.findByText('MARCA PROG 3.0')).closest('tr');
-    await user.click(within(fila).getByRole('button', { name: 'Renovar' }));
-    await waitFor(() => expect(sellOutAPI.renovacion).toHaveBeenCalledWith(71));
-  });
-
-  it('without sell_out.gestionar the rows have no "Renovar"', async () => {
-    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    const fila = (await screen.findByText('RB 8180')).closest('tr');
-    expect(within(fila).getByRole('button', { name: 'Ver campaña' })).toBeInTheDocument();
-    expect(within(fila).queryByRole('button', { name: 'Renovar' })).not.toBeInTheDocument();
-  });
-
-  it('a renewal saved from a grouped row shows up in its group, and the groups are read again', async () => {
-    conProgramas();
-    const NUEVA = { ...CAMPANAS_DEL_PROGRAMA.items[0], id: 96, nombre: 'MARCA PROG 3.0 Q1', fecha_desde: '2027-01-01', fecha_hasta: '2027-03-31' };
-    let guardada = false;
-    sellOutAPI.listar.mockImplementation(async (p) => {
-      if (p.programa_id !== 7) return { data: CAMPANAS_LISTA };
-      const items = guardada ? [NUEVA, ...CAMPANAS_DEL_PROGRAMA.items] : CAMPANAS_DEL_PROGRAMA.items;
-      return { data: { ...CAMPANAS_DEL_PROGRAMA, items, total: items.length } };
-    });
-    sellOutAPI.renovacion.mockResolvedValue({ data: RENOVACION_MIGRADA });
-    sellOutAPI.crear.mockImplementation(async () => {
-      guardada = true;
-      return { data: NUEVA };
-    });
-    sellOutAPI.detalle.mockImplementation(async (id) => ({ data: id === 96 ? NUEVA : CAMPANAS_DEL_PROGRAMA.items[0] }));
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    await user.click(await waitFor(() => screen.getByRole('button', { name: /^MARCA PROG/ })));
-    const fila = (await screen.findByText('MARCA PROG 3.0')).closest('tr');
-    await user.click(within(fila).getByRole('button', { name: 'Renovar' }));
-    await screen.findByText(/Copia de/);
-    const agrupados = sellOutAPI.porPrograma.mock.calls.length;
-    await user.click(screen.getByRole('button', { name: 'Guardar campaña' }));
-
-    const seccion = screen.getByRole('region', { name: 'Campañas de sell out' });
-    expect(await within(seccion).findByText('MARCA PROG 3.0 Q1')).toBeInTheDocument();
-    expect(sellOutAPI.porPrograma.mock.calls.length).toBeGreaterThan(agrupados);
-  });
-
-  it('"Actualizar" reads the program groups again', async () => {
-    conProgramas();
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    await waitFor(() => filaDeGrupo('MARCA PROG'));
-    const agrupados = sellOutAPI.porPrograma.mock.calls.length;
-    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
-    await waitFor(() => expect(sellOutAPI.porPrograma.mock.calls.length).toBeGreaterThan(agrupados));
-  });
-
-  it('more than 500 campaigns cannot be assigned at once, and no program is created for them', async () => {
-    conProgramas();
-    const TOTAL = 501;
-    sellOutAPI.listar.mockImplementation(async ({ page, page_size: size }) => {
-      const desde = (page - 1) * size;
-      const items = Array.from({ length: Math.max(0, Math.min(size, TOTAL - desde)) }, (_, i) => ({
-        ...CAMPANA_MIGRADA,
-        id: 1000 + desde + i,
-        nombre: `MODELO ${desde + i}`,
-      }));
-      return { data: { items, total: TOTAL, page, page_size: size } };
-    });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    await user.click(await screen.findByRole('button', { name: `Seleccionar todo lo filtrado (${TOTAL})` }));
-    await user.click(await screen.findByRole('button', { name: 'Asignar a programa' }));
-    const dialogo = screen.getByRole('dialog', { name: `Asignar a programa (${TOTAL} campañas)` });
-    expect(dialogo).toHaveTextContent('Se pueden asignar hasta 500 campañas por vez.');
-    await user.selectOptions(within(dialogo).getByLabelText('Programa'), '7');
-    expect(within(dialogo).getByRole('button', { name: 'Asignar' })).toBeDisabled();
-    await user.click(within(dialogo).getByRole('radio', { name: 'Programa nuevo' }));
-    await user.type(within(dialogo).getByLabelText('Nombre'), 'MARCA PROG 2');
-    expect(within(dialogo).getByRole('button', { name: 'Asignar' })).toBeDisabled();
-    expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
-  });
-
-  it('a program created whose assignment then fails is offered at once, and a retry does not create it again', async () => {
-    const NUEVO = { ...PROGRAMAS_LISTA.items[0], id: 12, nombre: 'MODELOS SP', campanas: 0, activas: 0, nombres: 0 };
-    let creado = false;
-    sellOutProgramasAPI.listar.mockImplementation(async () => ({
-      data: { ...PROGRAMAS_LISTA, items: creado ? [...PROGRAMAS_LISTA.items, NUEVO] : PROGRAMAS_LISTA.items },
-    }));
-    sellOutProgramasAPI.crear.mockImplementation(async () => {
-      creado = true;
-      return { data: NUEVO };
-    });
-    sellOutProgramasAPI.asignar.mockRejectedValue({ response: { status: 422, data: { error: { message: 'La campaña 55 no existe.' } } } });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
-    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
-    await user.click(within(dialogo).getByRole('radio', { name: 'Programa nuevo' }));
-    await user.type(within(dialogo).getByLabelText('Nombre'), 'MODELOS SP');
-    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
-    expect(await within(dialogo).findByRole('alert')).toHaveTextContent('La campaña 55 no existe.');
-
-    const filtros = screen.getByRole('region', { name: 'Filtros de campañas' });
-    await waitFor(() => expect(within(within(filtros).getByLabelText('Programa')).getByRole('option', { name: 'MODELOS SP' })).toBeInTheDocument());
-    await user.click(within(dialogo).getByRole('button', { name: 'Cancelar' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
-    const otra = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
-    await user.selectOptions(within(otra).getByLabelText('Programa'), '12');
-    await user.click(within(otra).getByRole('button', { name: 'Asignar' }));
-    await waitFor(() => expect(sellOutProgramasAPI.asignar).toHaveBeenCalledTimes(2));
-    expect(sellOutProgramasAPI.asignar).toHaveBeenLastCalledWith([55], 12);
-    expect(sellOutProgramasAPI.crear).toHaveBeenCalledTimes(1);
-  });
-
-  it('when a reload leaves the page of groups past the end, it goes to the last page that has groups', async () => {
-    conProgramas();
-    const grupo = (i) => ({ ...GRUPOS_POR_PROGRAMA.items[0], programa_id: 100 + i, nombre: `MARCA PROG ${String(i).padStart(2, '0')}` });
-    let total = 51;
-    sellOutAPI.porPrograma.mockImplementation(async ({ page, page_size: size }) => {
-      const desde = (page - 1) * size;
-      const items = Array.from({ length: Math.max(0, Math.min(size, total - desde)) }, (_, i) => grupo(desde + i));
-      return { data: { items, total, page, page_size: size, sin_programa: null } };
-    });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    await user.click(await screen.findByRole('button', { name: 'Página 2' }));
-    expect(await screen.findByRole('button', { name: 'MARCA PROG 50' })).toBeInTheDocument();
-
-    total = 50; // its only program's campaigns were moved elsewhere
-    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
-    expect(await screen.findByRole('button', { name: 'MARCA PROG 49' })).toBeInTheDocument();
-    expect(lastParams(sellOutAPI.porPrograma)).toEqual({ page: 1, page_size: 50 });
-  });
-
-  it('the assign dialog takes the focus, keeps Tab inside and gives it back to "Asignar a programa" on close', async () => {
-    conProgramas();
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    const abrir = within(seccion).getByRole('button', { name: 'Asignar a programa' });
-    await user.click(abrir);
-    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
-    await waitFor(() => expect(dialogo).toContainElement(document.activeElement));
-    for (let i = 0; i < 8; i += 1) {
-      await user.tab();
-      expect(dialogo).toContainElement(document.activeElement);
-    }
-    await user.tab({ shift: true });
-    expect(dialogo).toContainElement(document.activeElement);
-    await user.click(within(dialogo).getByRole('button', { name: 'Cancelar' }));
-    expect(abrir).toHaveFocus();
-  });
-
-  it('the Programa filter and the dialog offer every program, past the first page of 200', async () => {
-    const programa = (i) => ({ ...PROGRAMAS_LISTA.items[0], id: 1000 + i, nombre: `MARCA PROG ${String(i).padStart(3, '0')}` });
-    sellOutProgramasAPI.listar.mockImplementation(async ({ page, page_size: size }) => {
-      const desde = (page - 1) * size;
-      const items = Array.from({ length: Math.max(0, Math.min(size, 201 - desde)) }, (_, i) => programa(desde + i));
-      return { data: { items, total: 201, page, page_size: size } };
-    });
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
-    const select = await within(filtros).findByLabelText('Programa');
-    await waitFor(() => expect(within(select).getByRole('option', { name: 'MARCA PROG 200' })).toBeInTheDocument());
-    expect(sellOutProgramasAPI.listar).toHaveBeenLastCalledWith({ page: 2, page_size: 200 });
-  });
-
-  it('assigning the last page of "Sin programa" moves the list to the last page that still has campaigns', async () => {
-    conProgramas();
-    let total = 13;
-    sellOutAPI.listar.mockImplementation(async ({ page, page_size: size }) => {
-      const desde = (page - 1) * size;
-      const items = Array.from({ length: Math.max(0, Math.min(size, total - desde)) }, (_, i) => ({
-        ...CAMPANA_MIGRADA,
-        id: 500 + desde + i,
-        nombre: `MODELO ${8180 + desde + i}`,
-      }));
-      return { data: { items, total, page, page_size: size } };
-    });
-    sellOutProgramasAPI.asignar.mockImplementation(async (ids) => {
-      total -= ids.length;
-      return { data: { asignadas: ids.length, sin_cambio: 0 } };
-    });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    const filtros = await screen.findByRole('region', { name: 'Filtros de campañas' });
-    await user.selectOptions(await within(filtros).findByLabelText('Programa'), 'sin');
-    const seccion = screen.getByRole('region', { name: 'Campañas de sell out' });
-    await user.click(await within(seccion).findByRole('button', { name: 'Página 2' }));
-    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar la página' }));
-    expect(within(seccion).getByText('3 seleccionadas')).toBeInTheDocument();
-    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
-    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (3 campañas)' });
-    await user.selectOptions(within(dialogo).getByLabelText('Programa'), '7');
-    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
-
-    expect(await within(seccion).findByText('MODELO 8180')).toBeInTheDocument();
-    expect(within(seccion).queryByText('No hay campañas de sell out.')).not.toBeInTheDocument();
-    expect(lastParams(sellOutAPI.listar)).toEqual({ sin_programa: true, page: 1, page_size: 10 });
-  });
-
-  it('when the opener is gone after assigning, the focus goes to the campaigns heading, not the page body', async () => {
-    conProgramas();
-    sellOutProgramasAPI.asignar.mockResolvedValue({ data: { asignadas: 1, sin_cambio: 0 } });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await user.click(await within(seccion).findByRole('checkbox', { name: 'Seleccionar RB 8180' }));
-    await user.click(within(seccion).getByRole('button', { name: 'Asignar a programa' }));
-    const dialogo = screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' });
-    await user.selectOptions(within(dialogo).getByLabelText('Programa'), '7');
-    await user.click(within(dialogo).getByRole('button', { name: 'Asignar' }));
-
-    await within(seccion).findByRole('status');
-    expect(within(seccion).queryByRole('button', { name: 'Asignar a programa' })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Campañas de sell out' })).toHaveFocus();
-  });
-
-  it('without sell_out.gestionar there is no "Asignar a programa"', async () => {
-    conProgramas();
-    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out&vista=lista'] });
-    await screen.findByText('RB 8180');
-    expect(screen.queryByRole('button', { name: 'Asignar a programa' })).not.toBeInTheDocument();
-  });
-});
-
-describe('SellIn page — program suggestions (campanas-sistema slice E)', () => {
+describe('SellIn page — Programas tab: suggestions (campanas-sistema slice E)', () => {
   const BANNER = '2 sugerencias de programa: campañas sin programa con las mismas fechas';
   const tarjeta = (desde, hasta) => screen.getByRole('group', { name: `Sugerencia del ${desde} al ${hasta}` });
 
   it('the banner shows with sell_out.gestionar and suggestions, and not without either', async () => {
     sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
-    const { unmount } = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    const { unmount } = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
     expect(await screen.findByText(BANNER)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Ver sugerencias' })).toBeInTheDocument();
     expect(lastParams(sellOutProgramasAPI.sugerencias)).toEqual({ page: 1, page_size: 200 });
@@ -1525,17 +286,17 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
 
     vi.clearAllMocks();
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
-    const lector = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
-    await screen.findByText('RB 8180');
+    const lector = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
+    await screen.findByRole('heading', { name: 'Programas' });
     expect(screen.queryByText(BANNER)).not.toBeInTheDocument();
     expect(sellOutProgramasAPI.sugerencias).not.toHaveBeenCalled();
     lector.unmount();
 
     mockTienePermiso.mockReturnValue(true);
     sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS_VACIO });
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
     await waitFor(() => expect(sellOutProgramasAPI.sugerencias).toHaveBeenCalled());
-    await screen.findByText('RB 8180');
+    await screen.findByRole('heading', { name: 'Programas' });
     expect(screen.queryByText(/sugerencias? de programa/)).not.toBeInTheDocument();
   });
 
@@ -1546,7 +307,7 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
       .mockResolvedValueOnce({ data: { id: 15, nombre: 'MARCA PROG', descripcion: null, estado: 'activo', campanas: 0, activas: 0, desde: null, hasta: null, nombres: 0 } });
     sellOutProgramasAPI.asignar.mockResolvedValue({ data: { asignadas: 3, sin_cambio: 0 } });
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
     await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
 
     const drawer = screen.getByRole('dialog', { name: 'Sugerencias de programa' });
@@ -1587,7 +348,7 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
       .mockRejectedValueOnce({ response: { status: 422, data: { error: { message: 'La campaña 83 no existe.' } } } })
       .mockResolvedValueOnce({ data: { asignadas: 3, sin_cambio: 0 } });
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
     await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
     const primera = tarjeta('01/08/2026', '31/10/2026');
     const programas = sellOutProgramasAPI.listar.mock.calls.length;
@@ -1604,7 +365,7 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
   it('the drawer takes the focus, keeps Tab inside and gives it back to "Ver sugerencias" on close', async () => {
     sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
     const abrir = await screen.findByRole('button', { name: 'Ver sugerencias' });
     await user.click(abrir);
     const drawer = screen.getByRole('dialog', { name: 'Sugerencias de programa' });
@@ -1624,7 +385,7 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
     };
     sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: { ...SUGERENCIAS, items: [grande], total: 1 } });
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
     await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
     const card = tarjeta('01/08/2026', '31/10/2026');
     expect(card).toHaveTextContent('Se pueden asignar hasta 500 campañas por vez.');
@@ -1633,23 +394,23 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
     expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
   });
 
-  it('when no suggestion is left, closing the drawer puts the focus on the campaigns heading', async () => {
+  it('when no suggestion is left, closing the drawer puts the focus on the programs heading', async () => {
     sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
     await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
     const drawer = screen.getByRole('dialog', { name: 'Sugerencias de programa' });
     await user.click(within(tarjeta('01/08/2026', '31/10/2026')).getByRole('button', { name: 'Descartar' }));
     await user.click(within(tarjeta('01/11/2025', '31/10/2026')).getByRole('button', { name: 'Descartar' }));
     expect(screen.queryByRole('button', { name: 'Ver sugerencias' })).not.toBeInTheDocument();
     await user.click(within(drawer).getByRole('button', { name: 'Cerrar sugerencias' }));
-    expect(screen.getByRole('heading', { name: 'Campañas de sell out' })).toHaveFocus();
+    expect(screen.getByRole('heading', { name: 'Programas' })).toHaveFocus();
   });
 
   it('"Descartar" hides that card only, for this session, and writes nothing', async () => {
     sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
     await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
     await user.click(within(tarjeta('01/08/2026', '31/10/2026')).getByRole('button', { name: 'Descartar' }));
 
@@ -1665,53 +426,42 @@ describe('SellIn page — program suggestions (campanas-sistema slice E)', () =>
 const listadosDeTacticals = () => tacticalsAPI.listar.mock.calls.filter(([params]) => params.page_size !== 1).length;
 
 describe('SellIn page — Tacticals tab', () => {
-  it('counts the current tacticals on the tab, lists them once it is opened with the brands to filter by, and keeps the tab in the URL', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(
-      <>
-        <SellIn />
-        <Ubicacion />
-      </>,
-    );
-    await screen.findByText('Bonificación Q4 switches');
+  it('opens on Tacticals: counts the current ones on the tab and lists them with the brands to filter by', async () => {
+    renderWithRouter(<SellIn />);
     expect(tacticalsAPI.listar).toHaveBeenCalledWith({ estado: 'vigentes', page: 1, page_size: 1 });
-    expect(await screen.findByRole('tab', { name: 'Tacticals · 1' })).toBeInTheDocument();
-    expect(listadosDeTacticals()).toBe(0);
-
-    await user.click(screen.getByRole('tab', { name: 'Tacticals · 1' }));
+    expect(await screen.findByRole('tab', { name: 'Tacticals · 1' })).toHaveAttribute('aria-selected', 'true');
 
     const panel = screen.getByRole('tabpanel', { name: /Tacticals/ });
     expect(await within(panel).findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
     expect(within(within(panel).getByLabelText('Marca')).getByRole('option', { name: 'TP-Link' })).toBeInTheDocument();
-    expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=tacticals');
+    expect(listadosDeTacticals()).toBe(1);
   });
 
   it("Renovar in a tactical's menu opens Nuevo tactical prefilled from it", async () => {
     const user = userEvent.setup();
-    renderConNuevoTactical('/sell-in?tab=tacticals');
+    renderConNuevoTactical('/sell-in');
     await user.click(await screen.findByRole('button', { name: 'Acciones de Rebate TP-Link noviembre' }));
     await user.click(screen.getByRole('menuitem', { name: 'Renovar' }));
 
     expect(await screen.findByText('Nuevo tactical: sell_in renovando 7')).toBeInTheDocument();
   });
 
-  it('voiding a tactical reloads what Actualizar reloads: the Sell in and Sell out counts too', async () => {
+  it('voiding a tactical reloads what Actualizar reloads: the tab count too', async () => {
     const user = userEvent.setup();
     tacticalsAPI.anular.mockResolvedValue({ data: {} });
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    renderWithRouter(<SellIn />);
     await user.click(await screen.findByRole('button', { name: 'Acciones de Rebate TP-Link noviembre' }));
     await user.click(screen.getByRole('menuitem', { name: 'Anular' }));
-    const resumenes = sellInAPI.resumen.mock.calls.length;
-    const campanas = sellOutAPI.listar.mock.calls.length;
+    const conteos = () => tacticalsAPI.listar.mock.calls.filter(([params]) => params.page_size === 1).length;
+    const antes = conteos();
     await user.click(screen.getByRole('button', { name: 'Anular tactical' }));
 
-    await waitFor(() => expect(sellInAPI.resumen.mock.calls.length).toBeGreaterThan(resumenes));
-    await waitFor(() => expect(sellOutAPI.listar.mock.calls.length).toBeGreaterThan(campanas));
+    await waitFor(() => expect(conteos()).toBeGreaterThan(antes));
   });
 
   it("Ver ventas on a tactical's line opens that line's record in the side panel, read only", async () => {
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in'] });
     await user.click(await screen.findByRole('button', { name: 'Ver las líneas de Rebate TP-Link noviembre' }));
     await user.click(screen.getByRole('button', { name: 'Ver ventas de la línea 1' }));
 
@@ -1726,7 +476,7 @@ describe('SellIn page — Tacticals tab', () => {
     const user = userEvent.setup();
     const RARO = { ...TACTICAL, lineas: [{ ...TACTICAL.lineas[0], origen: 'otro' }] };
     tacticalsAPI.listar.mockResolvedValue({ data: { total: 1, page: 1, page_size: 50, items: [RARO] } });
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in'] });
     await user.click(await screen.findByRole('button', { name: 'Ver las líneas de Rebate TP-Link noviembre' }));
     await user.click(screen.getByRole('button', { name: 'Ver ventas de la línea 1' }));
 
@@ -1736,7 +486,7 @@ describe('SellIn page — Tacticals tab', () => {
 
   it("without the kind's gestionar a tactical has no actions menu", async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_in.gestionar');
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in'] });
 
     expect(await screen.findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Acciones de / })).not.toBeInTheDocument();
@@ -1744,7 +494,7 @@ describe('SellIn page — Tacticals tab', () => {
 
   it('"Actualizar" on the Tacticals tab asks the list again', async () => {
     const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in'] });
     expect(await screen.findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
     expect(listadosDeTacticals()).toBe(1);
 
@@ -1767,51 +517,6 @@ describe('SellIn page — Tacticals tab', () => {
     await user.click(screen.getByRole('button', { name: /Actualizar/ }));
 
     expect(await screen.findByRole('tab', { name: 'Tacticals · 3' })).toBeInTheDocument();
-  });
-
-  it('the tab and a ?tab=tacticals panel wait for the count: a server without tacticals never shows them or asks the list', async () => {
-    let fallar;
-    tacticalsAPI.listar.mockImplementation(() => new Promise((_, reject) => (fallar = reject)));
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
-
-    expect(await screen.findByRole('tab', { name: /Sell in/ })).toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: /Tacticals/ })).not.toBeInTheDocument();
-    expect(screen.getByText('Cargando tacticals…')).toBeInTheDocument();
-    expect(listadosDeTacticals()).toBe(0);
-
-    fallar({ response: { status: 404 } });
-
-    await waitFor(() => expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveAttribute('aria-selected', 'true'));
-    expect(listadosDeTacticals()).toBe(0);
-  });
-
-  it('the arrow keys skip the Tacticals tab while its count has not answered', async () => {
-    const user = userEvent.setup();
-    tacticalsAPI.listar.mockImplementation(() => new Promise(() => {}));
-    renderWithRouter(<SellIn />);
-    await user.click(await screen.findByRole('tab', { name: /Sell out/ }));
-
-    await user.keyboard('{ArrowRight}');
-
-    expect(screen.queryByText('Cargando tacticals…')).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /Grupos/ })).toHaveFocus();
-  });
-
-  it('a server without the tacticals API (404) shows no Tacticals tab, and ?tab=tacticals falls back to Sell in', async () => {
-    tacticalsAPI.listar.mockRejectedValue({ response: { status: 404 } });
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
-
-    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole('tab', { name: /Tacticals/ })).not.toBeInTheDocument());
-    expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveAttribute('aria-selected', 'true');
-  });
-
-  it('a user who can read no tactical kind (403) sees no Tacticals tab', async () => {
-    tacticalsAPI.listar.mockRejectedValue({ response: { status: 403 } });
-    renderWithRouter(<SellIn />);
-
-    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole('tab', { name: /Tacticals/ })).not.toBeInTheDocument());
   });
 
   it('any other failure keeps the tab, with a dash for the count', async () => {
@@ -1874,7 +579,7 @@ describe('SellIn page — Productos tab', () => {
     mockTienePermiso.mockImplementation((codigo) => !VER_PRODUCTO.includes(codigo));
     renderWithRouter(<SellIn />);
 
-    expect(await screen.findByRole('tab', { name: /^Sell in/ })).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: /^Tacticals/ })).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Productos' })).not.toBeInTheDocument();
     expect(sellInLotesAPI.productos).not.toHaveBeenCalled();
   });

@@ -54,5 +54,5 @@ export const nombreNormalizado = (nombre) => nombre.split(/\s+/).filter(Boolean)
 /** A suggestion's identity: its dates, which the backend groups by (exactly the same dates). */
 export const claveSugerencia = (s) => `${s.fecha_desde}|${s.fecha_hasta}`;
 
-/** Where the focus goes when a dialog's opener is gone: the campaigns heading, else the filter card. */
-export const RESPALDOS_DE_FOCO = ['#sell-out-campanas-titulo', '[aria-label="Filtros de campañas"]'];
+/** Where the focus goes when a dialog's opener is gone: the programs heading. */
+export const RESPALDOS_DE_FOCO = ['#sell-out-programas-titulo'];
