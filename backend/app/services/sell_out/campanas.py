@@ -604,6 +604,21 @@ def bloquear(db: Session, campana_id: int) -> Optional[SellOutCampana]:
     return campana
 
 
+def _con_grupos_ocultos(db: Session, campana_id: int, data: SellOutCampanaIn) -> SellOutCampanaIn:
+    """`data` with the hidden groups the campaign already has (a tactical line's own group, `OffsetGrupo.oculto`):
+    no group list offers them, so an edit from the campaign panel or the bulk edit never sends them back, and
+    dropping them would take the line's products away from the campaign."""
+    ocultos = [
+        gid
+        for (gid,) in db.query(SellOutCampanaGrupo.grupo_id)
+        .join(OffsetGrupo, OffsetGrupo.id == SellOutCampanaGrupo.grupo_id)
+        .filter(SellOutCampanaGrupo.campana_id == campana_id, OffsetGrupo.oculto.is_(True))
+        .order_by(SellOutCampanaGrupo.grupo_id)
+        if gid not in data.grupo_ids
+    ]
+    return data.model_copy(update={"grupo_ids": [*data.grupo_ids, *ocultos]}) if ocultos else data
+
+
 def editar_campana_sin_commit(
     db: Session,
     campana_id: int,
@@ -624,6 +639,7 @@ def editar_campana_sin_commit(
     campana = bloquear(db, campana_id)
     if campana is None:
         return None
+    data = _con_grupos_ocultos(db, campana_id, data)
     grupo_ids = validar(db, data, campana)
     antes = _valores(campana, grupo_ids_de(db, campana_id), items_de(db, [campana_id])[campana_id])
     if compartian is None:

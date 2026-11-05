@@ -23,6 +23,7 @@ from app.models.sell_out import (
     SellOutDirty,
     SellOutPrograma,
 )
+from app.schemas.sell_out import SellOutCampanaIn
 from app.schemas.tacticals import TacticalIn
 from app.services import tacticals as service
 from tests.services.sell._schema import throwaway_schema
@@ -297,3 +298,21 @@ class TestRefusalsFromGGA:
         with pytest.raises(service.TacticalOcupado):
             service.anular(db, tactical.id, USUARIO, None)
         assert _contar(engine, "tacticals", "estado = 'activo'") == 1
+
+
+class TestEditarCampanaDeUnTactical:
+    def test_the_campaign_panel_s_edit_keeps_its_hidden_group(self, db, engine) -> None:
+        """The panel lists no hidden group, so its PUT sends the campaign's groups without it."""
+        service.crear(db, _tactical(), USUARIO)
+        with engine.connect() as conn:
+            cid, gid = conn.execute(text("SELECT campana_id, grupo_id FROM sell_out_campana_grupos")).one()
+        edicion = SellOutCampanaIn(
+            nombre="Renombrada", fecha_desde=date(2026, 11, 1), fecha_hasta=date(2026, 11, 30), tipo="por_unidad",
+            monto_unit=Decimal("12"), moneda="ARS", grupo_ids=[],
+        )  # fmt: skip
+
+        service.campanas.editar_campana(db, cid, edicion, USUARIO)
+
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT grupo_id FROM sell_out_campana_grupos")).scalars().all() == [gid]
+            assert conn.execute(text("SELECT monto_unit FROM sell_out_campanas")).scalar() == Decimal("12.00")
