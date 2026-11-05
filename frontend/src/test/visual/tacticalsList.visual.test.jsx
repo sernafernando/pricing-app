@@ -32,6 +32,8 @@ vi.mock('../../services/api', () => ({
 }));
 
 vi.mock('../../services/sellInAPI', () => ({
+  // The Productos tab's list; never opened here.
+  sellInLotesAPI: { productos: vi.fn(() => new Promise(() => {})) },
   sellInAPI: { listar: vi.fn(), resumen: vi.fn(), detalle: vi.fn() },
   sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn() },
 }));
