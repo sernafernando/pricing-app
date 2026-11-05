@@ -184,3 +184,35 @@ describe('TacticalsList empty and error', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los tacticals.');
   });
 });
+
+describe('TacticalsList row actions', () => {
+  it('offers Renovar on the tacticals whose kind the user manages, and hands the tactical over', async () => {
+    const onRenovar = vi.fn();
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={(tipo) => tipo === 'sell_out'} onRenovar={onRenovar} />);
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+
+    expect(within(filaDe('Rebate HP Q1FY27')).queryByRole('button', { name: /Acciones/ })).not.toBeInTheDocument();
+    const acciones = within(filaDe('Tacticals BPS Noviembre Q1FY27')).getByRole('button', {
+      name: 'Acciones de Tacticals BPS Noviembre Q1FY27',
+    });
+    expect(acciones).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(acciones);
+    expect(acciones).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Renovar' }));
+
+    expect(onRenovar).toHaveBeenCalledWith(BPS);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('closes the menu with Escape, back on its button', async () => {
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} onRenovar={vi.fn()} />);
+    const acciones = await screen.findByRole('button', { name: 'Acciones de Rebate HP Q1FY27' });
+
+    await userEvent.click(acciones);
+    expect(screen.getByRole('menuitem', { name: 'Renovar' })).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(acciones).toHaveFocus();
+  });
+});

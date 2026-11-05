@@ -99,7 +99,7 @@ export function avanceDeTactical(lineas) {
 }
 
 /** Columns of a tactical row: the toggle, Nombre, Tipo, Marca, Vigencia, Líneas, Avance and Estado. */
-export const COLUMNAS_TACTICAL = 8;
+export const COLUMNAS_TACTICAL = 9;
 
 export const FILTROS_VACIOS = { tipo: 'todos', marca: '', estado: 'vigentes', desde: '', hasta: '', q: '' };
 

@@ -28,7 +28,8 @@ const TACTICAL = { ...TACTICAL_REBATE, id: 7, nombre: 'Rebate TP-Link noviembre'
 
 function NuevoTacticalProbe() {
   const [params] = useSearchParams();
-  return <p>{`Nuevo tactical: ${params.get('tipo')}`}</p>;
+  const renovar = params.get('renovar');
+  return <p>{`Nuevo tactical: ${params.get('tipo')}${renovar ? ` renovando ${renovar}` : ''}`}</p>;
 }
 
 /** SellIn with the Nuevo tactical route next to it, so a button that goes there shows where it went. */
@@ -1683,6 +1684,23 @@ describe('SellIn page — Tacticals tab', () => {
     expect(await within(panel).findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
     expect(within(within(panel).getByLabelText('Marca')).getByRole('option', { name: 'TP-Link' })).toBeInTheDocument();
     expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=tacticals');
+  });
+
+  it("Renovar in a tactical's menu opens Nuevo tactical prefilled from it", async () => {
+    const user = userEvent.setup();
+    renderConNuevoTactical('/sell-in?tab=tacticals');
+    await user.click(await screen.findByRole('button', { name: 'Acciones de Rebate TP-Link noviembre' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Renovar' }));
+
+    expect(await screen.findByText('Nuevo tactical: sell_in renovando 7')).toBeInTheDocument();
+  });
+
+  it("without the kind's gestionar a tactical has no actions menu", async () => {
+    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_in.gestionar');
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+
+    expect(await screen.findByText('Rebate TP-Link noviembre')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Acciones de / })).not.toBeInTheDocument();
   });
 
   it('"Actualizar" on the Tacticals tab asks the list again', async () => {

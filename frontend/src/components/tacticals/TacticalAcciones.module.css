@@ -1,0 +1,54 @@
+/* The list design's row actions menu (listado-tacticals-PENDIENTE.html, ".rowacts" / ".iconbtn" / ".menu"). */
+.acciones {
+  display: flex;
+  justify-content: flex-end;
+  position: relative;
+}
+
+.boton {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--cf-text-secondary);
+  cursor: pointer;
+}
+
+.boton:hover,
+.boton[aria-expanded='true'] {
+  background: var(--cf-bg-hover);
+  border-color: var(--cf-border-default);
+  color: var(--cf-text-primary);
+}
+
+.menu {
+  position: fixed;
+  z-index: 40;
+  padding: 4px;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--cf-shadow-modal);
+}
+
+.menu button {
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: var(--cf-text-primary);
+  border-radius: 4px;
+  padding: 6px 9px;
+}
+
+.menu button:hover,
+.menu button:focus-visible {
+  background: var(--cf-bg-hover);
+}

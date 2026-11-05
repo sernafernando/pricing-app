@@ -10,6 +10,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import TacticalNuevo from './TacticalNuevo';
 import api, { productosAPI } from '../services/api';
 import { CATALOGO, OPERACIONES } from '../components/tactical/tacticalFixtures';
+import { TACTICAL_BPS } from '../components/tacticals/tacticalsFixtures';
 
 const mockTienePermiso = vi.fn();
 vi.mock('../contexts/PermisosContext', () => ({
@@ -345,5 +346,44 @@ describe('leaving', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(cancelar).toHaveFocus();
+  });
+});
+
+describe('Renovar', () => {
+  it("opens prefilled from the tactical's detail with new dates to pick, and creates a NEW tactical", async () => {
+    const user = userEvent.setup();
+    const original = { ...TACTICAL_BPS, fecha_desde: '2026-11-01', fecha_hasta: '2026-11-30' };
+    api.get.mockImplementation((url) =>
+      url === '/tacticals/1' ? Promise.resolve({ data: original }) : Promise.resolve({ data: {} }),
+    );
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&renovar=1');
+
+    expect(await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27')).toBeInTheDocument();
+    expect(screen.getByLabelText('Desde')).toHaveValue('');
+    expect(screen.getByLabelText('Hasta')).toHaveValue('');
+    await user.type(screen.getByLabelText('Desde'), '2026-12-01');
+    await user.type(screen.getByLabelText('Hasta'), '2026-12-31');
+    await user.click(crear());
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
+    const [url, body] = api.post.mock.calls[0];
+    expect(url).toBe('/tacticals');
+    expect(body).toMatchObject({ tipo: 'sell_out', nombre: 'Tacticals BPS Noviembre Q1FY27', marca: 'HP' });
+    expect((({ fecha_desde, fecha_hasta }) => ({ fecha_desde, fecha_hasta }))(body)).toEqual({
+      fecha_desde: '2026-12-01',
+      fecha_hasta: '2026-12-31',
+    });
+    expect(body.lineas).toEqual([
+      { alcance: 'productos', item_ids: [101, 102], modo_monto: 'por_unidad', valor: 220, tope_unidades: 90, tope_monto: null, tope_por_producto: true },
+      { alcance: 'productos', item_ids: [201, 202], modo_monto: 'por_unidad', valor: 12, tope_unidades: 300, tope_monto: 3000, tope_por_producto: false },
+    ]);
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('says so when the tactical to renew cannot be read', async () => {
+    api.get.mockImplementation((url) => (url === '/tacticals/1' ? Promise.reject(new Error('500')) : Promise.resolve({ data: {} })));
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&renovar=1');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar el tactical a renovar.');
   });
 });

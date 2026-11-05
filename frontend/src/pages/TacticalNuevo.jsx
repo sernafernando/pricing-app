@@ -4,6 +4,8 @@
  *
  * The tactical's data (type, name, brand, validity, currency, conditions) and all its lines are created in one step
  * with `POST /tacticals`. `?tipo=sell_in|sell_out` picks the type it opens on; a type the user cannot manage is off.
+ * `?renovar=<id>` (Renovar, tacticals F1) opens it prefilled from that tactical (`renovacionDe`), dates empty: saving
+ * creates a NEW tactical and leaves the old one as it is.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -25,6 +27,7 @@ import {
   problemaDe,
   unidadesDelTope,
 } from '../components/tactical/tacticalLineas';
+import { renovacionDe } from '../components/tactical/tacticalRenovar';
 import styles from './TacticalNuevo.module.css';
 
 const TIPOS = {
@@ -132,6 +135,23 @@ export default function TacticalNuevo() {
   const [enviando, setEnviando] = useState(false);
   const [descartar, setDescartar] = useState(false);
 
+  const renovar = params.get('renovar');
+  useEffect(() => {
+    if (!renovar) return undefined;
+    let activo = true;
+    tacticalsAPI
+      .detalle(renovar)
+      .then(({ data }) => {
+        if (!activo) return;
+        const renovado = renovacionDe(data);
+        setForm(renovado.form);
+        setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marca)]);
+      })
+      .catch(() => activo && setError('No se pudo cargar el tactical a renovar.'));
+    return () => {
+      activo = false;
+    };
+  }, [renovar]);
   useEffect(() => {
     let activo = true;
     productosAPI
