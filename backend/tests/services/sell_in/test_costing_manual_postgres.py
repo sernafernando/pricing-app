@@ -93,6 +93,23 @@ def test_a_typed_cost_above_the_frozen_one_is_stored_as_a_surcharge(engine: Engi
     assert _filas(engine) == [(None, modo_id, venta, 3, Decimal("-6000.00"))]
 
 
+def test_a_later_weighted_row_stores_the_surcharge_on_the_purchase_line(engine: Engine) -> None:
+    # A pool holding the block's surcharge hands the purchase line negative money; the sign trigger lets it through.
+    _dos_lotes(engine)
+    (veinte,) = w.compra(engine, [(950, 30, "600.00")], NOV1)  # 30 at 20
+    modo_id = _manual(engine, costo_unit="52000")
+    w.modo(engine, 950, "ponderado", NOV2)
+    venta = w.venta(engine, "fuera", 950, 60, date(2026, 11, 5))
+
+    _recompute(engine)
+
+    # 30 at -2 000 plus 30 at 20: 60 at -990.
+    assert _filas(engine) == [
+        (None, modo_id, venta, 30, Decimal("-29700.00")),
+        (veinte, None, venta, 30, Decimal("-29700.00")),
+    ]
+
+
 def test_the_next_sale_takes_the_block(engine: Engine) -> None:
     _dos_lotes(engine)
     w.venta(engine, "fuera", 950, 10, OCT30)
@@ -123,8 +140,8 @@ def test_the_viewer_lists_the_block_and_the_lots_it_replaced(engine: Engine) -> 
 
     filas = [(x.compra_item_id, x.manual, x.restantes, x.descuento_unit, x.estado) for x in visor.lotes]
     assert filas == [
-        (diez, False, 50, Decimal("10.000000"), "reemplazado"),
-        (ocho, False, 100, Decimal("8.000000"), "reemplazado"),
+        (diez, False, 0, Decimal("10.000000"), "reemplazado"),  # the block took their units left
+        (ocho, False, 0, Decimal("8.000000"), "reemplazado"),
         (-modo_id, True, 20, Decimal("10.000000"), "vigente"),
     ]
     assert (visor.proxima.compra_item_id, visor.proxima.descuento_unit, visor.proxima.restantes) == (

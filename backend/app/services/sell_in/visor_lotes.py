@@ -103,7 +103,8 @@ def lotes_de_producto(db: Session, item_id: int, hoy: date) -> VisorLotes:
     filas: List[LoteVisor] = []
     for numero, lote in enumerate(lotes, start=1):
         consumidas = usadas.get(lote.compra_item_id, 0)
-        restantes = lote.cantidad - consumidas
+        # A replaced lot's units left went into the block; no sale can take them from it any more.
+        restantes = 0 if numero <= reemplazados else lote.cantidad - consumidas
         if vigente is not None and lote.compra_item_id == vigente.compra_item_id:
             estado: Estado = "vigente"
         elif numero <= reemplazados:
