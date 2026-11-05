@@ -45,10 +45,11 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
     };
   }, [clave, version]);
 
-  // A reload can leave the page past the end (tacticals voided or expired meanwhile): go to the last page with some.
-  const fueraDeRango = datos != null && datos.total > 0 && offset >= datos.total;
+  // A reload can leave the page past the end (tacticals voided or expired meanwhile): go to the last page with some,
+  // or to the first one when none are left.
+  const fueraDeRango = datos != null && offset > 0 && offset >= datos.total;
   useEffect(() => {
-    if (fueraDeRango) setOffset((Math.ceil(datos.total / pageSize) - 1) * pageSize);
+    if (fueraDeRango) setOffset(Math.max(0, (Math.ceil(datos.total / pageSize) - 1) * pageSize));
   }, [fueraDeRango, datos, pageSize]);
 
   const filtrar = (cambio) => {
