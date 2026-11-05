@@ -15,4 +15,4 @@ La página **Sell in / Sell out** tiene una pestaña nueva, **Tacticals**, con l
 
 ## Para tener en cuenta
 
-- «Vence en N días» aparece cuando faltan 7 días o menos para el fin del tactical.
+- «Vence en N días» aparece cuando faltan 7 días o menos para el fin del tactical, y «Vence hoy» el último día.

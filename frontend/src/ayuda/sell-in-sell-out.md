@@ -167,7 +167,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
   - **Nombre**, con la referencia debajo.
   - **Tipo**, **Marca**, **Vigencia** y **Líneas**.
   - **Avance**: unidades usadas sobre la suma de los topes de unidades de sus líneas, con la barra, y debajo el monto usado. El monto dice «de» el total solo cuando todas las líneas tienen tope de monto.
-  - **Estado**: Vigente, «Vence en N días» (cuando faltan 7 días o menos), Vencido o Anulado.
+  - **Estado**: Vigente, «Vence en N días» (cuando faltan 7 días o menos), «Vence hoy» (el último día), Vencido o Anulado.
 - La flecha de cada fila muestra sus líneas:
   - **Qué incluye**: los productos, o la marca, la categoría o la factura.
   - **Monto**: por unidad, porcentaje o monto total.
