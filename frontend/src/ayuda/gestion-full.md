@@ -14,7 +14,7 @@ Arriba dice **Gestión Full**. Hay pestañas **Planificación**, **Consulta env�
 
 En **Depósito**, por defecto ves **Pendientes**: productos sin U/caja que ya están en el **paquete de la semana** y/o marcados **Listo** (así el Excel no se traba). La columna Motivo dice Paquete / Listo. Con **Todos** cargás el catálogo ERP (búsqueda + import) como antes.
 
-Por defecto: **En Full** y **sin** filas con Stock ERP en 0. La tabla ordena por EAN y, si un mismo EAN tiene varios MLAU, esas filas van juntas con el mismo tinte.
+Por defecto: **En Full** y **sin** filas con Stock ERP en 0. La tabla ordena por EAN y, si un mismo EAN tiene varios MLAU, esas filas van juntas con el mismo tinte. Al scrollear, la fila de cabeceras se queda fija (Planificación, Depósito, Envío y Consulta envíos).
 
 ## Filtros y columnas
 

@@ -261,7 +261,7 @@ export default function GestionFull() {
       {tab === 'envios' ? <GestionFullEnviosTab /> : null}
 
       {tab === 'plan' && (
-      <>
+      <div className={styles.depositos}>
       <div className={styles.filters}>
         <label className={styles.search}>
           <Search size={14} aria-hidden />
@@ -435,7 +435,7 @@ export default function GestionFull() {
           </table>
         </div>
       )}
-      </>
+      </div>
       )}
     </div>
   );
