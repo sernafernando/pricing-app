@@ -467,6 +467,26 @@ describe('the manual mode', () => {
     expect(vista).not.toHaveTextContent('(manual)');
   });
 
+  it.each([
+    ['The product has no cost to freeze', 'No se pudo calcular la vista previa: el producto no tiene costo cargado para congelar.'],
+    [
+      "There is no USD rate to freeze the product's cost in pesos",
+      'No se pudo calcular la vista previa: no hay tipo de cambio USD para pasar el costo del producto a pesos.',
+    ],
+  ])('says why it cannot freeze the product cost (%s)', async (mensaje, texto) => {
+    sellInLotesAPI.vistaPrevia.mockRejectedValue(
+      Object.assign(new Error('HTTP 422'), { response: { status: 422, data: { error: { message: mensaje } } } }),
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '30');
+    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+
+    expect(await within(region).findByRole('alert')).toHaveTextContent(texto);
+  });
+
   it('changing a figure drops the preview', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderPanel();

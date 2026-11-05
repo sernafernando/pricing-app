@@ -143,14 +143,22 @@ function Preview({ vista, pedido, antes, onConfirm, onCancel, saving }) {
   );
 }
 
+// The server's reasons a user can act on, in the screen's words; anything else gets the generic retry text.
+const MOTIVOS = {
+  'The product has no cost to freeze': 'el producto no tiene costo cargado para congelar.',
+  "There is no USD rate to freeze the product's cost in pesos":
+    'no hay tipo de cambio USD para pasar el costo del producto a pesos.',
+};
+
 function errorText(error, accion) {
   const status = error?.response?.status;
   if (status === 409) {
     return 'El producto cambió desde la vista previa (o alguien lo está modificando). Tocá «Ver cómo queda» de nuevo.';
   }
   if (status === 403) return 'No tenés permiso para ese cambio.';
-  const detail = error?.response?.data?.detail;
-  return typeof detail === 'string' ? `${accion}: ${detail}` : `${accion}. Probá de nuevo.`;
+  const data = error?.response?.data;
+  const motivo = MOTIVOS[data?.error?.message ?? data?.detail];
+  return motivo ? `${accion}: ${motivo}` : `${accion}. Probá de nuevo.`;
 }
 
 /**
