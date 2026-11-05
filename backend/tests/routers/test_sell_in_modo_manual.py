@@ -126,6 +126,7 @@ def test_a_confirm_after_the_product_cost_moved_is_409(client, db, manualista) -
         _cuerpo(costo_unit="0"),
         _cuerpo(costo_unit="-1"),
         _cuerpo(cantidad=2.5),
+        _cuerpo(cantidad=2**31),  # past the column's integer
         _cuerpo(costo_unit="1.0000001"),
     ],
 )

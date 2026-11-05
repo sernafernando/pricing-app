@@ -41,7 +41,7 @@ class ModoIn(BaseModel):
     desde: date  # before today only with `sell_in.costo_retroactivo`
     # Only and always for `manual` (D6): the typed quantity and unit cost in ARS (the design's "Cantidad" and "Costo
     # unitario"). The server freezes the product's own cost; each unit then carries that cost minus this one.
-    cantidad: Optional[int] = Field(default=None, gt=0)
+    cantidad: Optional[int] = Field(default=None, gt=0, le=2**31 - 1)  # the column's integer
     costo_unit: Optional[Decimal] = Field(default=None, gt=0, max_digits=18, decimal_places=6)
 
     @model_validator(mode="after")

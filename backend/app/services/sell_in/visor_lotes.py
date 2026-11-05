@@ -35,6 +35,7 @@ from app.schemas.sell_in_out_producto import SellInProducto
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
 from app.services.sell_in.costing import LoteVigente, de_lotes, get_costing
+from app.services.sell_in.costing import reemplazados as costing_reemplazados
 from app.services.sell_in.split import unit_discount
 
 Estado = Literal["vigente", "en_cola", "agotado", "desde", "reemplazado"]
@@ -99,7 +100,7 @@ def lotes_de_producto(db: Session, item_id: int, hoy: date) -> VisorLotes:
     vigente = costing.vigentes(db, [item_id], hoy).get(item_id)
     datos = _compras(db, sorted({x.compra_id for x in lotes if x.modo_id is None}))
     # The lots before the newest block that counts by today were replaced by it.
-    reemplazados = max((n for n, x in enumerate(lotes) if x.modo_id is not None and x.fecha <= hoy), default=0)
+    reemplazados = costing_reemplazados(lotes, hoy)
     filas: List[LoteVisor] = []
     for numero, lote in enumerate(lotes, start=1):
         consumidas = usadas.get(lote.compra_item_id, 0)

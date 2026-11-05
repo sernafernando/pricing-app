@@ -36,7 +36,7 @@ def _clean(engine: Engine) -> Iterator[None]:
 
 def _mundo(engine: Engine) -> None:
     """950: FIFO, a used-up line, the current one and one counting from a future date. 2964: weighted since 10/10.
-    2270: a manual mode starting after today (still FIFO today) and its only line used up."""
+    2270: its only line used up and a manual block starting after today (still FIFO today)."""
     w.compra(engine, [(950, 2, "200.00")], date(2026, 10, 1))
     w.compra(engine, [(950, 3, "90.00")], date(2026, 10, 5))
     w.compra(engine, [(950, 5, "50.00")], date(2026, 10, 2), cuenta_desde="ingreso", fecha_ingreso=date(2026, 11, 3))
@@ -60,14 +60,16 @@ def test_one_row_per_product_with_units_left_and_its_mode_units_next_sale_and_la
         proxima_950 = visor_lotes.lotes_de_producto(db, 950, HOY).proxima
         proxima_2964 = visor_lotes.lotes_de_producto(db, 2964, HOY).proxima
 
+    # 2270's only line is used up; its manual block counts from 10/25 with its typed unit.
     assert [(x.item_id, x.codigo, x.modo, x.unidades, x.ultima_compra) for x in filas] == [
+        (2270, "C2270", None, 1, date(2026, 10, 25)),
         (2964, "C2964", "ponderado", 6, date(2026, 10, 9)),
         (950, "C950", None, 7, date(2026, 11, 3)),
     ]  # same description: by code
     # The same value the lot viewer shows for the next sale: the FIFO line's own, the weighted pool's.
-    assert filas[1].sell_in_unit == proxima_950.descuento_unit == Decimal("30.000000")
-    assert filas[0].sell_in_unit == proxima_2964.descuento_unit
-    assert filas[0].descripcion == "Producto"
+    assert filas[2].sell_in_unit == proxima_950.descuento_unit == Decimal("30.000000")
+    assert filas[1].sell_in_unit == proxima_2964.descuento_unit
+    assert filas[1].descripcion == "Producto"
 
 
 def test_no_products_answers_an_empty_list(engine: Engine) -> None:
@@ -97,3 +99,21 @@ def test_the_query_count_does_not_grow_with_the_products(engine: Engine) -> None
     pocas = contar(2)
     w.modo(engine, 2964, "ponderado", date(2026, 10, 1))
     assert contar(6) == pocas
+
+
+def test_a_manual_block_counts_its_own_units_not_the_ones_it_replaced(engine: Engine) -> None:
+    # 100 + 100 bought, 50 sold, then 30 typed by hand: the product has 30 left, as the lot viewer says.
+    w.compra(engine, [(950, 100, "1000.00")], date(2026, 10, 1))
+    w.compra(engine, [(950, 100, "800.00")], date(2026, 10, 2))
+    w.venta(engine, "fuera", 950, 50, date(2026, 10, 5))
+    w.modo(engine, 950, "manual", date(2026, 10, 10), cantidad=30, costo_unit="49990", costo_base_unit="50000")
+    with sessionmaker(bind=engine)() as db:
+        get_costing().recompute(db, [950])
+        db.commit()
+
+    with sessionmaker(bind=engine)() as db:
+        (fila,) = productos_costo.productos(db, HOY)
+        visor = visor_lotes.lotes_de_producto(db, 950, HOY)
+
+    assert (fila.modo, fila.unidades) == ("manual", 30)
+    assert fila.unidades == sum(x.restantes for x in visor.lotes)

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
 from app.models.sell_in import SellInCompra, SellInCompraItem
-from app.services.sell_in.costing import get_costing
+from app.services.sell_in.costing import get_costing, reemplazados
 
 
 @dataclass(frozen=True)
@@ -43,8 +43,9 @@ def productos(db: Session, hoy: date) -> List[ProductoCosto]:
     ]
     lotes = costing.lotes(db, ids)
     usadas = costing.unidades_usadas(db, [x.compra_item_id for item in lotes.values() for x in item])
+    # The lots a manual block replaced have no units left (the lot viewer's count).
     restantes = {
-        item_id: sum(max(x.cantidad - usadas.get(x.compra_item_id, 0), 0) for x in item)
+        item_id: sum(max(x.cantidad - usadas.get(x.compra_item_id, 0), 0) for x in item[reemplazados(item, hoy) :])
         for item_id, item in lotes.items()
     }
     con_unidades = sorted(item_id for item_id, unidades in restantes.items() if unidades > 0)

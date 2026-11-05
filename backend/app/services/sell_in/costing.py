@@ -85,7 +85,7 @@ from datetime import date, datetime, time, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Dict, Iterable, List, Optional, Protocol, Tuple, runtime_checkable
 
-from sqlalchemy import delete, func, insert, or_, text
+from sqlalchemy import ColumnElement, delete, func, insert, or_, text
 from sqlalchemy.orm import Session
 
 from app.models.ml_sale_line import MlSaleLine
@@ -222,16 +222,22 @@ def resolver_objetivos(db: Session, model, devoluciones: List[tuple]) -> Dict[in
 _DESCUENTO_SCALE = Decimal(1).scaleb(-SellInConsumo.__table__.c.descuento_ars.type.scale)
 
 
-def fuente(t=SellInConsumo):
+def fuente() -> ColumnElement[int]:
     """A consumption's lot as the allocation keys it: its purchase line, or `-modo_id` for a manual block's."""
-    return func.coalesce(t.compra_item_id, -t.modo_id)
+    return func.coalesce(SellInConsumo.compra_item_id, -SellInConsumo.modo_id)
 
 
-def de_lotes(lineas: List[int], t=SellInConsumo):
+def de_lotes(lineas: List[int]) -> ColumnElement[bool]:
     """The filter for the consumptions of `lineas` (lot ids as `fuente` gives them)."""
     compras = [linea for linea in lineas if linea > 0]
     bloques = [-linea for linea in lineas if linea < 0]
-    return or_(t.compra_item_id.in_(compras), t.modo_id.in_(bloques))
+    return or_(SellInConsumo.compra_item_id.in_(compras), SellInConsumo.modo_id.in_(bloques))
+
+
+def reemplazados(lotes: List[Lote], hoy: date) -> int:
+    """How many of a product's lots (`lotes` order), from the oldest, the newest manual block counting by `hoy`
+    replaced: no sale takes their units left any more (none without such a block)."""
+    return max((n for n, x in enumerate(lotes) if x.modo_id is not None and x.fecha <= hoy), default=0)
 
 
 def _a_columna(monto: Decimal) -> Decimal:
