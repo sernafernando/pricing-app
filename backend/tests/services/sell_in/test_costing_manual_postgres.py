@@ -147,3 +147,15 @@ def test_a_future_block_replaces_nothing_yet(engine: Engine) -> None:
         (visor.lotes[1].compra_item_id, "en_cola"),
         (-modo_id, "desde"),
     ]
+
+
+def test_a_failed_replay_never_offers_a_replaced_lot(engine: Engine, monkeypatch) -> None:
+    # The fallback is the plain FIFO line; the lots a block replaced have no units for it either.
+    _dos_lotes(engine)
+    modo_id = _manual(engine)
+    w.modos_irreproducibles(monkeypatch)
+
+    with sessionmaker(bind=engine)() as db:
+        vigente = get_costing().vigentes(db, [950], NOV1)[950]
+
+    assert (vigente.compra_item_id, vigente.unidades_restantes) == (-modo_id, 30)

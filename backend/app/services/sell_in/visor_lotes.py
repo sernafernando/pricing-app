@@ -34,7 +34,7 @@ from app.models.sell_in import SellInCompra, SellInCompraPedido, SellInConsumo
 from app.schemas.sell_in_out_producto import SellInProducto
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
-from app.services.sell_in.costing import LoteVigente, fuente, get_costing
+from app.services.sell_in.costing import LoteVigente, de_lotes, get_costing
 from app.services.sell_in.split import unit_discount
 
 Estado = Literal["vigente", "en_cola", "agotado", "desde", "reemplazado"]
@@ -214,7 +214,7 @@ def consumos_de_lote(
     """One page of the sales that consumed the line (a manual block: `-modo_id`), oldest sale first, and their total. A
     line of another product answers nothing."""
     t = SellInConsumo
-    filtro = (fuente() == compra_item_id, t.item_id == item_id)
+    filtro = (de_lotes([compra_item_id]), t.item_id == item_id)  # by its own column, so each index serves
     total = db.query(func.count(t.id)).filter(*filtro).scalar() or 0
     filas = (
         db.query(t.canal, t.venta_ref, t.fecha_venta, t.unidades, t.descuento_ars)
