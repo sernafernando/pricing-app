@@ -1,12 +1,11 @@
-/* The cost-mode panel inside the sell-in lot viewer: current mode, the change form with its preview, the history. */
+/* The cost-mode panel inside the sell-in lot viewer: three cards, as in the approved design -- the mode and its
+   change form, the preview ("Así queda") and the history. */
 
 .card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
   min-width: 0;
   margin-top: var(--space-3);
-  padding: var(--space-3);
   border: 1px solid var(--cf-border-default);
   border-radius: var(--radius-md);
   background: var(--cf-bg-card);
@@ -14,15 +13,23 @@
   font-size: var(--font-sm);
 }
 
-.title,
-.subhead {
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.body {
+  padding: var(--space-3);
+  min-width: 0;
+}
+
+.title {
   margin: 0;
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
-}
-
-.subhead {
-  margin-top: var(--space-2);
 }
 
 .hint,
@@ -72,7 +79,8 @@
 
 .input {
   composes: input inputSm from '../../styles/forms-tesla.css';
-  width: auto;
+  width: 20rem;
+  max-width: 100%;
 }
 
 .actions {
@@ -81,20 +89,36 @@
   gap: var(--space-2);
 }
 
+.divided {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--cf-border-default);
+}
+
 .preview {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-3);
   padding: var(--space-3);
-  background: var(--cf-bg-hover);
-  border-left: 3px solid var(--cf-accent-blue);
-  border-radius: var(--radius-sm, 4px);
+  background: var(--tone-info-bg);
+  border: 1px solid var(--tone-info-border);
+  border-radius: var(--radius-md);
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
 }
 
 .preview h4 {
   margin: 0;
   font-size: var(--font-sm);
   font-weight: var(--font-semibold);
+  color: var(--tone-info-fg);
+}
+
+.facts b,
+.mini td,
+.histDate {
+  font-family: var(--font-mono);
 }
 
 .facts {
@@ -118,6 +142,7 @@
 
 .mini {
   width: 100%;
+  background: var(--cf-bg-card);
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
 }

@@ -93,7 +93,7 @@ describe('the mode governing today', () => {
     renderPanel();
     const region = await panel();
     expect(within(region).getByText('Modo actual').parentElement).toHaveTextContent('Último precio desde 01/11/2026');
-    const historial = within(region).getByRole('list', { name: 'Historial de modos' });
+    const historial = within(screen.getByRole('region', { name: 'Historial' })).getByRole('list', { name: 'Historial de modos' });
     const filas = within(historial).getAllByRole('listitem').map((li) => li.textContent);
     expect(filas).toEqual(['02/11/2026Último preciodesde 01/11/2026 · por Fernando', '28/10/2026FIFOdesde 28/10/2026 · por Fernando']);
   });

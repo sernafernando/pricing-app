@@ -147,6 +147,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
   const headingId = useId();
   const desdeId = useId();
   const helpId = useId();
+  const histId = useId();
   const [read, setRead] = useState({ status: 'loading', data: null });
   const [attempt, setAttempt] = useState(0);
   const [modo, setModo] = useState(null);
@@ -214,6 +215,8 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
   };
 
   let body;
+  let previewCard = null;
+  let historyCard = null;
   if (read.status === 'loading') {
     body = (
       <p className={styles.note} role="status">
@@ -304,7 +307,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
             </div>
             {modo && <p className={styles.note}>{MODOS[modo].nota}</p>}
             {!vista && (
-              <div className={styles.actions}>
+              <div className={`${styles.actions} ${styles.divided}`}>
                 <button
                   type="button"
                   className="btn-tesla outline sm"
@@ -320,15 +323,24 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
                 {error}
               </p>
             )}
-            {vista && (
-              <Preview vista={vista} modo={modo} antes={antes} onConfirm={confirm} onCancel={drop} saving={busy === 'confirm'} />
-            )}
           </>
         )}
-
-        {historial.length > 0 && (
-          <>
-            <h4 className={styles.subhead}>Historial</h4>
+      </div>
+    );
+    if (puedeCambiar && vista) {
+      previewCard = (
+        <Preview vista={vista} modo={modo} antes={antes} onConfirm={confirm} onCancel={drop} saving={busy === 'confirm'} />
+      );
+    }
+    if (historial.length > 0) {
+      historyCard = (
+        <section className={styles.card} aria-labelledby={histId}>
+          <header className={styles.head}>
+            <h4 id={histId} className={styles.title}>
+              Historial
+            </h4>
+          </header>
+          <div className={styles.body}>
             <ul className={styles.hist} aria-label="Historial de modos">
               {historial.map((fila) => (
                 <li key={fila.id}>
@@ -342,19 +354,25 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
                 </li>
               ))}
             </ul>
-          </>
-        )}
-      </div>
-    );
+          </div>
+        </section>
+      );
+    }
   }
 
   return (
-    <section className={styles.card} aria-labelledby={headingId}>
-      <h4 id={headingId} className={styles.title}>
-        Modo de costo
-      </h4>
-      <p className={styles.hint}>Define con qué descuento de sell in salen las unidades cuando vendés.</p>
-      {body}
-    </section>
+    <>
+      <section className={styles.card} aria-labelledby={headingId}>
+        <header className={styles.head}>
+          <h4 id={headingId} className={styles.title}>
+            Modo de costo
+          </h4>
+          <p className={styles.hint}>Define con qué descuento de sell in salen las unidades cuando vendés.</p>
+        </header>
+        <div className={styles.body}>{body}</div>
+      </section>
+      {previewCard}
+      {historyCard}
+    </>
   );
 }
