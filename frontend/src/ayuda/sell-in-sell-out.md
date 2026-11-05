@@ -186,6 +186,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
 - Filtros:
   - **Tipo**: Todos, Sell in o Sell out.
   - **Marca**: la marca adjunta del tactical.
+  - **Moneda**: ARS o USD, la moneda del tactical.
   - **Estado**: Vigentes (al abrir), Vencidos o Anulados.
   - **Vigencia**: Desde y Hasta.
   - **Buscar**: por nombre o referencia.
@@ -208,7 +209,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
 
 ## Filtros y columnas
 
-Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicación, tipo (los bonos de marca siguen fechas, búsqueda, marca, moneda y estado). Sell out: período, nombre, estado, tipo, moneda, marca, grupo y programa. Tacticals: tipo, marca, estado, vigencia y búsqueda. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: producto, modo de costo, unidades, sell in por unidad y última compra.
+Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicación, tipo (los bonos de marca siguen fechas, búsqueda, marca, moneda y estado). Sell out: período, nombre, estado, tipo, moneda, marca, grupo y programa. Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: producto, modo de costo, unidades, sell in por unidad y última compra.
 
 ## Botones y acciones
 

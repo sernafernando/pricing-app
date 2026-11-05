@@ -69,6 +69,8 @@ describe('TacticalsList filters', () => {
     await waitFor(() => expect(ultimaConsulta()).toMatchObject({ tipo: 'sell_out' }));
     await userEvent.selectOptions(screen.getByLabelText('Marca'), 'HP');
     await waitFor(() => expect(ultimaConsulta()).toMatchObject({ tipo: 'sell_out', marca: 'HP' }));
+    await userEvent.selectOptions(screen.getByLabelText('Moneda'), 'USD');
+    await waitFor(() => expect(ultimaConsulta()).toMatchObject({ marca: 'HP', moneda: 'USD' }));
     await userEvent.click(screen.getByRole('button', { name: 'Anulados' }));
     await waitFor(() => expect(ultimaConsulta()).toMatchObject({ estado: 'anulados' }));
     await userEvent.type(screen.getByLabelText('Desde'), '2026-11-01');
@@ -79,6 +81,7 @@ describe('TacticalsList filters', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Limpiar filtros' }));
     await waitFor(() => expect(ultimaConsulta()).toEqual({ estado: 'vigentes', page: 1, page_size: 50 }));
     expect(screen.getByLabelText('Marca')).toHaveValue('');
+    expect(screen.getByLabelText('Moneda')).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Vigentes' })).toHaveAttribute('aria-pressed', 'true');
   });
 

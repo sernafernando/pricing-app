@@ -55,6 +55,9 @@ def test_create_read_and_void(client, productos, sell_out) -> None:
     assert client.get(f"{BASE}/{creado['id']}", headers=sell_out).json()["lineas"] == creado["lineas"]
     listado = client.get(BASE, params={"q": "noviembre"}, headers=sell_out).json()
     assert (listado["total"], [t["id"] for t in listado["items"]]) == (1, [creado["id"]])
+    otra_moneda = "USD" if creado["moneda"] == "ARS" else "ARS"
+    assert client.get(BASE, params={"moneda": creado["moneda"]}, headers=sell_out).json()["total"] == 1
+    assert client.get(BASE, params={"moneda": otra_moneda}, headers=sell_out).json()["total"] == 0
 
     anulado = client.post(f"{BASE}/{creado['id']}/anular", json={"motivo": "Sin acuerdo"}, headers=sell_out)
     assert anulado.status_code == 200, anulado.text
@@ -92,6 +95,7 @@ def test_unknown_is_404_and_an_inverted_period_is_422(client, sell_out) -> None:
 def test_text_filters_are_bounded(client, sell_out) -> None:
     assert client.get(BASE, params={"q": "x" * 201}, headers=sell_out).status_code == 422
     assert client.get(BASE, params={"marca": "x" * 101}, headers=sell_out).status_code == 422
+    assert client.get(BASE, params={"moneda": "EUR"}, headers=sell_out).status_code == 422
 
 
 def test_the_note_is_bounded(client, productos, sell_out) -> None:
