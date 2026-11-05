@@ -1,0 +1,222 @@
+/* One line of the Nuevo tactical grid (approved OpenDesign screen). The columns come from the table's `--cols`. */
+
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--cols);
+  gap: 10px;
+  align-items: start;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--cf-border-default);
+}
+
+.row:hover {
+  background: var(--cf-bg-hover);
+}
+
+.idx {
+  padding-top: 5px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-tertiary);
+}
+
+.includes {
+  position: relative;
+  padding-top: 1px;
+}
+
+.field {
+  display: grid;
+  gap: 3px;
+}
+
+.select {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: var(--font-sm);
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.help {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 4px 3px 8px;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+  background: var(--cf-bg-hover);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.chipText {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipFactura .chipText {
+  max-width: 100%;
+  font-family: var(--font-mono);
+}
+
+.chipX {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+}
+
+.chipX:hover {
+  color: var(--tone-danger-fg);
+  background: var(--cf-bg-card);
+}
+
+.add {
+  min-height: 26px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: var(--font-xs);
+  color: var(--brand-primary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px dashed var(--tone-info-border);
+  border-radius: var(--radius-md);
+}
+
+.add:hover {
+  background: var(--tone-info-bg);
+  border-style: solid;
+}
+
+.monto {
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+}
+
+.num {
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 7px;
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+  text-align: right;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  appearance: textfield;
+}
+
+.num::-webkit-outer-spin-button,
+.num::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.num:hover {
+  background: var(--cf-bg-card);
+  border-color: var(--cf-border-strong);
+}
+
+.num:focus {
+  outline: none;
+  background: var(--cf-bg-card);
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px var(--tone-info-bg);
+}
+
+.pill {
+  min-height: 24px;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--cf-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  background: var(--cf-bg-card);
+  border: 1px solid var(--cf-border-strong);
+  border-radius: 999px;
+}
+
+.pill:disabled {
+  color: var(--cf-text-tertiary);
+  cursor: default;
+  background: var(--cf-bg-hover);
+}
+
+.pillShared {
+  color: var(--tone-info-fg);
+  background: var(--tone-info-bg);
+  border-color: var(--tone-info-border);
+}
+
+.max {
+  padding-top: 6px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-tertiary);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--cf-text-tertiary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+}
+
+.icon:hover {
+  color: var(--cf-text-primary);
+  background: var(--cf-bg-card);
+  border-color: var(--cf-border-default);
+}
+
+.iconDanger:hover {
+  color: var(--tone-danger-fg);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
+}

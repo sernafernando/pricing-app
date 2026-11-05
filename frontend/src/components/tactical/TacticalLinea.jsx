@@ -1,0 +1,283 @@
+/**
+ * TacticalLinea — one line of the Nuevo tactical grid, as the approved design draws it: its scope (Productos | Marca |
+ * Categoría, and Factura on sell in), what it includes (product or invoice chips with their picker, or a brand or
+ * category), its amount and kind, its unit and money caps, whether several products share the cap, what it can
+ * charge at most, and copy / delete.
+ */
+import { Copy, Trash2, X } from 'lucide-react';
+import TacticalPicker from './TacticalPicker';
+import { tacticalsAPI } from '../../services/tacticalsAPI';
+import {
+  alcancesDe,
+  conAlcance,
+  dinero,
+  esCompartida,
+  maximoACobrar,
+  modosDe,
+  modosNoDisponibles,
+  puedeCompartir,
+} from './tacticalLineas';
+import Seg from './Seg';
+import styles from './TacticalLinea.module.css';
+
+const ALCANCES = { productos: 'Productos', marca: 'Marca', categoria: 'Categoría', factura: 'Factura' };
+const MODOS = { por_unidad: 'por unidad', porcentaje: '%', monto_total: 'monto total' };
+
+const dia = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
+const numeroFactura = (f) => f.numero_factura || f.numero;
+
+const PRODUCTOS = {
+  titulo: 'Agregar productos a la línea',
+  buscarLabel: 'Buscar productos',
+  placeholder: 'Buscar por código o descripción',
+  vacio: 'No hay productos para',
+  minimo: 2,
+  buscar: tacticalsAPI.buscarProductos,
+  claveDe: (p) => p.item_id,
+  fila: (p) => ({
+    codigo: p.codigo,
+    descripcion: p.descripcion,
+    meta: `Marca ${p.marca || '—'} · ${p.categoria || '—'}`,
+  }),
+  singular: 'seleccionado',
+  plural: 'seleccionados',
+};
+
+const FACTURAS = {
+  titulo: 'Agregar facturas a la línea',
+  buscarLabel: 'Buscar facturas',
+  placeholder: 'Buscar por número, proveedor o fecha',
+  nota: 'El monto se reparte entre los productos de la factura según lo facturado.',
+  vacio: 'No hay facturas para',
+  minimo: 0,
+  buscar: tacticalsAPI.buscarFacturas,
+  claveDe: (f) => f.id,
+  fila: (f) => ({
+    codigo: numeroFactura(f),
+    descripcion: f.proveedor_nombre || `Proveedor ${f.proveedor_id}`,
+    meta: `${dia(f.fecha)} · Operación ${f.numero}`,
+    importe: dinero(f.moneda, Number(f.monto)),
+  }),
+  singular: 'seleccionada',
+  plural: 'seleccionadas',
+};
+
+function Incluye({ linea, marcas, categorias, abierto, onAbrir, onCerrar, cambiar }) {
+  if (linea.alcance === 'marca' || linea.alcance === 'categoria') {
+    const marca = linea.alcance === 'marca';
+    const opciones = marca ? marcas : categorias;
+    const valor = marca ? linea.marca : linea.categoria;
+    return (
+      <div className={styles.field}>
+        <select
+          className={styles.select}
+          aria-label={marca ? 'Marca de la línea' : 'Categoría de la línea'}
+          value={valor}
+          onChange={(e) => cambiar({ [marca ? 'marca' : 'categoria']: e.target.value })}
+        >
+          <option value="">{marca ? 'Elegí una marca' : 'Elegí una categoría'}</option>
+          {valor && !opciones.includes(valor) && <option value={valor}>{valor}</option>}
+          {opciones.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+        <span className={styles.help}>
+          {marca ? 'Aplica a todos los productos de la marca.' : 'Aplica a todos los productos de la categoría.'}
+        </span>
+      </div>
+    );
+  }
+  const facturas = linea.alcance === 'factura';
+  const config = facturas ? FACTURAS : PRODUCTOS;
+  const items = facturas ? linea.facturas : linea.productos;
+  const quitar = (clave) =>
+    cambiar(
+      facturas
+        ? { facturas: linea.facturas.filter((f) => f.id !== clave) }
+        : { productos: linea.productos.filter((p) => p.item_id !== clave) },
+    );
+  return (
+    <div className={styles.chips}>
+      {items.map((item) => {
+        const texto = facturas
+          ? `${numeroFactura(item)} · ${item.proveedor_nombre || item.proveedor_id} · ${dia(item.fecha)}`
+          : item.descripcion;
+        const nombre = facturas ? numeroFactura(item) : item.descripcion;
+        return (
+          <span key={config.claveDe(item)} className={`${styles.chip} ${facturas ? styles.chipFactura : ''}`}>
+            <span className={styles.chipText} title={texto}>
+              {texto}
+            </span>
+            <button
+              type="button"
+              className={styles.chipX}
+              aria-label={`Quitar ${nombre}`}
+              onClick={() => quitar(config.claveDe(item))}
+            >
+              <X size={10} aria-hidden="true" />
+            </button>
+          </span>
+        );
+      })}
+      <button
+        type="button"
+        className={styles.add}
+        aria-expanded={abierto}
+        // The picker closes on a mousedown outside it; this button toggles it itself, so it keeps that event.
+        onMouseDown={(e) => abierto && e.stopPropagation()}
+        onClick={abierto ? onCerrar : onAbrir}
+      >
+        {facturas ? '+ Factura' : '+ Producto'}
+      </button>
+      {abierto && (
+        <TacticalPicker
+          {...config}
+          inicial={items}
+          onCerrar={onCerrar}
+          onAgregar={(elegidos) => {
+            // The picker opens with the line's items checked: what is checked when it adds is the line.
+            cambiar(facturas ? { facturas: elegidos } : { productos: elegidos });
+            onCerrar();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+export default function TacticalLinea({
+  linea,
+  n,
+  tipo,
+  moneda,
+  marcas,
+  categorias,
+  abierto,
+  onAbrir,
+  onCerrar,
+  onCambiar,
+  onDuplicar,
+  onEliminar,
+}) {
+  const cambiar = (cambios) => onCambiar({ ...linea, ...cambios });
+  const max = maximoACobrar(linea);
+  const compartible = puedeCompartir(linea);
+  const compartida = esCompartida(linea);
+
+  return (
+    <div className={styles.row} role="group" aria-label={`Línea ${n}`}>
+      <div className={styles.idx}>{n}</div>
+
+      <div>
+        <Seg
+          size="xs"
+          label={`Alcance de la línea ${n}`}
+          options={alcancesDe(tipo).map((value) => ({ value, label: ALCANCES[value] }))}
+          value={linea.alcance}
+          onChange={(alcance) => {
+            if (abierto) onCerrar();
+            onCambiar(conAlcance(linea, alcance));
+          }}
+        />
+      </div>
+
+      <div className={styles.includes}>
+        <Incluye
+          linea={linea}
+          marcas={marcas}
+          categorias={categorias}
+          abierto={abierto}
+          onAbrir={onAbrir}
+          onCerrar={onCerrar}
+          cambiar={cambiar}
+        />
+      </div>
+
+      {/* Amounts and caps are text read as typed in Argentina ("3000,5", "1.500"): a number input would read the dot
+          as a decimal point. */}
+      <div className={styles.monto}>
+        <input
+          className={styles.num}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          placeholder="—"
+          aria-label={`Monto de la línea ${n}`}
+          value={linea.monto}
+          onChange={(e) => cambiar({ monto: e.target.value })}
+        />
+        <Seg
+          size="xxs"
+          label={`Unidad del monto, línea ${n}`}
+          options={modosDe(tipo).map((value) => ({ value, label: MODOS[value] }))}
+          value={linea.modo}
+          disabled={modosNoDisponibles(tipo, linea.alcance)}
+          onChange={(modo) => cambiar({ modo })}
+        />
+      </div>
+
+      <div>
+        <input
+          className={styles.num}
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          placeholder="—"
+          aria-label={`Tope de unidades, línea ${n}`}
+          value={linea.topeUnidades}
+          onChange={(e) => cambiar({ topeUnidades: e.target.value })}
+        />
+      </div>
+
+      <div>
+        <input
+          className={styles.num}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          placeholder="—"
+          aria-label={`Tope de monto en ${moneda}, línea ${n}`}
+          value={linea.topeMonto}
+          onChange={(e) => cambiar({ topeMonto: e.target.value })}
+        />
+      </div>
+
+      <div>
+        {linea.alcance !== 'factura' && (
+          <button
+            type="button"
+            className={`${styles.pill} ${compartida ? styles.pillShared : ''}`}
+            disabled={!compartible}
+            title={
+              compartible
+                ? 'Por producto: cada producto de la línea tiene sus propios topes. Compartido: un solo tope para todos.'
+                : 'Se puede compartir el tope cuando la línea tiene más de un producto.'
+            }
+            onClick={() => cambiar({ compartido: !compartida })}
+          >
+            {compartida ? 'Compartido' : 'Por producto'}
+          </button>
+        )}
+      </div>
+
+      <div className={styles.max}>{max != null ? dinero(moneda, max) : '—'}</div>
+
+      <div className={styles.actions}>
+        <button type="button" className={styles.icon} title="Duplicar línea" aria-label={`Duplicar línea ${n}`} onClick={onDuplicar}>
+          <Copy size={15} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className={`${styles.icon} ${styles.iconDanger}`}
+          title="Eliminar línea"
+          aria-label={`Eliminar línea ${n}`}
+          onClick={onEliminar}
+        >
+          <Trash2 size={15} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
