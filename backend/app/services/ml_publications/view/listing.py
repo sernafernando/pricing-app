@@ -126,7 +126,8 @@ FACET_AXES = AXES
 FACET_MAX_BRANDS = 100
 AXIS_TOTAL = "__axis_total__"  # the label of a flag axis' every-row count, never a flag name
 DEFAULT_LIMIT = 50
-# Room for Productos' "Todos" page (9999 rows): the list stays bounded by STATEMENT_TIMEOUT.
+# One request's most rows. "Todos" is never one request: the page asks its rows 500 at a time until the list's total,
+# however many (filas-sin-limite S1), so each request stays well within STATEMENT_TIMEOUT.
 MAX_LIMIT = 10_000
 
 

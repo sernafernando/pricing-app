@@ -141,6 +141,23 @@ describe('"Todos" in parts of 500 (filtros S4)', () => {
     expect(publicacionesMlAPI.products).toHaveBeenCalledTimes(3);
   });
 
+  it('has no 9999 cap: the parts go on until the whole total', async () => {
+    publicacionesMlAPI.products.mockImplementation((params) =>
+      Promise.resolve({ data: productsResponse(part(params.offset), { total: 10600, mla_count: 12000 }) }),
+    );
+    const { result } = setupAll();
+    await waitFor(() => expect(result.current.total).toBe(10600));
+    for (let i = 1; i < 22; i += 1) {
+      act(() => result.current.loadMoreProducts());
+      await waitFor(() => expect(productCalls()).toHaveLength(i + 1));
+      await waitFor(() => expect(labels(result)).toHaveLength(3 * (i + 1)));
+    }
+    expect(productCalls()[20]).toMatchObject({ offset: 10000, limit: 500 });
+    expect(productCalls()[21]).toMatchObject({ offset: 10500, limit: 100 });
+    act(() => result.current.loadMoreProducts());
+    expect(publicacionesMlAPI.products).toHaveBeenCalledTimes(22);
+  });
+
   it('a filter change starts again at offset 0, and a part of the previous list is never appended', async () => {
     const stale = deferred();
     publicacionesMlAPI.products.mockImplementation((params) =>

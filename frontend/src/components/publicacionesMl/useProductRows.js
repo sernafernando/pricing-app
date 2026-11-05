@@ -122,7 +122,7 @@ export default function useProductRows({ filters, pageSize, canSeeSales = false,
           // The page is the whole branch: the pager, not "Ver más", moves through the products. With "Todos" a
           // part is appended, and `next` / `end` say what `loadMoreProducts` asks next and where the page ends.
           if (offset === 0 && lazy) {
-            latestEnd.current = Math.min(ALL_ROWS, Math.max(0, (response.data?.total ?? 0) - productsParams.offset));
+            latestEnd.current = Math.max(0, (response.data?.total ?? 0) - productsParams.offset);
           }
           setBranches((all) => {
             const merged = offset === 0 ? rows : appendPage(all[key].rows, rows, (row) => row.key);

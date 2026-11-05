@@ -80,6 +80,7 @@ import {
   LAZY_CHUNK,
   PAGE_SIZE,
   PAGE_SIZES,
+  pageOffset,
   pageSizeLabel,
   PRICE_MODES,
   SIN_MLA,
@@ -373,8 +374,8 @@ export default function PublicacionesML() {
         if (request !== latestRequest.current) return;
         setData(response.data);
         if (lazy) {
-          // The page's rows: up to "Todos" from its offset, never past the list's total.
-          const end = asked.offset + Math.min(ALL_ROWS, Math.max(0, (response.data.total ?? 0) - asked.offset));
+          // "Todos" ends at the list's total, however many rows that is (filas-sin-limite S1).
+          const end = Math.max(asked.offset, response.data.total ?? 0);
           parts.current = { request, params: asked, next: asked.offset + asked.limit, end, busy: false };
         }
         // A new list (page, sort, filter) starts with every row collapsed.
@@ -837,7 +838,7 @@ export default function PublicacionesML() {
   });
   const total = producto ? productRows.total : (data?.total ?? 0);
   const unit = producto ? 'productos' : 'publicaciones';
-  const offset = (filters.pagina - 1) * pageSize;
+  const offset = pageOffset(filters.pagina, pageSize);
   const emptyMessage = data?.data_state?.store_empty
     ? 'Todavía no hay publicaciones sincronizadas'
     : hasActiveFilters
@@ -1288,9 +1289,11 @@ export default function PublicacionesML() {
                 pageSize={pageSize}
                 pageSizeOptions={PAGE_SIZES}
                 pageSizeLabel={pageSizeLabel}
+                allRowsSize={ALL_ROWS}
                 summary={
                   <span>
-                    mostrando {total === 0 ? 0 : offset + 1}-{Math.min(offset + pageSize, total)} de {total} {unit}
+                    mostrando {total === 0 ? 0 : offset + 1}-{pageSize === ALL_ROWS ? total : Math.min(offset + pageSize, total)}{' '}
+                    de {total} {unit}
                   </span>
                 }
                 onOffsetChange={(next) => setFilters({ pagina: Math.floor(next / pageSize) + 1 })}

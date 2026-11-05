@@ -25,14 +25,17 @@ import { COLORES_DISPONIBLES } from '../utils/productosConstants';
  *    the dimension the tree is grouped by (`AGRUPAR_DIMENSIONS`, default marca).
  */
 export const PAGE_SIZE = 50;
-// Productos' sizes, 9999 being its "Todos" (the backend caps `limit` at 10000).
+// Productos' sizes, 9999 being its "Todos": only the URL token of every row, never a cap (filas-sin-limite S1).
 export const ALL_ROWS = 9999;
-// "Todos" is not asked in one request: its rows come LAZY_CHUNK at a time as the list scrolls to its end (filtros S4).
+// "Todos" is not asked in one request: its rows come LAZY_CHUNK at a time as the list scrolls, until the list's total
+// (filtros S4); it is one page, so it always starts at the first row.
 export const LAZY_CHUNK = 500;
 export const PAGE_SIZES = [25, 50, 100, 200, 500, ALL_ROWS];
 // The tables render only the rows in view past this many (the 200, 500 and Todos pages), like Envíos Flex.
 export const VIRTUALIZE_FROM = 100;
 export const pageSizeLabel = (size) => (size === ALL_ROWS ? 'Todos' : String(size));
+// The page's first row: "Todos" is a single page, so a page number (an old link's) never moves it.
+export const pageOffset = (pagina, pageSize) => (pageSize === ALL_ROWS ? 0 : (pagina - 1) * pageSize);
 
 const CSV_KEYS = [
   'estado',
@@ -426,7 +429,7 @@ export function buildItemsParams(
   if (filters.hay_mejores_ofertas === '1') params.hay_mejores_ofertas = true;
   if (filters.equipo) params.equipo_id = filters.equipo;
   params.limit = pageSize;
-  params.offset = (filters.pagina - 1) * pageSize;
+  params.offset = pageOffset(filters.pagina, pageSize);
   return params;
 }
 

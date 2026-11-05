@@ -759,6 +759,30 @@ describe('"Todos" in parts of 500 as the list scrolls (filtros S4)', () => {
     expect(all).not.toBeChecked();
   });
 
+  it('has no 9999 cap: the parts go on until the whole total, in one page with no pager pages', async () => {
+    // Past the first part, two rows each: enough to see every part appended, light enough for jsdom.
+    publicacionesMlAPI.items.mockImplementation((params) => {
+      const { data } = answer(params);
+      return Promise.resolve({ data: { ...data, total: 10600, items: params.offset ? data.items.slice(0, 2) : data.items } });
+    });
+    await page('/ml-publicaciones?limite=9999');
+    await waitFor(() => expect(calls()).toHaveLength(22), { timeout: 10000 });
+    expect(calls()[20]).toMatchObject({ offset: 10000, limit: 500 });
+    expect(calls()[21]).toMatchObject({ offset: 10500, limit: 100 });
+    expect(await screen.findByText('MLA1300010500')).toBeInTheDocument();
+    expect(screen.getByText('mostrando 1-10600 de 10600 publicaciones')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Página 2' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Siguiente' })).toBeDisabled();
+    await act(async () => {});
+    expect(calls()).toHaveLength(22);
+  });
+
+  it('a page number from an old "Todos" link is ignored: the list starts at its first row', async () => {
+    await page('/ml-publicaciones?limite=9999&pagina=2');
+    await waitFor(() => expect(calls().length).toBeGreaterThan(0));
+    expect(calls()[0]).toMatchObject({ limit: 500, offset: 0 });
+  });
+
   it.each([50, 500])('a page of %i still asks one request of that size', async (size) => {
     await page(`/ml-publicaciones?limite=${size}`);
     await act(async () => {});
