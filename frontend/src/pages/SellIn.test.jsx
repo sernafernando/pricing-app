@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation, useSearchParams } from 'react-router-dom';
 import { renderWithRouter } from '../test/renderWithRouter';
 import { productosAPI } from '../services/api';
-import { sellInAPI, sellInBonosAPI } from '../services/sellInAPI';
+import { sellInAPI, sellInBonosAPI, sellInLotesAPI } from '../services/sellInAPI';
 import { ALCANCE, BONO, BONOS_LISTA, COMPRA_BONO, LISTA, PRODUCTOS, RESUMEN } from '../components/sellIn/sellInFixtures';
 import { sellOutAPI, sellOutProgramasAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
@@ -62,6 +62,13 @@ vi.mock('../services/sellInAPI', () => ({
     editar: vi.fn(),
     anular: vi.fn(),
     anularMasivo: vi.fn(),
+  },
+  sellInLotesAPI: {
+    productos: vi.fn(),
+    lotes: vi.fn(),
+    consumos: vi.fn(),
+    modos: vi.fn(),
+    modoPorDefecto: vi.fn(),
   },
 }));
 
@@ -1762,5 +1769,63 @@ describe('SellIn page — Tacticals tab', () => {
     renderWithRouter(<SellIn />);
 
     expect(await screen.findByRole('tab', { name: 'Tacticals · —' })).toBeInTheDocument();
+  });
+});
+
+// F3: the approved cost-mode design's list, "Costo de sell in por producto. Entrá a un producto para ver sus lotes y
+// su modo de costo."
+describe('SellIn page — Productos tab', () => {
+  const PRODUCTO = {
+    item_id: 4512,
+    codigo: 'TPL-AX55',
+    descripcion: 'Router TP-Link Archer AX55',
+    modo: 'ponderado',
+    unidades: 200,
+    sell_in_unit: '5472.000000',
+    ultima_compra: '2026-11-02',
+  };
+
+  beforeEach(() => {
+    sellInLotesAPI.productos.mockResolvedValue({ data: { productos: [PRODUCTO] } });
+    sellInLotesAPI.lotes.mockResolvedValue({
+      data: { item_id: 4512, lotes: [], proxima: null, bono_costo: null, compra_visible: false },
+    });
+    sellInLotesAPI.modos.mockResolvedValue({ data: { item_id: 4512, vigente: null, historial: [] } });
+    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'fifo' } });
+  });
+
+  it('lists the products with their cost mode and a row opens its lots and cost mode', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <>
+        <SellIn />
+        <Ubicacion />
+      </>,
+    );
+
+    await user.click(await screen.findByRole('tab', { name: 'Productos' }));
+
+    const panel = screen.getByRole('tabpanel', { name: 'Productos' });
+    const tabla = await within(panel).findByRole('table', { name: 'Productos con lotes de sell in' });
+    expect(within(tabla).getByText('Ponderado (PPP)')).toBeInTheDocument();
+    expect(screen.getByTestId('ubicacion')).toHaveTextContent('tab=productos');
+
+    await user.click(within(tabla).getByRole('button', { name: 'Ver lotes y modo de costo de Router TP-Link Archer AX55' }));
+
+    expect(await screen.findByRole('heading', { name: 'Costo de sell in · Router TP-Link Archer AX55' })).toBeInTheDocument();
+    expect(screen.getByText('TPL-AX55 · 200 unidades en stock')).toBeInTheDocument();
+    expect(sellInLotesAPI.lotes).toHaveBeenCalledWith(4512);
+  });
+
+  it('needs a permission that shows products: without one there is no Productos tab', async () => {
+    const VER_PRODUCTO = ['productos.ver', 'productos.editar_precio_clasica', 'productos.editar_precio_cuotas',
+      'productos.toggle_rebate', 'productos.toggle_web_transferencia', 'tienda.editar_precio_gremio',
+      'tienda.editar_precio_web_transf'];
+    mockTienePermiso.mockImplementation((codigo) => !VER_PRODUCTO.includes(codigo));
+    renderWithRouter(<SellIn />);
+
+    expect(await screen.findByRole('tab', { name: /^Sell in/ })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Productos' })).not.toBeInTheDocument();
+    expect(sellInLotesAPI.productos).not.toHaveBeenCalled();
   });
 });

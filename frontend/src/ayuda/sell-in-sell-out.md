@@ -2,11 +2,11 @@
 
 Área: Productos
 Ruta: Productos → Sell in / Sell out
-Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Sell out pide además sell_out.ver, y la pestaña Grupos, grupos.ver; crear, editar y borrar grupos pide además el permiso de edición de constantes: config.editar_constantes).
+Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Sell out pide además sell_out.ver, y la pestaña Grupos, grupos.ver; la pestaña Productos pide además poder ver productos (productos.ver o un permiso de edición de precios); crear, editar y borrar grupos pide además el permiso de edición de constantes: config.editar_constantes).
 
 ## Para qué sirve
 
-Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene cuatro pestañas: **Sell in**, **Sell out**, **Tacticals** (los programas de las marcas, filtrables por marca) y **Grupos** (los grupos de productos que alcanzan las campañas).
+Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene cinco pestañas: **Sell in**, **Sell out**, **Tacticals** (los programas de las marcas, filtrables por marca), **Grupos** (los grupos de productos que alcanzan las campañas) y **Productos** (el modo de costo de cada producto con lotes).
 
 ## Cómo se usa
 
@@ -86,6 +86,12 @@ Cada venta toma las unidades del lote más viejo que todavía tiene (orden FIFO)
 - **Ver ventas** en un lote muestra las ventas que lo consumieron (canal, venta, fecha, unidades y descuento); **Ver más ventas** trae las siguientes.
 
 Los lotes son solo lectura. Debajo está la sección **Modo de costo**.
+
+### Pestaña Productos
+
+La pestaña **Productos** lista cada producto que todavía tiene unidades en lotes de sell in, con su **Modo de costo** (**FIFO (por defecto)** si nunca se cambió), las **Unidades** que le quedan en los lotes, el **Sell in por unidad** que se lleva la próxima venta (el mismo valor que muestra el visor de lotes; "—" si ningún lote cuenta todavía) y la fecha de su **Últ. compra**. Abajo está el total de unidades.
+
+Tocá el nombre de un producto para abrir su **Costo de sell in**: sus lotes y la sección **Modo de costo**, donde se cambia el modo. Al confirmar un cambio, la lista se actualiza sola.
 
 ### Modo de costo de un producto
 
@@ -194,7 +200,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
 
 ## Filtros y columnas
 
-Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicación, tipo (los bonos de marca siguen fechas, búsqueda, marca, moneda y estado). Sell out: período, nombre, estado, tipo, moneda, marca, grupo y programa. Tacticals: tipo, marca, estado, vigencia y búsqueda. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan.
+Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicación, tipo (los bonos de marca siguen fechas, búsqueda, marca, moneda y estado). Sell out: período, nombre, estado, tipo, moneda, marca, grupo y programa. Tacticals: tipo, marca, estado, vigencia y búsqueda. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: producto, modo de costo, unidades, sell in por unidad y última compra.
 
 ## Botones y acciones
 
