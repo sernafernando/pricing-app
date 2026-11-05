@@ -48,8 +48,11 @@ function QueIncluye({ linea }) {
   );
 }
 
+/** The loaded order: by `linea` (the POSTed line; a per-product line's children share it), then by child id. */
+const enOrden = (lineas) => [...lineas].sort((x, y) => (x.linea ?? 0) - (y.linea ?? 0) || x.id - y.id);
+
 function Lineas({ tactical }) {
-  const { lineas } = tactical;
+  const lineas = enOrden(tactical.lineas);
   return (
     <div className={styles.sub}>
       <p className={styles.subTitulo}>Líneas del tactical ({lineas.length})</p>

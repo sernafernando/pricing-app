@@ -7,7 +7,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TacticalFila from './TacticalFila';
-import { TACTICAL_BPS, TACTICAL_REBATE } from './tacticalsFixtures';
+import { TACTICAL_BPS, TACTICAL_REBATE, lineaDeProducto } from './tacticalsFixtures';
 
 const BPS = TACTICAL_BPS;
 const REBATE = TACTICAL_REBATE;
@@ -122,5 +122,23 @@ describe('TacticalFila missing values', () => {
     const linea = screen.getByText('Marca HP').closest('tr');
     expect(within(linea).getAllByRole('cell')[2]).toHaveTextContent('—');
     expect(within(linea).getByRole('img', { name: '25% del tope de monto' })).toBeInTheDocument();
+  });
+});
+
+describe('TacticalFila line order', () => {
+  it('lists the lines in the order they were loaded: by linea, then by child', async () => {
+    const desordenado = {
+      ...BPS,
+      lineas: [
+        lineaDeProducto(30, 301, 'C', 'Producto C', 10, 5, 1, 2),
+        lineaDeProducto(21, 302, 'B', 'Producto B', 10, 5, 1, 1),
+        lineaDeProducto(20, 303, 'A', 'Producto A', 10, 5, 1, 1),
+      ],
+    };
+    renderFilas([desordenado]);
+    await userEvent.click(screen.getByRole('button', { name: `Ver las líneas de ${BPS.nombre}` }));
+
+    const productos = screen.getAllByText(/^Producto [ABC]$/).map((chip) => chip.textContent);
+    expect(productos).toEqual(['Producto A', 'Producto B', 'Producto C']);
   });
 });
