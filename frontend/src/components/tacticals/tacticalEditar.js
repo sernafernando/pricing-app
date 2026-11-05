@@ -11,7 +11,7 @@ const texto = (v) => (vacio(v) ? '' : String(Number(v)).replace('.', ','));
 function tituloDe(hijos) {
   const [primero] = hijos;
   if (primero.alcance !== 'productos') return alcanceDe(primero).titulo;
-  const productos = hijos.reduce((n, h) => n + h.productos.length, 0);
+  const productos = hijos.reduce((n, h) => n + (h.productos ?? []).length, 0);
   const nombre = productos === 1 ? '1 producto' : `${productos} productos`;
   if (hijos.length > 1) return `${nombre}, cada uno con su tope`;
   return productos > 1 ? `${nombre} con un tope compartido` : nombre;

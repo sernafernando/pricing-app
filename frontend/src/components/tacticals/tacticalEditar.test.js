@@ -10,11 +10,17 @@ describe('valoresDeEdicion', () => {
   it("one row per line with its caps and the most any of its children already used", () => {
     const valores = valoresDeEdicion({ ...TACTICAL_BPS, nota: 'Por mail' });
 
-    expect((({ lineas, ...v }) => v)(valores)).toEqual({ nombre: 'Tacticals BPS Noviembre Q1FY27', nota: 'Por mail', fechaHasta: '2026-11-30' });
+    expect({ ...valores, lineas: undefined }).toEqual({ nombre: 'Tacticals BPS Noviembre Q1FY27', nota: 'Por mail', fechaHasta: '2026-11-30' });
     expect(valores.lineas).toEqual([
       { linea: 1, titulo: '2 productos, cada uno con su tope', topeUnidades: '90', topeMonto: '', usadas: 62, usado: 12760, moneda: 'USD', admiteTopes: true },
       { linea: 2, titulo: '2 productos con un tope compartido', topeUnidades: '300', topeMonto: '3000', usadas: 132, usado: 1584, moneda: 'USD', admiteTopes: true },
     ]);
+  });
+
+  it('a product line that comes without its products still opens', () => {
+    const tactical = { ...TACTICAL_REBATE, lineas: [{ ...TACTICAL_REBATE.lineas[0], alcance: 'productos', productos: null }] };
+
+    expect(valoresDeEdicion(tactical).lineas[0].titulo).toBe('0 productos');
   });
 
   it('a monto total line takes no caps', () => {
