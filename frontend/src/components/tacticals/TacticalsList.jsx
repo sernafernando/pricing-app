@@ -28,17 +28,20 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
   const [filtros, setFiltros] = useState(FILTROS_VACIOS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(FILAS_POR_PAGINA);
-  const [datos, setDatos] = useState(null);
+  // The last answer with the query it answers: a new query shows the loading message until its own answer arrives.
+  const [respuesta, setRespuesta] = useState(null);
   const [error, setError] = useState(false);
   const [abiertos, setAbiertos] = useState(() => new Set());
 
-  const clave = JSON.stringify(paramsDeFiltros(filtros, { page: Math.floor(offset / pageSize) + 1, pageSize }));
+  const claveDe = (f, desde) => JSON.stringify(paramsDeFiltros(f, { page: Math.floor(desde / pageSize) + 1, pageSize }));
+  const clave = claveDe(filtros, offset);
+  const datos = respuesta?.clave === clave ? respuesta.data : null;
   useEffect(() => {
     let activo = true;
     setError(false);
     tacticalsAPI
       .listar(JSON.parse(clave))
-      .then(({ data }) => activo && setDatos(data))
+      .then(({ data }) => activo && setRespuesta({ clave, data }))
       .catch(() => activo && setError(true));
     return () => {
       activo = false;
@@ -52,11 +55,13 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
     if (fueraDeRango) setOffset(Math.max(0, (Math.ceil(datos.total / pageSize) - 1) * pageSize));
   }, [fueraDeRango, datos, pageSize]);
 
-  // New filters are a new list: say it is loading rather than keep the previous rows, and start with every row closed.
+  // Filters that ask something new start a new list on its first page with every row closed; a change that leaves the
+  // same query (a trailing space in Buscar, Limpiar on clean filters) keeps the list as it is.
   const filtrar = (cambio) => {
-    setFiltros((actual) => ({ ...actual, ...cambio }));
+    const nuevos = { ...filtros, ...cambio };
+    setFiltros(nuevos);
+    if (claveDe(nuevos, 0) === clave) return;
     setOffset(0);
-    setDatos(null);
     setAbiertos(new Set());
   };
   const alternar = (id) =>
@@ -159,7 +164,7 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
             pageSizeOptions={[25, 50, 100]}
             summary={
               <span className={styles.cuenta}>
-                mostrando {datos.total === 0 ? 0 : offset + 1}-{Math.min(offset + pageSize, datos.total)} de {datos.total}
+                mostrando {Math.min(offset + 1, datos.total)}-{Math.min(offset + pageSize, datos.total)} de {datos.total}
               </span>
             }
           />

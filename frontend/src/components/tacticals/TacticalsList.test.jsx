@@ -81,6 +81,23 @@ describe('TacticalsList filters', () => {
     expect(screen.getByLabelText('Marca')).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Vigentes' })).toHaveAttribute('aria-pressed', 'true');
   });
+
+  it('a filter change that leaves the same query keeps the list and its open rows', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+    const buscar = screen.getByRole('searchbox', { name: 'Buscar por nombre o referencia' });
+    await screen.findByText('Tacticals BPS Noviembre Q1FY27');
+    await userEvent.type(buscar, 'bps');
+    await waitFor(() => expect(ultimaConsulta()).toMatchObject({ q: 'bps' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver las líneas de Tacticals BPS Noviembre Q1FY27' }));
+    const pedidos = tacticalsAPI.listar.mock.calls.length;
+
+    await userEvent.type(buscar, ' ');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(screen.queryByText('Cargando tacticals…')).not.toBeInTheDocument();
+    expect(screen.getByText('Líneas del tactical (3)')).toBeInTheDocument();
+    expect(tacticalsAPI.listar).toHaveBeenCalledTimes(pedidos);
+  });
 });
 
 describe('TacticalsList paging', () => {
@@ -118,8 +135,9 @@ describe('TacticalsList paging', () => {
     tacticalsAPI.listar.mockResolvedValue({ data: pagina([], 0) });
     rerender(<TacticalsList marcas={MARCAS} version={1} />);
 
-    expect(await screen.findByText('No hay tacticals con estos filtros.')).toBeInTheDocument();
     await waitFor(() => expect(ultimaConsulta()).toMatchObject({ page: 1, page_size: 25 }));
+    expect(await screen.findByText('mostrando 0-0 de 0')).toBeInTheDocument();
+    expect(screen.getByText('No hay tacticals con estos filtros.')).toBeInTheDocument();
   });
 });
 
