@@ -32,15 +32,8 @@
 }
 
 .select {
-  width: 100%;
+  composes: select from '../../styles/forms-tesla.css';
   min-height: 32px;
-  padding: 6px 9px;
-  font: inherit;
-  font-size: var(--font-sm);
-  color: var(--cf-text-primary);
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-strong);
-  border-radius: var(--radius-md);
 }
 
 .help {
