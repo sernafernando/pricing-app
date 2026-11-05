@@ -11,7 +11,8 @@ const DIAS_AVISO = 7;
 const AVISO_PORCENTAJE = 90;
 const MS_DIA = 24 * 60 * 60 * 1000;
 
-const vacio = (value) => value === null || value === undefined || value === '';
+/** No value: null, undefined or an empty string (decimals come as strings). */
+export const vacio = (value) => value === null || value === undefined || value === '';
 const redondear = (n) => Math.round(n * 10) / 10;
 
 /** `USD 3.000`, `ARS 1.240.000`: the tactical's currency code, es-AR thousands, no forced decimals. */
