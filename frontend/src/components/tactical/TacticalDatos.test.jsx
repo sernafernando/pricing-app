@@ -83,6 +83,13 @@ describe('TacticalDatos', () => {
     });
   });
 
+  it('caps the texts at what the contract accepts', () => {
+    render(<Holder />);
+    expect(screen.getByLabelText('Nombre')).toHaveAttribute('maxLength', '200');
+    expect(screen.getByLabelText('Referencia de la marca')).toHaveAttribute('maxLength', '200');
+    expect(screen.getByLabelText('Nota')).toHaveAttribute('maxLength', '2000');
+  });
+
   it('asks the exchange-rate mode only in USD, and the value only for a fixed rate', async () => {
     const user = userEvent.setup();
     const onForm = vi.fn();

@@ -53,7 +53,7 @@ export default function TacticalDatos({ form, onChange, onTipo, tiposNoDisponibl
               Nombre <span className={styles.req} aria-hidden="true">*</span>
             </label>
             <input id="tactical-nombre"
-              aria-label="Nombre" className={styles.ctl} type="text" value={form.nombre} onChange={campo('nombre')} />
+              aria-label="Nombre" className={styles.ctl} type="text" maxLength={200} value={form.nombre} onChange={campo('nombre')} />
           </div>
           <div className={styles.field}>
             <label htmlFor="tactical-marca">
@@ -87,6 +87,7 @@ export default function TacticalDatos({ form, onChange, onTipo, tiposNoDisponibl
               aria-label="Referencia de la marca"
               className={styles.ctl}
               type="text"
+              maxLength={200}
               value={form.referencia}
               onChange={campo('referencia')}
             />
@@ -179,6 +180,7 @@ export default function TacticalDatos({ form, onChange, onTipo, tiposNoDisponibl
               aria-label="Nota"
               className={styles.ctl}
               placeholder="Condiciones acordadas con la marca, contacto, número de acuerdo…"
+              maxLength={2000}
               value={form.nota}
               onChange={campo('nota')}
             />
