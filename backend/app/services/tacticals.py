@@ -50,7 +50,7 @@ from app.models.tactical import Tactical
 from app.schemas.sell_in import SellInCompraCreate, SellInLineaIn
 from app.schemas.sell_in_bonos import BASE_COSTO_VENTA, BASE_FACTURA, SellInBonoIn
 from app.schemas.sell_out import SellOutCampanaIn
-from app.schemas.tacticals import HIJOS_MAX, TacticalIn, TacticalLineaIn
+from app.schemas.tacticals import HIJOS_MAX, TacticalEditarIn, TacticalIn, TacticalLineaIn, TacticalLineaTopesIn
 from app.services.sell_in import bonos_crud, compras
 from app.services.sell_in.compras import contiene
 from app.services.sell_out import campanas
@@ -80,13 +80,20 @@ def _fecha(d: date) -> str:
     return d.strftime("%d/%m/%Y")
 
 
-def _audit(db: Session, tipo: TipoAccion, usuario_id: int, valores: dict, motivo: Optional[str] = None) -> None:
+def _audit(
+    db: Session,
+    tipo: TipoAccion,
+    usuario_id: int,
+    valores: dict,
+    motivo: Optional[str] = None,
+    antes: Optional[dict] = None,
+) -> None:
     db.add(
         Auditoria(
             item_id=None,
             usuario_id=usuario_id,
             tipo_accion=tipo,
-            valores_anteriores=None,
+            valores_anteriores=antes,
             valores_nuevos=valores,
             es_masivo=False,
             comentario=motivo,
@@ -470,6 +477,174 @@ def _anular_hijos(db: Session, tactical_id: int, usuario_id: int, motivo: Option
             continue
         anuladas["compra_ids"].append(cid)
     return anuladas
+
+
+# --- edit ---------------------------------------------------------------------------------------------------------
+
+
+@_ocupado_si_deadlock
+def editar(
+    db: Session, tactical_id: int, data: TacticalEditarIn, usuario_id: int, hoy: Optional[date] = None
+) -> Optional[Tactical]:
+    """Change what is safe on live money: the name, the note, the end date and the lines' caps (`TacticalEditarIn`).
+    Every active child takes the change through its engine's own edit step (a campaign's or a bonus's), in one
+    transaction with one `TACTICAL_EDITADO` audit row; a refused child rolls everything back as "Línea N: ...". None
+    when it does not exist; `TacticalYaAnulado` when voided; `TacticalOcupado` when a campaign is being recomputed.
+    An invoice total (`SellInCompra`) has no dates, caps nor edit step: only the header's name and dates move."""
+    hoy = hoy or date.today()
+    try:
+        tactical = db.query(Tactical).filter(Tactical.id == tactical_id).populate_existing().with_for_update().first()
+        if tactical is None:
+            return None
+        if tactical.estado == "anulado":
+            raise TacticalYaAnulado(f"El tactical {tactical_id} está anulado")
+        hijos = serializar(db, [tactical])[0]["lineas"]
+        nombre, fecha_hasta = _validar_edicion(db, tactical, data, hijos, hoy)
+        topes = {t.linea: t.model_dump(exclude_unset=True, exclude={"linea"}) for t in data.lineas}
+        antes = {**_editables(tactical), "lineas": _topes_de(hijos, topes)}
+        _editar_hijos(db, tactical, hijos, nombre, fecha_hasta, topes, usuario_id)
+        tactical.nombre, tactical.fecha_hasta = nombre, fecha_hasta
+        if "nota" in data.model_fields_set:
+            tactical.nota = _texto(data.nota)
+        db.flush()
+        despues = {
+            **_editables(tactical),
+            "lineas": [t.model_dump(mode="json", exclude_unset=True) for t in data.lineas],
+        }
+        _audit(db, TipoAccion.TACTICAL_EDITADO, usuario_id, despues, antes=antes)
+        db.commit()
+    except campanas.SellOutRecalculando as exc:
+        db.rollback()
+        raise TacticalOcupado(str(exc)) from exc
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(tactical)
+    return tactical
+
+
+def _editables(t: Tactical) -> dict:
+    return {"tactical_id": t.id, "nombre": t.nombre, "nota": t.nota, "fecha_hasta": t.fecha_hasta.isoformat()}
+
+
+def _topes_de(hijos: list[dict], topes: dict[int, dict]) -> list[dict]:
+    """The edited lines' caps before the edit (every child of a line has the same ones)."""
+    primero = {h["linea"]: h for h in reversed(hijos)}
+    return [
+        {"linea": n, "tope_unidades": primero[n]["tope_unidades"], "tope_monto": _texto_de(primero[n]["tope_monto"])}
+        for n in sorted(topes)
+    ]
+
+
+def _texto_de(valor: Optional[Decimal]) -> Optional[str]:
+    return None if valor is None else str(valor)
+
+
+def _validar_edicion(
+    db: Session, tactical: Tactical, data: TacticalEditarIn, hijos: list[dict], hoy: date
+) -> tuple[str, date]:
+    """The new name and end date; `TacticalError` on the first broken rule, before anything changes."""
+    nombre = tactical.nombre
+    if "nombre" in data.model_fields_set:
+        nombre = _texto(data.nombre)
+        if nombre is None:
+            raise TacticalError("El nombre no puede quedar vacío")
+    fecha_hasta = tactical.fecha_hasta
+    if data.fecha_hasta is not None and data.fecha_hasta != tactical.fecha_hasta:
+        fecha_hasta = data.fecha_hasta
+        if fecha_hasta < hoy:
+            raise TacticalError(f"La fecha hasta no puede ser anterior a hoy ({_fecha(hoy)})")
+        if fecha_hasta < tactical.fecha_desde:
+            raise TacticalError(
+                f"La fecha hasta no puede ser anterior a la fecha desde ({_fecha(tactical.fecha_desde)})"
+            )
+        _validar_facturas(db, hijos, fecha_hasta)
+    lineas = {h["linea"] for h in hijos}
+    for tope in data.lineas:
+        if tope.linea not in lineas:
+            raise TacticalError(f"El tactical no tiene línea {tope.linea}")
+        for hijo in (h for h in hijos if h["linea"] == tope.linea and h["estado"] == "activa"):
+            _validar_tope(tope, hijo)
+    return nombre, fecha_hasta
+
+
+def _validar_facturas(db: Session, hijos: list[dict], fecha_hasta: date) -> None:
+    """An invoice line's invoice must stay inside the tactical's dates, as on create."""
+    pedidos = {h["pedido_compra_id"]: h for h in hijos if h["pedido_compra_id"] is not None and h["estado"] == "activa"}
+    if not pedidos:
+        return
+    fechas = dict(db.query(PedidoCompra.id, PedidoCompra.fecha_factura).filter(PedidoCompra.id.in_(list(pedidos))))
+    for pedido_id, hijo in sorted(pedidos.items(), key=lambda p: p[1]["linea"]):
+        fecha = fechas.get(pedido_id)
+        if fecha is not None and fecha > fecha_hasta:
+            raise TacticalError(
+                f"Línea {hijo['linea']}: la factura de la operación {hijo['pedido_numero']} es del {_fecha(fecha)}: "
+                "la fecha hasta no puede quedar antes"
+            )
+
+
+def _validar_tope(tope: TacticalLineaTopesIn, hijo: dict) -> None:
+    if hijo["modo_monto"] == "monto_total" and (tope.tope_unidades is not None or tope.tope_monto is not None):
+        raise TacticalError(f"Línea {hijo['linea']}: un monto total no lleva topes: el monto total es el tope")
+    if tope.tope_unidades is not None and tope.tope_unidades < hijo["unidades_usadas"]:
+        raise TacticalError(
+            f"Línea {hijo['linea']}: el tope de unidades ({tope.tope_unidades}) no puede quedar debajo de lo ya "
+            f"usado ({hijo['unidades_usadas']})"
+        )
+    if tope.tope_monto is not None and _cents(tope.tope_monto) < _cents(hijo["monto_usado"]):
+        raise TacticalError(
+            f"Línea {hijo['linea']}: el tope de monto ({_cents(tope.tope_monto)}) no puede quedar debajo de lo ya "
+            f"usado ({_cents(hijo['monto_usado'])})"
+        )
+
+
+def _renombrado(viejo: Optional[str], antes: str, nuevo: str, maximo: int) -> Optional[str]:
+    """A child's name with the tactical's name swapped (`_nombre` built it as "<tactical> · línea N ...")."""
+    if viejo is None or not viejo.startswith(antes) or antes == nuevo:
+        return viejo
+    return (nuevo + viejo[len(antes) :])[:maximo]
+
+
+def _editar_hijos(
+    db: Session,
+    tactical: Tactical,
+    hijos: list[dict],
+    nombre: str,
+    fecha_hasta: date,
+    topes: dict[int, dict],
+    usuario_id: int,
+) -> None:
+    for hijo in hijos:
+        if hijo["estado"] != "activa" or hijo["origen"] == "sell_in_compra":
+            continue
+        numero = hijo["linea"]
+        try:
+            if hijo["origen"] == "sell_out_campana":
+                campana = campanas.bloquear(db, hijo["id"])
+                cambios = {
+                    "nombre": _renombrado(campana.nombre, tactical.nombre, nombre, CAMPANA_NOMBRE_MAX),
+                    "fecha_hasta": fecha_hasta,
+                    **topes.get(numero, {}),
+                }
+                if all(getattr(campana, campo) == valor for campo, valor in cambios.items()):
+                    continue
+                entrada = campanas.entrada_guardada(db, campana).model_copy(update=cambios)
+                campanas.editar_campana_sin_commit(db, campana.id, entrada, usuario_id)
+            else:
+                bono = db.get(SellInBonoMarca, hijo["id"])
+                cambios = {
+                    "descripcion": _renombrado(bono.descripcion, tactical.nombre, nombre, CAMPANA_NOMBRE_MAX),
+                    "fecha_hasta": fecha_hasta,
+                    **topes.get(numero, {}),
+                }
+                if all(getattr(bono, campo) == valor for campo, valor in cambios.items()):
+                    continue
+                entrada = bonos_crud.entrada_guardada(db, bono).model_copy(update=cambios)
+                bonos_crud.editar_bono_sin_commit(db, bono.id, entrada, usuario_id)
+        except campanas.SellOutRecalculando as exc:
+            raise TacticalOcupado(f"Línea {numero}: {exc}") from exc
+        except ValueError as exc:  # every engine's refusal (SellOutError, SellInBonoError, ...)
+            raise TacticalError(f"Línea {numero}: {_sin_mayuscula(str(exc))}") from exc
 
 
 # --- read ---------------------------------------------------------------------------------------------------------

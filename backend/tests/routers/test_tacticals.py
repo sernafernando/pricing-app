@@ -122,3 +122,48 @@ def test_voiding_twice_is_a_409(client, productos, sell_out) -> None:
 
     assert resp.status_code == 409
     assert "anulado" in _message(resp)
+
+
+def test_patch_edits_the_safe_fields_with_the_create_s_permission(
+    client, productos, sell_out, admin_auth_headers
+) -> None:
+    creado = client.post(BASE, json=_body(fecha_hasta="2099-11-30"), headers=sell_out).json()
+
+    resp = client.patch(f"{BASE}/{creado['id']}", json={"nombre": "Tactical extendido", "fecha_hasta": "2099-12-31",
+                        "lineas": [{"linea": 1, "tope_unidades": 80}]}, headers=sell_out)  # fmt: skip
+
+    assert resp.status_code == 200, resp.text
+    editado = resp.json()
+    assert (editado["nombre"], editado["fecha_hasta"], editado["lineas"][0]["tope_unidades"]) == (
+        "Tactical extendido", "2099-12-31", 80,
+    )  # fmt: skip
+    assert client.get(f"{BASE}/{creado['id']}", headers=sell_out).json() == editado
+
+
+def test_patch_refuses_what_is_not_editable(client, productos, sell_out) -> None:
+    creado = client.post(BASE, json=_body(fecha_hasta="2099-11-30"), headers=sell_out).json()
+
+    for cambio in ({"marca": "OTRA"}, {"lineas": [{"linea": 1, "valor": "20"}]}, {"fecha_desde": "2099-11-02"}):
+        assert client.patch(f"{BASE}/{creado['id']}", json=cambio, headers=sell_out).status_code == 422, cambio
+    assert client.get(f"{BASE}/{creado['id']}", headers=sell_out).json()["nombre"] == "Tactical noviembre"
+
+
+def test_patch_status_codes(client, productos, sell_out, rol_admin, grant_permiso, admin_auth_headers) -> None:
+    creado = client.post(BASE, json=_body(fecha_hasta="2099-11-30"), headers=sell_out).json()
+    url = f"{BASE}/{creado['id']}"
+
+    resp = client.patch(url, json={"fecha_hasta": "2000-01-01"}, headers=sell_out)
+    assert (resp.status_code, _message(resp).startswith("La fecha hasta no puede ser anterior a hoy")) == (422, True)
+    assert client.patch(f"{BASE}/999", json={"nombre": "X"}, headers=sell_out).status_code == 404
+    client.post(f"{url}/anular", headers=sell_out)
+    assert client.patch(url, json={"nombre": "X"}, headers=sell_out).status_code == 409
+
+
+def test_patch_needs_the_kind_s_gestionar(client, productos, sell_out, admin_auth_headers, db) -> None:
+    from app.models.tactical import Tactical
+
+    creado = client.post(BASE, json=_body(fecha_hasta="2099-11-30"), headers=sell_out).json()
+    db.query(Tactical).filter(Tactical.id == creado["id"]).update({"tipo": "sell_in"})
+    db.flush()
+
+    assert client.patch(f"{BASE}/{creado['id']}", json={"nombre": "X"}, headers=sell_out).status_code == 403

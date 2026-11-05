@@ -374,6 +374,17 @@ def _bloquear(db: Session, bono_id: int) -> Optional[SellInBonoMarca]:
 
 def editar_bono(db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int) -> Optional[SellInBonoMarca]:
     """Full replace of an active bonus. None when it does not exist; `SellInBonoYaAnulado` when voided."""
+    bono = editar_bono_sin_commit(db, bono_id, data, usuario_id)
+    if bono is None:
+        return None
+    db.commit()
+    db.refresh(bono)
+    return bono
+
+
+def editar_bono_sin_commit(db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int) -> Optional[SellInBonoMarca]:
+    """THE edit step, without committing: lock, validation, full replace and one audit row. Shared by the single edit
+    and a tactical's edit (`app.services.tacticals.editar`, several in one transaction)."""
     bono = _bloquear(db, bono_id)
     if bono is None:
         return None
@@ -389,9 +400,29 @@ def editar_bono(db: Session, bono_id: int, data: SellInBonoIn, usuario_id: int) 
     antes = _valores(db, bono)
     _asignar(db, bono, data, campos)
     _audit(db, TipoAccion.SELL_IN_BONO_EDITADO, usuario_id, antes, _valores(db, bono))
-    db.commit()
-    db.refresh(bono)
     return bono
+
+
+def entrada_guardada(db: Session, bono: SellInBonoMarca) -> SellInBonoIn:
+    """The bonus's stored values as an edit body: every field, its models as bare ids (each keeps its stored value)
+    and no caps (a cap left out keeps the stored one, `_asignar`)."""
+    return SellInBonoIn(
+        alcance=bono.alcance,
+        marca=bono.marca,
+        categoria=bono.categoria,
+        modelos=[item_id for item_id, _, _ in _modelos(db, [bono.id]).get(bono.id, [])],
+        pedido_id=bono.pedido_id,
+        tipo=bono.tipo,
+        monto_unit=bono.monto_unit,
+        porcentaje=bono.porcentaje,
+        moneda=bono.moneda,
+        fecha_desde=bono.fecha_desde,
+        fecha_hasta=bono.fecha_hasta,
+        descripcion=bono.descripcion,
+        base=bono.base,
+        incluye_iva=bono.incluye_iva,
+        acumulable=bono.acumulable,
+    )
 
 
 def anular_bono(db: Session, bono_id: int, usuario_id: int, motivo: Optional[str]) -> Optional[SellInBonoMarca]:
