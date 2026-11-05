@@ -107,3 +107,20 @@ describe('TacticalFila money cap', () => {
     expect(screen.getByText('USD 20.544 de USD 24.200')).toBeInTheDocument();
   });
 });
+
+describe('TacticalFila missing values', () => {
+  it('shows a dash for a missing brand and an empty cap, and measures the money cap then', async () => {
+    const sinDatos = {
+      ...REBATE,
+      marca: null,
+      lineas: [{ ...REBATE.lineas[0], tope_unidades: '', tope_monto: '2000', monto_usado: '500' }],
+    };
+    renderFilas([sinDatos]);
+
+    expect(within(filaDe('Rebate HP Q1FY27')).getAllByRole('cell')[3]).toHaveTextContent('—');
+    await userEvent.click(screen.getByRole('button', { name: 'Ver las líneas de Rebate HP Q1FY27' }));
+    const linea = screen.getByText('Marca HP').closest('tr');
+    expect(within(linea).getAllByRole('cell')[2]).toHaveTextContent('—');
+    expect(within(linea).getByRole('img', { name: '25% del tope de monto' })).toBeInTheDocument();
+  });
+});

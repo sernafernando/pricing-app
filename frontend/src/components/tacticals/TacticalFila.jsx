@@ -8,6 +8,7 @@ import {
   estadoDe,
   formatMontoTactical,
   formatUnidades,
+  vacio,
   valorDeLinea,
   vigenciaDe,
 } from './tacticalsFormat';
@@ -15,6 +16,7 @@ import styles from './TacticalFila.module.css';
 
 const TIPO_PILL = { sell_in: { texto: 'Sell in', tono: 'neutral' }, sell_out: { texto: 'Sell out', tono: 'info' } };
 const PORCENTAJE = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 });
+const GUION = <span className={styles.guion}>—</span>;
 
 function Barra({ avance, etiqueta }) {
   return (
@@ -48,7 +50,6 @@ function QueIncluye({ linea }) {
 
 function Lineas({ tactical }) {
   const { lineas } = tactical;
-  const guion = <span className={styles.guion}>—</span>;
   return (
     <div className={styles.sub}>
       <p className={styles.subTitulo}>Líneas del tactical ({lineas.length})</p>
@@ -73,18 +74,18 @@ function Lineas({ tactical }) {
                   <QueIncluye linea={linea} />
                 </td>
                 <td className={styles.num}>{valorDeLinea(linea)}</td>
-                <td className={styles.num}>{linea.tope_unidades == null ? guion : formatUnidades(linea.tope_unidades)}</td>
-                <td className={styles.num}>{linea.unidades_usadas == null ? guion : formatUnidades(linea.unidades_usadas)}</td>
-                <td className={styles.num}>{linea.tope_monto == null ? guion : formatMontoTactical(linea.tope_monto, linea.moneda)}</td>
+                <td className={styles.num}>{vacio(linea.tope_unidades) ? GUION : formatUnidades(linea.tope_unidades)}</td>
+                <td className={styles.num}>{vacio(linea.unidades_usadas) ? GUION : formatUnidades(linea.unidades_usadas)}</td>
+                <td className={styles.num}>{vacio(linea.tope_monto) ? GUION : formatMontoTactical(linea.tope_monto, linea.moneda)}</td>
                 <td className={styles.num}>{formatMontoTactical(linea.monto_usado, linea.moneda)}</td>
                 <td>
                   {avance ? (
                     <div className={styles.subAvance}>
-                      <Barra avance={avance} etiqueta={linea.tope_unidades == null ? 'del tope de monto' : 'del tope de unidades'} />
+                      <Barra avance={avance} etiqueta={vacio(linea.tope_unidades) ? 'del tope de monto' : 'del tope de unidades'} />
                       {avance.tono === 'full' && <span className={styles.tag}>Tope alcanzado</span>}
                     </div>
                   ) : (
-                    guion
+                    GUION
                   )}
                 </td>
               </tr>
@@ -129,7 +130,7 @@ export default function TacticalFila({ tactical, abierto, onAlternar }) {
             {tipo.texto}
           </StatusPill>
         </td>
-        <td>{tactical.marca}</td>
+        <td>{vacio(tactical.marca) ? GUION : tactical.marca}</td>
         <td className={styles.nowrap}>{vigenciaDe(tactical.fecha_desde, tactical.fecha_hasta)}</td>
         <td className={styles.num}>{tactical.lineas.length}</td>
         <td>

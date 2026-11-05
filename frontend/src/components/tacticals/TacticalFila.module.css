@@ -5,13 +5,13 @@
   width: 100%;
   min-width: 960px;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--font-sm);
   color: var(--cf-text-primary);
 }
 
 .tabla th {
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: var(--font-semibold);
   letter-spacing: 0.04em;
   text-align: left;
@@ -94,7 +94,7 @@
 
 .monto {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--cf-text-secondary);
@@ -133,7 +133,7 @@
 
 .subTitulo {
   margin: 0 0 var(--space-2);
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: var(--font-semibold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -152,7 +152,7 @@
 
 .subTabla th {
   padding: 7px 12px;
-  font-size: 10.5px;
+  font-size: var(--font-xs);
   background: var(--cf-bg-hover);
 }
 
@@ -180,7 +180,7 @@
 }
 
 .tag {
-  font-size: 10.5px;
+  font-size: var(--font-xs);
   font-weight: var(--font-medium);
   color: var(--tone-warning-fg);
 }
@@ -206,7 +206,7 @@
 
 .alcance small {
   display: block;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--cf-text-secondary);
 }
 
