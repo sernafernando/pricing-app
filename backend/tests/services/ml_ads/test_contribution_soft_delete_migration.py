@@ -51,7 +51,7 @@ def _columns(eng) -> set[str]:
 
 def test_one_parent_and_an_ancestor_of_the_single_head() -> None:
     script = _script_directory()
-    assert isinstance(script.get_revision(REVISION).down_revision, str)
+    assert script.get_revision(REVISION).down_revision == "20261105_tacticals"
     [head] = script.get_heads()
     assert REVISION in {r.revision for r in script.walk_revisions(base="base", head=head)}
 
