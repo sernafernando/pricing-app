@@ -82,6 +82,37 @@ class TestSellOut:
         )  # fmt: skip
         assert despues["lineas"] == [{"linea": 1, "tope_unidades": 150}]
 
+    def test_an_edited_campaign_is_queued_for_recompute(self, db, engine) -> None:
+        tactical = service.crear(db, _tactical(), USUARIO)
+        with engine.begin() as conn:
+            conn.execute(text("DELETE FROM sell_out_dirty"))
+        [(cid,)] = _filas(engine, "SELECT id FROM sell_out_campanas")
+
+        _editar(db, tactical.id, lineas=[{"linea": 1, "tope_unidades": 40}])
+
+        assert _filas(engine, "SELECT campana_id FROM sell_out_dirty") == [(cid,)]
+
+    def test_a_child_refused_after_another_changed_leaves_nothing_edited(self, db, engine, monkeypatch) -> None:
+        tactical = service.crear(db, _tactical(lineas=[POR_PRODUCTO]), USUARIO)
+        antes = _filas(engine, "SELECT id, nombre, tope_unidades FROM sell_out_campanas ORDER BY id")
+        editar = service.campanas.editar_campana_sin_commit
+        vistas = []
+
+        def _segunda_rechaza(db_, campana_id, *args, **kwargs):
+            vistas.append(campana_id)
+            if len(vistas) == 2:
+                raise service.campanas.SellOutError("El motor rechazó la campaña")
+            return editar(db_, campana_id, *args, **kwargs)
+
+        monkeypatch.setattr(service.campanas, "editar_campana_sin_commit", _segunda_rechaza)
+        with pytest.raises(service.TacticalError, match="^Línea 1: el motor rechazó la campaña$"):
+            _editar(db, tactical.id, nombre="Otro", lineas=[{"linea": 1, "tope_unidades": 150}])
+
+        assert len(vistas) == 2
+        assert _filas(engine, "SELECT id, nombre, tope_unidades FROM sell_out_campanas ORDER BY id") == antes
+        assert _filas(engine, f"SELECT nombre FROM tacticals WHERE id = {tactical.id}") == [("Tactical noviembre",)]
+        assert _contar(engine, "auditoria", "tipo_accion IN ('SELL_OUT_CAMPANA_EDITADA', 'TACTICAL_EDITADO')") == 0
+
     def test_a_cap_below_what_was_used_is_refused_and_nothing_changes(self, db, engine) -> None:
         tactical = service.crear(db, _tactical(), USUARIO)
         with engine.begin() as conn:
