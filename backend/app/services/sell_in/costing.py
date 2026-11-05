@@ -303,8 +303,7 @@ class FifoPurchaseCosting:
         salida: Dict[int, LoteVigente] = {}
         for item_id, item in lotes.items():
             # The lots before the newest manual block counting by `hoy` were replaced: nothing left on them.
-            desde = max((n for n, x in enumerate(item) if x.modo_id is not None and x.fecha <= hoy), default=0)
-            for lote in item[desde:]:
+            for lote in item[reemplazados(item, hoy) :]:
                 restantes = lote.cantidad - usadas.get(lote.compra_item_id, 0)
                 if lote.fecha <= hoy and restantes > 0:
                     descuento = unit_discount(lote.descuento_ars, lote.cantidad)
