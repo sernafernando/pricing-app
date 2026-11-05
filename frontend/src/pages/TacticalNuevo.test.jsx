@@ -380,6 +380,22 @@ describe('Renovar', () => {
     expect(api.patch).not.toHaveBeenCalled();
   });
 
+  it('shows no form until the tactical to renew arrives, so nothing typed is overwritten', async () => {
+    let responder;
+    api.get.mockImplementation((url) =>
+      url === '/tacticals/1' ? new Promise((resolve) => (responder = resolve)) : Promise.resolve({ data: {} }),
+    );
+    renderAt('/sell-in/tactical/nuevo?tipo=sell_out&renovar=1');
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Cargando el tactical a renovar…');
+    expect(screen.queryByLabelText('Desde')).not.toBeInTheDocument();
+    expect(crear()).toBeDisabled();
+    responder({ data: TACTICAL_BPS });
+
+    expect(await screen.findByDisplayValue('Tacticals BPS Noviembre Q1FY27')).toBeInTheDocument();
+    expect(screen.queryByText('Cargando el tactical a renovar…')).not.toBeInTheDocument();
+  });
+
   it('says so when the tactical to renew cannot be read', async () => {
     api.get.mockImplementation((url) => (url === '/tacticals/1' ? Promise.reject(new Error('500')) : Promise.resolve({ data: {} })));
     renderAt('/sell-in/tactical/nuevo?tipo=sell_out&renovar=1');

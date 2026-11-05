@@ -136,6 +136,8 @@ export default function TacticalNuevo() {
   const [descartar, setDescartar] = useState(false);
 
   const renovar = params.get('renovar');
+  // Renovar draws no form until the tactical arrives: what the user typed meanwhile would be overwritten.
+  const [cargando, setCargando] = useState(Boolean(renovar));
   useEffect(() => {
     if (!renovar) return undefined;
     let activo = true;
@@ -147,7 +149,8 @@ export default function TacticalNuevo() {
         setForm(renovado.form);
         setLineas(renovado.lineas.length ? renovado.lineas : [nuevaLinea(renovado.form.marca)]);
       })
-      .catch(() => activo && setError('No se pudo cargar el tactical a renovar.'));
+      .catch(() => activo && setError('No se pudo cargar el tactical a renovar.'))
+      .finally(() => activo && setCargando(false));
     return () => {
       activo = false;
     };
@@ -225,7 +228,7 @@ export default function TacticalNuevo() {
   }
 
   const botonCrear = (
-    <button type="button" className={styles.primary} onClick={crear} disabled={enviando}>
+    <button type="button" className={styles.primary} onClick={crear} disabled={enviando || cargando}>
       {enviando ? 'Creando…' : 'Crear tactical'}
     </button>
   );
@@ -251,66 +254,74 @@ export default function TacticalNuevo() {
         </div>
       )}
 
-      <TacticalDatos
-        form={form}
-        onChange={(cambios) => setForm((f) => ({ ...f, ...cambios }))}
-        onTipo={cambiarTipo}
-        tiposNoDisponibles={Object.keys(TIPOS).filter((t) => !puede(t))}
-        marcas={marcasDelSelect}
-      />
-
-      <section className={styles.card} aria-labelledby="tactical-lineas">
-        <div className={styles.cardHead}>
-          <h2 id="tactical-lineas">Líneas</h2>
-          <p className={styles.hint}>{tipo.hint}</p>
+      {cargando ? (
+        <div className={styles.cargando} role="status">
+          Cargando el tactical a renovar…
         </div>
-        <div className={styles.linesScroll}>
-          <div className={`${styles.tbl} ${form.tipo === 'sell_in' ? styles.tblSellin : ''}`}>
-            <div className={styles.tblHead} aria-hidden="true">
-              <div>#</div>
-              <div>Alcance</div>
-              <div>Qué incluye</div>
-              <div className={styles.num}>Monto</div>
-              <div className={styles.num}>Tope unidades</div>
-              <div className={styles.num}>{`Tope monto (${form.moneda})`}</div>
-              <div>Tope</div>
-              <div className={styles.num}>Máximo a cobrar</div>
-              <div />
+      ) : (
+        <>
+          <TacticalDatos
+            form={form}
+            onChange={(cambios) => setForm((f) => ({ ...f, ...cambios }))}
+            onTipo={cambiarTipo}
+            tiposNoDisponibles={Object.keys(TIPOS).filter((t) => !puede(t))}
+            marcas={marcasDelSelect}
+          />
+
+          <section className={styles.card} aria-labelledby="tactical-lineas">
+            <div className={styles.cardHead}>
+              <h2 id="tactical-lineas">Líneas</h2>
+              <p className={styles.hint}>{tipo.hint}</p>
             </div>
-            {lineas.map((linea, index) => (
-              <TacticalLinea
-                key={linea.id}
-                linea={linea}
-                n={index + 1}
-                tipo={form.tipo}
-                moneda={form.moneda}
-                marcas={marcasDelSelect}
-                categorias={categorias}
-                abierto={abierta === linea.id}
-                onAbrir={() => setAbierta(linea.id)}
-                onCerrar={() => setAbierta(null)}
-                onCambiar={cambiarLinea}
-                onDuplicar={() => duplicar(index)}
-                onEliminar={() => eliminar(linea.id)}
-              />
-            ))}
-            <div className={styles.tblFoot}>
-              <button type="button" className={styles.addLine} onClick={agregarLinea}>
-                + Agregar línea
-              </button>
+            <div className={styles.linesScroll}>
+              <div className={`${styles.tbl} ${form.tipo === 'sell_in' ? styles.tblSellin : ''}`}>
+                <div className={styles.tblHead} aria-hidden="true">
+                  <div>#</div>
+                  <div>Alcance</div>
+                  <div>Qué incluye</div>
+                  <div className={styles.num}>Monto</div>
+                  <div className={styles.num}>Tope unidades</div>
+                  <div className={styles.num}>{`Tope monto (${form.moneda})`}</div>
+                  <div>Tope</div>
+                  <div className={styles.num}>Máximo a cobrar</div>
+                  <div />
+                </div>
+                {lineas.map((linea, index) => (
+                  <TacticalLinea
+                    key={linea.id}
+                    linea={linea}
+                    n={index + 1}
+                    tipo={form.tipo}
+                    moneda={form.moneda}
+                    marcas={marcasDelSelect}
+                    categorias={categorias}
+                    abierto={abierta === linea.id}
+                    onAbrir={() => setAbierta(linea.id)}
+                    onCerrar={() => setAbierta(null)}
+                    onCambiar={cambiarLinea}
+                    onDuplicar={() => duplicar(index)}
+                    onEliminar={() => eliminar(linea.id)}
+                  />
+                ))}
+                <div className={styles.tblFoot}>
+                  <button type="button" className={styles.addLine} onClick={agregarLinea}>
+                    + Agregar línea
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div className={styles.stickybar}>
+            <div className={styles.stickybarIn}>
+              <div className={styles.summary} aria-live="polite">
+                <Resumen tipo={form.tipo} form={form} lineas={lineas} />
+              </div>
+              {botonCrear}
             </div>
           </div>
-        </div>
-      </section>
-
-      <div className={styles.stickybar}>
-        <div className={styles.stickybarIn}>
-          <div className={styles.summary} aria-live="polite">
-            <Resumen tipo={form.tipo} form={form} lineas={lineas} />
-          </div>
-          {botonCrear}
-        </div>
-      </div>
+        </>
+      )}
 
       {descartar && <TacticalDescartar onSeguir={() => setDescartar(false)} onDescartar={() => navigate(tipo.volver)} />}
     </div>
