@@ -71,12 +71,12 @@ const TAB_GRUPOS = 'grupos';
 const TAB_TACTICALS = 'tacticals';
 
 /**
- * The Tacticals tab's count: the current tacticals (`GET /tacticals`, one row asked). `disponible` turns false on a 404,
- * a server without the tacticals API, and on a 403, a user who can read no tactical kind; both hide the tab. Any other
- * failure keeps it with `error`.
+ * The Tacticals tab's count: the current tacticals (`GET /tacticals`, one row asked). `disponible` is null until the
+ * first answer (the tab waits for it), false on a 404, a server without the tacticals API, and on a 403, a user who can
+ * read no tactical kind (both hide the tab), true otherwise; any other failure keeps the tab with `error`.
  */
 function useConteoTacticals(enabled, version) {
-  const [estado, setEstado] = useState({ total: null, error: false, disponible: true });
+  const [estado, setEstado] = useState({ total: null, error: false, disponible: null });
   useEffect(() => {
     if (!enabled) return undefined;
     let active = true;
@@ -282,7 +282,8 @@ export default function SellIn() {
   const tabsVisibles = [
     'sell-in',
     ...(puedeVerSellOut ? [TAB_SELL_OUT] : []),
-    ...(tacticals.disponible ? [TAB_TACTICALS] : []),
+    // Still unknown: a ?tab=tacticals link waits for the count instead of falling back to Sell in.
+    ...(tacticals.disponible !== false ? [TAB_TACTICALS] : []),
     ...(puedeVerGrupos ? [TAB_GRUPOS] : []),
   ];
   const tabUrl = searchParams.get('tab');
@@ -560,7 +561,7 @@ export default function SellIn() {
             <span className={styles.tabCount}>{campanas.lista ? campanas.lista.total.toLocaleString('es-AR') : campanas.error ? '—' : '…'}</span>
           </button>
         )}
-        {tacticals.disponible && (
+        {tacticals.disponible === true && (
           <button
             type="button"
             role="tab"
@@ -661,7 +662,9 @@ export default function SellIn() {
           ) : null
         }
       >
-        {tab === TAB_TACTICALS ? (
+        {tab === TAB_TACTICALS && tacticals.disponible !== true ? (
+          <div className={styles.loading}>Cargando tacticals…</div>
+        ) : tab === TAB_TACTICALS ? (
           <div role="tabpanel" id="tacticals-panel" aria-labelledby="tacticals-tab">
             <TacticalsList marcas={marcas} version={versionPagina} />
           </div>

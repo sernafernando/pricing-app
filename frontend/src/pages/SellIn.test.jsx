@@ -1746,6 +1746,38 @@ describe('SellIn page — Tacticals tab', () => {
     await waitFor(() => expect(listadosDeTacticals()).toBe(2));
   });
 
+  it('"Actualizar" also asks the tab count again, which recovers from a failure', async () => {
+    const user = userEvent.setup();
+    let conteos = 0;
+    tacticalsAPI.listar.mockImplementation((params) => {
+      if (params.page_size !== 1) return Promise.resolve({ data: pagina([TACTICAL]) });
+      conteos += 1;
+      return conteos === 1 ? Promise.reject({ response: { status: 500 } }) : Promise.resolve({ data: pagina([TACTICAL], 3) });
+    });
+    renderWithRouter(<SellIn />);
+    expect(await screen.findByRole('tab', { name: 'Tacticals · —' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Actualizar/ }));
+
+    expect(await screen.findByRole('tab', { name: 'Tacticals · 3' })).toBeInTheDocument();
+  });
+
+  it('the tab and a ?tab=tacticals panel wait for the count: a server without tacticals never shows them or asks the list', async () => {
+    let fallar;
+    tacticalsAPI.listar.mockImplementation(() => new Promise((_, reject) => (fallar = reject)));
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+
+    expect(await screen.findByRole('tab', { name: /Sell in/ })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: /Tacticals/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Cargando tacticals…')).toBeInTheDocument();
+    expect(listadosDeTacticals()).toBe(0);
+
+    fallar({ response: { status: 404 } });
+
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveAttribute('aria-selected', 'true'));
+    expect(listadosDeTacticals()).toBe(0);
+  });
+
   it('a server without the tacticals API (404) shows no Tacticals tab, and ?tab=tacticals falls back to Sell in', async () => {
     tacticalsAPI.listar.mockRejectedValue({ response: { status: 404 } });
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
