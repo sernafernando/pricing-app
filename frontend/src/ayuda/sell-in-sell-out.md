@@ -16,9 +16,9 @@ En **Sell in** podés filtrar por fechas, búsqueda, marca, moneda (ARS/USD), es
 - Los bonos de marca siguen la búsqueda (descripción o marca del bono), la marca, la moneda, el estado y las fechas. Con fechas, se ven los bonos cuyo rango de fechas se cruza con el período elegido, aunque sea un solo día. La marca muestra todos los bonos que alcanzan productos de esa marca: los de esa marca, los de una categoría con productos de esa marca, los de modelos de esa marca y los de una operación con productos de esa marca (facturados o recibidos). Un bono de operación que todavía no tiene productos facturados ni recibidos no se puede ubicar en una marca: aparece con cualquier marca elegida. Aplicación, Producto y Proveedor no filtran los bonos: un bono no tiene "aplica" y alcanza una marca, una categoría, modelos o una operación, no un proveedor.
 - Las tarjetas de bonos vigentes cuentan siempre todos los bonos activos, con cualquier filtro.
 
-Si tenés permiso (sell_in.gestionar), el botón **Nuevo sell in** abre la pantalla **Nuevo tactical** con el tipo Sell in elegido (ver más abajo). Al tocar una fila se abre el panel lateral con el detalle.
+Los sell in nuevos se cargan desde la pestaña **Tacticals**, con **Nuevo tactical** (ver más abajo). Al tocar una fila se abre el panel lateral con el detalle.
 
-En **Sell out** se listan las campañas, con paginación. Se filtran por período (las campañas cuyas fechas tocan el período elegido; **Todas las fechas** lo quita), por nombre, por estado (Activa/Anulada), por tipo (Por unidad, Porcentaje, Monto total), por moneda (ARS/USD), por marca (las campañas que alcanzan algún producto de esa marca a través de sus grupos) y, si tenés permiso de gestión de campañas, por grupo. Si tenés permiso (sell_out.gestionar), **Nueva campaña** abre la pantalla **Nuevo tactical** con el tipo Sell out elegido.
+En **Sell out** se listan las campañas, con paginación. Se filtran por período (las campañas cuyas fechas tocan el período elegido; **Todas las fechas** lo quita), por nombre, por estado (Activa/Anulada), por tipo (Por unidad, Porcentaje, Monto total), por moneda (ARS/USD), por marca (las campañas que alcanzan algún producto de esa marca a través de sus grupos) y, si tenés permiso de gestión de campañas, por grupo. Las campañas nuevas se cargan desde la pestaña **Tacticals**, con **Nuevo tactical**.
 
 Para anular varias campañas de una vez (pide permiso de gestión de campañas, sell_out.gestionar): marcá la casilla de cada fila, la casilla del encabezado para toda la página, o **Seleccionar todo lo filtrado (N)** para todas las que coinciden con los filtros. La barra muestra cuántas hay seleccionadas; **Anular seleccionadas** pide confirmación, dice cuántas se anulan y permite un motivo. El sell out que acreditaron deja de contar: se borran sus consumos y se recalculan las ventas que alcanzaban. Es todo o nada: si alguna no se puede anular, no se anula ninguna y el mensaje dice cuál y por qué. Si una se está recalculando, el mensaje la nombra y se puede reintentar en unos segundos. Las que ya estaban anuladas se omiten y el resultado las cuenta aparte. Se pueden anular hasta 500 por vez. Con algo seleccionado aparece una barra flotante abajo y al centro de la ventana, con **N seleccionadas**, **Asignar a programa**, **Anular seleccionadas** y **×** para limpiar la selección; queda a mano mientras bajás por la lista.
 
@@ -174,6 +174,7 @@ Un **programa** agrupa campañas de sell out que son el mismo acuerdo: las que s
 Un **tactical** es un programa de una marca: sell in baja el costo, sell out suma a la ganancia. Cada tactical tiene una marca adjunta para poder filtrarlo por marca, y una o más líneas (productos, una marca, una categoría o, en sell in, una factura) con su monto y sus topes.
 
 - La pestaña **Tacticals** la ve todo el que entra a la página, salvo que el servidor todavía no tenga tacticals o que no tengas permiso para ver ninguno. Al lado del nombre dice cuántos tacticals vigentes hay.
+- **Nuevo tactical** (arriba a la derecha, en la pestaña Tacticals) abre la pantalla **Nuevo tactical**, donde elegís si es sell in o sell out. Aparece si podés gestionar sell in o sell out (sell_in.gestionar o sell_out.gestionar). Al crear o cancelar volvés a la pestaña Tacticals.
 - Filtros:
   - **Tipo**: Todos, Sell in o Sell out.
   - **Marca**: la marca adjunta del tactical.
@@ -194,6 +195,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
 - Si podés gestionar ese tipo de tactical (sell_in.gestionar o sell_out.gestionar), cada fila tiene el botón de acciones (⋮) al final:
   - **Editar** (en tacticals no anulados) cambia solo el nombre, la nota, la fecha hasta y los topes de cada línea. La fecha hasta no puede quedar antes de hoy ni antes de la fecha desde, y un tope no puede quedar debajo de lo que la línea ya usó (cada línea muestra «Ya usó N u · monto»). Un tope vacío lo saca. Una línea de monto total no lleva topes. Las líneas, los montos y el alcance no se editan: para cambiarlos, anulá el tactical y renovalo. El cambio pasa a las campañas y bonos del tactical y queda en la auditoría.
   - **Renovar** abre **Nuevo tactical** con todo lo del tactical cargado: tipo, datos, líneas, montos y topes. Las fechas quedan vacías para que elijas las nuevas. **Crear tactical** crea un tactical NUEVO y el anterior queda como estaba. Una línea por factura vuelve sin la factura, porque esa factura ya tuvo su bono: elegí la nueva o eliminá la línea.
+  - **Anular** (en tacticals no anulados) pide confirmación y dice qué se revierte. En sell out, sus campañas dejan de acreditar y se recalculan las ventas que alcanzaban. En sell in, sus bonos dejan de aplicarse y se anulan las compras que generaron: las ventas que tomaban pasan a las compras siguientes. Podés dejar un motivo, que queda en la auditoría. Anula el tactical con todas sus líneas y no se puede deshacer.
 
 ## Filtros y columnas
 
@@ -201,11 +203,12 @@ Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicaci
 
 ## Botones y acciones
 
-- **Nuevo sell in** / **Nueva campaña**: abren **Nuevo tactical** (según permiso).
+- **Nuevo tactical** (pestaña Tacticals): abre **Nuevo tactical** (según permiso).
 - **Nuevo grupo**: crea un grupo (según permiso).
 - **Crear tactical**: crea el tactical con todas sus líneas; **Cancelar** lo descarta después de confirmar.
 - **Editar** (acciones de una fila de Tacticals): cambia nombre, nota, fecha hasta y topes; **Guardar cambios** manda solo lo que cambiaste.
 - **Renovar** (acciones de una fila de Tacticals): abre **Nuevo tactical** cargado con ese tactical, con fechas nuevas por elegir.
+- **Anular** (acciones de una fila de Tacticals): anula el tactical con todas sus líneas, después de confirmar.
 - Tocar una fila: abre el panel lateral de detalle.
 - **Actualizar**: recarga datos.
 

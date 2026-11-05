@@ -533,14 +533,9 @@ export default function SellIn() {
           >
             <RefreshCw size={14} /> Actualizar
           </button>
-          {enSellIn && puedeGestionar && (
-            <button type="button" className="btn-tesla primary sm" onClick={() => navigate('/sell-in/tactical/nuevo?tipo=sell_in')}>
-              <Plus size={14} /> Nuevo sell in
-            </button>
-          )}
-          {enSellOut && puedeGestionarSellOut && (
-            <button type="button" className="btn-tesla primary sm" onClick={() => navigate('/sell-in/tactical/nuevo?tipo=sell_out')}>
-              <Plus size={14} /> Nueva campaña
+          {tab === TAB_TACTICALS && (puedeGestionar || puedeGestionarSellOut) && (
+            <button type="button" className="btn-tesla primary sm" onClick={() => navigate('/sell-in/tactical/nuevo')}>
+              <Plus size={14} /> Nuevo tactical
             </button>
           )}
         </div>
@@ -671,6 +666,7 @@ export default function SellIn() {
               version={versionPagina}
               puedeGestionar={(tipoTactical) => tienePermiso(`${tipoTactical}.gestionar`)}
               onRenovar={(t) => navigate(`/sell-in/tactical/nuevo?tipo=${t.tipo}&renovar=${t.id}`)}
+              onCambio={() => setVersionPagina((v) => v + 1)}
             />
           </div>
         ) : tab === TAB_GRUPOS ? (
