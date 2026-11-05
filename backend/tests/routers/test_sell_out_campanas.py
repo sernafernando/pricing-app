@@ -314,8 +314,8 @@ def _programa(db, admin_user, nombre: str = "MARCA PROG") -> SellOutPrograma:
 
 def test_list_and_detail_keep_their_keys_and_carry_no_program_until_assigned(client, gestor, grupos) -> None:
     out = _crear(client, gestor, grupos, nombre="MARCA PROG 24")
-    assert set(out) == CLAVES_PREVIAS | {"programa_id", "programa", "renovada_de_id"}
-    assert (out["programa_id"], out["programa"], out["renovada_de_id"]) == (None, None, None)
+    assert set(out) == CLAVES_PREVIAS | {"programa_id", "programa", "renovada_de_id", "tactical_id"}
+    assert (out["programa_id"], out["programa"], out["renovada_de_id"], out["tactical_id"]) == (None, None, None, None)
     assert client.get(f"{BASE}/{out['id']}", headers=gestor).json() == out
     assert client.get(BASE, headers=gestor).json()["items"] == [out]
 
