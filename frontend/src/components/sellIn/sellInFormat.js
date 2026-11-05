@@ -58,12 +58,6 @@ export function buildBonosParams({ q, marcas, moneda, estado, desde, hasta }) {
   });
 }
 
-/** Sum of the manual amounts, in cents so float noise never blocks a split that adds up. */
-export function sumaManual(valores) {
-  const cents = valores.reduce((acc, value) => acc + Math.round((Number(value) || 0) * 100), 0);
-  return cents / 100;
-}
-
 export const FORMULA_LABELS = {
   proporcional: 'Reparto proporcional',
   por_unidad: 'Reparto igual por unidad',

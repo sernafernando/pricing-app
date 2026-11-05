@@ -272,7 +272,7 @@ describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
 
 // The bonus list's own page requests: not the active bonuses of the summary cards nor "todo lo filtrado" (200 rows).
 const listadosDeLaListaDeBonos = () => sellInBonosAPI.listar.mock.calls.map(([params]) => params).filter((params) => params.page_size !== 200);
-// The supplier search's answer (`GET /administracion/proveedores`), as SellInCreatePanel.test.jsx reads it.
+// The supplier search's answer (`GET /administracion/proveedores`).
 const PROVEEDORES = { proveedores: [{ id: 7, nombre: 'TP-Link', cuit: '30-1' }], total: 1, page: 1, page_size: 10 };
 
 describe('SellIn page — the top filters also filter the brand bonuses (S4)', () => {

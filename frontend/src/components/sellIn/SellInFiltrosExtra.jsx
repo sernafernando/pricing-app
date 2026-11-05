@@ -5,7 +5,7 @@ import SellInBuscador from './SellInBuscador';
 import pageStyles from '../../pages/SellIn.module.css';
 import styles from './SellInPanel.module.css';
 
-// The supplier search of the purchase form (SellInCreatePanel): `GET /administracion/proveedores`.
+// The supplier search: `GET /administracion/proveedores`.
 const buscarProveedores = (search) =>
   sellInAPI
     .proveedores(search)
