@@ -86,7 +86,7 @@
 
 /* Sell in has a fourth scope (Factura) and a third amount kind (monto total): wider columns, as the design. */
 .tblSellin {
-  --cols: 34px 232px minmax(250px, 1fr) 160px 104px 126px 128px 128px 66px;
+  --cols: 34px 250px minmax(250px, 1fr) 160px 104px 126px 128px 128px 66px;
 }
 
 .tblHead {
@@ -187,7 +187,7 @@
   }
 
   .tblSellin {
-    min-width: 1240px;
+    min-width: 1258px;
   }
 }
 
