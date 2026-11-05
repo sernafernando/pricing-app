@@ -560,35 +560,69 @@ class TestMarkupParaPrecio:
 
 
 class TestMarkupBaselineVigente:
-    def test_uses_cofunded_started_when_price_matches_sale(self) -> None:
+    """Baseline for hay_mejores: co-funded started vs plain sale.
+
+    Mirror shape (store `raw`): flat ML entry — `meli_percentage` on the entry
+    itself; ``markup_baseline_vigente`` uses ``payload=entry`` when nested
+    payload is absent (same as ``normalizar_entrada_seller_promo``).
+    """
+
+    COMISION_BASE = 20.0
+    COSTO_ENVIO = 0.0
+    GRUPO_ID = 1
+    COSTO = 1000.0
+    IVA = 21.0
+
+    def _expected_markup(self, db, effective_revenue: float) -> float:
+        comisiones = calcular_comision_ml_total(effective_revenue, self.COMISION_BASE, self.IVA, db=db)
+        limpio = calcular_limpio(
+            effective_revenue,
+            self.IVA,
+            self.COSTO_ENVIO,
+            comisiones["comision_total"],
+            db=db,
+            grupo_id=self.GRUPO_ID,
+        )
+        return calcular_markup(limpio, self.COSTO) * 100
+
+    def test_uses_real_cofunded_chain_when_started_price_matches_sale(self) -> None:
         from app.services.ml_promotions_pricing import markup_baseline_vigente
 
         db = MagicMock()
+        producto = _make_producto(costo=self.COSTO, moneda="ARS", iva=self.IVA)
+        publicacion = _make_publicacion()
+        db.query.return_value.filter.return_value.first.side_effect = [publicacion, producto]
+
+        sale = 850.0
+        original = 1000.0
+        meli_percentage = 5.0
+        # Flat mirror entry (no nested payload) — captured store shape.
         raw = [
             {
-                "id": "P-1",
+                "id": "P-MLA-LIVE",
                 "type": "PRICE_MATCHING",
                 "status": "started",
-                "price": 555867.8,
-                "original_price": 939442,
-                "payload": {"meli_percentage": 10},
+                "price": sale,
+                "original_price": original,
+                "meli_percentage": meli_percentage,
             },
             {
-                "id": "P-2",
+                "id": "P-MLA-SMART",
                 "type": "SMART",
                 "status": "candidate",
-                "price": 526957,
-                "original_price": 939442,
+                "price": 800.0,
+                "original_price": original,
             },
         ]
+        co_funding = (meli_percentage / 100) * original
+        expected = self._expected_markup(db, sale + co_funding)
 
-        def _enrich(_db, _mla, promos):
-            for promo in promos:
-                promo["nuestro_markup"] = 1.4
-            return promos
-
-        with patch("app.services.ml_promotions_pricing.enriquecer_markup_por_promo", side_effect=_enrich):
-            assert markup_baseline_vigente(db, "MLA1", 555867.83, raw_promotions=raw) == pytest.approx(1.4)
+        with (
+            patch("app.services.ml_promotions_pricing.obtener_comision_base", return_value=self.COMISION_BASE),
+            patch("app.services.ml_promotions_pricing.resolver_costo_envio", return_value=self.COSTO_ENVIO),
+            patch("app.services.ml_promotions_pricing.obtener_grupo_subcategoria", return_value=self.GRUPO_ID),
+        ):
+            assert markup_baseline_vigente(db, "MLA1", sale + 0.5, raw_promotions=raw) == pytest.approx(expected)
 
     def test_falls_back_to_plain_markup_without_cofunded_started(self) -> None:
         from app.services.ml_promotions_pricing import markup_baseline_vigente
@@ -626,7 +660,7 @@ class TestMarkupBaselineVigente:
                 "status": "started",
                 "price": 400000,
                 "original_price": 939442,
-                "payload": {"meli_percentage": 10},
+                "meli_percentage": 10,
             },
         ]
 

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
+from app.services import ml_promotions_hay_mejores as hay_mejores
 from app.services.ml_promotions_hay_mejores import (
+    decidir_flag_hay_mejores,
     es_mejor_oferta,
     fingerprint_mejores,
-    decidir_flag_hay_mejores,
+    listar_mejores_candidatas,
     normalizar_entrada_seller_promo,
 )
 
@@ -139,3 +143,63 @@ class TestNormalizarEntrada:
         assert promo["promotion_type"] == "SMART"
         assert promo["price"] == 1000
         assert promo["payload"]["meli_percentage"] == 2.5
+
+
+class TestListarMejoresBaselineWiring:
+    """Started co-funded baseline (via raw) can suppress a candidate that would beat plain sale."""
+
+    def test_passes_raw_promotions_into_baseline_resolver(self, monkeypatch) -> None:
+        seen: dict = {}
+
+        def _baseline(_db, mla, price, *, raw_promotions=None):
+            seen["mla"] = mla
+            seen["price"] = price
+            seen["raw"] = raw_promotions
+            return 1.4
+
+        monkeypatch.setattr(hay_mejores, "markup_baseline_vigente", _baseline)
+        monkeypatch.setattr(hay_mejores, "enriquecer_markup_por_promo", lambda *_a, **_k: [])
+        raw = [{"id": "P-LIVE", "type": "PRICE_MATCHING", "status": "started", "price": 1000}]
+        listar_mejores_candidatas(MagicMock(), "MLA9", [], 1000.0, raw_promotions=raw)
+        assert seen == {"mla": "MLA9", "price": 1000.0, "raw": raw}
+
+    def test_cofunded_baseline_suppresses_candidate_that_beats_plain_sale(self, monkeypatch) -> None:
+        monkeypatch.setattr(hay_mejores, "markup_baseline_vigente", lambda *_a, **_k: 1.4)
+
+        def _enrich(_db, _mla, promos):
+            for promo in promos:
+                promo["nuestro_markup"] = -5.06
+            return promos
+
+        monkeypatch.setattr(hay_mejores, "enriquecer_markup_por_promo", _enrich)
+        candidates = [
+            {"id": "P-SMART", "type": "SMART", "status": "candidate", "price": 526957.0},
+        ]
+        raw = [
+            {
+                "id": "P-LIVE",
+                "type": "PRICE_MATCHING",
+                "status": "started",
+                "price": 555867.8,
+                "original_price": 939442,
+                "meli_percentage": 10,
+            },
+            *candidates,
+        ]
+        assert listar_mejores_candidatas(MagicMock(), "MLA1", candidates, 555867.83, raw_promotions=raw) == []
+
+    def test_plain_low_baseline_still_flags_same_candidate(self, monkeypatch) -> None:
+        monkeypatch.setattr(hay_mejores, "markup_baseline_vigente", lambda *_a, **_k: -5.1)
+
+        def _enrich(_db, _mla, promos):
+            for promo in promos:
+                promo["nuestro_markup"] = -5.06
+            return promos
+
+        monkeypatch.setattr(hay_mejores, "enriquecer_markup_por_promo", _enrich)
+        candidates = [
+            {"id": "P-SMART", "type": "SMART", "status": "candidate", "price": 526957.0},
+        ]
+        assert listar_mejores_candidatas(MagicMock(), "MLA1", candidates, 555867.83, raw_promotions=candidates) == [
+            ("P-SMART", 526957.0)
+        ]
