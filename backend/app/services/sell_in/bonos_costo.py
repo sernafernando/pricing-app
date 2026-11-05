@@ -1,7 +1,8 @@
-"""A sell-in bonus on a % of the sale's cost, with no purchase or invoice (sell-in-sell-out T25b, S30, S33).
+"""A sell-in bonus on the sale's cost, with no purchase or invoice (sell-in-sell-out T25b, S30, S33; per unit:
+tacticals T1).
 
 Owner: "agregá el de sell in, es para operaciones viejas que no tienen la factura cargada". A bonus with
-`base = 'costo_venta'` (always a percentage, ARS, over a brand, a category or models: the
+`base = 'costo_venta'` (a percentage, or a fixed amount per unit, ARS, over a brand, a category or models: the
 `ck_sell_in_bonos_marca_costo_venta` check) never generates a sell-in purchase (`bonos.reconciliar` skips it).
 `recalcular` keeps its `sell_in_bono_consumos` rows, one per (bonus, channel, sale), in step with:
 
@@ -10,10 +11,12 @@ Owner: "agregá el de sell in, es para operaciones viejas que no tienen la factu
   channel; fuera/TN returns resolved to their sale like the FIFO's `costing.resolver_objetivos`).
 - Base: the cost recorded on the sale, ARS without VAT (ML `mcosto / qty`, fuera/TN `costo_total / units`,
   `alcance.Venta.costo_unit`). A sale whose cost is unknown is skipped, counted in `pendientes` per bonus.
-- Amount per unit: the model's own % (`sell_in_bono_items.porcentaje`) or the bonus's, of that cost. With
-  `incluye_iva` (S33: "el tilde tendría que restar el iva, a la cuenta siempre debería llegar 2,71") the % is first
-  divided by (1 + that product's own VAT rate), by sell out's own per-product rule (`tope.credito_unitario` on a
-  `monto_incluye_iva` campaign); a product reached with no VAT rate fails (configuration, never guessed).
+- Amount per unit (`unitario`): the model's own % (`sell_in_bono_items.porcentaje`) or the bonus's, of that cost;
+  or, on a `por_unidad` bonus (tacticals T1), the model's own `monto_unit` or the bonus's, in ARS, whatever the
+  cost (the cut below keeps it at most the cost). With `incluye_iva` (S33: "el tilde tendría que restar el iva,
+  a la cuenta siempre debería llegar 2,71") the value is first divided by (1 + that product's own VAT rate), by sell
+  out's own per-product rule (`tope.credito_unitario` on a `monto_incluye_iva` campaign); a product reached with no
+  VAT rate fails (configuration, never guessed).
 - Exclusive per unit with invoice-based sell in (rule 5, owner "ok"): the units a sale already took from a
   purchase (`sell_in_consumos` of that (canal, venta_ref), as stored: FIFO's rows are already net of returns) are
   `ocupadas`; the bonus takes only the rest. A return frees its units here in full: the FIFO resolves it to the same
@@ -177,13 +180,29 @@ def _componentes(activos: Dict[int, SellInBonoMarca], alcances: Dict[int, Set[in
     return [grupos[k] for k in sorted(grupos)]
 
 
-def pct_neto(bono: SellInBonoMarca, pct: Decimal, item_id: int, iva: Optional[Decimal], fecha: date) -> Decimal:
-    """The % that reaches the math: divided by (1 + the product's VAT rate) when loaded with VAT, by sell out's
-    `monto_incluye_iva` rule (`tope.credito_unitario`)."""
+def valor_neto(bono: SellInBonoMarca, valor: Decimal, item_id: int, iva: Optional[Decimal], fecha: date) -> Decimal:
+    """The % (or amount per unit) that reaches the math: divided by (1 + the product's VAT rate) when loaded with VAT,
+    by sell out's `monto_incluye_iva` rule (`tope.credito_unitario`)."""
     if bono.incluye_iva and iva is None:
         raise ValueError(f"bono {bono.id}: el producto {item_id} no tiene alícuota de IVA")
-    campana = tope.Campana(tipo="por_unidad", moneda="ARS", monto_unit=pct, monto_incluye_iva=bono.incluye_iva)
+    campana = tope.Campana(tipo="por_unidad", moneda="ARS", monto_unit=valor, monto_incluye_iva=bono.incluye_iva)
     return tope.credito_unitario(campana, tope.Linea("", 0, item_id, fecha, 1, iva_pct=iva or Decimal(0)))
+
+
+def valor_del_bono(bono: SellInBonoMarca, propio: Optional[Decimal]) -> Decimal:
+    """The model's own value of the bonus's kind (`sell_in_bono_items`), else the bonus's: % or ARS per unit."""
+    if propio is not None:
+        return Decimal(propio)
+    return Decimal(bono.monto_unit if bono.tipo == "por_unidad" else bono.porcentaje)
+
+
+def unitario(
+    bono: SellInBonoMarca, valor: Decimal, costo_unit: Decimal, item_id: int, iva: Optional[Decimal], fecha: date
+) -> Decimal:
+    """What one unit gets before the cut to its cost: `valor` (`valor_del_bono`) net of VAT, as a % of `costo_unit`
+    or, on a `por_unidad` bonus, as the amount itself."""
+    neto = valor_neto(bono, valor, item_id, iva, fecha)
+    return neto if bono.tipo == "por_unidad" else costo_unit * neto / CIEN
 
 
 def _componente(
@@ -222,14 +241,13 @@ def _componente(
             ocupado.update(*(tenidas[p].get(clave, ()) for p in antes))
             libres[clave] = [u for u in range(abs(v.unidades)) if u not in ocupado]
             if v.unidades > 0:
-                propio = modelos.get(bono.id, {}).get(v.item_id)
-                pct = Decimal(propio if propio is not None else bono.porcentaje)
-                unitario = v.costo_unit * pct_neto(bono, pct, v.item_id, iva.get(v.item_id), v.fecha) / CIEN
+                valor = valor_del_bono(bono, modelos.get(bono.id, {}).get(v.item_id))
+                monto = unitario(bono, valor, v.costo_unit, v.item_id, iva.get(v.item_id), v.fecha)
                 # A unit never gets more than its cost: cut to what the most loaded unit it may take has left.
-                unitario = min(unitario, v.costo_unit - max((usado[clave][u] for u in libres[clave]), default=0))
-                if unitario <= 0:
+                monto = min(monto, v.costo_unit - max((usado[clave][u] for u in libres[clave]), default=0))
+                if monto <= 0:
                     continue
-                unitarios[clave] = unitario
+                unitarios[clave] = monto
             lineas.append(
                 tope.Linea(
                     canal=v.canal,
@@ -288,10 +306,10 @@ def recalcular(db: Session, item_ids: Iterable[int] = (), *, bono_ids: Iterable[
     }
     modelos: Dict[int, Dict[int, Optional[Decimal]]] = defaultdict(dict)
     if activos:
-        for bid, item_id, pct in db.query(
-            SellInBonoItem.bono_id, SellInBonoItem.item_id, SellInBonoItem.porcentaje
+        for bid, item_id, pct, monto in db.query(
+            SellInBonoItem.bono_id, SellInBonoItem.item_id, SellInBonoItem.porcentaje, SellInBonoItem.monto_unit
         ).filter(SellInBonoItem.bono_id.in_(sorted(activos))):
-            modelos[bid][item_id] = pct
+            modelos[bid][item_id] = monto if activos[bid].tipo == "por_unidad" else pct
     ventas: List[alcance.Venta] = []
     if alcanzados:
         desde = min(b.fecha_desde for b in activos.values())

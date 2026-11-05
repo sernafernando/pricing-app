@@ -28,6 +28,7 @@ pytestmark = pytest.mark.postgres
 # The service queues each change (T7 S3); an edit reads the reach (filters, products) before applying it;
 # the API shape carries what each campaign credited (`resumen`, T7 S5).
 TABLES = (
+    "tacticals",  # `sell_out_campanas.tactical_id` (tacticals T1)
     "sell_out_programas",
     "sell_out_campanas",
     "sell_out_campana_grupos",

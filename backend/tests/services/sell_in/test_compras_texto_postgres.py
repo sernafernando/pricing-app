@@ -27,6 +27,7 @@ _STUBS = [
     " marca VARCHAR(100))",
 ]
 _SELL_IN_TABLES = (
+    "tacticals",  # `tactical_id` of bonuses and purchases (tacticals T1)
     "sell_in_bonos_marca",
     "sell_in_compras",
     "sell_in_compra_items",

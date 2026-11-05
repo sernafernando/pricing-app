@@ -16,6 +16,7 @@ from typing import Iterator, List, Optional, Sequence, Tuple
 
 from sqlalchemy import Engine, text
 
+from app.models.tactical import Tactical
 from app.models.auditoria import Auditoria
 from app.models.ml_orders_ops import MlOrderItemOps
 from app.models.ml_sale_line import MlSaleLine
@@ -45,6 +46,7 @@ TABLES = [
     ProductoERP.__table__,
     OffsetGrupo.__table__,
     OffsetGrupoFiltro.__table__,
+    Tactical.__table__,  # `tactical_id` of campaigns, bonuses and purchases (tacticals T1)
     SellOutPrograma.__table__,  # `sell_out_campanas.programa_id` (campaign system S1)
     SellOutCampana.__table__,
     SellOutCampanaGrupo.__table__,

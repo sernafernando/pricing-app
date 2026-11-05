@@ -72,6 +72,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -79,6 +80,7 @@ from sqlalchemy import (
 from sqlalchemy.sql import false, func, text, true
 
 from app.core.database import Base
+from app.models.tactical import TACTICAL_LINEA
 
 # Also declared by migration `20261225_sell_out_programas` (the schema parity test compares them).
 FK_SELL_OUT_CAMPANAS_PROGRAMA_ID = "fk_sell_out_campanas_programa_id"
@@ -144,6 +146,8 @@ class SellOutCampana(Base):
         UniqueConstraint("offset_origen_id", name="uq_sell_out_campanas_offset_origen_id"),
         Index("ix_sell_out_campanas_programa_id", "programa_id"),
         Index("ix_sell_out_campanas_renovada_de_id", "renovada_de_id"),
+        Index("ix_sell_out_campanas_tactical_id", "tactical_id"),
+        CheckConstraint(TACTICAL_LINEA, name="ck_sell_out_campanas_tactical_linea"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -190,6 +194,13 @@ class SellOutCampana(Base):
         ForeignKey("sell_out_campanas.id", ondelete="SET NULL", name=FK_SELL_OUT_CAMPANAS_RENOVADA_DE_ID),
         nullable=True,
     )
+    # The tactical whose line it is (tacticals T1, `app.models.tactical`); NULL for one loaded on its own.
+    tactical_id = Column(
+        BigInteger,
+        ForeignKey("tacticals.id", ondelete="RESTRICT", name="fk_sell_out_campanas_tactical_id"),
+        nullable=True,
+    )
+    tactical_linea = Column(SmallInteger, nullable=True)  # its 1-based line in the tactical; NULL without one
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # Also kept current by the `sell_out_campanas_updated_at` trigger.
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

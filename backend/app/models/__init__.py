@@ -228,6 +228,7 @@ from app.models.sell_out import (
     SellOutDirty,
     SellOutPrograma,
 )
+from app.models.tactical import Tactical
 from app.models.sell_dirty import SellDirty
 from app.models.combo_componente import ComboComponente
 
@@ -514,6 +515,7 @@ __all__ = [
     "SellOutConsumo",
     "SellOutDirty",
     "SellOutPrograma",
+    "Tactical",
     "SellDirty",
     "ComboComponente",
     "ProductoPropio",

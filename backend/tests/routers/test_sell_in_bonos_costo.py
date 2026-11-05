@@ -101,11 +101,25 @@ def test_create_defaults_to_an_invoice_bonus_without_vat(client, gestor, product
     assert (data["base"], data["incluye_iva"], data["offset_origen_id"]) == ("factura", False, None)
 
 
+def test_a_cost_bonus_may_be_an_ars_amount_per_unit(client, gestor, productos, db):
+    # Tacticals T1: a fixed ARS amount per sold unit on the sale's cost, never above it (`bonos_costo.unitario`).
+    data = _crear(client, gestor, _costo(tipo="por_unidad", porcentaje=None, monto_unit="5.00", incluye_iva=True))
+
+    bono = db.get(SellInBonoMarca, data["id"])
+    assert (bono.base, bono.tipo, bono.monto_unit, bono.porcentaje, bono.incluye_iva) == (
+        "costo_venta",
+        "por_unidad",
+        Decimal("5.00"),
+        None,
+        True,
+    )
+
+
 @pytest.mark.parametrize(
     "body,fragment",
     [
-        (_costo(tipo="por_unidad", porcentaje=None, monto_unit="5.00"), "porcentaje"),
         (_costo(moneda="USD"), "ars"),
+        (_costo(tipo="por_unidad", porcentaje=None, monto_unit="5.00", moneda="USD"), "ars"),
         (_costo(alcance="factura", marca=None, pedido_id=1), "factura"),
         (_factura(incluye_iva=True), "iva"),
     ],

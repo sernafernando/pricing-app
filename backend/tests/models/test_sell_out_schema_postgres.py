@@ -2,7 +2,8 @@
 
 The schema is built by every sell-out migration in order (`_MIGRATIONS`), so the
 parity test also covers `20261108_sell_out_consumos`, `20261207_sell_out_campana_items`,
-`20261214_sell_out_monto_total`, `20261225_sell_out_programas` and `20261230_sell_out_renovada_de`; their own rules are proven
+`20261214_sell_out_monto_total`, `20261225_sell_out_programas`, `20261230_sell_out_renovada_de` and
+`20261105_tacticals` (`tactical_id`; its own rules in `tests/migrations/test_migration_tacticals_postgres.py`); their own rules are proven
 in `tests/unit/test_migration_sell_out_consumos.py` and `tests/migrations/`.
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
@@ -33,9 +34,11 @@ _MIGRATIONS = [
         "20261214_sell_out_monto_total",
         "20261225_sell_out_programas",
         "20261230_sell_out_renovada_de",
+        "20261105_tacticals",
     )
 ]
 TABLES = (
+    "tacticals",
     "sell_out_programas",
     "sell_out_campanas",
     "sell_out_campana_grupos",
@@ -53,6 +56,10 @@ _STUBS = [
     "categoria TEXT, orden INTEGER, es_critico BOOLEAN, created_at TIMESTAMPTZ)",
     "CREATE TABLE roles_permisos_base (rol_id INTEGER, permiso_id INTEGER, PRIMARY KEY (rol_id, permiso_id))",
     "CREATE TABLE usuarios_permisos_override (usuario_id INTEGER, permiso_id INTEGER)",
+    # What `20261105_tacticals` also alters on the sell-in side.
+    "CREATE TABLE sell_in_bonos_marca (id BIGINT PRIMARY KEY, base VARCHAR(16), tipo VARCHAR(16), moneda VARCHAR(3), "
+    "alcance VARCHAR(16), incluye_iva BOOLEAN)",
+    "CREATE TABLE sell_in_compras (id BIGINT PRIMARY KEY)",
     "INSERT INTO usuarios VALUES (7)",
     "INSERT INTO offset_grupos VALUES (1), (2)",
     "INSERT INTO roles (codigo) VALUES ('ADMIN'), ('VENTAS')",

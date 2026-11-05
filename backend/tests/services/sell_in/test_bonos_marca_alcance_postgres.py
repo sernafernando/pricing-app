@@ -40,7 +40,7 @@ _STUBS = [
 
 
 def _schema():
-    return bonos_schema("sell_in_bm", ["sell_in_bonos_marca", "sell_in_bono_items"], _STUBS)
+    return bonos_schema("sell_in_bm", ["tacticals", "sell_in_bonos_marca", "sell_in_bono_items"], _STUBS)
 
 
 def _bono(conn, alcance: str, *, marca=None, categoria=None, pedido_id=None, modelos=()) -> int:

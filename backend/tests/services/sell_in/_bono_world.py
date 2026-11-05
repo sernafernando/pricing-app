@@ -39,8 +39,11 @@ STUBS = [
     "INSERT INTO usuarios VALUES (7), (8)",
     "INSERT INTO proveedores VALUES (31, 'TP-Link Argentina'), (32, 'Otro proveedor')",
 ]
-_SELL_IN = [t for t in w.TABLES if t.name not in ("productos_erp", "sell_in_bonos_marca", "sell_in_bono_consumos")]
+_SELL_IN = [
+    t for t in w.TABLES if t.name not in ("tacticals", "productos_erp", "sell_in_bonos_marca", "sell_in_bono_consumos")
+]
 TABLES = [
+    w.Tactical.__table__,  # `sell_in_bonos_marca.tactical_id` (tacticals T1)
     w.ProductoERP.__table__,
     SellInBonoMarca.__table__,
     SellInBonoItem.__table__,
@@ -183,20 +186,25 @@ def bono_costo(
     estado: str = "activa",
     tope_unidades: Optional[int] = None,
     tope_monto: Optional[str] = None,
+    monto_unit: Optional[str] = None,
 ) -> int:
-    """A % of the sale's cost bonus (T25, `base = 'costo_venta'`): ARS, over a brand, a category or models."""
+    """A % of the sale's cost bonus (T25, `base = 'costo_venta'`): ARS, over a brand, a category or models. With
+    `monto_unit` it is a fixed ARS amount per sold unit instead (`tipo = 'por_unidad'`, tacticals T1)."""
     with engine.begin() as conn:
         bono_id = conn.execute(
             text(
-                "INSERT INTO sell_in_bonos_marca (base, alcance, marca, categoria, tipo, porcentaje, moneda, incluye_iva, "
-                "fecha_desde, fecha_hasta, estado, tope_unidades, tope_monto, usuario_id) VALUES ('costo_venta', :a, "
-                ":m, :c, 'porcentaje', :pct, 'ARS', :iva, :d, :h, :e, :tu, :tm, 7) RETURNING id"
+                "INSERT INTO sell_in_bonos_marca (base, alcance, marca, categoria, tipo, porcentaje, monto_unit, "
+                "moneda, incluye_iva, fecha_desde, fecha_hasta, estado, tope_unidades, tope_monto, usuario_id) "
+                "VALUES ('costo_venta', :a, :m, :c, :tipo, :pct, :mu, 'ARS', :iva, :d, :h, :e, :tu, :tm, 7) "
+                "RETURNING id"
             ),
             {
+                "tipo": "por_unidad" if monto_unit is not None else "porcentaje",
                 "a": alcance,
                 "m": marca if alcance == "marca" else None,
                 "c": categoria,
-                "pct": porcentaje,
+                "pct": porcentaje if monto_unit is None else None,
+                "mu": monto_unit,
                 "iva": incluye_iva,
                 "d": desde,
                 "h": hasta,

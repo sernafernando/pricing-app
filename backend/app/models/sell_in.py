@@ -28,6 +28,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -35,6 +36,7 @@ from sqlalchemy import (
 from sqlalchemy.sql import func, text
 
 from app.core.database import Base
+from app.models.tactical import TACTICAL_LINEA
 
 
 class SellInBonoMarca(Base):
@@ -74,11 +76,12 @@ class SellInBonoMarca(Base):
         CheckConstraint("base IN ('factura', 'costo_venta')", name="ck_sell_in_bonos_marca_base"),
         CheckConstraint(
             "(base = 'factura' AND NOT incluye_iva) "
-            "OR (base = 'costo_venta' AND tipo = 'porcentaje' AND moneda = 'ARS' "
-            "AND alcance IN ('marca', 'categoria', 'modelos'))",
+            "OR (base = 'costo_venta' AND moneda = 'ARS' AND alcance IN ('marca', 'categoria', 'modelos'))",
             name="ck_sell_in_bonos_marca_costo_venta",
         ),
         UniqueConstraint("offset_origen_id", name="uq_sell_in_bonos_marca_offset_origen_id"),
+        Index("ix_sell_in_bonos_marca_tactical_id", "tactical_id"),
+        CheckConstraint(TACTICAL_LINEA, name="ck_sell_in_bonos_marca_tactical_linea"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -104,10 +107,11 @@ class SellInBonoMarca(Base):
     tope_unidades = Column(Integer, nullable=True)
     tope_monto = Column(Numeric(18, 2), nullable=True)
     # T25: 'factura' (the invoiced purchases, by invoice date) or 'costo_venta' (a % of the cost recorded on each sale
-    # in [fecha_desde, fecha_hasta], no purchase or invoice; ARS, brand/category/models only). Its sales' discounts
-    # live in `SellInBonoConsumo`.
+    # in [fecha_desde, fecha_hasta], or since tacticals T1 a fixed ARS amount per sold unit, never above that cost; no
+    # purchase or invoice; ARS, brand/category/models only). Its sales' discounts live in `SellInBonoConsumo`.
     base = Column(String(16), nullable=False, default="factura", server_default="factura")
-    # S33: the loaded % includes VAT and is divided by (1 + each product's VAT rate); only on a 'costo_venta' bonus.
+    # S33: the loaded % (or amount per unit) includes VAT and is divided by (1 + each product's VAT rate); only on a
+    # 'costo_venta' bonus.
     incluye_iva = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     # S36: same meaning as `SellOutCampana.acumulable`: bonuses on the same product and dates stack unless one of them
     # is not acumulable. Every bonus before T27 is acumulable; the reconcile reads it from T27b.
@@ -118,6 +122,13 @@ class SellInBonoMarca(Base):
     descripcion = Column(Text, nullable=True)
     estado = Column(String(16), nullable=False, default="activa", server_default="activa")
     usuario_id = Column(Integer, ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
+    # The tactical whose line it is (tacticals T1, `app.models.tactical`); NULL for one loaded on its own.
+    tactical_id = Column(
+        BigInteger,
+        ForeignKey("tacticals.id", ondelete="RESTRICT", name="fk_sell_in_bonos_marca_tactical_id"),
+        nullable=True,
+    )
+    tactical_linea = Column(SmallInteger, nullable=True)  # its 1-based line in the tactical; NULL without one
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # Also kept current by the `sell_in_bonos_marca_updated_at` trigger.
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -198,6 +209,8 @@ class SellInCompra(Base):
             "OR (tipo = 'porcentaje' AND porcentaje IS NOT NULL AND porcentaje > 0 AND porcentaje <= 100)",
             name="ck_sell_in_compras_porcentaje_segun_tipo",
         ),
+        Index("ix_sell_in_compras_tactical_id", "tactical_id"),
+        CheckConstraint(TACTICAL_LINEA, name="ck_sell_in_compras_tactical_linea"),
     )
 
     id = Column(BigInteger, primary_key=True)
@@ -221,6 +234,13 @@ class SellInCompra(Base):
     bono_id = Column(BigInteger, ForeignKey("sell_in_bonos_marca.id", ondelete="RESTRICT"), nullable=True)
     # The operation a generated purchase belongs to (also linked in `sell_in_compra_pedidos`).
     bono_pedido_id = Column(BigInteger, ForeignKey("pedidos_compra.id", ondelete="SET NULL"), nullable=True)
+    # The tactical whose line it is (tacticals T1: an invoice's fixed total); NULL for one loaded on its own.
+    tactical_id = Column(
+        BigInteger,
+        ForeignKey("tacticals.id", ondelete="RESTRICT", name="fk_sell_in_compras_tactical_id"),
+        nullable=True,
+    )
+    tactical_linea = Column(SmallInteger, nullable=True)  # its 1-based line in the tactical; NULL without one
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     # Also kept current by the `sell_in_compras_updated_at` trigger, so raw SQL updates refresh it too.
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

@@ -21,6 +21,7 @@ import pytest
 from sqlalchemy import Engine, event, text
 from sqlalchemy.orm import sessionmaker
 
+from app.models.tactical import Tactical
 from app.models.producto import ProductoERP
 from app.models.sell_in import (
     SellInBonoConsumo,
@@ -55,6 +56,7 @@ STUBS = [
 ]
 TABLES = [
     ProductoERP.__table__,
+    Tactical.__table__,  # `tactical_id` of campaigns, bonuses and purchases (tacticals T1)
     SellInBonoMarca.__table__,
     SellInCompra.__table__,
     SellInCompraItem.__table__,

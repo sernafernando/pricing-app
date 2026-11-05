@@ -13,8 +13,9 @@ existing cost and markup fields are never touched.
   active `costo_venta` bonuses reaching the product today whose cap is not
   used up (after `sell_in_bono_consumos`), in id order, each giving its % (the
   model's own one, when set) of the product's current cost in ARS (`costo`),
+  or its ARS amount per unit on a `por_unidad` bonus (tacticals T1),
   divided by (1 + the product's VAT rate) when loaded with VAT
-  (`bonos_costo.pct_neto`, the allocator's rule); they stack up to the cost,
+  (`bonos_costo.unitario`, the allocator's rule); they stack up to the cost,
   with the allocator's precedence (T27b: a bonus does not stack with an
   earlier one that gave something when either is not `acumulable`),
   and a money cap with less left than the unit amount gives what is left. A
@@ -51,7 +52,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from sqlalchemy import Numeric, and_, cast, func, literal, null, or_, select, true, union_all
+from sqlalchemy import Numeric, and_, case, cast, func, literal, null, or_, select, true, union_all
 from sqlalchemy.orm import Session
 
 from app.models.producto import ProductoERP
@@ -76,7 +77,7 @@ class _Campana:
 @dataclass(frozen=True)
 class _BonoCosto:
     bono: SellInBonoMarca
-    porcentaje: Decimal  # the product's own % in the bonus, or the bonus's
+    valor: Decimal  # the product's own % (or ARS per unit) in the bonus, or the bonus's
     monto_libre: Optional[Decimal]  # ARS cap left; None: no money cap
 
 
@@ -166,12 +167,12 @@ class SellInOutBatch:
             if any(not (p.acumulable and x.bono.acumulable) for p in tomados):
                 continue  # an earlier bonus it does not stack with holds the unit (`bonos_costo`, T27b)
             try:
-                pct = bonos_costo.pct_neto(x.bono, x.porcentaje, item_id, iva, self.hoy)
+                monto = bonos_costo.unitario(x.bono, x.valor, costo, item_id, iva, self.hoy)
             except ValueError:
                 # A VAT-loaded bonus on a product without a VAT rate: the allocator (`bonos_costo.recalcular`) fails
                 # the product's whole component, every cost bonus of it, so none is shown either.
                 return None
-            unitario = min(costo * pct / bonos_costo.CIEN, costo - total)
+            unitario = min(monto, costo - total)
             if unitario <= 0:
                 continue
             total += cents(unitario) if x.monto_libre is None else min(cents(unitario), x.monto_libre)
@@ -249,7 +250,7 @@ def resolver_sell_in_out_batch(
     return SellInOutBatch(hoy, sell_in, campanas, bna, _bonos_costo(db, pares))
 
 
-_Par = Tuple[int, int, Optional[Decimal]]  # (bono_id, item_id, the product's own % in the bonus or None)
+_Par = Tuple[int, int, Optional[Decimal]]  # (bono_id, item_id, the product's own % or ARS per unit, or None)
 
 
 def _campanas_y_bonos(db: Session, ids: List[int], sin_lote: List[int], hoy: date):
@@ -266,7 +267,15 @@ def _campanas_y_bonos(db: Session, ids: List[int], sin_lote: List[int], hoy: dat
         return alcance.campanas_de_filas(campanas, ventas), []
     b, i, p = SellInBonoMarca, SellInBonoItem, ProductoERP
     bonos = (
-        select(b.id, p.item_id, b.fecha_desde, b.fecha_hasta, literal("bono"), i.porcentaje)
+        # A model's own value of the bonus's kind, picked like the allocator (`bonos_costo.recalcular`).
+        select(
+            b.id,
+            p.item_id,
+            b.fecha_desde,
+            b.fecha_hasta,
+            literal("bono"),
+            case((b.tipo == "por_unidad", i.monto_unit), else_=i.porcentaje),
+        )
         .select_from(p)
         .join(b, true())
         .outerjoin(i, and_(i.bono_id == b.id, i.item_id == p.item_id))
@@ -317,6 +326,5 @@ def _bonos_costo(db: Session, pares: List[_Par]) -> Dict[int, List[_BonoCosto]]:
     for bid, item_id, propio in sorted(pares, key=lambda x: (x[1], x[0])):
         if bid in activos:
             bono, libre = activos[bid]
-            pct = Decimal(propio if propio is not None else bono.porcentaje)
-            salida.setdefault(item_id, []).append(_BonoCosto(bono, pct, libre))
+            salida.setdefault(item_id, []).append(_BonoCosto(bono, bonos_costo.valor_del_bono(bono, propio), libre))
     return salida

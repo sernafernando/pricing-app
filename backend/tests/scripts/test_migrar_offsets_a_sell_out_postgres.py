@@ -17,6 +17,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
 from app.core import database
+from app.models.tactical import Tactical
 from app.models.auditoria import Auditoria
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
@@ -64,6 +65,7 @@ _TABLES = [
     OffsetGrupoFiltro.__table__,
     OffsetGanancia.__table__,
     OffsetMigracionPendiente.__table__,
+    Tactical.__table__,  # `tactical_id` of campaigns and bonuses (tacticals T1)
     SellOutPrograma.__table__,
     SellOutCampana.__table__,
     SellOutCampanaGrupo.__table__,
