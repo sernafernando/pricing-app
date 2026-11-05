@@ -148,3 +148,15 @@ def test_a_manual_row_superseded_on_its_own_day_replaces_nothing() -> None:
 def test_a_block_and_its_period_go_together(lotes, periodos) -> None:
     with pytest.raises(ValueError):
         asignar(lotes, [_venta(7, 40, NOV2)], periodos)
+
+
+def test_a_manual_row_read_without_its_block_governs_nothing_until_a_sale_reaches_it() -> None:
+    # A reader that does not build blocks (`modo_id` unset) keeps the previous rule: a later manual row changes nothing
+    # before it governs a sale, and a sale under it cannot be replayed.
+    sin_bloque = [Periodo(NOV5, "manual")]
+
+    consumos = _por_venta(asignar(DOS_LOTES, [_venta(7, 40, OCT30)], sin_bloque))
+
+    assert consumos[7] == [(1, 40, Decimal("400.00"))]
+    with pytest.raises(ValueError):
+        asignar(DOS_LOTES, [_venta(7, 40, date(2026, 11, 6))], sin_bloque)

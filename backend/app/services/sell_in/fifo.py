@@ -158,10 +158,13 @@ def gobiernan(periodos: List[Periodo]) -> List[int]:
 
 
 def _validar_manuales(lotes: List[Lote], periodos: List[Periodo]) -> None:
-    """Every manual block has its governing manual period on its own date, and the other way round."""
+    """Every manual block has its governing manual period on its own date, and the other way round. A manual period
+    read without its block (`modo_id` unset) is left out: it only fails once a sale reaches it (`Dinero`)."""
     bloques = sorted((lote.modo_id, lote.fecha) for lote in lotes if lote.modo_id is not None)
     manuales = sorted(
-        (periodos[k].modo_id, periodos[k].desde) for k in gobiernan(periodos) if periodos[k].modo == "manual"
+        (periodos[k].modo_id, periodos[k].desde)
+        for k in gobiernan(periodos)
+        if periodos[k].modo == "manual" and periodos[k].modo_id is not None
     )
     if bloques != manuales:
         raise ValueError(f"manual blocks {bloques} do not match the manual periods {manuales}")
@@ -188,12 +191,12 @@ class Dinero:
 
     def __init__(self, lotes: List[Lote], periodos: Iterable[Periodo] = ()) -> None:
         self.lotes = lotes
+        self._recargo = any(lote.descuento_ars < 0 for lote in lotes)  # a manual block raising the cost
         self.periodos = list(periodos)
         _validar_manuales(lotes, self.periodos)
         self._pendientes = gobiernan(self.periodos)
         self.usadas = [0] * len(lotes)
         self._reemplazados: set = set()  # lots a manual block replaced: nothing left on them
-        self._recargo = any(lote.descuento_ars < 0 for lote in lotes)  # a manual block raising the cost
         self._modo = "fifo"
         self._lote_seg: Dict[int, Tuple[int, Decimal, int]] = {}  # FIFO: lot -> (start used units, base, units)
         # `ponderado`: [lots counting, money, units, units taken];
@@ -253,6 +256,8 @@ class Dinero:
             if periodo.modo not in ("fifo", "ponderado", "ultimo", "manual"):
                 # Refused only once it governs a sale: a row dated after them changes nothing yet.
                 raise ValueError(f"cost mode {periodo.modo!r} is not supported here")
+            if periodo.modo == "manual" and periodo.modo_id is None:
+                raise ValueError("a manual cost mode read without its block cannot be replayed")
             if self._modo != "fifo":
                 # The pool takes in the lots that started counting before the new period, sold from or not.
                 self._unir(periodo.desde - timedelta(days=1))
@@ -304,9 +309,9 @@ class Dinero:
         self.usadas[i] += unidades
         # A used-up lot carries the half cent rounding gave it beyond its total (-0.005 at most) into what comes next;
         # only lots of a few thousandths, or none, can fail to cover it, and a row never goes below zero for that.
-        # A product with a manual surcharge block hands out negative money as it is (the block's rows, or a pool
-        # holding it).
-        return monto if self._recargo else max(monto, Decimal("0.00"))
+        # On a product with a manual surcharge block, negative money is handed out as it is (the block's own rows, or a
+        # pool holding it); a lot's own non-negative money, or any money on another product, never goes below zero.
+        return monto if self._recargo and seg[1] < 0 else max(monto, Decimal("0.00"))
 
     def restante(self, fecha: date) -> Decimal:
         """The money every unit left would get, all sold on `fecha` after the rows fed so far, without feeding them:
