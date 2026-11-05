@@ -355,4 +355,3 @@ describe('TacticalsList Ver ventas', () => {
     expect(screen.queryByRole('button', { name: /Ver ventas/ })).not.toBeInTheDocument();
   });
 });
-

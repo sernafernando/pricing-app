@@ -1,4 +1,4 @@
-/* TacticalEditar and TacticalAnular: the row dialogs, in the style of TacticalDescartar (Sell in / Sell out dialogs). */
+/* The Tacticals row dialogs (TacticalEditar, TacticalAnular), in the style of TacticalDescartar (Sell in / Sell out dialogs). */
 
 .ghost {
   composes: btn-tesla ghost sm from '../../styles/buttons-tesla.css';

@@ -315,7 +315,11 @@ export default function SellIn() {
   const verCompra = useCallback((id) => setPanel({ tipo: 'detalle', id }), []);
   const verCampana = useCallback((id) => setPanel({ tipo: 'campana', id }), []);
   // A tactical line's "Ver ventas": its child record (campaign, bonus or purchase) in the panel.
-  const verLinea = useCallback((linea) => setPanel({ tipo: PANEL_DE_ORIGEN[linea.origen] ?? 'detalle', id: linea.id }), []);
+  // An unknown `origen` opens nothing: its id belongs to no record these panels read.
+  const verLinea = useCallback((linea) => {
+    const tipo = PANEL_DE_ORIGEN[linea.origen];
+    if (tipo) setPanel({ tipo, id: linea.id });
+  }, []);
   // A row's "Renovar" (`sell_out.gestionar`): the campaign's panel, renewing it as soon as it is read. A new `renovar`
   // count remounts the panel, so a second click on the same row renews again.
   const renovaciones = useRef(0);

@@ -1722,6 +1722,18 @@ describe('SellIn page — Tacticals tab', () => {
     expect(within(panel).queryByRole('button', { name: 'Guardar cambios' })).not.toBeInTheDocument();
   });
 
+  it('Ver ventas on a line of an unknown origin opens nothing', async () => {
+    const user = userEvent.setup();
+    const RARO = { ...TACTICAL, lineas: [{ ...TACTICAL.lineas[0], origen: 'otro' }] };
+    tacticalsAPI.listar.mockResolvedValue({ data: { total: 1, page: 1, page_size: 50, items: [RARO] } });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    await user.click(await screen.findByRole('button', { name: 'Ver las líneas de Rebate TP-Link noviembre' }));
+    await user.click(screen.getByRole('button', { name: 'Ver ventas de la línea 1' }));
+
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument();
+    expect(sellInAPI.detalle).not.toHaveBeenCalled();
+  });
+
   it("without the kind's gestionar a tactical has no actions menu", async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_in.gestionar');
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });

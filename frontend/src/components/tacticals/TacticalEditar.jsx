@@ -11,7 +11,7 @@ import { apiErrorMessage } from '../../utils/apiErrorMessage';
 import { useFocoAtrapado } from '../sellOut/useFocoAtrapado';
 import { cuerpoDeEdicion, problemaDeEdicion, valoresDeEdicion } from './tacticalEditar';
 import { formatMontoTactical, formatUnidades } from './tacticalsFormat';
-import styles from './TacticalEditar.module.css';
+import styles from './tacticalDialogos.module.css';
 
 const hoyISO = () => {
   const d = new Date();
