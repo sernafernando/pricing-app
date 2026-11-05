@@ -33,6 +33,7 @@ from app.models.ml_ads import (
     MlAdsDisplayCampaign,
     MlAdsDisplayCampaignDay,
     MlAdsItemDay,
+    item_day_without_campaign,
 )
 from app.models.producto import ProductoERP
 from app.models.usuario import Usuario
@@ -182,7 +183,7 @@ def list_contributions(db: Session, date_from: date, date_to: date) -> Contribut
             )
         )
     in_window = item.day.between(date_from, date_to)
-    no_campaign = or_(item.campaign_id.is_(None), item.campaign_id == 0)
+    no_campaign = item_day_without_campaign(item)
     product_ads_cost, no_campaign_cost = (
         db.query(
             func.coalesce(func.sum(item.cost), 0),
