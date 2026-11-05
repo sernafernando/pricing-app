@@ -16,12 +16,11 @@ import own from './Grupos.module.css';
  * at once with "Borrar seleccionados" (tactical S9). The page shows it with `grupos.ver`; `puedeEditar`
  * (`config.editar_constantes`, the permission of every group write; off unless passed) adds the panel and the
  * checkboxes. A new
- * `version` (the page's "Actualizar") asks the groups again and keeps the open panel; `onGruposCambiados` tells the
- * page a group was created, changed or deleted, so the campaign form offers the current groups.
+ * `version` (the page's "Actualizar") asks the groups again and keeps the open panel.
  */
 const gruposTexto = (n) => (n === 1 ? '1 grupo' : `${n} grupos`);
 
-export default function GruposTab({ version = 0, onGruposCambiados = () => {}, puedeEditar = false }) {
+export default function GruposTab({ version = 0, puedeEditar = false }) {
   const { grupos, opciones, error, errorOpciones, recargar } = useGrupos(version);
   const [marcados, setMarcados] = useState(() => new Set());
   const [confirmandoBorrado, setConfirmandoBorrado] = useState(false);
@@ -45,7 +44,6 @@ export default function GruposTab({ version = 0, onGruposCambiados = () => {}, p
       setResultado(data);
       setMarcados(new Set());
       setConfirmandoBorrado(false);
-      if (data.eliminados.length > 0) onGruposCambiados();
       await recargar();
     } catch (err) {
       setErrorBorrado(apiErrorMessage(err, 'No se pudieron borrar los grupos.'));
@@ -58,10 +56,7 @@ export default function GruposTab({ version = 0, onGruposCambiados = () => {}, p
   const [panel, setPanel] = useState(null);
   const subcategorias = nombresDeSubcategorias(opciones);
   // Returns the reload: the panel stays busy until the list and the preview are current.
-  const cambiaron = () => {
-    onGruposCambiados();
-    return recargar();
-  };
+  const cambiaron = () => recargar();
   const grupo = panel?.id != null ? (grupos?.find((g) => g.id === panel.id) ?? panel.inicial) : null;
   // Once the list has the created group, `inicial` is dropped: a later reload without it closes the panel too.
   if (panel?.inicial && grupos?.some((g) => g.id === panel.id)) setPanel({ id: panel.id });
