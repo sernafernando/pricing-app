@@ -201,6 +201,19 @@ class TestPermissions:
         assert client.get(URL, params={"alerts": "margen_cayendo"}, headers=admin_auth_headers).status_code == 403
 
 
+class TestTodosParts:
+    """Métricas ML's "Todos" (filas-sin-limite S3) has no cap: the page asks `ml_metricas.BOARD_PART` rows at a time
+    until the total, so one request may ask up to that many, never more."""
+
+    def test_a_part_of_todos_is_accepted(self, client, admin_auth_headers, board_data):
+        body = _get(client, admin_auth_headers, limit=ml_metricas.BOARD_PART)
+        assert (body["limit"], body["total"], len(body["rows"])) == (2000, 4, 4)
+
+    def test_more_than_a_part_is_refused(self, client, admin_auth_headers, board_data):
+        resp = client.get(URL, params={"limit": ml_metricas.BOARD_PART + 1}, headers=admin_auth_headers)
+        assert resp.status_code == 422
+
+
 class TestProductRows:
     def test_windows_markup_and_ageing(self, client, admin_auth_headers, board_data):
         body = _get(client, admin_auth_headers)

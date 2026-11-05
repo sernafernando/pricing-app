@@ -9,6 +9,7 @@ import {
 } from '../../hooks/usePublicacionesMLFilters';
 import { buildLeafParams } from './groupNodes';
 import { flattenTree } from './groupTree';
+import { appendPage } from '../../utils/appendPage';
 
 /**
  * State of the Producto view of Publicaciones ML: one page of product rows from
@@ -61,11 +62,7 @@ export function readProduct(raw) {
   };
 }
 
-/** Pages are by offset: a row that moved between two requests stays once (publications by `item_id`). */
-export function appendPage(rows, page, keyOf = (row) => row.item_id) {
-  const seen = new Set(rows.map(keyOf));
-  return [...rows, ...page.filter((row) => !seen.has(keyOf(row)))];
-}
+export { appendPage };
 
 /**
  * The products' request for the part at `offset` of the page: the page itself, or with "Todos" its LAZY_CHUNK rows

@@ -22,6 +22,8 @@ import { metricasKpiOptions } from '../components/metricasMl/metricasKpiOptions'
 import VentasPorDiaChart from '../components/metricasMl/VentasPorDiaChart';
 import MetricasEnviosPanel from '../components/metricasMl/MetricasEnviosPanel';
 import BoardTable, { BOARD_SORT_KEYS } from '../components/metricasMl/BoardTable';
+import { appendPage } from '../utils/appendPage';
+import { PAGE_SIZE_OPTIONS } from './ventasMlTableHelpers';
 import { adsRequestParams } from '../utils/metricasMlAds';
 import { TP_SOLO_DIMENSION, tpErrorMessage, tpRequestParams, tpSoloSortKey } from '../utils/metricasMlTp';
 import { isTpSolo } from '../components/ventasMl/tpMode';
@@ -72,6 +74,15 @@ import styles from './MetricasML.module.css';
  */
 
 const DEFAULT_PAGE_SIZE = 50;
+// "Todos" (filas-sin-limite S3): every row of the board, no cap, in one page. Same token as Publicaciones ML's.
+// Its rows come BOARD_PART at a time (`BOARD_PART` in `routers/ml_metricas.py`) as the table's end comes into view,
+// until the board's total; past VIRTUALIZE_FROM rows the table renders only the rows in view.
+const ALL_ROWS = 9999;
+const BOARD_PART = 2000;
+const VIRTUALIZE_FROM = 100;
+const BOARD_PAGE_SIZES = [...PAGE_SIZE_OPTIONS, ALL_ROWS];
+const boardSizeLabel = (size) => (size === ALL_ROWS ? 'Todos' : String(size));
+const boardRowKey = (row) => row.key;
 // Ageing buckets whose rows, by definition, sold nothing in the last 30 days.
 const STALE_AGEING_BUCKETS = new Set(['from_31_to_60', 'over_60']);
 // The board's period cap (`MAX_PERIOD_DAYS` in `routers/ml_metricas.py`).
@@ -196,6 +207,11 @@ export default function MetricasML() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const [board, setBoard] = useState(null);
+  // "Todos" in parts: the request they belong to, its params, the next offset and the board's total.
+  const partsRef = useRef(null);
+  // A part of "Todos" that failed: said under the table with its own "Reintentar", never a list cut short in silence.
+  const [moreError, setMoreError] = useState(false);
+  const allRows = pageSize === ALL_ROWS;
   const [loading, setLoading] = useState(true);
   const [errorKind, setErrorKind] = useState(null);
   // A 422 (a period or filter the board refuses) is the operator's to fix:
@@ -382,10 +398,19 @@ export default function MetricasML() {
     const requestId = ++latestRequestRef.current;
     setLoading(true);
     setErrorKind(null);
-    const params = { ...filterParams, sort: sortKey, sort_dir: sort.desc ? 'desc' : 'asc', limit: pageSize, offset };
+    const params = {
+      ...filterParams,
+      sort: sortKey,
+      sort_dir: sort.desc ? 'desc' : 'asc',
+      limit: allRows ? BOARD_PART : pageSize,
+      offset: allRows ? 0 : offset,
+    };
+    partsRef.current = null;
+    setMoreError(false);
     try {
       const { data } = await api.get('/ml-metricas/board', { params });
       if (requestId !== latestRequestRef.current) return;
+      if (allRows) partsRef.current = { request: requestId, params, next: BOARD_PART, end: data.total ?? 0, busy: false };
       setBoard(data);
       setExpanded(new Set());
       setSubRows({});
@@ -404,7 +429,30 @@ export default function MetricasML() {
     } finally {
       if (requestId === latestRequestRef.current) setLoading(false);
     }
-  }, [puedeVer, filterParams, sortKey, sort.desc, pageSize, offset, rejectTp]);
+  }, [puedeVer, filterParams, sortKey, sort.desc, pageSize, allRows, offset, rejectTp]);
+
+  // The next part of "Todos": the same params from the next offset, its rows appended (once each, by key). The KPIs,
+  // the chips and the total stay the first part's, and so do the open rows. A part of a board that is no longer the
+  // current one is dropped; a failed part leaves the rows as they are and says so, and "Reintentar" asks it again.
+  const loadMoreRows = useCallback(() => {
+    const current = partsRef.current;
+    if (!current || current.busy || current.next >= current.end || current.request !== latestRequestRef.current) return;
+    current.busy = true;
+    const partOffset = current.next;
+    api
+      .get('/ml-metricas/board', { params: { ...current.params, offset: partOffset } })
+      .then(({ data }) => {
+        if (current.request !== latestRequestRef.current) return;
+        current.next = partOffset + BOARD_PART;
+        current.busy = false;
+        setMoreError(false);
+        setBoard((shown) => (shown ? { ...shown, rows: appendPage(shown.rows ?? [], data?.rows ?? [], boardRowKey) } : shown));
+      })
+      .catch(() => {
+        current.busy = false;
+        if (current.request === latestRequestRef.current) setMoreError(true);
+      });
+  }, []);
 
   useEffect(() => {
     cargar();
@@ -894,8 +942,19 @@ export default function MetricasML() {
             sortDesc={sort.desc}
             onSort={handleSort}
             dense={dense}
+            virtualizeFrom={allRows ? VIRTUALIZE_FROM : undefined}
+            onEndReached={allRows ? loadMoreRows : undefined}
           />
         </div>
+        {allRows && moreError && (
+          <div className={styles.errorBar} role="alert">
+            <ShieldAlert size={16} aria-hidden="true" />
+            <span>No se pudieron traer más {noun}.</span>
+            <button type="button" className="btn-tesla outline sm" onClick={loadMoreRows}>
+              Reintentar
+            </button>
+          </div>
+        )}
         {!loading && rows.length === 0 && !errorKind && (
           <p className={styles.empty}>No hay {noun} que coincidan con los filtros.</p>
         )}
@@ -904,6 +963,9 @@ export default function MetricasML() {
             total={total}
             offset={offset}
             pageSize={pageSize}
+            pageSizeOptions={BOARD_PAGE_SIZES}
+            pageSizeLabel={boardSizeLabel}
+            allRowsSize={ALL_ROWS}
             onOffsetChange={setOffset}
             onPageSizeChange={(size) => {
               setPageSize(size);
@@ -913,7 +975,7 @@ export default function MetricasML() {
               <span className={styles.summary}>
                 Mostrando{' '}
                 <strong>
-                  {total === 0 ? 0 : offset + 1}–{Math.min(offset + pageSize, total)}
+                  {total === 0 ? 0 : allRows ? 1 : offset + 1}–{allRows ? total : Math.min(offset + pageSize, total)}
                 </strong>{' '}
                 de <strong>{formatUnits(total)}</strong> {noun} (
                 <span className={styles.rotating}>{formatUnits(board?.with_sales_count ?? 0)}</span> con rotación en el
