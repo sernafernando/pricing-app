@@ -37,10 +37,19 @@ function overrideDraftValue(value) {
 }
 
 export default function GestionFull() {
-  const { tienePermiso } = usePermisos();
+  const { tienePermiso, tieneAlgunPermiso } = usePermisos();
   const puedeDepositos = tienePermiso('gestion_full.depositos');
   const puedeGestorPerm = tienePermiso('gestion_full.gestor');
-  const [tab, setTab] = useState('plan');
+  // Planificación is for PMs/ops viewers and gestores — not depósito-only.
+  const puedePlanificar = tieneAlgunPermiso([
+    'productos.ver',
+    'ml_ops.ver',
+    'gestion_full.gestor',
+  ]);
+  const puedeEnvioTab = puedeGestorPerm || puedeDepositos;
+  const envioSoloLectura = puedeDepositos && !puedeGestorPerm;
+  const defaultTab = puedePlanificar ? 'plan' : puedeDepositos ? 'depositos' : 'envios';
+  const [tab, setTab] = useState(defaultTab);
   const [q, setQ] = useState('');
   const [productFilters, setProductFilters] = useState(EMPTY_PRODUCT_FILTERS);
   const [productOptions, setProductOptions] = useState(EMPTY_PRODUCT_OPTIONS);
@@ -214,15 +223,17 @@ export default function GestionFull() {
       </header>
 
       <div className={styles.tabs} role="tablist" aria-label="Gestión Full">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'plan'}
-          className={tab === 'plan' ? styles.tabActive : styles.tab}
-          onClick={() => setTab('plan')}
-        >
-          Planificación
-        </button>
+        {puedePlanificar && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'plan'}
+            className={tab === 'plan' ? styles.tabActive : styles.tab}
+            onClick={() => setTab('plan')}
+          >
+            Planificación
+          </button>
+        )}
         {puedeDepositos && (
           <button
             type="button"
@@ -234,7 +245,7 @@ export default function GestionFull() {
             Depósito
           </button>
         )}
-        {puedeGestorPerm && (
+        {puedeEnvioTab && (
           <button
             type="button"
             role="tab"
@@ -257,10 +268,12 @@ export default function GestionFull() {
       </div>
 
       {tab === 'depositos' && puedeDepositos ? <GestionFullDepositosTab /> : null}
-      {tab === 'gestor' && puedeGestorPerm ? <GestionFullGestorTab /> : null}
+      {tab === 'gestor' && puedeEnvioTab ? (
+        <GestionFullGestorTab readOnly={envioSoloLectura} />
+      ) : null}
       {tab === 'envios' ? <GestionFullEnviosTab /> : null}
 
-      {tab === 'plan' && (
+      {tab === 'plan' && puedePlanificar && (
       <>
       <div className={styles.filters}>
         <label className={styles.search}>

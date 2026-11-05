@@ -20,6 +20,7 @@ const tienePermisoMock = vi.fn(() => false);
 vi.mock('../contexts/PermisosContext', () => ({
   usePermisos: () => ({
     tienePermiso: (...args) => tienePermisoMock(...args),
+    tieneAlgunPermiso: (codigos) => codigos.some((c) => tienePermisoMock(c)),
   }),
 }));
 
@@ -43,7 +44,8 @@ describe('GestionFull', () => {
     api.patch.mockReset();
     api.post.mockReset();
     tienePermisoMock.mockReset();
-    tienePermisoMock.mockImplementation(() => false);
+    // Default: Planificación viewer (most tests exercise that tab).
+    tienePermisoMock.mockImplementation((code) => code === 'productos.ver');
   });
 
   it('renders grouped rows centered and calls the list endpoint', async () => {
@@ -317,23 +319,42 @@ describe('GestionFull', () => {
     });
   });
 
-  it('hides Depósito and Envío tabs without permissions; always shows Consulta envíos', async () => {
+  it('hides Depósito and Envío tabs without those perms; always shows Consulta envíos', async () => {
     api.get.mockResolvedValue({ data: { total: 0, items: [], puede_editar_override: false } });
     render(<GestionFull />);
     await waitFor(() => expect(api.get).toHaveBeenCalled());
 
+    expect(screen.getByRole('tab', { name: 'Planificación' })).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Depósito' })).not.toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'Envío' })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Consulta envíos' })).toBeInTheDocument();
   });
 
-  it('shows Depósito tab when gestion_full.depositos is granted', async () => {
+  it('viewer without plan perms still sees Consulta envíos only', async () => {
+    tienePermisoMock.mockImplementation(() => false);
+    render(<GestionFull />);
+
+    expect(screen.queryByRole('tab', { name: 'Planificación' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Depósito' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Envío' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Consulta envíos' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('depositos-only: Depósito default, Envío + Consulta, no Planificación', async () => {
     tienePermisoMock.mockImplementation((code) => code === 'gestion_full.depositos');
     api.get.mockResolvedValue({ data: { total: 0, items: [], puede_editar_override: false } });
     render(<GestionFull />);
 
-    const tab = await screen.findByRole('tab', { name: 'Depósito' });
-    fireEvent.click(tab);
+    expect(await screen.findByRole('tab', { name: 'Depósito' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.queryByRole('tab', { name: 'Planificación' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Envío' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Consulta envíos' })).toBeInTheDocument();
     expect(screen.getByText('Depósito tab body')).toBeInTheDocument();
   });
 

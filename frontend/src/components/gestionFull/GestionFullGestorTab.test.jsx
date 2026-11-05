@@ -19,6 +19,35 @@ describe('GestionFullGestorTab', () => {
     api.patch.mockReset();
   });
 
+  it('hides write actions in readOnly mode', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        id: 1,
+        week_monday: '2026-10-26',
+        status: 'open',
+        lines: [
+          {
+            id: 10,
+            producto_item_id: 1,
+            user_product_id: 'MLAU1',
+            inventory_id: 'INV1',
+            qty_pm: 5,
+            qty_export: 5,
+            inbound_id: null,
+          },
+        ],
+      },
+    });
+
+    render(<GestionFullGestorTab readOnly />);
+    await waitFor(() => expect(screen.getByText('INV1')).toBeInTheDocument());
+
+    expect(screen.getByText(/solo lectura/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Sumar líneas Listo/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Excel ML/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Quitar del envío/i })).not.toBeInTheDocument();
+  });
+
   it('removes selected lines from the package', async () => {
     api.get.mockResolvedValue({
       data: {

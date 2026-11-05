@@ -43,7 +43,11 @@ async function downloadBlob(path, filename) {
   }
 }
 
-export default function GestionFullGestorTab() {
+/**
+ * @param {{ readOnly?: boolean }} props
+ * readOnly: depósito can inspect the open package without write actions.
+ */
+export default function GestionFullGestorTab({ readOnly = false }) {
   const [pkg, setPkg] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -93,9 +97,10 @@ export default function GestionFullGestorTab() {
     return true;
   });
 
-  const locked = pkg?.status === 'locked';
+  const locked = pkg?.status === 'locked' || readOnly;
 
   const toggle = (id) => {
+    if (readOnly) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -105,6 +110,7 @@ export default function GestionFullGestorTab() {
   };
 
   const toggleAll = () => {
+    if (readOnly) return;
     if (selected.size === lines.length) {
       setSelected(new Set());
       return;
@@ -113,7 +119,7 @@ export default function GestionFullGestorTab() {
   };
 
   const assign = async () => {
-    if (!inboundId.trim() || selected.size === 0) return;
+    if (readOnly || !inboundId.trim() || selected.size === 0) return;
     setBusy(true);
     setMsg(null);
     setError(null);
@@ -133,7 +139,7 @@ export default function GestionFullGestorTab() {
   };
 
   const removeSelected = async () => {
-    if (selected.size === 0 || locked) return;
+    if (readOnly || selected.size === 0 || locked) return;
     setBusy(true);
     setMsg(null);
     setError(null);
@@ -152,6 +158,7 @@ export default function GestionFullGestorTab() {
   };
 
   const clearInbounds = async () => {
+    if (readOnly) return;
     setBusy(true);
     setMsg(null);
     setError(null);
@@ -167,6 +174,7 @@ export default function GestionFullGestorTab() {
   };
 
   const exportFile = async (kind) => {
+    if (readOnly) return;
     setBusy(true);
     setMsg(null);
     setError(null);
@@ -188,6 +196,7 @@ export default function GestionFullGestorTab() {
   };
 
   const addReadyFromList = async () => {
+    if (readOnly) return;
     setBusy(true);
     setMsg(null);
     setError(null);
@@ -207,7 +216,7 @@ export default function GestionFullGestorTab() {
   };
 
   const saveQtyExport = async (line) => {
-    if (locked) return;
+    if (readOnly || locked) return;
     const raw = qtyDraft[line.id];
     const next =
       raw === undefined || raw === '' ? line.qty_export : Number.parseInt(String(raw), 10);
@@ -244,6 +253,7 @@ export default function GestionFullGestorTab() {
       <div className={styles.filters}>
         <span className={styles.meta}>
           Paquete {pkg ? `#${pkg.id}` : '—'} · {pkg?.week_monday || '—'} · {pkg?.status || 'sin paquete'}
+          {readOnly ? ' · solo lectura' : ''}
         </span>
         <label className={styles.filterField}>
           <span className={styles.filterLabel}>Filtro</span>
@@ -258,20 +268,25 @@ export default function GestionFullGestorTab() {
             <option value="sin">Sin asignar</option>
           </select>
         </label>
-        <button type="button" className={styles.clearBtn} disabled={busy} onClick={addReadyFromList}>
-          Sumar líneas Listo
-        </button>
-        <button type="button" className={styles.readyBtn} disabled={busy || !pkg} onClick={() => exportFile('ml')}>
-          Excel ML
-        </button>
-        <button type="button" className={styles.readyBtn} disabled={busy || !pkg} onClick={() => exportFile('ops')}>
-          Excel ops
-        </button>
-        <button type="button" className={styles.unlockBtn} disabled={busy || !pkg} onClick={clearInbounds}>
-          Limpiar inbounds
-        </button>
+        {!readOnly && (
+          <>
+            <button type="button" className={styles.clearBtn} disabled={busy} onClick={addReadyFromList}>
+              Sumar líneas Listo
+            </button>
+            <button type="button" className={styles.readyBtn} disabled={busy || !pkg} onClick={() => exportFile('ml')}>
+              Excel ML
+            </button>
+            <button type="button" className={styles.readyBtn} disabled={busy || !pkg} onClick={() => exportFile('ops')}>
+              Excel ops
+            </button>
+            <button type="button" className={styles.unlockBtn} disabled={busy || !pkg} onClick={clearInbounds}>
+              Limpiar inbounds
+            </button>
+          </>
+        )}
       </div>
 
+      {!readOnly && (
       <div className={styles.filters}>
         <input
           className={styles.input}
@@ -299,6 +314,7 @@ export default function GestionFullGestorTab() {
           Quitar del envío ({selected.size})
         </button>
       </div>
+      )}
 
       {error && <div className={styles.error}>{typeof error === 'string' ? error : JSON.stringify(error)}</div>}
       {msg && <div className={styles.meta}>{msg}</div>}

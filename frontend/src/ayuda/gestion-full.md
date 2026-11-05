@@ -2,7 +2,7 @@
 
 Área: Operaciones
 Ruta: Operaciones → Gestión Full
-Permiso: entrar a la pantalla con `productos.ver`, `ml_ops.ver`, `gestion_full.depositos` o `gestion_full.gestor` (cualquiera alcanza; depósito no necesita Productos ni Ventas ML). Pestaña **Depósito** exige `gestion_full.depositos`; pestaña **Envío** exige `gestion_full.gestor`. Para editar el override hace falta ser PM/sub-PM del producto o admin.
+Permiso: entrar a la pantalla con `productos.ver`, `ml_ops.ver`, `gestion_full.depositos` o `gestion_full.gestor` (cualquiera alcanza; depósito no necesita Productos ni Ventas ML). **Planificación** la ven quienes tienen `productos.ver`, `ml_ops.ver` o `gestion_full.gestor`. Quien solo tiene `gestion_full.depositos` entra en **Depósito**, puede ver **Envío** en solo lectura y **Consulta envíos**; no ve Planificación. Escribir en Envío exige `gestion_full.gestor`. Para editar el override hace falta ser PM/sub-PM del producto o admin.
 
 ## Para qué sirve
 
@@ -10,7 +10,7 @@ Planifica cuánto mandar a Full: una fila por producto ERP y familia MLAU, con C
 
 ## Cómo se usa
 
-Arriba dice **Gestión Full**. Hay pestañas **Planificación**, **Consulta envíos**, con permiso `gestion_full.depositos` **Depósito** (U/caja e import), y con `gestion_full.gestor` **Envío** (armar paquete, Excel ML/ops, asignar inbound_id, quitar líneas del envío). En Planificación: búsqueda, filtros de producto (Marca / Categoría / PM, multi-selección; sin Subcategoría), presencia Full, stock ERP y **Solo Listo**.
+Arriba dice **Gestión Full**. Pestañas según permiso: **Planificación** (PM/ops/gestor), **Depósito** (`gestion_full.depositos`: U/caja e import), **Envío** (gestor escribe; depósito solo mira el paquete), **Consulta envíos** (quien entra a la pantalla). En Planificación: búsqueda, filtros de producto (Marca / Categoría / PM, multi-selección; sin Subcategoría), presencia Full, stock ERP y **Solo Listo**.
 
 En **Depósito**, por defecto ves **Pendientes**: productos sin U/caja que ya están en el **paquete de la semana** y/o marcados **Listo** (así el Excel no se traba). La columna Motivo dice Paquete / Listo. Con **Todos** cargás el catálogo ERP (búsqueda + import) como antes.
 
