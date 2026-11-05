@@ -143,7 +143,8 @@ def obtener_filtros_grupo(
     """Obtiene todos los filtros de un grupo"""
     from app.models.tb_subcategory import TBSubCategory
 
-    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    # A tactical line's hidden group is not listed anywhere, its filters included.
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id, OffsetGrupo.oculto.is_(False)).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
 

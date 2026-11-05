@@ -237,6 +237,7 @@ class TestOcultos:
             ("post", "/api/offset-grupos/{gid}/filtros", {"marca": "EPSON"}),
             ("put", "/api/offset-grupos/{gid}/filtros", [{"marca": "EPSON"}]),
             ("delete", "/api/offset-grupos/{gid}/filtros/{fid}", None),
+            ("get", "/api/offset-grupos/{gid}/filtros", None),
         ],
     )
     def test_the_group_endpoints_do_not_reach_a_hidden_group(self, client, db, editor, metodo, ruta, cuerpo) -> None:
