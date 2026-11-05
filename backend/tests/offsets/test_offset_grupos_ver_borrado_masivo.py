@@ -257,6 +257,39 @@ class TestOcultos:
         assert db.get(OffsetGrupo, oculto.id).nombre == "Línea 1 del tactical"
         assert [(f.marca) for f in db.query(OffsetGrupoFiltro).filter_by(grupo_id=oculto.id)] == ["TP-LINK"]
 
+    @pytest.mark.parametrize(
+        "metodo, ruta",
+        [("get", "/api/offset-grupos/{gid}/consumo"), ("post", "/api/offset-grupos/{gid}/recalcular")],
+    )
+    def test_the_consumption_endpoints_do_not_find_a_hidden_group(self, client, db, editor, metodo, ruta) -> None:
+        oculto = OffsetGrupo(nombre="Línea 1 del tactical", oculto=True)
+        db.add(oculto)
+        db.flush()
+
+        resp = getattr(client, metodo)(ruta.format(gid=oculto.id), headers=editor)
+
+        assert resp.status_code == 404, resp.text
+
+    def test_a_legacy_offset_cannot_be_attached_to_a_hidden_group(self, client, db, editor) -> None:
+        oculto = OffsetGrupo(nombre="Línea 1 del tactical", oculto=True)
+        db.add(oculto)
+        db.flush()
+        alta = {"marca": "TP-LINK", "tipo_offset": "monto_fijo", "monto": 1, "fecha_desde": "2026-11-01"}
+
+        creado = client.post("/api/offsets-ganancia", json={**alta, "grupo_id": oculto.id}, headers=editor)
+        assert creado.status_code == 400, creado.text
+        assert "El grupo especificado no existe" in creado.text
+        assert db.query(OffsetGanancia).filter_by(grupo_id=oculto.id).count() == 0
+
+        libre = client.post("/api/offsets-ganancia", json=alta, headers=editor)
+        assert libre.status_code == 200, libre.text
+        offset_id = db.query(OffsetGanancia).order_by(OffsetGanancia.id.desc()).first().id
+        movido = client.put(f"/api/offsets-ganancia/{offset_id}", json={"grupo_id": oculto.id}, headers=editor)
+        assert movido.status_code == 400, movido.text
+        assert "El grupo especificado no existe" in movido.text
+        db.expire_all()
+        assert db.get(OffsetGanancia, offset_id).grupo_id is None
+
 
 class TestBorradoMasivoConsultas:
     def test_the_reasons_take_a_fixed_number_of_queries_whatever_the_number_of_groups(

@@ -152,7 +152,7 @@ def crear_offset(
 
     # Validar grupo si se especifica
     if offset.grupo_id:
-        grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == offset.grupo_id).first()
+        grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == offset.grupo_id, OffsetGrupo.oculto.is_(False)).first()
         if not grupo:
             raise HTTPException(400, "El grupo especificado no existe")
 
@@ -316,7 +316,11 @@ def actualizar_offset(
     if offset_update.grupo_id is not None:
         # Validar que el grupo exista
         if offset_update.grupo_id > 0:
-            grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == offset_update.grupo_id).first()
+            grupo = (
+                db.query(OffsetGrupo)
+                .filter(OffsetGrupo.id == offset_update.grupo_id, OffsetGrupo.oculto.is_(False))
+                .first()
+            )
             if not grupo:
                 raise HTTPException(400, "El grupo especificado no existe")
         offset.grupo_id = offset_update.grupo_id if offset_update.grupo_id > 0 else None
