@@ -1,7 +1,7 @@
 """tacticals: the header of a brand deal; tactical_id on its lines' engines; hidden groups; per-unit cost bonuses
 
 Revision ID: 20261105_tacticals
-Revises: 20261231_ml_ads_contribution_soft_delete
+Revises: 20261104_catalog_competition_refresh_pending
 Create Date: 2026-11-04
 
 Tacticals T1. Owner: "hay que mejorar el sistema de carga de programa (ahora llamado "tactical") y de campaña" and "el
@@ -36,7 +36,7 @@ from typing import List, Sequence, Union
 from alembic import op
 
 revision: str = "20261105_tacticals"
-down_revision: Union[str, None] = "20261231_ml_ads_contribution_soft_delete"
+down_revision: Union[str, None] = "20261104_catalog_competition_refresh_pending"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
