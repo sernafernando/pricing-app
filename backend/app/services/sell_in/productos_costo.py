@@ -73,8 +73,11 @@ def productos(db: Session, hoy: date) -> List[ProductoCosto]:
                 modo=modo,
                 unidades=restantes[item_id],
                 sell_in_unit=vigente.descuento_unit_ars if vigente is not None else None,
-                # A manual block is no purchase; every listed product has a purchase line.
-                ultima_compra=max(x.fecha for x in lotes[item_id] if x.modo_id is None),
+                # A manual block is no purchase: its date only when no purchase line is left to give one.
+                ultima_compra=max(
+                    (x.fecha for x in lotes[item_id] if x.modo_id is None),
+                    default=max(x.fecha for x in lotes[item_id]),
+                ),
             )
         )
     return sorted(filas, key=lambda x: ((x.descripcion or "").lower(), x.codigo or "", x.item_id))
