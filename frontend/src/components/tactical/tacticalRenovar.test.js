@@ -30,7 +30,7 @@ describe('renovacionDe', () => {
   it('joins the children of a per-product line back into one line, and keeps a shared line shared', () => {
     const { lineas } = renovacionDe(TACTICAL_BPS);
 
-    expect(lineas.map(({ id, ...l }) => l)).toEqual([
+    expect(lineas.map((l) => ({ ...l, id: undefined }))).toEqual([
       {
         alcance: 'productos',
         productos: [
