@@ -2,7 +2,7 @@
 
 Área: Productos
 Ruta: Productos → Sell in / Sell out
-Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Sell out pide además sell_out.ver, y la pestaña Grupos, grupos.ver; crear, editar y borrar grupos pide además el permiso de edición de constantes: config.editar_constantes).
+Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Sell out pide además sell_out.ver, y la pestaña Grupos, grupos.ver o el permiso de edición de constantes, config.editar_constantes; crear, editar y borrar grupos pide config.editar_constantes).
 
 ## Para qué sirve
 
@@ -154,7 +154,7 @@ Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicaci
 Pide un permiso adicional (sell_out.ver). Pedíselo a un administrador.
 
 **¿Por qué no veo la pestaña Grupos?**
-Pide el permiso para ver grupos (grupos.ver). Pedíselo a un administrador.
+Pide el permiso para ver grupos (grupos.ver) o el de edición de constantes (config.editar_constantes). Pedíselo a un administrador.
 
 **¿Por qué veo la pestaña Grupos pero no puedo crear, editar ni borrar?**
 Eso pide además el permiso de edición de constantes (config.editar_constantes), el mismo que gestionar offsets. Pedíselo a un administrador.

@@ -215,8 +215,8 @@ function useCampanas(enabled) {
  * one page, two tabs. Sell in holds the purchase discounts that lower the cost
  * of that purchase's units and the brand bonuses; Sell out holds the campaigns.
  * The selected tab lives in the URL (`?tab=sell-out`) so a reload keeps it.
- * `sell_in.ver` reads the page, `sell_out.ver` shows the Sell out tab, `grupos.ver` the Grupos tab (`?tab=grupos`),
- * where `config.editar_constantes` (the offset groups write permission) also creates, edits and deletes.
+ * `sell_in.ver` reads the page, `sell_out.ver` shows the Sell out tab, `grupos.ver` the Grupos tab (`?tab=grupos`, read only),
+ * which `config.editar_constantes` (the offset groups write permission) also shows, and where it creates, edits and deletes.
  */
 export default function SellIn() {
   const { tienePermiso } = usePermisos();
@@ -236,7 +236,7 @@ export default function SellIn() {
   const campanas = useCampanas(puedeVer && puedeVerSellOut);
   const puedeGestionarSellOut = puedeVerSellOut && tienePermiso('sell_out.gestionar');
   const [searchParams, setSearchParams] = useSearchParams();
-  const puedeVerGrupos = tienePermiso('grupos.ver');
+  const puedeVerGrupos = tienePermiso('grupos.ver') || tienePermiso('config.editar_constantes');
   const puedeGestionarGrupos = tienePermiso('config.editar_constantes');
   // "Actualizar" bumps it: the Grupos tab asks its groups again.
   const [versionGrupos, setVersionGrupos] = useState(0);
