@@ -19,7 +19,7 @@ const TC_MODOS = [
   { value: 'dia_venta', label: 'Día de la venta' },
 ];
 
-export default function TacticalDatos({ form, onChange, onTipo, tiposNoDisponibles = [], marcas }) {
+export default function TacticalDatos({ form, onChange, onTipo, tiposNoDisponibles = [], marcas = [] }) {
   const usd = form.moneda === 'USD';
   const campo = (nombre) => (e) => {
     const { type, checked, value } = e.target;
@@ -52,8 +52,16 @@ export default function TacticalDatos({ form, onChange, onTipo, tiposNoDisponibl
             <label htmlFor="tactical-nombre">
               Nombre <span className={styles.req} aria-hidden="true">*</span>
             </label>
-            <input id="tactical-nombre"
-              aria-label="Nombre" className={styles.ctl} type="text" maxLength={200} value={form.nombre} onChange={campo('nombre')} />
+            <input
+              id="tactical-nombre"
+              aria-label="Nombre"
+              aria-required="true"
+              className={styles.ctl}
+              type="text"
+              maxLength={200}
+              value={form.nombre}
+              onChange={campo('nombre')}
+            />
           </div>
           <div className={styles.field}>
             <label htmlFor="tactical-marca">
@@ -62,6 +70,7 @@ export default function TacticalDatos({ form, onChange, onTipo, tiposNoDisponibl
             <select
               id="tactical-marca"
               aria-label="Marca"
+              aria-required="true"
               className={styles.ctl}
               value={form.marca}
               onChange={campo('marca')}
@@ -103,6 +112,7 @@ export default function TacticalDatos({ form, onChange, onTipo, tiposNoDisponibl
                 </label>
                 <input
                   id="tactical-desde"
+                  aria-required="true"
                   className={styles.ctl}
                   type="date"
                   value={form.fechaDesde}
@@ -115,6 +125,7 @@ export default function TacticalDatos({ form, onChange, onTipo, tiposNoDisponibl
                 </label>
                 <input
                   id="tactical-hasta"
+                  aria-required="true"
                   className={styles.ctl}
                   type="date"
                   value={form.fechaHasta}

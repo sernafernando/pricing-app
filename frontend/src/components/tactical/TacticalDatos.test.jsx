@@ -90,6 +90,19 @@ describe('TacticalDatos', () => {
     expect(screen.getByLabelText('Nota')).toHaveAttribute('maxLength', '2000');
   });
 
+  it('tells assistive tech which fields are required, not only the hidden asterisk', () => {
+    render(<Holder />);
+    for (const campo of ['Nombre', 'Marca', 'Desde', 'Hasta']) {
+      expect(screen.getByLabelText(campo)).toHaveAttribute('aria-required', 'true');
+    }
+    expect(screen.getByLabelText('Referencia de la marca')).not.toHaveAttribute('aria-required');
+  });
+
+  it('renders with no brands passed', () => {
+    render(<TacticalDatos form={FORM} onChange={vi.fn()} onTipo={vi.fn()} />);
+    expect(within(screen.getByLabelText('Marca')).getAllByRole('option').map((o) => o.textContent)).toEqual(['Elegí una marca']);
+  });
+
   it('asks the exchange-rate mode only in USD, and the value only for a fixed rate', async () => {
     const user = userEvent.setup();
     const onForm = vi.fn();
