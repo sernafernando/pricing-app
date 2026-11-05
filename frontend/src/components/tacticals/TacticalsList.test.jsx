@@ -141,6 +141,36 @@ describe('TacticalsList paging', () => {
   });
 });
 
+describe('TacticalsList same query on a later page', () => {
+  it('a trailing space in Buscar on page 2 keeps that page and its open rows', async () => {
+    const muchos = Array.from({ length: 25 }, (_, i) => ({ ...REBATE, id: 100 + i, nombre: `Rebate ${i + 1}` }));
+    tacticalsAPI.listar.mockImplementation(async ({ page }) => ({
+      data: page === 1 ? pagina(muchos, 26) : pagina([{ ...REBATE, id: 200, nombre: 'Rebate 26' }], 26, 2),
+    }));
+    render(<TacticalsList marcas={MARCAS} />);
+    await screen.findByText('Rebate 1');
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /filas/i }), '25');
+    await userEvent.click(screen.getByRole('button', { name: /siguiente/i }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver las líneas de Rebate 26' }));
+    const pedidos = tacticalsAPI.listar.mock.calls.length;
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Buscar por nombre o referencia' }), ' ');
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(screen.getByRole('button', { name: 'Ocultar las líneas de Rebate 26' })).toBeInTheDocument();
+    expect(tacticalsAPI.listar).toHaveBeenCalledTimes(pedidos);
+  });
+
+  it('changing the rows per page closes the open rows', async () => {
+    render(<TacticalsList marcas={MARCAS} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Ver las líneas de Tacticals BPS Noviembre Q1FY27' }));
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /filas/i }), '25');
+
+    expect(await screen.findByRole('button', { name: 'Ver las líneas de Tacticals BPS Noviembre Q1FY27' })).toBeInTheDocument();
+  });
+});
+
 describe('TacticalsList empty and error', () => {
   it('says there are none under the filters', async () => {
     tacticalsAPI.listar.mockResolvedValue({ data: pagina([], 0) });

@@ -60,7 +60,7 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
   const filtrar = (cambio) => {
     const nuevos = { ...filtros, ...cambio };
     setFiltros(nuevos);
-    if (claveDe(nuevos, 0) === clave) return;
+    if (claveDe(nuevos, offset) === clave) return;
     setOffset(0);
     setAbiertos(new Set());
   };
@@ -160,6 +160,7 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
             onPageSizeChange={(size) => {
               setPageSize(size);
               setOffset(0);
+              setAbiertos(new Set());
             }}
             pageSizeOptions={[25, 50, 100]}
             summary={
