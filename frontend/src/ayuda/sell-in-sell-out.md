@@ -82,6 +82,8 @@ Para cambiarlo:
 
 Permisos: **Ponderado (PPP)** necesita `sell_in.costo_ponderado` y **Último precio** `sell_in.costo_ultimo`; volver a **FIFO** se puede con cualquiera de los permisos de modo. Una fecha pasada necesita además `sell_in.costo_retroactivo` y recalcula las ventas registradas desde ese día. Sin ningún permiso de modo se ve el modo actual y el historial, sin poder cambiarlo.
 
+**Modo por defecto**: **Cambiar a** abre ya elegido el modo por defecto. Si nadie lo cambió, es **FIFO**. Un administrador lo cambia con el botón **Modo por defecto** de la sección: elige el modo en **Abrir en** y toca **Guardar**. El cambio vale para todos los productos. Solo elige con qué modo abre el selector: no recalcula nada, y los productos sin modo propio siguen en FIFO. Si el usuario no tiene permiso para el modo por defecto, o si es **Manual**, el selector abre en **FIFO**.
+
 ### Campañas de sell out: tipos
 
 Al crear o editar una campaña se elige el **Tipo**:

@@ -16,6 +16,8 @@ vi.mock('../../services/sellInAPI', () => ({
     lotes: vi.fn(),
     consumos: vi.fn(),
     modos: vi.fn(() => Promise.reject(Object.assign(new Error('HTTP 403'), { response: { status: 403 } }))),
+    modoPorDefecto: vi.fn(() => Promise.reject(Object.assign(new Error('HTTP 403'), { response: { status: 403 } }))),
+    fijarModoPorDefecto: vi.fn(),
   },
 }));
 vi.mock('../../contexts/PermisosContext', () => ({ usePermisos: () => ({ tienePermiso: () => false }) }));

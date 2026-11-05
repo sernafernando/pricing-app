@@ -26,6 +26,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.configuracion import Configuracion
 from app.models.sell_in import SellInConsumo, SellInModoProducto
 from app.models.usuario import Usuario
 from app.services.sell_in import bonos_costo
@@ -235,3 +236,34 @@ def _por_venta(db: Session, item_id: int) -> Dict[Tuple[str, int], Decimal]:
 
 def _orden(montos: Dict[Tuple[str, int], Decimal]) -> List[list]:
     return [[canal, ref, str(monto)] for (canal, ref), monto in sorted(montos.items())]
+
+
+CLAVE_POR_DEFECTO = "sell_in_modo_por_defecto"
+MODOS = MODOS_ESCRITOS + ("manual",)
+
+
+def modo_por_defecto(db: Session) -> str:
+    """The mode the panel's selector opens preselected with (global, `configuracion`); FIFO when unset or unknown.
+
+    It only preselects the selector: a product without a mode row stays FIFO here, whatever this says.
+    """
+    fila = db.query(Configuracion).filter(Configuracion.clave == CLAVE_POR_DEFECTO).first()
+    return fila.valor if fila is not None and fila.valor in MODOS else "fifo"
+
+
+def fijar_modo_por_defecto(db: Session, modo: str) -> str:
+    """Store the selector's preselected mode (upsert of its `configuracion` key) and commit."""
+    fila = db.query(Configuracion).filter(Configuracion.clave == CLAVE_POR_DEFECTO).first()
+    if fila is None:
+        db.add(
+            Configuracion(
+                clave=CLAVE_POR_DEFECTO,
+                valor=modo,
+                descripcion="Modo de costo con el que abre preseleccionado el selector del panel de sell in",
+                tipo="string",
+            )
+        )
+    else:
+        fila.valor = modo
+    db.commit()
+    return modo

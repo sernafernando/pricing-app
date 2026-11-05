@@ -11,12 +11,21 @@ import SellInLotes from './SellInLotes';
 import { sellInLotesAPI } from '../../services/sellInAPI';
 
 vi.mock('../../services/sellInAPI', () => ({
-  sellInLotesAPI: { lotes: vi.fn(), consumos: vi.fn(), modos: vi.fn(), vistaPrevia: vi.fn(), confirmarModo: vi.fn() },
+  sellInLotesAPI: {
+    lotes: vi.fn(),
+    consumos: vi.fn(),
+    modos: vi.fn(),
+    vistaPrevia: vi.fn(),
+    confirmarModo: vi.fn(),
+    modoPorDefecto: vi.fn(),
+    fijarModoPorDefecto: vi.fn(),
+  },
 }));
 
 let permisos = new Set();
+let rol = 'VENTAS';
 vi.mock('../../contexts/PermisosContext', () => ({
-  usePermisos: () => ({ tienePermiso: (codigo) => permisos.has(codigo) }),
+  usePermisos: () => ({ tienePermiso: (codigo) => permisos.has(codigo), rol }),
 }));
 
 const httpError = (status) => Object.assign(new Error(`HTTP ${status}`), { response: { status, data: {} } });
@@ -69,10 +78,13 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(2026, 10, 4, 12, 0, 0));
   permisos = new Set(['sell_in.costo_ponderado', 'sell_in.costo_ultimo']);
+  rol = 'VENTAS';
   for (const fn of Object.values(sellInLotesAPI)) fn.mockReset();
   sellInLotesAPI.lotes.mockResolvedValue({ data: LOTES });
   sellInLotesAPI.modos.mockResolvedValue({ data: { item_id: 950, vigente: null, historial: [] } });
   sellInLotesAPI.vistaPrevia.mockResolvedValue({ data: PREVIEW });
+  sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'fifo' } });
+  sellInLotesAPI.fijarModoPorDefecto.mockImplementation((modo) => Promise.resolve({ data: { modo } }));
   sellInLotesAPI.confirmarModo.mockResolvedValue({ data: fila({ id: 8, modo: 'ponderado', desde: '2026-11-04' }) });
 });
 
@@ -230,5 +242,84 @@ describe('changing the mode', () => {
     await user.click(within(await screen.findByRole('region', { name: 'Así queda' })).getByRole('button', { name: 'Cancelar' }));
     expect(screen.queryByRole('region', { name: 'Así queda' })).not.toBeInTheDocument();
     expect(sellInLotesAPI.confirmarModo).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The mode the selector opens preselected with, a global setting only an admin changes. Owner: "podemos hacer un
+ * modal donde un admin pueda elegir cuál es el por defecto?" ... "ponele que hoy trabajamos con FIFO, pero deciden que
+ * empecemos a trabajar con PPP para evitar cagadas eligen que por defecto el modal abra en PPP".
+ */
+describe('the default mode', () => {
+  const elegido = (region) =>
+    within(within(region).getByRole('group', { name: 'Cambiar a' }))
+      .getAllByRole('button')
+      .filter((b) => b.getAttribute('aria-pressed') === 'true')
+      .map((b) => b.textContent);
+
+  it('opens the selector on the default mode', async () => {
+    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'ponderado' } });
+    renderPanel();
+    const region = await panel();
+    await waitFor(() => expect(elegido(region)).toEqual(['Ponderado (PPP)']));
+    expect(within(region).getByRole('button', { name: 'Ver cómo queda' })).toBeEnabled();
+  });
+
+  it('falls back to FIFO when the user may not set the default mode', async () => {
+    permisos = new Set(['sell_in.costo_ponderado']);
+    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'ultimo' } });
+    renderPanel();
+    const region = await panel();
+    await waitFor(() => expect(sellInLotesAPI.modoPorDefecto).toHaveBeenCalled());
+    expect(elegido(region)).toEqual(['FIFO']);
+  });
+
+  it('falls back to FIFO for Manual, which cannot be set yet, and when the setting cannot be read', async () => {
+    sellInLotesAPI.modoPorDefecto.mockResolvedValue({ data: { modo: 'manual' } });
+    const { unmount } = renderPanel();
+    expect(elegido(await panel())).toEqual(['FIFO']);
+    unmount();
+
+    sellInLotesAPI.modoPorDefecto.mockRejectedValue(httpError(500));
+    renderPanel();
+    expect(elegido(await panel())).toEqual(['FIFO']);
+  });
+
+  it('is not offered to change unless the user is an admin', async () => {
+    renderPanel();
+    const region = await panel();
+    expect(within(region).queryByRole('button', { name: 'Modo por defecto' })).not.toBeInTheDocument();
+  });
+
+  it('an admin changes it in a modal and the selector opens on the new one', async () => {
+    rol = 'ADMIN';
+    const user = userEvent.setup();
+    renderPanel();
+    const region = await panel();
+    await user.click(within(region).getByRole('button', { name: 'Modo por defecto' }));
+    expect(await screen.findByRole('heading', { name: 'Modo por defecto' })).toBeInTheDocument();
+    expect(screen.getByText(/No recalcula nada/)).toBeInTheDocument();
+    const grupo = screen.getByRole('group', { name: 'Modo por defecto' });
+    expect(within(grupo).getByRole('button', { name: 'FIFO' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(grupo).getByRole('button', { name: 'Manual' })).toBeEnabled();
+    await user.click(within(grupo).getByRole('button', { name: 'Último precio' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    expect(sellInLotesAPI.fijarModoPorDefecto).toHaveBeenCalledWith('ultimo');
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Modo por defecto' })).not.toBeInTheDocument());
+    expect(elegido(region)).toEqual(['Último precio']);
+  });
+
+  it('a failed save keeps the modal open and says so', async () => {
+    rol = 'SUPERADMIN';
+    sellInLotesAPI.fijarModoPorDefecto.mockRejectedValue(httpError(403));
+    const user = userEvent.setup();
+    renderPanel();
+    const region = await panel();
+    await user.click(within(region).getByRole('button', { name: 'Modo por defecto' }));
+    await user.click(within(screen.getByRole('group', { name: 'Modo por defecto' })).getByRole('button', { name: 'Ponderado (PPP)' }));
+    await user.click(screen.getByRole('button', { name: 'Guardar' }));
+    expect(await screen.findByText('No tenés permiso para ese cambio.')).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Modo por defecto' })).toBeInTheDocument();
+    expect(elegido(region)).toEqual(['FIFO']);
   });
 });
