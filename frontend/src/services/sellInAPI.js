@@ -58,4 +58,7 @@ export const sellInLotesAPI = {
   modos: (itemId) => api.get(`${PRODUCTOS}/${itemId}/modos`),
   vistaPrevia: (itemId, body) => api.post(`${PRODUCTOS}/${itemId}/modos/vista-previa`, body),
   confirmarModo: (itemId, body) => api.post(`${PRODUCTOS}/${itemId}/modos`, body),
+  // The mode the selector opens preselected with (global); only an admin changes it. It never changes costing.
+  modoPorDefecto: () => api.get(`${PRODUCTOS}/modo-por-defecto`),
+  fijarModoPorDefecto: (modo) => api.put(`${PRODUCTOS}/modo-por-defecto`, { modo }),
 };

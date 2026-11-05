@@ -21,6 +21,22 @@
   border-bottom: 1px solid var(--cf-border-default);
 }
 
+.headRow {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+
 .body {
   padding: var(--space-3);
   min-width: 0;

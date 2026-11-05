@@ -55,3 +55,18 @@ class VistaPreviaOut(BaseModel):
     sin_asignar_antes: Decimal  # ARS the lots hold that no unit hands out (positive) or handed beyond them, today
     sin_asignar_despues: Decimal  # the same once the change governs (from `desde` when to come)
     huella: str  # send it back to confirm
+
+
+# Not `manual`: it cannot be set from the panel yet, so as a default it would open on FIFO for everyone anyway.
+ModoPorDefecto = Literal["fifo", "ponderado", "ultimo"]
+
+
+class ModoPorDefectoIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    modo: ModoPorDefecto
+
+
+class ModoPorDefectoOut(BaseModel):
+    # The mode the panel's selector opens preselected with; it never changes costing (no row: FIFO in the engine).
+    modo: ModoPorDefecto

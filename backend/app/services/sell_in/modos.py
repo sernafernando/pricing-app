@@ -26,6 +26,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
+from app.models.configuracion import Configuracion
 from app.models.sell_in import SellInConsumo, SellInModoProducto
 from app.models.usuario import Usuario
 from app.services.sell_in import bonos_costo
@@ -235,3 +236,47 @@ def _por_venta(db: Session, item_id: int) -> Dict[Tuple[str, int], Decimal]:
 
 def _orden(montos: Dict[Tuple[str, int], Decimal]) -> List[list]:
     return [[canal, ref, str(monto)] for (canal, ref), monto in sorted(montos.items())]
+
+
+CLAVE_POR_DEFECTO = "sell_in_modo_por_defecto"
+
+
+def modo_por_defecto(db: Session) -> str:
+    """The mode the panel's selector opens preselected with (global, `configuracion`); FIFO when unset, unknown or
+    `manual`.
+
+    It only preselects the selector: a product without a mode row stays FIFO here, whatever this says.
+    """
+    fila = db.query(Configuracion).filter(Configuracion.clave == CLAVE_POR_DEFECTO).first()
+    return fila.valor if fila is not None and fila.valor in MODOS_ESCRITOS else "fifo"
+
+
+def fijar_modo_por_defecto(db: Session, modo: str, usuario_id: int) -> str:
+    """Store the selector's preselected mode (upsert of its `configuracion` key), audit who changed it from what to
+    what, and commit."""
+    antes = modo_por_defecto(db)
+    fila = db.query(Configuracion).filter(Configuracion.clave == CLAVE_POR_DEFECTO).first()
+    if fila is None:
+        db.add(
+            Configuracion(
+                clave=CLAVE_POR_DEFECTO,
+                valor=modo,
+                descripcion="Modo de costo con el que abre preseleccionado el selector del panel de sell in",
+                tipo="string",
+            )
+        )
+    else:
+        fila.valor = modo
+    db.add(
+        Auditoria(
+            item_id=None,
+            usuario_id=usuario_id,
+            tipo_accion=TipoAccion.SELL_IN_MODO_POR_DEFECTO,
+            valores_anteriores={"modo": antes},
+            valores_nuevos={"modo": modo},
+            es_masivo=False,
+            fecha=datetime.now(timezone.utc).replace(tzinfo=None),  # naive UTC, like the column's default
+        )
+    )
+    db.commit()
+    return modo
