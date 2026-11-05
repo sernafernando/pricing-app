@@ -9,7 +9,6 @@ import { productosAPI } from '../../services/api';
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { CAMPANA_MIGRADA, CONSUMOS_USD } from './sellOutFixtures';
 import SellOutCampanaPanel from './SellOutCampanaPanel';
-import SellOutCampanasTable from './SellOutCampanasTable';
 
 vi.mock('../../services/sellOutAPI', () => ({
   sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn(), definirTipoCambio: vi.fn(), consumos: vi.fn() },
@@ -200,14 +199,5 @@ describe('SellOutCampanaPanel — a product that left the catalog', () => {
     render(<SellOutCampanaPanel campanaId={55} onClose={() => {}} />);
     const seccion = await screen.findByRole('region', { name: 'Montos por producto' });
     expect(within(seccion).getByText('#4172').closest('tr')).toHaveTextContent('USD 30,00');
-  });
-});
-
-describe('SellOutCampanasTable — per-product amounts hint', () => {
-  it('says how many products have their own amount; none says nothing', () => {
-    const dos = { ...CON_ITEMS, items: [...CON_ITEMS.items, { item_id: 4173, monto_unit: '8.50' }] };
-    render(<SellOutCampanasTable campanas={[dos, { ...CAMPANA_MIGRADA, id: 56, items: [] }]} selectedId={null} onSelect={() => {}} />);
-    expect(screen.getAllByText('2 montos por producto')).toHaveLength(1);
-    expect(screen.queryByText(/monto por producto/)).not.toBeInTheDocument();
   });
 });

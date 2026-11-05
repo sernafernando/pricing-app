@@ -5,7 +5,6 @@ import { productosAPI } from '../../services/api';
 import { sellInBonosAPI } from '../../services/sellInAPI';
 import { ALCANCE, BONO } from './sellInFixtures';
 import SellInBonoPanel from './SellInBonoPanel';
-import SellInBonosTable from './SellInBonosTable';
 
 vi.mock('../../services/sellInAPI', () => ({
   sellInBonosAPI: { detalle: vi.fn(), alcance: vi.fn(), crear: vi.fn(), editar: vi.fn(), anular: vi.fn() },
@@ -97,26 +96,12 @@ describe('SellInBonoForm — the shared cap (T24d)', () => {
     await waitFor(() => expect(sellInBonosAPI.editar).toHaveBeenCalledWith(3, expect.objectContaining({ moneda: 'ARS', tope_unidades: '1200', tope_monto: '4500000' })));
   });
 
-  it('lists what is left of each cap in the bonuses table, and nothing without one', () => {
-    render(<SellInBonosTable bonos={[BONO_TOPE, { ...BONO, id: 4 }]} selectedId={null} onSelect={vi.fn()} />);
-    expect(screen.getAllByText(/^Tope: quedan/)).toHaveLength(1);
-    expect(screen.getByText('Tope: quedan 160 u de 1.200 · USD 0,00 de USD 3.000,00')).toBeInTheDocument();
-  });
-
   it('keeps the money cap when the same currency is picked again', async () => {
     const user = userEvent.setup();
     renderPanel();
     await screen.findByLabelText('Tope de monto en USD (opcional)');
     await user.click(screen.getByRole('button', { name: 'USD' }));
     expect(screen.getByLabelText('Tope de monto en USD (opcional)')).toHaveValue(3000);
-  });
-
-  it('shows only the cap the bonus has', () => {
-    const soloUnidades = { ...BONO, id: 5, tope_unidades: 100, tope_unidades_restantes: 40 };
-    const soloMonto = { ...BONO, id: 6, tope_monto: '500.00', tope_monto_restante: '125.50' };
-    render(<SellInBonosTable bonos={[soloUnidades, soloMonto]} selectedId={null} onSelect={vi.fn()} />);
-    expect(screen.getByText('Tope: quedan 40 u de 100')).toBeInTheDocument();
-    expect(screen.getByText('Tope: quedan USD 125,50 de USD 500,00')).toBeInTheDocument();
   });
 
   // T24 verifier, B2: a currency round trip must not drop the stored money cap.

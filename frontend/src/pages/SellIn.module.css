@@ -58,84 +58,7 @@
   border-radius: var(--radius-md);
 }
 
-.filterCard {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: var(--spacing-md);
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-default);
-  border-radius: var(--radius-lg);
-}
-
-.filterBand {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--spacing-lg);
-  padding: var(--space-3) var(--spacing-md);
-}
-
-.filterBand + .filterBand {
-  border-top: 1px solid var(--cf-border-default);
-}
-
-.searchSlot {
-  flex: 1 1 260px;
-  min-width: 220px;
-}
-
-.vistaSlot {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-left: auto;
-}
-
-.selectField {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-/* A product or supplier filter (SellInFiltrosExtra): its label, then what is picked or the search with its results. */
-.pickerSlot {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  flex: 1 1 260px;
-  min-width: 220px;
-}
-
-.pickerSlot > :last-child {
-  flex: 1;
-  min-width: 0;
-}
-
-.pickerSlot > .filterLabel {
-  padding-top: var(--space-2);
-}
-
-.select {
-  composes: select selectSm from '../styles/forms-tesla.css';
-}
-
-.filterLabel {
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: var(--font-semibold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--cf-text-tertiary);
-}
-
-.facetRow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-/* Sell in / Sell out tabs: underlined active tab with its count (Stitch 01). */
+/* The page tabs: underlined active tab with its count (Stitch 01). */
 .tabs {
   display: flex;
   gap: var(--spacing-lg);
@@ -202,42 +125,8 @@
   border: 0;
 }
 
-/* The Sell out tab's "Campañas | Programas" switch, above either section. */
-.seccionSellOut {
-  margin-bottom: var(--spacing-sm);
-}
-
-/* The Sell out tab: the campaigns, their search and their list. */
-.sellOut {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
 .loading {
   padding: var(--spacing-lg);
   text-align: center;
   color: var(--cf-text-tertiary);
-}
-
-/* Brand bonuses, under the purchases list. */
-.bonos {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  margin-top: var(--spacing-lg);
-}
-
-.sectionTitle {
-  margin: 0;
-  font-size: 18px;
-  font-weight: var(--font-semibold);
-  color: var(--cf-text-primary);
-}
-
-.sectionHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-md);
 }
