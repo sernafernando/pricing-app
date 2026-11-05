@@ -326,9 +326,9 @@ def _total_de_factura(db, tactical, data, linea, numero, pedido, descripcion, us
 
 def _ocupado_si_deadlock(operacion):
     """A deadlock (40P01) with another writer of a campaign is `TacticalOcupado` (rolled back, retry), never a raw
-    error: the engines' own wrapper (`campanas._deadlock_es_ocupada`), with this module's error."""
+    error: the engines' own wrapper (`campanas.deadlock_es_ocupada`), with this module's error."""
 
-    @campanas._deadlock_es_ocupada
+    @campanas.deadlock_es_ocupada
     def con_rollback(db: Session, *args, **kwargs):
         return operacion(db, *args, **kwargs)
 
@@ -444,7 +444,7 @@ def _anular_hijos(db: Session, tactical_id: int, usuario_id: int, motivo: Option
             campana = campanas.bloquear(db, cid)
         except campanas.SellOutYaAnulada:
             continue
-        campanas._anular(db, campana, usuario_id, motivo, masivo=True)
+        campanas.anular_sin_commit(db, campana, usuario_id, motivo, masivo=True)
         anuladas["campana_ids"].append(cid)
     for (bid,) in db.query(SellInBonoMarca.id).filter(SellInBonoMarca.tactical_id == tactical_id).order_by("id"):
         try:

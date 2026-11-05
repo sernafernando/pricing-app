@@ -133,6 +133,10 @@ def _deadlock_es_ocupada(operacion: Callable[Concatenate[Session, _P], _R]) -> C
     return envuelta
 
 
+# The public name for callers outside this module that run campaign writes in their own transaction (tacticals).
+deadlock_es_ocupada = _deadlock_es_ocupada
+
+
 def _validar_tc(data: SellOutCampanaIn, actual: Optional[SellOutCampana]) -> None:
     """FX rules (see `app.models.sell_out`); `data.tc_modo` is already resolved."""
     if data.moneda == "ARS":
@@ -655,6 +659,14 @@ def entrada_guardada(db: Session, campana: SellOutCampana) -> SellOutCampanaIn:
     # Stored values, not a request: the API's shape caps (e.g. at most 50 groups) are not re-applied to them; the
     # edit step's own rules (`validar`) still are.
     return SellOutCampanaIn.model_construct(**datos, items=None)
+
+
+def anular_sin_commit(
+    db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optional[str], masivo: bool = False
+) -> None:
+    """THE void step of a campaign already locked with `bloquear`, without committing: for a caller voiding it
+    inside its own transaction (tacticals)."""
+    _anular(db, campana, usuario_id, motivo, masivo=masivo)
 
 
 def _anular(db: Session, campana: SellOutCampana, usuario_id: int, motivo: Optional[str], masivo: bool = False) -> None:
