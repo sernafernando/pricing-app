@@ -7,7 +7,6 @@ import SellInModoPorDefecto from './SellInModoPorDefecto';
 import { money } from './money';
 import styles from './SellInModoCosto.module.css';
 
-
 /** 'YYYY-MM-DD' (or an ISO datetime) as dd/mm/yyyy, without going through a Date (no time zone shift). */
 function day(value) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? '');

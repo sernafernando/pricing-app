@@ -7,7 +7,6 @@ import styles from './SellInLotes.module.css';
 const TITLE = 'Lotes sell in';
 const PAGE_SIZE = 20;
 
-
 const CHANNELS = { ml: 'ML', fuera: 'Fuera de ML', tn: 'Tienda Nube' };
 
 /** 'YYYY-MM-DD' as dd/mm/yyyy (or dd/mm), without going through a Date (no time zone shift). */
