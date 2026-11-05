@@ -262,6 +262,9 @@ class MlAdsCampaignContribution(Base):
     campaign never overlap, nor does a whole-account Display range with a campaign one of the same advertiser
     (rejected by the write API). The audit ids carry no FK so the `ml_ads_*` tables stay
     self-contained (users are deactivated, never deleted).
+
+    A delete is soft (ml-ads-aportes-robust S6): the row keeps who removed it and when (`deleted_by_id`, `deleted_at`,
+    always both or neither), and every read filters it out with `CONTRIBUTION_LIVE`.
     """
 
     __tablename__ = "ml_ads_campaign_contributions"
@@ -281,6 +284,8 @@ class MlAdsCampaignContribution(Base):
     updated_by_id = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    deleted_by_id = Column(Integer, nullable=True)
 
     __table_args__ = (
         CheckConstraint(_in_list("kind", CONTRIBUTION_KINDS), name="ck_ml_ads_campaign_contributions_kind"),
@@ -300,5 +305,12 @@ class MlAdsCampaignContribution(Base):
             "campaign_id IS NOT NULL OR channel = 'display'",
             name="ck_ml_ads_campaign_contributions_channel_campaign",
         ),
+        CheckConstraint(
+            "(deleted_at IS NULL) = (deleted_by_id IS NULL)", name="ck_ml_ads_campaign_contributions_deleted"
+        ),
         Index("ix_ml_ads_campaign_contributions_campaign", "advertiser_id", "campaign_id"),
     )
+
+
+# The contributions every read counts: not soft-deleted (ml-ads-aportes-robust S6).
+CONTRIBUTION_LIVE = MlAdsCampaignContribution.deleted_at.is_(None)

@@ -80,7 +80,7 @@ MercadoLibre conserva solo 90 días de métricas de Display; por eso se guardan 
 Si marcaste **El monto incluye IVA**, se guarda sin IVA (dividido por 1,21), igual que el costo de Ads con el que se compara.
 
 **¿Qué pasa si borro un aporte?**
-El costo que cubría vuelve a descontarse en Métricas ML.
+Deja de verse en la tabla y el costo que cubría vuelve a descontarse en Métricas ML. El aporte no se pierde: queda guardado como borrado, con quién lo borró y cuándo, y se puede volver a cargar el mismo rango.
 
 **¿Por qué veo un aviso de permiso?**
 Esta pantalla pide el permiso para ver la ganancia de Métricas ML.

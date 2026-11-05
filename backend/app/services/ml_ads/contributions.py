@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.ml_ads import (
+    CONTRIBUTION_LIVE,
     MlAdsCampaign,
     MlAdsCampaignContribution,
     MlAdsDayLedger,
@@ -102,7 +103,7 @@ def list_campaigns(db: Session, date_from: date, date_to: date) -> list[Campaign
     # Product Ads only: a Display campaign id may equal a Product Ads one and must not land on it.
     contributions = (
         db.query(MlAdsCampaignContribution)
-        .filter(MlAdsCampaignContribution.channel == PRODUCT_ADS)
+        .filter(MlAdsCampaignContribution.channel == PRODUCT_ADS, CONTRIBUTION_LIVE)
         .order_by(MlAdsCampaignContribution.date_from, MlAdsCampaignContribution.id)
         .all()
     )
@@ -207,7 +208,12 @@ def display_contributions(db: Session, date_from: date, date_to: date) -> dict[t
     of the WHOLE range's spend, which may reach past the window; a range that spent nothing has nothing to spread
     over. The write API keeps a row from meeting two contributions. Campaigns nothing covers are absent."""
     C, D = MlAdsCampaignContribution, MlAdsDisplayCampaignDay
-    rows = db.query(C).filter(C.channel == DISPLAY, C.date_from <= date_to, C.date_to >= date_from).order_by(C.id).all()
+    rows = (
+        db.query(C)
+        .filter(C.channel == DISPLAY, CONTRIBUTION_LIVE, C.date_from <= date_to, C.date_to >= date_from)
+        .order_by(C.id)
+        .all()
+    )
     if not rows:
         return {}
     days = (
@@ -297,6 +303,7 @@ def _check(db: Session, data: ContributionData, exclude_id: Optional[int] = None
     equal a Product Ads one)."""
     C = MlAdsCampaignContribution
     clash = db.query(C.id).filter(
+        CONTRIBUTION_LIVE,
         C.advertiser_id == data.advertiser_id,
         C.channel == data.channel,
         C.date_from <= data.date_to,
@@ -384,10 +391,11 @@ def save_warnings(db: Session, data: ContributionData, through: Optional[date] =
 
 
 def _locked(db: Session, contribution_id: int) -> Optional[MlAdsCampaignContribution]:
-    """The contribution row under FOR UPDATE, taken before the campaign lock so edit and delete serialize."""
+    """The live contribution row under FOR UPDATE, taken before the campaign lock so edit and delete serialize. A
+    soft-deleted one is `None`, as if it did not exist."""
     return (
         db.query(MlAdsCampaignContribution)
-        .filter(MlAdsCampaignContribution.id == contribution_id)
+        .filter(MlAdsCampaignContribution.id == contribution_id, CONTRIBUTION_LIVE)
         .with_for_update()
         .one_or_none()
     )
@@ -476,7 +484,8 @@ def update(
 
 
 def delete(db: Session, contribution_id: int, user_id: int) -> bool:
-    """The row goes away; its `auditoria` row (S5) and the log line keep who removed what."""
+    """A soft delete (S6): the row stays, marked with who removed it and when, and every read ignores it from then
+    on; its `auditoria` row (S5) and the log line keep what it was."""
     row = _locked(db, contribution_id)
     if row is None:
         return False
@@ -493,6 +502,12 @@ def delete(db: Session, contribution_id: int, user_id: int) -> bool:
         row.date_to,
     )
     _audit(db, TipoAccion.ML_ADS_APORTE_BORRADO, user_id, _snapshot(row), None)
-    db.delete(row)
+    # An explicit UPDATE that sets `updated_at` to itself: the model's `onupdate` would otherwise stamp the deletion
+    # time on it, and `updated_at` / `updated_by_id` must keep describing the last edit.
+    C = MlAdsCampaignContribution
+    db.query(C).filter(C.id == row.id).update(
+        {C.deleted_at: datetime.now(timezone.utc), C.deleted_by_id: user_id, C.updated_at: C.updated_at},
+        synchronize_session=False,
+    )
     db.commit()
     return True
