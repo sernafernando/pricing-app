@@ -1,7 +1,7 @@
 # Gestión Full
 
-Área: Reportes
-Ruta: Reportes → Gestión Full
+Área: Operaciones
+Ruta: Operaciones → Gestión Full
 Permiso: Acceso a Productos o a Ventas ML (productos.ver o ml_ops.ver). Para editar el override hace falta ser PM/sub-PM del producto o admin.
 
 ## Para qué sirve

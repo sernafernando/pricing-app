@@ -173,6 +173,25 @@ describe('screen catalog vs Sidebar.jsx menuSections', () => {
   });
 });
 
+describe('sidebar sections (owner 2026-11-05: Reportes is only for reports)', () => {
+  const sidebarItems = parseSidebar(sidebarSource);
+  const sectionOf = (path) => sidebarItems.find((item) => item.path === path)?.section;
+
+  it.each([
+    ['/ml-publicaciones', 'Productos'],
+    ['/ml-repair-control', 'Productos'],
+    ['/gestion-full', 'Operaciones'],
+    ['/novedades', 'Ayuda'],
+    ['/ayuda', 'Ayuda'],
+  ])('lists %s under %s', (path, section) => {
+    expect(sectionOf(path)).toBe(section);
+  });
+
+  it('keeps the Ayuda section last in the sidebar', () => {
+    expect(sidebarItems.at(-1).section).toBe('Ayuda');
+  });
+});
+
 describe('screen catalog shape', () => {
   it('uses a valid scope, and public screens need no permission', () => {
     for (const screen of SCREENS) {

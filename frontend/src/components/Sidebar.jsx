@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { usePermisos } from '../contexts/PermisosContext';
 import { marcasPmAPI } from '../services/api';
 import SidebarSection from './SidebarSection';
-import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp, X, Search, Headset, Truck, Users, Ticket, FileText, Building2, Wallet } from 'lucide-react';
+import { Package, ClipboardList, BarChart3, Settings, PanelLeftClose, PanelLeft, ChevronsDown, ChevronsUp, X, Search, Headset, Truck, Users, Ticket, FileText, Building2, Wallet, HelpCircle } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
 export default function Sidebar({ mobileOpen = false, onMobileClose }) {
@@ -86,6 +86,8 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Items sin MLA', path: '/items-sin-mla', permiso: 'admin.ver_items_sin_mla' },
         { label: 'Prearmadas disponibles', path: '/prearmadas-disponibles', permiso: 'produccion.ver_prearmadas_stats' },
         { label: 'Sell in / Sell out', path: '/sell-in', permiso: 'sell_in.ver' },
+        { label: 'Publicaciones ML', path: '/ml-publicaciones', permiso: 'productos.ver,ml_ops.ver', multiple: true, badge: 'Nuevo' },
+        { label: 'Control reparación', path: '/ml-repair-control', permiso: 'ml_ops.ver', badge: 'Nuevo' },
       ],
     },
     {
@@ -101,6 +103,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'Clientes', path: '/clientes', permiso: 'clientes.ver' },
         { label: 'Configuración', path: '/config-operaciones', permiso: 'envios_flex.config' },
         { label: 'Reescribir ^LH', path: '/etiquetas/reescribir-lh', permiso: 'etiquetas.reescribir_lh' },
+        { label: 'Gestión Full', path: '/gestion-full', permiso: 'productos.ver,ml_ops.ver', multiple: true, badge: 'Nuevo' },
       ],
     },
     {
@@ -136,24 +139,16 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         // ODD metricas-ml-tablero (2026-10-01): the new board took the plain
         // name; the old dashboard keeps its URL, relabelled.
         { label: 'Métricas ML', path: '/metricas-ml', permiso: 'ml_metricas.ver', badge: 'Nuevo' },
-        { label: 'Gestión Full', path: '/gestion-full', permiso: 'productos.ver,ml_ops.ver', multiple: true, badge: 'Nuevo' },
         { label: 'Métricas ML (anterior)', path: '/dashboard-metricas-ml', permiso: 'ventas_ml.ver_dashboard' },
         // The route opens with ml_metricas.ver (screen catalog), but the menu lists it only for ver_ganancia: without it
         // the page shows nothing but a notice.
         { label: 'ML Ads', path: '/ml-ads-aportes', permiso: 'ml_metricas.ver_ganancia', badge: 'Nuevo' },
-        { label: 'Publicaciones ML', path: '/ml-publicaciones', permiso: 'productos.ver,ml_ops.ver', multiple: true, badge: 'Nuevo' },
-        { label: 'Control reparación', path: '/ml-repair-control', permiso: 'ml_ops.ver', badge: 'Nuevo' },
         { label: 'Ventas ML', path: '/ml-ventas-listado', permiso: 'ml_ops.ver' },
         { label: 'Dashboard TP-Link', path: '/dashboard-tplink', permiso: 'dashboard_tplink.ver' },
         { label: 'Ventas por Fuera', path: '/dashboard-ventas-fuera', permiso: 'ventas_fuera.ver_dashboard' },
         { label: 'Tienda Nube', path: '/dashboard-tienda-nube', permiso: 'ventas_tn.ver_dashboard' },
         { label: 'Cálculos', path: '/calculos', permiso: 'reportes.ver_calculadora' },
         { label: 'Últimos Cambios', path: '/ultimos-cambios', permiso: 'productos.ver_auditoria' },
-        // No permiso: feature announcements, visible to every logged-in
-        // user — not the price-audit log above (Últimos Cambios).
-        { label: 'Novedades', path: '/novedades' },
-        // No permiso: the end-user help manual, next to Novedades.
-        { label: 'Ayuda', path: '/ayuda' },
         { label: 'Cuentas Corrientes', path: '/cuentas-corrientes', permiso: 'reportes.ver_cuentas_corrientes' },
       ],
     },
@@ -225,6 +220,18 @@ export default function Sidebar({ mobileOpen = false, onMobileClose }) {
         { label: 'API docs', path: '/api-docs', permiso: 'admin.ver_api_docs' },
         { label: 'Alertas', path: '/gestion/alertas', permiso: 'alertas.gestionar' },
         { label: 'Envío Gratis', path: '/free-shipping-alerts', permiso: 'alertas.ver_free_shipping' },
+      ],
+    },
+    {
+      id: 'ayuda',
+      title: 'Ayuda',
+      icon: HelpCircle,
+      defaultOpen: false,
+      items: [
+        // No permiso: feature announcements, visible to every logged-in user.
+        { label: 'Novedades', path: '/novedades' },
+        // No permiso: the end-user help manual.
+        { label: 'Ayuda', path: '/ayuda' },
       ],
     },
   ];

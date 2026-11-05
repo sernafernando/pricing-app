@@ -1,7 +1,7 @@
 # Novedades
 
-Área: Reportes
-Ruta: Reportes → Novedades
+Área: Ayuda
+Ruta: Ayuda → Novedades
 Permiso: Sin permiso especial: la ve cualquier usuario con sesión iniciada.
 
 ## Para qué sirve
