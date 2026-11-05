@@ -135,6 +135,8 @@ class TestSellOut:
 
         with pytest.raises(service.TacticalError, match="^El tactical no tiene línea 3$"):
             _editar(db, tactical.id, lineas=[{"linea": 3, "tope_unidades": 10}])
+        with pytest.raises(service.TacticalError, match="^Línea 1: el tope de monto debe ser mayor que cero$"):
+            _editar(db, tactical.id, lineas=[{"linea": 1, "tope_monto": "0"}])
         with pytest.raises(service.TacticalError, match="^El nombre no puede quedar vacío$"):
             _editar(db, tactical.id, nombre="  ")
 
@@ -183,3 +185,12 @@ class TestSellIn:
         with pytest.raises(service.TacticalError, match="^Línea 1: un monto total no lleva topes"):
             _editar(db, tactical.id, lineas=[{"linea": 1, "tope_unidades": 5}])
         assert _editar(db, tactical.id, nombre="Total renombrado").nombre == "Total renombrado"
+
+    def test_a_usd_cost_reduction_takes_no_money_cap_as_on_create(self, db, engine) -> None:
+        """The cost bonus is in ARS: a cap in the tactical's USD would be read as pesos."""
+        linea = {"alcance": "marca", "marca": bw.TPLINK, "modo_monto": "porcentaje", "valor": "3"}
+        tactical = service.crear(db, _tactical("sell_in", [linea], moneda="USD"), USUARIO)
+
+        with pytest.raises(service.TacticalError, match="^Línea 1: una reducción de costo por unidad o con tope de "):
+            _editar(db, tactical.id, lineas=[{"linea": 1, "tope_monto": "500"}])
+        assert _filas(engine, "SELECT tope_monto FROM sell_in_bonos_marca") == [(None,)]

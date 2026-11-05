@@ -58,6 +58,9 @@ from app.services.sell_out import campanas
 GRUPO_NOMBRE_MAX = 100  # offset_grupos.nombre is VARCHAR(100)
 CAMPANA_NOMBRE_MAX = 200
 CENTAVO = Decimal("0.01")
+COSTO_EN_PESOS = (
+    "una reducción de costo por unidad o con tope de monto va en pesos (ARS): el costo de cada venta está en pesos"
+)
 
 
 class TacticalError(ValueError):
@@ -269,10 +272,7 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
         if linea.modo_monto == "monto_total":
             raise TacticalError("en sell in, el monto total es solo para una línea por factura")
         if data.moneda != "ARS" and (linea.modo_monto == "por_unidad" or linea.tope_monto is not None):
-            raise TacticalError(
-                "una reducción de costo por unidad o con tope de monto va en pesos (ARS): el costo de cada venta "
-                "está en pesos"
-            )
+            raise TacticalError(COSTO_EN_PESOS)
         alcance = "modelos" if parte.item_ids else ("marca" if parte.marca else "categoria")
         campos = {
             "alcance": alcance,
@@ -564,7 +564,7 @@ def _validar_edicion(
         if tope.linea not in lineas:
             raise TacticalError(f"El tactical no tiene línea {tope.linea}")
         for hijo in (h for h in hijos if h["linea"] == tope.linea and h["estado"] == "activa"):
-            _validar_tope(tope, hijo)
+            _validar_tope(tope, hijo, tactical.moneda)
     return nombre, fecha_hasta
 
 
@@ -583,7 +583,13 @@ def _validar_facturas(db: Session, hijos: list[dict], fecha_hasta: date) -> None
             )
 
 
-def _validar_tope(tope: TacticalLineaTopesIn, hijo: dict) -> None:
+def _validar_tope(tope: TacticalLineaTopesIn, hijo: dict, moneda: str) -> None:
+    """The create's cap rules (a cost bonus is ARS), plus never below what the child already used."""
+    if tope.tope_monto is not None and tope.tope_monto <= 0:
+        raise TacticalError(f"Línea {hijo['linea']}: el tope de monto debe ser mayor que cero")
+    es_costo = hijo["origen"] == "sell_in_bono" and hijo["alcance"] != "factura"
+    if es_costo and moneda != "ARS" and tope.tope_monto is not None:
+        raise TacticalError(f"Línea {hijo['linea']}: {COSTO_EN_PESOS}")
     if hijo["modo_monto"] == "monto_total" and (tope.tope_unidades is not None or tope.tope_monto is not None):
         raise TacticalError(f"Línea {hijo['linea']}: un monto total no lleva topes: el monto total es el tope")
     if tope.tope_unidades is not None and tope.tope_unidades < hijo["unidades_usadas"]:
