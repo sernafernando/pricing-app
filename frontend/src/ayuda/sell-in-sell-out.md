@@ -155,7 +155,7 @@ Un **programa** agrupa campañas de sell out que son el mismo acuerdo: las que s
 
 Un **tactical** es un programa de una marca: sell in baja el costo, sell out suma a la ganancia. Cada tactical tiene una marca adjunta para poder filtrarlo por marca, y una o más líneas (productos, una marca, una categoría o, en sell in, una factura) con su monto y sus topes.
 
-- La pestaña **Tacticals** la ve todo el que entra a la página, salvo que el servidor todavía no tenga tacticals. Al lado del nombre dice cuántos tacticals vigentes hay.
+- La pestaña **Tacticals** la ve todo el que entra a la página, salvo que el servidor todavía no tenga tacticals o que no tengas permiso para ver ninguno. Al lado del nombre dice cuántos tacticals vigentes hay.
 - Filtros:
   - **Tipo**: Todos, Sell in o Sell out.
   - **Marca**: la marca adjunta del tactical.

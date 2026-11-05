@@ -1755,6 +1755,14 @@ describe('SellIn page — Tacticals tab', () => {
     expect(screen.getByRole('tab', { name: /Sell in/ })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('a user who can read no tactical kind (403) sees no Tacticals tab', async () => {
+    tacticalsAPI.listar.mockRejectedValue({ response: { status: 403 } });
+    renderWithRouter(<SellIn />);
+
+    expect(await screen.findByText('Bonificación Q4 switches')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('tab', { name: /Tacticals/ })).not.toBeInTheDocument());
+  });
+
   it('any other failure keeps the tab, with a dash for the count', async () => {
     tacticalsAPI.listar.mockRejectedValue({ response: { status: 500 } });
     renderWithRouter(<SellIn />);

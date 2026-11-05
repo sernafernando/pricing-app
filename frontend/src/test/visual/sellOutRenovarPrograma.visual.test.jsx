@@ -41,6 +41,11 @@ vi.mock('../../services/sellInAPI', () => ({
   sellInBonosAPI: { listar: vi.fn(), detalle: vi.fn() },
 }));
 
+// The page asks the Tacticals tab's count on load.
+vi.mock('../../services/tacticalsAPI', () => ({
+  tacticalsAPI: { listar: vi.fn().mockResolvedValue({ data: { total: 0, page: 1, page_size: 1, items: [] } }) },
+}));
+
 vi.mock('../../services/sellOutAPI', () => ({
   sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn(), porPrograma: vi.fn(), renovacion: vi.fn() },
   sellOutProgramasAPI: {

@@ -71,8 +71,9 @@ const TAB_GRUPOS = 'grupos';
 const TAB_TACTICALS = 'tacticals';
 
 /**
- * The Tacticals tab's count: the current tacticals (`GET /tacticals`, one row asked). `disponible` turns false only on a
- * 404, a server without the tacticals API, which hides the tab; any other failure keeps it with `error`.
+ * The Tacticals tab's count: the current tacticals (`GET /tacticals`, one row asked). `disponible` turns false on a 404,
+ * a server without the tacticals API, and on a 403, a user who can read no tactical kind; both hide the tab. Any other
+ * failure keeps it with `error`.
  */
 function useConteoTacticals(enabled, version) {
   const [estado, setEstado] = useState({ total: null, error: false, disponible: true });
@@ -82,7 +83,7 @@ function useConteoTacticals(enabled, version) {
     tacticalsAPI
       .listar({ estado: 'vigentes', page: 1, page_size: 1 })
       .then(({ data }) => active && setEstado({ total: data.total, error: false, disponible: true }))
-      .catch((err) => active && setEstado({ total: null, error: true, disponible: err?.response?.status !== 404 }));
+      .catch((err) => active && setEstado({ total: null, error: true, disponible: ![403, 404].includes(err?.response?.status) }));
     return () => {
       active = false;
     };
