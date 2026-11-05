@@ -255,7 +255,8 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
       return {
         value,
         label: MODOS[value].label,
-        disabled: !permitido,
+        // Locked while a request runs, so a preview never lands under another mode's name.
+        disabled: !permitido || busy != null,
         title: permitido ? undefined : `Necesitás el permiso ${PERMISO[value]}`,
       };
     });
@@ -293,6 +294,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
                 type="date"
                 value={desde}
                 min={retroactivo ? undefined : hoy}
+                disabled={busy != null}
                 aria-describedby={helpId}
                 onChange={(event) => {
                   setDesde(event.target.value);

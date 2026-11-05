@@ -196,6 +196,17 @@ describe('changing the mode', () => {
     expect(screen.queryByRole('region', { name: 'Así queda' })).not.toBeInTheDocument();
   });
 
+  it('while the preview is computing the mode and the date are locked, so it never shows under another mode', async () => {
+    sellInLotesAPI.vistaPrevia.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
+    renderPanel();
+    const region = await panel();
+    await user.click(within(region).getByRole('button', { name: 'Ponderado (PPP)' }));
+    await user.click(within(region).getByRole('button', { name: 'Ver cómo queda' }));
+    expect(within(region).getByRole('button', { name: 'Último precio' })).toBeDisabled();
+    expect(within(region).getByLabelText('Desde')).toBeDisabled();
+  });
+
   it('when the product moved since the preview (409) says to preview again and drops the preview', async () => {
     const user = userEvent.setup();
     sellInLotesAPI.confirmarModo.mockRejectedValue(httpError(409));
