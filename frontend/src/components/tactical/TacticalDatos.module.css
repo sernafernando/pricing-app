@@ -88,24 +88,12 @@
   color: var(--cf-text-tertiary);
 }
 
+/* One height for every single-line control of the card, so they line up with the segmented controls. */
 .ctl {
-  box-sizing: border-box;
-  width: 100%;
+  composes: input from '../../styles/forms-tesla.css';
   height: 34px;
+  min-height: 34px;
   margin: 0;
-  padding: 7px 10px;
-  font: inherit;
-  font-size: var(--font-sm);
-  color: var(--cf-text-primary);
-  background: var(--cf-bg-card);
-  border: 1px solid var(--cf-border-strong);
-  border-radius: var(--radius-md);
-}
-
-.ctl:focus {
-  outline: none;
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 3px var(--tone-info-bg);
 }
 
 textarea.ctl {
