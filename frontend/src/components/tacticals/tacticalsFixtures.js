@@ -1,7 +1,7 @@
 /**
  * GET /api/tacticals answers in the shape of the final contract (handoffs/tactical-tarea.md, "Contrato final", T1
- * 2026-11-05): one line per child, each with its own currency and usage. The numbers are the list design's; swap them
- * for a real capture once the endpoint is deployed.
+ * 2026-11-05): one line per child, each with its own currency and usage, and `linea`, the POSTed line it comes from.
+ * The numbers are the list design's; swap them for a real capture once the endpoint is deployed.
  */
 
 const CABECERA = {
@@ -35,10 +35,11 @@ const LINEA = {
   tope_por_producto: false,
 };
 
-/** A per-product line: one child per product, with its own unit cap. */
-export const lineaDeProducto = (id, itemId, codigo, descripcion, valor, tope, usadas) => ({
+/** A per-product line: one child per product, with its own unit cap; the children of POSTed line `linea` share it. */
+export const lineaDeProducto = (id, itemId, codigo, descripcion, valor, tope, usadas, linea = 1) => ({
   ...LINEA,
   id,
+  linea,
   productos: [{ item_id: itemId, codigo, descripcion }],
   valor: String(valor),
   tope_unidades: tope,
@@ -60,6 +61,7 @@ export const TACTICAL_BPS = {
     {
       ...LINEA,
       id: 13,
+      linea: 2,
       productos: [
         { item_id: 201, codigo: 'MON-V24I', descripcion: 'Monitor V24i G5' },
         { item_id: 202, codigo: 'MON-V27I', descripcion: 'Monitor V27i G5' },
@@ -85,6 +87,7 @@ export const TACTICAL_REBATE = {
     {
       ...LINEA,
       id: 31,
+      linea: 1,
       origen: 'sell_in_bono',
       alcance: 'marca',
       marca: 'HP',
