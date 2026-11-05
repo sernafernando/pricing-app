@@ -34,6 +34,8 @@ export const SCREENS = [
   { path: '/items-sin-mla', label: 'Items sin MLA', section: 'Productos', permisos: ['admin.ver_items_sin_mla'], scope: 'permiso' },
   { path: '/prearmadas-disponibles', label: 'Prearmadas disponibles', section: 'Productos', permisos: ['produccion.ver_prearmadas_stats'], scope: 'permiso' },
   { path: '/sell-in', label: 'Sell in / Sell out', section: 'Productos', permisos: ['sell_in.ver'], scope: 'permiso' },
+  { path: '/ml-publicaciones', label: 'Publicaciones ML', section: 'Productos', permisos: ['productos.ver', 'ml_ops.ver'], scope: 'permiso' },
+  { path: '/ml-repair-control', label: 'Control reparación', section: 'Productos', permisos: ['ml_ops.ver'], scope: 'permiso' },
 
   // ── Operaciones ───────────────────────────────────────────
   { path: '/pedidos-preparacion', label: 'Preparación', section: 'Operaciones', permisos: ['ordenes.ver_preparacion'], scope: 'permiso' },
@@ -43,6 +45,7 @@ export const SCREENS = [
   { path: '/clientes', label: 'Clientes', section: 'Operaciones', permisos: ['clientes.ver'], scope: 'permiso' },
   { path: '/config-operaciones', label: 'Configuración', section: 'Operaciones', permisos: ['envios_flex.config'], scope: 'permiso' },
   { path: '/etiquetas/reescribir-lh', label: 'Reescribir ^LH', section: 'Operaciones', permisos: ['etiquetas.reescribir_lh'], scope: 'permiso' },
+  { path: '/gestion-full', label: 'Gestión Full', section: 'Operaciones', permisos: ['productos.ver', 'ml_ops.ver'], scope: 'permiso' },
 
   // ── Consultas ─────────────────────────────────────────────
   { path: '/traza', label: 'Traza', section: 'Consultas', permisos: ['traza.ver'], scope: 'permiso' },
@@ -67,7 +70,6 @@ export const SCREENS = [
     fullViewPermisos: ['consultas.ver_ranking'],
   },
   // ml_metricas router + ml_daily_metrics/board.py -> pm_scope.
-  { path: '/gestion-full', label: 'Gestión Full', section: 'Reportes', permisos: ['productos.ver', 'ml_ops.ver'], scope: 'permiso' },
   { path: '/metricas-ml', label: 'Métricas ML', section: 'Reportes', permisos: ['ml_metricas.ver'], scope: 'data' },
   // dashboard_ml.py, ventas_ml.py operaciones and /rentabilidad (TabRentabilidad) -> pm_scope.
   { path: '/dashboard-metricas-ml', label: 'Métricas ML (anterior)', section: 'Reportes', permisos: ['ventas_ml.ver_dashboard'], scope: 'data' },
@@ -79,8 +81,6 @@ export const SCREENS = [
   { path: '/dashboard-tienda-nube', label: 'Tienda Nube', section: 'Reportes', permisos: ['ventas_tn.ver_dashboard'], scope: 'permiso' },
   { path: '/calculos', label: 'Cálculos', section: 'Reportes', permisos: ['reportes.ver_calculadora'], scope: 'permiso' },
   { path: '/ultimos-cambios', label: 'Últimos Cambios', section: 'Reportes', permisos: ['productos.ver_auditoria'], scope: 'permiso' },
-  { path: '/novedades', label: 'Novedades', section: 'Reportes', permisos: [], scope: 'public' },
-  { path: '/ayuda', label: 'Ayuda', section: 'Reportes', permisos: [], scope: 'public' },
   { path: '/cuentas-corrientes', label: 'Cuentas Corrientes', section: 'Reportes', permisos: ['reportes.ver_cuentas_corrientes'], scope: 'permiso' },
 
   // ── RRHH ──────────────────────────────────────────────────
@@ -137,11 +137,13 @@ export const SCREENS = [
   { path: '/gestion/alertas', label: 'Alertas', section: 'Gestión', permisos: ['alertas.gestionar'], scope: 'permiso' },
   { path: '/free-shipping-alerts', label: 'Envío Gratis', section: 'Gestión', permisos: ['alertas.ver_free_shipping'], scope: 'permiso' },
 
+  // ── Ayuda ─────────────────────────────────────────────────
+  { path: '/novedades', label: 'Novedades', section: 'Ayuda', permisos: [], scope: 'public' },
+  { path: '/ayuda', label: 'Ayuda', section: 'Ayuda', permisos: [], scope: 'public' },
+
   // ── Otras (routes without a sidebar entry) ────────────────
   { path: '/notificaciones', label: 'Notificaciones', section: OTRAS, permisos: ['reportes.ver_notificaciones'], scope: 'permiso' },
   { path: '/perfiles-medidas', label: 'Perfiles de medidas', section: OTRAS, permisos: ['admin.gestionar_tn_perfiles'], scope: 'permiso' },
-  { path: '/ml-publicaciones', label: 'Publicaciones ML', section: 'Reportes', permisos: ['productos.ver', 'ml_ops.ver'], scope: 'permiso' },
-  { path: '/ml-repair-control', label: 'Control reparación', section: 'Reportes', permisos: ['ml_ops.ver'], scope: 'permiso' },
 ];
 
 /**

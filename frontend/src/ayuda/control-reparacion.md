@@ -1,7 +1,7 @@
 # Control de reparación
 
-Área: Reportes
-Ruta: Reportes → Control reparación (/ml-repair-control)
+Área: Productos
+Ruta: Productos → Control reparación (/ml-repair-control)
 Permiso: ml_ops.ver
 
 Pantalla de control (solo lectura) de las corridas del job de reparación de publicaciones (envío y SKU). Permite ver corrida por corrida y MLA por MLA qué se hizo, y detectar escrituras indebidas.

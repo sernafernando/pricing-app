@@ -43,10 +43,9 @@ describe('Sidebar — curation link entry point', () => {
 });
 
 describe('Sidebar — Publicaciones ML entry (go-live)', () => {
-  async function openReportes() {
-    const user = userEvent.setup();
+  // Productos opens by default, so its links render without a click.
+  async function renderMenu() {
     renderWithRouter(<Sidebar />, { initialEntries: ['/'] });
-    await user.click(screen.getByText('Reportes'));
   }
   // The user holds exactly `codigos`, for one permission or any of several.
   const holds = (...codigos) => {
@@ -54,22 +53,22 @@ describe('Sidebar — Publicaciones ML entry (go-live)', () => {
     mockTieneAlgunPermiso.mockImplementation((asked) => asked.some((codigo) => codigos.includes(codigo)));
   };
 
-  it('links "Publicaciones ML" under Reportes with a "Nuevo" badge for ml_ops.ver', async () => {
+  it('links "Publicaciones ML" under Productos with a "Nuevo" badge for ml_ops.ver', async () => {
     holds('ml_ops.ver');
-    await openReportes();
+    await renderMenu();
     const link = screen.getByRole('link', { name: /^Publicaciones ML\s*Nuevo$/ });
     expect(link).toHaveAttribute('href', '/ml-publicaciones');
   });
 
   it("lists it with Productos' productos.ver alone (S12f1: PRICING and VENTAS keep their access)", async () => {
     holds('productos.ver');
-    await openReportes();
+    await renderMenu();
     expect(screen.getByRole('link', { name: /^Publicaciones ML\s*Nuevo$/ })).toHaveAttribute('href', '/ml-publicaciones');
   });
 
   it('hides "Publicaciones ML" without productos.ver or ml_ops.ver', async () => {
     holds('ml_metricas.ver');
-    await openReportes();
+    await renderMenu();
     expect(screen.queryByRole('link', { name: /Publicaciones ML/ })).not.toBeInTheDocument();
   });
 });

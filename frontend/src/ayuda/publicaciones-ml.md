@@ -1,7 +1,7 @@
 # Publicaciones ML
 
-Área: Reportes
-Ruta: Reportes → Publicaciones ML
+Área: Productos
+Ruta: Productos → Publicaciones ML
 Permiso: Acceso a Productos o a Ventas ML (productos.ver o ml_ops.ver).
 
 ## Para qué sirve
