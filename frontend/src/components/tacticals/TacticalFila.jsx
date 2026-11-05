@@ -12,6 +12,7 @@ import {
   valorDeLinea,
   vigenciaDe,
 } from './tacticalsFormat';
+import TacticalAcciones from './TacticalAcciones';
 import styles from './TacticalFila.module.css';
 
 const TIPO_PILL = { sell_in: { texto: 'Sell in', tono: 'neutral' }, sell_out: { texto: 'Sell out', tono: 'info' } };
@@ -102,9 +103,10 @@ function Lineas({ tactical }) {
 
 /**
  * One tactical as a `<tbody>`: its row (type, brand, dates, line count, progress over the caps, state) and, when
- * `abierto`, its lines with amount, caps, usage and a "Tope alcanzado" mark.
+ * `abierto`, its lines with amount, caps, usage and a "Tope alcanzado" mark. `acciones` (`{ label, onSelect }`) fill
+ * the row's actions menu; none, no menu.
  */
-export default function TacticalFila({ tactical, abierto, onAlternar }) {
+export default function TacticalFila({ tactical, abierto, onAlternar, acciones = [] }) {
   const tipo = TIPO_PILL[tactical.tipo] ?? { texto: tactical.tipo, tono: 'neutral' };
   const estado = estadoDe(tactical);
   const { unidades, monto } = avanceDeTactical(tactical.lineas);
@@ -156,6 +158,7 @@ export default function TacticalFila({ tactical, abierto, onAlternar }) {
             {estado.texto}
           </StatusPill>
         </td>
+        <td>{acciones.length > 0 && <TacticalAcciones nombre={tactical.nombre} acciones={acciones} />}</td>
       </tr>
       {abierto && (
         <tr id={`tactical-${tactical.id}-lineas`} className={styles.filaLineas}>

@@ -111,4 +111,29 @@ describe.each([
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-lista-${theme}-${width}.png` });
   });
+
+  it("opens a row's actions menu whole, under its button, on the last row too", async () => {
+    await page.viewport(width, height);
+    setTheme(theme);
+    document.body.style.background = 'var(--cf-bg-app)';
+    const screen = await render(
+      <MemoryRouter initialEntries={['/sell-in?tab=tacticals']}>
+        <Shell>
+          <SellIn />
+        </Shell>
+      </MemoryRouter>,
+    );
+
+    await screen.getByRole('button', { name: 'Acciones de Rebate HP Q1FY27' }).click();
+    const item = screen.getByRole('menuitem', { name: 'Renovar' });
+    await expect.element(item).toBeVisible();
+    const boton = document.querySelector('[aria-label="Acciones de Rebate HP Q1FY27"]').getBoundingClientRect();
+    const menu = document.querySelector('[role="menu"]').getBoundingClientRect();
+    expect(menu.top).toBeGreaterThanOrEqual(boton.bottom);
+    expect(menu.right).toBeLessThanOrEqual(width + 0.5);
+    // Nothing clips it (the table scrolls sideways): its bottom edge is still the menu's own.
+    const abajo = document.elementFromPoint(menu.left + menu.width / 2, menu.bottom - 2);
+    expect(abajo.closest('[role="menu"]')).not.toBeNull();
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-acciones-${theme}-${width}.png` });
+  });
 });

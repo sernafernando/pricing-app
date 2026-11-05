@@ -666,7 +666,12 @@ export default function SellIn() {
           <div className={styles.loading}>Cargando tacticals…</div>
         ) : tab === TAB_TACTICALS ? (
           <div role="tabpanel" id="tacticals-panel" aria-labelledby="tacticals-tab">
-            <TacticalsList marcas={marcas} version={versionPagina} />
+            <TacticalsList
+              marcas={marcas}
+              version={versionPagina}
+              puedeGestionar={(tipoTactical) => tienePermiso(`${tipoTactical}.gestionar`)}
+              onRenovar={(t) => navigate(`/sell-in/tactical/nuevo?tipo=${t.tipo}&renovar=${t.id}`)}
+            />
           </div>
         ) : tab === TAB_GRUPOS ? (
           <div role="tabpanel" id="grupos-panel" aria-labelledby="grupos-tab">

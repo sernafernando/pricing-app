@@ -191,6 +191,8 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
   - **Monto**: por unidad, porcentaje o monto total.
   - **Tope unidades**, **Usadas**, **Tope monto** y **Usado**.
   - **Avance**: la barra del tope de unidades o, si no tiene, del tope de monto. Al llegar al tope dice «Tope alcanzado».
+- Si podés gestionar ese tipo de tactical (sell_in.gestionar o sell_out.gestionar), cada fila tiene el botón de acciones (⋮) al final:
+  - **Renovar** abre **Nuevo tactical** con todo lo del tactical cargado: tipo, datos, líneas, montos y topes. Las fechas quedan vacías para que elijas las nuevas. **Crear tactical** crea un tactical NUEVO y el anterior queda como estaba. Una línea por factura vuelve sin la factura, porque esa factura ya tuvo su bono: elegí la nueva o eliminá la línea.
 
 ## Filtros y columnas
 
@@ -201,6 +203,7 @@ Sell in: fechas, búsqueda, marca, moneda, estado, producto, proveedor, aplicaci
 - **Nuevo sell in** / **Nueva campaña**: abren **Nuevo tactical** (según permiso).
 - **Nuevo grupo**: crea un grupo (según permiso).
 - **Crear tactical**: crea el tactical con todas sus líneas; **Cancelar** lo descarta después de confirmar.
+- **Renovar** (acciones de una fila de Tacticals): abre **Nuevo tactical** cargado con ese tactical, con fechas nuevas por elegir.
 - Tocar una fila: abre el panel lateral de detalle.
 - **Actualizar**: recarga datos.
 

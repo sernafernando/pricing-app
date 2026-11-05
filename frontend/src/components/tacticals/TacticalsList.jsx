@@ -22,9 +22,10 @@ const FILAS_POR_PAGINA = 50;
 /**
  * The Tacticals tab (S7): the brands' programs filtered by tipo, brand, state, dates and a search, one row per
  * tactical with its overall progress; expanding a row shows its lines with their caps and usage. A new `version`
- * (the page's "Actualizar") asks the list again.
+ * (the page's "Actualizar") asks the list again. A row of a kind the user manages (`puedeGestionar(tipo)`) has an
+ * actions menu: Renovar hands the tactical to `onRenovar` (tacticals F1).
  */
-export default function TacticalsList({ marcas = [], version = 0 }) {
+export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar }) {
   const [filtros, setFiltros] = useState(FILTROS_VACIOS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(FILAS_POR_PAGINA);
@@ -136,6 +137,9 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
                   <th scope="col" className={tablaStyles.num}>Líneas</th>
                   <th scope="col">Avance</th>
                   <th scope="col">Estado</th>
+                  <th scope="col">
+                    <span className={styles.srOnly}>Acciones</span>
+                  </th>
                 </tr>
               </thead>
               {datos.items.length === 0 && (
@@ -148,7 +152,15 @@ export default function TacticalsList({ marcas = [], version = 0 }) {
                 </tbody>
               )}
               {datos.items.map((tactical) => (
-                <TacticalFila key={tactical.id} tactical={tactical} abierto={abiertos.has(tactical.id)} onAlternar={() => alternar(tactical.id)} />
+                <TacticalFila
+                  key={tactical.id}
+                  tactical={tactical}
+                  abierto={abiertos.has(tactical.id)}
+                  onAlternar={() => alternar(tactical.id)}
+                  acciones={
+                    onRenovar && puedeGestionar(tactical.tipo) ? [{ label: 'Renovar', onSelect: () => onRenovar(tactical) }] : []
+                  }
+                />
               ))}
             </table>
           </div>
