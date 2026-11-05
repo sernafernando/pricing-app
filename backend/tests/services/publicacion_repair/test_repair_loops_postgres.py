@@ -139,3 +139,4 @@ def test_sku_loop_persists_changed_event(repair_pg, monkeypatch: pytest.MonkeyPa
         event = db.query(PublicacionRepairEvent).one()
         assert event.action == ACTION_CHANGED
         assert event.mla_id == "MLA_DRIFT"
+        assert event.detail == sku_mod.DETAIL_SELLER_SKU

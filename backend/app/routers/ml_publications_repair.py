@@ -1,7 +1,8 @@
 """Router: read-only view of the publication repair job (envio / sku).
 
 No ML calls and no writes: it only reads `publicacion_repair_run`, `publicacion_repair_event` and the
-repair rows of `ml_write_log`. Permission gate: `ml_ops.ver` (`require_permiso`).
+repair rows of `ml_write_log`. Events are enriched live with `ml_items.title` and
+`productos_erp.descripcion` for the control UI. Permission gate: `ml_ops.ver` (`require_permiso`).
 """
 
 from __future__ import annotations
@@ -17,12 +18,14 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_permiso
 from app.core.database import get_db
+from app.models.ml_publications import MlItem
 from app.models.ml_write_log import (
     ACTION_ENABLE_FLEX,
     ACTION_UPDATE_DATA,
     ACTION_UPDATE_SHIPPING,
     MlWriteLog,
 )
+from app.models.producto import ProductoERP
 from app.models.publicacion_repair import (
     PublicacionRepairEvent,
     PublicacionRepairRun,
@@ -78,6 +81,9 @@ class EventOut(BaseModel):
     after: Optional[Any] = None
     detail: Optional[str] = None
     created_at: datetime
+    # Live join for the control view (not stored on the event row).
+    title: Optional[str] = None
+    descripcion: Optional[str] = None
     # Only populated on the cross-run MLA endpoint.
     run_job_type: Optional[str] = None
     run_started_at: Optional[datetime] = None
@@ -120,6 +126,45 @@ class MlaEventsOut(BaseModel):
 
 
 _AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+
+
+def _live_labels(
+    db: Session, events: list[PublicacionRepairEvent]
+) -> tuple[dict[str, Optional[str]], dict[int, Optional[str]]]:
+    """Batch-load current ml_items.title and productos_erp.descripcion for a page of events."""
+    mlas = sorted({e.mla_id for e in events if e.mla_id})
+    item_ids = sorted({e.item_id for e in events if e.item_id is not None})
+    titles: dict[str, Optional[str]] = {}
+    descripciones: dict[int, Optional[str]] = {}
+    if mlas:
+        for item_id, title in (
+            db.query(MlItem.item_id, MlItem.title).filter(MlItem.item_id.in_(mlas)).all()
+        ):
+            titles[str(item_id)] = title
+    if item_ids:
+        for item_id, descripcion in (
+            db.query(ProductoERP.item_id, ProductoERP.descripcion)
+            .filter(ProductoERP.item_id.in_(item_ids))
+            .all()
+        ):
+            descripciones[int(item_id)] = descripcion
+    return titles, descripciones
+
+
+def _event_out(
+    ev: PublicacionRepairEvent,
+    *,
+    titles: dict[str, Optional[str]],
+    descripciones: dict[int, Optional[str]],
+    run_job_type: Optional[str] = None,
+    run_started_at: Optional[datetime] = None,
+) -> EventOut:
+    eo = EventOut.model_validate(ev)
+    eo.title = titles.get(ev.mla_id)
+    eo.descripcion = descripciones.get(ev.item_id) if ev.item_id is not None else None
+    eo.run_job_type = run_job_type
+    eo.run_started_at = run_started_at
+    return eo
 
 
 def _parse_dt(value: Optional[str], *, end_of_day: bool = False) -> Optional[datetime]:
@@ -227,9 +272,10 @@ def get_run(
     )
     breakdown = [BreakdownOut(action=r[0], detail=r[1], count=int(r[2])) for r in breakdown_rows]
 
+    titles, descripciones = _live_labels(db, events)
     return RunDetailOut(
         run=RunOut.model_validate(run),
-        events=[EventOut.model_validate(e) for e in events],
+        events=[_event_out(e, titles=titles, descripciones=descripciones) for e in events],
         total=total,
         page=page,
         page_size=page_size,
@@ -258,12 +304,18 @@ def events_by_mla(
         .limit(page_size)
         .all()
     )
-    events: list[EventOut] = []
-    for ev, run in pairs:
-        eo = EventOut.model_validate(ev)
-        eo.run_job_type = run.job_type
-        eo.run_started_at = run.started_at
-        events.append(eo)
+    event_rows = [ev for ev, _run in pairs]
+    titles, descripciones = _live_labels(db, event_rows)
+    events: list[EventOut] = [
+        _event_out(
+            ev,
+            titles=titles,
+            descripciones=descripciones,
+            run_job_type=run.job_type,
+            run_started_at=run.started_at,
+        )
+        for ev, run in pairs
+    ]
 
     # Repair rows in ml_write_log for this MLA.
     writes = (

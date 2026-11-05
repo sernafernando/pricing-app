@@ -10,8 +10,9 @@ Pantalla de control (solo lectura) de las corridas del job de reparación de pub
 
 - Listar las corridas recientes con sus contadores (revisados, cambiados, omitidos, errores).
 - Filtrar por tipo (Envío/SKU), estado, rango de fechas.
-- Abrir una corrida para ver el desglose por motivo y los eventos (MLA, acción, motivo, antes → después).
+- Abrir una corrida para ver el desglose por motivo y los eventos (MLA, título ML, descripción ERP, acción, motivo, antes → después).
 - Buscar un MLA para ver todos sus eventos en todas las corridas y las escrituras confirmadas en ML.
+- Título y descripción se leen en vivo de `ml_items` / `productos_erp` (no se guardan en el event).
 
 ## Filtros
 
@@ -21,4 +22,4 @@ Pantalla de control (solo lectura) de las corridas del job de reparación de pub
 ## Notas
 
 - Solo lectura: no escribe en ML ni en las tablas de reparación.
-- Los motivos (detail) incluyen: stale_ml_item, status_not_modifiable, full_fulfillment, flex_refused, flex_refused_unchanged, rate_limited, pacer_deadline, max_writes_cap, has_variations, shipping_put, flex_enabled, o texto crudo de ML.
+- Los motivos (detail) incluyen: stale_ml_item, status_not_modifiable, full_fulfillment, flex_refused, flex_refused_unchanged, rate_limited, pacer_deadline, max_writes_cap, has_variations, shipping_put, flex_enabled, seller_sku, o texto crudo de ML. Un `changed` de SKU sin motivo es un event viejo (antes de persistir `seller_sku`).

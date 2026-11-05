@@ -35,6 +35,17 @@ def pg(client, request, monkeypatch):
     PublicacionRepairRun.__table__.create(bind=engine, checkfirst=True)
     PublicacionRepairEvent.__table__.create(bind=engine, checkfirst=True)
     MlWriteLog.__table__.create(bind=engine, checkfirst=True)
+    # Live-label joins for the control view (title / ERP descripcion).
+    with engine.begin() as conn:
+        conn.execute(
+            text("CREATE TABLE IF NOT EXISTS ml_items (item_id text PRIMARY KEY, title text)")
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS productos_erp "
+                "(item_id integer PRIMARY KEY, descripcion varchar(500))"
+            )
+        )
 
     factory = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     sessions: list[Session] = []
@@ -219,6 +230,32 @@ class TestRunDetail:
         # compact diff keys present
         changed_ev = next(e for e in body2["events"] if e["action"] == "changed")
         assert changed_ev["before"] == {"a": 1} and changed_ev["after"] == {"a": 2}
+
+    def test_events_include_live_title_and_descripcion(self, client, pg, reader):
+        with pg.begin() as conn:
+            conn.execute(
+                text("INSERT INTO ml_items (item_id, title) VALUES ('MLA1', 'Cable HDMI 2m')")
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO productos_erp (item_id, descripcion) "
+                    "VALUES (42, 'CABLE HDMI 2 METROS')"
+                )
+            )
+        rid = insert_run(pg)
+        insert_event(
+            pg,
+            rid,
+            mla_id="MLA1",
+            item_id=42,
+            action="changed",
+            detail="seller_sku",
+        )
+        body = client.get(f"{BASE}/runs/{rid}", headers=reader).json()
+        ev = body["events"][0]
+        assert ev["title"] == "Cable HDMI 2m"
+        assert ev["descripcion"] == "CABLE HDMI 2 METROS"
+        assert ev["detail"] == "seller_sku"
 
     def test_detail_filter(self, client, pg, reader):
         rid = insert_run(pg)
