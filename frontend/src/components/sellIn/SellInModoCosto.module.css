@@ -99,6 +99,21 @@
   max-width: 100%;
 }
 
+/* Manual: the quantity and unit cost side by side, wrapping on a phone. */
+.manual {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3, 0.75rem);
+}
+
+.inputNum {
+  composes: input inputSm from '../../styles/forms-tesla.css';
+  width: 12rem;
+  max-width: 100%;
+  font-family: var(--font-mono, monospace);
+  text-align: right;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

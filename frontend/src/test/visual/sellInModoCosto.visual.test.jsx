@@ -1,7 +1,8 @@
 /**
  * The cost-mode panel inside the sell-in lot viewer -- real CSS, real Chromium: in a product-panel-width column the
  * mode switch, the date, the preview (with its before/after table and the last-price warning) and the history fit
- * without overflowing, in light, dark and high contrast; the admin's default-mode modal fits a phone-width screen.
+ * without overflowing, in light, dark and high contrast; the manual mode's quantity and unit cost, and its preview with
+ * the frozen cost, fit too; the admin's default-mode modal fits a phone-width screen.
  *
  *   pnpm exec vitest run --project=visual sellInModoCosto
  *   VITE_SELLIN_MODO_SHOTS_DIR=<dir> pnpm exec vitest run --project=visual sellInModoCosto   (also saves screenshots)
@@ -41,9 +42,12 @@ vi.mock('../../services/sellInAPI', () => ({
         },
       }),
     ),
-    vistaPrevia: vi.fn(() =>
+    vistaPrevia: vi.fn((_, cuerpo) =>
       Promise.resolve({
-        data: { ventas_cambian: 6, diferencia_ars: '-18240.50', unidades_restantes: 200, descuento_unit: '5280.400000', sin_asignar_antes: '0.00', sin_asignar_despues: '200.00', huella: 'a'.repeat(64) },
+        data:
+          cuerpo.modo === 'manual'
+            ? { ventas_cambian: 0, diferencia_ars: '0.00', unidades_restantes: 200, descuento_unit: '-2000.000000', sin_asignar_antes: '0.00', sin_asignar_despues: '1081120.00', huella: 'a'.repeat(64), costo_base_unit: '148000.000000' }
+            : { ventas_cambian: 6, diferencia_ars: '-18240.50', unidades_restantes: 200, descuento_unit: '5280.400000', sin_asignar_antes: '0.00', sin_asignar_despues: '200.00', huella: 'a'.repeat(64) },
       }),
     ),
     confirmarModo: vi.fn(),
@@ -79,6 +83,30 @@ describe('SellInModoCosto in the lot viewer (visual)', () => {
         if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/modo-costo-${theme}${highContrast ? '-hc' : ''}.png` });
       });
     }
+  }
+
+  for (const theme of ['light', 'dark']) {
+    it(`fits a 560px panel with the manual figures and their preview, ${theme}`, async () => {
+      await page.viewport(1280, 1400);
+      setTheme(theme);
+      document.body.style.background = 'var(--cf-bg-app)';
+      const screen = await render(
+        <div data-testid="panel" style={{ width: 560, padding: 16, background: 'var(--cf-bg-card)' }}>
+          <SellInLotes productItemId={950} />
+        </div>,
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Manual' }));
+      await userEvent.fill(screen.getByLabelText('Cantidad'), '200');
+      await userEvent.fill(screen.getByLabelText('Costo unitario'), '150000');
+      await userEvent.click(screen.getByRole('button', { name: 'Ver cómo queda' }));
+      await expect.element(screen.getByText('Costo del producto congelado:')).toBeVisible();
+
+      const panel = document.querySelector('[data-testid="panel"]');
+      expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+      const costo = screen.getByLabelText('Costo unitario').element().getBoundingClientRect();
+      expect(costo.right).toBeLessThanOrEqual(panel.getBoundingClientRect().right);
+      if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/modo-manual-${theme}.png` });
+    });
   }
 
   for (const theme of ['light', 'dark']) {
