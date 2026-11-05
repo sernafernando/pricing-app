@@ -40,7 +40,7 @@ export default function AdsKpiBlock({ ads }) {
         )}
       </header>
       <div className={styles.grid}>
-        <Metric label="Inversión" value={formatSignedMoney(ads.cost_total)} hint="sin IVA" money />
+        <Metric label="Inversión (bruta)" value={formatSignedMoney(ads.cost_total)} hint="sin IVA" money />
         {/* Brand contributions (ml-ads-brand-contribution S9): the part of the cost the brands pay, not subtracted. */}
         {Boolean(ads.contribution) && (
           <Metric label="Aporte de marcas" value={formatSignedMoney(ads.contribution)} hint="no se descuenta" money />

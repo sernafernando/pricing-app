@@ -62,15 +62,16 @@ describe('MetricasML ads toggle', () => {
     expect(screen.queryByText(/Publicidad restada/)).not.toBeInTheDocument();
   });
 
-  it('asks the board for the chosen position and shows the banner, the adjusted cards and the ads column', async () => {
+  it('asks the board for the chosen position and shows the Publicidad restada card, the adjusted cards and the ads column', async () => {
     board = withAds(ADS_KPIS);
     await renderWithRouter(<MetricasML />);
     await userEvent.click(within(await control()).getByRole('button', { name: 'Restar Ads de publicaciones' }));
 
     await waitFor(() => expect(lastBoardParams().publicidad).toBe('mla'));
-    expect(await screen.findByRole('status')).toHaveTextContent('Publicidad restada: $ 17.516.239,51');
+    expect(await screen.findByRole('region', { name: 'Publicidad restada' })).toHaveTextContent('= Publicidad restada');
+    expect(screen.getByRole('region', { name: 'Publicidad restada' })).toHaveTextContent('$ 17.516.239,51');
     expect(screen.getAllByText('Ajustado')).toHaveLength(2);
-    expect(screen.getByRole('columnheader', { name: /Publicidad \(inversión\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: /Publicidad restada \(neta de aportes\)/ })).toBeInTheDocument();
     expect(screen.getByText('$ 410.200,00')).toBeInTheDocument();
   });
 

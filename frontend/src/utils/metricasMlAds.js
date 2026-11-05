@@ -12,11 +12,11 @@ export const ADS_MODE_OPTIONS = [
 
 export const ADS_MODE_HINTS = {
   off: 'No se resta publicidad de Total Gauss ni del markup.',
-  mla: 'Resta del Total Gauss y del markup solo los Ads atribuidos a cada publicación.',
-  todo: 'Resta del Total Gauss y del markup los Ads de cada publicación y además Display, Brand Ads y Ads sin producto.',
+  mla: 'Resta del Total Gauss y del markup los Product Ads netos de aportes de marcas: los de cada publicación y, sin filtros, también los Ads sin producto.',
+  todo: 'Resta del Total Gauss y del markup los Product Ads netos de aportes y además Display (neto de aportes) y Brand Ads.',
 };
 
-/** What the banner says was subtracted, by the position the API APPLIED. */
+/** What the "Aplicado" chip says was subtracted, by the position the API APPLIED. */
 export const ADS_APPLIED_LABELS = {
   mla: 'Ads de publicaciones',
   todo: 'Ads de publicaciones, sin producto y cuenta',
@@ -33,6 +33,35 @@ export function adsModeNotice(ads) {
     message: 'Con filtros solo se restan los Ads de publicaciones',
     chip: `Aplicado: ${ADS_APPLIED_LABELS[ads.applied]}`,
   };
+}
+
+/**
+ * The waterfall lines of `kpis.ads.waterfall`, in the card's order. An aporte line only shows when something was
+ * covered; the "sin producto" and account-level lines only exist in the unfiltered view (the API sends null).
+ */
+export function waterfallLines(w) {
+  const account = w.account_subtracted ? 'restado' : 'no-restado';
+  const lines = [{ key: 'publications', label: 'Product Ads de publicaciones', amount: w.product_ads_publications, chip: 'restado' }];
+  if (w.product_ads_sin_producto !== null && w.product_ads_sin_producto !== undefined) {
+    lines.push({ key: 'sin_producto', label: 'Product Ads sin producto', amount: w.product_ads_sin_producto, chip: 'restado' });
+  }
+  if (w.product_ads_contribution) {
+    lines.push({ key: 'pads_aporte', label: '− Aportes de marcas (Product Ads)', amount: -w.product_ads_contribution, chip: 'aporte' });
+  }
+  lines.push({ key: 'pads_net', label: '= Product Ads neto', amount: w.product_ads_net, subtotal: true });
+  if (w.display_gross !== null && w.display_gross !== undefined) {
+    lines.push({ key: 'display', label: '+ Display', amount: w.display_gross, chip: account });
+    if (w.display_contribution) {
+      lines.push({
+        key: 'display_aporte',
+        label: '− Aportes de marcas (Display)',
+        amount: -w.display_contribution,
+        chip: w.account_subtracted ? 'aporte' : 'no-restado',
+      });
+    }
+    lines.push({ key: 'brand', label: '+ Brand Ads', amount: w.brand, chip: account });
+  }
+  return lines;
 }
 
 /** The figure before ads were subtracted: the adjusted `value` plus what came off it. */
