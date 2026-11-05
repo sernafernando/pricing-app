@@ -281,7 +281,10 @@ class GestionFullAssignInboundBody(BaseModel):
     dependencies=[Depends(require_algun_permiso(VIEW_PERMISOS))],
 )
 def get_gestion_full(
-    q: str = Query("", description="Search EAN, description, inventory_id or MLAU"),
+    q: str = Query(
+        "",
+        description="Search EAN, description, inventory_id, MLAU or exact family_id",
+    ),
     marcas: Optional[str] = Query(
         default=None,
         description="CSV de marcas (case-insensitive, same as ProductFiltersPanel)",

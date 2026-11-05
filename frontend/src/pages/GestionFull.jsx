@@ -266,7 +266,7 @@ export default function GestionFull() {
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="EAN, descripción o inventory_id…"
+            placeholder="EAN, descripción, inventory_id, MLAU o family_id…"
             aria-label="Buscar"
           />
         </label>

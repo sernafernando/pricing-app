@@ -5,7 +5,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.services.gestion_full.listing import _row_dict, _sugerido, list_gestion_full
+from app.services.gestion_full.listing import (
+    _COUNT_SQL,
+    _LIST_SQL,
+    _row_dict,
+    _sugerido,
+    list_gestion_full,
+)
 
 
 def test_row_dict_maps_full_windows_and_leaves_later_fields_null() -> None:
@@ -172,6 +178,13 @@ def test_list_gestion_full_clamps_limit() -> None:
         payload = list_gestion_full(db, limit=9999, offset=-5)
     assert payload["limit"] == 500
     assert payload["offset"] == 0
+
+
+def test_list_and_count_sql_match_family_id_exactly() -> None:
+    for sql in (_LIST_SQL, _COUNT_SQL):
+        text_sql = str(sql)
+        assert "linked.family_id" in text_sql
+        assert "CAST(linked.family_id AS TEXT) = :q" in text_sql
 
 
 def test_list_gestion_full_include_facets_false_skips_facet_query() -> None:
