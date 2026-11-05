@@ -35,7 +35,7 @@ rounded once here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal, Optional
@@ -450,6 +450,43 @@ class ContributionSavedOut(ContributionOut):
     warnings: list[str] = []
 
 
+class ContributionRowOut(ContributionOut):
+    """One aporte of the "Por aporte" view (Stitch 55853ac1)."""
+
+    advertiser_name: Optional[str] = None
+    campaign_name: Optional[str] = None  # None: unnamed in the catalog, or the whole Display account
+    covered: float  # what it covers of the requested range, on its channel's rule (as Métricas ML subtracts it)
+    # "Cargado": from the aporte's auditoria rows; one loaded before aportes were audited shows its own creator.
+    loaded_by: Optional[str] = None
+    loaded_at: datetime
+    edited_by: Optional[str] = None
+    edited_at: Optional[datetime] = None
+
+
+class ContributionTotalsOut(BaseModel):
+    # The range's costs the tiles divide by, on the same base as each row's `covered`.
+    product_ads_cost: float
+    display_cost: float
+    no_campaign_cost: float  # Product Ads item rows with no campaign: no aporte can cover them
+
+
+class ContributionsViewOut(BaseModel):
+    contributions: list[ContributionRowOut]
+    totals: ContributionTotalsOut
+
+
+class HistoryEventOut(BaseModel):
+    action: str  # created | edited | deleted
+    user: Optional[str] = None
+    at: datetime
+    before: Optional[dict] = None  # the aporte as it was (edited, deleted)
+    after: Optional[dict] = None  # the aporte as it was left (created, edited)
+
+
+class HistoryOut(BaseModel):
+    events: list[HistoryEventOut]
+
+
 class CampaignOut(BaseModel):
     advertiser_id: int
     campaign_id: int
@@ -536,6 +573,39 @@ def get_campaigns(w: Window = Depends(window), db: Session = Depends(get_db)) ->
             for r in rows
         ]
     )
+
+
+@router.get("/contributions", response_model=ContributionsViewOut)
+def get_contributions(w: Window = Depends(window), db: Session = Depends(get_db)) -> ContributionsViewOut:
+    view = contributions.list_contributions(db, w.date_from, w.date_to)
+    return ContributionsViewOut(
+        contributions=[
+            ContributionRowOut(
+                **_contribution_out(r.contribution).model_dump(),
+                advertiser_name=contributions.ADVERTISER_NAMES.get(r.contribution.advertiser_id),
+                campaign_name=r.campaign_name,
+                covered=_money(r.covered),
+                loaded_by=r.loaded_by,
+                loaded_at=r.loaded_at,
+                edited_by=r.edited_by,
+                edited_at=r.edited_at,
+            )
+            for r in view.rows
+        ],
+        totals=ContributionTotalsOut(
+            product_ads_cost=_money(view.product_ads_cost),
+            display_cost=_money(view.display_cost),
+            no_campaign_cost=_money(view.no_campaign_cost),
+        ),
+    )
+
+
+@router.get("/contributions/{contribution_id}/history", response_model=HistoryOut)
+def get_contribution_history(contribution_id: int, db: Session = Depends(get_db)) -> HistoryOut:
+    events = contributions.history(db, contribution_id)
+    if events is None:
+        raise _not_found(contribution_id)
+    return HistoryOut(events=[HistoryEventOut(**asdict(e)) for e in events])
 
 
 @router.get("/contributions/preview", response_model=PreviewOut)

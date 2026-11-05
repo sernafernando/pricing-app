@@ -30,6 +30,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    or_,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -132,6 +133,14 @@ class MlAdsItemDay(Base):
     fetched_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (Index("ix_ml_ads_item_days_day_item", "day", "item_id"),)
+
+
+def item_day_without_campaign(item=MlAdsItemDay):
+    """An item row ML reports with no campaign (NULL or 0): no aporte can ever cover it, so its cost comes off whole.
+
+    `item` is `MlAdsItemDay` or an alias of it. The board's KPI and the Aportes view both count these rows through here.
+    """
+    return or_(item.campaign_id.is_(None), item.campaign_id == 0)
 
 
 class MlAdsDisplayCampaignDay(Base):
