@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, selectinload
 from typing import Dict, List, Optional
 
 from app.core.database import get_db
@@ -51,22 +52,50 @@ def _viola_fk_sell_out(exc: IntegrityError) -> bool:
     return FK_SELL_OUT_CAMPANA_GRUPOS_GRUPO_ID in str(exc.orig)
 
 
-def _motivo_para_conservar(db: Session, grupo_id: int) -> Optional[str]:
-    """Why the group cannot be deleted, as the delete answers it; None when nothing holds it."""
+def _motivos_para_conservar(db: Session, grupo_ids: List[int]) -> Dict[int, str]:
+    """Why each group cannot be deleted, as the delete answers it; a group nothing holds is absent. Four queries
+    whatever the number of groups, so the bulk delete reads them all at once."""
     # Verificar si tiene offsets asociados
-    offsets_count = db.query(OffsetGanancia).filter(OffsetGanancia.grupo_id == grupo_id).count()
-    if offsets_count > 0:
-        return f"No se puede eliminar el grupo, tiene {offsets_count} offsets asociados"
-
+    offsets = dict(
+        db.query(OffsetGanancia.grupo_id, func.count(OffsetGanancia.id))
+        .filter(OffsetGanancia.grupo_id.in_(grupo_ids))
+        .group_by(OffsetGanancia.grupo_id)
+    )
     # sell_out_campana_grupos points here with RESTRICT: answer clearly instead of a database error,
     # naming the active campaigns (a voided one also holds the group: the generic message)
-    estados = (
-        db.query(SellOutCampana.nombre, SellOutCampana.estado)
-        .join(SellOutCampanaGrupo, SellOutCampanaGrupo.campana_id == SellOutCampana.id)
-        .filter(SellOutCampanaGrupo.grupo_id == grupo_id)
-        .order_by(SellOutCampana.nombre)
-        .all()
-    )
+    campanas: Dict[int, List[tuple]] = {}
+    for grupo_id, nombre, estado in (
+        db.query(SellOutCampanaGrupo.grupo_id, SellOutCampana.nombre, SellOutCampana.estado)
+        .join(SellOutCampana, SellOutCampana.id == SellOutCampanaGrupo.campana_id)
+        .filter(SellOutCampanaGrupo.grupo_id.in_(grupo_ids))
+        .order_by(SellOutCampanaGrupo.grupo_id, SellOutCampana.nombre)
+    ):
+        campanas.setdefault(grupo_id, []).append((nombre, estado))
+    # offset_grupo_consumo / offset_grupo_resumen record what the legacy offsets already applied in sales:
+    # history, not a cache to drop, so the group stays (instead of the FK's 500).
+    con_consumo = {
+        gid
+        for (gid,) in db.query(OffsetGrupoConsumo.grupo_id)
+        .filter(OffsetGrupoConsumo.grupo_id.in_(grupo_ids))
+        .distinct()
+    } | {
+        gid
+        for (gid,) in db.query(OffsetGrupoResumen.grupo_id)
+        .filter(OffsetGrupoResumen.grupo_id.in_(grupo_ids))
+        .distinct()
+    }
+    motivos = {}
+    for grupo_id in grupo_ids:
+        motivo = _motivo(offsets.get(grupo_id, 0), campanas.get(grupo_id, []), grupo_id in con_consumo)
+        if motivo:
+            motivos[grupo_id] = motivo
+    return motivos
+
+
+def _motivo(offsets_count: int, estados: List[tuple], con_consumo: bool) -> Optional[str]:
+    """The delete's answer from what holds the group, in the delete's order; None when nothing does."""
+    if offsets_count > 0:
+        return f"No se puede eliminar el grupo, tiene {offsets_count} offsets asociados"
     activas = [nombre for nombre, estado in estados if estado == "activa"]
     if activas:
         nombres = ", ".join(f"«{nombre}»" for nombre in activas)
@@ -82,17 +111,11 @@ def _motivo_para_conservar(db: Session, grupo_id: int) -> Optional[str]:
             f"El grupo está vinculado {a_cual} {anuladas}. "
             "Queda guardado porque es parte de su historial: no se puede eliminar."
         )
-
-    # offset_grupo_consumo / offset_grupo_resumen record what the legacy offsets already applied in sales:
-    # history, not a cache to drop, so the group stays (instead of the FK's 500).
-    consumo = db.query(OffsetGrupoConsumo.id).filter(OffsetGrupoConsumo.grupo_id == grupo_id).first()
-    resumen = db.query(OffsetGrupoResumen.id).filter(OffsetGrupoResumen.grupo_id == grupo_id).first()
-    if consumo or resumen:
+    if con_consumo:
         return (
             "No se puede eliminar el grupo: tiene consumo de offsets registrado "
             "(el historial de lo que ya se aplicó en ventas)."
         )
-
     return None
 
 
@@ -159,7 +182,7 @@ def alcance_previo(
     panel shows it before a filter change re-queues the active campaigns that use the group."""
     if not verificar_permiso(db, current_user, PERMISO_GRUPOS):
         raise HTTPException(status_code=403, detail=_SIN_PERMISO)
-    if not db.query(OffsetGrupo.id).filter(OffsetGrupo.id == grupo_id).first():
+    if not db.query(OffsetGrupo.id).filter(OffsetGrupo.id == grupo_id, OffsetGrupo.oculto.is_(False)).first():
         raise HTTPException(404, "Grupo no encontrado")
     agregar = cambio.agregar.model_dump() if cambio.agregar else None
     return {
@@ -178,7 +201,7 @@ def editar_grupo(
     """Renombra o describe un grupo (sus filtros se editan aparte)."""
     if not verificar_permiso(db, current_user, PERMISO_GRUPOS):
         raise HTTPException(status_code=403, detail=_SIN_PERMISO)
-    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id, OffsetGrupo.oculto.is_(False)).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
     if "nombre" in cambios.model_fields_set:
@@ -252,11 +275,11 @@ def eliminar_grupo(grupo_id: int, db: Session = Depends(get_db), current_user: U
     """Elimina un grupo de offsets (solo si no tiene offsets asociados)"""
     if not verificar_permiso(db, current_user, "config.editar_constantes"):
         raise HTTPException(status_code=403, detail="No tienes permiso para gestionar offsets de ganancia")
-    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id).first()
+    grupo = db.query(OffsetGrupo).filter(OffsetGrupo.id == grupo_id, OffsetGrupo.oculto.is_(False)).first()
     if not grupo:
         raise HTTPException(404, "Grupo no encontrado")
 
-    motivo = _motivo_para_conservar(db, grupo_id)
+    motivo = _motivos_para_conservar(db, [grupo_id]).get(grupo_id)
     if motivo:
         raise HTTPException(400, motivo)
 
@@ -284,7 +307,13 @@ def eliminar_grupos(
         raise HTTPException(status_code=403, detail=_SIN_PERMISO)
     ids = list(dict.fromkeys(pedido.ids))
     # A tactical line's hidden group is not the tab's to delete: it answers as unknown.
-    grupos = {g.id: g for g in db.query(OffsetGrupo).filter(OffsetGrupo.id.in_(ids), OffsetGrupo.oculto.is_(False))}
+    grupos = {
+        g.id: g
+        for g in db.query(OffsetGrupo)
+        .options(selectinload(OffsetGrupo.filtros))  # the delete cascades to them: loaded once, not per group
+        .filter(OffsetGrupo.id.in_(ids), OffsetGrupo.oculto.is_(False))
+    }
+    motivos = _motivos_para_conservar(db, list(grupos))
     eliminados: List[int] = []
     rechazados: List[dict] = []
     for grupo_id in ids:
@@ -292,7 +321,7 @@ def eliminar_grupos(
         if grupo is None:
             rechazados.append({"id": grupo_id, "nombre": None, "motivo": "Grupo no encontrado"})
             continue
-        motivo = _motivo_para_conservar(db, grupo_id)
+        motivo = motivos.get(grupo_id)
         if motivo is None:
             punto = db.begin_nested()
             try:

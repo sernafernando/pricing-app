@@ -227,3 +227,55 @@ class TestOcultos:
             "rechazados": [{"id": oculto.id, "nombre": None, "motivo": "Grupo no encontrado"}],
         }
         assert _ids_que_quedan(db, [oculto.id]) == [oculto.id]
+
+    @pytest.mark.parametrize(
+        "metodo, ruta, cuerpo",
+        [
+            ("delete", "/api/offset-grupos/{gid}", None),
+            ("patch", "/api/offset-grupos/{gid}", {"nombre": "Otro"}),
+            ("post", "/api/offset-grupos/{gid}/alcance-previo", {"quitar_filtro_id": None}),
+            ("post", "/api/offset-grupos/{gid}/filtros", {"marca": "EPSON"}),
+            ("put", "/api/offset-grupos/{gid}/filtros", [{"marca": "EPSON"}]),
+            ("delete", "/api/offset-grupos/{gid}/filtros/{fid}", None),
+        ],
+    )
+    def test_the_group_endpoints_do_not_reach_a_hidden_group(self, client, db, editor, metodo, ruta, cuerpo) -> None:
+        # Its filters are the tactical line's scope: only the tactical changes them.
+        oculto = OffsetGrupo(nombre="Línea 1 del tactical", oculto=True)
+        db.add(oculto)
+        db.flush()
+        filtro = OffsetGrupoFiltro(grupo_id=oculto.id, marca="TP-LINK")
+        db.add(filtro)
+        db.flush()
+        kwargs = {"headers": editor} if cuerpo is None else {"headers": editor, "json": cuerpo}
+
+        resp = getattr(client, metodo)(ruta.format(gid=oculto.id, fid=filtro.id), **kwargs)
+
+        assert resp.status_code == 404, resp.text
+        db.expire_all()
+        assert db.get(OffsetGrupo, oculto.id).nombre == "Línea 1 del tactical"
+        assert [(f.marca) for f in db.query(OffsetGrupoFiltro).filter_by(grupo_id=oculto.id)] == ["TP-LINK"]
+
+
+class TestBorradoMasivoConsultas:
+    def test_the_reasons_take_a_fixed_number_of_queries_whatever_the_number_of_groups(
+        self, client, db, editor, admin_user, query_counter
+    ) -> None:
+        def tomados(n: int) -> list:
+            ids = []
+            for i in range(n):
+                gid = _grupo(db, f"Tomado {n}-{i}", [{"marca": "TP-LINK"}])
+                _campana(db, admin_user, gid, f"Campaña {n}-{i}")
+                ids.append(gid)
+            return ids
+
+        uno = tomados(1)
+        with query_counter() as con_uno:
+            assert client.post(URL, json={"ids": uno}, headers=editor).status_code == 200
+        seis = tomados(6)
+        with query_counter() as con_seis:
+            assert client.post(URL, json={"ids": seis}, headers=editor).status_code == 200
+
+        for tabla in ("offsets_ganancia", "sell_out_campana_grupos", "offset_grupo_consumo", "offset_grupo_resumen"):
+            assert con_seis.matching(tabla) == con_uno.matching(tabla) == 1, tabla
+        assert con_seis.total == con_uno.total
