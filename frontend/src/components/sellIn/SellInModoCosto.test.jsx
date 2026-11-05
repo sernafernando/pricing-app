@@ -505,6 +505,16 @@ describe('the manual mode', () => {
     );
   });
 
+  it('waits for a quantity the server can store', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderPanel();
+    const region = await elegirManual(user);
+    await user.type(within(region).getByLabelText('Cantidad'), '2147483648');
+    await user.type(within(region).getByLabelText('Costo unitario'), '52000');
+
+    expect(within(region).getByRole('button', { name: 'Ver cómo queda' })).toBeDisabled();
+  });
+
   it.each(['1.0000001', '1234567890123'])('waits for a unit cost the server can store (%s)', async (costo) => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     renderPanel();

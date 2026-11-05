@@ -145,6 +145,8 @@ function Preview({ vista, pedido, antes, onConfirm, onCancel, saving }) {
 
 // What the server stores for a unit cost: 18 digits, 6 of them decimals.
 const COSTO_UNIT = /^\d{1,12}(\.\d{1,6})?$/;
+// And for a quantity: the column's integer.
+const CANTIDAD_MAX = 2 ** 31 - 1;
 
 // The server's reasons a user can act on, in the screen's words; any other reason is shown as it comes.
 const MOTIVOS = {
@@ -238,7 +240,11 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
   const seleccion = modo ?? (porDefecto !== 'manual' && permitido(porDefecto) ? porDefecto : 'fifo');
   const esManual = seleccion === 'manual';
   const manualOk =
-    Number.isInteger(Number(cantidad)) && Number(cantidad) > 0 && COSTO_UNIT.test(costoUnit) && Number(costoUnit) > 0;
+    Number.isInteger(Number(cantidad)) &&
+    Number(cantidad) > 0 &&
+    Number(cantidad) <= CANTIDAD_MAX &&
+    COSTO_UNIT.test(costoUnit) &&
+    Number(costoUnit) > 0;
   const esAdmin = ADMINS.includes(rol);
   const hoy = today();
 
@@ -390,6 +396,7 @@ export default function SellInModoCosto({ productItemId, lotes, proxima, onChang
                     className={styles.inputNum}
                     type="number"
                     min="1"
+                    max={CANTIDAD_MAX}
                     step="1"
                     inputMode="numeric"
                     value={cantidad}
