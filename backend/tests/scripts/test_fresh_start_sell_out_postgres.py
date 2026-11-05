@@ -9,6 +9,7 @@ from typing import Iterator
 
 import pytest
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from app.core import database
@@ -38,6 +39,7 @@ from tests.services.sell_out import _world as w
 pytestmark = pytest.mark.postgres
 
 CONFIRMACION = "BORRAR TODO"
+OCUPADO = "Otro proceso está usando las campañas: pará el worker de sell out y volvé a correrlo. No se borró nada."
 _STUBS = [
     "CREATE TABLE usuarios (id INTEGER PRIMARY KEY)",
     "INSERT INTO usuarios VALUES (7)",
@@ -331,7 +333,7 @@ def test_a_campaign_the_drain_holds_stops_the_run_within_the_lock_timeout(engine
 
         assert code == 1
         assert summary is None
-        assert "Otro proceso está usando campañas o tacticals" in err
+        assert OCUPADO in err
         assert _conteo(engine) == ESPERADO
     finally:
         otra.dispose()
@@ -365,10 +367,55 @@ def test_a_campaign_or_tactical_being_loaded_meanwhile_stops_the_run(engine, cor
             carga_en_curso.rollback()
         assert code == 1
         assert summary is None
-        assert "Otro proceso está usando campañas o tacticals" in err
+        assert OCUPADO in err
         assert _conteo(engine) == ESPERADO
     finally:
         otra.dispose()
+
+
+class _Deadlock(Exception):
+    pgcode = "40P01"  # deadlock_detected
+
+
+def test_a_deadlock_during_the_apply_exits_1_with_a_message_and_deletes_nothing(engine, correr, monkeypatch):
+    _mundo(engine)
+    contar = script.contar
+    llamadas = []
+
+    def contar_y_fallar_despues_de_borrar(db):
+        llamadas.append(1)
+        if len(llamadas) == 2:  # the count after the deletes
+            raise OperationalError("DELETE", {}, _Deadlock("deadlock detected"))
+        return contar(db)
+
+    monkeypatch.setattr(script, "contar", contar_y_fallar_despues_de_borrar)
+
+    code, summary, err = correr("--apply", "--confirm", CONFIRMACION)
+
+    assert code == 1
+    assert summary is None
+    assert err.strip() == OCUPADO
+    assert _conteo(engine) == ESPERADO
+
+
+def test_the_session_lock_timeout_is_5s_while_it_runs_and_restored_after(engine, monkeypatch):
+    _mundo(engine)
+    contar = script.contar
+    durante = []
+
+    def contar_y_leer(db):
+        durante.append(db.execute(text("SELECT current_setting('lock_timeout')")).scalar_one())
+        return contar(db)
+
+    monkeypatch.setattr(script, "contar", contar_y_leer)
+    with sessionmaker(bind=engine)() as db:
+        db.execute(text("SET lock_timeout = '7s'"))
+        script.ejecutar(db, apply=False)
+        despues = db.execute(text("SELECT current_setting('lock_timeout')")).scalar_one()
+        db.rollback()
+
+    assert durante == ["5s", "5s"]
+    assert despues == "7s"
 
 
 def _schema(engine: Engine) -> str:

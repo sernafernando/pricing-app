@@ -22,7 +22,8 @@ Refuses, deleting nothing (exit 1), when any tactical exists, any campaign belon
 the new system's data is never touched. Locks `tacticals` and `sell_out_campanas` against writes (SHARE) and takes
 the drain's advisory lock of every campaign (`asignacion.LOCK_SQL`, the lock `asignacion.recalcular` takes), waiting
 at most `LOCK_TIMEOUT` for each, so it cannot run while the drain rebuilds a campaign or someone is loading one or a
-tactical; the session's `lock_timeout` is restored afterwards (`queue.lock_timeout`).
+tactical; the session's `lock_timeout` is restored afterwards (`queue.lock_timeout`). A lock not taken in time or a
+deadlock exits 1 with `OCUPADO`, deleting nothing.
 
 Dry run is the DEFAULT: it prints the rows each table holds and deletes nothing. `--apply` deletes, and only with
 `--confirm "BORRAR TODO"` (otherwise exit 2). Prints one JSON line (`dry_run`, `antes`, `despues`: rows per table);
@@ -47,6 +48,9 @@ from app.services.sell_out import asignacion, queue
 
 CONFIRMACION = "BORRAR TODO"
 LOCK_TIMEOUT = "5s"
+DEADLOCK = "40P01"  # deadlock_detected
+# A lock not taken in time or a deadlock: another process (the drain, a load) holds what the run needs.
+OCUPADO = "Otro proceso está usando las campañas: pará el worker de sell out y volvé a correrlo. No se borró nada."
 # The audit rows of the sell-out campaigns and programs (`services/sell_out/campanas.py`, `programas.py`).
 TIPOS_AUDITORIA = (
     TipoAccion.SELL_OUT_CAMPANA_CREADA,
@@ -108,7 +112,7 @@ def _sin_tacticals(db: Session) -> None:
 
 def ejecutar(db: Session, *, apply: bool) -> tuple[dict[str, int], dict[str, int]]:
     """`(antes, despues)`: the rows per table before and after. Under `apply` it deletes them; it never commits.
-    Raises `FreshStartRechazado` (tacticals, or a lock not taken in time) with everything as it was."""
+    Raises `FreshStartRechazado` (tacticals, a lock not taken in time or a deadlock) with everything as it was."""
     try:
         with queue.lock_timeout(db, LOCK_TIMEOUT):
             # No tactical or campaign is written until this commits, and none is being written now: a campaign
@@ -127,12 +131,9 @@ def ejecutar(db: Session, *, apply: bool) -> tuple[dict[str, int], dict[str, int
                         db.execute(text(f"DELETE FROM {tabla}"))
             despues = contar(db)
     except DBAPIError as exc:
-        if getattr(exc.orig, "pgcode", None) != queue.LOCK_NOT_AVAILABLE:
+        if getattr(exc.orig, "pgcode", None) not in (queue.LOCK_NOT_AVAILABLE, DEADLOCK):
             raise
-        raise FreshStartRechazado(
-            "Otro proceso está usando campañas o tacticals (el drain de sell out o una carga en curso): detener "
-            "pricing-worker, esperar que nadie esté cargando y volver a correr el script. No se borró nada."
-        ) from exc
+        raise FreshStartRechazado(OCUPADO) from exc
     return antes, despues
 
 
