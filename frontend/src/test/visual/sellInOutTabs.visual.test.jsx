@@ -37,6 +37,11 @@ vi.mock('../../services/sellInAPI', () => ({
 }));
 
 // Slice E: the Sell out tab also reads the programs and their suggestions; none here, so it shows the flat list.
+// The page asks the Tacticals tab's count on load.
+vi.mock('../../services/tacticalsAPI', () => ({
+  tacticalsAPI: { listar: vi.fn().mockResolvedValue({ data: { total: 0, page: 1, page_size: 1, items: [] } }) },
+}));
+
 vi.mock('../../services/sellOutAPI', () => {
   const vacio = { data: { items: [], total: 0, page: 1, page_size: 200 } };
   return {
