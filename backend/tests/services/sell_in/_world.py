@@ -275,3 +275,19 @@ def combo(engine: Engine, combo_item_id: int, componentes: dict) -> None:
                 text("INSERT INTO combo_componentes (combo_item_id, componente_item_id, cantidad) VALUES (:c, :k, :q)"),
                 {"c": combo_item_id, "k": componente, "q": cantidad},
             )
+
+
+def modos_irreproducibles(monkeypatch) -> None:
+    """Every product with cost modes fails to replay them, as with rows read mid-change: the failure path the costing
+    must survive (a manual block used to be one, until it landed)."""
+    from app.services.sell_in import fifo
+
+    original = fifo.Dinero.__init__
+
+    def init(self, lotes, periodos=()) -> None:
+        periodos = list(periodos)
+        if periodos:
+            raise ValueError("cost modes cannot be replayed")
+        original(self, lotes, periodos)
+
+    monkeypatch.setattr(fifo.Dinero, "__init__", init)

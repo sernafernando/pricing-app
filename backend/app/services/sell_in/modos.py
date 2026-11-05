@@ -19,7 +19,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Callable, Dict, List, Optional, Tuple
 
 from sqlalchemy import func
@@ -27,13 +27,18 @@ from sqlalchemy.orm import Session
 
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.configuracion import Configuracion
+from app.models.producto import ProductoERP
 from app.models.sell_in import SellInConsumo, SellInModoProducto
 from app.models.usuario import Usuario
+from app.services.pricing_calculator import obtener_tipo_cambio_actual
 from app.services.sell_in import bonos_costo
+from app.services.sell_in.compras import moneda as codigo_moneda
 from app.services.sell_in.costing import get_costing
 
-# The modes written here; `manual` (typed quantity and cost) lands in its own slice.
-MODOS_ESCRITOS = ("fifo", "ponderado", "ultimo")
+MODOS_ESCRITOS = ("fifo", "ponderado", "ultimo", "manual")
+# What the panel's selector may open preselected with: a manual mode needs its own quantity and cost typed.
+MODOS_POR_DEFECTO = ("fifo", "ponderado", "ultimo")
+UNIDAD = Decimal("0.000001")  # `sell_in_modos_producto.costo_unit` / `costo_base_unit` scale
 PERMISOS_MODO = {
     "ponderado": "sell_in.costo_ponderado",
     "ultimo": "sell_in.costo_ultimo",
@@ -44,6 +49,18 @@ PERMISO_RETROACTIVO = "sell_in.costo_retroactivo"
 
 class ModoInvalido(ValueError):
     """A mode this endpoint does not write."""
+
+
+class SinCosto(ValueError):
+    """A manual mode needs the product's cost to freeze, in pesos."""
+
+
+@dataclass(frozen=True)
+class Manual:
+    """A manual mode's typed values (D6): units and their unit cost in ARS."""
+
+    cantidad: int
+    costo_unit: Decimal
 
 
 class HuellaVencida(Exception):
@@ -59,6 +76,7 @@ class VistaPrevia:
     sin_asignar_antes: Decimal  # ARS the lots hold that no unit hands out, today
     sin_asignar_despues: Decimal  # the same after the change
     huella: str
+    costo_base_unit: Optional[Decimal] = None  # `manual`: the product's cost frozen on the row
 
 
 @dataclass(frozen=True)
@@ -121,23 +139,49 @@ def permiso_faltante(modo: str, desde: date, hoy: date, tiene: Callable[[str], b
     return None
 
 
-def vista_previa(db: Session, item_id: int, modo: str, desde: date, hoy: date, usuario_id: int) -> VistaPrevia:
-    """What saving `modo` from `desde` would do, with nothing saved: the simulation runs in a savepoint rolled back,
-    which also releases the product's recompute lock it took."""
+def costo_congelado(db: Session, item_id: int) -> Decimal:
+    """The product's cost in ARS a manual row freezes (D6): `productos_erp.costo`, the base a purchase freezes too,
+    converted at today's USD rate when the cost is in USD (the rate the Productos screens use)."""
+    fila = db.query(ProductoERP.costo, ProductoERP.moneda_costo).filter(ProductoERP.item_id == item_id).first()
+    if fila is None or fila.costo is None:
+        raise SinCosto("The product has no cost to freeze")
+    costo = Decimal(str(fila.costo))
+    if codigo_moneda(fila.moneda_costo) == "USD":
+        tipo_cambio = obtener_tipo_cambio_actual(db, "USD")
+        if not tipo_cambio:
+            raise SinCosto("There is no USD rate to freeze the product's cost in pesos")
+        costo *= Decimal(str(tipo_cambio))
+    return costo.quantize(UNIDAD, rounding=ROUND_HALF_UP)
+
+
+def vista_previa(
+    db: Session, item_id: int, modo: str, desde: date, hoy: date, usuario_id: int, manual: Optional[Manual] = None
+) -> VistaPrevia:
+    """What saving `modo` from `desde` (a manual one with its typed values) would do, with nothing saved: the
+    simulation runs in a savepoint rolled back, which also releases the product's recompute lock it took."""
     savepoint = db.begin_nested()
     try:
-        vista, _ = _simular(db, item_id, modo, desde, hoy, usuario_id)
+        vista, _ = _simular(db, item_id, modo, desde, hoy, usuario_id, manual)
     finally:
         savepoint.rollback()
     return vista
 
 
-def confirmar(db: Session, item_id: int, modo: str, desde: date, hoy: date, usuario_id: int, huella: str) -> int:
+def confirmar(
+    db: Session,
+    item_id: int,
+    modo: str,
+    desde: date,
+    hoy: date,
+    usuario_id: int,
+    huella: str,
+    manual: Optional[Manual] = None,
+) -> int:
     """Saves `modo` from `desde`, recomputes the product and audits it, only if the simulation is still the one the
     preview showed (`huella`); otherwise nothing is kept and `HuellaVencida` is raised. Does not commit."""
     savepoint = db.begin_nested()
     try:
-        vista, fila = _simular(db, item_id, modo, desde, hoy, usuario_id)
+        vista, fila = _simular(db, item_id, modo, desde, hoy, usuario_id, manual)
         if vista.huella != huella:
             raise HuellaVencida()
     except BaseException:
@@ -158,6 +202,15 @@ def confirmar(db: Session, item_id: int, modo: str, desde: date, hoy: date, usua
                 "ventas_cambian": vista.ventas_cambian,
                 "diferencia_ars": str(vista.diferencia_ars),
                 "sin_asignar_ars": str(vista.sin_asignar_despues),
+                **(
+                    {
+                        "cantidad": fila.cantidad,
+                        "costo_unit": str(fila.costo_unit),
+                        "costo_base_unit": str(fila.costo_base_unit),
+                    }
+                    if modo == "manual"
+                    else {}
+                ),
             },
             es_masivo=False,
             fecha=datetime.now(timezone.utc).replace(tzinfo=None),  # naive UTC, like the column's default
@@ -167,11 +220,18 @@ def confirmar(db: Session, item_id: int, modo: str, desde: date, hoy: date, usua
 
 
 def _simular(
-    db: Session, item_id: int, modo: str, desde: date, hoy: date, usuario_id: int
+    db: Session, item_id: int, modo: str, desde: date, hoy: date, usuario_id: int, manual: Optional[Manual] = None
 ) -> Tuple[VistaPrevia, SellInModoProducto]:
     """Recomputes the product as it stands, then with the new row, and compares; leaves both in the transaction."""
-    if modo not in MODOS_ESCRITOS:
-        raise ModoInvalido(f"cost mode {modo!r} cannot be set here")
+    if modo not in MODOS_ESCRITOS or (modo == "manual") != (manual is not None):
+        raise ModoInvalido(f"cost mode {modo!r} cannot be set here with these values")
+    valores = {}
+    if manual is not None:
+        valores = {
+            "cantidad": manual.cantidad,
+            "costo_unit": manual.costo_unit.quantize(UNIDAD, rounding=ROUND_HALF_UP),
+            "costo_base_unit": costo_congelado(db, item_id),
+        }
     costing = get_costing()
     # The recompute takes the product's lock first, so the rows read next are the ones a concurrent change left.
     costing.recompute(db, [item_id], isolate_failures=False)  # what is stored, brought up to date
@@ -184,7 +244,7 @@ def _simular(
     ]
     antes = _por_venta(db, item_id)
     sin_antes = costing.sin_asignar(db, item_id, hoy)
-    fila = SellInModoProducto(item_id=item_id, modo=modo, desde=desde, usuario_id=usuario_id, origen="visor")
+    fila = SellInModoProducto(item_id=item_id, modo=modo, desde=desde, usuario_id=usuario_id, origen="visor", **valores)
     db.add(fila)
     db.flush()
     costing.recompute(db, [item_id], isolate_failures=False)
@@ -211,6 +271,8 @@ def _simular(
         str(sin_antes),
         str(sin_despues),
     ]
+    if valores:  # what the user typed and the cost frozen against it
+        contenido.append([valores["cantidad"], str(valores["costo_unit"]), str(valores["costo_base_unit"])])
     vista = VistaPrevia(
         ventas_cambian=len(cambian),
         diferencia_ars=diferencia,
@@ -219,6 +281,7 @@ def _simular(
         sin_asignar_antes=sin_antes,
         sin_asignar_despues=sin_despues,
         huella=hashlib.sha256(json.dumps(contenido, separators=(",", ":")).encode()).hexdigest(),
+        costo_base_unit=valores.get("costo_base_unit"),
     )
     return vista, fila
 
@@ -248,7 +311,7 @@ def modo_por_defecto(db: Session) -> str:
     It only preselects the selector: a product without a mode row stays FIFO here, whatever this says.
     """
     fila = db.query(Configuracion).filter(Configuracion.clave == CLAVE_POR_DEFECTO).first()
-    return fila.valor if fila is not None and fila.valor in MODOS_ESCRITOS else "fifo"
+    return fila.valor if fila is not None and fila.valor in MODOS_POR_DEFECTO else "fifo"
 
 
 def fijar_modo_por_defecto(db: Session, modo: str, usuario_id: int) -> str:

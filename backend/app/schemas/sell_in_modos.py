@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Modo = Literal["fifo", "ponderado", "ultimo", "manual"]
 
@@ -37,8 +37,21 @@ class ModoIn(BaseModel):
     # A field this change does not take (a manual quantity or cost, the origin, the user) is refused, never dropped.
     model_config = ConfigDict(extra="forbid")
 
-    modo: Modo  # `manual` is refused here until its own slice lands
+    modo: Modo
     desde: date  # before today only with `sell_in.costo_retroactivo`
+    # Only and always for `manual` (D6): the typed quantity and unit cost in ARS (the design's "Cantidad" and "Costo
+    # unitario"). The server freezes the product's own cost; each unit then carries that cost minus this one.
+    cantidad: Optional[int] = Field(default=None, gt=0)
+    costo_unit: Optional[Decimal] = Field(default=None, gt=0, max_digits=18, decimal_places=6)
+
+    @model_validator(mode="after")
+    def _manual(self) -> "ModoIn":
+        con_valores = self.cantidad is not None or self.costo_unit is not None
+        if self.modo == "manual" and (self.cantidad is None or self.costo_unit is None):
+            raise ValueError("A manual cost mode needs cantidad and costo_unit")
+        if self.modo != "manual" and con_valores:
+            raise ValueError("Only a manual cost mode takes cantidad and costo_unit")
+        return self
 
 
 class ModoConfirmarIn(ModoIn):
@@ -55,9 +68,10 @@ class VistaPreviaOut(BaseModel):
     sin_asignar_antes: Decimal  # ARS the lots hold that no unit hands out (positive) or handed beyond them, today
     sin_asignar_despues: Decimal  # the same once the change governs (from `desde` when to come)
     huella: str  # send it back to confirm
+    costo_base_unit: Optional[Decimal] = None  # `manual`: the product's cost in ARS frozen on the row (D6)
 
 
-# Not `manual`: it cannot be set from the panel yet, so as a default it would open on FIFO for everyone anyway.
+# Not `manual`: a preselected manual mode would still need its quantity and cost typed per product.
 ModoPorDefecto = Literal["fifo", "ponderado", "ultimo"]
 
 

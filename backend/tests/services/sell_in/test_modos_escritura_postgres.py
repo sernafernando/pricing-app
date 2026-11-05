@@ -203,10 +203,3 @@ def test_a_future_mode_is_previewed_as_it_will_stand_from_its_date(
 )
 def test_each_mode_needs_its_own_permission_and_a_past_date_the_backdating_one(modo, desde, tiene, falta) -> None:
     assert modos.permiso_faltante(modo, desde, HOY, tiene.__contains__) == falta
-
-
-def test_manual_is_not_written_here_yet(engine: Engine) -> None:
-    _dos_lotes(engine)
-    with _sesion(engine) as db:
-        with pytest.raises(modos.ModoInvalido):
-            modos.vista_previa(db, ROUTER, "manual", HOY, HOY, USUARIO)

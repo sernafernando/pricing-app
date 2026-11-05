@@ -11,6 +11,9 @@ no units left; `desde` counts from a date after today; `en_cola` has units left 
 Nothing here is computed differently from the costing: the order, the units left and the rounding are its own.
 Under a weighted or last-price mode (`LoteVigente.en_pool`) the next sale's value is the one `costing.vigentes` gives
 (the pool's), not the current line's own; see `_proxima`.
+
+A manual cost mode's block (D6) is listed as a lot of its own (`manual`), in its FIFO place, filed under `-modo_id`;
+the lots before it are `reemplazado` from its date on: their units left were replaced by the typed quantity.
 """
 
 from __future__ import annotations
@@ -31,10 +34,10 @@ from app.models.sell_in import SellInCompra, SellInCompraPedido, SellInConsumo
 from app.schemas.sell_in_out_producto import SellInProducto
 from app.services.pricing_calculator import obtener_tipo_cambio_actual
 from app.services.productos_sell_in_out import resolver_sell_in_out_batch
-from app.services.sell_in.costing import LoteVigente, get_costing
+from app.services.sell_in.costing import LoteVigente, fuente, get_costing
 from app.services.sell_in.split import unit_discount
 
-Estado = Literal["vigente", "en_cola", "agotado", "desde"]
+Estado = Literal["vigente", "en_cola", "agotado", "desde", "reemplazado"]
 
 
 @dataclass(frozen=True)
@@ -49,8 +52,9 @@ class LoteVisor:
     cantidad: int
     consumidas: int
     restantes: int
-    descuento_unit: Decimal  # ARS, `split.unit_discount`
+    descuento_unit: Decimal  # ARS, `split.unit_discount`; a manual block's is signed
     estado: Estado
+    manual: bool = False  # a manual mode's block: `compra_id` is its mode row, `compra_item_id` minus that
 
 
 @dataclass(frozen=True)
@@ -93,20 +97,24 @@ def lotes_de_producto(db: Session, item_id: int, hoy: date) -> VisorLotes:
     lotes = costing.lotes(db, [item_id]).get(item_id, [])
     usadas = costing.unidades_usadas(db, [x.compra_item_id for x in lotes])
     vigente = costing.vigentes(db, [item_id], hoy).get(item_id)
-    datos = _compras(db, sorted({x.compra_id for x in lotes}))
+    datos = _compras(db, sorted({x.compra_id for x in lotes if x.modo_id is None}))
+    # The lots before the newest block that counts by today were replaced by it.
+    reemplazados = max((n for n, x in enumerate(lotes) if x.modo_id is not None and x.fecha <= hoy), default=0)
     filas: List[LoteVisor] = []
     for numero, lote in enumerate(lotes, start=1):
         consumidas = usadas.get(lote.compra_item_id, 0)
         restantes = lote.cantidad - consumidas
         if vigente is not None and lote.compra_item_id == vigente.compra_item_id:
             estado: Estado = "vigente"
+        elif numero <= reemplazados:
+            estado = "reemplazado"
         elif restantes <= 0:
             estado = "agotado"
         elif lote.fecha > hoy:
             estado = "desde"
         else:
             estado = "en_cola"
-        proveedor, facturas, moneda = datos[lote.compra_id]
+        proveedor, facturas, moneda = datos[lote.compra_id] if lote.modo_id is None else (None, [], "ARS")
         filas.append(
             LoteVisor(
                 numero=numero,
@@ -121,6 +129,7 @@ def lotes_de_producto(db: Session, item_id: int, hoy: date) -> VisorLotes:
                 restantes=restantes,
                 descuento_unit=unit_discount(lote.descuento_ars, lote.cantidad),
                 estado=estado,
+                manual=lote.modo_id is not None,
             )
         )
     return VisorLotes(filas, _proxima(filas, vigente if vigente is not None and vigente.en_pool else None))
@@ -202,10 +211,10 @@ def _compras(db: Session, compra_ids: List[int]) -> Dict[int, Tuple[Optional[str
 def consumos_de_lote(
     db: Session, item_id: int, compra_item_id: int, *, page: int, page_size: int
 ) -> Tuple[List[ConsumoVisor], int]:
-    """One page of the sales that consumed the line, oldest sale first, and their total. A line of another product
-    answers nothing."""
+    """One page of the sales that consumed the line (a manual block: `-modo_id`), oldest sale first, and their total. A
+    line of another product answers nothing."""
     t = SellInConsumo
-    filtro = (t.compra_item_id == compra_item_id, t.item_id == item_id)
+    filtro = (fuente() == compra_item_id, t.item_id == item_id)
     total = db.query(func.count(t.id)).filter(*filtro).scalar() or 0
     filas = (
         db.query(t.canal, t.venta_ref, t.fecha_venta, t.unidades, t.descuento_ars)

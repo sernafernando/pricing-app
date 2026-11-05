@@ -6,6 +6,7 @@ need `sell_in.ver`, and a change the mode's own permission (D7)."""
 import logging
 from dataclasses import replace
 from datetime import date
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import DBAPIError
@@ -132,6 +133,11 @@ def _validar_cambio(db: Session, usuario: Usuario, item_id: int, body: ModoIn, h
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
 
 
+def _manual(body: ModoIn) -> Optional[modos.Manual]:
+    """A manual change's typed quantity and unit cost (the schema requires both for `manual` only)."""
+    return modos.Manual(body.cantidad, body.costo_unit) if body.modo == "manual" else None
+
+
 def _ocupado(db: Session, exc: DBAPIError) -> HTTPException:
     """409 to retry when another writer held the product (`OCUPADO`); any other database error goes on as it was."""
     db.rollback()
@@ -158,8 +164,8 @@ def vista_previa_modo(
     hoy = date.today()
     _validar_cambio(db, usuario, item_id, body, hoy)
     try:
-        vista = modos.vista_previa(db, item_id, body.modo, body.desde, hoy, usuario.id)
-    except ValueError as exc:  # the product's history cannot be replayed (a manual block, until it lands)
+        vista = modos.vista_previa(db, item_id, body.modo, body.desde, hoy, usuario.id, _manual(body))
+    except ValueError as exc:  # no cost to freeze for a manual block, or a history that cannot be replayed
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except DBAPIError as exc:
@@ -183,7 +189,7 @@ def confirmar_modo(
     hoy = date.today()
     _validar_cambio(db, usuario, item_id, body, hoy)
     try:
-        modo_id = modos.confirmar(db, item_id, body.modo, body.desde, hoy, usuario.id, body.huella)
+        modo_id = modos.confirmar(db, item_id, body.modo, body.desde, hoy, usuario.id, body.huella, _manual(body))
     except modos.HuellaVencida as exc:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "The product changed since the preview: preview again") from exc
