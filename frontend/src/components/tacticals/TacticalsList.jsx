@@ -27,9 +27,10 @@ const FILAS_POR_PAGINA = 50;
  * (the page's "Actualizar") asks the list again. A row of a kind the user manages (`puedeGestionar(tipo)`) has an
  * actions menu (tacticals F1): Editar, on a tactical that is not voided, opens the Editar dialog and asks the list
  * again after saving; Renovar hands the tactical to `onRenovar`; Anular, on a tactical that is not voided, asks for
- * confirmation, voids it and its children, asks the list again and tells `onCambio` (the page's tab count).
+ * confirmation, voids it and its children, asks the list again and tells `onCambio` (the page's tab count). An
+ * expanded line's "Ver ventas" hands that line to `onVerLinea` (the page opens its record).
  */
-export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar, onCambio }) {
+export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar, onCambio, onVerLinea }) {
   const [filtros, setFiltros] = useState(FILTROS_VACIOS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(FILAS_POR_PAGINA);
@@ -174,6 +175,7 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
                   abierto={abiertos.has(tactical.id)}
                   onAlternar={() => alternar(tactical.id)}
                   acciones={accionesDe(tactical)}
+                  onVerLinea={onVerLinea}
                 />
               ))}
             </table>

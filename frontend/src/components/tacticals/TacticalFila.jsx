@@ -52,7 +52,7 @@ function QueIncluye({ linea }) {
 /** The loaded order: by `linea` (the POSTed line; a per-product line's children share it), then by child id. */
 const enOrden = (lineas) => [...lineas].sort((x, y) => (x.linea ?? 0) - (y.linea ?? 0) || x.id - y.id);
 
-function Lineas({ tactical }) {
+function Lineas({ tactical, onVerLinea }) {
   const lineas = enOrden(tactical.lineas);
   return (
     <div className={styles.sub}>
@@ -67,10 +67,11 @@ function Lineas({ tactical }) {
             <th scope="col" className={styles.num}>Tope monto</th>
             <th scope="col" className={styles.num}>Usado</th>
             <th scope="col">Avance</th>
+            {onVerLinea && <th scope="col">Ventas</th>}
           </tr>
         </thead>
         <tbody>
-          {lineas.map((linea) => {
+          {lineas.map((linea, i) => {
             const avance = avanceDeLinea(linea);
             return (
               <tr key={linea.id}>
@@ -92,6 +93,18 @@ function Lineas({ tactical }) {
                     GUION
                   )}
                 </td>
+                {onVerLinea && (
+                  <td>
+                    <button
+                      type="button"
+                      className={styles.verVentas}
+                      aria-label={`Ver ventas de la línea ${i + 1}`}
+                      onClick={() => onVerLinea(linea)}
+                    >
+                      Ver ventas
+                    </button>
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -104,9 +117,10 @@ function Lineas({ tactical }) {
 /**
  * One tactical as a `<tbody>`: its row (type, brand, dates, line count, progress over the caps, state) and, when
  * `abierto`, its lines with amount, caps, usage and a "Tope alcanzado" mark. `acciones` (`{ label, onSelect }`) fill
- * the row's actions menu; none, no menu.
+ * the row's actions menu; none, no menu. With `onVerLinea`, each line has "Ver ventas", which hands that line (its
+ * child record: `origen` and `id`) over.
  */
-export default function TacticalFila({ tactical, abierto, onAlternar, acciones = [] }) {
+export default function TacticalFila({ tactical, abierto, onAlternar, acciones = [], onVerLinea }) {
   const tipo = TIPO_PILL[tactical.tipo] ?? { texto: tactical.tipo, tono: 'neutral' };
   const estado = estadoDe(tactical);
   const { unidades, monto } = avanceDeTactical(tactical.lineas);
@@ -163,7 +177,7 @@ export default function TacticalFila({ tactical, abierto, onAlternar, acciones =
       {abierto && (
         <tr id={`tactical-${tactical.id}-lineas`} className={styles.filaLineas}>
           <td colSpan={COLUMNAS_TACTICAL}>
-            <Lineas tactical={tactical} />
+            <Lineas tactical={tactical} onVerLinea={onVerLinea} />
           </td>
         </tr>
       )}
