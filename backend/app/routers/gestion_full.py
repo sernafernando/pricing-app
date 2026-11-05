@@ -65,7 +65,7 @@ from app.services.pm_scope import get_pares_marca_categoria_usuario, is_full_vie
 
 router = APIRouter(prefix="/gestion-full", tags=["gestion-full"])
 
-VIEW_PERMISOS = ["productos.ver", "ml_ops.ver"]
+VIEW_PERMISOS = ["gestion_full.ver"]
 PERM_DEPOSITOS = "gestion_full.depositos"
 PERM_GESTOR = "gestion_full.gestor"
 

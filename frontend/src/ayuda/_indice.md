@@ -20,7 +20,7 @@ Este índice lista todas las pantallas de la aplicación, en el mismo orden en q
 | 12 | Clientes | `clientes.md` | `/clientes` | Operaciones → Clientes | Acceso a Clientes |
 | 13 | Configuración | `configuracion.md` | `/config-operaciones` | Operaciones → Configuración | Permiso para configurar envíos Flex |
 | 14 | Reescribir ^LH | `reescribir-lh.md` | `/etiquetas/reescribir-lh` | Operaciones → Reescribir ^LH | Permiso para reescribir etiquetas ^LH |
-| 14b | Gestión Full | `gestion-full.md` | `/gestion-full` | Operaciones → Gestión Full | Acceso a Productos o a Ventas ML; override solo PM/sub-PM o admin |
+| 14b | Gestión Full | `gestion-full.md` | `/gestion-full` | Operaciones → Gestión Full | Ver Gestión Full (gestion_full.ver); override solo PM/sub-PM o admin |
 | 15 | Traza | `traza.md` | `/traza` | Consultas → Traza | Acceso a Traza |
 | 16 | Seguimiento Envíos | `seguimiento-envios.md` | `/seguimiento-envios` | Consultas → Seguimiento Envíos | Acceso a Seguimiento Envíos |
 | 17 | Cumpleaños | `cumpleanos.md` | `/cumpleanos` | Consultas → Cumpleaños | Sin permiso especial: la ve cualquier usuario con sesión iniciada |

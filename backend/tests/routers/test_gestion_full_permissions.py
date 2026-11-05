@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 BASE = "/api/gestion-full"
-VIEW = "productos.ver"
+VIEW = "gestion_full.ver"
 DEPOSITOS = "gestion_full.depositos"
 GESTOR = "gestion_full.gestor"
 
@@ -88,3 +88,13 @@ def test_gestor_forbid_without_gestor_perm(client, viewer, method, url, body):
 def test_gestor_allow_with_gestor_perm(client, gestor, method, url, body):
     kwargs = {"headers": gestor} | ({"json": body} if body is not None else {})
     assert getattr(client, method)(url, **kwargs).status_code != 403
+
+
+@pytest.mark.parametrize("old_view", ["productos.ver", "ml_ops.ver"])
+@pytest.mark.parametrize("url", VIEW_GETS)
+def test_products_or_sales_access_alone_no_longer_opens_gestion_full(
+    client, rol_admin, admin_auth_headers, grant_permiso, old_view, url
+):
+    # Owner 2026-11-05: Gestión Full depends on gestion_full.ver, not on Productos / Ventas ML.
+    grant_permiso(rol_admin, old_view)
+    assert client.get(url, headers=admin_auth_headers).status_code == 403
