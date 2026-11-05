@@ -3,7 +3,8 @@
 The schema is built by every sell-out migration in order (`_MIGRATIONS`), so the
 parity test also covers `20261108_sell_out_consumos`, `20261207_sell_out_campana_items`,
 `20261214_sell_out_monto_total`, `20261225_sell_out_programas`, `20261230_sell_out_renovada_de` and
-`20261105_tacticals` (`tactical_id`; its own rules in `tests/migrations/test_migration_tacticals_postgres.py`); their own rules are proven
+`20261105_tacticals` (`tactical_id`; its own rules in `tests/migrations/test_migration_tacticals_postgres.py`) and
+`20261106_combo_consumos_item` (the consumption key per product); their own rules are proven
 in `tests/unit/test_migration_sell_out_consumos.py` and `tests/migrations/`.
 
 Runs the migration inside a throwaway schema of the Postgres test DB, next to
@@ -35,6 +36,7 @@ _MIGRATIONS = [
         "20261225_sell_out_programas",
         "20261230_sell_out_renovada_de",
         "20261105_tacticals",
+        "20261106_combo_consumos_item",
     )
 ]
 TABLES = (
@@ -60,6 +62,9 @@ _STUBS = [
     "CREATE TABLE sell_in_bonos_marca (id BIGINT PRIMARY KEY, base VARCHAR(16), tipo VARCHAR(16), moneda VARCHAR(3), "
     "alcance VARCHAR(16), incluye_iva BOOLEAN)",
     "CREATE TABLE sell_in_compras (id BIGINT PRIMARY KEY)",
+    # What `20261106_combo_consumos_item` also widens on the sell-in side.
+    "CREATE TABLE sell_in_bono_consumos (id BIGSERIAL PRIMARY KEY, bono_id BIGINT, canal TEXT, venta_ref BIGINT, "
+    "item_id INTEGER, CONSTRAINT uq_sell_in_bono_consumos_bono_canal_venta UNIQUE (bono_id, canal, venta_ref))",
     "INSERT INTO usuarios VALUES (7)",
     "INSERT INTO offset_grupos VALUES (1), (2)",
     "INSERT INTO roles (codigo) VALUES ('ADMIN'), ('VENTAS')",
