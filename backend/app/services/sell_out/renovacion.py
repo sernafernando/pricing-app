@@ -101,8 +101,8 @@ def borrador(db: Session, campana_id: int) -> Optional[SellOutCampanaIn]:
             reparto_monto=i["reparto_monto"],
         )
         for i in campanas.items_de(db, [campana.id])[campana.id]
-        if i["item_id"] in alcanzados and campana.tipo != "porcentaje"
-    ]
+        if i["item_id"] in alcanzados and campana.tipo != "porcentaje" and not campana.reparto_criterio
+    ]  # split by a criterion: no share is copied, the copy splits again over its own reach
     if len(items) > ITEMS_MAX:
         # A PM's `repartir` keeps the other brands' shares, so a campaign can hold more than a create takes.
         raise campanas.SellOutError(
@@ -135,8 +135,7 @@ def borrador(db: Session, campana_id: int) -> Optional[SellOutCampanaIn]:
         acumulable=campana.acumulable,
         monto_incluye_iva=campana.monto_incluye_iva,
         grupo_ids=[g for g in campanas.grupo_ids_de(db, campana.id) if g not in ocultos],
-        # Split by a criterion: the copy keeps it and splits again over its own reach (no shares copied).
-        items=[] if campana.reparto_criterio else items,
+        items=items,
         reparto_criterio=campana.reparto_criterio,
         programa_id=programa_id,
         renovada_de_id=campana.id,

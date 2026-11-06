@@ -261,3 +261,15 @@ def test_a_manual_split_renews_its_shares_as_today(engine, Sesion) -> None:
         draft = renovacion.borrador(db, original)
     assert draft.reparto_criterio is None
     assert [(i.item_id, i.reparto_monto) for i in draft.items] == [(2964, Decimal("150.00"))]
+
+
+def test_a_criterion_split_renews_even_with_more_shares_than_a_create_takes(engine, Sesion, monkeypatch) -> None:
+    monkeypatch.setattr(renovacion, "ITEMS_MAX", 1)
+    original = _original(engine, tipo="monto_total", monto_unit=None, monto_total="200.00", reparto_criterio="iguales")
+    w.reparto(engine, original, 2964, monto="100.00")
+    w.reparto(engine, original, 2270, monto="100.00")
+
+    with Sesion() as db:
+        draft = renovacion.borrador(db, original)
+
+    assert (draft.reparto_criterio, draft.items) == ("iguales", [])
