@@ -13,6 +13,7 @@ from app.services.ml_promotions_hay_mejores import (
     listar_mejores_candidatas,
     normalizar_entrada_seller_promo,
 )
+from app.services.ml_promotions_pricing import precio_de_oferta
 
 
 class TestEsMejorOferta:
@@ -144,6 +145,23 @@ class TestNormalizarEntrada:
         assert promo["promotion_type"] == "SMART"
         assert promo["price"] == 1000
         assert promo["payload"]["meli_percentage"] == 2.5
+
+    def test_candidate_deal_is_judged_at_its_max(self) -> None:
+        # Captured live DEAL, MLA1506729443 "MKP T1 CYBER MONDAY NOV" (2026-11-06): the flag must price it
+        # like the panel and the apply do (precio_de_oferta: its max), not at the deeper suggested.
+        entry = {
+            "id": "P-MLA18145042",
+            "type": "DEAL",
+            "price": 0,
+            "status": "candidate",
+            "original_price": 86539,
+            "max_discounted_price": 57920.55,
+            "min_discounted_price": 17307.81,
+            "suggested_discounted_price": 49266.65,
+        }
+        promo = normalizar_entrada_seller_promo(entry)
+        assert promo["max_discounted_price"] == 57920.55
+        assert precio_de_oferta(promo) == 57920.55
 
 
 class TestListarMejoresBaselineWiring:

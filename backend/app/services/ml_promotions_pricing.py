@@ -404,6 +404,8 @@ def markup_de_oferta_live(
         "price": price if price is not None else live_entry.get("price"),
         "original_price": live_entry.get("original_price"),
         "suggested_discounted_price": live_entry.get("suggested_discounted_price"),
+        # precio_de_oferta prices a candidate DEAL at its max, as the panel and the apply do.
+        "max_discounted_price": live_entry.get("max_discounted_price"),
         "payload": live_entry,
     }
     try:

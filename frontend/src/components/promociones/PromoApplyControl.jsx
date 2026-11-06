@@ -37,7 +37,8 @@ function lightningDefaultPrice(promotion) {
 }
 
 // Default price of the other range types. A DEAL starts at the price its row shows
-// (promoDisplayPrice: its max, never above it); the rest at ML's suggestion.
+// (promoDisplayPrice: its max for a candidate); the rest at ML's suggestion. A typed
+// price above the max is flagged and blocked by the range check below.
 function rangeDefaultPrice(promotion) {
   const start =
     promotion.promotion_type === 'DEAL'
