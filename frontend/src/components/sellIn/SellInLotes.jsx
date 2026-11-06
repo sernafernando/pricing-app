@@ -172,8 +172,9 @@ function DefaultSection({ title, children }) {
  * @param {object} props
  * @param {number} props.productItemId The ERP product.
  * @param {Function} [props.container] The host's section (`{ title, children }`), so the viewer looks like its siblings.
+ * @param {Function} [props.onChanged] Runs after the cost mode changed (the viewer reads its lots again by itself).
  */
-export default function SellInLotes({ productItemId, container = DefaultSection }) {
+export default function SellInLotes({ productItemId, container = DefaultSection, onChanged }) {
   const Container = container;
   const [read, setRead] = useState({ status: 'loading', data: null });
   const [attempt, setAttempt] = useState(0);
@@ -264,7 +265,10 @@ export default function SellInLotes({ productItemId, container = DefaultSection 
           productItemId={productItemId}
           lotes={lotes}
           proxima={proxima}
-          onChanged={() => setAttempt((n) => n + 1)}
+          onChanged={() => {
+            setAttempt((n) => n + 1);
+            onChanged?.();
+          }}
         />
       </div>
     );

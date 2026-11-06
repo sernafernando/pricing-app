@@ -27,7 +27,9 @@ vi.mock('../../services/api', () => ({
   productosAPI: { marcas: vi.fn(), categorias: vi.fn() },
 }));
 
-vi.mock('../../services/sellInAPI', () => ({ sellInAPI: { operaciones: vi.fn() } }));
+vi.mock('../../services/sellInAPI', () => ({
+  // The Productos tab's list; never opened here.
+  sellInLotesAPI: { productos: vi.fn(() => new Promise(() => {})) }, sellInAPI: { operaciones: vi.fn() } }));
 
 beforeEach(() => {
   productosAPI.marcas.mockResolvedValue({ data: { marcas: ['HP', 'TP-Link'] } });

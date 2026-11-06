@@ -14,6 +14,8 @@ import SellInBonoPanel from '../components/sellIn/SellInBonoPanel';
 import SellInBonosTable from '../components/sellIn/SellInBonosTable';
 import SellInDetailPanel from '../components/sellIn/SellInDetailPanel';
 import SellInFiltrosExtra from '../components/sellIn/SellInFiltrosExtra';
+import SellInProductoCostoPanel from '../components/sellIn/SellInProductoCostoPanel';
+import SellInProductosCosto from '../components/sellIn/SellInProductosCosto';
 import SellInResumen from '../components/sellIn/SellInResumen';
 import SellInTable from '../components/sellIn/SellInTable';
 import { resolverIdsFiltrados } from '../components/sellIn/sellInAnularMasivo';
@@ -31,6 +33,7 @@ import GruposTab from '../components/grupos/GruposTab';
 import TacticalsList from '../components/tacticals/TacticalsList';
 import Toast from '../components/Toast';
 import { useToast } from '../hooks/useToast';
+import { canViewProductPrices } from '../components/pricing/productPricePermissions';
 import styles from './SellIn.module.css';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
@@ -53,7 +56,7 @@ function notaGeneradas(anulables, generadas) {
 }
 
 const REVIERTE_BONOS = 'Después se anulan las compras que generó cada bono, y un bono sobre el costo deja de aplicarse a sus ventas.';
-const PANEL_LABELS = { detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out' };
+const PANEL_LABELS = { detalle: 'Detalle del sell in', bono: 'Bono de marca', campana: 'Campaña de sell out', producto: 'Costo de sell in' };
 const APLICA_LABELS = { si: 'Aplican', no: 'No aplican' };
 const EMPTY_FILTERS = { aplica: 'si', q: '', marcas: [], moneda: '', estado: '', desde: '', hasta: '', filtro: '', producto: null, proveedor: null };
 const TIPO_LABELS = { compra: 'Por compra', bono: 'Bono de marca' };
@@ -70,6 +73,7 @@ const PERMISOS_PROVEEDORES = ['administracion.ver_proveedores', 'administracion.
 const TAB_SELL_OUT = 'sell-out';
 const TAB_GRUPOS = 'grupos';
 const TAB_TACTICALS = 'tacticals';
+const TAB_PRODUCTOS = 'productos';
 
 /**
  * The Tacticals tab's count: the current tacticals (`GET /tacticals`, one row asked). `disponible` is null until the
@@ -267,6 +271,9 @@ export default function SellIn() {
   const puedeGestionarGrupos = tienePermiso('config.editar_constantes');
   // "Actualizar" bumps it: every tab of the page (Grupos, Tacticals, the sell out lists) asks its data again.
   const [versionPagina, setVersionPagina] = useState(0);
+  // The Productos list (the lot viewer's permission plus sell_in.ver, like its endpoint); a mode change reads it again.
+  const puedeVerProductos = puedeVer && canViewProductPrices(tienePermiso);
+  const [versionProductos, setVersionProductos] = useState(0);
   const tacticals = useConteoTacticals(puedeVer, versionPagina);
   // A group created, changed or deleted in the Grupos tab: the campaign form's groups are asked again.
   const [cambiosGrupos, setCambiosGrupos] = useState(0);
@@ -286,6 +293,7 @@ export default function SellIn() {
     // Still unknown: a ?tab=tacticals link waits for the count instead of falling back to Sell in.
     ...(tacticals.disponible !== false ? [TAB_TACTICALS] : []),
     ...(puedeVerGrupos ? [TAB_GRUPOS] : []),
+    ...(puedeVerProductos ? [TAB_PRODUCTOS] : []),
   ];
   const tabUrl = searchParams.get('tab');
   const tab = tabsVisibles.includes(tabUrl) ? tabUrl : 'sell-in';
@@ -606,6 +614,20 @@ export default function SellIn() {
             Grupos
           </button>
         )}
+        {puedeVerProductos && (
+          <button
+            type="button"
+            role="tab"
+            id="productos-tab"
+            aria-selected={tab === TAB_PRODUCTOS}
+            aria-controls={tab === TAB_PRODUCTOS ? 'productos-panel' : undefined}
+            tabIndex={tab === TAB_PRODUCTOS ? 0 : -1}
+            className={`${styles.tab} ${tab === TAB_PRODUCTOS ? styles.tabActive : ''}`}
+            onClick={() => cambiarTab(TAB_PRODUCTOS)}
+          >
+            Productos
+          </button>
+        )}
       </div>
 
       {error && enSellIn && (
@@ -632,6 +654,12 @@ export default function SellIn() {
                 cargar();
               }}
               onVerCompra={verCompra}
+              onClose={cerrarPanel}
+            />
+          ) : panel?.tipo === 'producto' ? (
+            <SellInProductoCostoPanel
+              producto={panel.producto}
+              onChanged={() => setVersionProductos((v) => v + 1)}
               onClose={cerrarPanel}
             />
           ) : panel?.tipo === 'campana' ? (
@@ -671,6 +699,13 @@ export default function SellIn() {
               version={versionPagina}
               puedeGestionar={(tipoTactical) => tienePermiso(`${tipoTactical}.gestionar`)}
               onRenovar={(t) => navigate(`/sell-in/tactical/nuevo?tipo=${t.tipo}&renovar=${t.id}`)}
+            />
+          </div>
+        ) : tab === TAB_PRODUCTOS ? (
+          <div role="tabpanel" id="productos-panel" aria-labelledby="productos-tab">
+            <SellInProductosCosto
+              version={versionPagina + versionProductos}
+              onVer={(producto) => setPanel({ tipo: 'producto', producto })}
             />
           </div>
         ) : tab === TAB_GRUPOS ? (
