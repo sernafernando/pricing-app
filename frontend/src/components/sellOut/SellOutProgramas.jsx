@@ -26,7 +26,7 @@ const ESTADOS = [
 
 /** A program's campaigns (`GET /sell-out/campanas?programa_id=`), read when it is expanded; with `puedeGestionar`
  * they can be taken out of it (`POST /asignar` with `programa_id: null`) or moved to another program. */
-function CampanasDelPrograma({ programa, programas, puedeGestionar, onCambio, onVerCampanas, onAviso }) {
+function CampanasDelPrograma({ programa, programas, puedeGestionar, onCambio, onAviso }) {
   const [lista, setLista] = useState(null);
   const [error, setError] = useState(null);
   const [version, setVersion] = useState(0);
@@ -133,13 +133,8 @@ function CampanasDelPrograma({ programa, programas, puedeGestionar, onCambio, on
           </tbody>
         </table>
       )}
-      {lista && (
-        <p className={styles.pie}>
-          {lista.total > lista.items.length && `Se muestran ${lista.items.length} de ${lista.total} campañas. `}
-          <button type="button" className="btn-tesla ghost sm" onClick={() => onVerCampanas(programa.id)}>
-            Ver en Campañas
-          </button>
-        </p>
+      {lista && lista.total > lista.items.length && (
+        <p className={styles.pie}>{`Se muestran ${lista.items.length} de ${lista.total} campañas.`}</p>
       )}
       {moviendo && (
         <SellOutAsignarPrograma
@@ -218,10 +213,9 @@ function FilaPrograma({ programa, abierto, onAlternar, puedeGestionar, onEditar,
  * asked for): the programs (`programas`, every one from `useProgramas`) with their campaigns' counts and dates, filtered
  * by state and name here. With `puedeGestionar` (`sell_out.gestionar`): "Nuevo programa", "Editar", "Archivar" /
  * "Reactivar" (`PATCH estado`), "Renovar programa" on active programs (`SellOutRenovarPrograma`), and in an expanded program "Quitar del programa" / "Mover a otro programa".
- * `onCambio()` runs after any change so the page reads programs and campaigns again; `onVerCampanas(id)` opens the
- * campaigns list filtered by that program.
+ * `onCambio()` runs after any change so the page reads programs and campaigns again.
  */
-export default function SellOutProgramas({ programas, puedeGestionar = false, onCambio, onVerCampanas }) {
+export default function SellOutProgramas({ programas, puedeGestionar = false, onCambio }) {
   const [estado, setEstado] = useState('activo');
   const [q, setQ] = useState('');
   const [abierto, setAbierto] = useState(null);
@@ -328,7 +322,6 @@ export default function SellOutProgramas({ programas, puedeGestionar = false, on
                       programas={programas}
                       puedeGestionar={puedeGestionar}
                       onCambio={onCambio}
-                      onVerCampanas={onVerCampanas}
                       onAviso={setAviso}
                     />
                   </td>

@@ -1,5 +1,5 @@
 /**
- * "Renovar programa" (Stitch 26104b54) over the Programas section of the Sell out tab: the preview with its periods,
+ * "Renovar programa" (Stitch 26104b54) over the Programas tab: the preview with its periods,
  * the campaigns to copy, the skipped ones, the left-out notice and the footer. Light, dark and high contrast. Real
  * Chromium geometry: jsdom does no layout.
  *
@@ -117,7 +117,7 @@ describe.each([
     document.documentElement.classList.toggle('high-contrast', highContrast);
     document.body.style.background = 'var(--cf-bg-app)';
     const screen = await render(
-      <MemoryRouter initialEntries={['/sell-in?tab=sell-out&seccion=programas']}>
+      <MemoryRouter initialEntries={['/sell-in?tab=programas']}>
         <Shell>
           <SellIn />
         </Shell>

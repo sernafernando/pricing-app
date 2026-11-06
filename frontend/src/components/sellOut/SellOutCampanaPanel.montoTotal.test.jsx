@@ -9,7 +9,6 @@ import { productosAPI } from '../../services/api';
 import { sellOutAPI } from '../../services/sellOutAPI';
 import { CAMPANA_MONTO_TOTAL, CAMPANA_MONTO_TOTAL_NEGATIVA, CONSUMOS_USD } from './sellOutFixtures';
 import SellOutCampanaPanel from './SellOutCampanaPanel';
-import SellOutCampanasTable from './SellOutCampanasTable';
 
 vi.mock('../../services/sellOutAPI', () => ({
   sellOutAPI: {
@@ -304,19 +303,5 @@ describe('SellOutCampanaPanel — reparto of a monto total campaign (T26d)', () 
     abrir({ ...CAMPANA_MONTO_TOTAL, estado: 'anulada' }, { permisos: ['sell_out.repartir'] });
     await screen.findByRole('region', { name: 'Reparto del monto total' });
     expect(within(reparto()).queryByRole('button', { name: 'Guardar reparto' })).not.toBeInTheDocument();
-  });
-});
-
-describe('SellOutCampanasTable — monto total (T26d)', () => {
-  it('shows the kind and the total, a negative one as a deduction', () => {
-    render(<SellOutCampanasTable campanas={[CAMPANA_MONTO_TOTAL, CAMPANA_MONTO_TOTAL_NEGATIVA]} onSelect={() => {}} />);
-    const positiva = screen.getByText('TP-Link bono Q4').closest('tr');
-    expect(positiva).toHaveTextContent('Monto total $ 2.000.000,00');
-    expect(positiva).toHaveTextContent('2 productos con reparto');
-    expect(within(positiva).queryByText('Deducción de ganancia')).not.toBeInTheDocument();
-    const negativa = screen.getByText('LENOVO cta y orden').closest('tr');
-    expect(negativa).toHaveTextContent('Monto total $ -13.662.075,00');
-    expect(within(negativa).getByText('Deducción de ganancia')).toBeInTheDocument();
-    expect(within(negativa).getByText(/-13\.662\.075/)).toHaveAttribute('data-deduccion', 'true');
   });
 });

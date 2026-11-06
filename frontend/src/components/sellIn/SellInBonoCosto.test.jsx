@@ -5,7 +5,6 @@ import { productosAPI } from '../../services/api';
 import { sellInBonosAPI } from '../../services/sellInAPI';
 import { ALCANCE, ALCANCE_VACIO, BONO } from './sellInFixtures';
 import SellInBonoPanel from './SellInBonoPanel';
-import SellInBonosTable from './SellInBonosTable';
 import { BASE_COSTO, BONO_VACIO, bodyDeBono, conBase, faltanDatos } from './sellInBonoValores';
 
 vi.mock('../../services/sellInAPI', () => ({
@@ -186,21 +185,6 @@ describe('SellInBonoPanel — a stored cost bonus', () => {
     expect(await screen.findByRole('region', { name: 'Compras alcanzadas (18)' })).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Incluye IVA' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Migrado del offset/)).not.toBeInTheDocument();
-  });
-});
-
-describe('SellInBonosTable — cost bonuses', () => {
-  it('tags a cost bonus and shows what its sales generated', () => {
-    render(<SellInBonosTable bonos={[BONO, { ...BONO_COSTO, offset_origen_id: 9 }]} selectedId={null} onSelect={vi.fn()} />);
-    const fila = screen.getByText('TP 3% xQ').closest('tr');
-    expect(within(fila).getByText('Sobre costo')).toBeInTheDocument();
-    expect(within(fila).getByText('2,71 % del costo')).toBeInTheDocument();
-    expect(within(fila).getByText('250 u en ventas')).toBeInTheDocument();
-    expect(within(fila).getByText('Migrado del offset #9')).toBeInTheDocument();
-    expect(within(fila).getByText('Fecha de venta')).toBeInTheDocument();
-    const invoice = screen.getByText('Bono TP-Link USD 3/u').closest('tr');
-    expect(within(invoice).queryByText('Sobre costo')).not.toBeInTheDocument();
-    expect(within(invoice).getByText('18 compras · 1.040 u')).toBeInTheDocument();
   });
 });
 

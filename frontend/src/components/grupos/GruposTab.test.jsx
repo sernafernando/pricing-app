@@ -364,11 +364,10 @@ describe('GruposTab — Borrar seleccionados', () => {
 
   it('deletes the checked groups after a confirmation and says what was deleted and why each other one stays', async () => {
     const user = userEvent.setup();
-    const onGruposCambiados = vi.fn();
     offsetGruposAPI.eliminarVarios.mockResolvedValue({
       data: { eliminados: [2], rechazados: [{ id: 1, nombre: 'TP-Link redes', motivo: RECHAZO }] },
     });
-    renderWithRouter(<GruposTab puedeEditar onGruposCambiados={onGruposCambiados} />);
+    renderWithRouter(<GruposTab puedeEditar />);
     expect(screen.queryByRole('button', { name: /Borrar seleccionados/ })).not.toBeInTheDocument();
     await marcar(user, 'TP-Link redes');
     await marcar(user, 'Sin filtros');
@@ -381,7 +380,6 @@ describe('GruposTab — Borrar seleccionados', () => {
     const resultado = await screen.findByRole('status');
     expect(resultado).toHaveTextContent('Se borró 1 grupo.');
     expect(resultado).toHaveTextContent(`No se borró 1 grupo: TP-Link redes: ${RECHAZO}`);
-    expect(onGruposCambiados).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(offsetGruposAPI.listar).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('button', { name: /Borrar seleccionados/ })).not.toBeInTheDocument();
   });

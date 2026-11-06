@@ -1,5 +1,5 @@
 /**
- * The Programas section of the Sell out tab (Stitch 5ee03d7d plus program management): the programs table with one
+ * The Programas tab (Stitch 5ee03d7d plus program management): the programs table with one
  * program open, two of its campaigns checked and the "Quitar del programa | Mover a otro programa" bar, then the
  * "Nuevo programa" dialog. Light, dark and high contrast. Real Chromium geometry: jsdom does no layout.
  *
@@ -96,7 +96,7 @@ describe.each([
     document.documentElement.classList.toggle('high-contrast', highContrast);
     document.body.style.background = 'var(--cf-bg-app)';
     const screen = await render(
-      <MemoryRouter initialEntries={['/sell-in?tab=sell-out&seccion=programas']}>
+      <MemoryRouter initialEntries={['/sell-in?tab=programas']}>
         <Shell>
           <SellIn />
         </Shell>

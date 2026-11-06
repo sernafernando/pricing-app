@@ -15,9 +15,8 @@ const PROGRAMAS = [PROGRAMA_MARCA, PROGRAMA_ARCHIVADO, PROGRAMA_VACIO];
 
 function renderProgramas(props = {}) {
   const onCambio = vi.fn();
-  const onVerCampanas = vi.fn();
-  render(<SellOutProgramas programas={PROGRAMAS} puedeGestionar onCambio={onCambio} onVerCampanas={onVerCampanas} {...props} />);
-  return { onCambio, onVerCampanas };
+  render(<SellOutProgramas programas={PROGRAMAS} puedeGestionar onCambio={onCambio} {...props} />);
+  return { onCambio };
 }
 
 const filaDe = (nombre) => screen.getByRole('row', { name: new RegExp(nombre) });
@@ -144,16 +143,6 @@ describe('SellOutProgramas', () => {
     await user.click(screen.getByRole('button', { name: 'Mover a otro programa' }));
 
     expect(screen.getByRole('dialog', { name: 'Asignar a programa (1 campaña)' })).toBeInTheDocument();
-  });
-
-  it('"Ver en Campañas" hands the program to the campaigns list', async () => {
-    const user = userEvent.setup();
-    const { onVerCampanas } = renderProgramas();
-
-    await user.click(within(filaDe('MARCA PROG')).getByRole('button', { name: 'Ver campañas de MARCA PROG' }));
-    await user.click(await screen.findByRole('button', { name: 'Ver en Campañas' }));
-
-    expect(onVerCampanas).toHaveBeenCalledWith(7);
   });
 
   it('"Renovar programa" is on active programs only, and a renewal reports and reloads', async () => {
