@@ -68,61 +68,76 @@
 }
 
 /* Per-type badge hues so each promotion type is visually distinct instead of
-   all-blue. Soft tinted chips (bg + matching text token, theme-aware). Types
-   without a dedicated hue (PRICE_DISCOUNT/DOD/LIGHTNING, read-only) fall back
-   to .badgeReadonly grey. */
+   all-blue: tinted chips on the semantic tone tokens (theme-aware). LIGHTNING is
+   warning; the read-only types (SMART_LIGHTNING, PRICE_DISCOUNT, DOD...) are
+   neutral grey. PRICE_MATCHING keeps its teal (no teal tone token). */
 .badgeTypeSellerCampaign {
-  background: var(--info-bg, var(--bg-secondary));
-  color: var(--info-text, var(--text-primary));
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  border-color: var(--tone-info-border);
 }
 
 .badgeTypeDeal {
-  background: var(--purple-bg, var(--bg-secondary));
-  color: var(--purple-text, var(--text-primary));
+  background: var(--tone-purple-bg);
+  color: var(--tone-purple-fg);
+  border-color: var(--tone-purple-border);
 }
 
 .badgeTypeSmart {
-  background: var(--success-bg, var(--bg-secondary));
-  color: var(--success-text, var(--text-primary));
+  background: var(--tone-success-bg);
+  color: var(--tone-success-fg);
+  border-color: var(--tone-success-border);
 }
 
-.badgeTypePreNegotiated {
-  background: var(--warning-bg, var(--bg-secondary));
-  color: var(--warning-text, var(--text-secondary));
+.badgeTypePreNegotiated,
+.badgeTypeLightning {
+  background: var(--tone-warning-bg);
+  color: var(--tone-warning-fg);
+  border-color: var(--tone-warning-border);
 }
 
 .badgeTypePriceMatching {
-  background: var(--teal-bg, var(--bg-secondary));
-  color: var(--teal-text, var(--text-primary));
+  background: var(--teal-bg, var(--tone-neutral-bg));
+  color: var(--teal-text, var(--tone-neutral-fg));
+  border-color: var(--cf-border-default);
 }
 
-/* Currently-applied (live) promo — a SOLID pill so it stands out from the soft
-   type chips regardless of the type's own hue. */
+.badgeTypeSmartLightning,
+.badgeTypeNeutral {
+  background: var(--tone-neutral-bg);
+  color: var(--tone-neutral-fg);
+  border-color: var(--tone-neutral-border);
+}
+
+/* Currently-applied (live) promo. */
 .badgeApplied {
-  background: var(--success, var(--brand-primary));
-  color: #fff;
+  background: var(--tone-success-bg);
+  color: var(--tone-success-fg);
+  border-color: var(--tone-success-border);
 }
 
 /* Enrolled (`started`) but not currently applied — ML applied a cheaper
-   sibling promo instead. Calmer soft-warning tone, distinct from .badgeApplied. */
+   sibling promo instead. Soft warning, distinct from .badgeApplied. */
 .badgeProgrammed {
-  background: var(--warning-bg, var(--bg-secondary));
-  color: var(--warning-text, var(--text-secondary));
+  background: var(--tone-warning-bg);
+  color: var(--tone-warning-fg);
+  border-color: var(--tone-warning-border);
 }
 
-/* Enrolled but not yet live at ML (`pending`) — soft info tone, distinct
-   from .badgeApplied (solid success) and .badgeProgrammed (warning). */
+/* Enrolled but not yet live at ML (`pending`) — info tone, distinct
+   from .badgeApplied (success) and .badgeProgrammed (warning). */
 .badgePending {
-  background: var(--info-bg, var(--bg-secondary));
-  color: var(--info-text, var(--text-secondary));
+  background: var(--tone-info-bg);
+  color: var(--tone-info-fg);
+  border-color: var(--tone-info-border);
 }
 
 /* ML accepted our enroll/remove but the mirror shows it did not take effect. Outlined in danger so it
    reads as "needs attention", not as another status badge. */
 .badgeNotApplied {
   background: transparent;
-  color: var(--danger, var(--text-primary));
-  border: 1px solid var(--danger, var(--border-secondary));
+  color: var(--tone-danger-fg);
+  border: 1px solid var(--tone-danger-border);
   cursor: help;
 }
 
@@ -198,47 +213,282 @@
   border-left: 3px solid var(--border-secondary);
 }
 
-/* The Publicaciones ML panel's sections (S3): a small title over each list. */
+/* The Publicaciones ML panel's sections (S3): a small title over each list. Each
+   section is the size container its rows' column grid adapts to. */
 .promoSection,
 .couponSection {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
+  container: promos / inline-size;
 }
 
 .promoSection + .promoSection,
 .promoSection + .couponSection {
-  margin-top: 12px;
+  margin-top: var(--space-5);
 }
 
 .sectionTitle {
   margin: 0;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: var(--font-semibold);
   text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--cf-text-secondary);
+}
+
+/* The flat list (Productos tree, no sections) is its own size container, so its
+   rows switch to two lines in a narrow cell like the sectioned panel does. */
+.promoGridList {
+  container: promos / inline-size;
+}
+
+/* One column grid for the header and every promotion row, so price, markup,
+   state and action line up across rows and sections:
+   Tipo | Promoción | Precio | Tu markup | Estado | Acción. */
+.promoColumns,
+.promoGridRow {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr) 6.5rem 5rem 8.5rem 7.5rem;
+  grid-template-areas: 'type main price markup state action';
+  column-gap: var(--space-3);
+  align-items: center;
+}
+
+.promoColumns {
+  padding: 0 var(--space-3);
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--cf-text-muted);
+}
+
+.promoColumns > :nth-child(3),
+.promoColumns > :nth-child(4),
+.promoColumns > :nth-child(6) {
+  text-align: right;
+}
+
+.promoGridRow {
+  row-gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--cf-card-bg);
+}
+
+.promoGridRow:hover {
+  background: var(--cf-bg-hover);
+}
+
+/* The promotion live now: outlined (and a left rule) in the success tone. */
+.promoGridRowActive {
+  border-color: var(--tone-success-border);
+  box-shadow: inset 3px 0 0 var(--tone-success-fg);
+}
+
+.promoTypeCell {
+  grid-area: type;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.promoGridRow .badge {
+  max-width: 100%;
+  padding: 1px var(--space-2);
+  /* Width and style only: each tone class sets its own border colour. */
+  border-width: 1px;
+  border-style: solid;
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  font-weight: var(--font-semibold);
   letter-spacing: 0.04em;
-  color: var(--text-secondary);
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.promoMain {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.promoGridRow .promoName {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.promoGridRow .promoPrice {
+  grid-area: price;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  white-space: nowrap;
+}
+
+.promoGridRow .promoMarkup {
+  grid-area: markup;
+  text-align: right;
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+}
+
+/* The row's markup tone, on getMarkupColor's thresholds. Scoped under the row
+   so it outranks the shared, later `.promoMarkup` grey (same specificity, later
+   rule wins otherwise). */
+.promoGridRow .rowMarkupNone {
+  color: var(--cf-text-tertiary);
+}
+
+.promoGridRow .rowMarkupNegative {
+  color: var(--tone-danger-fg);
+}
+
+.promoGridRow .rowMarkupLow {
+  color: var(--tone-warning-fg);
+}
+
+.promoGridRow .rowMarkupPositive {
+  color: var(--tone-success-fg);
+}
+
+/* The column header names the markup: its in-row label is for screen readers
+   only. A flat list (no header) and a narrow panel (header hidden) show it. */
+.promoSection .markupLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.promoStatusCell {
+  grid-area: state;
+  min-width: 0;
+}
+
+.promoAction {
+  grid-area: action;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+  text-align: right;
+}
+
+/* A confirmation, a price form or a feedback message needs more than the
+   action column: it takes a full-width line under the row. */
+.promoAction:has(.applyConfirm, .priceAlert, .feedbackSuccess, .feedbackWarn, .feedbackError) {
+  grid-column: 1 / -1;
+  grid-row: auto;
+}
+
+.actionNote {
+  font-size: var(--font-xs);
+  color: var(--cf-text-muted);
+}
+
+/* A panel narrower than the grid (the 460-560px side panel): two lines per row,
+   type badges on the left (top-aligned with the name), price/markup/state under the name, the action on
+   the right; the column header hides and the markup shows its label. */
+@container promos (max-width: 52rem) {
+  .promoColumns {
+    display: none;
+  }
+
+  .promoGridRow {
+    /* The type column hugs its badges, so the name starts right after them. */
+    grid-template-columns: max-content auto auto minmax(0, 1fr) auto;
+    align-items: start;
+    grid-template-areas:
+      'type main  main   main  action'
+      'type price markup state action';
+  }
+
+  .promoGridRow .promoPrice {
+    align-items: flex-start;
+  }
+
+  .promoGridRow .promoMarkup,
+  .promoStatusCell {
+    align-self: center;
+  }
+
+  .promoSection .markupLabel {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    font-weight: var(--font-normal);
+    color: var(--cf-text-tertiary);
+  }
+
+  .promoGridRow .promoMarkup {
+    text-align: left;
+  }
 }
 
 /* Coupons last and quieter: they are not price promotions and are not applied from here. */
-.couponSection {
-  opacity: 0.85;
+.couponRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--cf-card-bg);
 }
 
-.couponSection .promoName {
-  font-weight: 500;
-  color: var(--text-secondary);
+.couponMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.couponRow .promoName {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  overflow-wrap: anywhere;
 }
 
 .couponDiscount {
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+  white-space: nowrap;
 }
 
 .couponLink {
-  margin-left: auto;
-  font-size: 12px;
+  font-size: var(--font-xs);
   color: var(--cf-accent-blue);
+}
+
+@container promos (max-width: 32rem) {
+  .couponRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .couponLink {
+    grid-column: 1 / -1;
+  }
 }
 
 .promoName {
@@ -251,18 +501,20 @@
 }
 
 .promoOriginalPrice {
-  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+  font-weight: var(--font-normal);
+  color: var(--cf-text-muted);
   text-decoration: line-through;
 }
 
 .promoSmartCost {
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
 }
 
 .promoDates {
-  font-size: 12px;
-  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
 }
 
 .promoMarkup {
@@ -443,14 +695,33 @@
 }
 
 /* "actualizado hace X": when the mirror last heard from ML for this row. */
-.promoFreshness {
-  font-size: 11px;
-  color: var(--text-tertiary);
+/* "actualizado hace X": when the mirror last heard from ML for this row, after
+   a dot in its tone (success, or warning once stale). */
+.promoFreshness,
+.promoFreshnessStale {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.promoFreshness::before,
+.promoFreshnessStale::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--tone-success-fg);
 }
 
 .promoFreshnessStale {
-  font-size: 11px;
-  color: var(--warning, var(--text-tertiary));
+  color: var(--tone-warning-fg);
+}
+
+.promoFreshnessStale::before {
+  background: var(--tone-warning-fg);
 }
 
 .filterBar {

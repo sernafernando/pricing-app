@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent, within } from '@testing-library/react';
 import MlaPromocionesPanel from './MlaPromocionesPanel';
 import { promocionesAPI } from '../../services/api';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
@@ -37,6 +37,11 @@ beforeEach(() => {
 function renderPanel(props = {}) {
   const promosCacheRef = { current: new Map() };
   return render(<MlaPromocionesPanel mla="MLA001" promosCacheRef={promosCacheRef} {...props} />);
+}
+
+// A row's markup cell: "Tu markup: <value>", whose label is a span of its own (hidden under the column header).
+function getMarkupCell(value) {
+  return screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent === `Tu markup: ${value}`);
 }
 
 describe('MlaPromocionesPanel', () => {
@@ -260,7 +265,7 @@ describe('MlaPromocionesPanel', () => {
 
     renderPanel();
     await waitFor(() => expect(screen.getByText('Smart promo')).toBeInTheDocument());
-    expect(screen.getByText(/tu markup: 18\.5%/i)).toBeInTheDocument();
+    expect(getMarkupCell('18.5%')).toBeInTheDocument();
   });
 
   it('shows N/A when nuestro_markup is null', async () => {
@@ -281,7 +286,7 @@ describe('MlaPromocionesPanel', () => {
 
     renderPanel();
     await waitFor(() => expect(screen.getByText('Deal promo')).toBeInTheDocument());
-    expect(screen.getByText(/tu markup: n\/a/i)).toBeInTheDocument();
+    expect(getMarkupCell('N/A')).toBeInTheDocument();
   });
 
   it('shows an "Aplicada" badge on promo rows with application_status active', async () => {
@@ -587,10 +592,9 @@ describe('MlaPromocionesPanel', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText('Positive markup promo')).toBeInTheDocument());
-    const positiveMarkup = screen.getByText(/tu markup: 25\.0%/i);
-    const negativeMarkup = screen.getByText(/tu markup: -5\.0%/i);
-    expect(positiveMarkup).toHaveStyle({ color: 'var(--success)' });
-    expect(negativeMarkup).toHaveStyle({ color: 'var(--error)' });
+    // Same thresholds as getMarkupColor, as token classes: < 0 danger, < 1 warning, else success, none muted.
+    expect(getMarkupCell('25.0%').className).toMatch(/rowMarkupPositive/);
+    expect(getMarkupCell('-5.0%').className).toMatch(/rowMarkupNegative/);
   });
 
   it('shows the promo name (not the cryptic type) as the primary label', async () => {
@@ -1415,5 +1419,112 @@ describe('sections (S3) are only for a host that asks', () => {
     await screen.findByText('Cupón de recompra');
     expect(screen.queryAllByRole('region')).toEqual([]);
     expect(screen.getAllByRole('list')).toHaveLength(1);
+  });
+});
+
+describe('promotion rows on the column grid (redesign P1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    usePromoFilterStore.setState({ selectedTypes: [], selectedNames: {} });
+  });
+
+  it('strikes the original price through under the promo price instead of showing it in parentheses', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal', price: 800, original_price: 1200 }] },
+    });
+    renderPanel({ pullOnOpen: false });
+    await screen.findByText('Deal');
+    const original = screen.getByText('$1.200');
+    expect(original.tagName).toBe('S');
+    expect(screen.queryByText(/\(\$1\.200\)/)).not.toBeInTheDocument();
+    expect(screen.getByText('$800')).toBeInTheDocument();
+  });
+
+  it('shows no struck price when the promo price is the original one', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: { promotions: [{ promotion_id: 'P1', promotion_type: 'DEAL', name: 'Deal', price: 1200, original_price: 1200 }] },
+    });
+    renderPanel({ pullOnOpen: false });
+    await screen.findByText('Deal');
+    expect(screen.getByText('$1.200').tagName).not.toBe('S');
+    expect(document.querySelector('s')).toBeNull();
+  });
+
+  it('says "Lo maneja ML" in the action slot of a read-only row, with no button', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'R1', promotion_type: 'SMART_LIGHTNING', name: 'Relámpago compartidas', status: 'started', price: 50 },
+          { promotion_id: 'R2', promotion_type: 'PRICE_DISCOUNT', name: 'Descuento', status: 'started', price: 60 },
+        ],
+      },
+    });
+    renderPanel({ pullOnOpen: false });
+    await screen.findByText('Relámpago compartidas');
+    for (const name of ['Relámpago compartidas', 'Descuento']) {
+      const row = screen.getByText(name).closest('li');
+      expect(within(row).getByText('Lo maneja ML')).toBeInTheDocument();
+      expect(within(row).queryAllByRole('button')).toEqual([]);
+    }
+  });
+
+  it('gives LIGHTNING and SMART_LIGHTNING a type badge of their own, like the other types', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'L1', promotion_type: 'LIGHTNING', name: 'Relámpago', status: 'candidate', price: 50 },
+          { promotion_id: 'L2', promotion_type: 'SMART_LIGHTNING', name: 'Relámpago compartidas', status: 'started', price: 50 },
+          { promotion_id: 'D1', promotion_type: 'DEAL', name: 'Deal', status: 'candidate', price: 50 },
+        ],
+      },
+    });
+    renderPanel({ pullOnOpen: false });
+    await screen.findByText('Relámpago');
+    expect(screen.getByText('LIGHTNING').className).toMatch(/badgeTypeLightning/);
+    expect(screen.getByText('SMART_LIGHTNING').className).toMatch(/badgeTypeSmartLightning/);
+    expect(screen.getByText('DEAL').className).toMatch(/badgeTypeDeal/);
+  });
+
+  it('colors a markup under 1% as a warning and an unknown one as muted (getMarkupColor thresholds)', async () => {
+    promocionesAPI.getPromocionesItem.mockResolvedValue({
+      data: {
+        promotions: [
+          { promotion_id: 'M1', promotion_type: 'DEAL', name: 'Thin', price: 80, nuestro_markup: 0.5 },
+          { promotion_id: 'M2', promotion_type: 'DEAL', name: 'Unknown', price: 80, nuestro_markup: null },
+        ],
+      },
+    });
+    renderPanel({ pullOnOpen: false });
+    await screen.findByText('Thin');
+    expect(getMarkupCell('0.5%').className).toMatch(/rowMarkupLow/);
+    expect(getMarkupCell('N/A').className).toMatch(/rowMarkupNone/);
+  });
+
+  it('heads the sectioned panel with one column header row, and the flat list with none', async () => {
+    const promotions = [
+      { promotion_id: 'A1', promotion_type: 'DEAL', name: 'Deal activa', status: 'started', application_status: 'active', price: 80 },
+      { promotion_id: 'C1', promotion_type: 'DEAL', name: 'Deal candidata', status: 'candidate', price: 90 },
+    ];
+    promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions } });
+    const { unmount } = renderPanel({ pullOnOpen: false, sections: true, ignoreGlobalFilter: true });
+    await screen.findByText('Deal activa');
+    const headers = screen.getAllByTestId('promo-columns');
+    expect(headers).toHaveLength(1);
+    expect([...headers[0].children].map((cell) => cell.textContent)).toEqual([
+      'Tipo',
+      'Promoción',
+      'Precio',
+      'Tu markup',
+      'Estado',
+      'Acción',
+    ]);
+    // Above the first section's list, not inside it.
+    expect(within(screen.getByRole('region', { name: 'Activa ahora' })).getByTestId('promo-columns')).toBe(headers[0]);
+    expect(headers[0].closest('ul')).toBeNull();
+    unmount();
+
+    renderPanel({ pullOnOpen: false });
+    await screen.findByText('Deal activa');
+    expect(screen.queryByTestId('promo-columns')).not.toBeInTheDocument();
   });
 });

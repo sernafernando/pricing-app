@@ -116,11 +116,22 @@ def _positive_float(value: Any) -> Optional[float]:
     return number
 
 
+def _status_text(promo: Dict[str, Any]) -> Optional[str]:
+    """Status as text: older stored entries carry it as `{"id": "candidate"}`."""
+    status = promo.get("status")
+    if isinstance(status, dict):
+        status = status.get("id")
+    return status if isinstance(status, str) else None
+
+
 def precio_de_oferta(promo: Dict[str, Any]) -> Optional[float]:
     """THE price of a promo offer — the one rule shared by the panel display
     (frontend `promoDisplayPrice`, same fallback order), the pre-apply guard,
     the 409's `precio_actual` and every markup computed on an offer.
 
+    For a LIGHTNING candidate, `suggested_discounted_price` when > 0 first,
+    kept within [min,max] when ML sends them
+    (its `price` is not the lightning suggestion). Otherwise:
     `price` when > 0; else, for a DEAL, `max_discounted_price` when > 0 (the
     smallest discount ML accepts, the price ML's web proposes; owner
     2026-11-06, MLA1506729443); else `suggested_discounted_price` when > 0;
@@ -136,10 +147,24 @@ def precio_de_oferta(promo: Dict[str, Any]) -> Optional[float]:
     competitivos"); should one arrive with 0, the suggested price is what
     the panel shows, so it is what the guard compares — like with like.
     """
+    promotion_type = promo.get("promotion_type") or promo.get("type")
+    if promotion_type == "LIGHTNING" and _status_text(promo) == "candidate":
+        # A LIGHTNING candidate's `price` is not its suggestion (on MLA1506729443 it was the SMART
+        # candidate's price, 2026-11-06): the row shows ML's suggested lightning price.
+        suggested = _positive_float(promo.get("suggested_discounted_price"))
+        if suggested is not None:
+            # Guard: never shown outside the range ML accepts (the apply clamps the same way).
+            min_price = _positive_float(promo.get("min_discounted_price"))
+            max_price = _positive_float(promo.get("max_discounted_price"))
+            if max_price is not None:
+                suggested = min(suggested, max_price)
+            if min_price is not None:
+                suggested = max(suggested, min_price)
+            return suggested
     price = _positive_float(promo.get("price"))
     if price is not None:
         return price
-    if (promo.get("promotion_type") or promo.get("type")) == "DEAL":
+    if promotion_type == "DEAL":
         max_price = _positive_float(promo.get("max_discounted_price"))
         if max_price is not None:
             return max_price

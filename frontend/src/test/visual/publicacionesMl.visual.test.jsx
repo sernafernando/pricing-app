@@ -1638,7 +1638,7 @@ const PANEL_VIEWPORTS = [
 ];
 
 // The panel opens on Promos (owner, 2026-11-02); these tests read Resumen unless they ask for another tab.
-const renderWithPanel = async ({ width, height, theme, margin = false, tab = 'resumen', linked = false, detailExtra = {}, rowExtra = {} }) => {
+const renderWithPanel = async ({ width, height, theme, margin = false, tab = 'resumen', linked = false, detailExtra = {}, rowExtra = {}, promotions = PROMOTIONS }) => {
   canSeeMargin = margin;
   const base = { ...MANY[0], is_full: true, variations_count: 3 };
   publicacionesMlAPI.items.mockResolvedValue({
@@ -1654,7 +1654,7 @@ const renderWithPanel = async ({ width, height, theme, margin = false, tab = 're
   );
   publicacionesMlAPI.variations.mockResolvedValue({ data: VARIATIONS_RESPONSE });
   promocionesAPI.refreshItemPromociones.mockResolvedValue({ data: { ok: true } });
-  promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions: PROMOTIONS } });
+  promocionesAPI.getPromocionesItem.mockResolvedValue({ data: { promotions } });
   await page.viewport(width, height);
   setTheme(theme);
   document.body.style.background = 'var(--cf-bg-app)';
@@ -2027,6 +2027,20 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         await expect.element(screen.getByRole('link', { name: 'Ver promociones en Mercado Libre' })).toBeVisible();
         const rows = [...panel.querySelectorAll('[role="tabpanel"] li')];
         expect(rows).toHaveLength(3);
+        // A negative markup VALUE reads in the danger tone, never in the default text grey.
+        const markup = rows.flatMap((row) => [...row.querySelectorAll('span')]).find((el) => el.textContent === 'Tu markup: -2.0%');
+        expect(markup).toBeDefined();
+        expect(getComputedStyle(markup).color).toBe(tokenColor('--tone-danger-fg'));
+        expect(getComputedStyle(markup).color).not.toBe(tokenColor('--cf-text-secondary'));
+        expect(getComputedStyle(markup).color).not.toBe(tokenColor('--cf-text-primary'));
+        // The type column hugs its badges: the name starts right after them, top-aligned with the first one.
+        for (const row of rows.filter((li) => !li.closest('section[aria-label="Cupones"]'))) {
+          const [typeCell, main] = row.children;
+          const badges = [...typeCell.children];
+          const badgesRight = Math.max(...badges.map((badge) => rect(badge).right));
+          expect(rect(main).left - badgesRight, row.textContent.slice(0, 40)).toBeLessThanOrEqual(16);
+          expect(Math.abs(rect(badges[0]).top - rect(main).top), row.textContent.slice(0, 40)).toBeLessThanOrEqual(4);
+        }
         for (const el of rows.flatMap((row) => [row, ...row.querySelectorAll('*')])) {
           const r = rect(el);
           if (r.width === 0) continue;
@@ -2828,4 +2842,69 @@ describe('Publicaciones ML "Todos" (visual, filtros S4)', () => {
     await expect.poll(() => document.activeElement?.dataset.rowKey).toBe('MLA1200009997');
     screen.unmount();
   }, 180_000); // room for the before measurement: every row in the DOM took far longer than the default 15 s
+});
+
+// Shaped like MLA1506729443 (2026-11-06, the item of the approved S9 design): one active, several
+// available (SELLER_CAMPAIGN, DEAL at its max, two SMART, a LIGHTNING at its suggestion), two ML manages
+// and three coupons. Prices from that capture; markups are the design's figures (the DEAL takes the SMART's at the
+// same price; the LIGHTNING's at its suggestion was not captured, so it has none).
+const S9_ORIGINAL = 86539;
+const s9Coupon = (id, name, pct) => ({
+  promotion_id: id,
+  promotion_type: 'SELLER_COUPON_CAMPAIGN',
+  sub_type: 'FIXED_PERCENTAGE',
+  name,
+  status: 'candidate',
+  price: 0,
+  original_price: S9_ORIGINAL,
+  start_date: '2026-11-04T00:00:00',
+  finish_date: '2026-11-30T23:59:59',
+  payload: { id, name, type: 'SELLER_COUPON_CAMPAIGN', status: 'candidate', sub_type: 'FIXED_PERCENTAGE', fixed_percentage: pct },
+});
+const S9_PROMOTIONS = [
+  { promotion_id: 'P-MLA18100001', promotion_type: 'SELLER_CAMPAIGN', name: 'TO C500-C520WS 2-11 4-12', status: 'started', price: 59999, original_price: S9_ORIGINAL, nuestro_markup: -28.7, application_status: 'active', start_date: '2026-11-02T00:00:00Z', finish_date: '2026-12-02T00:00:00Z', payload: {} },
+  { promotion_id: 'P-MLA18100002', promotion_type: 'SELLER_CAMPAIGN', name: 'PVP LYONN', status: 'candidate', price: 0, suggested_discounted_price: 59514, original_price: S9_ORIGINAL, nuestro_markup: -29.5, application_status: null, start_date: '2026-10-15T00:00:00Z', finish_date: '2026-11-14T00:00:00Z', payload: {} },
+  { promotion_id: 'P-MLA18145042', promotion_type: 'DEAL', name: 'MKP T1 CYBER MONDAY NOV', status: 'candidate', price: 0, original_price: S9_ORIGINAL, max_discounted_price: 57920.55, min_discounted_price: 17307.81, suggested_discounted_price: 49266.65, nuestro_markup: -28.3, application_status: null, start_date: '2026-11-02T00:00:00Z', finish_date: '2026-11-12T00:00:00Z', payload: {} },
+  { promotion_id: 'P-MLA18100003', promotion_type: 'SMART', name: 'Ofertas compartidas CM', status: 'candidate', price: 63050, original_price: S9_ORIGINAL, nuestro_markup: -19.2, application_status: null, payload: { seller_percentage: 23.5, meli_percentage: 3.6 } },
+  { promotion_id: 'P-MLA18100004', promotion_type: 'SMART', name: 'Potencia tus ventas', status: 'candidate', price: 57920.55, original_price: S9_ORIGINAL, nuestro_markup: -28.3, application_status: null, payload: { seller_percentage: 30.4, meli_percentage: 2.7 } },
+  { promotion_id: 'LGH-MLA1000', promotion_type: 'LIGHTNING', name: 'LIGHTNING', status: 'candidate', price: 57920.55, original_price: S9_ORIGINAL, min_discounted_price: 17307.81, max_discounted_price: 77885.1, suggested_discounted_price: 73558.15, nuestro_markup: null, application_status: null, payload: { stock: { min: 5, max: 112 } } },
+  { promotion_id: 'P-MLA18169016', promotion_type: 'SMART_LIGHTNING', name: 'Relampago compartidas', status: 'started', price: 57341.34, original_price: S9_ORIGINAL, nuestro_markup: -32.8, application_status: null, payload: {} },
+  { promotion_id: 'PRICE_DISCOUNT-1', promotion_type: 'PRICE_DISCOUNT', name: 'PRICE_DISCOUNT', status: 'started', price: 59514, original_price: S9_ORIGINAL, nuestro_markup: -29.5, application_status: null, payload: {} },
+  s9Coupon('C-MLA1800001', 'Cupón de recompra', 10),
+  s9Coupon('C-MLA1800002', 'Cupón para carritos abandonados', 12),
+  s9Coupon('C-MLA1800003', 'TO TP-LINK NEW FOLL', 15),
+  // Just refreshed from ML, like the design's Estado column.
+].map((promo) => (promo.promotion_type === 'SELLER_COUPON_CAMPAIGN' ? promo : { ...promo, updated_at: new Date().toISOString() }));
+
+describe('Publicaciones ML panel, Promos tab of the S9 design (visual)', () => {
+  const widthKey = 'split-panel-width:publicaciones-ml';
+  afterEach(() => localStorage.removeItem(widthKey));
+
+  for (const theme of THEMES) {
+    it(`1920x2200 ${theme}: at its default width the panel stacks each row under the name, no column header`, async () => {
+      localStorage.removeItem(widthKey);
+      const screen = await renderWithPanel({ width: 1920, height: 2200, theme, tab: '', promotions: S9_PROMOTIONS });
+      await expect.element(screen.getByText('MKP T1 CYBER MONDAY NOV')).toBeVisible();
+      const panel = panelOf();
+      expect(rect(panel).width).toBeLessThanOrEqual(560 + 0.5);
+      expect(getComputedStyle(panel.querySelector('[data-testid="promo-columns"]')).display).toBe('none');
+      expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/s9-panel-default-${theme}.png`, element: panel });
+      screen.unmount();
+    });
+
+    it(`1920x2200 ${theme}: widened with the divider, the rows line up under the column header`, async () => {
+      localStorage.setItem(widthKey, '1040');
+      const screen = await renderWithPanel({ width: 1920, height: 2200, theme, tab: '', promotions: S9_PROMOTIONS });
+      await expect.element(screen.getByText('MKP T1 CYBER MONDAY NOV')).toBeVisible();
+      await frame();
+      const panel = panelOf();
+      expect(rect(panel).width).toBeGreaterThan(900);
+      const header = panel.querySelector('[data-testid="promo-columns"]');
+      expect(getComputedStyle(header).display).not.toBe('none');
+      expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/s9-panel-wide-${theme}.png`, element: panel });
+      screen.unmount();
+    });
+  }
 });

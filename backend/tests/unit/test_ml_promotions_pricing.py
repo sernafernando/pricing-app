@@ -63,6 +63,47 @@ class TestPrecioDeOferta:
         promo = dict(CAPTURED_DEAL, type="SELLER_CAMPAIGN")
         assert precio_de_oferta(promo) == 49266.65
 
+    # Captured LIGHTNING candidate, MLA1506729443 (2026-11-06): `price` 57920.55 is the SMART candidate's
+    # price, not the lightning suggestion; the row shows the suggested 73558.15 (approved S9 build note).
+    CAPTURED_LIGHTNING = {
+        "promotion_id": "LGH-MLA1000",
+        "promotion_type": "LIGHTNING",
+        "status": "candidate",
+        "price": 57920.55,
+        "original_price": 86539.0,
+        "min_discounted_price": 17307.81,
+        "max_discounted_price": 77885.1,
+        "suggested_discounted_price": 73558.15,
+    }
+
+    def test_candidate_lightning_uses_the_suggested(self) -> None:
+        assert precio_de_oferta(self.CAPTURED_LIGHTNING) == 73558.15
+
+    def test_candidate_lightning_live_shape_uses_the_suggested(self) -> None:
+        live = {k: v for k, v in self.CAPTURED_LIGHTNING.items() if k != "promotion_type"}
+        assert precio_de_oferta(dict(live, type="LIGHTNING")) == 73558.15
+
+    def test_candidate_lightning_old_status_shape_uses_the_suggested(self) -> None:
+        assert precio_de_oferta(dict(self.CAPTURED_LIGHTNING, status={"id": "candidate"})) == 73558.15
+
+    def test_candidate_lightning_suggestion_above_the_max_is_shown_at_the_max(self) -> None:
+        assert precio_de_oferta(dict(self.CAPTURED_LIGHTNING, suggested_discounted_price=80000)) == 77885.1
+
+    def test_candidate_lightning_suggestion_below_the_min_is_shown_at_the_min(self) -> None:
+        assert precio_de_oferta(dict(self.CAPTURED_LIGHTNING, suggested_discounted_price=10000)) == 17307.81
+
+    def test_candidate_lightning_without_range_keeps_the_suggestion(self) -> None:
+        promo = dict(self.CAPTURED_LIGHTNING, min_discounted_price=None, max_discounted_price=None)
+        assert precio_de_oferta(promo) == 73558.15
+
+    def test_candidate_lightning_without_suggestion_keeps_the_price(self) -> None:
+        promo = dict(self.CAPTURED_LIGHTNING, suggested_discounted_price=None)
+        assert precio_de_oferta(promo) == 57920.55
+
+    def test_pending_lightning_keeps_its_price(self) -> None:
+        promo = dict(self.CAPTURED_LIGHTNING, status="pending", price=70000)
+        assert precio_de_oferta(promo) == 70000
+
 
 # ── _co_funding_amount ───────────────────────────────────────────────
 

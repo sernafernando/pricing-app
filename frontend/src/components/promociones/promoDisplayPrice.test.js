@@ -58,6 +58,51 @@ describe('promoDisplayPrice — the one offer-price rule', () => {
     expect(promoDisplayPrice({ ...capturedDeal, price: 55000 })).toBe(55000);
   });
 
+  // Captured LIGHTNING candidate, MLA1506729443: `price` is the SMART candidate's, not the lightning
+  // suggestion. Same cases as backend TestPrecioDeOferta.
+  const capturedLightning = {
+    promotion_id: 'LGH-MLA1000',
+    promotion_type: 'LIGHTNING',
+    status: 'candidate',
+    price: 57920.55,
+    min_discounted_price: 17307.81,
+    max_discounted_price: 77885.1,
+    suggested_discounted_price: 73558.15,
+  };
+
+  it('uses the suggested for a candidate LIGHTNING', () => {
+    expect(promoDisplayPrice(capturedLightning)).toBe(73558.15);
+  });
+
+  it('reads a live LIGHTNING entry (`type`) like the backend', () => {
+    const { promotion_type: _ignored, ...live } = capturedLightning;
+    expect(promoDisplayPrice({ ...live, type: 'LIGHTNING' })).toBe(73558.15);
+  });
+
+  it('reads the older `{ id }` status of a candidate LIGHTNING', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, status: { id: 'candidate' } })).toBe(73558.15);
+  });
+
+  it('shows a candidate LIGHTNING suggestion above the max at the max', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, suggested_discounted_price: 80000 })).toBe(77885.1);
+  });
+
+  it('shows a candidate LIGHTNING suggestion below the min at the min', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, suggested_discounted_price: 10000 })).toBe(17307.81);
+  });
+
+  it('keeps the suggestion of a candidate LIGHTNING without range', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, min_discounted_price: null, max_discounted_price: null })).toBe(73558.15);
+  });
+
+  it('keeps the price of a candidate LIGHTNING without suggestion', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, suggested_discounted_price: null })).toBe(57920.55);
+  });
+
+  it('keeps the price of a pending LIGHTNING', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, status: 'pending', price: 70000 })).toBe(70000);
+  });
+
   it('keeps the suggested for SELLER_CAMPAIGN', () => {
     expect(promoDisplayPrice({ ...capturedDeal, promotion_type: 'SELLER_CAMPAIGN' })).toBe(49266.65);
   });
