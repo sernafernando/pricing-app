@@ -175,6 +175,19 @@ class TestAmbiguousRemoveFailsClosed:
         assert _log_rows(bg_db) == []
         assert _refresh_queued(bg_db)
 
+    def test_unexpected_live_payload_shape_is_ambiguous_not_an_error(self, bg_db, usuario, immediate_refresh) -> None:
+        """A fresh read that does not come back as a list of entries proves nothing; it never raises out of the write."""
+        with (
+            patch.object(write_service.ml_webhook_client, "remove_item", return_value=_AMBIGUOUS_504),
+            patch.object(write_service.ml_webhook_client, "get_item_promotions", return_value=["DEAL-1"]),
+            patch.object(write_service, "fetch_item_promotions", return_value=[]),
+        ):
+            outcome = write_service.remove_one_item(MLA, "DEAL", "DEAL-1", usuario_id=usuario.id)
+
+        assert outcome["status"] == "ambiguous"
+        assert _log_rows(bg_db) == []
+        assert _refresh_queued(bg_db)
+
     def test_unknown_mirror_status_and_live_still_enrolled_is_not_applied(
         self, bg_db, usuario, immediate_refresh
     ) -> None:

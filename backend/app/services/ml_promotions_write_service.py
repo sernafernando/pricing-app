@@ -256,10 +256,10 @@ def _fresh_effect(mla_id: str, promotion_id: str, operation: str) -> Optional[bo
     before a POST/DELETE), or None when that read fails or does not show exactly one entry with a known status."""
     try:
         live = _resolve(ml_webhook_client.get_item_promotions(mla_id))
-    except Exception as e:
+        matches = [entry for entry in live or [] if entry.get("id") == promotion_id]
+    except Exception as e:  # noqa: BLE001 - any failure (incl. an unexpected payload shape) proves nothing
         logger.error("Reconciliation fresh read failed for %s/%s: %s", mla_id, promotion_id, e)
         return None
-    matches = [entry for entry in live or [] if entry.get("id") == promotion_id]
     if len(matches) != 1:
         return None
     return _proven_effect(operation, _lightning_status(matches[0]))
