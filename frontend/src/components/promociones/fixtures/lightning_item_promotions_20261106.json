@@ -1,0 +1,180 @@
+{
+ "source": "mlwebhook.ml_item_promotions, read-only SELECT run by the owner on 2026-11-06 (LIGHTNING rows of MLA1506729443, MLA1865080493, MLA3854324204, MLA4161234030). Rows as captured; no customer data.",
+ "rows": [
+  {
+   "mla": "MLA1506729443",
+   "promotion_id": "LGH-MLA1000",
+   "promotion_type": "LIGHTNING",
+   "sub_type": null,
+   "status": "candidate",
+   "original_price": 86539.0,
+   "price": 57920.55,
+   "min_discounted_price": 17307.81,
+   "max_discounted_price": 77885.1,
+   "suggested_discounted_price": 73558.15,
+   "payload": {
+    "id": "LGH-MLA1000",
+    "type": "LIGHTNING",
+    "price": 57920.55,
+    "stock": {
+     "max": 112,
+     "min": 5
+    },
+    "ref_id": "CANDIDATE-MLA1506729443-71851615431",
+    "status": "candidate",
+    "original_price": 86539,
+    "max_discounted_price": 77885.1,
+    "min_discounted_price": 17307.81,
+    "suggested_discounted_price": 73558.15
+   },
+   "updated_at": "2026-11-05T20:06:19.777641+00:00"
+  },
+  {
+   "mla": "MLA1506729443",
+   "promotion_id": "LIGHTNING",
+   "promotion_type": "LIGHTNING",
+   "sub_type": null,
+   "status": "finished",
+   "original_price": null,
+   "price": null,
+   "min_discounted_price": null,
+   "max_discounted_price": null,
+   "suggested_discounted_price": null,
+   "payload": {
+    "id": "CANDIDATE-MLA1506729443-71611081944",
+    "type": "LIGHTNING",
+    "status": {
+     "id": "candidate"
+    },
+    "item_id": "MLA1506729443",
+    "promotion_id": ""
+   },
+   "updated_at": "2026-10-26T13:40:56.610709+00:00"
+  },
+  {
+   "mla": "MLA1865080493",
+   "promotion_id": "LGH-MLA1000",
+   "promotion_type": "LIGHTNING",
+   "sub_type": null,
+   "status": "candidate",
+   "original_price": 24555.0,
+   "price": 23818.35,
+   "min_discounted_price": 7366.5,
+   "max_discounted_price": null,
+   "suggested_discounted_price": null,
+   "payload": {
+    "id": "MLA1865080493",
+    "price": 23818.35,
+    "stock": {
+     "max": 22,
+     "min": 5
+    },
+    "ref_id": "CANDIDATE-MLA1865080493-71798809755",
+    "status": "candidate",
+    "original_price": 24555,
+    "min_discounted_price": 7366.5
+   },
+   "updated_at": "2026-11-06T13:53:02.968165+00:00"
+  },
+  {
+   "mla": "MLA1865080493",
+   "promotion_id": "LIGHTNING",
+   "promotion_type": "LIGHTNING",
+   "sub_type": null,
+   "status": "finished",
+   "original_price": null,
+   "price": null,
+   "min_discounted_price": null,
+   "max_discounted_price": null,
+   "suggested_discounted_price": null,
+   "payload": {
+    "id": "CANDIDATE-MLA1865080493-71435422597",
+    "type": "LIGHTNING",
+    "status": {
+     "id": "finished"
+    },
+    "item_id": "MLA1865080493",
+    "promotion_id": ""
+   },
+   "updated_at": "2026-10-30T03:02:07.396911+00:00"
+  },
+  {
+   "mla": "MLA3854324204",
+   "promotion_id": "LGH-MLA1000",
+   "promotion_type": "LIGHTNING",
+   "sub_type": null,
+   "status": "candidate",
+   "original_price": 15878.0,
+   "price": 14631.58,
+   "min_discounted_price": 3175.6,
+   "max_discounted_price": 14290.2,
+   "suggested_discounted_price": 13496.3,
+   "payload": {
+    "id": "LGH-MLA1000",
+    "type": "LIGHTNING",
+    "price": 14631.58,
+    "stock": {
+     "max": 11,
+     "min": 5
+    },
+    "ref_id": "CANDIDATE-MLA3854324204-71824007226",
+    "status": "candidate",
+    "original_price": 15878,
+    "max_discounted_price": 14290.2,
+    "min_discounted_price": 3175.6,
+    "suggested_discounted_price": 13496.3
+   },
+   "updated_at": "2026-11-04T14:50:15.208795+00:00"
+  },
+  {
+   "mla": "MLA3854324204",
+   "promotion_id": "LIGHTNING",
+   "promotion_type": "LIGHTNING",
+   "sub_type": null,
+   "status": "finished",
+   "original_price": null,
+   "price": null,
+   "min_discounted_price": null,
+   "max_discounted_price": null,
+   "suggested_discounted_price": null,
+   "payload": {
+    "id": "CANDIDATE-MLA3854324204-71611753846",
+    "type": "LIGHTNING",
+    "status": {
+     "id": "candidate"
+    },
+    "item_id": "MLA3854324204",
+    "promotion_id": ""
+   },
+   "updated_at": "2026-10-05T02:43:37.40964+00:00"
+  },
+  {
+   "mla": "MLA4161234030",
+   "promotion_id": "LGH-MLA1000",
+   "promotion_type": "LIGHTNING",
+   "sub_type": null,
+   "status": "candidate",
+   "original_price": 28322.0,
+   "price": 23280.0,
+   "min_discounted_price": 5664.32,
+   "max_discounted_price": 25489.44,
+   "suggested_discounted_price": 24073.36,
+   "payload": {
+    "id": "LGH-MLA1000",
+    "type": "LIGHTNING",
+    "price": 23280,
+    "stock": {
+     "max": 10,
+     "min": 5
+    },
+    "ref_id": "CANDIDATE-MLA4161234030-71864671967",
+    "status": "candidate",
+    "original_price": 28322,
+    "max_discounted_price": 25489.44,
+    "min_discounted_price": 5664.32,
+    "suggested_discounted_price": 24073.36
+   },
+   "updated_at": "2026-11-06T13:43:18.196395+00:00"
+  }
+ ]
+}
