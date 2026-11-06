@@ -196,6 +196,16 @@ class TestPromosDelPanel:
         assert [p["nuestro_markup"] for p in con] == sin
         assert all(p["markup_sell_in_out"] is not None for p in con)
 
+    def test_a_promo_without_markup_gets_no_sell_in_out_figure(self, engine) -> None:
+        """The extra figure goes with the markup: never "N/A" next to "c/ sell in/out X%" (review advisory)."""
+        _lote_y_campana(engine)
+
+        with patch("app.services.ml_promotions_pricing.calcular_markup", side_effect=ValueError("sin markup")):
+            promos = _enrich(engine)
+
+        assert [p["nuestro_markup"] for p in promos] == [None, None]
+        assert [p["markup_sell_in_out"] for p in promos] == [None, None]
+
     def test_callers_that_do_not_ask_for_it_get_no_field(self, engine) -> None:
         _lote_y_campana(engine)
 
