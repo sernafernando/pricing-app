@@ -32,6 +32,8 @@ from pydantic import (
 from pydantic_core import InitErrorDetails
 
 Tipo = Literal["por_unidad", "porcentaje", "monto_total"]
+# How a `monto_total` campaign is split by a criterion (`app.services.sell_out.criterio`); None: by hand.
+RepartoCriterio = Literal["iguales", "unidades", "costo"]
 BasePorcentaje = Literal["costo", "precio_neto"]
 Moneda = Literal["ARS", "USD"]
 TcModo = Literal["al_cobro", "fijo", "dia_venta"]
@@ -90,6 +92,26 @@ class SellOutRepartoIn(BaseModel):
     `sell_out.gestionar` user replaces them all; a PM only those of their brands, the rest are kept."""
 
     repartos: list[SellOutCampanaItemIn] = Field(max_length=ITEMS_MAX)
+    # Split the whole total by this criterion instead (tactical monto total S3): `repartos` must be empty, and only a
+    # user who sees every brand may (S6). Absent: the manual split above, which clears the stored criterion.
+    criterio: Optional[RepartoCriterio] = None
+
+
+class SellOutRepartoPreviaItemOut(BaseModel):
+    item_id: int
+    codigo: Optional[str]
+    unidades: int  # net units sold in the campaign's dates so far
+    monto: Decimal  # its share, in the campaign currency as loaded
+
+
+class SellOutRepartoPreviaOut(BaseModel):
+    """`GET /{id}/reparto/vista-previa`: what splitting by `criterio` gives, per product of the reach, stored nowhere."""
+
+    criterio: RepartoCriterio
+    moneda: Moneda
+    monto_total: Decimal
+    items: list[SellOutRepartoPreviaItemOut]
+    sin_asignar: Decimal
 
 
 class SellOutCampanaIn(BaseModel):
@@ -126,6 +148,10 @@ class SellOutCampanaIn(BaseModel):
     programa_id: Optional[int] = Field(default=None, ge=INT_MIN, le=INT_MAX)
     # The campaign it renews (the renewal draft sets it), on create only like `programa_id`: an edit keeps the stored one.
     renovada_de_id: Optional[int] = Field(default=None, ge=1, le=2**63 - 1)
+    # `monto_total` only, without `items`: split the total by this criterion (tactical monto total S2). Absent on an
+    # edit keeps the stored one (its fixed shares recomputed over the edited reach and total) unless `items` are
+    # sent, which makes the split manual.
+    reparto_criterio: Optional[RepartoCriterio] = None
 
     @model_validator(mode="wrap")
     @classmethod
@@ -367,6 +393,8 @@ class SellOutCampanaOut(BaseModel):
     # Its program (metadata only, legacy): kept as stored, never set by an edit.
     programa_id: Optional[int] = None
     renovada_de_id: Optional[int] = None
+    # How a `monto_total` campaign is split, None by hand (absent on the other types).
+    reparto_criterio: Optional[RepartoCriterio] = None
     # read-only: the tactical it is a line of; its own hidden group is never in `grupos` (the edit step keeps it)
     tactical_id: Optional[int] = None
     programa: Optional[SellOutProgramaRefOut] = None
@@ -381,6 +409,7 @@ class SellOutCampanaOut(BaseModel):
         salida = handler(self)
         if self.tipo != "monto_total":
             salida.pop("monto_total", None)
+            salida.pop("reparto_criterio", None)
         return salida
 
 
