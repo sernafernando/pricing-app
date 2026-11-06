@@ -171,7 +171,11 @@ def _montos_totales(
         con_ventas[cid].add(item_id)
     mts = {
         c.id: reparto.MontoTotal(
-            Decimal(c.monto_total), repartos.get(c.id, {}), c.monto_incluye_iva, ivas.get(c.id, {})
+            Decimal(c.monto_total),
+            repartos.get(c.id, {}),
+            c.monto_incluye_iva,
+            ivas.get(c.id, {}),
+            criterio=c.reparto_criterio,
         )
         for c in total
     }

@@ -14,7 +14,8 @@ import pytest
 from sqlalchemy import Engine, event
 from sqlalchemy.orm import sessionmaker
 
-from app.services.sell_out import tope
+from app.models.sell_out import SellOutCampana
+from app.services.sell_out import resumen, tope
 from app.services.sell_out.asignacion import SellOutAsignacionError, recalcular
 from tests.services.sell_out import _world as w
 
@@ -279,3 +280,36 @@ def _selects(engine: Engine, n: int) -> int:
     finally:
         event.remove(engine, "before_cursor_execute", contar)
     return len(selects)
+
+
+class TestUnidades:
+    """`reparto_criterio = 'unidades'` (tactical monto total S2 (b)): the rebuild spreads the total over every unit."""
+
+    def test_every_unit_gets_the_same_share_across_products(self, engine: Engine) -> None:
+        grupo = w.grupo(engine, [{"marca": "TP-LINK"}])
+        campana = w.monto_total(engine, [grupo], "300.00", reparto_criterio="unidades")
+        a = w.venta(engine, "ml", 2964, 2, date(2026, 11, 2))
+        b = w.venta(engine, "ml", 2270, 1, date(2026, 11, 3))
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == [(a, 2964, 2, Decimal("200.00")), (b, 2270, 1, Decimal("100.00"))]
+
+    def test_when_every_sale_is_returned_the_whole_total_is_sin_asignar(self, engine: Engine) -> None:
+        grupo = w.grupo(engine, [{"marca": "TP-LINK"}])
+        campana = w.monto_total(engine, [grupo], "300.00", reparto_criterio="unidades")
+        w.venta(engine, "fuera", 2964, 1, date(2026, 11, 2), cliente=55)
+        _recalcular(engine, campana)
+        w.venta(engine, "fuera", 2964, 1, date(2026, 11, 4), signo=-1, cliente=55)
+
+        _recalcular(engine, campana)
+
+        assert _filas(engine, campana) == []
+        with sessionmaker(bind=engine, autoflush=False)() as db:
+            [out] = resumen.serializar(db, [db.get(SellOutCampana, campana)])
+        assert out["resumen"]["reparto"] == {
+            "asignado": Decimal("0.00"),
+            "asignado_sin_ventas": Decimal("0.00"),
+            "sin_asignar": Decimal("300.00"),
+            "motivo": None,
+        }
