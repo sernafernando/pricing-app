@@ -2,26 +2,57 @@
  * TacticalLinea — one line of the Nuevo tactical grid, as the approved design draws it: its scope (Productos | Marca |
  * Categoría, and Factura on sell in), what it includes (product or invoice chips with their picker, or a brand or
  * category), its amount and kind, its unit and money caps, whether several products share the cap, what it can
- * charge at most, and copy / delete.
+ * charge at most, and copy / delete. A sell out total amount asks how it is split among the line's products and has
+ * no caps (S1).
  */
 import { Copy, Trash2, X } from 'lucide-react';
 import TacticalPicker from './TacticalPicker';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
 import {
+  REPARTOS,
   alcancesDe,
   conAlcance,
+  conModo,
   dinero,
   esCompartida,
   maximoACobrar,
   modosDe,
   modosNoDisponibles,
   puedeCompartir,
+  repartePorCriterio,
 } from './tacticalLineas';
 import Seg from './Seg';
 import styles from './TacticalLinea.module.css';
 
 const ALCANCES = { productos: 'Productos', marca: 'Marca', categoria: 'Categoría', factura: 'Factura' };
 const MODOS = { por_unidad: 'por unidad', porcentaje: '%', monto_total: 'monto total' };
+
+const AYUDA_REPARTO = {
+  iguales: 'Cada producto de la línea recibe la misma parte del total.',
+  unidades: 'Cada unidad vendida en el rango recibe la misma parte: sigue las ventas y devoluciones.',
+  costo: 'Cada producto recibe una parte según su costo.',
+};
+
+function Reparto({ linea, n, cambiar }) {
+  return (
+    <div className={`${styles.field} ${styles.reparto}`}>
+      <select
+        className={styles.select}
+        aria-label={`Reparto del monto total, línea ${n}`}
+        value={linea.reparto}
+        onChange={(e) => cambiar({ reparto: e.target.value })}
+      >
+        <option value="">Elegí cómo repartir</option>
+        {REPARTOS.map((r) => (
+          <option key={r.value} value={r.value}>
+            {r.label}
+          </option>
+        ))}
+      </select>
+      <span className={styles.help}>{AYUDA_REPARTO[linea.reparto] ?? 'El total se reparte entre los productos de la línea.'}</span>
+    </div>
+  );
+}
 
 const dia = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
 const numeroFactura = (f) => f.numero_factura || f.numero;
@@ -165,6 +196,7 @@ export default function TacticalLinea({
   const max = maximoACobrar(linea);
   const compartible = puedeCompartir(linea);
   const compartida = esCompartida(linea);
+  const porCriterio = repartePorCriterio(linea);
 
   return (
     <div className={styles.row} role="group" aria-label={`Línea ${n}`}>
@@ -193,6 +225,7 @@ export default function TacticalLinea({
           onCerrar={onCerrar}
           cambiar={cambiar}
         />
+        {porCriterio && <Reparto linea={linea} n={n} cambiar={cambiar} />}
       </div>
 
       {/* Amounts and caps are text read as typed in Argentina ("3000,5", "1.500"): a number input would read the dot
@@ -214,38 +247,43 @@ export default function TacticalLinea({
           options={modosDe(tipo).map((value) => ({ value, label: MODOS[value] }))}
           value={linea.modo}
           disabled={modosNoDisponibles(tipo, linea.alcance)}
-          onChange={(modo) => cambiar({ modo })}
+          onChange={(modo) => onCambiar(conModo(linea, modo))}
         />
       </div>
 
+      {/* A total amount split by criterion has no caps: the cells stay so the line keeps its columns. */}
       <div>
-        <input
-          className={styles.num}
-          type="text"
-          inputMode="numeric"
-          autoComplete="off"
-          placeholder="—"
-          aria-label={`Tope de unidades, línea ${n}`}
-          value={linea.topeUnidades}
-          onChange={(e) => cambiar({ topeUnidades: e.target.value })}
-        />
+        {!porCriterio && (
+          <input
+            className={styles.num}
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="—"
+            aria-label={`Tope de unidades, línea ${n}`}
+            value={linea.topeUnidades}
+            onChange={(e) => cambiar({ topeUnidades: e.target.value })}
+          />
+        )}
       </div>
 
       <div>
-        <input
-          className={styles.num}
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
-          placeholder="—"
-          aria-label={`Tope de monto en ${moneda}, línea ${n}`}
-          value={linea.topeMonto}
-          onChange={(e) => cambiar({ topeMonto: e.target.value })}
-        />
+        {!porCriterio && (
+          <input
+            className={styles.num}
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="—"
+            aria-label={`Tope de monto en ${moneda}, línea ${n}`}
+            value={linea.topeMonto}
+            onChange={(e) => cambiar({ topeMonto: e.target.value })}
+          />
+        )}
       </div>
 
       <div>
-        {linea.alcance !== 'factura' && (
+        {linea.alcance !== 'factura' && !porCriterio && (
           <button
             type="button"
             className={`${styles.pill} ${compartida ? styles.pillShared : ''}`}

@@ -27,6 +27,8 @@ function lineaDe(hijos) {
     topeMonto: texto(primero.tope_monto),
     // One child with several products is a shared line; several children are one per product.
     compartido: primero.alcance === 'productos' && hijos.length === 1 && productos.length > 1,
+    // How a sell out total amount was split among the line's products; '' for any other line.
+    reparto: primero.reparto_criterio ?? '',
   };
 }
 
