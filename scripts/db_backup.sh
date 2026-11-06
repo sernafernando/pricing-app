@@ -75,7 +75,7 @@ if [ "${FILESIZE}" -lt 1024 ]; then
     exit 1
 fi
 
-FILESIZE_MB=$(echo "scale=2; ${FILESIZE}/1048576" | bc)
+FILESIZE_MB=$(awk -v b="${FILESIZE}" 'BEGIN { printf "%.2f", b / 1048576 }')
 echo "   ✅ Backup completado: ${FILESIZE_MB} MB"
 
 # --- Limpieza: borrar backups de más de N días ---
