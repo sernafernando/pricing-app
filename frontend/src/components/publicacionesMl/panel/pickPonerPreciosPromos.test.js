@@ -324,6 +324,19 @@ describe('ranking with sell in / sell out (S5)', () => {
     expect(pickPonerPreciosPromos([a, b]).SMART).toBe(b);
   });
 
+  it('ranks every MeLi-type slot with the same sell in / sell out rule, not only SMART', () => {
+    const a = candidate('A', 'PRE_NEGOTIATED', 900, 25, 26);
+    const b = candidate('B', 'PRE_NEGOTIATED', 900, 20, 30);
+    const c = candidate('C', 'PRICE_MATCHING', 900, 25, 26);
+    const d = candidate('D', 'PRICE_MATCHING', 900, 20, 30);
+    const picked = pickPonerPreciosPromos([a, b, c, d]);
+    expect(picked.PRE_NEGOTIATED).toBe(b);
+    expect(picked.PRICE_MATCHING).toBe(d);
+    const baseline = { baselinePrice: 1000, baselineMarkup: 21, baselineSellInOut: 25 };
+    // Plain 22 >= 21 would beat it; with sell in / sell out 24 < 25 does not.
+    expect(pickMejoresCandidatas([candidate('E', 'PRE_NEGOTIATED', 1000, 22, 24)], baseline).PRE_NEGOTIATED).toBeNull();
+  });
+
   it('ranks a mixed set plain: one candidate without sell in / sell out puts them all on the plain markup', () => {
     const a = candidate('A', 'SMART', 900, 22, null);
     const b = candidate('B', 'SMART', 900, 20, 30);

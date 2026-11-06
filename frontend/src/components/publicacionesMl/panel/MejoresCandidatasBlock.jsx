@@ -50,7 +50,7 @@ function appliedCleanly(promo, data) {
  * The best candidate per writable MeLi type for a pub already flagged hay_mejores, as cards.
  * Mount only when the operator can write promos (discard/apply need it).
  * "Aplicar sugerencia" is the row's PromoApplyControl (same confirmation, guards and body; a
- * LIGHTNING opens its irreversible-offer card);
+ * LIGHTNING opens its irreversible-offer card with the stock prefilled at ML's minimum);
  * `onLeavePub` runs only after a clean apply; without it, a clean apply reloads the candidates
  * so the applied promo drops out. `onSuggested(ids)` reports the suggested promotion ids so the
  * Promos tab can mark them. Calls onUnavailable when baseline markup is missing or load fails
@@ -219,6 +219,7 @@ export default function MejoresCandidatasBlock({
                       mla={itemId}
                       promotion={promo}
                       label="Aplicar sugerencia"
+                      initialStock={slot === 'LIGHTNING' ? promo.payload?.stock?.min : undefined}
                       onApplied={(data) => {
                         onWritten?.();
                         if (!appliedCleanly(promo, data)) return;
