@@ -152,7 +152,10 @@ class TestPromosDelPanel:
             esperado = round((_limpio(promo["nuestro_markup"]) / (COSTO - 1000) - 1) * 100, 2)
             assert promo["markup_sell_in_out"] == pytest.approx(esperado, abs=0.01)
 
-    def test_a_net_price_percentage_sell_out_is_on_the_promo_consumer_price(self, engine) -> None:
+    def test_a_net_price_percentage_sell_out_is_on_the_same_revenue_as_the_promo_markup(self, engine) -> None:
+        """Owner, 2026-11-06: "se calcula sobre lo que nos dejaría la promo como el mark up que se muestra hoy en
+        las promos, no tendría sentido tomarla de dos valores distintos" -> the base is `nuestro_markup`'s revenue:
+        the promo price plus ML's co-funding, neither the bare consumer price nor the Clásica list price."""
         gid = so.grupo(engine, [{"item_id": ROUTER}])
         so.campana(
             engine,
@@ -167,8 +170,10 @@ class TestPromosDelPanel:
 
         seller, smart = _enrich(engine)
 
-        credito_seller = 60500 / 1.21 * 0.10  # 10 % of the promo price without VAT
-        credito_smart = 55000 / 1.21 * 0.10
+        revenue_seller = 60500  # seller-funded: no co-funding
+        revenue_smart = 55000 + 0.05 * 70000  # co-funded SMART: price + meli_percentage of the original price
+        credito_seller = revenue_seller / 1.21 * 0.10  # 10 % of the revenue without VAT
+        credito_smart = revenue_smart / 1.21 * 0.10
         assert seller["markup_sell_in_out"] == pytest.approx(
             round(((_limpio(seller["nuestro_markup"]) + credito_seller) / COSTO - 1) * 100, 2), abs=0.01
         )

@@ -365,7 +365,7 @@ def markup_para_precio_con_sell_in_out(db: Session, mla: str, price: float) -> M
     if nuestro is None:
         return MarkupsDePrecio(None, None)
     batch = _sell_in_out_batch(db, context, mla)
-    return MarkupsDePrecio(nuestro, _markup_sell_in_out_seguro(db, context, batch, price, price, mla))
+    return MarkupsDePrecio(nuestro, _markup_sell_in_out_seguro(db, context, batch, price, mla))
 
 
 # Types where ML co-funds the discount (`_co_funding_amount`). A started
@@ -527,15 +527,18 @@ def _sell_in_out_batch(db: Session, context: _PricingContext, mla: str) -> Optio
 
 
 def _markup_sell_in_out(
-    db: Session, context: _PricingContext, batch: Optional[SellInOutBatch], revenue: float, precio: float
+    db: Session, context: _PricingContext, batch: Optional[SellInOutBatch], revenue: float
 ) -> Optional[float]:
     """The markup of `revenue`'s net with the product's sell in / sell out today, on the Precios tab
     rule (`ProductPrices.jsx` `SellInOutMarkup`): with sell in + sell out when there is sell out, else
-    with sell in only. `precio` is the consumer price, the base of a `precio_neto` sell out
-    percentage. None when the product has neither, or neither amount is known."""
+    with sell in only. None when the product has neither, or neither amount is known.
+
+    A `precio_neto` sell out percentage is based on that same `revenue` (owner, 2026-11-06: "se
+    calcula sobre lo que nos dejaría la promo como el mark up que se muestra hoy en las promos, no
+    tendría sentido tomarla de dos valores distintos"): the promo price plus ML's co-funding."""
     if batch is None or context.producto is None:
         return None
-    acc = batch.markups(context.producto, precio_lista_ml=precio, tipo_cambio=context.tipo_cambio)
+    acc = batch.markups(context.producto, precio_lista_ml=revenue, tipo_cambio=context.tipo_cambio)
     acc.record(_SELL_IN_OUT_KEY, _limpio_para_revenue(db, context, revenue))
     payload = acc.payload()
     if payload is None:
@@ -549,12 +552,11 @@ def _markup_sell_in_out_seguro(
     context: _PricingContext,
     batch: Optional[SellInOutBatch],
     revenue: float,
-    precio: float,
     mla: Optional[str],
 ) -> Optional[float]:
     """`_markup_sell_in_out`, None instead of raising."""
     try:
-        return _markup_sell_in_out(db, context, batch, revenue, precio)
+        return _markup_sell_in_out(db, context, batch, revenue)
     except Exception as e:
         logger.warning("Error calculando markup con sell in / sell out para mla %s: %s", mla, e)
         return None
@@ -572,7 +574,7 @@ def _markup_sell_in_out_de_promo(
     except Exception as e:
         logger.warning("Error calculando revenue de promo %s: %s", promo.get("promotion_id"), e)
         return None
-    return _markup_sell_in_out_seguro(db, context, batch, revenue, effective_price, promo.get("mla"))
+    return _markup_sell_in_out_seguro(db, context, batch, revenue, promo.get("mla"))
 
 
 def _calcular_nuestro_markup(db: Session, promo: Dict[str, Any], context: _PricingContext) -> Optional[float]:
