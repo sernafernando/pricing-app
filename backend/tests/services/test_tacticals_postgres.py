@@ -401,3 +401,82 @@ class TestChildrenCap:
             "es uno): partilo en varios tacticals"
         )
         assert _contar(engine, "tacticals") == 0
+
+
+class TestSellOutMontoTotal:
+    """A sell out `monto_total` line with its split criterion (tactical monto total S1/S2)."""
+
+    def _linea(self, **values) -> dict:
+        return {"alcance": "marca", "marca": TPLINK, "modo_monto": "monto_total", "valor": "900", **values}
+
+    def _campana(self, db: Session) -> SellOutCampana:
+        return db.query(SellOutCampana).one()
+
+    def test_equal_parts_split_the_total_among_the_line_products(self, db, engine) -> None:
+        [salida] = service.serializar(
+            db, [service.crear(db, _tactical(lineas=[self._linea(reparto_criterio="iguales")]), USUARIO)]
+        )
+
+        campana = self._campana(db)
+        assert (campana.tipo, campana.monto_total, campana.reparto_criterio) == (
+            "monto_total",
+            Decimal("900"),
+            "iguales",
+        )
+        items = db.query(SellOutCampanaItem.item_id, SellOutCampanaItem.reparto_monto).order_by("item_id").all()
+        assert items == [(2270, Decimal("450.00")), (2964, Decimal("450.00"))]
+        assert [x["reparto_criterio"] for x in salida["lineas"]] == ["iguales"]
+        assert _contar(engine, "sell_out_dirty") >= 1
+
+    def test_by_units_stores_the_criterion_and_no_share(self, db) -> None:
+        [salida] = service.serializar(
+            db, [service.crear(db, _tactical(lineas=[self._linea(reparto_criterio="unidades")]), USUARIO)]
+        )
+
+        assert self._campana(db).reparto_criterio == "unidades"
+        assert db.query(SellOutCampanaItem).count() == 0
+        assert [x["reparto_criterio"] for x in salida["lineas"]] == ["unidades"]
+
+    def test_a_monto_total_line_without_a_criterion_is_refused(self, db, engine) -> None:
+        with pytest.raises(service.TacticalError, match="^Línea 1: elegí cómo repartir el monto total$"):
+            service.crear(db, _tactical(lineas=[self._linea()]), USUARIO)
+        assert _contar(engine, "sell_out_campanas") == 0
+
+    def test_a_criterion_on_a_per_unit_line_is_refused(self, db) -> None:
+        linea = {
+            "alcance": "marca",
+            "marca": TPLINK,
+            "modo_monto": "por_unidad",
+            "valor": "5",
+            "reparto_criterio": "iguales",
+        }
+        with pytest.raises(service.TacticalError, match="^Línea 1: el reparto es solo para un monto total$"):
+            service.crear(db, _tactical(lineas=[linea]), USUARIO)
+
+    def test_a_monto_total_line_cannot_go_per_product(self, db) -> None:
+        linea = self._linea(alcance="productos", marca=None, item_ids=[2964, 2270], reparto_criterio="iguales",
+                            tope_por_producto=True)  # fmt: skip
+        with pytest.raises(service.TacticalError, match="^Línea 1: un monto total se reparte entre los productos"):
+            service.crear(db, _tactical(lineas=[linea]), USUARIO)
+
+    def test_per_unit_and_percentage_lines_read_without_a_criterion(self, db) -> None:
+        lineas = [
+            {"alcance": "marca", "marca": TPLINK, "modo_monto": "por_unidad", "valor": "10"},
+            {"alcance": "marca", "marca": TPLINK, "modo_monto": "porcentaje", "valor": "3"},
+        ]
+        [salida] = service.serializar(db, [service.crear(db, _tactical(lineas=lineas), USUARIO)])
+
+        assert [(x["modo_monto"], x["reparto_criterio"]) for x in salida["lineas"]] == [
+            ("por_unidad", None),
+            ("porcentaje", None),
+        ]
+
+    @pytest.mark.parametrize("tope", [{"tope_unidades": 5}, {"tope_monto": "100"}])
+    def test_a_monto_total_line_with_a_cap_is_refused(self, db, engine, tope: dict) -> None:
+        linea = {"alcance": "marca", "marca": TPLINK, "modo_monto": "monto_total", "valor": "900",
+                 "reparto_criterio": "iguales", **tope}  # fmt: skip
+        with pytest.raises(
+            service.TacticalError, match="^Línea 1: un monto total no lleva topes: el total es su tope$"
+        ):
+            service.crear(db, _tactical(lineas=[linea]), USUARIO)
+        assert _contar(engine, "sell_out_campanas") == 0

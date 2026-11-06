@@ -13,6 +13,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.sell_out import RepartoCriterio
+
 TipoTactical = Literal["sell_in", "sell_out"]
 Alcance = Literal["productos", "marca", "categoria", "factura"]
 ModoMonto = Literal["por_unidad", "porcentaje", "monto_total"]
@@ -45,6 +47,9 @@ class TacticalLineaIn(BaseModel):
     tope_monto: Optional[Decimal] = Field(default=None, **MONTO)  # in the tactical's `moneda`
     # Only on a `productos` line: one child per product, each with the whole `valor` and its own caps.
     tope_por_producto: bool = False
+    # A sell out `monto_total` line only, and required there: how its total is split among the line's products
+    # (`app.services.sell_out.criterio`).
+    reparto_criterio: Optional[RepartoCriterio] = None
 
 
 class TacticalIn(BaseModel):
@@ -114,6 +119,7 @@ class TacticalLineaOut(BaseModel):
     tope_unidades: Optional[int]
     tope_monto: Optional[Decimal]
     tope_por_producto: bool  # its line created more than one child (one per product)
+    reparto_criterio: Optional[RepartoCriterio] = None  # a sell out `monto_total` line's split; None otherwise
     unidades_usadas: int
     monto_usado: Decimal
 
