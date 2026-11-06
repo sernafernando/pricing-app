@@ -12,10 +12,11 @@ price, and that credit is added to profit. The rules live in
   period its dates overlap (`desde` / `hasta`, 422 when inverted), marca (a
   product its groups reach, the campaign rule) and program (`programa_id`, or
   `sin_programa=true` for the campaigns without one; both at once is a 422).
-- `POST ""` may set the campaign's program (`programa_id`, optional): an unknown one is a 404, an archived one a
-  422 («El programa «X» está archivado.»). `PUT /{id}` keeps the stored program and ignores one sent: programs
-  are no longer managed from the app (the tactical is the brand's program), so existing ones stay as stored. A renewal sets `renovada_de_id`, the campaign it
-  renews. That campaign must exist and be of the same program (422; a copy of an archived program's campaign goes
+- Programs are no longer created, edited or assigned from the app (the tactical is the brand's program), but
+  stored ones are still honored: `POST ""` still accepts an existing program (`programa_id`, optional; the
+  renewal draft carries the original's): an unknown one is a 404, an archived one a 422 («El programa «X» está
+  archivado.»). `PUT /{id}` keeps the stored program and ignores one sent. A renewal sets `renovada_de_id`, the
+  campaign it renews. That campaign must exist and be of the same program (422; a copy of an archived program's campaign goes
   without program). A campaign that a non-voided campaign already renews is a 409.
 - `GET /{id}/renovacion` (`sell_out.gestionar`) is the renewal draft of a campaign, active or voided: a NEW
   campaign in the exact shape `POST ""` takes, with the next calendar quarter's dates and the name's trailing

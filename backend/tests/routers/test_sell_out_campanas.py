@@ -11,6 +11,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.main import app
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
@@ -402,12 +403,11 @@ def test_list_filters_by_program_or_without_one_and_both_is_a_422(client, gestor
     assert _message(resp) == "Elegí un programa o «Sin programa», no los dos."
 
 
-@pytest.mark.parametrize("url", [BASE])
-def test_permission_is_checked_before_the_filters(client, auth_headers, url) -> None:
+def test_permission_is_checked_before_the_filters(client, auth_headers) -> None:
     """A user without `sell_out.ver` gets a 403, not the filters' 422, whatever the filters are."""
     malos = {"desde": "2026-12-31", "hasta": "2026-12-01", "programa_id": 1, "sin_programa": True}
-    assert client.get(url, params=malos, headers=auth_headers).status_code == 403
-    assert client.get(url, params=malos).status_code in (401, 403)
+    assert client.get(BASE, params=malos, headers=auth_headers).status_code == 403
+    assert client.get(BASE, params=malos).status_code in (401, 403)
 
 
 @pytest.mark.parametrize(
@@ -428,7 +428,12 @@ def test_the_programs_routes_are_gone(client, gestor, method, url) -> None:
 
 
 def test_the_grouped_by_program_view_is_gone(client, gestor) -> None:
-    """`por-programa` is no longer a view: the path now reads as a campaign id, which it is not."""
+    """No route serves `por-programa` any more. It cannot answer 404 by itself: `GET /{campana_id}` takes the
+    path and rejects it as a campaign id, so the absence is asserted on the app's declared routes (OpenAPI)."""
+    rutas = app.openapi()["paths"]
+    assert not any(path.endswith("/por-programa") for path in rutas)
+    assert not any(path.startswith("/api/sell-out/programas") for path in rutas)
+    assert "get" in rutas[f"{BASE}/{{campana_id}}"]  # the path that now catches it
     resp = client.get(f"{BASE}/por-programa", headers=gestor)
     assert resp.status_code == 422
     assert "sin_programa" not in resp.text

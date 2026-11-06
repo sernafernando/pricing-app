@@ -122,7 +122,7 @@ class SellOutCampanaIn(BaseModel):
     # keeps the stored ones, so a client that does not send them never wipes them; `[]` clears them.
     items: Optional[list[SellOutCampanaItemIn]] = Field(default=None, max_length=ITEMS_MAX)
     # Its program (campaign system S1), on create only: absent or None means none. An edit ignores it and keeps the
-    # stored one; programs are no longer managed from the app (the tactical is the brand's program).
+    # stored one. Programs are no longer created or assigned from the app; an existing one is still accepted here.
     programa_id: Optional[int] = Field(default=None, ge=INT_MIN, le=INT_MAX)
     # The campaign it renews (the renewal draft sets it), on create only like `programa_id`: an edit keeps the stored one.
     renovada_de_id: Optional[int] = Field(default=None, ge=1, le=2**63 - 1)
