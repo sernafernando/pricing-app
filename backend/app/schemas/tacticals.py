@@ -47,7 +47,8 @@ class TacticalLineaIn(BaseModel):
     tope_monto: Optional[Decimal] = Field(default=None, **MONTO)  # in the tactical's `moneda`
     # Only on a `productos` line: one child per product, each with the whole `valor` and its own caps.
     tope_por_producto: bool = False
-    # A sell out `monto_total` line only, and required there: how its total is split among the line's products
+    # Required on a `monto_total` line over products, brand or category (sell out, and a sell in cost bonus) and
+    # refused elsewhere, an invoice line included: how its total is split among the line's products
     # (`app.services.sell_out.criterio`).
     reparto_criterio: Optional[RepartoCriterio] = None
 
@@ -119,7 +120,10 @@ class TacticalLineaOut(BaseModel):
     tope_unidades: Optional[int]
     tope_monto: Optional[Decimal]
     tope_por_producto: bool  # its line created more than one child (one per product)
-    reparto_criterio: Optional[RepartoCriterio] = None  # a sell out `monto_total` line's split; None otherwise
+    reparto_criterio: Optional[RepartoCriterio] = None  # a `monto_total` line's split; None otherwise (invoice too)
+    # A sell in total line of a USD tactical: the USD amount it was loaded with (`valor` is the bonus's ARS total,
+    # converted at the tactical's fixed `tipo_cambio`); None on every other line.
+    valor_usd: Optional[Decimal] = None
     unidades_usadas: int
     monto_usado: Decimal
 

@@ -64,12 +64,20 @@ class SellInBonoMarca(Base):
             "OR (alcance = 'factura' AND marca IS NULL AND categoria IS NULL)",
             name="ck_sell_in_bonos_marca_campos_segun_alcance",
         ),
-        CheckConstraint("tipo IN ('por_unidad', 'porcentaje')", name="ck_sell_in_bonos_marca_tipo"),
+        CheckConstraint("tipo IN ('por_unidad', 'porcentaje', 'monto_total')", name="ck_sell_in_bonos_marca_tipo"),
         CheckConstraint(
             "(tipo = 'por_unidad' AND monto_unit IS NOT NULL AND monto_unit > 0 AND porcentaje IS NULL) "
             "OR (tipo = 'porcentaje' AND porcentaje IS NOT NULL AND porcentaje > 0 AND porcentaje <= 100 "
-            "AND monto_unit IS NULL)",
+            "AND monto_unit IS NULL) OR (tipo = 'monto_total' AND monto_unit IS NULL AND porcentaje IS NULL)",
             name="ck_sell_in_bonos_marca_monto_segun_tipo",
+        ),
+        CheckConstraint(
+            "(tipo = 'monto_total' AND monto_total IS NOT NULL AND monto_total > 0 "
+            "AND reparto_criterio IS NOT NULL AND reparto_criterio IN ('iguales', 'unidades', 'costo') "
+            "AND base = 'costo_venta' "
+            "AND tope_unidades IS NULL AND tope_monto IS NULL) "
+            "OR (tipo <> 'monto_total' AND monto_total IS NULL AND reparto_criterio IS NULL)",
+            name="ck_sell_in_bonos_marca_monto_total",
         ),
         CheckConstraint("tope_unidades IS NULL OR tope_unidades > 0", name="ck_sell_in_bonos_marca_tope_unidades"),
         CheckConstraint("tope_monto IS NULL OR tope_monto > 0", name="ck_sell_in_bonos_marca_tope_monto"),
@@ -99,6 +107,11 @@ class SellInBonoMarca(Base):
     tipo = Column(String(16), nullable=False, default="por_unidad", server_default="por_unidad")
     monto_unit = Column(Numeric(18, 2), nullable=True)  # per invoiced unit, in `moneda`
     porcentaje = Column(Numeric(7, 4), nullable=True)
+    # Tactical monto total (S4): 'monto_total', a cost bonus whose ARS total is split across its products by
+    # `reparto_criterio` (sell out's 'iguales' | 'unidades' | 'costo'); 'iguales' / 'costo' keep their fixed shares in
+    # `SellInBonoReparto`. Never negative (`sell_in_bono_consumos.descuento_ars >= 0`) and never capped.
+    monto_total = Column(Numeric(18, 2), nullable=True)
+    reparto_criterio = Column(String(16), nullable=True)
     moneda = Column(String(3), nullable=False)
     fecha_desde = Column(Date, nullable=False)  # supplier invoice date, inclusive
     fecha_hasta = Column(Date, nullable=False)  # inclusive
@@ -157,6 +170,23 @@ class SellInBonoItem(Base):
     item_id = Column(Integer, nullable=False, index=True)
     monto_unit = Column(Numeric(18, 2), nullable=True)  # like SellInBonoMarca.monto_unit
     porcentaje = Column(Numeric(7, 4), nullable=True)  # like SellInBonoMarca.porcentaje
+
+
+class SellInBonoReparto(Base):
+    """A product's fixed share of a `monto_total` bonus split `iguales` or `costo` (tactical monto total S4), ARS,
+    written when the bonus is loaded or edited (`bonos_crud`); the shares add up to the total. Its own table, not
+    `sell_in_bono_items`: those rows ARE a 'modelos' bonus's scope. No FK to `productos_erp`, like the items."""
+
+    __tablename__ = "sell_in_bono_repartos"
+    __table_args__ = (
+        UniqueConstraint("bono_id", "item_id", name="uq_sell_in_bono_repartos_bono_item"),
+        CheckConstraint("monto > 0", name="ck_sell_in_bono_repartos_monto_positivo"),
+    )
+
+    id = Column(BigInteger, primary_key=True)
+    bono_id = Column(BigInteger, ForeignKey("sell_in_bonos_marca.id", ondelete="CASCADE"), nullable=False)
+    item_id = Column(Integer, nullable=False)
+    monto = Column(Numeric(18, 2), nullable=False)
 
 
 class SellInBonoDirty(Base):

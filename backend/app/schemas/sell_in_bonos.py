@@ -26,6 +26,11 @@ sold unit never above it, by sale date, ARS, no purchase); it is set on create
 and never changes. `incluye_iva` (S33) only exists on a cost bonus; left out
 on an edit, the stored one stays.
 `offset_origen_id` is read-only (set by the offsets migration script).
+
+`tipo = 'monto_total'` (tactical monto total S4) is a cost bonus whose ARS `monto_total` (> 0) is split across its
+products by `reparto_criterio` (`iguales` | `unidades` | `costo`, sell out's); it takes no `monto_unit`,
+`porcentaje`, cap nor model value. The response adds `repartos`, its fixed per-product shares (`iguales` / `costo`;
+empty for `unidades` and any other kind).
 """
 
 from __future__ import annotations
@@ -34,12 +39,22 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal, Optional, Union, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
+
+from app.schemas.sell_out import RepartoCriterio  # the same split criteria as sell out's
 
 Moneda = Literal["ARS", "USD"]
 Estado = Literal["activa", "anulada"]
 Alcance = Literal["marca", "categoria", "modelos", "factura"]
-TipoBono = Literal["por_unidad", "porcentaje"]
+TipoBono = Literal["por_unidad", "porcentaje", "monto_total"]
 BaseBono = Literal["factura", "costo_venta"]
 # The one spelling of each base, shared by the services (T25d).
 BASE_FACTURA, BASE_COSTO_VENTA = get_args(BaseBono)
@@ -92,6 +107,15 @@ class SellInBonoModeloOut(BaseModel):
     porcentaje: Optional[Decimal] = None
 
 
+class SellInBonoRepartoOut(BaseModel):
+    """A product's fixed share of a `monto_total` bonus (ARS)."""
+
+    item_id: int
+    codigo: Optional[str]  # None when the catalog no longer has the item
+    descripcion: Optional[str]
+    monto: Decimal
+
+
 class SellInBonoIn(BaseModel):
     """Create, and full replace on edit."""
 
@@ -104,6 +128,9 @@ class SellInBonoIn(BaseModel):
     tipo: TipoBono = "por_unidad"
     monto_unit: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=2)  # per unit, in `moneda`
     porcentaje: Optional[Decimal] = Field(default=None, max_digits=7, decimal_places=4)  # of the invoiced net
+    # `monto_total` only, and required there: the ARS total and how it is split across the bonus's products.
+    monto_total: Optional[Decimal] = Field(default=None, max_digits=18, decimal_places=2)
+    reparto_criterio: Optional[RepartoCriterio] = None
     moneda: Moneda
     fecha_desde: date  # supplier invoice date, inclusive
     fecha_hasta: date  # inclusive
@@ -144,6 +171,9 @@ class SellInBonoOut(BaseModel):
     tipo: TipoBono
     monto_unit: Optional[Decimal]
     porcentaje: Optional[Decimal]
+    monto_total: Optional[Decimal] = None
+    reparto_criterio: Optional[RepartoCriterio] = None
+    repartos: list[SellInBonoRepartoOut] = Field(default_factory=list)
     moneda: Moneda
     fecha_desde: date
     fecha_hasta: date
@@ -169,6 +199,18 @@ class SellInBonoOut(BaseModel):
     incluye_iva: bool
     acumulable: bool
     offset_origen_id: Optional[int]
+
+    # No return annotation on purpose: a `-> dict` would publish this model's OpenAPI response schema as a bare
+    # object; without one, pydantic keeps the model's own fields.
+    @model_serializer(mode="wrap")
+    def _sin_monto_total(self, handler: SerializerFunctionWrapHandler):
+        """Only a `monto_total` bonus carries its total, criterion and shares: every other bonus's response stays
+        exactly as it was."""
+        salida = handler(self)
+        if self.tipo != "monto_total":
+            for clave in ("monto_total", "reparto_criterio", "repartos"):
+                salida.pop(clave, None)
+        return salida
 
 
 class SellInBonoListOut(BaseModel):
