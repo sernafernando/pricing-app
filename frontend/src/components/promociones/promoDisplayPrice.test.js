@@ -58,6 +58,30 @@ describe('promoDisplayPrice — the one offer-price rule', () => {
     expect(promoDisplayPrice({ ...capturedDeal, price: 55000 })).toBe(55000);
   });
 
+  // Captured LIGHTNING candidate, MLA1506729443: `price` is the SMART candidate's, not the lightning
+  // suggestion. Same cases as backend TestPrecioDeOferta.
+  const capturedLightning = {
+    promotion_id: 'LGH-MLA1000',
+    promotion_type: 'LIGHTNING',
+    status: 'candidate',
+    price: 57920.55,
+    min_discounted_price: 17307.81,
+    max_discounted_price: 77885.1,
+    suggested_discounted_price: 73558.15,
+  };
+
+  it('uses the suggested for a candidate LIGHTNING', () => {
+    expect(promoDisplayPrice(capturedLightning)).toBe(73558.15);
+  });
+
+  it('keeps the price of a candidate LIGHTNING without suggestion', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, suggested_discounted_price: null })).toBe(57920.55);
+  });
+
+  it('keeps the price of a pending LIGHTNING', () => {
+    expect(promoDisplayPrice({ ...capturedLightning, status: 'pending', price: 70000 })).toBe(70000);
+  });
+
   it('keeps the suggested for SELLER_CAMPAIGN', () => {
     expect(promoDisplayPrice({ ...capturedDeal, promotion_type: 'SELLER_CAMPAIGN' })).toBe(49266.65);
   });

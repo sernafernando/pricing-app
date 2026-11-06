@@ -4,6 +4,13 @@ function positiveNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
+// Status as text: older stored entries carry it as `{ id: 'candidate' }`.
+function statusText(promo) {
+  const status = promo.status;
+  const value = status && typeof status === 'object' ? status.id : status;
+  return typeof value === 'string' ? value : null;
+}
+
 // The price a promo row SHOWS — the ONE offer-price rule, mirrored exactly
 // by the backend's `precio_de_oferta` (ml_promotions_pricing.py), which the
 // pre-apply guard, the 409's `precio_actual` and every markup use. The apply
@@ -17,10 +24,16 @@ function positiveNumber(value) {
 // carry ML's offer in `price` even as candidates.
 export function promoDisplayPrice(promo) {
   if (!promo) return null;
+  // Panel rows carry `promotion_type`, live ML entries `type`: read both, like the backend.
+  const type = promo.promotion_type ?? promo.type;
+  // A LIGHTNING candidate's `price` is not its suggestion (MLA1506729443: the SMART candidate's).
+  if (type === 'LIGHTNING' && statusText(promo) === 'candidate') {
+    const suggested = positiveNumber(promo.suggested_discounted_price);
+    if (suggested != null) return suggested;
+  }
   const price = positiveNumber(promo.price);
   if (price != null) return price;
-  // Panel rows carry `promotion_type`, live ML entries `type`: read both, like the backend.
-  if ((promo.promotion_type ?? promo.type) === 'DEAL') {
+  if (type === 'DEAL') {
     const max = positiveNumber(promo.max_discounted_price);
     if (max != null) return max;
   }
