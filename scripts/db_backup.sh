@@ -5,10 +5,11 @@
 # Guarda los últimos 30 días en /srv/db-backup comprimidos con gzip
 #
 # Uso manual:
-#   bash /var/www/html/pricing-app/scripts/db_backup.sh
+#   bash /srv/apps/pricing-app/scripts/db_backup.sh [ENV_FILE] [URL_VARIABLE]
+#   (defaults: /srv/apps/pricing-app/backend/.env and DATABASE_URL; the ml-webhook DB is
+#    /srv/apps/ml-webhook/.env DATABASE_ADMIN_URL). Files are named after the database.
 #
-# Cron (diario a la 01:00, ANTES de los syncs incrementales):
-#   0 1 * * * /var/www/html/pricing-app/scripts/db_backup.sh >> /var/log/pricing-app/db_backup.log 2>&1
+# Cron: deploy/cron.d/pricing-app-faltantes.
 # =============================================================================
 
 set -euo pipefail
@@ -17,18 +18,18 @@ set -euo pipefail
 BACKUP_DIR="/srv/db-backup"
 RETENTION_DAYS=30
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-BACKUP_FILE="${BACKUP_DIR}/pricing_db_${TIMESTAMP}.dump.gz"
 
 # DB config (lee DATABASE_URL del .env del backend; falla si no existe)
-ENV_FILE="/var/www/html/pricing-app/backend/.env"
+ENV_FILE="${1:-/srv/apps/pricing-app/backend/.env}"
+URL_VAR="${2:-DATABASE_URL}"
 if [ ! -f "$ENV_FILE" ]; then
     echo "ERROR: $ENV_FILE no existe. Abortando backup." >&2
     exit 1
 fi
 
-DB_URL=$(grep -E "^DATABASE_URL=" "$ENV_FILE" | cut -d'=' -f2-)
+DB_URL=$(grep -E "^${URL_VAR}=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"')
 if [ -z "$DB_URL" ]; then
-    echo "ERROR: DATABASE_URL no definida en $ENV_FILE. Abortando." >&2
+    echo "ERROR: ${URL_VAR} no definida en $ENV_FILE. Abortando." >&2
     exit 1
 fi
 
@@ -40,10 +41,11 @@ DB_NAME=$(echo "$DB_URL" | sed -n 's|.*/\([^?]*\).*|\1|p')
 
 for var in DB_USER DB_PASS DB_HOST DB_PORT DB_NAME; do
     if [ -z "${!var}" ]; then
-        echo "ERROR: $var no pudo extraerse de DATABASE_URL. Abortando." >&2
+        echo "ERROR: $var no pudo extraerse de ${URL_VAR}. Abortando." >&2
         exit 1
     fi
 done
+BACKUP_FILE="${BACKUP_DIR}/${DB_NAME}_${TIMESTAMP}.dump.gz"
 
 # --- Setup ---
 echo "============================================"
@@ -78,11 +80,11 @@ echo "   ✅ Backup completado: ${FILESIZE_MB} MB"
 
 # --- Limpieza: borrar backups de más de N días ---
 echo "   Limpiando backups con más de ${RETENTION_DAYS} días..."
-DELETED=$(find "${BACKUP_DIR}" -name "pricing_db_*.dump.gz" -mtime +${RETENTION_DAYS} -print -delete | wc -l)
+DELETED=$(find "${BACKUP_DIR}" -name "${DB_NAME}_*.dump.gz" -mtime +${RETENTION_DAYS} -print -delete | wc -l)
 echo "   🗑️  Eliminados: ${DELETED} backups antiguos"
 
 # --- Resumen ---
-TOTAL=$(find "${BACKUP_DIR}" -name "pricing_db_*.dump.gz" | wc -l)
+TOTAL=$(find "${BACKUP_DIR}" -name "${DB_NAME}_*.dump.gz" | wc -l)
 TOTAL_SIZE=$(du -sh "${BACKUP_DIR}" | cut -f1)
 echo ""
 echo "   📊 Backups almacenados: ${TOTAL}"
