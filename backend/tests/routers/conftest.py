@@ -8,6 +8,7 @@ from contextlib import contextmanager
 import pytest
 from sqlalchemy import Engine, create_engine, text
 
+from app.models.combo_componente import ComboComponente
 from app.services import rrhh_horas_extras_diario as diario
 from tests.conftest import POSTGRES_TEST_URL, _postgres_reachable
 
@@ -46,3 +47,18 @@ def he_lock() -> Iterator[HeDetectionLock]:
         yield HeDetectionLock(engine)
     finally:
         engine.dispose()
+
+
+# One combo no test sells, out of the range of the tests' product ids.
+COMBO_SEMILLA, COMPONENTE_SEMILLA = 999_999_001, 999_999_002
+
+
+@pytest.fixture(autouse=True)
+def _bom_sincronizado(request) -> None:
+    """The combo bill of materials starts synced for every test that uses `db`: sell in and sell out refuse an empty
+    one (`CombosNoSincronizados`, 503 through the API), like ML costing. A test of that refusal deletes the row."""
+    if "db" not in request.fixturenames:
+        return
+    db = request.getfixturevalue("db")
+    db.add(ComboComponente(combo_item_id=COMBO_SEMILLA, componente_item_id=COMPONENTE_SEMILLA, cantidad=1))
+    db.commit()

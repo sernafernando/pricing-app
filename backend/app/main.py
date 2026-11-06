@@ -129,7 +129,8 @@ from app.tickets.api.endpoints import (
     propuestas as propuestas_ep,
 )
 from app.core.config import settings, DEV_LIKE_ENVIRONMENTS
-from app.core.exceptions import http_exception_handler
+from app.core.exceptions import combos_no_sincronizados_handler, http_exception_handler
+from app.services.combos.componentes import CombosNoSincronizados
 from app.core.logging import get_logger
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
 
@@ -308,6 +309,7 @@ app = FastAPI(
 # handlers — so a bare 404 raised by an env-gated route (see `require_dev_or_test`)
 # stays byte-indistinguishable from a nonexistent route.
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+app.add_exception_handler(CombosNoSincronizados, combos_no_sincronizados_handler)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)

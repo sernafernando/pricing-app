@@ -172,3 +172,11 @@ def _status_to_code(status_code: int) -> str:
         429: ErrorCode.RATE_LIMITED,
     }
     return mapping.get(status_code, ErrorCode.INTERNAL_ERROR)
+
+
+def combos_no_sincronizados_handler(request, exc) -> JSONResponse:
+    """`CombosNoSincronizados` raised by a service under any route (sell in and sell out count a combo as its
+    components): the same 503 `COMBOS_NOT_SYNCED` envelope `deps.exigir_combos_sincronizados` answers, never a 500."""
+    from app.services.combos.componentes import DETALLE_COMBOS_NO_SINCRONIZADOS
+
+    return http_exception_handler(request, StarletteHTTPException(503, detail=DETALLE_COMBOS_NO_SINCRONIZADOS))

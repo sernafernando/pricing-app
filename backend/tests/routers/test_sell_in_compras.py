@@ -1057,3 +1057,16 @@ def test_bulk_void_releases_the_units_exactly_like_the_single_void(client, gesto
 @pytest.mark.parametrize("ids", [[], list(range(1, 502))])
 def test_bulk_void_needs_between_1_and_500_ids(client, gestor, ids):
     assert client.post(MASIVO, json={"ids": ids}, headers=gestor).status_code == 422
+
+
+def test_with_the_combo_bill_of_materials_unsynced_a_purchase_is_refused_with_503(client, gestor, productos, db):
+    # Combos count as their components in sell in: an empty bill of materials cannot tell them apart.
+    from app.models.combo_componente import ComboComponente
+
+    db.query(ComboComponente).delete()
+    db.commit()
+
+    resp = client.post(BASE, json=_create_body(), headers=gestor)
+
+    assert resp.status_code == 503, resp.text
+    assert resp.json()["error"]["code"] == "COMBOS_NOT_SYNCED"
