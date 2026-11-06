@@ -521,7 +521,7 @@ class TestMirrorReadNeverWaitsOnML:
     def test_empty_mirror_does_not_call_the_live_proxy(self, read_only_client: TestClient) -> None:
         with (
             patch("app.routers.ml_promotions.fetch_item_promotions", return_value=[]),
-            patch("app.routers.ml_promotions.enriquecer_markup_por_promo", side_effect=lambda db, mla, p: p),
+            patch("app.routers.ml_promotions.enriquecer_markup_por_promo", side_effect=lambda db, mla, p, **kw: p),
             patch.object(write_service.ml_webhook_client, "get_item_promotions") as mock_live,
         ):
             response = read_only_client.get(f"/api/promociones/item/{MLA}")

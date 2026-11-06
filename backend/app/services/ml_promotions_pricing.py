@@ -14,9 +14,15 @@ exact price->markup chain used by `/precios/calcular-markup` and
 
 Never crashes: any promo whose cost/publication/effective-price cannot be
 resolved gets `nuestro_markup = None`.
+
+The panel reads also ask for `markup_sell_in_out` (promos-markup-sell-in-out):
+the same promo net with today's sell in / sell out of the product
+(`productos_sell_in_out`, the Precios tab rule), as an extra figure. It never
+changes `nuestro_markup`, which keeps ranking the offers.
 """
 
-from typing import Any, Dict, List, Mapping, Optional
+from datetime import date
+from typing import Any, Dict, List, Mapping, NamedTuple, Optional
 
 from sqlalchemy.orm import Session
 
@@ -24,6 +30,7 @@ from app.core.logging import get_logger
 from app.models.producto import ProductoERP
 from app.models.publicacion_ml import PublicacionML
 from app.services.envio_real_service import resolver_costo_envio
+from app.services.productos_sell_in_out import SellInOutBatch, resolver_sell_in_out_batch
 from app.services.pricing_calculator import (
     calcular_comision_ml_total,
     calcular_limpio,
@@ -190,6 +197,8 @@ class _PricingContext:
         costo_envio: float,
         grupo_id: int,
         constantes: Optional[Dict[str, float]] = None,
+        producto: Optional[ProductoERP] = None,
+        tipo_cambio: Optional[float] = None,
     ) -> None:
         self.costo_ars = costo_ars
         self.comision_base = comision_base
@@ -197,6 +206,9 @@ class _PricingContext:
         self.costo_envio = costo_envio
         self.grupo_id = grupo_id
         self.constantes = constantes
+        # The product and the USD rate its cost converted at: what the sell in / sell out companion prices with.
+        self.producto = producto
+        self.tipo_cambio = tipo_cambio
         self._envio_promedio: Optional[float] = None
 
     def costo_envio_para(self, db: Session, revenue: float) -> float:
@@ -254,16 +266,25 @@ def _resolve_pricing_context(db: Session, mla: str) -> Optional[_PricingContext]
         costo_envio=costo_envio,
         grupo_id=grupo_id,
         constantes=constantes,
+        producto=producto,
+        tipo_cambio=tipo_cambio,
     )
 
 
-def enriquecer_markup_por_promo(db: Session, mla: str, promociones: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def enriquecer_markup_por_promo(
+    db: Session, mla: str, promociones: List[Dict[str, Any]], *, sell_in_out: bool = False
+) -> List[Dict[str, Any]]:
     """Adds `nuestro_markup` (Optional[float], percentage) to each promo dict
     in `promociones`, mutating them in place and returning the same list.
 
     Resolves item/pricelist/cost/commission context ONCE per request from
     `mla`. If the publication or the product cost cannot be resolved, every
     promo in the list gets `nuestro_markup = None` (no exception).
+
+    `sell_in_out` (the panel read only) also adds `markup_sell_in_out`
+    (`_markup_sell_in_out`), resolving the product's sell in / sell out once
+    for the whole list. Callers that rank or flag offers leave it off: they
+    need neither the field nor its queries.
     """
     if not promociones:
         return promociones
@@ -272,10 +293,15 @@ def enriquecer_markup_por_promo(db: Session, mla: str, promociones: List[Dict[st
     if context is None:
         for promo in promociones:
             promo["nuestro_markup"] = None
+            if sell_in_out:
+                promo["markup_sell_in_out"] = None
         return promociones
 
+    batch = _sell_in_out_batch(db, context, mla) if sell_in_out else None
     for promo in promociones:
         promo["nuestro_markup"] = _calcular_nuestro_markup(db=db, promo=promo, context=context)
+        if sell_in_out:
+            promo["markup_sell_in_out"] = _markup_sell_in_out_de_promo(db, context, batch, promo)
 
     return promociones
 
@@ -319,6 +345,27 @@ def markup_para_precio(db: Session, mla: str, price: float) -> Optional[float]:
         return None
 
     return _markup_con_contexto(db, context, price, mla=mla)
+
+
+class MarkupsDePrecio(NamedTuple):
+    """`markup_para_precio` and its sell in / sell out companion for the same price."""
+
+    nuestro_markup: Optional[float]
+    markup_sell_in_out: Optional[float]
+
+
+def markup_para_precio_con_sell_in_out(db: Session, mla: str, price: float) -> MarkupsDePrecio:
+    """`markup_para_precio(price)` plus `markup_sell_in_out` on the same net
+    (`_markup_sell_in_out`), with ONE pricing context. Used by the panel's
+    manual price input and its "Markup vigente" line. Never raises."""
+    context = _resolve_pricing_context(db, mla)
+    if context is None:
+        return MarkupsDePrecio(None, None)
+    nuestro = _markup_con_contexto(db, context, price, mla=mla)
+    if nuestro is None:
+        return MarkupsDePrecio(None, None)
+    batch = _sell_in_out_batch(db, context, mla)
+    return MarkupsDePrecio(nuestro, _markup_sell_in_out_seguro(db, context, batch, price, price, mla))
 
 
 # Types where ML co-funds the discount (`_co_funding_amount`). A started
@@ -441,13 +488,13 @@ def markup_de_oferta_live(
     return promo.get("nuestro_markup")
 
 
-def _markup_para_revenue(db: Session, context: _PricingContext, revenue: float) -> float:
-    """price->markup chain on `revenue` using ONLY what `context` already resolved
+def _limpio_para_revenue(db: Session, context: _PricingContext, revenue: float) -> float:
+    """The net (`calcular_limpio`) of `revenue` using ONLY what `context` already resolved
     (constants, shipping): no statement per call."""
     comisiones = calcular_comision_ml_total(
         revenue, context.comision_base, context.iva, db=db, constantes=context.constantes
     )
-    limpio = calcular_limpio(
+    return calcular_limpio(
         revenue,
         context.iva,
         context.costo_envio_para(db, revenue),
@@ -455,7 +502,77 @@ def _markup_para_revenue(db: Session, context: _PricingContext, revenue: float) 
         db=db,
         constantes=context.constantes,
     )
-    return calcular_markup(limpio, context.costo_ars) * 100
+
+
+def _markup_para_revenue(db: Session, context: _PricingContext, revenue: float) -> float:
+    """price->markup chain on `revenue` (`_limpio_para_revenue`): no statement per call."""
+    return calcular_markup(_limpio_para_revenue(db, context, revenue), context.costo_ars) * 100
+
+
+_SELL_IN_OUT_KEY = "promo"
+
+
+def _sell_in_out_batch(db: Session, context: _PricingContext, mla: str) -> Optional[SellInOutBatch]:
+    """Today's sell in / sell out of the context's product (`resolver_sell_in_out_batch`, a few
+    queries, once per request). In a SAVEPOINT: a failure leaves the request session usable and
+    the companion markups null, never the plain ones."""
+    if context.producto is None:
+        return None
+    try:
+        with db.begin_nested():
+            return resolver_sell_in_out_batch(db, [context.producto.item_id], date.today())
+    except Exception as e:
+        logger.warning("Error resolviendo sell in / sell out para mla %s: %s", mla, e)
+        return None
+
+
+def _markup_sell_in_out(
+    db: Session, context: _PricingContext, batch: Optional[SellInOutBatch], revenue: float, precio: float
+) -> Optional[float]:
+    """The markup of `revenue`'s net with the product's sell in / sell out today, on the Precios tab
+    rule (`ProductPrices.jsx` `SellInOutMarkup`): with sell in + sell out when there is sell out, else
+    with sell in only. `precio` is the consumer price, the base of a `precio_neto` sell out
+    percentage. None when the product has neither, or neither amount is known."""
+    if batch is None or context.producto is None:
+        return None
+    acc = batch.markups(context.producto, precio_lista_ml=precio, tipo_cambio=context.tipo_cambio)
+    acc.record(_SELL_IN_OUT_KEY, _limpio_para_revenue(db, context, revenue))
+    payload = acc.payload()
+    if payload is None:
+        return None
+    con_sell_out = payload.markups_sell_in_out.get(_SELL_IN_OUT_KEY)
+    return con_sell_out if con_sell_out is not None else payload.markups_sell_in.get(_SELL_IN_OUT_KEY)
+
+
+def _markup_sell_in_out_seguro(
+    db: Session,
+    context: _PricingContext,
+    batch: Optional[SellInOutBatch],
+    revenue: float,
+    precio: float,
+    mla: Optional[str],
+) -> Optional[float]:
+    """`_markup_sell_in_out`, None instead of raising."""
+    try:
+        return _markup_sell_in_out(db, context, batch, revenue, precio)
+    except Exception as e:
+        logger.warning("Error calculando markup con sell in / sell out para mla %s: %s", mla, e)
+        return None
+
+
+def _markup_sell_in_out_de_promo(
+    db: Session, context: _PricingContext, batch: Optional[SellInOutBatch], promo: Dict[str, Any]
+) -> Optional[float]:
+    """`_markup_sell_in_out` on the same revenue as `nuestro_markup` (effective price + ML co-funding)."""
+    effective_price = precio_de_oferta(promo)
+    if effective_price is None or batch is None:
+        return None
+    try:
+        revenue = effective_price + _co_funding_amount(promo)
+    except Exception as e:
+        logger.warning("Error calculando revenue de promo %s: %s", promo.get("promotion_id"), e)
+        return None
+    return _markup_sell_in_out_seguro(db, context, batch, revenue, effective_price, promo.get("mla"))
 
 
 def _calcular_nuestro_markup(db: Session, promo: Dict[str, Any], context: _PricingContext) -> Optional[float]:
