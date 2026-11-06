@@ -19,7 +19,48 @@ function markupClass(value) {
 }
 
 // Same writable-type contract as MlaPromocionesPanel's APPLICABLE_TYPES.
-const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING']);
+const WRITABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING', 'LIGHTNING']);
+
+// Ofertas relámpago: the operator sets the price and the stock to reserve.
+const LIGHTNING = 'LIGHTNING';
+
+// Default LIGHTNING price: ML's `price` clamped to its [min, max] (ML's own price can sit
+// above its max, MLA3854324204 on 2026-11-06). With no max only the min applies.
+function lightningDefaultPrice(promotion) {
+  const price = Number(promotion.price);
+  if (!(price > 0)) return '';
+  const { min_discounted_price: min, max_discounted_price: max } = promotion;
+  if (max != null && price > max) return max;
+  if (min != null && price < min) return min;
+  return price;
+}
+
+// ML's `stock: {min, max}` for the units to reserve, or null when it does not report it.
+function lightningStockRange(promotion) {
+  const stock = promotion.payload?.stock;
+  if (!Number.isInteger(stock?.min) || !Number.isInteger(stock?.max)) return null;
+  return { min: stock.min, max: stock.max };
+}
+
+// "10/11 09:00" in Argentina time, or null when the date is missing or unparseable.
+function formatDateTime(iso) {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('es-AR', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value]),
+  );
+  return `${parts.day}/${parts.month} ${parts.hour}:${parts.minute}`;
+}
 
 // Debounce delay (ms) for the manual-price -> markup lookup.
 const MARKUP_DEBOUNCE_MS = 400;
@@ -127,7 +168,14 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
   // DEAL). SMART/PRE_NEGOTIATED have their price fixed/derived by ML.
   const isRangeType =
     promotion.min_discounted_price != null && promotion.max_discounted_price != null;
-  const defaultPrice = promotion.suggested_discounted_price ?? promotion.price ?? promotion.min_discounted_price ?? '';
+  const isLightning = promotion.promotion_type === LIGHTNING;
+  // LIGHTNING always takes a typed price, even when ML sends no max (only the min applies then).
+  const showsPriceInput = isRangeType || isLightning;
+  const stockRange = isLightning ? lightningStockRange(promotion) : null;
+  const defaultPrice = isLightning
+    ? lightningDefaultPrice(promotion)
+    : (promotion.suggested_discounted_price ?? promotion.price ?? promotion.min_discounted_price ?? '');
+  const [stock, setStock] = useState('');
   const [dealPrice, setDealPrice] = useState(defaultPrice);
   const [markup, setMarkup] = useState(null);
   const [markupLoading, setMarkupLoading] = useState(false);
@@ -149,7 +197,7 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
     // The manual-price markup lookup only applies to the range-type enroll
     // flow — the price input is rendered only when `isRangeType && !isEnrolled`.
     // Skip it entirely for the Desaplicar flow, where no price is submitted.
-    if (!isRangeType || isEnrolled || phase !== 'confirming') return undefined;
+    if (!showsPriceInput || isEnrolled || phase !== 'confirming') return undefined;
 
     setMarkupLoading(true);
     const priceForLookup = dealPrice;
@@ -160,7 +208,7 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
       if (
         !Number.isFinite(numericPrice) ||
         numericPrice < promotion.min_discounted_price ||
-        numericPrice > promotion.max_discounted_price
+        (promotion.max_discounted_price != null && numericPrice > promotion.max_discounted_price)
       ) {
         setMarkup(null);
         setMarkupLoading(false);
@@ -177,7 +225,7 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
   }, [
     dealPrice,
     phase,
-    isRangeType,
+    showsPriceInput,
     isEnrolled,
     mla,
     promotion.min_discounted_price,
@@ -191,10 +239,23 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
 
   const numericDealPrice = Number(dealPrice);
   const priceOutOfRange =
-    isRangeType &&
+    showsPriceInput &&
     (!Number.isFinite(numericDealPrice) ||
       numericDealPrice < promotion.min_discounted_price ||
-      numericDealPrice > promotion.max_discounted_price);
+      (promotion.max_discounted_price != null && numericDealPrice > promotion.max_discounted_price));
+  const needsStock = isLightning && !isEnrolled;
+  const stockValid =
+    stockRange != null && /^\d+$/.test(String(stock)) && Number(stock) >= stockRange.min && Number(stock) <= stockRange.max;
+  // The backend validates against the live [min, max] and refuses when ML sends no ceiling
+  // (MLA1865080493 on 2026-11-06), so the submit stays blocked here instead of failing there.
+  const lightningRangeMissing = needsStock && !isRangeType;
+  const lightningBlocked = needsStock && (!stockValid || lightningRangeMissing);
+
+  if (isLightning && promotion.status === 'started') {
+    return (
+      <span className={styles.applySlot}>ML no permite quitarla una vez iniciada; pausá la publicación para frenarla.</span>
+    );
+  }
 
   if (!isWritableType) {
     return <span className={styles.applySlot}>Lo maneja ML</span>;
@@ -216,6 +277,7 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
     setFeedback(null);
     setPriceAlert(null);
     setDealPrice(defaultPrice);
+    setStock('');
     setMarkup(null);
     setPhase('confirming');
   };
@@ -287,7 +349,8 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
   // accept ML's NEW price after a 409, so the re-send is still guarded
   // against a further change.
   const handleConfirm = async (seen = { precio: seenPrice, markup: seenMarkup }) => {
-    if (isRangeType && priceOutOfRange) return;
+    if (showsPriceInput && !isEnrolled && priceOutOfRange) return;
+    if (lightningBlocked) return;
     if (missingSeenPrice && !(Number(seen.precio) > 0)) return;
 
     setPhase('submitting');
@@ -304,7 +367,8 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
             .postPromocionItem(mla, {
               promotion_id: promotion.promotion_id,
               promotion_type: promotion.promotion_type,
-              ...(isRangeType ? { deal_price: numericDealPrice } : {}),
+              ...(showsPriceInput ? { deal_price: numericDealPrice } : {}),
+              ...(isLightning ? { stock: Number(stock) } : {}),
               ...(isMlPricedApply
                 ? {
                     precio_visto: Number(seen.precio),
@@ -386,10 +450,20 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
 
   if (phase === 'confirming') {
     const priceInputId = `deal-price-${mla}-${promotion.promotion_id}`;
+    const stockInputId = `stock-${mla}-${promotion.promotion_id}`;
+    const lightningStart = formatDateTime(promotion.start_date);
+    const lightningFinish = formatDateTime(promotion.finish_date);
+    const boost = promotion.payload || {};
+    const boostLine =
+      boost.boosted_offer === true && boost.total_price_for_boosted_offer != null
+        ? `ML suma ${boost.discount_meli_boosted_percentage ?? '?'}% de descuento extra · el comprador paga ${formatMoney(
+            boost.total_price_for_boosted_offer,
+          )}`
+        : null;
     return (
       <span className={styles.applyConfirm}>
         <span>¿{actionLabelCapitalized} esta promoción?</span>
-        {isRangeType && !isEnrolled && (
+        {showsPriceInput && !isEnrolled && (
           <span className={styles.priceInput}>
             <label htmlFor={priceInputId}>Precio</label>
             <input
@@ -409,16 +483,59 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
             </span>
             {priceOutOfRange && (
               <span className={styles.feedbackError}>
-                Precio fuera de rango (${promotion.min_discounted_price} - ${promotion.max_discounted_price}).
+                {promotion.max_discounted_price != null
+                  ? `Precio fuera de rango ($${promotion.min_discounted_price} - $${promotion.max_discounted_price}).`
+                  : `Precio fuera de rango (mínimo $${promotion.min_discounted_price}).`}
               </span>
             )}
+            {lightningRangeMissing && (
+              <span className={styles.feedbackError}>
+                ML no informa el precio máximo de esta oferta relámpago; no se puede aplicar.
+              </span>
+            )}
+          </span>
+        )}
+        {needsStock && (
+          <span className={styles.priceInput}>
+            <label htmlFor={stockInputId}>Stock a reservar</label>
+            <input
+              id={stockInputId}
+              type="number"
+              step="1"
+              value={stock}
+              onChange={(e) => setStock(e.target.value)}
+              min={stockRange?.min}
+              max={stockRange?.max}
+              placeholder="unidades"
+            />
+            {stockRange ? (
+              <span className={styles.priceMarkup}>
+                Entre {stockRange.min} y {stockRange.max} unidades
+              </span>
+            ) : (
+              <span className={styles.feedbackError}>
+                ML no informa el stock a reservar de esta oferta; no se puede aplicar.
+              </span>
+            )}
+          </span>
+        )}
+        {needsStock && lightningStart && lightningFinish && (
+          <span>
+            Empieza {lightningStart} · termina {lightningFinish}
+          </span>
+        )}
+        {needsStock && boostLine && <span>{boostLine}</span>}
+        {needsStock && (
+          <span className={styles.feedbackWarn}>
+            Una vez que empieza no se puede quitar (solo pausando la publicación). La oferta termina cuando se vende el
+            stock reservado.
           </span>
         )}
         <button
           type="button"
           className={`${styles.applyConfirmBtn} ${isEnrolled ? styles.removeConfirmBtn : ''}`}
           onClick={() => handleConfirm()}
-          disabled={isRangeType && !isEnrolled && priceOutOfRange}
+          disabled={(showsPriceInput && !isEnrolled && priceOutOfRange) || lightningBlocked}
         >
           Sí, {actionLabel}
         </button>
