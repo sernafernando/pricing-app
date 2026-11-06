@@ -36,17 +36,17 @@ export default function SellInBonoModelos({ valores, disabled, onChange }) {
             <li key={modelo.itemId} className={styles.linea}>
               <span className={styles.lineaNombre}>{modelo.label}</span>
               {!total && (
-              <input
-                type="number"
-                min="0"
-                max={porcentaje ? '100' : undefined}
-                step={porcentaje ? '0.0001' : '0.01'}
-                className={styles.inputSm}
-                aria-label={`${porcentaje ? 'Porcentaje' : 'Monto'} de ${modelo.label}`}
-                placeholder={porcentaje ? '% del bono' : `Monto (${valores.moneda})`}
-                value={modelo[campo]}
-                onChange={(e) => setValor(modelo.itemId, e.target.value)}
-              />
+                <input
+                  type="number"
+                  min="0"
+                  max={porcentaje ? '100' : undefined}
+                  step={porcentaje ? '0.0001' : '0.01'}
+                  className={styles.inputSm}
+                  aria-label={`${porcentaje ? 'Porcentaje' : 'Monto'} de ${modelo.label}`}
+                  placeholder={porcentaje ? '% del bono' : `Monto (${valores.moneda})`}
+                  value={modelo[campo]}
+                  onChange={(e) => setValor(modelo.itemId, e.target.value)}
+                />
               )}
               <button
                 type="button"

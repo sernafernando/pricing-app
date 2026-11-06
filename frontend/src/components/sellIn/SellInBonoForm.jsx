@@ -5,7 +5,16 @@ import { SegmentedControl } from '../kit';
 import SellInBonoModelos from './SellInBonoModelos';
 import SellInBuscador from './SellInBuscador';
 import SellInOperacionPicker from './SellInOperacionPicker';
-import { BASE_COSTO, BASE_FACTURA, CRITERIOS, MONTO_TOTAL, conBase, conMoneda, esBonoCosto, nombreDeCriterio } from './sellInBonoValores';
+import {
+  BASE_COSTO,
+  BASE_FACTURA,
+  CRITERIOS,
+  MONTO_TOTAL,
+  conBase,
+  conMoneda,
+  esBonoCosto,
+  nombreDeCriterio,
+} from './sellInBonoValores';
 import styles from './SellInPanel.module.css';
 
 const MONEDAS = [
@@ -336,34 +345,34 @@ export default function SellInBonoForm({ valores, onChange, marcas, disabled = f
       </div>
       {/* A total has no caps: the total is its cap. */}
       {!total && (
-      <div className={styles.grid2}>
-        <label className={styles.field} htmlFor={`${id}-tope-u`}>
-          <span className={styles.label}>Tope de unidades (opcional)</span>
-          <input
-            id={`${id}-tope-u`}
-            type="number"
-            min="1"
-            step="1"
-            className={styles.input}
-            value={valores.topeUnidades}
-            disabled={disabled}
-            onChange={(e) => set({ topeUnidades: e.target.value })}
-          />
-        </label>
-        <label className={styles.field} htmlFor={`${id}-tope-m`}>
-          <span className={styles.label}>{`Tope de monto en ${valores.moneda} (opcional)`}</span>
-          <input
-            id={`${id}-tope-m`}
-            type="number"
-            min="0.01"
-            step="0.01"
-            className={styles.input}
-            value={valores.topeMonto}
-            disabled={disabled}
-            onChange={(e) => set({ topeMonto: e.target.value })}
-          />
-        </label>
-      </div>
+        <div className={styles.grid2}>
+          <label className={styles.field} htmlFor={`${id}-tope-u`}>
+            <span className={styles.label}>Tope de unidades (opcional)</span>
+            <input
+              id={`${id}-tope-u`}
+              type="number"
+              min="1"
+              step="1"
+              className={styles.input}
+              value={valores.topeUnidades}
+              disabled={disabled}
+              onChange={(e) => set({ topeUnidades: e.target.value })}
+            />
+          </label>
+          <label className={styles.field} htmlFor={`${id}-tope-m`}>
+            <span className={styles.label}>{`Tope de monto en ${valores.moneda} (opcional)`}</span>
+            <input
+              id={`${id}-tope-m`}
+              type="number"
+              min="0.01"
+              step="0.01"
+              className={styles.input}
+              value={valores.topeMonto}
+              disabled={disabled}
+              onChange={(e) => set({ topeMonto: e.target.value })}
+            />
+          </label>
+        </div>
       )}
       <label className={styles.field} htmlFor={`${id}-desc`}>
         <span className={styles.label}>Descripción</span>
