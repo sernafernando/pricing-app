@@ -64,10 +64,11 @@ describe('pickPonerPreciosPromos', () => {
       precio_visto: 74690,
       markup_visto: 22,
     });
+    // A DEAL is applied at its max (the smallest discount ML accepts), the same price the row shows.
     expect(enrollBodyForPromo(deal)).toMatchObject({
       promotion_id: 'P-MLA18067012',
       promotion_type: 'DEAL',
-      deal_price: 77000,
+      deal_price: 84467.35,
     });
   });
 

@@ -175,7 +175,10 @@ function PromoApplyControl({ mla, promotion, onApplied, onReloadNeeded }) {
   const stockRange = isLightning ? lightningStockRange(promotion) : null;
   const defaultPrice = isLightning
     ? lightningDefaultPrice(promotion)
-    : (promotion.suggested_discounted_price ?? promotion.price ?? promotion.min_discounted_price ?? '');
+    : promotion.promotion_type === 'DEAL'
+      ? // A DEAL starts at its max, the price the row shows (promoDisplayPrice); never above it.
+        (promoDisplayPrice(promotion) ?? promotion.min_discounted_price ?? '')
+      : (promotion.suggested_discounted_price ?? promotion.price ?? promotion.min_discounted_price ?? '');
   const [stock, setStock] = useState('');
   const [dealPrice, setDealPrice] = useState(defaultPrice);
   const [markup, setMarkup] = useState(null);

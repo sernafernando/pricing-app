@@ -8,15 +8,22 @@ function positiveNumber(value) {
 // by the backend's `precio_de_oferta` (ml_promotions_pricing.py), which the
 // pre-apply guard, the 409's `precio_actual` and every markup use. The apply
 // control sends this value as `precio_visto`, so the guard compares like
-// with like: `price` when > 0, else `suggested_discounted_price` when > 0,
-// else null.
+// with like: `price` when > 0; else, for a DEAL, `max_discounted_price` when
+// > 0 (the smallest discount ML accepts, the price ML's web proposes); else
+// `suggested_discounted_price` when > 0; else null.
 //
 // `price` is legitimately 0 for candidate SELLER_CAMPAIGN/DEAL rows (the
 // seller sets the price; ML only suggests one). ML-priced types normally
 // carry ML's offer in `price` even as candidates.
 export function promoDisplayPrice(promo) {
   if (!promo) return null;
-  return positiveNumber(promo.price) ?? positiveNumber(promo.suggested_discounted_price);
+  const price = positiveNumber(promo.price);
+  if (price != null) return price;
+  if (promo.promotion_type === 'DEAL') {
+    const max = positiveNumber(promo.max_discounted_price);
+    if (max != null) return max;
+  }
+  return positiveNumber(promo.suggested_discounted_price);
 }
 
 // ML sets the offer price for these (the operator only accepts it), and ML

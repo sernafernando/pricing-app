@@ -532,6 +532,23 @@ describe('PromoApplyControl', () => {
       expect(input).toHaveValue(900);
     });
 
+    it('defaults a DEAL to its max (captured MLA1506729443 "MKP T1 CYBER MONDAY NOV": 57920.55)', async () => {
+      const user = userEvent.setup({ delay: null });
+      const deal = rangePromo({
+        promotion_id: 'P-MLA18145042',
+        promotion_type: 'DEAL',
+        original_price: 86539,
+        min_discounted_price: 17307.81,
+        max_discounted_price: 57920.55,
+        suggested_discounted_price: 49266.65,
+      });
+      render(<PromoApplyControl mla="MLA1506729443" promotion={deal} />);
+
+      await user.click(screen.getByRole('button', { name: /^aplicar$/i }));
+
+      expect(screen.getByLabelText(/precio/i)).toHaveValue(57920.55);
+    });
+
     it('fetches and shows the markup for the entered price (debounced)', async () => {
       const user = userEvent.setup({ delay: null });
       promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { price: 850, nuestro_markup: 22.5 } });

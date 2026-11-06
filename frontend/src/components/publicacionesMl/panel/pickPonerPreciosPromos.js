@@ -126,7 +126,11 @@ export function enrollBodyForPromo(promo) {
     if (promo.nuestro_markup != null) body.markup_visto = promo.nuestro_markup;
     return body;
   }
-  const suggested = Number(promo.suggested_discounted_price ?? promo.price);
+  // A DEAL is applied at the price its row shows (promoDisplayPrice: its max, the smallest discount
+  // ML accepts); other range types keep ML's suggestion. Clamped to [min, max] below.
+  const suggested = Number(
+    type === 'DEAL' ? promoDisplayPrice(promo) : (promo.suggested_discounted_price ?? promo.price),
+  );
   const min = promo.min_discounted_price;
   const max = promo.max_discounted_price;
   let dealPrice = suggested;
