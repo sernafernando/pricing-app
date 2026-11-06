@@ -1,6 +1,7 @@
 /**
  * Sell in / Sell out, one view (owner, 2026-11-05: "trae todo a tacticals"; handoffs/tacticals-vista-unica-tarea.md):
- * Tacticals, Programas and Grupos tabs. The old Sell in / Sell out tabs' links land on Tacticals with that Tipo.
+ * Tacticals and Grupos tabs. The old Sell in / Sell out tabs' links land on Tacticals with that Tipo. The Programas
+ * tab is gone (owner, 2026-11-06: "si ahora todo es tactical"): its links land on Tacticals too.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -10,11 +11,11 @@ import { renderWithRouter } from '../test/renderWithRouter';
 import { productosAPI } from '../services/api';
 import { sellInAPI, sellInBonosAPI, sellInLotesAPI } from '../services/sellInAPI';
 import { ALCANCE, BONO } from '../components/sellIn/sellInFixtures';
-import { sellOutAPI, sellOutProgramasAPI } from '../services/sellOutAPI';
+import { sellOutAPI } from '../services/sellOutAPI';
 import { offsetGruposAPI } from '../services/offsetGruposAPI';
 import { tacticalsAPI } from '../services/tacticalsAPI';
 import { TACTICAL_REBATE, TACTICAL_BPS, pagina } from '../components/tacticals/tacticalsFixtures';
-import { CAMPANA_MIGRADA, CONSUMOS_USD, PROGRAMAS_LISTA, PROGRAMAS_VACIO, SUGERENCIAS, SUGERENCIAS_VACIO } from '../components/sellOut/sellOutFixtures';
+import { CAMPANA_MIGRADA, CONSUMOS_USD } from '../components/sellOut/sellOutFixtures';
 import SellIn from './SellIn';
 
 const TACTICAL = { ...TACTICAL_REBATE, id: 7, nombre: 'Rebate TP-Link noviembre', marca: 'TP-Link' };
@@ -45,7 +46,6 @@ vi.mock('../services/sellInAPI', () => ({
 
 vi.mock('../services/sellOutAPI', () => ({
   sellOutAPI: { listar: vi.fn(), detalle: vi.fn(), grupos: vi.fn(), consumos: vi.fn() },
-  sellOutProgramasAPI: { listar: vi.fn(), crear: vi.fn(), asignar: vi.fn(), sugerencias: vi.fn() },
 }));
 
 vi.mock('../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), anular: vi.fn() } }));
@@ -60,8 +60,6 @@ vi.mock('../contexts/PermisosContext', () => ({
   PermisosProvider: ({ children }) => children,
 }));
 
-const lastParams = (fn) => fn.mock.calls[fn.mock.calls.length - 1][0];
-
 beforeEach(() => {
   vi.clearAllMocks();
   mockTienePermiso.mockReturnValue(true);
@@ -70,9 +68,7 @@ beforeEach(() => {
   sellInBonosAPI.alcance.mockResolvedValue({ data: ALCANCE });
   sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
   sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
-  sellOutProgramasAPI.listar.mockResolvedValue({ data: PROGRAMAS_VACIO });
   sellInLotesAPI.productos.mockResolvedValue({ data: { productos: [] } });
-  sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS_VACIO });
   offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
   offsetGruposAPI.alcance.mockResolvedValue({ data: [{ grupo_id: 1, productos: 3, campanas: [] }] });
   offsetGruposAPI.opciones.mockResolvedValue({ data: { marcas: [], categorias: [], subcategorias: [] } });
@@ -85,12 +81,12 @@ function Ubicacion() {
   return <output data-testid="ubicacion">{search}</output>;
 }
 
-describe('SellIn page — one view: Tacticals, Programas and Grupos', () => {
+describe('SellIn page — one view: Tacticals and Grupos', () => {
   it('has no Sell in or Sell out tab, and asks no purchase, bonus or campaign list', async () => {
     renderWithRouter(<SellIn />);
     await screen.findByText('Rebate TP-Link noviembre');
 
-    expect(screen.getAllByRole('tab').map((t) => t.textContent.replace(/\s+/g, ' ').trim())).toEqual(['Tacticals · 1', 'Programas', 'Grupos', 'Productos']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent.replace(/\s+/g, ' ').trim())).toEqual(['Tacticals · 1', 'Grupos', 'Productos']);
     expect(sellInAPI.listar).not.toHaveBeenCalled();
     expect(sellInAPI.resumen).not.toHaveBeenCalled();
     expect(sellInBonosAPI.listar).not.toHaveBeenCalled();
@@ -116,42 +112,22 @@ describe('SellIn page — one view: Tacticals, Programas and Grupos', () => {
     await waitFor(() => expect(screen.getByTestId('ubicacion')).toHaveTextContent(/^$/));
   });
 
-  it('an old Sell out link to its Programas section opens the Programas tab', async () => {
+  it.each([
+    ['/sell-in?tab=programas', 'Todos'],
+    ['/sell-in?tab=sell-out&seccion=programas', 'Sell out'],
+  ])('a link to the removed Programas tab (%s) opens Tacticals with Tipo %s, and the URL drops it', async (entrada, tipo) => {
     renderWithRouter(
       <>
         <SellIn />
         <Ubicacion />
       </>,
-      { initialEntries: ['/sell-in?tab=sell-out&seccion=programas'] },
+      { initialEntries: [entrada] },
     );
 
-    expect(await screen.findByRole('tab', { name: 'Programas' })).toHaveAttribute('aria-selected', 'true');
-    await waitFor(() => expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=programas'));
-  });
-
-  it('the Programas tab lists the programs, keeps itself in the URL, and needs sell_out.ver', async () => {
-    const user = userEvent.setup();
-    sellOutProgramasAPI.listar.mockResolvedValue({ data: PROGRAMAS_LISTA });
-    const { unmount } = renderWithRouter(
-      <>
-        <SellIn />
-        <Ubicacion />
-      </>,
-    );
-    await user.click(await screen.findByRole('tab', { name: 'Programas' }));
-
-    const panel = screen.getByRole('tabpanel', { name: 'Programas' });
-    expect(within(panel).getByRole('heading', { name: 'Programas' })).toBeInTheDocument();
-    expect(await within(panel).findByText(PROGRAMAS_LISTA.items[0].nombre)).toBeInTheDocument();
-    expect(screen.getByTestId('ubicacion')).toHaveTextContent('?tab=programas');
-    unmount();
-
-    vi.clearAllMocks();
-    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.ver');
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
     expect(await screen.findByRole('tab', { name: /Tacticals/ })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('button', { name: tipo })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('tab', { name: 'Programas' })).not.toBeInTheDocument();
-    expect(sellOutProgramasAPI.listar).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByTestId('ubicacion')).toHaveTextContent(/^$/));
   });
 
   it('the arrow keys move between the tabs', async () => {
@@ -160,7 +136,7 @@ describe('SellIn page — one view: Tacticals, Programas and Grupos', () => {
     (await screen.findByRole('tab', { name: /Tacticals/ })).focus();
 
     await user.keyboard('{ArrowRight}');
-    expect(screen.getByRole('tab', { name: 'Programas' })).toHaveFocus();
+    expect(screen.getByRole('tab', { name: 'Grupos' })).toHaveFocus();
     await user.keyboard('{End}');
     expect(screen.getByRole('tab', { name: 'Productos' })).toHaveAttribute('aria-selected', 'true');
     await user.keyboard('{ArrowRight}');
@@ -271,156 +247,6 @@ describe('SellIn page — Grupos tab (T30)', () => {
   });
 });
 
-
-describe('SellIn page — Programas tab: suggestions (campanas-sistema slice E)', () => {
-  const BANNER = '2 sugerencias de programa: campañas sin programa con las mismas fechas';
-  const tarjeta = (desde, hasta) => screen.getByRole('group', { name: `Sugerencia del ${desde} al ${hasta}` });
-
-  it('the banner shows with sell_out.gestionar and suggestions, and not without either', async () => {
-    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
-    const { unmount } = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
-    expect(await screen.findByText(BANNER)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Ver sugerencias' })).toBeInTheDocument();
-    expect(lastParams(sellOutProgramasAPI.sugerencias)).toEqual({ page: 1, page_size: 200 });
-    unmount();
-
-    vi.clearAllMocks();
-    mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
-    const lector = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
-    await screen.findByRole('heading', { name: 'Programas' });
-    expect(screen.queryByText(BANNER)).not.toBeInTheDocument();
-    expect(sellOutProgramasAPI.sugerencias).not.toHaveBeenCalled();
-    lector.unmount();
-
-    mockTienePermiso.mockReturnValue(true);
-    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS_VACIO });
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
-    await waitFor(() => expect(sellOutProgramasAPI.sugerencias).toHaveBeenCalled());
-    await screen.findByRole('heading', { name: 'Programas' });
-    expect(screen.queryByText(/sugerencias? de programa/)).not.toBeInTheDocument();
-  });
-
-  it('"Crear programa y asignar" creates the program with the edited name, assigns its campaigns and refreshes', async () => {
-    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
-    sellOutProgramasAPI.crear
-      .mockRejectedValueOnce({ response: { status: 409, data: { error: { message: 'Ya existe un programa llamado «MARCA».' } } } })
-      .mockResolvedValueOnce({ data: { id: 15, nombre: 'MARCA PROG', descripcion: null, estado: 'activo', campanas: 0, activas: 0, desde: null, hasta: null, nombres: 0 } });
-    sellOutProgramasAPI.asignar.mockResolvedValue({ data: { asignadas: 3, sin_cambio: 0 } });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
-    await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
-
-    const drawer = screen.getByRole('dialog', { name: 'Sugerencias de programa' });
-    expect(drawer).toHaveTextContent('Las sugerencias agrupan campañas sin programa con exactamente las mismas fechas. No se aplica nada hasta que lo confirmes.');
-    expect(within(drawer).getAllByRole('textbox', { name: 'Nombre del programa' }).map((i) => i.value)).toEqual([
-      'MARCA',
-      'Del 01/11/2025 al 31/10/2026',
-    ]);
-    const primera = tarjeta('01/08/2026', '31/10/2026');
-    expect(primera).toHaveTextContent('01/08/2026 – 31/10/2026 · 3 campañas · 2 nombres');
-    expect(primera).toHaveTextContent('2 activas');
-    await user.click(within(primera).getByRole('button', { name: 'Ver campañas' }));
-    expect(within(primera).getByText('MARCA PROGRAM1 (×2)').closest('li')).toHaveTextContent('Activa');
-    expect(within(primera).getByText('MARCA PROG 3.0').closest('li')).toHaveTextContent('Anulada');
-
-    await user.click(within(primera).getByRole('button', { name: 'Crear programa y asignar' }));
-    expect(await within(primera).findByRole('alert')).toHaveTextContent('Ya existe un programa llamado «MARCA».');
-    expect(sellOutProgramasAPI.asignar).not.toHaveBeenCalled();
-
-    const nombre = within(primera).getByRole('textbox', { name: 'Nombre del programa' });
-    await user.clear(nombre);
-    await user.type(nombre, 'MARCA PROG');
-    const sugerencias = sellOutProgramasAPI.sugerencias.mock.calls.length;
-    const programas = sellOutProgramasAPI.listar.mock.calls.length;
-    await user.click(within(primera).getByRole('button', { name: 'Crear programa y asignar' }));
-
-    await waitFor(() => expect(sellOutProgramasAPI.asignar).toHaveBeenCalledWith([81, 82, 83], 15));
-    expect(sellOutProgramasAPI.crear).toHaveBeenLastCalledWith({ nombre: 'MARCA PROG' });
-    expect(await within(drawer).findByRole('status')).toHaveTextContent('3 campañas asignadas a «MARCA PROG».');
-    await waitFor(() => expect(sellOutProgramasAPI.sugerencias.mock.calls.length).toBeGreaterThan(sugerencias));
-    expect(sellOutProgramasAPI.listar.mock.calls.length).toBeGreaterThan(programas);
-  });
-
-  it('when the assignment fails after the create, a retry only assigns, and the new program is read at once', async () => {
-    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
-    sellOutProgramasAPI.crear.mockResolvedValue({ data: { id: 15, nombre: 'MARCA', descripcion: null, estado: 'activo', campanas: 0, activas: 0, desde: null, hasta: null, nombres: 0 } });
-    sellOutProgramasAPI.asignar
-      .mockRejectedValueOnce({ response: { status: 422, data: { error: { message: 'La campaña 83 no existe.' } } } })
-      .mockResolvedValueOnce({ data: { asignadas: 3, sin_cambio: 0 } });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
-    await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
-    const primera = tarjeta('01/08/2026', '31/10/2026');
-    const programas = sellOutProgramasAPI.listar.mock.calls.length;
-    await user.click(within(primera).getByRole('button', { name: 'Crear programa y asignar' }));
-
-    expect(await within(primera).findByRole('alert')).toHaveTextContent('La campaña 83 no existe.');
-    await waitFor(() => expect(sellOutProgramasAPI.listar.mock.calls.length).toBeGreaterThan(programas));
-    await user.click(within(primera).getByRole('button', { name: 'Crear programa y asignar' }));
-    await waitFor(() => expect(sellOutProgramasAPI.asignar).toHaveBeenCalledTimes(2));
-    expect(sellOutProgramasAPI.crear).toHaveBeenCalledTimes(1);
-    expect(sellOutProgramasAPI.asignar).toHaveBeenLastCalledWith([81, 82, 83], 15);
-  });
-
-  it('the drawer takes the focus, keeps Tab inside and gives it back to "Ver sugerencias" on close', async () => {
-    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
-    const abrir = await screen.findByRole('button', { name: 'Ver sugerencias' });
-    await user.click(abrir);
-    const drawer = screen.getByRole('dialog', { name: 'Sugerencias de programa' });
-    await waitFor(() => expect(drawer).toContainElement(document.activeElement));
-    for (let i = 0; i < 12; i += 1) {
-      await user.tab();
-      expect(drawer).toContainElement(document.activeElement);
-    }
-    await user.click(within(drawer).getByRole('button', { name: 'Cerrar sugerencias' }));
-    expect(abrir).toHaveFocus();
-  });
-
-  it('a suggestion with more than 500 campaigns cannot be created and assigned at once', async () => {
-    const grande = {
-      ...SUGERENCIAS.items[0],
-      campanas: Array.from({ length: 501 }, (_, i) => ({ ...SUGERENCIAS.items[0].campanas[0], id: 2000 + i })),
-    };
-    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: { ...SUGERENCIAS, items: [grande], total: 1 } });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
-    await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
-    const card = tarjeta('01/08/2026', '31/10/2026');
-    expect(card).toHaveTextContent('Se pueden asignar hasta 500 campañas por vez.');
-    expect(within(card).getByRole('button', { name: 'Crear programa y asignar' })).toBeDisabled();
-    expect(within(card).getByRole('button', { name: 'Descartar' })).toBeEnabled();
-    expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
-  });
-
-  it('when no suggestion is left, closing the drawer puts the focus on the programs heading', async () => {
-    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
-    await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
-    const drawer = screen.getByRole('dialog', { name: 'Sugerencias de programa' });
-    await user.click(within(tarjeta('01/08/2026', '31/10/2026')).getByRole('button', { name: 'Descartar' }));
-    await user.click(within(tarjeta('01/11/2025', '31/10/2026')).getByRole('button', { name: 'Descartar' }));
-    expect(screen.queryByRole('button', { name: 'Ver sugerencias' })).not.toBeInTheDocument();
-    await user.click(within(drawer).getByRole('button', { name: 'Cerrar sugerencias' }));
-    expect(screen.getByRole('heading', { name: 'Programas' })).toHaveFocus();
-  });
-
-  it('"Descartar" hides that card only, for this session, and writes nothing', async () => {
-    sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS });
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=programas'] });
-    await user.click(await screen.findByRole('button', { name: 'Ver sugerencias' }));
-    await user.click(within(tarjeta('01/08/2026', '31/10/2026')).getByRole('button', { name: 'Descartar' }));
-
-    expect(screen.queryByRole('group', { name: 'Sugerencia del 01/08/2026 al 31/10/2026' })).not.toBeInTheDocument();
-    expect(tarjeta('01/11/2025', '31/10/2026')).toBeInTheDocument();
-    expect(screen.getByText('1 sugerencia de programa: campañas sin programa con las mismas fechas')).toBeInTheDocument();
-    expect(sellOutProgramasAPI.crear).not.toHaveBeenCalled();
-    expect(sellOutProgramasAPI.asignar).not.toHaveBeenCalled();
-  });
-});
 
 // The list's own requests, leaving out the tab's count (page_size 1, on page load).
 const listadosDeTacticals = () => tacticalsAPI.listar.mock.calls.filter(([params]) => params.page_size !== 1).length;

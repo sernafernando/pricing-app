@@ -2,11 +2,11 @@
 
 Área: Productos
 Ruta: Productos → Sell in / Sell out
-Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Programas pide además sell_out.ver, y la pestaña Grupos, grupos.ver; la pestaña Productos pide además poder ver productos (productos.ver o un permiso de edición de precios); crear, editar y borrar grupos pide además el permiso de edición de constantes: config.editar_constantes).
+Permiso: Pedile a un administrador acceso a Sell in / Sell out (sell_in.ver; la pestaña Grupos pide además grupos.ver; la pestaña Productos pide además poder ver productos (productos.ver o un permiso de edición de precios); crear, editar y borrar grupos pide además el permiso de edición de constantes: config.editar_constantes).
 
 ## Para qué sirve
 
-Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene cuatro pestañas: **Tacticals** (los acuerdos con las marcas, de sell in y de sell out, en una sola lista), **Programas** (los programas que agrupan campañas de sell out), **Grupos** (los grupos de productos que alcanzan las campañas) y **Productos** (el modo de costo de cada producto con lotes). Se abre en **Tacticals**. Las pestañas **Sell in** y **Sell out** ya no están: todo lo que mostraban se ve en **Tacticals**, y un link viejo a una de ellas abre **Tacticals** con ese tipo elegido.
+Gestiona las promociones de compra (sell in) que bajan el costo de una compra, los bonos de marca y las campañas de sell out que suman ganancia por campaña. Tiene tres pestañas: **Tacticals** (los acuerdos con las marcas, de sell in y de sell out, en una sola lista), **Grupos** (los grupos de productos que alcanzan las campañas) y **Productos** (el modo de costo de cada producto con lotes). Se abre en **Tacticals**. Las pestañas **Sell in** y **Sell out** ya no están: todo lo que mostraban se ve en **Tacticals**, y un link viejo a una de ellas abre **Tacticals** con ese tipo elegido. La pestaña **Programas** tampoco está: el tactical es el programa de la marca, y un link viejo a Programas abre **Tacticals**.
 
 ## Cómo se usa
 
@@ -125,42 +125,6 @@ Con **Incluye IVA** tildado, el IVA se descuenta con el IVA de cada producto en 
 
 Lo sin asignar (y lo asignado a productos sin ventas) no se pierde: suma en los totales de **Métricas ML** (el indicador de sell out, el total con sell in/out y una línea final del CSV) cuando el período incluye el día que termina la campaña, no en la fila de ningún producto. Con filtros (marca, categoría, producto, etc.) cuenta solo si la campaña alcanza alguno de los productos filtrados. Si el reparto guardado no se puede calcular, la sección dice por qué y no suma nada.
 
-### Renovar las campañas de un programa: qué se copia
-
-**Renovar programa** (pestaña **Programas**) crea las campañas del trimestre siguiente con todo copiado de las originales. Para un tactical entero, usá **Renovar** en el menú del tactical.
-
-- **Se copia**: el tipo y su monto (por unidad, porcentaje o monto total), la base del porcentaje, la moneda, el modo de tipo de cambio (el valor solo si es **Fijo**), los topes, **Acumulable**, **El monto incluye IVA**, la descripción, los grupos, los **Montos por producto**, y el **Reparto del monto total** (se guarda junto con la campaña; **No copiar el reparto** lo deja afuera, por ejemplo si cambiaste los grupos o bajaste el total, y se carga después desde la campaña guardada).
-- **No se copia**: el estado, lo que acreditó, el tipo de cambio **Al cobro** que se definió al cobrar, el offset de origen ni el historial de cambios. Tampoco los productos que ya no están en los grupos.
-- **Fechas**: por defecto, el trimestre calendario siguiente al que contiene la fecha hasta de la original (por ejemplo, una que termina el 15/11/2026 o el 31/12/2026 propone del 01/01/2027 al 31/03/2027). Se pueden cambiar.
-- **Nombre**: si termina en un período, se avanza al nuevo trimestre («Rebate Q4 2026» → «Rebate Q1 2027», «Rebate 4Q26» → «Rebate 1Q27», «Campaña noviembre 2026» → «Campaña enero 2027»). Si no, queda igual (por ejemplo «Promo modelo 3.0»). Se puede editar.
-
-- **Programa**: la copia queda en el mismo programa que la original mientras ese programa esté activo. Si está archivado, la copia queda sin programa.
-
-La campaña original no cambia: sigue como estaba, con su historial y lo que acreditó.
-
-### Programas
-
-Un **programa** agrupa campañas de sell out que son el mismo acuerdo: las que se renuevan cada trimestre o las que se cargaron con el mismo nombre y un número porque aplican a cosas distintas. Asignar un programa **no cambia la plata** de las campañas: lo que acreditan, sus topes y la ganancia siguen igual. Solo las agrupa.
-
-**Programa es el nivel superior.** Agrupa una campaña y sus repeticiones a lo largo de los quarters, y dura en el tiempo: por ejemplo, «EPSON PROG» junta todas sus campañas de cada trimestre. Cada **campaña** es el monto de un período sobre un alcance (productos, grupos). **Renovar** crea la campaña del quarter siguiente y la deja en el mismo programa.
-
-- La pestaña **Programas** (pide sell_out.ver) es la vista para crear y ordenar los programas. Un link viejo a la sección Programas de Sell out la abre.
-- **Programas** muestra una fila por programa con **Campañas**, **Activas**, **Nombres distintos**, **Vigencia** (de la primera fecha de inicio a la última de fin de sus campañas, o «Sin campañas») y **Estado**. Se filtra por **Activos**, **Archivados** o **Todos**, y se busca por nombre.
-- Tocar la flecha de un programa lista sus campañas.
-- Quien gestiona campañas también puede:
-  - **Nuevo programa**: nombre (no puede repetirse) y descripción opcional. Se crea vacío; las campañas se suman con las sugerencias o moviéndolas desde otro programa.
-  - **Editar**: cambiar el nombre o la descripción. Solo se guarda lo que cambiaste.
-  - **Archivar** / **Reactivar**: un programa archivado no recibe campañas nuevas y una renovación de sus campañas queda sin programa. Sus campañas no cambian.
-  - En un programa abierto, marcar campañas y tocar **Quitar del programa** (quedan sin programa) o **Mover a otro programa**.
-  - **Renovar programa** (solo en programas activos): crea de una vez la campaña del trimestre siguiente de cada campaña del último período del programa, con las mismas reglas que **Renovar** en una campaña (lo que se copia, las fechas y el nombre) y en el mismo programa. Antes de crear nada muestra:
-    - el período que se renueva y el trimestre nuevo (por ejemplo, **Oct–Dic 2026** → **Ene–Mar 2027**, con sus fechas);
-    - **Se crearán N**: cada campaña con su nombre actual → el nombre nuevo, las fechas nuevas y el **ID #** de la campaña original;
-    - **Se omiten N**: las anuladas («anulada, no se renueva») y las que ya tienen su copia («ya renovada en la campaña N (nombre)»). Una campaña renovada a mano con **Renovar** también cuenta, aunque después le hayas cambiado el nombre. Una copia anulada no cuenta: esa campaña se vuelve a renovar;
-    - en amarillo, las campañas del otro trimestre que quedan sin renovar en esta pasada. Pasa cuando se renovaron algunas a mano: primero se termina el período más viejo, y las otras se renuevan la próxima vez.
-  - **Renovar N campañas** crea todas o ninguna. Si mientras mirabas la vista previa alguien renovó o anuló una de esas campañas, no se crea nada, aparece el aviso y la vista previa se vuelve a leer. Un programa sin campañas para renovar lo dice y no deja confirmar. Se renuevan hasta 500 campañas por vez. Las campañas nuevas se pueden editar después, como cualquier otra.
-
-- **Sugerencias de programa** (quien gestiona campañas): cuando hay campañas sin programa con **exactamente las mismas fechas**, arriba de los programas aparece «N sugerencias de programa: campañas sin programa con las mismas fechas». **Ver sugerencias** abre un panel con una tarjeta por grupo: un nombre propuesto (las palabras con que empiezan todos los nombres, o las fechas si no comparten ninguna), que se puede editar, sus fechas, cuántas campañas y nombres tiene, y la lista de campañas. **Crear programa y asignar** crea el programa y le asigna esas campañas. **Descartar** oculta la tarjeta hasta que vuelvas a abrir la página; no se guarda nada. No se aplica nada hasta que lo confirmes.
-
 ### Tacticals
 
 Un **tactical** es un programa de una marca: sell in baja el costo, sell out suma a la ganancia. Cada tactical tiene una marca adjunta para poder filtrarlo por marca, y una o más líneas (productos, una marca, una categoría o, en sell in, una factura) con su monto y sus topes.
@@ -193,7 +157,7 @@ Un **tactical** es un programa de una marca: sell in baja el costo, sell out sum
 
 ## Filtros y columnas
 
-Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Programas: estado (Activos, Archivados, Todos) y nombre. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: producto, modo de costo, unidades, sell in por unidad y última compra.
+Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Grupos: nombre, filtros, productos alcanzados y campañas que lo usan. Productos: producto, modo de costo, unidades, sell in por unidad y última compra.
 
 ## Botones y acciones
 
@@ -209,10 +173,10 @@ Tacticals: tipo, marca, moneda, estado, vigencia y búsqueda. Programas: estado 
 ## Preguntas frecuentes
 
 **¿Dónde quedaron las pestañas Sell in y Sell out?**
-Todo está en **Tacticals**: elegí **Sell in** o **Sell out** en **Tipo**. Los programas de sell out pasaron a la pestaña **Programas**.
+Todo está en **Tacticals**: elegí **Sell in** o **Sell out** en **Tipo**.
 
-**¿Por qué no veo la pestaña Programas?**
-Pide un permiso adicional (sell_out.ver). Pedíselo a un administrador.
+**¿Dónde quedó la pestaña Programas?**
+Ya no está: el tactical es el programa de la marca, así que todo se ve en **Tacticals**. Las campañas que tenían programa no cambian: siguen acreditando igual.
 
 **¿Por qué no veo la pestaña Grupos?**
 Pide el permiso para ver grupos (grupos.ver); el de edición de constantes no alcanza. Pedíselo a un administrador.
