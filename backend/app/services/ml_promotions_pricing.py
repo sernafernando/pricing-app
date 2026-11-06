@@ -301,7 +301,10 @@ def enriquecer_markup_por_promo(
     for promo in promociones:
         promo["nuestro_markup"] = _calcular_nuestro_markup(db=db, promo=promo, context=context)
         if sell_in_out:
-            promo["markup_sell_in_out"] = _markup_sell_in_out_de_promo(db, context, batch, promo)
+            # The extra figure goes with the markup: none when the promo has no markup of its own.
+            promo["markup_sell_in_out"] = (
+                None if promo["nuestro_markup"] is None else _markup_sell_in_out_de_promo(db, context, batch, promo)
+            )
 
     return promociones
 
