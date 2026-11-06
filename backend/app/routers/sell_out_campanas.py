@@ -12,12 +12,9 @@ price, and that credit is added to profit. The rules live in
   period its dates overlap (`desde` / `hasta`, 422 when inverted), marca (a
   product its groups reach, the campaign rule) and program (`programa_id`, or
   `sin_programa=true` for the campaigns without one; both at once is a 422).
-- `GET /por-programa` takes the same filters and returns the grouped view's rows: the programs with campaigns
-  under them, by name and paginated, each with its campaigns' count, active count, distinct names and date
-  span, plus `sin_programa`, the same for the campaigns without a program (None when there are none).
 - `POST ""` may set the campaign's program (`programa_id`, optional): an unknown one is a 404, an archived one a
-  422 («El programa «X» está archivado.»). `PUT /{id}` keeps the stored program and ignores one sent: assignment
-  is `POST /api/sell-out/programas/asignar`, which audits it. A renewal sets `renovada_de_id`, the campaign it
+  422 («El programa «X» está archivado.»). `PUT /{id}` keeps the stored program and ignores one sent: programs
+  are no longer managed from the app (the tactical is the brand's program), so existing ones stay as stored. A renewal sets `renovada_de_id`, the campaign it
   renews. That campaign must exist and be of the same program (422; a copy of an archived program's campaign goes
   without program). A campaign that a non-voided campaign already renews is a 409.
 - `GET /{id}/renovacion` (`sell_out.gestionar`) is the renewal draft of a campaign, active or voided: a NEW
@@ -106,7 +103,6 @@ from app.schemas.sell_out import (
     SellOutEdicionPreviaOut,
     SellOutEditarMasivoIn,
     SellOutEditarMasivoOut,
-    SellOutGruposProgramaListOut,
     SellOutRepartoIn,
     SellOutTipoCambioIn,
     Tipo,
@@ -200,20 +196,6 @@ def listar_campanas(
     campanas, total = service.listar_campanas(db, filtros, page=page, page_size=page_size)
     items = service.solo_sus_marcas(db, resumen.serializar(db, campanas), _pares_reparto(db, user))
     return {"items": items, "total": total, "page": page, "page_size": page_size}
-
-
-@router.get("/por-programa", response_model=SellOutGruposProgramaListOut)
-def agrupar_por_programa(
-    _user: Usuario = Depends(requiere_ver),  # before the filters, like the list
-    filtros: service.FiltrosCampanas = Depends(_filtros),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    db: Session = Depends(get_db),
-) -> dict:
-    """The grouped view's rows under the list's filters: the programs with campaigns, by name, a page at a time,
-    and apart the campaigns without a program. A fixed number of queries per page."""
-    items, total, sin_programa = service.por_programa(db, filtros, page=page, page_size=page_size)
-    return {"items": items, "total": total, "page": page, "page_size": page_size, "sin_programa": sin_programa}
 
 
 @router.get("/{campana_id}", response_model=SellOutCampanaOut)
