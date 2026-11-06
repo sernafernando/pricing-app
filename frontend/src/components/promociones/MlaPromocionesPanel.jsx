@@ -3,7 +3,6 @@ import { promocionesAPI } from '../../services/api';
 import { usePermisos } from '../../contexts/PermisosContext';
 import { useLazyResource } from '../../hooks/useLazyResource';
 import { usePromoFilterStore } from '../../store/promoFilterStore';
-import { getMarkupColor } from '../../hooks/useProductosOffsets';
 import { matchesPromoFilter } from './promoFilterPredicate';
 import { buildMlSellerPromosUrl } from '../../utils/mlSellerPanel';
 import { resolvePromoName } from './resolvePromoName';
@@ -32,15 +31,39 @@ const APPLICABLE_TYPES = new Set(['SELLER_CAMPAIGN', 'DEAL', 'SMART', 'PRE_NEGOT
 const CO_FUNDED_TYPES = new Set(['SMART', 'PRE_NEGOTIATED', 'PRICE_MATCHING']);
 
 // Per-type badge hue so each promotion type is visually distinct (no longer
-// all-blue). Types not listed (PRICE_DISCOUNT/DOD/LIGHTNING/
-// PRICE_MATCHING_MELI_ALL) fall back to the read-only grey badge.
+// all-blue). Types not listed (PRICE_DISCOUNT/DOD/PRICE_MATCHING_MELI_ALL)
+// fall back to the neutral grey badge, like SMART_LIGHTNING (all read-only).
 const TYPE_BADGE_CLASS = {
   SELLER_CAMPAIGN: styles.badgeTypeSellerCampaign,
   DEAL: styles.badgeTypeDeal,
   SMART: styles.badgeTypeSmart,
   PRE_NEGOTIATED: styles.badgeTypePreNegotiated,
   PRICE_MATCHING: styles.badgeTypePriceMatching,
+  LIGHTNING: styles.badgeTypeLightning,
+  SMART_LIGHTNING: styles.badgeTypeSmartLightning,
 };
+
+// The row's markup tone, on the same thresholds as `getMarkupColor` (useProductosOffsets): none -> muted,
+// negative -> danger, under 1% -> warning, else success.
+function markupToneClass(markup) {
+  if (markup === null || markup === undefined) return styles.rowMarkupNone;
+  if (markup < 0) return styles.rowMarkupNegative;
+  if (markup < 1) return styles.rowMarkupLow;
+  return styles.rowMarkupPositive;
+}
+
+// The column header over the sectioned rows (Publicaciones ML panel); the rows carry the same grid.
+const COLUMNS = ['Tipo', 'Promoción', 'Precio', 'Tu markup', 'Estado', 'Acción'];
+
+function ColumnHeader() {
+  return (
+    <div className={styles.promoColumns} data-testid="promo-columns" aria-hidden="true">
+      {COLUMNS.map((label) => (
+        <span key={label}>{label}</span>
+      ))}
+    </div>
+  );
+}
 
 function formatPercentage(value) {
   if (value === null || value === undefined) return null;
@@ -146,9 +169,11 @@ function CouponRow({ promo, mla }) {
   const dateRange = formatDateRange(promo.start_date, promo.finish_date);
   const url = buildMlSellerPromosUrl(mla);
   return (
-    <li className={`${styles.promoRow} ${styles.promoReadonly}`}>
-      <span className={styles.promoName}>{resolvePromoName(promo) || promo.promotion_id}</span>
-      {dateRange && <span className={styles.promoDates}>{dateRange}</span>}
+    <li className={styles.couponRow}>
+      <span className={styles.couponMain}>
+        <span className={styles.promoName}>{resolvePromoName(promo) || promo.promotion_id}</span>
+        {dateRange && <span className={styles.promoDates}>{dateRange}</span>}
+      </span>
       {typeof percentage === 'number' && (
         <span className={styles.couponDiscount}>{formatPercentage(percentage)} de descuento</span>
       )}
@@ -576,74 +601,84 @@ function MlaPromocionesPanel({
     return (
       <li
         key={promo.promotion_id}
-        className={`${styles.promoRow} ${applicable ? styles.promoApplicable : styles.promoReadonly}`}
+        className={`${styles.promoGridRow} ${promo.application_status === 'active' ? styles.promoGridRowActive : ''}`}
       >
-        <span className={`${styles.badge} ${TYPE_BADGE_CLASS[promo.promotion_type] || styles.badgeReadonly}`}>
-          {promo.promotion_type || 'N/A'}
-        </span>
-        {promo.application_status === 'active' && (
-          <span className={`${styles.badge} ${styles.badgeApplied}`}>Aplicada</span>
-        )}
-        {promo.application_status === 'programmed' && (
-          <span className={`${styles.badge} ${styles.badgeProgrammed}`}>Programada</span>
-        )}
-        {promo.application_status === 'pending' && (
-          <span className={`${styles.badge} ${styles.badgePending}`}>En espera</span>
-        )}
-        {promo.escritura_no_aplicada && (
-          <span
-            className={`${styles.badge} ${styles.badgeNotApplied}`}
-            title={`${capitalize(describeRequest(promo.escritura_no_aplicada))}; ML la sigue mostrando como ${
-              ML_STATUS_LABEL[promo.status] || promo.status || 'sin estado'
-            }`}
-          >
-            {promo.escritura_no_aplicada.accion === 'remove' ? 'ML no la quitó' : 'ML no aplicó la promo'}
+        <span className={styles.promoTypeCell}>
+          <span className={`${styles.badge} ${TYPE_BADGE_CLASS[promo.promotion_type] || styles.badgeTypeNeutral}`}>
+            {promo.promotion_type || 'N/A'}
           </span>
-        )}
-        <span className={styles.promoName}>
-          {resolvePromoName(promo) || promo.promotion_type || promo.promotion_id}
-        </span>
-        {dateRange && <span className={styles.promoDates}>{dateRange}</span>}
-        <span className={styles.promoPrice}>
-          {formatPrice(effectivePrice)}
-          {promo.original_price != null && promo.original_price !== effectivePrice && (
-            <span className={styles.promoOriginalPrice}> ({formatPrice(promo.original_price)})</span>
+          {promo.application_status === 'active' && (
+            <span className={`${styles.badge} ${styles.badgeApplied}`}>Aplicada</span>
+          )}
+          {promo.application_status === 'programmed' && (
+            <span className={`${styles.badge} ${styles.badgeProgrammed}`}>Programada</span>
+          )}
+          {promo.application_status === 'pending' && (
+            <span className={`${styles.badge} ${styles.badgePending}`}>En espera</span>
+          )}
+          {promo.escritura_no_aplicada && (
+            <span
+              className={`${styles.badge} ${styles.badgeNotApplied}`}
+              title={`${capitalize(describeRequest(promo.escritura_no_aplicada))}; ML la sigue mostrando como ${
+                ML_STATUS_LABEL[promo.status] || promo.status || 'sin estado'
+              }`}
+            >
+              {promo.escritura_no_aplicada.accion === 'remove' ? 'ML no la quitó' : 'ML no aplicó la promo'}
+            </span>
           )}
         </span>
-        {CO_FUNDED_TYPES.has(promo.promotion_type) && (sellerPct || meliPct) && (
-          <span className={styles.promoSmartCost}>
-            {sellerPct && `Costo vendedor: ${sellerPct}`}
-            {sellerPct && meliPct && ' · '}
-            {meliPct && `Cofinanciación ML: ${meliPct}`}
+        <span className={styles.promoMain}>
+          <span className={styles.promoName}>
+            {resolvePromoName(promo) || promo.promotion_type || promo.promotion_id}
           </span>
-        )}
-        <span className={styles.promoMarkup} style={{ color: getMarkupColor(promo.nuestro_markup) }}>
-          Tu markup: {formatMarkup(promo.nuestro_markup)}
+          {dateRange && <span className={styles.promoDates}>{dateRange}</span>}
+          {CO_FUNDED_TYPES.has(promo.promotion_type) && (sellerPct || meliPct) && (
+            <span className={styles.promoSmartCost}>
+              {sellerPct && `Costo vendedor: ${sellerPct}`}
+              {sellerPct && meliPct && ' · '}
+              {meliPct && `Cofinanciación ML: ${meliPct}`}
+            </span>
+          )}
         </span>
-        {age && (
-          <span
-            className={ageIsStale ? styles.promoFreshnessStale : styles.promoFreshness}
-            title="Última vez que el espejo de promociones se actualizó desde MercadoLibre"
-          >
-            actualizado {age}
-          </span>
-        )}
-        {applicable && controlsLockedLabel && (
-          <button type="button" className={styles.applySlot} disabled title={controlsLockedLabel}>
-            {controlsLockedLabel}
-          </button>
-        )}
-        {applicable && !controlsLockedLabel && (
-          <PromoApplyControl
-            mla={mla}
-            promotion={promo}
-            onApplied={(result) => {
-              scheduleMirrorReloads();
-              onAppliedRef.current?.(result);
-            }}
-            onReloadNeeded={scheduleMirrorReloads}
-          />
-        )}
+        <span className={styles.promoPrice}>
+          <span>{formatPrice(effectivePrice)}</span>
+          {promo.original_price != null && promo.original_price !== effectivePrice && (
+            <s className={styles.promoOriginalPrice}>{formatPrice(promo.original_price)}</s>
+          )}
+        </span>
+        <span className={`${styles.promoMarkup} ${markupToneClass(promo.nuestro_markup)}`}>
+          <span className={styles.markupLabel}>Tu markup: </span>
+          {formatMarkup(promo.nuestro_markup)}
+        </span>
+        <span className={styles.promoStatusCell}>
+          {age && (
+            <span
+              className={ageIsStale ? styles.promoFreshnessStale : styles.promoFreshness}
+              title="Última vez que el espejo de promociones se actualizó desde MercadoLibre"
+            >
+              actualizado {age}
+            </span>
+          )}
+        </span>
+        <span className={styles.promoAction}>
+          {!applicable && <span className={styles.actionNote}>Lo maneja ML</span>}
+          {applicable && controlsLockedLabel && (
+            <button type="button" className={styles.applySlot} disabled title={controlsLockedLabel}>
+              {controlsLockedLabel}
+            </button>
+          )}
+          {applicable && !controlsLockedLabel && (
+            <PromoApplyControl
+              mla={mla}
+              promotion={promo}
+              onApplied={(result) => {
+                scheduleMirrorReloads();
+                onAppliedRef.current?.(result);
+              }}
+              onReloadNeeded={scheduleMirrorReloads}
+            />
+          )}
+        </span>
       </li>
     );
   };
@@ -652,12 +687,14 @@ function MlaPromocionesPanel({
     return (
       <>
         {notices}
-        <ul className={styles.promoList}>{filteredPromociones.map(renderRow)}</ul>
+        <ul className={`${styles.promoList} ${styles.promoGridList}`}>{filteredPromociones.map(renderRow)}</ul>
       </>
     );
   }
 
   const groups = groupPromotions(filteredPromociones);
+  // The column header goes once, over the first section of promotion rows shown (coupons have their own row).
+  const headedSection = SECTIONS.find(({ key }) => key !== 'coupons' && groups[key].length > 0)?.key;
   return (
     <>
       {notices}
@@ -665,6 +702,7 @@ function MlaPromocionesPanel({
         groups[key].length === 0 ? null : (
           <section key={key} className={key === 'coupons' ? styles.couponSection : styles.promoSection} aria-label={title}>
             <h4 className={styles.sectionTitle}>{title}</h4>
+            {key === headedSection && <ColumnHeader />}
             <ul className={styles.promoList}>
               {key === 'coupons' ? groups[key].map((promo) => <CouponRow key={promo.promotion_id} promo={promo} mla={mla} />) : groups[key].map(renderRow)}
             </ul>

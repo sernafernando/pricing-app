@@ -2027,6 +2027,20 @@ describe('Publicaciones ML with the detail panel open (visual)', () => {
         await expect.element(screen.getByRole('link', { name: 'Ver promociones en Mercado Libre' })).toBeVisible();
         const rows = [...panel.querySelectorAll('[role="tabpanel"] li')];
         expect(rows).toHaveLength(3);
+        // A negative markup VALUE reads in the danger tone, never in the default text grey.
+        const markup = rows.flatMap((row) => [...row.querySelectorAll('span')]).find((el) => el.textContent === 'Tu markup: -2.0%');
+        expect(markup).toBeDefined();
+        expect(getComputedStyle(markup).color).toBe(tokenColor('--tone-danger-fg'));
+        expect(getComputedStyle(markup).color).not.toBe(tokenColor('--cf-text-secondary'));
+        expect(getComputedStyle(markup).color).not.toBe(tokenColor('--cf-text-primary'));
+        // The type column hugs its badges: the name starts right after them, top-aligned with the first one.
+        for (const row of rows.filter((li) => !li.closest('section[aria-label="Cupones"]'))) {
+          const [typeCell, main] = row.children;
+          const badges = [...typeCell.children];
+          const badgesRight = Math.max(...badges.map((badge) => rect(badge).right));
+          expect(rect(main).left - badgesRight, row.textContent.slice(0, 40)).toBeLessThanOrEqual(16);
+          expect(Math.abs(rect(badges[0]).top - rect(main).top), row.textContent.slice(0, 40)).toBeLessThanOrEqual(4);
+        }
         for (const el of rows.flatMap((row) => [row, ...row.querySelectorAll('*')])) {
           const r = rect(el);
           if (r.width === 0) continue;
