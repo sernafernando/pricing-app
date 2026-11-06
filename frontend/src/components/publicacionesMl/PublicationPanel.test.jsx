@@ -635,14 +635,14 @@ describe('header figures (S1)', () => {
     await screen.findByRole('region', { name: 'Cifras de la publicación' });
     const empty = within(figures()).getByText('—', { exact: false, selector: 'span[title]' });
     expect(empty).toHaveAttribute('title', MARKUP_REASONS.sin_costo);
-    expect(figure('Precio y markup')).not.toMatch(/\b0(,0)?%/);
+    expect(figure('Precio')).not.toMatch(/\b0(,0)?%/);
     unmount();
     publicacionesMlAPI.detail.mockResolvedValue({
       data: { ...withRow({ markup: { min: 8.5, max: 21, worst: 8.5, any_negative: false, reason: 'ok', partial: 0 } }), markup_breakdown: null },
     });
     renderPanel({ tab: 'resumen' });
     await screen.findByRole('region', { name: 'Cifras de la publicación' });
-    expect(figure('Precio y markup')).toContain('8,5% – 21,0%');
+    expect(figure('Precio')).toContain('8,5% – 21,0%');
   });
 
   it('shows the price, Stock and Ventas 30 días from the row; without ver_ganancia, no markup under the price', async () => {
@@ -650,22 +650,22 @@ describe('header figures (S1)', () => {
     renderPanel({ tab: 'resumen' });
     await screen.findByRole('region', { name: 'Cifras de la publicación' });
     expect(labels()).toEqual(['Precio', 'Stock', 'Ventas 30 días']);
-    expect(figure('Precio')).toBe('Precio $ 98.500,50');
+    expect(figure('Precio')).toBe('$ 98.500,50');
     // The total only: Full and propio are the Resumen's stock breakdown, not repeated here.
-    expect(figure('Stock')).toBe('34');
+    expect(figure('Stock')).toBe('34unidades');
     expect(figure('Ventas 30 días')).toContain('12');
     expect(figure('Ventas 30 días')).toContain('1.500,00');
   });
 
-  it('puts the price and the markup in one block without visible labels, the markup only with ver_ganancia', async () => {
+  it('shows each figure under its visible label, as the approved design: Precio with its markup under it, only with ver_ganancia', async () => {
     canSeeMargin = true;
     publicacionesMlAPI.detail.mockResolvedValue({ data: { ...withRow({ ...SALES, markup: MARKUP }), markup_breakdown: null } });
     renderPanel({ tab: 'resumen' });
     await screen.findByRole('region', { name: 'Cifras de la publicación' });
-    expect(labels()).toEqual(['Precio y markup', 'Stock', 'Ventas 30 días']);
-    // The label is for screen readers only; each line names itself the same way.
-    expect(within(figures()).getByText('Precio y markup', { selector: 'dt' }).className).toMatch(/visuallyHidden/);
-    expect(figure('Precio y markup')).toBe('Precio $ 98.500,50Markup 15,0%');
+    expect(labels()).toEqual(['Precio', 'Stock', 'Ventas 30 días']);
+    // Owner (P3): the labels show, once per card; none is for screen readers only.
+    for (const term of within(figures()).getAllByRole('term')) expect(term.className).not.toMatch(/visuallyHidden/);
+    expect(figure('Precio')).toBe('$ 98.500,50Markup 15,0%');
     expect(within(figures()).getByTitle('Markup')).not.toHaveAttribute('data-negative');
   });
 

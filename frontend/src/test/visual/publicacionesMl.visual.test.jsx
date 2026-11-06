@@ -2924,14 +2924,101 @@ const S9_PROMOTIONS = [
   // Just refreshed from ML, like the design's Estado column.
 ].map((promo) => (promo.promotion_type === 'SELLER_COUPON_CAMPAIGN' ? promo : { ...promo, updated_at: new Date().toISOString() }));
 
+// The header figures of that capture: the active promotion's price and markup, its stock and 30-day sales.
+const S9_ROW = {
+  price: { ...MANY[0].price, amount: 59999 },
+  markup: { min: -28.7, max: -28.7, worst: -28.7, any_negative: true, reason: 'ok', partial: 0 },
+  stock: { available: 71, full: 0, own: 71 },
+  sales_30d: { units: 75, gross: 4693617.16 },
+};
+const renderS9 = (theme) =>
+  renderWithPanel({ width: 1920, height: 2200, theme, tab: '', margin: true, promotions: S9_PROMOTIONS, rowExtra: S9_ROW, detailExtra: { can_resync: true, can_change_status: true } });
+
 describe('Publicaciones ML panel, Promos tab of the S9 design (visual)', () => {
   const widthKey = 'split-panel-width:publicaciones-ml';
   afterEach(() => localStorage.removeItem(widthKey));
 
   for (const theme of THEMES) {
+    it(`1920x2200 ${theme}: at its default width a stacked row shows its markup without the "Tu markup:" label, in its tone`, async () => {
+      localStorage.removeItem(widthKey);
+      const screen = await renderS9(theme);
+      await expect.element(screen.getByText('MKP T1 CYBER MONDAY NOV')).toBeVisible();
+      const panel = panelOf();
+      const rows = [...panel.querySelectorAll('section[aria-label="Disponibles para activar"] li')];
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        const label = [...row.querySelectorAll('span')].find((el) => el.textContent === 'Tu markup: ');
+        if (!label) continue;
+        // Still named for screen readers, not drawn (owner: no label on each row).
+        expect(rect(label).width, row.textContent.slice(0, 30)).toBeLessThanOrEqual(1);
+        const value = label.parentElement;
+        expect(rect(value).width).toBeGreaterThan(1);
+      }
+      const negative = [...panel.querySelectorAll('span')].find((el) => el.textContent === 'Tu markup: -29.5%');
+      expect(getComputedStyle(negative).color).toBe(tokenColor('--tone-danger-fg'));
+      // In a narrow card the billed amount wraps whole, never between its "$" and its digits.
+      const billed = [...panel.querySelectorAll('header dd span')].find((el) => el.textContent === '$ 4.693.617,16');
+      expect(wrapped([billed])).toEqual([]);
+      screen.unmount();
+    });
+
+    it(`1920x2200 ${theme}: the header reads as the approved design: labelled KPI cards, the ML link on the MLA line`, async () => {
+      localStorage.setItem(widthKey, '1040');
+      const screen = await renderS9(theme);
+      const strip = screen.getByRole('region', { name: 'Cifras de la publicación' });
+      await expect.element(strip.getByTitle('Markup')).toBeVisible();
+      await frame();
+      const panel = panelOf();
+      const cards = [...strip.element().querySelectorAll('dl > div')];
+      // PRECIO, STOCK and VENTAS 30 DÍAS side by side, each label drawn over its value.
+      expect(cards.map((card) => card.querySelector('dt').textContent)).toEqual(['Precio', 'Stock', 'Ventas 30 días']);
+      expect(new Set(cards.map((card) => Math.round(rect(card).top))).size).toBe(1);
+      for (const card of cards) {
+        const term = card.querySelector('dt');
+        expect(rect(term).width).toBeGreaterThan(10);
+        expect(getComputedStyle(term).textTransform).toBe('uppercase');
+        expect(getComputedStyle(term).color).toBe(tokenColor('--cf-text-secondary'));
+        const amount = card.querySelector('dd > span');
+        expect(rect(amount).top).toBeGreaterThanOrEqual(rect(term).bottom - 0.5);
+        // The figure is the big line of its card.
+        expect(Number.parseFloat(getComputedStyle(amount).fontSize)).toBeGreaterThan(Number.parseFloat(getComputedStyle(term).fontSize) * 1.4);
+      }
+      // "Markup -28,7%": the word drawn in the label's grey, the value in its tone.
+      const markup = strip.element().querySelector('[title="Markup"]');
+      const word = [...markup.querySelectorAll('span')].find((el) => el.textContent === 'Markup ');
+      expect(rect(word).width).toBeGreaterThan(10);
+      expect(getComputedStyle(word).color).toBe(tokenColor('--cf-text-secondary'));
+      expect(getComputedStyle(markup).color).toBe(tokenColor('--tone-danger-fg'));
+      expect(cards[2].textContent).toContain('Facturado $ 4.693.617,16');
+      // MLA, its badges and "Ver en Mercado Libre" on one line under the title.
+      const mla = [...panel.querySelectorAll('header span')].find((el) => el.textContent === SELECTED);
+      const link = [...panel.querySelectorAll('header a[href]')].find((el) => el.textContent.includes('Ver en Mercado Libre'));
+      expect(link).toBeDefined();
+      expect(Math.abs(rect(link).top + rect(link).height / 2 - (rect(mla).top + rect(mla).height / 2))).toBeLessThan(4);
+      expect(getComputedStyle(link).textDecorationLine).toBe('none');
+      // The open tab is marked in the text colour, as the design.
+      const open = panel.querySelector('[role="tab"][aria-selected="true"]');
+      expect(getComputedStyle(open).borderBottomColor).toBe(tokenColor('--cf-text-primary'));
+      // The footer: freshness in columns, each name with its time at the right; the actions beside it.
+      const footer = panel.querySelector('footer');
+      const freshness = footer.querySelector('ul');
+      const entries = [...freshness.querySelectorAll('li')];
+      expect(new Set(entries.map((li) => Math.round(rect(li).top))).size).toBeLessThan(entries.length);
+      for (const li of entries) {
+        const [name, ago] = li.children;
+        expect(rect(ago).right).toBeGreaterThan(rect(li).right - 1);
+        expect(rect(name).left).toBeLessThan(rect(li).left + 1);
+      }
+      const pause = [...footer.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Pausar');
+      expect(rect(pause).left).toBeGreaterThanOrEqual(rect(freshness).right - 0.5);
+      expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+      if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/s9-header-wide-${theme}.png`, element: panel });
+      screen.unmount();
+    });
+
     it(`1920x2200 ${theme}: at its default width the panel stacks each row under the name, no column header`, async () => {
       localStorage.removeItem(widthKey);
-      const screen = await renderWithPanel({ width: 1920, height: 2200, theme, tab: '', promotions: S9_PROMOTIONS });
+      const screen = await renderS9(theme);
       await expect.element(screen.getByText('MKP T1 CYBER MONDAY NOV')).toBeVisible();
       const panel = panelOf();
       expect(rect(panel).width).toBeLessThanOrEqual(560 + 0.5);
@@ -2943,7 +3030,7 @@ describe('Publicaciones ML panel, Promos tab of the S9 design (visual)', () => {
 
     it(`1920x2200 ${theme}: widened with the divider, the rows line up under the column header`, async () => {
       localStorage.setItem(widthKey, '1040');
-      const screen = await renderWithPanel({ width: 1920, height: 2200, theme, tab: '', promotions: S9_PROMOTIONS });
+      const screen = await renderS9(theme);
       await expect.element(screen.getByText('MKP T1 CYBER MONDAY NOV')).toBeVisible();
       await frame();
       const panel = panelOf();

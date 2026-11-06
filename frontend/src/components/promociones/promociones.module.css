@@ -374,7 +374,8 @@
 }
 
 /* The column header names the markup: its in-row label is for screen readers
-   only. A flat list (no header) and a narrow panel (header hidden) show it. */
+   only, also in a narrow panel whose rows stack (owner: no label on each row).
+   The flat list (Productos tree, no header) shows it. */
 .promoSection .markupLabel {
   position: absolute;
   width: 1px;
@@ -411,7 +412,7 @@
 
 /* A panel narrower than the grid (the 460-560px side panel): two lines per row,
    type badges on the left (top-aligned with the name), price/markup/state under the name, the action on
-   the right; the column header hides and the markup shows its label. */
+   the right; the column header hides and the markup stays a bare value in its tone. */
 @container promos (max-width: 52rem) {
   .promoColumns {
     display: none;
@@ -433,16 +434,6 @@
   .promoGridRow .promoMarkup,
   .promoStatusCell {
     align-self: center;
-  }
-
-  .promoSection .markupLabel {
-    position: static;
-    width: auto;
-    height: auto;
-    overflow: visible;
-    clip: auto;
-    font-weight: var(--font-normal);
-    color: var(--cf-text-tertiary);
   }
 
   .promoGridRow .promoMarkup {
