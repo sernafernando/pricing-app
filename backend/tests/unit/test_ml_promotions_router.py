@@ -30,6 +30,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.main import app
 from app.models.usuario import Usuario
+from app.services.ml_promotions_pricing import MarkupsDePrecio
 
 
 def _fake_user() -> Usuario:
@@ -210,7 +211,7 @@ class TestPromotionItems:
         assert body["items"][0]["mla"] == "MLA111"
 
 
-def _passthrough_enriquecer(db, mla, promociones):
+def _passthrough_enriquecer(db, mla, promociones, **kwargs):
     """Test double for `enriquecer_markup_por_promo`: sets a fixed
     `nuestro_markup` per promo without touching the (fake/dummy) db."""
     for promo in promociones:
@@ -292,7 +293,7 @@ class TestItemPromotions:
                 ),
                 patch(
                     "app.routers.ml_promotions.enriquecer_markup_por_promo",
-                    side_effect=lambda db, mla, promos: promos,
+                    side_effect=lambda db, mla, promos, **kw: promos,
                 ),
             ):
                 response = client.get("/api/promociones/item/MLA123456789")
@@ -345,10 +346,13 @@ class TestItemPromotions:
                 ),
                 patch(
                     "app.routers.ml_promotions.enriquecer_markup_por_promo",
-                    side_effect=lambda db, mla, promos: (
-                        [{**promos[0], "nuestro_markup": 22.3}, {**promos[1], "nuestro_markup": None}]
+                    side_effect=lambda db, mla, promos, **kw: (
+                        [
+                            {**promos[0], "nuestro_markup": 22.3, "markup_sell_in_out": 25.1},
+                            {**promos[1], "nuestro_markup": None, "markup_sell_in_out": None},
+                        ]
                     ),
-                ),
+                ) as mock_enrich,
             ):
                 response = client.get("/api/promociones/item/MLA123456789")
         finally:
@@ -359,6 +363,10 @@ class TestItemPromotions:
         assert body["count"] == 2
         assert body["promotions"][0]["nuestro_markup"] == 22.3
         assert body["promotions"][1]["nuestro_markup"] is None
+        # promos-markup-sell-in-out S1: the panel read asks for the sell in / sell out companion and returns it
+        assert mock_enrich.call_args.kwargs == {"sell_in_out": True}
+        assert body["promotions"][0]["markup_sell_in_out"] == 25.1
+        assert body["promotions"][1]["markup_sell_in_out"] is None
 
 
 class TestMarkupParaPrecio:
@@ -380,7 +388,10 @@ class TestMarkupParaPrecio:
         try:
             with (
                 patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
-                patch("app.routers.ml_promotions.markup_para_precio", return_value=18.5) as mock_markup,
+                patch(
+                    "app.routers.ml_promotions.markup_para_precio_con_sell_in_out",
+                    return_value=MarkupsDePrecio(18.5, 21.25),
+                ) as mock_markup,
             ):
                 response = client.get("/api/promociones/item/MLA1/markup", params={"price": 850})
         finally:
@@ -390,6 +401,7 @@ class TestMarkupParaPrecio:
         body = response.json()
         assert body["price"] == 850
         assert body["nuestro_markup"] == 18.5
+        assert body["markup_sell_in_out"] == 21.25  # promos-markup-sell-in-out S1
         mock_markup.assert_called_once_with(mock_markup.call_args.args[0], "MLA1", 850.0)
 
     def test_price_zero_or_negative_returns_422(self, client: TestClient) -> None:
@@ -407,7 +419,10 @@ class TestMarkupParaPrecio:
         try:
             with (
                 patch("app.routers.ml_promotions.PermisosService", return_value=fake_service),
-                patch("app.routers.ml_promotions.markup_para_precio", return_value=None),
+                patch(
+                    "app.routers.ml_promotions.markup_para_precio_con_sell_in_out",
+                    return_value=MarkupsDePrecio(None, None),
+                ),
             ):
                 response = client.get("/api/promociones/item/MLA1/markup", params={"price": 850})
         finally:
@@ -416,6 +431,7 @@ class TestMarkupParaPrecio:
         assert response.status_code == 200
         body = response.json()
         assert body["nuestro_markup"] is None
+        assert body["markup_sell_in_out"] is None
 
     def test_db_unavailable_still_503_before_enrichment(self, client: TestClient) -> None:
         """R5.3 — ML_WEBHOOK_DB_URL unset behavior is unchanged: 503 happens

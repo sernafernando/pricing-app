@@ -30,7 +30,7 @@ from app.services.ml_catalog_competition_service import (
 from app.services.ml_promotions_pricing import (
     enriquecer_markup_por_promo,
     markup_de_oferta_live,
-    markup_para_precio,
+    markup_para_precio_con_sell_in_out,
 )
 from app.services.ml_promotions_service import (
     derivar_application_status,
@@ -133,6 +133,11 @@ class ItemPromotion(BaseModel):
     server-side; None when cost/publication is unresolvable. Only populated
     on `GET /promociones/item/{mla_id}` (per-item read); absent/None on the
     per-promotion listing (`GET /promociones/{promotion_id}/items`)."""
+    markup_sell_in_out: Optional[float] = None
+    """The same promo net as `nuestro_markup` with the product's sell in / sell out today (the
+    Precios tab rule: with sell in + sell out when there is sell out, else with sell in only), an
+    extra figure for the panel. None when the product has neither. Only on
+    `GET /promociones/item/{mla_id}`; `nuestro_markup` keeps ranking the offers."""
     escritura_no_aplicada: Optional[EscrituraNoAplicada] = None
     """Set only when our latest write on this promo was confirmed NOT applied by ML and the row still says
     so (an enroll not started/pending, a remove still started). Only on `GET /promociones/item/{mla_id}`."""
@@ -189,6 +194,9 @@ class MarkupParaPrecioResponse(BaseModel):
     as `nuestro_markup` on `GET /promociones/item/{mla_id}` (no
     co-funding — plain-price markup). None when cost/publication is
     unresolvable."""
+    markup_sell_in_out: Optional[float] = None
+    """`nuestro_markup`'s net with the product's sell in / sell out today (same rule as the
+    promo field). None when the product has neither."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -603,7 +611,7 @@ def obtener_promociones_item(
         # active from programmed (both show `started`), so it must be
         # derived here.
         promotions = derivar_application_status(promotions)
-        promotions = enriquecer_markup_por_promo(db, mla_id, promotions)
+        promotions = enriquecer_markup_por_promo(db, mla_id, promotions, sell_in_out=True)
         motivo = motivo_sin_consulta_ml(db, mla_id)
         # Last: on failure it rolls the request session back, so nothing may read through it afterwards.
         sin_promo = _marcar_escrituras_no_aplicadas(db, mla_id, promotions)
@@ -641,8 +649,10 @@ def obtener_markup_para_precio(
     `markup_para_precio`). Usado por el input de precio manual de
     SELLER_CAMPAIGN/DEAL en el frontend. Requiere permiso: promos.ver
     """
-    nuestro_markup = markup_para_precio(db, mla_id, price)
-    return MarkupParaPrecioResponse(price=price, nuestro_markup=nuestro_markup)
+    markups = markup_para_precio_con_sell_in_out(db, mla_id, price)
+    return MarkupParaPrecioResponse(
+        price=price, nuestro_markup=markups.nuestro_markup, markup_sell_in_out=markups.markup_sell_in_out
+    )
 
 
 @router.get("/{promotion_id}/items", response_model=PromotionItemsList)
