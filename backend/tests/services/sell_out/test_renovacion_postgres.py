@@ -13,8 +13,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.sell_out import SellOutPrograma
-from app.schemas.sell_out import SellOutProgramaIn
-from app.services.sell_out import campanas, programas, renovacion
+from app.services.sell_out import campanas, renovacion
 from tests.services.sell_out import _world as w
 
 pytestmark = pytest.mark.postgres
@@ -140,11 +139,12 @@ def test_deleting_the_original_clears_the_link(engine, Sesion) -> None:
 
 
 def _programa(Sesion: sessionmaker, nombre: str = "MARCA PROG", estado: str = "activo") -> int:
+    """A stored program (programs are no longer created from the app; the existing ones stay)."""
     with Sesion() as db:
-        pid = programas.crear(db, SellOutProgramaIn(nombre=nombre), USUARIO).id
-    if estado != "activo":
-        w.execute(Sesion.kw["bind"], "UPDATE sell_out_programas SET estado = :e WHERE id = :i", e=estado, i=pid)
-    return pid
+        programa = SellOutPrograma(nombre=nombre, estado=estado, usuario_id=USUARIO)
+        db.add(programa)
+        db.commit()
+        return programa.id
 
 
 def _original(engine: Engine, programa: Optional[int] = None, **values) -> int:

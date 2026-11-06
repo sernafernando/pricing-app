@@ -32,7 +32,7 @@ from decimal import Decimal
 from typing import Any, Callable, Concatenate, Optional, ParamSpec, TypeVar
 
 from pydantic import TypeAdapter
-from sqlalchemy import Numeric, case, func, or_
+from sqlalchemy import Numeric, func, or_
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Query, Session
 from sqlalchemy.sql.elements import ColumnElement
@@ -518,11 +518,10 @@ def crear_campana(
 def _validar_renovacion(db: Session, data: SellOutCampanaIn) -> None:
     """A renewal (`data.renovada_de_id`) names a stored campaign of the same program, and one no non-voided campaign
     already renews. The copy of a campaign whose program is archived goes without program (`renovacion.borrador`),
-    so it may name it: an archived program has no Renovar programa preview to hide it from.
+    so it may name it.
 
-    It first locks the original's program row (`FOR UPDATE`, the lock Renovar programa holds), or the original
-    itself when it has no program, so a concurrent Renovar programa or a second save of the same draft waits and
-    then sees the committed copy. Taken before `programas.validar_asignable`'s share lock, never after, so two
+    It first locks the original's program row (`FOR UPDATE`), or the original itself when it has no program, so
+    a second save of the same draft waits and then sees the committed copy. Taken before `programas.validar_asignable`'s share lock, never after, so two
     renewals never deadlock upgrading it. `SellOutError` (422) or `SellOutYaRenovada` (409), nothing stored."""
     original = db.get(SellOutCampana, data.renovada_de_id)
     if original is None:
@@ -561,7 +560,6 @@ def crear_campana_sin_commit(
     tactical: Optional[tuple[int, int]] = None,
 ) -> SellOutCampana:
     """The create step without committing: validation, the row, its groups and items, one audit row and queueing.
-    Shared by the single create and Renovar programa (`renovacion_programa.renovar`, several in one transaction).
 
     `offset_origen_id`: the legacy offset it migrates (only `app.scripts.migrar_offsets_a_sell_out`).
 
@@ -642,7 +640,7 @@ def editar_campana_sin_commit(
     """The edit step of an active campaign, without committing: lock, validation, full replace of its fields,
     groups and items, one audit row (`es_masivo` for the bulk edit, `edicion_masiva`) and queueing. Shared by the
     single and the bulk edit. None when it does not exist; `SellOutYaAnulada` when voided. Its program is kept:
-    a `data.programa_id` sent is ignored (assignment is `programas.asignar`, audited on its own).
+    a `data.programa_id` sent is ignored (programs are no longer assigned from the app).
 
     `compartian`: the campaigns to queue with it, when the caller already knows them (the bulk edit computes the
     links of the whole batch once, `asignacion.vinculadas_por_campana`); else those sharing products with it now,
@@ -952,64 +950,6 @@ def listar_campanas(
         .all()
     )
     return campanas, total
-
-
-def por_programa(
-    db: Session, filtros: FiltrosCampanas, *, page: int = 1, page_size: int = 50
-) -> tuple[list[dict], int, Optional[dict]]:
-    """The grouped view's rows (slice E): `(page of programs, how many programs, the group without a program)`.
-    Only programs with a campaign under the filters, by name; each with its filtered campaigns' count, active
-    count, distinct names (`programas.contar_nombres`) and date span. The group without a program is None when
-    no filtered campaign lacks one. Four queries whatever the page holds: the page, the program count, the group
-    without a program and the page's names."""
-    c, p = SellOutCampana, SellOutPrograma
-    agregados = (
-        func.count(c.id),
-        func.coalesce(func.sum(case((c.estado == "activa", 1), else_=0)), 0),
-        func.min(c.fecha_desde),
-        func.max(c.fecha_hasta),
-    )
-    filas = (
-        _filtradas(db, filtros, c.programa_id, p.nombre, *agregados)
-        .join(p, p.id == c.programa_id)
-        .group_by(c.programa_id, p.nombre)
-        .order_by(func.lower(p.nombre), c.programa_id)
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-    total = _filtradas(db, filtros, func.count(func.distinct(c.programa_id))).scalar() or 0
-    sin_fila = None
-    if filtros.programa_id is None:
-        sin_fila = _filtradas(db, filtros, *agregados).filter(c.programa_id.is_(None)).one()
-        if not sin_fila[0]:
-            sin_fila = None
-    ids = [fila[0] for fila in filas]
-    nombres_de = _filtradas(db, filtros, c.programa_id, c.nombre).filter(
-        or_(c.programa_id.in_(ids), c.programa_id.is_(None)) if sin_fila is not None else c.programa_id.in_(ids)
-    )
-    nombres = programas.contar_nombres(nombres_de.distinct().all()) if ids or sin_fila is not None else {}
-
-    def grupo(
-        programa_id: Optional[int],
-        nombre: Optional[str],
-        campanas: int,
-        activas: int,
-        desde: date,
-        hasta: date,
-    ) -> dict:
-        return {
-            "programa_id": programa_id,
-            "nombre": nombre,
-            "campanas": int(campanas),
-            "activas": int(activas),
-            "nombres": nombres.get(programa_id, 0),
-            "desde": desde,
-            "hasta": hasta,
-        }
-
-    items = [grupo(*fila) for fila in filas]
-    return items, total, None if sin_fila is None else grupo(None, None, *sin_fila)
 
 
 def serializar(db: Session, campanas: list[SellOutCampana]) -> list[dict]:

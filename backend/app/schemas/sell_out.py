@@ -1,4 +1,4 @@
-"""Schemas of the sell-out campaigns API (`/api/sell-out/campanas`) and its programs (`/api/sell-out/programas`).
+"""Schemas of the sell-out campaigns API (`/api/sell-out/campanas`).
 
 Only the shape is validated here (types and closed choices), like the sell-in
 schemas. The rules that mirror the database CHECKs (amount by type, percentage
@@ -26,7 +26,6 @@ from pydantic import (
     ModelWrapValidatorHandler,
     SerializerFunctionWrapHandler,
     ValidationError,
-    field_validator,
     model_serializer,
     model_validator,
 )
@@ -39,13 +38,11 @@ TcModo = Literal["al_cobro", "fijo", "dia_venta"]
 Estado = Literal["activa", "anulada"]
 Canal = Literal["ml", "fuera", "tn"]
 EstadoRecalculo = Literal["al_dia", "en_cola", "recalculando", "fallida"]
-EstadoPrograma = Literal["activo", "archivado"]
 
 NOMBRE_MAX = 200
 MOTIVO_MAX = 500  # `auditoria.comentario` is VARCHAR(500)
 GRUPOS_MAX = 50
 ITEMS_MAX = 500
-ASIGNAR_MAX = 500  # campaigns per program assignment
 INT_MIN, INT_MAX = -(2**31), 2**31 - 1  # INTEGER
 
 # Each NUMERIC(precision, scale) column as (max_digits, decimal_places).
@@ -125,7 +122,7 @@ class SellOutCampanaIn(BaseModel):
     # keeps the stored ones, so a client that does not send them never wipes them; `[]` clears them.
     items: Optional[list[SellOutCampanaItemIn]] = Field(default=None, max_length=ITEMS_MAX)
     # Its program (campaign system S1), on create only: absent or None means none. An edit ignores it and keeps the
-    # stored one; assignment goes through `POST /api/sell-out/programas/asignar`, which audits it.
+    # stored one. Programs are no longer created or assigned from the app; an existing one is still accepted here.
     programa_id: Optional[int] = Field(default=None, ge=INT_MIN, le=INT_MAX)
     # The campaign it renews (the renewal draft sets it), on create only like `programa_id`: an edit keeps the stored one.
     renovada_de_id: Optional[int] = Field(default=None, ge=1, le=2**63 - 1)
@@ -367,7 +364,7 @@ class SellOutCampanaOut(BaseModel):
     estado: Estado
     usuario_id: int
     offset_origen_id: Optional[int] = None  # read-only: the legacy offset it was migrated from (T15)
-    # Its program (metadata only), set with `POST /api/sell-out/programas/asignar`, never by an edit.
+    # Its program (metadata only, legacy): kept as stored, never set by an edit.
     programa_id: Optional[int] = None
     renovada_de_id: Optional[int] = None
     # read-only: the tactical it is a line of; its own hidden group is never in `grupos` (the edit step keeps it)
@@ -417,175 +414,3 @@ class SellOutConsumosListOut(BaseModel):
     total: int
     page: int
     page_size: int
-
-
-# ── Programs (`/api/sell-out/programas`, campaign system S1) ───────────
-
-
-def _nombre_programa(valor: Optional[str]) -> Optional[str]:
-    if valor is None:
-        return None
-    valor = valor.strip()
-    if not valor:
-        raise ValueError("El nombre del programa no puede estar vacío.")
-    if len(valor) > NOMBRE_MAX:  # counted after trimming: surrounding spaces never make a name too long
-        raise ValueError(f"El nombre del programa admite hasta {NOMBRE_MAX} caracteres.")
-    return valor
-
-
-class SellOutProgramaIn(BaseModel):
-    """`POST /`: a new program. The name is trimmed, not empty and unique ignoring case (a 409 otherwise)."""
-
-    nombre: str
-    descripcion: Optional[str] = None
-
-    _nombre = field_validator("nombre")(_nombre_programa)
-
-
-class SellOutProgramaPatchIn(BaseModel):
-    """`PATCH /{id}`: only the fields sent change. `nombre` and `estado` cannot be null; `descripcion` can."""
-
-    nombre: Optional[str] = None
-    descripcion: Optional[str] = None
-    estado: Optional[EstadoPrograma] = None
-
-    _nombre = field_validator("nombre")(_nombre_programa)
-
-    @model_validator(mode="after")
-    def _sin_nulos(self) -> "SellOutProgramaPatchIn":
-        for campo in ("nombre", "estado"):
-            if campo in self.model_fields_set and getattr(self, campo) is None:
-                raise ValueError(f"El campo {campo} no puede ser nulo.")
-        return self
-
-
-class SellOutProgramaOut(BaseModel):
-    """A program with what its campaigns span: how many (`campanas`), how many are active (`activas`), the
-    earliest start (`desde`) and the latest end (`hasta`); None dates while it has no campaign."""
-
-    id: int
-    nombre: str
-    descripcion: Optional[str]
-    estado: EstadoPrograma
-    campanas: int
-    activas: int
-    desde: Optional[date]
-    hasta: Optional[date]
-    nombres: int  # distinct campaign names, ignoring case and repeated spaces
-
-
-class SellOutAsignarIn(BaseModel):
-    """`POST /asignar`: set the program of these campaigns, or clear it with `programa_id: null` (required)."""
-
-    campana_ids: list[int] = Field(min_length=1, max_length=ASIGNAR_MAX)
-    programa_id: Optional[int]
-
-
-class SellOutAsignarOut(BaseModel):
-    asignadas: int  # campaigns whose program changed
-    sin_cambio: int  # already had it
-
-
-class SellOutRenovarCampanaOut(BaseModel):
-    campana_id: int
-    nombre: str
-    nombre_nuevo: str  # the copy's name: its trailing period advanced (`renovacion.nombre_renovado`)
-
-
-class SellOutRenovacionOmitidaOut(BaseModel):
-    campana_id: int
-    nombre: str
-    motivo: str  # "anulada, no se renueva" or "ya renovada en la campaña N (nombre)"
-
-
-class SellOutQuedaAfueraOut(BaseModel):
-    campana_id: int
-    nombre: str
-    fecha_hasta: date
-
-
-class SellOutRenovacionProgramaOut(BaseModel):
-    """`GET /{id}/renovacion`: what Renovar programa would do (`renovacion_programa.previa`): the source period
-    (`periodo_desde`, `periodo_hasta`), the target quarter (`fecha_desde`, `fecha_hasta`), the campaigns renewed,
-    the skipped ones with why, and the not-renewed ones of the other quarter of the window, left for a later pass.
-    The dates are None, with nothing to renew, when the program has no campaigns."""
-
-    programa_id: int
-    programa: str
-    periodo_desde: Optional[date]
-    periodo_hasta: Optional[date]
-    fecha_desde: Optional[date]
-    fecha_hasta: Optional[date]
-    renovar: list[SellOutRenovarCampanaOut]
-    omitidas: list[SellOutRenovacionOmitidaOut]
-    quedan_afuera: list[SellOutQuedaAfueraOut]
-
-
-class SellOutRenovarProgramaIn(BaseModel):
-    """`POST /{id}/renovar`: the campaign ids the preview listed under `renovar`."""
-
-    campana_ids: list[int] = Field(min_length=1, max_length=ASIGNAR_MAX)
-
-
-class SellOutRenovadaOut(BaseModel):
-    campana_id: int  # the original
-    nueva_id: int  # its copy
-
-
-class SellOutRenovarProgramaOut(BaseModel):
-    creadas: list[SellOutRenovadaOut]
-    omitidas: list[SellOutRenovacionOmitidaOut]
-
-
-class SellOutSugerenciaCampanaOut(BaseModel):
-    id: int
-    nombre: str
-    fecha_desde: date
-    fecha_hasta: date
-    estado: Estado
-
-
-class SellOutSugerenciaOut(BaseModel):
-    """Campaigns without a program sharing their exact dates (`programas.sugerencias`): a proposal, never applied.
-    `base` is the proposed program name, `nombres` how many distinct names the group holds."""
-
-    base: str
-    fecha_desde: date
-    fecha_hasta: date
-    nombres: int
-    campanas: list[SellOutSugerenciaCampanaOut]
-
-
-class SellOutProgramaListOut(BaseModel):
-    items: list[SellOutProgramaOut]
-    total: int
-    page: int
-    page_size: int
-
-
-class SellOutSugerenciaListOut(BaseModel):
-    items: list[SellOutSugerenciaOut]
-    total: int
-    page: int
-    page_size: int
-
-
-class SellOutGrupoProgramaOut(BaseModel):
-    """A row of the grouped view (`GET /sell-out/campanas/por-programa`): a program (or, with `programa_id` None,
-    the campaigns without one) and what its campaigns under the list's filters span."""
-
-    programa_id: Optional[int]
-    nombre: Optional[str]
-    campanas: int
-    activas: int
-    nombres: int  # distinct campaign names, ignoring case and repeated spaces
-    desde: date
-    hasta: date
-
-
-class SellOutGruposProgramaListOut(BaseModel):
-    items: list[SellOutGrupoProgramaOut]  # programs with campaigns under the filters, by name
-    total: int
-    page: int
-    page_size: int
-    sin_programa: Optional[SellOutGrupoProgramaOut]  # None when every filtered campaign has a program

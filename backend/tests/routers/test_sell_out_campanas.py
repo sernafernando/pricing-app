@@ -11,6 +11,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.main import app
 from app.models.auditoria import Auditoria, TipoAccion
 from app.models.offset_ganancia import OffsetGanancia
 from app.models.offset_grupo import OffsetGrupo
@@ -76,7 +77,7 @@ ESCRITURAS = [
     ("post", f"{BASE}/anular"),
     ("post", f"{BASE}/1/tipo-cambio"),
 ]
-LECTURAS = [("get", BASE), ("get", f"{BASE}/por-programa"), ("get", f"{BASE}/1"), ("get", f"{BASE}/1/consumos")]
+LECTURAS = [("get", BASE), ("get", f"{BASE}/1"), ("get", f"{BASE}/1/consumos")]
 
 
 @pytest.mark.parametrize("method,url", ESCRITURAS + LECTURAS)
@@ -402,84 +403,40 @@ def test_list_filters_by_program_or_without_one_and_both_is_a_422(client, gestor
     assert _message(resp) == "Elegí un programa o «Sin programa», no los dos."
 
 
-POR_PROGRAMA = f"{BASE}/por-programa"
-
-
-@pytest.mark.parametrize("url", [BASE, f"{BASE}/por-programa"])
-def test_permission_is_checked_before_the_filters(client, auth_headers, url) -> None:
+def test_permission_is_checked_before_the_filters(client, auth_headers) -> None:
     """A user without `sell_out.ver` gets a 403, not the filters' 422, whatever the filters are."""
     malos = {"desde": "2026-12-31", "hasta": "2026-12-01", "programa_id": 1, "sin_programa": True}
-    assert client.get(url, params=malos, headers=auth_headers).status_code == 403
-    assert client.get(url, params=malos).status_code in (401, 403)
+    assert client.get(BASE, params=malos, headers=auth_headers).status_code == 403
+    assert client.get(BASE, params=malos).status_code in (401, 403)
 
 
-def test_por_programa_groups_the_filtered_campaigns_and_hides_empty_programs(
-    client, gestor, grupos, db, admin_user
-) -> None:
-    """Slice E: the grouped view's rows. Each program with campaigns under the filters, by name, with how many,
-    how many are active, how many distinct names (ignoring case and spaces) and their date span; a program with
-    none under the filters is left out; the campaigns without a program come apart in `sin_programa`."""
-    marca = _programa(db, admin_user, "MARCA PROG")
-    modelos = _programa(db, admin_user, "Modelos SP")
-    _programa(db, admin_user, "aaa vacío")
-    a = _crear(client, gestor, grupos, nombre="MARCA PROG 3.0", fecha_desde="2026-08-01", fecha_hasta="2026-10-31")
-    b = _crear(client, gestor, grupos, nombre="marca  prog 3.0", fecha_desde="2026-08-01", fecha_hasta="2026-10-31")
-    c = _crear(client, gestor, grupos, nombre="MARCA PROGRAM1", fecha_desde="2026-09-01", fecha_hasta="2026-11-30")
-    m = _crear(client, gestor, grupos, nombre="M20 / M80 SP", moneda="ARS")
-    _crear(client, gestor, grupos, nombre="MODELO 8180")
-    client.post(f"{BASE}/{c['id']}/anular", json={}, headers=gestor)
-    for campana, programa in ((a, marca), (b, marca), (c, marca), (m, modelos)):
-        db.get(SellOutCampana, campana["id"]).programa_id = programa.id
-    db.flush()
+@pytest.mark.parametrize(
+    ("method", "url"),
+    [
+        ("get", "/api/sell-out/programas"),
+        ("post", "/api/sell-out/programas"),
+        ("get", "/api/sell-out/programas/sugerencias"),
+        ("post", "/api/sell-out/programas/asignar"),
+        ("patch", "/api/sell-out/programas/1"),
+        ("get", "/api/sell-out/programas/1/renovacion"),
+        ("post", "/api/sell-out/programas/1/renovar"),
+    ],
+)
+def test_the_programs_routes_are_gone(client, gestor, method, url) -> None:
+    """The Programas tab is gone (owner, 2026-11-06: "si ahora todo es tactical"), and its routes with it."""
+    assert client.request(method, url, json={}, headers=gestor).status_code == 404
 
-    resp = client.get(POR_PROGRAMA, headers=gestor)
-    assert resp.status_code == 200, resp.text
-    assert resp.json() == {
-        "items": [
-            {
-                "programa_id": marca.id,
-                "nombre": "MARCA PROG",
-                "campanas": 3,
-                "activas": 2,
-                "nombres": 2,
-                "desde": "2026-08-01",
-                "hasta": "2026-11-30",
-            },
-            {
-                "programa_id": modelos.id,
-                "nombre": "Modelos SP",
-                "campanas": 1,
-                "activas": 1,
-                "nombres": 1,
-                "desde": "2026-11-01",
-                "hasta": "2026-11-30",
-            },
-        ],
-        "total": 2,
-        "page": 1,
-        "page_size": 50,
-        "sin_programa": {
-            "programa_id": None,
-            "nombre": None,
-            "campanas": 1,
-            "activas": 1,
-            "nombres": 1,
-            "desde": "2026-11-01",
-            "hasta": "2026-11-30",
-        },
-    }
 
-    ars = client.get(POR_PROGRAMA, params={"moneda": "ARS"}, headers=gestor).json()
-    assert ([g["nombre"] for g in ars["items"]], ars["total"], ars["sin_programa"]) == (["Modelos SP"], 1, None)
-    activas = client.get(POR_PROGRAMA, params={"estado": "activa"}, headers=gestor).json()["items"][0]
-    assert (activas["campanas"], activas["nombres"], activas["hasta"]) == (2, 1, "2026-10-31")
-    pagina = client.get(POR_PROGRAMA, params={"page": 2, "page_size": 1}, headers=gestor).json()
-    assert ([g["nombre"] for g in pagina["items"]], pagina["total"]) == (["Modelos SP"], 2)
-    assert client.get(POR_PROGRAMA, params={"programa_id": 1, "sin_programa": True}, headers=gestor).status_code == 422
-    assert (
-        client.get(POR_PROGRAMA, params={"desde": "2026-12-31", "hasta": "2026-12-01"}, headers=gestor).status_code
-        == 422
-    )
+def test_the_grouped_by_program_view_is_gone(client, gestor) -> None:
+    """No route serves `por-programa` any more. It cannot answer 404 by itself: `GET /{campana_id}` takes the
+    path and rejects it as a campaign id, so the absence is asserted on the app's declared routes (OpenAPI)."""
+    rutas = app.openapi()["paths"]
+    assert not any(path.endswith("/por-programa") for path in rutas)
+    assert not any(path.startswith("/api/sell-out/programas") for path in rutas)
+    assert "get" in rutas[f"{BASE}/{{campana_id}}"]  # the path that now catches it
+    resp = client.get(f"{BASE}/por-programa", headers=gestor)
+    assert resp.status_code == 422
+    assert "sin_programa" not in resp.text
 
 
 def test_editing_a_campaign_keeps_its_program(client, gestor, grupos, db, admin_user) -> None:
