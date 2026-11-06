@@ -20,6 +20,7 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 | Implementing dark mode theming | `pricing-app-design` |
 | Implementing permission checks | `pricing-app-permissions` |
 | Managing user permission overrides | `pricing-app-permissions` |
+| Reviewing error handling or fail-closed logic | `silent-failure-hunter` |
 | Styling with CSS Modules or Tesla Design | `pricing-app-frontend` |
 | Styling with Tesla Design System | `pricing-app-design` |
 | Using CSS composition | `pricing-app-design` |

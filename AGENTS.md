@@ -50,6 +50,9 @@ ALWAYS load the matching skill BEFORE writing any code. No exceptions.
 | Git: branches, commits, PRs, workflow questions | `git-workflow` |
 | Skills: after creating/modifying a skill run `skill-sync`; to create new skills use `skill-creator` |
 | Tests: Python tests → `pytest`; React components → `react-19`; TypeScript types → `typescript`; Zustand state → `zustand-5` |
+| Reviewing error handling or fail-closed logic | `silent-failure-hunter` |
+| Writing Alembic migrations (indexes, columns, backfills, heads) | `database-migrations` |
+| Writing or reviewing SQL/SQLAlchemy queries and indexes | `postgres-patterns` |
 
 ---
 

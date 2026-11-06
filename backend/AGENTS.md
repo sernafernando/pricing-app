@@ -10,7 +10,10 @@ When performing these actions, ALWAYS invoke the corresponding skill FIRST:
 
 | Action | Skill |
 |--------|-------|
+| Reviewing error handling or fail-closed logic | `silent-failure-hunter` |
+| Writing Alembic migrations (indexes, columns, backfills, heads) | `database-migrations` |
 | Writing Python tests with pytest | `pytest` |
+| Writing or reviewing SQL/SQLAlchemy queries and indexes | `postgres-patterns` |
 
 ---
 
