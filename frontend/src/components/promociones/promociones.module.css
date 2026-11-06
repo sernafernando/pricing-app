@@ -1225,3 +1225,204 @@
   padding: 2px 0;
   color: var(--text-primary);
 }
+
+/* LIGHTNING apply card (approved S9 design, docs/design/promos-panel-s9/propuesta.png): the row's
+   trigger stays in the action column reading "Cerrar", and the form opens as a card under the row.
+   The action cell dissolves so both become items of the row's grid. */
+.promoAction:has(> .lightningCard) {
+  display: contents;
+}
+
+.promoGridRow:has(.lightningCard) {
+  border-color: var(--cf-border-strong);
+}
+
+.promoGridRow:has(.lightningCard):hover {
+  background: var(--cf-card-bg);
+}
+
+.lightningClose {
+  grid-area: action;
+  justify-self: end;
+}
+
+.lightningCard {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  /* Edge to edge under the row, the content lined up with the Promoción column. */
+  margin: var(--space-1) calc(-1 * var(--space-3)) calc(-1 * var(--space-3));
+  padding: var(--space-4) var(--space-4) var(--space-4) calc(8.5rem + 2 * var(--space-3));
+  border-top: 1px solid var(--cf-border-default);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  text-align: left;
+  font-size: var(--font-xs);
+  color: var(--cf-text-secondary);
+}
+
+.lightningTitle {
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+/* Precio | Tu markup | Stock a reservar side by side; stacked in a narrow panel (below). */
+.lightningFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.2fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.lightningField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.lightningLabel {
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  color: var(--cf-text-primary);
+}
+
+.lightningInputWrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--cf-border-default);
+  border-radius: var(--radius-md);
+  background: var(--cf-bg-app);
+}
+
+.lightningInputWrap:focus-within {
+  border-color: var(--cf-accent-blue);
+}
+
+.lightningPrefix {
+  color: var(--cf-text-tertiary);
+}
+
+.lightningInput {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--cf-text-primary);
+  font-size: var(--font-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.lightningInput::placeholder {
+  color: var(--cf-text-muted);
+}
+
+.lightningHint {
+  font-size: var(--font-xs);
+  color: var(--cf-text-tertiary);
+}
+
+.lightningMarkup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
+  min-width: 5rem;
+}
+
+.lightningMarkupLabel {
+  font-size: 11px;
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cf-text-muted);
+}
+
+.lightningMarkupValue {
+  font-size: var(--font-sm);
+  font-weight: var(--font-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--cf-text-primary);
+}
+
+.lightningMarkupValue.markupNegative {
+  color: var(--tone-danger-fg);
+}
+
+.lightningWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--tone-warning-border);
+  border-radius: var(--radius-md);
+  background: var(--tone-warning-bg);
+  color: var(--tone-warning-fg);
+  font-size: var(--font-xs);
+}
+
+.lightningWarningIcon {
+  flex: none;
+}
+
+.lightningActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.lightningCancelBtn,
+.lightningConfirmBtn {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--font-xs);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+}
+
+.lightningCancelBtn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--cf-text-secondary);
+}
+
+.lightningCancelBtn:hover {
+  background: var(--cf-bg-hover);
+}
+
+.lightningConfirmBtn {
+  border: 1px solid var(--cf-text-primary);
+  background: var(--cf-text-primary);
+  color: var(--cf-card-bg);
+}
+
+.lightningConfirmBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@container promos (max-width: 52rem) {
+  .lightningCard {
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+  }
+
+  .lightningFields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .lightningMarkup {
+    flex-direction: row;
+    align-items: baseline;
+    padding-top: 0;
+  }
+}

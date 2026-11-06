@@ -3041,5 +3041,62 @@ describe('Publicaciones ML panel, Promos tab of the S9 design (visual)', () => {
       if (PRODUCT_SHOTS_DIR) await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/s9-panel-wide-${theme}.png`, element: panel });
       screen.unmount();
     });
+
+    // The LIGHTNING apply card of the approved design: "Cerrar" stays in the row's action column, the card
+    // opens under the row with Precio | Tu markup | Stock side by side when wide, stacked at the default width.
+    for (const [variant, width] of [['wide', '1040'], ['default', null]]) {
+      it(`1920x2200 ${theme}: the LIGHTNING apply card fits the ${variant} panel`, async () => {
+        if (width) localStorage.setItem(widthKey, width);
+        else localStorage.removeItem(widthKey);
+        // The markup at the suggestion is not in the capture: pinned to none, never an earlier test's answer.
+        promocionesAPI.getMarkupParaPrecio.mockResolvedValue({ data: { nuestro_markup: null } });
+        const screen = await renderS9(theme);
+        await expect.element(screen.getByText('MKP T1 CYBER MONDAY NOV')).toBeVisible();
+        await frame();
+        const panel = panelOf();
+        const section = panel.querySelector('section[aria-label="Disponibles para activar"]');
+        const lightningRow = [...section.querySelectorAll('li')].find((li) => li.textContent.startsWith('LIGHTNING'));
+        const aplicar = [...lightningRow.querySelectorAll('button')].find((el) => el.textContent === 'Aplicar');
+        await userEvent.click(aplicar);
+        const card = screen.getByRole('group', { name: 'Aplicar LIGHTNING' });
+        await expect.element(card).toBeVisible();
+        await frame();
+        const close = [...lightningRow.querySelectorAll('button')].find((el) => el.textContent === 'Cerrar');
+        expect(close).toBeDefined();
+        const cardEl = card.element();
+        // The trigger stays on the row's line, right of the card's top; the card spans the row under it.
+        expect(rect(close).bottom).toBeLessThanOrEqual(rect(cardEl).top + 0.5);
+        expect(rect(close).right).toBeGreaterThan(rect(cardEl).right - 40);
+        const price = screen.getByLabelText('Precio').element();
+        const stock = screen.getByLabelText('Stock a reservar').element();
+        const markup = cardEl.querySelector('output');
+        expect(price.value).toBe('73558.15');
+        // The shot shows the markup once the debounced lookup settles.
+        await expect.poll(() => markup.textContent, { timeout: 3000 }).toBe('—');
+        await frame();
+        for (const el of [price, stock, markup, cardEl.querySelector('[role="note"]')]) {
+          expect(rect(el).left).toBeGreaterThanOrEqual(rect(cardEl).left - 0.5);
+          expect(rect(el).right).toBeLessThanOrEqual(rect(cardEl).right + 0.5);
+        }
+        if (width) {
+          // Side by side, markup between price and stock.
+          expect(rect(markup).left).toBeGreaterThan(rect(price).right);
+          expect(rect(stock).left).toBeGreaterThan(rect(markup).right);
+        } else {
+          expect(rect(panel).width).toBeLessThanOrEqual(560 + 0.5);
+          expect(rect(stock).top).toBeGreaterThan(rect(price).bottom);
+        }
+        expect(rect(cardEl).right).toBeLessThanOrEqual(rect(lightningRow).right + 0.5);
+        const note = cardEl.querySelector('[role="note"]');
+        expect(getComputedStyle(note).color).toBe(tokenColor('--tone-warning-fg'));
+        expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth + 1);
+        if (PRODUCT_SHOTS_DIR) {
+          lightningRow.scrollIntoView({ block: 'start' });
+          await frame();
+          await page.screenshot({ path: `${PRODUCT_SHOTS_DIR}/s9-lightning-${variant}-${theme}.png`, element: panel });
+        }
+        screen.unmount();
+      });
+    }
   }
 });
