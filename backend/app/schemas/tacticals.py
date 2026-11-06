@@ -121,6 +121,9 @@ class TacticalLineaOut(BaseModel):
     tope_monto: Optional[Decimal]
     tope_por_producto: bool  # its line created more than one child (one per product)
     reparto_criterio: Optional[RepartoCriterio] = None  # a `monto_total` line's split; None otherwise (invoice too)
+    # A sell in total line of a USD tactical: the USD amount it was loaded with (`valor` is the bonus's ARS total,
+    # converted at the tactical's fixed `tipo_cambio`); None on every other line.
+    valor_usd: Optional[Decimal] = None
     unidades_usadas: int
     monto_usado: Decimal
 

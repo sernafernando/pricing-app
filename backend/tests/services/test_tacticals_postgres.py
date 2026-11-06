@@ -562,14 +562,37 @@ class TestSellInMontoTotal:
         with pytest.raises(service.TacticalError, match="^Línea 1: un monto total se reparte entre los productos"):
             service.crear(db, _tactical("sell_in", [linea]), USUARIO)
 
-    def test_in_usd_it_is_refused_since_a_cost_bonus_is_in_pesos(self, db, engine) -> None:
-        data = _tactical("sell_in", [self._linea()], moneda="USD", tc_modo="fijo", tipo_cambio="1000")
+    def test_in_usd_with_a_fixed_rate_it_is_split_in_pesos_to_the_cent(self, db, engine) -> None:
+        data = _tactical("sell_in", [self._linea(valor="1200.01")], moneda="USD", tc_modo="fijo", tipo_cambio="1000.5")
+
+        tactical = service.crear(db, data, USUARIO)
+
+        # USD 1200.01 x 1000.5 = 1200610.005 -> ARS 1200610.01, split in two equal parts.
+        assert self._bono(engine, tactical.id)[2:6] == ("monto_total", "ARS", Decimal("1200610.01"), "iguales")
+        repartos = self._repartos(engine)
+        assert sorted(m for _, m in repartos) == [Decimal("600305.00"), Decimal("600305.01")]
+        assert sum(m for _, m in repartos) == Decimal("1200610.01")
+        salida = service.serializar(db, [tactical])[0]
+        [linea] = salida["lineas"]
+        assert (linea["valor"], linea["moneda"], linea["valor_usd"]) == (
+            Decimal("1200610.01"),
+            "ARS",
+            Decimal("1200.01"),
+        )
+        assert (salida["moneda"], salida["tipo_cambio"]) == ("USD", Decimal("1000.5"))
+
+    def test_in_usd_without_a_fixed_rate_it_is_refused(self, db, engine) -> None:
+        data = _tactical("sell_in", [self._linea()], moneda="USD", tc_modo="al_cobro")
         with pytest.raises(
-            service.TacticalError,
-            match="^Línea 1: un monto total sobre el costo va en pesos \\(ARS\\): el costo de cada venta está en pesos$",
+            service.TacticalError, match="^Línea 1: un monto total en USD necesita tipo de cambio fijo$"
         ):
             service.crear(db, data, USUARIO)
         assert _contar(engine, "tacticals") == 0
+
+    def test_in_pesos_it_carries_no_usd_amount(self, db) -> None:
+        tactical = service.crear(db, _tactical("sell_in", [self._linea()]), USUARIO)
+        [linea] = service.serializar(db, [tactical])[0]["lineas"]
+        assert linea["valor_usd"] is None
 
     def test_a_negative_total_is_refused(self, db) -> None:
         with pytest.raises(service.TacticalError, match="^Línea 1: el monto tiene que ser mayor a 0$"):
