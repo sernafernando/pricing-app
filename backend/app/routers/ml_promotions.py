@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StrictInt
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -210,6 +210,9 @@ class EnrollRequest(BaseModel):
     answers 409 with the new price and markup."""
     markup_visto: Optional[float] = None
     """Markup the operator saw. Audit only (logged with a 409)."""
+    stock: Optional[StrictInt] = None
+    """LIGHTNING only, required: units to reserve, within the live entry's
+    `stock: {min, max}`."""
 
 
 class EnrollResult(BaseModel):
@@ -231,6 +234,9 @@ class EnrollResult(BaseModel):
         "rejected_read_unavailable",
         "rejected_promotion_not_found",
         "rejected_price_unresolved",
+        "rejected_stock_unresolved",
+        "rejected_stock_out_of_range",
+        "rejected_promotion_ambiguous",
     ]
     price: Optional[float] = None
     status_code: Optional[int] = None
@@ -392,6 +398,12 @@ _WRITE_STATUS_TO_HTTP = {
     "rejected_price_unconfirmed": status.HTTP_422_UNPROCESSABLE_ENTITY,
     "rejected_not_candidate": status.HTTP_409_CONFLICT,
     "rejected_price_changed": status.HTTP_409_CONFLICT,
+    # LIGHTNING (ofertas relámpago).
+    "rejected_stock_unresolved": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "rejected_stock_out_of_range": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "rejected_promotion_ambiguous": status.HTTP_422_UNPROCESSABLE_ENTITY,
+    "rejected_started_not_removable": status.HTTP_409_CONFLICT,
+    "rejected_not_removable": status.HTTP_409_CONFLICT,
 }
 
 
@@ -739,6 +751,9 @@ def inscribir_item_en_promocion(
     mensaje. Tras inscribir, el precio que devuelve ML se compara con el
     confirmado (`precio_difiere`, `markup_aplicado`).
 
+    LIGHTNING (oferta relámpago): `deal_price` dentro de [min, max] y `stock`
+    (obligatorio) dentro del rango live `stock: {min, max}`; si no -> 422.
+
     Requiere permiso: promos.escribir
     """
     try:
@@ -751,6 +766,7 @@ def inscribir_item_en_promocion(
             precio_visto=body.precio_visto,
             markup_visto=body.markup_visto,
             usuario_id=current_user.id,
+            stock=body.stock,
         )
     except RuntimeError as e:
         logger.error("ML_WEBHOOK_DB_URL not configured: %s", e)
@@ -817,6 +833,9 @@ def remover_item_de_promocion(
     """
     Remueve un item de una promoción (SELLER_CAMPAIGN, DEAL, SMART o PRE_NEGOTIATED) vía el proxy
     ml-webhook. Mismo contrato de kill-switch/permisos que el enroll.
+
+    LIGHTNING: solo mientras está `pending`; una ya iniciada -> 409 (ML no
+    permite quitarla, hay que pausar la publicación).
 
     Requiere permiso: promos.escribir
     """
