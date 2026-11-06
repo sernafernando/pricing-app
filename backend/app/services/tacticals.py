@@ -6,7 +6,8 @@ their own create steps (same validation, audit rows and queueing), so allocation
 - sell out (productos | marca | categoria): one `SellOutCampana` over its own hidden group (`OffsetGrupo.oculto`)
   whose filter rows carry the line's scope. `tope_por_producto`: one campaign and group per product.
 - sell in over productos | marca | categoria: one cost bonus (`SellInBonoMarca`, `base = 'costo_venta'`, ARS), a %
-  or an amount per unit of each sale's cost by sale date. `tope_por_producto`: one bonus per product.
+  or an amount per unit of each sale's cost by sale date, or a total split across the line's products by its
+  `reparto_criterio` (tactical monto total S4, `tipo = 'monto_total'`). `tope_por_producto`: one bonus per product.
 - sell in `factura` with % or per unit: one invoice bonus (`alcance = base = 'factura'`) on that operation.
 - sell in `factura` with a fixed total: one sell-in purchase (`SellInCompra`, monto, proporcional) over the invoice's
   invoiced lines.
@@ -58,6 +59,7 @@ from app.services.sell_out import campanas
 GRUPO_NOMBRE_MAX = 100  # offset_grupos.nombre is VARCHAR(100)
 CAMPANA_NOMBRE_MAX = 200
 CENTAVO = Decimal("0.01")
+TOTAL_EN_PESOS = "un monto total sobre el costo va en pesos (ARS): el costo de cada venta está en pesos"
 COSTO_EN_PESOS = (
     "una reducción de costo por unidad o con tope de monto va en pesos (ARS): el costo de cada venta está en pesos"
 )
@@ -163,7 +165,12 @@ def _validar_linea(db: Session, data: TacticalIn, linea: TacticalLineaIn) -> _Al
         raise TacticalError("el monto tiene que ser mayor a 0")
     if linea.modo_monto == "porcentaje" and linea.valor > 100:
         raise TacticalError("el porcentaje no puede superar 100")
-    if data.tipo == "sell_out" and linea.modo_monto == "monto_total":
+    if linea.modo_monto == "monto_total" and linea.alcance == "factura":
+        if linea.reparto_criterio is not None:
+            raise TacticalError(
+                "una línea por factura reparte su monto total sobre lo facturado: no lleva criterio de reparto"
+            )
+    elif linea.modo_monto == "monto_total":  # sell out, or a sell in cost bonus over products, brand or category
         if linea.reparto_criterio is None:
             raise TacticalError("elegí cómo repartir el monto total")
         if linea.tope_por_producto:
@@ -279,8 +286,8 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
             )
         campos = {"alcance": "factura", "pedido_id": parte.pedido.id, "moneda": data.moneda, "base": BASE_FACTURA}
     else:
-        if linea.modo_monto == "monto_total":
-            raise TacticalError("en sell in, el monto total es solo para una línea por factura")
+        if linea.modo_monto == "monto_total" and data.moneda != "ARS":
+            raise TacticalError(TOTAL_EN_PESOS)
         if data.moneda != "ARS" and (linea.modo_monto == "por_unidad" or linea.tope_monto is not None):
             raise TacticalError(COSTO_EN_PESOS)
         alcance = "modelos" if parte.item_ids else ("marca" if parte.marca else "categoria")
@@ -298,6 +305,8 @@ def _sell_in(db, tactical, data, linea, numero, parte, codigos, usuario_id) -> N
         tipo=linea.modo_monto,
         monto_unit=linea.valor if linea.modo_monto == "por_unidad" else None,
         porcentaje=linea.valor if linea.modo_monto == "porcentaje" else None,
+        monto_total=linea.valor if linea.modo_monto == "monto_total" else None,
+        reparto_criterio=linea.reparto_criterio,
         fecha_desde=data.fecha_desde,
         fecha_hasta=data.fecha_hasta,
         descripcion=descripcion,
@@ -788,7 +797,12 @@ def _lineas_bonos(db: Session, ids: list[int]) -> list[dict]:
                 "pedido_compra_id": bono.pedido_id,
                 "pedido_numero": fila["pedido_numero"],
                 "modo_monto": bono.tipo,
-                "valor": bono.monto_unit if bono.tipo == "por_unidad" else bono.porcentaje,
+                "valor": {
+                    "por_unidad": bono.monto_unit,
+                    "porcentaje": bono.porcentaje,
+                    "monto_total": bono.monto_total,
+                }[bono.tipo],
+                "reparto_criterio": bono.reparto_criterio,
                 "moneda": bono.moneda,
                 "tope_unidades": bono.tope_unidades,
                 "tope_monto": bono.tope_monto,
@@ -840,6 +854,7 @@ def _lineas_compras(db: Session, ids: list[int]) -> list[dict]:
                 "pedido_numero": numero,
                 "modo_monto": "monto_total",
                 "valor": c.monto_total,
+                "reparto_criterio": None,  # split over its invoiced lines (`proporcional`)
                 "moneda": c.moneda,
                 "tope_unidades": None,
                 "tope_monto": None,
