@@ -37,7 +37,7 @@ const TIPOS = {
     moneda: 'ARS',
     subtitulo: 'Baja el costo de lo que vendés en el rango. Cargá el tactical y sus líneas en un solo paso.',
     hint: 'Cada línea es un producto, varios productos, una marca, una categoría o una factura, con su monto y sus topes. Los topes cortan en lo que pase primero.',
-    volver: '/sell-in',
+    volver: '/sell-in?tab=tacticals',
   },
   sell_out: {
     label: 'Sell out',
@@ -45,7 +45,7 @@ const TIPOS = {
     moneda: 'USD',
     subtitulo: 'La marca te paga por cada unidad vendida en el rango. Cargá el tactical y sus líneas en un solo paso.',
     hint: 'Cada línea es un producto, varios productos, una marca o una categoría, con su monto y sus topes. Los topes cortan en lo que pase primero.',
-    volver: '/sell-in?tab=sell-out',
+    volver: '/sell-in?tab=tacticals',
   },
 };
 

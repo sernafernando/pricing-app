@@ -88,7 +88,7 @@ vi.mock('../services/sellOutAPI', () => ({
   sellOutProgramasAPI: { listar: vi.fn(), crear: vi.fn(), asignar: vi.fn(), sugerencias: vi.fn() },
 }));
 
-vi.mock('../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn() } }));
+vi.mock('../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), anular: vi.fn() } }));
 
 vi.mock('../services/offsetGruposAPI', () => ({
   offsetGruposAPI: { listar: vi.fn(), alcance: vi.fn(), opciones: vi.fn(), crear: vi.fn() },
@@ -214,23 +214,40 @@ describe('SellIn page — Sell in / Sell out tabs (Stitch 01 and 04)', () => {
     expect(within(chips).getByRole('button', { name: 'Por compra · 2' })).toHaveAttribute('title', 'Los sell in por compra con los filtros de arriba');
   });
 
+  it('"Nuevo tactical" lives on the Tacticals tab and opens Nuevo tactical; the old create buttons are gone', async () => {
+    const user = userEvent.setup();
+    renderConNuevoTactical('/sell-in');
+    await screen.findByText('Bonificación Q4 switches');
+    expect(screen.queryByRole('button', { name: /Nuevo sell in|Nueva campaña|Nuevo tactical/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Sell out/ }));
+    expect(screen.queryByRole('button', { name: /Nueva campaña|Nuevo tactical/ })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('tab', { name: /Tacticals/ }));
+    await user.click(await screen.findByRole('button', { name: /Nuevo tactical/ }));
+    expect(await screen.findByText('Nuevo tactical: null')).toBeInTheDocument();
+  });
+
+  it('offers "Nuevo tactical" with either gestionar permission, and not without one', async () => {
+    mockTienePermiso.mockImplementation((codigo) => ['sell_in.ver', 'sell_out.ver', 'sell_out.gestionar'].includes(codigo));
+    const { unmount } = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    expect(await screen.findByRole('button', { name: /Nuevo tactical/ })).toBeInTheDocument();
+    unmount();
+    // Nuevo tactical itself asks only gestionar, so the button does too.
+    mockTienePermiso.mockImplementation((codigo) => ['sell_in.ver', 'sell_out.gestionar'].includes(codigo));
+    const otra = renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    expect(await screen.findByRole('button', { name: /Nuevo tactical/ })).toBeInTheDocument();
+    otra.unmount();
+    mockTienePermiso.mockImplementation((codigo) => ['sell_in.ver', 'sell_out.ver'].includes(codigo));
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    await screen.findByRole('tabpanel', { name: /Tacticals/ });
+    expect(screen.queryByRole('button', { name: /Nuevo tactical/ })).not.toBeInTheDocument();
+  });
+
   it('a tab whose list failed shows "—" instead of waiting forever', async () => {
     sellOutAPI.listar.mockRejectedValue(new Error('boom'));
     sellInAPI.resumen.mockRejectedValue(new Error('boom'));
     renderWithRouter(<SellIn />);
     expect(await screen.findByRole('tab', { name: 'Sell out · —' })).toBeInTheDocument();
     expect(await screen.findByRole('tab', { name: 'Sell in · —' })).toBeInTheDocument();
-  });
-
-  it('the header action follows the tab: "Nuevo sell in" on Sell in, "Nueva campaña" on Sell out', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    expect(screen.getByRole('button', { name: /Nuevo sell in/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Nueva campaña/ })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: /Sell out/ }));
-    expect(screen.getByRole('button', { name: /Nueva campaña/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Nuevo sell in/ })).not.toBeInTheDocument();
   });
 
   it('the Tipo chips count purchases and brand bonuses and show one list or both', async () => {
@@ -532,14 +549,6 @@ describe('SellIn page — list', () => {
     expect(lastParams(sellInAPI.resumen)).toEqual({ aplica: 'si', moneda: 'USD', estado: 'anulada', marcas: 'TP-Link' });
   });
 
-  it('"Nuevo sell in" opens Nuevo tactical on sell in', async () => {
-    const user = userEvent.setup();
-    renderConNuevoTactical('/sell-in');
-    await screen.findByText('Bonificación Q4 switches');
-    await user.click(screen.getByRole('button', { name: /Nuevo sell in/ }));
-    expect(await screen.findByText('Nuevo tactical: sell_in')).toBeInTheDocument();
-  });
-
   it('"Detalle" opens the purchase in the side panel', async () => {
     const user = userEvent.setup();
     sellInAPI.detalle.mockResolvedValue({ data: LISTA.items[0] });
@@ -549,13 +558,6 @@ describe('SellIn page — list', () => {
     const panel = screen.getByRole('complementary', { name: 'Detalle del sell in' });
     expect(await within(panel).findByRole('heading', { name: 'Bonificación Q4 switches' })).toBeInTheDocument();
     expect(sellInAPI.detalle).toHaveBeenCalledWith(1);
-  });
-
-  it('offers "Nuevo sell in" only with sell_in.gestionar', async () => {
-    mockTienePermiso.mockImplementation((codigo) => codigo === 'sell_in.ver');
-    renderWithRouter(<SellIn />);
-    await screen.findByText('Bonificación Q4 switches');
-    expect(screen.queryByRole('button', { name: /Nuevo sell in/ })).not.toBeInTheDocument();
   });
 
   it('without sell_in.ver it says so and asks nothing', () => {
@@ -767,14 +769,6 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await waitFor(() => expect(sellOutAPI.grupos).toHaveBeenCalledTimes(2));
   });
 
-  it('"Nueva campaña" opens Nuevo tactical on sell out', async () => {
-    const user = userEvent.setup();
-    renderConNuevoTactical('/sell-in?tab=sell-out');
-    await screen.findByRole('region', { name: 'Campañas de sell out' });
-    await user.click(screen.getByRole('button', { name: /Nueva campaña/ }));
-    expect(await screen.findByText('Nuevo tactical: sell_out')).toBeInTheDocument();
-  });
-
   it('shows once what Nuevo tactical created when it comes back', async () => {
     renderConNuevoTactical({ pathname: '/sell-in', state: { aviso: 'Tactical creado: Rebate TP-Link · 2 líneas.' } });
     expect(await screen.findByText('Tactical creado: Rebate TP-Link · 2 líneas.')).toBeInTheDocument();
@@ -805,12 +799,11 @@ describe('SellIn page — sell-out campaigns (T8)', () => {
     await waitFor(() => expect(sellOutAPI.listar).toHaveBeenCalledTimes(2));
   });
 
-  it('without sell_out.gestionar there is no "Nueva campaña" and the groups are not asked', async () => {
+  it('without sell_out.gestionar the groups are not asked', async () => {
     mockTienePermiso.mockImplementation((codigo) => codigo !== 'sell_out.gestionar');
     renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=sell-out'] });
     const seccion = await screen.findByRole('region', { name: 'Campañas de sell out' });
     await within(seccion).findByText('RB 8180');
-    expect(screen.queryByRole('button', { name: /Nueva campaña/ })).not.toBeInTheDocument();
     expect(sellOutAPI.grupos).not.toHaveBeenCalled();
   });
 
@@ -1700,6 +1693,20 @@ describe('SellIn page — Tacticals tab', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Renovar' }));
 
     expect(await screen.findByText('Nuevo tactical: sell_in renovando 7')).toBeInTheDocument();
+  });
+
+  it('voiding a tactical reloads what Actualizar reloads: the Sell in and Sell out counts too', async () => {
+    const user = userEvent.setup();
+    tacticalsAPI.anular.mockResolvedValue({ data: {} });
+    renderWithRouter(<SellIn />, { initialEntries: ['/sell-in?tab=tacticals'] });
+    await user.click(await screen.findByRole('button', { name: 'Acciones de Rebate TP-Link noviembre' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Anular' }));
+    const resumenes = sellInAPI.resumen.mock.calls.length;
+    const campanas = sellOutAPI.listar.mock.calls.length;
+    await user.click(screen.getByRole('button', { name: 'Anular tactical' }));
+
+    await waitFor(() => expect(sellInAPI.resumen.mock.calls.length).toBeGreaterThan(resumenes));
+    await waitFor(() => expect(sellOutAPI.listar.mock.calls.length).toBeGreaterThan(campanas));
   });
 
   it("without the kind's gestionar a tactical has no actions menu", async () => {

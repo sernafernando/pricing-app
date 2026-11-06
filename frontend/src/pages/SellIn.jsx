@@ -519,6 +519,17 @@ export default function SellIn() {
   const verCompras = tipo !== 'bono';
   const verBonos = tipo !== 'compra';
 
+  // Actualizar, and what changes every list at once (voiding a tactical voids its campaigns, bonuses and purchases).
+  const actualizar = () => {
+    cargar();
+    bonos.recargar();
+    bonosVigentes.recargar();
+    campanas.recargar();
+    setVersionPagina((v) => v + 1);
+  };
+  // Nuevo tactical asks only the kind's gestionar, so its button does too.
+  const puedeCrearTactical = puedeGestionar || tienePermiso('sell_out.gestionar');
+
   return (
     <div className={styles.container}>
       <header className={styles.header}>
@@ -530,25 +541,14 @@ export default function SellIn() {
           <button
             type="button"
             className="btn-tesla outline sm"
-            onClick={() => {
-              cargar();
-              bonos.recargar();
-              bonosVigentes.recargar();
-              campanas.recargar();
-              setVersionPagina((v) => v + 1);
-            }}
+            onClick={actualizar}
             disabled={loading}
           >
             <RefreshCw size={14} /> Actualizar
           </button>
-          {enSellIn && puedeGestionar && (
-            <button type="button" className="btn-tesla primary sm" onClick={() => navigate('/sell-in/tactical/nuevo?tipo=sell_in')}>
-              <Plus size={14} /> Nuevo sell in
-            </button>
-          )}
-          {enSellOut && puedeGestionarSellOut && (
-            <button type="button" className="btn-tesla primary sm" onClick={() => navigate('/sell-in/tactical/nuevo?tipo=sell_out')}>
-              <Plus size={14} /> Nueva campaña
+          {tab === TAB_TACTICALS && puedeCrearTactical && (
+            <button type="button" className="btn-tesla primary sm" onClick={() => navigate('/sell-in/tactical/nuevo')}>
+              <Plus size={14} /> Nuevo tactical
             </button>
           )}
         </div>
@@ -699,6 +699,7 @@ export default function SellIn() {
               version={versionPagina}
               puedeGestionar={(tipoTactical) => tienePermiso(`${tipoTactical}.gestionar`)}
               onRenovar={(t) => navigate(`/sell-in/tactical/nuevo?tipo=${t.tipo}&renovar=${t.id}`)}
+              onCambio={actualizar}
             />
           </div>
         ) : tab === TAB_PRODUCTOS ? (

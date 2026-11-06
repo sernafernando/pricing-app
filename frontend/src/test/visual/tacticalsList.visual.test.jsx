@@ -43,7 +43,7 @@ vi.mock('../../services/sellOutAPI', () => ({
   sellOutProgramasAPI: { listar: vi.fn(), sugerencias: vi.fn() },
 }));
 
-vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), editar: vi.fn() } }));
+vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), editar: vi.fn(), anular: vi.fn() } }));
 
 const TACTICALS = [
   {
@@ -161,5 +161,27 @@ describe.each([
     expect(caja.bottom).toBeLessThanOrEqual(height + 0.5);
     expect(caja.right).toBeLessThanOrEqual(width + 0.5);
     if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-editar-${theme}-${width}.png` });
+  });
+
+  it('shows Nuevo tactical on the tab and opens the Anular dialog whole', async () => {
+    await page.viewport(width, height);
+    setTheme(theme);
+    document.body.style.background = 'var(--cf-bg-app)';
+    const screen = await render(
+      <MemoryRouter initialEntries={['/sell-in?tab=tacticals']}>
+        <Shell>
+          <SellIn />
+        </Shell>
+      </MemoryRouter>,
+    );
+
+    await expect.element(screen.getByRole('button', { name: 'Nuevo tactical' })).toBeVisible();
+    await screen.getByRole('button', { name: `Acciones de ${TACTICAL_BPS.nombre}` }).click();
+    await screen.getByRole('menuitem', { name: 'Anular' }).click();
+    await expect.element(screen.getByRole('dialog', { name: `¿Anular ${TACTICAL_BPS.nombre}?` })).toBeVisible();
+    const caja = document.querySelector('[role="dialog"]').getBoundingClientRect();
+    expect(caja.top).toBeGreaterThanOrEqual(0);
+    expect(caja.bottom).toBeLessThanOrEqual(height + 0.5);
+    if (SHOTS_DIR) await page.screenshot({ path: `${SHOTS_DIR}/tacticals-anular-${theme}-${width}.png` });
   });
 });

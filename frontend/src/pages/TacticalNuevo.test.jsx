@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import TacticalNuevo from './TacticalNuevo';
 import api, { productosAPI } from '../services/api';
 import { CATALOGO, OPERACIONES } from '../components/tactical/tacticalFixtures';
@@ -18,12 +18,17 @@ vi.mock('../contexts/PermisosContext', () => ({
   PermisosProvider: ({ children }) => children,
 }));
 
+/** The list Nuevo tactical goes back to, with the query it lands on (the Tacticals tab). */
+function Listado() {
+  return <p>{`Listado de sell in${useLocation().search}`}</p>;
+}
+
 function renderAt(url) {
   return render(
     <MemoryRouter initialEntries={[url]}>
       <Routes>
         <Route path="/sell-in/tactical/nuevo" element={<TacticalNuevo />} />
-        <Route path="/sell-in" element={<p>Listado de sell in</p>} />
+        <Route path="/sell-in" element={<Listado />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -156,7 +161,7 @@ describe('creating a tactical', () => {
         ],
       }),
     );
-    expect(await screen.findByText('Listado de sell in')).toBeInTheDocument();
+    expect(await screen.findByText('Listado de sell in?tab=tacticals')).toBeInTheDocument();
   });
 
   it('shares the caps of a line with several products only when asked, and says what it can charge at most', async () => {
@@ -312,12 +317,12 @@ describe('what stops a save', () => {
     await user.click(crear());
     // The backend's line 2 is the second invoice of the screen's line 1.
     expect(await screen.findByRole('alert')).toHaveTextContent('Línea 1: la factura 9002 ya tiene un sell in con ese tactical.');
-    expect(screen.queryByText('Listado de sell in')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Listado de sell in/)).not.toBeInTheDocument();
   });
 });
 
 describe('leaving', () => {
-  it('asks before discarding and goes back to the list of the same type', async () => {
+  it('asks before discarding and goes back to the Tacticals tab', async () => {
     const user = userEvent.setup();
     renderAt('/sell-in/tactical/nuevo?tipo=sell_out');
     await user.click(screen.getByRole('button', { name: 'Cancelar' }));
@@ -329,7 +334,7 @@ describe('leaving', () => {
     expect(screen.queryByRole('dialog', { name: '¿Descartar el tactical?' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Cancelar' }));
     await user.click(screen.getByRole('button', { name: 'Descartar' }));
-    expect(await screen.findByText('Listado de sell in')).toBeInTheDocument();
+    expect(await screen.findByText('Listado de sell in?tab=tacticals')).toBeInTheDocument();
   });
 
   it('keeps the focus inside the discard dialog and gives it back to Cancelar', async () => {

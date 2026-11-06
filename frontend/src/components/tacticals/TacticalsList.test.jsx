@@ -10,7 +10,7 @@ import TacticalsList from './TacticalsList';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
 import { TACTICAL_BPS, TACTICAL_REBATE, pagina } from './tacticalsFixtures';
 
-vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), editar: vi.fn() } }));
+vi.mock('../../services/tacticalsAPI', () => ({ tacticalsAPI: { listar: vi.fn(), editar: vi.fn(), anular: vi.fn() } }));
 
 const BPS = TACTICAL_BPS;
 const REBATE = TACTICAL_REBATE;
@@ -222,7 +222,7 @@ describe('TacticalsList row actions', () => {
     render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} onRenovar={vi.fn()} />);
 
     await userEvent.click(await screen.findByRole('button', { name: 'Acciones de Tacticals BPS Noviembre Q1FY27' }));
-    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Editar', 'Renovar']);
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Editar', 'Renovar', 'Anular']);
     await userEvent.keyboard('{Escape}');
     await userEvent.click(screen.getByRole('button', { name: 'Acciones de Rebate anulado' }));
     expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Renovar']);
@@ -280,5 +280,63 @@ describe('TacticalsList Editar', () => {
     await userEvent.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(tacticalsAPI.editar).not.toHaveBeenCalled();
+  });
+});
+
+describe('TacticalsList Anular', () => {
+  const abrirAnular = async (nombre) => {
+    render(<TacticalsList marcas={MARCAS} puedeGestionar={() => true} onRenovar={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: `Acciones de ${nombre}` }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Anular' }));
+    return screen.getByRole('dialog', { name: `¿Anular ${nombre}?` });
+  };
+
+  it('says what voiding a sell out tactical reverses, sends the reason and asks the list again', async () => {
+    tacticalsAPI.anular.mockResolvedValue({ data: { ...BPS, estado: 'anulado' } });
+    const dialogo = await abrirAnular('Tacticals BPS Noviembre Q1FY27');
+
+    expect(dialogo).toHaveTextContent('Sus campañas dejan de acreditar y se recalculan las ventas que alcanzaban.');
+    expect(dialogo).toHaveTextContent('Esta acción no se puede deshacer.');
+    await userEvent.type(within(dialogo).getByLabelText('Motivo (opcional)'), 'Cargado por error');
+    const pedidas = tacticalsAPI.listar.mock.calls.length;
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Anular tactical' }));
+
+    expect(tacticalsAPI.anular).toHaveBeenCalledWith(1, 'Cargado por error');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(tacticalsAPI.listar.mock.calls.length).toBeGreaterThan(pedidas);
+  });
+
+  it("says what voiding a sell in tactical reverses; without a reason it sends none", async () => {
+    tacticalsAPI.anular.mockResolvedValue({ data: { ...REBATE, estado: 'anulado' } });
+    const dialogo = await abrirAnular('Rebate HP Q1FY27');
+
+    expect(dialogo).toHaveTextContent(
+      'Sus bonos dejan de aplicarse y se anulan las compras que generaron: las ventas que tomaban pasan a las compras siguientes.',
+    );
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Anular tactical' }));
+    expect(tacticalsAPI.anular).toHaveBeenCalledWith(3, null);
+  });
+
+  it("shows the server's refusal inside the dialog; Cancelar voids nothing", async () => {
+    tacticalsAPI.anular.mockRejectedValue({ response: { status: 409, data: { error: { message: 'El tactical ya está anulado' } } } });
+    const dialogo = await abrirAnular('Rebate HP Q1FY27');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Anular tactical' }));
+
+    expect(await within(dialogo).findByRole('alert')).toHaveTextContent('El tactical ya está anulado');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('while voiding, Cancelar and Escape wait for the answer', async () => {
+    let responder;
+    tacticalsAPI.anular.mockReturnValue(new Promise((resolve) => (responder = resolve)));
+    const dialogo = await abrirAnular('Rebate HP Q1FY27');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Anular tactical' }));
+
+    expect(within(dialogo).getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    responder({ data: {} });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 });

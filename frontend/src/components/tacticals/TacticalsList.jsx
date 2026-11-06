@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import SearchInput from '../SearchInput';
 import { Pagination, SegmentedControl } from '../kit';
 import { tacticalsAPI } from '../../services/tacticalsAPI';
+import TacticalAnular from './TacticalAnular';
 import TacticalEditar from './TacticalEditar';
 import TacticalFila from './TacticalFila';
 import { COLUMNAS_TACTICAL, FILTROS_VACIOS, paramsDeFiltros } from './tacticalsFormat';
@@ -25,9 +26,10 @@ const FILAS_POR_PAGINA = 50;
  * tactical with its overall progress; expanding a row shows its lines with their caps and usage. A new `version`
  * (the page's "Actualizar") asks the list again. A row of a kind the user manages (`puedeGestionar(tipo)`) has an
  * actions menu (tacticals F1): Editar, on a tactical that is not voided, opens the Editar dialog and asks the list
- * again after saving; Renovar hands the tactical to `onRenovar`.
+ * again after saving; Renovar hands the tactical to `onRenovar`; Anular, on a tactical that is not voided, asks for
+ * confirmation, voids it and its children, asks the list again and tells `onCambio` (the page's tab count).
  */
-export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar }) {
+export default function TacticalsList({ marcas = [], version = 0, puedeGestionar = () => false, onRenovar, onCambio }) {
   const [filtros, setFiltros] = useState(FILTROS_VACIOS);
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(FILAS_POR_PAGINA);
@@ -36,6 +38,7 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
   const [error, setError] = useState(false);
   const [abiertos, setAbiertos] = useState(() => new Set());
   const [editando, setEditando] = useState(null);
+  const [anulando, setAnulando] = useState(null);
   const [guardados, setGuardados] = useState(0);
 
   const claveDe = (f, desde) => JSON.stringify(paramsDeFiltros(f, { page: Math.floor(desde / pageSize) + 1, pageSize }));
@@ -82,6 +85,7 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
     const acciones = [];
     if (tactical.estado !== 'anulado') acciones.push({ label: 'Editar', onSelect: () => setEditando(tactical) });
     if (onRenovar) acciones.push({ label: 'Renovar', onSelect: () => onRenovar(tactical) });
+    if (tactical.estado !== 'anulado') acciones.push({ label: 'Anular', onSelect: () => setAnulando(tactical) });
     return acciones;
   };
 
@@ -192,6 +196,17 @@ export default function TacticalsList({ marcas = [], version = 0, puedeGestionar
             }
           />
         </div>
+      )}
+      {anulando && (
+        <TacticalAnular
+          tactical={anulando}
+          onCerrar={() => setAnulando(null)}
+          onAnulado={() => {
+            setAnulando(null);
+            setGuardados((n) => n + 1);
+            onCambio?.();
+          }}
+        />
       )}
       {editando && (
         <TacticalEditar
