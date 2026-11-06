@@ -71,6 +71,7 @@ beforeEach(() => {
   sellOutAPI.detalle.mockResolvedValue({ data: CAMPANA_MIGRADA });
   sellOutAPI.consumos.mockResolvedValue({ data: CONSUMOS_USD });
   sellOutProgramasAPI.listar.mockResolvedValue({ data: PROGRAMAS_VACIO });
+  sellInLotesAPI.productos.mockResolvedValue({ data: { productos: [] } });
   sellOutProgramasAPI.sugerencias.mockResolvedValue({ data: SUGERENCIAS_VACIO });
   offsetGruposAPI.listar.mockResolvedValue({ data: [{ id: 1, nombre: 'TP-Link redes', descripcion: null, filtros: [] }] });
   offsetGruposAPI.alcance.mockResolvedValue({ data: [{ grupo_id: 1, productos: 3, campanas: [] }] });
@@ -89,7 +90,7 @@ describe('SellIn page — one view: Tacticals, Programas and Grupos', () => {
     renderWithRouter(<SellIn />);
     await screen.findByText('Rebate TP-Link noviembre');
 
-    expect(screen.getAllByRole('tab').map((t) => t.textContent.replace(/\s+/g, ' ').trim())).toEqual(['Tacticals · 1', 'Programas', 'Grupos']);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent.replace(/\s+/g, ' ').trim())).toEqual(['Tacticals · 1', 'Programas', 'Grupos', 'Productos']);
     expect(sellInAPI.listar).not.toHaveBeenCalled();
     expect(sellInAPI.resumen).not.toHaveBeenCalled();
     expect(sellInBonosAPI.listar).not.toHaveBeenCalled();
@@ -161,7 +162,7 @@ describe('SellIn page — one view: Tacticals, Programas and Grupos', () => {
     await user.keyboard('{ArrowRight}');
     expect(screen.getByRole('tab', { name: 'Programas' })).toHaveFocus();
     await user.keyboard('{End}');
-    expect(screen.getByRole('tab', { name: 'Grupos' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Productos' })).toHaveAttribute('aria-selected', 'true');
     await user.keyboard('{ArrowRight}');
     expect(screen.getByRole('tab', { name: /Tacticals/ })).toHaveFocus();
   });

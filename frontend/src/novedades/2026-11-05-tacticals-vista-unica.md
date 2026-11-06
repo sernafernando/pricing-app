@@ -4,7 +4,7 @@
 
 ## Resumen ejecutivo
 
-La página **Sell in / Sell out** queda con tres pestañas: **Tacticals**, **Programas** y **Grupos**. Las pestañas **Sell in** y **Sell out** ya no están: cada sell in y cada campaña se ve como un tactical, con **Ver ventas** en cada línea. Los programas de sell out y sus sugerencias pasaron a la pestaña **Programas**.
+La página **Sell in / Sell out** queda con cuatro pestañas: **Tacticals**, **Programas**, **Grupos** y **Productos**. Las pestañas **Sell in** y **Sell out** ya no están: cada sell in y cada campaña se ve como un tactical, con **Ver ventas** en cada línea. Los programas de sell out y sus sugerencias pasaron a la pestaña **Programas**.
 
 ## Cómo se usa
 
