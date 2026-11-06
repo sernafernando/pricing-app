@@ -84,7 +84,8 @@ export default function PublicationPanel({
   const row = detail?.row;
   const mlUrl = buildMlItemUrl(row?.permalink);
   // Outside MODO: chooser is a block above tabs (never replaces them). Hide after
-  // discard / unavailable; reset when switching publication.
+  // discard; when its candidates are unavailable it stays as a notice that can still
+  // discard the flag. Reset when switching publication.
   const [mejoresBlockOpen, setMejoresBlockOpen] = useState(true);
   // The block's suggested promotion ids, marked "Sugerida" in the Promos tab.
   const [suggestedIds, setSuggestedIds] = useState([]);
@@ -158,7 +159,6 @@ export default function PublicationPanel({
           baselinePrice={row?.price?.amount}
           onWritten={handleWritten}
           onDismissed={closeMejoresBlock}
-          onUnavailable={closeMejoresBlock}
           onSuggested={setSuggestedIds}
         />
       )}
